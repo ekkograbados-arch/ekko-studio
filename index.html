@@ -1,166 +1,126 @@
 <!DOCTYPE html>
-
 <html lang="es">
-
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EKKO Studio</title>
 
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://unpkg.com/paper@0.12.17/dist/paper-full.min.js"></script>
 
-<title>EKKO Studio</title>
-
-<link rel="stylesheet" href="assets/css/styles.css">
-
+  <link rel="stylesheet" href="assets/css/styles.css">
 </head>
-
 <body>
 
-<header class="header">
-
-```
-<div class="logo-container">
-
-    <img
-        src="logo.png"
-        alt="EKKO"
-        class="logo"
-    >
-
-    <h1>EKKO STUDIO</h1>
-
-    <p>
-        Diseñá tu grabado y envialo listo para producir
-    </p>
-
-</div>
-```
-
-</header>
-
-<nav class="main-menu">
-
-```
-<button>Diseñar</button>
-
-<button onclick="window.open('TU_LINK_DRIVE_GALERIA')">
-    Galería
-</button>
-
-<button onclick="window.open('TU_LINK_DRIVE_ESPECIALES')">
-    Días Especiales
-</button>
-```
-
-</nav>
-
-<main class="workspace">
-
-```
-<aside class="products-panel">
-
-    <h2>Productos</h2>
-
-    <div id="categories">
-
-        <button class="category-btn">
-            Medallas
-        </button>
-
-        <button class="category-btn">
-            Chapitas
-        </button>
-
-        <button class="category-btn">
-            Pulseras
-        </button>
-
-        <button class="category-btn">
-            Mates
-        </button>
-
+  <header class="topbar">
+    <div class="brand">
+      <img src="logo.png" alt="EKKO" class="brand-logo">
+      <div>
+        <h1>EKKO Studio</h1>
+        <p>Diseñá tu grabado para LightBurn</p>
+      </div>
     </div>
 
-    <div id="product-list">
+    <nav class="top-actions">
+      <button id="btnDiseñar" class="top-btn active">Diseñar</button>
+      <button id="btnGaleria" class="top-btn">Galería</button>
+      <button id="btnDiasEspeciales" class="top-btn">Días Especiales</button>
+    </nav>
+  </header>
 
+  <main class="layout">
+    <aside class="sidebar left">
+      <section class="panel">
+        <h2>Categorías</h2>
+        <div id="categoryTabs" class="tab-group"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Productos</h2>
+        <div id="productTabs" class="tab-group vertical"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Plantillas SVG</h2>
+        <button id="toggleTemplates" class="action-btn">Abrir plantillas</button>
+        <div id="templatesBox" class="templates-box hidden"></div>
+        <a class="link-btn" href="TU_LINK_DE_DRIVE_PLANTILLAS" target="_blank">Ver más plantillas</a>
+      </section>
+
+      <section class="panel">
+        <h2>Galería</h2>
+        <button class="action-btn" id="btnGaleriaDrive">Abrir galería en Drive</button>
+      </section>
+
+      <section class="panel">
+        <h2>Días especiales</h2>
+        <button class="action-btn" id="btnDiasEspecialesDrive">Abrir carpeta</button>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="editor-header">
+        <div id="surfaceTabs" class="tab-group"></div>
+      </div>
+
+      <div class="editor-area">
+        <div class="canvas-wrap">
+          <canvas id="editorCanvas" resize></canvas>
+        </div>
+
+        <aside class="properties">
+          <h2>Herramientas</h2>
+
+          <div class="tool-grid">
+            <button class="action-btn" id="btnAddText">Texto</button>
+            <button class="action-btn" id="btnAddImage">Imagen</button>
+            <button class="action-btn" id="btnAddQR">QR</button>
+            <button class="action-btn" id="btnAddSVG">SVG</button>
+            <button class="action-btn" id="btnDelete">Eliminar</button>
+            <button class="action-btn" id="btnDuplicate">Duplicar</button>
+            <button class="action-btn" id="btnBringFront">Adelante</button>
+            <button class="action-btn" id="btnSendBack">Atrás</button>
+            <button class="action-btn" id="btnZoomIn">Zoom +</button>
+            <button class="action-btn" id="btnZoomOut">Zoom -</button>
+            <button class="action-btn" id="btnFit">Ajustar</button>
+          </div>
+
+          <div class="prop-box">
+            <h3>Objeto seleccionado</h3>
+            <p id="selectionInfo">Nada seleccionado</p>
+          </div>
+
+          <div class="prop-box">
+            <h3>Exportar</h3>
+            <button class="action-btn" id="btnExportSVG">Descargar SVG</button>
+            <button class="action-btn" id="btnExportPNG">Descargar PNG</button>
+            <button class="action-btn" id="btnExportPDF">Descargar PDF</button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer-ekko">
+    <img src="LOGO-FONDO CIRCULO.png" alt="Ekko Grabados" class="footer-logo">
+    <h3>Ekko Grabados</h3>
+    <p>❤️ Diseños únicos para regalar</p>
+    <p>📍 Trelew, Chubut - Argentina</p>
+    <p>🚚 Envíos a todo el país</p>
+    <p>💳 Transferencia | Mercado Pago | Débito | Crédito</p>
+
+    <div class="footer-social">
+      <a href="https://www.instagram.com/grabados_ekko/" target="_blank">Instagram</a>
+      <a href="https://www.facebook.com/profile.php?id=61581674110806" target="_blank">Facebook</a>
+      <a href="https://www.youtube.com/@EKKOGRABADOS" target="_blank">YouTube</a>
+      <a href="https://www.tiktok.com/@ekko.grabados" target="_blank">TikTok</a>
+      <a href="https://wa.me/5492804719686" target="_blank">WhatsApp</a>
+      <a href="https://drive.google.com/drive/folders/TU_CARPETA" target="_blank">Drive</a>
     </div>
 
-</aside>
+    <p class="copyright">© 2026 Ekko Grabados - Todos los derechos reservados</p>
+  </footer>
 
-<section class="editor-container">
-
-    <div class="editor-placeholder">
-
-        AQUÍ APARECERÁ EL EDITOR
-
-    </div>
-
-</section>
-```
-
-</main>
-
-<footer class="footer-ekko">
-
-```
-<img
-    src="LOGO-FONDO CIRCULO.png"
-    class="footer-logo"
->
-
-<h3>Ekko Grabados</h3>
-
-<p>
-    ❤️ Diseños únicos para regalar
-</p>
-
-<p>
-    📍 Trelew, Chubut - Argentina
-</p>
-
-<p>
-    🚚 Envíos a todo el país
-</p>
-
-<p>
-    💳 Transferencia | Mercado Pago | Débito | Crédito
-</p>
-
-<div class="footer-social">
-
-    <a href="https://www.instagram.com/grabados_ekko/">
-        Instagram
-    </a>
-
-    <a href="https://www.facebook.com/profile.php?id=61581674110806">
-        Facebook
-    </a>
-
-    <a href="https://www.youtube.com/@EKKOGRABADOS">
-        YouTube
-    </a>
-
-    <a href="https://www.tiktok.com/@ekko.grabados">
-        TikTok
-    </a>
-
-    <a href="https://wa.me/5492804719686">
-        WhatsApp
-    </a>
-
-    <a href="https://drive.google.com">
-        Drive
-    </a>
-
-</div>
-
-<p>
-    © 2026 Ekko Grabados
-</p>
-```
-
-</footer>
-
-<script src="assets/js/app.js"></script>
-
+  <script src="assets/js/productos.js"></script>
+  <script src="assets/js/app.js"></script>
 </body>
 </html>
