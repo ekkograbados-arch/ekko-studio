@@ -1,1000 +1,166 @@
 <!DOCTYPE html>
+
 <html lang="es">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Personalizador Grabado Láser EKKO</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <style>
-        body { font-family: Arial, sans-serif; margin:0; padding:20px; background:#f4f4f4; }
-        .container { max-width:1400px; margin:0 auto; background:white; padding:20px; border-radius:10px; box-shadow:0 0 15px rgba(0,0,0,0.1); }
-        h1 { text-align:center; color:#333; }
-        .tabs { display:flex; gap:10px; justify-content:center; margin:20px 0; }
-        .tab { padding:12px 30px; background:#eee; border:none; border-radius:8px 8px 0 0; cursor:pointer; font-weight:bold; }
-        .tab.active { background:#007bff; color:white; }
-        .main { display:flex; gap:25px; flex-wrap:wrap; }
-        button, input, select { margin:5px 0; padding:10px; border-radius:5px; }
-        button { background:#007bff; color:white; border:none; cursor:pointer; }
-        button:hover { background:#0056b3; }
-        .controls { min-width:320px; }
-        .template-btn { width:48%; font-size:14px; margin-bottom:8px; }
-        .download-btn { background:#28a745 !important; padding:14px; font-size:16px; font-weight:bold; }
-.hero{
-    text-align:center;
-    margin-bottom:25px;
-}
-.logo{
-    max-height:120px;
-    margin-bottom:10px;
-}
-.beneficios{
-    display:flex;
-    justify-content:center;
-    gap:15px;
-    flex-wrap:wrap;
-    margin-top:15px;
-}
-.galeria{
-    padding:40px 20px;
-    text-align:center;
-}
-.galeria h2{
-    margin-bottom:25px;
-}
-.grid-galeria{
-    display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-    gap:20px;
-    max-width:1200px;
-    margin:auto;
-}
-.grid-galeria img{
-    width:100%;
-    border-radius:12px;
-    cursor:pointer;
-    transition:0.3s;
-}
-.grid-galeria img:hover{
-    transform:scale(1.03);
-}
-       
-.beneficios span{
-    background:#f0f0f0;
-    padding:8px 12px;
-    border-radius:20px;
-    font-size:14px;
-}
-.footer-ekko{
-    background:#111;
-    color:white;
-    text-align:center;
-    padding:40px 20px;
-}
-.footer-logo{
-    width:120px;
-    height:auto;
-    margin-bottom:15px;
-}
-.footer-social{
-    margin-top:20px;
-    display:flex;
-    justify-content:center;
-    flex-wrap:wrap;
-    gap:15px;
-}
-.footer-social img{
-    width:48px;
-    height:48px;
-    transition:0.3s;
-}
-.footer-social img:hover{
-    transform:scale(1.15);
-}
-.copyright{
-    margin-top:20px;
-    opacity:0.7;
-    font-size:14px;
-}
-.product-info{
-    margin-top:15px;
-    padding:12px;
-    background:#fff;
-    border-radius:10px;
-    border:1px solid #ddd;
-    font-size:14px;
-    line-height:1.5;
-}
 
-.product-info h3{
-    margin-bottom:10px;
-}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-.product-info ul{
-    padding-left:18px;
-}
-     .product-info select{
+<title>EKKO Studio</title>
 
-    width:100%;
-    padding:10px;
-    margin-top:5px;
-    border-radius:8px;
-    border:1px solid #ccc;
+<link rel="stylesheet" href="assets/css/styles.css">
 
-} 
-
-
-//////////////////////ESTILOS
-    </style>
 </head>
+
 <body>
-    
-    <div class="container">
-     <div class="hero">
-    <img src="logo.png" class="logo" alt="EKKO Grabados">
-    <h1>EKKO Grabados Láser</h1>
+
+<header class="header">
+
+```
+<div class="logo-container">
+
+    <img
+        src="logo.png"
+        alt="EKKO"
+        class="logo"
+    >
+
+    <h1>EKKO STUDIO</h1>
+
     <p>
-        Diseñá tu grabado online y visualizalo antes de realizar tu pedido.
+        Diseñá tu grabado y envialo listo para producir
     </p>
-       <div class="beneficios">
-                <span>🚚 Envíos a todo el país</span>
-                <span>💳 Cuotas disponibles</span>
-                <span>🎁 Diseños personalizados para regalar</span>
-                <span>⚡ Contactos</span>
-            </div>
-            <section class="galeria">
-                <h2>❤️ Diseños personalizados para regalar</h2>
-      
-        <div class="grid-galeria">
-            <img src="ejemplos/CADENAS-BEBE-MATEO.png" alt="">
-            <img src="ejemplos/CHAPITA-BEBE-00.png" alt="">
-            <img src="ejemplos/CHAPITA-BEBE-01.png" alt="">
-            <img src="ejemplos/CHAPITA-BEBE-02.png" alt="">
-            <img src="ejemplos/CHAPITA-BEBE-03.png" alt="">
-            <img src="ejemplos/CHAPITA-BEBE-MATEO.png" alt="">
-            <img src="ejemplos/CHAPITA-BEBE-SOFIA.png" alt="">
-        </div>
 
-                        
-        </section>
-        </div>
-        <div class="tabs" id="editorTabs">
-        </div>
+</div>
+```
 
-        
-        <div class="main">
-            <div class="canvas-wrapper">
-                <canvas id="canvas" width="550" height="550" style="border:2px solid #ccc; border-radius:8px;"></canvas>
-            </div>
-            <div class="controls">
-                <h3>Producto</h3>
-               <select id="productSelect">
-                </select>
-                <div id="productInfo" class="product-info"></div>
-                <div id="productOptions" class="product-info"></div>
-                
-                <h3>Subir Imagen/Logo</h3>
-                <input type="file" id="imageUpload" accept="image/*">
-                <h3>Agregar Texto</h3>
-                <input type="text" id="textInput" placeholder="Escribe tu frase...">
-                <select id="fontSelect"></select>
-                <button onclick="addText()">➕ Agregar Texto</button>
-                <h3>Plantillas Decorativas</h3>
-                <div style="display:flex; flex-wrap:wrap; gap:8px; max-height:380px; overflow-y:auto;">
-                    <button class="template-btn" onclick="addTemplate(1)">001</button>
-                    <button class="template-btn" onclick="addTemplate(2)">002</button>
-                    <button class="template-btn" onclick="addTemplate(3)">003</button>
-                    <button class="template-btn" onclick="addTemplate(4)">004</button>
-                    <button class="template-btn" onclick="addTemplate(5)">005</button>
-                    <button class="template-btn" onclick="addTemplate(6)">006</button>
-                    <button class="template-btn" onclick="addTemplate(7)">007</button>
-                    <button class="template-btn" onclick="addTemplate(8)">008</button>
-                    <button class="template-btn" onclick="addTemplate(9)">009</button>
-                    <button class="template-btn" onclick="addTemplate(10)">010</button>
-                    <button class="template-btn" onclick="addTemplate(11)">011</button>
-                    <button class="template-btn" onclick="addTemplate(12)">012</button>
-                    <button class="template-btn" onclick="addTemplate(13)">013</button>
-                    <button class="template-btn" onclick="addTemplate(14)">014</button>
-                    <button class="template-btn" onclick="addTemplate(15)">015</button>
-                </div>
-                <h3>QR Code</h3>
-                <input type="text" id="qrLink" placeholder="https://tuenlace.com">
-                <button onclick="addQR()">📱 Generar QR</button>
-                <hr>
-                <button onclick="exportCurrentSide()" class="download-btn">📥 DESCARGAR LADO ACTUAL</button>
-            </div>
-        </div>
+</header>
+
+<nav class="main-menu">
+
+```
+<button>Diseñar</button>
+
+<button onclick="window.open('TU_LINK_DRIVE_GALERIA')">
+    Galería
+</button>
+
+<button onclick="window.open('TU_LINK_DRIVE_ESPECIALES')">
+    Días Especiales
+</button>
+```
+
+</nav>
+
+<main class="workspace">
+
+```
+<aside class="products-panel">
+
+    <h2>Productos</h2>
+
+    <div id="categories">
+
+        <button class="category-btn">
+            Medallas
+        </button>
+
+        <button class="category-btn">
+            Chapitas
+        </button>
+
+        <button class="category-btn">
+            Pulseras
+        </button>
+
+        <button class="category-btn">
+            Mates
+        </button>
+
     </div>
 
-    
-    
-    <script>
-const SUPABASE_URL =
-'https://rxywcvouszorhkbfllxl.supabase.co';
+    <div id="product-list">
 
-const SUPABASE_KEY =
-'sb_publishable_Vee3v8DDrKSi9R1glQazSw_AMVts3OQ';
+    </div>
 
-const supabase =
-window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_KEY
-);
-let states = {};
-let currentTab = 0;
-let currentProduct = null;
+</aside>
 
+<section class="editor-container">
 
-function generateTabs(product){
+    <div class="editor-placeholder">
 
-    const tabsContainer =
-        document.getElementById("editorTabs");
+        AQUÍ APARECERÁ EL EDITOR
 
-    tabsContainer.innerHTML = "";
+    </div>
 
-    product.editores.forEach((editor,index)=>{
+</section>
+```
 
-        const btn =
-            document.createElement("button");
+</main>
 
-        btn.className =
-            index === 0
-            ? "tab active"
-            : "tab";
-
-        btn.innerText =
-            editor.nombre;
-
-        btn.onclick =
-            () => switchTab(index);
-
-        tabsContainer.appendChild(btn);
-
-    });
-
-}
-
-
-/////////FUENTES
-    let canvas = null;
-    let workAreaGuide = null;
-        const customFonts = [
-            { name: "Waltograph", family: "Waltograph", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/fa3023b254c729ef41d870b84bfeab70dc5c5d54/fonts/waltograph42.otf" },
-            { name: "Billie James", family: "Billie James", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/BillieJames-Regular.ttf" },
-            { name: "Breathing", family: "Breathing", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Breathing%20Personal%20Use%20Only.ttf" },
-            { name: "Chocolate", family: "Chocolate", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Chocolate.ttf" },
-            { name: "DK Lemon Yellow Sun", family: "DK Lemon Yellow Sun", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/DK%20Lemon%20Yellow%20Sun.otf" },
-            { name: "Farmhouse", family: "Farmhouse", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Farmhouse.otf" },
-            { name: "High Spirited", family: "High Spirited", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/High%20Spirited.ttf" },
-            { name: "LMS Beyond Infinity", family: "LMS Beyond Infinity", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/LMS%20Beyond%20Infinity.ttf" },
-            { name: "Milk Water", family: "Milk Water", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Milk%20Water.otf" },
-            { name: "Nostalgic Letter", family: "Nostalgic Letter", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Nostalgic%20Letter.otf" },
-            { name: "Please Write Me a Song", family: "Please Write Me a Song", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Please%20write%20me%20a%20song.ttf" },
-            { name: "Romantic Sunrise", family: "Romantic Sunrise", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Romantic%20Sunrise.otf" },
-            { name: "Simple Handmade", family: "Simple Handmade", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/SimpleHandmade.ttf" },
-            { name: "Simpsonfont DEMO", family: "Simpsonfont DEMO", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Simpsonfont%20DEMO.otf" },
-            { name: "Study Night", family: "Study Night", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Study%20Night.otf" },
-            { name: "Study Person", family: "Study Person", url: "https://raw.githubusercontent.com/ekkograbados-arch/personalizador-laser/52f9231774d61702e7c82447a21d254229e7b7f3/fonts/Study%20Person.otf" }
-        ];
- 
-
-      
-const productInfo = {
-    "medalla-redonda": {
-        nombre: "Medalla Redonda",
-        ancho_mm: 25,
-        alto_mm: 25
-    },
-    "medalla-militar": {
-        nombre: "Medalla Militar",
-        ancho_mm: 45,
-        alto_mm: 25
-    },
-    "mate-acero": {
-        nombre: "Mate Acero",
-        ancho_mm: 60,
-        alto_mm: 60
-    }
-};
-       
-        function loadCustomFonts() {
-            const select = document.getElementById('fontSelect');
-            select.innerHTML = '';
-            customFonts.forEach(font => {
-                const option = document.createElement('option');
-                option.value = font.family;
-                option.textContent = font.name;
-                select.appendChild(option);
-                if (font.url) {
-                    const style = document.createElement('style');
-                    style.innerHTML = `@font-face { font-family: '${font.family}'; src: url('${font.url}') format('truetype'); }`;
-                    document.head.appendChild(style);
-                }
-            });
-        }
-        function createCanvas() {
-            if (canvas) canvas.dispose();
-            canvas = new fabric.Canvas('canvas', { preserveObjectStacking: true, enableRetinaScaling: true });
-        }
-
-        
-
-function drawWorkArea(editor) {
-
-    if (workAreaGuide) {
-
-        canvas.remove(workAreaGuide);
-
-        workAreaGuide = null;
-
-    }
-
-    if (!editor.superficie) return;
-
-    workAreaGuide = new fabric.Rect({
-
-        left: editor.superficie.x,
-        top: editor.superficie.y,
-
-        width: editor.superficie.width,
-        height: editor.superficie.height,
-
-        fill: 'rgba(0,0,0,0)',
-
-        stroke: '#ff0000',
-        strokeWidth: 2,
-
-        strokeDashArray: [8,5],
-
-        selectable: false,
-        evented: false,
-
-        excludeFromExport: true
-
-    });
-
-    canvas.add(workAreaGuide);
-
-    workAreaGuide.bringToFront();
-
-    canvas.renderAll();
-}
-
-function switchTab(tab){
-
-    if(canvas){
-
-        states[currentTab] =
-            canvas.toJSON();
-
-    }
-
-    currentTab = tab;
-
-    document
-        .querySelectorAll('.tab')
-        .forEach((t,i)=>{
-
-            t.classList.toggle(
-                'active',
-                i === tab
-            );
-
-        });
-
-   createCanvas();
-
-canvas.setBackgroundColor(
-    '#ffffff',
-    canvas.renderAll.bind(canvas)
-);
-
-loadMockup();
-
-    if(states[tab]){
-
-        canvas.loadFromJSON(
-            states[tab],
-            ()=>canvas.renderAll()
-        );
-
-    }
-
-}
-
-      
-let products = [];
-
-async function loadProducts() {
-
-    try {
-
-        const {
-            data,
-            error
-        } = await supabase
-            .from('productos')
-            .select('*')
-            .eq('activo', true)
-            .order('nombre');
-
-        if(error) throw error;
-
-        products = data;
-
-        const select =
-            document.getElementById(
-                'productSelect'
-            );
-
-        select.innerHTML = '';
-
-        products.forEach(product => {
-
-            const option =
-                document.createElement('option');
-
-            option.value =
-                product.id;
-
-            option.textContent =
-                product.nombre;
-
-            select.appendChild(option);
-
-        });
-
-        loadMockup();
-
-    }
-    catch(err){
-
-        console.error(
-            "SUPABASE ERROR:",
-            err
-        );
-
-    }
-
-}
-        document
-.getElementById('productSelect')
-.addEventListener(
-    'change',
-    () => {
-
-        currentTab = 0;
-        states = {};
-
-        loadMockup();
-
-    }
-);
-        
-function createDynamicTabs(product) {
-
-    const tabsContainer =
-        document.getElementById("editorTabs");
-
-    tabsContainer.innerHTML = "";
-
-    product.editores.forEach((editor,index)=>{
-
-        const btn =
-            document.createElement("button");
-
-        btn.className =
-            "tab" +
-            (index===currentTab ? " active" : "");
-
-        btn.textContent =
-            editor.nombre;
-
-        btn.onclick =
-            ()=>switchTab(index);
-
-        tabsContainer.appendChild(btn);
-    });
-}
-      
-
-      
-function loadMockup() {
-
-    const productId =
-        document.getElementById('productSelect').value;
-
-    const product =
-        products.find(p => p.id === productId);
-
-    if (!product) {
-        console.error("Producto no encontrado");
-        return;
-    }
-
-    if (!product.editores || !product.editores.length) {
-        console.error("El producto no tiene editores");
-        return;
-    }
-
-    createDynamicTabs(product);
-
-    const editor =
-        product.editores[currentTab] ||
-        product.editores[0];
-    
-    currentProduct = product;
-
-    if (!editor) {
-        console.error("Editor inexistente");
-        return;
-    }
-
-    showProductInfo(product);
-    showProductOptions(product);
-    drawWorkArea(editor);
-
-    fabric.Image.fromURL(
-        editor.preview,
-        function(img) {
-
-            img.scaleToWidth(550);
-
-            img.selectable = false;
-            img.evented = false;
-
-            canvas.setBackgroundImage(
-                img,
-                canvas.renderAll.bind(canvas)
-            );
-
-        },
-        {
-            crossOrigin: 'anonymous'
-        }
-    );
-}
-
-
-      
-function showProductInfo(product){
-
-    let html = `
-        <h3>${product.nombre}</h3>
-        <p><strong>Precio:</strong> $${product.precio}</p>
-        <p><strong>Stock:</strong> ${product.stock}</p>
-    `;
-
-    if(product.incluye){
-        html += "<p><strong>Incluye:</strong></p><ul>";
-
-        product.incluye.forEach(item=>{
-            html += `<li>${item}</li>`;
-        });
-
-        html += "</ul>";
-    }
-
-   
-    
-    html += `
-        <p><strong>Área de grabado:</strong></p>
-        <ul>
-    `;
-
-    product.superficies.forEach(s=>{
-
-        if(s.ancho_mm){
-
-            html += `
-                <li>
-                    ${s.nombre}:
-                    ${s.ancho_mm} x ${s.alto_mm} mm
-                </li>
-            `;
-
-        } else if(s.diametro_mm){
-
-            html += `
-                <li>
-                    ${s.nombre}:
-                    Ø ${s.diametro_mm} mm
-                </li>
-            `;
-
-        } else if(s.diametro_exterior_mm){
-
-            html += `
-                <li>
-                    ${s.nombre}:
-                    Ø Ext. ${s.diametro_exterior_mm} mm /
-                    Ø Int. ${s.diametro_interior_mm} mm
-                </li>
-            `;
-        }
-
-    });
-
-    html += "</ul>";
-
-    document.getElementById(
-        "productInfo"
-    ).innerHTML = html;
-}
-
-function showProductOptions(product){
-
-    let html = "<h3>Opciones</h3>";
-
-    // ==========================
-    // CHAPITAS
-    // ==========================
-    if(product.id.includes("chapita")){
-
-        html += `
-            <label>Accesorio</label>
-
-            <select
-                id="accesorioChapita"
-                onchange="actualizarOpcionesChapita()"
-            >
-                <option value="argolla">
-                    Argolla estándar
-                </option>
-
-                <option value="llavero">
-                    Llavero + Estuche
-                </option>
-
-                <option value="cadena">
-                    Cadena + Estuche
-                </option>
-
-            </select>
-
-            <div id="opcionesEstuche"></div>
-        `;
-    }
-
-    // ==========================
-    // MEDALLAS
-    // ==========================
-    else if(product.id.includes("medalla")){
-
-        html += `
-            <label>Accesorio</label>
-
-            <select id="accesorioMedalla">
-        `;
-
-        product.opciones.forEach(op => {
-
-            html += `
-                <option value="${op}">
-                    ${op}
-                </option>
-            `;
-
-        });
-
-        html += `
-            </select>
-        `;
-
-        if(product.estuches){
-
-            html += `
-                <br><br>
-
-                <label>Color de Estuche</label>
-
-                <select id="colorEstuche">
-            `;
-
-            product.estuches.forEach(color => {
-
-                html += `
-                    <option value="${color}">
-                        ${color}
-                    </option>
-                `;
-
-            });
-
-            html += `
-                </select>
-            `;
-        }
-    }
-
-    // ==========================
-    // PRODUCTOS CON COLORES
-    // (Mate acero)
-    // ==========================
-    else if(product.colores){
-
-        html += `
-            <label>Color del Mate</label>
-
-            <select id="colorProducto">
-        `;
-
-        product.colores.forEach(color => {
-
-            html += `
-                <option value="${color}">
-                    ${color}
-                </option>
-            `;
-
-        });
-
-        html += `
-            </select>
-        `;
-    }
-
-    // ==========================
-    // PULSERAS Y OTROS
-    // ==========================
-    else if(product.estuches){
-
-        html += `
-            <label>Color de Estuche</label>
-
-            <select id="colorEstuche">
-        `;
-
-        product.estuches.forEach(color => {
-
-            html += `
-                <option value="${color}">
-                    ${color}
-                </option>
-            `;
-
-        });
-
-        html += `
-            </select>
-        `;
-    }
-
-    document.getElementById(
-        "productOptions"
-    ).innerHTML = html;
-
-    if(product.id.includes("chapita")){
-        actualizarOpcionesChapita();
-    }
-
-}
-
-    function actualizarOpcionesChapita(){
-
-    const accesorio =
-        document.getElementById(
-            "accesorioChapita"
-        ).value;
-
-    const productId =
-        document.getElementById(
-            "productSelect"
-        ).value;
-
-    const product =
-        products.find(
-            p => p.id === productId
-        );
-
-    let html = "";
-
-    if(
-        accesorio === "llavero" ||
-        accesorio === "cadena"
-    ){
-
-        html += `
-        <br>
-
-        <label>
-            Color de Estuche
-        </label>
-
-        <select id="colorEstuche">
-        `;
-
-        product.estuches.forEach(color=>{
-
-            html += `
-            <option>
-                ${color}
-            </option>
-            `;
-
-        });
-
-        html += `
-        </select>
-        `;
-    }
-
-    document.getElementById(
-        "opcionesEstuche"
-    ).innerHTML = html;
-}
-   
-        document.getElementById('imageUpload').addEventListener('change', e => {
-            const reader = new FileReader();
-            reader.onload = ev => {
-                fabric.Image.fromURL(ev.target.result, img => {
-                    img.filters.push(new fabric.Image.filters.Grayscale());
-                    img.applyFilters();
-                    img.scaleToWidth(200);
-                    canvas.add(img);
-                    canvas.setActiveObject(img);
-                });
-            };
-            reader.readAsDataURL(e.target.files[0]);
-        });
-        function addText() {
-            const textStr = document.getElementById('textInput').value || "Texto personalizado";
-            const fontFamily = document.getElementById('fontSelect').value;
-            const text = new fabric.Text(textStr, { left: 150, top: 220, fontSize: 32, fontFamily: fontFamily, fill: '#222',objectCaching: false });
-            canvas.add(text);
-            canvas.setActiveObject(text);
-        }
-      function addTemplate(num) {
-    const url =
-        "templates/" +
-        String(num).padStart(3, '0') +
-        ".svg";
-         
-    fabric.loadSVGFromURL(
-        url,
-        function(objects, options) {
-            const obj =
-                fabric.util.groupSVGElements(
-                    objects,
-                    options
-                );
-            obj.scaleToWidth(160);
-            obj.set({
-                left: 180 + Math.random() * 100,
-                top: 180 + Math.random() * 100
-            });
-            canvas.add(obj);
-            canvas.setActiveObject(obj);
-            canvas.renderAll();
-        },
-        function(error) {
-            console.error("Error SVG:", error);
-        }
-    );
-}
-
-function buildTabs(product){
-
-    const container =
-        document.getElementById("tabsContainer");
-
-    container.innerHTML = "";
-
-    product.editores.forEach((editor,index)=>{
-
-        const btn =
-            document.createElement("button");
-
-        btn.className =
-            index === 0
-            ? "tab active"
-            : "tab";
-
-        btn.textContent =
-            editor.nombre;
-
-        btn.onclick =
-            () => switchTab(index);
-
-        container.appendChild(btn);
-
-    });
-
-}
-      
-        async function addQR() {
-            let url = document.getElementById('qrLink').value.trim();
-            if (!url) return alert("Ingresa un enlace");
-            if (!url.startsWith('http')) url = 'https://' + url;
-            const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(url)}`;
-            fabric.Image.fromURL(qrUrl, img => {
-                img.scaleToWidth(160);
-                canvas.add(img);
-                canvas.setActiveObject(img);
-            });
-        }
-        function exportCurrentSide() {
-    try {
-        const dataURL = canvas.toDataURL({
-            format: 'png',
-            multiplier: 2
-        });
-        const link = document.createElement('a');
-        link.href = dataURL;
-        link.download =
-            currentTab === 0
-            ? 'grabado-frente.png'
-            : 'grabado-dorso.png';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    } catch (e) {
-        console.error("ERROR EXPORTANDO:", e);
-        alert(
-            "Error exportando:\n\n" +
-            e.name +
-            "\n\n" +
-            e.message
-        );
-    }
-}
-      window.onload = async () => {
-
-    loadCustomFonts();
-
-    createCanvas();
-
-    canvas.setBackgroundColor(
-        '#ffffff',
-        canvas.renderAll.bind(canvas)
-    );
-
-    await loadProducts();
-
-    const { data, error } =
-        await supabase
-            .from('productos')
-            .select('*');
-
-    console.log(
-        "PRODUCTOS SUPABASE:",
-        data
-    );
-
-};
-    </script>
 <footer class="footer-ekko">
-    <img src="LOGO-FONDO CIRCULO.png" class="footer-logo" alt="Ekko Grabados">
-    <h3>Ekko Grabados</h3>
-    <p>❤️ Diseños únicos para regalar</p>
-    <p>📍 Trelew, Chubut - Argentina</p>
-    <p>🚚 Envíos a todo el país</p>
-    <p>💳 Transferencia | Mercado Pago | Débito | Crédito</p>
-    <div class="footer-social">
-        <a href="https://www.instagram.com/grabados_ekko/" target="_blank">
-            <img src="ASSETS/social/INSTAGRAM_.png" alt="Instagram">
-        </a>
-        <a href="https://www.facebook.com/profile.php?id=61581674110806" target="_blank">
-            <img src="ASSETS/social/FACEBOOK_.png" alt="Facebook">
-        </a>
-        <a href="https://www.youtube.com/@EKKOGRABADOS" target="_blank">
-            <img src="ASSETS/social/YOUTUBE.png" alt="YouTube">
-        </a>
-        <a href="https://www.tiktok.com/@ekko.grabados" target="_blank">
-            <img src="ASSETS/social/TIKTOK.png" alt="TikTok">
-        </a>
-        <a href="https://wa.me/5492804719686" target="_blank">
-            <img src="ASSETS/social/WHATSAPP_BUSINESS.png" alt="WhatsApp">
-        </a>
-        <a href="https://drive.google.com/drive/folders/1Bt0BAnpn3WCMd9mUCAMnc5Bdg6DxJHqK?usp=sharing" target="_blank">
-            <img src="ASSETS/social/DRIVE.png" alt="Drive">
-        </a>
-    </div>
-    <p class="copyright">
-        © 2026 Ekko Grabados - Todos los derechos reservados
-    </p>
-  
+
+```
+<img
+    src="LOGO-FONDO CIRCULO.png"
+    class="footer-logo"
+>
+
+<h3>Ekko Grabados</h3>
+
+<p>
+    ❤️ Diseños únicos para regalar
+</p>
+
+<p>
+    📍 Trelew, Chubut - Argentina
+</p>
+
+<p>
+    🚚 Envíos a todo el país
+</p>
+
+<p>
+    💳 Transferencia | Mercado Pago | Débito | Crédito
+</p>
+
+<div class="footer-social">
+
+    <a href="https://www.instagram.com/grabados_ekko/">
+        Instagram
+    </a>
+
+    <a href="https://www.facebook.com/profile.php?id=61581674110806">
+        Facebook
+    </a>
+
+    <a href="https://www.youtube.com/@EKKOGRABADOS">
+        YouTube
+    </a>
+
+    <a href="https://www.tiktok.com/@ekko.grabados">
+        TikTok
+    </a>
+
+    <a href="https://wa.me/5492804719686">
+        WhatsApp
+    </a>
+
+    <a href="https://drive.google.com">
+        Drive
+    </a>
+
+</div>
+
+<p>
+    © 2026 Ekko Grabados
+</p>
+```
+
 </footer>
-   
+
+<script src="assets/js/app.js"></script>
+
 </body>
 </html>
