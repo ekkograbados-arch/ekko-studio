@@ -411,7 +411,6 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnAddImage").addEventListener("click", () => {
     ui.imagePicker.value = "";
     ui.imagePicker.click();
-    ui.btnApplySize.addEventListener("click", applySelectedSize);
   });
 
   document.getElementById("btnAddSVG").addEventListener("click", () => {
@@ -427,6 +426,8 @@ window.addEventListener("DOMContentLoaded", () => {
     addSVGFromFile(e.target.files[0]);
   });
 
+  ui.btnApplySize.addEventListener("click", applySelectedSize);
+  
   window.addEventListener("resize", () => {
     paper.view.viewSize = new paper.Size(
       canvasEl.clientWidth,
