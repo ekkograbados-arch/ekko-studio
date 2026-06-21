@@ -68,7 +68,6 @@ window.addEventListener("DOMContentLoaded", () => {
   ui.objHeight.value = h;
 }
 
-let lastSizeField = "width";
 
 ui.objWidth.addEventListener("input", () => {
   lastSizeField = "width";
@@ -171,25 +170,24 @@ function applySelectedSize() {
       if (!surface) return;
     
       const key = getSceneKey(toolState.currentProduct, surface);
-      sceneStates[key] = paper.project.exportJSON({ asString: true });
+      sceneStates[key] = paper.project.exportJSON();
     }
     
-    function loadSurfaceScene(product, surface) {
-      const key = getSceneKey(product, surface);
-    
-      deselectItem();
-    
-      if (sceneStates[key]) {
-        clearCanvas();
-        paper.project.importJSON(sceneStates[key]);
-        paper.view.update();
-        return;
-      }
-    
-      loadSVG(surface.svg, () => {
-        paper.view.update();
-      });
-    }
+function loadSurfaceScene(product, surface) {
+  const key = getSceneKey(product, surface);
+
+  deselectItem();
+
+  if (sceneStates[key]) {
+    paper.project.clear();
+
+    paper.project.importJSON(sceneStates[key]);
+    paper.view.update();
+    return;
+  }
+
+  loadSVG(surface.svg);
+}
   
 
   function zoomBy(factor) {
