@@ -215,4 +215,16 @@ body {
   .editor-area {
     grid-template-columns: 1fr;
   }
+  .pedido-aclaracion{
+  margin-top:10px;
+  font-size:13px;
+  color:#666;
+  line-height:1.4;
+}
+
+#precioEstimado{
+  font-size:20px;
+  font-weight:bold;
+  color:#007bff;
+}
 }
