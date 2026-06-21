@@ -68,6 +68,9 @@ window.addEventListener("DOMContentLoaded", () => {
 }
 
   function applySelectedSize() {
+  
+console.log("Aplicar tamaño clickeado");
+    
   if (!selectedItem || isLockedItem(selectedItem)) return;
 
   const newW = parseFloat(ui.objWidth.value);
