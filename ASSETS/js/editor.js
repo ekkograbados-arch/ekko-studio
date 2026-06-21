@@ -104,6 +104,34 @@ window.addEventListener("DOMContentLoaded", () => {
       paper.view.draw();
     });
   }
+    
+  function saveCurrentScene() {
+      if (!toolState.currentProduct) return;
+    
+      const surface = toolState.currentProduct.superficies[toolState.currentSurface];
+      if (!surface) return;
+    
+      const key = getSceneKey(toolState.currentProduct, surface);
+      sceneStates[key] = paper.project.exportJSON({ asString: true });
+    }
+    
+    function loadSurfaceScene(product, surface) {
+      const key = getSceneKey(product, surface);
+    
+      deselectItem();
+    
+      if (sceneStates[key]) {
+        clearCanvas();
+        paper.project.importJSON(sceneStates[key]);
+        paper.view.update();
+        return;
+      }
+    
+      loadSVG(surface.svg, () => {
+        paper.view.update();
+      });
+    }
+  
 
   function zoomBy(factor) {
     paper.view.zoom = Math.max(0.2, Math.min(10, paper.view.zoom * factor));
@@ -236,6 +264,7 @@ window.addEventListener("DOMContentLoaded", () => {
       btn.className = "tab-btn" + (index === 0 ? " active" : "");
       btn.textContent = group.categoria;
       btn.onclick = () => {
+        saveCurrentScene();
         toolState.currentCategory = index;
         toolState.currentProduct = null;
         toolState.currentSurface = 0;
@@ -257,6 +286,7 @@ window.addEventListener("DOMContentLoaded", () => {
       btn.className = "tab-btn" + (index === 0 ? " active" : "");
       btn.textContent = product.nombre;
       btn.onclick = () => {
+        saveCurrentScene();
         toolState.currentProduct = product;
         toolState.currentSurface = 0;
         renderProducts(categoryIndex);
@@ -276,22 +306,23 @@ window.addEventListener("DOMContentLoaded", () => {
       const btn = document.createElement("button");
       btn.className = "tab-btn" + (index === 0 ? " active" : "");
       btn.textContent = surface.nombre;
-
       btn.onclick = () => {
+        saveCurrentScene();
         toolState.currentSurface = index;
         renderSurfaces(product);
-        loadSVG(surface.svg);
+        loadSurfaceScene(product, surface);
         ui.selectionInfo.textContent = `Seleccionado: ${product.nombre} / ${surface.nombre}`;
       };
 
       ui.surfaceTabs.appendChild(btn);
     });
 
-    const firstSurface = product.superficies[toolState.currentSurface] || product.superficies[0];
-    if (firstSurface) {
-      loadSVG(firstSurface.svg);
-      ui.selectionInfo.textContent = `Seleccionado: ${product.nombre} / ${firstSurface.nombre}`;
-    }
+      const firstSurface = product.superficies[toolState.currentSurface] || product.superficies[0];
+      if (firstSurface) {
+        loadSurfaceScene(product, firstSurface);
+        ui.selectionInfo.textContent =
+          `Seleccionado: ${product.nombre} / ${firstSurface.nombre}`;
+      }
   }
 
   const tool = new paper.Tool();
