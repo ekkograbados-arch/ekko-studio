@@ -302,7 +302,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
       const btn = document.createElement("button");
-      btn.className = "tab-btn" + (index === 0 ? " active" : "");
+      btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
       btn.textContent = group.categoria;
       btn.onclick = () => {
         saveCurrentScene();
@@ -324,7 +324,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     group.productos.forEach((product, index) => {
       const btn = document.createElement("button");
-      btn.className = "tab-btn" + (index === 0 ? " active" : "");
+      btn.className = "tab-btn" + (toolState.currentProduct === product ? " active" : "");
       btn.textContent = product.nombre;
       btn.onclick = () => {
         saveCurrentScene();
@@ -345,7 +345,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     product.superficies.forEach((surface, index) => {
       const btn = document.createElement("button");
-      btn.className = "tab-btn" + (index === 0 ? " active" : "");
+      btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
       btn.textContent = surface.nombre;
       btn.onclick = () => {
         saveCurrentScene();
