@@ -10,6 +10,11 @@ window.addEventListener("DOMContentLoaded", () => {
     currentSurface: 0,
     zoom: 1
   };
+  
+  const sceneStates = {};
+    function getSceneKey(product, surface) {
+      return `${product.id}__${surface.nombre}`;
+    }
 
   let loadToken = 0;
   let selectedItem = null;
