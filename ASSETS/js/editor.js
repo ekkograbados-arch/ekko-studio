@@ -324,29 +324,29 @@ function applySelectedSize() {
     });
   }
 
-  function renderProducts(categoryIndex) {
-    ui.productTabs.innerHTML = "";
-    ui.surfaceTabs.innerHTML = "";
-
-    const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
-
-    group.productos.forEach((product, index) => {
-      const btn = document.createElement("button");
-      btn.className = "tab-btn" + (toolState.currentProduct === product ? " active" : "");
-      btn.textContent = product.nombre;
-      btn.onclick = () => {
-        saveCurrentScene();
-        toolState.currentProduct = product;
-        toolState.currentSurface = 0;
-        renderProducts(categoryIndex);
-        renderSurfaces(product);
-      };
-      ui.productTabs.appendChild(btn);
-    });
-
-    toolState.currentProduct = group.productos[0];
-    renderSurfaces(group.productos[0]);
-  }
+    function renderProducts(categoryIndex, activeProduct = null) {
+      ui.productTabs.innerHTML = "";
+      ui.surfaceTabs.innerHTML = "";
+    
+      const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
+      const selectedProduct = activeProduct || toolState.currentProduct || group.productos[0];
+    
+      group.productos.forEach((product) => {
+        const btn = document.createElement("button");
+        btn.className = "tab-btn" + (selectedProduct === product ? " active" : "");
+        btn.textContent = product.nombre;
+        btn.onclick = () => {
+          saveCurrentScene();
+          toolState.currentProduct = product;
+          toolState.currentSurface = 0;
+          renderProducts(categoryIndex, product);
+        };
+        ui.productTabs.appendChild(btn);
+      });
+    
+      toolState.currentProduct = selectedProduct;
+      renderSurfaces(selectedProduct);
+    }
 
   function renderSurfaces(product) {
     ui.surfaceTabs.innerHTML = "";
