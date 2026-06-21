@@ -18,6 +18,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   let loadToken = 0;
   let selectedItem = null;
+  let lastSizeField = "width";
   let dragOffset = new paper.Point(0, 0);
 
   const ui = {
@@ -67,35 +68,39 @@ window.addEventListener("DOMContentLoaded", () => {
   ui.objHeight.value = h;
 }
 
-  function applySelectedSize() {
-  
-console.log("Aplicar tamaño clickeado");
-    
+function applySelectedSize() {
   if (!selectedItem || isLockedItem(selectedItem)) return;
-
-  const newW = parseFloat(ui.objWidth.value);
-  const newH = parseFloat(ui.objHeight.value);
-
-  if (isNaN(newW) || isNaN(newH) || newW <= 0 || newH <= 0) return;
 
   const currentW = selectedItem.bounds.width;
   const currentH = selectedItem.bounds.height;
 
   if (currentW === 0 || currentH === 0) return;
 
+  let newW = parseFloat(ui.objWidth.value);
+  let newH = parseFloat(ui.objHeight.value);
+
+  if (isNaN(newW) && isNaN(newH)) return;
+
   const keepRatio = ui.lockRatio.checked;
   const center = selectedItem.position.clone();
-
-  let scaleX = newW / currentW;
-  let scaleY = newH / currentH;
+  const originalRatio = currentW / currentH;
 
   if (keepRatio) {
-    const factor = Math.min(scaleX, scaleY);
-    scaleX = factor;
-    scaleY = factor;
-    ui.objWidth.value = (currentW * factor).toFixed(1);
-    ui.objHeight.value = (currentH * factor).toFixed(1);
+    if (lastSizeField === "width" && !isNaN(newW) && newW > 0) {
+      newH = newW / originalRatio;
+      ui.objHeight.value = newH.toFixed(1);
+    } else if (lastSizeField === "height" && !isNaN(newH) && newH > 0) {
+      newW = newH * originalRatio;
+      ui.objWidth.value = newW.toFixed(1);
+    } else {
+      return;
+    }
+  } else {
+    if (isNaN(newW) || isNaN(newH) || newW <= 0 || newH <= 0) return;
   }
+
+  const scaleX = newW / currentW;
+  const scaleY = newH / currentH;
 
   selectedItem.scale(scaleX, scaleY);
   selectedItem.position = center;
@@ -430,7 +435,13 @@ console.log("Aplicar tamaño clickeado");
   });
 
   ui.btnApplySize.addEventListener("click", applySelectedSize);
-  
+  ui.objWidth.addEventListener("input", () => {
+  lastSizeField = "width";
+});
+
+ui.objHeight.addEventListener("input", () => {
+  lastSizeField = "height";
+});
   window.addEventListener("resize", () => {
     paper.view.viewSize = new paper.Size(
       canvasEl.clientWidth,
