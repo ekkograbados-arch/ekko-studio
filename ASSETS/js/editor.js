@@ -179,13 +179,16 @@ function loadSurfaceScene(product, surface) {
   deselectItem();
 
   if (sceneStates[key]) {
-    paper.project.clear();
-
-    paper.project.importJSON(sceneStates[key]);
-    paper.view.update();
-    return;
+      paper.project.clear();
+  
+      paper.project.importJSON(sceneStates[key]);
+  
+      selectedItem = null;
+      deselectItem();
+  
+      paper.view.update();
+      return;
   }
-
   loadSVG(surface.svg);
 }
   
