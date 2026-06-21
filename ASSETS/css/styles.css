@@ -27,9 +27,10 @@ body {
 }
 
 .brand-logo {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   object-fit: contain;
+  display: block;
 }
 
 .brand h1 {
@@ -193,6 +194,12 @@ body {
   gap: 12px;
   flex-wrap: wrap;
   margin-top: 12px;
+}
+
+.footer-social img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
 }
 
 .copyright {
