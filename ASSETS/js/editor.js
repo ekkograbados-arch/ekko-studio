@@ -68,6 +68,16 @@ window.addEventListener("DOMContentLoaded", () => {
   ui.objHeight.value = h;
 }
 
+let lastSizeField = "width";
+
+ui.objWidth.addEventListener("input", () => {
+  lastSizeField = "width";
+});
+
+ui.objHeight.addEventListener("input", () => {
+  lastSizeField = "height";
+});
+
 function applySelectedSize() {
   if (!selectedItem || isLockedItem(selectedItem)) return;
 
@@ -399,11 +409,21 @@ function applySelectedSize() {
     paper.view.update();
   };
 
-  tool.onKeyDown = function (event) {
-    if (event.key === "delete" || event.key === "backspace") {
-      deleteSelected();
-    }
-  };
+tool.onKeyDown = function (event) {
+  const active = document.activeElement;
+  const isTyping =
+    active &&
+    (active.tagName === "INPUT" ||
+      active.tagName === "TEXTAREA" ||
+      active.tagName === "SELECT" ||
+      active.isContentEditable);
+
+  if (isTyping) return;
+
+  if (event.key === "delete") {
+    deleteSelected();
+  }
+};
 
   document.getElementById("btnAddText").addEventListener("click", addText);
 
