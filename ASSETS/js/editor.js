@@ -26,7 +26,11 @@ window.addEventListener("DOMContentLoaded", () => {
     surfaceTabs: document.getElementById("surfaceTabs"),
     selectionInfo: document.getElementById("selectionInfo"),
     imagePicker: document.getElementById("imagePicker"),
-    svgPicker: document.getElementById("svgPicker")
+    svgPicker: document.getElementById("svgPicker"),
+    objWidth: document.getElementById("objWidth"),
+    objHeight: document.getElementById("objHeight"),
+    lockRatio: document.getElementById("lockRatio"),
+    btnApplySize: document.getElementById("btnApplySize")
   };
 
   function clearCanvas() {
@@ -48,16 +52,53 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function updateSelectionInfo() {
-    if (!selectedItem) {
-      ui.selectionInfo.textContent = "Nada seleccionado";
-      return;
-    }
-
-    const w = selectedItem.bounds.width.toFixed(1);
-    const h = selectedItem.bounds.height.toFixed(1);
-
-    ui.selectionInfo.textContent = `Seleccionado: ${selectedItem.data?.label || "Objeto"} | ${w} x ${h}`;
+  if (!selectedItem) {
+    ui.selectionInfo.textContent = "Nada seleccionado";
+    ui.objWidth.value = "";
+    ui.objHeight.value = "";
+    return;
   }
+
+  const w = selectedItem.bounds.width.toFixed(1);
+  const h = selectedItem.bounds.height.toFixed(1);
+
+  ui.selectionInfo.textContent = `Seleccionado: ${selectedItem.data?.label || "Objeto"} | ${w} x ${h}`;
+  ui.objWidth.value = w;
+  ui.objHeight.value = h;
+}
+
+  function applySelectedSize() {
+  if (!selectedItem || isLockedItem(selectedItem)) return;
+
+  const newW = parseFloat(ui.objWidth.value);
+  const newH = parseFloat(ui.objHeight.value);
+
+  if (isNaN(newW) || isNaN(newH) || newW <= 0 || newH <= 0) return;
+
+  const currentW = selectedItem.bounds.width;
+  const currentH = selectedItem.bounds.height;
+
+  if (currentW === 0 || currentH === 0) return;
+
+  const keepRatio = ui.lockRatio.checked;
+  const center = selectedItem.position.clone();
+
+  let scaleX = newW / currentW;
+  let scaleY = newH / currentH;
+
+  if (keepRatio) {
+    const factor = Math.min(scaleX, scaleY);
+    scaleX = factor;
+    scaleY = factor;
+    ui.objWidth.value = (currentW * factor).toFixed(1);
+    ui.objHeight.value = (currentH * factor).toFixed(1);
+  }
+
+  selectedItem.scale(scaleX, scaleY);
+  selectedItem.position = center;
+  updateSelectionInfo();
+  paper.view.update();
+}
 
   function selectItem(item) {
     if (!item || isLockedItem(item)) {
@@ -370,6 +411,7 @@ window.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btnAddImage").addEventListener("click", () => {
     ui.imagePicker.value = "";
     ui.imagePicker.click();
+    ui.btnApplySize.addEventListener("click", applySelectedSize);
   });
 
   document.getElementById("btnAddSVG").addEventListener("click", () => {
