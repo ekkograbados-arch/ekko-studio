@@ -14,30 +14,39 @@ window.addEventListener("DOMContentLoaded", () => {
     paper.project.activeLayer.removeChildren();
   }
 
-  function loadSVG(svgPath) {
-    clearCanvas();
+  let loadToken = 0;
 
-    paper.project.importSVG(svgPath, (item) => {
-      if (!item) return;
+function clearCanvas() {
+  paper.project.activeLayer.removeChildren();
+  paper.view.update();
+}
 
-      const bounds = item.bounds;
-      const canvasBounds = paper.view.bounds;
+function loadSVG(svgPath) {
+  const token = ++loadToken;
 
-      const scaleX = (canvasBounds.width * 0.75) / bounds.width;
-      const scaleY = (canvasBounds.height * 0.75) / bounds.height;
-      const scale = Math.min(scaleX, scaleY);
+  clearCanvas();
 
-      item.scale(scale);
+  paper.project.importSVG(svgPath, (item) => {
+    if (token !== loadToken) {
+      if (item) item.remove();
+      return;
+    }
 
-      const center = canvasBounds.center;
-      item.position = center;
+    if (!item) return;
 
-      item.data = item.data || {};
-      item.data.baseBounds = item.bounds.clone();
+    const bounds = item.bounds;
+    const canvasBounds = paper.view.bounds;
 
-      paper.view.draw();
-    });
-  }
+    const scaleX = (canvasBounds.width * 0.75) / bounds.width;
+    const scaleY = (canvasBounds.height * 0.75) / bounds.height;
+    const scale = Math.min(scaleX, scaleY);
+
+    item.scale(scale);
+    item.position = canvasBounds.center;
+
+    paper.view.draw();
+  });
+}
 
   function renderCategories() {
     const categoryTabs = document.getElementById("categoryTabs");
