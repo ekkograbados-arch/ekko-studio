@@ -35,6 +35,7 @@ window.addEventListener("DOMContentLoaded", () => {
     objHeight: document.getElementById("objHeight"),
     lockRatio: document.getElementById("lockRatio"),
     btnApplySize: document.getElementById("btnApplySize")
+    btnToggleLock: document.getElementById("btnToggleLock")
   };
 
   function clearCanvas() {
@@ -64,6 +65,7 @@ window.addEventListener("DOMContentLoaded", () => {
       selectedItem = null;
     }
     ui.selectionInfo.textContent = "Nada seleccionado";
+    updateLockButton();
     paper.view.update();
   }
 
@@ -82,7 +84,29 @@ window.addEventListener("DOMContentLoaded", () => {
   ui.objWidth.value = w;
   ui.objHeight.value = h;
 }
+function updateLockButton() {
+  if (!ui.btnToggleLock) return;
 
+  if (!selectedItem) {
+    ui.btnToggleLock.textContent = "Bloquear / Desbloquear";
+    return;
+  }
+
+  ui.btnToggleLock.textContent = isLockedItem(selectedItem)
+    ? "Desbloquear"
+    : "Bloquear";
+}
+
+function toggleLockSelected() {
+  if (!selectedItem) return;
+
+  selectedItem.data = selectedItem.data || {};
+  selectedItem.data.locked = !selectedItem.data.locked;
+
+  updateSelectionInfo();
+  updateLockButton();
+  paper.view.update();
+}
 
 ui.objWidth.addEventListener("input", () => {
   lastSizeField = "width";
@@ -145,6 +169,7 @@ function applySelectedSize() {
     selectedItem = item;
     selectedItem.selected = true;
     updateSelectionInfo();
+    updateLockButton();
     paper.view.update();
   }
 
@@ -453,12 +478,12 @@ function redo() {
       tolerance: 6
     });
 
-    if (hit && hit.item && !isLockedItem(hit.item)) {
-      selectItem(hit.item);
-      dragOffset = event.point.subtract(hit.item.position);
-    } else {
-      deselectItem();
-    }
+    if (hit && hit.item) {
+  selectItem(hit.item);
+  dragOffset = event.point.subtract(hit.item.position);
+} else {
+  deselectItem();
+}
   };
 
   tool.onMouseDrag = function (event) {
@@ -528,6 +553,7 @@ tool.onKeyDown = function (event) {
   });
 
   ui.btnApplySize.addEventListener("click", applySelectedSize);
+  ui.btnToggleLock.addEventListener("click", toggleLockSelected);
   ui.objWidth.addEventListener("input", () => {
   lastSizeField = "width";
 });
