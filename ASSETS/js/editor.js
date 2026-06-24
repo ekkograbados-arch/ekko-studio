@@ -158,20 +158,23 @@ function applySelectedSize() {
   paper.view.update();
 }
 
-  function selectItem(item) {
-    if (!item || isLockedItem(item)) {
-      deselectItem();
-      return;
-    }
-
-    if (selectedItem) selectedItem.selected = false;
-
-    selectedItem = item;
-    selectedItem.selected = true;
-    updateSelectionInfo();
-    updateLockButton();
-    paper.view.update();
+function selectItem(item) {
+  if (!item) {
+    deselectItem();
+    return;
   }
+
+  if (selectedItem) {
+    selectedItem.selected = false;
+  }
+
+  selectedItem = item;
+  selectedItem.selected = true;
+
+  updateSelectionInfo();
+  updateLockButton();
+  paper.view.update();
+}
 
   function loadSVG(svgPath) {
     const token = ++loadToken;
