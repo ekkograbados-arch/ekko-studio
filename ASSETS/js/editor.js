@@ -42,6 +42,18 @@ window.addEventListener("DOMContentLoaded", () => {
     paper.view.update();
   }
 
+    function saveHistory() {
+        undoStack.push(
+          paper.project.exportJSON({ asString: true })
+        );
+      
+        if (undoStack.length > 50) {
+          undoStack.shift();
+        }
+      
+        redoStack.length = 0;
+      }
+  
   function isLockedItem(item) {
     return item && item.data && item.data.locked === true;
   }
@@ -140,17 +152,6 @@ function applySelectedSize() {
     const token = ++loadToken;
 
     clearCanvas();
-    function saveHistory() {
-        undoStack.push(
-          paper.project.exportJSON({ asString: true })
-        );
-      
-        if (undoStack.length > 50) {
-          undoStack.shift();
-        }
-      
-        redoStack.length = 0;
-      }
     
     paper.project.importSVG(svgPath, (item) => {
       if (token !== loadToken) {
@@ -186,7 +187,7 @@ function applySelectedSize() {
       if (!surface) return;
     
       const key = getSceneKey(toolState.currentProduct, surface);
-      sceneStates[key] = paper.project.exportJSON();
+      sceneStates[key] = paper.project.exportJSON({ asString: true });
     }
     
 function loadSurfaceScene(product, surface) {
@@ -230,10 +231,10 @@ function loadSurfaceScene(product, surface) {
     paper.view.update();
   }
 
-  saveHistory();
+
   function duplicateSelected() {
     if (!selectedItem || isLockedItem(selectedItem)) return;
-
+    saveHistory();
     const clone = selectedItem.clone();
     clone.position = clone.position.add(new paper.Point(20, 20));
     clone.data = clone.data || {};
@@ -280,9 +281,10 @@ function loadSurfaceScene(product, surface) {
   }
 
 
-  saveHistory();
+
   function addImageFromFile(file) {
     if (!file) return;
+    saveHistory();
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -308,10 +310,10 @@ function loadSurfaceScene(product, surface) {
     reader.readAsDataURL(file);
   }
 
-  saveHistory();
+
   function addSVGFromFile(file) {
     if (!file) return;
-
+    saveHistory();
     const reader = new FileReader();
     reader.onload = (e) => {
       paper.project.importSVG(e.target.result, (item) => {
