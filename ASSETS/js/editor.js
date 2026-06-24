@@ -34,8 +34,8 @@ window.addEventListener("DOMContentLoaded", () => {
     objWidth: document.getElementById("objWidth"),
     objHeight: document.getElementById("objHeight"),
     lockRatio: document.getElementById("lockRatio"),
-    btnApplySize: document.getElementById("btnApplySize")
-    btnToggleLock: document.getElementById("btnToggleLock")
+    btnApplySize: document.getElementById("btnApplySize"),
+    btnToggleLock: document.getElementById("btnToggleLock"),
   };
 
   function clearCanvas() {
