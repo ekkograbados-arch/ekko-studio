@@ -16,6 +16,9 @@ window.addEventListener("DOMContentLoaded", () => {
       return `${product.id}__${surface.nombre}`;
     }
 
+  const undoStack = [];
+  const redoStack = [];
+  
   let loadToken = 0;
   let selectedItem = null;
   let lastSizeField = "width";
@@ -111,6 +114,8 @@ function applySelectedSize() {
   const scaleX = newW / currentW;
   const scaleY = newH / currentH;
 
+
+  saveHistory();
   selectedItem.scale(scaleX, scaleY);
   selectedItem.position = center;
   updateSelectionInfo();
@@ -135,7 +140,18 @@ function applySelectedSize() {
     const token = ++loadToken;
 
     clearCanvas();
-
+    function saveHistory() {
+        undoStack.push(
+          paper.project.exportJSON({ asString: true })
+        );
+      
+        if (undoStack.length > 50) {
+          undoStack.shift();
+        }
+      
+        redoStack.length = 0;
+      }
+    
     paper.project.importSVG(svgPath, (item) => {
       if (token !== loadToken) {
         if (item) item.remove();
@@ -206,12 +222,15 @@ function loadSurfaceScene(product, surface) {
 
   function deleteSelected() {
     if (!selectedItem || isLockedItem(selectedItem)) return;
+ 
+    saveHistory();
     selectedItem.remove();
     selectedItem = null;
     updateSelectionInfo();
     paper.view.update();
   }
 
+  saveHistory();
   function duplicateSelected() {
     if (!selectedItem || isLockedItem(selectedItem)) return;
 
@@ -241,6 +260,8 @@ function loadSurfaceScene(product, surface) {
     const text = prompt("Escribí el texto:");
     if (!text) return;
 
+
+    saveHistory();
     const obj = new paper.PointText({
       point: paper.view.center,
       content: text,
@@ -258,6 +279,8 @@ function loadSurfaceScene(product, surface) {
     selectItem(obj);
   }
 
+
+  saveHistory();
   function addImageFromFile(file) {
     if (!file) return;
 
@@ -285,6 +308,7 @@ function loadSurfaceScene(product, surface) {
     reader.readAsDataURL(file);
   }
 
+  saveHistory();
   function addSVGFromFile(file) {
     if (!file) return;
 
@@ -385,6 +409,38 @@ function loadSurfaceScene(product, surface) {
       }
   }
 
+function undo() {
+  if (undoStack.length === 0) return;
+
+  redoStack.push(
+    paper.project.exportJSON({ asString: true })
+  );
+
+  const state = undoStack.pop();
+
+  paper.project.clear();
+  paper.project.importJSON(state);
+
+  deselectItem();
+  paper.view.update();
+}
+
+function redo() {
+  if (redoStack.length === 0) return;
+
+  undoStack.push(
+    paper.project.exportJSON({ asString: true })
+  );
+
+  const state = redoStack.pop();
+
+  paper.project.clear();
+  paper.project.importJSON(state);
+
+  deselectItem();
+  paper.view.update();
+}
+  
   const tool = new paper.Tool();
 
   tool.onMouseDown = function (event) {
@@ -421,6 +477,20 @@ tool.onKeyDown = function (event) {
 
   if (isTyping) return;
 
+    if (event.modifiers.control && event.key === "z") {
+      undo();
+      return;
+    }
+    
+    if (
+      event.modifiers.control &&
+      (event.key === "y" ||
+        (event.modifiers.shift && event.key === "z"))
+    ) {
+      redo();
+      return;
+    }
+  
   if (event.key === "delete") {
     deleteSelected();
   }
