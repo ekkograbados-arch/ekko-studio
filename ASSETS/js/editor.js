@@ -45,7 +45,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
     btnRotateLeft: document.getElementById("btnRotateLeft"),
     btnRotateRight: document.getElementById("btnRotateRight"),
-    btnRotate180: document.getElementById("btnRotate180")
+    btnRotate180: document.getElementById("btnRotate180"),
+    btnCenterH: document.getElementById("btnCenterH"),
+    btnCenterV: document.getElementById("btnCenterV"),
+    btnCenterBoth: document.getElementById("btnCenterBoth")
   };
 
   function clearCanvas() {
