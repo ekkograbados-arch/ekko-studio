@@ -589,6 +589,36 @@ tool.onKeyDown = function (event) {
   if (event.key === "delete") {
     deleteSelected();
   }
+  if (
+  selectedItem &&
+  !isLockedItem(selectedItem)
+) {
+
+  const step = event.modifiers.shift ? 10 : 1;
+
+  if (event.key === "left") {
+    selectedItem.position.x -= step;
+    event.preventDefault();
+  }
+
+  if (event.key === "right") {
+    selectedItem.position.x += step;
+    event.preventDefault();
+  }
+
+  if (event.key === "up") {
+    selectedItem.position.y -= step;
+    event.preventDefault();
+  }
+
+  if (event.key === "down") {
+    selectedItem.position.y += step;
+    event.preventDefault();
+  }
+
+  updateSelectionInfo();
+  paper.view.update();
+}
 };
 
   document.getElementById("btnAddText").addEventListener("click", addText);
