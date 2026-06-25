@@ -161,6 +161,32 @@ function alignSelected(mode) {
   paper.view.update();
 }
 
+  function centerSelected(mode) {
+
+  if (!selectedItem) return;
+
+  if (isLockedItem(selectedItem)) return;
+
+  const center = paper.view.bounds.center;
+
+  saveHistory();
+
+  if (mode === "horizontal") {
+    selectedItem.position.x = center.x;
+  }
+
+  if (mode === "vertical") {
+    selectedItem.position.y = center.y;
+  }
+
+  if (mode === "both") {
+    selectedItem.position = center.clone();
+  }
+
+  updateSelectionInfo();
+  paper.view.update();
+}
+
   function rotateSelected(angle) {
 
   if (!selectedItem) return;
@@ -672,6 +698,7 @@ ui.btnRotateRight.addEventListener("click", () => {
 ui.btnRotate180.addEventListener("click", () => {
   rotateSelected(180);
 });
+  
 ui.objWidth.addEventListener("input", () => {
   lastSizeField = "width";
 });
@@ -679,6 +706,19 @@ ui.objWidth.addEventListener("input", () => {
 ui.objHeight.addEventListener("input", () => {
   lastSizeField = "height";
 });
+
+ui.btnCenterH.addEventListener("click", () => {
+  centerSelected("horizontal");
+});
+
+ui.btnCenterV.addEventListener("click", () => {
+  centerSelected("vertical");
+});
+
+ui.btnCenterBoth.addEventListener("click", () => {
+  centerSelected("both");
+});
+  
   window.addEventListener("resize", () => {
     paper.view.viewSize = new paper.Size(
       canvasEl.clientWidth,
