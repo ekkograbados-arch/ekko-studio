@@ -36,6 +36,12 @@ window.addEventListener("DOMContentLoaded", () => {
     lockRatio: document.getElementById("lockRatio"),
     btnApplySize: document.getElementById("btnApplySize"),
     btnToggleLock: document.getElementById("btnToggleLock")
+    btnAlignLeft: document.getElementById("btnAlignLeft"),
+    btnAlignCenterH: document.getElementById("btnAlignCenterH"),
+    btnAlignRight: document.getElementById("btnAlignRight"),
+    btnAlignTop: document.getElementById("btnAlignTop"),
+    btnAlignCenterV: document.getElementById("btnAlignCenterV"),
+    btnAlignBottom: document.getElementById("btnAlignBottom")
   };
 
   function clearCanvas() {
@@ -105,6 +111,46 @@ function toggleLockSelected() {
 
   updateSelectionInfo();
   updateLockButton();
+  paper.view.update();
+}
+
+function alignSelected(mode) {
+  if (!selectedItem || isLockedItem(selectedItem)) return;
+
+  const canvasBounds = paper.view.bounds;
+  const itemBounds = selectedItem.bounds.clone();
+  const center = selectedItem.position.clone();
+
+  let newX = center.x;
+  let newY = center.y;
+
+  if (mode === "left") {
+    newX = canvasBounds.left + itemBounds.width / 2;
+  }
+
+  if (mode === "centerH") {
+    newX = canvasBounds.center.x;
+  }
+
+  if (mode === "right") {
+    newX = canvasBounds.right - itemBounds.width / 2;
+  }
+
+  if (mode === "top") {
+    newY = canvasBounds.top + itemBounds.height / 2;
+  }
+
+  if (mode === "centerV") {
+    newY = canvasBounds.center.y;
+  }
+
+  if (mode === "bottom") {
+    newY = canvasBounds.bottom - itemBounds.height / 2;
+  }
+
+  saveHistory();
+  selectedItem.position = new paper.Point(newX, newY);
+  updateSelectionInfo();
   paper.view.update();
 }
 
@@ -557,7 +603,14 @@ tool.onKeyDown = function (event) {
 
   ui.btnApplySize.addEventListener("click", applySelectedSize);
   ui.btnToggleLock.addEventListener("click", toggleLockSelected);
-  ui.objWidth.addEventListener("input", () => {
+  ui.btnAlignLeft.addEventListener("click", () => alignSelected("left"));
+  ui.btnAlignCenterH.addEventListener("click", () => alignSelected("centerH"));
+  ui.btnAlignRight.addEventListener("click", () => alignSelected("right"));
+  ui.btnAlignTop.addEventListener("click", () => alignSelected("top"));
+  ui.btnAlignCenterV.addEventListener("click", () => alignSelected("centerV"));
+  ui.btnAlignBottom.addEventListener("click", () => alignSelected("bottom"));
+  
+ui.objWidth.addEventListener("input", () => {
   lastSizeField = "width";
 });
 
