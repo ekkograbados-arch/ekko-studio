@@ -411,7 +411,27 @@ function pasteSelected() {
     selectedItem.sendToBack();
     paper.view.update();
   }
+function bringForward() {
 
+  if (!selectedItem || isLockedItem(selectedItem)) return;
+
+  selectedItem.insertAbove(
+    selectedItem.nextSibling
+  );
+
+  paper.view.update();
+}
+
+function sendBackward() {
+
+  if (!selectedItem || isLockedItem(selectedItem)) return;
+
+  selectedItem.insertBelow(
+    selectedItem.previousSibling
+  );
+
+  paper.view.update();
+}
   function addText() {
     const text = prompt("Escribí el texto:");
     if (!text) return;
