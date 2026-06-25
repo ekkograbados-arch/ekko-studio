@@ -24,6 +24,36 @@ window.addEventListener("DOMContentLoaded", () => {
   let lastSizeField = "width";
   let dragOffset = new paper.Point(0, 0);
   let clipboardItem = null;
+  const FONTS = [
+  {
+    name: "Billie James",
+    family: "ekko_billie"
+  },
+  {
+    name: "Romantic Sunrise",
+    family: "ekko_romantic"
+  },
+  {
+    name: "Farmhouse",
+    family: "ekko_farmhouse"
+  },
+  {
+    name: "Chocolate",
+    family: "ekko_chocolate"
+  },
+  {
+    name: "Disney",
+    family: "ekko_disney"
+  },
+  {
+    name: "Simpson",
+    family: "ekko_simpson"
+  },
+  {
+    name: "Milk Water",
+    family: "ekko_milk"
+  }
+];
 
   const ui = {
     categoryTabs: document.getElementById("categoryTabs"),
@@ -427,6 +457,52 @@ function pasteSelected() {
   paper.view.update();
 }
 
+  function renderFontGallery() {
+
+  const list = document.getElementById("fontList");
+
+  if (!list) return;
+
+  list.innerHTML = "";
+
+  FONTS.forEach(font => {
+
+    const item = document.createElement("div");
+
+    item.className = "font-item";
+
+    item.innerHTML = `
+      <div
+        class="font-preview"
+        style="font-family:'${font.family}'">
+        Feliz Día Pá
+      </div>
+
+      <div class="font-name">
+        ${font.name}
+      </div>
+    `;
+
+    item.onclick = () => {
+
+      if (
+        selectedItem &&
+        selectedItem instanceof paper.PointText
+      ) {
+
+        selectedItem.fontFamily = font.family;
+
+        paper.view.update();
+      }
+
+    };
+
+    list.appendChild(item);
+
+  });
+
+}
+
   function bringFront() {
     if (!selectedItem || isLockedItem(selectedItem)) return;
     selectedItem.bringToFront();
@@ -469,8 +545,9 @@ function sendBackward() {
       point: paper.view.center,
       content: text,
       fontSize: 36,
+      fontFamily: "ekko_billie",
       fontFamily: ui.fontSelector.value,
-      fillColor: "#000000",
+      fillColor: "black",
       justification: "center"
     });
 
@@ -740,7 +817,18 @@ if (event.modifiers.control && event.key === "v") {
 }
 };
 
-  document.getElementById("btnAddText").addEventListener("click", addText);
+  document.getElementById("btnAddText")
+.addEventListener("click", () => {
+
+  addText();
+
+  document
+    .getElementById("fontGallery")
+    .classList.remove("hidden");
+
+  renderFontGallery();
+
+});
 
   document.getElementById("btnDelete").addEventListener("click", deleteSelected);
   document.getElementById("btnDuplicate").addEventListener("click", duplicateSelected);
