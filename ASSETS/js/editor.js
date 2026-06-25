@@ -23,6 +23,7 @@ window.addEventListener("DOMContentLoaded", () => {
   let selectedItem = null;
   let lastSizeField = "width";
   let dragOffset = new paper.Point(0, 0);
+  let clipboardItem = null;
 
   const ui = {
     categoryTabs: document.getElementById("categoryTabs"),
@@ -366,6 +367,38 @@ function loadSurfaceScene(product, surface) {
     paper.project.activeLayer.addChild(clone);
     selectItem(clone);
   }
+  function copySelected() {
+
+  if (!selectedItem) return;
+
+  if (isLockedItem(selectedItem)) return;
+
+  clipboardItem = selectedItem.clone();
+}
+
+function pasteSelected() {
+
+  if (!clipboardItem) return;
+
+  saveHistory();
+
+  const clone = clipboardItem.clone();
+
+  clone.position = clone.position.add(
+    new paper.Point(20, 20)
+  );
+
+  clone.data = {
+    ...(clone.data || {}),
+    locked: false
+  };
+
+  paper.project.activeLayer.addChild(clone);
+
+  selectItem(clone);
+
+  paper.view.update();
+}
 
   function bringFront() {
     if (!selectedItem || isLockedItem(selectedItem)) return;
@@ -605,6 +638,15 @@ tool.onKeyDown = function (event) {
       undo();
       return;
     }
+  if (event.modifiers.control && event.key === "c") {
+  copySelected();
+  return;
+}
+
+if (event.modifiers.control && event.key === "v") {
+  pasteSelected();
+  return;
+}
     
     if (
       event.modifiers.control &&
