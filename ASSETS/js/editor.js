@@ -51,7 +51,11 @@ window.addEventListener("DOMContentLoaded", () => {
     btnCenterV: document.getElementById("btnCenterV"),
     btnCenterBoth: document.getElementById("btnCenterBoth"),
     btnForward: document.getElementById("btnForward"),
-    btnBackward: document.getElementById("btnBackward")
+    btnBackward: document.getElementById("btnBackward"),
+    btnCenterBoth: document.getElementById("btnCenterBoth"),
+
+    fontSelector: document.getElementById("fontSelector"),
+    btnApplyFont: document.getElementById("btnApplyFont")
     
   };
 
@@ -205,6 +209,23 @@ function alignSelected(mode) {
 
   paper.view.update();
 }
+  function applySelectedFont() {
+
+  if (!selectedItem) return;
+
+  if (!(selectedItem instanceof paper.PointText)) {
+    alert("Seleccione un texto");
+    return;
+  }
+
+  const font = ui.fontSelector.value;
+
+  saveHistory();
+
+  selectedItem.fontFamily = font;
+
+  paper.view.update();
+}
 
 ui.objWidth.addEventListener("input", () => {
   lastSizeField = "width";
@@ -269,6 +290,9 @@ function selectItem(item) {
   selectedItem = item;
   selectedItem.selected = true;
 
+    if (item instanceof paper.PointText) {
+    ui.fontSelector.value = item.fontFamily || ui.fontSelector.value;
+  }
   updateSelectionInfo();
   updateLockButton();
   paper.view.update();
@@ -445,7 +469,8 @@ function sendBackward() {
       point: paper.view.center,
       content: text,
       fontSize: 36,
-      fillColor: "black",
+      fontFamily: ui.fontSelector.value,
+      fillColor: "#000000",
       justification: "center"
     });
 
@@ -785,6 +810,7 @@ ui.btnCenterV.addEventListener("click", () => {
 ui.btnCenterBoth.addEventListener("click", () => {
   centerSelected("both");
 });
+  ui.btnApplyFont.addEventListener("click", applySelectedFont);
   
   window.addEventListener("resize", () => {
     paper.view.viewSize = new paper.Size(
