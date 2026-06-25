@@ -49,7 +49,10 @@ window.addEventListener("DOMContentLoaded", () => {
     btnRotate180: document.getElementById("btnRotate180"),
     btnCenterH: document.getElementById("btnCenterH"),
     btnCenterV: document.getElementById("btnCenterV"),
-    btnCenterBoth: document.getElementById("btnCenterBoth")
+    btnCenterBoth: document.getElementById("btnCenterBoth"),
+    btnForward: document.getElementById("btnForward"),
+    btnBackward: document.getElementById("btnBackward")
+    
   };
 
   function clearCanvas() {
@@ -718,6 +721,8 @@ if (event.modifiers.control && event.key === "v") {
   document.getElementById("btnDuplicate").addEventListener("click", duplicateSelected);
   document.getElementById("btnBringFront").addEventListener("click", bringFront);
   document.getElementById("btnSendBack").addEventListener("click", sendBack);
+  ui.btnForward.addEventListener("click", bringForward);
+  ui.btnBackward.addEventListener("click", sendBackward);
 
   document.getElementById("btnZoomIn").addEventListener("click", () => zoomBy(1.15));
   document.getElementById("btnZoomOut").addEventListener("click", () => zoomBy(1 / 1.15));
