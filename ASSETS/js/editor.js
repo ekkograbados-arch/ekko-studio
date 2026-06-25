@@ -41,7 +41,11 @@ window.addEventListener("DOMContentLoaded", () => {
     btnAlignRight: document.getElementById("btnAlignRight"),
     btnAlignTop: document.getElementById("btnAlignTop"),
     btnAlignCenterV: document.getElementById("btnAlignCenterV"),
-    btnAlignBottom: document.getElementById("btnAlignBottom")
+    btnAlignBottom: document.getElementById("btnAlignBottom"),
+
+    btnRotateLeft: document.getElementById("btnRotateLeft"),
+    btnRotateRight: document.getElementById("btnRotateRight"),
+    btnRotate180: document.getElementById("btnRotate180")
   };
 
   function clearCanvas() {
@@ -151,6 +155,21 @@ function alignSelected(mode) {
   saveHistory();
   selectedItem.position = new paper.Point(newX, newY);
   updateSelectionInfo();
+  paper.view.update();
+}
+
+  function rotateSelected(angle) {
+
+  if (!selectedItem) return;
+
+  if (isLockedItem(selectedItem)) return;
+
+  saveHistory();
+
+  selectedItem.rotate(angle);
+
+  updateSelectionInfo();
+
   paper.view.update();
 }
 
@@ -609,7 +628,17 @@ tool.onKeyDown = function (event) {
   ui.btnAlignTop.addEventListener("click", () => alignSelected("top"));
   ui.btnAlignCenterV.addEventListener("click", () => alignSelected("centerV"));
   ui.btnAlignBottom.addEventListener("click", () => alignSelected("bottom"));
-  
+  ui.btnRotateLeft.addEventListener("click", () => {
+  rotateSelected(-90);
+});
+
+ui.btnRotateRight.addEventListener("click", () => {
+  rotateSelected(90);
+});
+
+ui.btnRotate180.addEventListener("click", () => {
+  rotateSelected(180);
+});
 ui.objWidth.addEventListener("input", () => {
   lastSizeField = "width";
 });
