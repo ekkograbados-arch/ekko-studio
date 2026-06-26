@@ -855,7 +855,7 @@ if (event.modifiers.control && event.key === "v") {
 
   renderFontGallery();
 
-});
+
 
   document.getElementById("btnDelete").addEventListener("click", deleteSelected);
   document.getElementById("btnDuplicate").addEventListener("click", duplicateSelected);
@@ -925,14 +925,20 @@ ui.btnCenterV.addEventListener("click", () => {
 ui.btnCenterBoth.addEventListener("click", () => {
   centerSelected("both");
 });
-  ui.btnApplyFont.addEventListener("click", applySelectedFont);
-  
-  window.addEventListener("resize", () => {
+ 
+    window.addEventListener("resize", () => {
     paper.view.viewSize = new paper.Size(
       canvasEl.clientWidth,
       canvasEl.clientHeight
     );
   });
+  
+  ui.btnApplyFont.addEventListener("click", applySelectedFont);
+  
+  document.getElementById("btnAddText").addEventListener("click", activateTextMode);
 
+  document.getElementById("fontGallery").classList.remove("hidden");
+  renderFontGallery();
+  
   renderCategories();
 });
