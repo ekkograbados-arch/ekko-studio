@@ -64,6 +64,58 @@
       <div class="editor-area">
         <div class="canvas-wrap">
           <canvas id="editorCanvas" resize></canvas>
+                  <div id="floatingToolbar" class="floating-toolbar hidden">
+        
+            <div id="toolbarText" class="toolbar-panel hidden">
+        
+                <select id="toolbarFont"></select>
+        
+                <input
+                    id="toolbarFontSize"
+                    type="number"
+                    min="5"
+                    max="300"
+                    value="30">
+        
+                <button id="tbBold">B</button>
+        
+                <button id="tbItalic">I</button>
+        
+                <button id="tbUnderline">U</button>
+        
+                <button id="tbUpper">ABC</button>
+        
+                <button id="tbLower">abc</button>
+        
+                <button id="tbSup">X²</button>
+        
+                <button id="tbSub">X₂</button>
+        
+                <button id="tbCurve">Curvar</button>
+        
+            </div>
+        
+            <div id="toolbarImage" class="toolbar-panel hidden">
+        
+                <label>Exposición</label>
+                <input id="imgExposure" type="range" min="-100" max="100">
+        
+                <label>Contraste</label>
+                <input id="imgContrast" type="range" min="-100" max="100">
+        
+                <label>Brillo</label>
+                <input id="imgBrightness" type="range" min="-100" max="100">
+        
+                <label>Nitidez</label>
+                <input id="imgSharpness" type="range" min="0" max="100">
+        
+                <button id="btnPreviewColor">
+                    Ver color
+                </button>
+        
+            </div>
+        
+        </div>
         </div>
 
         <aside class="properties">
