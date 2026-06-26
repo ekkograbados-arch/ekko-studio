@@ -306,7 +306,9 @@ body {
   color:#007bff;
 }
 }
-  .font-gallery{
+
+
+.font-gallery{
   margin-top:10px;
   border:1px solid #ddd;
   padding:10px;
@@ -316,17 +318,12 @@ body {
   overflow-y:auto;
 }
 
-.hidden{
-  display:none;
-}
-
 .font-item{
   padding:8px;
   margin-bottom:6px;
   border:1px solid #ddd;
   border-radius:6px;
   cursor:pointer;
-  transition:0.2s;
 }
 
 .font-item:hover{
