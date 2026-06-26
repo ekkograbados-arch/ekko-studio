@@ -340,3 +340,52 @@ body {
   color:#666;
 }
 
+.floating-toolbar{
+
+position:absolute;
+
+display:flex;
+
+gap:10px;
+
+padding:10px;
+
+background:white;
+
+border-radius:12px;
+
+box-shadow:0 8px 18px rgba(0,0,0,.18);
+
+z-index:9999;
+
+}
+
+.hidden{
+
+display:none;
+
+}
+
+.toolbar-panel{
+
+display:flex;
+
+align-items:center;
+
+gap:8px;
+
+}
+
+.toolbar-panel button{
+
+padding:6px 10px;
+
+cursor:pointer;
+
+}
+
+.toolbar-panel select{
+
+min-width:180px;
+
+}
