@@ -535,30 +535,6 @@ function sendBackward() {
 
   paper.view.update();
 }
-  function addText() {
-    const text = prompt("Escribí el texto:");
-    if (!text) return;
-
-
-    saveHistory();
-    const obj = new paper.PointText({
-      point: paper.view.center,
-      content: text,
-      fontSize: 36,
-      fontFamily: "ekko_billie",
-      fontFamily: ui.fontSelector.value,
-      fillColor: "black",
-      justification: "center"
-    });
-
-    obj.data = {
-      locked: false,
-      label: "Texto"
-    };
-
-    paper.project.activeLayer.addChild(obj);
-    selectItem(obj);
-  }
 
 
 
@@ -722,10 +698,63 @@ function redo() {
   deselectItem();
   paper.view.update();
 }
+
+
+function activateTextMode(){
+
+    insertTextMode = true;
+
+    paper.view.element.style.cursor = "text";
+}
+
+
+function createEditableText(point){
+
+    saveHistory();
+
+    const txt = new paper.PointText({
+
+        point: point,
+
+        content: "Escribí...",
+
+        fontSize: 42,
+
+        fillColor: new paper.Color(0),
+
+        justification: "center"
+
+    });
+
+    txt.data = {
+
+        locked:false,
+
+        label:"Texto"
+
+    };
+
+    paper.project.activeLayer.addChild(txt);
+
+    selectItem(txt);
+
+    startTextEditing(txt);
+}
   
+  let insertTextMode = false;
   const tool = new paper.Tool();
 
   tool.onMouseDown = function (event) {
+    if(insertTextMode){
+
+    createEditableText(event.point);
+
+    insertTextMode = false;
+
+    paper.view.element.style.cursor = "default";
+
+    return;
+}
     const hit = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -817,10 +846,8 @@ if (event.modifiers.control && event.key === "v") {
 }
 };
 
-  document.getElementById("btnAddText")
-.addEventListener("click", () => {
 
-  addText();
+  document.getElementById("btnAddText").addEventListener("click", activateTextMode);
 
   document
     .getElementById("fontGallery")
