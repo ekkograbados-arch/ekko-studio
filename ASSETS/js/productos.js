@@ -5,7 +5,7 @@ window.EKKO_STUDIO_PRODUCTS = [
       {
         id: "medalla-militar-25x45",
         nombre: "Medalla Militar 25x45",
-        svgBase: "ASSETS//mockups-medidas/medalla-militar-25x45.svg",
+        svgBase: "ASSETS/mockups-medidas/medalla-militar-25x45.svg",
         superficies: [
           {
             nombre: "Frente",
