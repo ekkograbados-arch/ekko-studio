@@ -700,13 +700,17 @@ function redo() {
 }
 
 
+//======================================
+// ACTIVA EL MODO TEXTO
+//======================================
+
 function activateTextMode(){
 
     insertTextMode = true;
 
     paper.view.element.style.cursor = "text";
-}
 
+}
 
 function createEditableText(point){
 
@@ -716,13 +720,13 @@ function createEditableText(point){
 
         point: point,
 
-        content: "Escribí...",
+        content: "",
 
-        fontSize: 42,
+        fontSize: 36,
 
         fillColor: new paper.Color(0),
 
-        justification: "center"
+        justification:"left"
 
     });
 
@@ -738,7 +742,7 @@ function createEditableText(point){
 
     selectItem(txt);
 
-    startTextEditing(txt);
+  //  startTextEditing(txt);
 }
   
   let insertTextMode = false;
