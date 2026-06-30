@@ -1,3 +1,4 @@
+import { startTextEditing } from "./modules/textEditor.js";
 window.addEventListener("DOMContentLoaded", () => {
   paper.setup("editorCanvas");
 
