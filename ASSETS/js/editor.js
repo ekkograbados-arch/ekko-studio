@@ -719,15 +719,17 @@ function createEditableText(point){
 
     const txt = new paper.PointText({
 
-        point: point,
+        point,
 
         content: "",
 
-        fontSize: 36,
+        fontSize: 42,
 
         fillColor: new paper.Color(0),
 
-        justification:"left"
+        justification: "center",
+
+        fontFamily: "Arial"
 
     });
 
@@ -743,7 +745,7 @@ function createEditableText(point){
 
     selectItem(txt);
 
-  //  startTextEditing(txt);
+    startTextEditing(txt);
 }
   
   let insertTextMode = false;
