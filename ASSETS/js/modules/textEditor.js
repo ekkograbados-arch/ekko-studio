@@ -16,16 +16,28 @@ export function startTextEditing(textItem) {
 
     const pos = paper.view.projectToView(textItem.position);
 
-    input.style.position = "absolute";
+    input.style.position = "fixed";
 
-    input.style.left = pos.x + "px";
+input.style.left = "-5000px";
 
-    input.style.top = pos.y + "px";
+input.style.top = "-5000px";
 
-    input.style.minWidth = "220px";
+input.style.width = "1px";
 
-    input.style.minHeight = "80px";
+input.style.height = "1px";
 
+input.style.opacity = "0";
+
+input.style.pointerEvents = "none";
+
+input.style.resize = "none";
+
+input.style.border = "0";
+
+input.style.outline = "0";
+
+input.style.background = "transparent";
+    
     input.style.fontSize = textItem.fontSize + "px";
 
     input.style.fontFamily = textItem.fontFamily;
