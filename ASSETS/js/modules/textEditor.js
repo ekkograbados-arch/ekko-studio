@@ -12,6 +12,13 @@ export function startTextEditing(textItem) {
 
     input.value = textItem.content;
 
+input.focus();
+
+input.setSelectionRange(
+    input.value.length,
+    input.value.length
+);
+
     document.body.appendChild(input);
 
     const pos = paper.view.projectToView(textItem.position);
