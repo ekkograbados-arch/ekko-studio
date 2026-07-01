@@ -752,16 +752,32 @@ function createEditableText(point){
   const tool = new paper.Tool();
 
   tool.onMouseDown = function (event) {
-    if(insertTextMode){
 
-    createEditableText(event.point);
+
+
+if (insertTextMode) {
 
     insertTextMode = false;
 
     paper.view.element.style.cursor = "default";
 
+    createEditableText(event.point);
+
     return;
 }
+
+if (
+    hit &&
+    hit.item &&
+    hit.item instanceof paper.PointText &&
+    event.event.detail === 2
+) {
+    startTextEditing(hit.item);
+    return;
+}
+}
+
+  
     const hit = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -772,12 +788,9 @@ function createEditableText(point){
 if (hit && hit.item) {
 
     if (
-        event.event.detail === 2 &&
-        hit.item instanceof paper.PointText
-    ) {
-
-        startTextEditing(hit.item);
-
+        hit.item.data &&
+        hit.item.data.locked
+    ){
         return;
     }
 
@@ -790,6 +803,8 @@ if (hit && hit.item) {
     deselectItem();
 
 }
+
+  
   };
 
   tool.onMouseDrag = function (event) {
