@@ -539,41 +539,52 @@ function sendBackward() {
 
 
 
-  function addImageFromFile(file) {
+function addImageFromFile(file) {
+
     if (!file) return;
+
     saveHistory();
 
     const reader = new FileReader();
-raster.onLoad = () => {
 
-    raster.data = {
-        locked: false,
-        label: "Imagen"
+    reader.onload = (e) => {
+
+        const raster = new paper.Raster({
+            source: e.target.result
+        });
+
+        raster.onLoad = () => {
+
+            raster.data = {
+                locked: false,
+                label: "Imagen"
+            };
+
+            const area = paper.view.bounds;
+
+            const maxWidth = area.width * 0.60;
+            const maxHeight = area.height * 0.60;
+
+            const scale = Math.min(
+                maxWidth / raster.width,
+                maxHeight / raster.height
+            );
+
+            raster.scale(scale);
+
+            raster.position = area.center;
+
+            selectItem(raster);
+
+            paper.view.update();
+
+        };
+
     };
 
-    const area = paper.view.bounds;
-
-    const maxWidth = area.width * 0.60;
-    const maxHeight = area.height * 0.60;
-
-    const scale = Math.min(
-        maxWidth / raster.width,
-        maxHeight / raster.height
-    );
-
-    raster.scale(scale);
-
-    raster.position = area.center;
-
-    raster.selected = true;
-
-    selectItem(raster);
-
-    paper.view.update();
-
-};
     reader.readAsDataURL(file);
-  }
+
+}
 
 
   function addSVGFromFile(file) {
