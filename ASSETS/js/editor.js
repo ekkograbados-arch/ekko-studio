@@ -751,62 +751,52 @@ function createEditableText(point){
   let insertTextMode = false;
   const tool = new paper.Tool();
 
-  tool.onMouseDown = function (event) {
+tool.onMouseDown = function (event) {
 
+    if (insertTextMode) {
 
+        insertTextMode = false;
+        paper.view.element.style.cursor = "default";
 
-if (insertTextMode) {
+        createEditableText(event.point);
 
-    insertTextMode = false;
-
-    paper.view.element.style.cursor = "default";
-
-    createEditableText(event.point);
-
-    return;
-}
-
-if (
-    hit &&
-    hit.item &&
-    hit.item instanceof paper.PointText &&
-    event.event.detail === 2
-) {
-    startTextEditing(hit.item);
-    return;
-}
-}
-
-  
-    const hit = paper.project.hitTest(event.point, {
-      fill: true,
-      stroke: true,
-      segments: true,
-      tolerance: 6
-    });
-
-if (hit && hit.item) {
-
-    if (
-        hit.item.data &&
-        hit.item.data.locked
-    ){
         return;
     }
 
-    selectItem(hit.item);
+    const hit = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 6
+    });
 
-    dragOffset = event.point.subtract(hit.item.position);
+    if (
+        hit &&
+        hit.item &&
+        hit.item instanceof paper.PointText &&
+        event.event.detail === 2
+    ) {
+        startTextEditing(hit.item);
+        return;
+    }
 
-} else {
+    if (hit && hit.item) {
 
-    deselectItem();
+        if (hit.item.data && hit.item.data.locked) {
+            return;
+        }
 
-}
+        selectItem(hit.item);
 
-  
-  };
+        dragOffset = event.point.subtract(hit.item.position);
 
+    } else {
+
+        deselectItem();
+
+    }
+
+};
   tool.onMouseDrag = function (event) {
     if (!selectedItem || isLockedItem(selectedItem)) return;
     selectedItem.position = event.point.subtract(dragOffset);
