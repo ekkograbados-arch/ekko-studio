@@ -48,14 +48,13 @@ input.style.background = "transparent";
 
     input.select();
 
-    input.oninput = () => {
+input.oninput = () => {
 
-        textItem.content = input.value;
+    textItem.content = input.value;
 
-        paper.view.update();
+    paper.view.update();
 
-    };
-
+};
     input.onblur = () => {
 
         textItem.content = input.value;
