@@ -544,26 +544,34 @@ function sendBackward() {
     saveHistory();
 
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const raster = new paper.Raster({
-        source: e.target.result
-      });
+raster.onLoad = () => {
 
-      raster.onLoad = () => {
-        raster.data = {
-          locked: false,
-          label: "Imagen"
-        };
-
-        const maxWidth = paper.view.bounds.width * 0.35;
-        const ratio = maxWidth / raster.bounds.width;
-        raster.scale(ratio);
-        raster.position = paper.view.center;
-
-        selectItem(raster);
-        paper.view.update();
-      };
+    raster.data = {
+        locked: false,
+        label: "Imagen"
     };
+
+    const area = paper.view.bounds;
+
+    const maxWidth = area.width * 0.60;
+    const maxHeight = area.height * 0.60;
+
+    const scale = Math.min(
+        maxWidth / raster.width,
+        maxHeight / raster.height
+    );
+
+    raster.scale(scale);
+
+    raster.position = area.center;
+
+    raster.selected = true;
+
+    selectItem(raster);
+
+    paper.view.update();
+
+};
     reader.readAsDataURL(file);
   }
 
