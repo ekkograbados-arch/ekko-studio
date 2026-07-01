@@ -1,75 +1,67 @@
 export function startTextEditing(textItem) {
 
-    if (!textItem) return;
+    const old = document.getElementById("ekko-text-editor");
+    if (old) old.remove();
 
-    const oldInput = document.getElementById("ekkoTextEditor");
+    const canvas = document.getElementById("editorCanvas");
 
-    if (oldInput) oldInput.remove();
+    const rect = canvas.getBoundingClientRect();
 
-    const input = document.createElement("textarea");
+    const area = document.createElement("textarea");
 
-    input.id = "ekkoTextEditor";
+    area.id = "ekko-text-editor";
 
-    input.value = textItem.content;
+    area.value = textItem.content;
 
-input.focus();
+    area.style.position = "absolute";
+    area.style.left = rect.left + textItem.position.x - 5 + "px";
+    area.style.top = rect.top + textItem.position.y - textItem.fontSize + "px";
 
-input.setSelectionRange(
-    input.value.length,
-    input.value.length
-);
+    area.style.fontFamily = textItem.fontFamily;
+    area.style.fontSize = textItem.fontSize + "px";
 
-    document.body.appendChild(input);
+    area.style.padding = "0";
+    area.style.margin = "0";
+    area.style.border = "none";
+    area.style.background = "transparent";
+    area.style.outline = "none";
+    area.style.resize = "none";
+    area.style.overflow = "hidden";
 
-    const pos = paper.view.projectToView(textItem.position);
+    document.body.appendChild(area);
 
-    input.style.position = "fixed";
+    area.focus();
 
-input.style.left = "-5000px";
+    area.selectionStart = area.value.length;
+    area.selectionEnd = area.value.length;
 
-input.style.top = "-5000px";
+    function finish(save = true){
 
-input.style.width = "1px";
+        if(save){
+            textItem.content = area.value;
+        }
 
-input.style.height = "1px";
-
-input.style.opacity = "0";
-
-input.style.pointerEvents = "none";
-
-input.style.resize = "none";
-
-input.style.border = "0";
-
-input.style.outline = "0";
-
-input.style.background = "transparent";
-    
-    input.style.fontSize = textItem.fontSize + "px";
-
-    input.style.fontFamily = textItem.fontFamily;
-
-    input.style.zIndex = 99999;
-
-    input.focus();
-
-    input.select();
-
-input.oninput = () => {
-
-    textItem.content = input.value;
-
-    paper.view.update();
-
-};
-    input.onblur = () => {
-
-        textItem.content = input.value;
-
-        input.remove();
+        if(area.parentNode){
+            area.parentNode.removeChild(area);
+        }
 
         paper.view.update();
+    }
 
-    };
+    area.addEventListener("keydown",(e)=>{
+
+        if(e.key==="Enter"){
+            e.preventDefault();
+            finish(true);
+        }
+
+        if(e.key==="Escape"){
+            e.preventDefault();
+            finish(false);
+        }
+
+    });
+
+    area.addEventListener("blur",()=>finish(true),{once:true});
 
 }
