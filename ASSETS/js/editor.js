@@ -769,11 +769,26 @@ function createEditableText(point){
       tolerance: 6
     });
 
-    if (hit && hit.item) {
-  selectItem(hit.item);
-  dragOffset = event.point.subtract(hit.item.position);
+if (hit && hit.item) {
+
+    if (
+        event.event.detail === 2 &&
+        hit.item instanceof paper.PointText
+    ) {
+
+        startTextEditing(hit.item);
+
+        return;
+    }
+
+    selectItem(hit.item);
+
+    dragOffset = event.point.subtract(hit.item.position);
+
 } else {
-  deselectItem();
+
+    deselectItem();
+
 }
   };
 
