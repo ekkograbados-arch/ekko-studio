@@ -35,18 +35,23 @@ export function startTextEditing(textItem) {
     area.selectionStart = area.value.length;
     area.selectionEnd = area.value.length;
 
-    function finish(save = true){
+let closed = false;
 
-        if(save){
-            textItem.content = area.value;
-        }
+function finish(save = true){
 
-        if(area.parentNode){
-            area.parentNode.removeChild(area);
-        }
+    if(closed) return;
+    closed = true;
 
-        paper.view.update();
+    if(save){
+        textItem.content = area.value;
     }
+
+    if(area.parentNode){
+        area.parentNode.removeChild(area);
+    }
+
+    paper.view.update();
+}
 
     area.addEventListener("keydown",(e)=>{
 
