@@ -19,7 +19,6 @@ window.addEventListener("DOMContentLoaded", () => {
     function getSceneKey(product, surface) {
       return `${product.id}__${surface.nombre}`;
     }
-
   const undoStack = [];
   const redoStack = [];
   
@@ -547,14 +546,34 @@ function addImageFromFile(file) {
 
             raster.position = area.center;
 
-selectItem(raster);
 
-if (window.currentMockup) {
-    raster.insertBelow(window.currentMockup);
+
+  if (window.clipMask) {
+
+    const group = new paper.Group([
+        window.clipMask.clone(),
+        raster
+    ]);
+
+    group.clipped = true;
+
+    if (window.currentMockup) {
+        group.insertBelow(window.currentMockup);
+    }
+
+    selectItem(group);
+
+} else {
+
+    selectItem(raster);
+
+    if (window.currentMockup) {
+        raster.insertBelow(window.currentMockup);
+    }
+
 }
 
 paper.view.update();
-
         };
 
     };
