@@ -760,48 +760,63 @@ if (window.currentMockup) {
   let insertTextMode = false;
   const tool = new paper.Tool();
 
+
+
+
+
 tool.onMouseDown = function (event) {
 
     if (insertTextMode) {
 
         insertTextMode = false;
+
         paper.view.element.style.cursor = "default";
 
         createEditableText(event.point);
 
         return;
+
     }
 
     const hit = paper.project.hitTest(event.point, {
+
         fill: true,
         stroke: true,
         segments: true,
         tolerance: 6
+
     });
 
     if (
+
         hit &&
         hit.item &&
         hit.item instanceof paper.PointText &&
         event.event.detail === 2
+
     ) {
+
         startTextEditing(hit.item);
+
         return;
+
     }
 
     if (hit && hit.item) {
 
-if (
-    hit.item.data &&
-    hit.item.data.mockup
-) {
-    deselectItem();
-    return;
-}
+        const item = getSelectableItem(hit.item);
 
-        selectItem(hit.item);
+        if (!item) {
 
-        dragOffset = event.point.subtract(hit.item.position);
+            deselectItem();
+
+            return;
+
+        }
+
+        selectItem(item);
+
+        dragOffset = event.point.subtract(item.position);
 
     } else {
 
@@ -811,12 +826,20 @@ if (
 
 };
   
-  tool.onMouseDrag = function (event) {
-    if (!selectedItem || isLockedItem(selectedItem)) return;
+  
+tool.onMouseDrag = function (event) {
+
+    if (!selectedItem) return;
+
     selectedItem.position = event.point.subtract(dragOffset);
+
     updateSelectionInfo();
+
     paper.view.update();
-  };
+
+};
+
+  
 
 tool.onKeyDown = function (event) {
   const active = document.activeElement;
