@@ -312,7 +312,7 @@ function applySelectedSize() {
 
 function selectItem(item) {
   if (!item) {
-    deselectItem();
+    window.deselectItem();
     return;
   }
 
@@ -346,7 +346,7 @@ function selectItem(item) {
 function loadSurfaceScene(product, surface) {
   const key = getSceneKey(product, surface);
 
-  deselectItem();
+  window.deselectItem();
 
   if (sceneStates[key]) {
       paper.project.clear();
@@ -354,7 +354,7 @@ function loadSurfaceScene(product, surface) {
       paper.project.importJSON(sceneStates[key]);
   
       selectedItem = null;
-      deselectItem();
+      window.deselectItem();
   
       paper.view.update();
       return;
@@ -590,7 +590,7 @@ paper.view.update();
         item.position = canvasBounds.center;
 
         paper.project.activeLayer.addChild(item);
-        selectItem(item);
+        window.selectItem(item);
 
 if (window.currentMockup) {
     item.insertBelow(window.currentMockup);
@@ -684,7 +684,7 @@ function undo() {
   paper.project.clear();
   paper.project.importJSON(state);
 
-  deselectItem();
+  window.deselectItem();
   paper.view.update();
 }
 
@@ -700,7 +700,7 @@ function redo() {
   paper.project.clear();
   paper.project.importJSON(state);
 
-  deselectItem();
+  window.deselectItem();
   paper.view.update();
 }
 
@@ -804,23 +804,23 @@ tool.onMouseDown = function (event) {
 
     if (hit && hit.item) {
 
-        const item = getSelectableItem(hit.item);
+const item = window.getSelectableItem(hit.item);
 
         if (!item) {
 
-            deselectItem();
+            window.deselectItem();
 
             return;
 
         }
 
-        selectItem(item);
+        window.selectItem(item);
 
         dragOffset = event.point.subtract(item.position);
 
     } else {
 
-        deselectItem();
+        window.deselectItem();
 
     }
 
