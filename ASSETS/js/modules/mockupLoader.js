@@ -31,16 +31,19 @@ export function loadMockup(svgPath) {
 
         item.position = canvasBounds.center;
 
-        item.data = item.data || {};
+item.data = {
+    locked: true,
+    label: "Mockup"
+};
 
-        item.data.locked = true;
+window.currentMockup = item;
 
-        item.data.label = "Mockup";
+item.bringToFront();
 
-        item.bringToFront();
+paper.view.update();
 
-        paper.view.update();
 
+        
     });
 
 }
