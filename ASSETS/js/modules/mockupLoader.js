@@ -108,14 +108,23 @@ function buildMask() {
 
 window.clipItem = function(item){
 
-    if(!window.clipMask) return item;
+    if(!window.clipMask){
+
+        return item;
+
+    }
 
     const mask = window.clipMask.clone();
 
-    const group = new paper.Group([
-        mask,
-        item
-    ]);
+    mask.clipMask = true;
+
+    mask.visible = true;
+
+    const group = new paper.Group();
+
+    group.addChild(mask);
+
+    group.addChild(item);
 
     group.clipped = true;
 
