@@ -550,12 +550,23 @@ function addImageFromFile(file) {
 
   if (window.clipMask) {
 
-    const group = new paper.Group([
-        window.clipMask.clone(),
-        raster
-    ]);
+
+const mask = window.clipMask.clone();
+
+mask.locked = true;
+mask.selected = false;
+mask.visible = false;
+
+const group = new paper.Group([
+    mask,
+    raster
+]);
 
     group.clipped = true;
+    group.data = {
+    locked: false,
+    label: "Imagen"
+};
 
     if (window.currentMockup) {
         group.insertBelow(window.currentMockup);
