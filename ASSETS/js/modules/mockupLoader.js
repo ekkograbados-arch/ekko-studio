@@ -54,6 +54,21 @@ function markMockupPaths(item) {
     item.data.locked = true;
     item.data.mockup = true;
 
+    if (
+        item instanceof paper.Path ||
+        item instanceof paper.CompoundPath
+    ) {
+
+        if (!window.grabArea) {
+
+            window.grabArea = item.clone();
+
+            window.grabArea.visible = false;
+
+        }
+
+    }
+
     if (item.children) {
 
         item.children.forEach(child => {
