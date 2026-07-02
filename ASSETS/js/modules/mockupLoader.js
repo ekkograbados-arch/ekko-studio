@@ -39,19 +39,38 @@ markMockupPaths(item);
 createClipMask();
 
         
+function findLargestPath(item){
 
-function createClipMask() {
+    let biggest = null;
 
-    if (!window.grabArea) return;
+    function walk(obj){
 
-    window.clipMask = window.grabArea.clone();
+        if(
+            obj instanceof paper.Path ||
+            obj instanceof paper.CompoundPath
+        ){
 
-    window.clipMask.visible = false;
+            if(
+                !biggest ||
+                obj.area > biggest.area
+            ){
+                biggest = obj;
+            }
 
-    window.clipMask.clipMask = true;
+        }
+
+        if(obj.children){
+            obj.children.forEach(walk);
+        }
+
+    }
+
+    walk(item);
+
+    return biggest;
 
 }
-        
+
         
 
 item.data.label = "Mockup";
@@ -69,35 +88,4 @@ paper.view.update();
 }
 
 
-function markMockupPaths(item) {
 
-    item.data = item.data || {};
-    item.data.locked = true;
-    item.data.mockup = true;
-
-    if (
-        item instanceof paper.Path ||
-        item instanceof paper.CompoundPath
-    ) {
-
-        if (!window.grabArea) {
-
-            window.grabArea = item.clone();
-
-            window.grabArea.visible = false;
-
-        }
-
-    }
-
-    if (item.children) {
-
-        item.children.forEach(child => {
-
-            markMockupPaths(child);
-
-        });
-
-    }
-
-}
