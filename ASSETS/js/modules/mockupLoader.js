@@ -31,6 +31,9 @@ export function loadMockup(svgPath) {
 
         item.position = canvasBounds.center;
 
+
+window.grabArea = null;        
+
 markMockupPaths(item);
 
 item.data.label = "Mockup";
