@@ -352,13 +352,7 @@ function selectItem(item) {
       item.scale(scale);
       item.position = canvasBounds.center;
 
-  // fondo del mockup (lo que NO se graba)
-const fondo = new paper.Path.Rectangle(
-    paper.view.bounds
-);
 
-fondo.fillColor = "#111111";
-fondo.sendToBack();
 
       item.data = item.data || {};
       item.data.locked = true;
