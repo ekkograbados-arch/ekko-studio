@@ -36,6 +36,24 @@ window.grabArea = null;
 
 markMockupPaths(item);
 
+createClipMask();
+
+        
+
+function createClipMask() {
+
+    if (!window.grabArea) return;
+
+    window.clipMask = window.grabArea.clone();
+
+    window.clipMask.visible = false;
+
+    window.clipMask.clipMask = true;
+
+}
+        
+        
+
 item.data.label = "Mockup";
 
 window.currentMockup = item;
