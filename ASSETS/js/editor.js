@@ -548,41 +548,13 @@ function addImageFromFile(file) {
 
 
 
-  if (window.clipMask) {
+const objeto = clipItem(raster);
 
-
-const mask = window.clipMask.clone();
-
-mask.locked = true;
-mask.selected = false;
-mask.visible = false;
-
-const group = new paper.Group([
-    mask,
-    raster
-]);
-
-    group.clipped = true;
-    group.data = {
-    locked: false,
-    label: "Imagen"
-};
-
-    if (window.currentMockup) {
-        group.insertBelow(window.currentMockup);
-    }
-
-    selectItem(group);
-
-} else {
-
-    selectItem(raster);
-
-    if (window.currentMockup) {
-        raster.insertBelow(window.currentMockup);
-    }
-
+if (window.currentMockup) {
+    objeto.insertBelow(window.currentMockup);
 }
+
+selectItem(objeto);
 
 paper.view.update();
         };
