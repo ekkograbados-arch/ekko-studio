@@ -589,6 +589,11 @@ paper.view.update();
 
         paper.project.activeLayer.addChild(item);
         selectItem(item);
+
+if (window.currentMockup) {
+    item.insertBelow(window.currentMockup);
+}
+        
         paper.view.update();
         item.bringToFront();
       });
@@ -740,6 +745,11 @@ function createEditableText(point){
 
     paper.project.activeLayer.addChild(txt);
 
+
+if (window.currentMockup) {
+    txt.insertBelow(window.currentMockup);
+}
+  
     selectItem(txt);
 
     startTextEditing(txt);
