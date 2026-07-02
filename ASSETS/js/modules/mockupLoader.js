@@ -34,6 +34,8 @@ export function loadMockup(svgPath) {
 
 window.grabArea = findLargestPath(item);
 
+window.clipMask = buildMask();
+
 window.currentMockup = item;
 
 item.data = {
@@ -76,6 +78,18 @@ function findLargestPath(item){
 
 }
 
+
+function buildMask() {
+
+    if (!window.grabArea) return null;
+
+    const mask = window.grabArea.clone();
+
+    mask.visible = false;
+
+    return mask;
+
+}        
         
 
 item.data.label = "Mockup";
