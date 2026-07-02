@@ -789,9 +789,13 @@ tool.onMouseDown = function (event) {
 
     if (hit && hit.item) {
 
-        if (hit.item.data && hit.item.data.locked) {
-            return;
-        }
+if (
+    hit.item.data &&
+    hit.item.data.mockup
+) {
+    deselectItem();
+    return;
+}
 
         selectItem(hit.item);
 
@@ -804,6 +808,7 @@ tool.onMouseDown = function (event) {
     }
 
 };
+  
   tool.onMouseDrag = function (event) {
     if (!selectedItem || isLockedItem(selectedItem)) return;
     selectedItem.position = event.point.subtract(dragOffset);
