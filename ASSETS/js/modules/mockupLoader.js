@@ -50,27 +50,47 @@ function collectPaths(item, paths = []) {
 
 function buildCompoundMask(item) {
 
-    const compound = new paper.CompoundPath();
+    const paths = collectPaths(item)
+        .filter(path => path && path.area !== 0)
+        .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
 
-    const paths = collectPaths(item);
+    if (!paths.length) {
+        return null;
+    }
 
-    paths.forEach(path => {
+    let mask = paths[0].clone();
+    mask.applyMatrix = true;
 
-        const clone = path.clone();
+    for (let i = 1; i < paths.length; i++) {
 
-        clone.applyMatrix = true;
+        const hole = paths[i].clone();
+        hole.applyMatrix = true;
 
-        compound.addChild(clone);
+        const center = hole.bounds.center;
 
-    });
+        if (mask.contains(center)) {
+            const nextMask = mask.subtract(hole);
+            mask.remove();
+            hole.remove();
 
-    compound.fillColor = "black";
+            if (nextMask) {
+                mask = nextMask;
+            }
+        } else {
+            hole.remove();
+        }
 
-    compound.visible = false;
+    }
 
-    return compound;
+    mask.fillColor = "black";
+    mask.strokeColor = null;
+    mask.visible = false;
+
+    return mask;
 
 }
+
+
 
 function lockMockup(item) {
 
@@ -154,9 +174,16 @@ export function loadMockup(svgPath) {
 
         lockMockup(item);
 
-        window.grabArea = findLargestPath(item);
 
-        window.clipMask = buildCompoundMask(item);
+
+
+    window.grabArea = buildCompoundMask(item);
+
+window.clipMask = window.grabArea ? window.grabArea.clone() : null;
+
+if (window.clipMask) {
+    window.clipMask.visible = false;
+}
 
         item.bringToFront();
 
