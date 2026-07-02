@@ -31,10 +31,9 @@ export function loadMockup(svgPath) {
 
         item.position = canvasBounds.center;
 
-item.data = {
-    locked: true,
-    label: "Mockup"
-};
+markMockupPaths(item);
+
+item.data.label = "Mockup";
 
 window.currentMockup = item;
 
@@ -45,5 +44,24 @@ paper.view.update();
 
         
     });
+
+}
+
+
+function markMockupPaths(item) {
+
+    item.data = item.data || {};
+    item.data.locked = true;
+    item.data.mockup = true;
+
+    if (item.children) {
+
+        item.children.forEach(child => {
+
+            markMockupPaths(child);
+
+        });
+
+    }
 
 }
