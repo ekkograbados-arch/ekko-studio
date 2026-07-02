@@ -46,7 +46,7 @@ item.data = {
 
 item.bringToFront();
         
-function findLargestPath(item){
+/*function findLargestPath(item){
 
     let biggest = null;
 
@@ -76,9 +76,55 @@ function findLargestPath(item){
 
     return biggest;
 
+}*/
+
+
+
+function collectPaths(item, paths = []){
+
+    if(
+        item instanceof paper.Path ||
+        item instanceof paper.CompoundPath
+    ){
+        paths.push(item);
+    }
+
+    if(item.children){
+        item.children.forEach(child=>{
+            collectPaths(child, paths);
+        });
+    }
+
+    return paths;
+
 }
 
 
+function buildCompoundMask(item){
+
+    const compound = new paper.CompoundPath();
+
+    const paths = collectPaths(item);
+
+    paths.forEach(path=>{
+
+        const clone = path.clone();
+
+        clone.visible = true;
+
+        compound.addChild(clone);
+
+    });
+
+    compound.fillColor = "black";
+
+    compound.remove();
+
+    return compound;
+
+}
+        
+        
 function lockMockup(item){
 
     item.data = item.data || {};
