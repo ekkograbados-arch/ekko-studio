@@ -79,6 +79,20 @@ function findLargestPath(item){
 }
 
 
+function lockMockup(item){
+
+    item.data = item.data || {};
+
+    item.data.mockup = true;
+    item.data.locked = true;
+
+    if(item.children){
+        item.children.forEach(lockMockup);
+    }
+
+}
+        
+
 function buildMask() {
 
     if (!window.grabArea) return null;
@@ -118,6 +132,8 @@ window.clipItem = function(item){
 item.data.label = "Mockup";
 
 window.currentMockup = item;
+
+lockMockup(item);
 
 item.bringToFront();
 
