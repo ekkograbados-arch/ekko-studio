@@ -92,7 +92,7 @@ function buildMask() {
 }        
 
 
-function clipItem(item){
+window.clipItem = function(item){
 
     if(!window.clipMask) return item;
 
