@@ -90,6 +90,29 @@ function buildMask() {
     return mask;
 
 }        
+
+
+export function clipItem(item){
+
+    if(!window.clipMask) return item;
+
+    const mask = window.clipMask.clone();
+
+    const group = new paper.Group([
+        mask,
+        item
+    ]);
+
+    group.clipped = true;
+
+    group.data = {
+        locked:false,
+        label:item.data?.label || "Objeto"
+    };
+
+    return group;
+
+}
         
 
 item.data.label = "Mockup";
