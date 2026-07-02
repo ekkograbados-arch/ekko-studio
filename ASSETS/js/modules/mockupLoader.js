@@ -32,12 +32,17 @@ export function loadMockup(svgPath) {
         item.position = canvasBounds.center;
 
 
-window.grabArea = null;        
+window.grabArea = findLargestPath(item);
 
-markMockupPaths(item);
+window.currentMockup = item;
 
-createClipMask();
+item.data = {
+    locked: true,
+    mockup: true,
+    label: "Mockup"
+};
 
+item.bringToFront();
         
 function findLargestPath(item){
 
