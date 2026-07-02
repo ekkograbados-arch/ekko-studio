@@ -1,4 +1,7 @@
 import { startTextEditing } from "./modules/textEditor.js";
+import { loadMockup } from "./modules/mockupLoader.js";
+
+
 window.addEventListener("DOMContentLoaded", () => {
   paper.setup("editorCanvas");
 
@@ -20,7 +23,7 @@ window.addEventListener("DOMContentLoaded", () => {
   const undoStack = [];
   const redoStack = [];
   
-  let loadToken = 0;
+window.loadToken = 0;
   let selectedItem = null;
   let lastSizeField = "width";
   let dragOffset = new paper.Point(0, 0);
@@ -329,39 +332,7 @@ function selectItem(item) {
   paper.view.update();
 }
 
-  function loadSVG(svgPath) {
-    const token = ++loadToken;
-
-    clearCanvas();
-    
-    paper.project.importSVG(svgPath, (item) => {
-      if (token !== loadToken) {
-        if (item) item.remove();
-        return;
-      }
-
-      if (!item) return;
-
-      const bounds = item.bounds;
-      const canvasBounds = paper.view.bounds;
-
-      const scaleX = (canvasBounds.width * 0.75) / bounds.width;
-      const scaleY = (canvasBounds.height * 0.75) / bounds.height;
-      const scale = Math.min(scaleX, scaleY);
-
-      item.scale(scale);
-      item.position = canvasBounds.center;
-
-
-
-      item.data = item.data || {};
-      item.data.locked = true;
-      item.data.label = "SVG base";
-
-      deselectItem();
-      paper.view.draw();
-    });
-  }
+ 
     
   function saveCurrentScene() {
       if (!toolState.currentProduct) return;
@@ -389,7 +360,7 @@ function loadSurfaceScene(product, surface) {
       paper.view.update();
       return;
   }
-  loadSVG(surface.svg);
+loadMockup(surface.svg);
 }
   
 
