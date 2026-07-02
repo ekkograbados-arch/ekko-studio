@@ -547,9 +547,13 @@ function addImageFromFile(file) {
 
             raster.position = area.center;
 
-            selectItem(raster);
+selectItem(raster);
 
-            paper.view.update();
+if (window.currentMockup) {
+    raster.insertBelow(window.currentMockup);
+}
+
+paper.view.update();
 
         };
 
