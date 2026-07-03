@@ -1,6 +1,39 @@
 window.selectedItem = null;
 window.dragOffset = null;
 
+/* =========================
+   SELECCIÓN DE OBJETO
+========================= */
+
+window.getSelectableItem = function(item){
+
+    if(!item) return null;
+
+    while(item){
+
+        if(item.data){
+
+            if(item.data.mockup) return null;
+
+            if(item.data.clipGroup){
+                return item;
+            }
+        }
+
+        if(item.parent){
+            item = item.parent;
+        }else{
+            break;
+        }
+    }
+
+    return item;
+};
+
+/* =========================
+   SELECT
+========================= */
+
 window.selectItem = function(item){
 
     if(window.selectedItem){
@@ -10,52 +43,23 @@ window.selectItem = function(item){
     window.selectedItem = item;
 
     if(item){
-
-        if(
-            item instanceof paper.Group &&
-            item.clipped
-        ){
-
-            const image = item.children.find(child => !child.clipMask);
-
-            if(image){
-                image.selected = true;
-            }
-
-        }else{
-
-            item.selected = true;
-
-        }
-
+        item.selected = true;
     }
 
     paper.view.update();
-
 };
+
+/* =========================
+   DESELECT
+========================= */
 
 window.deselectItem = function(){
 
     if(window.selectedItem){
-
-        if(window.selectedItem instanceof paper.Group && window.selectedItem.clipped){
-
-            const image = window.selectedItem.children.find(child => !child.clipMask);
-
-            if(image){
-                image.selected = false;
-            }
-
-        }else{
-
-            window.selectedItem.selected = false;
-
-        }
-
+        window.selectedItem.selected = false;
     }
 
     window.selectedItem = null;
 
     paper.view.update();
-
 };
