@@ -42,9 +42,19 @@ window.selectItem = function(item){
 
     window.selectedItem = item;
 
-    if(item){
-        item.selected = true;
+    if(!item){
+        paper.view.update();
+        return;
     }
+
+    // ❌ nunca seleccionar mockup completo
+    if(item.data && item.data.mockup){
+        item.selected = false;
+        paper.view.update();
+        return;
+    }
+
+    item.selected = true;
 
     paper.view.update();
 };
