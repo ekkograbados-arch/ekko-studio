@@ -31,16 +31,29 @@ window.getSelectableItem = function (item) {
 
 };
 
-window.selectItem = function (item) {
+window.selectItem = function(item){
 
-    if (window.selectedItem) {
+    if(window.selectedItem){
         window.selectedItem.selected = false;
     }
 
     window.selectedItem = item;
 
-    if (item) {
-        item.selected = true;
+    if(item){
+
+        if(
+            item instanceof paper.Group &&
+            item.clipped
+        ){
+
+            item.selected = false;
+
+        }else{
+
+            item.selected = true;
+
+        }
+
     }
 
     paper.view.update();
