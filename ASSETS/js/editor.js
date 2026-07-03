@@ -557,12 +557,9 @@ if (window.currentMockup) {
     objeto.insertBelow(window.currentMockup);
 }
 
-if (
-    objeto.firstChild &&
-    objeto.firstChild.clipMask
-) {
-    objeto.firstChild.selected = false;
-}
+window.selectItem(objeto);
+
+paper.view.update();
 
 window.selectItem(objeto);
 
