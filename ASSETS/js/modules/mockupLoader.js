@@ -1,37 +1,29 @@
 export function findLargestPath(item) {
-
     let biggest = null;
 
     function walk(obj) {
-
         if (
             obj instanceof paper.Path ||
             obj instanceof paper.CompoundPath
         ) {
-
             if (
                 !biggest ||
                 Math.abs(obj.area) > Math.abs(biggest.area)
             ) {
                 biggest = obj;
             }
-
         }
 
         if (obj.children) {
             obj.children.forEach(walk);
         }
-
     }
 
     walk(item);
-
     return biggest;
-
 }
 
 function collectPaths(item, paths = []) {
-
     if (
         item instanceof paper.Path ||
         item instanceof paper.CompoundPath
@@ -44,19 +36,14 @@ function collectPaths(item, paths = []) {
     }
 
     return paths;
-
 }
 
-
 function buildCompoundMask(item) {
-
     const paths = collectPaths(item)
-        .filter(path => path && path.area !== 0)
+        .filter(path => path && Math.abs(path.area) > 0)
         .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
 
-    if (!paths.length) {
-        return null;
-    }
+    if (!paths.length) return null;
 
     let mask = paths[0].clone();
     mask.applyMatrix = true;
@@ -66,20 +53,20 @@ function buildCompoundMask(item) {
         const hole = paths[i].clone();
         hole.applyMatrix = true;
 
-        const center = hole.bounds.center;
+        if (mask.contains(hole.bounds.center)) {
 
-        if (mask.contains(center)) {
-            const nextMask = mask.subtract(hole);
+            const result = mask.subtract(hole);
+
             mask.remove();
             hole.remove();
 
-            if (nextMask) {
-                mask = nextMask;
+            if (result) {
+                mask = result;
             }
+
         } else {
             hole.remove();
         }
-
     }
 
     mask.fillColor = "black";
@@ -87,15 +74,11 @@ function buildCompoundMask(item) {
     mask.visible = false;
 
     return mask;
-
 }
-
-
 
 function lockMockup(item) {
 
     item.data = item.data || {};
-
     item.data.locked = true;
     item.data.mockup = true;
 
@@ -105,7 +88,6 @@ function lockMockup(item) {
     if (item.children) {
         item.children.forEach(lockMockup);
     }
-
 }
 
 window.clipItem = function (item) {
@@ -115,27 +97,25 @@ window.clipItem = function (item) {
     }
 
     const mask = window.clipMask.clone();
-
     mask.clipMask = true;
 
-    const group = new paper.Group();
-
-    group.addChild(mask);
-    group.addChild(item);
+    const group = new paper.Group([
+        mask,
+        item
+    ]);
 
     group.clipped = true;
 
     group.data = {
         locked: false,
-        label: item.data?.label || "Objeto",
-        clipGroup: true
+        clipGroup: true,
+        label: item.data?.label || "Objeto"
     };
 
-    // el raster NO debe creer que es el grupo
-    item.parentClip = group;
+    item.data = item.data || {};
+    item.data.parentClip = true;
 
     return group;
-
 };
 
 export function loadMockup(svgPath) {
@@ -144,54 +124,42 @@ export function loadMockup(svgPath) {
 
     paper.project.activeLayer.removeChildren();
 
-    paper.project.importSVG(svgPath, function(item) {
+    paper.project.importSVG(svgPath, function (item) {
 
         if (token !== window.loadToken) {
-
-            if (item) {
-                item.remove();
-            }
-
+            if (item) item.remove();
             return;
-
         }
 
         if (!item) return;
 
-        const bounds = item.bounds;
         const canvas = paper.view.bounds;
+        const bounds = item.bounds;
 
         const scale = Math.min(
-
             (canvas.width * 0.75) / bounds.width,
-
             (canvas.height * 0.75) / bounds.height
-
         );
 
         item.scale(scale);
-
         item.position = canvas.center;
-
-        window.currentMockup = item;
 
         lockMockup(item);
 
+        window.currentMockup = item;
 
+        window.grabArea = buildCompoundMask(item);
 
+        window.clipMask = window.grabArea
+            ? window.grabArea.clone()
+            : null;
 
-    window.grabArea = buildCompoundMask(item);
-
-window.clipMask = window.grabArea ? window.grabArea.clone() : null;
-
-if (window.clipMask) {
-    window.clipMask.visible = false;
-}
+        if (window.clipMask) {
+            window.clipMask.visible = false;
+        }
 
         item.bringToFront();
 
         paper.view.update();
-
     });
-
 }
