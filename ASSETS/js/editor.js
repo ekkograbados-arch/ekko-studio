@@ -26,9 +26,10 @@ window.addEventListener("DOMContentLoaded", () => {
   const redoStack = [];
   
 window.loadToken = 0;
-  let selectedItem = null;
+  window.selectedItem = null;
   let lastSizeField = "width";
-  let dragOffset = new paper.Point(0, 0);
+window.dragOffset = null;
+window.dragging = false;
   let clipboardItem = null;
   const FONTS = [
   {
@@ -767,86 +768,47 @@ if (window.currentMockup) {
   let insertTextMode = false;
   const tool = new paper.Tool();
 
+tool.onMouseDown = function(event){
 
-
-
-
-tool.onMouseDown = function (event) {
-
-    if (insertTextMode) {
-
-        insertTextMode = false;
-
-        paper.view.element.style.cursor = "default";
-
-        createEditableText(event.point);
-
-        return;
-
-    }
-
-    const hit = paper.project.hitTest(event.point, {
-
-        fill: true,
-        stroke: true,
-        segments: true,
-        tolerance: 6
-
+    const hit = paper.project.hitTest(event.point,{
+        fill:true,
+        stroke:true,
+        segments:true,
+        tolerance:6
     });
-
-    if (
-
-        hit &&
-        hit.item &&
-        hit.item instanceof paper.PointText &&
-        event.event.detail === 2
-
-    ) {
-
-        startTextEditing(hit.item);
-
-        return;
-
-    }
-
-    if (hit && hit.item) {
-
-const item = window.getSelectableItem(hit.item);
-
-        if (!item) {
-
-            window.deselectItem();
-
-            return;
-
-        }
-
-        window.selectItem(item);
-
-        dragOffset = event.point.subtract(item.position);
-
-    } else {
-
+    if(!hit){
         window.deselectItem();
-
+        return;
     }
+    let item = window.getSelectableItem(hit.item);
 
+    if(!item){
+        return;
+    }
+    window.selectItem(item);
+    window.dragOffset =
+        event.point.subtract(item.position);
+    window.dragging = true;
 };
-  
-  
-tool.onMouseDrag = function (event) {
-
-    if (!selectedItem) return;
-
-    selectedItem.position = event.point.subtract(dragOffset);
-
-    updateSelectionInfo();
-
+    tool.onMouseDrag = function(event){
+    if(
+        !window.dragging ||
+        !window.selectedItem
+    ){
+        return;
+    }
+    window.selectedItem.position =
+        event.point.subtract(window.dragOffset);
     paper.view.update();
-
 };
 
-  
+tool.onMouseUp = function () {
+    window.dragging = false;
+    if (window.selectedItem) {
+
+        saveHistory();
+    }
+};
 
 tool.onKeyDown = function (event) {
   const active = document.activeElement;
