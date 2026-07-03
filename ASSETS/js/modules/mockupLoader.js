@@ -108,14 +108,13 @@ function lockMockup(item) {
 
 }
 
-window.clipItem = function(item) {
+window.clipItem = function(item){
 
-    if (!window.clipMask) {
+    if(!window.clipMask){
         return item;
     }
 
     const mask = window.clipMask.clone();
-
     mask.clipMask = true;
 
     const group = new paper.Group();
@@ -126,14 +125,16 @@ window.clipItem = function(item) {
     group.clipped = true;
 
     group.data = {
-        locked: false,
-        label: item.data?.label || "Objeto"
+        locked:false,
+        label:item.data?.label || "Objeto",
+        clipGroup:true
     };
 
+    item.data = item.data || {};
+    item.data.parentClip = true;
+
     return group;
-
 };
-
 
 export function loadMockup(svgPath) {
 
