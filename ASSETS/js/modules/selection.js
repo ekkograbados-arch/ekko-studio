@@ -11,43 +11,16 @@ window.selectItem = function(item){
 
     if(item){
 
-        // Si es un grupo recortado, seleccionamos únicamente la imagen
-        if(item instanceof paper.Group && item.clipped){
+        if(
+            item instanceof paper.Group &&
+            item.clipped
+        ){
 
             const image = item.children.find(child => !child.clipMask);
 
             if(image){
                 image.selected = true;
             }
-
-        }else{
-
-            item.selected = true;
-
-        }
-
-    }
-
-    paper.view.update();
-
-};
-
-window.selectItem = function(item){
-
-    if(window.selectedItem){
-        window.selectedItem.selected = false;
-    }
-
-    window.selectedItem = item;
-
-    if(item){
-
-        if(
-            item instanceof paper.Group &&
-            item.clipped
-        ){
-
-            item.selected = false;
 
         }else{
 
