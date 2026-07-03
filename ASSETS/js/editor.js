@@ -552,15 +552,11 @@ function addImageFromFile(file) {
 
 
 
-const objeto = clipItem(raster);
+const objeto = window.clipItem(raster);
 
 if (window.currentMockup) {
     objeto.insertBelow(window.currentMockup);
 }
-
-window.selectItem(objeto);
-
-paper.view.update();
 
 window.selectItem(objeto);
 
@@ -598,7 +594,9 @@ paper.view.update();
         item.position = canvasBounds.center;
 
         paper.project.activeLayer.addChild(item);
-        window.selectItem(item);
+window.selectItem(
+    window.getSelectableItem(item)
+);
 
 if (window.currentMockup) {
     item.insertBelow(window.currentMockup);
@@ -774,42 +772,57 @@ tool.onMouseDown = function(event){
         fill:true,
         stroke:true,
         segments:true,
-        tolerance:6
+        tolerance:8
     });
+
     if(!hit){
+
         window.deselectItem();
         return;
-    }
-    let item = window.getSelectableItem(hit.item);
 
-    if(!item){
-        return;
     }
+
+    const item = window.getSelectableItem(hit.item);
+
+    if(!item) return;
+
     window.selectItem(item);
+
     window.dragOffset =
         event.point.subtract(item.position);
+
     window.dragging = true;
+
 };
-    tool.onMouseDrag = function(event){
+  
+tool.onMouseDrag = function(event){
+
     if(
         !window.dragging ||
         !window.selectedItem
     ){
         return;
     }
+
     window.selectedItem.position =
         event.point.subtract(window.dragOffset);
-    paper.view.update();
-};
 
-tool.onMouseUp = function () {
-    window.dragging = false;
-    if (window.selectedItem) {
+    paper.view.update();
+
+};
+  
+tool.onMouseUp = function(){
+
+    if(window.dragging){
 
         saveHistory();
-    }
-};
 
+    }
+
+    window.dragging = false;
+
+};
+  
 tool.onKeyDown = function (event) {
   const active = document.activeElement;
   const isTyping =
