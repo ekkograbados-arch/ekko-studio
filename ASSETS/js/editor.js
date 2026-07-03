@@ -557,7 +557,14 @@ if (window.currentMockup) {
     objeto.insertBelow(window.currentMockup);
 }
 
-selectItem(objeto);
+if (
+    objeto.firstChild &&
+    objeto.firstChild.clipMask
+) {
+    objeto.firstChild.selected = false;
+}
+
+window.selectItem(objeto);
 
 paper.view.update();
         };
