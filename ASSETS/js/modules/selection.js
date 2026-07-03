@@ -1,30 +1,28 @@
 window.selectedItem = null;
 window.dragOffset = null;
 
-window.getSelectableItem = function (item) {
+window.getSelectableItem = function(item){
 
-    if (!item) return null;
+    if(!item) return null;
 
-    // Si es la máscara del clip, seleccionamos el grupo
-    if (item.clipMask && item.parent) {
-        item = item.parent;
-    }
+    while(item){
 
-    // Si pertenece a un grupo clipado, seleccionamos el grupo
-    if (
-        item.parent &&
-        item.parent instanceof paper.Group &&
-        item.parent.clipped
-    ) {
-        item = item.parent;
-    }
+        if(item.data){
 
-    // Mockups nunca seleccionables
-    if (
-        item.data &&
-        (item.data.mockup || item.data.locked)
-    ) {
-        return null;
+            if(item.data.mockup) return null;
+
+            if(item.data.clipGroup){
+                return item;
+            }
+
+        }
+
+        if(item.parent){
+            item = item.parent;
+        }else{
+            break;
+        }
+
     }
 
     return item;
