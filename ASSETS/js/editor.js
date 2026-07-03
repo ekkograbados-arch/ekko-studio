@@ -782,7 +782,7 @@ tool.onMouseDown = function(event){
 
     }
 
-    const item = window.getSelectableItem(hit.item);
+    const item = window.getSelectableItem(hit.item || hit);
 
     if(!item) return;
 
