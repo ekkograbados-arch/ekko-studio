@@ -29,6 +29,28 @@ function collectPaths(item, paths = []) {
   return paths;
 }
 
+// Verifica si un trazado es el marco rectangular de la mesa de trabajo de LightBurn
+function isWorkspaceFrame(path, rootItem) {
+  if (!path) return false;
+  const pBounds = path.bounds;
+  const rBounds = rootItem.bounds;
+  
+  // Debe cubrir casi el 100% de los límites del SVG importado
+  const wRatio = pBounds.width / rBounds.width;
+  const hRatio = pBounds.height / rBounds.height;
+  if (wRatio < 0.95 || hRatio < 0.95) return false;
+  
+  // Un marco de LightBurn siempre es un rectángulo perfecto.
+  // En un rectángulo, el área geométrica es igual a la multiplicación de su ancho por su alto.
+  const rectArea = pBounds.width * pBounds.height;
+  const areaDifference = Math.abs(Math.abs(path.area) - rectArea);
+  
+  // Si la diferencia de área es menor al 2%, es un rectángulo de enmarque
+  if (areaDifference > (rectArea * 0.02)) return false;
+  
+  return true;
+}
+
 // Genera una máscara booleana restando todos los agujeros internos de la silueta principal
 function buildCompoundMask(item) {
   // Convertimos círculos/rectángulos a paths reales primero
@@ -37,31 +59,20 @@ function buildCompoundMask(item) {
   // Recolectamos todos los trazados
   const allPaths = collectPaths(item);
 
-  // Filtramos los trazados de marco (rectángulos de LightBurn que enmarcan el espacio de trabajo)
+  // Filtramos los trazados ignorando el rectángulo de enmarque de LightBurn
   const paths = allPaths.filter(function(path) {
     if (!path || Math.abs(path.area) <= 0) return false;
-    
-    // Verificamos si es un rectángulo de enmarque del espacio de trabajo
-    const pBounds = path.bounds;
-    const iBounds = item.bounds;
-    const wRatio = pBounds.width / iBounds.width;
-    const hRatio = pBounds.height / iBounds.height;
-    
-    if (wRatio > 0.98 && hRatio > 0.98) {
-      // Es el marco de LightBurn, lo ignoramos para la máscara de recorte
-      return false;
-    }
-    return true;
+    return !isWorkspaceFrame(path, item);
   });
 
-  // Ordenamos de mayor a menor área
+  // Ordenamos de mayor a menor área para identificar la silueta base del producto
   paths.sort(function(a, b) { 
     return Math.abs(b.area) - Math.abs(a.area); 
   });
 
   if (!paths.length) return null;
   
-  // El trazado más grande (sin contar el marco) es nuestra silueta exterior base
+  // El trazado más grande (sin contar el marco de LightBurn) es nuestra silueta exterior base
   const firstPath = paths.slice(0, 1).shift();
   let mask = firstPath.clone();
   mask.applyMatrix = true;
@@ -94,12 +105,7 @@ function buildCompoundMask(item) {
 function makeMockupTransparent(item, rootItem) {
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
     // Si es un rectángulo de enmarque exterior del espacio de trabajo, lo ocultamos para que no confunda
-    const pBounds = item.bounds;
-    const rBounds = rootItem.bounds;
-    const wRatio = pBounds.width / rBounds.width;
-    const hRatio = pBounds.height / rBounds.height;
-    
-    if (wRatio > 0.98 && hRatio > 0.98) {
+    if (isWorkspaceFrame(item, rootItem)) {
       item.visible = false;
       return;
     }
@@ -107,11 +113,14 @@ function makeMockupTransparent(item, rootItem) {
     // Volvemos transparente el fondo para que se pueda ver la foto recortada por debajo
     item.fillColor = null;
     
-    // Si las líneas del contorno original de LightBurn no tienen color, les ponemos un gris de guía
+    // CORREGIDO: Líneas de contorno sólidas, oscuras y bien visibles en lugar de gris punteado claro
     if (!item.strokeColor) {
-      item.strokeColor = new paper.Color('#cccccc');
+      item.strokeColor = new paper.Color('#222222'); // Gris oscuro / Negro nítido para guiar el grabado
       item.strokeWidth = 1.5;
-      item.dashArray = new Array(6, 4);
+    } else {
+      // Si ya tiene color (como las líneas negras de LightBurn), las reforzamos para que se vean perfectas
+      item.strokeColor = new paper.Color('#111111');
+      item.strokeWidth = Math.max(item.strokeWidth, 1.2);
     }
   }
   if (item.children) {
