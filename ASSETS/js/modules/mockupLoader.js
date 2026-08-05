@@ -135,44 +135,47 @@ export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
   
-  // CORREGIDO: Pasamos "expandShapes: true" para expandir círculos/rectángulos nativos automáticamente
-  paper.project.importSVG(svgPath, { expandShapes: true }, function (item) {
-    if (token !== window.loadToken) {
-      if (item) item.remove();
-      return;
+  // CORREGIDO: Pasamos "onLoad" dentro del objeto de opciones para asegurar su ejecución
+  paper.project.importSVG(svgPath, {
+    expandShapes: true,
+    onLoad: function (item) {
+      if (token !== window.loadToken) {
+        if (item) item.remove();
+        return;
+      }
+      if (!item) return;
+
+      const bounds = item.bounds;
+      const canvasBounds = paper.view.bounds;
+      const scaleX = (canvasBounds.width * 0.75) / bounds.width;
+      const scaleY = (canvasBounds.height * 0.75) / bounds.height;
+      const scale = Math.min(scaleX, scaleY);
+      item.scale(scale);
+      item.position = canvasBounds.center;
+
+      const allPaths = collectPaths(item).filter(function(p) { return p && Math.abs(p.area) > 0; });
+      allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
+      
+      let ignoredPath = null;
+      if (shouldIgnoreLargestPath(allPaths, item)) {
+        ignoredPath = allPaths.slice(0, 1).shift();
+      }
+
+      window.grabArea = buildCompoundMask(item, ignoredPath);
+      window.clipMask = window.grabArea ? window.grabArea.clone() : null;
+      if (window.clipMask) {
+        window.clipMask.visible = false;
+      }
+
+      makeMockupTransparent(item, ignoredPath);
+
+      lockMockup(item);
+      window.currentMockup = item;
+      item.data = { locked: true, mockup: true, label: "Mockup" };
+      
+      item.bringToFront();
+      paper.view.update();
     }
-    if (!item) return;
-
-    const bounds = item.bounds;
-    const canvasBounds = paper.view.bounds;
-    const scaleX = (canvasBounds.width * 0.75) / bounds.width;
-    const scaleY = (canvasBounds.height * 0.75) / bounds.height;
-    const scale = Math.min(scaleX, scaleY);
-    item.scale(scale);
-    item.position = canvasBounds.center;
-
-    const allPaths = collectPaths(item).filter(function(p) { return p && Math.abs(p.area) > 0; });
-    allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
-    
-    let ignoredPath = null;
-    if (shouldIgnoreLargestPath(allPaths, item)) {
-      ignoredPath = allPaths.slice(0, 1).shift();
-    }
-
-    window.grabArea = buildCompoundMask(item, ignoredPath);
-    window.clipMask = window.grabArea ? window.grabArea.clone() : null;
-    if (window.clipMask) {
-      window.clipMask.visible = false;
-    }
-
-    makeMockupTransparent(item, ignoredPath);
-
-    lockMockup(item);
-    window.currentMockup = item;
-    item.data = { locked: true, mockup: true, label: "Mockup" };
-    
-    item.bringToFront();
-    paper.view.update();
   });
 }
 
