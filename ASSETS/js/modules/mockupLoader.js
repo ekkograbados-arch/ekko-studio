@@ -82,7 +82,7 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   let mask = firstPath.clone();
   mask.applyMatrix = true;
   
-  // CORREGIDO: "isVirola" ahora solo se activa si el archivo empieza con "virola" o contiene "virola-"
+  // "isVirola" ahora solo se activa si el archivo empieza con "virola" o contiene "virola-"
   const isVirola = svgPath && (
     svgPath.toLowerCase().indexOf('virola-') !== -1 || 
     svgPath.toLowerCase().split('/').pop().indexOf('virola') === 0
@@ -176,6 +176,15 @@ function findLargestPath(item){
   return biggest;
 }
 
+// Habilita applyMatrix de forma recursiva para hornear coordenadas reales
+function enableApplyMatrix(obj) {
+  obj.applyMatrix = true;
+  if (obj.children) {
+    const children = obj.children.slice();
+    children.forEach(enableApplyMatrix);
+  }
+}
+
 export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
@@ -187,7 +196,12 @@ export function loadMockup(svgPath) {
     }
     if (!item) return;
 
+    // Convertimos cualquier círculo o rectángulo básico a trazado vectorial Path
     convertAllShapesToPaths(item);
+
+    // Habilitamos applyMatrix en todo el árbol para forzar a Paper.js a aplicar físicamente
+    // el escalado y posicionamiento en las coordenadas de los trazados, en vez de usar matrices de grupo.
+    enableApplyMatrix(item);
 
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
@@ -205,6 +219,7 @@ export function loadMockup(svgPath) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
 
+    // Pasamos el svgPath para que buildCompoundMask pueda tomar decisiones inteligentes de recorte
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
