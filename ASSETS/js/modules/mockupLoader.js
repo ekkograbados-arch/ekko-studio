@@ -29,43 +29,53 @@ function collectPaths(item, paths = []) {
   return paths;
 }
 
-// Verifica si un trazado es el marco rectangular de la mesa de trabajo de LightBurn
-function isWorkspaceFrame(path, rootItem) {
-  if (!path) return false;
-  const pBounds = path.bounds;
-  const rBounds = rootItem.bounds;
+// Determina si el trazado más grande es un marco de LightBurn o el producto real
+function shouldIgnoreLargestPath(paths) {
+  if (paths.length < 2) return false;
   
-  // Debe cubrir casi el 100% de los límites del SVG importado
-  const wRatio = pBounds.width / rBounds.width;
-  const hRatio = pBounds.height / rBounds.height;
-  if (wRatio < 0.95 || hRatio < 0.95) return false;
+  const firstPath = paths.slice(0, 1).shift();
+  const secondPath = paths.slice(1, 2).shift();
   
-  // Un marco de LightBurn siempre es un rectángulo perfecto.
-  // En un rectángulo, el área geométrica es igual a la multiplicación de su ancho por su alto.
-  const rectArea = pBounds.width * pBounds.height;
-  const areaDifference = Math.abs(Math.abs(path.area) - rectArea);
+  if (!firstPath || !secondPath) return false;
   
-  // Si la diferencia de área es menor al 2%, es un rectángulo de enmarque
-  if (areaDifference > (rectArea * 0.02)) return false;
+  // Verificamos si el primer trazado es un rectángulo
+  const bounds = firstPath.bounds;
+  const rectArea = bounds.width * bounds.height;
+  const areaDiff = Math.abs(Math.abs(firstPath.area) - rectArea);
+  const isRect = areaDiff < (rectArea * 0.03); // Tolerancia de área rectangular del 3%
   
-  return true;
+  if (!isRect) return false;
+  
+  // Comparamos las áreas relativas del primer y segundo trazado
+  const firstArea = Math.abs(firstPath.area);
+  const secondArea = Math.abs(secondPath.area);
+  const areaRatio = secondArea / firstArea;
+  
+  // Si el segundo trazado representa entre el 5% y el 90% del área del rectángulo mayor,
+  // significa que el primero es un marco contenedor y el segundo es el producto real.
+  if (areaRatio > 0.05 && areaRatio < 0.90) {
+    return true;
+  }
+  
+  return false;
 }
 
 // Genera una máscara booleana restando todos los agujeros internos de la silueta principal
-function buildCompoundMask(item) {
+function buildCompoundMask(item, ignoredPath) {
   // Convertimos círculos/rectángulos a paths reales primero
   convertAllShapesToPaths(item);
 
   // Recolectamos todos los trazados
   const allPaths = collectPaths(item);
 
-  // Filtramos los trazados ignorando el rectángulo de enmarque de LightBurn
+  // Filtramos los trazados ignorando el marco de LightBurn si existiera
   const paths = allPaths.filter(function(path) {
     if (!path || Math.abs(path.area) <= 0) return false;
-    return !isWorkspaceFrame(path, item);
+    if (ignoredPath && path === ignoredPath) return false;
+    return true;
   });
 
-  // Ordenamos de mayor a menor área para identificar la silueta base del producto
+  // Ordenamos de mayor a menor área para identificar la silueta base
   paths.sort(function(a, b) { 
     return Math.abs(b.area) - Math.abs(a.area); 
   });
@@ -102,10 +112,10 @@ function buildCompoundMask(item) {
   return mask;
 }
 
-function makeMockupTransparent(item, rootItem) {
+function makeMockupTransparent(item, ignoredPath) {
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
-    // Si es un rectángulo de enmarque exterior del espacio de trabajo, lo ocultamos para que no confunda
-    if (isWorkspaceFrame(item, rootItem)) {
+    // Si es el marco exterior de LightBurn, lo ocultamos por completo
+    if (ignoredPath && item === ignoredPath) {
       item.visible = false;
       return;
     }
@@ -113,7 +123,7 @@ function makeMockupTransparent(item, rootItem) {
     // Volvemos transparente el fondo para que se pueda ver la foto recortada por debajo
     item.fillColor = null;
     
-    // CORREGIDO: Líneas de contorno sólidas, oscuras y bien visibles en lugar de gris punteado claro
+    // Líneas de contorno sólidas, oscuras y bien visibles
     if (!item.strokeColor) {
       item.strokeColor = new paper.Color('#222222'); // Gris oscuro / Negro nítido para guiar el grabado
       item.strokeWidth = 1.5;
@@ -126,7 +136,7 @@ function makeMockupTransparent(item, rootItem) {
   if (item.children) {
     const children = item.children.slice();
     children.forEach(function(child) {
-      makeMockupTransparent(child, rootItem);
+      makeMockupTransparent(child, ignoredPath);
     });
   }
 }
@@ -142,22 +152,6 @@ function lockMockup(item) {
   }
 }
 
-function findLargestPath(item){
-  let biggest = null;
-  function walk(obj){
-    if( obj instanceof paper.Path || obj instanceof paper.CompoundPath ){
-      if( !biggest || Math.abs(obj.area) > Math.abs(biggest.area) ){
-        biggest = obj;
-      }
-    }
-    if(obj.children){
-      obj.children.forEach(walk);
-    }
-  }
-  walk(item);
-  return biggest;
-}
-
 export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
@@ -168,7 +162,10 @@ export function loadMockup(svgPath) {
     }
     if (!item) return;
 
-    // 1. Escalamos y centramos el mockup importado en la pantalla
+    // Convertimos cualquier círculo o rectángulo básico a trazado vectorial Path en caliente
+    convertAllShapesToPaths(item);
+
+    // Escalamos y centramos el mockup importado en la pantalla
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
     const scaleX = (canvasBounds.width * 0.75) / bounds.width;
@@ -177,17 +174,26 @@ export function loadMockup(svgPath) {
     item.scale(scale);
     item.position = canvasBounds.center;
 
-    // 2. Calculamos la máscara compuesta (Silueta base MENOS todos los agujeros/detalles)
-    window.grabArea = buildCompoundMask(item);
+    // Detectamos si el SVG contiene un marco contenedor gigante que debamos ignorar
+    const allPaths = collectPaths(item).filter(function(p) { return p && Math.abs(p.area) > 0; });
+    allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
+    
+    let ignoredPath = null;
+    if (shouldIgnoreLargestPath(allPaths)) {
+      ignoredPath = allPaths.slice(0, 1).shift();
+    }
+
+    // Calculamos la máscara compuesta (Silueta base MENOS todos los agujeros/detalles)
+    window.grabArea = buildCompoundMask(item, ignoredPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
 
-    // 3. Volvemos transparente el relleno de las líneas originales para ver la foto detrás
-    makeMockupTransparent(item, item);
+    // Volvemos transparente el relleno de las líneas originales para ver la foto detrás
+    makeMockupTransparent(item, ignoredPath);
 
-    // 4. Bloqueamos la plantilla de fondo para que actúe de guía fija
+    // Bloqueamos la plantilla de fondo para que actúe de guía fija
     lockMockup(item);
     window.currentMockup = item;
     item.data = { locked: true, mockup: true, label: "Mockup" };
@@ -212,4 +218,3 @@ window.clipItem = function(item) {
   group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : "Objeto" };
   return group;
 }
-
