@@ -35,9 +35,10 @@ function shouldIgnoreLargestPath(paths, rootItem) {
     const secondArea = Math.abs(secondPath.area);
     const areaRatio = secondArea / firstArea;
     
-    // Y el segundo trazado (el producto real) representa menos del 90% del tamaño total,
-    // significa que el primer trazado es un marco de trabajo de LightBurn.
-    if (areaRatio < 0.90) {
+    // CORREGIDO: Bajamos el límite a 0.50. Si el segundo trazado (el producto)
+    // representa menos de la mitad del área del rectángulo mayor, el primero es un marco.
+    // Si representa más (como el borde decorativo de una medalla militar), el primero es el contorno real.
+    if (areaRatio < 0.50) {
       return true;
     }
   }
@@ -61,27 +62,30 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   if (!paths.length) return null;
   
   const firstPath = paths.slice(0, 1).shift();
+  
+  // CORREGIDO: Clonamos y aplicamos la matriz global del mockup para posicionar la máscara con precisión absoluta
   let mask = firstPath.clone();
+  mask.transform(firstPath.globalMatrix);
   mask.applyMatrix = true;
   
   // Detectamos si el producto es una virola (anillo) mediante el nombre del SVG
   const isVirola = svgPath && svgPath.toLowerCase().indexOf('virola') !== -1;
-  const baseArea = Math.abs(firstPath.area);
+  const baseArea = Math.abs(mask.area);
   
   const remainingPaths = paths.slice(1);
   remainingPaths.forEach(function(path) {
     const hole = path.clone();
+    // Aplicamos la matriz global al agujero también para que coincida exactamente con la máscara
+    hole.transform(path.globalMatrix);
     hole.applyMatrix = true;
     
-    // Si el trazado está contenido dentro del límite de la silueta base
     if (mask.bounds.contains(hole.bounds.center)) {
-      const holeArea = Math.abs(path.area);
+      const holeArea = Math.abs(hole.area);
       const areaRatio = holeArea / baseArea;
       
       // REGLA INTELIGENTE:
       // 1. Si es una virola, siempre restamos el círculo central (agujero grande) para formar el anillo.
-      // 2. Para otros productos, solo restamos si es un agujero real (área menor al 15% de la silueta base, como el ojal del llavero o la huella).
-      //    Si es mayor al 15%, es una línea guía interna o borde de grabado, por lo que NO la restamos de la máscara de edición.
+      // 2. Para otros productos, solo restamos si es un agujero real (área menor al 15% de la silueta base).
       if (isVirola || areaRatio < 0.15) {
         const subtractedResult = mask.subtract(hole);
         if (subtractedResult) {
