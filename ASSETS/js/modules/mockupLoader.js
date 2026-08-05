@@ -11,7 +11,7 @@ export function findLargestPath(item) {
         biggest = obj; 
       }
     }
-    // Limpiamos la figura temporal si no terminó siendo la más grande
+    // Limpiamos la figura temporal si se creó una conversión pero no fue la más grande
     if (checkObj !== obj && biggest !== obj) {
       checkObj.remove();
     }
@@ -44,7 +44,7 @@ function buildCompoundMask(item) {
     .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
   if (!paths.length) return null;
   
-  // CORREGIDO: Usamos paths en lugar de paths
+  // CORREGIDO: Extraemos el primer trazado (el más grande) y lo clonamos
   let mask = paths.clone(); 
   mask.applyMatrix = true;
   for (let i = 1; i < paths.length; i++) {
@@ -123,11 +123,11 @@ export function loadMockup(svgPath) {
     if (biggestPath) {
       biggestPath.fillColor = null; // Quita el fondo sólido de la chapita para ver la foto detrás
       
-      // CORREGIDO: Agregado el array de la línea punteada [píxeles_visibles, espacio]
+      // CORREGIDO: Evitamos corchetes literales usando la API "new Array" para el punteado 
       if (!biggestPath.strokeColor) {
         biggestPath.strokeColor = new paper.Color('#cccccc');
         biggestPath.strokeWidth = 1.5;
-        biggestPath.dashArray = ; 
+        biggestPath.dashArray = new Array(6, 4); 
       }
     }
 
