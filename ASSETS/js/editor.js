@@ -219,7 +219,7 @@ function alignSelected(mode) {
 
   
 
-  // 3. Centrar contenido de imagen dentro de su marco físico
+// 3. Centrar contenido de imagen de forma absoluta en el centro del marco físico
 function centerSelected(mode) {
     if (!selectedItem) return;
     if (isLockedItem(selectedItem)) return;
@@ -229,19 +229,25 @@ function centerSelected(mode) {
         const mask = selectedItem.children.find(c => c.clipMask);
         const content = selectedItem.children.find(c => !c.clipMask);
         if (mask && content) {
-            if (mode === "horizontal") content.position.x = mask.position.x;
-            if (mode === "vertical") content.position.y = mask.position.y;
-            if (mode === "both") content.position = mask.position.clone();
+            const maskCenter = mask.bounds.center;
+            let newX = content.bounds.center.x;
+            let newY = content.bounds.center.y;
+            if (mode === "horizontal" || mode === "both") newX = maskCenter.x;
+            if (mode === "vertical" || mode === "both") newY = maskCenter.y;
+            content.bounds.center = new paper.Point(newX, newY);
         }
     } else {
         const center = paper.view.bounds.center;
-        if (mode === "horizontal") selectedItem.position.x = center.x;
-        if (mode === "vertical") selectedItem.position.y = center.y;
-        if (mode === "both") selectedItem.position = center.clone();
+        let newX = selectedItem.bounds.center.x;
+        let newY = selectedItem.bounds.center.y;
+        if (mode === "horizontal" || mode === "both") newX = center.x;
+        if (mode === "vertical" || mode === "both") newY = center.y;
+        selectedItem.bounds.center = new paper.Point(newX, newY);
     }
     updateSelectionInfo();
     paper.view.update();
 }
+
 
   
 function rotateSelected(angle) {
@@ -786,7 +792,8 @@ if (window.currentMockup) {
 let insertTextMode = false;
 const tool = new paper.Tool();
 
-  tool.onMouseDown = function(event){
+// 1. Detección de clics utilizando coordenadas globales absolutas
+tool.onMouseDown = function(event){
     const hit = paper.project.hitTest(event.point, { 
         fill: true, 
         stroke: true, 
@@ -796,7 +803,7 @@ const tool = new paper.Tool();
             let temp = hitResult.item;
             while (temp) {
                 if (temp.data && temp.data.mockup) {
-                    return false; // El clic ignora el mockup físico
+                    return false; // El clic ignora el mockup físico de la chapita
                 }
                 temp = temp.parent;
             }
@@ -813,21 +820,22 @@ const tool = new paper.Tool();
     if(!item) return;
     window.selectItem(item);
     
-    // Si es un grupo de recorte, calculamos el arrastre sobre la imagen de adentro
+    // CORREGIDO: Usamos bounds.center para obtener coordenadas absolutas de pantalla
     if (item.data && item.data.clipGroup) {
         const contentItem = item.children.find(c => !c.clipMask);
         if (contentItem) {
-            window.dragOffset = event.point.subtract(contentItem.position);
+            window.dragOffset = event.point.subtract(contentItem.bounds.center);
         } else {
-            window.dragOffset = event.point.subtract(item.position);
+            window.dragOffset = event.point.subtract(item.bounds.center);
         }
     } else {
-        window.dragOffset = event.point.subtract(item.position);
+        window.dragOffset = event.point.subtract(item.bounds.center);
     }
     window.dragging = true;
 };
 
-// 2. Arrastre aislado (Mueve la imagen interna, no la máscara de recorte)
+
+// 2. Arrastre usando coordenadas absolutas (Evita que el objeto se congele)
 tool.onMouseDrag = function(event){
     if( !window.dragging || !window.selectedItem ){
         return;
@@ -836,10 +844,10 @@ tool.onMouseDrag = function(event){
     if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
         const contentItem = window.selectedItem.children.find(c => !c.clipMask);
         if (contentItem) {
-            contentItem.position = event.point.subtract(window.dragOffset);
+            contentItem.bounds.center = event.point.subtract(window.dragOffset);
         }
     } else {
-        window.selectedItem.position = event.point.subtract(window.dragOffset);
+        window.selectedItem.bounds.center = event.point.subtract(window.dragOffset);
     }
     paper.view.update();
 };
