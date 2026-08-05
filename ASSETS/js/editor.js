@@ -2,7 +2,7 @@
 
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
-import { loadMockup } from "./modules/mockupLoader.js";
+import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -369,22 +369,23 @@ function selectItem(item) {
     }
     
 function loadSurfaceScene(product, surface) {
-  const key = getSceneKey(product, surface);
-
-  window.deselectItem();
-
-  if (sceneStates[key]) {
-      paper.project.clear();
-  
-      paper.project.importJSON(sceneStates[key]);
-  
-      selectedItem = null;
-      window.deselectItem();
-  
-      paper.view.update();
-      return;
-  }
-loadMockup(surface.svg);
+    const key = getSceneKey(product, surface);
+    window.deselectItem();
+    if (sceneStates[key]) {
+        paper.project.clear();
+        paper.project.importJSON(sceneStates[key]);
+        selectedItem = null;
+        window.deselectItem();
+        
+        // CORREGIDO: Avisamos al cargador que restablezca la máscara del producto recuperado de memoria
+        if (typeof restoreMockupReferences === "function") {
+            restoreMockupReferences();
+        }
+        
+        paper.view.update();
+        return;
+    }
+    loadMockup(surface.svg);
 }
   
 
@@ -673,31 +674,31 @@ if (window.currentMockup) {
       renderSurfaces(selectedProduct);
     }
 
-  function renderSurfaces(product) {
+ function renderSurfacesOnly(product) {
     ui.surfaceTabs.innerHTML = "";
-
     product.superficies.forEach((surface, index) => {
-      const btn = document.createElement("button");
-      btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
-      btn.textContent = surface.nombre;
-      btn.onclick = () => {
-        saveCurrentScene();
-        toolState.currentSurface = index;
-        renderSurfaces(product);
-        loadSurfaceScene(product, surface);
-        ui.selectionInfo.textContent = `Seleccionado: ${product.nombre} / ${surface.nombre}`;
-      };
-
-      ui.surfaceTabs.appendChild(btn);
+        const btn = document.createElement("button");
+        btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
+        btn.textContent = surface.nombre;
+        btn.onclick = () => {
+            saveCurrentScene();
+            toolState.currentSurface = index;
+            renderSurfacesOnly(product);
+            loadSurfaceScene(product, surface);
+            ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + surface.nombre;
+        };
+        ui.surfaceTabs.appendChild(btn);
     });
+}
 
-      const firstSurface = product.superficies[toolState.currentSurface] || product.superficies[0];
-      if (firstSurface) {
+function renderSurfaces(product) {
+    renderSurfacesOnly(product);
+    const firstSurface = product.superficies[toolState.currentSurface] || product.superficies;
+    if (firstSurface) {
         loadSurfaceScene(product, firstSurface);
-        ui.selectionInfo.textContent =
-          `Seleccionado: ${product.nombre} / ${firstSurface.nombre}`;
-      }
-  }
+        ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + firstSurface.nombre;
+    }
+}
 
 function undo() {
   if (undoStack.length === 0) return;
