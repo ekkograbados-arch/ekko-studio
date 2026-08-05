@@ -31,26 +31,42 @@ function collectPaths(item, paths = []) {
 
 // Genera una máscara booleana restando todos los agujeros internos de la silueta principal
 function buildCompoundMask(item) {
-  // Convertimos círculos/rectángulos a paths reales
+  // Convertimos círculos/rectángulos a paths reales primero
   convertAllShapesToPaths(item);
 
-  // Recolectamos todos los trazados y los ordenamos por área de mayor a menor
-  const paths = collectPaths(item)
-    .filter(function(path) { 
-      return path && Math.abs(path.area) > 0; 
-    })
-    .sort(function(a, b) { 
-      return Math.abs(b.area) - Math.abs(a.area); 
-    });
+  // Recolectamos todos los trazados
+  const allPaths = collectPaths(item);
+
+  // Filtramos los trazados de marco (rectángulos de LightBurn que enmarcan el espacio de trabajo)
+  const paths = allPaths.filter(function(path) {
+    if (!path || Math.abs(path.area) <= 0) return false;
+    
+    // Verificamos si es un rectángulo de enmarque del espacio de trabajo
+    const pBounds = path.bounds;
+    const iBounds = item.bounds;
+    const wRatio = pBounds.width / iBounds.width;
+    const hRatio = pBounds.height / iBounds.height;
+    
+    if (wRatio > 0.98 && hRatio > 0.98) {
+      // Es el marco de LightBurn, lo ignoramos para la máscara de recorte
+      return false;
+    }
+    return true;
+  });
+
+  // Ordenamos de mayor a menor área
+  paths.sort(function(a, b) { 
+    return Math.abs(b.area) - Math.abs(a.area); 
+  });
 
   if (!paths.length) return null;
   
-  // El trazado más grande es nuestra silueta exterior base
+  // El trazado más grande (sin contar el marco) es nuestra silueta exterior base
   const firstPath = paths.slice(0, 1).shift();
   let mask = firstPath.clone();
   mask.applyMatrix = true;
   
-  // Todos los trazados más pequeños que estén dentro de la silueta base se restan (creando los agujeros)
+  // Todos los trazados más pequeños que estén contenidos en la silueta base se restan (agujeros)
   const remainingPaths = paths.slice(1);
   remainingPaths.forEach(function(path) {
     const hole = path.clone();
@@ -75,8 +91,19 @@ function buildCompoundMask(item) {
   return mask;
 }
 
-function makeMockupTransparent(item) {
+function makeMockupTransparent(item, rootItem) {
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
+    // Si es un rectángulo de enmarque exterior del espacio de trabajo, lo ocultamos para que no confunda
+    const pBounds = item.bounds;
+    const rBounds = rootItem.bounds;
+    const wRatio = pBounds.width / rBounds.width;
+    const hRatio = pBounds.height / rBounds.height;
+    
+    if (wRatio > 0.98 && hRatio > 0.98) {
+      item.visible = false;
+      return;
+    }
+
     // Volvemos transparente el fondo para que se pueda ver la foto recortada por debajo
     item.fillColor = null;
     
@@ -89,7 +116,9 @@ function makeMockupTransparent(item) {
   }
   if (item.children) {
     const children = item.children.slice();
-    children.forEach(makeMockupTransparent);
+    children.forEach(function(child) {
+      makeMockupTransparent(child, rootItem);
+    });
   }
 }
 
@@ -102,6 +131,22 @@ function lockMockup(item) {
   if (item.children) {
     item.children.forEach(lockMockup);
   }
+}
+
+function findLargestPath(item){
+  let biggest = null;
+  function walk(obj){
+    if( obj instanceof paper.Path || obj instanceof paper.CompoundPath ){
+      if( !biggest || Math.abs(obj.area) > Math.abs(biggest.area) ){
+        biggest = obj;
+      }
+    }
+    if(obj.children){
+      obj.children.forEach(walk);
+    }
+  }
+  walk(item);
+  return biggest;
 }
 
 export function loadMockup(svgPath) {
@@ -131,7 +176,7 @@ export function loadMockup(svgPath) {
     }
 
     // 3. Volvemos transparente el relleno de las líneas originales para ver la foto detrás
-    makeMockupTransparent(item);
+    makeMockupTransparent(item, item);
 
     // 4. Bloqueamos la plantilla de fondo para que actúe de guía fija
     lockMockup(item);
