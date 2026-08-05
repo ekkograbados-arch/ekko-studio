@@ -1,24 +1,3 @@
-function convertAllShapesToPaths(item) {
-  if (!item) return null;
-  if (item instanceof paper.Shape) {
-    const path = item.toPath();
-    path.data = item.data;
-    path.name = item.name;
-    if (item.parent) {
-      item.parent.insertChild(item.index, path);
-      item.remove();
-    }
-    return path;
-  }
-  if (item.children) {
-    const children = item.children.slice();
-    children.forEach(function(child) {
-      convertAllShapesToPaths(child);
-    });
-  }
-  return item;
-}
-
 function collectPaths(item, paths = []) {
   if ( item instanceof paper.Path || item instanceof paper.CompoundPath ) {
     paths.push(item);
@@ -34,6 +13,35 @@ function collectPaths(item, paths = []) {
     });
   }
   return paths;
+}
+
+function shouldIgnoreLargestPath(paths, rootItem) {
+  if (paths.length < 2) return false;
+  
+  const firstPath = paths.slice(0, 1).shift();
+  const secondPath = paths.slice(1, 2).shift();
+  
+  if (!firstPath || !secondPath) return false;
+  
+  const fBounds = firstPath.bounds;
+  const rBounds = rootItem.bounds;
+  
+  const wRatio = fBounds.width / rBounds.width;
+  const hRatio = fBounds.height / rBounds.height;
+  
+  if (wRatio > 0.95 && hRatio > 0.95) {
+    if (isPathRect(firstPath) && !isPathRect(secondPath)) {
+      const firstArea = Math.abs(firstPath.area);
+      const secondArea = Math.abs(secondPath.area);
+      const areaRatio = secondArea / firstArea;
+      
+      if (areaRatio > 0.05) {
+        return true;
+      }
+    }
+  }
+  
+  return false;
 }
 
 function isPathRect(path) {
@@ -55,37 +63,6 @@ function isPathRect(path) {
   return areaDiff < (rectArea * 0.02) && !hasHandles;
 }
 
-function shouldIgnoreLargestPath(paths, rootItem) {
-  if (paths.length < 2) return false;
-  
-  const firstPath = paths.slice(0, 1).shift();
-  const secondPath = paths.slice(1, 2).shift();
-  
-  if (!firstPath || !secondPath) return false;
-  
-  const fBounds = firstPath.bounds;
-  const rBounds = rootItem.bounds;
-  
-  const wRatio = fBounds.width / rBounds.width;
-  const hRatio = fBounds.height / rBounds.height;
-  
-  if (wRatio > 0.95 && hRatio > 0.95) {
-    // Si el primer trazado es un rectángulo perfecto (marco) y el segundo NO lo es (es el producto curvo)
-    if (isPathRect(firstPath) && !isPathRect(secondPath)) {
-      const firstArea = Math.abs(firstPath.area);
-      const secondArea = Math.abs(secondPath.area);
-      const areaRatio = secondArea / firstArea;
-      
-      // Y representa más del 5% del área, es definitivamente una silueta dentro de un marco de LightBurn
-      if (areaRatio > 0.05) {
-        return true;
-      }
-    }
-  }
-  
-  return false;
-}
-
 function buildCompoundMask(item, ignoredPath, svgPath) {
   const allPaths = collectPaths(item);
 
@@ -102,9 +79,6 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   if (!paths.length) return null;
   
   const firstPath = paths.slice(0, 1).shift();
-  
-  // Clonamos el trazado base directamente. Al estar el item ya escalado y posicionado
-  // en pantalla, el clon conserva automáticamente sus coordenadas globales correctas.
   let mask = firstPath.clone();
   mask.applyMatrix = true;
   
@@ -181,6 +155,22 @@ function lockMockup(item) {
   }
 }
 
+function findLargestPath(item){
+  let biggest = null;
+  function walk(obj){
+    if( obj instanceof paper.Path || obj instanceof paper.CompoundPath ){
+      if( !biggest || Math.abs(obj.area) > Math.abs(biggest.area) ){
+        biggest = obj;
+      }
+    }
+    if(obj.children){
+      obj.children.forEach(walk);
+    }
+  }
+  walk(item);
+  return biggest;
+}
+
 export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
@@ -192,7 +182,7 @@ export function loadMockup(svgPath) {
     }
     if (!item) return;
 
-    item = convertAllShapesToPaths(item);
+    convertAllShapesToPaths(item);
 
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
@@ -227,6 +217,26 @@ export function loadMockup(svgPath) {
   });
 }
 
+// RESTAURADOR DE REFERENCIAS GLOBAL
+export function restoreMockupReferences() {
+  const mockupItem = paper.project.activeLayer.children.find(function(c) {
+    return c.data && c.data.mockup;
+  });
+  if (mockupItem) {
+    window.currentMockup = mockupItem;
+    const biggest = findLargestPath(mockupItem);
+    window.grabArea = biggest;
+    window.clipMask = biggest ? biggest.clone() : null;
+    if (window.clipMask) {
+      window.clipMask.visible = false;
+    }
+  } else {
+    window.currentMockup = null;
+    window.grabArea = null;
+    window.clipMask = null;
+  }
+}
+
 window.clipItem = function(item) {
   if (!window.clipMask) {
     return item;
@@ -240,4 +250,22 @@ window.clipItem = function(item) {
   group.clipped = true;
   group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : "Objeto" };
   return group;
+}
+
+function convertAllShapesToPaths(item) {
+  if (!item) return;
+  if (item instanceof paper.Shape) {
+    const path = item.toPath();
+    path.data = item.data;
+    path.name = item.name;
+    if (item.parent) {
+      item.parent.insertChild(item.index, path);
+      item.remove();
+    }
+    return path;
+  }
+  if (item.children) {
+    const children = item.children.slice();
+    children.forEach(convertAllShapesToPaths);
+  }
 }
