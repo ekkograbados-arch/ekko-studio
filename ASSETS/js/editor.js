@@ -127,7 +127,8 @@ window.dragging = false;
     paper.view.update();
   }
 
-  function updateSelectionInfo() {
+ // 4. Mostrar ancho y alto reales de la imagen seleccionada
+function updateSelectionInfo() {
     if (!selectedItem) {
         ui.selectionInfo.textContent = "Nada seleccionado";
         ui.objWidth.value = "";
@@ -135,7 +136,6 @@ window.dragging = false;
         return;
     }
     
-    // Si es un grupo de recorte, mostramos los datos de la imagen interna
     const displayItem = (selectedItem.data && selectedItem.data.clipGroup)
         ? selectedItem.children.find(c => !c.clipMask)
         : selectedItem;
@@ -219,12 +219,12 @@ function alignSelected(mode) {
 
   
 
-  function centerSelected(mode) {
+  // 3. Centrar contenido de imagen dentro de su marco físico
+function centerSelected(mode) {
     if (!selectedItem) return;
     if (isLockedItem(selectedItem)) return;
     saveHistory();
     
-    // Si es un grupo de recorte, centramos la imagen respecto a su máscara
     if (selectedItem.data && selectedItem.data.clipGroup) {
         const mask = selectedItem.children.find(c => c.clipMask);
         const content = selectedItem.children.find(c => !c.clipMask);
@@ -242,6 +242,8 @@ function alignSelected(mode) {
     updateSelectionInfo();
     paper.view.update();
 }
+
+  
 function rotateSelected(angle) {
     if (!selectedItem) return;
     if (isLockedItem(selectedItem)) return;
@@ -783,8 +785,8 @@ if (window.currentMockup) {
   
 let insertTextMode = false;
 const tool = new paper.Tool();
-tool.onMouseDown = function(event){
-    // 1. Filtramos con 'match' para que el clic ignore el mockup y llegue a la imagen
+
+  tool.onMouseDown = function(event){
     const hit = paper.project.hitTest(event.point, { 
         fill: true, 
         stroke: true, 
@@ -794,7 +796,7 @@ tool.onMouseDown = function(event){
             let temp = hitResult.item;
             while (temp) {
                 if (temp.data && temp.data.mockup) {
-                    return false; // Ignora elementos del mockup
+                    return false; // El clic ignora el mockup físico
                 }
                 temp = temp.parent;
             }
@@ -811,7 +813,7 @@ tool.onMouseDown = function(event){
     if(!item) return;
     window.selectItem(item);
     
-    // 2. Si es un grupo de recorte, calculamos el offset respecto a la imagen de adentro
+    // Si es un grupo de recorte, calculamos el arrastre sobre la imagen de adentro
     if (item.data && item.data.clipGroup) {
         const contentItem = item.children.find(c => !c.clipMask);
         if (contentItem) {
@@ -824,13 +826,13 @@ tool.onMouseDown = function(event){
     }
     window.dragging = true;
 };
-  
+
+// 2. Arrastre aislado (Mueve la imagen interna, no la máscara de recorte)
 tool.onMouseDrag = function(event){
     if( !window.dragging || !window.selectedItem ){
         return;
     }
     
-    // Si es un grupo de recorte, movemos únicamente la imagen interna
     if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
         const contentItem = window.selectedItem.children.find(c => !c.clipMask);
         if (contentItem) {
@@ -841,6 +843,7 @@ tool.onMouseDrag = function(event){
     }
     paper.view.update();
 };
+  
   
 tool.onMouseUp = function(){
 
