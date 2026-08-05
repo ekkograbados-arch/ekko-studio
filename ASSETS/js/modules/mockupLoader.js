@@ -1,21 +1,36 @@
-export function findLargestPath(item) {
-  let biggest = null;
-  function walk(obj) {
-    let checkObj = obj;
-    // Convertimos figuras básicas de SVG (como círculos o rectángulos) a Path para medir su área real
-    if (obj instanceof paper.Shape) {
-      checkObj = obj.toPath();
+// Función auxiliar para convertir círculos/rectángulos a trazados reales antes de recortar
+function convertShapesToPaths(item) {
+  if (!item) return;
+  if (item instanceof paper.Shape) {
+    const path = item.toPath();
+    path.data = item.data || {};
+    path.name = item.name;
+    path.fillColor = item.fillColor;
+    path.strokeColor = item.strokeColor;
+    path.strokeWidth = item.strokeWidth;
+    path.dashArray = item.dashArray;
+    if (item.parent) {
+      item.parent.insertChild(item.index, path);
+      item.remove();
     }
-    if ( checkObj instanceof paper.Path || checkObj instanceof paper.CompoundPath ) {
-      if ( !biggest || Math.abs(checkObj.area) > Math.abs(biggest.area) ) {
-        biggest = obj; 
+    return path;
+  }
+  if (item.children) {
+    const children = Array.from(item.children);
+    children.forEach(convertShapesToPaths);
+  }
+  return item;
+}
+
+function findLargestPath(item){
+  let biggest = null;
+  function walk(obj){
+    if( obj instanceof paper.Path || obj instanceof paper.CompoundPath ){
+      if( !biggest || Math.abs(obj.area) > Math.abs(biggest.area) ){
+        biggest = obj;
       }
     }
-    // Limpiamos la figura temporal si se creó una conversión pero no fue la más grande
-    if (checkObj !== obj && biggest !== obj) {
-      checkObj.remove();
-    }
-    if (obj.children) {
+    if(obj.children){
       obj.children.forEach(walk);
     }
   }
@@ -23,35 +38,28 @@ export function findLargestPath(item) {
   return biggest;
 }
 
-function collectPaths(item, paths = []) {
-  if ( item instanceof paper.Path || item instanceof paper.CompoundPath ) {
+function collectPaths(item, paths = []){
+  if( item instanceof paper.Path || item instanceof paper.CompoundPath ){
     paths.push(item);
-  } else if ( item instanceof paper.Shape ) {
-    // Convertimos círculos, rectángulos, elipses, etc. a trazados de Paper.js para poder recortar sobre ellos
-    const converted = item.toPath();
-    converted.visible = false; // Lo mantenemos oculto para que no interfiera en la vista original
-    paths.push(converted);
   }
-  if (item.children) {
-    item.children.forEach(function(child) {
+  if(item.children){
+    item.children.forEach(function(child){
       collectPaths(child, paths);
     });
   }
   return paths;
 }
 
-function buildCompoundMask(item) {
+function buildCompoundMask(item){
   const paths = collectPaths(item)
-    .filter(path => path && Math.abs(path.area) > 0)
-    .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+    .filter(function(path) { return path && Math.abs(path.area) > 0; })
+    .sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
   if (!paths.length) return null;
   
-  // CORREGIDO: Obtenemos el primer elemento sin usar corchetes de array
   const firstPath = paths.slice(0, 1).shift();
-  let mask = firstPath.clone(); 
+  let mask = firstPath.clone();
   mask.applyMatrix = true;
   
-  // CORREGIDO: Iteramos los huecos restantes sin usar índices [i]
   const remainingPaths = paths.slice(1);
   remainingPaths.forEach(function(path) {
     const hole = path.clone();
@@ -67,83 +75,181 @@ function buildCompoundMask(item) {
       hole.remove();
     }
   });
-
   mask.fillColor = "black";
   mask.strokeColor = null;
   mask.visible = false;
   return mask;
 }
 
-function lockMockup(item) {
+function lockMockup(item){
   item.data = item.data || {};
-  item.data.locked = true;
   item.data.mockup = true;
-  item.locked = true;
-  item.selected = false;
-  if (item.children) {
+  item.data.locked = true;
+  if(item.children){
     item.children.forEach(lockMockup);
   }
 }
 
-window.clipItem = function (item) {
-  if (!window.clipMask) {
-    return item;
-  }
-  const mask = window.clipMask.clone();
-  mask.clipMask = true;
-  const group = new paper.Group([ mask, item ]);
-  group.clipped = true;
-  group.data = { locked: false, clipGroup: true, label: item.data?.label || "Objeto" };
-  item.data = item.data || {};
-  item.data.parentClip = true;
-  return group;
-};
-
 export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
-  
-  // CORREGIDO: Pasamos "expandShapes: true" para que Paper.js convierta nativamente círculos/rectángulos a Paths
-  paper.project.importSVG(svgPath, { expandShapes: true }, function (item) {
+  paper.project.importSVG(svgPath, function (item) {
     if (token !== window.loadToken) {
       if (item) item.remove();
       return;
     }
     if (!item) return;
 
-    const canvas = paper.view.bounds;
-    const bounds = item.bounds;
-    const scale = Math.min(
-      (canvas.width * 0.75) / bounds.width,
-      (canvas.height * 0.75) / bounds.height
-    );
-    item.scale(scale);
-    item.position = canvas.center;
+    // Convertimos cualquier círculo o rectángulo básico a trazado vectorial Path
+    convertShapesToPaths(item);
 
-    // 1. Buscamos el área más grande para la máscara de recorte
+    const bounds = item.bounds;
+    const canvasBounds = paper.view.bounds;
+    const scaleX = (canvasBounds.width * 0.75) / bounds.width;
+    const scaleY = (canvasBounds.height * 0.75) / bounds.height;
+    const scale = Math.min(scaleX, scaleY);
+    item.scale(scale);
+    item.position = canvasBounds.center;
+    
+    // Encontrás el área más grande para la máscara de recorte
     window.grabArea = findLargestPath(item);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
 
-    // 2. Buscamos la silueta de fondo del mockup y la volvemos transparente
+    // Volvemos transparente el fondo del producto para ver la foto detrás
     const biggestPath = findLargestPath(item);
     if (biggestPath) {
-      biggestPath.fillColor = null; 
-      
-      // Evitamos corchetes usando la API de instanciación "new Array" para la línea de puntos
+      biggestPath.fillColor = null;
       if (!biggestPath.strokeColor) {
         biggestPath.strokeColor = new paper.Color('#cccccc');
         biggestPath.strokeWidth = 1.5;
-        biggestPath.dashArray = new Array(6, 4); 
+        biggestPath.dashArray = new Array(6, 4);
       }
     }
 
     lockMockup(item);
     window.currentMockup = item;
-
+    item.data = { locked: true, mockup: true, label: "Mockup" };
     item.bringToFront();
     paper.view.update();
   });
+}
+
+window.clipItem = function(item){
+  if(!window.clipMask){
+    return item;
+  }
+  const mask = window.clipMask.clone();
+  mask.clipMask = true;
+  mask.visible = true;
+  const group = new paper.Group();
+  group.addChild(mask);
+  group.addChild(item);
+  group.clipped = true;
+  // Activamos clipGroup: true para que editor.js lo reconozca
+  group.data = { locked: false, clipGroup: true, label: item.data?.label || "Objeto" };
+  return group;
+}
+2️⃣ Reemplaza por completo estas funciones de interacción en tu archivo: ASSETS/js/editor.js
+Este código de interacción está diseñado con alta precisión para permitir seleccionar y arrastrar la foto libremente por debajo de la chapita en coordenadas relativas perfectas:
+// UBICACIÓN: ekko-studio/ASSETS/js/editor.js
+
+// 1. Detección de clics inteligente (Omitir marco del producto)
+tool.onMouseDown = function(event){
+    const hit = paper.project.hitTest(event.point, { 
+        fill: true, 
+        stroke: true, 
+        segments: true, 
+        tolerance: 8,
+        match: function(hitResult) {
+            return !hitResult.item.data || !hitResult.item.data.mockup;
+        }
+    });
+
+    if(!hit){
+        window.deselectItem();
+        return;
+    }
+    
+    const item = window.getSelectableItem(hit.item || hit);
+    if(!item) return;
+    window.selectItem(item);
+    
+    // Si es un grupo de recorte, calculamos el arrastre sobre la imagen de adentro
+    if (item.data && item.data.clipGroup) {
+        const contentItem = item.children.find(function(c) { return !c.clipMask; });
+        if (contentItem) {
+            window.dragOffset = event.point.subtract(contentItem.position);
+        } else {
+            window.dragOffset = event.point.subtract(item.position);
+        }
+    } else {
+        window.dragOffset = event.point.subtract(item.position);
+    }
+    window.dragging = true;
+};
+
+// 2. Arrastre fluido de la imagen interna (La máscara se queda quieta en su lugar)
+tool.onMouseDrag = function(event){
+    if( !window.dragging || !window.selectedItem ){
+        return;
+    }
+    
+    if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+        const contentItem = window.selectedItem.children.find(function(c) { return !c.clipMask; });
+        if (contentItem) {
+            contentItem.position = event.point.subtract(window.dragOffset);
+        }
+    } else {
+        window.selectedItem.position = event.point.subtract(window.dragOffset);
+    }
+    paper.view.update();
+};
+
+// 3. Centrar contenido de imagen respecto a su máscara física
+function centerSelected(mode) {
+    if (!selectedItem) return;
+    if (isLockedItem(selectedItem)) return;
+    saveHistory();
+    
+    if (selectedItem.data && selectedItem.data.clipGroup) {
+        const mask = selectedItem.children.find(function(c) { return c.clipMask; });
+        const content = selectedItem.children.find(function(c) { return !c.clipMask; });
+        if (mask && content) {
+            if (mode === "horizontal") content.position.x = mask.position.x;
+            if (mode === "vertical") content.position.y = mask.position.y;
+            if (mode === "both") content.position = mask.position.clone();
+        }
+    } else {
+        const center = paper.view.bounds.center;
+        if (mode === "horizontal") selectedItem.position.x = center.x;
+        if (mode === "vertical") selectedItem.position.y = center.y;
+        if (mode === "both") selectedItem.position = center.clone();
+    }
+    updateSelectionInfo();
+    paper.view.update();
+}
+
+// 4. Mostrar información de tamaño real de la imagen
+function updateSelectionInfo() {
+    if (!selectedItem) {
+        ui.selectionInfo.textContent = "Nada seleccionado";
+        ui.objWidth.value = "";
+        ui.objHeight.value = "";
+        return;
+    }
+    
+    const displayItem = (selectedItem.data && selectedItem.data.clipGroup)
+        ? selectedItem.children.find(function(c) { return !c.clipMask; })
+        : selectedItem;
+        
+    if (!displayItem) return;
+
+    const w = displayItem.bounds.width.toFixed(1);
+    const h = displayItem.bounds.height.toFixed(1);
+    ui.selectionInfo.textContent = "Seleccionado: " + (displayItem.data && displayItem.data.label ? displayItem.data.label : "Objeto") + " | " + w + " x " + h;
+    ui.objWidth.value = w;
+    ui.objHeight.value = h;
 }
