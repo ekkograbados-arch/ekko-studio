@@ -2,7 +2,7 @@ export function findLargestPath(item) {
   let biggest = null;
   function walk(obj) {
     let checkObj = obj;
-    // Si es una figura geométrica básica de SVG, la convertimos a trazado para medir su área real
+    // Convertimos figuras básicas de SVG (como círculos o rectángulos) a Path para medir su área real
     if (obj instanceof paper.Shape) {
       checkObj = obj.toPath();
     }
@@ -11,7 +11,7 @@ export function findLargestPath(item) {
         biggest = obj; 
       }
     }
-    // Limpiamos la figura temporal si se creó una copia convertido a Path
+    // Limpiamos la figura temporal si no terminó siendo la más grande
     if (checkObj !== obj && biggest !== obj) {
       checkObj.remove();
     }
@@ -43,7 +43,9 @@ function buildCompoundMask(item) {
     .filter(path => path && Math.abs(path.area) > 0)
     .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
   if (!paths.length) return null;
-  let mask = paths.clone();
+  
+  // CORREGIDO: Usamos paths en lugar de paths
+  let mask = paths.clone(); 
   mask.applyMatrix = true;
   for (let i = 1; i < paths.length; i++) {
     const hole = paths[i].clone();
@@ -119,13 +121,13 @@ export function loadMockup(svgPath) {
     // para que no tape la imagen cargada que se inserta por debajo.
     const biggestPath = findLargestPath(item);
     if (biggestPath) {
-      biggestPath.fillColor = null; // Quita el fondo sólido de la chapita
+      biggestPath.fillColor = null; // Quita el fondo sólido de la chapita para ver la foto detrás
       
-      // Si el diseño de la chapita no viene con un contorno, le creamos uno punteado de guía
+      // CORREGIDO: Agregado el array de la línea punteada [píxeles_visibles, espacio]
       if (!biggestPath.strokeColor) {
         biggestPath.strokeColor = new paper.Color('#cccccc');
         biggestPath.strokeWidth = 1.5;
-        biggestPath.dashArray = ;
+        biggestPath.dashArray = ; 
       }
     }
 
