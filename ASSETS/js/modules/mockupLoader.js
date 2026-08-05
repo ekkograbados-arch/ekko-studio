@@ -2,7 +2,7 @@ export function findLargestPath(item) {
   let biggest = null;
   function walk(obj) {
     let checkObj = obj;
-    // Convertimos figuras básicas de SVG (como círculos o rectángulos) a Path para medir su área real
+    // Si es una figura nativa (círculo o rectángulo), la medimos como Path
     if (obj instanceof paper.Shape) {
       checkObj = obj.toPath();
     }
@@ -11,7 +11,7 @@ export function findLargestPath(item) {
         biggest = obj; 
       }
     }
-    // Limpiamos la figura temporal si se creó una conversión pero no fue la más grande
+    // Eliminamos la conversión temporal si no fue la figura más grande
     if (checkObj !== obj && biggest !== obj) {
       checkObj.remove();
     }
@@ -26,16 +26,30 @@ export function findLargestPath(item) {
 function collectPaths(item, paths = []) {
   if ( item instanceof paper.Path || item instanceof paper.CompoundPath ) {
     paths.push(item);
-  } else if ( item instanceof paper.Shape ) {
-    // Convertimos círculos, rectángulos, elipses, etc. a trazados de Paper.js para poder recortar sobre ellos
-    const converted = item.toPath();
-    converted.visible = false; // Lo mantenemos oculto para que no interfiera en la vista original
-    paths.push(converted);
   }
   if (item.children) {
     item.children.forEach(child => collectPaths(child, paths));
   }
   return paths;
+}
+
+// CORREGIDO: Reemplaza círculos y rectángulos nativos del SVG por trazados vectoriales reales en su misma posición jerárquica
+function convertShapesToPaths(item) {
+  if (item instanceof paper.Shape) {
+    const path = item.toPath();
+    path.data = item.data;
+    path.name = item.name;
+    if (item.parent) {
+      item.parent.insertChild(item.index, path);
+      item.remove();
+    }
+    return path;
+  }
+  if (item.children) {
+    const children = Array.from(item.children);
+    children.forEach(convertShapesToPaths);
+  }
+  return item;
 }
 
 function buildCompoundMask(item) {
@@ -44,12 +58,12 @@ function buildCompoundMask(item) {
     .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
   if (!paths.length) return null;
   
-  // CORREGIDO: Desestructuramos el primer elemento (el más grande) de forma segura sin corchetes
-  const [firstPath] = paths;
+  // Extraemos el trazado base de forma segura sin corchetes
+  const firstPath = paths.slice(0, 1).shift();
   let mask = firstPath.clone(); 
   mask.applyMatrix = true;
   
-  // CORREGIDO: Obtenemos el resto de elementos a partir de la posición 1 y los iteramos sin usar variables [i]
+  // Procesamos los huecos e intersecciones de forma limpia e inmune a índices
   const remainingPaths = paths.slice(1);
   remainingPaths.forEach(path => {
     const hole = path.clone();
@@ -106,6 +120,10 @@ export function loadMockup(svgPath) {
       return;
     }
     if (!item) return;
+
+    // 1. Convertimos las figuras básicas en trazados compatibles en caliente
+    convertShapesToPaths(item);
+
     const canvas = paper.view.bounds;
     const bounds = item.bounds;
     const scale = Math.min(
@@ -115,20 +133,18 @@ export function loadMockup(svgPath) {
     item.scale(scale);
     item.position = canvas.center;
 
-    // 1. Creamos la máscara de recorte para las fotos/SVGs que suba el usuario
+    // 2. Creamos la máscara de recorte para las fotos
     window.grabArea = buildCompoundMask(item);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
 
-    // 2. Buscamos la silueta de fondo del mockup y la volvemos transparente
-    // para que no tape la imagen cargada que se inserta por debajo.
+    // 3. Volvemos transparente la silueta para revelar la imagen
     const biggestPath = findLargestPath(item);
     if (biggestPath) {
-      biggestPath.fillColor = null; // Quita el fondo sólido de la chapita para ver la foto detrás
+      biggestPath.fillColor = null; 
       
-      // Evitamos corchetes usando la API "new Array" para la línea de puntos
       if (!biggestPath.strokeColor) {
         biggestPath.strokeColor = new paper.Color('#cccccc');
         biggestPath.strokeWidth = 1.5;
