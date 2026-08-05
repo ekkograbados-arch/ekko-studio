@@ -1,24 +1,10 @@
-function convertAllShapesToPaths(item) {
-  if (!item) return;
-  if (item instanceof paper.Shape) {
-    const path = item.toPath();
-    path.data = item.data;
-    path.name = item.name;
-    if (item.parent) {
-      item.parent.insertChild(item.index, path);
-      item.remove();
-    }
-    return path;
-  }
-  if (item.children) {
-    const children = item.children.slice();
-    children.forEach(convertAllShapesToPaths);
-  }
-}
-
 function collectPaths(item, paths = []) {
   if ( item instanceof paper.Path || item instanceof paper.CompoundPath ) {
     paths.push(item);
+  } else if ( item instanceof paper.Shape ) {
+    const converted = item.toPath();
+    converted.visible = false;
+    paths.push(converted);
   }
   if (item.children) {
     const children = item.children.slice();
@@ -29,8 +15,7 @@ function collectPaths(item, paths = []) {
   return paths;
 }
 
-// Determina si el trazado más grande es un marco de LightBurn o el producto real
-function shouldIgnoreLargestPath(paths) {
+function shouldIgnoreLargestPath(paths, rootItem) {
   if (paths.length < 2) return false;
   
   const firstPath = paths.slice(0, 1).shift();
@@ -38,26 +23,29 @@ function shouldIgnoreLargestPath(paths) {
   
   if (!firstPath || !secondPath) return false;
   
-  const bounds = firstPath.bounds;
-  const rectArea = bounds.width * bounds.height;
-  const areaDiff = Math.abs(Math.abs(firstPath.area) - rectArea);
-  const isRect = areaDiff < (rectArea * 0.03); // Tolerancia de área del 3%
+  const fBounds = firstPath.bounds;
+  const rBounds = rootItem.bounds;
   
-  if (!isRect) return false;
+  const wRatio = fBounds.width / rBounds.width;
+  const hRatio = fBounds.height / rBounds.height;
   
-  const firstArea = Math.abs(firstPath.area);
-  const secondArea = Math.abs(secondPath.area);
-  const areaRatio = secondArea / firstArea;
-  
-  if (areaRatio > 0.05 && areaRatio < 0.90) {
-    return true;
+  // Si el trazado más grande ocupa más del 95% del lienzo total importado
+  if (wRatio > 0.95 && hRatio > 0.95) {
+    const firstArea = Math.abs(firstPath.area);
+    const secondArea = Math.abs(secondPath.area);
+    const areaRatio = secondArea / firstArea;
+    
+    // Y el segundo trazado (el producto real) representa menos del 90% del tamaño total,
+    // significa que el primer trazado es definitivamente un marco contenedor de LightBurn.
+    if (areaRatio < 0.90) {
+      return true;
+    }
   }
   
   return false;
 }
 
 function buildCompoundMask(item, ignoredPath) {
-  convertAllShapesToPaths(item);
   const allPaths = collectPaths(item);
 
   const paths = allPaths.filter(function(path) {
@@ -107,7 +95,7 @@ function makeMockupTransparent(item, ignoredPath) {
     return;
   }
 
-  // ELIMINACIÓN ABSOLUTA DE RELLENOS: Evita que grupos padres pinten de blanco el fondo
+  // Quitamos de forma absoluta cualquier color de relleno para ver la foto detrás
   item.fillColor = null;
   if (item.style) {
     item.style.fillColor = null;
@@ -116,7 +104,7 @@ function makeMockupTransparent(item, ignoredPath) {
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
     // Definimos contornos negros oscuros y muy visibles para guiar el grabado láser
     if (!item.strokeColor) {
-      item.strokeColor = new paper.Color('#222222'); 
+      item.strokeColor = new paper.Color('#111111'); 
       item.strokeWidth = 1.5;
     } else {
       item.strokeColor = new paper.Color('#111111');
@@ -146,14 +134,14 @@ function lockMockup(item) {
 export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
-  paper.project.importSVG(svgPath, function (item) {
+  
+  // CORREGIDO: Pasamos "expandShapes: true" para expandir círculos/rectángulos nativos automáticamente
+  paper.project.importSVG(svgPath, { expandShapes: true }, function (item) {
     if (token !== window.loadToken) {
       if (item) item.remove();
       return;
     }
     if (!item) return;
-
-    convertAllShapesToPaths(item);
 
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
@@ -167,7 +155,7 @@ export function loadMockup(svgPath) {
     allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
     
     let ignoredPath = null;
-    if (shouldIgnoreLargestPath(allPaths)) {
+    if (shouldIgnoreLargestPath(allPaths, item)) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
 
