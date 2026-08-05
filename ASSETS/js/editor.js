@@ -763,36 +763,37 @@ if (window.currentMockup) {
     startTextEditing(txt);
 }
   
-  let insertTextMode = false;
-  const tool = new paper.Tool();
-
+let insertTextMode = false;
+const tool = new paper.Tool();
 tool.onMouseDown = function(event){
-
-    const hit = paper.project.hitTest(event.point,{
-        fill:true,
-        stroke:true,
-        segments:true,
-        tolerance:8
-    });
-
-    if(!hit){
-
-        window.deselectItem();
-        return;
-
+  // Agregamos la propiedad 'match' para filtrar y omitir el mockup en el clic
+  const hit = paper.project.hitTest(event.point, { 
+    fill: true, 
+    stroke: true, 
+    segments: true, 
+    tolerance: 8,
+    match: function(hitResult) {
+      // Recorremos el elemento clickeado hacia arriba en el árbol de capas
+      let temp = hitResult.item;
+      while (temp) {
+        if (temp.data && temp.data.mockup) {
+          return false; // Si pertenece al mockup, lo ignoramos y seguimos buscando atrás
+        }
+        temp = temp.parent;
+      }
+      return true; // Si no es mockup, es un elemento seleccionable (imagen, texto, etc.)
     }
+  });
 
-    const item = window.getSelectableItem(hit.item || hit);
-
-    if(!item) return;
-
-    window.selectItem(item);
-
-    window.dragOffset =
-        event.point.subtract(item.position);
-
-    window.dragging = true;
-
+  if(!hit){
+    window.deselectItem();
+    return;
+  }
+  const item = window.getSelectableItem(hit.item || hit);
+  if(!item) return;
+  window.selectItem(item);
+  window.dragOffset = event.point.subtract(item.position);
+  window.dragging = true;
 };
   
 tool.onMouseDrag = function(event){
