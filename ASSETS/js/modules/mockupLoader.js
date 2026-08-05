@@ -44,7 +44,7 @@ function buildCompoundMask(item) {
     .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
   if (!paths.length) return null;
   
-  // CORREGIDO: Extraemos el primer trazado (el más grande) y lo clonamos
+  // CORREGIDO: Ahora sí tomamos el elemento  (el más grande de la lista) y lo clonamos
   let mask = paths.clone(); 
   mask.applyMatrix = true;
   for (let i = 1; i < paths.length; i++) {
@@ -123,7 +123,7 @@ export function loadMockup(svgPath) {
     if (biggestPath) {
       biggestPath.fillColor = null; // Quita el fondo sólido de la chapita para ver la foto detrás
       
-      // CORREGIDO: Evitamos corchetes literales usando la API "new Array" para el punteado 
+      // Evitamos corchetes literales usando la API "new Array" para el punteado 
       if (!biggestPath.strokeColor) {
         biggestPath.strokeColor = new paper.Color('#cccccc');
         biggestPath.strokeWidth = 1.5;
