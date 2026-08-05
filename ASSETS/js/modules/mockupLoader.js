@@ -44,11 +44,15 @@ function buildCompoundMask(item) {
     .sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
   if (!paths.length) return null;
   
-  // CORREGIDO: Ahora sí tomamos el elemento  (el más grande de la lista) y lo clonamos
-  let mask = paths.clone(); 
+  // CORREGIDO: Desestructuramos el primer elemento (el más grande) de forma segura sin corchetes
+  const [firstPath] = paths;
+  let mask = firstPath.clone(); 
   mask.applyMatrix = true;
-  for (let i = 1; i < paths.length; i++) {
-    const hole = paths[i].clone();
+  
+  // CORREGIDO: Obtenemos el resto de elementos a partir de la posición 1 y los iteramos sin usar variables [i]
+  const remainingPaths = paths.slice(1);
+  remainingPaths.forEach(path => {
+    const hole = path.clone();
     hole.applyMatrix = true;
     if (mask.contains(hole.bounds.center)) {
       const result = mask.subtract(hole);
@@ -60,7 +64,8 @@ function buildCompoundMask(item) {
     } else {
       hole.remove();
     }
-  }
+  });
+
   mask.fillColor = "black";
   mask.strokeColor = null;
   mask.visible = false;
@@ -123,7 +128,7 @@ export function loadMockup(svgPath) {
     if (biggestPath) {
       biggestPath.fillColor = null; // Quita el fondo sólido de la chapita para ver la foto detrás
       
-      // Evitamos corchetes literales usando la API "new Array" para el punteado 
+      // Evitamos corchetes usando la API "new Array" para la línea de puntos
       if (!biggestPath.strokeColor) {
         biggestPath.strokeColor = new paper.Color('#cccccc');
         biggestPath.strokeWidth = 1.5;
