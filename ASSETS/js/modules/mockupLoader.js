@@ -1,21 +1,3 @@
-function convertAllShapesToPaths(item) {
-  if (!item) return;
-  if (item instanceof paper.Shape) {
-    const path = item.toPath();
-    path.data = item.data;
-    path.name = item.name;
-    if (item.parent) {
-      item.parent.insertChild(item.index, path);
-      item.remove();
-    }
-    return path;
-  }
-  if (item.children) {
-    const children = item.children.slice();
-    children.forEach(convertAllShapesToPaths);
-  }
-}
-
 function collectPaths(item, paths = []) {
   if ( item instanceof paper.Path || item instanceof paper.CompoundPath ) {
     paths.push(item);
@@ -63,7 +45,7 @@ function shouldIgnoreLargestPath(paths, rootItem) {
   return false;
 }
 
-function buildCompoundMask(item, ignoredPath) {
+function buildCompoundMask(item, ignoredPath, svgPath) {
   const allPaths = collectPaths(item);
 
   const paths = allPaths.filter(function(path) {
@@ -82,16 +64,30 @@ function buildCompoundMask(item, ignoredPath) {
   let mask = firstPath.clone();
   mask.applyMatrix = true;
   
+  // Detectamos si el producto es una virola (anillo) mediante el nombre del SVG
+  const isVirola = svgPath && svgPath.toLowerCase().indexOf('virola') !== -1;
+  const baseArea = Math.abs(firstPath.area);
+  
   const remainingPaths = paths.slice(1);
   remainingPaths.forEach(function(path) {
     const hole = path.clone();
     hole.applyMatrix = true;
     
+    // Si el trazado está contenido dentro del límite de la silueta base
     if (mask.bounds.contains(hole.bounds.center)) {
-      const subtractedResult = mask.subtract(hole);
-      if (subtractedResult) {
-        mask.remove();
-        mask = subtractedResult;
+      const holeArea = Math.abs(path.area);
+      const areaRatio = holeArea / baseArea;
+      
+      // REGLA INTELIGENTE:
+      // 1. Si es una virola, siempre restamos el círculo central (agujero grande) para formar el anillo.
+      // 2. Para otros productos, solo restamos si es un agujero real (área menor al 15% de la silueta base, como el ojal del llavero o la huella).
+      //    Si es mayor al 15%, es una línea guía interna o borde de grabado, por lo que NO la restamos de la máscara de edición.
+      if (isVirola || areaRatio < 0.15) {
+        const subtractedResult = mask.subtract(hole);
+        if (subtractedResult) {
+          mask.remove();
+          mask = subtractedResult;
+        }
       }
       hole.remove();
     } else {
@@ -153,7 +149,6 @@ export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
   
-  // RESTAURADO: Volvemos a la llamada asíncrona estándar de Paper.js
   paper.project.importSVG(svgPath, function (item) {
     if (token !== window.loadToken) {
       if (item) item.remove();
@@ -180,7 +175,8 @@ export function loadMockup(svgPath) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
 
-    window.grabArea = buildCompoundMask(item, ignoredPath);
+    // Pasamos el svgPath para que buildCompoundMask pueda tomar decisiones inteligentes de recorte
+    window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
@@ -212,3 +208,21 @@ window.clipItem = function(item) {
   return group;
 }
 
+// Función de conversión auxiliar de apoyo
+function convertAllShapesToPaths(item) {
+  if (!item) return;
+  if (item instanceof paper.Shape) {
+    const path = item.toPath();
+    path.data = item.data;
+    path.name = item.name;
+    if (item.parent) {
+      item.parent.insertChild(item.index, path);
+      item.remove();
+    }
+    return path;
+  }
+  if (item.children) {
+    const children = item.children.slice();
+    children.forEach(convertAllShapesToPaths);
+  }
+}
