@@ -127,7 +127,7 @@ window.dragging = false;
     paper.view.update();
   }
 
- // 4. Mostrar ancho y alto reales de la imagen seleccionada
+// 4. Mostrar ancho y alto reales de la imagen seleccionada
 function updateSelectionInfo() {
     if (!selectedItem) {
         ui.selectionInfo.textContent = "Nada seleccionado";
@@ -137,14 +137,14 @@ function updateSelectionInfo() {
     }
     
     const displayItem = (selectedItem.data && selectedItem.data.clipGroup)
-        ? selectedItem.children.find(c => !c.clipMask)
+        ? selectedItem.children.find(function(c) { return !c.clipMask; })
         : selectedItem;
         
     if (!displayItem) return;
 
     const w = displayItem.bounds.width.toFixed(1);
     const h = displayItem.bounds.height.toFixed(1);
-    ui.selectionInfo.textContent = `Seleccionado: ${displayItem.data?.label || "Objeto"} | ${w} x ${h}`;
+    ui.selectionInfo.textContent = "Seleccionado: " + (displayItem.data && displayItem.data.label ? displayItem.data.label : "Objeto") + " | " + w + " x " + h;
     ui.objWidth.value = w;
     ui.objHeight.value = h;
 }
@@ -219,30 +219,25 @@ function alignSelected(mode) {
 
   
 
-// 3. Centrar contenido de imagen de forma absoluta en el centro del marco físico
+// 3. Centrar contenido de imagen respecto a su máscara física
 function centerSelected(mode) {
     if (!selectedItem) return;
     if (isLockedItem(selectedItem)) return;
     saveHistory();
     
     if (selectedItem.data && selectedItem.data.clipGroup) {
-        const mask = selectedItem.children.find(c => c.clipMask);
-        const content = selectedItem.children.find(c => !c.clipMask);
+        const mask = selectedItem.children.find(function(c) { return c.clipMask; });
+        const content = selectedItem.children.find(function(c) { return !c.clipMask; });
         if (mask && content) {
-            const maskCenter = mask.bounds.center;
-            let newX = content.bounds.center.x;
-            let newY = content.bounds.center.y;
-            if (mode === "horizontal" || mode === "both") newX = maskCenter.x;
-            if (mode === "vertical" || mode === "both") newY = maskCenter.y;
-            content.bounds.center = new paper.Point(newX, newY);
+            if (mode === "horizontal") content.position.x = mask.position.x;
+            if (mode === "vertical") content.position.y = mask.position.y;
+            if (mode === "both") content.position = mask.position.clone();
         }
     } else {
         const center = paper.view.bounds.center;
-        let newX = selectedItem.bounds.center.x;
-        let newY = selectedItem.bounds.center.y;
-        if (mode === "horizontal" || mode === "both") newX = center.x;
-        if (mode === "vertical" || mode === "both") newY = center.y;
-        selectedItem.bounds.center = new paper.Point(newX, newY);
+        if (mode === "horizontal") selectedItem.position.x = center.x;
+        if (mode === "vertical") selectedItem.position.y = center.y;
+        if (mode === "both") selectedItem.position = center.clone();
     }
     updateSelectionInfo();
     paper.view.update();
@@ -792,7 +787,7 @@ if (window.currentMockup) {
 let insertTextMode = false;
 const tool = new paper.Tool();
 
-// 1. Detección de clics utilizando coordenadas globales absolutas
+// 1. Detección de clics inteligente (Click-Through para el Mockup)
 tool.onMouseDown = function(event){
     const hit = paper.project.hitTest(event.point, { 
         fill: true, 
@@ -800,14 +795,7 @@ tool.onMouseDown = function(event){
         segments: true, 
         tolerance: 8,
         match: function(hitResult) {
-            let temp = hitResult.item;
-            while (temp) {
-                if (temp.data && temp.data.mockup) {
-                    return false; // El clic ignora el mockup físico de la chapita
-                }
-                temp = temp.parent;
-            }
-            return true;
+            return !hitResult.item.data || !hitResult.item.data.mockup;
         }
     });
 
@@ -820,37 +808,38 @@ tool.onMouseDown = function(event){
     if(!item) return;
     window.selectItem(item);
     
-    // CORREGIDO: Usamos bounds.center para obtener coordenadas absolutas de pantalla
+    // Si es un grupo de recorte, calculamos el arrastre sobre la posición de la imagen interna
     if (item.data && item.data.clipGroup) {
-        const contentItem = item.children.find(c => !c.clipMask);
+        const contentItem = item.children.find(function(c) { return !c.clipMask; });
         if (contentItem) {
-            window.dragOffset = event.point.subtract(contentItem.bounds.center);
+            window.dragOffset = event.point.subtract(contentItem.position);
         } else {
-            window.dragOffset = event.point.subtract(item.bounds.center);
+            window.dragOffset = event.point.subtract(item.position);
         }
     } else {
-        window.dragOffset = event.point.subtract(item.bounds.center);
+        window.dragOffset = event.point.subtract(item.position);
     }
     window.dragging = true;
 };
 
 
-// 2. Arrastre usando coordenadas absolutas (Evita que el objeto se congele)
+// 2. Arrastre fluido de la imagen interna (Usando .position de forma segura)
 tool.onMouseDrag = function(event){
     if( !window.dragging || !window.selectedItem ){
         return;
     }
     
     if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-        const contentItem = window.selectedItem.children.find(c => !c.clipMask);
+        const contentItem = window.selectedItem.children.find(function(c) { return !c.clipMask; });
         if (contentItem) {
-            contentItem.bounds.center = event.point.subtract(window.dragOffset);
+            contentItem.position = event.point.subtract(window.dragOffset);
         }
     } else {
-        window.selectedItem.bounds.center = event.point.subtract(window.dragOffset);
+        window.selectedItem.position = event.point.subtract(window.dragOffset);
     }
     paper.view.update();
 };
+
   
   
 tool.onMouseUp = function(){
