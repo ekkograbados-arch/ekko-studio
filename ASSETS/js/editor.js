@@ -128,20 +128,28 @@ window.dragging = false;
   }
 
   function updateSelectionInfo() {
-  if (!selectedItem) {
-    ui.selectionInfo.textContent = "Nada seleccionado";
-    ui.objWidth.value = "";
-    ui.objHeight.value = "";
-    return;
-  }
+    if (!selectedItem) {
+        ui.selectionInfo.textContent = "Nada seleccionado";
+        ui.objWidth.value = "";
+        ui.objHeight.value = "";
+        return;
+    }
+    
+    // Si es un grupo de recorte, mostramos los datos de la imagen interna
+    const displayItem = (selectedItem.data && selectedItem.data.clipGroup)
+        ? selectedItem.children.find(c => !c.clipMask)
+        : selectedItem;
+        
+    if (!displayItem) return;
 
-  const w = selectedItem.bounds.width.toFixed(1);
-  const h = selectedItem.bounds.height.toFixed(1);
-
-  ui.selectionInfo.textContent = `Seleccionado: ${selectedItem.data?.label || "Objeto"} | ${w} x ${h}`;
-  ui.objWidth.value = w;
-  ui.objHeight.value = h;
+    const w = displayItem.bounds.width.toFixed(1);
+    const h = displayItem.bounds.height.toFixed(1);
+    ui.selectionInfo.textContent = `Seleccionado: ${displayItem.data?.label || "Objeto"} | ${w} x ${h}`;
+    ui.objWidth.value = w;
+    ui.objHeight.value = h;
 }
+
+  
 function updateLockButton() {
   if (!ui.btnToggleLock) return;
 
@@ -167,85 +175,92 @@ function toggleLockSelected() {
 }
 
 function alignSelected(mode) {
-  if (!selectedItem || isLockedItem(selectedItem)) return;
+    if (!selectedItem || isLockedItem(selectedItem)) return;
+    saveHistory();
 
-  const canvasBounds = paper.view.bounds;
-  const itemBounds = selectedItem.bounds.clone();
-  const center = selectedItem.position.clone();
+    // Si es un grupo de recorte, alineamos la imagen dentro del contorno de la máscara
+    if (selectedItem.data && selectedItem.data.clipGroup) {
+        const mask = selectedItem.children.find(c => c.clipMask);
+        const content = selectedItem.children.find(c => !c.clipMask);
+        if (mask && content) {
+            const maskBounds = mask.bounds;
+            const contentBounds = content.bounds.clone();
+            let newX = content.position.x;
+            let newY = content.position.y;
 
-  let newX = center.x;
-  let newY = center.y;
-
-  if (mode === "left") {
-    newX = canvasBounds.left + itemBounds.width / 2;
-  }
-
-  if (mode === "centerH") {
-    newX = canvasBounds.center.x;
-  }
-
-  if (mode === "right") {
-    newX = canvasBounds.right - itemBounds.width / 2;
-  }
-
-  if (mode === "top") {
-    newY = canvasBounds.top + itemBounds.height / 2;
-  }
-
-  if (mode === "centerV") {
-    newY = canvasBounds.center.y;
-  }
-
-  if (mode === "bottom") {
-    newY = canvasBounds.bottom - itemBounds.height / 2;
-  }
-
-  saveHistory();
-  selectedItem.position = new paper.Point(newX, newY);
-  updateSelectionInfo();
-  paper.view.update();
+            if (mode === "left") newX = maskBounds.left + contentBounds.width / 2;
+            if (mode === "centerH") newX = maskBounds.center.x;
+            if (mode === "right") newX = maskBounds.right - contentBounds.width / 2;
+            if (mode === "top") newY = maskBounds.top + contentBounds.height / 2;
+            if (mode === "centerV") newY = maskBounds.center.y;
+            if (mode === "bottom") newY = maskBounds.bottom - contentBounds.height / 2;
+            
+            content.position = new paper.Point(newX, newY);
+        }
+    } else {
+        const canvasBounds = paper.view.bounds;
+        const itemBounds = selectedItem.bounds.clone();
+        const center = selectedItem.position.clone();
+        let newX = center.x;
+        let newY = center.y;
+        
+        if (mode === "left") newX = canvasBounds.left + itemBounds.width / 2;
+        if (mode === "centerH") newX = canvasBounds.center.x;
+        if (mode === "right") newX = canvasBounds.right - itemBounds.width / 2;
+        if (mode === "top") newY = canvasBounds.top + itemBounds.height / 2;
+        if (mode === "centerV") newY = canvasBounds.center.y;
+        if (mode === "bottom") newY = canvasBounds.bottom - itemBounds.height / 2;
+        
+        selectedItem.position = new paper.Point(newX, newY);
+    }
+    updateSelectionInfo();
+    paper.view.update();
 }
+
+  
 
   function centerSelected(mode) {
-
-  if (!selectedItem) return;
-
-  if (isLockedItem(selectedItem)) return;
-
-  const center = paper.view.bounds.center;
-
-  saveHistory();
-
-  if (mode === "horizontal") {
-    selectedItem.position.x = center.x;
-  }
-
-  if (mode === "vertical") {
-    selectedItem.position.y = center.y;
-  }
-
-  if (mode === "both") {
-    selectedItem.position = center.clone();
-  }
-
-  updateSelectionInfo();
-  paper.view.update();
+    if (!selectedItem) return;
+    if (isLockedItem(selectedItem)) return;
+    saveHistory();
+    
+    // Si es un grupo de recorte, centramos la imagen respecto a su máscara
+    if (selectedItem.data && selectedItem.data.clipGroup) {
+        const mask = selectedItem.children.find(c => c.clipMask);
+        const content = selectedItem.children.find(c => !c.clipMask);
+        if (mask && content) {
+            if (mode === "horizontal") content.position.x = mask.position.x;
+            if (mode === "vertical") content.position.y = mask.position.y;
+            if (mode === "both") content.position = mask.position.clone();
+        }
+    } else {
+        const center = paper.view.bounds.center;
+        if (mode === "horizontal") selectedItem.position.x = center.x;
+        if (mode === "vertical") selectedItem.position.y = center.y;
+        if (mode === "both") selectedItem.position = center.clone();
+    }
+    updateSelectionInfo();
+    paper.view.update();
+}
+function rotateSelected(angle) {
+    if (!selectedItem) return;
+    if (isLockedItem(selectedItem)) return;
+    saveHistory();
+    
+    // Rotamos la imagen, pero la máscara de la chapita se mantiene firme
+    if (selectedItem.data && selectedItem.data.clipGroup) {
+        const content = selectedItem.children.find(c => !c.clipMask);
+        if (content) content.rotate(angle);
+    } else {
+        selectedItem.rotate(angle);
+    }
+    updateSelectionInfo();
+    paper.view.update();
 }
 
-  function rotateSelected(angle) {
 
-  if (!selectedItem) return;
 
-  if (isLockedItem(selectedItem)) return;
-
-  saveHistory();
-
-  selectedItem.rotate(angle);
-
-  updateSelectionInfo();
-
-  paper.view.update();
-}
+  
   function applySelectedFont() {
 
   if (!selectedItem) return;
@@ -273,45 +288,48 @@ ui.objHeight.addEventListener("input", () => {
 });
 
 function applySelectedSize() {
-  if (!selectedItem || isLockedItem(selectedItem)) return;
+    if (!selectedItem || isLockedItem(selectedItem)) return;
+    
+    // Escalamos el objeto interno (imagen), no la máscara contenedora
+    const targetItem = (selectedItem.data && selectedItem.data.clipGroup) 
+        ? selectedItem.children.find(c => !c.clipMask) 
+        : selectedItem;
 
-  const currentW = selectedItem.bounds.width;
-  const currentH = selectedItem.bounds.height;
+    if (!targetItem) return;
 
-  if (currentW === 0 || currentH === 0) return;
-
-  let newW = parseFloat(ui.objWidth.value);
-  let newH = parseFloat(ui.objHeight.value);
-
-  if (isNaN(newW) && isNaN(newH)) return;
-
-  const keepRatio = ui.lockRatio.checked;
-  const center = selectedItem.position.clone();
-  const originalRatio = currentW / currentH;
-
-  if (keepRatio) {
-    if (lastSizeField === "width" && !isNaN(newW) && newW > 0) {
-      newH = newW / originalRatio;
-      ui.objHeight.value = newH.toFixed(1);
-    } else if (lastSizeField === "height" && !isNaN(newH) && newH > 0) {
-      newW = newH * originalRatio;
-      ui.objWidth.value = newW.toFixed(1);
+    const currentW = targetItem.bounds.width;
+    const currentH = targetItem.bounds.height;
+    if (currentW === 0 || currentH === 0) return;
+    
+    let newW = parseFloat(ui.objWidth.value);
+    let newH = parseFloat(ui.objHeight.value);
+    if (isNaN(newW) && isNaN(newH)) return;
+    
+    const keepRatio = ui.lockRatio.checked;
+    const center = targetItem.position.clone();
+    const originalRatio = currentW / currentH;
+    
+    if (keepRatio) {
+        if (lastSizeField === "width" && !isNaN(newW) && newW > 0) {
+            newH = newW / originalRatio;
+            ui.objHeight.value = newH.toFixed(1);
+        } else if (lastSizeField === "height" && !isNaN(newH) && newH > 0) {
+            newW = newH * originalRatio;
+            ui.objWidth.value = newW.toFixed(1);
+        } else {
+            return;
+        }
     } else {
-      return;
+        if (isNaN(newW) || isNaN(newH) || newW <= 0 || newH <= 0) return;
     }
-  } else {
-    if (isNaN(newW) || isNaN(newH) || newW <= 0 || newH <= 0) return;
-  }
-
-  const scaleX = newW / currentW;
-  const scaleY = newH / currentH;
-
-
-  saveHistory();
-  selectedItem.scale(scaleX, scaleY);
-  selectedItem.position = center;
-  updateSelectionInfo();
-  paper.view.update();
+    
+    const scaleX = newW / currentW;
+    const scaleY = newH / currentH;
+    saveHistory();
+    targetItem.scale(scaleX, scaleY);
+    targetItem.position = center;
+    updateSelectionInfo();
+    paper.view.update();
 }
 
 function selectItem(item) {
@@ -766,50 +784,62 @@ if (window.currentMockup) {
 let insertTextMode = false;
 const tool = new paper.Tool();
 tool.onMouseDown = function(event){
-  // Agregamos la propiedad 'match' para filtrar y omitir el mockup en el clic
-  const hit = paper.project.hitTest(event.point, { 
-    fill: true, 
-    stroke: true, 
-    segments: true, 
-    tolerance: 8,
-    match: function(hitResult) {
-      // Recorremos el elemento clickeado hacia arriba en el árbol de capas
-      let temp = hitResult.item;
-      while (temp) {
-        if (temp.data && temp.data.mockup) {
-          return false; // Si pertenece al mockup, lo ignoramos y seguimos buscando atrás
+    // 1. Filtramos con 'match' para que el clic ignore el mockup y llegue a la imagen
+    const hit = paper.project.hitTest(event.point, { 
+        fill: true, 
+        stroke: true, 
+        segments: true, 
+        tolerance: 8,
+        match: function(hitResult) {
+            let temp = hitResult.item;
+            while (temp) {
+                if (temp.data && temp.data.mockup) {
+                    return false; // Ignora elementos del mockup
+                }
+                temp = temp.parent;
+            }
+            return true;
         }
-        temp = temp.parent;
-      }
-      return true; // Si no es mockup, es un elemento seleccionable (imagen, texto, etc.)
-    }
-  });
+    });
 
-  if(!hit){
-    window.deselectItem();
-    return;
-  }
-  const item = window.getSelectableItem(hit.item || hit);
-  if(!item) return;
-  window.selectItem(item);
-  window.dragOffset = event.point.subtract(item.position);
-  window.dragging = true;
+    if(!hit){
+        window.deselectItem();
+        return;
+    }
+    
+    const item = window.getSelectableItem(hit.item || hit);
+    if(!item) return;
+    window.selectItem(item);
+    
+    // 2. Si es un grupo de recorte, calculamos el offset respecto a la imagen de adentro
+    if (item.data && item.data.clipGroup) {
+        const contentItem = item.children.find(c => !c.clipMask);
+        if (contentItem) {
+            window.dragOffset = event.point.subtract(contentItem.position);
+        } else {
+            window.dragOffset = event.point.subtract(item.position);
+        }
+    } else {
+        window.dragOffset = event.point.subtract(item.position);
+    }
+    window.dragging = true;
 };
   
 tool.onMouseDrag = function(event){
-
-    if(
-        !window.dragging ||
-        !window.selectedItem
-    ){
+    if( !window.dragging || !window.selectedItem ){
         return;
     }
-
-    window.selectedItem.position =
-        event.point.subtract(window.dragOffset);
-
+    
+    // Si es un grupo de recorte, movemos únicamente la imagen interna
+    if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+        const contentItem = window.selectedItem.children.find(c => !c.clipMask);
+        if (contentItem) {
+            contentItem.position = event.point.subtract(window.dragOffset);
+        }
+    } else {
+        window.selectedItem.position = event.point.subtract(window.dragOffset);
+    }
     paper.view.update();
-
 };
   
 tool.onMouseUp = function(){
