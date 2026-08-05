@@ -63,12 +63,11 @@ function isPathRect(path) {
   return areaDiff < (rectArea * 0.02) && !hasHandles;
 }
 
-function buildCompoundMask(item, ignoredPath, svgPath) {
+function buildCompoundMask(item, svgPath) {
   const allPaths = collectPaths(item);
 
   const paths = allPaths.filter(function(path) {
     if (!path || Math.abs(path.area) <= 0) return false;
-    if (ignoredPath && path === ignoredPath) return false;
     return true;
   });
 
@@ -118,13 +117,8 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   return mask;
 }
 
-function makeMockupTransparent(item, ignoredPath) {
+function makeMockupTransparent(item) {
   if (!item) return;
-
-  if (ignoredPath && item === ignoredPath) {
-    item.visible = false;
-    return;
-  }
 
   item.fillColor = null;
   if (item.style) {
@@ -143,9 +137,7 @@ function makeMockupTransparent(item, ignoredPath) {
 
   if (item.children) {
     const children = item.children.slice();
-    children.forEach(function(child) {
-      makeMockupTransparent(child, ignoredPath);
-    });
+    children.forEach(makeMockupTransparent);
   }
 }
 
@@ -176,12 +168,12 @@ function findLargestPath(item){
   return biggest;
 }
 
-// Habilita applyMatrix de forma recursiva para hornear coordenadas reales
-function enableApplyMatrix(obj) {
+// Banea las matrices acumuladas y graba las coordenadas físicas reales en los vectores
+function bakeTransformations(obj) {
   obj.applyMatrix = true;
   if (obj.children) {
     const children = obj.children.slice();
-    children.forEach(enableApplyMatrix);
+    children.forEach(bakeTransformations);
   }
 }
 
@@ -196,13 +188,10 @@ export function loadMockup(svgPath) {
     }
     if (!item) return;
 
-    // Convertimos cualquier círculo o rectángulo básico a trazado vectorial Path
-    convertAllShapesToPaths(item);
+    // 1. Convertimos figuras nativas a trazados vectoriales compatibles
+    item = convertAllShapesToPaths(item);
 
-    // Habilitamos applyMatrix en todo el árbol para forzar a Paper.js a aplicar físicamente
-    // el escalado y posicionamiento en las coordenadas de los trazados, en vez de usar matrices de grupo.
-    enableApplyMatrix(item);
-
+    // 2. Escalamos y centramos el producto en el lienzo
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
     const scaleX = (canvasBounds.width * 0.75) / bounds.width;
@@ -210,6 +199,9 @@ export function loadMockup(svgPath) {
     const scale = Math.min(scaleX, scaleY);
     item.scale(scale);
     item.position = canvasBounds.center;
+
+    // 3. Horneamos físicamente las coordenadas para que las máscaras coincidan al 100%
+    bakeTransformations(item);
 
     const allPaths = collectPaths(item).filter(function(p) { return p && Math.abs(p.area) > 0; });
     allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
@@ -219,15 +211,17 @@ export function loadMockup(svgPath) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
 
-    // Pasamos el svgPath para que buildCompoundMask pueda tomar decisiones inteligentes de recorte
-    window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
+    // 4. Calculamos la máscara compuesta (Silueta base MENOS agujeros autorizados)
+    window.grabArea = buildCompoundMask(item, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
 
-    makeMockupTransparent(item, ignoredPath);
+    // 5. Volvemos transparente el relleno para ver la foto y reforzamos las líneas de grabado
+    makeMockupTransparent(item);
 
+    // 6. Bloqueamos la plantilla para guiar el grabado de forma fija
     lockMockup(item);
     window.currentMockup = item;
     item.data = { locked: true, mockup: true, label: "Mockup" };
@@ -272,7 +266,7 @@ window.clipItem = function(item) {
 }
 
 function convertAllShapesToPaths(item) {
-  if (!item) return;
+  if (!item) return null;
   if (item instanceof paper.Shape) {
     const path = item.toPath();
     path.data = item.data;
@@ -285,6 +279,9 @@ function convertAllShapesToPaths(item) {
   }
   if (item.children) {
     const children = item.children.slice();
-    children.forEach(convertAllShapesToPaths);
+    children.forEach(function(child) {
+      convertAllShapesToPaths(child);
+    });
   }
+  return item;
 }
