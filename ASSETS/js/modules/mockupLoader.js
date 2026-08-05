@@ -1,3 +1,24 @@
+function convertAllShapesToPaths(item) {
+  if (!item) return null;
+  if (item instanceof paper.Shape) {
+    const path = item.toPath();
+    path.data = item.data;
+    path.name = item.name;
+    if (item.parent) {
+      item.parent.insertChild(item.index, path);
+      item.remove();
+    }
+    return path;
+  }
+  if (item.children) {
+    const children = item.children.slice();
+    children.forEach(function(child) {
+      convertAllShapesToPaths(child);
+    });
+  }
+  return item;
+}
+
 function collectPaths(item, paths = []) {
   if ( item instanceof paper.Path || item instanceof paper.CompoundPath ) {
     paths.push(item);
@@ -15,6 +36,25 @@ function collectPaths(item, paths = []) {
   return paths;
 }
 
+function isPathRect(path) {
+  if (!path) return false;
+  const bounds = path.bounds;
+  if (bounds.width <= 0 || bounds.height <= 0) return false;
+  
+  const rectArea = bounds.width * bounds.height;
+  const pathArea = Math.abs(path.area);
+  const areaDiff = Math.abs(pathArea - rectArea);
+  
+  let hasHandles = false;
+  if (path.curves) {
+    hasHandles = path.curves.some(function(c) {
+      return !c.isStraight();
+    });
+  }
+  
+  return areaDiff < (rectArea * 0.02) && !hasHandles;
+}
+
 function shouldIgnoreLargestPath(paths, rootItem) {
   if (paths.length < 2) return false;
   
@@ -29,17 +69,17 @@ function shouldIgnoreLargestPath(paths, rootItem) {
   const wRatio = fBounds.width / rBounds.width;
   const hRatio = fBounds.height / rBounds.height;
   
-  // Si el trazado más grande ocupa más del 95% del lienzo total importado
   if (wRatio > 0.95 && hRatio > 0.95) {
-    const firstArea = Math.abs(firstPath.area);
-    const secondArea = Math.abs(secondPath.area);
-    const areaRatio = secondArea / firstArea;
-    
-    // CORREGIDO: Bajamos el límite a 0.50. Si el segundo trazado (el producto)
-    // representa menos de la mitad del área del rectángulo mayor, el primero es un marco.
-    // Si representa más (como el borde decorativo de una medalla militar), el primero es el contorno real.
-    if (areaRatio < 0.50) {
-      return true;
+    // Si el primer trazado es un rectángulo perfecto (marco) y el segundo NO lo es (es el producto curvo)
+    if (isPathRect(firstPath) && !isPathRect(secondPath)) {
+      const firstArea = Math.abs(firstPath.area);
+      const secondArea = Math.abs(secondPath.area);
+      const areaRatio = secondArea / firstArea;
+      
+      // Y representa más del 5% del área, es definitivamente una silueta dentro de un marco de LightBurn
+      if (areaRatio > 0.05) {
+        return true;
+      }
     }
   }
   
@@ -63,29 +103,23 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   
   const firstPath = paths.slice(0, 1).shift();
   
-  // CORREGIDO: Clonamos y aplicamos la matriz global del mockup para posicionar la máscara con precisión absoluta
+  // Clonamos el trazado base directamente. Al estar el item ya escalado y posicionado
+  // en pantalla, el clon conserva automáticamente sus coordenadas globales correctas.
   let mask = firstPath.clone();
-  mask.transform(firstPath.globalMatrix);
   mask.applyMatrix = true;
   
-  // Detectamos si el producto es una virola (anillo) mediante el nombre del SVG
   const isVirola = svgPath && svgPath.toLowerCase().indexOf('virola') !== -1;
   const baseArea = Math.abs(mask.area);
   
   const remainingPaths = paths.slice(1);
   remainingPaths.forEach(function(path) {
     const hole = path.clone();
-    // Aplicamos la matriz global al agujero también para que coincida exactamente con la máscara
-    hole.transform(path.globalMatrix);
     hole.applyMatrix = true;
     
     if (mask.bounds.contains(hole.bounds.center)) {
       const holeArea = Math.abs(hole.area);
       const areaRatio = holeArea / baseArea;
       
-      // REGLA INTELIGENTE:
-      // 1. Si es una virola, siempre restamos el círculo central (agujero grande) para formar el anillo.
-      // 2. Para otros productos, solo restamos si es un agujero real (área menor al 15% de la silueta base).
       if (isVirola || areaRatio < 0.15) {
         const subtractedResult = mask.subtract(hole);
         if (subtractedResult) {
@@ -113,14 +147,12 @@ function makeMockupTransparent(item, ignoredPath) {
     return;
   }
 
-  // Quitamos de forma absoluta cualquier color de relleno para ver la foto detrás
   item.fillColor = null;
   if (item.style) {
     item.style.fillColor = null;
   }
 
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
-    // Definimos contornos negros oscuros y muy visibles para guiar el grabado láser
     if (!item.strokeColor) {
       item.strokeColor = new paper.Color('#111111'); 
       item.strokeWidth = 1.5;
@@ -160,8 +192,7 @@ export function loadMockup(svgPath) {
     }
     if (!item) return;
 
-    // Convertimos cualquier círculo o rectángulo básico a trazado vectorial Path
-    convertAllShapesToPaths(item);
+    item = convertAllShapesToPaths(item);
 
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
@@ -179,7 +210,6 @@ export function loadMockup(svgPath) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
 
-    // Pasamos el svgPath para que buildCompoundMask pueda tomar decisiones inteligentes de recorte
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
@@ -210,23 +240,4 @@ window.clipItem = function(item) {
   group.clipped = true;
   group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : "Objeto" };
   return group;
-}
-
-// Función de conversión auxiliar de apoyo
-function convertAllShapesToPaths(item) {
-  if (!item) return;
-  if (item instanceof paper.Shape) {
-    const path = item.toPath();
-    path.data = item.data;
-    path.name = item.name;
-    if (item.parent) {
-      item.parent.insertChild(item.index, path);
-      item.remove();
-    }
-    return path;
-  }
-  if (item.children) {
-    const children = item.children.slice();
-    children.forEach(convertAllShapesToPaths);
-  }
 }
