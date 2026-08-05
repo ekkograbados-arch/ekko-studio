@@ -35,7 +35,7 @@ function shouldIgnoreLargestPath(paths, rootItem) {
       const secondArea = Math.abs(secondPath.area);
       const areaRatio = secondArea / firstArea;
       
-      if (areaRatio > 0.05) {
+      if (areaRatio > 0.05 && areaRatio < 0.60) {
         return true;
       }
     }
@@ -82,7 +82,12 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   let mask = firstPath.clone();
   mask.applyMatrix = true;
   
-  const isVirola = svgPath && svgPath.toLowerCase().indexOf('virola') !== -1;
+  // CORREGIDO: "isVirola" ahora solo se activa si el archivo empieza con "virola" o contiene "virola-"
+  const isVirola = svgPath && (
+    svgPath.toLowerCase().indexOf('virola-') !== -1 || 
+    svgPath.toLowerCase().split('/').pop().indexOf('virola') === 0
+  );
+  
   const baseArea = Math.abs(mask.area);
   
   const remainingPaths = paths.slice(1);
@@ -217,7 +222,6 @@ export function loadMockup(svgPath) {
   });
 }
 
-// RESTAURADOR DE REFERENCIAS GLOBAL
 export function restoreMockupReferences() {
   const mockupItem = paper.project.activeLayer.children.find(function(c) {
     return c.data && c.data.mockup;
