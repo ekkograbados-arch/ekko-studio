@@ -311,8 +311,8 @@ window.addEventListener("DOMContentLoaded", () => {
     paper.view.update(); 
   } 
 
-  function saveCurrentScene() { 
-    if (!toolState.currentProduct) return; 
+ function saveCurrentScene() { 
+    if (!toolState.currentProduct || !toolState.currentProduct.superficies) return; 
     const surface = toolState.currentProduct.superficies[toolState.currentSurface]; 
     if (!surface) return; 
     const key = getSceneKey(toolState.currentProduct, surface); 
@@ -500,6 +500,8 @@ window.addEventListener("DOMContentLoaded", () => {
     ui.productTabs.innerHTML = ""; 
     ui.surfaceTabs.innerHTML = ""; 
     const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex]; 
+    
+    // CORRECCIÓN: Agregado  para seleccionar correctamente el objeto y no el array
     const selectedProduct = activeProduct || toolState.currentProduct || group.productos; 
     
     group.productos.forEach((product) => { 
@@ -521,6 +523,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function renderSurfacesOnly(product) {
     ui.surfaceTabs.innerHTML = "";
+    if (!product || !product.superficies) return; // Añadido control de seguridad
+
     product.superficies.forEach((surface, index) => {
       const btn = document.createElement("button");
       btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
