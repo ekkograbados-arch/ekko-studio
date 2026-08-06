@@ -86,13 +86,9 @@ window.addEventListener("DOMContentLoaded", () => {
     return item && item.data && item.data.locked === true; 
   } 
 
-  // UNIFICACIÓN GLOBAL DE DESELECCIÓN
   window.deselectItem = function() { 
     if (window.selectedItem) { 
       window.selectedItem.selected = false; 
-      if (window.selectedItem.children) { 
-        window.selectedItem.children.forEach(function(c) { c.selected = false; }); 
-      } 
       window.selectedItem = null; 
     } 
     if (ui.selectionInfo) ui.selectionInfo.textContent = "Nada seleccionado"; 
@@ -141,7 +137,7 @@ window.addEventListener("DOMContentLoaded", () => {
     paper.view.update(); 
   } 
 
-  // UNIFICACIÓN GLOBAL DE SELECCIÓN (SOLUCIONA EL CONTORNO CELESTE Y NODOS VISIBLES)
+  // RESTAURADA SELECCIÓN CON CONTORNOS Y NODOS CELESTES VISIBLES
   window.selectItem = function(item) { 
     if (!item) { 
       window.deselectItem(); 
@@ -149,30 +145,10 @@ window.addEventListener("DOMContentLoaded", () => {
     } 
     if (window.selectedItem) { 
       window.selectedItem.selected = false; 
-      if (window.selectedItem.children) { 
-        window.selectedItem.children.forEach(function(c) { c.selected = false; }); 
-      } 
     } 
     
     window.selectedItem = item; 
-    
-    // CORRECCIÓN VISUAL DE SELECCIÓN:
-    // Si es un grupo de recorte (clipGroup), NO seleccionamos el grupo completo.
-    // Seleccionar el grupo completo en Paper.js colorea el contorno de la máscara en celeste y muestra sus nodos.
-    // En su lugar, seleccionamos ÚNICAMENTE el elemento de contenido (la foto de fondo) para ver su caja azul limpia.
-    if (item.data && item.data.clipGroup) { 
-      item.selected = false; 
-      const contentItem = item.children.find(function(c) { return !c.clipMask; }); 
-      const maskItem = item.children.find(function(c) { return c.clipMask; }); 
-      if (contentItem) { 
-        contentItem.selected = true; // Solo la foto muestra su caja de edición rectangular
-      } 
-      if (maskItem) { 
-        maskItem.selected = false; // El contorno del producto se mantiene perfectamente limpio sin nodos
-      } 
-    } else { 
-      item.selected = true; 
-    } 
+    item.selected = true; // Activa el dibujo del contorno celeste del producto y sus nodos en pantalla
 
     if (item instanceof paper.PointText) { 
       ui.fontSelector.value = item.fontFamily || ui.fontSelector.value; 
@@ -311,7 +287,7 @@ window.addEventListener("DOMContentLoaded", () => {
     paper.view.update(); 
   } 
 
- function saveCurrentScene() { 
+  function saveCurrentScene() { 
     if (!toolState.currentProduct || !toolState.currentProduct.superficies) return; 
     const idx = toolState.currentSurface || 0;
     const surface = toolState.currentProduct.superficies.slice(idx, idx + 1).shift(); 
@@ -524,7 +500,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function renderSurfacesOnly(product) {
     ui.surfaceTabs.innerHTML = "";
-    if (!product || !product.superficies) return; // Añadido control de seguridad
+    if (!product || !product.superficies) return;
 
     product.superficies.forEach((surface, index) => {
       const btn = document.createElement("button");
@@ -541,7 +517,7 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
- function renderSurfaces(product) { 
+  function renderSurfaces(product) { 
     renderSurfacesOnly(product);
     if (!product || !product.superficies) return;
 
@@ -723,20 +699,23 @@ window.addEventListener("DOMContentLoaded", () => {
     ui.svgPicker.value = ""; 
     ui.svgPicker.click(); 
   }); 
-ui.imagePicker.addEventListener("change", (e) => { 
+
+  ui.imagePicker.addEventListener("change", (e) => { 
     const files = e.target.files;
     if (files && files.length > 0) {
-      addImageFromFile(files.item(0)); 
+      const file = files.item(0);
+      addImageFromFile(file); 
     }
   }); 
 
   ui.svgPicker.addEventListener("change", (e) => { 
     const files = e.target.files;
     if (files && files.length > 0) {
-      addSVGFromFile(files.item(0)); 
+      const file = files.item(0);
+      addSVGFromFile(file); 
     }
   }); 
-  
+
   ui.btnApplySize.addEventListener("click", applySelectedSize); 
   ui.btnToggleLock.addEventListener("click", toggleLockSelected); 
   ui.btnAlignLeft.addEventListener("click", () => alignSelected("left")); 
