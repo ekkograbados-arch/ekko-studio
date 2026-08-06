@@ -1,4 +1,3 @@
-
 function collectPaths(item, paths = []) {
   if ( item instanceof paper.Path || item instanceof paper.CompoundPath ) {
     paths.push(item);
@@ -64,11 +63,12 @@ function isPathRect(path) {
   return areaDiff < (rectArea * 0.02) && !hasHandles;
 }
 
-function buildCompoundMask(item, svgPath) {
+function buildCompoundMask(item, ignoredPath, svgPath) {
   const allPaths = collectPaths(item);
 
   const paths = allPaths.filter(function(path) {
     if (!path || Math.abs(path.area) <= 0) return false;
+    if (ignoredPath && path === ignoredPath) return false;
     return true;
   });
 
@@ -82,7 +82,6 @@ function buildCompoundMask(item, svgPath) {
   let mask = firstPath.clone();
   mask.applyMatrix = true;
   
-  // "isVirola" ahora solo se activa si el archivo empieza con "virola" o contiene "virola-"
   const isVirola = svgPath && (
     svgPath.toLowerCase().indexOf('virola-') !== -1 || 
     svgPath.toLowerCase().split('/').pop().indexOf('virola') === 0
@@ -118,8 +117,13 @@ function buildCompoundMask(item, svgPath) {
   return mask;
 }
 
-function makeMockupTransparent(item) {
+function makeMockupTransparent(item, ignoredPath) {
   if (!item) return;
+
+  if (ignoredPath && item === ignoredPath) {
+    item.visible = false;
+    return;
+  }
 
   item.fillColor = null;
   if (item.style) {
@@ -138,7 +142,9 @@ function makeMockupTransparent(item) {
 
   if (item.children) {
     const children = item.children.slice();
-    children.forEach(makeMockupTransparent);
+    children.forEach(function(child) {
+      makeMockupTransparent(child, ignoredPath);
+    });
   }
 }
 
@@ -169,7 +175,6 @@ function findLargestPath(item){
   return biggest;
 }
 
-// Banea las matrices acumuladas y graba las coordenadas físicas reales en los vectores
 function bakeTransformations(obj) {
   obj.applyMatrix = true;
   if (obj.children) {
@@ -189,10 +194,8 @@ export function loadMockup(svgPath) {
     }
     if (!item) return;
 
-    // 1. Convertimos figuras nativas a trazados vectoriales compatibles
     item = convertAllShapesToPaths(item);
 
-    // 2. Escalamos y centramos el producto en el lienzo
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
     const scaleX = (canvasBounds.width * 0.75) / bounds.width;
@@ -201,7 +204,6 @@ export function loadMockup(svgPath) {
     item.scale(scale);
     item.position = canvasBounds.center;
 
-    // 3. Horneamos físicamente las coordenadas para que las máscaras coincidan al 100%
     bakeTransformations(item);
 
     const allPaths = collectPaths(item).filter(function(p) { return p && Math.abs(p.area) > 0; });
@@ -212,17 +214,15 @@ export function loadMockup(svgPath) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
 
-    // 4. Calculamos la máscara compuesta (Silueta base MENOS agujeros autorizados)
-    window.grabArea = buildCompoundMask(item, svgPath);
+    // CORREGIDO: Pasamos "ignoredPath" correctamente para que buildCompoundMask funcione
+    window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
 
-    // 5. Volvemos transparente el relleno para ver la foto y reforzamos las líneas de grabado
-    makeMockupTransparent(item);
+    makeMockupTransparent(item, ignoredPath);
 
-    // 6. Bloqueamos la plantilla para guiar el grabado de forma fija
     lockMockup(item);
     window.currentMockup = item;
     item.data = { locked: true, mockup: true, label: "Mockup" };
