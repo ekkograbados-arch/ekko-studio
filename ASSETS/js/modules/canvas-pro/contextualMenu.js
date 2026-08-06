@@ -3,9 +3,8 @@ export function initContextualMenu() {
   if (!toolbar) return;
 
   // --- 1. ACCIONES GENERALES ---
-  document.getElementById('btnCtxDelete').onclick = () => {
+  document.getElementById('btnCtxDelete').onclick = function() {
     if (window.selectedItem) {
-      // Bloqueo de seguridad: jamás eliminar el mockup de fondo
       if (window.selectedItem.data?.mockup) return;
       window.selectedItem.remove();
       window.deselectItem();
@@ -13,15 +12,15 @@ export function initContextualMenu() {
     }
   };
 
-  document.getElementById('btnCtxDuplicate').onclick = () => {
+  document.getElementById('btnCtxDuplicate').onclick = function() {
     if (window.selectedItem && !window.selectedItem.data?.locked) {
-      if (window.selectedItem.data?.mockup) return; // No duplicar mockup
+      if (window.selectedItem.data?.mockup) return;
       const clone = window.selectedItem.clone();
       clone.position = clone.position.add(new paper.Point(20, 20));
       clone.data = { ...(clone.data || {}), locked: false };
       
       if (window.selectedItem.data?.clipGroup) {
-        clone.data.label = `${window.selectedItem.data.label || "Objeto"} copia`;
+        clone.data.label = (window.selectedItem.data.label || "Objeto") + " copia";
       }
       
       paper.project.activeLayer.addChild(clone);
@@ -30,19 +29,59 @@ export function initContextualMenu() {
     }
   };
 
-  document.getElementById('btnCtxForward').onclick = () => {
+  // --- BOTONES DE ESCALADO SIMÉTRICO (Canva Style) ---
+  const btnCtxScaleUp = document.getElementById('btnCtxScaleUp');
+  if (btnCtxScaleUp) {
+    btnCtxScaleUp.onclick = function() {
+      if (window.selectedItem && !window.selectedItem.data?.mockup) {
+        // Si es un grupo recortado (clipGroup), escalamos únicamente la imagen interna
+        const target = (window.selectedItem.data?.clipGroup)
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
+          : window.selectedItem;
+        
+        if (target) {
+          // Agrandado simétrico de un 10% tomando su propio centro como pivote
+          target.scale(1.1, 1.1, target.position);
+          window.updateSelectionBox(window.selectedItem);
+          updateContextualMenu(window.selectedItem);
+          paper.view.update();
+        }
+      }
+    };
+  }
+
+  const btnCtxScaleDown = document.getElementById('btnCtxScaleDown');
+  if (btnCtxScaleDown) {
+    btnCtxScaleDown.onclick = function() {
+      if (window.selectedItem && !window.selectedItem.data?.mockup) {
+        // Si es un grupo recortado (clipGroup), escalamos únicamente la imagen interna
+        const target = (window.selectedItem.data?.clipGroup)
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
+          : window.selectedItem;
+        
+        if (target) {
+          // Achicado simétrico de un 10% tomando su propio centro como pivote
+          target.scale(0.9, 0.9, target.position);
+          window.updateSelectionBox(window.selectedItem);
+          updateContextualMenu(window.selectedItem);
+          paper.view.update();
+        }
+      }
+    };
+  }
+
+  document.getElementById('btnCtxForward').onclick = function() {
     if (window.selectedItem) {
-      if (window.selectedItem.data?.mockup) return; // Ignorar si es el mockup
+      if (window.selectedItem.data?.mockup) return;
       window.selectedItem.bringToFront();
       paper.view.update();
     }
   };
 
-  document.getElementById('btnCtxBackward').onclick = () => {
+  document.getElementById('btnCtxBackward').onclick = function() {
     if (window.selectedItem) {
-      if (window.selectedItem.data?.mockup) return; // Ignorar si es el mockup
+      if (window.selectedItem.data?.mockup) return;
       window.selectedItem.sendToBack();
-      // El objeto debe posicionarse siempre debajo de la plantilla física de referencia
       if (window.currentMockup) {
         window.selectedItem.insertBelow(window.currentMockup);
       }
@@ -53,7 +92,7 @@ export function initContextualMenu() {
   // --- 2. ACCIONES DE TEXTO ---
   const fontSelector = document.getElementById('ctxFontSelector');
   if (fontSelector) {
-    fontSelector.onchange = () => {
+    fontSelector.onchange = function() {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         window.selectedItem.fontFamily = fontSelector.value;
         paper.view.update();
@@ -63,12 +102,13 @@ export function initContextualMenu() {
 
   const fontSizeInput = document.getElementById('ctxFontSize');
   if (fontSizeInput) {
-    fontSizeInput.oninput = () => {
+    fontSizeInput.oninput = function() {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         const val = parseFloat(fontSizeInput.value);
         if (val && val > 0) {
           window.selectedItem.fontSize = val;
           paper.view.update();
+          window.updateSelectionBox(window.selectedItem);
           updateContextualMenu(window.selectedItem);
         }
       }
@@ -77,7 +117,7 @@ export function initContextualMenu() {
 
   const btnBold = document.getElementById('btnCtxBold');
   if (btnBold) {
-    btnBold.onclick = () => {
+    btnBold.onclick = function() {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         const isBold = window.selectedItem.fontWeight === 'bold';
         window.selectedItem.fontWeight = isBold ? 'normal' : 'bold';
@@ -88,7 +128,7 @@ export function initContextualMenu() {
 
   const btnItalic = document.getElementById('btnCtxItalic');
   if (btnItalic) {
-    btnItalic.onclick = () => {
+    btnItalic.onclick = function() {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         const isItalic = window.selectedItem.fontStyle === 'italic';
         window.selectedItem.fontStyle = isItalic ? 'normal' : 'italic';
@@ -100,10 +140,10 @@ export function initContextualMenu() {
   // --- 3. ACCIONES DE IMAGEN ---
   const btnFlipH = document.getElementById('btnCtxFlipH');
   if (btnFlipH) {
-    btnFlipH.onclick = () => {
+    btnFlipH.onclick = function() {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(c => !c.clipMask) 
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(-1, 1);
@@ -115,10 +155,10 @@ export function initContextualMenu() {
 
   const btnFlipV = document.getElementById('btnCtxFlipV');
   if (btnFlipV) {
-    btnFlipV.onclick = () => {
+    btnFlipV.onclick = function() {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(c => !c.clipMask) 
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(1, -1);
@@ -130,10 +170,10 @@ export function initContextualMenu() {
 
   const briSlider = document.getElementById('ctxBrightness');
   if (briSlider) {
-    briSlider.oninput = () => {
+    briSlider.oninput = function() {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(c => !c.clipMask) 
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
@@ -145,10 +185,10 @@ export function initContextualMenu() {
 
   const conSlider = document.getElementById('ctxContrast');
   if (conSlider) {
-    conSlider.oninput = () => {
+    conSlider.oninput = function() {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(c => !c.clipMask) 
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
@@ -163,7 +203,6 @@ export function updateContextualMenu(item) {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
 
-  // Si no hay item o es el mockup físico de fondo, se oculta el menú flotante
   if (!item || (item.data && item.data.mockup)) {
     toolbar.classList.remove('active');
     return;
@@ -176,7 +215,7 @@ export function updateContextualMenu(item) {
   document.getElementById('ctxVectorControls').classList.add('hidden');
 
   const target = item.data?.clipGroup 
-    ? item.children.find(c => !c.clipMask) 
+    ? item.children.find(function(c) { return !c.clipMask; }) 
     : item;
 
   if (!target) return;
@@ -218,8 +257,8 @@ export function updateContextualMenu(item) {
   const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
   const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
 
-  toolbar.style.left = `${Math.max(10, Math.min(posX, maxLeft))}px`;
-  toolbar.style.top = `${Math.max(10, Math.min(posY, maxTop))}px`;
+  toolbar.style.left = Math.max(10, Math.min(posX, maxLeft)) + 'px';
+  toolbar.style.top = Math.max(10, Math.min(posY, maxTop)) + 'px';
 }
 
 export function hideContextualMenu() {
