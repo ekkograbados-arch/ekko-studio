@@ -1,0 +1,446 @@
+import "./modules/selection.js";
+import { startTextEditing } from "./modules/textEditor.js";
+import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
+import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
+
+window.addEventListener("DOMContentLoaded", () => {
+    // Inicializar Paper.js en el Canvas
+    paper.setup("editorCanvas");
+    const canvasEl = document.getElementById("editorCanvas");
+    paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+
+    const toolState = {
+        currentCategory: 0,
+        currentProduct: null,
+        currentSurface: 0,
+        zoom: 1
+    };
+
+    const sceneStates = {};
+    function getSceneKey(product, surface) {
+        return `${product.id}__${surface.nombre}`;
+    }
+
+    const undoStack = [];
+    const redoStack = [];
+    window.loadToken = 0;
+    window.selectedItem = null;
+    window.dragOffset = null;
+    window.dragging = false;
+
+    // Elementos de la interfaz de usuario (UI)
+    const ui = {
+        categoryTabs: document.getElementById("categoryTabs"),
+        productTabs: document.getElementById("productTabs"),
+        surfaceTabs: document.getElementById("surfaceTabs"),
+        selectionInfo: document.getElementById("selectionInfo"),
+        imagePicker: document.getElementById("imagePicker"),
+        svgPicker: document.getElementById("svgPicker")
+    };
+
+    // Inicializar UI flotante del menú contextual (Canva style)
+    initContextualMenu();
+
+    // Carga de tipografías dinámica desde la API de Vercel (100% automático)
+    async function loadDynamicFonts() {
+        try {
+            const response = await fetch('/api/fonts');
+            if (!response.ok) throw new Error("No se pudo obtener el listado de fuentes");
+            const fonts = await response.json();
+            
+            if (fonts && fonts.length > 0) {
+                // Inyectar reglas @font-face dinámicas en el CSS de la página
+                const styleEl = document.createElement('style');
+                let styleContent = '';
+                fonts.forEach(font => {
+                    styleContent += `
+                        @font-face {
+                            font-family: '${font.family}';
+                            src: url('/ASSETS/fonts/${font.file}') format('truetype');
+                            font-display: swap;
+                        }
+                    `;
+                });
+                styleEl.textContent = styleContent;
+                document.head.appendChild(styleEl);
+
+                // Llenar el select selector del menú flotante
+                const selectEl = document.getElementById('ctxFontSelector');
+                if (selectEl) {
+                    selectEl.innerHTML = '';
+                    fonts.forEach(font => {
+                        const opt = document.createElement('option');
+                        opt.value = font.family;
+                        opt.textContent = font.name;
+                        selectEl.appendChild(opt);
+                    });
+                }
+                
+                window.DYNAMIC_FONTS = fonts;
+            }
+        } catch (err) {
+            console.warn("La API /api/fonts no está disponible. Usando fuentes locales por defecto.", err);
+            const defaultFonts = [
+                { name: "Billie James", family: "ekko_billie" },
+                { name: "Romantic Sunrise", family: "ekko_romantic" },
+                { name: "Farmhouse", family: "ekko_farmhouse" },
+                { name: "Chocolate", family: "ekko_chocolate" },
+                { name: "Disney", family: "ekko_disney" },
+                { name: "Simpson", family: "ekko_simpson" },
+                { name: "Milk Water", family: "ekko_milk" }
+            ];
+            const selectEl = document.getElementById('ctxFontSelector');
+            if (selectEl) {
+                selectEl.innerHTML = '';
+                defaultFonts.forEach(font => {
+                    const opt = document.createElement('option');
+                    opt.value = font.family;
+                    opt.textContent = font.name;
+                    selectEl.appendChild(opt);
+                });
+            }
+        }
+    }
+
+    loadDynamicFonts();
+
+    // Redefinir deselección y selección para coordinar con el menú flotante
+    const originalDeselect = window.deselectItem;
+    window.deselectItem = function() {
+        if (typeof originalDeselect === "function") originalDeselect();
+        hideContextualMenu();
+    };
+
+    const originalSelect = window.selectItem;
+    window.selectItem = function(item) {
+        if (typeof originalSelect === "function") originalSelect(item);
+        updateContextualMenu(item);
+    };
+
+    function saveHistory() {
+        undoStack.push(paper.project.exportJSON({ asString: true }));
+        if (undoStack.length > 50) {
+            undoStack.shift();
+        }
+        redoStack.length = 0;
+    }
+
+    function isLockedItem(item) {
+        return item && item.data && item.data.locked === true;
+    }
+
+    function saveCurrentScene() {
+        if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
+        const idx = toolState.currentSurface || 0;
+        const surface = toolState.currentProduct.superficies.slice(idx, idx + 1).shift();
+        if (!surface) return;
+        const key = getSceneKey(toolState.currentProduct, surface);
+        sceneStates[key] = paper.project.exportJSON({ asString: true });
+    }
+
+    function loadSurfaceScene(product, surface) {
+        const key = getSceneKey(product, surface);
+        window.deselectItem();
+        if (sceneStates[key]) {
+            paper.project.clear();
+            paper.project.importJSON(sceneStates[key]);
+            window.deselectItem();
+            if (typeof restoreMockupReferences === "function") {
+                restoreMockupReferences();
+            }
+            paper.view.update();
+            return;
+        }
+        loadMockup(surface.svg);
+    }
+
+    // Controles de zoom
+    function zoomBy(factor) {
+        paper.view.zoom = Math.max(0.2, Math.min(10, paper.view.zoom * factor));
+        if (window.selectedItem) {
+            updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }
+
+    function fitView() {
+        paper.view.zoom = 1;
+        paper.view.center = paper.view.bounds.center;
+        if (window.selectedItem) {
+            updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }
+
+    function addImageFromFile(file) {
+        if (!file) return;
+        saveHistory();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const raster = new paper.Raster({ source: e.target.result });
+            raster.onLoad = () => {
+                raster.data = { locked: false, label: "Imagen" };
+                const area = paper.view.bounds;
+                const maxWidth = area.width * 0.60;
+                const maxHeight = area.height * 0.60;
+                const scale = Math.min(maxWidth / raster.width, maxHeight / raster.height);
+                raster.scale(scale);
+                raster.position = area.center;
+                const objeto = window.clipItem(raster);
+                if (window.currentMockup) {
+                    objeto.insertBelow(window.currentMockup);
+                }
+                window.selectItem(objeto);
+                paper.view.update();
+            };
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // Carga de SVG modificado para mantener el búnker Pro
+    function addSVGFromFile(file) {
+        if (!file) return;
+        saveHistory();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            paper.project.importSVG(e.target.result, (item) => {
+                if (!item) return;
+                item.data = { locked: false, label: file.name.replace(".svg", "") };
+                const bounds = item.bounds;
+                const canvasBounds = paper.view.bounds;
+                const scaleX = (canvasBounds.width * 0.45) / bounds.width;
+                const scaleY = (canvasBounds.height * 0.45) / bounds.height;
+                const scale = Math.min(scaleX, scaleY);
+                item.scale(scale);
+                item.position = canvasBounds.center;
+                paper.project.activeLayer.addChild(item);
+                
+                const selectable = window.getSelectableItem(item) || item;
+                window.selectItem(selectable);
+                
+                if (window.currentMockup) {
+                    item.insertBelow(window.currentMockup);
+                }
+                paper.view.update();
+                item.bringToFront();
+            });
+        };
+        reader.readAsText(file);
+    }
+
+    function createEditableText(point) {
+        saveHistory();
+        const txt = new paper.PointText({
+            point,
+            content: "Haz clic para editar",
+            fontSize: 24,
+            fillColor: new paper.Color(0),
+            justification: "center",
+            fontFamily: "Arial"
+        });
+        txt.data = { locked: false, label: "Texto" };
+        paper.project.activeLayer.addChild(txt);
+        if (window.currentMockup) {
+            txt.insertBelow(window.currentMockup);
+        }
+        window.selectItem(txt);
+        startTextEditing(txt);
+    }
+
+    // --- RENDERIZADO DE TABS DEL PANEL IZQUIERDO (CONECTADO AL SISTEMA GLOBAL) ---
+    function renderCategories() {
+        if (!ui.categoryTabs) return;
+        ui.categoryTabs.innerHTML = "";
+        
+        if (!window.EKKO_STUDIO_PRODUCTS) return;
+        
+        window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
+            const btn = document.createElement("button");
+            btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
+            btn.textContent = group.categoria;
+            btn.onclick = () => {
+                saveCurrentScene();
+                toolState.currentCategory = index;
+                toolState.currentProduct = null;
+                toolState.currentSurface = 0;
+                renderCategories();
+                renderProducts(index);
+            };
+            ui.categoryTabs.appendChild(btn);
+        });
+    }
+
+    function renderProducts(categoryIndex, activeProduct = null) {
+        if (!ui.productTabs || !ui.surfaceTabs) return;
+        ui.productTabs.innerHTML = "";
+        ui.surfaceTabs.innerHTML = "";
+        
+        const group = window.EKKO_STUDIO_PRODUCTS.slice(categoryIndex, categoryIndex + 1).shift();
+        if (!group) return;
+        
+        const selectedProduct = activeProduct || toolState.currentProduct || group.productos.slice(0, 1).shift();
+        
+        group.productos.forEach((product) => {
+            const btn = document.createElement("button");
+            btn.className = "tab-btn" + (selectedProduct === product ? " active" : "");
+            btn.textContent = product.nombre;
+            btn.onclick = () => {
+                saveCurrentScene();
+                toolState.currentProduct = product;
+                toolState.currentSurface = 0;
+                renderProducts(categoryIndex, product);
+            };
+            ui.productTabs.appendChild(btn);
+        });
+        
+        toolState.currentProduct = selectedProduct;
+        renderSurfaces(selectedProduct);
+    }
+
+    function renderSurfacesOnly(product) {
+        if (!ui.surfaceTabs) return;
+        ui.surfaceTabs.innerHTML = "";
+        if (!product || !product.superficies) return;
+        
+        product.superficies.forEach((surface, index) => {
+            const btn = document.createElement("button");
+            btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
+            btn.textContent = surface.nombre;
+            btn.onclick = () => {
+                saveCurrentScene();
+                toolState.currentSurface = index;
+                renderSurfacesOnly(product);
+                loadSurfaceScene(product, surface);
+                ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + surface.nombre;
+            };
+            ui.surfaceTabs.appendChild(btn);
+        });
+    }
+
+    function renderSurfaces(product) {
+        renderSurfacesOnly(product);
+        if (!product || !product.superficies) return;
+        
+        const idx = toolState.currentSurface || 0;
+        const firstSurface = product.superficies.slice(idx, idx + 1).shift() || product.superficies.slice(0, 1).shift();
+        if (firstSurface) {
+            loadSurfaceScene(product, firstSurface);
+            ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + firstSurface.nombre;
+        }
+    }
+
+    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE ---
+    let insertTextMode = false;
+    const tool = new paper.Tool();
+
+    tool.onMouseDown = function(event) {
+        if (insertTextMode) {
+            createEditableText(event.point);
+            insertTextMode = false;
+            canvasEl.style.cursor = "default";
+            return;
+        }
+
+        const hit = paper.project.hitTest(event.point, {
+            fill: true,
+            stroke: true,
+            segments: true,
+            tolerance: 8,
+            match: function(hitResult) {
+                return !hitResult.item.data || !hitResult.item.data.mockup;
+            }
+        });
+
+        if (!hit) {
+            window.deselectItem();
+            return;
+        }
+
+        const item = window.getSelectableItem(hit.item || hit);
+        if (!item) return;
+
+        window.selectItem(item);
+
+        if (item.data && item.data.clipGroup) {
+            const contentItem = item.children.find(c => !c.clipMask);
+            if (contentItem) {
+                window.dragOffset = event.point.subtract(contentItem.position);
+            } else {
+                window.dragOffset = event.point.subtract(item.position);
+            }
+        } else {
+            window.dragOffset = event.point.subtract(item.position);
+        }
+        window.dragging = true;
+    };
+
+    tool.onMouseDrag = function(event) {
+        if (!window.dragging || !window.selectedItem) return;
+
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const contentItem = window.selectedItem.children.find(c => !c.clipMask);
+            if (contentItem) {
+                contentItem.position = event.point.subtract(window.dragOffset);
+            }
+        } else {
+            window.selectedItem.position = event.point.subtract(window.dragOffset);
+        }
+        
+        updateContextualMenu(window.selectedItem);
+        paper.view.update();
+    };
+
+    tool.onMouseUp = function() {
+        if (window.dragging) {
+            saveHistory();
+        }
+        window.dragging = false;
+    };
+
+    // --- ACCIONES DE CARGA ASOCIADAS AL TOP BAR DE CANVA ---
+    document.getElementById("btnAddText").onclick = () => {
+        insertTextMode = true;
+        canvasEl.style.cursor = "text";
+    };
+
+    document.getElementById("btnAddImage").onclick = () => {
+        const imagePicker = document.getElementById("imagePicker");
+        imagePicker.value = "";
+        imagePicker.click();
+    };
+
+    document.getElementById("btnAddSVG").onclick = () => {
+        const svgPicker = document.getElementById("svgPicker");
+        svgPicker.value = "";
+        svgPicker.click();
+    };
+
+    document.getElementById("imagePicker").onchange = (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            const [firstFile] = files;
+            addImageFromFile(firstFile);
+        }
+    };
+
+    document.getElementById("svgPicker").onchange = (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            const [firstFile] = files;
+            addSVGFromFile(firstFile);
+        }
+    };
+
+    // Controles de zoom generales
+    document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
+    document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
+    document.getElementById("btnFit").onclick = fitView;
+
+    // Adaptar tamaño de canvas al redimensionar ventana
+    window.addEventListener("resize", () => {
+        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    });
+
+    // Arrancar la renderización inicial del panel
+    renderCategories();
+});
