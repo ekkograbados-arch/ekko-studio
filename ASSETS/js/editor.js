@@ -313,7 +313,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
  function saveCurrentScene() { 
     if (!toolState.currentProduct || !toolState.currentProduct.superficies) return; 
-    const surface = toolState.currentProduct.superficies[toolState.currentSurface]; 
+    const idx = toolState.currentSurface || 0;
+    const surface = toolState.currentProduct.superficies.slice(idx, idx + 1).shift(); 
     if (!surface) return; 
     const key = getSceneKey(toolState.currentProduct, surface); 
     sceneStates[key] = paper.project.exportJSON({ asString: true }); 
@@ -499,10 +500,10 @@ window.addEventListener("DOMContentLoaded", () => {
   function renderProducts(categoryIndex, activeProduct = null) { 
     ui.productTabs.innerHTML = ""; 
     ui.surfaceTabs.innerHTML = ""; 
-    const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex]; 
-    
-    // CORRECCIÓN: Agregado  para seleccionar correctamente el objeto y no el array
-    const selectedProduct = activeProduct || toolState.currentProduct || group.productos; 
+    const group = window.EKKO_STUDIO_PRODUCTS.slice(categoryIndex, categoryIndex + 1).shift(); 
+    if (!group) return;
+
+    const selectedProduct = activeProduct || toolState.currentProduct || group.productos.slice(0, 1).shift(); 
     
     group.productos.forEach((product) => { 
       const btn = document.createElement("button"); 
@@ -540,9 +541,13 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  function renderSurfaces(product) { 
+ function renderSurfaces(product) { 
     renderSurfacesOnly(product);
-    const firstSurface = product.superficies[toolState.currentSurface] || product.superficies; 
+    if (!product || !product.superficies) return;
+
+    const idx = toolState.currentSurface || 0;
+    const firstSurface = product.superficies.slice(idx, idx + 1).shift() || product.superficies.slice(0, 1).shift(); 
+    
     if (firstSurface) { 
       loadSurfaceScene(product, firstSurface); 
       ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + firstSurface.nombre; 
@@ -718,12 +723,20 @@ window.addEventListener("DOMContentLoaded", () => {
     ui.svgPicker.value = ""; 
     ui.svgPicker.click(); 
   }); 
-  ui.imagePicker.addEventListener("change", (e) => { 
-    addImageFromFile(e.target.files); 
+ui.imagePicker.addEventListener("change", (e) => { 
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      addImageFromFile(files.item(0)); 
+    }
   }); 
+
   ui.svgPicker.addEventListener("change", (e) => { 
-    addSVGFromFile(e.target.files); 
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      addSVGFromFile(files.item(0)); 
+    }
   }); 
+  
   ui.btnApplySize.addEventListener("click", applySelectedSize); 
   ui.btnToggleLock.addEventListener("click", toggleLockSelected); 
   ui.btnAlignLeft.addEventListener("click", () => alignSelected("left")); 
