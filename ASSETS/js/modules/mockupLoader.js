@@ -17,30 +17,21 @@ function collectPaths(item, paths = []) {
 
 function shouldIgnoreLargestPath(paths, rootItem) {
   if (paths.length < 2) return false;
-  
-  const firstPath = paths.slice(0, 1).shift();
-  const secondPath = paths.slice(1, 2).shift();
-  
-  if (!firstPath || !secondPath) return false;
+  const firstPath = paths;
+  if (!firstPath) return false;
   
   const fBounds = firstPath.bounds;
   const rBounds = rootItem.bounds;
-  
   const wRatio = fBounds.width / rBounds.width;
   const hRatio = fBounds.height / rBounds.height;
   
+  // Si el camino más grande es un rectángulo y cubre casi todo el SVG,
+  // es definitivamente el marco rectangular externo de referencia y debe ignorarse.
   if (wRatio > 0.95 && hRatio > 0.95) {
-    if (isPathRect(firstPath) && !isPathRect(secondPath)) {
-      const firstArea = Math.abs(firstPath.area);
-      const secondArea = Math.abs(secondPath.area);
-      const areaRatio = secondArea / firstArea;
-      
-      if (areaRatio > 0.05 && areaRatio < 0.60) {
-        return true;
-      }
+    if (isPathRect(firstPath)) {
+      return true;
     }
   }
-  
   return false;
 }
 
@@ -204,17 +195,14 @@ function convertAllShapesToPaths(item) {
 export function loadMockup(svgPath) {
   const token = ++window.loadToken;
   paper.project.activeLayer.removeChildren();
-  
   paper.project.importSVG(svgPath, function (item) {
     if (token !== window.loadToken) {
       if (item) item.remove();
       return;
     }
     if (!item) return;
-
     // 1. Convertimos figuras y habilitamos applyMatrix ANTES de transformar
     item = convertAllShapesToPaths(item);
-
     // 2. Escalamos y centramos
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
@@ -223,27 +211,29 @@ export function loadMockup(svgPath) {
     const scale = Math.min(scaleX, scaleY);
     item.scale(scale);
     item.position = canvasBounds.center;
-
     const allPaths = collectPaths(item).filter(function(p) { return p && Math.abs(p.area) > 0; });
     allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
-    
     let ignoredPath = null;
     if (shouldIgnoreLargestPath(allPaths, item)) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
-
     // 3. Generamos la máscara con coordenadas 100% reales
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
-
     makeMockupTransparent(item, ignoredPath);
-
     lockMockup(item);
     window.currentMockup = item;
-    item.data = { locked: true, mockup: true, label: "Mockup" };
+    
+    // Guardamos svgPath dentro de item.data para recuperarlo al restaurar referencias de forma correcta
+    item.data = { 
+      locked: true, 
+      mockup: true, 
+      label: "Mockup", 
+      svgPath: svgPath 
+    };
     
     item.bringToFront();
     paper.view.update();
@@ -256,9 +246,23 @@ export function restoreMockupReferences() {
   });
   if (mockupItem) {
     window.currentMockup = mockupItem;
-    const biggest = findLargestPath(mockupItem);
-    window.grabArea = biggest;
-    window.clipMask = biggest ? biggest.clone() : null;
+    
+    // Obtenemos todos los paths útiles ordenados de mayor a menor área
+    const allPaths = collectPaths(mockupItem).filter(function(p) { return p && Math.abs(p.area) > 0; });
+    allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
+    
+    // Identificamos si el path más grande es el marco rectangular que debemos omitir
+    let ignoredPath = null;
+    if (shouldIgnoreLargestPath(allPaths, mockupItem)) {
+      ignoredPath = allPaths;
+    }
+    
+    // Recuperamos la ruta original del SVG desde los metadatos para la virola
+    const svgPath = mockupItem.data ? mockupItem.data.svgPath : null;
+    
+    // Generamos exactamente la misma máscara compuesta correcta (ignorando el marco e integrando agujeros)
+    window.grabArea = buildCompoundMask(mockupItem, ignoredPath, svgPath);
+    window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
@@ -268,7 +272,6 @@ export function restoreMockupReferences() {
     window.clipMask = null;
   }
 }
-
 window.clipItem = function(item) {
   if (!window.clipMask) {
     return item;
