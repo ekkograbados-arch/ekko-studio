@@ -6,6 +6,8 @@
     <title>EKKO Studio - PRO Edition</title>
     <!-- Paper.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
+    <!-- Cargamos tus productos de forma global -->
+    <script src="ASSETS/js/productos.js"></script>
     <!-- FontAwesome para los íconos de la barra flotante -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
@@ -264,7 +266,7 @@
 </head>
 <body>
 
-    <!-- 1. PANEL IZQUIERDO -->
+    <!-- 1. PANEL IZQUIERDO DE PRODUCTOS (Estilo Canva) -->
     <div id="leftSidebar">
         <div class="sidebar-section">
             <div class="sidebar-title">Categorías</div>
@@ -275,7 +277,7 @@
             <div id="productTabs"></div>
         </div>
         <div class="sidebar-section">
-            <div class="sidebar-title">Vistas (Superficies)</div>
+            <div class="sidebar-title">Vistas</div>
             <div id="surfaceTabs"></div>
         </div>
     </div>
@@ -298,7 +300,7 @@
                 </button>
             </div>
 
-            <div id="selectionInfo">Selecciona un producto para comenzar</div>
+            <div id="selectionInfo">Cargando editor...</div>
 
             <div class="top-group">
                 <button class="toolbar-btn" id="btnZoomIn" title="Zoom +"><i class="fas fa-search-plus"></i></button>
@@ -325,7 +327,7 @@
 
                 <div class="toolbar-divider"></div>
 
-                <!-- TEXTO -->
+                <!-- CONTROL TEXTO -->
                 <div id="ctxTextControls" class="toolbar-subgroup hidden">
                     <select id="ctxFontSelector" class="toolbar-select"></select>
                     <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
@@ -337,7 +339,7 @@
                     </div>
                 </div>
 
-                <!-- IMAGEN -->
+                <!-- CONTROL IMAGEN -->
                 <div id="ctxImageControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" id="btnCtxFlipH" title="Espejo Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
                     <button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
@@ -352,7 +354,7 @@
                     </div>
                 </div>
 
-                <!-- VECTOR / LIGHTBURN -->
+                <!-- CONTROL VECTOR / LIGHTBURN -->
                 <div id="ctxVectorControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" id="btnCtxGroup" title="Agrupar Vectores"><i class="fas fa-object-group"></i></button>
                     <button class="toolbar-btn" id="btnCtxUngroup" title="Desagrupar Vectores"><i class="fas fa-object-ungroup"></i></button>
