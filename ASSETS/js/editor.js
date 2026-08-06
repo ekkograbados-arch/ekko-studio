@@ -1,10 +1,10 @@
+
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 
 window.addEventListener("DOMContentLoaded", () => {
-    // Inicializar Paper.js en el Canvas
     paper.setup("editorCanvas");
     const canvasEl = document.getElementById("editorCanvas");
     paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
@@ -28,7 +28,6 @@ window.addEventListener("DOMContentLoaded", () => {
     window.dragOffset = null;
     window.dragging = false;
 
-    // Elementos de la interfaz de usuario (UI)
     const ui = {
         categoryTabs: document.getElementById("categoryTabs"),
         productTabs: document.getElementById("productTabs"),
@@ -38,10 +37,9 @@ window.addEventListener("DOMContentLoaded", () => {
         svgPicker: document.getElementById("svgPicker")
     };
 
-    // Inicializar UI flotante del menú contextual (Canva style)
     initContextualMenu();
 
-    // Carga de tipografías dinámica desde la API de Vercel (100% automático)
+    // Carga de tipografías dinámica
     async function loadDynamicFonts() {
         try {
             const response = await fetch('/api/fonts');
@@ -79,7 +77,6 @@ window.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             console.warn("La API /api/fonts no está activa. Cargando las 16 fuentes de la marca desde styles.css.");
             
-            // Mapeo estricto de las 16 fuentes oficiales configuradas en tu styles.css
             const officialFonts = [
                 { name: "Au Bord de la Seine", family: "ekko_seine" },
                 { name: "Billie James", family: "ekko_billie" },
@@ -114,7 +111,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
     loadDynamicFonts();
 
-    // Redefinir deselección y selección para coordinar con el menú flotante
     const originalDeselect = window.deselectItem;
     window.deselectItem = function() {
         if (typeof originalDeselect === "function") originalDeselect();
@@ -123,6 +119,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const originalSelect = window.selectItem;
     window.selectItem = function(item) {
+        if (item && item.data && item.data.mockup) {
+            window.deselectItem();
+            return;
+        }
         if (typeof originalSelect === "function") originalSelect(item);
         updateContextualMenu(item);
     };
@@ -164,7 +164,6 @@ window.addEventListener("DOMContentLoaded", () => {
         loadMockup(surface.svg);
     }
 
-    // Controles de zoom
     function zoomBy(factor) {
         paper.view.zoom = Math.max(0.2, Math.min(10, paper.view.zoom * factor));
         if (window.selectedItem) {
@@ -337,7 +336,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE ---
+    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE (BLINDADO) ---
     let insertTextMode = false;
     const tool = new paper.Tool();
 
@@ -355,7 +354,15 @@ window.addEventListener("DOMContentLoaded", () => {
             segments: true,
             tolerance: 8,
             match: function(hitResult) {
-                return !hitResult.item.data || !hitResult.item.data.mockup;
+                // BLINDAJE EXTREMO: Si el elemento cliqueado pertenece al mockup físico de fondo, se ignora
+                let current = hitResult.item;
+                while (current) {
+                    if (current.data && current.data.mockup) {
+                        return false; 
+                    }
+                    current = current.parent;
+                }
+                return true; 
             }
         });
 
@@ -365,7 +372,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
 
         const item = window.getSelectableItem(hit.item || hit);
-        if (!item) return;
+        if (!item || (item.data && item.data.mockup)) return;
 
         window.selectItem(item);
 
@@ -383,7 +390,7 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseDrag = function(event) {
-        if (!window.dragging || !window.selectedItem) return;
+        if (!window.dragging || !window.selectedItem || (window.selectedItem.data && window.selectedItem.data.mockup)) return;
 
         if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
             const contentItem = window.selectedItem.children.find(c => !c.clipMask);
@@ -405,7 +412,6 @@ window.addEventListener("DOMContentLoaded", () => {
         window.dragging = false;
     };
 
-    // --- ACCIONES DE CARGA ASOCIADAS AL TOP BAR DE CANVA ---
     document.getElementById("btnAddText").onclick = () => {
         insertTextMode = true;
         canvasEl.style.cursor = "text";
@@ -439,24 +445,20 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // --- PROCESADO EXPORTAR PARA LÁSER (LightBurn Style) ---
+    // --- PROCESADO EXPORTAR PARA LÁSER ---
     document.getElementById("btnExportLaser").onclick = () => {
-        // Deseleccionamos cualquier item para limpiar contornos de selección celeste antes de exportar
         window.deselectItem();
         
-        // Ocultamos temporalmente el mockup físico de fondo para exportar únicamente el grabado útil
         let mockupHidden = false;
         if (window.currentMockup) {
             window.currentMockup.visible = false;
             mockupHidden = true;
         }
 
-        // --- OPERACIÓN BOOLEANA: RECORTE AUTOMÁTICO EN INTERSECCIONES ---
         const activeItems = paper.project.activeLayer.children.filter(item => {
             return item.visible && (!item.data || !item.data.mockup);
         });
 
-        // Recorremos los elementos de arriba hacia abajo para restar cruces
         for (let i = 0; i < activeItems.length; i++) {
             const itemAbove = activeItems[i];
             if (!(itemAbove instanceof paper.Path) && !(itemAbove instanceof paper.CompoundPath)) continue;
@@ -465,7 +467,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 const itemBelow = activeItems[j];
                 if (!(itemBelow instanceof paper.Path) && !(itemBelow instanceof paper.CompoundPath)) continue;
 
-                // Si hay intersección física entre los dos objetos grabables
                 if (itemAbove.bounds.intersects(itemBelow.bounds)) {
                     const cutResult = itemBelow.subtract(itemAbove);
                     if (cutResult) {
@@ -477,16 +478,13 @@ window.addEventListener("DOMContentLoaded", () => {
 
         paper.view.update();
 
-        // Exportamos la escena limpia resultante a un XML de SVG estándar
         const svgString = paper.project.exportSVG({ asString: true, bounds: 'content' });
 
-        // Restauramos la visualización del mockup en pantalla para que el cliente siga editando
         if (mockupHidden && window.currentMockup) {
             window.currentMockup.visible = true;
             paper.view.update();
         }
 
-        // Creamos la descarga directa del archivo SVG limpio compatible con LightBurn
         const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
         const url = URL.createObjectURL(blob);
         const downloadLink = document.createElement("a");
@@ -498,16 +496,13 @@ window.addEventListener("DOMContentLoaded", () => {
         URL.revokeObjectURL(url);
     };
 
-    // Controles de zoom generales
     document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
     document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
     document.getElementById("btnFit").onclick = fitView;
 
-    // Adaptar tamaño de canvas al redimensionar ventana
     window.addEventListener("resize", () => {
         paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
     });
 
-    // Arrancar la renderización inicial del panel
     renderCategories();
 });
