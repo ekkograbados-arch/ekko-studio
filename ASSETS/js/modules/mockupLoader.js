@@ -83,8 +83,8 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   mask.applyMatrix = true;
   
   const isVirola = svgPath && (
-    svgPath.toLowerCase().indexOf('virola-') !== -1 || 
-    svgPath.toLowerCase().split('/').pop().indexOf('virola') === 0
+    svgPath.toLowerCase().indexOf("virola-") !== -1 || 
+    svgPath.toLowerCase().split("/").pop().indexOf("virola") === 0
   );
   
   const baseArea = Math.abs(mask.area);
@@ -132,10 +132,10 @@ function makeMockupTransparent(item, ignoredPath) {
 
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
     if (!item.strokeColor) {
-      item.strokeColor = new paper.Color('#111111'); 
+      item.strokeColor = new paper.Color("#111111"); 
       item.strokeWidth = 1.5;
     } else {
-      item.strokeColor = new paper.Color('#111111');
+      item.strokeColor = new paper.Color("#111111");
       item.strokeWidth = Math.max(item.strokeWidth, 1.2);
     }
   }
@@ -175,12 +175,30 @@ function findLargestPath(item){
   return biggest;
 }
 
-function bakeTransformations(obj) {
-  obj.applyMatrix = true;
-  if (obj.children) {
-    const children = obj.children.slice();
-    children.forEach(bakeTransformations);
+function convertAllShapesToPaths(item) {
+  if (!item) return null;
+  
+  if (item instanceof paper.Shape) {
+    const path = item.toPath();
+    path.data = item.data;
+    path.name = item.name;
+    path.applyMatrix = true; // Forzamos escritura directa de coordenadas
+    if (item.parent) {
+      item.parent.insertChild(item.index, path);
+      item.remove();
+    }
+    return path;
   }
+  
+  if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
+    item.applyMatrix = true;
+  }
+  
+  if (item.children) {
+    const children = item.children.slice();
+    children.forEach(convertAllShapesToPaths);
+  }
+  return item;
 }
 
 export function loadMockup(svgPath) {
@@ -194,8 +212,10 @@ export function loadMockup(svgPath) {
     }
     if (!item) return;
 
+    // 1. Convertimos figuras y habilitamos applyMatrix ANTES de transformar
     item = convertAllShapesToPaths(item);
 
+    // 2. Escalamos y centramos
     const bounds = item.bounds;
     const canvasBounds = paper.view.bounds;
     const scaleX = (canvasBounds.width * 0.75) / bounds.width;
@@ -203,8 +223,6 @@ export function loadMockup(svgPath) {
     const scale = Math.min(scaleX, scaleY);
     item.scale(scale);
     item.position = canvasBounds.center;
-
-    bakeTransformations(item);
 
     const allPaths = collectPaths(item).filter(function(p) { return p && Math.abs(p.area) > 0; });
     allPaths.sort(function(a, b) { return Math.abs(b.area) - Math.abs(a.area); });
@@ -214,7 +232,7 @@ export function loadMockup(svgPath) {
       ignoredPath = allPaths.slice(0, 1).shift();
     }
 
-    // CORREGIDO: Pasamos "ignoredPath" correctamente para que buildCompoundMask funcione
+    // 3. Generamos la máscara con coordenadas 100% reales
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
@@ -264,25 +282,4 @@ window.clipItem = function(item) {
   group.clipped = true;
   group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : "Objeto" };
   return group;
-}
-
-function convertAllShapesToPaths(item) {
-  if (!item) return null;
-  if (item instanceof paper.Shape) {
-    const path = item.toPath();
-    path.data = item.data;
-    path.name = item.name;
-    if (item.parent) {
-      item.parent.insertChild(item.index, path);
-      item.remove();
-    }
-    return path;
-  }
-  if (item.children) {
-    const children = item.children.slice();
-    children.forEach(function(child) {
-      convertAllShapesToPaths(child);
-    });
-  }
-  return item;
 }
