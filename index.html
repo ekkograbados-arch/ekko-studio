@@ -1,302 +1,378 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>EKKO Studio</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EKKO Studio - PRO Edition</title>
+    <!-- Paper.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
+    <!-- Cargamos tus productos de forma global -->
+    <script src="ASSETS/js/productos.js"></script>
+    <!-- FontAwesome para los íconos de la barra flotante -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #007bff;
+            --primary-hover: #0056b3;
+            --border-color: #e2e8f0;
+            --bg-canvas: #cbd5e1; /* Fondo gris pizarra para hacer resaltar el tablero */
+        }
 
-  <script src="https://unpkg.com/paper@0.12.17/dist/paper-full.min.js"></script>
-  <link rel="stylesheet" href="ASSETS/css/styles.css">
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+            background-color: #f1f5f9;
+        }
+
+        /* Panel Izquierdo de Categorías y Productos (Canva Style) */
+        #leftSidebar {
+            width: 320px;
+            background: #ffffff;
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            padding: 20px;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        .sidebar-section {
+            margin-bottom: 24px;
+        }
+
+        .sidebar-title {
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-bottom: 12px;
+        }
+
+        .tab-btn {
+            background: #f8fafc;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            width: 100%;
+            text-align: left;
+            margin-bottom: 6px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background-color: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .tab-btn:hover:not(.active) {
+            background-color: #f1f5f9;
+        }
+
+        /* Área Central de Trabajo (Limpia, sin panel derecho) */
+        #workspace {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            height: 100%;
+        }
+
+        /* Barra de Herramientas de Carga en el Top */
+        #topBar {
+            height: 60px;
+            background: #ffffff;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            z-index: 5;
+        }
+
+        .top-group {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .btn-action {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .btn-action:hover {
+            background: #f8fafc;
+            border-color: #cbd5e1;
+        }
+
+        .btn-action.btn-primary {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .btn-action.btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        /* Contenedor del Canvas con Posicionamiento Relativo para Barra Flotante */
+        #canvasContainer {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--bg-canvas);
+            position: relative;
+            overflow: auto;
+            padding: 40px;
+        }
+
+        /* Tablero de Arte del Canvas (Canva Style) */
+        #editorCanvas {
+            width: 800px;
+            height: 600px;
+            background: #ffffff;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            border: 1px solid #94a3b8;
+        }
+
+        /* BARRA CONTEXTUAL FLOTANTE (Estilo Canva) */
+        #contextual-toolbar {
+            position: absolute;
+            display: none; /* Controlado dinámicamente */
+            background: #ffffff;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+            padding: 6px 12px;
+            z-index: 100;
+            align-items: center;
+            gap: 10px;
+            pointer-events: auto;
+            user-select: none;
+            transition: opacity 0.15s ease-out;
+        }
+
+        #contextual-toolbar.active {
+            display: flex;
+        }
+
+        .toolbar-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toolbar-divider {
+            width: 1px;
+            height: 24px;
+            background-color: #cbd5e1;
+            margin: 0 4px;
+        }
+
+        .toolbar-btn {
+            background: none;
+            border: none;
+            border-radius: 4px;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #475569;
+            transition: all 0.2s;
+        }
+
+        .toolbar-btn:hover {
+            background-color: #f1f5f9;
+            color: #0f172a;
+        }
+
+        .toolbar-subgroup {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toolbar-subgroup.hidden {
+            display: none !important;
+        }
+
+        .toolbar-select {
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #cbd5e1;
+            font-size: 13px;
+            color: #334155;
+            background: white;
+            outline: none;
+            cursor: pointer;
+            min-width: 160px;
+        }
+
+        .toolbar-input-number {
+            width: 55px;
+            padding: 4px 6px;
+            border: 1px solid #cbd5e1;
+            border-radius: 4px;
+            font-size: 13px;
+            text-align: center;
+            outline: none;
+        }
+
+        .toolbar-slider-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: #475569;
+            background: #f8fafc;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .toolbar-slider-container input[type="range"] {
+            width: 80px;
+            cursor: pointer;
+        }
+
+        .hidden-picker {
+            display: none;
+        }
+
+        #selectionInfo {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
+        }
+    </style>
 </head>
 <body>
 
-  <header class="topbar">
-  <div class="brand">
-    <img src="logo.png" alt="" class="brand-logo">
-    <div>
-      <h1>EKKO Studio</h1>
-      <p>Diseñá tu grabado para LightBurn</p>
+    <!-- 1. PANEL IZQUIERDO DE PRODUCTOS (Estilo Canva) -->
+    <div id="leftSidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-title">Categorías</div>
+            <div id="categoryTabs"></div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Productos</div>
+            <div id="productTabs"></div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Vistas</div>
+            <div id="surfaceTabs"></div>
+        </div>
     </div>
-  </div>
 
-  <nav class="top-actions">
-    <button id="btnDiseñar" class="top-btn active">Diseñar</button>
-    <button id="btnGaleria" class="top-btn">Galería</button>
-    <button id="btnDiasEspeciales" class="top-btn">Días Especiales</button>
-  </nav>
-</header>
-
-  <main class="layout">
-    <aside class="sidebar left">
-      <section class="panel">
-        <h2>Categorías</h2>
-        <div id="categoryTabs" class="tab-group"></div>
-      </section>
-
-      <section class="panel">
-        <h2>Productos</h2>
-        <div id="productTabs" class="tab-group vertical"></div>
-      </section>
-
-      <section class="panel">
-        <h2>Plantillas SVG</h2>
-        <button id="toggleTemplates" class="action-btn">Abrir plantillas</button>
-        <div id="templatesBox" class="templates-box hidden"></div>
-        <a class="link-btn" href="TU_LINK_DE_DRIVE_PLANTILLAS" target="_blank">Ver más plantillas</a>
-      </section>
-
-      <section class="panel">
-        <h2>Galería</h2>
-        <button class="action-btn" id="btnGaleriaDrive">Abrir galería en Drive</button>
-      </section>
-
-      <section class="panel">
-        <h2>Días especiales</h2>
-        <button class="action-btn" id="btnDiasEspecialesDrive">Abrir carpeta</button>
-      </section>
-    </aside>
-
-    <section class="workspace">
-      <div class="editor-header">
-        <div id="surfaceTabs" class="tab-group"></div>
-      </div>
-
-      <div class="editor-area">
-        <div class="canvas-wrap">
-          <canvas id="editorCanvas" resize></canvas>
-                  <div id="floatingToolbar" class="floating-toolbar hidden">
-        
-            <div id="toolbarText" class="toolbar-panel hidden">
-        
-                <select id="toolbarFont"></select>
-        
-                <input
-                    id="toolbarFontSize"
-                    type="number"
-                    min="5"
-                    max="300"
-                    value="30">
-        
-                <button id="tbBold">B</button>
-        
-                <button id="tbItalic">I</button>
-        
-                <button id="tbUnderline">U</button>
-        
-                <button id="tbUpper">ABC</button>
-        
-                <button id="tbLower">abc</button>
-        
-                <button id="tbSup">X²</button>
-        
-                <button id="tbSub">X₂</button>
-        
-                <button id="tbCurve">Curvar</button>
-        
-            </div>
-        
-            <div id="toolbarImage" class="toolbar-panel hidden">
-        
-                <label>Exposición</label>
-                <input id="imgExposure" type="range" min="-100" max="100">
-        
-                <label>Contraste</label>
-                <input id="imgContrast" type="range" min="-100" max="100">
-        
-                <label>Brillo</label>
-                <input id="imgBrightness" type="range" min="-100" max="100">
-        
-                <label>Nitidez</label>
-                <input id="imgSharpness" type="range" min="0" max="100">
-        
-                <button id="btnPreviewColor">
-                    Ver color
+    <!-- 2. ÁREA DE TRABAJO -->
+    <div id="workspace">
+        <div id="topBar">
+            <div class="top-group">
+                <button class="btn-action" id="btnAddText">
+                    <i class="fas fa-font"></i> Agregar Texto
                 </button>
-        
+                <button class="btn-action" id="btnAddImage">
+                    <i class="fas fa-image"></i> Cargar Imagen
+                </button>
+                <button class="btn-action" id="btnAddSVG">
+                    <i class="fas fa-file-image"></i> Cargar SVG
+                </button>
+                <button class="btn-action" id="btnAddQR">
+                    <i class="fas fa-qrcode"></i> QR
+                </button>
             </div>
-        
+
+            <div id="selectionInfo">Selecciona un producto para comenzar</div>
+
+            <div class="top-group">
+                <button class="toolbar-btn" id="btnZoomIn" title="Zoom +"><i class="fas fa-search-plus"></i></button>
+                <button class="toolbar-btn" id="btnZoomOut" title="Zoom -"><i class="fas fa-search-minus"></i></button>
+                <button class="toolbar-btn" id="btnFit" title="Ajustar Vista"><i class="fas fa-compress"></i></button>
+                <div class="toolbar-divider"></div>
+                <button class="btn-action btn-primary" id="btnExportLaser">
+                    <i class="fas fa-file-export"></i> Exportar para Láser
+                </button>
+            </div>
         </div>
+
+        <div id="canvasContainer">
+            <canvas id="editorCanvas"></canvas>
+
+            <!-- 3. BARRA CONTEXTUAL FLOTANTE -->
+            <div id="contextual-toolbar">
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="btnCtxDelete" title="Eliminar Objeto"><i class="fas fa-trash"></i></button>
+                    <button class="toolbar-btn" id="btnCtxDuplicate" title="Duplicar Objeto"><i class="fas fa-copy"></i></button>
+                    <button class="toolbar-btn" id="btnCtxForward" title="Traer Adelante"><i class="fas fa-layer-group"></i> +</button>
+                    <button class="toolbar-btn" id="btnCtxBackward" title="Enviar Atrás"><i class="fas fa-layer-group"></i> -</button>
+                </div>
+
+                <div class="toolbar-divider"></div>
+
+                <!-- CONTROL TEXTO -->
+                <div id="ctxTextControls" class="toolbar-subgroup hidden">
+                    <select id="ctxFontSelector" class="toolbar-select"></select>
+                    <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
+                    <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
+                    <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
+                    <div class="toolbar-slider-container" title="Curvar Texto">
+                        <i class="fas fa-shapes"></i>
+                        <input id="ctxCurveSlider" type="range" min="-180" max="180" value="0">
+                    </div>
+                </div>
+
+                <!-- CONTROL IMAGEN -->
+                <div id="ctxImageControls" class="toolbar-subgroup hidden">
+                    <button class="toolbar-btn" id="btnCtxFlipH" title="Espejo Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
+                    <button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
+                    <div class="toolbar-divider"></div>
+                    <div class="toolbar-slider-container" title="Ajuste de Brillo">
+                        <span>Brillo</span>
+                        <input id="ctxBrightness" type="range" min="-100" max="100" value="0">
+                    </div>
+                    <div class="toolbar-slider-container" title="Ajuste de Contraste">
+                        <span>Contraste</span>
+                        <input id="ctxContrast" type="range" min="-100" max="100" value="0">
+                    </div>
+                </div>
+
+                <!-- CONTROL VECTOR / LIGHTBURN -->
+                <div id="ctxVectorControls" class="toolbar-subgroup hidden">
+                    <button class="toolbar-btn" id="btnCtxGroup" title="Agrupar Vectores"><i class="fas fa-object-group"></i></button>
+                    <button class="toolbar-btn" id="btnCtxUngroup" title="Desagrupar Vectores"><i class="fas fa-object-ungroup"></i></button>
+                    <button class="toolbar-btn" id="btnCtxScissors" title="Herramienta Tijera (Recortar Vector)"><i class="fas fa-scissors"></i></button>
+                </div>
+            </div>
         </div>
+    </div>
 
-        <aside class="properties">
-          <h2>Herramientas</h2>
+    <input type="file" id="imagePicker" class="hidden-picker" accept="image/*">
+    <input type="file" id="svgPicker" class="hidden-picker" accept=".svg">
 
-          <div class="tool-grid">
-            <button class="action-btn" id="btnAddText">Texto</button>
-            <div id="fontGallery" class="font-gallery hidden">
-                 <h3>Tipografías</h3>
-                 <div id="fontList"></div>
-            </div>
-            <button class="action-btn" id="btnAddImage">Imagen</button>
-            <button class="action-btn" id="btnAddQR">QR</button>
-            <button class="action-btn" id="btnAddSVG">SVG</button>
-            <button class="action-btn" id="btnDelete">Eliminar</button>
-            <button class="action-btn" id="btnDuplicate">Duplicar</button>
-            <button class="action-btn" id="btnBringFront">Adelante</button>
-            <button class="action-btn" id="btnSendBack">Atrás</button>
-            <button id="btnForward">
-              +1 Capa
-            </button>
-            
-            <button id="btnBackward">
-              -1 Capa
-            </button>
-            <button class="action-btn" id="btnZoomIn">Zoom +</button>
-            <button class="action-btn" id="btnZoomOut">Zoom -</button>
-            <button class="action-btn" id="btnFit">Ajustar</button> 
-            <button class="action-btn" id="btnToggleLock">Bloquear / Desbloquear</button>
-          </div>            
-
-          <input type="file" id="imagePicker" accept="image/*" hidden>
-          <input type="file" id="svgPicker" accept=".svg,image/svg+xml" hidden>
-
-          <div class="prop-box">
-            <h3>Objeto seleccionado</h3>
-            <p id="selectionInfo">Nada seleccionado</p>
-          </div>
-
-           <div class="prop-box">
-              <h3>Tamaño del objeto</h3>
-            
-              <label for="objWidth">Ancho</label>
-              <input type="number" id="objWidth" step="0.1">
-            
-              <label for="objHeight">Alto</label>
-              <input type="number" id="objHeight" step="0.1">
-            
-              <label style="display:block; margin-top:8px;">
-                <input type="checkbox" id="lockRatio" checked>
-                Mantener proporción
-              </label>
-            
-              <button class="action-btn" id="btnApplySize">
-                Aplicar tamaño
-              </button>
-            </div>
-
-          <div class="prop-box">
-            <h3>Tipografía</h3>
-          
-            <select id="fontSelector">
-              <option value="Au Bord de la Seine">Au Bord de la Seine</option>
-              <option value="BillieJames-Regular">Billie James</option>
-              <option value="Breathing Personal Use Only">Breathing</option>
-              <option value="Chocolate">Chocolate</option>
-              <option value="Farmhouse">Farmhouse</option>
-              <option value="High Spirited">High Spirited</option>
-              <option value="LMS Beyond Infinity">Beyond Infinity</option>
-              <option value="Milk Water">Milk Water</option>
-              <option value="Nostalgic Letter">Nostalgic Letter</option>
-              <option value="Please write me a song">Write me a song</option>
-              <option value="Romantic Sunrise">Romantic Sunrise</option>
-              <option value="SimpleHandmade">Simple Handmade</option>
-              <option value="Simpsonfont DEMO">Simpson</option>
-              <option value="Study Night">Study Night</option>
-              <option value="Study Person">Study Person</option>
-              <option value="waltograph42">Disney</option>
-            </select>
-          
-            <button class="action-btn" id="btnApplyFont">
-              Aplicar fuente
-            </button>
-          </div>
-
-          <div class="prop-box">
-            <h3>Alineación</h3>
-            <div class="tool-grid">
-              <button class="action-btn" id="btnAlignLeft">Izquierda</button>
-              <button class="action-btn" id="btnAlignCenterH">Centrar H</button>
-              <button class="action-btn" id="btnAlignRight">Derecha</button>
-              <button class="action-btn" id="btnAlignTop">Arriba</button>
-              <button class="action-btn" id="btnAlignCenterV">Centrar V</button>
-              <button class="action-btn" id="btnAlignBottom">Abajo</button>
-            </div>
-          </div>
-
-          <div class="tool-grid">
-            <button class="action-btn" id="btnCenterH">
-              ↔ Centro H
-            </button>
-          
-            <button class="action-btn" id="btnCenterV">
-              ↕ Centro V
-            </button>
-          
-            <button class="action-btn" id="btnCenterBoth">
-              ⊕ Centro
-            </button>
-          </div>
-          
-          <div class="prop-box">
-            <h3>Rotación</h3>
-            <div class="tool-grid">
-              <button class="action-btn" id="btnRotateLeft">
-                ↺ 90°
-              </button>
-          
-              <button class="action-btn" id="btnRotateRight">
-                ↻ 90°
-              </button>
-          
-              <button class="action-btn" id="btnRotate180">
-                180°
-              </button>
-            </div>
-          </div>
-          
-          <div class="prop-box">
-            <h3>Pedido</h3>
-            <p id="precioEstimado">
-              Precio estimado: $0
-            </p>
-          
-            <button class="action-btn" id="btnEnviarPedido">
-              Enviar pedido a EKKO
-            </button>
-            <p class="pedido-aclaracion">
-            El precio mostrado es orientativo.
-            El valor final será confirmado por EKKO antes de producir el grabado.
-          </p>
-               </div>
-        </aside>
-      </div>
-    </section>
-  </main>
-
-  <footer class="footer-ekko">
-    <img src="LOGO-FONDO CIRCULO.png" alt="Ekko Grabados" class="footer-logo">
-    <h3>Ekko Grabados</h3>
-    <p>❤️ Diseños únicos para regalar</p>
-    <p>📍 Trelew, Chubut - Argentina</p>
-    <p>🚚 Envíos a todo el país</p>
-    <p>💳 Transferencia | Mercado Pago | Débito | Crédito</p>
-
-  <div class="footer-social">
-  <a href="https://www.instagram.com/grabados_ekko/" target="_blank">
-    <img src="ASSETS/social/INSTAGRAM_.png" alt="Instagram">
-  </a>
-  <a href="https://www.facebook.com/profile.php?id=61581674110806" target="_blank">
-    <img src="ASSETS/social/FACEBOOK_.png" alt="Facebook">
-  </a>
-  <a href="https://www.youtube.com/@EKKOGRABADOS" target="_blank">
-    <img src="ASSETS/social/YOUTUBE.png" alt="YouTube">
-  </a>
-  <a href="https://www.tiktok.com/@ekko.grabados" target="_blank">
-    <img src="ASSETS/social/TIKTOK.png" alt="TikTok">
-  </a>
-  <a href="https://wa.me/5492804719686" target="_blank">
-    <img src="ASSETS/social/WHATSAPP_BUSINESS.png" alt="WhatsApp">
-  </a>
-  <a href="https://drive.google.com/drive/folders/1Bt0BAnpn3WCMd9mUCAMnc5Bdg6DxJHqK?usp=sharing" target="_blank">
-    <img src="ASSETS/social/DRIVE.png" alt="Drive">
-  </a>
-</div>
-    <p class="copyright">© 2026 Ekko Grabados - Todos los derechos reservados</p>
-  </footer>
-
-
-  <script src="ASSETS/js/productos.js"></script>
-  <script type="module" src="ASSETS/js/editor.js"></script>
-  <script src="ASSETS/js/app.js"></script>
+    <!-- Enlazamos al archivo principal JS del editor -->
+    <script type="module" src="ASSETS/js/editor.js"></script>
 </body>
 </html>
