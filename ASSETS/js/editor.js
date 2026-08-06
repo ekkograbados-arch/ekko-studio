@@ -166,6 +166,7 @@ window.addEventListener("DOMContentLoaded", () => {
     function zoomBy(factor) {
         paper.view.zoom = Math.max(0.2, Math.min(10, paper.view.zoom * factor));
         if (window.selectedItem) {
+            window.updateSelectionBox(window.selectedItem);
             updateContextualMenu(window.selectedItem);
         }
         paper.view.update();
@@ -175,6 +176,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.zoom = 1;
         paper.view.center = paper.view.bounds.center;
         if (window.selectedItem) {
+            window.updateSelectionBox(window.selectedItem);
             updateContextualMenu(window.selectedItem);
         }
         paper.view.update();
@@ -347,6 +349,43 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        // 1. Verificar si hizo clic en un nodo de redimensionamiento
+        const handleHit = paper.project.hitTest(event.point, {
+            fill: true,
+            stroke: true,
+            tolerance: 8,
+            match: function(hitResult) {
+                return hitResult.item.data && hitResult.item.data.isHandle;
+            }
+        });
+
+        if (handleHit && window.selectedItem) {
+            window.resizeActive = true;
+            window.resizeHandleType = handleHit.item.data.handleType;
+            window.resizeTarget = window.selectedItem;
+            
+            const bounds = window.selectedItem.bounds;
+            window.resizeInitialBounds = bounds.clone();
+            window.resizeInitialPoint = event.point.clone();
+            window.resizeLastScaleX = 1.0;
+            window.resizeLastScaleY = 1.0;
+            
+            let anchor;
+            switch (window.resizeHandleType) {
+                case 'tl': anchor = bounds.bottomRight; break;
+                case 't':  anchor = bounds.bottomCenter; break;
+                case 'tr': anchor = bounds.bottomLeft; break;
+                case 'r':  anchor = bounds.leftCenter; break;
+                case 'br': anchor = bounds.topLeft; break;
+                case 'b':  anchor = bounds.topCenter; break;
+                case 'bl': anchor = bounds.topRight; break;
+                case 'l':  anchor = bounds.rightCenter; break;
+            }
+            window.resizeAnchor = anchor.clone();
+            return; 
+        }
+
+        // 2. Si no es un nodo, procedemos con hitTest para mover o seleccionar
         const hit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -388,6 +427,60 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseDrag = function(event) {
+        // A. Operación de Redimensionamiento (Resize)
+        if (window.resizeActive && window.resizeTarget) {
+            const currentPoint = event.point;
+            const initialBounds = window.resizeInitialBounds;
+            const anchor = window.resizeAnchor;
+            const handleType = window.resizeHandleType;
+
+            let scaleX = 1.0;
+            let scaleY = 1.0;
+
+            const initialWidth = initialBounds.width;
+            if (initialWidth > 0) {
+                const initDistX = Math.abs(window.resizeInitialPoint.x - anchor.x);
+                const currDistX = Math.abs(currentPoint.x - anchor.x);
+                scaleX = initDistX > 0 ? currDistX / initDistX : 1.0;
+            }
+
+            const initialHeight = initialBounds.height;
+            if (initialHeight > 0) {
+                const initDistY = Math.abs(window.resizeInitialPoint.y - anchor.y);
+                const currDistY = Math.abs(currentPoint.y - anchor.y);
+                scaleY = initDistY > 0 ? currDistY / initDistY : 1.0;
+            }
+
+            // Aplicar restricciones según el nodo arrastrado
+            if (handleType === 'tl' || handleType === 'tr' || handleType === 'bl' || handleType === 'br') {
+                // Symmetrical corner resizing (keeps aspect ratio)
+                scaleY = scaleX;
+            } else if (handleType === 'l' || handleType === 'r') {
+                // Horizontal only
+                scaleY = 1.0;
+            } else if (handleType === 't' || handleType === 'b') {
+                // Vertical only
+                scaleX = 1.0;
+            }
+
+            if (scaleX < 0.05) scaleX = 0.05;
+            if (scaleY < 0.05) scaleY = 0.05;
+
+            const relScaleX = scaleX / window.resizeLastScaleX;
+            const relScaleY = scaleY / window.resizeLastScaleY;
+
+            window.resizeTarget.scale(relScaleX, relScaleY, anchor);
+
+            window.resizeLastScaleX = scaleX;
+            window.resizeLastScaleY = scaleY;
+
+            window.updateSelectionBox(window.resizeTarget);
+            updateContextualMenu(window.resizeTarget);
+            paper.view.update();
+            return;
+        }
+
+        // B. Operación de Movimiento (Arrastrar)
         if (!window.dragging || !window.selectedItem || (window.selectedItem.data && window.selectedItem.data.mockup)) return;
 
         if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
@@ -399,11 +492,17 @@ window.addEventListener("DOMContentLoaded", () => {
             window.selectedItem.position = event.point.subtract(window.dragOffset);
         }
         
+        window.updateSelectionBox(window.selectedItem);
         updateContextualMenu(window.selectedItem);
         paper.view.update();
     };
 
     tool.onMouseUp = function() {
+        if (window.resizeActive) {
+            saveHistory();
+            window.resizeActive = false;
+            window.resizeTarget = null;
+        }
         if (window.dragging) {
             saveHistory();
         }
