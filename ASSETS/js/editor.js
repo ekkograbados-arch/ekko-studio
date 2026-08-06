@@ -3,7 +3,7 @@ import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", function() {
     paper.setup("editorCanvas");
     const canvasEl = document.getElementById("editorCanvas");
     paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
@@ -17,7 +17,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const sceneStates = {};
     function getSceneKey(product, surface) {
-        return `${product.id}__${surface.nombre}`;
+        return product.id + "__" + surface.nombre;
     }
 
     const undoStack = [];
@@ -48,14 +48,8 @@ window.addEventListener("DOMContentLoaded", () => {
             if (fonts && fonts.length > 0) {
                 const styleEl = document.createElement('style');
                 let styleContent = '';
-                fonts.forEach(font => {
-                    styleContent += `
-                        @font-face {
-                            font-family: '${font.family}';
-                            src: url('/ASSETS/fonts/${font.file}') format('truetype');
-                            font-display: swap;
-                        }
-                    `;
+                fonts.forEach(function(font) {
+                    styleContent += "\n@font-face {\nfont-family: '" + font.family + "';\nsrc: url('/ASSETS/fonts/" + font.file + "') format('truetype');\nfont-display: swap;\n}\n";
                 });
                 styleEl.textContent = styleContent;
                 document.head.appendChild(styleEl);
@@ -63,7 +57,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 const selectEl = document.getElementById('ctxFontSelector');
                 if (selectEl) {
                     selectEl.innerHTML = '';
-                    fonts.forEach(font => {
+                    fonts.forEach(function(font) {
                         const opt = document.createElement('option');
                         opt.value = font.family;
                         opt.textContent = font.name;
@@ -98,7 +92,7 @@ window.addEventListener("DOMContentLoaded", () => {
             const selectEl = document.getElementById('ctxFontSelector');
             if (selectEl) {
                 selectEl.innerHTML = '';
-                officialFonts.forEach(font => {
+                officialFonts.forEach(function(font) {
                     const opt = document.createElement('option');
                     opt.value = font.family;
                     opt.textContent = font.name;
@@ -186,9 +180,9 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!file) return;
         saveHistory();
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = function(e) {
             const raster = new paper.Raster({ source: e.target.result });
-            raster.onLoad = () => {
+            raster.onLoad = function() {
                 raster.data = { locked: false, label: "Imagen" };
                 const area = paper.view.bounds;
                 const maxWidth = area.width * 0.60;
@@ -207,12 +201,13 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsDataURL(file);
     }
 
+    // Adaptado para mantener compatibilidad con Canva-mode
     function addSVGFromFile(file) {
         if (!file) return;
         saveHistory();
         const reader = new FileReader();
-        reader.onload = (e) => {
-            paper.project.importSVG(e.target.result, (item) => {
+        reader.onload = function(e) {
+            paper.project.importSVG(e.target.result, function(item) {
                 if (!item) return;
                 item.data = { locked: false, label: file.name.replace(".svg", "") };
                 const bounds = item.bounds;
@@ -240,7 +235,7 @@ window.addEventListener("DOMContentLoaded", () => {
     function createEditableText(point) {
         saveHistory();
         const txt = new paper.PointText({
-            point,
+            point: point,
             content: "Haz clic para editar",
             fontSize: 24,
             fillColor: new paper.Color(0),
@@ -262,11 +257,11 @@ window.addEventListener("DOMContentLoaded", () => {
         ui.categoryTabs.innerHTML = "";
         if (!window.EKKO_STUDIO_PRODUCTS) return;
         
-        window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
+        window.EKKO_STUDIO_PRODUCTS.forEach(function(group, index) {
             const btn = document.createElement("button");
             btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
             btn.textContent = group.categoria;
-            btn.onclick = () => {
+            btn.onclick = function() {
                 saveCurrentScene();
                 toolState.currentCategory = index;
                 toolState.currentProduct = null;
@@ -278,7 +273,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    function renderProducts(categoryIndex, activeProduct = null) {
+    function renderProducts(categoryIndex, activeProduct) {
         if (!ui.productTabs || !ui.surfaceTabs) return;
         ui.productTabs.innerHTML = "";
         ui.surfaceTabs.innerHTML = "";
@@ -288,11 +283,11 @@ window.addEventListener("DOMContentLoaded", () => {
         
         const selectedProduct = activeProduct || toolState.currentProduct || group.productos.slice(0, 1).shift();
         
-        group.productos.forEach((product) => {
+        group.productos.forEach(function(product) {
             const btn = document.createElement("button");
             btn.className = "tab-btn" + (selectedProduct === product ? " active" : "");
             btn.textContent = product.nombre;
-            btn.onclick = () => {
+            btn.onclick = function() {
                 saveCurrentScene();
                 toolState.currentProduct = product;
                 toolState.currentSurface = 0;
@@ -310,11 +305,11 @@ window.addEventListener("DOMContentLoaded", () => {
         ui.surfaceTabs.innerHTML = "";
         if (!product || !product.superficies) return;
         
-        product.superficies.forEach((surface, index) => {
+        product.superficies.forEach(function(surface, index) {
             const btn = document.createElement("button");
             btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
             btn.textContent = surface.nombre;
-            btn.onclick = () => {
+            btn.onclick = function() {
                 saveCurrentScene();
                 toolState.currentSurface = index;
                 renderSurfacesOnly(product);
@@ -325,7 +320,6 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE ---
     function renderSurfaces(product) {
         renderSurfacesOnly(product);
         if (!product || !product.superficies) return;
@@ -338,6 +332,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE ---
     let insertTextMode = false;
     const tool = new paper.Tool();
 
@@ -362,26 +357,32 @@ window.addEventListener("DOMContentLoaded", () => {
         if (handleHit && window.selectedItem) {
             window.resizeActive = true;
             window.resizeHandleType = handleHit.item.data.handleType;
-            window.resizeTarget = window.selectedItem;
             
-            const bounds = window.selectedItem.bounds;
-            window.resizeInitialBounds = bounds.clone();
-            window.resizeInitialPoint = event.point.clone();
-            window.resizeLastScaleX = 1.0;
-            window.resizeLastScaleY = 1.0;
+            // Si el objeto seleccionado es un grupo recortado (clipGroup), redimensionamos únicamente la imagen interna
+            window.resizeTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
+                ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
+                : window.selectedItem;
             
-            let anchor;
-            switch (window.resizeHandleType) {
-                case 'tl': anchor = bounds.bottomRight; break;
-                case 't':  anchor = bounds.bottomCenter; break;
-                case 'tr': anchor = bounds.bottomLeft; break;
-                case 'r':  anchor = bounds.leftCenter; break;
-                case 'br': anchor = bounds.topLeft; break;
-                case 'b':  anchor = bounds.topCenter; break;
-                case 'bl': anchor = bounds.topRight; break;
-                case 'l':  anchor = bounds.rightCenter; break;
+            if (window.resizeTarget) {
+                const bounds = window.resizeTarget.bounds;
+                window.resizeInitialBounds = bounds.clone();
+                window.resizeInitialPoint = event.point.clone();
+                window.resizeLastScaleX = 1.0;
+                window.resizeLastScaleY = 1.0;
+                
+                let anchor;
+                switch (window.resizeHandleType) {
+                    case 'tl': anchor = bounds.bottomRight; break;
+                    case 't':  anchor = bounds.bottomCenter; break;
+                    case 'tr': anchor = bounds.bottomLeft; break;
+                    case 'r':  anchor = bounds.leftCenter; break;
+                    case 'br': anchor = bounds.topLeft; break;
+                    case 'b':  anchor = bounds.topCenter; break;
+                    case 'bl': anchor = bounds.topRight; break;
+                    case 'l':  anchor = bounds.rightCenter; break;
+                }
+                window.resizeAnchor = anchor.clone();
             }
-            window.resizeAnchor = anchor.clone();
             return; 
         }
 
@@ -414,7 +415,7 @@ window.addEventListener("DOMContentLoaded", () => {
         window.selectItem(item);
 
         if (item.data && item.data.clipGroup) {
-            const contentItem = item.children.find(c => !c.clipMask);
+            const contentItem = item.children.find(function(c) { return !c.clipMask; });
             if (contentItem) {
                 window.dragOffset = event.point.subtract(contentItem.position);
             } else {
@@ -474,8 +475,8 @@ window.addEventListener("DOMContentLoaded", () => {
             window.resizeLastScaleX = scaleX;
             window.resizeLastScaleY = scaleY;
 
-            window.updateSelectionBox(window.resizeTarget);
-            updateContextualMenu(window.resizeTarget);
+            window.updateSelectionBox(window.selectedItem);
+            updateContextualMenu(window.selectedItem);
             paper.view.update();
             return;
         }
@@ -484,7 +485,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!window.dragging || !window.selectedItem || (window.selectedItem.data && window.selectedItem.data.mockup)) return;
 
         if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-            const contentItem = window.selectedItem.children.find(c => !c.clipMask);
+            const contentItem = window.selectedItem.children.find(function(c) { return !c.clipMask; });
             if (contentItem) {
                 contentItem.position = event.point.subtract(window.dragOffset);
             }
@@ -509,35 +510,35 @@ window.addEventListener("DOMContentLoaded", () => {
         window.dragging = false;
     };
 
-    document.getElementById("btnAddText").onclick = () => {
+    document.getElementById("btnAddText").onclick = function() {
         insertTextMode = true;
         canvasEl.style.cursor = "text";
     };
 
-    document.getElementById("btnAddImage").onclick = () => {
+    document.getElementById("btnAddImage").onclick = function() {
         const imagePicker = document.getElementById("imagePicker");
         imagePicker.value = "";
         imagePicker.click();
     };
 
-    document.getElementById("btnAddSVG").onclick = () => {
+    document.getElementById("btnAddSVG").onclick = function() {
         const svgPicker = document.getElementById("svgPicker");
         svgPicker.value = "";
         svgPicker.click();
     };
 
-    document.getElementById("imagePicker").onchange = (e) => {
+    document.getElementById("imagePicker").onchange = function(e) {
         const files = e.target.files;
         if (files && files.length > 0) {
-            const [firstFile] = files;
+            const firstFile = files.item(0);
             addImageFromFile(firstFile);
         }
     };
 
-    document.getElementById("svgPicker").onchange = (e) => {
+    document.getElementById("svgPicker").onchange = function(e) {
         const files = e.target.files;
         if (files && files.length > 0) {
-            const [firstFile] = files;
+            const firstFile = files.item(0);
             addSVGFromFile(firstFile);
         }
     };
@@ -545,7 +546,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // --- PROCESADO EXPORTAR PARA LÁSER (LightBurn Style - VALIDADO) ---
     const exportBtn = document.getElementById("btnExportLaser");
     if (exportBtn) {
-        exportBtn.onclick = () => {
+        exportBtn.onclick = function() {
             window.deselectItem();
             
             let mockupHidden = false;
@@ -554,7 +555,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 mockupHidden = true;
             }
 
-            const activeItems = paper.project.activeLayer.children.filter(item => {
+            const activeItems = paper.project.activeLayer.children.filter(function(item) {
                 return item.visible && (!item.data || !item.data.mockup);
             });
 
@@ -596,11 +597,11 @@ window.addEventListener("DOMContentLoaded", () => {
         };
     }
 
-    document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
-    document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
+    document.getElementById("btnZoomIn").onclick = function() { zoomBy(1.15); };
+    document.getElementById("btnZoomOut").onclick = function() { zoomBy(1 / 1.15); };
     document.getElementById("btnFit").onclick = fitView;
 
-    window.addEventListener("resize", () => {
+    window.addEventListener("resize", function() {
         paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
     });
 
