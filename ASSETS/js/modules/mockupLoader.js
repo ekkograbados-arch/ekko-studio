@@ -17,7 +17,7 @@ function collectPaths(item, paths = []) {
 
 function shouldIgnoreLargestPath(paths, rootItem) { 
   if (paths.length < 2) return false; 
-  // ️ CORREGIDO: Obtenemos el primer objeto path del arreglo
+  // CORREGIDO: Extraemos el primer elemento con 
   const firstPath = paths; 
   if (!firstPath) return false; 
   
@@ -195,7 +195,7 @@ export function loadMockup(svgPath) {
     
     let ignoredPath = null; 
     if (shouldIgnoreLargestPath(allPaths, item)) { 
-      ignoredPath = allPaths.slice(0, 1).shift(); 
+      ignoredPath = allPaths; 
     } 
     
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath); 
@@ -232,7 +232,7 @@ export function restoreMockupReferences() {
     
     let ignoredPath = null; 
     if (shouldIgnoreLargestPath(allPaths, mockupItem)) { 
-      // ️ CORREGIDO: Obtenemos el elemento indexado correcto del arreglo
+      // CORREGIDO: Extraemos el primer elemento con 
       ignoredPath = allPaths; 
     } 
     
