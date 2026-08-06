@@ -52,8 +52,15 @@ window.updateSelectionBox = function(item) {
     return;
   }
 
-  // Obtener límites del objeto seleccionado
-  const bounds = item.bounds;
+  // Si es un grupo recortado (clipGroup), dibujamos la caja sobre su contenido real (ej: la imagen)
+  // en lugar de la caja del grupo entero (que Paper.js limita a los bordes de la máscara).
+  const displayItem = (item.data && item.data.clipGroup)
+    ? item.children.find(function(c) { return !c.clipMask; })
+    : item;
+
+  if (!displayItem) return;
+
+  const bounds = displayItem.bounds;
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
 
   window.selectionBoxGroup = new paper.Group();
@@ -79,7 +86,7 @@ window.updateSelectionBox = function(item) {
     { point: bounds.leftCenter, type: 'l' }
   ];
 
-  handlesInfo.forEach(info => {
+  handlesInfo.forEach(function(info) {
     const rect = new paper.Path.Rectangle({
       center: info.point,
       size: [handleSize, handleSize],
@@ -98,6 +105,7 @@ window.updateSelectionBox = function(item) {
 /* ========================= SELECT ========================= */ 
 window.selectItem = function(item){ 
  if(window.selectedItem){ 
+   // Quitamos la seleccion nativa de Paper.js para no pintar líneas celestes duplicadas
    window.selectedItem.selected = false; 
  } 
  window.selectedItem = item; 
@@ -107,12 +115,13 @@ window.selectItem = function(item){
    return; 
  } 
  if(item.data && item.data.mockup){ 
-   item.selected = false; 
    window.updateSelectionBox(null);
    paper.view.update(); 
    return; 
  } 
- item.selected = true; 
+ // NO usamos item.selected = true nativo de Paper.js para evitar que dibuje
+ // líneas celestes sobre las curvas de tus mockups y contornos de imágenes.
+ // En su lugar, nuestro updateSelectionBox customizado es 100% suficiente y limpio.
  window.updateSelectionBox(item);
  paper.view.update(); 
 }; 
