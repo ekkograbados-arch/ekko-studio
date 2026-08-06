@@ -15,7 +15,7 @@
             --primary: #007bff;
             --primary-hover: #0056b3;
             --border-color: #e2e8f0;
-            --bg-canvas: #f8fafc;
+            --bg-canvas: #cbd5e1; /* Fondo gris pizarra para hacer resaltar el tablero */
         }
 
         body {
@@ -143,12 +143,17 @@
             background-color: var(--bg-canvas);
             position: relative;
             overflow: auto;
+            padding: 40px;
         }
 
+        /* Tablero de Arte del Canvas (Canva Style) */
         #editorCanvas {
+            width: 800px;
+            height: 600px;
             background: #ffffff;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-            border-radius: 4px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 10px 10px -5px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            border: 1px solid #94a3b8;
         }
 
         /* BARRA CONTEXTUAL FLOTANTE (Estilo Canva) */
@@ -223,11 +228,11 @@
             background: white;
             outline: none;
             cursor: pointer;
-            max-width: 150px;
+            min-width: 160px;
         }
 
         .toolbar-input-number {
-            width: 50px;
+            width: 55px;
             padding: 4px 6px;
             border: 1px solid #cbd5e1;
             border-radius: 4px;
