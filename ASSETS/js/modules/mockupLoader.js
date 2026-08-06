@@ -16,13 +16,16 @@ function collectPaths(item, paths = []) {
 }
 
 function shouldIgnoreLargestPath(paths, rootItem) { 
-  if (paths.length < 2) return false; 
-  // CORREGIDO: Extraemos el primer elemento con 
-  const firstPath = paths; 
+  if (!paths || paths.length < 2) return false; 
+  
+  // Extraemos el primer elemento usando desestructuración segura de ES6
+  const [firstPath] = paths; 
   if (!firstPath) return false; 
   
   const fBounds = firstPath.bounds; 
   const rBounds = rootItem.bounds; 
+  if (!fBounds || !rBounds || rBounds.width <= 0 || rBounds.height <= 0) return false;
+  
   const wRatio = fBounds.width / rBounds.width; 
   const hRatio = fBounds.height / rBounds.height; 
   
@@ -63,7 +66,8 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
     return Math.abs(b.area) - Math.abs(a.area); 
   }); 
   if (!paths.length) return null; 
-  const firstPath = paths.slice(0, 1).shift(); 
+  
+  const [firstPath] = paths; 
   let mask = firstPath.clone(); 
   mask.applyMatrix = true; 
   const isVirola = svgPath && ( 
@@ -195,7 +199,8 @@ export function loadMockup(svgPath) {
     
     let ignoredPath = null; 
     if (shouldIgnoreLargestPath(allPaths, item)) { 
-      ignoredPath = allPaths; 
+      const [firstPath] = allPaths; 
+      ignoredPath = firstPath; 
     } 
     
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath); 
@@ -207,7 +212,6 @@ export function loadMockup(svgPath) {
     lockMockup(item); 
     window.currentMockup = item; 
     
-    // Guardamos metadatos clave para la restauración posterior de capas
     item.data = { 
       locked: true, 
       mockup: true, 
@@ -232,8 +236,8 @@ export function restoreMockupReferences() {
     
     let ignoredPath = null; 
     if (shouldIgnoreLargestPath(allPaths, mockupItem)) { 
-      // CORREGIDO: Extraemos el primer elemento con 
-      ignoredPath = allPaths; 
+      const [firstPath] = allPaths; 
+      ignoredPath = firstPath; 
     } 
     
     const svgPath = mockupItem.data ? mockupItem.data.svgPath : null; 
