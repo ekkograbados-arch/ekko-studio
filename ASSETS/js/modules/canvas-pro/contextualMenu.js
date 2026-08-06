@@ -5,6 +5,8 @@ export function initContextualMenu() {
   // --- 1. ACCIONES GENERALES ---
   document.getElementById('btnCtxDelete').onclick = () => {
     if (window.selectedItem) {
+      // Bloqueo de seguridad: jamás eliminar el mockup de fondo
+      if (window.selectedItem.data?.mockup) return;
       window.selectedItem.remove();
       window.deselectItem();
       hideContextualMenu();
@@ -13,6 +15,7 @@ export function initContextualMenu() {
 
   document.getElementById('btnCtxDuplicate').onclick = () => {
     if (window.selectedItem && !window.selectedItem.data?.locked) {
+      if (window.selectedItem.data?.mockup) return; // No duplicar mockup
       const clone = window.selectedItem.clone();
       clone.position = clone.position.add(new paper.Point(20, 20));
       clone.data = { ...(clone.data || {}), locked: false };
@@ -29,6 +32,7 @@ export function initContextualMenu() {
 
   document.getElementById('btnCtxForward').onclick = () => {
     if (window.selectedItem) {
+      if (window.selectedItem.data?.mockup) return; // Ignorar si es el mockup
       window.selectedItem.bringToFront();
       paper.view.update();
     }
@@ -36,8 +40,9 @@ export function initContextualMenu() {
 
   document.getElementById('btnCtxBackward').onclick = () => {
     if (window.selectedItem) {
+      if (window.selectedItem.data?.mockup) return; // Ignorar si es el mockup
       window.selectedItem.sendToBack();
-      // Si el mockup está presente, el objeto debe ir justo por debajo del mockup
+      // El objeto debe posicionarse siempre debajo de la plantilla física de referencia
       if (window.currentMockup) {
         window.selectedItem.insertBelow(window.currentMockup);
       }
@@ -64,13 +69,12 @@ export function initContextualMenu() {
         if (val && val > 0) {
           window.selectedItem.fontSize = val;
           paper.view.update();
-          updateContextualMenu(window.selectedItem); // Reposicionar barra
+          updateContextualMenu(window.selectedItem);
         }
       }
     };
   }
 
-  // Estilos de texto (Negrita y Cursiva)
   const btnBold = document.getElementById('btnCtxBold');
   if (btnBold) {
     btnBold.onclick = () => {
@@ -124,7 +128,6 @@ export function initContextualMenu() {
     };
   }
 
-  // Sliders de Brillo y Contraste
   const briSlider = document.getElementById('ctxBrightness');
   if (briSlider) {
     briSlider.oninput = () => {
@@ -160,7 +163,7 @@ export function updateContextualMenu(item) {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
 
-  // Si no hay item o es un mockup bloqueado, escondemos el menú flotante
+  // Si no hay item o es el mockup físico de fondo, se oculta el menú flotante
   if (!item || (item.data && item.data.mockup)) {
     toolbar.classList.remove('active');
     return;
@@ -168,19 +171,16 @@ export function updateContextualMenu(item) {
 
   toolbar.classList.add('active');
 
-  // Escondemos los subgrupos específicos
   document.getElementById('ctxTextControls').classList.add('hidden');
   document.getElementById('ctxImageControls').classList.add('hidden');
   document.getElementById('ctxVectorControls').classList.add('hidden');
 
-  // Identificamos el elemento real (incluso si está dentro de un ClipGroup enmascarado)
   const target = item.data?.clipGroup 
     ? item.children.find(c => !c.clipMask) 
     : item;
 
   if (!target) return;
 
-  // Mostramos controles según el tipo de objeto
   if (target instanceof paper.PointText) {
     document.getElementById('ctxTextControls').classList.remove('hidden');
     
@@ -193,7 +193,6 @@ export function updateContextualMenu(item) {
   } else if (target instanceof paper.Raster) {
     document.getElementById('ctxImageControls').classList.remove('hidden');
     
-    // Restaurar valores de sliders guardados en metadatos
     const briSlider = document.getElementById('ctxBrightness');
     const conSlider = document.getElementById('ctxContrast');
     
@@ -204,7 +203,7 @@ export function updateContextualMenu(item) {
     document.getElementById('ctxVectorControls').classList.remove('hidden');
   }
 
-  // --- POSICIONAMIENTO GEOMÉTRICO (Canva Style) ---
+  // --- POSICIONAMIENTO GEOMÉTRICO ---
   const bounds = item.bounds;
   if (!bounds) return;
 
@@ -213,7 +212,6 @@ export function updateContextualMenu(item) {
   const toolbarWidth = toolbar.offsetWidth || 350;
   const toolbarHeight = toolbar.offsetHeight || 45;
 
-  // Centramos horizontalmente arriba de la figura
   const posX = viewPoint.x - (toolbarWidth / 2);
   const posY = viewPoint.y - toolbarHeight - 20;
 
