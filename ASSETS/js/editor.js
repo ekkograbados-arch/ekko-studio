@@ -1,4 +1,3 @@
-
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
@@ -324,6 +323,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE ---
     function renderSurfaces(product) {
         renderSurfacesOnly(product);
         if (!product || !product.superficies) return;
@@ -336,7 +336,6 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE (BLINDADO) ---
     let insertTextMode = false;
     const tool = new paper.Tool();
 
@@ -354,7 +353,6 @@ window.addEventListener("DOMContentLoaded", () => {
             segments: true,
             tolerance: 8,
             match: function(hitResult) {
-                // BLINDAJE EXTREMO: Si el elemento cliqueado pertenece al mockup físico de fondo, se ignora
                 let current = hitResult.item;
                 while (current) {
                     if (current.data && current.data.mockup) {
@@ -445,56 +443,59 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // --- PROCESADO EXPORTAR PARA LÁSER ---
-    document.getElementById("btnExportLaser").onclick = () => {
-        window.deselectItem();
-        
-        let mockupHidden = false;
-        if (window.currentMockup) {
-            window.currentMockup.visible = false;
-            mockupHidden = true;
-        }
+    // --- PROCESADO EXPORTAR PARA LÁSER (LightBurn Style - VALIDADO) ---
+    const exportBtn = document.getElementById("btnExportLaser");
+    if (exportBtn) {
+        exportBtn.onclick = () => {
+            window.deselectItem();
+            
+            let mockupHidden = false;
+            if (window.currentMockup) {
+                window.currentMockup.visible = false;
+                mockupHidden = true;
+            }
 
-        const activeItems = paper.project.activeLayer.children.filter(item => {
-            return item.visible && (!item.data || !item.data.mockup);
-        });
+            const activeItems = paper.project.activeLayer.children.filter(item => {
+                return item.visible && (!item.data || !item.data.mockup);
+            });
 
-        for (let i = 0; i < activeItems.length; i++) {
-            const itemAbove = activeItems[i];
-            if (!(itemAbove instanceof paper.Path) && !(itemAbove instanceof paper.CompoundPath)) continue;
+            for (let i = 0; i < activeItems.length; i++) {
+                const itemAbove = activeItems[i];
+                if (!(itemAbove instanceof paper.Path) && !(itemAbove instanceof paper.CompoundPath)) continue;
 
-            for (let j = i + 1; j < activeItems.length; j++) {
-                const itemBelow = activeItems[j];
-                if (!(itemBelow instanceof paper.Path) && !(itemBelow instanceof paper.CompoundPath)) continue;
+                for (let j = i + 1; j < activeItems.length; j++) {
+                    const itemBelow = activeItems[j];
+                    if (!(itemBelow instanceof paper.Path) && !(itemBelow instanceof paper.CompoundPath)) continue;
 
-                if (itemAbove.bounds.intersects(itemBelow.bounds)) {
-                    const cutResult = itemBelow.subtract(itemAbove);
-                    if (cutResult) {
-                        itemBelow.replaceWith(cutResult);
+                    if (itemAbove.bounds.intersects(itemBelow.bounds)) {
+                        const cutResult = itemBelow.subtract(itemAbove);
+                        if (cutResult) {
+                            itemBelow.replaceWith(cutResult);
+                        }
                     }
                 }
             }
-        }
 
-        paper.view.update();
-
-        const svgString = paper.project.exportSVG({ asString: true, bounds: 'content' });
-
-        if (mockupHidden && window.currentMockup) {
-            window.currentMockup.visible = true;
             paper.view.update();
-        }
 
-        const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const downloadLink = document.createElement("a");
-        downloadLink.href = url;
-        downloadLink.download = "ekko-laser-ready.svg";
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
-        URL.revokeObjectURL(url);
-    };
+            const svgString = paper.project.exportSVG({ asString: true, bounds: 'content' });
+
+            if (mockupHidden && window.currentMockup) {
+                window.currentMockup.visible = true;
+                paper.view.update();
+            }
+
+            const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const downloadLink = document.createElement("a");
+            downloadLink.href = url;
+            downloadLink.download = "ekko-laser-ready.svg";
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+            URL.revokeObjectURL(url);
+        };
+    }
 
     document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
     document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
