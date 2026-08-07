@@ -6,12 +6,9 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
   const imgElement = raster.image || raster.canvas;
   if (!imgElement) return new paper.Path.Rectangle(raster.bounds);
 
-  const originalWidth = raster.width || imgElement.width || 100;
-  const originalHeight = raster.height || imgElement.height || 100;
-
-  // Crear un lienzo temporal reducido para eliminar el ruido y cerrar espacios (150x150)
-  const tw = 150;
-  const th = 150;
+  // Reducimos la cuadrícula a 120x120 para optimizar el rendimiento y lograr un refresco instantáneo sin lag
+  const tw = 120;
+  const th = 120;
   const tempCanvas = document.createElement('canvas');
   tempCanvas.width = tw;
   tempCanvas.height = th;
@@ -22,7 +19,7 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
   try {
     tempCtx.drawImage(imgElement, 0, 0, tw, th);
   } catch (e) {
-    console.warn("Error dibujando en canvas temporal:", e);
+    console.warn("Error CORS o de carga en canvas temporal:", e);
     return new paper.Path.Rectangle(raster.bounds);
   }
 
@@ -30,7 +27,7 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
   try {
     imgData = tempCtx.getImageData(0, 0, tw, th);
   } catch (e) {
-    console.warn("No se pudo obtener datos de píxeles (posible error de CORS). Usando contorno rectangular.", e);
+    console.warn("No se pudo leer píxeles de la imagen:", e);
     return new paper.Path.Rectangle(raster.bounds);
   }
 
@@ -48,11 +45,12 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
       const a = data[idx+3];
       
       const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+      
       if (a < 30) {
         grid[y][x] = 0;
         continue;
       }
-
+      
       let isSolid = false;
       if (sketchMode) {
         // Trazado de Croquis (Sketch Trace): Umbral adaptativo local usando vecinos 5x5
@@ -67,7 +65,8 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
           }
         }
         const avg = count > 0 ? sum / count : 128;
-        isSolid = (luminance <= avg - 15) && (luminance >= cutoff);
+        // Si el brillo es más oscuro que su entorno local, es una línea trazable (croquis)
+        isSolid = (luminance <= avg - 10) && (luminance >= cutoff);
       } else {
         // Rango de Trazado estándar (Cutoff + Threshold al estilo LightBurn)
         isSolid = (luminance >= cutoff) && (luminance <= threshold);
@@ -76,13 +75,13 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
     }
   }
 
-  // Aplicar Dilatación Matemática para unir líneas delgadas y puntos sueltos
+  // Dilatación matemática ligera (1 píxel) para unir dither dots y trazos finos sin perder precisión
   const dilated = [];
   for (let y = 0; y < th; y++) {
     dilated[y] = new Uint8Array(tw);
   }
 
-  const padding = 2; // Dilatación de 2 píxeles de radio
+  const padding = 1; // 1px de radio mantiene la fidelidad de siluetas de personas y autos
   for (let y = 0; y < th; y++) {
     for (let x = 0; x < tw; x++) {
       if (grid[y][x] === 1) {
@@ -99,7 +98,7 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
     }
   }
 
-  // Buscar el primer píxel sólido en la cuadrícula dilatada
+  // Buscar el primer píxel sólido en la cuadrícula
   let startX = -1, startY = -1;
   for (let y = 0; y < th; y++) {
     for (let x = 0; x < tw; x++) {
@@ -116,7 +115,7 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
     return new paper.Path.Rectangle(raster.bounds);
   }
 
-  // Moore-Neighbor Tracing en la cuadrícula dilatada
+  // Algoritmo Moore-Neighbor Tracing
   const points = [];
   let cx = startX;
   let cy = startY;
@@ -134,7 +133,6 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
       const checkDir = (dir + i) % 8;
       const nx = cx + dx[checkDir];
       const ny = cy + dy[checkDir];
-      
       if (nx >= 0 && nx < tw && ny >= 0 && ny < th && dilated[ny][nx] === 1) {
         cx = nx;
         cy = ny;
@@ -158,7 +156,7 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
     return new paper.Path.Rectangle(raster.bounds);
   }
 
-  // Mapear las coordenadas de la cuadrícula de 150x150 a los límites reales del raster en Paper.js
+  // Mapear coordenadas de la matriz temporal 120x120 al tamaño real del objeto en el Canvas
   const bounds = raster.bounds;
   const rx = bounds.left;
   const ry = bounds.top;
@@ -185,16 +183,16 @@ window.enterInteractiveCropMode = function() {
   const raster = (window.selectedItem.data?.clipGroup)
     ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
     : window.selectedItem;
-
+    
   if (raster && raster instanceof paper.Raster) {
-    // Buscar un vector cerrado que intersecte la imagen para usar como molde
+    // Buscar un vector cerrado en el layer que intersecte la imagen para usar como molde de corte
     const activeItems = paper.project.activeLayer.children;
     const maskPath = activeItems.find(function(item) {
       return item !== window.selectedItem && 
              (item instanceof paper.Path || item instanceof paper.CompoundPath) && 
              item.bounds.intersects(raster.bounds);
     });
-
+    
     if (maskPath) {
       window.cropModeActive = true;
       window.cropRaster = raster;
@@ -205,12 +203,12 @@ window.enterInteractiveCropMode = function() {
       
       const selInfo = document.getElementById("selectionInfo");
       if (selInfo) {
-        selInfo.textContent = "MODO RECORTE: Haz clic DENTRO del contorno para borrar el fondo, o FUERA para borrar el interior.";
+        selInfo.innerHTML = "<strong style='color:#dc3545;'>MODO RECORTE INTERACTIVO:</strong> Haz clic <strong>DENTRO</strong> para siluetear (quitar fondo), o <strong>FUERA</strong> para troquelar (hacer hueco).";
       }
       
-      alert("¡Modo Recorte Interactivo Activado!\n\n1. Haz clic DENTRO del trazado si quieres borrar el fondo (siluetear).\n2. Haz clic FUERA del trazado si quieres vaciar/agujerear la imagen.");
+      alert("¡MODO RECORTE ACTIVO!\n\n1. Haz clic DENTRO de la silueta para conservar el objeto y eliminar el fondo (siluetear).\n2. Haz clic FUERA de la silueta para conservar el fondo y calar el interior (troquelar).");
     } else {
-      alert("Por favor, traza primero el contorno de la imagen. Debe haber un trazado cerrado colocado sobre la imagen para recortarla.");
+      alert("Por favor, genera primero el contorno azul sobre la imagen usando la herramienta de Trazar Imagen.");
     }
   }
 };
@@ -220,7 +218,7 @@ window.removeMaskFromSelectedImage = function() {
     if (window.saveHistory) window.saveHistory();
     const mask = window.selectedItem.children.find(function(c) { return c.clipMask; });
     const content = window.selectedItem.children.find(function(c) { return !c.clipMask; });
-
+    
     if (mask && content) {
       const restoredMask = mask.clone();
       restoredMask.clipMask = false;
@@ -229,18 +227,18 @@ window.removeMaskFromSelectedImage = function() {
       restoredMask.strokeWidth = 2;
       restoredMask.fillColor = null;
       restoredMask.data = { locked: false, label: "Trazado" };
-
+      
       const restoredRaster = content.clone();
       restoredRaster.data = { locked: false, label: "Imagen" };
-
+      
       paper.project.activeLayer.addChild(restoredRaster);
       paper.project.activeLayer.addChild(restoredMask);
-
+      
       if (window.currentMockup) {
         restoredRaster.insertBelow(window.currentMockup);
         restoredMask.insertBelow(window.currentMockup);
       }
-
+      
       window.selectedItem.remove();
       window.selectItem(restoredRaster);
       paper.view.update();
@@ -249,9 +247,194 @@ window.removeMaskFromSelectedImage = function() {
 };
 
 /* =========================================================================
+   Creación de Menú de Clic Derecho Contextual (Replica LightBurn & Canva)
+   ========================================================================= */
+function createContextMenuHTML() {
+  if (document.getElementById('custom-context-menu')) return;
+  const menu = document.createElement('div');
+  menu.id = 'custom-context-menu';
+  menu.style.position = 'absolute';
+  menu.style.display = 'none';
+  menu.style.backgroundColor = '#ffffff';
+  menu.style.border = '1px solid #cbd5e1';
+  menu.style.borderRadius = '8px';
+  menu.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)';
+  menu.style.zIndex = '1000';
+  menu.style.padding = '6px 0';
+  menu.style.minWidth = '180px';
+  menu.style.userSelect = 'none';
+  
+  const styles = document.createElement('style');
+  styles.textContent = `
+    .context-menu-item {
+      padding: 8px 14px;
+      font-size: 13px;
+      color: #334155;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: background 0.15s;
+    }
+    .context-menu-item:hover {
+      background-color: #f1f5f9;
+      color: #0f172a;
+    }
+    .context-menu-separator {
+      height: 1px;
+      background-color: #cbd5e1;
+      margin: 4px 0;
+    }
+    .context-menu-header {
+      padding: 4px 14px;
+      font-size: 10px;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+  `;
+  document.head.appendChild(styles);
+  document.body.appendChild(menu);
+}
+
+window.showRightClickMenu = function(x, y, item) {
+  const menu = document.getElementById('custom-context-menu');
+  if (!menu) return;
+  
+  menu.innerHTML = "";
+  
+  if (!item) {
+    // Menú genérico de pantalla (Clic en zona vacía)
+    menu.innerHTML = `
+      <div class="context-menu-header">Canvas</div>
+      <div class="context-menu-item" id="ctxMenuAddText"><i class="fas fa-font"></i> Agregar Texto</div>
+      <div class="context-menu-item" id="ctxMenuFit"><i class="fas fa-compress"></i> Ajustar Vista</div>
+    `;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+    menu.style.display = 'block';
+    
+    document.getElementById('ctxMenuAddText').onclick = () => {
+      document.getElementById('btnAddText').click();
+      menu.style.display = 'none';
+    };
+    document.getElementById('ctxMenuFit').onclick = () => {
+      document.getElementById('btnFit').click();
+      menu.style.display = 'none';
+    };
+    return;
+  }
+  
+  // Menú con objeto seleccionado
+  window.selectItem(item);
+  const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+  
+  let itemMenuHTML = `
+    <div class="context-menu-header">Edición General</div>
+    <div class="context-menu-item" id="ctxMenuDup"><i class="fas fa-copy"></i> Duplicar</div>
+    <div class="context-menu-item" id="ctxMenuDel" style="color:#dc3545;"><i class="fas fa-trash"></i> Eliminar</div>
+    <div class="context-menu-separator"></div>
+    <div class="context-menu-header">Capas (Láser)</div>
+    <div class="context-menu-item" id="ctxMenuFront"><i class="fas fa-layer-group"></i> Traer al Frente</div>
+    <div class="context-menu-item" id="ctxMenuBack"><i class="fas fa-layer-group"></i> Enviar al Fondo</div>
+  `;
+  
+  if (target instanceof paper.Raster) {
+    itemMenuHTML += `
+      <div class="context-menu-separator"></div>
+      <div class="context-menu-header">Trazado e Imagen</div>
+      <div class="context-menu-item" id="ctxMenuTrace"><i class="fas fa-magic"></i> 🪄 Trazar Contorno</div>
+      <div class="context-menu-item" id="ctxMenuCrop"><i class="fas fa-crop-alt"></i> ✂️ Recortar Imagen</div>
+    `;
+    if (item.data?.clipGroup) {
+      itemMenuHTML += `
+        <div class="context-menu-item" id="ctxMenuUncrop"><i class="fas fa-unlock"></i> 🔓 Quitar Recorte</div>
+      `;
+    }
+  } else if (target instanceof paper.Path || target instanceof paper.CompoundPath) {
+    itemMenuHTML += `
+      <div class="context-menu-separator"></div>
+      <div class="context-menu-header">Herramientas Vectoriales</div>
+      <div class="context-menu-item" id="ctxMenuNodes"><i class="fas fa-bezier-curve"></i> ☋ Editar Nodos</div>
+      <div class="context-menu-item" id="ctxMenuSubtract"><i class="fas fa-eraser"></i> Evitar Superposición</div>
+    `;
+  }
+  
+  menu.innerHTML = itemMenuHTML;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.style.display = 'block';
+  
+  // Vincular eventos del menú contextual
+  document.getElementById('ctxMenuDup').onclick = () => {
+    document.getElementById('btnCtxDuplicate').click();
+    menu.style.display = 'none';
+  };
+  document.getElementById('ctxMenuDel').onclick = () => {
+    document.getElementById('btnCtxDelete').click();
+    menu.style.display = 'none';
+  };
+  document.getElementById('ctxMenuFront').onclick = () => {
+    document.getElementById('btnCtxForward').click();
+    menu.style.display = 'none';
+  };
+  document.getElementById('ctxMenuBack').onclick = () => {
+    document.getElementById('btnCtxBackward').click();
+    menu.style.display = 'none';
+  };
+  
+  const mTrace = document.getElementById('ctxMenuTrace');
+  if (mTrace) {
+    mTrace.onclick = () => {
+      document.getElementById('btnCtxTrace').click();
+      menu.style.display = 'none';
+    };
+  }
+  const mCrop = document.getElementById('ctxMenuCrop');
+  if (mCrop) {
+    mCrop.onclick = () => {
+      document.getElementById('btnCtxApplyMask').click();
+      menu.style.display = 'none';
+    };
+  }
+  const mUncrop = document.getElementById('ctxMenuUncrop');
+  if (mUncrop) {
+    mUncrop.onclick = () => {
+      document.getElementById('btnCtxRemoveMask').click();
+      menu.style.display = 'none';
+    };
+  }
+  const mNodes = document.getElementById('ctxMenuNodes');
+  if (mNodes) {
+    mNodes.onclick = () => {
+      document.getElementById('btnCtxNodeEdit').click();
+      menu.style.display = 'none';
+    };
+  }
+  const mSub = document.getElementById('ctxMenuSubtract');
+  if (mSub) {
+    mSub.onclick = () => {
+      document.getElementById('btnCtxSubtract').click();
+      menu.style.display = 'none';
+    };
+  }
+};
+
+// Cerrar el menú contextual al hacer clic fuera
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('custom-context-menu');
+  if (menu && !menu.contains(e.target)) {
+    menu.style.display = 'none';
+  }
+});
+
+/* =========================================================================
    Inicialización y Eventos del Menú Contextual
    ========================================================================= */
 export function initContextualMenu() {
+  createContextMenuHTML();
+  
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
 
@@ -270,8 +453,6 @@ export function initContextualMenu() {
       if (window.selectedItem.data?.mockup) return;
       
       let finalClone;
-      
-      // Si el objeto seleccionado es un grupo recortado (clipGroup)
       if (window.selectedItem.data?.clipGroup) {
         const rawContent = window.selectedItem.children.find(function(c) { return !c.clipMask; });
         if (rawContent) {
@@ -340,7 +521,7 @@ export function initContextualMenu() {
     };
   }
 
-  // --- ACCIONES DE RECORTE DE IMAGEN (Aplicar y Quitar Máscara) ---
+  // --- ACCIONES DE RECORTE DE IMAGEN ---
   const btnCtxApplyMask = document.getElementById('btnCtxApplyMask');
   if (btnCtxApplyMask) {
     btnCtxApplyMask.onclick = function() {
@@ -389,7 +570,7 @@ export function initContextualMenu() {
     };
   }
 
-  // --- CONTROL DE TRAZADO LIVE (LightBurn Style) ---
+  // --- CONTROL DE TRAZADO LIVE (LightBurn Style Throttled) ---
   const btnCtxTrace = document.getElementById('btnCtxTrace');
   const sliderThreshold = document.getElementById('ctxTraceThreshold');
   const sliderCutoff = document.getElementById('ctxTraceCutoff');
@@ -398,7 +579,6 @@ export function initContextualMenu() {
   const lblThreshold = document.getElementById('lblTraceThreshold');
   const lblCutoff = document.getElementById('lblTraceCutoff');
   const lblSmooth = document.getElementById('lblTraceSmooth');
-  
   let activeRasterForTrace = null;
 
   function runLiveTrace() {
@@ -424,7 +604,7 @@ export function initContextualMenu() {
       path.strokeWidth = 2 / paper.view.zoom;
       path.dashArray = [6 / paper.view.zoom, 4 / paper.view.zoom]; // Línea dashed azul
       path.fillColor = null;
-      path.data = { isSelectionBox: true }; // Previene interacciones normales con la línea de previsualización
+      path.data = { isSelectionBox: true }; // Evita selecciones accidentales durante preview
       
       paper.project.activeLayer.addChild(path);
       if (window.currentMockup) {
@@ -435,32 +615,46 @@ export function initContextualMenu() {
     }
   }
 
+  // Throttling usando requestAnimationFrame para garantizar un refresco suave y ultra rápido (sin delays)
+  let tracePending = false;
+  function scheduleLiveTrace() {
+    if (tracePending) return;
+    tracePending = true;
+    requestAnimationFrame(() => {
+      runLiveTrace();
+      tracePending = false;
+    });
+  }
+
   if (btnCtxTrace) {
     btnCtxTrace.onclick = function() {
       if (window.selectedItem) {
-        const raster = (window.selectedItem.data?.clipGroup)
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
+        const raster = (window.selectedItem.data?.clipGroup) 
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
           : window.selectedItem;
           
         if (raster && raster instanceof paper.Raster) {
           activeRasterForTrace = raster;
-          
-          // Cambiar paneles del menú flotante
+          // Mostrar panel del trazador interactivo de LightBurn
           document.getElementById('ctxImageControls').classList.add('hidden');
           document.getElementById('ctxTraceControls').classList.remove('hidden');
           if (btnCtxTrace) btnCtxTrace.style.display = 'none';
           
-          runLiveTrace(); // Lanzar trazado inicial
+          runLiveTrace(); // Trazado dinámico inicial
         }
       }
     };
   }
 
-  // Vincular eventos input y change a los deslizadores
+  // Vincular eventos dinámicos a deslizadores
   [sliderThreshold, sliderCutoff, sliderSmooth, chkSketch].forEach(function(el) {
     if (el) {
-      el.oninput = function() { runLiveTrace(); };
-      el.onchange = function() { runLiveTrace(); };
+      el.oninput = function() {
+        scheduleLiveTrace();
+      };
+      el.onchange = function() {
+        scheduleLiveTrace();
+      };
     }
   });
 
@@ -470,11 +664,10 @@ export function initContextualMenu() {
       if (window.tracePreviewPath) {
         if (window.saveHistory) window.saveHistory();
         
-        // Finalizar el trazado
         const finalPath = window.tracePreviewPath;
         finalPath.strokeColor = new paper.Color('#007bff');
         finalPath.strokeWidth = 2;
-        finalPath.dashArray = null; // Línea sólida
+        finalPath.dashArray = null; // Línea continua sólida definitiva
         finalPath.data = { locked: false, label: "Trazado " + (activeRasterForTrace.data?.label || "Imagen") };
         
         window.tracePreviewPath = null;
@@ -505,14 +698,12 @@ export function initContextualMenu() {
     };
   }
 
-  // --- BOTÓN RECORTAR FONDO / EVITAR SUPERPOSICIÓN (LightBurn Style) ---
+  // --- BOTÓN RECORTAR FONDO / EVITAR SUPERPOSICIÓN ---
   const btnCtxSubtract = document.getElementById('btnCtxSubtract');
   if (btnCtxSubtract) {
     btnCtxSubtract.onclick = function() {
       if (window.selectedItem) {
         let outlinePath = null;
-        
-        // 1. Obtener la geometría de contorno del elemento seleccionado
         if (window.selectedItem.data?.clipGroup) {
           const raster = window.selectedItem.children.find(function(c) { return !c.clipMask; });
           if (raster && raster instanceof paper.Raster) {
@@ -525,7 +716,7 @@ export function initContextualMenu() {
         } else if (window.selectedItem instanceof paper.Path || window.selectedItem instanceof paper.CompoundPath) {
           outlinePath = window.selectedItem.clone();
         }
-        
+
         if (!outlinePath) {
           alert("No se pudo calcular la geometría de contorno para este objeto.");
           return;
@@ -533,21 +724,17 @@ export function initContextualMenu() {
         
         outlinePath.visible = false;
         
-        // 2. Encontrar todos los elementos detrás de él en el orden de capas
         const children = paper.project.activeLayer.children.slice();
         const targetIndex = children.indexOf(window.selectedItem);
         if (targetIndex === -1) return;
         
         let subbedCount = 0;
-        
-        // Ejecutar la resta únicamente en los objetos que estén DEBAJO
         for (let i = 0; i < targetIndex; i++) {
           const otherItem = children[i];
           if (otherItem.data?.mockup || otherItem.data?.isSelectionBox || otherItem === window.selectedItem) {
             continue;
           }
           
-          // Caso A: Si el objeto de abajo es vectorial (Path o CompoundPath)
           if (otherItem instanceof paper.Path || otherItem instanceof paper.CompoundPath) {
             if (otherItem.bounds.intersects(outlinePath.bounds)) {
               const result = otherItem.subtract(outlinePath);
@@ -557,9 +744,7 @@ export function initContextualMenu() {
                 subbedCount++;
               }
             }
-          }
-          // Caso B: Si el objeto de abajo es una imagen enmascarada (clipGroup)
-          else if (otherItem.data?.clipGroup) {
+          } else if (otherItem.data?.clipGroup) {
             const mask = otherItem.children.find(function(c) { return c.clipMask; });
             if (mask && mask.bounds.intersects(outlinePath.bounds)) {
               const resultMask = mask.subtract(outlinePath);
@@ -713,13 +898,11 @@ export function updateContextualMenu(item) {
   if (!toolbar) return;
 
   if (window.nodeEditMode) {
-    // Si estamos editando nodos vectoriales, ocultamos todos los paneles comunes y mostramos el de nodos
     toolbar.classList.add('active');
     document.getElementById('ctxTextControls').classList.add('hidden');
     document.getElementById('ctxImageControls').classList.add('hidden');
     document.getElementById('ctxVectorControls').classList.add('hidden');
     document.getElementById('ctxTraceControls').classList.add('hidden');
-    
     const nodeControls = document.getElementById('ctxNodeEditControls');
     if (nodeControls) nodeControls.classList.remove('hidden');
     return;
@@ -754,7 +937,7 @@ export function updateContextualMenu(item) {
     if (btnApplyMask) btnApplyMask.style.display = 'none';
     if (btnRemoveMask) btnRemoveMask.style.display = 'none';
     if (btnNodeEdit) btnNodeEdit.style.display = 'none';
-
+    
     const fontSelector = document.getElementById('ctxFontSelector');
     const fontSizeInput = document.getElementById('ctxFontSize');
     if (fontSelector) fontSelector.value = target.fontFamily || 'Arial';
@@ -764,7 +947,7 @@ export function updateContextualMenu(item) {
     document.getElementById('ctxImageControls').classList.remove('hidden');
     if (btnTrace) btnTrace.style.display = 'inline-flex';
     if (btnNodeEdit) btnNodeEdit.style.display = 'none';
-
+    
     if (item.data?.clipGroup) {
       if (btnApplyMask) btnApplyMask.style.display = 'none';
       if (btnRemoveMask) btnRemoveMask.style.display = 'inline-flex';
@@ -772,7 +955,7 @@ export function updateContextualMenu(item) {
       if (btnApplyMask) btnApplyMask.style.display = 'inline-flex';
       if (btnRemoveMask) btnRemoveMask.style.display = 'none';
     }
-
+    
     const briSlider = document.getElementById('ctxBrightness');
     const conSlider = document.getElementById('ctxContrast');
     if (briSlider) briSlider.value = target.data?.brightness || 0;
@@ -783,8 +966,6 @@ export function updateContextualMenu(item) {
     if (btnTrace) btnTrace.style.display = 'none';
     if (btnApplyMask) btnApplyMask.style.display = 'none';
     if (btnRemoveMask) btnRemoveMask.style.display = 'none';
-    
-    // Solo mostramos editar nodos para trazados Path o CompoundPath editables
     if (btnNodeEdit) {
       btnNodeEdit.style.display = (target instanceof paper.Path || target instanceof paper.CompoundPath) ? 'inline-flex' : 'none';
     }
