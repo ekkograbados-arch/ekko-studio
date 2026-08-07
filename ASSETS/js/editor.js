@@ -28,6 +28,11 @@ window.addEventListener("DOMContentLoaded", function() {
     window.dragOffset = null;
     window.dragging = false;
 
+    // Estados adicionales globales de herramientas
+    window.cropModeActive = false;
+    window.cropRaster = null;
+    window.cropMaskPath = null;
+
     const ui = {
         categoryTabs: document.getElementById("categoryTabs"),
         productTabs: document.getElementById("productTabs"),
@@ -345,7 +350,59 @@ window.addEventListener("DOMContentLoaded", function() {
             return;
         }
 
-        // A. MODO DE EDICIÓN DE NODOS (LIGHTBURN STYLE)
+        // 1. MODO DE RECORTE INTERACTIVO (CLIC)
+        if (window.cropModeActive && window.cropRaster && window.cropMaskPath) {
+            // Verificar si el clic fue dentro o fuera del trazado cerrado
+            const isInside = window.cropMaskPath.contains(event.point);
+            saveHistory();
+
+            let mask;
+            if (isInside) {
+                // CLIC DENTRO: Eliminar el interior (crear hueco / mantener el exterior)
+                const outerRect = new paper.Path.Rectangle(window.cropRaster.bounds);
+                mask = outerRect.subtract(window.cropMaskPath);
+                outerRect.remove();
+            } else {
+                // CLIC FUERA: Eliminar el exterior (recorte tradicional / mantener el interior)
+                mask = window.cropMaskPath.clone();
+            }
+
+            if (mask) {
+                mask.clipMask = true;
+                mask.visible = true;
+
+                let targetRaster = window.cropRaster;
+                if (window.selectedItem && window.selectedItem.data?.clipGroup) {
+                    targetRaster = window.cropRaster.clone();
+                    window.selectedItem.remove();
+                } else {
+                    window.cropRaster.remove();
+                }
+
+                const group = new paper.Group([mask, targetRaster]);
+                group.clipped = true;
+                group.data = { clipGroup: true, label: "Imagen Recortada" };
+
+                paper.project.activeLayer.addChild(group);
+                if (window.currentMockup) {
+                    group.insertBelow(window.currentMockup);
+                }
+
+                window.cropMaskPath.remove(); // Consumir el contorno original
+
+                // Resetear el estado de recorte
+                window.cropModeActive = false;
+                window.cropRaster = null;
+                window.cropMaskPath = null;
+                canvasEl.style.cursor = "default";
+
+                window.selectItem(group);
+                paper.view.update();
+            }
+            return;
+        }
+
+        // 2. MODO DE EDICIÓN DE NODOS (LIGHTBURN STYLE)
         if (window.nodeEditMode && window.nodeEditTarget) {
             const handleHit = paper.project.hitTest(event.point, {
                 fill: true,
@@ -355,7 +412,7 @@ window.addEventListener("DOMContentLoaded", function() {
                     return hitResult.item.data && hitResult.item.data.isNodeHandle;
                 }
             });
-            
+
             if (handleHit) {
                 window.draggingNode = true;
                 window.dragNodeIndex = handleHit.item.data.segmentIndex;
@@ -364,18 +421,14 @@ window.addEventListener("DOMContentLoaded", function() {
                 paper.view.update();
                 return;
             }
-            
+
             // Clic sobre la línea para insertar un nuevo nodo
-            const pathHit = window.nodeEditTarget.hitTest(event.point, {
-                stroke: true,
-                tolerance: 6
-            });
-            
+            const pathHit = window.nodeEditTarget.hitTest(event.point, { stroke: true, tolerance: 6 });
             if (pathHit && pathHit.type === 'stroke') {
+                saveHistory();
                 const curve = pathHit.location.curve;
                 const segment = curve.divideAt(pathHit.location);
                 if (segment) {
-                    saveHistory();
                     window.dragNodeIndex = segment.index;
                     window.selectedNodeIndex = segment.index;
                     window.draggingNode = true;
@@ -384,13 +437,13 @@ window.addEventListener("DOMContentLoaded", function() {
                     return;
                 }
             }
-            
+
             // Clic fuera sale de edición de nodos
             window.exitNodeEditMode();
             return;
         }
 
-        // B. MODO NORMAL (Canva Sizing handles)
+        // 3. MODO NORMAL: Verificar si hizo clic en un nodo de redimensionamiento de Canva
         const handleHit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -404,6 +457,7 @@ window.addEventListener("DOMContentLoaded", function() {
             window.resizeActive = true;
             window.resizeHandleType = handleHit.item.data.handleType;
             
+            // Si el objeto seleccionado es un grupo recortado (clipGroup), redimensionamos únicamente la imagen interna
             window.resizeTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
                 ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
                 : window.selectedItem;
@@ -431,7 +485,7 @@ window.addEventListener("DOMContentLoaded", function() {
             return; 
         }
 
-        // hitTest para mover o seleccionar
+        // 4. Si no es un nodo, procedemos con hitTest para mover o seleccionar de forma normal
         const hit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -473,7 +527,7 @@ window.addEventListener("DOMContentLoaded", function() {
     };
 
     tool.onMouseDrag = function(event) {
-        // A. Operación de arrastre de nodo
+        // A. Operación de arrastre de nodo vectorial
         if (window.nodeEditMode && window.nodeEditTarget && window.draggingNode) {
             const segment = window.nodeEditTarget.segments[window.dragNodeIndex];
             if (segment) {
@@ -510,13 +564,13 @@ window.addEventListener("DOMContentLoaded", function() {
 
             // Aplicar restricciones según el nodo arrastrado
             if (handleType === 'tl' || handleType === 'tr' || handleType === 'bl' || handleType === 'br') {
-                // Escalado proporcional por las esquinas
+                // Symmetrical corner resizing (keeps aspect ratio)
                 scaleY = scaleX;
             } else if (handleType === 'l' || handleType === 'r') {
-                // Horizontal únicamente
+                // Horizontal only
                 scaleY = 1.0;
             } else if (handleType === 't' || handleType === 'b') {
-                // Vertical únicamente
+                // Vertical only
                 scaleX = 1.0;
             }
 
@@ -598,7 +652,7 @@ window.addEventListener("DOMContentLoaded", function() {
     document.getElementById("svgPicker").onchange = function(e) {
         const files = e.target.files;
         if (files && files.length > 0) {
-            const firstFile = files.item(0);
+            const [firstFile] = files;
             addSVGFromFile(firstFile);
         }
     };
