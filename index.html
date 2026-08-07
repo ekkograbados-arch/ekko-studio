@@ -291,6 +291,7 @@
     <div id="workspace">
         <div id="topBar">
             <div class="top-group">
+                <!-- ORDEN SOLICITADO: IMAGEN -> TEXTO -> SVG -> QR -->
                 <button class="btn-action" id="btnAddImage">
                     <i class="fas fa-image"></i> Cargar Imagen
                 </button>
@@ -329,9 +330,16 @@
                     <button class="toolbar-btn" id="btnCtxForward" title="Traer Adelante"><i class="fas fa-layer-group"></i> +</button>
                     <button class="toolbar-btn" id="btnCtxBackward" title="Enviar Atrás"><i class="fas fa-layer-group"></i> -</button>
 
-                    <!-- NUEVOS BOTONES DE TRAZADO Y RECORTE DE SUPERPOSICIÓN (LIGHTBURN STYLE) -->
-                    <button class="toolbar-btn" id="btnCtxSubtract" title="Recortar Fondo (Evitar Superposición)"><i class="fas fa-eraser"></i></button>
-                    <button class="toolbar-btn" id="btnCtxTrace" title="Trazar Contorno de Imagen" style="display: none;"><i class="fas fa-magic"></i></button>
+                    <!-- BOTONES DE TRAZADO Y EVITAR SUPERPOSICIÓN (LIGHTBURN STYLE) -->
+                    <button class="toolbar-btn" id="btnCtxSubtract" title="Recortar Fondo (Evitar Superposición debajo)"><i class="fas fa-eraser"></i></button>
+                    <button class="toolbar-btn" id="btnCtxTrace" title="Trazar Contorno (Rango Live)" style="display: none;"><i class="fas fa-magic"></i></button>
+                    
+                    <!-- BOTONES DE APLICAR Y QUITAR RECORTES/MÁSCARAS -->
+                    <button class="toolbar-btn" id="btnCtxApplyMask" title="Aplicar Recorte a Imagen" style="display: none;"><i class="fas fa-crop-alt"></i></button>
+                    <button class="toolbar-btn" id="btnCtxRemoveMask" title="Quitar Recorte de Imagen" style="display: none;"><i class="fas fa-unlock"></i></button>
+
+                    <!-- BOTÓN EDICIÓN DE NODOS CANVA -->
+                    <button class="toolbar-btn" id="btnCtxNodeEdit" title="Editar Nodos del Contorno" style="display: none;"><i class="fas fa-bezier-curve"></i></button>
                 </div>
 
                 <div class="toolbar-divider"></div>
@@ -368,6 +376,37 @@
                     <button class="toolbar-btn" id="btnCtxGroup" title="Agrupar Vectores"><i class="fas fa-object-group"></i></button>
                     <button class="toolbar-btn" id="btnCtxUngroup" title="Desagrupar Vectores"><i class="fas fa-object-ungroup"></i></button>
                     <button class="toolbar-btn" id="btnCtxScissors" title="Herramienta Tijera (Recortar Vector)"><i class="fas fa-scissors"></i></button>
+                </div>
+
+                <!-- CONTROL DE TRAZADO LIVE (LIGHTBURN STYLE) -->
+                <div id="ctxTraceControls" class="toolbar-subgroup hidden">
+                    <div class="toolbar-slider-container" title="Umbral de Trazado (Threshold)">
+                        <span>Umbral</span>
+                        <input id="ctxTraceThreshold" type="range" min="10" max="255" value="128">
+                        <span id="lblTraceThreshold">128</span>
+                    </div>
+                    <div class="toolbar-slider-container" title="Corte de Trazado (Cutoff)">
+                        <span>Corte</span>
+                        <input id="ctxTraceCutoff" type="range" min="0" max="240" value="0">
+                        <span id="lblTraceCutoff">0</span>
+                    </div>
+                    <div class="toolbar-slider-container" title="Suavizado (Smoothness)">
+                        <span>Suavizado</span>
+                        <input id="ctxTraceSmooth" type="range" min="0.1" max="5.0" step="0.1" value="1.5">
+                        <span id="lblTraceSmooth">1.5</span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:4px; font-size:12px; color:#475569;" title="Trazado de Croquis (Sketch Trace) para recetas/firmas">
+                        <input id="ctxTraceSketch" type="checkbox">
+                        <span>Croquis</span>
+                    </div>
+                    <button class="toolbar-btn" id="btnCtxTraceApply" title="Confirmar Trazado" style="color: green;"><i class="fas fa-check"></i></button>
+                    <button class="toolbar-btn" id="btnCtxTraceCancel" title="Cancelar Trazado" style="color: red;"><i class="fas fa-times"></i></button>
+                </div>
+
+                <!-- CONTROL EDICIÓN DE NODOS -->
+                <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
+                    <button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo Seleccionado" style="color:red;"><i class="fas fa-minus-circle"></i></button>
+                    <button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición de Nodos" style="color:green;"><i class="fas fa-check-circle"></i> Listo</button>
                 </div>
             </div>
         </div>
