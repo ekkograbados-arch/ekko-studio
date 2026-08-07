@@ -127,12 +127,12 @@ window.drawNodeEditHandles = function(path) {
   window.nodeHandlesGroup = new paper.Group();
   window.nodeHandlesGroup.data = { isNodeEditOverlay: true };
 
-  const handleSize = 6 / paper.view.zoom;
+  const handleSize = 5 / paper.view.zoom;
 
   path.segments.forEach(function(segment, index) {
     const isSelected = (index === window.selectedNodeIndex);
 
-    // Nodo de vértice (círculo rojo/blanco manipulable)
+    // En el modo de edición de nodos vectoriales, usamos el color rojo/blanco para edición manual
     const handleCircle = new paper.Path.Circle({
       center: segment.point,
       radius: handleSize,
@@ -169,12 +169,6 @@ window.enterNodeEditMode = function(path) {
   document.getElementById('ctxVectorControls').classList.add('hidden');
   document.getElementById('ctxImageControls').classList.add('hidden');
   document.getElementById('ctxTextControls').classList.add('hidden');
-  
-  const selInfo = document.getElementById("selectionInfo");
-  if (selInfo) {
-    selInfo.textContent = "EDICIÓN DE NODOS: Arrastra los círculos rojos. Haz clic en la línea para crear un nodo.";
-  }
-  
   paper.view.update();
 };
 
@@ -191,11 +185,6 @@ window.exitNodeEditMode = function() {
   // Ocultar botones de nodos en la barra flotante
   const nodeEl = document.getElementById('ctxNodeEditControls');
   if (nodeEl) nodeEl.classList.add('hidden');
-  
-  const selInfo = document.getElementById("selectionInfo");
-  if (selInfo && path) {
-    selInfo.textContent = "Objeto seleccionado: " + (path.data?.label || "Trazado");
-  }
   
   if (path) {
     window.selectItem(path); // Re-seleccionar de forma tradicional
