@@ -3,7 +3,7 @@ export function initContextualMenu() {
   if (!toolbar) return;
 
   // --- 1. ACCIONES GENERALES ---
-  document.getElementById('btnCtxDelete').onclick = function() {
+  document.getElementById('btnCtxDelete').onclick = () => {
     if (window.selectedItem) {
       if (window.selectedItem.data?.mockup) return;
       window.selectedItem.remove();
@@ -12,20 +12,49 @@ export function initContextualMenu() {
     }
   };
 
-  document.getElementById('btnCtxDuplicate').onclick = function() {
+  document.getElementById('btnCtxDuplicate').onclick = () => {
     if (window.selectedItem && !window.selectedItem.data?.locked) {
       if (window.selectedItem.data?.mockup) return;
-      const clone = window.selectedItem.clone();
-      clone.position = clone.position.add(new paper.Point(20, 20));
-      clone.data = { ...(clone.data || {}), locked: false };
       
+      let finalClone;
+      
+      // Si el objeto seleccionado es un grupo recortado (clipGroup)
       if (window.selectedItem.data?.clipGroup) {
-        clone.data.label = (window.selectedItem.data.label || "Objeto") + " copia";
+        // Encontrar el contenido real (la imagen/raster) dentro del grupo
+        const rawContent = window.selectedItem.children.find(function(c) { return !c.clipMask; });
+        if (rawContent) {
+          // Clonamos únicamente el contenido útil (imagen) sin su máscara desplazada
+          const clonedRaw = rawContent.clone();
+          clonedRaw.position = clonedRaw.position.add(new paper.Point(20, 20));
+          clonedRaw.data = { ...(clonedRaw.data || {}), locked: false, label: `${window.selectedItem.data.label || "Objeto"} copia` };
+          
+          // Creamos un nuevo grupo de recorte usando la máscara física real del producto
+          if (typeof window.clipItem === "function") {
+            finalClone = window.clipItem(clonedRaw);
+          } else {
+            finalClone = clonedRaw;
+          }
+        }
+      } else {
+        // Si es un objeto normal (texto, vector, etc.), clonación normal
+        finalClone = window.selectedItem.clone();
+        finalClone.position = finalClone.position.add(new paper.Point(20, 20));
+        finalClone.data = { ...(finalClone.data || {}), locked: false };
       }
       
-      paper.project.activeLayer.addChild(clone);
-      window.selectItem(clone);
-      updateContextualMenu(clone);
+      if (finalClone) {
+        paper.project.activeLayer.addChild(finalClone);
+        
+        // Seleccionar el nuevo objeto duplicado
+        window.selectItem(finalClone);
+        
+        // Actualizar la caja de selección y el menú contextual flotante
+        if (typeof window.updateSelectionBox === "function") {
+          window.updateSelectionBox(finalClone);
+        }
+        updateContextualMenu(finalClone);
+        paper.view.update();
+      }
     }
   };
 
@@ -34,13 +63,11 @@ export function initContextualMenu() {
   if (btnCtxScaleUp) {
     btnCtxScaleUp.onclick = function() {
       if (window.selectedItem && !window.selectedItem.data?.mockup) {
-        // Si es un grupo recortado (clipGroup), escalamos únicamente la imagen interna
         const target = (window.selectedItem.data?.clipGroup)
           ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
           : window.selectedItem;
         
         if (target) {
-          // Agrandado simétrico de un 10% tomando su propio centro como pivote
           target.scale(1.1, 1.1, target.position);
           window.updateSelectionBox(window.selectedItem);
           updateContextualMenu(window.selectedItem);
@@ -54,13 +81,11 @@ export function initContextualMenu() {
   if (btnCtxScaleDown) {
     btnCtxScaleDown.onclick = function() {
       if (window.selectedItem && !window.selectedItem.data?.mockup) {
-        // Si es un grupo recortado (clipGroup), escalamos únicamente la imagen interna
         const target = (window.selectedItem.data?.clipGroup)
           ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
           : window.selectedItem;
         
         if (target) {
-          // Achicado simétrico de un 10% tomando su propio centro como pivote
           target.scale(0.9, 0.9, target.position);
           window.updateSelectionBox(window.selectedItem);
           updateContextualMenu(window.selectedItem);
@@ -70,7 +95,7 @@ export function initContextualMenu() {
     };
   }
 
-  document.getElementById('btnCtxForward').onclick = function() {
+  document.getElementById('btnCtxForward').onclick = () => {
     if (window.selectedItem) {
       if (window.selectedItem.data?.mockup) return;
       window.selectedItem.bringToFront();
@@ -78,7 +103,7 @@ export function initContextualMenu() {
     }
   };
 
-  document.getElementById('btnCtxBackward').onclick = function() {
+  document.getElementById('btnCtxBackward').onclick = () => {
     if (window.selectedItem) {
       if (window.selectedItem.data?.mockup) return;
       window.selectedItem.sendToBack();
@@ -92,7 +117,7 @@ export function initContextualMenu() {
   // --- 2. ACCIONES DE TEXTO ---
   const fontSelector = document.getElementById('ctxFontSelector');
   if (fontSelector) {
-    fontSelector.onchange = function() {
+    fontSelector.onchange = () => {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         window.selectedItem.fontFamily = fontSelector.value;
         paper.view.update();
@@ -102,7 +127,7 @@ export function initContextualMenu() {
 
   const fontSizeInput = document.getElementById('ctxFontSize');
   if (fontSizeInput) {
-    fontSizeInput.oninput = function() {
+    fontSizeInput.oninput = () => {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         const val = parseFloat(fontSizeInput.value);
         if (val && val > 0) {
@@ -117,7 +142,7 @@ export function initContextualMenu() {
 
   const btnBold = document.getElementById('btnCtxBold');
   if (btnBold) {
-    btnBold.onclick = function() {
+    btnBold.onclick = () => {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         const isBold = window.selectedItem.fontWeight === 'bold';
         window.selectedItem.fontWeight = isBold ? 'normal' : 'bold';
@@ -128,7 +153,7 @@ export function initContextualMenu() {
 
   const btnItalic = document.getElementById('btnCtxItalic');
   if (btnItalic) {
-    btnItalic.onclick = function() {
+    btnItalic.onclick = () => {
       if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
         const isItalic = window.selectedItem.fontStyle === 'italic';
         window.selectedItem.fontStyle = isItalic ? 'normal' : 'italic';
@@ -140,10 +165,10 @@ export function initContextualMenu() {
   // --- 3. ACCIONES DE IMAGEN ---
   const btnFlipH = document.getElementById('btnCtxFlipH');
   if (btnFlipH) {
-    btnFlipH.onclick = function() {
+    btnFlipH.onclick = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(-1, 1);
@@ -155,10 +180,10 @@ export function initContextualMenu() {
 
   const btnFlipV = document.getElementById('btnCtxFlipV');
   if (btnFlipV) {
-    btnFlipV.onclick = function() {
+    btnFlipV.onclick = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(1, -1);
@@ -170,10 +195,10 @@ export function initContextualMenu() {
 
   const briSlider = document.getElementById('ctxBrightness');
   if (briSlider) {
-    briSlider.oninput = function() {
+    briSlider.oninput = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
@@ -185,10 +210,10 @@ export function initContextualMenu() {
 
   const conSlider = document.getElementById('ctxContrast');
   if (conSlider) {
-    conSlider.oninput = function() {
+    conSlider.oninput = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
@@ -215,7 +240,7 @@ export function updateContextualMenu(item) {
   document.getElementById('ctxVectorControls').classList.add('hidden');
 
   const target = item.data?.clipGroup 
-    ? item.children.find(function(c) { return !c.clipMask; }) 
+    ? item.children.find(c => !c.clipMask) 
     : item;
 
   if (!target) return;
@@ -257,8 +282,8 @@ export function updateContextualMenu(item) {
   const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
   const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
 
-  toolbar.style.left = Math.max(10, Math.min(posX, maxLeft)) + 'px';
-  toolbar.style.top = Math.max(10, Math.min(posY, maxTop)) + 'px';
+  toolbar.style.left = `${Math.max(10, Math.min(posX, maxLeft))}px`;
+  toolbar.style.top = `${Math.max(10, Math.min(posY, maxTop))}px`;
 }
 
 export function hideContextualMenu() {
