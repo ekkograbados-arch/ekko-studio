@@ -291,7 +291,6 @@
     <div id="workspace">
         <div id="topBar">
             <div class="top-group">
-                <!-- ORDEN SOLICITADO: IMAGEN -> TEXTO -> SVG -> QR -->
                 <button class="btn-action" id="btnAddImage">
                     <i class="fas fa-image"></i> Cargar Imagen
                 </button>
@@ -324,12 +323,15 @@
                     <button class="toolbar-btn" id="btnCtxDelete" title="Eliminar Objeto"><i class="fas fa-trash"></i></button>
                     <button class="toolbar-btn" id="btnCtxDuplicate" title="Duplicar Objeto"><i class="fas fa-copy"></i></button>
                     
-                    <!-- NUEVOS BOTONES DE ESCALADO RÁPIDO SIMÉTRICO -->
                     <button class="toolbar-btn" id="btnCtxScaleDown" title="Achicar Simétricamente"><i class="fas fa-search-minus"></i></button>
                     <button class="toolbar-btn" id="btnCtxScaleUp" title="Agrandar Simétricamente"><i class="fas fa-search-plus"></i></button>
                     
                     <button class="toolbar-btn" id="btnCtxForward" title="Traer Adelante"><i class="fas fa-layer-group"></i> +</button>
                     <button class="toolbar-btn" id="btnCtxBackward" title="Enviar Atrás"><i class="fas fa-layer-group"></i> -</button>
+
+                    <!-- NUEVOS BOTONES DE TRAZADO Y RECORTE DE SUPERPOSICIÓN (LIGHTBURN STYLE) -->
+                    <button class="toolbar-btn" id="btnCtxSubtract" title="Recortar Fondo (Evitar Superposición)"><i class="fas fa-eraser"></i></button>
+                    <button class="toolbar-btn" id="btnCtxTrace" title="Trazar Contorno de Imagen" style="display: none;"><i class="fas fa-magic"></i></button>
                 </div>
 
                 <div class="toolbar-divider"></div>
