@@ -1,17 +1,36 @@
+
 /* =========================================================================
    Moore-Neighbor Tracing (Algoritmo de seguimiento de bordes para imágenes)
    ========================================================================= */
 function traceImageOutline(raster) {
-  const canvas = raster.canvas;
-  if (!canvas) return null;
-  const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
-  if (w <= 0 || h <= 0) return null;
+  // 1. Obtener la fuente de imagen (puede ser HTMLImageElement o HTMLCanvasElement)
+  const imgElement = raster.image || raster.canvas;
+  if (!imgElement) return new paper.Path.Rectangle(raster.bounds);
+
+  const originalWidth = raster.width || imgElement.width || 100;
+  const originalHeight = raster.height || imgElement.height || 100;
+
+  // 2. Crear un lienzo temporal reducido para eliminar el ruido y cerrar espacios (150x150)
+  const tw = 150;
+  const th = 150;
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = tw;
+  tempCanvas.height = th;
+  const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+  
+  if (!tempCtx) return new paper.Path.Rectangle(raster.bounds);
+  
+  // Dibujar la imagen escalada al lienzo pequeño
+  try {
+    tempCtx.drawImage(imgElement, 0, 0, tw, th);
+  } catch (e) {
+    console.warn("Error dibujando en canvas temporal:", e);
+    return new paper.Path.Rectangle(raster.bounds);
+  }
 
   let imgData;
   try {
-    imgData = ctx.getImageData(0, 0, w, h);
+    imgData = tempCtx.getImageData(0, 0, tw, th);
   } catch (e) {
     console.warn("No se pudo obtener datos de píxeles (posible error de CORS). Usando contorno rectangular.", e);
     return new paper.Path.Rectangle(raster.bounds);
@@ -19,29 +38,51 @@ function traceImageOutline(raster) {
 
   const data = imgData.data;
 
-  // Determinar si un píxel es "sólido" (con contenido para el láser)
-  function isSolid(x, y) {
-    if (x < 0 || x >= w || y < 0 || y >= h) return false;
-    const idx = (y * w + x) * 4;
-    const r = data[idx];
-    const g = data[idx+1];
-    const b = data[idx+2];
-    const a = data[idx+3];
-    
-    // Si es transparente (alpha bajo), se considera vacío
-    if (a < 50) return false;
-    
-    // Si es casi blanco puro (brillo > 240), se considera fondo vacío
-    if (r > 240 && g > 240 && b > 240) return false;
-    
-    return true;
+  // 3. Crear una cuadrícula binaria de píxeles sólidos
+  const grid = [];
+  for (let y = 0; y < th; y++) {
+    grid[y] = new Uint8Array(tw);
+    for (let x = 0; x < tw; x++) {
+      const idx = (y * tw + x) * 4;
+      const r = data[idx];
+      const g = data[idx+1];
+      const b = data[idx+2];
+      const a = data[idx+3];
+      
+      // Clasificación de sólido: no transparente (alpha alto) y no blanco puro
+      const isSolid = (a >= 30) && (0.299 * r + 0.587 * g + 0.114 * b <= 220);
+      grid[y][x] = isSolid ? 1 : 0;
+    }
   }
 
-  // Buscar el primer píxel sólido (desde arriba a la izquierda)
+  // 4. Aplicar Dilatación Matemática para unir líneas delgadas y dithered dots
+  const dilated = [];
+  for (let y = 0; y < th; y++) {
+    dilated[y] = new Uint8Array(tw);
+  }
+
+  const padding = 2; // Dilatación de 2 píxeles de radio
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      if (grid[y][x] === 1) {
+        const yMin = Math.max(0, y - padding);
+        const yMax = Math.min(th - 1, y + padding);
+        const xMin = Math.max(0, x - padding);
+        const xMax = Math.min(tw - 1, x + padding);
+        for (let ny = yMin; ny <= yMax; ny++) {
+          for (let nx = xMin; nx <= xMax; nx++) {
+            dilated[ny][nx] = 1;
+          }
+        }
+      }
+    }
+  }
+
+  // 5. Buscar el primer píxel sólido en la cuadrícula dilatada
   let startX = -1, startY = -1;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (isSolid(x, y)) {
+  for (let y = 0; y < th; y++) {
+    for (let x = 0; x < tw; x++) {
+      if (dilated[y][x] === 1) {
         startX = x;
         startY = y;
         break;
@@ -51,20 +92,19 @@ function traceImageOutline(raster) {
   }
 
   if (startX === -1) {
-    // Si no hay píxeles sólidos o todo es blanco, usamos el rectángulo delimitador como salvaguarda
     return new paper.Path.Rectangle(raster.bounds);
   }
 
+  // 6. Moore-Neighbor Tracing en la cuadrícula dilatada
   const points = [];
   let cx = startX;
   let cy = startY;
 
-  // Direcciones de búsqueda de vecinos (recorrido de reloj)
   const dx = [0, 1, 1, 1, 0, -1, -1, -1];
   const dy = [-1, -1, 0, 1, 1, 1, 0, -1];
   let dir = 7;
   let loopCount = 0;
-  const maxLoops = w * h * 2;
+  const maxLoops = tw * th * 2;
   const visited = new Set();
 
   do {
@@ -73,11 +113,12 @@ function traceImageOutline(raster) {
       const checkDir = (dir + i) % 8;
       const nx = cx + dx[checkDir];
       const ny = cy + dy[checkDir];
-      if (isSolid(nx, ny)) {
+      
+      if (nx >= 0 && nx < tw && ny >= 0 && ny < th && dilated[ny][nx] === 1) {
         cx = nx;
         cy = ny;
         points.push(new paper.Point(cx, cy));
-        dir = (checkDir + 5) % 8; // Reajustar la dirección de búsqueda para el backtrack
+        dir = (checkDir + 5) % 8;
         found = true;
         break;
       }
@@ -96,7 +137,7 @@ function traceImageOutline(raster) {
     return new paper.Path.Rectangle(raster.bounds);
   }
 
-  // Mapear los puntos del plano del canvas al plano de coordenadas del editor de Paper.js
+  // 7. Mapear las coordenadas de la cuadrícula de 150x150 a los límites reales del raster en Paper.js
   const bounds = raster.bounds;
   const rx = bounds.left;
   const ry = bounds.top;
@@ -104,14 +145,14 @@ function traceImageOutline(raster) {
   const rh = bounds.height;
 
   const paperPoints = points.map(function(p) {
-    const px = rx + (p.x / w) * rw;
-    const py = ry + (p.y / h) * rh;
+    const px = rx + (p.x / tw) * rw;
+    const py = ry + (p.y / th) * rh;
     return new paper.Point(px, py);
   });
 
   const path = new paper.Path(paperPoints);
   path.closed = true;
-  path.simplify(1.5); // Suavizar las curvas exactamente igual que la tolerancia de LightBurn
+  path.simplify(1.5); // Reducir nodos suavizando la curva estilo LightBurn
   return path;
 }
 
@@ -137,12 +178,15 @@ export function initContextualMenu() {
       
       // Si el objeto seleccionado es un grupo recortado (clipGroup)
       if (window.selectedItem.data?.clipGroup) {
+        // Encontrar el contenido real (la imagen/raster) dentro del grupo
         const rawContent = window.selectedItem.children.find(function(c) { return !c.clipMask; });
         if (rawContent) {
+          // Clonamos únicamente el contenido útil (imagen) sin su máscara desplazada
           const clonedRaw = rawContent.clone();
           clonedRaw.position = clonedRaw.position.add(new paper.Point(20, 20));
           clonedRaw.data = { ...(clonedRaw.data || {}), locked: false, label: `${window.selectedItem.data.label || "Objeto"} copia` };
           
+          // Creamos un nuevo grupo de recorte usando la máscara física real del producto
           if (typeof window.clipItem === "function") {
             finalClone = window.clipItem(clonedRaw);
           } else {
@@ -150,6 +194,7 @@ export function initContextualMenu() {
           }
         }
       } else {
+        // Si es un objeto normal (texto, vector, etc.), clonación normal
         finalClone = window.selectedItem.clone();
         finalClone.position = finalClone.position.add(new paper.Point(20, 20));
         finalClone.data = { ...(finalClone.data || {}), locked: false };
@@ -157,7 +202,11 @@ export function initContextualMenu() {
       
       if (finalClone) {
         paper.project.activeLayer.addChild(finalClone);
+        
+        // Seleccionar el nuevo objeto duplicado
         window.selectItem(finalClone);
+        
+        // Actualizar la caja de selección y el menú contextual flotante
         if (typeof window.updateSelectionBox === "function") {
           window.updateSelectionBox(finalClone);
         }
@@ -389,7 +438,7 @@ export function initContextualMenu() {
     btnFlipH.onclick = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(-1, 1);
@@ -404,7 +453,7 @@ export function initContextualMenu() {
     btnFlipV.onclick = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(1, -1);
@@ -419,7 +468,7 @@ export function initContextualMenu() {
     briSlider.oninput = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
@@ -434,7 +483,7 @@ export function initContextualMenu() {
     conSlider.oninput = () => {
       if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
@@ -461,7 +510,7 @@ export function updateContextualMenu(item) {
   document.getElementById('ctxVectorControls').classList.add('hidden');
 
   const target = item.data?.clipGroup 
-    ? item.children.find(function(c) { return !c.clipMask; }) 
+    ? item.children.find(c => !c.clipMask) 
     : item;
 
   if (!target) return;
