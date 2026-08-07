@@ -1,3 +1,4 @@
+
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
@@ -127,6 +128,7 @@ window.addEventListener("DOMContentLoaded", function() {
         }
         redoStack.length = 0;
     }
+    window.saveHistory = saveHistory; // Hacer global para contextualMenu
 
     function isLockedItem(item) {
         return item && item.data && item.data.locked === true;
@@ -201,7 +203,6 @@ window.addEventListener("DOMContentLoaded", function() {
         reader.readAsDataURL(file);
     }
 
-    // Adaptado para mantener compatibilidad con Canva-mode
     function addSVGFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -344,7 +345,52 @@ window.addEventListener("DOMContentLoaded", function() {
             return;
         }
 
-        // 1. Verificar si hizo clic en un nodo de redimensionamiento
+        // A. MODO DE EDICIÓN DE NODOS (LIGHTBURN STYLE)
+        if (window.nodeEditMode && window.nodeEditTarget) {
+            const handleHit = paper.project.hitTest(event.point, {
+                fill: true,
+                stroke: true,
+                tolerance: 8,
+                match: function(hitResult) {
+                    return hitResult.item.data && hitResult.item.data.isNodeHandle;
+                }
+            });
+            
+            if (handleHit) {
+                window.draggingNode = true;
+                window.dragNodeIndex = handleHit.item.data.segmentIndex;
+                window.selectedNodeIndex = window.dragNodeIndex;
+                window.drawNodeEditHandles(window.nodeEditTarget);
+                paper.view.update();
+                return;
+            }
+            
+            // Clic sobre la línea para insertar un nuevo nodo
+            const pathHit = window.nodeEditTarget.hitTest(event.point, {
+                stroke: true,
+                tolerance: 6
+            });
+            
+            if (pathHit && pathHit.type === 'stroke') {
+                const curve = pathHit.location.curve;
+                const segment = curve.divideAt(pathHit.location);
+                if (segment) {
+                    saveHistory();
+                    window.dragNodeIndex = segment.index;
+                    window.selectedNodeIndex = segment.index;
+                    window.draggingNode = true;
+                    window.drawNodeEditHandles(window.nodeEditTarget);
+                    paper.view.update();
+                    return;
+                }
+            }
+            
+            // Clic fuera sale de edición de nodos
+            window.exitNodeEditMode();
+            return;
+        }
+
+        // B. MODO NORMAL (Canva Sizing handles)
         const handleHit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -358,7 +404,6 @@ window.addEventListener("DOMContentLoaded", function() {
             window.resizeActive = true;
             window.resizeHandleType = handleHit.item.data.handleType;
             
-            // Si el objeto seleccionado es un grupo recortado (clipGroup), redimensionamos únicamente la imagen interna
             window.resizeTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
                 ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
                 : window.selectedItem;
@@ -386,7 +431,7 @@ window.addEventListener("DOMContentLoaded", function() {
             return; 
         }
 
-        // 2. Si no es un nodo, procedemos con hitTest para mover o seleccionar
+        // hitTest para mover o seleccionar
         const hit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -428,7 +473,18 @@ window.addEventListener("DOMContentLoaded", function() {
     };
 
     tool.onMouseDrag = function(event) {
-        // A. Operación de Redimensionamiento (Resize)
+        // A. Operación de arrastre de nodo
+        if (window.nodeEditMode && window.nodeEditTarget && window.draggingNode) {
+            const segment = window.nodeEditTarget.segments[window.dragNodeIndex];
+            if (segment) {
+                segment.point = event.point;
+                window.drawNodeEditHandles(window.nodeEditTarget);
+                paper.view.update();
+            }
+            return;
+        }
+
+        // B. Operación de Redimensionamiento (Resize)
         if (window.resizeActive && window.resizeTarget) {
             const currentPoint = event.point;
             const initialBounds = window.resizeInitialBounds;
@@ -454,13 +510,13 @@ window.addEventListener("DOMContentLoaded", function() {
 
             // Aplicar restricciones según el nodo arrastrado
             if (handleType === 'tl' || handleType === 'tr' || handleType === 'bl' || handleType === 'br') {
-                // Symmetrical corner resizing (keeps aspect ratio)
+                // Escalado proporcional por las esquinas
                 scaleY = scaleX;
             } else if (handleType === 'l' || handleType === 'r') {
-                // Horizontal only
+                // Horizontal únicamente
                 scaleY = 1.0;
             } else if (handleType === 't' || handleType === 'b') {
-                // Vertical only
+                // Vertical únicamente
                 scaleX = 1.0;
             }
 
@@ -481,7 +537,7 @@ window.addEventListener("DOMContentLoaded", function() {
             return;
         }
 
-        // B. Operación de Movimiento (Arrastrar)
+        // C. Operación de Movimiento (Arrastrar)
         if (!window.dragging || !window.selectedItem || (window.selectedItem.data && window.selectedItem.data.mockup)) return;
 
         if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
@@ -499,6 +555,10 @@ window.addEventListener("DOMContentLoaded", function() {
     };
 
     tool.onMouseUp = function() {
+        if (window.draggingNode) {
+            saveHistory();
+            window.draggingNode = false;
+        }
         if (window.resizeActive) {
             saveHistory();
             window.resizeActive = false;
