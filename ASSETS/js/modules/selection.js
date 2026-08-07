@@ -1,3 +1,4 @@
+
 window.selectedItem = null; 
 window.dragOffset = null; 
 window.selectionBoxGroup = null;
