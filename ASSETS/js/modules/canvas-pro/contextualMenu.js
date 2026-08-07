@@ -48,12 +48,11 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
       const a = data[idx+3];
       
       const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-      
       if (a < 30) {
         grid[y][x] = 0;
         continue;
       }
-      
+
       let isSolid = false;
       if (sketchMode) {
         // Trazado de Croquis (Sketch Trace): Umbral adaptativo local usando vecinos 5x5
@@ -68,13 +67,11 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
           }
         }
         const avg = count > 0 ? sum / count : 128;
-        // Si es más oscuro que el promedio local por un margen, es sólido
         isSolid = (luminance <= avg - 15) && (luminance >= cutoff);
       } else {
         // Rango de Trazado estándar (Cutoff + Threshold al estilo LightBurn)
         isSolid = (luminance >= cutoff) && (luminance <= threshold);
       }
-      
       grid[y][x] = isSolid ? 1 : 0;
     }
   }
@@ -183,49 +180,37 @@ function traceImageOutline(raster, threshold, cutoff, smoothness, sketchMode) {
 /* =========================================================================
    Manejo de Aplicación y Eliminación de Recorte / Máscaras de Imagen
    ========================================================================= */
-window.applyMaskToSelectedImage = function() {
+window.enterInteractiveCropMode = function() {
   if (!window.selectedItem) return;
   const raster = (window.selectedItem.data?.clipGroup)
     ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
     : window.selectedItem;
-    
+
   if (raster && raster instanceof paper.Raster) {
-    // Buscar el contorno cerrado más cercano que intersecte la imagen
+    // Buscar un vector cerrado que intersecte la imagen para usar como molde
     const activeItems = paper.project.activeLayer.children;
     const maskPath = activeItems.find(function(item) {
       return item !== window.selectedItem && 
              (item instanceof paper.Path || item instanceof paper.CompoundPath) && 
              item.bounds.intersects(raster.bounds);
     });
-    
+
     if (maskPath) {
-      if (window.saveHistory) window.saveHistory();
-      const clonedMask = maskPath.clone();
-      clonedMask.clipMask = true;
-      clonedMask.visible = true;
+      window.cropModeActive = true;
+      window.cropRaster = raster;
+      window.cropMaskPath = maskPath;
       
-      let targetRaster = raster;
-      if (window.selectedItem.data?.clipGroup) {
-        targetRaster = raster.clone();
-        window.selectedItem.remove();
-      } else {
-        raster.remove();
+      const canvasEl = document.getElementById("editorCanvas");
+      if (canvasEl) canvasEl.style.cursor = "crosshair";
+      
+      const selInfo = document.getElementById("selectionInfo");
+      if (selInfo) {
+        selInfo.textContent = "MODO RECORTE: Haz clic DENTRO del contorno para borrar el fondo, o FUERA para borrar el interior.";
       }
       
-      const group = new paper.Group([clonedMask, targetRaster]);
-      group.clipped = true;
-      group.data = { clipGroup: true, label: "Imagen Recortada" };
-      
-      paper.project.activeLayer.addChild(group);
-      if (window.currentMockup) {
-        group.insertBelow(window.currentMockup);
-      }
-      
-      maskPath.remove(); // Consumir el trazado original
-      window.selectItem(group);
-      paper.view.update();
+      alert("¡Modo Recorte Interactivo Activado!\n\n1. Haz clic DENTRO del trazado si quieres borrar el fondo (siluetear).\n2. Haz clic FUERA del trazado si quieres vaciar/agujerear la imagen.");
     } else {
-      alert("Coloca el vector de trazado cerrado sobre la imagen para usarlo como molde de recorte.");
+      alert("Por favor, traza primero el contorno de la imagen. Debe haber un trazado cerrado colocado sobre la imagen para recortarla.");
     }
   }
 };
@@ -235,7 +220,7 @@ window.removeMaskFromSelectedImage = function() {
     if (window.saveHistory) window.saveHistory();
     const mask = window.selectedItem.children.find(function(c) { return c.clipMask; });
     const content = window.selectedItem.children.find(function(c) { return !c.clipMask; });
-    
+
     if (mask && content) {
       const restoredMask = mask.clone();
       restoredMask.clipMask = false;
@@ -244,18 +229,18 @@ window.removeMaskFromSelectedImage = function() {
       restoredMask.strokeWidth = 2;
       restoredMask.fillColor = null;
       restoredMask.data = { locked: false, label: "Trazado" };
-      
+
       const restoredRaster = content.clone();
       restoredRaster.data = { locked: false, label: "Imagen" };
-      
+
       paper.project.activeLayer.addChild(restoredRaster);
       paper.project.activeLayer.addChild(restoredMask);
-      
+
       if (window.currentMockup) {
         restoredRaster.insertBelow(window.currentMockup);
         restoredMask.insertBelow(window.currentMockup);
       }
-      
+
       window.selectedItem.remove();
       window.selectItem(restoredRaster);
       paper.view.update();
@@ -271,7 +256,7 @@ export function initContextualMenu() {
   if (!toolbar) return;
 
   // --- 1. ACCIONES GENERALES ---
-  document.getElementById('btnCtxDelete').onclick = function() {
+  document.getElementById('btnCtxDelete').onclick = () => {
     if (window.selectedItem) {
       if (window.selectedItem.data?.mockup) return;
       window.selectedItem.remove();
@@ -280,18 +265,19 @@ export function initContextualMenu() {
     }
   };
 
-  document.getElementById('btnCtxDuplicate').onclick = function() {
+  document.getElementById('btnCtxDuplicate').onclick = () => {
     if (window.selectedItem && !window.selectedItem.data?.locked) {
       if (window.selectedItem.data?.mockup) return;
       
       let finalClone;
       
+      // Si el objeto seleccionado es un grupo recortado (clipGroup)
       if (window.selectedItem.data?.clipGroup) {
         const rawContent = window.selectedItem.children.find(function(c) { return !c.clipMask; });
         if (rawContent) {
           const clonedRaw = rawContent.clone();
           clonedRaw.position = clonedRaw.position.add(new paper.Point(20, 20));
-          clonedRaw.data = { ...(clonedRaw.data || {}), locked: false, label: (window.selectedItem.data.label || "Objeto") + " copia" };
+          clonedRaw.data = { ...(clonedRaw.data || {}), locked: false, label: `${window.selectedItem.data.label || "Objeto"} copia` };
           
           if (typeof window.clipItem === "function") {
             finalClone = window.clipItem(clonedRaw);
@@ -358,7 +344,7 @@ export function initContextualMenu() {
   const btnCtxApplyMask = document.getElementById('btnCtxApplyMask');
   if (btnCtxApplyMask) {
     btnCtxApplyMask.onclick = function() {
-      window.applyMaskToSelectedImage();
+      window.enterInteractiveCropMode();
     };
   }
 
@@ -369,7 +355,7 @@ export function initContextualMenu() {
     };
   }
 
-  // --- EDICIÓN DE NODOS VECTORIALES (Ajustes de Canva) ---
+  // --- EDICIÓN DE NODOS VECTORIALES (Canva Style) ---
   const btnCtxNodeEdit = document.getElementById('btnCtxNodeEdit');
   if (btnCtxNodeEdit) {
     btnCtxNodeEdit.onclick = function() {
@@ -405,16 +391,14 @@ export function initContextualMenu() {
 
   // --- CONTROL DE TRAZADO LIVE (LightBurn Style) ---
   const btnCtxTrace = document.getElementById('btnCtxTrace');
-  
   const sliderThreshold = document.getElementById('ctxTraceThreshold');
   const sliderCutoff = document.getElementById('ctxTraceCutoff');
   const sliderSmooth = document.getElementById('ctxTraceSmooth');
   const chkSketch = document.getElementById('ctxTraceSketch');
-
   const lblThreshold = document.getElementById('lblTraceThreshold');
   const lblCutoff = document.getElementById('lblTraceCutoff');
   const lblSmooth = document.getElementById('lblTraceSmooth');
-
+  
   let activeRasterForTrace = null;
 
   function runLiveTrace() {
@@ -438,9 +422,9 @@ export function initContextualMenu() {
     if (path) {
       path.strokeColor = new paper.Color('#007bff');
       path.strokeWidth = 2 / paper.view.zoom;
-      path.dashArray = [6 / paper.view.zoom, 4 / paper.view.zoom]; // Dashed blue preview line
+      path.dashArray = [6 / paper.view.zoom, 4 / paper.view.zoom]; // Línea dashed azul
       path.fillColor = null;
-      path.data = { isSelectionBox: true }; // prevent normal interactions with the preview path
+      path.data = { isSelectionBox: true }; // Previene interacciones normales con la línea de previsualización
       
       paper.project.activeLayer.addChild(path);
       if (window.currentMockup) {
@@ -461,7 +445,7 @@ export function initContextualMenu() {
         if (raster && raster instanceof paper.Raster) {
           activeRasterForTrace = raster;
           
-          // Switch menu panels
+          // Cambiar paneles del menú flotante
           document.getElementById('ctxImageControls').classList.add('hidden');
           document.getElementById('ctxTraceControls').classList.remove('hidden');
           if (btnCtxTrace) btnCtxTrace.style.display = 'none';
@@ -472,15 +456,11 @@ export function initContextualMenu() {
     };
   }
 
-  // Bind live preview on sliders input
+  // Vincular eventos input y change a los deslizadores
   [sliderThreshold, sliderCutoff, sliderSmooth, chkSketch].forEach(function(el) {
     if (el) {
-      el.oninput = function() {
-        runLiveTrace();
-      };
-      el.onchange = function() {
-        runLiveTrace();
-      };
+      el.oninput = function() { runLiveTrace(); };
+      el.onchange = function() { runLiveTrace(); };
     }
   });
 
@@ -490,11 +470,11 @@ export function initContextualMenu() {
       if (window.tracePreviewPath) {
         if (window.saveHistory) window.saveHistory();
         
-        // Finalize trace path
+        // Finalizar el trazado
         const finalPath = window.tracePreviewPath;
         finalPath.strokeColor = new paper.Color('#007bff');
         finalPath.strokeWidth = 2;
-        finalPath.dashArray = null; // solid line
+        finalPath.dashArray = null; // Línea sólida
         finalPath.data = { locked: false, label: "Trazado " + (activeRasterForTrace.data?.label || "Imagen") };
         
         window.tracePreviewPath = null;
@@ -532,6 +512,7 @@ export function initContextualMenu() {
       if (window.selectedItem) {
         let outlinePath = null;
         
+        // 1. Obtener la geometría de contorno del elemento seleccionado
         if (window.selectedItem.data?.clipGroup) {
           const raster = window.selectedItem.children.find(function(c) { return !c.clipMask; });
           if (raster && raster instanceof paper.Raster) {
@@ -552,18 +533,21 @@ export function initContextualMenu() {
         
         outlinePath.visible = false;
         
+        // 2. Encontrar todos los elementos detrás de él en el orden de capas
         const children = paper.project.activeLayer.children.slice();
         const targetIndex = children.indexOf(window.selectedItem);
         if (targetIndex === -1) return;
         
         let subbedCount = 0;
         
+        // Ejecutar la resta únicamente en los objetos que estén DEBAJO
         for (let i = 0; i < targetIndex; i++) {
           const otherItem = children[i];
           if (otherItem.data?.mockup || otherItem.data?.isSelectionBox || otherItem === window.selectedItem) {
             continue;
           }
           
+          // Caso A: Si el objeto de abajo es vectorial (Path o CompoundPath)
           if (otherItem instanceof paper.Path || otherItem instanceof paper.CompoundPath) {
             if (otherItem.bounds.intersects(outlinePath.bounds)) {
               const result = otherItem.subtract(outlinePath);
@@ -573,7 +557,9 @@ export function initContextualMenu() {
                 subbedCount++;
               }
             }
-          } else if (otherItem.data?.clipGroup) {
+          }
+          // Caso B: Si el objeto de abajo es una imagen enmascarada (clipGroup)
+          else if (otherItem.data?.clipGroup) {
             const mask = otherItem.children.find(function(c) { return c.clipMask; });
             if (mask && mask.bounds.intersects(outlinePath.bounds)) {
               const resultMask = mask.subtract(outlinePath);
@@ -673,9 +659,7 @@ export function initContextualMenu() {
   if (btnFlipH) {
     btnFlipH.onclick = function() {
       if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
-          : window.selectedItem;
+        const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(-1, 1);
           paper.view.update();
@@ -688,9 +672,7 @@ export function initContextualMenu() {
   if (btnFlipV) {
     btnFlipV.onclick = function() {
       if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
-          : window.selectedItem;
+        const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.scale(1, -1);
           paper.view.update();
@@ -703,9 +685,7 @@ export function initContextualMenu() {
   if (briSlider) {
     briSlider.oninput = function() {
       if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
-          : window.selectedItem;
+        const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
           target.data.brightness = parseFloat(briSlider.value);
@@ -718,9 +698,7 @@ export function initContextualMenu() {
   if (conSlider) {
     conSlider.oninput = function() {
       if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
-          : window.selectedItem;
+        const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) : window.selectedItem;
         if (target && target instanceof paper.Raster) {
           target.data = target.data || {};
           target.data.contrast = parseFloat(conSlider.value);
@@ -735,8 +713,15 @@ export function updateContextualMenu(item) {
   if (!toolbar) return;
 
   if (window.nodeEditMode) {
-    // Si estamos editando nodos, mantenemos el panel activo pero con controles de nodos
+    // Si estamos editando nodos vectoriales, ocultamos todos los paneles comunes y mostramos el de nodos
     toolbar.classList.add('active');
+    document.getElementById('ctxTextControls').classList.add('hidden');
+    document.getElementById('ctxImageControls').classList.add('hidden');
+    document.getElementById('ctxVectorControls').classList.add('hidden');
+    document.getElementById('ctxTraceControls').classList.add('hidden');
+    
+    const nodeControls = document.getElementById('ctxNodeEditControls');
+    if (nodeControls) nodeControls.classList.remove('hidden');
     return;
   }
 
@@ -751,33 +736,35 @@ export function updateContextualMenu(item) {
   document.getElementById('ctxImageControls').classList.add('hidden');
   document.getElementById('ctxVectorControls').classList.add('hidden');
   document.getElementById('ctxTraceControls').classList.add('hidden');
+  
+  const nodeControls = document.getElementById('ctxNodeEditControls');
+  if (nodeControls) nodeControls.classList.add('hidden');
 
-  const target = item.data?.clipGroup 
-    ? item.children.find(function(c) { return !c.clipMask; }) 
-    : item;
-
+  const target = item.data?.clipGroup ? item.children.find(function(c) { return !c.clipMask; }) : item;
   if (!target) return;
 
   const btnTrace = document.getElementById('btnCtxTrace');
   const btnApplyMask = document.getElementById('btnCtxApplyMask');
   const btnRemoveMask = document.getElementById('btnCtxRemoveMask');
+  const btnNodeEdit = document.getElementById('btnCtxNodeEdit');
 
   if (target instanceof paper.PointText) {
     document.getElementById('ctxTextControls').classList.remove('hidden');
     if (btnTrace) btnTrace.style.display = 'none';
-    
+    if (btnApplyMask) btnApplyMask.style.display = 'none';
+    if (btnRemoveMask) btnRemoveMask.style.display = 'none';
+    if (btnNodeEdit) btnNodeEdit.style.display = 'none';
+
     const fontSelector = document.getElementById('ctxFontSelector');
     const fontSizeInput = document.getElementById('ctxFontSize');
-    
     if (fontSelector) fontSelector.value = target.fontFamily || 'Arial';
     if (fontSizeInput) fontSizeInput.value = Math.round(target.fontSize || 12);
     
   } else if (target instanceof paper.Raster) {
     document.getElementById('ctxImageControls').classList.remove('hidden');
-    
-    // Configurar botones de máscara y trace
     if (btnTrace) btnTrace.style.display = 'inline-flex';
-    
+    if (btnNodeEdit) btnNodeEdit.style.display = 'none';
+
     if (item.data?.clipGroup) {
       if (btnApplyMask) btnApplyMask.style.display = 'none';
       if (btnRemoveMask) btnRemoveMask.style.display = 'inline-flex';
@@ -785,16 +772,22 @@ export function updateContextualMenu(item) {
       if (btnApplyMask) btnApplyMask.style.display = 'inline-flex';
       if (btnRemoveMask) btnRemoveMask.style.display = 'none';
     }
-    
+
     const briSlider = document.getElementById('ctxBrightness');
     const conSlider = document.getElementById('ctxContrast');
-    
     if (briSlider) briSlider.value = target.data?.brightness || 0;
     if (conSlider) conSlider.value = target.data?.contrast || 0;
     
   } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
     document.getElementById('ctxVectorControls').classList.remove('hidden');
     if (btnTrace) btnTrace.style.display = 'none';
+    if (btnApplyMask) btnApplyMask.style.display = 'none';
+    if (btnRemoveMask) btnRemoveMask.style.display = 'none';
+    
+    // Solo mostramos editar nodos para trazados Path o CompoundPath editables
+    if (btnNodeEdit) {
+      btnNodeEdit.style.display = (target instanceof paper.Path || target instanceof paper.CompoundPath) ? 'inline-flex' : 'none';
+    }
   }
 
   // --- POSICIONAMIENTO GEOMÉTRICO ---
@@ -802,7 +795,6 @@ export function updateContextualMenu(item) {
   if (!bounds) return;
 
   const viewPoint = paper.view.projectToView(bounds.topCenter);
-
   const toolbarWidth = toolbar.offsetWidth || 350;
   const toolbarHeight = toolbar.offsetHeight || 45;
 
