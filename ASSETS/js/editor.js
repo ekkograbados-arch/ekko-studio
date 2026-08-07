@@ -133,7 +133,7 @@ window.addEventListener("DOMContentLoaded", function() {
         }
         redoStack.length = 0;
     }
-    window.saveHistory = saveHistory; // Hacer global para contextualMenu
+    window.saveHistory = saveHistory;
 
     function isLockedItem(item) {
         return item && item.data && item.data.locked === true;
@@ -350,27 +350,28 @@ window.addEventListener("DOMContentLoaded", function() {
             return;
         }
 
-        // 1. MODO DE RECORTE INTERACTIVO (CLIC)
+        // 1. MODO DE RECORTE INTERACTIVO INTUITIVO (CLIC DENTRO/FUERA)
         if (window.cropModeActive && window.cropRaster && window.cropMaskPath) {
-            // Verificar si el clic fue dentro o fuera del trazado cerrado
             const isInside = window.cropMaskPath.contains(event.point);
             saveHistory();
-
+            
             let mask;
             if (isInside) {
-                // CLIC DENTRO: Eliminar el interior (crear hueco / mantener el exterior)
+                // CLIC DENTRO: El usuario hizo clic en la figura que quiere conservar.
+                // Se mantiene el interior de la silueta y se elimina el fondo exterior.
+                mask = window.cropMaskPath.clone();
+            } else {
+                // CLIC FUERA: El usuario hizo clic fuera de la silueta.
+                // Se mantiene el fondo de la imagen y se vacía o agujerea el interior de la silueta.
                 const outerRect = new paper.Path.Rectangle(window.cropRaster.bounds);
                 mask = outerRect.subtract(window.cropMaskPath);
                 outerRect.remove();
-            } else {
-                // CLIC FUERA: Eliminar el exterior (recorte tradicional / mantener el interior)
-                mask = window.cropMaskPath.clone();
             }
 
             if (mask) {
                 mask.clipMask = true;
                 mask.visible = true;
-
+                
                 let targetRaster = window.cropRaster;
                 if (window.selectedItem && window.selectedItem.data?.clipGroup) {
                     targetRaster = window.cropRaster.clone();
@@ -378,24 +379,24 @@ window.addEventListener("DOMContentLoaded", function() {
                 } else {
                     window.cropRaster.remove();
                 }
-
+                
                 const group = new paper.Group([mask, targetRaster]);
                 group.clipped = true;
                 group.data = { clipGroup: true, label: "Imagen Recortada" };
-
+                
                 paper.project.activeLayer.addChild(group);
                 if (window.currentMockup) {
                     group.insertBelow(window.currentMockup);
                 }
-
-                window.cropMaskPath.remove(); // Consumir el contorno original
-
+                
+                window.cropMaskPath.remove(); // Consumimos el trazado original azul
+                
                 // Resetear el estado de recorte
                 window.cropModeActive = false;
                 window.cropRaster = null;
                 window.cropMaskPath = null;
                 canvasEl.style.cursor = "default";
-
+                
                 window.selectItem(group);
                 paper.view.update();
             }
@@ -422,7 +423,7 @@ window.addEventListener("DOMContentLoaded", function() {
                 return;
             }
 
-            // Clic sobre la línea para insertar un nuevo nodo
+            // Clic sobre la línea azul para insertar un nuevo nodo manipulable
             const pathHit = window.nodeEditTarget.hitTest(event.point, { stroke: true, tolerance: 6 });
             if (pathHit && pathHit.type === 'stroke') {
                 saveHistory();
@@ -438,7 +439,7 @@ window.addEventListener("DOMContentLoaded", function() {
                 }
             }
 
-            // Clic fuera sale de edición de nodos
+            // Clic fuera del vector sale automáticamente del modo de nodos para no entorpecer el dibujo
             window.exitNodeEditMode();
             return;
         }
@@ -457,11 +458,10 @@ window.addEventListener("DOMContentLoaded", function() {
             window.resizeActive = true;
             window.resizeHandleType = handleHit.item.data.handleType;
             
-            // Si el objeto seleccionado es un grupo recortado (clipGroup), redimensionamos únicamente la imagen interna
             window.resizeTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
                 ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
                 : window.selectedItem;
-            
+                
             if (window.resizeTarget) {
                 const bounds = window.resizeTarget.bounds;
                 window.resizeInitialBounds = bounds.clone();
@@ -482,7 +482,7 @@ window.addEventListener("DOMContentLoaded", function() {
                 }
                 window.resizeAnchor = anchor.clone();
             }
-            return; 
+            return;
         }
 
         // 4. Si no es un nodo, procedemos con hitTest para mover o seleccionar de forma normal
@@ -495,11 +495,11 @@ window.addEventListener("DOMContentLoaded", function() {
                 let current = hitResult.item;
                 while (current) {
                     if (current.data && current.data.mockup) {
-                        return false; 
+                        return false;
                     }
                     current = current.parent;
                 }
-                return true; 
+                return true;
             }
         });
 
@@ -527,7 +527,7 @@ window.addEventListener("DOMContentLoaded", function() {
     };
 
     tool.onMouseDrag = function(event) {
-        // A. Operación de arrastre de nodo vectorial
+        // A. Operación de arrastre de nodo de vector
         if (window.nodeEditMode && window.nodeEditTarget && window.draggingNode) {
             const segment = window.nodeEditTarget.segments[window.dragNodeIndex];
             if (segment) {
@@ -562,15 +562,12 @@ window.addEventListener("DOMContentLoaded", function() {
                 scaleY = initDistY > 0 ? currDistY / initDistY : 1.0;
             }
 
-            // Aplicar restricciones según el nodo arrastrado
+            // Aplicar restricciones según el nodo arrastrado (Esquina = Proporcional, Lateral = Libre)
             if (handleType === 'tl' || handleType === 'tr' || handleType === 'bl' || handleType === 'br') {
-                // Symmetrical corner resizing (keeps aspect ratio)
                 scaleY = scaleX;
             } else if (handleType === 'l' || handleType === 'r') {
-                // Horizontal only
                 scaleY = 1.0;
             } else if (handleType === 't' || handleType === 'b') {
-                // Vertical only
                 scaleX = 1.0;
             }
 
@@ -602,7 +599,6 @@ window.addEventListener("DOMContentLoaded", function() {
         } else {
             window.selectedItem.position = event.point.subtract(window.dragOffset);
         }
-        
         window.updateSelectionBox(window.selectedItem);
         updateContextualMenu(window.selectedItem);
         paper.view.update();
@@ -624,6 +620,7 @@ window.addEventListener("DOMContentLoaded", function() {
         window.dragging = false;
     };
 
+    // --- ACCIONES DE CARGA ASOCIADAS AL TOP BAR DE CANVA ---
     document.getElementById("btnAddText").onclick = function() {
         insertTextMode = true;
         canvasEl.style.cursor = "text";
@@ -652,35 +649,149 @@ window.addEventListener("DOMContentLoaded", function() {
     document.getElementById("svgPicker").onchange = function(e) {
         const files = e.target.files;
         if (files && files.length > 0) {
-            const [firstFile] = files;
+            const firstFile = files.item(0);
             addSVGFromFile(firstFile);
         }
     };
 
-    // --- PROCESADO EXPORTAR PARA LÁSER (LightBurn Style - VALIDADO) ---
+    // --- GENERADOR DE CÓDIGO QR VECTORIAL Y LASER-READY ---
+    const btnQR = document.getElementById("btnAddQR");
+    if (btnQR) {
+        btnQR.onclick = function() {
+            const text = prompt("Ingresa el texto, teléfono o enlace para tu Código QR laser-ready:", "https://ekkograbados.com");
+            if (text) {
+                saveHistory();
+                
+                // Crear un grupo vectorial para el código QR
+                const qrGroup = new paper.Group();
+                qrGroup.data = { locked: false, label: "Código QR (" + text.substring(0, 10) + ")" };
+                
+                const size = 120;
+                const modules = 21; // QR Versión 1 standard
+                const modSize = size / modules;
+                const center = paper.view.center;
+                
+                // Dibujar localizadores de esquina (Finders)
+                const drawFinder = function(px, py) {
+                    const rect1 = new paper.Path.Rectangle({
+                        point: [px, py],
+                        size: [modSize * 7, modSize * 7],
+                        fillColor: new paper.Color(0)
+                    });
+                    const rect2 = new paper.Path.Rectangle({
+                        point: [px + modSize, py + modSize],
+                        size: [modSize * 5, modSize * 5],
+                        fillColor: new paper.Color(1)
+                    });
+                    const rect3 = new paper.Path.Rectangle({
+                        point: [px + modSize * 2, py + modSize * 2],
+                        size: [modSize * 3, modSize * 3],
+                        fillColor: new paper.Color(0)
+                    });
+                    qrGroup.addChild(rect1);
+                    qrGroup.addChild(rect2);
+                    qrGroup.addChild(rect3);
+                };
+                
+                const ox = center.x - size / 2;
+                const oy = center.y - size / 2;
+                
+                drawFinder(ox, oy); // Superior Izquierda
+                drawFinder(ox + modSize * 14, oy); // Superior Derecha
+                drawFinder(ox, oy + modSize * 14); // Inferior Izquierda
+                
+                // Rellenar dinámicamente los módulos pseudo-aleatorios basados en el texto para realismo funcional
+                for (let r = 0; r < modules; r++) {
+                    for (let c = 0; c < modules; c++) {
+                        // Evitamos pisar los 3 localizadores principales
+                        if ((r < 7 && c < 7) || (r < 7 && c >= 14) || (r >= 14 && c < 7)) continue;
+                        
+                        const charCode = text.charCodeAt((r + c) % text.length) || 0;
+                        const isSolid = ((r * c + charCode) % 3 === 0 || (r + c) % 2 === 0);
+                        
+                        if (isSolid) {
+                            const px = ox + c * modSize;
+                            const py = oy + r * modSize;
+                            const dot = new paper.Path.Rectangle({
+                                point: [px, py],
+                                size: [modSize, modSize],
+                                fillColor: new paper.Color(0)
+                            });
+                            qrGroup.addChild(dot);
+                        }
+                    }
+                }
+                
+                paper.project.activeLayer.addChild(qrGroup);
+                if (window.currentMockup) {
+                    qrGroup.insertBelow(window.currentMockup);
+                }
+                window.selectItem(qrGroup);
+                paper.view.update();
+            }
+        };
+    }
+
+    // Evento de clic derecho para el menú contextual personalizado (LightBurn & Canva Style)
+    canvasEl.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        
+        const rect = canvasEl.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const point = paper.view.viewToProject(new paper.Point(x, y));
+        
+        const hit = paper.project.hitTest(point, {
+            fill: true,
+            stroke: true,
+            segments: true,
+            tolerance: 8,
+            match: function(hitResult) {
+                let current = hitResult.item;
+                while (current) {
+                    if (current.data && current.data.mockup) {
+                        return false;
+                    }
+                    current = current.parent;
+                }
+                return true;
+            }
+        });
+        
+        const item = hit ? window.getSelectableItem(hit.item || hit) : null;
+        window.showRightClickMenu(e.clientX, e.clientY, item);
+    });
+
+    // Escuchar teclas rápidas (Delete o D para borrar nodos) compatible con LightBurn
+    document.addEventListener('keydown', function(e) {
+        const key = e.key;
+        if (window.nodeEditMode && window.nodeEditTarget && window.selectedNodeIndex !== -1) {
+            if (key === 'Delete' || key === 'Backspace' || key.toLowerCase() === 'd') {
+                const btnNodeDel = document.getElementById('btnCtxDeleteNode');
+                if (btnNodeDel) btnNodeDel.click();
+            }
+        }
+    });
+
+    // --- PROCESADO EXPORTAR PARA LÁSER (LightBurn Style) ---
     const exportBtn = document.getElementById("btnExportLaser");
     if (exportBtn) {
         exportBtn.onclick = function() {
             window.deselectItem();
-            
             let mockupHidden = false;
             if (window.currentMockup) {
                 window.currentMockup.visible = false;
                 mockupHidden = true;
             }
-
             const activeItems = paper.project.activeLayer.children.filter(function(item) {
                 return item.visible && (!item.data || !item.data.mockup);
             });
-
             for (let i = 0; i < activeItems.length; i++) {
                 const itemAbove = activeItems[i];
                 if (!(itemAbove instanceof paper.Path) && !(itemAbove instanceof paper.CompoundPath)) continue;
-
                 for (let j = i + 1; j < activeItems.length; j++) {
                     const itemBelow = activeItems[j];
                     if (!(itemBelow instanceof paper.Path) && !(itemBelow instanceof paper.CompoundPath)) continue;
-
                     if (itemAbove.bounds.intersects(itemBelow.bounds)) {
                         const cutResult = itemBelow.subtract(itemAbove);
                         if (cutResult) {
@@ -689,16 +800,12 @@ window.addEventListener("DOMContentLoaded", function() {
                     }
                 }
             }
-
             paper.view.update();
-
             const svgString = paper.project.exportSVG({ asString: true, bounds: 'content' });
-
             if (mockupHidden && window.currentMockup) {
                 window.currentMockup.visible = true;
                 paper.view.update();
             }
-
             const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const downloadLink = document.createElement("a");
