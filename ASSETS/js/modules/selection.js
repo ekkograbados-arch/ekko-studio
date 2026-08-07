@@ -1,4 +1,3 @@
-
 window.selectedItem = null; 
 window.dragOffset = null; 
 window.selectionBoxGroup = null;
@@ -33,8 +32,7 @@ window.getSelectableItem = function(item){
    if (current.data) { 
      if (current.data.mockup) return null; 
      if (current.data.clipGroup) { 
-       return current; 
-     } 
+       return current; \n     } 
    } 
    
    if (current.parent instanceof paper.Layer || current.parent === paper.project.activeLayer) { 
@@ -44,8 +42,7 @@ window.getSelectableItem = function(item){
    if (current.parent) { 
      current = current.parent; 
    } else { 
-     break; 
-   } 
+     break; \n   } 
  } 
  return current; 
 }; 
@@ -129,11 +126,10 @@ window.drawNodeEditHandles = function(path) {
   window.nodeHandlesGroup.data = { isNodeEditOverlay: true };
 
   const handleSize = 5 / paper.view.zoom;
-
   path.segments.forEach(function(segment, index) {
     const isSelected = (index === window.selectedNodeIndex);
-
-    // Nodo de vértice (círculo rojo/blanco manipulable)
+    
+    // Nodo de vértice (círculo rojo)
     const handleCircle = new paper.Path.Circle({
       center: segment.point,
       radius: handleSize,
@@ -162,6 +158,7 @@ window.enterNodeEditMode = function(path) {
   window.nodeEditMode = true;
   window.nodeEditTarget = path;
   window.selectedNodeIndex = -1;
+  
   window.updateSelectionBox(null); // Ocultar cuadro azul tradicional
   window.drawNodeEditHandles(path);
   
@@ -170,6 +167,7 @@ window.enterNodeEditMode = function(path) {
   document.getElementById('ctxVectorControls').classList.add('hidden');
   document.getElementById('ctxImageControls').classList.add('hidden');
   document.getElementById('ctxTextControls').classList.add('hidden');
+  
   paper.view.update();
 };
 
@@ -178,6 +176,7 @@ window.exitNodeEditMode = function() {
     window.nodeHandlesGroup.remove();
     window.nodeHandlesGroup = null;
   }
+  
   window.nodeEditMode = false;
   const path = window.nodeEditTarget;
   window.nodeEditTarget = null;
@@ -190,6 +189,7 @@ window.exitNodeEditMode = function() {
   if (path) {
     window.selectItem(path); // Re-seleccionar de forma tradicional
   }
+  
   paper.view.update();
 };
 
@@ -198,6 +198,7 @@ window.selectItem = function(item){
  if (window.nodeEditMode) {
    window.exitNodeEditMode();
  }
+ 
  if(window.selectedItem){ 
    window.selectedItem.selected = false; 
  } 
@@ -205,14 +206,13 @@ window.selectItem = function(item){
  if(!item){ 
    window.updateSelectionBox(null);
    paper.view.update(); 
-   return; 
- } 
+   return; \n } 
  if(item.data && item.data.mockup){ 
    item.selected = false; 
    window.updateSelectionBox(null);
    paper.view.update(); 
-   return; 
- } 
+   return; \n } 
+ 
  window.updateSelectionBox(item);
  paper.view.update(); 
 }; 
@@ -222,6 +222,7 @@ window.deselectItem = function(){
  if (window.nodeEditMode) {
    window.exitNodeEditMode();
  }
+ 
  if(window.selectedItem){ 
    window.selectedItem.selected = false; 
  } 
