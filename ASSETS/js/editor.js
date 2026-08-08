@@ -5,10 +5,12 @@ import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 
 window.addEventListener("DOMContentLoaded", () => {
-    // Inicializar Paper.js en el Canvas
-    paper.setup("editorCanvas");
+    // Inicializar Paper.js en el Canvas de forma segura
     const canvasEl = document.getElementById("editorCanvas");
-    paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    if (canvasEl) {
+        paper.setup("editorCanvas");
+        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    }
 
     const toolState = {
         currentCategory: 0,
@@ -80,7 +82,6 @@ window.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             console.warn("La API /api/fonts no está activa. Cargando las 16 fuentes de la marca desde styles.css.");
             
-            // Mapeo estricto de las 16 fuentes oficiales configuradas en tu styles.css
             const officialFonts = [
                 { name: "Au Bord de la Seine", family: "ekko_seine" },
                 { name: "Billie James", family: "ekko_billie" },
@@ -320,7 +321,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 toolState.currentSurface = index;
                 renderSurfacesOnly(product);
                 loadSurfaceScene(product, surface);
-                ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + surface.nombre;
+                if (ui.selectionInfo) { ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + surface.nombre; }
             };
             ui.surfaceTabs.appendChild(btn);
         });
@@ -334,7 +335,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const firstSurface = product.superficies.slice(idx, idx + 1).shift() || product.superficies.slice(0, 1).shift();
         if (firstSurface) {
             loadSurfaceScene(product, firstSurface);
-            ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + firstSurface.nombre;
+            if (ui.selectionInfo) { ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + firstSurface.nombre; }
         }
     }
 
@@ -346,7 +347,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (insertTextMode) {
             createEditableText(event.point);
             insertTextMode = false;
-            canvasEl.style.cursor = "default";
+            if (canvasEl) canvasEl.style.cursor = "default";
             return;
         }
 
@@ -356,7 +357,6 @@ window.addEventListener("DOMContentLoaded", () => {
             segments: true,
             tolerance: 8,
             match: function(hitResult) {
-                // WALKING UP THE TREE TO MAKE SURE NO PARENT IS A MOCKUP
                 let cur = hitResult.item;
                 while (cur) {
                     if (cur.data && cur.data.mockup) {
@@ -414,42 +414,56 @@ window.addEventListener("DOMContentLoaded", () => {
         window.dragging = false;
     };
 
+    // --- EVENT HELPER FUNCTIONS FOR ROBUST ASSIGNMENTS (Canva/LightBurn Style) ---
+    const setClick = (id, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.onclick = fn;
+    };
+    const setChange = (id, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.onchange = fn;
+    };
+
     // --- ACCIONES DE CARGA ASOCIADAS AL TOP BAR DE CANVA ---
-    document.getElementById("btnAddText").onclick = () => {
+    setClick("btnAddText", () => {
         insertTextMode = true;
-        canvasEl.style.cursor = "text";
-    };
+        if (canvasEl) canvasEl.style.cursor = "text";
+    });
 
-    document.getElementById("btnAddImage").onclick = () => {
+    setClick("btnAddImage", () => {
         const imagePicker = document.getElementById("imagePicker");
-        imagePicker.value = "";
-        imagePicker.click();
-    };
+        if (imagePicker) {
+            imagePicker.value = "";
+            imagePicker.click();
+        }
+    });
 
-    document.getElementById("btnAddSVG").onclick = () => {
+    setClick("btnAddSVG", () => {
         const svgPicker = document.getElementById("svgPicker");
-        svgPicker.value = "";
-        svgPicker.click();
-    };
+        if (svgPicker) {
+            svgPicker.value = "";
+            svgPicker.click();
+        }
+    });
 
-    document.getElementById("imagePicker").onchange = (e) => {
+    setChange("imagePicker", (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
             addImageFromFile(firstFile);
         }
-    };
+    });
 
-    document.getElementById("svgPicker").onchange = (e) => {
+    setChange("svgPicker", (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
             addSVGFromFile(firstFile);
         }
-    };
+    });
 
     // --- PROCESADO EXPORTAR PARA LÁSER (LightBurn Style) ---
-    document.getElementById("btnExportLaser").onclick = () => {
+    setClick("btnExportLaser", () => {
         window.deselectItem();
         
         let mockupHidden = false;
@@ -497,16 +511,18 @@ window.addEventListener("DOMContentLoaded", () => {
         downloadLink.click();
         document.body.removeChild(downloadLink);
         URL.revokeObjectURL(url);
-    };
+    });
 
     // Controles de zoom generales
-    document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
-    document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
-    document.getElementById("btnFit").onclick = fitView;
+    setClick("btnZoomIn", () => zoomBy(1.15));
+    setClick("btnZoomOut", () => zoomBy(1 / 1.15));
+    setClick("btnFit", fitView);
 
-    // Adaptar tamaño de canvas al redimensionar ventana
+    // Adaptar tamaño de canvas al redimensionar ventana de forma segura
     window.addEventListener("resize", () => {
-        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+        if (canvasEl) {
+            paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+        }
     });
 
     // Arrancar la renderización inicial del panel
