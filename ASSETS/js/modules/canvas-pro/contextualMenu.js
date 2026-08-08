@@ -83,47 +83,59 @@ export function initContextualMenu() {
 
   removeOverlapTab();
 
-  // --- 1. ACCIONES GENERALES ---
-  document.getElementById('btnCtxDelete').onclick = () => {
-    if (window.selectedItem) {
-      window.selectedItem.remove();
-      window.deselectItem();
-      hideContextualMenu();
-    }
-  };
-
-  document.getElementById('btnCtxDuplicate').onclick = () => {
-    if (window.selectedItem && !window.selectedItem.data?.locked) {
-      const clone = window.selectedItem.clone();
-      clone.position = clone.position.add(new paper.Point(20, 20));
-      clone.data = { ...(clone.data || {}), locked: false };
-      
-      if (window.selectedItem.data?.clipGroup) {
-        clone.data.label = `${window.selectedItem.data.label || "Objeto"} copia`;
+  // --- 1. ACCIONES GENERALES (Garantía de Nulidad para evitar errores de consola) ---
+  const deleteBtn = document.getElementById('btnCtxDelete');
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (window.selectedItem) {
+        window.selectedItem.remove();
+        window.deselectItem();
+        hideContextualMenu();
       }
-      
-      paper.project.activeLayer.addChild(clone);
-      window.selectItem(clone);
-      updateContextualMenu(clone);
-    }
-  };
+    };
+  }
 
-  document.getElementById('btnCtxForward').onclick = () => {
-    if (window.selectedItem) {
-      window.selectedItem.bringToFront();
-      paper.view.update();
-    }
-  };
-
-  document.getElementById('btnCtxBackward').onclick = () => {
-    if (window.selectedItem) {
-      window.selectedItem.sendToBack();
-      if (window.currentMockup) {
-        window.selectedItem.insertBelow(window.currentMockup);
+  const duplicateBtn = document.getElementById('btnCtxDuplicate');
+  if (duplicateBtn) {
+    duplicateBtn.onclick = () => {
+      if (window.selectedItem && !window.selectedItem.data?.locked) {
+        const clone = window.selectedItem.clone();
+        clone.position = clone.position.add(new paper.Point(20, 20));
+        clone.data = { ...(clone.data || {}), locked: false };
+        
+        if (window.selectedItem.data?.clipGroup) {
+          clone.data.label = `${window.selectedItem.data.label || "Objeto"} copia`;
+        }
+        
+        paper.project.activeLayer.addChild(clone);
+        window.selectItem(clone);
+        updateContextualMenu(clone);
       }
-      paper.view.update();
-    }
-  };
+    };
+  }
+
+  const forwardBtn = document.getElementById('btnCtxForward');
+  if (forwardBtn) {
+    forwardBtn.onclick = () => {
+      if (window.selectedItem) {
+        window.selectedItem.bringToFront();
+        paper.view.update();
+      }
+    };
+  }
+
+  const backwardBtn = document.getElementById('btnCtxBackward');
+  if (backwardBtn) {
+    backwardBtn.onclick = () => {
+      if (window.selectedItem) {
+        window.selectedItem.sendToBack();
+        if (window.currentMockup) {
+          window.selectedItem.insertBelow(window.currentMockup);
+        }
+        paper.view.update();
+      }
+    };
+  }
 
   // --- 2. ACCIONES DE TEXTO ---
   const fontSelector = document.getElementById('ctxFontSelector');
