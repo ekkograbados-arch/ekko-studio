@@ -25,7 +25,6 @@ function injectTraceButton() {
   const imageControls = document.getElementById('ctxImageControls');
   if (!imageControls) return;
 
-  // Evitar duplicar el botón
   if (document.getElementById('btnCtxTraceImage')) return;
 
   const traceBtn = document.createElement('button');
@@ -34,7 +33,6 @@ function injectTraceButton() {
   traceBtn.className = 'ctx-btn';
   traceBtn.innerHTML = '✨ Trazar';
 
-  // Estilizado Magenta LightBurn
   Object.assign(traceBtn.style, {
     backgroundColor: '#ff00ff',
     color: '#ffffff',
@@ -67,16 +65,13 @@ function injectTraceButton() {
 
   traceBtn.onclick = () => {
     if (window.selectedItem) {
-      const target = window.selectedItem.data?.clipGroup 
-        ? window.selectedItem.children.find(c => !c.clipMask) 
-        : window.selectedItem;
+      const target = window.selectedItem.data?.clipGroup \n        ? window.selectedItem.children.find(c => !c.clipMask) \n        : window.selectedItem;
       if (target && target instanceof paper.Raster) {
         openImageTraceModal(target);
       }
     }
   };
 
-  // Insertar botón al principio de la sección de imágenes
   imageControls.insertBefore(traceBtn, imageControls.firstChild);
 }
 
@@ -84,7 +79,6 @@ export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
 
-  // Limpiar pestaña "Evitar Superposición"
   removeOverlapTab();
 
   // --- 1. ACCIONES GENERALES ---
@@ -271,7 +265,6 @@ export function updateContextualMenu(item) {
   } else if (target instanceof paper.Raster) {
     document.getElementById('ctxImageControls').classList.remove('hidden');
     
-    // Inyectar dinámicamente el botón de trazado
     injectTraceButton();
 
     const briSlider = document.getElementById('ctxBrightness');
@@ -283,7 +276,6 @@ export function updateContextualMenu(item) {
     document.getElementById('ctxVectorControls').classList.remove('hidden');
   }
 
-  // --- POSICIONAMIENTO GEOMÉTRICO (Canva Style) ---
   const bounds = item.bounds;
   if (!bounds) return;
 
