@@ -200,12 +200,11 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
       const path = new paper.Path({
         segments: pathPoints,
         closed: true,
-        strokeColor: '#ff00ff', // Magenta vibrante de LightBurn
+        strokeColor: '#ff00ff', // Magenta de LightBurn
         strokeWidth: 1.5 / paper.view.zoom,
         insert: false
       });
 
-      // Suavizado dinámico de curvas y optimización de nodos
       if (smoothness > 0) {
         const tolerance = (smoothness * 0.12) + (optimize * 0.25);
         path.simplify(Math.max(0.01, tolerance));
@@ -231,14 +230,16 @@ export function openImageTraceModal(raster) {
       .trace-overlay {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background-color: rgba(0, 0, 0, 0.6);
+        background-color: rgba(0, 0, 0, 0.2); /* Fondo sutil, permite ver el canvas debajo */
         z-index: 10000;
         display: flex;
         align-items: center;
         justify-content: center;
         font-family: system-ui, -apple-system, sans-serif;
+        pointer-events: none; /* Clics atraviesan el fondo para zoom o paneo si se desea */
       }
       .trace-modal {
+        position: fixed;
         background-color: #1e1e1e;
         color: #f3f3f3;
         border: 2px solid #ff00ff;
@@ -247,6 +248,8 @@ export function openImageTraceModal(raster) {
         width: 440px;
         box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
         z-index: 10001;
+        pointer-events: auto; /* Modal responde a clics */
+        user-select: none;
       }
       .trace-modal h3 {
         color: #ff00ff;
@@ -259,6 +262,8 @@ export function openImageTraceModal(raster) {
         display: flex;
         align-items: center;
         gap: 8px;
+        cursor: move; /* Indicar que es arrastrable */
+        user-select: none;
       }
       .trace-modal .slider-row {
         display: flex;
@@ -413,6 +418,61 @@ export function openImageTraceModal(raster) {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
+  // --- COMPORTAMIENTO DRAGGABLE (ARRISTRABLE) DE LA VENTANA MODAL ---
+  const modalHeader = modal.querySelector('h3');
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialLeft = 0;
+  let initialTop = 0;
+
+  modalHeader.onmousedown = function(e) {
+    if (e.button !== 0) return; // Solo clic izquierdo
+    
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'A') return;
+
+    isDragging = true;
+    const rect = modal.getBoundingClientRect();
+    
+    startX = e.clientX;
+    startY = e.clientY;
+    initialLeft = rect.left;
+    initialTop = rect.top;
+
+    modal.style.transform = 'none';
+    modal.style.margin = '0';
+    modal.style.left = initialLeft + 'px';
+    modal.style.top = initialTop + 'px';
+
+    e.preventDefault();
+  };
+
+  const handleMouseMove = function(e) {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+
+    let newX = initialLeft + deltaX;
+    let newY = initialTop + deltaY;
+
+    const maxX = window.innerWidth - modal.offsetWidth;
+    const maxY = window.innerHeight - modal.offsetHeight;
+
+    newX = Math.max(0, Math.min(newX, maxX));
+    newY = Math.max(0, Math.min(newY, maxY));
+
+    modal.style.left = newX + 'px';
+    modal.style.top = newY + 'px';
+  };
+
+  const handleMouseUp = function() {
+    isDragging = false;
+  };
+
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', handleMouseUp);
+
   const sketchCheck = modal.querySelector('#traceSketch');
   const fadeCheck = modal.querySelector('#traceFadeImage');
   const deleteCheck = modal.querySelector('#traceDeleteImage');
@@ -529,6 +589,10 @@ export function openImageTraceModal(raster) {
       tracePreviewGroup.remove();
       tracePreviewGroup = null;
     }
+    
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+    
     overlay.remove();
     paper.view.update();
   };
