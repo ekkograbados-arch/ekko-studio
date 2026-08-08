@@ -1,50 +1,109 @@
+import { openImageTraceModal } from "./imageTracer.js";
+
+// --- REMOVE OVERLAP TAB (EVITAR SUPERPOSICION) ---
+function removeOverlapTab() {
+  const btnSubtract = document.getElementById('btnCtxSubtract');
+  if (btnSubtract) {
+    btnSubtract.style.display = 'none';
+    btnSubtract.remove(); // Eliminado del DOM por higiene para que no vuelva a aparecer
+  }
+
+  const overlapIds = [
+    'btnCtxAvoidOverlap', 'ctxAvoidOverlap', 'btnCtxSuperposicion', 
+    'ctxSuperposicion', 'avoidOverlapBtn', 'ctxAvoidOverlapBtn'
+  ];
+  overlapIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+
+  const allElements = document.querySelectorAll('button, div, span, a, p, li');
+  allElements.forEach(el => {
+    if (el.textContent) {
+      // Normalizar texto para ignorar acentos y mayúsculas/minúsculas
+      const normalizedText = el.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+      if (normalizedText.includes('EVITAR SUPERPOSICION')) {
+        el.remove();
+      }
+    }
+  });
+}
 
 export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
 
+  // Limpiar pestaña "Evitar Superposición" de forma proactiva
+  removeOverlapTab();
+
   // --- 1. ACCIONES GENERALES ---
-  document.getElementById('btnCtxDelete').onclick = () => {
-    if (window.selectedItem) {
-      window.selectedItem.remove();
-      window.deselectItem();
-      hideContextualMenu();
-    }
-  };
-
-  document.getElementById('btnCtxDuplicate').onclick = () => {
-    if (window.selectedItem && !window.selectedItem.data?.locked) {
-      const clone = window.selectedItem.clone();
-      clone.position = clone.position.add(new paper.Point(20, 20));
-      clone.data = { ...(clone.data || {}), locked: false };
-      
-      if (window.selectedItem.data?.clipGroup) {
-        clone.data.label = `${window.selectedItem.data.label || "Objeto"} copia`;
+  const deleteBtn = document.getElementById('btnCtxDelete');
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      if (window.selectedItem) {
+        window.selectedItem.remove();
+        window.deselectItem();
+        hideContextualMenu();
       }
-      
-      paper.project.activeLayer.addChild(clone);
-      window.selectItem(clone);
-      updateContextualMenu(clone);
-    }
-  };
+    };
+  }
 
-  document.getElementById('btnCtxForward').onclick = () => {
-    if (window.selectedItem) {
-      window.selectedItem.bringToFront();
-      paper.view.update();
-    }
-  };
-
-  document.getElementById('btnCtxBackward').onclick = () => {
-    if (window.selectedItem) {
-      window.selectedItem.sendToBack();
-      // Si el mockup está presente, el objeto debe ir justo por debajo del mockup
-      if (window.currentMockup) {
-        window.selectedItem.insertBelow(window.currentMockup);
+  const duplicateBtn = document.getElementById('btnCtxDuplicate');
+  if (duplicateBtn) {
+    duplicateBtn.onclick = () => {
+      if (window.selectedItem && !window.selectedItem.data?.locked) {
+        const clone = window.selectedItem.clone();
+        clone.position = clone.position.add(new paper.Point(20, 20));
+        clone.data = { ...(clone.data || {}), locked: false };
+        
+        if (window.selectedItem.data?.clipGroup) {
+          clone.data.label = `${window.selectedItem.data.label || "Objeto"} copia`;
+        }
+        
+        paper.project.activeLayer.addChild(clone);
+        window.selectItem(clone);
+        updateContextualMenu(clone);
       }
-      paper.view.update();
-    }
-  };
+    };
+  }
+
+  const forwardBtn = document.getElementById('btnCtxForward');
+  if (forwardBtn) {
+    forwardBtn.onclick = () => {
+      if (window.selectedItem) {
+        window.selectedItem.bringToFront();
+        paper.view.update();
+      }
+    };
+  }
+
+  const backwardBtn = document.getElementById('btnCtxBackward');
+  if (backwardBtn) {
+    backwardBtn.onclick = () => {
+      if (window.selectedItem) {
+        window.selectedItem.sendToBack();
+        if (window.currentMockup) {
+          window.selectedItem.insertBelow(window.currentMockup);
+        }
+        paper.view.update();
+      }
+    };
+  }
+
+  // --- ASOCIACIÓN DEL EVENTO DE TRAZADO (Rosa de LightBurn) ---
+  const btnTrace = document.getElementById('btnCtxTrace');
+  if (btnTrace) {
+    btnTrace.onclick = () => {
+      if (window.selectedItem) {
+        const target = window.selectedItem.data?.clipGroup 
+          ? window.selectedItem.children.find(c => !c.clipMask) 
+          : window.selectedItem;
+        if (target && target instanceof paper.Raster) {
+          openImageTraceModal(target);
+        }
+      }
+    };
+  }
 
   // --- 2. ACCIONES DE TEXTO ---
   const fontSelector = document.getElementById('ctxFontSelector');
@@ -65,13 +124,12 @@ export function initContextualMenu() {
         if (val && val > 0) {
           window.selectedItem.fontSize = val;
           paper.view.update();
-          updateContextualMenu(window.selectedItem); // Reposicionar barra
+          updateContextualMenu(window.selectedItem);
         }
       }
     };
   }
 
-  // Estilos de texto (Negrita y Cursiva)
   const btnBold = document.getElementById('btnCtxBold');
   if (btnBold) {
     btnBold.onclick = () => {
@@ -125,7 +183,6 @@ export function initContextualMenu() {
     };
   }
 
-  // Sliders de Brillo y Contraste
   const briSlider = document.getElementById('ctxBrightness');
   if (briSlider) {
     briSlider.oninput = () => {
@@ -134,10 +191,8 @@ export function initContextualMenu() {
           ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
-          // Guardamos el nivel de brillo para procesamiento de píxeles posterior
           target.data = target.data || {};
           target.data.brightness = parseFloat(briSlider.value);
-          // Los filtros aplicados en canvas de imagen se procesarán en la fase de filtros
         }
       }
     };
@@ -163,7 +218,8 @@ export function updateContextualMenu(item) {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
 
-  // Si no hay item o es un mockup bloqueado, escondemos el menú flotante
+  removeOverlapTab();
+
   if (!item || (item.data && item.data.mockup)) {
     toolbar.classList.remove('active');
     return;
@@ -171,40 +227,43 @@ export function updateContextualMenu(item) {
 
   toolbar.classList.add('active');
 
-  // Escondemos los subgrupos específicos
   document.getElementById('ctxTextControls').classList.add('hidden');
   document.getElementById('ctxImageControls').classList.add('hidden');
   document.getElementById('ctxVectorControls').classList.add('hidden');
 
-  // Identificamos el elemento real (incluso si está dentro de un ClipGroup enmascarado)
+  // Ocultar por defecto el botón oficial rosa de LightBurn en el toolbar general
+  const btnTrace = document.getElementById('btnCtxTrace');
+  if (btnTrace) {
+    btnTrace.style.display = 'none';
+  }
+
   const target = item.data?.clipGroup 
     ? item.children.find(c => !c.clipMask) 
     : item;
 
   if (!target) return;
 
-  // Mostramos controles según el tipo de objeto
   if (target instanceof paper.PointText) {
     document.getElementById('ctxTextControls').classList.remove('hidden');
-    
     const fontSelector = document.getElementById('ctxFontSelector');
     const fontSizeInput = document.getElementById('ctxFontSize');
-    
     if (fontSelector) fontSelector.value = target.fontFamily || 'Arial';
     if (fontSizeInput) fontSizeInput.value = Math.round(target.fontSize || 12);
     
   } else if (target instanceof paper.Raster) {
     document.getElementById('ctxImageControls').classList.remove('hidden');
     
-    // Restaurar valores de sliders guardados en metadatos
+    // Habilitar la visibilidad del botón rosa de trazado de tu HTML
+    if (btnTrace) {
+      btnTrace.style.display = 'inline-flex';
+    }
+
     const briSlider = document.getElementById('ctxBrightness');
     const conSlider = document.getElementById('ctxContrast');
-    
     if (briSlider) briSlider.value = target.data?.brightness || 0;
     if (conSlider) conSlider.value = target.data?.contrast || 0;
     
   } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
-    // Si es un SVG o trazado vectorial, activamos controles vectoriales de LightBurn
     document.getElementById('ctxVectorControls').classList.remove('hidden');
   }
 
@@ -212,17 +271,13 @@ export function updateContextualMenu(item) {
   const bounds = item.bounds;
   if (!bounds) return;
 
-  // Calculamos la coordenada del borde superior-centro en píxeles locales del lienzo
   const viewPoint = paper.view.projectToView(bounds.topCenter);
-
   const toolbarWidth = toolbar.offsetWidth || 350;
   const toolbarHeight = toolbar.offsetHeight || 45;
 
-  // Centramos horizontalmente arriba de la figura
   const posX = viewPoint.x - (toolbarWidth / 2);
-  const posY = viewPoint.y - toolbarHeight - 20; // 20px de espacio vertical
+  const posY = viewPoint.y - toolbarHeight - 20;
 
-  // Limites del canvas para que el menú nunca se salga de la pantalla por arriba o por los costados
   const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
   const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
 
