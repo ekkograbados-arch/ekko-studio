@@ -5,7 +5,6 @@ export function traceRasterContours(imageData, threshold) {
   const height = imageData.height;
   const data = imageData.data;
   
-  // Tabla binaria de 1D
   const binaryGrid = new Uint8Array(width * height);
   for (let i = 0; i < data.length; i += 4) {
     const r = data[i];
@@ -13,14 +12,12 @@ export function traceRasterContours(imageData, threshold) {
     const b = data[i + 2];
     const a = data[i + 3];
     const gray = 0.299 * r + 0.587 * g + 0.114 * b;
-    // Píxeles transparentes se tratan como fondo blanco
     binaryGrid[i / 4] = (a > 50 && gray < threshold) ? 1 : 0;
   }
 
   const visited = new Uint8Array(width * height);
   const contours = [];
 
-  // Direcciones vecinas de Moore (sentido horario CW)
   const dirs = [
     { x: 0, y: -1 }, // Arriba
     { x: 1, y: -1 }, // Arriba-Derecha
@@ -36,7 +33,6 @@ export function traceRasterContours(imageData, threshold) {
     for (let x = 1; x < width - 1; x++) {
       const idx = y * width + x;
       if (binaryGrid[idx] === 1 && !visited[idx]) {
-        // Validar si limita con el fondo
         let isBoundary = false;
         for (let d = 0; d < 8; d++) {
           const nx = x + dirs[d].x;
@@ -54,7 +50,7 @@ export function traceRasterContours(imageData, threshold) {
           let startX = x;
           let startY = y;
           
-          let backDir = 6; // Empezar buscando desde la izquierda
+          let backDir = 6;
           let finished = false;
           let iterations = 0;
           const maxIterations = 8000;
@@ -103,7 +99,6 @@ export function traceRasterContours(imageData, threshold) {
 let tracePreviewGroup = null;
 
 export function runTracePreview(raster, threshold) {
-  // Limpiar cualquier previsualización previa
   if (tracePreviewGroup) {
     tracePreviewGroup.remove();
     tracePreviewGroup = null;
@@ -121,7 +116,6 @@ export function runTracePreview(raster, threshold) {
 
     if (width <= 0 || height <= 0) return;
 
-    // Limitar tamaño de preview temporal para un slider ultra-fluido en tiempo real
     const previewCanvas = document.createElement('canvas');
     previewCanvas.width = Math.min(width, 800);
     previewCanvas.height = Math.round(height * (previewCanvas.width / width));
@@ -146,12 +140,12 @@ export function runTracePreview(raster, threshold) {
       const path = new paper.Path({
         segments: pathPoints,
         closed: true,
-        strokeColor: '#ff00ff', // Magenta vibrante de LightBurn
+        strokeColor: '#ff00ff', // Magenta de LightBurn
         strokeWidth: 1.5 / paper.view.zoom,
         insert: false
       });
 
-      path.simplify(0.12); // Suavizado de curvas Bézier para evitar píxeles dentados
+      path.simplify(0.12);
       tracePreviewGroup.addChild(path);
     });
 
@@ -165,7 +159,6 @@ export function runTracePreview(raster, threshold) {
 
 // --- VECTORIZATION MODAL DIALOG ---
 export function openImageTraceModal(raster) {
-  // Inyectar estilos CSS del modal una sola vez en el Header
   const styleId = 'image-trace-magenta-styles';
   if (!document.getElementById(styleId)) {
     const styleEl = document.createElement('style');
@@ -295,10 +288,8 @@ export function openImageTraceModal(raster) {
     document.head.appendChild(styleEl);
   }
 
-  // Preservar opacidad original de la imagen
   const originalOpacity = raster.opacity;
 
-  // Crear la estructura del modal
   const overlay = document.createElement('div');
   overlay.className = 'trace-overlay';
 
@@ -347,10 +338,8 @@ export function openImageTraceModal(raster) {
     runTracePreview(raster, val);
   }
 
-  // Método de ajuste 1: Arrastrar el slider horizontal
   slider.oninput = (e) => updateThresholdValue(e.target.value);
 
-  // Método de ajuste 2: Rueda del mouse (Scroll) sobre slider o input numérico
   const handleScrollWheel = (e) => {
     e.preventDefault();
     const currentVal = parseInt(slider.value, 10);
@@ -360,7 +349,6 @@ export function openImageTraceModal(raster) {
   slider.onwheel = handleScrollWheel;
   numInput.onwheel = handleScrollWheel;
 
-  // Método de ajuste 3: Flechas del teclado
   const handleArrowKeys = (e) => {
     if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
       e.preventDefault();
@@ -373,14 +361,12 @@ export function openImageTraceModal(raster) {
   slider.addEventListener('keydown', handleArrowKeys);
   numInput.addEventListener('keydown', handleArrowKeys);
 
-  // Método de ajuste 4: Entrada de número por teclado al hacer clic
   numInput.oninput = (e) => {
     if (e.target.value !== '') {
       updateThresholdValue(e.target.value);
     }
   };
 
-  // Desvanecer imagen original (Atenuación)
   const handleFadeToggle = () => {
     if (fadeCheck.checked) {
       raster.opacity = 0.25;
@@ -416,7 +402,7 @@ export function openImageTraceModal(raster) {
       
       tracePreviewGroup.children.forEach(p => {
         const clonedPath = p.clone();
-        clonedPath.strokeColor = new paper.Color('#000000'); // Color negro final para grabado
+        clonedPath.strokeColor = new paper.Color('#000000');
         clonedPath.strokeWidth = 1.0;
         clonedPath.fillColor = null;
         clonedPath.data = { locked: false, label: "Trazado" };
