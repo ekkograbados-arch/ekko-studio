@@ -1,87 +1,7 @@
 
-import { openImageTraceModal } from "./imageTracer.js";
-
-// --- REMOVE OVERLAP TAB (EVITAR SUPERPOSICION) ---
-function removeOverlapTab() {
-  const overlapIds = [
-    'btnCtxAvoidOverlap', 'ctxAvoidOverlap', 'btnCtxSuperposicion', 
-    'ctxSuperposicion', 'avoidOverlapBtn', 'ctxAvoidOverlapBtn'
-  ];
-  overlapIds.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.remove();
-  });
-
-  const allElements = document.querySelectorAll('button, div, span, a, p, li');
-  allElements.forEach(el => {
-    if (el.textContent && el.textContent.toUpperCase().includes('EVITAR SUPERPOSICION')) {
-      el.remove();
-    }
-  });
-}
-
-// --- DYNAMICALLY INJECT TRACE BUTTON (LIGHTBURN MAGENTA THEME) ---
-function injectTraceButton() {
-  const imageControls = document.getElementById('ctxImageControls');
-  if (!imageControls) return;
-
-  if (document.getElementById('btnCtxTraceImage')) return;
-
-  const traceBtn = document.createElement('button');
-  traceBtn.id = 'btnCtxTraceImage';
-  traceBtn.type = 'button';
-  traceBtn.className = 'ctx-btn';
-  traceBtn.innerHTML = '✨ Trazar';
-
-  Object.assign(traceBtn.style, {
-    backgroundColor: '#ff00ff',
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '4px',
-    padding: '4px 14px',
-    margin: '0 8px',
-    cursor: 'pointer',
-    fontWeight: 'bold',
-    fontSize: '13px',
-    fontFamily: 'inherit',
-    transition: 'all 0.2s',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '4px',
-    outline: 'none',
-    boxShadow: '0 2px 6px rgba(255, 0, 255, 0.3)'
-  });
-
-  traceBtn.onmouseover = () => {
-    traceBtn.style.backgroundColor = '#d900d9';
-    traceBtn.style.transform = 'scale(1.04)';
-    traceBtn.style.boxShadow = '0 3px 8px rgba(255, 0, 255, 0.5)';
-  };
-  traceBtn.onmouseout = () => {
-    traceBtn.style.backgroundColor = '#ff00ff';
-    traceBtn.style.transform = 'scale(1)';
-    traceBtn.style.boxShadow = '0 2px 6px rgba(255, 0, 255, 0.3)';
-  };
-
-  traceBtn.onclick = () => {
-    if (window.selectedItem) {
-      const target = window.selectedItem.data?.clipGroup
-        ? window.selectedItem.children.find(c => !c.clipMask)
-        : window.selectedItem;
-      if (target && target instanceof paper.Raster) {
-        openImageTraceModal(target);
-      }
-    }
-  };
-
-  imageControls.insertBefore(traceBtn, imageControls.firstChild);
-}
-
 export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-
-  removeOverlapTab();
 
   // --- 1. ACCIONES GENERALES (Garantía de Nulidad para evitar errores de consola) ---
   const deleteBtn = document.getElementById('btnCtxDelete');
@@ -129,6 +49,7 @@ export function initContextualMenu() {
     backwardBtn.onclick = () => {
       if (window.selectedItem) {
         window.selectedItem.sendToBack();
+        // Si el mockup está presente, el objeto debe ir justo por debajo del mockup
         if (window.currentMockup) {
           window.selectedItem.insertBelow(window.currentMockup);
         }
@@ -156,12 +77,13 @@ export function initContextualMenu() {
         if (val && val > 0) {
           window.selectedItem.fontSize = val;
           paper.view.update();
-          updateContextualMenu(window.selectedItem);
+          updateContextualMenu(window.selectedItem); // Reposicionar barra
         }
       }
     };
   }
 
+  // Estilos de texto (Negrita y Cursiva)
   const btnBold = document.getElementById('btnCtxBold');
   if (btnBold) {
     btnBold.onclick = () => {
@@ -215,6 +137,7 @@ export function initContextualMenu() {
     };
   }
 
+  // Sliders de Brillo y Contraste
   const briSlider = document.getElementById('ctxBrightness');
   if (briSlider) {
     briSlider.oninput = () => {
@@ -223,8 +146,10 @@ export function initContextualMenu() {
           ? window.selectedItem.children.find(c => !c.clipMask) 
           : window.selectedItem;
         if (target && target instanceof paper.Raster) {
+          // Guardamos el nivel de brillo para procesamiento de píxeles posterior
           target.data = target.data || {};
           target.data.brightness = parseFloat(briSlider.value);
+          // Los filtros aplicados en canvas de imagen se procesarán en la fase de filtros
         }
       }
     };
@@ -250,8 +175,7 @@ export function updateContextualMenu(item) {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
 
-  removeOverlapTab();
-
+  // Si no hay item o es un mockup bloqueado, escondemos el menú flotante
   if (!item || (item.data && item.data.mockup)) {
     toolbar.classList.remove('active');
     return;
@@ -259,47 +183,58 @@ export function updateContextualMenu(item) {
 
   toolbar.classList.add('active');
 
+  // Escondemos los subgrupos específicos
   document.getElementById('ctxTextControls').classList.add('hidden');
   document.getElementById('ctxImageControls').classList.add('hidden');
   document.getElementById('ctxVectorControls').classList.add('hidden');
 
+  // Identificamos el elemento real (incluso si está dentro de un ClipGroup enmascarado)
   const target = item.data?.clipGroup 
     ? item.children.find(c => !c.clipMask) 
     : item;
 
   if (!target) return;
 
+  // Mostramos controles según el tipo de objeto
   if (target instanceof paper.PointText) {
     document.getElementById('ctxTextControls').classList.remove('hidden');
+    
     const fontSelector = document.getElementById('ctxFontSelector');
     const fontSizeInput = document.getElementById('ctxFontSize');
+    
     if (fontSelector) fontSelector.value = target.fontFamily || 'Arial';
     if (fontSizeInput) fontSizeInput.value = Math.round(target.fontSize || 12);
     
   } else if (target instanceof paper.Raster) {
     document.getElementById('ctxImageControls').classList.remove('hidden');
     
-    injectTraceButton();
-
+    // Restaurar valores de sliders guardados en metadatos
     const briSlider = document.getElementById('ctxBrightness');
     const conSlider = document.getElementById('ctxContrast');
+    
     if (briSlider) briSlider.value = target.data?.brightness || 0;
     if (conSlider) conSlider.value = target.data?.contrast || 0;
     
   } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
+    // Si es un SVG o trazado vectorial, activamos controles vectoriales de LightBurn
     document.getElementById('ctxVectorControls').classList.remove('hidden');
   }
 
+  // --- POSICIONAMIENTO GEOMÉTRICO (Canva Style) ---
   const bounds = item.bounds;
   if (!bounds) return;
 
+  // Calculamos la coordenada del borde superior-centro en píxeles locales del lienzo
   const viewPoint = paper.view.projectToView(bounds.topCenter);
+
   const toolbarWidth = toolbar.offsetWidth || 350;
   const toolbarHeight = toolbar.offsetHeight || 45;
 
+  // Centramos horizontalmente arriba de la figura
   const posX = viewPoint.x - (toolbarWidth / 2);
-  const posY = viewPoint.y - toolbarHeight - 20;
+  const posY = viewPoint.y - toolbarHeight - 20; // 20px de espacio vertical
 
+  // Limites del canvas para que el menú nunca se salga de la pantalla por arriba o por los costados
   const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
   const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
 
@@ -311,3 +246,4 @@ export function hideContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (toolbar) toolbar.classList.remove('active');
 }
+
