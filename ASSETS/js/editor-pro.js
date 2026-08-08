@@ -1,7 +1,8 @@
+
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
-import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
+import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu-v2.js";
 
 window.addEventListener("DOMContentLoaded", () => {
     // Inicializar Paper.js en el Canvas
@@ -28,20 +29,10 @@ window.addEventListener("DOMContentLoaded", () => {
     window.dragOffset = null;
     window.dragging = false;
 
-    // Elementos de la interfaz de usuario (UI)
-    const ui = {
-        categoryTabs: document.getElementById("categoryTabs"),
-        productTabs: document.getElementById("productTabs"),
-        surfaceTabs: document.getElementById("surfaceTabs"),
-        selectionInfo: document.getElementById("selectionInfo"),
-        imagePicker: document.getElementById("imagePicker"),
-        svgPicker: document.getElementById("svgPicker")
-    };
-
     // Inicializar UI flotante del menú contextual (Canva style)
     initContextualMenu();
 
-    // Carga de tipografías dinámica desde la API de Vercel (100% automático)
+    // Carga de tipografías dinámica desde la API de Vercel (100% automático al soltar en ASSETS/fonts/)
     async function loadDynamicFonts() {
         try {
             const response = await fetch('/api/fonts');
@@ -76,18 +67,16 @@ window.addEventListener("DOMContentLoaded", () => {
                     });
                 }
                 
+                // Guardar las fuentes dinámicas globalmente para otros usos de renderizado
                 window.DYNAMIC_FONTS = fonts;
             }
         } catch (err) {
-            console.warn("La API /api/fonts no está disponible. Usando fuentes locales por defecto.", err);
+            console.warn("La API /api/fonts no está disponible o falló. Usando fuentes locales por defecto.", err);
+            // Cargar fuentes por defecto si falla el backend o estamos localmente
             const defaultFonts = [
                 { name: "Billie James", family: "ekko_billie" },
                 { name: "Romantic Sunrise", family: "ekko_romantic" },
-                { name: "Farmhouse", family: "ekko_farmhouse" },
-                { name: "Chocolate", family: "ekko_chocolate" },
-                { name: "Disney", family: "ekko_disney" },
-                { name: "Simpson", family: "ekko_simpson" },
-                { name: "Milk Water", family: "ekko_milk" }
+                { name: "Farmhouse", family: "ekko_farmhouse" }
             ];
             const selectEl = document.getElementById('ctxFontSelector');
             if (selectEl) {
@@ -102,9 +91,10 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // Ejecutar la carga automática de fuentes
     loadDynamicFonts();
 
-    // Redefinir deselección y selección para coordinar con el menú flotante
+    // Sobrescribir deselección y selección para coordinar con el menú flotante de Canva
     const originalDeselect = window.deselectItem;
     window.deselectItem = function() {
         if (typeof originalDeselect === "function") originalDeselect();
@@ -117,6 +107,12 @@ window.addEventListener("DOMContentLoaded", () => {
         updateContextualMenu(item);
     };
 
+    function clearCanvas() {
+        paper.project.activeLayer.removeChildren();
+        paper.view.update();
+        hideContextualMenu();
+    }
+
     function saveHistory() {
         undoStack.push(paper.project.exportJSON({ asString: true }));
         if (undoStack.length > 50) {
@@ -127,6 +123,77 @@ window.addEventListener("DOMContentLoaded", () => {
 
     function isLockedItem(item) {
         return item && item.data && item.data.locked === true;
+    }
+
+    function alignSelected(mode) {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const mask = window.selectedItem.children.find(c => c.clipMask);
+            const content = window.selectedItem.children.find(c => !c.clipMask);
+            if (mask && content) {
+                const maskBounds = mask.bounds;
+                const contentBounds = content.bounds.clone();
+                let newX = content.position.x;
+                let newY = content.position.y;
+                if (mode === "left") newX = maskBounds.left + contentBounds.width / 2;
+                if (mode === "centerH") newX = maskBounds.center.x;
+                if (mode === "right") newX = maskBounds.right - contentBounds.width / 2;
+                if (mode === "top") newY = maskBounds.top + contentBounds.height / 2;
+                if (mode === "centerV") newY = maskBounds.center.y;
+                if (mode === "bottom") newY = maskBounds.bottom - contentBounds.height / 2;
+                content.position = new paper.Point(newX, newY);
+            }
+        } else {
+            const canvasBounds = paper.view.bounds;
+            const itemBounds = window.selectedItem.bounds.clone();
+            const center = window.selectedItem.position.clone();
+            let newX = center.x;
+            let newY = center.y;
+            if (mode === "left") newX = canvasBounds.left + itemBounds.width / 2;
+            if (mode === "centerH") newX = canvasBounds.center.x;
+            if (mode === "right") newX = canvasBounds.right - itemBounds.width / 2;
+            if (mode === "top") newY = canvasBounds.top + itemBounds.height / 2;
+            if (mode === "centerV") newY = canvasBounds.center.y;
+            if (mode === "bottom") newY = canvasBounds.bottom - itemBounds.height / 2;
+            window.selectedItem.position = new paper.Point(newX, newY);
+        }
+        updateContextualMenu(window.selectedItem);
+        paper.view.update();
+    }
+
+    function centerSelected(mode) {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const mask = window.selectedItem.children.find(c => c.clipMask);
+            const content = window.selectedItem.children.find(c => !c.clipMask);
+            if (mask && content) {
+                if (mode === "horizontal") content.position.x = mask.position.x;
+                if (mode === "vertical") content.position.y = mask.position.y;
+                if (mode === "both") content.position = mask.position.clone();
+            }
+        } else {
+            const center = paper.view.bounds.center;
+            if (mode === "horizontal") window.selectedItem.position.x = center.x;
+            if (mode === "vertical") window.selectedItem.position.y = center.y;
+            if (mode === "both") window.selectedItem.position = center.clone();
+        }
+        updateContextualMenu(window.selectedItem);
+        paper.view.update();
+    }
+
+    function rotateSelected(angle) {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const content = window.selectedItem.children.find(c => !c.clipMask);
+            if (content) content.rotate(angle);
+        } else {
+            window.selectedItem.rotate(angle);
+        }
+        updateContextualMenu(window.selectedItem);
+        paper.view.update();
     }
 
     function saveCurrentScene() {
@@ -154,7 +221,6 @@ window.addEventListener("DOMContentLoaded", () => {
         loadMockup(surface.svg);
     }
 
-    // Controles de zoom
     function zoomBy(factor) {
         paper.view.zoom = Math.max(0.2, Math.min(10, paper.view.zoom * factor));
         if (window.selectedItem) {
@@ -197,7 +263,6 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsDataURL(file);
     }
 
-    // Carga de SVG modificado para mantener el búnker Pro
     function addSVGFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -228,6 +293,7 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsText(file);
     }
 
+    // Implementación de agregar texto en el Canva style
     function createEditableText(point) {
         saveHistory();
         const txt = new paper.PointText({
@@ -245,88 +311,6 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         window.selectItem(txt);
         startTextEditing(txt);
-    }
-
-    // --- RENDERIZADO DE TABS DEL PANEL IZQUIERDO (CONECTADO AL SISTEMA GLOBAL) ---
-    function renderCategories() {
-        if (!ui.categoryTabs) return;
-        ui.categoryTabs.innerHTML = "";
-        
-        if (!window.EKKO_STUDIO_PRODUCTS) return;
-        
-        window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
-            const btn = document.createElement("button");
-            btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
-            btn.textContent = group.categoria;
-            btn.onclick = () => {
-                saveCurrentScene();
-                toolState.currentCategory = index;
-                toolState.currentProduct = null;
-                toolState.currentSurface = 0;
-                renderCategories();
-                renderProducts(index);
-            };
-            ui.categoryTabs.appendChild(btn);
-        });
-    }
-
-    function renderProducts(categoryIndex, activeProduct = null) {
-        if (!ui.productTabs || !ui.surfaceTabs) return;
-        ui.productTabs.innerHTML = "";
-        ui.surfaceTabs.innerHTML = "";
-        
-        const group = window.EKKO_STUDIO_PRODUCTS.slice(categoryIndex, categoryIndex + 1).shift();
-        if (!group) return;
-        
-        const selectedProduct = activeProduct || toolState.currentProduct || group.productos.slice(0, 1).shift();
-        
-        group.productos.forEach((product) => {
-            const btn = document.createElement("button");
-            btn.className = "tab-btn" + (selectedProduct === product ? " active" : "");
-            btn.textContent = product.nombre;
-            btn.onclick = () => {
-                saveCurrentScene();
-                toolState.currentProduct = product;
-                toolState.currentSurface = 0;
-                renderProducts(categoryIndex, product);
-            };
-            ui.productTabs.appendChild(btn);
-        });
-        
-        toolState.currentProduct = selectedProduct;
-        renderSurfaces(selectedProduct);
-    }
-
-    function renderSurfacesOnly(product) {
-        if (!ui.surfaceTabs) return;
-        ui.surfaceTabs.innerHTML = "";
-        if (!product || !product.superficies) return;
-        
-        product.superficies.forEach((surface, index) => {
-            const btn = document.createElement("button");
-            btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
-            btn.textContent = surface.nombre;
-            btn.onclick = () => {
-                saveCurrentScene();
-                toolState.currentSurface = index;
-                renderSurfacesOnly(product);
-                loadSurfaceScene(product, surface);
-                ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + surface.nombre;
-            };
-            ui.surfaceTabs.appendChild(btn);
-        });
-    }
-
-    function renderSurfaces(product) {
-        renderSurfacesOnly(product);
-        if (!product || !product.superficies) return;
-        
-        const idx = toolState.currentSurface || 0;
-        const firstSurface = product.superficies.slice(idx, idx + 1).shift() || product.superficies.slice(0, 1).shift();
-        if (firstSurface) {
-            loadSurfaceScene(product, firstSurface);
-            ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + firstSurface.nombre;
-        }
     }
 
     // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE ---
@@ -386,6 +370,7 @@ window.addEventListener("DOMContentLoaded", () => {
             window.selectedItem.position = event.point.subtract(window.dragOffset);
         }
         
+        // Mantener posicionado el menú contextual flotante en tiempo real mientras arrastramos
         updateContextualMenu(window.selectedItem);
         paper.view.update();
     };
@@ -440,7 +425,4 @@ window.addEventListener("DOMContentLoaded", () => {
     window.addEventListener("resize", () => {
         paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
     });
-
-    // Arrancar la renderización inicial del panel
-    renderCategories();
 });
