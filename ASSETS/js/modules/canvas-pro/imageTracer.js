@@ -50,16 +50,16 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
         const x1 = Math.min(width - 1, x + halfWin);
         const y0 = Math.max(0, y - halfWin);
         const y1 = Math.min(height - 1, y + halfWin);
-
         const area = (x1 - x0 + 1) * (y1 - y0 + 1);
-        const sum = integral[y1 * width + x1]
-                  - (x0 > 0 ? integral[y1 * width + (x0 - 1)] : 0)
-                  - (y0 > 0 ? integral[(y0 - 1) * width + x1] : 0)
-                  + (x0 > 0 && y0 > 0 ? integral[(y0 - 1) * width + (x0 - 1)] : 0);
+
+        const sum = integral[y1 * width + x1] - 
+                    (x0 > 0 ? integral[y1 * width + (x0 - 1)] : 0) - 
+                    (y0 > 0 ? integral[(y0 - 1) * width + x1] : 0) + 
+                    (x0 > 0 && y0 > 0 ? integral[(y0 - 1) * width + (x0 - 1)] : 0);
 
         const localAverage = sum / area;
         const gray = grayValues[idx];
-        
+
         // Ajustar sensibilidad adaptativa con el valor del umbral
         const offset = (128 - threshold) * 0.4;
         binaryGrid[idx] = (gray < localAverage - offset && gray >= cutoff) ? 1 : 0;
@@ -176,7 +176,6 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
 
     if (width <= 0 || height <= 0) return;
 
-    // Canvas auxiliar para lectura rápida de píxeles
     const previewCanvas = document.createElement('canvas');
     previewCanvas.width = Math.min(width, 800);
     previewCanvas.height = Math.round(height * (previewCanvas.width / width));
@@ -208,11 +207,9 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
 
       // Suavizado dinámico de curvas y optimización de nodos
       if (smoothness > 0) {
-        // Mapear suavidad y optimización a tolerancia de Bézier
         const tolerance = (smoothness * 0.12) + (optimize * 0.25);
         path.simplify(Math.max(0.01, tolerance));
       }
-      
       tracePreviewGroup.addChild(path);
     });
 
@@ -270,9 +267,10 @@ export function openImageTraceModal(raster) {
         margin-bottom: 16px;
       }
       .trace-modal .slider-row label {
-        width: 110px;
-        font-size: 13.5px;
+        width: 130px;
+        font-size: 13px;
         font-weight: bold;
+        color: #e2e8f0;
       }
       .trace-modal .slider-row input[type="range"] {
         flex-grow: 1;
@@ -288,7 +286,7 @@ export function openImageTraceModal(raster) {
         border-radius: 4px;
         color: #ffffff;
         padding: 4px;
-        font-size: 13.5px;
+        font-size: 13px;
         text-align: center;
         font-weight: bold;
       }
@@ -313,6 +311,7 @@ export function openImageTraceModal(raster) {
         font-size: 13px;
         cursor: pointer;
         user-select: none;
+        color: #f1f5f9;
       }
       .trace-modal .checkbox-label input[type="checkbox"] {
         accent-color: #ff00ff;
@@ -358,7 +357,6 @@ export function openImageTraceModal(raster) {
   }
 
   const originalOpacity = raster.opacity;
-
   const overlay = document.createElement('div');
   overlay.className = 'trace-overlay';
 
@@ -367,36 +365,32 @@ export function openImageTraceModal(raster) {
   modal.innerHTML = `
     <h3>✨ Trazar Imagen</h3>
     
-    <!-- 1. UMBRAL (THRESHOLD) -->
     <div class="slider-row">
-      <label for="traceThreshold">Umbral:</label>
+      <label for="traceThreshold">Umbral (Threshold):</label>
       <input type="range" id="traceThreshold" min="0" max="255" value="128">
       <input type="number" id="traceThresholdNum" min="0" max="255" value="128">
     </div>
 
-    <!-- 2. CORTE (CUTOFF) -->
     <div class="slider-row">
-      <label for="traceCutoff">Corte (Fondo):</label>
+      <label for="traceCutoff">Corte (Cutoff):</label>
       <input type="range" id="traceCutoff" min="0" max="240" value="0">
       <input type="number" id="traceCutoffNum" min="0" max="240" value="0">
     </div>
 
-    <!-- 3. SUAVIZADO (SMOOTHNESS) -->
     <div class="slider-row">
-      <label for="traceSmooth">Suavizado:</label>
+      <label for="traceSmooth">Suavizado (Smooth):</label>
       <input type="range" id="traceSmooth" min="0.0" max="1.333" step="0.01" value="1.0">
       <input type="number" id="traceSmoothNum" min="0.0" max="1.333" step="0.01" value="1.0">
     </div>
 
-    <!-- 4. OPTIMIZAR (OPTIMIZE) -->
     <div class="slider-row">
-      <label for="traceOptimize">Optimizar:</label>
+      <label for="traceOptimize">Optimizar (Optimize):</label>
       <input type="range" id="traceOptimize" min="0.0" max="1.0" step="0.01" value="0.2">
       <input type="number" id="traceOptimizeNum" min="0.0" max="1.0" step="0.01" value="0.2">
     </div>
 
     <div class="options-box">
-      <label class="checkbox-label" title="Compensa diferencias de iluminación e irregularidades en trazos a mano">
+      <label class="checkbox-label">
         <input type="checkbox" id="traceSketch">
         Activar Trazado de Croquis (Sketch Trace)
       </label>
@@ -419,14 +413,13 @@ export function openImageTraceModal(raster) {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
-  // Referencias a los componentes de opciones
   const sketchCheck = modal.querySelector('#traceSketch');
   const fadeCheck = modal.querySelector('#traceFadeImage');
   const deleteCheck = modal.querySelector('#traceDeleteImage');
   const btnCancel = modal.querySelector('#btnTraceCancel');
   const btnAccept = modal.querySelector('#btnTraceAccept');
 
-  // Guardar estado actual de trazado para optimizar refresco
+  // Guardar estado de parámetros
   const currentParams = {
     threshold: 128,
     cutoff: 0,
@@ -435,7 +428,7 @@ export function openImageTraceModal(raster) {
     sketchTrace: false
   };
 
-  // --- REDIBUJADO DE PREVISUALIZACIÓN CON DEBOUNCE (Previene bloqueos e hilos trabados) ---
+  // Debounce para previsualización ultra fluida
   let traceTimeout = null;
   function triggerTraceUpdate() {
     if (traceTimeout) clearTimeout(traceTimeout);
@@ -448,10 +441,10 @@ export function openImageTraceModal(raster) {
         currentParams.optimize,
         currentParams.sketchTrace
       );
-    }, 45); // Un debounce de 45ms mantiene la UI ultra-fluida al desplazar, teclear o usar la rueda
+    }, 45);
   }
 
-  // --- REGISTRADOR DE EVENTOS 4-VÍAS (Rango, Teclado, Rueda y Clic numérico) ---
+  // Registrador interactivo de controles en 4-Vías (Rango, Rueda, Teclas, Directo)
   function registerInteractiveControl(sliderId, numId, min, max, step, key, initialVal) {
     const slider = modal.querySelector('#' + sliderId);
     const numInput = modal.querySelector('#' + numId);
@@ -460,33 +453,27 @@ export function openImageTraceModal(raster) {
       let parsed = parseFloat(val);
       if (isNaN(parsed)) return;
       parsed = Math.max(min, Math.min(max, parsed));
-      
       if (step >= 1) {
         parsed = Math.round(parsed);
       } else {
         parsed = parseFloat(parsed.toFixed(3));
       }
-
       slider.value = parsed;
       numInput.value = parsed;
       currentParams[key] = parsed;
-
       if (!skipUpdate) {
         triggerTraceUpdate();
       }
     }
 
-    // Método de ajuste 1: Arrastre horizontal
     slider.oninput = (e) => setValue(e.target.value);
-
-    // Método de ajuste 2: Teclado numérico al hacer clic
+    
     numInput.oninput = (e) => {
       if (e.target.value !== '') {
         setValue(e.target.value);
       }
     };
 
-    // Método de ajuste 3: Rueda del mouse (Scroll) milimétrica
     const handleWheel = (e) => {
       e.preventDefault();
       const currentVal = parseFloat(slider.value);
@@ -496,7 +483,6 @@ export function openImageTraceModal(raster) {
     slider.onwheel = handleWheel;
     numInput.onwheel = handleWheel;
 
-    // Método de ajuste 4: Flechas de dirección del teclado
     const handleKeys = (e) => {
       if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
         e.preventDefault();
@@ -509,23 +495,20 @@ export function openImageTraceModal(raster) {
     slider.addEventListener('keydown', handleKeys);
     numInput.addEventListener('keydown', handleKeys);
 
-    // Inicializar valor
     setValue(initialVal, true);
   }
 
-  // Registrar cada uno de los parámetros interactivos
+  // Inicializar cada uno de los parámetros de control interactivo de LightBurn
   registerInteractiveControl('traceThreshold', 'traceThresholdNum', 0, 255, 1, 'threshold', 128);
   registerInteractiveControl('traceCutoff', 'traceCutoffNum', 0, 240, 1, 'cutoff', 0);
   registerInteractiveControl('traceSmooth', 'traceSmoothNum', 0.0, 1.333, 0.01, 'smoothness', 1.0);
   registerInteractiveControl('traceOptimize', 'traceOptimizeNum', 0.0, 1.0, 0.01, 'optimize', 0.2);
 
-  // Manejo de opción Sketch Trace (Croquis)
   sketchCheck.onchange = () => {
     currentParams.sketchTrace = sketchCheck.checked;
     triggerTraceUpdate();
   };
 
-  // Manejo de la opacidad de atenuación
   const handleFadeToggle = () => {
     if (fadeCheck.checked) {
       raster.opacity = 0.25;
@@ -536,11 +519,9 @@ export function openImageTraceModal(raster) {
   };
   fadeCheck.onchange = handleFadeToggle;
 
-  // Renderizar trazo preliminar inicial
   handleFadeToggle();
   triggerTraceUpdate();
 
-  // Cerrar y limpiar
   const closeModal = () => {
     raster.opacity = originalOpacity;
     if (traceTimeout) clearTimeout(traceTimeout);
@@ -561,14 +542,12 @@ export function openImageTraceModal(raster) {
       }
 
       const committedVectorPaths = [];
-      
       tracePreviewGroup.children.forEach(p => {
         const clonedPath = p.clone();
-        clonedPath.strokeColor = new paper.Color('#000000'); // Negro para grabado definitivo
+        clonedPath.strokeColor = new paper.Color('#000000');
         clonedPath.strokeWidth = 1.0;
         clonedPath.fillColor = null;
         clonedPath.data = { locked: false, label: "Trazado" };
-        
         paper.project.activeLayer.addChild(clonedPath);
         committedVectorPaths.push(clonedPath);
       });
