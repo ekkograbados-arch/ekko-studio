@@ -42,7 +42,7 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
       for (let x = 0; x < width; x++) {
         const idx = y * width + x;
         
-        // HIGIENE DEL MARCO: Forzar bordes externos de la imagen a 0 para que nunca trace el marco rectangular
+        // HIGIENE: Forzar bordes externos de la imagen a 0 para no trazar el marco rectangular
         if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
           binaryGrid[idx] = 0;
           continue;
@@ -78,7 +78,7 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
       for (let x = 0; x < width; x++) {
         const idx = y * width + x;
         
-        // HIGIENE DEL MARCO: Forzar bordes externos de la imagen a 0 para que nunca trace el marco rectangular
+        // HIGIENE: Forzar bordes externos de la imagen a 0 para no trazar el marco rectangular
         if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
           binaryGrid[idx] = 0;
           continue;
@@ -169,7 +169,24 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
     }
   }
 
-  return contours;
+  // AUDITORÍA DE GARANTÍA: Filtrar el contorno del recuadro exterior rectangular de la imagen.
+  // Cualquier contorno que coincida casi exactamente con los límites del canvas del archivo
+  // (es decir, que tenga un ancho y alto de más del 95% del canvas y empiece cerca de x=1, y=1)
+  // es el límite físico del archivo de imagen y debe ser ignorado.
+  const filteredContours = contours.filter(points => {
+    let minX = width, maxX = 0, minY = height, maxY = 0;
+    points.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+
+    const isOuterFrame = (minX <= 3 && maxX >= width - 4 && minY <= 3 && maxY >= height - 4);
+    return !isOuterFrame;
+  });
+
+  return filteredContours;
 }
 
 // --- PREVISUALIZACIÓN DE VECTORES EN TIEMPO REAL ---
@@ -193,9 +210,7 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
 
     if (width <= 0 || height <= 0) return;
 
-    // RENDIMIENTO ULTRA-VELOCIDAD: Reducimos el canvas auxiliar a un ancho max de 400px.
-    // Esto reduce la cantidad de píxeles a procesar en un 75% haciendo que los cálculos
-    // matemáticos tarden menos de 4ms, eliminando por completo cualquier congelamiento.
+    // RENDIMIENTO EXTREMO: Reducimos a 400px el canvas de lectura para velocidad instantánea
     const previewCanvas = document.createElement('canvas');
     previewCanvas.width = Math.min(width, 400);
     previewCanvas.height = Math.round(height * (previewCanvas.width / width));
@@ -211,12 +226,26 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
 
     contours.forEach(points => {
       const pathPoints = points.map(p => {
-        const pctX = p.x / previewCanvas.width;
-        const pctY = p.y / previewCanvas.height;
-        return new paper.Point(
-          bounds.left + pctX * bounds.width,
-          bounds.top + pctY * bounds.height
+        // MAESTRÍA DE COBERTURA: Mapeo exacto basado en el centro de píxel (p.x + 0.5)
+        const pctX = (p.x + 0.5) / previewCanvas.width;
+        const pctY = (p.y + 0.5) / previewCanvas.height;
+        
+        // Mapear a coordenadas locales de Paper.js (que van desde -raster.width/2 hasta raster.width/2)
+        const localPoint = new paper.Point(
+          (pctX - 0.5) * raster.width,
+          (pctY - 0.5) * raster.height
         );
+        
+        // Convertir de local a global de forma matricial para máxima precisión sin gap
+        if (typeof raster.localToGlobal === 'function') {
+          return raster.localToGlobal(localPoint);
+        } else {
+          // Fallback robusto en caso de que Paper.js esté en un contexto limitado
+          return new paper.Point(
+            bounds.left + pctX * bounds.width,
+            bounds.top + pctY * bounds.height
+          );
+        }
       });
 
       const path = new paper.Path({
@@ -227,6 +256,7 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
         insert: false
       });
 
+      // Suavizado dinámico de curvas y optimización de nodos
       if (smoothness > 0) {
         const tolerance = (smoothness * 0.12) + (optimize * 0.25);
         path.simplify(Math.max(0.01, tolerance));
@@ -235,16 +265,12 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
       temporaryPaths.push(path);
     });
 
-    // HIGIENE DE LÍNEAS INTERNAS: Si la opción "Trazar Solo Contorno Exterior" está activa,
-    // filtramos geométricamente los vectores. Si un trazado está totalmente contenido dentro de otro,
-    // se descarta, dejando una silueta limpia de las personas/objetos sin desorden interno.
+    // FILTRADO DE CONTORNO EXTERIOR (SILUETA):
     if (onlyOuter && temporaryPaths.length > 1) {
-      // Ordenar de mayor a menor área para clasificar contenedores principales primero
       temporaryPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
       
       const filteredPaths = [];
       temporaryPaths.forEach(path => {
-        // Verificar si este trazado está contenido geométricamente dentro de alguno de los ya aceptados
         const isNested = filteredPaths.some(parentPath => {
           return parentPath.bounds.contains(path.bounds);
         });
@@ -277,7 +303,7 @@ export function openImageTraceModal(raster) {
       .trace-overlay {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
-        background-color: rgba(0, 0, 0, 0.2);
+        background-color: rgba(0, 0, 0, 0.25); /* Fondo sutil, permite ver el canvas debajo */
         z-index: 10000;
         display: flex;
         align-items: center;
@@ -477,7 +503,7 @@ export function openImageTraceModal(raster) {
     </div>
 
     <div class="info-text" id="traceGuideText">
-      💡 <b>Guía de Trazado:</b> Para fotos con personas y fondo, activa <b>"Solo Contorno Exterior"</b> para extraer un contorno limpio. Usa el <b>Umbral</b> para refinar la silueta.
+      💡 <b>Guía de Trazado:</b> Para fotos con personas y fondo, activa <b>"Solo Contorno Exterior"</b> para extraer una silueta limpia. Usa el <b>Umbral</b> para refinar la silueta.
     </div>
 
     <div class="btn-row">
@@ -737,3 +763,4 @@ export function openImageTraceModal(raster) {
     closeModal();
   };
 }
+
