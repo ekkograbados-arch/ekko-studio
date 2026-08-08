@@ -65,7 +65,9 @@ function injectTraceButton() {
 
   traceBtn.onclick = () => {
     if (window.selectedItem) {
-      const target = window.selectedItem.data?.clipGroup \n        ? window.selectedItem.children.find(c => !c.clipMask) \n        : window.selectedItem;
+      const target = window.selectedItem.data?.clipGroup
+        ? window.selectedItem.children.find(c => !c.clipMask)
+        : window.selectedItem;
       if (target && target instanceof paper.Raster) {
         openImageTraceModal(target);
       }
