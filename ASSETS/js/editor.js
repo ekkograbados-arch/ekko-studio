@@ -8,7 +8,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // Inicializar Paper.js en el Canvas
     paper.setup("editorCanvas");
     const canvasEl = document.getElementById("editorCanvas");
-    paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    if (canvasEl) { paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight); }
 
     const toolState = {
         currentCategory: 0,
@@ -419,24 +419,28 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     // --- ACCIONES DE CARGA ASOCIADAS AL TOP BAR DE CANVA ---
-    document.getElementById("btnAddText").onclick = () => {
+    const btnAddTextEl = document.getElementById("btnAddText");
+    if (btnAddTextEl) btnAddTextEl.onclick = () => {
         insertTextMode = true;
         canvasEl.style.cursor = "text";
     };
 
-    document.getElementById("btnAddImage").onclick = () => {
+    const btnAddImageEl = document.getElementById("btnAddImage");
+    if (btnAddImageEl) btnAddImageEl.onclick = () => {
         const imagePicker = document.getElementById("imagePicker");
         imagePicker.value = "";
         imagePicker.click();
     };
 
-    document.getElementById("btnAddSVG").onclick = () => {
+    const btnAddSVGEl = document.getElementById("btnAddSVG");
+    if (btnAddSVGEl) btnAddSVGEl.onclick = () => {
         const svgPicker = document.getElementById("svgPicker");
         svgPicker.value = "";
         svgPicker.click();
     };
 
-    document.getElementById("imagePicker").onchange = (e) => {
+    const imagePickerEl = document.getElementById("imagePicker");
+    if (imagePickerEl) imagePickerEl.onchange = (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
@@ -444,7 +448,8 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    document.getElementById("svgPicker").onchange = (e) => {
+    const svgPickerEl = document.getElementById("svgPicker");
+    if (svgPickerEl) svgPickerEl.onchange = (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
@@ -453,7 +458,8 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     // --- PROCESADO EXPORTAR PARA LÁSER (LightBurn Style) ---
-    document.getElementById("btnExportLaser").onclick = () => {
+    const btnExportLaserEl = document.getElementById("btnExportLaser");
+    if (btnExportLaserEl) btnExportLaserEl.onclick = () => {
         window.deselectItem();
         
         let mockupHidden = false;
@@ -504,13 +510,16 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     // Controles de zoom generales
-    document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
-    document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
-    document.getElementById("btnFit").onclick = fitView;
+    const btnZoomInEl = document.getElementById("btnZoomIn");
+    if (btnZoomInEl) btnZoomInEl.onclick = () => zoomBy(1.15);
+    const btnZoomOutEl = document.getElementById("btnZoomOut");
+    if (btnZoomOutEl) btnZoomOutEl.onclick = () => zoomBy(1 / 1.15);
+    const btnFitEl = document.getElementById("btnFit");
+    if (btnFitEl) btnFitEl.onclick = fitView;
 
     // Adaptar tamaño de canvas al redimensionar ventana
     window.addEventListener("resize", () => {
-        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+        if (canvasEl) { paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight); }
     });
 
     // Arrancar la renderización inicial del panel
