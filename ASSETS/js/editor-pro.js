@@ -8,7 +8,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // Inicializar Paper.js en el Canvas
     paper.setup("editorCanvas");
     const canvasEl = document.getElementById("editorCanvas");
-    paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    if (canvasEl) { paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight); }
 
     const toolState = {
         currentCategory: 0,
@@ -158,6 +158,10 @@ window.addEventListener("DOMContentLoaded", () => {
             if (mode === "bottom") newY = canvasBounds.bottom - itemBounds.height / 2;
             window.selectedItem.position = new paper.Point(newX, newY);
         }
+        // Sincronizar el marco de selección con nodos en tiempo real (Canva & LightBurn Style)
+        if (typeof window.updateSelectionBox === "function") {
+            window.updateSelectionBox(window.selectedItem);
+        }
         updateContextualMenu(window.selectedItem);
         paper.view.update();
     }
@@ -179,6 +183,10 @@ window.addEventListener("DOMContentLoaded", () => {
             if (mode === "vertical") window.selectedItem.position.y = center.y;
             if (mode === "both") window.selectedItem.position = center.clone();
         }
+        // Sincronizar el marco de selección con nodos en tiempo real (Canva & LightBurn Style)
+        if (typeof window.updateSelectionBox === "function") {
+            window.updateSelectionBox(window.selectedItem);
+        }
         updateContextualMenu(window.selectedItem);
         paper.view.update();
     }
@@ -191,6 +199,10 @@ window.addEventListener("DOMContentLoaded", () => {
             if (content) content.rotate(angle);
         } else {
             window.selectedItem.rotate(angle);
+        }
+        // Sincronizar el marco de selección con nodos en tiempo real (Canva & LightBurn Style)
+        if (typeof window.updateSelectionBox === "function") {
+            window.updateSelectionBox(window.selectedItem);
         }
         updateContextualMenu(window.selectedItem);
         paper.view.update();
@@ -370,12 +382,11 @@ window.addEventListener("DOMContentLoaded", () => {
             window.selectedItem.position = event.point.subtract(window.dragOffset);
         }
         
+        // Mantener posicionado el menú contextual flotante en tiempo real mientras arrastramos
         // Sincronizar el marco de selección con nodos en tiempo real (Canva & LightBurn Style)
         if (typeof window.updateSelectionBox === "function") {
             window.updateSelectionBox(window.selectedItem);
         }
-
-        // Mantener posicionado el menú contextual flotante en tiempo real mientras arrastramos
         updateContextualMenu(window.selectedItem);
         paper.view.update();
     };
@@ -388,24 +399,28 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     // --- ACCIONES DE CARGA ASOCIADAS AL TOP BAR DE CANVA ---
-    document.getElementById("btnAddText").onclick = () => {
+    const btnAddTextEl = document.getElementById("btnAddText");
+    if (btnAddTextEl) btnAddTextEl.onclick = () => {
         insertTextMode = true;
         canvasEl.style.cursor = "text";
     };
 
-    document.getElementById("btnAddImage").onclick = () => {
+    const btnAddImageEl = document.getElementById("btnAddImage");
+    if (btnAddImageEl) btnAddImageEl.onclick = () => {
         const imagePicker = document.getElementById("imagePicker");
         imagePicker.value = "";
         imagePicker.click();
     };
 
-    document.getElementById("btnAddSVG").onclick = () => {
+    const btnAddSVGEl = document.getElementById("btnAddSVG");
+    if (btnAddSVGEl) btnAddSVGEl.onclick = () => {
         const svgPicker = document.getElementById("svgPicker");
         svgPicker.value = "";
         svgPicker.click();
     };
 
-    document.getElementById("imagePicker").onchange = (e) => {
+    const imagePickerEl = document.getElementById("imagePicker");
+    if (imagePickerEl) imagePickerEl.onchange = (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
@@ -413,7 +428,8 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    document.getElementById("svgPicker").onchange = (e) => {
+    const svgPickerEl = document.getElementById("svgPicker");
+    if (svgPickerEl) svgPickerEl.onchange = (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
@@ -422,13 +438,15 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     // Controles de zoom generales
-    document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
-    document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
-    document.getElementById("btnFit").onclick = fitView;
+    const btnZoomInEl = document.getElementById("btnZoomIn");
+    if (btnZoomInEl) btnZoomInEl.onclick = () => zoomBy(1.15);
+    const btnZoomOutEl = document.getElementById("btnZoomOut");
+    if (btnZoomOutEl) btnZoomOutEl.onclick = () => zoomBy(1 / 1.15);
+    const btnFitEl = document.getElementById("btnFit");
+    if (btnFitEl) btnFitEl.onclick = fitView;
 
     // Adaptar tamaño de canvas al redimensionar ventana
     window.addEventListener("resize", () => {
-        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+        if (canvasEl) { paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight); }
     });
-});
 });
