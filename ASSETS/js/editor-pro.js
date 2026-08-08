@@ -2,8 +2,7 @@
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
-import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu-v2.js";
-
+import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 window.addEventListener("DOMContentLoaded", () => {
     // Inicializar Paper.js en el Canvas
     paper.setup("editorCanvas");
