@@ -5,12 +5,10 @@ import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 
 window.addEventListener("DOMContentLoaded", () => {
-    // Inicializar Paper.js en el Canvas de forma segura
+    // Inicializar Paper.js en el Canvas
+    paper.setup("editorCanvas");
     const canvasEl = document.getElementById("editorCanvas");
-    if (canvasEl) {
-        paper.setup("editorCanvas");
-        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
-    }
+    if (canvasEl) { paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight); }
 
     const toolState = {
         currentCategory: 0,
@@ -82,6 +80,7 @@ window.addEventListener("DOMContentLoaded", () => {
         } catch (err) {
             console.warn("La API /api/fonts no está activa. Cargando las 16 fuentes de la marca desde styles.css.");
             
+            // Mapeo estricto de las 16 fuentes oficiales configuradas en tu styles.css
             const officialFonts = [
                 { name: "Au Bord de la Seine", family: "ekko_seine" },
                 { name: "Billie James", family: "ekko_billie" },
@@ -347,7 +346,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (insertTextMode) {
             createEditableText(event.point);
             insertTextMode = false;
-            if (canvasEl) canvasEl.style.cursor = "default";
+            canvasEl.style.cursor = "default";
             return;
         }
 
@@ -357,6 +356,7 @@ window.addEventListener("DOMContentLoaded", () => {
             segments: true,
             tolerance: 8,
             match: function(hitResult) {
+                // WALKING UP THE TREE TO MAKE SURE NO PARENT IS A MOCKUP
                 let cur = hitResult.item;
                 while (cur) {
                     if (cur.data && cur.data.mockup) {
@@ -518,7 +518,7 @@ window.addEventListener("DOMContentLoaded", () => {
     setClick("btnZoomOut", () => zoomBy(1 / 1.15));
     setClick("btnFit", fitView);
 
-    // Adaptar tamaño de canvas al redimensionar ventana de forma segura
+    // Adaptar tamaño de canvas al redimensionar ventana
     window.addEventListener("resize", () => {
         if (canvasEl) {
             paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
