@@ -8,7 +8,7 @@ window.addEventListener("DOMContentLoaded", () => {
     // Inicializar Paper.js en el Canvas
     paper.setup("editorCanvas");
     const canvasEl = document.getElementById("editorCanvas");
-    if (canvasEl) { paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight); }
+    paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
 
     const toolState = {
         currentCategory: 0,
@@ -370,6 +370,11 @@ window.addEventListener("DOMContentLoaded", () => {
             window.selectedItem.position = event.point.subtract(window.dragOffset);
         }
         
+        // Sincronizar el marco de selección con nodos en tiempo real (Canva & LightBurn Style)
+        if (typeof window.updateSelectionBox === "function") {
+            window.updateSelectionBox(window.selectedItem);
+        }
+
         // Mantener posicionado el menú contextual flotante en tiempo real mientras arrastramos
         updateContextualMenu(window.selectedItem);
         paper.view.update();
@@ -382,65 +387,48 @@ window.addEventListener("DOMContentLoaded", () => {
         window.dragging = false;
     };
 
-    // --- EVENT HELPER FUNCTIONS FOR ROBUST ASSIGNMENTS (Canva/LightBurn Style) ---
-    const setClick = (id, fn) => {
-        const el = document.getElementById(id);
-        if (el) el.onclick = fn;
-    };
-    const setChange = (id, fn) => {
-        const el = document.getElementById(id);
-        if (el) el.onchange = fn;
-    };
-
     // --- ACCIONES DE CARGA ASOCIADAS AL TOP BAR DE CANVA ---
-    setClick("btnAddText", () => {
+    document.getElementById("btnAddText").onclick = () => {
         insertTextMode = true;
-        if (canvasEl) canvasEl.style.cursor = "text";
-    });
+        canvasEl.style.cursor = "text";
+    };
 
-    setClick("btnAddImage", () => {
+    document.getElementById("btnAddImage").onclick = () => {
         const imagePicker = document.getElementById("imagePicker");
-        if (imagePicker) {
-            imagePicker.value = "";
-            imagePicker.click();
-        }
-    });
+        imagePicker.value = "";
+        imagePicker.click();
+    };
 
-    setClick("btnAddSVG", () => {
+    document.getElementById("btnAddSVG").onclick = () => {
         const svgPicker = document.getElementById("svgPicker");
-        if (svgPicker) {
-            svgPicker.value = "";
-            svgPicker.click();
-        }
-    });
+        svgPicker.value = "";
+        svgPicker.click();
+    };
 
-    setChange("imagePicker", (e) => {
+    document.getElementById("imagePicker").onchange = (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
             addImageFromFile(firstFile);
         }
-    });
+    };
 
-    setChange("svgPicker", (e) => {
+    document.getElementById("svgPicker").onchange = (e) => {
         const files = e.target.files;
         if (files && files.length > 0) {
             const [firstFile] = files;
             addSVGFromFile(firstFile);
         }
-    });
+    };
 
     // Controles de zoom generales
-    setClick("btnZoomIn", () => zoomBy(1.15));
-    setClick("btnZoomOut", () => zoomBy(1 / 1.15));
-    setClick("btnFit", fitView);
+    document.getElementById("btnZoomIn").onclick = () => zoomBy(1.15);
+    document.getElementById("btnZoomOut").onclick = () => zoomBy(1 / 1.15);
+    document.getElementById("btnFit").onclick = fitView;
 
     // Adaptar tamaño de canvas al redimensionar ventana
     window.addEventListener("resize", () => {
-        if (canvasEl) {
-            paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
-        }
+        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
     });
 });
-
 });
