@@ -79,7 +79,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     // --- CONTROL DE HISTORIAL (UNDO/REDO STACK) ---
-    // Guardamos localmente y exponemos en window para evitar errores con contextualMenu.js
     function saveHistory() {
         undoStack.push(paper.project.exportJSON({ asString: true }));
         if (undoStack.length > 50) {
@@ -292,21 +291,21 @@ window.addEventListener("DOMContentLoaded", () => {
         const currentH = targetItem.bounds.height;
         if (currentW === 0 || currentH === 0) return;
 
-        let newW = parseFloat(ui.objWidth.value);
-        let newH = parseFloat(ui.objHeight.value);
+        let newW = ui.objWidth ? parseFloat(ui.objWidth.value) : NaN;
+        let newH = ui.objHeight ? parseFloat(ui.objHeight.value) : NaN;
         if (isNaN(newW) && isNaN(newH)) return;
 
-        const keepRatio = ui.lockRatio.checked;
+        const keepRatio = ui.lockRatio ? ui.lockRatio.checked : false;
         const center = targetItem.position.clone();
         const originalRatio = currentW / currentH;
 
         if (keepRatio) {
             if (lastSizeField === "width" && !isNaN(newW) && newW > 0) {
                 newH = newW / originalRatio;
-                ui.objHeight.value = newH.toFixed(1);
+                if (ui.objHeight) ui.objHeight.value = newH.toFixed(1);
             } else if (lastSizeField === "height" && !isNaN(newH) && newH > 0) {
                 newW = newH * originalRatio;
-                ui.objWidth.value = newW.toFixed(1);
+                if (ui.objWidth) ui.objWidth.value = newW.toFixed(1);
             } else {
                 return;
             }
@@ -423,6 +422,9 @@ window.addEventListener("DOMContentLoaded", () => {
     function sendBack() {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         window.selectedItem.sendToBack();
+        if (window.currentMockup) {
+            window.selectedItem.insertBelow(window.currentMockup);
+        }
         window.updateSelectionBox(window.selectedItem);
         paper.view.update();
     }
@@ -437,6 +439,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
+    // --- CARGA DE ARCHIVOS ---
     function sendBackward() {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         window.selectedItem.insertBelow(window.selectedItem.previousSibling);
@@ -444,7 +447,6 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- CARGA DE ARCHIVOS ---
     function addImageFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -505,7 +507,7 @@ window.addEventListener("DOMContentLoaded", () => {
             alert("Seleccione un texto");
             return;
         }
-        const font = ui.fontSelector.value;
+        const font = ui.fontSelector ? ui.fontSelector.value : "Arial";
         saveHistory();
         window.selectedItem.fontFamily = font;
         window.updateSelectionBox(window.selectedItem);
@@ -540,6 +542,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // --- INTERFAZ DINÁMICA DE PRODUCTOS ---
     function renderCategories() {
+        if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
         window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
             const btn = document.createElement("button");
@@ -558,25 +561,27 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderProducts(categoryIndex, activeProduct = null) {
-        ui.productTabs.innerHTML = "";
-        ui.surfaceTabs.innerHTML = "";
+        if (ui.productTabs) ui.productTabs.innerHTML = "";
+        if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group) return;
 
         group.productos.forEach((prod) => {
-            const btn = document.createElement("button");
-            const isSel = activeProduct ? (prod.id === activeProduct.id) : (toolState.currentProduct && prod.id === toolState.currentProduct.id);
-            btn.className = "tab-btn" + (isSel ? " active" : "");
-            btn.textContent = prod.nombre;
-            btn.onclick = () => {
-                saveCurrentScene();
-                toolState.currentProduct = prod;
-                toolState.currentSurface = 0;
-                renderProducts(categoryIndex, prod);
-                renderSurfaces(prod);
-                loadSurfaceScene(prod, prod.superficies);
-            };
-            ui.productTabs.appendChild(btn);
+            if (ui.productTabs) {
+                const btn = document.createElement("button");
+                const isSel = activeProduct ? (prod.id === activeProduct.id) : (toolState.currentProduct && prod.id === toolState.currentProduct.id);
+                btn.className = "tab-btn" + (isSel ? " active" : "");
+                btn.textContent = prod.nombre;
+                btn.onclick = () => {
+                    saveCurrentScene();
+                    toolState.currentProduct = prod;
+                    toolState.currentSurface = 0;
+                    renderProducts(categoryIndex, prod);
+                    renderSurfaces(prod);
+                    loadSurfaceScene(prod, prod.superficies);
+                };
+                ui.productTabs.appendChild(btn);
+            }
         });
 
         if (!toolState.currentProduct && group.productos.length > 0) {
@@ -589,19 +594,21 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderSurfacesOnly(product) {
-        ui.surfaceTabs.innerHTML = "";
+        if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
         if (!product || !product.superficies) return;
         product.superficies.forEach((surf, index) => {
-            const btn = document.createElement("button");
-            btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
-            btn.textContent = surf.nombre;
-            btn.onclick = () => {
-                saveCurrentScene();
-                toolState.currentSurface = index;
-                renderSurfacesOnly(product);
-                loadSurfaceScene(product, surf);
-            };
-            ui.surfaceTabs.appendChild(btn);
+            if (ui.surfaceTabs) {
+                const btn = document.createElement("button");
+                btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
+                btn.textContent = surf.nombre;
+                btn.onclick = () => {
+                    saveCurrentScene();
+                    toolState.currentSurface = index;
+                    renderSurfacesOnly(product);
+                    loadSurfaceScene(product, surf);
+                };
+                ui.surfaceTabs.appendChild(btn);
+            }
         });
     }
 
@@ -883,80 +890,117 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // --- ENLAZAR EVENTOS DEL DOM ---
-    document.getElementById("btnAddText").addEventListener("click", activateTextMode);
-    document.getElementById("fontGallery").classList.remove("hidden");
+    // ========================================================
+    // --- ENLAZAR EVENTOS DEL DOM DE FORMA DEFENSIVA (PREVIENE CAIDAS) ---
+    // ========================================================
+    
+    // Función auxiliar para registrar listeners de forma totalmente segura (evita errores null)
+    const safeAddListener = (elOrId, event, callback) => {
+        const el = typeof elOrId === "string" ? document.getElementById(elOrId) : elOrId;
+        if (el) {
+            el.addEventListener(event, callback);
+        }
+    };
+
+    // Registrar eventos generales
+    safeAddListener("btnAddText", "click", activateTextMode);
+    
+    // CONTROL DEFENSIVO DE LA GALERÍA DE FUENTES
+    const fontGalleryEl = document.getElementById("fontGallery");
+    if (fontGalleryEl) {
+        fontGalleryEl.classList.remove("hidden");
+    }
     renderFontGallery();
 
-    document.getElementById("btnDelete").addEventListener("click", deleteSelected);
-    document.getElementById("btnDuplicate").addEventListener("click", duplicateSelected);
-    document.getElementById("btnBringFront").addEventListener("click", bringFront);
-    document.getElementById("btnSendBack").addEventListener("click", sendBack);
-    ui.btnForward.addEventListener("click", bringForward);
-    ui.btnBackward.addEventListener("click", sendBackward);
+    safeAddListener("btnDelete", "click", deleteSelected);
+    safeAddListener("btnDuplicate", "click", duplicateSelected);
+    safeAddListener("btnBringFront", "click", bringFront);
+    safeAddListener("btnSendBack", "click", sendBack);
+    safeAddListener(ui.btnForward, "click", bringForward);
+    safeAddListener(ui.btnBackward, "click", sendBackward);
 
-    document.getElementById("btnZoomIn").addEventListener("click", () => zoomBy(1.15));
-    document.getElementById("btnZoomOut").addEventListener("click", () => zoomBy(1 / 1.15));
-    document.getElementById("btnFit").addEventListener("click", fitView);
+    // Zoom y Ajuste de vista
+    safeAddListener("btnZoomIn", "click", () => zoomBy(1.15));
+    safeAddListener("btnZoomOut", "click", () => zoomBy(1 / 1.15));
+    safeAddListener("btnFit", "click", fitView);
 
-    document.getElementById("btnAddImage").addEventListener("click", () => {
-        ui.imagePicker.value = "";
-        ui.imagePicker.click();
-    });
-
-    document.getElementById("btnAddSVG").addEventListener("click", () => {
-        ui.svgPicker.value = "";
-        ui.svgPicker.click();
-    });
-
-    ui.imagePicker.addEventListener("change", (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            const file = files.item(0);
-            addImageFromFile(file);
+    // Importadores de archivos
+    safeAddListener("btnAddImage", "click", () => {
+        if (ui.imagePicker) {
+            ui.imagePicker.value = "";
+            ui.imagePicker.click();
         }
     });
 
-    ui.svgPicker.addEventListener("change", (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            const file = files.item(0);
-            addSVGFromFile(file);
+    safeAddListener("btnAddSVG", "click", () => {
+        if (ui.svgPicker) {
+            ui.svgPicker.value = "";
+            ui.svgPicker.click();
         }
     });
 
-    ui.btnApplySize.addEventListener("click", applySelectedSize);
-    ui.btnToggleLock.addEventListener("click", toggleLockSelected);
+    if (ui.imagePicker) {
+        ui.imagePicker.addEventListener("change", (e) => {
+            const files = e.target.files;
+            if (files && files.length > 0) {
+                const file = files.item(0);
+                addImageFromFile(file);
+            }
+        });
+    }
+
+    if (ui.svgPicker) {
+        ui.svgPicker.addEventListener("change", (e) => {
+            const files = e.target.files;
+            if (files && files.length > 0) {
+                const file = files.item(0);
+                addSVGFromFile(file);
+            }
+        });
+    }
+
+    // Controles de dimensiones y candado de aspecto
+    safeAddListener(ui.btnApplySize, "click", applySelectedSize);
+    safeAddListener(ui.btnToggleLock, "click", toggleLockSelected);
     
-    ui.btnAlignLeft.addEventListener("click", () => alignSelected("left"));
-    ui.btnAlignCenterH.addEventListener("click", () => alignSelected("centerH"));
-    ui.btnAlignRight.addEventListener("click", () => alignSelected("right"));
-    ui.btnAlignTop.addEventListener("click", () => alignSelected("top"));
-    ui.btnAlignCenterV.addEventListener("click", () => alignSelected("centerV"));
-    ui.btnAlignBottom.addEventListener("click", () => alignSelected("bottom"));
+    // Alineación en base a máscara/mockup
+    safeAddListener(ui.btnAlignLeft, "click", () => alignSelected("left"));
+    safeAddListener(ui.btnAlignCenterH, "click", () => alignSelected("centerH"));
+    safeAddListener(ui.btnAlignRight, "click", () => alignSelected("right"));
+    safeAddListener(ui.btnAlignTop, "click", () => alignSelected("top"));
+    safeAddListener(ui.btnAlignCenterV, "click", () => alignSelected("centerV"));
+    safeAddListener(ui.btnAlignBottom, "click", () => alignSelected("bottom"));
 
-    ui.btnRotateLeft.addEventListener("click", () => { rotateSelected(-90); });
-    ui.btnRotateRight.addEventListener("click", () => { rotateSelected(90); });
-    ui.btnRotate180.addEventListener("click", () => { rotateSelected(180); });
+    // Rotaciones
+    safeAddListener(ui.btnRotateLeft, "click", () => { rotateSelected(-90); });
+    safeAddListener(ui.btnRotateRight, "click", () => { rotateSelected(90); });
+    safeAddListener(ui.btnRotate180, "click", () => { rotateSelected(180); });
 
-    ui.btnCenterH.addEventListener("click", () => { centerSelected("horizontal"); });
-    ui.btnCenterV.addEventListener("click", () => { centerSelected("vertical"); });
-    ui.btnCenterBoth.addEventListener("click", () => { centerSelected("both"); });
+    // Centrado rápido en lienzo
+    safeAddListener(ui.btnCenterH, "click", () => { centerSelected("horizontal"); });
+    safeAddListener(ui.btnCenterV, "click", () => { centerSelected("vertical"); });
+    safeAddListener(ui.btnCenterBoth, "click", () => { centerSelected("both"); });
 
-    ui.objWidth.addEventListener("input", () => { lastSizeField = "width"; });
-    ui.objHeight.addEventListener("input", () => { lastSizeField = "height"; });
+    // Detectores de entrada para dimensiones numéricas
+    safeAddListener(ui.objWidth, "input", () => { lastSizeField = "width"; });
+    safeAddListener(ui.objHeight, "input", () => { lastSizeField = "height"; });
 
+    // Evento de resize seguro para el lienzo
     window.addEventListener("resize", () => {
         const canvasEl = document.getElementById("editorCanvas");
-        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+        if (canvasEl) {
+            paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+        }
     });
 
-    ui.btnApplyFont.addEventListener("click", applySelectedFont);
+    // Aplicar fuentes tipográficas
+    safeAddListener(ui.btnApplyFont, "click", applySelectedFont);
 
-    // Inicializar el Menú Contextual Flotante de Canvas Pro
+    // Inicializar menú contextual flotante
     if (typeof initContextualMenu === 'function') {
         initContextualMenu();
     }
 
+    // Inicializar categorías de productos
     renderCategories();
 });
