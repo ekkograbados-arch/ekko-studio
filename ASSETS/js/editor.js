@@ -348,81 +348,153 @@ window.addEventListener("DOMContentLoaded", () => {
     let insertTextMode = false;
     const tool = new paper.Tool();
 
-    tool.onMouseDown = function(event) {
-        if (insertTextMode) {
-            createEditableText(event.point);
-            insertTextMode = false;
-            if (canvasEl) canvasEl.style.cursor = "default";
-            return;
-        }
-
-        const hit = paper.project.hitTest(event.point, {
+tool.onMouseDown = function(event) {
+    // Verificar si hicimos clic sobre algún elemento de la caja de selección activa
+    if (window.selectionBoxGroup) {
+        const hitHandle = window.selectionBoxGroup.hitTest(event.point, {
             fill: true,
             stroke: true,
-            segments: true,
-            tolerance: 8,
-            match: function(hitResult) {
-                let cur = hitResult.item;
-                while (cur) {
-                    if (cur.data && cur.data.mockup) {
-                        return false; 
-                    }
-                    cur = cur.parent;
-                }
-                return true;
-            }
+            tolerance: 8 / paper.view.zoom
         });
 
-        if (!hit) {
-            window.deselectItem();
+        // Si se seleccionó un nodo de escalado (handle)
+        if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
+            window.resizeActive = true;
+            window.resizeHandleType = hitHandle.item.data.handleType;
+            window.resizeTarget = window.selectedItem;
+
+            // Si es un grupo recortado (clipGroup), escalamos el contenido interno real (ej: la imagen)
+            const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
+                ? window.resizeTarget.children.find(c => !c.clipMask)
+                : window.resizeTarget;
+
+            window.resizeInitialBounds = targetItem.bounds.clone();
+            window.resizeInitialPoint = event.point.clone();
+            window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
+            
+            // Inicializamos la escala base para este arrastre
+            window.resizeLastScaleX = 1.0;
+            window.resizeLastScaleY = 1.0;
+            
+            window.dragging = false; // Desactivar arrastre de posición
             return;
         }
+    }
 
-        const item = window.getSelectableItem(hit.item || hit);
-        if (!item) return;
-
-        window.selectItem(item);
-
-        if (item.data && item.data.clipGroup) {
-            const contentItem = item.children.find(c => !c.clipMask);
-            if (contentItem) {
-                window.dragOffset = event.point.subtract(contentItem.position);
-            } else {
-                window.dragOffset = event.point.subtract(item.position);
-            }
-        } else {
-            window.dragOffset = event.point.subtract(item.position);
+    // --- (Tu lógica de selección de objetos normal continúa abajo) ---
+    const hit = paper.project.hitTest(event.point, { 
+        fill: true, 
+        stroke: true, 
+        segments: true, 
+        tolerance: 8, 
+        match: function(hitResult) { 
+            return !hitResult.item.data || !hitResult.item.data.mockup; 
+        } 
+    });
+    
+    if (hit && hit.item) {
+        const selectable = window.getSelectableItem(hit.item);
+        if (selectable) {
+            window.selectItem(selectable);
+            window.dragging = true;
+            window.dragOffset = event.point.subtract(selectable.position);
         }
-        window.dragging = true;
-    };
+    } else {
+        window.deselectItem();
+    }
+};
 
     tool.onMouseDrag = function(event) {
-        if (!window.dragging || !window.selectedItem) return;
+    if (window.resizeActive && window.resizeTarget) {
+        const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
+            ? window.resizeTarget.children.find(c => !c.clipMask)
+            : window.resizeTarget;
 
-        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-            const contentItem = window.selectedItem.children.find(c => !c.clipMask);
-            if (contentItem) {
-                contentItem.position = event.point.subtract(window.dragOffset);
-            }
-        } else {
-            window.selectedItem.position = event.point.subtract(window.dragOffset);
+        if (!targetItem) return;
+
+        // Validar punto de anclaje (si se presiona CTRL, escala desde el centro geométrico)
+        let anchor = window.resizeAnchor;
+        if (event.modifiers.control) {
+            anchor = window.resizeInitialBounds.center;
         }
-        
-        // Sincronizar el marco de selección con nodos en tiempo real (Canva & LightBurn Style)
-        if (typeof window.updateSelectionBox === "function") {
-            window.updateSelectionBox(window.selectedItem);
+
+        // Obtener la posición inicial de referencia de nuestro nodo
+        const initHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
+
+        // Distancias base entre el nodo inicial y el ancla
+        const initW = Math.abs(initHandlePoint.x - anchor.x);
+        const initH = Math.abs(initHandlePoint.y - anchor.y);
+
+        // Distancias actuales entre el cursor y el ancla
+        let currW = Math.abs(event.point.x - anchor.x);
+        let currH = Math.abs(event.point.y - anchor.y);
+
+        // Evitar divisiones por cero o colapsos de coordenadas (tamaño mínimo de seguridad)
+        if (currW < 1) currW = 1;
+        if (currH < 1) currH = 1;
+
+        let scaleX = 1.0;
+        let scaleY = 1.0;
+
+        const isCorner = ['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
+        const hasWidth = ['l', 'r', 'tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
+        const hasHeight = ['t', 'b', 'tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
+
+        if (hasWidth && initW > 0) scaleX = currW / initW;
+        if (hasHeight && initH > 0) scaleY = currH / initH;
+
+        // Mantener proporción automática en vértices (se desactiva con Mayús/Shift presionado)
+        if (isCorner && !event.modifiers.shift) {
+            const aspectScale = (scaleX + scaleY) / 2;
+            scaleX = aspectScale;
+            scaleY = aspectScale;
         }
-        
-        updateContextualMenu(window.selectedItem);
+
+        // REGLA DE ROBUSTEZ: Deshacer la escala del frame anterior antes de aplicar la nueva
+        targetItem.scale(1 / window.resizeLastScaleX, 1 / window.resizeLastScaleY, anchor);
+        targetItem.scale(scaleX, scaleY, anchor);
+
+        // Almacenar coeficientes del frame actual
+        window.resizeLastScaleX = scaleX;
+        window.resizeLastScaleY = scaleY;
+
+        // Actualizar la caja de selección azul en vivo
+        window.updateSelectionBox(window.resizeTarget);
         paper.view.update();
-    };
+        return;
+    }
 
-    tool.onMouseUp = function() {
-        if (window.dragging) {
-            saveHistory();
+    // --- (Tu lógica de arrastre de posición normal continúa abajo) ---
+    if (window.dragging && window.selectedItem) {
+        window.selectedItem.position = event.point.subtract(window.dragOffset);
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+    }
+};
+
+   tool.onMouseUp = function(event) {
+    if (window.resizeActive) {
+        // Guardar el estado resultante en tu historial nativo para Ctrl+Z
+        if (typeof window.saveHistory === 'function') {
+            window.saveHistory();
         }
-        window.dragging = false;
-    };
+        
+        window.resizeActive = false;
+        window.resizeHandleType = null;
+        window.resizeTarget = null;
+        window.resizeInitialBounds = null;
+        window.resizeAnchor = null;
+        window.resizeLastScaleX = 1.0;
+        window.resizeLastScaleY = 1.0;
+        return;
+    }
+
+    if (window.dragging) {
+        window.saveHistory();
+    }
+    window.dragging = false;
+};
+
 
     // --- ASIGNACIONES DE EVENTOS 100% DEFENSIVAS CONTRA VALORES NULOS ---
     const registerClick = (id, callback) => {
