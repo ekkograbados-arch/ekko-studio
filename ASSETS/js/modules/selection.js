@@ -228,3 +228,35 @@ window.deselectItem = function(){
  window.updateSelectionBox(null);
  paper.view.update(); 
 };
+
+/* ========================= FUNCIONES AUXILIARES DE ESCALADO ========================= */
+
+// Obtiene el punto de ancla (opuesto al nodo arrastrado) para el escalado
+window.getOppositePoint = function(bounds, handleType) {
+    switch (handleType) {
+        case 'tl': return bounds.bottomRight;
+        case 'tr': return bounds.bottomLeft;
+        case 'bl': return bounds.topRight;
+        case 'br': return bounds.topLeft;
+        case 't':  return bounds.bottomCenter;
+        case 'b':  return bounds.topCenter;
+        case 'l':  return bounds.rightCenter;
+        case 'r':  return bounds.leftCenter;
+        default:   return bounds.center;
+    }
+};
+
+// Obtiene la coordenada inicial del nodo seleccionado para calcular deltas
+window.getHandlePoint = function(bounds, handleType) {
+    switch (handleType) {
+        case 'tl': return bounds.topLeft;
+        case 'tr': return bounds.topRight;
+        case 'bl': return bounds.bottomLeft;
+        case 'br': return bounds.bottomRight;
+        case 't':  return bounds.topCenter;
+        case 'b':  return bounds.bottomCenter;
+        case 'l':  return bounds.leftCenter;
+        case 'r':  return bounds.rightCenter;
+        default:   return bounds.center;
+    }
+};
