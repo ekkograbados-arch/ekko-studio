@@ -69,6 +69,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // --- Clave de Escena Unificada ---
     function getSceneKey(product, surface) { 
+        if (!product || !surface) return "default_scene";
         return `${product.id}__${surface.nombre}`; 
     }
 
@@ -137,6 +138,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    // --- RENDERIZADO DE CONTROLES DE BLOQUEO ---
     function updateLockButton() {
         if (!ui.btnToggleLock) return;
         if (!window.selectedItem) {
@@ -331,13 +333,14 @@ window.addEventListener("DOMContentLoaded", () => {
     function saveCurrentScene() {
         if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
         const idx = toolState.currentSurface || 0;
-        const surface = toolState.currentProduct.superficies.slice(idx, idx + 1).shift();
+        const surface = toolState.currentProduct.superficies[idx];
         if (!surface) return;
         const key = getSceneKey(toolState.currentProduct, surface);
         sceneStates[key] = paper.project.exportJSON({ asString: true });
     }
 
     function loadSurfaceScene(product, surface) {
+        if (!product || !surface) return;
         const key = getSceneKey(product, surface);
         window.deselectItem();
         if (sceneStates[key]) {
@@ -439,7 +442,6 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- CARGA DE ARCHIVOS ---
     function sendBackward() {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         window.selectedItem.insertBelow(window.selectedItem.previousSibling);
@@ -447,6 +449,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
+    // --- CARGA DE ARCHIVOS ---
     function addImageFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -540,7 +543,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // --- INTERFAZ DINÁMICA DE PRODUCTOS ---
+    // --- INTERFAZ DINÁMICA DE PRODUCTOS (CORREGIDA E INMUNIZADA) ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -564,7 +567,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (ui.productTabs) ui.productTabs.innerHTML = "";
         if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
-        if (!group) return;
+        if (!group || !group.productos || group.productos.length === 0) return;
 
         group.productos.forEach((prod) => {
             if (ui.productTabs) {
@@ -578,18 +581,23 @@ window.addEventListener("DOMContentLoaded", () => {
                     toolState.currentSurface = 0;
                     renderProducts(categoryIndex, prod);
                     renderSurfaces(prod);
-                    loadSurfaceScene(prod, prod.superficies);
+                    if (prod.superficies && prod.superficies.length > 0) {
+                        loadSurfaceScene(prod, prod.superficies); // CARGA CARA INDIVIDUAL (NO ARRAY)
+                    }
                 };
                 ui.productTabs.appendChild(btn);
             }
         });
 
+        // Selección por defecto del primer producto de forma segura (sin asignar el array)
         if (!toolState.currentProduct && group.productos.length > 0) {
-            const firstProd = group.productos;
+            const firstProd = group.productos; // EXTRAE EL ELEMENTO INDIVIDUAL
             toolState.currentProduct = firstProd;
             renderProducts(categoryIndex, firstProd);
             renderSurfaces(firstProd);
-            loadSurfaceScene(firstProd, firstProd.superficies);
+            if (firstProd.superficies && firstProd.superficies.length > 0) {
+                loadSurfaceScene(firstProd, firstProd.superficies); // CARGA CARA INDIVIDUAL 0
+            }
         }
     }
 
@@ -605,7 +613,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     saveCurrentScene();
                     toolState.currentSurface = index;
                     renderSurfacesOnly(product);
-                    loadSurfaceScene(product, surf);
+                    loadSurfaceScene(product, surf); // CARGA CARA INDIVIDUAL SELECCIONADA
                 };
                 ui.surfaceTabs.appendChild(btn);
             }
