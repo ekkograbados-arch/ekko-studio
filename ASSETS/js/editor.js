@@ -1,133 +1,85 @@
-
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 
 window.addEventListener("DOMContentLoaded", () => {
-    // Inicializar Paper.js en el Canvas de forma segura
+    // 1. Inicializar Paper.js de forma segura en el lienzo
     const canvasEl = document.getElementById("editorCanvas");
     if (canvasEl) {
         paper.setup("editorCanvas");
         paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
     }
 
-    const toolState = {
-        currentCategory: 0,
-        currentProduct: null,
-        currentSurface: 0,
-        zoom: 1
-    };
-
+    // --- Variables de Estado Global del Editor ---
+    const toolState = { currentCategory: 0, currentProduct: null, currentSurface: 0, zoom: 1 };
     const sceneStates = {};
-    function getSceneKey(product, surface) {
-        return `${product.id}__${surface.nombre}`;
-    }
-
     const undoStack = [];
     const redoStack = [];
+    
     window.loadToken = 0;
     window.selectedItem = null;
     window.dragOffset = null;
     window.dragging = false;
+    
+    let lastSizeField = "width";
+    let clipboardItem = null;
 
-    // Elementos de la interfaz de usuario (UI)
+    // --- Tipos de Fuentes Disponibles ---
+    const FONTS = [
+        { name: "Billie James", family: "ekko_billie" },
+        { name: "Romantic Sunrise", family: "ekko_romantic" },
+        { name: "Farmhouse", family: "ekko_farmhouse" },
+        { name: "Chocolate", family: "ekko_chocolate" },
+        { name: "Disney", family: "ekko_disney" },
+        { name: "Simpson", family: "ekko_simpson" },
+        { name: "Milk Water", family: "ekko_milk" }
+    ];
+
+    // --- Mapeo de Elementos de la Interfaz UI ---
     const ui = {
         categoryTabs: document.getElementById("categoryTabs"),
         productTabs: document.getElementById("productTabs"),
         surfaceTabs: document.getElementById("surfaceTabs"),
         selectionInfo: document.getElementById("selectionInfo"),
         imagePicker: document.getElementById("imagePicker"),
-        svgPicker: document.getElementById("svgPicker")
+        svgPicker: document.getElementById("svgPicker"),
+        objWidth: document.getElementById("objWidth"),
+        objHeight: document.getElementById("objHeight"),
+        lockRatio: document.getElementById("lockRatio"),
+        btnApplySize: document.getElementById("btnApplySize"),
+        btnToggleLock: document.getElementById("btnToggleLock"),
+        btnAlignLeft: document.getElementById("btnAlignLeft"),
+        btnAlignCenterH: document.getElementById("btnAlignCenterH"),
+        btnAlignRight: document.getElementById("btnAlignRight"),
+        btnAlignTop: document.getElementById("btnAlignTop"),
+        btnAlignCenterV: document.getElementById("btnAlignCenterV"),
+        btnAlignBottom: document.getElementById("btnAlignBottom"),
+        btnRotateLeft: document.getElementById("btnRotateLeft"),
+        btnRotateRight: document.getElementById("btnRotateRight"),
+        btnRotate180: document.getElementById("btnRotate180"),
+        btnCenterH: document.getElementById("btnCenterH"),
+        btnCenterV: document.getElementById("btnCenterV"),
+        btnCenterBoth: document.getElementById("btnCenterBoth"),
+        btnForward: document.getElementById("btnForward"),
+        btnBackward: document.getElementById("btnBackward"),
+        fontSelector: document.getElementById("fontSelector"),
+        btnApplyFont: document.getElementById("btnApplyFont")
     };
 
-    // Inicializar UI flotante del menú contextual (Canva style)
-    initContextualMenu();
-
-    // Carga de tipografías dinámica desde la API de Vercel (100% automático)
-    async function loadDynamicFonts() {
-        try {
-            const response = await fetch('/api/fonts');
-            if (!response.ok) throw new Error("No se pudo obtener el listado de fuentes");
-            const fonts = await response.json();
-            
-            if (fonts && fonts.length > 0) {
-                const styleEl = document.createElement('style');
-                let styleContent = '';
-                fonts.forEach(font => {
-                    styleContent += `
-                        @font-face {
-                            font-family: '${font.family}';
-                            src: url('/ASSETS/fonts/${font.file}') format('truetype');
-                            font-display: swap;
-                        }
-                    `;
-                });
-                styleEl.textContent = styleContent;
-                document.head.appendChild(styleEl);
-
-                const selectEl = document.getElementById('ctxFontSelector');
-                if (selectEl) {
-                    selectEl.innerHTML = '';
-                    fonts.forEach(font => {
-                        const opt = document.createElement('option');
-                        opt.value = font.family;
-                        opt.textContent = font.name;
-                        selectEl.appendChild(opt);
-                    });
-                }
-                
-                window.DYNAMIC_FONTS = fonts;
-            }
-        } catch (err) {
-            console.warn("La API /api/fonts no está activa. Cargando las 16 fuentes de la marca desde styles.css.");
-            
-            const officialFonts = [
-                { name: "Au Bord de la Seine", family: "ekko_seine" },
-                { name: "Billie James", family: "ekko_billie" },
-                { name: "Breathing", family: "ekko_breathing" },
-                { name: "Chocolate", family: "ekko_chocolate" },
-                { name: "Farmhouse", family: "ekko_farmhouse" },
-                { name: "High Spirited", family: "ekko_high" },
-                { name: "Beyond Infinity", family: "ekko_beyond" },
-                { name: "Milk Water", family: "ekko_milk" },
-                { name: "Nostalgic Letter", family: "ekko_nostalgic" },
-                { name: "Please write me a song", family: "ekko_song" },
-                { name: "Romantic Sunrise", family: "ekko_romantic" },
-                { name: "Simple Handmade", family: "ekko_simple" },
-                { name: "Simpson", family: "ekko_simpson" },
-                { name: "Study Night", family: "ekko_studynight" },
-                { name: "Study Person", family: "ekko_studyperson" },
-                { name: "Disney", family: "ekko_disney" }
-            ];
-            
-            const selectEl = document.getElementById('ctxFontSelector');
-            if (selectEl) {
-                selectEl.innerHTML = '';
-                officialFonts.forEach(font => {
-                    const opt = document.createElement('option');
-                    opt.value = font.family;
-                    opt.textContent = font.name;
-                    selectEl.appendChild(opt);
-                });
-            }
-        }
+    // --- Clave de Escena Unificada ---
+    function getSceneKey(product, surface) { 
+        return `${product.id}__${surface.nombre}`; 
     }
 
-    loadDynamicFonts();
+    // --- Limpiar Lienzo ---
+    function clearCanvas() {
+        paper.project.activeLayer.removeChildren();
+        paper.view.update();
+    }
 
-    const originalDeselect = window.deselectItem;
-    window.deselectItem = function() {
-        if (typeof originalDeselect === "function") originalDeselect();
-        hideContextualMenu();
-    };
-
-    const originalSelect = window.selectItem;
-    window.selectItem = function(item) {
-        if (typeof originalSelect === "function") originalSelect(item);
-        updateContextualMenu(item);
-    };
-
+    // --- CONTROL DE HISTORIAL (UNDO/REDO STACK) ---
+    // Guardamos localmente y exponemos en window para evitar errores con contextualMenu.js
     function saveHistory() {
         undoStack.push(paper.project.exportJSON({ asString: true }));
         if (undoStack.length > 50) {
@@ -135,11 +87,248 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         redoStack.length = 0;
     }
+    window.saveHistory = saveHistory; // EXPOSICIÓN GLOBAL FIJA
 
+    function undo() {
+        if (undoStack.length === 0) return;
+        redoStack.push(paper.project.exportJSON({ asString: true }));
+        const state = undoStack.pop();
+        paper.project.clear();
+        paper.project.importJSON(state);
+        window.deselectItem();
+        if (typeof restoreMockupReferences === "function") {
+            restoreMockupReferences();
+        }
+        paper.view.update();
+    }
+
+    function redo() {
+        if (redoStack.length === 0) return;
+        undoStack.push(paper.project.exportJSON({ asString: true }));
+        const state = redoStack.pop();
+        paper.project.clear();
+        paper.project.importJSON(state);
+        window.deselectItem();
+        if (typeof restoreMockupReferences === "function") {
+            restoreMockupReferences();
+        }
+        paper.view.update();
+    }
+
+    // --- AUXILIARES DE BLOQUEO Y SELECCIÓN ---
     function isLockedItem(item) {
         return item && item.data && item.data.locked === true;
     }
 
+    function updateSelectionInfo() {
+        if (!window.selectedItem) {
+            if (ui.selectionInfo) ui.selectionInfo.textContent = "Nada seleccionado";
+            if (ui.objWidth) ui.objWidth.value = "";
+            if (ui.objHeight) ui.objHeight.value = "";
+            return;
+        }
+        const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
+            ? window.selectedItem.children.find(c => !c.clipMask)
+            : window.selectedItem;
+
+        if (displayItem && displayItem.bounds) {
+            if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
+            if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
+            if (ui.selectionInfo) ui.selectionInfo.textContent = window.selectedItem.data?.label || "Objeto";
+        }
+    }
+
+    function updateLockButton() {
+        if (!ui.btnToggleLock) return;
+        if (!window.selectedItem) {
+            ui.btnToggleLock.textContent = "Bloquear / Desbloquear";
+            return;
+        }
+        ui.btnToggleLock.textContent = isLockedItem(window.selectedItem) ? "Desbloquear" : "Bloquear";
+    }
+
+    function toggleLockSelected() {
+        if (!window.selectedItem) return;
+        window.selectedItem.data = window.selectedItem.data || {};
+        window.selectedItem.data.locked = !window.selectedItem.data.locked;
+        updateSelectionInfo();
+        updateLockButton();
+        paper.view.update();
+    }
+
+    // --- INTEGRACIÓN UNIFICADA DE SELECCIÓN Y MENÚ CONTEXTUAL ---
+    window.selectItem = function(item) {
+        if (window.nodeEditMode) {
+            window.exitNodeEditMode();
+        }
+        if (window.selectedItem) {
+            window.selectedItem.selected = false;
+        }
+        if (!item || (item.data && item.data.mockup)) {
+            window.deselectItem();
+            return;
+        }
+        window.selectedItem = item;
+        window.updateSelectionBox(item); // Mostrar contornos celestes y 8 nodos
+        updateSelectionInfo();
+        updateLockButton();
+        if (typeof updateContextualMenu === "function") {
+            updateContextualMenu(item); // Mostrar barra flotante de Canva
+        }
+        paper.view.update();
+    };
+
+    window.deselectItem = function() {
+        if (window.nodeEditMode) {
+            window.exitNodeEditMode();
+        }
+        if (window.selectedItem) {
+            window.selectedItem.selected = false;
+        }
+        window.selectedItem = null;
+        window.updateSelectionBox(null);
+        if (ui.selectionInfo) ui.selectionInfo.textContent = "Nada seleccionado";
+        if (ui.objWidth) ui.objWidth.value = "";
+        if (ui.objHeight) ui.objHeight.value = "";
+        updateLockButton();
+        if (typeof hideContextualMenu === "function") {
+            hideContextualMenu();
+        }
+        paper.view.update();
+    };
+
+    // --- OPERACIONES DE ALINEACIÓN ---
+    function alignSelected(mode) {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const mask = window.selectedItem.children.find(c => c.clipMask);
+            const content = window.selectedItem.children.find(c => !c.clipMask);
+            if (mask && content) {
+                const maskBounds = mask.bounds;
+                const contentBounds = content.bounds.clone();
+                let newX = content.position.x;
+                let newY = content.position.y;
+                if (mode === "left") newX = maskBounds.left + contentBounds.width / 2;
+                if (mode === "centerH") newX = maskBounds.center.x;
+                if (mode === "right") newX = maskBounds.right - contentBounds.width / 2;
+                if (mode === "top") newY = maskBounds.top + contentBounds.height / 2;
+                if (mode === "centerV") newY = maskBounds.center.y;
+                if (mode === "bottom") newY = maskBounds.bottom - contentBounds.height / 2;
+                content.position = new paper.Point(newX, newY);
+            }
+        } else {
+            const canvasBounds = paper.view.bounds;
+            const itemBounds = window.selectedItem.bounds.clone();
+            const center = window.selectedItem.position.clone();
+            let newX = center.x;
+            let newY = center.y;
+            if (mode === "left") newX = canvasBounds.left + itemBounds.width / 2;
+            if (mode === "centerH") newX = canvasBounds.center.x;
+            if (mode === "right") newX = canvasBounds.right - itemBounds.width / 2;
+            if (mode === "top") newY = canvasBounds.top + itemBounds.height / 2;
+            if (mode === "centerV") newY = canvasBounds.center.y;
+            if (mode === "bottom") newY = canvasBounds.bottom - itemBounds.height / 2;
+            window.selectedItem.position = new paper.Point(newX, newY);
+        }
+        window.updateSelectionBox(window.selectedItem);
+        updateSelectionInfo();
+        if (typeof updateContextualMenu === "function") {
+            updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }
+
+    function centerSelected(mode) {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const mask = window.selectedItem.children.find(c => c.clipMask);
+            const content = window.selectedItem.children.find(c => !c.clipMask);
+            if (mask && content) {
+                if (mode === "horizontal") content.position.x = mask.position.x;
+                if (mode === "vertical") content.position.y = mask.position.y;
+                if (mode === "both") content.position = mask.position.clone();
+            }
+        } else {
+            const center = paper.view.bounds.center;
+            if (mode === "horizontal") window.selectedItem.position.x = center.x;
+            if (mode === "vertical") window.selectedItem.position.y = center.y;
+            if (mode === "both") window.selectedItem.position = center.clone();
+        }
+        window.updateSelectionBox(window.selectedItem);
+        updateSelectionInfo();
+        if (typeof updateContextualMenu === "function") {
+            updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }
+
+    function rotateSelected(angle) {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const content = window.selectedItem.children.find(c => !c.clipMask);
+            if (content) content.rotate(angle);
+        } else {
+            window.selectedItem.rotate(angle);
+        }
+        window.updateSelectionBox(window.selectedItem);
+        updateSelectionInfo();
+        if (typeof updateContextualMenu === "function") {
+            updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }
+
+    function applySelectedSize() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        const targetItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
+            ? window.selectedItem.children.find(c => !c.clipMask)
+            : window.selectedItem;
+
+        if (!targetItem) return;
+        const currentW = targetItem.bounds.width;
+        const currentH = targetItem.bounds.height;
+        if (currentW === 0 || currentH === 0) return;
+
+        let newW = parseFloat(ui.objWidth.value);
+        let newH = parseFloat(ui.objHeight.value);
+        if (isNaN(newW) && isNaN(newH)) return;
+
+        const keepRatio = ui.lockRatio.checked;
+        const center = targetItem.position.clone();
+        const originalRatio = currentW / currentH;
+
+        if (keepRatio) {
+            if (lastSizeField === "width" && !isNaN(newW) && newW > 0) {
+                newH = newW / originalRatio;
+                ui.objHeight.value = newH.toFixed(1);
+            } else if (lastSizeField === "height" && !isNaN(newH) && newH > 0) {
+                newW = newH * originalRatio;
+                ui.objWidth.value = newW.toFixed(1);
+            } else {
+                return;
+            }
+        } else {
+            if (isNaN(newW) || isNaN(newH) || newW <= 0 || newH <= 0) return;
+        }
+
+        const scaleX = newW / currentW;
+        const scaleY = newH / currentH;
+        
+        saveHistory();
+        targetItem.scale(scaleX, scaleY);
+        targetItem.position = center;
+        window.updateSelectionBox(window.selectedItem);
+        updateSelectionInfo();
+        if (typeof updateContextualMenu === "function") {
+            updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }
+
+    // --- HISTORIAL DE ESCENAS POR PRODUCTO/SUPERFICIE ---
     function saveCurrentScene() {
         if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
         const idx = toolState.currentSurface || 0;
@@ -165,26 +354,97 @@ window.addEventListener("DOMContentLoaded", () => {
         loadMockup(surface.svg);
     }
 
-    // Controles de zoom de forma segura
+    // --- ACCIONES GENERALES ---
     function zoomBy(factor) {
-        if (!paper.view) return;
         paper.view.zoom = Math.max(0.2, Math.min(10, paper.view.zoom * factor));
         if (window.selectedItem) {
-            updateContextualMenu(window.selectedItem);
+            window.updateSelectionBox(window.selectedItem);
         }
         paper.view.update();
     }
 
     function fitView() {
-        if (!paper.view) return;
         paper.view.zoom = 1;
         paper.view.center = paper.view.bounds.center;
         if (window.selectedItem) {
-            updateContextualMenu(window.selectedItem);
+            window.updateSelectionBox(window.selectedItem);
         }
         paper.view.update();
     }
 
+    function deleteSelected() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        window.selectedItem.remove();
+        window.selectedItem = null;
+        window.deselectItem();
+        paper.view.update();
+    }
+
+    function duplicateSelected() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        saveHistory();
+        const clone = window.selectedItem.clone();
+        clone.position = clone.position.add(new paper.Point(20, 20));
+        clone.data = clone.data || {};
+        clone.data.locked = false;
+        clone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
+        paper.project.activeLayer.addChild(clone);
+        window.selectItem(clone);
+    }
+
+    function copySelected() {
+        if (!window.selectedItem) return;
+        if (isLockedItem(window.selectedItem)) return;
+        clipboardItem = window.selectedItem.clone();
+    }
+
+    function pasteSelected() {
+        if (!clipboardItem) return;
+        saveHistory();
+        const clone = clipboardItem.clone();
+        clone.position = clone.position.add(new paper.Point(20, 20));
+        clone.data = { ...(clone.data || {}), locked: false };
+        paper.project.activeLayer.addChild(clone);
+        window.selectItem(clone);
+        paper.view.update();
+    }
+
+    function bringFront() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        window.selectedItem.bringToFront();
+        if (window.currentMockup) {
+            window.currentMockup.bringToFront();
+        }
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+    }
+
+    function sendBack() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        window.selectedItem.sendToBack();
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+    }
+
+    function bringForward() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        window.selectedItem.insertAbove(window.selectedItem.nextSibling);
+        if (window.currentMockup) {
+            window.currentMockup.bringToFront();
+        }
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+    }
+
+    function sendBackward() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        window.selectedItem.insertBelow(window.selectedItem.previousSibling);
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+    }
+
+    // --- CARGA DE ARCHIVOS ---
     function addImageFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -226,45 +486,61 @@ window.addEventListener("DOMContentLoaded", () => {
                 item.scale(scale);
                 item.position = canvasBounds.center;
                 paper.project.activeLayer.addChild(item);
-                
-                const selectable = window.getSelectableItem(item) || item;
-                window.selectItem(selectable);
-                
+                const selectable = window.getSelectableItem(item);
+                const objeto = window.clipItem(selectable);
                 if (window.currentMockup) {
-                    item.insertBelow(window.currentMockup);
+                    objeto.insertBelow(window.currentMockup);
                 }
+                window.selectItem(objeto);
                 paper.view.update();
-                item.bringToFront();
             });
         };
         reader.readAsText(file);
     }
 
-    function createEditableText(point) {
-        saveHistory();
-        const txt = new paper.PointText({
-            point,
-            content: "Haz clic para editar",
-            fontSize: 24,
-            fillColor: new paper.Color(0),
-            justification: "center",
-            fontFamily: "Arial"
-        });
-        txt.data = { locked: false, label: "Texto" };
-        paper.project.activeLayer.addChild(txt);
-        if (window.currentMockup) {
-            txt.insertBelow(window.currentMockup);
+    // --- RENDERIZADO DE CONTROLES DE TEXTO Y FUENTES ---
+    function applySelectedFont() {
+        if (!window.selectedItem) return;
+        if (!(window.selectedItem instanceof paper.PointText)) {
+            alert("Seleccione un texto");
+            return;
         }
-        window.selectItem(txt);
-        startTextEditing(txt);
+        const font = ui.fontSelector.value;
+        saveHistory();
+        window.selectedItem.fontFamily = font;
+        window.updateSelectionBox(window.selectedItem);
+        if (typeof updateContextualMenu === "function") {
+            updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
     }
 
-    // --- RENDERIZADO DE TABS DEL PANEL IZQUIERDO ---
+    function renderFontGallery() {
+        const list = document.getElementById("fontList");
+        if (!list) return;
+        list.innerHTML = "";
+        FONTS.forEach(font => {
+            const item = document.createElement("div");
+            item.className = "font-item";
+            item.innerHTML = `<div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div><div class="font-name">${font.name}</div>`;
+            item.onclick = () => {
+                if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
+                    saveHistory();
+                    window.selectedItem.fontFamily = font.family;
+                    window.updateSelectionBox(window.selectedItem);
+                    if (typeof updateContextualMenu === "function") {
+                        updateContextualMenu(window.selectedItem);
+                    }
+                    paper.view.update();
+                }
+            };
+            list.appendChild(item);
+        });
+    }
+
+    // --- INTERFAZ DINÁMICA DE PRODUCTOS ---
     function renderCategories() {
-        if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
-        if (!window.EKKO_STUDIO_PRODUCTS) return;
-        
         window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
             const btn = document.createElement("button");
             btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
@@ -282,49 +558,48 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderProducts(categoryIndex, activeProduct = null) {
-        if (!ui.productTabs || !ui.surfaceTabs) return;
         ui.productTabs.innerHTML = "";
         ui.surfaceTabs.innerHTML = "";
-        
-        const group = window.EKKO_STUDIO_PRODUCTS.slice(categoryIndex, categoryIndex + 1).shift();
+        const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group) return;
-        
-        const selectedProduct = activeProduct || toolState.currentProduct || group.productos.slice(0, 1).shift();
-        
-        group.productos.forEach((product) => {
+
+        group.productos.forEach((prod) => {
             const btn = document.createElement("button");
-            btn.className = "tab-btn" + (selectedProduct === product ? " active" : "");
-            btn.textContent = product.nombre;
+            const isSel = activeProduct ? (prod.id === activeProduct.id) : (toolState.currentProduct && prod.id === toolState.currentProduct.id);
+            btn.className = "tab-btn" + (isSel ? " active" : "");
+            btn.textContent = prod.nombre;
             btn.onclick = () => {
                 saveCurrentScene();
-                toolState.currentProduct = product;
+                toolState.currentProduct = prod;
                 toolState.currentSurface = 0;
-                renderProducts(categoryIndex, product);
+                renderProducts(categoryIndex, prod);
+                renderSurfaces(prod);
+                loadSurfaceScene(prod, prod.superficies);
             };
             ui.productTabs.appendChild(btn);
         });
-        
-        toolState.currentProduct = selectedProduct;
-        renderSurfaces(selectedProduct);
+
+        if (!toolState.currentProduct && group.productos.length > 0) {
+            const firstProd = group.productos;
+            toolState.currentProduct = firstProd;
+            renderProducts(categoryIndex, firstProd);
+            renderSurfaces(firstProd);
+            loadSurfaceScene(firstProd, firstProd.superficies);
+        }
     }
 
     function renderSurfacesOnly(product) {
-        if (!ui.surfaceTabs) return;
         ui.surfaceTabs.innerHTML = "";
         if (!product || !product.superficies) return;
-        
-        product.superficies.forEach((surface, index) => {
+        product.superficies.forEach((surf, index) => {
             const btn = document.createElement("button");
             btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
-            btn.textContent = surface.nombre;
+            btn.textContent = surf.nombre;
             btn.onclick = () => {
                 saveCurrentScene();
                 toolState.currentSurface = index;
                 renderSurfacesOnly(product);
-                loadSurfaceScene(product, surface);
-                if (ui.selectionInfo) {
-                    ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + surface.nombre;
-                }
+                loadSurfaceScene(product, surf);
             };
             ui.surfaceTabs.appendChild(btn);
         });
@@ -332,282 +607,356 @@ window.addEventListener("DOMContentLoaded", () => {
 
     function renderSurfaces(product) {
         renderSurfacesOnly(product);
-        if (!product || !product.superficies) return;
-        
-        const idx = toolState.currentSurface || 0;
-        const firstSurface = product.superficies.slice(idx, idx + 1).shift() || product.superficies.slice(0, 1).shift();
-        if (firstSurface) {
-            loadSurfaceScene(product, firstSurface);
-            if (ui.selectionInfo) {
-                ui.selectionInfo.textContent = "Seleccionado: " + product.nombre + " / " + firstSurface.nombre;
-            }
-        }
     }
 
-    // --- MANEJO DEL MOUSE Y EVENTOS DE SELECCIÓN/ARRUSTRE ---
+    // --- MODO TEXTO CREAR ---
+    function activateTextMode() {
+        insertTextMode = true;
+        paper.view.element.style.cursor = "text";
+    }
+
+    function createEditableText(point) {
+        saveHistory();
+        const txt = new paper.PointText({
+            point: point,
+            content: "",
+            fontSize: 42,
+            fillColor: new paper.Color(0),
+            justification: "center",
+            fontFamily: "Arial"
+        });
+        txt.data = { locked: false, label: "Texto" };
+        paper.project.activeLayer.addChild(txt);
+        
+        const clipped = window.clipItem(txt);
+        if (window.currentMockup) {
+            clipped.insertBelow(window.currentMockup);
+        }
+        window.selectItem(txt);
+        startTextEditing(txt);
+    }
+
+    // ========================================================
+    // --- MANEJO DE HERRAMIENTA DE RATÓN Y TECLADO (TIRADORES CANVA/LIGHTBURN) ---
+    // ========================================================
+    
+    // Funciones Fallback para prevenir caídas si selección.js no se cargó bien
+    if (typeof window.getOppositePoint !== 'function') {
+        window.getOppositePoint = function(bounds, handleType) {
+            switch (handleType) {
+                case 'tl': return bounds.bottomRight;
+                case 'tr': return bounds.bottomLeft;
+                case 'bl': return bounds.topRight;
+                case 'br': return bounds.topLeft;
+                case 't':  return bounds.bottomCenter;
+                case 'b':  return bounds.topCenter;
+                case 'l':  return bounds.rightCenter;
+                case 'r':  return bounds.leftCenter;
+                default:   return bounds.center;
+            }
+        };
+    }
+
+    if (typeof window.getHandlePoint !== 'function') {
+        window.getHandlePoint = function(bounds, handleType) {
+            switch (handleType) {
+                case 'tl': return bounds.topLeft;
+                case 'tr': return bounds.topRight;
+                case 'bl': return bounds.bottomLeft;
+                case 'br': return bounds.bottomRight;
+                case 't':  return bounds.topCenter;
+                case 'b':  return bounds.bottomCenter;
+                case 'l':  return bounds.leftCenter;
+                case 'r':  return bounds.rightCenter;
+                default:   return bounds.center;
+            }
+        };
+    }
+
     let insertTextMode = false;
     const tool = new paper.Tool();
 
-tool.onMouseDown = function(event) {
-    // Verificar si hicimos clic sobre algún elemento de la caja de selección activa
-    if (window.selectionBoxGroup) {
-        const hitHandle = window.selectionBoxGroup.hitTest(event.point, {
-            fill: true,
-            stroke: true,
-            tolerance: 8 / paper.view.zoom
+    tool.onMouseDown = function(event) {
+        // A. Clic en tirador de selección para redimensionar (Canva Style)
+        if (window.selectionBoxGroup) {
+            const hitHandle = window.selectionBoxGroup.hitTest(event.point, {
+                fill: true,
+                stroke: true,
+                tolerance: 8 / paper.view.zoom
+            });
+
+            if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
+                window.resizeActive = true;
+                window.resizeHandleType = hitHandle.item.data.handleType;
+                window.resizeTarget = window.selectedItem;
+
+                const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
+                    ? window.resizeTarget.children.find(c => !c.clipMask)
+                    : window.resizeTarget;
+
+                window.resizeInitialBounds = targetItem.bounds.clone();
+                window.resizeInitialPoint = event.point.clone();
+                window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
+                
+                window.resizeLastScaleX = 1.0;
+                window.resizeLastScaleY = 1.0;
+                
+                window.dragging = false;
+                return;
+            }
+        }
+
+        // B. Clic para insertar texto
+        if (insertTextMode) {
+            createEditableText(event.point);
+            insertTextMode = false;
+            paper.view.element.style.cursor = "default";
+            return;
+        }
+
+        // C. Selección estándar de objetos en Paper.js
+        const hit = paper.project.hitTest(event.point, { 
+            fill: true, 
+            stroke: true, 
+            segments: true, 
+            tolerance: 8, 
+            match: function(hitResult) { 
+                return !hitResult.item.data || !hitResult.item.data.mockup; 
+            } 
         });
+        
+        if (hit && hit.item) {
+            const selectable = window.getSelectableItem(hit.item);
+            if (selectable) {
+                if (isLockedItem(selectable)) {
+                    window.selectItem(selectable);
+                    window.dragging = false;
+                    return;
+                }
+                window.selectItem(selectable);
+                window.dragging = true;
+                window.dragOffset = event.point.subtract(selectable.position);
+            }
+        } else {
+            window.deselectItem();
+        }
+    };
 
-        // Si se seleccionó un nodo de escalado (handle)
-        if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
-            window.resizeActive = true;
-            window.resizeHandleType = hitHandle.item.data.handleType;
-            window.resizeTarget = window.selectedItem;
-
-            // Si es un grupo recortado (clipGroup), escalamos el contenido interno real (ej: la imagen)
+    tool.onMouseDrag = function(event) {
+        // Redimensionar objeto arrastrando un nodo perimetral
+        if (window.resizeActive && window.resizeTarget) {
             const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
                 ? window.resizeTarget.children.find(c => !c.clipMask)
                 : window.resizeTarget;
 
-            window.resizeInitialBounds = targetItem.bounds.clone();
-            window.resizeInitialPoint = event.point.clone();
-            window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
-            
-            // Inicializamos la escala base para este arrastre
-            window.resizeLastScaleX = 1.0;
-            window.resizeLastScaleY = 1.0;
-            
-            window.dragging = false; // Desactivar arrastre de posición
+            if (!targetItem) return;
+
+            // Cambiar ancla al centro si se presiona CTRL (LightBurn Style)
+            let anchor = window.resizeAnchor;
+            if (event.modifiers.control) {
+                anchor = window.resizeInitialBounds.center;
+            }
+
+            const initHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
+
+            const initW = Math.abs(initHandlePoint.x - anchor.x);
+            const initH = Math.abs(initHandlePoint.y - anchor.y);
+
+            let currW = Math.abs(event.point.x - anchor.x);
+            let currH = Math.abs(event.point.y - anchor.y);
+
+            if (currW < 1) currW = 1;
+            if (currH < 1) currH = 1;
+
+            let scaleX = 1.0;
+            let scaleY = 1.0;
+
+            const isCorner = ['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
+            const hasWidth = ['l', 'r', 'tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
+            const hasHeight = ['t', 'b', 'tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
+
+            if (hasWidth && initW > 0) scaleX = currW / initW;
+            if (hasHeight && initH > 0) scaleY = currH / initH;
+
+            // Mantener proporciones uniformes por defecto en vértices (Se desactiva pulsando Shift/Mayús)
+            if (isCorner && !event.modifiers.shift) {
+                const aspectScale = (scaleX + scaleY) / 2;
+                scaleX = aspectScale;
+                scaleY = aspectScale;
+            }
+
+            // Deshacer escala de fotogramas anteriores antes de aplicar la nueva
+            targetItem.scale(1 / window.resizeLastScaleX, 1 / window.resizeLastScaleY, anchor);
+            targetItem.scale(scaleX, scaleY, anchor);
+
+            window.resizeLastScaleX = scaleX;
+            window.resizeLastScaleY = scaleY;
+
+            window.updateSelectionBox(window.resizeTarget);
+            if (typeof updateContextualMenu === "function") {
+                updateContextualMenu(window.selectedItem);
+            }
+            paper.view.update();
             return;
         }
-    }
 
-    // --- (Tu lógica de selección de objetos normal continúa abajo) ---
-    const hit = paper.project.hitTest(event.point, { 
-        fill: true, 
-        stroke: true, 
-        segments: true, 
-        tolerance: 8, 
-        match: function(hitResult) { 
-            return !hitResult.item.data || !hitResult.item.data.mockup; 
-        } 
-    });
-    
-    if (hit && hit.item) {
-        const selectable = window.getSelectableItem(hit.item);
-        if (selectable) {
-            window.selectItem(selectable);
-            window.dragging = true;
-            window.dragOffset = event.point.subtract(selectable.position);
-        }
-    } else {
-        window.deselectItem();
-    }
-};
-
-    tool.onMouseDrag = function(event) {
-    if (window.resizeActive && window.resizeTarget) {
-        const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
-            ? window.resizeTarget.children.find(c => !c.clipMask)
-            : window.resizeTarget;
-
-        if (!targetItem) return;
-
-        // Validar punto de anclaje (si se presiona CTRL, escala desde el centro geométrico)
-        let anchor = window.resizeAnchor;
-        if (event.modifiers.control) {
-            anchor = window.resizeInitialBounds.center;
-        }
-
-        // Obtener la posición inicial de referencia de nuestro nodo
-        const initHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
-
-        // Distancias base entre el nodo inicial y el ancla
-        const initW = Math.abs(initHandlePoint.x - anchor.x);
-        const initH = Math.abs(initHandlePoint.y - anchor.y);
-
-        // Distancias actuales entre el cursor y el ancla
-        let currW = Math.abs(event.point.x - anchor.x);
-        let currH = Math.abs(event.point.y - anchor.y);
-
-        // Evitar divisiones por cero o colapsos de coordenadas (tamaño mínimo de seguridad)
-        if (currW < 1) currW = 1;
-        if (currH < 1) currH = 1;
-
-        let scaleX = 1.0;
-        let scaleY = 1.0;
-
-        const isCorner = ['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
-        const hasWidth = ['l', 'r', 'tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
-        const hasHeight = ['t', 'b', 'tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType);
-
-        if (hasWidth && initW > 0) scaleX = currW / initW;
-        if (hasHeight && initH > 0) scaleY = currH / initH;
-
-        // Mantener proporción automática en vértices (se desactiva con Mayús/Shift presionado)
-        if (isCorner && !event.modifiers.shift) {
-            const aspectScale = (scaleX + scaleY) / 2;
-            scaleX = aspectScale;
-            scaleY = aspectScale;
-        }
-
-        // REGLA DE ROBUSTEZ: Deshacer la escala del frame anterior antes de aplicar la nueva
-        targetItem.scale(1 / window.resizeLastScaleX, 1 / window.resizeLastScaleY, anchor);
-        targetItem.scale(scaleX, scaleY, anchor);
-
-        // Almacenar coeficientes del frame actual
-        window.resizeLastScaleX = scaleX;
-        window.resizeLastScaleY = scaleY;
-
-        // Actualizar la caja de selección azul en vivo
-        window.updateSelectionBox(window.resizeTarget);
-        paper.view.update();
-        return;
-    }
-
-    // --- (Tu lógica de arrastre de posición normal continúa abajo) ---
-    if (window.dragging && window.selectedItem) {
-        window.selectedItem.position = event.point.subtract(window.dragOffset);
-        window.updateSelectionBox(window.selectedItem);
-        paper.view.update();
-    }
-};
-
-   tool.onMouseUp = function(event) {
-    if (window.resizeActive) {
-        // Guardar el estado resultante en tu historial nativo para Ctrl+Z
-        if (typeof window.saveHistory === 'function') {
-            window.saveHistory();
-        }
-        
-        window.resizeActive = false;
-        window.resizeHandleType = null;
-        window.resizeTarget = null;
-        window.resizeInitialBounds = null;
-        window.resizeAnchor = null;
-        window.resizeLastScaleX = 1.0;
-        window.resizeLastScaleY = 1.0;
-        return;
-    }
-
-    if (window.dragging) {
-        window.saveHistory();
-    }
-    window.dragging = false;
-};
-
-
-    // --- ASIGNACIONES DE EVENTOS 100% DEFENSIVAS CONTRA VALORES NULOS ---
-    const registerClick = (id, callback) => {
-        const el = document.getElementById(id);
-        if (el) el.onclick = callback;
-    };
-
-    const registerChange = (id, callback) => {
-        const el = document.getElementById(id);
-        if (el) el.onchange = callback;
-    };
-
-    // Registrar acciones del Canva Top Bar
-    registerClick("btnAddText", () => {
-        insertTextMode = true;
-        if (canvasEl) canvasEl.style.cursor = "text";
-    });
-
-    registerClick("btnAddImage", () => {
-        const imagePicker = document.getElementById("imagePicker");
-        if (imagePicker) {
-            imagePicker.value = "";
-            imagePicker.click();
-        }
-    });
-
-    registerClick("btnAddSVG", () => {
-        const svgPicker = document.getElementById("svgPicker");
-        if (svgPicker) {
-            svgPicker.value = "";
-            svgPicker.click();
-        }
-    });
-
-    registerChange("imagePicker", (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            const [firstFile] = files;
-            addImageFromFile(firstFile);
-        }
-    });
-
-    registerChange("svgPicker", (e) => {
-        const files = e.target.files;
-        if (files && files.length > 0) {
-            const [firstFile] = files;
-            addSVGFromFile(firstFile);
-        }
-    });
-
-    // Registrar exportación con seguridad
-    registerClick("btnExportLaser", () => {
-        window.deselectItem();
-        
-        let mockupHidden = false;
-        if (window.currentMockup) {
-            window.currentMockup.visible = false;
-            mockupHidden = true;
-        }
-
-        const activeItems = paper.project.activeLayer.children.filter(item => {
-            return item.visible && (!item.data || !item.data.mockup);
-        });
-
-        for (let i = 0; i < activeItems.length; i++) {
-            const itemAbove = activeItems[i];
-            if (!(itemAbove instanceof paper.Path) && !(itemAbove instanceof paper.CompoundPath)) continue;
-
-            for (let j = i + 1; j < activeItems.length; j++) {
-                const itemBelow = activeItems[j];
-                if (!(itemBelow instanceof paper.Path) && !(itemBelow instanceof paper.CompoundPath)) continue;
-
-                if (itemAbove.bounds.intersects(itemBelow.bounds)) {
-                    const cutResult = itemBelow.subtract(itemAbove);
-                    if (cutResult) {
-                        itemBelow.replaceWith(cutResult);
-                    }
-                }
+        // Arrastrar posición normal del objeto
+        if (window.dragging && window.selectedItem) {
+            if (isLockedItem(window.selectedItem)) return;
+            window.selectedItem.position = event.point.subtract(window.dragOffset);
+            window.updateSelectionBox(window.selectedItem);
+            if (typeof updateContextualMenu === "function") {
+                updateContextualMenu(window.selectedItem);
             }
-        }
-
-        paper.view.update();
-
-        const svgString = paper.project.exportSVG({ asString: true, bounds: 'content' });
-
-        if (mockupHidden && window.currentMockup) {
-            window.currentMockup.visible = true;
             paper.view.update();
         }
+    };
 
-        const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const downloadLink = document.createElement("a");
-        downloadLink.href = url;
-        downloadLink.download = "ekko-laser-ready.svg";
-        document.body.appendChild(downloadLink);
-        downloadLink.click();
-        document.body.removeChild(downloadLink);
-        URL.revokeObjectURL(url);
+    tool.onMouseUp = function(event) {
+        if (window.resizeActive) {
+            saveHistory(); // Guardar en historial local/global de forma segura
+            window.resizeActive = false;
+            window.resizeHandleType = null;
+            window.resizeTarget = null;
+            window.resizeInitialBounds = null;
+            window.resizeAnchor = null;
+            window.resizeLastScaleX = 1.0;
+            window.resizeLastScaleY = 1.0;
+            return;
+        }
+
+        if (window.dragging) {
+            saveHistory(); // Guardar en historial local/global de forma segura
+        }
+        window.dragging = false;
+    };
+
+    tool.onKeyDown = function (event) {
+        const active = document.activeElement;
+        const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
+        if (isTyping) return;
+
+        if (event.modifiers.control && event.key === "z") {
+            undo();
+            return;
+        }
+        if (event.modifiers.control && event.key === "c") {
+            copySelected();
+            return;
+        }
+        if (event.modifiers.control && event.key === "v") {
+            pasteSelected();
+            return;
+        }
+        if (event.modifiers.control && (event.key === "y" || (event.modifiers.shift && event.key === "z"))) {
+            redo();
+            return;
+        }
+        if (event.key === "delete") {
+            deleteSelected();
+        }
+
+        if (window.selectedItem && !isLockedItem(window.selectedItem)) {
+            const step = event.modifiers.shift ? 10 : 1;
+            if (event.key === "left") {
+                window.selectedItem.position.x -= step;
+                event.preventDefault();
+            }
+            if (event.key === "right") {
+                window.selectedItem.position.x += step;
+                event.preventDefault();
+            }
+            if (event.key === "up") {
+                window.selectedItem.position.y -= step;
+                event.preventDefault();
+            }
+            if (event.key === "down") {
+                window.selectedItem.position.y += step;
+                event.preventDefault();
+            }
+            window.updateSelectionBox(window.selectedItem);
+            updateSelectionInfo();
+            if (typeof updateContextualMenu === "function") {
+                updateContextualMenu(window.selectedItem);
+            }
+            paper.view.update();
+        }
+    };
+
+    // --- ENLAZAR EVENTOS DEL DOM ---
+    document.getElementById("btnAddText").addEventListener("click", activateTextMode);
+    document.getElementById("fontGallery").classList.remove("hidden");
+    renderFontGallery();
+
+    document.getElementById("btnDelete").addEventListener("click", deleteSelected);
+    document.getElementById("btnDuplicate").addEventListener("click", duplicateSelected);
+    document.getElementById("btnBringFront").addEventListener("click", bringFront);
+    document.getElementById("btnSendBack").addEventListener("click", sendBack);
+    ui.btnForward.addEventListener("click", bringForward);
+    ui.btnBackward.addEventListener("click", sendBackward);
+
+    document.getElementById("btnZoomIn").addEventListener("click", () => zoomBy(1.15));
+    document.getElementById("btnZoomOut").addEventListener("click", () => zoomBy(1 / 1.15));
+    document.getElementById("btnFit").addEventListener("click", fitView);
+
+    document.getElementById("btnAddImage").addEventListener("click", () => {
+        ui.imagePicker.value = "";
+        ui.imagePicker.click();
     });
 
-    // Registrar controles de zoom generales
-    registerClick("btnZoomIn", () => zoomBy(1.15));
-    registerClick("btnZoomOut", () => zoomBy(1 / 1.15));
-    registerClick("btnFit", fitView);
+    document.getElementById("btnAddSVG").addEventListener("click", () => {
+        ui.svgPicker.value = "";
+        ui.svgPicker.click();
+    });
 
-    // Adaptar tamaño de canvas al redimensionar ventana de forma segura
-    window.addEventListener("resize", () => {
-        if (canvasEl && paper.view) {
-            paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    ui.imagePicker.addEventListener("change", (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            const file = files.item(0);
+            addImageFromFile(file);
         }
     });
 
-    // Arrancar la renderización inicial del panel de productos
+    ui.svgPicker.addEventListener("change", (e) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            const file = files.item(0);
+            addSVGFromFile(file);
+        }
+    });
+
+    ui.btnApplySize.addEventListener("click", applySelectedSize);
+    ui.btnToggleLock.addEventListener("click", toggleLockSelected);
+    
+    ui.btnAlignLeft.addEventListener("click", () => alignSelected("left"));
+    ui.btnAlignCenterH.addEventListener("click", () => alignSelected("centerH"));
+    ui.btnAlignRight.addEventListener("click", () => alignSelected("right"));
+    ui.btnAlignTop.addEventListener("click", () => alignSelected("top"));
+    ui.btnAlignCenterV.addEventListener("click", () => alignSelected("centerV"));
+    ui.btnAlignBottom.addEventListener("click", () => alignSelected("bottom"));
+
+    ui.btnRotateLeft.addEventListener("click", () => { rotateSelected(-90); });
+    ui.btnRotateRight.addEventListener("click", () => { rotateSelected(90); });
+    ui.btnRotate180.addEventListener("click", () => { rotateSelected(180); });
+
+    ui.btnCenterH.addEventListener("click", () => { centerSelected("horizontal"); });
+    ui.btnCenterV.addEventListener("click", () => { centerSelected("vertical"); });
+    ui.btnCenterBoth.addEventListener("click", () => { centerSelected("both"); });
+
+    ui.objWidth.addEventListener("input", () => { lastSizeField = "width"; });
+    ui.objHeight.addEventListener("input", () => { lastSizeField = "height"; });
+
+    window.addEventListener("resize", () => {
+        const canvasEl = document.getElementById("editorCanvas");
+        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    });
+
+    ui.btnApplyFont.addEventListener("click", applySelectedFont);
+
+    // Inicializar el Menú Contextual Flotante de Canvas Pro
+    if (typeof initContextualMenu === 'function') {
+        initContextualMenu();
+    }
+
     renderCategories();
 });
