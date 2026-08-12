@@ -68,7 +68,7 @@ export async function loadDynamicFonts() {
     }
 }
 
-// Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn) [7, 8]
+// Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -93,7 +93,7 @@ export function applyTextCurve(item, curvature) {
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
 
-    // Si ya es un grupo de letras curvas, trabajamos sobre él; si no, creamos la estructura [7]
+    // Si ya es un grupo de letras curvas, trabajamos sobre él; si no, creamos la estructura
     let glyphGroup;
     if (target.data.isCurvedGroup) {
         glyphGroup = target;
@@ -151,7 +151,7 @@ export function applyTextCurve(item, curvature) {
         glyphGroup.addChild(glyph);
     }
 
-    // Dibujar el tirador o punto azul de doblado de LightBurn en el extremo superior derecho del arco [7, 9]
+    // Dibujar el tirador o punto azul de doblado de LightBurn en el extremo superior derecho del arco
     drawBlueCurveHandle(glyphGroup);
 
     if (typeof window.updateSelectionBox === 'function') {
@@ -203,7 +203,7 @@ function drawBlueCurveHandle(group) {
     group.addChild(blueCircle);
 }
 
-// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas) [10-12]
+// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
 export function weldText(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -211,10 +211,12 @@ export function weldText(item) {
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
 
+    // Convertimos la tipografía a formas vectoriales individuales mediante exportSVG / importSVG de Paper.js
     const svgElement = target.exportSVG({ asString: false });
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
 
+        // Limpiar el lienzo de textos nativos y trabajar sobre sus siluetas vectoriales
         const childrenPaths = [];
         vectorGroup.children.forEach(child => {
             if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
@@ -233,6 +235,7 @@ export function weldText(item) {
             return;
         }
 
+        // Realizar la soldadura por unión booleana (Unite) de todas las curvas cursivas cruzadas
         let weldedPath = childrenPaths;
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
@@ -246,6 +249,7 @@ export function weldText(item) {
         weldedPath.strokeColor = target.strokeColor || null;
         weldedPath.data = { ...target.data, label: "Texto Soldado" };
 
+        // Insertar dentro del clipGroup original de corte SVG si aplica
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, weldedPath);
@@ -263,7 +267,7 @@ export function weldText(item) {
     });
 }
 
-// Alternar estilo de negrita (Bold) con soporte para grupos de texto curvo [2, 13]
+// Alternar estilo de negrita (Bold) con soporte para grupos de texto curvo
 export function toggleBold(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -293,29 +297,29 @@ export function toggleBold(item) {
     }
 }
 
-// Alternar estilo de cursiva (Italic) con soporte para grupos de texto curvo [2, 13]
+// Alternar estilo de cursiva (Italic / Inclinado) matemático con soporte para grupos de texto curvo (Estilo LightBurn)
 export function toggleItalic(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
-        if (target instanceof paper.PointText) {
-            const isItalic = target.fontStyle === 'italic';
-            target.fontStyle = isItalic ? 'normal' : 'italic';
-        } else if (target instanceof paper.Group) {
-            let anyItalic = false;
-            target.children.forEach(child => {
-                if (child instanceof paper.PointText && child.fontStyle === 'italic') {
-                    anyItalic = true;
-                }
-            });
-            target.children.forEach(child => {
-                if (child instanceof paper.PointText) {
-                    child.fontStyle = anyItalic ? 'normal' : 'italic';
-                }
-            });
+        target.data = target.data || {};
+        const isItalic = target.data.isItalicSkewed || false;
+        
+        // Ángulo de inclinación matemático (shear factor en el eje X, idéntico a LightBurn / Illustrator)
+        const slantAngle = 0.22; 
+
+        if (isItalic) {
+            // Quitar inclinación de forma segura
+            target.shear(-slantAngle, 0, target.bounds.bottomCenter);
+            target.data.isItalicSkewed = false;
+        } else {
+            // Aplicar inclinación
+            target.shear(slantAngle, 0, target.bounds.bottomCenter);
+            target.data.isItalicSkewed = true;
         }
+
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(item);
         }
@@ -363,4 +367,3 @@ export function toggleUnderline(item) {
     }
     paper.view.update();
 }
-
