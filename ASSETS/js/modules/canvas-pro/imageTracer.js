@@ -1,150 +1,765 @@
-//=====================================================
-// EKKO Studio - Contextual Menu (Canvas-Pro)
-// Versión Simplificada: Sin Trazado de Imagen / Con Enmascaramiento Seguro
-//=====================================================
 
-function removeOverlapTab() {
-    const btnSubtract = document.getElementById('btnCtxSubtract');
-    if (btnSubtract) {
-        btnSubtract.style.display = 'none';
-        btnSubtract.remove();
+// --- ALGORITMO DE SEGUIMIENTO DE CONTORNOS (Moore-Neighbor Tracing con Curvas) ---
+export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrace = false) {
+  const width = imageData.width;
+  const height = imageData.height;
+  const data = imageData.data;
+  
+  const binaryGrid = new Uint8Array(width * height);
+  const grayValues = new Uint8Array(width * height);
+  const alphaValues = new Uint8Array(width * height);
+
+  // 1. Extraer valores de gris y transparencia
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    const gray = 0.299 * r + 0.587 * g + 0.114 * b;
+    const idx = i / 4;
+    grayValues[idx] = Math.round(gray);
+    alphaValues[idx] = a;
+  }
+
+  // 2. Aplicar binarización (Estándar o Adaptativa por Croquis)
+  if (sketchTrace) {
+    // Algoritmo de Umbral Adaptativo por Imagen Integral (Sketch Trace de LightBurn)
+    const windowSize = 15;
+    const halfWin = Math.floor(windowSize / 2);
+    const integral = new Uint32Array(width * height);
+
+    // Calcular imagen integral para consulta O(1) de promedio local
+    for (let y = 0; y < height; y++) {
+      let rowSum = 0;
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        rowSum += grayValues[idx];
+        integral[idx] = rowSum + (y > 0 ? integral[(y - 1) * width + x] : 0);
+      }
     }
-    const allElements = document.querySelectorAll('button, div, span, a, p, li');
-    allElements.forEach(el => {
-        if (el.textContent) {
-            const normalizedText = el.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-            if (normalizedText.includes('EVITAR SUPERPOSICION')) {
-                el.remove();
-            }
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        
+        // HIGIENE: Forzar bordes externos de la imagen a 0 para no trazar el marco rectangular
+        if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
+          binaryGrid[idx] = 0;
+          continue;
         }
-    });
-}
 
-export function initContextualMenu() {
-    const toolbar = document.getElementById('contextual-toolbar');
-    if (!toolbar) return;
-
-    removeOverlapTab();
-
-    const setClick = (id, fn) => {
-        const el = document.getElementById(id);
-        if (el) el.onclick = fn;
-    };
-
-    // --- ACCIONES DE TEXTO ---
-    setClick('btnCtxItalic', () => {
-        if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
-            const isItalic = window.selectedItem.fontStyle === 'italic';
-            window.selectedItem.fontStyle = isItalic ? 'normal' : 'italic';
-            paper.view.update();
+        if (alphaValues[idx] <= 50) {
+          binaryGrid[idx] = 0;
+          continue;
         }
-    });
 
-    // --- ACCIONES DE IMAGEN ---
-    setClick('btnCtxFlipH', () => {
-        if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup 
-                ? window.selectedItem.children.find(c => !c.clipMask) 
-                : window.selectedItem;
-            if (target && target instanceof paper.Raster) {
-                target.scale(-1, 1);
-                paper.view.update();
-            }
+        const x0 = Math.max(0, x - halfWin);
+        const x1 = Math.min(width - 1, x + halfWin);
+        const y0 = Math.max(0, y - halfWin);
+        const y1 = Math.min(height - 1, y + halfWin);
+        const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+
+        const sum = integral[y1 * width + x1] - 
+                    (x0 > 0 ? integral[y1 * width + (x0 - 1)] : 0) - 
+                    (y0 > 0 ? integral[(y0 - 1) * width + x1] : 0) + 
+                    (x0 > 0 && y0 > 0 ? integral[(y0 - 1) * width + (x0 - 1)] : 0);
+
+        const localAverage = sum / area;
+        const gray = grayValues[idx];
+
+        // Ajustar sensibilidad adaptativa con el valor del umbral
+        const offset = (128 - threshold) * 0.4;
+        binaryGrid[idx] = (gray < localAverage - offset && gray >= cutoff) ? 1 : 0;
+      }
+    }
+  } else {
+    // Binarización estándar por rango entre Corte (Cutoff) y Umbral (Threshold)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        
+        // HIGIENE: Forzar bordes externos de la imagen a 0 para no trazar el marco rectangular
+        if (x === 0 || x === width - 1 || y === 0 || y === height - 1) {
+          binaryGrid[idx] = 0;
+          continue;
         }
-    });
 
-    setClick('btnCtxFlipV', () => {
-        if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup 
-                ? window.selectedItem.children.find(c => !c.clipMask) 
-                : window.selectedItem;
-            if (target && target instanceof paper.Raster) {
-                target.scale(1, -1);
-                paper.view.update();
-            }
+        const gray = grayValues[idx];
+        const a = alphaValues[idx];
+        binaryGrid[idx] = (a > 50 && gray >= cutoff && gray < threshold) ? 1 : 0;
+      }
+    }
+  }
+
+  // 3. Seguimiento de contornos mediante Moore-Neighbor
+  const visited = new Uint8Array(width * height);
+  const contours = [];
+
+  const dirs = [
+    { x: 0, y: -1 }, // Arriba
+    { x: 1, y: -1 }, // Arriba-Derecha
+    { x: 1, y: 0 },  // Derecha
+    { x: 1, y: 1 },  // Abajo-Derecha
+    { x: 0, y: 1 },  // Abajo
+    { x: -1, y: 1 }, // Abajo-Izquierda
+    { x: -1, y: 0 }, // Izquierda
+    { x: -1, y: -1 } // Arriba-Izquierda
+  ];
+
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const idx = y * width + x;
+      if (binaryGrid[idx] === 1 && !visited[idx]) {
+        let isBoundary = false;
+        for (let d = 0; d < 8; d++) {
+          const nx = x + dirs[d].x;
+          const ny = y + dirs[d].y;
+          if (binaryGrid[ny * width + nx] === 0) {
+            isBoundary = true;
+            break;
+          }
         }
-    });
 
-    // Sliders de Brillo y Contraste
-    const briSlider = document.getElementById('ctxBrightness');
-    if (briSlider) {
-        briSlider.oninput = () => {
-            if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup 
-                    ? window.selectedItem.children.find(c => !c.clipMask) 
-                    : window.selectedItem;
-                if (target && target instanceof paper.Raster) {
-                    target.data = target.data || {};
-                    target.data.brightness = parseFloat(briSlider.value);
+        if (isBoundary) {
+          const points = [];
+          let currX = x;
+          let currY = y;
+          let startX = x;
+          let startY = y;
+          
+          let backDir = 6;
+          let finished = false;
+          let iterations = 0;
+          const maxIterations = 8000;
+
+          while (!finished && iterations < maxIterations) {
+            points.push({ x: currX, y: currY });
+            visited[currY * width + currX] = 1;
+
+            let foundNext = false;
+            let scanDir = (backDir + 1) % 8;
+
+            for (let i = 0; i < 8; i++) {
+              const checkDir = (scanDir + i) % 8;
+              const nx = currX + dirs[checkDir].x;
+              const ny = currY + dirs[checkDir].y;
+
+              if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                if (binaryGrid[ny * width + nx] === 1) {
+                  currX = nx;
+                  currY = ny;
+                  backDir = (checkDir + 4) % 8;
+                  foundNext = true;
+                  break;
                 }
+              }
             }
-        };
+
+            if (!foundNext || (currX === startX && currY === startY)) {
+              finished = true;
+            }
+            iterations++;
+          }
+
+          if (points.length > 3) {
+            contours.push(points);
+          }
+        }
+      }
     }
+  }
+
+  // AUDITORÍA DE GARANTÍA: Filtrar el contorno del recuadro exterior rectangular de la imagen.
+  // Cualquier contorno que coincida casi exactamente con los límites del canvas del archivo
+  // (es decir, que tenga un ancho y alto de más del 95% del canvas y empiece cerca de x=1, y=1)
+  // es el límite físico del archivo de imagen y debe ser ignorado.
+  const filteredContours = contours.filter(points => {
+    let minX = width, maxX = 0, minY = height, maxY = 0;
+    points.forEach(p => {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    });
+
+    const isOuterFrame = (minX <= 3 && maxX >= width - 4 && minY <= 3 && maxY >= height - 4);
+    return !isOuterFrame;
+  });
+
+  return filteredContours;
 }
 
-export function updateContextualMenu(item) {
-    const toolbar = document.getElementById('contextual-toolbar');
-    if (!toolbar) return;
+// --- PREVISUALIZACIÓN DE VECTORES EN TIEMPO REAL ---
+let tracePreviewGroup = null;
 
-    removeOverlapTab();
+export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false) {
+  if (tracePreviewGroup) {
+    tracePreviewGroup.remove();
+    tracePreviewGroup = null;
+  }
 
-    if (!item || (item.data && item.data.mockup)) {
-        toolbar.classList.remove('active');
-        return;
+  tracePreviewGroup = new paper.Group();
+  tracePreviewGroup.data = { isSelectionBox: true, isTracePreview: true };
+
+  try {
+    const imgSource = raster.canvas || raster.image;
+    if (!imgSource) return;
+
+    const width = raster.width || imgSource.width;
+    const height = raster.height || imgSource.height;
+
+    if (width <= 0 || height <= 0) return;
+
+    // RENDIMIENTO EXTREMO: Reducimos a 400px el canvas de lectura para velocidad instantánea
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = Math.min(width, 400);
+    previewCanvas.height = Math.round(height * (previewCanvas.width / width));
+
+    const pCtx = previewCanvas.getContext('2d');
+    pCtx.drawImage(imgSource, 0, 0, previewCanvas.width, previewCanvas.height);
+    const imageData = pCtx.getImageData(0, 0, previewCanvas.width, previewCanvas.height);
+
+    const contours = traceRasterContours(imageData, threshold, cutoff, sketchTrace);
+    const bounds = raster.bounds;
+
+    const temporaryPaths = [];
+
+    contours.forEach(points => {
+      const pathPoints = points.map(p => {
+        // MAESTRÍA DE COBERTURA: Mapeo exacto basado en el centro de píxel (p.x + 0.5)
+        const pctX = (p.x + 0.5) / previewCanvas.width;
+        const pctY = (p.y + 0.5) / previewCanvas.height;
+        
+        // Mapear a coordenadas locales de Paper.js (que van desde -raster.width/2 hasta raster.width/2)
+        const localPoint = new paper.Point(
+          (pctX - 0.5) * raster.width,
+          (pctY - 0.5) * raster.height
+        );
+        
+        // Convertir de local a global de forma matricial para máxima precisión sin gap
+        if (typeof raster.localToGlobal === 'function') {
+          return raster.localToGlobal(localPoint);
+        } else {
+          // Fallback robusto en caso de que Paper.js esté en un contexto limitado
+          return new paper.Point(
+            bounds.left + pctX * bounds.width,
+            bounds.top + pctY * bounds.height
+          );
+        }
+      });
+
+      const path = new paper.Path({
+        segments: pathPoints,
+        closed: true,
+        strokeColor: '#ff00ff', // Magenta de LightBurn
+        strokeWidth: 1.5 / paper.view.zoom,
+        insert: false
+      });
+
+      // Suavizado dinámico de curvas y optimización de nodos
+      if (smoothness > 0) {
+        const tolerance = (smoothness * 0.12) + (optimize * 0.25);
+        path.simplify(Math.max(0.01, tolerance));
+      }
+      
+      temporaryPaths.push(path);
+    });
+
+    // FILTRADO DE CONTORNO EXTERIOR (SILUETA):
+    if (onlyOuter && temporaryPaths.length > 1) {
+      temporaryPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+      
+      const filteredPaths = [];
+      temporaryPaths.forEach(path => {
+        const isNested = filteredPaths.some(parentPath => {
+          return parentPath.bounds.contains(path.bounds);
+        });
+        
+        if (!isNested) {
+          filteredPaths.push(path);
+        }
+      });
+      
+      filteredPaths.forEach(p => tracePreviewGroup.addChild(p));
+    } else {
+      temporaryPaths.forEach(p => tracePreviewGroup.addChild(p));
     }
 
-    toolbar.classList.add('active');
+    paper.project.activeLayer.addChild(tracePreviewGroup);
+    paper.view.update();
 
-    // Esconder todos los subgrupos de forma predeterminada
-    const hideSubgroup = (id) => {
-        const el = document.getElementById(id);
-        if (el) el.classList.add('hidden');
+  } catch (err) {
+    console.error("Error drawing live raster trace preview:", err);
+  }
+}
+
+// --- DIÁLOGO MODAL INTEGRAL DE TRAZADO (ESTILO LIGHTBURN) ---
+export function openImageTraceModal(raster) {
+  const styleId = 'image-trace-magenta-styles';
+  if (!document.getElementById(styleId)) {
+    const styleEl = document.createElement('style');
+    styleEl.id = styleId;
+    styleEl.textContent = `
+      .trace-overlay {
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: rgba(0, 0, 0, 0.25); /* Fondo sutil, permite ver el canvas debajo */
+        z-index: 10000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: system-ui, -apple-system, sans-serif;
+        pointer-events: none;
+      }
+      .trace-modal {
+        position: fixed;
+        background-color: #1e1e1e;
+        color: #f3f3f3;
+        border: 2px solid #ff00ff;
+        border-radius: 8px;
+        padding: 24px;
+        width: 440px;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+        z-index: 10001;
+        pointer-events: auto;
+        user-select: none;
+      }
+      .trace-modal h3 {
+        color: #ff00ff;
+        margin-top: 0;
+        margin-bottom: 8px;
+        font-size: 18px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: move;
+        user-select: none;
+      }
+      .trace-modal .drag-subtitle {
+        font-size: 11px;
+        color: #888888;
+        margin-bottom: 18px;
+        border-bottom: 2px solid rgba(255, 0, 255, 0.35);
+        padding-bottom: 6px;
+      }
+      .trace-modal .slider-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .trace-modal .slider-row label {
+        width: 140px;
+        font-size: 13px;
+        font-weight: bold;
+        color: #e2e8f0;
+      }
+      .trace-modal .slider-row input[type="range"] {
+        flex-grow: 1;
+        accent-color: #ff00ff;
+        cursor: pointer;
+        height: 5px;
+        border-radius: 2px;
+      }
+      .trace-modal .slider-row input[type="number"] {
+        width: 70px;
+        background-color: #2b2a2b;
+        border: 1px solid #ff00ff;
+        border-radius: 4px;
+        color: #ffffff;
+        padding: 4px;
+        font-size: 13px;
+        text-align: center;
+        font-weight: bold;
+      }
+      .trace-modal .slider-row input[type="number"]:focus {
+        outline: none;
+        box-shadow: 0 0 5px #ff00ff;
+      }
+      .trace-modal .options-box {
+        background-color: #252525;
+        border-radius: 6px;
+        padding: 14px;
+        margin-bottom: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.05);
+      }
+      .trace-modal .checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        cursor: pointer;
+        user-select: none;
+        color: #f1f5f9;
+      }
+      .trace-modal .checkbox-label input[type="checkbox"] {
+        accent-color: #ff00ff;
+        cursor: pointer;
+        width: 16px;
+        height: 16px;
+      }
+      .trace-modal .info-text {
+        font-size: 11px;
+        color: #a0aec0;
+        background-color: #2b2a2b;
+        padding: 8px 12px;
+        border-radius: 4px;
+        border-left: 3px solid #ff00ff;
+        margin-bottom: 15px;
+        line-height: 1.4;
+      }
+      .trace-modal .btn-row {
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        margin-top: 15px;
+      }
+      .trace-modal button {
+        padding: 8px 20px;
+        border-radius: 4px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        transition: all 0.2s;
+        border: none;
+        outline: none;
+      }
+      .trace-modal .btn-cancel {
+        background-color: #3b3a3b;
+        color: #e6e6e6;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .trace-modal .btn-cancel:hover {
+        background-color: #4a4a4b;
+      }
+      .trace-modal .btn-accept {
+        background-color: #ff00ff;
+        color: #ffffff;
+        box-shadow: 0 2px 8px rgba(255, 0, 255, 0.4);
+      }
+      .trace-modal .btn-accept:hover {
+        background-color: #d900d9;
+        transform: scale(1.02);
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+
+  const originalOpacity = raster.opacity;
+  const overlay = document.createElement('div');
+  overlay.className = 'trace-overlay';
+
+  const modal = document.createElement('div');
+  modal.className = 'trace-modal';
+  modal.innerHTML = `
+    <h3>✨ Trazar Imagen</h3>
+    <div class="drag-subtitle">↔️ Haz clic sostenido aquí para arrastrar este panel</div>
+    
+    <div class="slider-row" id="rowThreshold">
+      <label for="traceThreshold" id="lblThreshold">Umbral (Threshold):</label>
+      <input type="range" id="traceThreshold" min="0" max="255" value="128">
+      <input type="number" id="traceThresholdNum" min="0" max="255" value="128">
+    </div>
+
+    <div class="slider-row" id="rowCutoff">
+      <label for="traceCutoff">Corte (Cutoff):</label>
+      <input type="range" id="traceCutoff" min="0" max="240" value="0">
+      <input type="number" id="traceCutoffNum" min="0" max="240" value="0">
+    </div>
+
+    <div class="slider-row">
+      <label for="traceSmooth">Suavizado (Smooth):</label>
+      <input type="range" id="traceSmooth" min="0.0" max="1.333" step="0.01" value="1.0">
+      <input type="number" id="traceSmoothNum" min="0.0" max="1.333" step="0.01" value="1.0">
+    </div>
+
+    <div class="slider-row">
+      <label for="traceOptimize">Optimizar (Optimize):</label>
+      <input type="range" id="traceOptimize" min="0.0" max="1.0" step="0.01" value="0.2">
+      <input type="number" id="traceOptimizeNum" min="0.0" max="1.0" step="0.01" value="0.2">
+    </div>
+
+    <div class="options-box">
+      <label class="checkbox-label" title="Ignorar trazados interiores para siluetas limpias de personas/objetos">
+        <input type="checkbox" id="traceOnlyOuter">
+        <b>Trazar Solo Contorno Exterior (Silueta)</b>
+      </label>
+      <label class="checkbox-label" title="Para firmas o manuscritos en papel. Para fotos normales, déjalo desactivado.">
+        <input type="checkbox" id="traceSketch">
+        Activar Trazado de Croquis (Sketch Trace)
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="traceFadeImage" checked>
+        Desvanecer Imagen Original (25%)
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="traceDeleteImage">
+        Eliminar Imagen Original al Terminar
+      </label>
+    </div>
+
+    <div class="info-text" id="traceGuideText">
+      💡 <b>Guía de Trazado:</b> Para fotos con personas y fondo, activa <b>"Solo Contorno Exterior"</b> para extraer una silueta limpia. Usa el <b>Umbral</b> para refinar la silueta.
+    </div>
+
+    <div class="btn-row">
+      <button class="btn-cancel" id="btnTraceCancel">Cancelar</button>
+      <button class="btn-accept" id="btnTraceAccept">Aceptar</button>
+    </div>
+  `;
+
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+
+  // --- COMPORTAMIENTO DRAGGABLE (ARRISTRABLE) DE LA VENTANA MODAL ---
+  const dragHeader = modal.querySelector('.drag-subtitle');
+  const mainHeader = modal.querySelector('h3');
+  let isDragging = false;
+  let startX = 0;
+  let startY = 0;
+  let initialLeft = 0;
+  let initialTop = 0;
+
+  const initiateDrag = (e) => {
+    if (e.button !== 0) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+
+    isDragging = true;
+    const rect = modal.getBoundingClientRect();
+    
+    startX = e.clientX;
+    startY = e.clientY;
+    initialLeft = rect.left;
+    initialTop = rect.top;
+
+    modal.style.transform = 'none';
+    modal.style.margin = '0';
+    modal.style.left = initialLeft + 'px';
+    modal.style.top = initialTop + 'px';
+
+    e.preventDefault();
+  };
+
+  dragHeader.addEventListener('mousedown', initiateDrag);
+  mainHeader.addEventListener('mousedown', initiateDrag);
+
+  const handleMouseMove = function(e) {
+    if (!isDragging) return;
+    
+    const deltaX = e.clientX - startX;
+    const deltaY = e.clientY - startY;
+
+    let newX = initialLeft + deltaX;
+    let newY = initialTop + deltaY;
+
+    const maxX = window.innerWidth - modal.offsetWidth;
+    const maxY = window.innerHeight - modal.offsetHeight;
+
+    newX = Math.max(0, Math.min(newX, maxX));
+    newY = Math.max(0, Math.min(newY, maxY));
+
+    modal.style.left = newX + 'px';
+    modal.style.top = newY + 'px';
+  };
+
+  const handleMouseUp = function() {
+    isDragging = false;
+  };
+
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', handleMouseUp);
+
+  const outerCheck = modal.querySelector('#traceOnlyOuter');
+  const sketchCheck = modal.querySelector('#traceSketch');
+  const fadeCheck = modal.querySelector('#traceFadeImage');
+  const deleteCheck = modal.querySelector('#traceDeleteImage');
+  const btnCancel = modal.querySelector('#btnTraceCancel');
+  const btnAccept = modal.querySelector('#btnTraceAccept');
+  
+  const lblThreshold = modal.querySelector('#lblThreshold');
+  const rowCutoff = modal.querySelector('#rowCutoff');
+  const guideText = modal.querySelector('#traceGuideText');
+
+  // Guardar estado de parámetros
+  const currentParams = {
+    threshold: 128,
+    cutoff: 0,
+    smoothness: 1.0,
+    optimize: 0.2,
+    sketchTrace: false,
+    onlyOuter: false
+  };
+
+  // Debounce para previsualización ultra fluida
+  let traceTimeout = null;
+  function triggerTraceUpdate() {
+    if (traceTimeout) clearTimeout(traceTimeout);
+    traceTimeout = setTimeout(() => {
+      runTracePreview(
+        raster,
+        currentParams.threshold,
+        currentParams.cutoff,
+        currentParams.smoothness,
+        currentParams.optimize,
+        currentParams.sketchTrace,
+        currentParams.onlyOuter
+      );
+    }, 45);
+  }
+
+  // Registrador interactivo de controles en 4-Vías (Rango, Rueda, Teclas, Directo)
+  function registerInteractiveControl(sliderId, numId, min, max, step, key, initialVal) {
+    const slider = modal.querySelector('#' + sliderId);
+    const numInput = modal.querySelector('#' + numId);
+
+    function setValue(val, skipUpdate = false) {
+      let parsed = parseFloat(val);
+      if (isNaN(parsed)) return;
+      parsed = Math.max(min, Math.min(max, parsed));
+      if (step >= 1) {
+        parsed = Math.round(parsed);
+      } else {
+        parsed = parseFloat(parsed.toFixed(3));
+      }
+      slider.value = parsed;
+      numInput.value = parsed;
+      currentParams[key] = parsed;
+      if (!skipUpdate) {
+        triggerTraceUpdate();
+      }
+    }
+
+    slider.oninput = (e) => setValue(e.target.value);
+    
+    numInput.oninput = (e) => {
+      if (e.target.value !== '') {
+        setValue(e.target.value);
+      }
     };
-    hideSubgroup('ctxTextControls');
-    hideSubgroup('ctxImageControls');
-    hideSubgroup('ctxVectorControls');
 
-    // Deshabilitar y ocultar físicamente cualquier botón de trazado huérfano
-    const btnTrace = document.getElementById('btnCtxTrace');
-    if (btnTrace) {
-        btnTrace.style.display = 'none';
-        btnTrace.remove();
+    const handleWheel = (e) => {
+      e.preventDefault();
+      const currentVal = parseFloat(slider.value);
+      const direction = e.deltaY < 0 ? 1 : -1;
+      setValue(currentVal + direction * step);
+    };
+    slider.onwheel = handleWheel;
+    numInput.onwheel = handleWheel;
+
+    const handleKeys = (e) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        setValue(parseFloat(slider.value) + step);
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setValue(parseFloat(slider.value) - step);
+      }
+    };
+    slider.addEventListener('keydown', handleKeys);
+    numInput.addEventListener('keydown', handleKeys);
+
+    setValue(initialVal, true);
+  }
+
+  // Inicializar cada uno de los parámetros de control interactivo de LightBurn
+  registerInteractiveControl('traceThreshold', 'traceThresholdNum', 0, 255, 1, 'threshold', 128);
+  registerInteractiveControl('traceCutoff', 'traceCutoffNum', 0, 240, 1, 'cutoff', 0);
+  registerInteractiveControl('traceSmooth', 'traceSmoothNum', 0.0, 1.333, 0.01, 'smoothness', 1.0);
+  registerInteractiveControl('traceOptimize', 'traceOptimizeNum', 0.0, 1.0, 0.01, 'optimize', 0.2);
+
+  // Switch de Trazado de Croquis vs Estándar para evitar confusiones de parámetros
+  sketchCheck.onchange = () => {
+    currentParams.sketchTrace = sketchCheck.checked;
+    if (sketchCheck.checked) {
+      lblThreshold.textContent = "Sensibilidad:";
+      rowCutoff.style.opacity = '0.3';
+      rowCutoff.style.pointerEvents = 'none';
+      guideText.innerHTML = "📝 <b>Modo Croquis Activo:</b> Diseñado exclusivamente para firmas o recetas manuscritas. La 'Sensibilidad' compensa iluminación dispareja.";
+    } else {
+      lblThreshold.textContent = "Umbral (Threshold):";
+      rowCutoff.style.opacity = '1';
+      rowCutoff.style.pointerEvents = 'auto';
+      guideText.innerHTML = "💡 <b>Guía de Trazado:</b> Para fotos con personas y fondo, activa <b>'Solo Contorno Exterior'</b> para extraer una silueta limpia. Ajusta el <b>Umbral</b> para refinar.";
     }
+    triggerTraceUpdate();
+  };
 
-    const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-    if (!target) return;
+  outerCheck.onchange = () => {
+    currentParams.onlyOuter = outerCheck.checked;
+    triggerTraceUpdate();
+  };
 
-    // Habilitar subgrupos según el objeto seleccionado
-    if (target instanceof paper.PointText) {
-        const textControls = document.getElementById('ctxTextControls');
-        if (textControls) textControls.classList.remove('hidden');
-    } else if (target instanceof paper.Raster) {
-        const imageControls = document.getElementById('ctxImageControls');
-        if (imageControls) imageControls.classList.remove('hidden');
-    } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
-        const vectorControls = document.getElementById('ctxVectorControls');
-        if (vectorControls) vectorControls.classList.remove('hidden');
+  const handleFadeToggle = () => {
+    if (fadeCheck.checked) {
+      raster.opacity = 0.25;
+    } else {
+      raster.opacity = originalOpacity;
     }
+    paper.view.update();
+  };
+  fadeCheck.onchange = handleFadeToggle;
 
-    // --- POSICIONAMIENTO GEOMÉTRICO (Canva Style) ---
-    const bounds = item.bounds;
-    if (!bounds) return;
+  handleFadeToggle();
+  triggerTraceUpdate();
 
-    const viewPoint = paper.view.projectToView(bounds.topCenter);
-    const toolbarWidth = toolbar.offsetWidth || 350;
-    const toolbarHeight = toolbar.offsetHeight || 45;
+  const closeModal = () => {
+    raster.opacity = originalOpacity;
+    if (traceTimeout) clearTimeout(traceTimeout);
+    if (tracePreviewGroup) {
+      tracePreviewGroup.remove();
+      tracePreviewGroup = null;
+    }
+    
+    dragHeader.removeEventListener('mousedown', initiateDrag);
+    mainHeader.removeEventListener('mousedown', initiateDrag);
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+    
+    overlay.remove();
+    paper.view.update();
+  };
 
-    const posX = viewPoint.x - (toolbarWidth / 2);
-    const posY = viewPoint.y - toolbarHeight - 20;
+  btnCancel.onclick = closeModal;
 
-    const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
-    const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
+  btnAccept.onclick = () => {
+    if (tracePreviewGroup && tracePreviewGroup.children.length > 0) {
+      if (typeof window.saveHistory === 'function') {
+        window.saveHistory();
+      }
 
-    toolbar.style.left = `${Math.max(10, Math.min(posX, maxLeft))}px`;
-    toolbar.style.top = `${Math.max(10, Math.min(posY, maxTop))}px`;
-}
+      const committedVectorPaths = [];
+      tracePreviewGroup.children.forEach(p => {
+        const clonedPath = p.clone();
+        clonedPath.strokeColor = new paper.Color('#000000');
+        clonedPath.strokeWidth = 1.0;
+        clonedPath.fillColor = null;
+        clonedPath.data = { locked: false, label: "Trazado" };
+        paper.project.activeLayer.addChild(clonedPath);
+        committedVectorPaths.push(clonedPath);
+      });
 
-export function hideContextualMenu() {
-    const toolbar = document.getElementById('contextual-toolbar');
-    if (toolbar) toolbar.classList.remove('active');
+      const finalVectorGroup = new paper.Group(committedVectorPaths);
+      finalVectorGroup.data = { 
+        locked: false, 
+        label: "Imagen Vectorizada (" + (raster.data?.label || "Trazado") + ")" 
+      };
+
+      if (window.currentMockup) {
+        finalVectorGroup.insertBelow(window.currentMockup);
+      }
+
+      if (deleteCheck.checked) {
+        raster.remove();
+        window.deselectItem();
+      }
+
+      window.selectItem(finalVectorGroup);
+      paper.view.update();
+    }
+    closeModal();
+  };
 }
