@@ -316,7 +316,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- CARGA Y SINCRONIZACIÓN DE HISTORIAL DE ESCENAS ---
+    // --- HISTORIAL DE ESCENAS POR PRODUCTO/SUPERFICIE ---
     function saveCurrentScene() {
         if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
         const idx = toolState.currentSurface || 0;
@@ -531,7 +531,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA) ---
+    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA Y DEFENSIVA) ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -542,8 +542,8 @@ window.addEventListener("DOMContentLoaded", () => {
             btn.onclick = () => {
                 saveCurrentScene();
                 toolState.currentCategory = index;
-                toolState.currentProduct = null;
-                toolState.currentSurface = 0;
+                toolState.currentProduct = null; // Evitar que arrastre el producto de otra pestaña
+                toolState.currentSurface = 0;   // Reiniciar caras
                 renderCategories();
                 renderProducts(index);
             };
@@ -554,21 +554,25 @@ window.addEventListener("DOMContentLoaded", () => {
     function renderProducts(categoryIndex, activeProduct = null) {
         if (ui.productTabs) ui.productTabs.innerHTML = "";
         if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
+        
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group || !group.productos || group.productos.length === 0) return;
 
-        // Si no hay un producto activo marcado, tomamos el actual de la categoría o el primero de la lista
+        // 1. Si no hay un producto activo especificado, intentamos usar el actual,
+        // o tomamos estrictamente el primer OBJETO de la lista (No el arreglo entero)
         if (!activeProduct) {
-            activeProduct = toolState.currentProduct;
-            const belongsToCategory = group.productos.some(p => activeProduct && p.id === activeProduct.id);
-            if (!belongsToCategory) {
-                activeProduct = group.productos;
+            const current = toolState.currentProduct;
+            const belongsToCategory = group.productos.some(p => current && p.id === current.id);
+            if (belongsToCategory) {
+                activeProduct = current;
+            } else {
+                activeProduct = group.productos; // ¡CORREGIDO: ASIGNACIÓN DE OBJETO FIJA!
             }
         }
 
         toolState.currentProduct = activeProduct;
 
-        // Renderizar los botones de la lista de productos
+        // 2. Renderizar los botones de las pestañas de productos
         group.productos.forEach((prod) => {
             if (ui.productTabs) {
                 const btn = document.createElement("button");
@@ -578,31 +582,31 @@ window.addEventListener("DOMContentLoaded", () => {
                 btn.onclick = () => {
                     saveCurrentScene();
                     toolState.currentProduct = prod;
-                    toolState.currentSurface = 0;
+                    toolState.currentSurface = 0; // Al cambiar de producto, siempre vamos a la cara 0 (Frente)
                     renderProducts(categoryIndex, prod);
-                    renderSurfaces(prod);
-                    if (prod.superficies && prod.superficies.length > 0) {
-                        loadSurfaceScene(prod, prod.superficies); // Cara 0 individual de forma segura
-                    }
                 };
                 ui.productTabs.appendChild(btn);
             }
         });
 
-        // Asegurar la carga de las superficies del producto activo
+        // 3. Renderizar caras del producto activo y cargar la escena en el canvas
         if (activeProduct) {
             renderSurfaces(activeProduct);
-            const currentMockupPath = window.currentMockup?.data?.svgPath;
-            const targetPath = activeProduct.superficies[toolState.currentSurface]?.svg;
-            if (currentMockupPath !== targetPath && activeProduct.superficies && activeProduct.superficies.length > 0) {
-                loadSurfaceScene(activeProduct, activeProduct.superficies[toolState.currentSurface]);
+            
+            const surfaces = activeProduct.superficies || [];
+            const activeSurf = surfaces[toolState.currentSurface] || surfaces;
+            if (activeSurf) {
+                const currentMockupPath = window.currentMockup?.data?.svgPath;
+                if (currentMockupPath !== activeSurf.svg) {
+                    loadSurfaceScene(activeProduct, activeSurf);
+                }
             }
         }
     }
 
     function renderSurfacesOnly(product) {
         if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
-        if (!product || !product.superficies) return;
+        if (!product || !product.superficies || product.superficies.length === 0) return;
         product.superficies.forEach((surf, index) => {
             if (ui.surfaceTabs) {
                 const btn = document.createElement("button");
@@ -748,7 +752,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 window.selectItem(selectable);
                 window.dragging = true;
 
-                // SI ES MÁSCARA: Calculamos el offset relativo a la IMAGEN interna, no al grupo, para arrastrarla dentro del marco estático
+                // SI ES MÁSCARA: Calculamos el offset relativo a la IMAGEN interna, no al grupo entero, para arrastrarla dentro del marco estático
                 if (selectable.data && selectable.data.clipGroup) {
                     const content = selectable.children.find(c => !c.clipMask);
                     window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
@@ -826,7 +830,6 @@ window.addEventListener("DOMContentLoaded", () => {
                     content.position = event.point.subtract(window.dragOffset);
                 }
             } else {
-                // Si es un objeto convencional (Texto, etc.), se mueve en su totalidad
                 window.selectedItem.position = event.point.subtract(window.dragOffset);
             }
 
