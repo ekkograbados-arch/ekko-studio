@@ -7,6 +7,13 @@ import {
     sendImageBackward, 
     applyBrightnessContrast 
 } from "./imageToolbar.js";
+import {
+    loadDynamicFonts,
+    applyTextCurve,
+    weldText,
+    toggleBold,
+    toggleUnderline
+} from "./textToolbar.js";
 
 // --- REMOVE OVERLAP TAB (EVITAR SUPERPOSICION) ---
 function removeOverlapTab() {
@@ -26,18 +33,70 @@ function removeOverlapTab() {
     });
 }
 
+// Cargar las fuentes dinámicas del sistema y poblar los dropdowns de forma ordenada
+async function populateFontDropdowns() {
+    const fonts = await loadDynamicFonts();
+    const dropdowns = [
+        document.getElementById('ctxFontSelector'),
+        document.getElementById('fontSelector')
+    ];
+
+    dropdowns.forEach(dropdown => {
+        if (!dropdown) return;
+        dropdown.innerHTML = ""; // Limpiar hardcodeados
+
+        fonts.forEach(font => {
+            const opt = document.createElement('option');
+            opt.value = font.family;
+            opt.textContent = font.name;
+            dropdown.appendChild(opt);
+        });
+    });
+
+    // Actualizar también la galería lateral si existe
+    renderSidebarFontGallery(fonts);
+}
+
+function renderSidebarFontGallery(fonts) {
+    const list = document.getElementById("fontList");
+    if (!list) return;
+    list.innerHTML = "";
+
+    fonts.forEach(font => {
+        const item = document.createElement("div");
+        item.className = "font-item";
+        item.innerHTML = `<div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div><div class="font-name">${font.name}</div>`;
+        item.onclick = () => {
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup 
+                    ? window.selectedItem.children.find(c => !c.clipMask) 
+                    : window.selectedItem;
+
+                if (target) {
+                    if (typeof window.saveHistory === 'function') window.saveHistory();
+                    target.fontFamily = font.family;
+                    window.updateSelectionBox(window.selectedItem);
+                    paper.view.update();
+                }
+            }
+        };
+        list.appendChild(item);
+    });
+}
+
 export function initContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
 
     removeOverlapTab();
+    populateFontDropdowns();
 
     const setClick = (id, fn) => {
         const el = document.getElementById(id);
         if (el) el.onclick = fn;
     };
 
-    // --- 1. ACCIONES GENERALES RECONSTRUIDAS ---
+    // --- 1. ACCIONES GENERALES ---
     setClick('btnCtxDelete', () => {
         if (window.selectedItem) {
             deleteImage(window.selectedItem);
@@ -63,7 +122,7 @@ export function initContextualMenu() {
         }
     });
 
-    // --- 2. ACCIONES DE TEXTO ---
+    // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
         fontSelector.onchange = () => {
@@ -71,21 +130,30 @@ export function initContextualMenu() {
                 const target = window.selectedItem.data?.clipGroup 
                     ? window.selectedItem.children.find(c => !c.clipMask) 
                     : window.selectedItem;
-                if (target && target instanceof paper.PointText) {
+                if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
                     target.fontFamily = fontSelector.value;
+                    if (typeof window.updateSelectionBox === 'function') {
+                        window.updateSelectionBox(window.selectedItem);
+                    }
                     paper.view.update();
                 }
             }
         };
     }
 
+    setClick('btnCtxBold', () => {
+        if (window.selectedItem) {
+            toggleBold(window.selectedItem);
+        }
+    });
+
     setClick('btnCtxItalic', () => {
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup 
                 ? window.selectedItem.children.find(c => !c.clipMask) 
                 : window.selectedItem;
-            if (target && target instanceof paper.PointText) {
+            if (target) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 const isItalic = target.fontStyle === 'italic';
                 target.fontStyle = isItalic ? 'normal' : 'italic';
@@ -93,6 +161,29 @@ export function initContextualMenu() {
             }
         }
     });
+
+    setClick('btnCtxUnderline', () => {
+        if (window.selectedItem) {
+            toggleUnderline(window.selectedItem);
+        }
+    });
+
+    setClick('btnCtxWeld', () => {
+        if (window.selectedItem) {
+            weldText(window.selectedItem);
+        }
+    });
+
+    // Control Deslizante de Curvatura de Texto (Estilo LightBurn)
+    const curveSlider = document.getElementById('ctxTextCurve');
+    if (curveSlider) {
+        curveSlider.oninput = () => {
+            if (window.selectedItem) {
+                const val = parseFloat(curveSlider.value);
+                applyTextCurve(window.selectedItem, val);
+            }
+        };
+    }
 
     // --- 3. ACCIONES DE IMAGEN ---
     setClick('btnCtxFlipH', () => {
@@ -125,7 +216,6 @@ export function initContextualMenu() {
     const bindScaleDown = () => { if (window.selectedItem) scaleImage(window.selectedItem, 0.9); };
     const bindScaleUp = () => { if (window.selectedItem) scaleImage(window.selectedItem, 1.1); };
 
-    // Soporte defensivo para múltiples nomenclaturas de IDs de botones
     setClick('btnCtxAchicar', bindScaleDown);
     setClick('btnCtxScaleDown', bindScaleDown);
     setClick('btnCtxShrink', bindScaleDown);
@@ -147,7 +237,6 @@ export function initContextualMenu() {
                 const bVal = briSlider ? parseFloat(briSlider.value) : 0;
                 const cVal = conSlider ? parseFloat(conSlider.value) : 0;
                 
-                // Almacenar el estado en el raster para que persista
                 target.data = target.data || {};
                 target.data.brightness = bVal;
                 target.data.contrast = cVal;
@@ -190,7 +279,7 @@ export function updateContextualMenu(item) {
     if (!target) return;
 
     // Mostrar subgrupos y restaurar valores de sliders e inputs según el objeto activo
-    if (target instanceof paper.PointText) {
+    if (target instanceof paper.PointText || target.data?.isCurvedGroup) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
         
@@ -198,11 +287,15 @@ export function updateContextualMenu(item) {
         if (fontSelector && target.fontFamily) {
             fontSelector.value = target.fontFamily;
         }
+
+        const curveSlider = document.getElementById('ctxTextCurve');
+        if (curveSlider) {
+            curveSlider.value = target.data?.curvature || 0;
+        }
     } else if (target instanceof paper.Raster) {
         const imageControls = document.getElementById('ctxImageControls');
         if (imageControls) imageControls.classList.remove('hidden');
 
-        // Sincroniza la posición de los sliders con el estado real de la imagen seleccionada
         const briSlider = document.getElementById('ctxBrightness');
         const conSlider = document.getElementById('ctxContrast');
         if (briSlider) briSlider.value = target.data?.brightness || 0;
