@@ -159,8 +159,3 @@ export function applyBrightnessContrast(raster, brightness, contrast) {
     raster.canvas = procCanvas;
     paper.view.update();
 }
-
-    procCtx.putImageData(imgData, 0, 0);
-    raster.canvas = procCanvas;
-    paper.view.update();
-}
