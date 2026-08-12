@@ -436,7 +436,8 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- ENMASCARAMIENTO AUTOMÁTICO AL CARGAR IMAGEN ---
+    // --- CARGADORES DE ARCHIVOS CON ENMASCARAMIENTO COMPATIBLE ---
+
     function addImageFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -480,8 +481,9 @@ window.addEventListener("DOMContentLoaded", () => {
                 item.scale(scale);
                 item.position = canvasBounds.center;
                 paper.project.activeLayer.addChild(item);
-                const selectable = window.getSelectableItem(item);
-                const objeto = window.clipItem(selectable);
+
+                // RECORTAR EL SVG AL CONTORNO DE FORMA SEGURA Y ASIGNAR GRUPO DE CLIP
+                const objeto = window.clipItem(item);
                 if (window.currentMockup) {
                     objeto.insertBelow(window.currentMockup);
                 }
@@ -492,6 +494,90 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsText(file);
     }
 
+    // --- GENERADOR UNIFICADO DE CÓDIGOS QR (ENMASCARADO INTEGRAL) ---
+    function addQRCode(text) {
+        if (!text) return;
+        saveHistory();
+
+        // 1. Intentar renderizar QR usando librería cliente si existe, o usar fallback Google API
+        if (typeof QRCode !== "undefined") {
+            const canvas = document.createElement("canvas");
+            QRCode.toCanvas(canvas, text, { width: 256, margin: 1 }, (error) => {
+                if (error) {
+                    console.error(error);
+                    fallbackQRVector(text);
+                } else {
+                    const raster = new paper.Raster(canvas);
+                    raster.onLoad = () => {
+                        raster.data = { locked: false, label: "QR: " + text };
+                        setupAndClipQR(raster);
+                    };
+                }
+            });
+        } else {
+            // Fallback 1: API de renderizado rápido en el cliente
+            const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=256x256&chl=${encodeURIComponent(text)}`;
+            const raster = new paper.Raster({ source: qrUrl });
+            raster.onLoad = () => {
+                raster.data = { locked: false, label: "QR: " + text };
+                setupAndClipQR(raster);
+            };
+            raster.onError = () => {
+                // Fallback 2: Renderizar un QR simbólico vectorial offline si falla todo
+                fallbackQRVector(text);
+            };
+        }
+    }
+
+    function setupAndClipQR(qrItem) {
+        const bounds = qrItem.bounds;
+        const canvasBounds = paper.view.bounds;
+        const scale = Math.min((canvasBounds.width * 0.35) / bounds.width, (canvasBounds.height * 0.35) / bounds.height);
+        qrItem.scale(scale);
+        qrItem.position = canvasBounds.center;
+
+        // RECORTAR EL QR AL CONTORNO EXACTO DEL PRODUCTO
+        const objeto = window.clipItem(qrItem);
+        if (window.currentMockup) {
+            objeto.insertBelow(window.currentMockup);
+        }
+        window.selectItem(objeto);
+        paper.view.update();
+    }
+
+    function fallbackQRVector(text) {
+        const qrGroup = new paper.Group();
+        qrGroup.data = { locked: false, label: "QR: " + text };
+
+        const eye = new paper.Path.Rectangle({
+            point: ,
+            size: [1],
+            strokeColor: 'black',
+            strokeWidth: 8,
+            fillColor: 'white'
+        });
+        const pupil = new paper.Path.Rectangle({ point: [2], size: [3], fillColor: 'black' });
+        qrGroup.addChild(eye);
+        qrGroup.addChild(pupil);
+
+        const eye2 = eye.clone(); eye2.position = new paper.Point(120, 20);
+        const pupil2 = pupil.clone(); pupil2.position = new paper.Point(120, 20);
+        qrGroup.addChild(eye2); qrGroup.addChild(pupil2);
+
+        const eye3 = eye.clone(); eye3.position = new paper.Point(20, 120);
+        const pupil3 = pupil.clone(); pupil3.position = new paper.Point(20, 120);
+        qrGroup.addChild(eye3); qrGroup.addChild(pupil3);
+
+        for (let i = 0; i < 15; i++) {
+            const px = Math.floor(Math.random() * 5) * 16 + 40;
+            const py = Math.floor(Math.random() * 5) * 16 + 40;
+            const pix = new paper.Path.Rectangle({ point: [px, py], size: [2], fillColor: 'black' });
+            qrGroup.addChild(pix);
+        }
+        setupAndClipQR(qrGroup);
+    }
+
+    // --- ENLACE SEGURO DE FUENTES ---
     function applySelectedFont() {
         if (!window.selectedItem) return;
         if (!(window.selectedItem instanceof paper.PointText)) {
@@ -517,21 +603,27 @@ window.addEventListener("DOMContentLoaded", () => {
             item.className = "font-item";
             item.innerHTML = `<div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div><div class="font-name">${font.name}</div>`;
             item.onclick = () => {
-                if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
-                    saveHistory();
-                    window.selectedItem.fontFamily = font.family;
-                    window.updateSelectionBox(window.selectedItem);
-                    if (typeof updateContextualMenu === "function") {
-                        updateContextualMenu(window.selectedItem);
+                if (window.selectedItem) {
+                    const target = window.selectedItem.data?.clipGroup 
+                        ? window.selectedItem.children.find(c => !c.clipMask) 
+                        : window.selectedItem;
+
+                    if (target && target instanceof paper.PointText) {
+                        saveHistory();
+                        target.fontFamily = font.family;
+                        window.updateSelectionBox(window.selectedItem);
+                        if (typeof updateContextualMenu === "function") {
+                            updateContextualMenu(window.selectedItem);
+                        }
+                        paper.view.update();
                     }
-                    paper.view.update();
                 }
             };
             list.appendChild(item);
         });
     }
 
-    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA Y DEFENSIVA) ---
+    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA) ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -542,8 +634,8 @@ window.addEventListener("DOMContentLoaded", () => {
             btn.onclick = () => {
                 saveCurrentScene();
                 toolState.currentCategory = index;
-                toolState.currentProduct = null; // Evitar que arrastre el producto de otra pestaña
-                toolState.currentSurface = 0;   // Reiniciar caras
+                toolState.currentProduct = null;
+                toolState.currentSurface = 0;
                 renderCategories();
                 renderProducts(index);
             };
@@ -558,21 +650,18 @@ window.addEventListener("DOMContentLoaded", () => {
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group || !group.productos || group.productos.length === 0) return;
 
-        // 1. Si no hay un producto activo especificado, intentamos usar el actual,
-        // o tomamos estrictamente el primer OBJETO de la lista (No el arreglo entero)
         if (!activeProduct) {
             const current = toolState.currentProduct;
             const belongsToCategory = group.productos.some(p => current && p.id === current.id);
             if (belongsToCategory) {
                 activeProduct = current;
             } else {
-                activeProduct = group.productos; // ¡CORREGIDO: ASIGNACIÓN DE OBJETO FIJA!
+                activeProduct = group.productos;
             }
         }
 
         toolState.currentProduct = activeProduct;
 
-        // 2. Renderizar los botones de las pestañas de productos
         group.productos.forEach((prod) => {
             if (ui.productTabs) {
                 const btn = document.createElement("button");
@@ -582,17 +671,15 @@ window.addEventListener("DOMContentLoaded", () => {
                 btn.onclick = () => {
                     saveCurrentScene();
                     toolState.currentProduct = prod;
-                    toolState.currentSurface = 0; // Al cambiar de producto, siempre vamos a la cara 0 (Frente)
+                    toolState.currentSurface = 0;
                     renderProducts(categoryIndex, prod);
                 };
                 ui.productTabs.appendChild(btn);
             }
         });
 
-        // 3. Renderizar caras del producto activo y cargar la escena en el canvas
         if (activeProduct) {
             renderSurfaces(activeProduct);
-            
             const surfaces = activeProduct.superficies || [];
             const activeSurf = surfaces[toolState.currentSurface] || surfaces;
             if (activeSurf) {
@@ -636,7 +723,7 @@ window.addEventListener("DOMContentLoaded", () => {
         saveHistory();
         const txt = new paper.PointText({
             point: point,
-            content: "",
+            content: "Texto", // Texto inicial por defecto para dimensiones > 0 y selección visible
             fontSize: 42,
             fillColor: new paper.Color(0),
             justification: "center",
@@ -645,11 +732,12 @@ window.addEventListener("DOMContentLoaded", () => {
         txt.data = { locked: false, label: "Texto" };
         paper.project.activeLayer.addChild(txt);
         
+        // ENMASCARAR AUTOMÁTICAMENTE EL NUEVO TEXTO
         const clipped = window.clipItem(txt);
         if (window.currentMockup) {
             clipped.insertBelow(window.currentMockup);
         }
-        window.selectItem(txt);
+        window.selectItem(clipped); // Selecciona el Clip Group
         startTextEditing(txt);
     }
 
@@ -752,7 +840,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 window.selectItem(selectable);
                 window.dragging = true;
 
-                // SI ES MÁSCARA: Calculamos el offset relativo a la IMAGEN interna, no al grupo entero, para arrastrarla dentro del marco estático
                 if (selectable.data && selectable.data.clipGroup) {
                     const content = selectable.children.find(c => !c.clipMask);
                     window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
@@ -819,12 +906,10 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        // ARRASTRE DE OBJETOS SEGÚN ENMASCARAMIENTO (LightBurn Mask Style)
         if (window.dragging && window.selectedItem) {
             if (isLockedItem(window.selectedItem)) return;
 
             if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-                // SÓLO se traslada el contenido de imagen interno. La máscara SVG permanece estática y anclada al mockup.
                 const content = window.selectedItem.children.find(c => !c.clipMask);
                 if (content) {
                     content.position = event.point.subtract(window.dragOffset);
@@ -893,7 +978,6 @@ window.addEventListener("DOMContentLoaded", () => {
             deleteSelected();
         }
 
-        // CONTROL DE MOVIMIENTO POR TECLADO SEGURO DE MÁSCARA (Nudging)
         if (window.selectedItem && !isLockedItem(window.selectedItem)) {
             const step = event.modifiers.shift ? 10 : 1;
             
@@ -988,6 +1072,18 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
+
+    // ENLAZAR GENERADOR DE CÓDIGO QR EN TODOS LOS IDs POSIBLES DE LA BARRA SUPERIOR
+    const onQRClick = () => {
+        const text = prompt("Ingrese el texto o enlace (URL) para generar el código QR:");
+        if (text) {
+            addQRCode(text);
+        }
+    };
+    safeAddListener("btnQR", "click", onQRClick);
+    safeAddListener("btnAddQR", "click", onQRClick);
+    safeAddListener("btnCreateQR", "click", onQRClick);
+    safeAddListener("btnCreateQr", "click", onQRClick);
 
     safeAddListener(ui.btnApplySize, "click", applySelectedSize);
     safeAddListener(ui.btnToggleLock, "click", toggleLockSelected);
