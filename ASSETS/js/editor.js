@@ -494,39 +494,78 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsText(file);
     }
 
-    // --- GENERADOR UNIFICADO DE CÓDIGOS QR (ENMASCARADO INTEGRAL) ---
+    // --- GENERADOR UNIFICADO DE CÓDIGOS QR DE ALTA RESOLUCIÓN Y BAJA DENSIDAD (ESPECÍFICO DE 4MM) ---
     function addQRCode(text) {
         if (!text) return;
         saveHistory();
 
-        // 1. Intentar renderizar QR usando librería cliente si existe, o usar fallback Google API
-        if (typeof QRCode !== "undefined") {
-            const canvas = document.createElement("canvas");
-            QRCode.toCanvas(canvas, text, { width: 256, margin: 1 }, (error) => {
-                if (error) {
-                    console.error(error);
-                    fallbackQRVector(text);
-                } else {
-                    const raster = new paper.Raster(canvas);
-                    raster.onLoad = () => {
-                        raster.data = { locked: false, label: "QR: " + text };
-                        setupAndClipQR(raster);
-                    };
+        // Para grabado láser en superficies mínimas (como pulseras de 4mm), 
+        // es fundamental usar el nivel de corrección de errores más bajo (L - 7%) 
+        // y margen cero. Esto genera un diseño con módulos (cuadrados) grandes 
+        // y de muy baja densidad, facilitando la lectura por cualquier cámara. [5, 6]
+        
+        const generateRealQR = () => {
+            if (typeof QRCode !== "undefined") {
+                // Si la librería QRCode está cargada en el window, la usamos con Nivel L
+                try {
+                    const tempDiv = document.createElement("div");
+                    const qr = new QRCode(tempDiv, {
+                        text: text,
+                        width: 512,
+                        height: 512,
+                        colorDark: "#000000",
+                        colorLight: "#ffffff",
+                        correctLevel: QRCode.CorrectLevel.L // Forzar Nivel L (Baja densidad) [5, 6]
+                    });
+                    
+                    // Esperar un instante a que el canvas del QR se dibuje
+                    setTimeout(() => {
+                        const qrCanvas = tempDiv.querySelector("canvas");
+                        if (qrCanvas) {
+                            const raster = new paper.Raster(qrCanvas);
+                            raster.onLoad = () => {
+                                raster.data = { locked: false, label: "QR: " + text };
+                                setupAndClipQR(raster);
+                            };
+                        } else {
+                            fallbackToGoogleChart(text);
+                        }
+                    }, 50);
+                } catch (e) {
+                    console.warn("Error con QRCode JS, usando fallback de red:", e);
+                    fallbackToGoogleChart(text);
                 }
-            });
-        } else {
-            // Fallback 1: API de renderizado rápido en el cliente
-            const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=256x256&chl=${encodeURIComponent(text)}`;
-            const raster = new paper.Raster({ source: qrUrl });
-            raster.onLoad = () => {
-                raster.data = { locked: false, label: "QR: " + text };
-                setupAndClipQR(raster);
-            };
-            raster.onError = () => {
-                // Fallback 2: Renderizar un QR simbólico vectorial offline si falla todo
-                fallbackQRVector(text);
-            };
-        }
+            } else {
+                // Intentar cargar dinámicamente la librería QRCode para tener generación offline real
+                const script = document.createElement("script");
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+                script.onload = () => {
+                    generateRealQR();
+                };
+                script.onerror = () => {
+                    // Si no hay red para el CDN, usar el fallback de Google Charts
+                    fallbackToGoogleChart(text);
+                };
+                document.head.appendChild(script);
+            }
+        };
+
+        generateRealQR();
+    }
+
+    function fallbackToGoogleChart(text) {
+        // Google Charts QR API optimizado para grabado de 4mm:
+        // - chld=L|0 -> Corrección de Errores L (baja densidad) y Margen 0 (módulos más grandes) [6]
+        // - chs=512x512 -> Alta resolución para evitar píxeles borrosos al redimensionar [3, 7]
+        const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=512x512&chld=L|0&chl=${encodeURIComponent(text)}`;
+        const raster = new paper.Raster({ source: qrUrl });
+        raster.onLoad = () => {
+            raster.data = { locked: false, label: "QR: " + text };
+            setupAndClipQR(raster);
+        };
+        raster.onError = () => {
+            alert("No se pudo generar el código QR. Verifique su conexión a Internet.");
+        };
     }
 
     function setupAndClipQR(qrItem) {
@@ -543,46 +582,6 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         window.selectItem(objeto);
         paper.view.update();
-    }
-
-    function fallbackQRVector(text) {
-        const qrGroup = new paper.Group();
-        qrGroup.data = { locked: false, label: "QR: " + text };
-
-        const eye = new paper.Path.Rectangle({
-            point: [1],
-            size: [2],
-            strokeColor: 'black',
-            strokeWidth: 8,
-            fillColor: 'white'
-        });
-        const pupil = new paper.Path.Rectangle({ 
-            point: [3], 
-            size: [4], 
-            fillColor: 'black' 
-        });
-        qrGroup.addChild(eye);
-        qrGroup.addChild(pupil);
-
-        const eye2 = eye.clone(); eye2.position = new paper.Point(120, eye.position.y);
-        const pupil2 = pupil.clone(); pupil2.position = new paper.Point(120, pupil.position.y);
-        qrGroup.addChild(eye2); qrGroup.addChild(pupil2);
-
-        const eye3 = eye.clone(); eye3.position = new paper.Point(eye.position.x, 120);
-        const pupil3 = pupil.clone(); pupil3.position = new paper.Point(pupil.position.x, 120);
-        qrGroup.addChild(eye3); qrGroup.addChild(pupil3);
-
-        for (let i = 0; i < 15; i++) {
-            const px = Math.floor(Math.random() * 5) * 16 + 40;
-            const py = Math.floor(Math.random() * 5) * 16 + 40;
-            const pix = new paper.Path.Rectangle({ 
-                point: [px, py], 
-                size: [5], 
-                fillColor: 'black' 
-            });
-            qrGroup.addChild(pix);
-        }
-        setupAndClipQR(qrGroup);
     }
 
     // --- ENLACE SEGURO DE FUENTES ---
