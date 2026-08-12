@@ -25,7 +25,6 @@ window.addEventListener("DOMContentLoaded", () => {
     let lastSizeField = "width";
     let clipboardItem = null;
 
-    // --- Tipos de Fuentes Disponibles ---
     const FONTS = [
         { name: "Billie James", family: "ekko_billie" },
         { name: "Romantic Sunrise", family: "ekko_romantic" },
@@ -36,7 +35,6 @@ window.addEventListener("DOMContentLoaded", () => {
         { name: "Milk Water", family: "ekko_milk" }
     ];
 
-    // --- Mapeo de Elementos de la Interfaz UI ---
     const ui = {
         categoryTabs: document.getElementById("categoryTabs"),
         productTabs: document.getElementById("productTabs"),
@@ -67,19 +65,11 @@ window.addEventListener("DOMContentLoaded", () => {
         btnApplyFont: document.getElementById("btnApplyFont")
     };
 
-    // --- Clave de Escena Unificada ---
     function getSceneKey(product, surface) { 
         if (!product || !surface) return "default_scene";
         return `${product.id}__${surface.nombre}`; 
     }
 
-    // --- Limpiar Lienzo ---
-    function clearCanvas() {
-        paper.project.activeLayer.removeChildren();
-        paper.view.update();
-    }
-
-    // --- CONTROL DE HISTORIAL (UNDO/REDO STACK) ---
     function saveHistory() {
         undoStack.push(paper.project.exportJSON({ asString: true }));
         if (undoStack.length > 50) {
@@ -87,7 +77,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         redoStack.length = 0;
     }
-    window.saveHistory = saveHistory; // EXPOSICIÓN GLOBAL FIJA
+    window.saveHistory = saveHistory;
 
     function undo() {
         if (undoStack.length === 0) return;
@@ -115,7 +105,6 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- AUXILIARES DE BLOQUEO Y SELECCIÓN ---
     function isLockedItem(item) {
         return item && item.data && item.data.locked === true;
     }
@@ -138,7 +127,6 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // --- RENDERIZADO DE CONTROLES DE BLOQUEO ---
     function updateLockButton() {
         if (!ui.btnToggleLock) return;
         if (!window.selectedItem) {
@@ -157,7 +145,6 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- INTEGRACIÓN UNIFICADA DE SELECCIÓN Y MENÚ CONTEXTUAL ---
     window.selectItem = function(item) {
         if (window.nodeEditMode) {
             window.exitNodeEditMode();
@@ -170,11 +157,11 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
         window.selectedItem = item;
-        window.updateSelectionBox(item); // Mostrar contornos celestes y 8 nodos
+        window.updateSelectionBox(item);
         updateSelectionInfo();
         updateLockButton();
         if (typeof updateContextualMenu === "function") {
-            updateContextualMenu(item); // Mostrar barra flotante de Canva
+            updateContextualMenu(item);
         }
         paper.view.update();
     };
@@ -198,7 +185,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     };
 
-    // --- OPERACIONES DE ALINEACIÓN ---
+    // --- ALINEACIONES Y TRANSFORMACIONES ---
     function alignSelected(mode) {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         saveHistory();
@@ -329,7 +316,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- HISTORIAL DE ESCENAS POR PRODUCTO/SUPERFICIE ---
+    // --- CARGA DE ESCENAS ---
     function saveCurrentScene() {
         if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
         const idx = toolState.currentSurface || 0;
@@ -449,7 +436,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- CARGA DE ARCHIVOS ---
+    // --- ENMASCARAMIENTO AUTOMÁTICO AL CARGAR IMAGEN ---
     function addImageFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -464,6 +451,8 @@ window.addEventListener("DOMContentLoaded", () => {
                 const scale = Math.min(maxWidth / raster.width, maxHeight / raster.height);
                 raster.scale(scale);
                 raster.position = area.center;
+
+                // RECORTAR AUTOMÁTICAMENTE LA IMAGEN AL CONTORNO DEL SVG
                 const objeto = window.clipItem(raster);
                 if (window.currentMockup) {
                     objeto.insertBelow(window.currentMockup);
@@ -503,7 +492,6 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsText(file);
     }
 
-    // --- RENDERIZADO DE CONTROLES DE TEXTO Y FUENTES ---
     function applySelectedFont() {
         if (!window.selectedItem) return;
         if (!(window.selectedItem instanceof paper.PointText)) {
@@ -543,7 +531,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // --- INTERFAZ DINÁMICA DE PRODUCTOS (CORREGIDA E INMUNIZADA) ---
+    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -582,21 +570,20 @@ window.addEventListener("DOMContentLoaded", () => {
                     renderProducts(categoryIndex, prod);
                     renderSurfaces(prod);
                     if (prod.superficies && prod.superficies.length > 0) {
-                        loadSurfaceScene(prod, prod.superficies); // CARGA CARA INDIVIDUAL (NO ARRAY)
+                        loadSurfaceScene(prod, prod.superficies);
                     }
                 };
                 ui.productTabs.appendChild(btn);
             }
         });
 
-        // Selección por defecto del primer producto de forma segura (sin asignar el array)
         if (!toolState.currentProduct && group.productos.length > 0) {
-            const firstProd = group.productos; // EXTRAE EL ELEMENTO INDIVIDUAL
+            const firstProd = group.productos;
             toolState.currentProduct = firstProd;
             renderProducts(categoryIndex, firstProd);
             renderSurfaces(firstProd);
             if (firstProd.superficies && firstProd.superficies.length > 0) {
-                loadSurfaceScene(firstProd, firstProd.superficies); // CARGA CARA INDIVIDUAL 0
+                loadSurfaceScene(firstProd, firstProd.superficies);
             }
         }
     }
@@ -613,7 +600,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     saveCurrentScene();
                     toolState.currentSurface = index;
                     renderSurfacesOnly(product);
-                    loadSurfaceScene(product, surf); // CARGA CARA INDIVIDUAL SELECCIONADA
+                    loadSurfaceScene(product, surf);
                 };
                 ui.surfaceTabs.appendChild(btn);
             }
@@ -624,7 +611,6 @@ window.addEventListener("DOMContentLoaded", () => {
         renderSurfacesOnly(product);
     }
 
-    // --- MODO TEXTO CREAR ---
     function activateTextMode() {
         insertTextMode = true;
         paper.view.element.style.cursor = "text";
@@ -654,8 +640,6 @@ window.addEventListener("DOMContentLoaded", () => {
     // ========================================================
     // --- MANEJO DE HERRAMIENTA DE RATÓN Y TECLADO (TIRADORES CANVA/LIGHTBURN) ---
     // ========================================================
-    
-    // Funciones Fallback para prevenir caídas si selección.js no se cargó bien
     if (typeof window.getOppositePoint !== 'function') {
         window.getOppositePoint = function(bounds, handleType) {
             switch (handleType) {
@@ -692,7 +676,6 @@ window.addEventListener("DOMContentLoaded", () => {
     const tool = new paper.Tool();
 
     tool.onMouseDown = function(event) {
-        // A. Clic en tirador de selección para redimensionar (Canva Style)
         if (window.selectionBoxGroup) {
             const hitHandle = window.selectionBoxGroup.hitTest(event.point, {
                 fill: true,
@@ -717,11 +700,15 @@ window.addEventListener("DOMContentLoaded", () => {
                 window.resizeLastScaleY = 1.0;
                 
                 window.dragging = false;
+
+                // PERFORMANCE OPTIMIZATION: Ocultar menú contextual al transformar
+                if (typeof hideContextualMenu === "function") {
+                    hideContextualMenu();
+                }
                 return;
             }
         }
 
-        // B. Clic para insertar texto
         if (insertTextMode) {
             createEditableText(event.point);
             insertTextMode = false;
@@ -729,7 +716,6 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        // C. Selección estándar de objetos en Paper.js
         const hit = paper.project.hitTest(event.point, { 
             fill: true, 
             stroke: true, 
@@ -751,6 +737,11 @@ window.addEventListener("DOMContentLoaded", () => {
                 window.selectItem(selectable);
                 window.dragging = true;
                 window.dragOffset = event.point.subtract(selectable.position);
+
+                // PERFORMANCE OPTIMIZATION: Ocultar menú contextual al arrastrar
+                if (typeof hideContextualMenu === "function") {
+                    hideContextualMenu();
+                }
             }
         } else {
             window.deselectItem();
@@ -758,7 +749,6 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseDrag = function(event) {
-        // Redimensionar objeto arrastrando un nodo perimetral
         if (window.resizeActive && window.resizeTarget) {
             const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
                 ? window.resizeTarget.children.find(c => !c.clipMask)
@@ -766,14 +756,12 @@ window.addEventListener("DOMContentLoaded", () => {
 
             if (!targetItem) return;
 
-            // Cambiar ancla al centro si se presiona CTRL (LightBurn Style)
             let anchor = window.resizeAnchor;
             if (event.modifiers.control) {
                 anchor = window.resizeInitialBounds.center;
             }
 
             const initHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
-
             const initW = Math.abs(initHandlePoint.x - anchor.x);
             const initH = Math.abs(initHandlePoint.y - anchor.y);
 
@@ -793,14 +781,12 @@ window.addEventListener("DOMContentLoaded", () => {
             if (hasWidth && initW > 0) scaleX = currW / initW;
             if (hasHeight && initH > 0) scaleY = currH / initH;
 
-            // Mantener proporciones uniformes por defecto en vértices (Se desactiva pulsando Shift/Mayús)
             if (isCorner && !event.modifiers.shift) {
                 const aspectScale = (scaleX + scaleY) / 2;
                 scaleX = aspectScale;
                 scaleY = aspectScale;
             }
 
-            // Deshacer escala de fotogramas anteriores antes de aplicar la nueva
             targetItem.scale(1 / window.resizeLastScaleX, 1 / window.resizeLastScaleY, anchor);
             targetItem.scale(scaleX, scaleY, anchor);
 
@@ -808,28 +794,25 @@ window.addEventListener("DOMContentLoaded", () => {
             window.resizeLastScaleY = scaleY;
 
             window.updateSelectionBox(window.resizeTarget);
-            if (typeof updateContextualMenu === "function") {
-                updateContextualMenu(window.selectedItem);
-            }
+            
+            // PERFORMANCE OPTIMIZATION: NO actualizar menú flotante ni DOM durante el drag continuo
             paper.view.update();
             return;
         }
 
-        // Arrastrar posición normal del objeto
         if (window.dragging && window.selectedItem) {
             if (isLockedItem(window.selectedItem)) return;
             window.selectedItem.position = event.point.subtract(window.dragOffset);
             window.updateSelectionBox(window.selectedItem);
-            if (typeof updateContextualMenu === "function") {
-                updateContextualMenu(window.selectedItem);
-            }
+            
+            // PERFORMANCE OPTIMIZATION: NO actualizar menú flotante ni DOM durante el drag continuo
             paper.view.update();
         }
     };
 
     tool.onMouseUp = function(event) {
         if (window.resizeActive) {
-            saveHistory(); // Guardar en historial local/global de forma segura
+            saveHistory();
             window.resizeActive = false;
             window.resizeHandleType = null;
             window.resizeTarget = null;
@@ -837,13 +820,25 @@ window.addEventListener("DOMContentLoaded", () => {
             window.resizeAnchor = null;
             window.resizeLastScaleX = 1.0;
             window.resizeLastScaleY = 1.0;
+
+            // PERFORMANCE OPTIMIZATION: Actualizar inputs de HTML y menú flotante SOLO AL FINAL
+            updateSelectionInfo();
+            if (typeof updateContextualMenu === "function" && window.selectedItem) {
+                updateContextualMenu(window.selectedItem);
+            }
+            paper.view.update();
             return;
         }
 
         if (window.dragging) {
-            saveHistory(); // Guardar en historial local/global de forma segura
+            saveHistory();
+            updateSelectionInfo();
+            if (typeof updateContextualMenu === "function" && window.selectedItem) {
+                updateContextualMenu(window.selectedItem);
+            }
         }
         window.dragging = false;
+        paper.view.update();
     };
 
     tool.onKeyDown = function (event) {
@@ -898,11 +893,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // ========================================================
-    // --- ENLAZAR EVENTOS DEL DOM DE FORMA DEFENSIVA (PREVIENE CAIDAS) ---
-    // ========================================================
-    
-    // Función auxiliar para registrar listeners de forma totalmente segura (evita errores null)
+    // --- ENLAZAR EVENTOS DEL DOM DE FORMA TOTALMENTE DEFENSIVA ---
     const safeAddListener = (elOrId, event, callback) => {
         const el = typeof elOrId === "string" ? document.getElementById(elOrId) : elOrId;
         if (el) {
@@ -910,10 +901,8 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // Registrar eventos generales
     safeAddListener("btnAddText", "click", activateTextMode);
     
-    // CONTROL DEFENSIVO DE LA GALERÍA DE FUENTES
     const fontGalleryEl = document.getElementById("fontGallery");
     if (fontGalleryEl) {
         fontGalleryEl.classList.remove("hidden");
@@ -927,12 +916,10 @@ window.addEventListener("DOMContentLoaded", () => {
     safeAddListener(ui.btnForward, "click", bringForward);
     safeAddListener(ui.btnBackward, "click", sendBackward);
 
-    // Zoom y Ajuste de vista
     safeAddListener("btnZoomIn", "click", () => zoomBy(1.15));
     safeAddListener("btnZoomOut", "click", () => zoomBy(1 / 1.15));
     safeAddListener("btnFit", "click", fitView);
 
-    // Importadores de archivos
     safeAddListener("btnAddImage", "click", () => {
         if (ui.imagePicker) {
             ui.imagePicker.value = "";
@@ -967,11 +954,9 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // Controles de dimensiones y candado de aspecto
     safeAddListener(ui.btnApplySize, "click", applySelectedSize);
     safeAddListener(ui.btnToggleLock, "click", toggleLockSelected);
     
-    // Alineación en base a máscara/mockup
     safeAddListener(ui.btnAlignLeft, "click", () => alignSelected("left"));
     safeAddListener(ui.btnAlignCenterH, "click", () => alignSelected("centerH"));
     safeAddListener(ui.btnAlignRight, "click", () => alignSelected("right"));
@@ -979,21 +964,17 @@ window.addEventListener("DOMContentLoaded", () => {
     safeAddListener(ui.btnAlignCenterV, "click", () => alignSelected("centerV"));
     safeAddListener(ui.btnAlignBottom, "click", () => alignSelected("bottom"));
 
-    // Rotaciones
     safeAddListener(ui.btnRotateLeft, "click", () => { rotateSelected(-90); });
     safeAddListener(ui.btnRotateRight, "click", () => { rotateSelected(90); });
     safeAddListener(ui.btnRotate180, "click", () => { rotateSelected(180); });
 
-    // Centrado rápido en lienzo
     safeAddListener(ui.btnCenterH, "click", () => { centerSelected("horizontal"); });
     safeAddListener(ui.btnCenterV, "click", () => { centerSelected("vertical"); });
     safeAddListener(ui.btnCenterBoth, "click", () => { centerSelected("both"); });
 
-    // Detectores de entrada para dimensiones numéricas
     safeAddListener(ui.objWidth, "input", () => { lastSizeField = "width"; });
     safeAddListener(ui.objHeight, "input", () => { lastSizeField = "height"; });
 
-    // Evento de resize seguro para el lienzo
     window.addEventListener("resize", () => {
         const canvasEl = document.getElementById("editorCanvas");
         if (canvasEl) {
@@ -1001,14 +982,11 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Aplicar fuentes tipográficas
     safeAddListener(ui.btnApplyFont, "click", applySelectedFont);
 
-    // Inicializar menú contextual flotante
     if (typeof initContextualMenu === 'function') {
         initContextualMenu();
     }
 
-    // Inicializar categorías de productos
     renderCategories();
 });
