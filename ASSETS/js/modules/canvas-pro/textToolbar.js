@@ -19,18 +19,28 @@ export async function loadDynamicFonts() {
         const response = await fetch('/api/fonts');
         if (!response.ok) throw new Error("Endpoint api/fonts no disponible");
         
-        const fontFiles = await response.json(); // Se espera un array de strings ["SimpleHandmade.ttf", ...]
+        const fontFiles = await response.json();
         const loaded = [];
 
-        for (const file of fontFiles) {
-            const fontName = file.replace(/\.[^/.]+$/, ""); // Quitar extensión
-            const family = "ekko_" + fontName.toLowerCase().replace(/[^a-z0-9]/g, "_");
+        for (const item of fontFiles) {
+            let name, family, file;
+            if (typeof item === 'string') {
+                file = item;
+                name = file.replace(/\.[^/.]+$/, "");
+                family = "ekko_" + name.toLowerCase().replace(/[^a-z0-9]/g, "_");
+            } else if (item && typeof item === 'object') {
+                name = item.name;
+                family = item.family;
+                file = item.file;
+            } else {
+                continue;
+            }
             
             try {
                 const fontFace = new FontFace(family, `url(/ASSETS/fonts/${encodeURIComponent(file)})`);
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
-                loaded.push({ name: fontName, family: family, file: file });
+                loaded.push({ name: name, family: family, file: file });
             } catch (err) {
                 console.warn(`No se pudo cargar la tipografía dinámica: ${file}`, err);
             }
@@ -227,7 +237,7 @@ export function weldText(item) {
         }
 
         // Realizar la soldadura por unión booleana (Unite) de todas las curvas cruzadas
-        let weldedPath = childrenPaths;
+        let weldedPath = childrenPaths[0];
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
             const temp = weldedPath.unite(nextPath);
