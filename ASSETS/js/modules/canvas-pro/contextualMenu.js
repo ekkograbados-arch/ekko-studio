@@ -1,8 +1,14 @@
-//=====================================================
-// EKKO Studio - Contextual Menu (Canvas-Pro)
-// Versión Simplificada: Sin Trazado de Imagen / Con Enmascaramiento Seguro
-//=====================================================
+import { openImageTraceModal } from "./imageTracer.js";
+import { 
+    scaleImage, 
+    duplicateImage, 
+    deleteImage, 
+    bringImageForward, 
+    sendImageBackward, 
+    applyBrightnessContrast 
+} from "./imageToolbar.js";
 
+// --- REMOVE OVERLAP TAB (EVITAR SUPERPOSICION) ---
 function removeOverlapTab() {
     const btnSubtract = document.getElementById('btnCtxSubtract');
     if (btnSubtract) {
@@ -31,22 +37,71 @@ export function initContextualMenu() {
         if (el) el.onclick = fn;
     };
 
-    // --- ACCIONES DE TEXTO ---
-    setClick('btnCtxItalic', () => {
-        if (window.selectedItem && window.selectedItem instanceof paper.PointText) {
-            const isItalic = window.selectedItem.fontStyle === 'italic';
-            window.selectedItem.fontStyle = isItalic ? 'normal' : 'italic';
-            paper.view.update();
+    // --- 1. ACCIONES GENERALES RECONSTRUIDAS ---
+    setClick('btnCtxDelete', () => {
+        if (window.selectedItem) {
+            deleteImage(window.selectedItem);
+            hideContextualMenu();
         }
     });
 
-    // --- ACCIONES DE IMAGEN ---
+    setClick('btnCtxDuplicate', () => {
+        if (window.selectedItem) {
+            duplicateImage(window.selectedItem);
+        }
+    });
+
+    setClick('btnCtxForward', () => {
+        if (window.selectedItem) {
+            bringImageForward(window.selectedItem);
+        }
+    });
+
+    setClick('btnCtxBackward', () => {
+        if (window.selectedItem) {
+            sendImageBackward(window.selectedItem);
+        }
+    });
+
+    // --- 2. ACCIONES DE TEXTO ---
+    const fontSelector = document.getElementById('ctxFontSelector');
+    if (fontSelector) {
+        fontSelector.onchange = () => {
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup 
+                    ? window.selectedItem.children.find(c => !c.clipMask) 
+                    : window.selectedItem;
+                if (target && target instanceof paper.PointText) {
+                    if (typeof window.saveHistory === 'function') window.saveHistory();
+                    target.fontFamily = fontSelector.value;
+                    paper.view.update();
+                }
+            }
+        };
+    }
+
+    setClick('btnCtxItalic', () => {
+        if (window.selectedItem) {
+            const target = window.selectedItem.data?.clipGroup 
+                ? window.selectedItem.children.find(c => !c.clipMask) 
+                : window.selectedItem;
+            if (target && target instanceof paper.PointText) {
+                if (typeof window.saveHistory === 'function') window.saveHistory();
+                const isItalic = target.fontStyle === 'italic';
+                target.fontStyle = isItalic ? 'normal' : 'italic';
+                paper.view.update();
+            }
+        }
+    });
+
+    // --- 3. ACCIONES DE IMAGEN ---
     setClick('btnCtxFlipH', () => {
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup 
                 ? window.selectedItem.children.find(c => !c.clipMask) 
                 : window.selectedItem;
             if (target && target instanceof paper.Raster) {
+                if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(-1, 1);
                 paper.view.update();
             }
@@ -59,27 +114,51 @@ export function initContextualMenu() {
                 ? window.selectedItem.children.find(c => !c.clipMask) 
                 : window.selectedItem;
             if (target && target instanceof paper.Raster) {
+                if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(1, -1);
                 paper.view.update();
             }
         }
     });
 
-    // Sliders de Brillo y Contraste
+    // --- ACCIONES DE ESCALADO INTERACTIVO (ACHICAR / AGRANDAR) ---
+    const bindScaleDown = () => { if (window.selectedItem) scaleImage(window.selectedItem, 0.9); };
+    const bindScaleUp = () => { if (window.selectedItem) scaleImage(window.selectedItem, 1.1); };
+
+    // Soporte defensivo para múltiples nomenclaturas de IDs de botones
+    setClick('btnCtxAchicar', bindScaleDown);
+    setClick('btnCtxScaleDown', bindScaleDown);
+    setClick('btnCtxShrink', bindScaleDown);
+    
+    setClick('btnCtxAgrandar', bindScaleUp);
+    setClick('btnCtxScaleUp', bindScaleUp);
+    setClick('btnCtxGrow', bindScaleUp);
+
+    // --- SLIDERS DE BRILLO Y CONTRASTE EN TIEMPO REAL ---
     const briSlider = document.getElementById('ctxBrightness');
-    if (briSlider) {
-        briSlider.oninput = () => {
-            if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup 
-                    ? window.selectedItem.children.find(c => !c.clipMask) 
-                    : window.selectedItem;
-                if (target && target instanceof paper.Raster) {
-                    target.data = target.data || {};
-                    target.data.brightness = parseFloat(briSlider.value);
-                }
+    const conSlider = document.getElementById('ctxContrast');
+
+    const handleFilterInput = () => {
+        if (window.selectedItem) {
+            const target = window.selectedItem.data?.clipGroup 
+                ? window.selectedItem.children.find(c => !c.clipMask) 
+                : window.selectedItem;
+            if (target && target instanceof paper.Raster) {
+                const bVal = briSlider ? parseFloat(briSlider.value) : 0;
+                const cVal = conSlider ? parseFloat(conSlider.value) : 0;
+                
+                // Almacenar el estado en el raster para que persista
+                target.data = target.data || {};
+                target.data.brightness = bVal;
+                target.data.contrast = cVal;
+
+                applyBrightnessContrast(target, bVal, cVal);
             }
-        };
-    }
+        }
+    };
+
+    if (briSlider) briSlider.oninput = handleFilterInput;
+    if (conSlider) conSlider.oninput = handleFilterInput;
 }
 
 export function updateContextualMenu(item) {
@@ -95,7 +174,7 @@ export function updateContextualMenu(item) {
 
     toolbar.classList.add('active');
 
-    // Esconder todos los subgrupos de forma predeterminada
+    // Ocultar subgrupos por defecto
     const hideSubgroup = (id) => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
@@ -104,29 +183,36 @@ export function updateContextualMenu(item) {
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
 
-    // Deshabilitar y ocultar físicamente cualquier botón de trazado huérfano
     const btnTrace = document.getElementById('btnCtxTrace');
-    if (btnTrace) {
-        btnTrace.style.display = 'none';
-        btnTrace.remove();
-    }
+    if (btnTrace) btnTrace.style.display = 'none';
 
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
 
-    // Habilitar subgrupos según el objeto seleccionado
+    // Mostrar subgrupos y restaurar valores de sliders e inputs según el objeto activo
     if (target instanceof paper.PointText) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
+        
+        const fontSelector = document.getElementById('ctxFontSelector');
+        if (fontSelector && target.fontFamily) {
+            fontSelector.value = target.fontFamily;
+        }
     } else if (target instanceof paper.Raster) {
         const imageControls = document.getElementById('ctxImageControls');
         if (imageControls) imageControls.classList.remove('hidden');
+
+        // Sincroniza la posición de los sliders con el estado real de la imagen seleccionada
+        const briSlider = document.getElementById('ctxBrightness');
+        const conSlider = document.getElementById('ctxContrast');
+        if (briSlider) briSlider.value = target.data?.brightness || 0;
+        if (conSlider) conSlider.value = target.data?.contrast || 0;
     } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
         const vectorControls = document.getElementById('ctxVectorControls');
         if (vectorControls) vectorControls.classList.remove('hidden');
     }
 
-    // --- POSICIONAMIENTO GEOMÉTRICO (Canva Style) ---
+    // Posicionamiento Canva Style sobre el objeto
     const bounds = item.bounds;
     if (!bounds) return;
 
