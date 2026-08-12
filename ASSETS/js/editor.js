@@ -373,13 +373,39 @@ window.addEventListener("DOMContentLoaded", () => {
     function duplicateSelected() {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         saveHistory();
-        const clone = window.selectedItem.clone();
-        clone.position = clone.position.add(new paper.Point(20, 20));
-        clone.data = clone.data || {};
-        clone.data.locked = false;
-        clone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
-        paper.project.activeLayer.addChild(clone);
-        window.selectItem(clone);
+
+        let duplicatedObject;
+
+        // Si es un grupo recortado (clipGroup), duplicamos solo el contenido y re-enmascaramos
+        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+            const content = window.selectedItem.children.find(c => !c.clipMask);
+            if (!content) return;
+
+            // Clonar el contenido real
+            const contentClone = content.clone();
+            contentClone.position = contentClone.position.add(new paper.Point(20, 20));
+            contentClone.data = { ...(contentClone.data || {}), locked: false };
+            contentClone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
+
+            // Volver a aplicar la máscara estática alineada al mockup
+            duplicatedObject = window.clipItem(contentClone);
+        } else {
+            // Objeto normal
+            const clone = window.selectedItem.clone();
+            clone.position = clone.position.add(new paper.Point(20, 20));
+            clone.data = { ...(clone.data || {}), locked: false };
+            clone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
+            duplicatedObject = clone;
+        }
+
+        if (duplicatedObject) {
+            paper.project.activeLayer.addChild(duplicatedObject);
+            if (window.currentMockup) {
+                duplicatedObject.insertBelow(window.currentMockup);
+            }
+            window.selectItem(duplicatedObject);
+        }
+        paper.view.update();
     }
 
     function copySelected() {
