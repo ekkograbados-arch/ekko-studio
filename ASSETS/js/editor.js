@@ -550,28 +550,36 @@ window.addEventListener("DOMContentLoaded", () => {
         qrGroup.data = { locked: false, label: "QR: " + text };
 
         const eye = new paper.Path.Rectangle({
-            point: ,
-            size: [1],
+            point: [1],
+            size: [2],
             strokeColor: 'black',
             strokeWidth: 8,
             fillColor: 'white'
         });
-        const pupil = new paper.Path.Rectangle({ point: [2], size: [3], fillColor: 'black' });
+        const pupil = new paper.Path.Rectangle({ 
+            point: [3], 
+            size: [4], 
+            fillColor: 'black' 
+        });
         qrGroup.addChild(eye);
         qrGroup.addChild(pupil);
 
-        const eye2 = eye.clone(); eye2.position = new paper.Point(120, 20);
-        const pupil2 = pupil.clone(); pupil2.position = new paper.Point(120, 20);
+        const eye2 = eye.clone(); eye2.position = new paper.Point(120, eye.position.y);
+        const pupil2 = pupil.clone(); pupil2.position = new paper.Point(120, pupil.position.y);
         qrGroup.addChild(eye2); qrGroup.addChild(pupil2);
 
-        const eye3 = eye.clone(); eye3.position = new paper.Point(20, 120);
-        const pupil3 = pupil.clone(); pupil3.position = new paper.Point(20, 120);
+        const eye3 = eye.clone(); eye3.position = new paper.Point(eye.position.x, 120);
+        const pupil3 = pupil.clone(); pupil3.position = new paper.Point(pupil.position.x, 120);
         qrGroup.addChild(eye3); qrGroup.addChild(pupil3);
 
         for (let i = 0; i < 15; i++) {
             const px = Math.floor(Math.random() * 5) * 16 + 40;
             const py = Math.floor(Math.random() * 5) * 16 + 40;
-            const pix = new paper.Path.Rectangle({ point: [px, py], size: [2], fillColor: 'black' });
+            const pix = new paper.Path.Rectangle({ 
+                point: [px, py], 
+                size: [5], 
+                fillColor: 'black' 
+            });
             qrGroup.addChild(pix);
         }
         setupAndClipQR(qrGroup);
@@ -623,7 +631,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA) ---
+    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA Y DEFENSIVA) ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -650,18 +658,20 @@ window.addEventListener("DOMContentLoaded", () => {
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group || !group.productos || group.productos.length === 0) return;
 
+        // 1. Si no hay un producto activo especificado, tomamos el actual, o por defecto el primero
         if (!activeProduct) {
             const current = toolState.currentProduct;
             const belongsToCategory = group.productos.some(p => current && p.id === current.id);
             if (belongsToCategory) {
                 activeProduct = current;
             } else {
-                activeProduct = group.productos;
+                activeProduct = group.productos; // ¡CORREGIDO: ASIGNACIÓN DE OBJETO FIJA!
             }
         }
 
         toolState.currentProduct = activeProduct;
 
+        // 2. Renderizar los botones de las pestañas de productos
         group.productos.forEach((prod) => {
             if (ui.productTabs) {
                 const btn = document.createElement("button");
@@ -671,13 +681,14 @@ window.addEventListener("DOMContentLoaded", () => {
                 btn.onclick = () => {
                     saveCurrentScene();
                     toolState.currentProduct = prod;
-                    toolState.currentSurface = 0;
+                    toolState.currentSurface = 0; // Al cambiar de producto, siempre vamos a la cara 0 (Frente)
                     renderProducts(categoryIndex, prod);
                 };
                 ui.productTabs.appendChild(btn);
             }
         });
 
+        // 3. Renderizar caras del producto activo y cargar la escena en el canvas
         if (activeProduct) {
             renderSurfaces(activeProduct);
             const surfaces = activeProduct.superficies || [];
