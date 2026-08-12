@@ -12,6 +12,7 @@ import {
     applyTextCurve,
     weldText,
     toggleBold,
+    toggleItalic,
     toggleUnderline
 } from "./textToolbar.js";
 
@@ -33,7 +34,7 @@ function removeOverlapTab() {
     });
 }
 
-// Cargar las fuentes dinámicas del sistema y poblar los dropdowns de forma ordenada
+// Cargar las fuentes dinámicas del sistema y poblar los dropdowns con estilos inline de previsualización
 async function populateFontDropdowns() {
     const fonts = await loadDynamicFonts();
     const dropdowns = [
@@ -43,17 +44,24 @@ async function populateFontDropdowns() {
 
     dropdowns.forEach(dropdown => {
         if (!dropdown) return;
-        dropdown.innerHTML = ""; // Limpiar hardcodeados
+        dropdown.innerHTML = ""; // Limpiar dropdowns anteriores
+
+        // Opción por defecto
+        const defOpt = document.createElement('option');
+        defOpt.value = "Arial";
+        defOpt.textContent = "Arial";
+        defOpt.style.fontFamily = "Arial";
+        dropdown.appendChild(defOpt);
 
         fonts.forEach(font => {
             const opt = document.createElement('option');
             opt.value = font.family;
             opt.textContent = font.name;
+            opt.style.fontFamily = font.family; // PREVISUALIZACIÓN INLINE DE LA TIPOGRAFÍA (Estilo LightBurn)
             dropdown.appendChild(opt);
         });
     });
 
-    // Actualizar también la galería lateral si existe
     renderSidebarFontGallery(fonts);
 }
 
@@ -125,6 +133,7 @@ export function initContextualMenu() {
     // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
+        // change / input: se ejecuta dinámicamente cuando el usuario pasa o selecciona una tipografía
         fontSelector.onchange = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup 
@@ -150,15 +159,7 @@ export function initContextualMenu() {
 
     setClick('btnCtxItalic', () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup 
-                ? window.selectedItem.children.find(c => !c.clipMask) 
-                : window.selectedItem;
-            if (target) {
-                if (typeof window.saveHistory === 'function') window.saveHistory();
-                const isItalic = target.fontStyle === 'italic';
-                target.fontStyle = isItalic ? 'normal' : 'italic';
-                paper.view.update();
-            }
+            toggleItalic(window.selectedItem);
         }
     });
 
@@ -278,13 +279,14 @@ export function updateContextualMenu(item) {
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
 
-    // Mostrar subgrupos y restaurar valores de sliders e inputs según el objeto activo
+    // Mostrar subgrupos y restaurar valores de sliders e dropdowns según el objeto activo
     if (target instanceof paper.PointText || target.data?.isCurvedGroup) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
         
         const fontSelector = document.getElementById('ctxFontSelector');
         if (fontSelector && target.fontFamily) {
+            // Sincronizar dropdown con el valor de la fuente actual del texto
             fontSelector.value = target.fontFamily;
         }
 
