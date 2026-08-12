@@ -316,7 +316,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- CARGA DE ESCENAS ---
+    // --- CARGA Y SINCRONIZACIÓN DE HISTORIAL DE ESCENAS ---
     function saveCurrentScene() {
         if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
         const idx = toolState.currentSurface || 0;
@@ -531,7 +531,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS ---
+    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA) ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -557,10 +557,22 @@ window.addEventListener("DOMContentLoaded", () => {
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group || !group.productos || group.productos.length === 0) return;
 
+        // Si no hay un producto activo marcado, tomamos el actual de la categoría o el primero de la lista
+        if (!activeProduct) {
+            activeProduct = toolState.currentProduct;
+            const belongsToCategory = group.productos.some(p => activeProduct && p.id === activeProduct.id);
+            if (!belongsToCategory) {
+                activeProduct = group.productos;
+            }
+        }
+
+        toolState.currentProduct = activeProduct;
+
+        // Renderizar los botones de la lista de productos
         group.productos.forEach((prod) => {
             if (ui.productTabs) {
                 const btn = document.createElement("button");
-                const isSel = activeProduct ? (prod.id === activeProduct.id) : (toolState.currentProduct && prod.id === toolState.currentProduct.id);
+                const isSel = (activeProduct && prod.id === activeProduct.id);
                 btn.className = "tab-btn" + (isSel ? " active" : "");
                 btn.textContent = prod.nombre;
                 btn.onclick = () => {
@@ -570,20 +582,20 @@ window.addEventListener("DOMContentLoaded", () => {
                     renderProducts(categoryIndex, prod);
                     renderSurfaces(prod);
                     if (prod.superficies && prod.superficies.length > 0) {
-                        loadSurfaceScene(prod, prod.superficies);
+                        loadSurfaceScene(prod, prod.superficies); // Cara 0 individual de forma segura
                     }
                 };
                 ui.productTabs.appendChild(btn);
             }
         });
 
-        if (!toolState.currentProduct && group.productos.length > 0) {
-            const firstProd = group.productos;
-            toolState.currentProduct = firstProd;
-            renderProducts(categoryIndex, firstProd);
-            renderSurfaces(firstProd);
-            if (firstProd.superficies && firstProd.superficies.length > 0) {
-                loadSurfaceScene(firstProd, firstProd.superficies);
+        // Asegurar la carga de las superficies del producto activo
+        if (activeProduct) {
+            renderSurfaces(activeProduct);
+            const currentMockupPath = window.currentMockup?.data?.svgPath;
+            const targetPath = activeProduct.superficies[toolState.currentSurface]?.svg;
+            if (currentMockupPath !== targetPath && activeProduct.superficies && activeProduct.superficies.length > 0) {
+                loadSurfaceScene(activeProduct, activeProduct.superficies[toolState.currentSurface]);
             }
         }
     }
@@ -701,7 +713,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 
                 window.dragging = false;
 
-                // PERFORMANCE OPTIMIZATION: Ocultar menú contextual al transformar
                 if (typeof hideContextualMenu === "function") {
                     hideContextualMenu();
                 }
@@ -736,9 +747,15 @@ window.addEventListener("DOMContentLoaded", () => {
                 }
                 window.selectItem(selectable);
                 window.dragging = true;
-                window.dragOffset = event.point.subtract(selectable.position);
 
-                // PERFORMANCE OPTIMIZATION: Ocultar menú contextual al arrastrar
+                // SI ES MÁSCARA: Calculamos el offset relativo a la IMAGEN interna, no al grupo, para arrastrarla dentro del marco estático
+                if (selectable.data && selectable.data.clipGroup) {
+                    const content = selectable.children.find(c => !c.clipMask);
+                    window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
+                } else {
+                    window.dragOffset = event.point.subtract(selectable.position);
+                }
+
                 if (typeof hideContextualMenu === "function") {
                     hideContextualMenu();
                 }
@@ -794,18 +811,26 @@ window.addEventListener("DOMContentLoaded", () => {
             window.resizeLastScaleY = scaleY;
 
             window.updateSelectionBox(window.resizeTarget);
-            
-            // PERFORMANCE OPTIMIZATION: NO actualizar menú flotante ni DOM durante el drag continuo
             paper.view.update();
             return;
         }
 
+        // ARRASTRE DE OBJETOS SEGÚN ENMASCARAMIENTO (LightBurn Mask Style)
         if (window.dragging && window.selectedItem) {
             if (isLockedItem(window.selectedItem)) return;
-            window.selectedItem.position = event.point.subtract(window.dragOffset);
+
+            if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+                // SÓLO se traslada el contenido de imagen interno. La máscara SVG permanece estática y anclada al mockup.
+                const content = window.selectedItem.children.find(c => !c.clipMask);
+                if (content) {
+                    content.position = event.point.subtract(window.dragOffset);
+                }
+            } else {
+                // Si es un objeto convencional (Texto, etc.), se mueve en su totalidad
+                window.selectedItem.position = event.point.subtract(window.dragOffset);
+            }
+
             window.updateSelectionBox(window.selectedItem);
-            
-            // PERFORMANCE OPTIMIZATION: NO actualizar menú flotante ni DOM durante el drag continuo
             paper.view.update();
         }
     };
@@ -821,7 +846,6 @@ window.addEventListener("DOMContentLoaded", () => {
             window.resizeLastScaleX = 1.0;
             window.resizeLastScaleY = 1.0;
 
-            // PERFORMANCE OPTIMIZATION: Actualizar inputs de HTML y menú flotante SOLO AL FINAL
             updateSelectionInfo();
             if (typeof updateContextualMenu === "function" && window.selectedItem) {
                 updateContextualMenu(window.selectedItem);
@@ -866,23 +890,31 @@ window.addEventListener("DOMContentLoaded", () => {
             deleteSelected();
         }
 
+        // CONTROL DE MOVIMIENTO POR TECLADO SEGURO DE MÁSCARA (Nudging)
         if (window.selectedItem && !isLockedItem(window.selectedItem)) {
             const step = event.modifiers.shift ? 10 : 1;
-            if (event.key === "left") {
-                window.selectedItem.position.x -= step;
-                event.preventDefault();
-            }
-            if (event.key === "right") {
-                window.selectedItem.position.x += step;
-                event.preventDefault();
-            }
-            if (event.key === "up") {
-                window.selectedItem.position.y -= step;
-                event.preventDefault();
-            }
-            if (event.key === "down") {
-                window.selectedItem.position.y += step;
-                event.preventDefault();
+            
+            const targetMove = (window.selectedItem.data && window.selectedItem.data.clipGroup)
+                ? window.selectedItem.children.find(c => !c.clipMask)
+                : window.selectedItem;
+
+            if (targetMove) {
+                if (event.key === "left") {
+                    targetMove.position.x -= step;
+                    event.preventDefault();
+                }
+                if (event.key === "right") {
+                    targetMove.position.x += step;
+                    event.preventDefault();
+                }
+                if (event.key === "up") {
+                    targetMove.position.y -= step;
+                    event.preventDefault();
+                }
+                if (event.key === "down") {
+                    targetMove.position.y += step;
+                    event.preventDefault();
+                }
             }
             window.updateSelectionBox(window.selectedItem);
             updateSelectionInfo();
