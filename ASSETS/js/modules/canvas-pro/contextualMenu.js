@@ -74,6 +74,60 @@ function renderSidebarFontGallery(fonts) {
         const item = document.createElement("div");
         item.className = "font-item";
         item.innerHTML = `<div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div><div class="font-name">${font.name}</div>`;
+        
+        // Al pasar el mouse por encima: PREVISUALIZACIÓN AUTOMÁTICA EN TIEMPO REAL (Hover)
+        item.onmouseenter = () => {
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup 
+                    ? window.selectedItem.children.find(c => !c.clipMask) 
+                    : window.selectedItem;
+
+                if (target && (target instanceof paper.PointText || target.data?.isCurvedGroup)) {
+                    // Guardar la fuente original antes de previsualizar para poder revertir al salir
+                    if (!target.data || target.data.originalFontFamily === undefined) {
+                        target.data = target.data || {};
+                        target.data.originalFontFamily = target.fontFamily || "Arial";
+                    }
+                    
+                    target.fontFamily = font.family;
+                    
+                    // Si el texto está curvado, regenerar con la nueva fuente en arco
+                    if (target.data?.isCurvedGroup) {
+                        applyTextCurve(window.selectedItem, target.data.curvature || 0);
+                    }
+                    
+                    if (typeof window.updateSelectionBox === 'function') {
+                        window.updateSelectionBox(window.selectedItem);
+                    }
+                    paper.view.update();
+                }
+            }
+        };
+
+        // Al retirar el mouse sin hacer clic: RESTAURAR LA FUENTE ORIGINAL AUTOMÁTICAMENTE
+        item.onmouseleave = () => {
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup 
+                    ? window.selectedItem.children.find(c => !c.clipMask) 
+                    : window.selectedItem;
+
+                if (target && target.data && target.data.originalFontFamily !== undefined) {
+                    target.fontFamily = target.data.originalFontFamily;
+                    delete target.data.originalFontFamily; // Quitar backup temporal
+                    
+                    if (target.data?.isCurvedGroup) {
+                        applyTextCurve(window.selectedItem, target.data.curvature || 0);
+                    }
+                    
+                    if (typeof window.updateSelectionBox === 'function') {
+                        window.updateSelectionBox(window.selectedItem);
+                    }
+                    paper.view.update();
+                }
+            }
+        };
+
+        // Al hacer clic: COMPROMETER, SALVAR HISTORIAL Y HACER FIJA LA TIPOGRAFÍA SELECCIONADA
         item.onclick = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup 
@@ -82,8 +136,19 @@ function renderSidebarFontGallery(fonts) {
 
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
+                    
                     target.fontFamily = font.family;
-                    window.updateSelectionBox(window.selectedItem);
+                    if (target.data) {
+                        delete target.data.originalFontFamily; // Se confirma la fuente, borrar backup
+                    }
+                    
+                    if (target.data?.isCurvedGroup) {
+                        applyTextCurve(window.selectedItem, target.data.curvature || 0);
+                    }
+                    
+                    if (typeof window.updateSelectionBox === 'function') {
+                        window.updateSelectionBox(window.selectedItem);
+                    }
                     paper.view.update();
                 }
             }
@@ -134,7 +199,7 @@ export function initContextualMenu() {
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
         // change / input: se ejecuta dinámicamente cuando el usuario pasa o selecciona una tipografía
-        fontSelector.onchange = () => {
+        const handleFontChange = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup 
                     ? window.selectedItem.children.find(c => !c.clipMask) 
@@ -142,6 +207,11 @@ export function initContextualMenu() {
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
                     target.fontFamily = fontSelector.value;
+                    
+                    if (target.data?.isCurvedGroup) {
+                        applyTextCurve(window.selectedItem, target.data.curvature || 0);
+                    }
+
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -149,6 +219,8 @@ export function initContextualMenu() {
                 }
             }
         };
+        fontSelector.onchange = handleFontChange;
+        fontSelector.oninput = handleFontChange;
     }
 
     setClick('btnCtxBold', () => {
