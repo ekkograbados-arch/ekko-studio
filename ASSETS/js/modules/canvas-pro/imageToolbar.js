@@ -22,23 +22,43 @@ export function scaleImage(item, factor) {
     }
 }
 
-// Duplicar el elemento seleccionado manteniendo su máscara y colocándolo bajo el mockup
+// Duplicar el elemento seleccionado de forma inteligente manteniendo la máscara estática
 export function duplicateImage(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
-    const clone = item.clone();
-    clone.position = clone.position.add(new paper.Point(20, 20));
-    clone.data = { ...(clone.data || {}), locked: false };
-    
-    paper.project.activeLayer.addChild(clone);
-    
-    if (window.currentMockup) {
-        clone.insertBelow(window.currentMockup);
+    let duplicatedObject;
+
+    // Si es un grupo recortado (clipGroup), duplicamos solo el contenido y re-enmascaramos
+    if (item.data && item.data.clipGroup) {
+        const content = item.children.find(c => !c.clipMask);
+        if (!content) return;
+
+        // 1. Clonar únicamente el contenido interno real (imagen, texto, svg, qr)
+        const contentClone = content.clone();
+        
+        // 2. Desplazar únicamente el contenido levemente para visibilidad
+        contentClone.position = contentClone.position.add(new paper.Point(20, 20));
+        contentClone.data = { ...(contentClone.data || {}), locked: false };
+
+        // 3. Crear una nueva máscara perfectamente alineada con el mockup original
+        duplicatedObject = window.clipItem(contentClone);
+    } else {
+        // Objeto normal sin máscara
+        const clone = item.clone();
+        clone.position = clone.position.add(new paper.Point(20, 20));
+        clone.data = { ...(clone.data || {}), locked: false };
+        duplicatedObject = clone;
     }
-    
-    if (typeof window.selectItem === 'function') {
-        window.selectItem(clone);
+
+    if (duplicatedObject) {
+        paper.project.activeLayer.addChild(duplicatedObject);
+        if (window.currentMockup) {
+            duplicatedObject.insertBelow(window.currentMockup);
+        }
+        if (typeof window.selectItem === 'function') {
+            window.selectItem(duplicatedObject);
+        }
     }
     paper.view.update();
 }
@@ -134,6 +154,11 @@ export function applyBrightnessContrast(raster, brightness, contrast) {
         data[i + 1] = Math.max(0, Math.min(255, cFactor * (data[i + 1] - 128) + 128 + bOffset)); // Verde
         data[i + 2] = Math.max(0, Math.min(255, cFactor * (data[i + 2] - 128) + 128 + bOffset)); // Azul
     }
+
+    procCtx.putImageData(imgData, 0, 0);
+    raster.canvas = procCanvas;
+    paper.view.update();
+}
 
     procCtx.putImageData(imgData, 0, 0);
     raster.canvas = procCanvas;
