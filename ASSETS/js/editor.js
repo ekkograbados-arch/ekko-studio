@@ -525,14 +525,8 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!text) return;
         saveHistory();
 
-        // Para grabado láser en superficies mínimas (como pulseras de 4mm), 
-        // es fundamental usar el nivel de corrección de errores más bajo (L - 7%) 
-        // y margen cero. Esto genera un diseño con módulos (cuadrados) grandes 
-        // y de muy baja densidad, facilitando la lectura por cualquier cámara. [5, 6]
-        
         const generateRealQR = () => {
             if (typeof QRCode !== "undefined") {
-                // Si la librería QRCode está cargada en el window, la usamos con Nivel L
                 try {
                     const tempDiv = document.createElement("div");
                     const qr = new QRCode(tempDiv, {
@@ -541,10 +535,9 @@ window.addEventListener("DOMContentLoaded", () => {
                         height: 512,
                         colorDark: "#000000",
                         colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.L // Forzar Nivel L (Baja densidad) [5, 6]
+                        correctLevel: QRCode.CorrectLevel.L // Forzar Nivel L (Baja densidad)
                     });
                     
-                    // Esperar un instante a que el canvas del QR se dibuje
                     setTimeout(() => {
                         const qrCanvas = tempDiv.querySelector("canvas");
                         if (qrCanvas) {
@@ -562,14 +555,12 @@ window.addEventListener("DOMContentLoaded", () => {
                     fallbackToGoogleChart(text);
                 }
             } else {
-                // Intentar cargar dinámicamente la librería QRCode para tener generación offline real
                 const script = document.createElement("script");
                 script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
                 script.onload = () => {
                     generateRealQR();
                 };
                 script.onerror = () => {
-                    // Si no hay red para el CDN, usar el fallback de Google Charts
                     fallbackToGoogleChart(text);
                 };
                 document.head.appendChild(script);
@@ -580,9 +571,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function fallbackToGoogleChart(text) {
-        // Google Charts QR API optimizado para grabado de 4mm:
-        // - chld=L|0 -> Corrección de Errores L (baja densidad) y Margen 0 (módulos más grandes) [6]
-        // - chs=512x512 -> Alta resolución para evitar píxeles borrosos al redimensionar [3, 7]
         const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=512x512&chld=L|0&chl=${encodeURIComponent(text)}`;
         const raster = new paper.Raster({ source: qrUrl });
         raster.onLoad = () => {
@@ -641,7 +629,7 @@ window.addEventListener("DOMContentLoaded", () => {
                         ? window.selectedItem.children.find(c => !c.clipMask) 
                         : window.selectedItem;
 
-                    if (target && target instanceof paper.PointText) {
+                    if (target) {
                         saveHistory();
                         target.fontFamily = font.family;
                         window.updateSelectionBox(window.selectedItem);
@@ -683,20 +671,18 @@ window.addEventListener("DOMContentLoaded", () => {
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group || !group.productos || group.productos.length === 0) return;
 
-        // 1. Si no hay un producto activo especificado, tomamos el actual, o por defecto el primero
         if (!activeProduct) {
             const current = toolState.currentProduct;
             const belongsToCategory = group.productos.some(p => current && p.id === current.id);
             if (belongsToCategory) {
                 activeProduct = current;
             } else {
-                activeProduct = group.productos; // ¡CORREGIDO: ASIGNACIÓN DE OBJETO FIJA!
+                activeProduct = group.productos[0];
             }
         }
 
         toolState.currentProduct = activeProduct;
 
-        // 2. Renderizar los botones de las pestañas de productos
         group.productos.forEach((prod) => {
             if (ui.productTabs) {
                 const btn = document.createElement("button");
@@ -706,18 +692,17 @@ window.addEventListener("DOMContentLoaded", () => {
                 btn.onclick = () => {
                     saveCurrentScene();
                     toolState.currentProduct = prod;
-                    toolState.currentSurface = 0; // Al cambiar de producto, siempre vamos a la cara 0 (Frente)
+                    toolState.currentSurface = 0;
                     renderProducts(categoryIndex, prod);
                 };
                 ui.productTabs.appendChild(btn);
             }
         });
 
-        // 3. Renderizar caras del producto activo y cargar la escena en el canvas
         if (activeProduct) {
             renderSurfaces(activeProduct);
             const surfaces = activeProduct.superficies || [];
-            const activeSurf = surfaces[toolState.currentSurface] || surfaces;
+            const activeSurf = surfaces[toolState.currentSurface] || surfaces[0];
             if (activeSurf) {
                 const currentMockupPath = window.currentMockup?.data?.svgPath;
                 if (currentMockupPath !== activeSurf.svg) {
@@ -757,9 +742,22 @@ window.addEventListener("DOMContentLoaded", () => {
 
     function createEditableText(point) {
         saveHistory();
+        
+        let targetPoint = point.clone();
+
+        // Control defensivo de límites (Estilo LightBurn):
+        // Si el usuario hace clic fuera de la silueta del mockup, forzamos la creación del texto
+        // en el centro exacto del mockup activo para que el recorte dinámico no lo oculte.
+        if (window.currentMockup) {
+            const mockupBounds = window.currentMockup.bounds;
+            if (!mockupBounds.contains(point)) {
+                targetPoint = mockupBounds.center.clone();
+            }
+        }
+
         const txt = new paper.PointText({
-            point: point,
-            content: "Texto", // Texto inicial por defecto para dimensiones > 0 y selección visible
+            point: targetPoint,
+            content: "Texto", 
             fontSize: 42,
             fillColor: new paper.Color(0),
             justification: "center",
@@ -813,9 +811,14 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     let insertTextMode = false;
+    let lastClickTime = 0; // Para rastrear doble clics nativos de Paper.js
     const tool = new paper.Tool();
 
     tool.onMouseDown = function(event) {
+        const currentTime = Date.now();
+        const isDoubleClick = (currentTime - lastClickTime) < 300;
+        lastClickTime = currentTime;
+
         if (window.selectionBoxGroup) {
             const hitHandle = window.selectionBoxGroup.hitTest(event.point, {
                 fill: true,
@@ -873,6 +876,20 @@ window.addEventListener("DOMContentLoaded", () => {
                     window.dragging = false;
                     return;
                 }
+
+                // DOBLE CLIC PARA RE-EDITAR TEXTOS (Estilo LightBurn)
+                if (isDoubleClick) {
+                    const textItem = selectable.data?.clipGroup 
+                        ? selectable.children.find(c => !c.clipMask) 
+                        : selectable;
+                    
+                    if (textItem instanceof paper.PointText) {
+                        window.dragging = false;
+                        startTextEditing(textItem);
+                        return;
+                    }
+                }
+
                 window.selectItem(selectable);
                 window.dragging = true;
 
