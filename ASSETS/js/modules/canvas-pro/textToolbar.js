@@ -68,7 +68,7 @@ export async function loadDynamicFonts() {
     }
 }
 
-// Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
+// Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn) [7, 8]
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -93,7 +93,7 @@ export function applyTextCurve(item, curvature) {
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
 
-    // Si ya es un grupo de letras curvas, trabajamos sobre él; si no, creamos la estructura
+    // Si ya es un grupo de letras curvas, trabajamos sobre él; si no, creamos la estructura [7]
     let glyphGroup;
     if (target.data.isCurvedGroup) {
         glyphGroup = target;
@@ -151,7 +151,7 @@ export function applyTextCurve(item, curvature) {
         glyphGroup.addChild(glyph);
     }
 
-    // Dibujar el tirador o punto azul de doblado de LightBurn en el extremo superior derecho del arco
+    // Dibujar el tirador o punto azul de doblado de LightBurn en el extremo superior derecho del arco [7, 9]
     drawBlueCurveHandle(glyphGroup);
 
     if (typeof window.updateSelectionBox === 'function') {
@@ -186,7 +186,6 @@ function restoreFlatText(item, curvedGroup) {
 }
 
 function drawBlueCurveHandle(group) {
-    // Eliminar tirador previo si existe
     const oldHandle = group.children.find(c => c.data?.isCurveHandle);
     if (oldHandle) oldHandle.remove();
 
@@ -204,7 +203,7 @@ function drawBlueCurveHandle(group) {
     group.addChild(blueCircle);
 }
 
-// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
+// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas) [10-12]
 export function weldText(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -212,12 +211,10 @@ export function weldText(item) {
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
 
-    // Convertimos la tipografía a formas vectoriales individuales mediante exportSVG / importSVG de Paper.js
     const svgElement = target.exportSVG({ asString: false });
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
 
-        // Limpiar el lienzo de textos nativos y trabajar sobre sus siluetas vectoriales
         const childrenPaths = [];
         vectorGroup.children.forEach(child => {
             if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
@@ -236,8 +233,7 @@ export function weldText(item) {
             return;
         }
 
-        // Realizar la soldadura por unión booleana (Unite) de todas las curvas cruzadas
-        let weldedPath = childrenPaths[0];
+        let weldedPath = childrenPaths;
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
             const temp = weldedPath.unite(nextPath);
@@ -250,7 +246,6 @@ export function weldText(item) {
         weldedPath.strokeColor = target.strokeColor || null;
         weldedPath.data = { ...target.data, label: "Texto Soldado" };
 
-        // Insertar dentro del clipGroup original de corte SVG si aplica
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, weldedPath);
@@ -268,15 +263,59 @@ export function weldText(item) {
     });
 }
 
-// Alternar estilo de negrita (Bold)
+// Alternar estilo de negrita (Bold) con soporte para grupos de texto curvo [2, 13]
 export function toggleBold(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
-        const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
-        target.fontWeight = isBold ? 'normal' : 'bold';
+        if (target instanceof paper.PointText) {
+            const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
+            target.fontWeight = isBold ? 'normal' : 'bold';
+        } else if (target instanceof paper.Group) {
+            let anyBold = false;
+            target.children.forEach(child => {
+                if (child instanceof paper.PointText && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
+                    anyBold = true;
+                }
+            });
+            target.children.forEach(child => {
+                if (child instanceof paper.PointText) {
+                    child.fontWeight = anyBold ? 'normal' : 'bold';
+                }
+            });
+        }
+        if (typeof window.updateSelectionBox === 'function') {
+            window.updateSelectionBox(item);
+        }
+        paper.view.update();
+    }
+}
+
+// Alternar estilo de cursiva (Italic) con soporte para grupos de texto curvo [2, 13]
+export function toggleItalic(item) {
+    if (!item || item.data?.locked) return;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+
+    const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    if (target) {
+        if (target instanceof paper.PointText) {
+            const isItalic = target.fontStyle === 'italic';
+            target.fontStyle = isItalic ? 'normal' : 'italic';
+        } else if (target instanceof paper.Group) {
+            let anyItalic = false;
+            target.children.forEach(child => {
+                if (child instanceof paper.PointText && child.fontStyle === 'italic') {
+                    anyItalic = true;
+                }
+            });
+            target.children.forEach(child => {
+                if (child instanceof paper.PointText) {
+                    child.fontStyle = anyItalic ? 'normal' : 'italic';
+                }
+            });
+        }
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(item);
         }
@@ -317,7 +356,6 @@ export function toggleUnderline(item) {
         if (isGroup && parentGroup) {
             parentGroup.addChild(line);
         } else {
-            // Si es un objeto flotante libre, los agrupamos para que se muevan juntos
             const containerGroup = new paper.Group([target, line]);
             containerGroup.data = { ...target.data, clipGroup: false };
             window.selectItem(containerGroup);
@@ -325,3 +363,4 @@ export function toggleUnderline(item) {
     }
     paper.view.update();
 }
+
