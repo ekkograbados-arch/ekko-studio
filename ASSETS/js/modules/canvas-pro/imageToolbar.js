@@ -38,31 +38,26 @@ export function scaleImage(item, factor) {
 export function duplicateImage(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-
     let duplicatedObject;
-
-    // Si es un grupo recortado (clipGroup), duplicamos solo el contenido y re-enmascaramos
     if (item.data && item.data.clipGroup) {
         const content = item.children.find(c => !c.clipMask);
         if (!content) return;
-
-        // 1. Clonar únicamente el contenido interno real (imagen, texto, svg, qr)
         const contentClone = content.clone();
-        
-        // 2. Desplazar únicamente el contenido levemente para visibilidad
         contentClone.position = contentClone.position.add(new paper.Point(20, 20));
-        contentClone.data = { ...(contentClone.data || {}), locked: false };
-
-        // 3. Crear una nueva máscara perfectamente alineada con el mockup original
+        
+        sanitizeClonedData(contentClone); // <--- Limpieza recursiva
+        contentClone.data.locked = false;
+        
         duplicatedObject = window.clipItem(contentClone);
     } else {
-        // Objeto normal sin máscara
         const clone = item.clone();
         clone.position = clone.position.add(new paper.Point(20, 20));
-        clone.data = { ...(clone.data || {}), locked: false };
+        
+        sanitizeClonedData(clone); // <--- Limpieza recursiva
+        clone.data.locked = false;
+        
         duplicatedObject = clone;
     }
-
     if (duplicatedObject) {
         paper.project.activeLayer.addChild(duplicatedObject);
         if (window.currentMockup) {
