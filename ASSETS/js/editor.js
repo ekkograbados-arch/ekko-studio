@@ -1,7 +1,7 @@
 import "./modules/selection.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
-import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
+import { initContextualMenu, updateContextualMenu, hideContextualMenu, renderSidebarFontGallery } from "./modules/canvas-pro/contextualMenu.js";
 
 window.addEventListener("DOMContentLoaded", () => {
     // 1. Inicializar Paper.js de forma segura en el lienzo
@@ -376,21 +376,17 @@ window.addEventListener("DOMContentLoaded", () => {
 
         let duplicatedObject;
 
-        // Si es un grupo recortado (clipGroup), duplicamos solo el contenido y re-enmascaramos
         if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
             const content = window.selectedItem.children.find(c => !c.clipMask);
             if (!content) return;
 
-            // Clonar el contenido real
             const contentClone = content.clone();
             contentClone.position = contentClone.position.add(new paper.Point(20, 20));
             contentClone.data = { ...(contentClone.data || {}), locked: false };
             contentClone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
 
-            // Volver a aplicar la máscara estática alineada al mockup
             duplicatedObject = window.clipItem(contentClone);
         } else {
-            // Objeto normal
             const clone = window.selectedItem.clone();
             clone.position = clone.position.add(new paper.Point(20, 20));
             clone.data = { ...(clone.data || {}), locked: false };
@@ -462,8 +458,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- CARGADORES DE ARCHIVOS CON ENMASCARAMIENTO COMPATIBLE ---
-
+    // --- CARGADORES DE ARCHIVOS ---
     function addImageFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -479,7 +474,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 raster.scale(scale);
                 raster.position = area.center;
 
-                // RECORTAR AUTOMÁTICAMENTE LA IMAGEN AL CONTORNO DEL SVG
                 const objeto = window.clipItem(raster);
                 if (window.currentMockup) {
                     objeto.insertBelow(window.currentMockup);
@@ -508,7 +502,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 item.position = canvasBounds.center;
                 paper.project.activeLayer.addChild(item);
 
-                // RECORTAR EL SVG AL CONTORNO DE FORMA SEGURA Y ASIGNAR GRUPO DE CLIP
                 const objeto = window.clipItem(item);
                 if (window.currentMockup) {
                     objeto.insertBelow(window.currentMockup);
@@ -520,7 +513,7 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsText(file);
     }
 
-    // --- GENERADOR UNIFICADO DE CÓDIGOS QR DE ALTA RESOLUCIÓN Y BAJA DENSIDAD (ESPECÍFICO DE 4MM) ---
+    // --- GENERADOR UNIFICADO DE CÓDIGOS QR DE ALTA RESOLUCIÓN Y BAJA DENSIDAD ---
     function addQRCode(text) {
         if (!text) return;
         saveHistory();
@@ -535,7 +528,7 @@ window.addEventListener("DOMContentLoaded", () => {
                         height: 512,
                         colorDark: "#000000",
                         colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.L // Forzar Nivel L (Baja densidad)
+                        correctLevel: QRCode.CorrectLevel.L
                     });
                     
                     setTimeout(() => {
@@ -589,7 +582,6 @@ window.addEventListener("DOMContentLoaded", () => {
         qrItem.scale(scale);
         qrItem.position = canvasBounds.center;
 
-        // RECORTAR EL QR AL CONTORNO EXACTO DEL PRODUCTO
         const objeto = window.clipItem(qrItem);
         if (window.currentMockup) {
             objeto.insertBelow(window.currentMockup);
@@ -615,36 +607,37 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
+    // Unificación de renderizado de la galería lateral (Redirigido al sistema dinámico interactivo con Hover)
     function renderFontGallery() {
-        const list = document.getElementById("fontList");
-        if (!list) return;
-        list.innerHTML = "";
-        FONTS.forEach(font => {
-            const item = document.createElement("div");
-            item.className = "font-item";
-            item.innerHTML = `<div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div><div class="font-name">${font.name}</div>`;
-            item.onclick = () => {
-                if (window.selectedItem) {
-                    const target = window.selectedItem.data?.clipGroup 
-                        ? window.selectedItem.children.find(c => !c.clipMask) 
-                        : window.selectedItem;
-
-                    if (target) {
-                        saveHistory();
-                        target.fontFamily = font.family;
-                        window.updateSelectionBox(window.selectedItem);
-                        if (typeof updateContextualMenu === "function") {
-                            updateContextualMenu(window.selectedItem);
+        if (typeof renderSidebarFontGallery === "function") {
+            renderSidebarFontGallery(FONTS);
+        } else {
+            const list = document.getElementById("fontList");
+            if (!list) return;
+            list.innerHTML = "";
+            FONTS.forEach(font => {
+                const item = document.createElement("div");
+                item.className = "font-item";
+                item.innerHTML = `Feliz Día Papá (${font.name})`;
+                item.onclick = () => {
+                    if (window.selectedItem) {
+                        const target = window.selectedItem.data?.clipGroup 
+                            ? window.selectedItem.children.find(c => !c.clipMask) 
+                            : window.selectedItem;
+                        if (target) {
+                            saveHistory();
+                            target.fontFamily = font.family;
+                            window.updateSelectionBox(window.selectedItem);
+                            paper.view.update();
                         }
-                        paper.view.update();
                     }
-                }
-            };
-            list.appendChild(item);
-        });
+                };
+                list.appendChild(item);
+            });
+        }
     }
 
-    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (INMUNIZADA Y DEFENSIVA) ---
+    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -692,7 +685,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 btn.onclick = () => {
                     saveCurrentScene();
                     toolState.currentProduct = prod;
-                    toolState.currentSurface = 0;
+                    toolState.currentSurface = 0; 
                     renderProducts(categoryIndex, prod);
                 };
                 ui.productTabs.appendChild(btn);
@@ -742,12 +735,9 @@ window.addEventListener("DOMContentLoaded", () => {
 
     function createEditableText(point) {
         saveHistory();
-        
         let targetPoint = point.clone();
 
-        // Control defensivo de límites (Estilo LightBurn):
-        // Si el usuario hace clic fuera de la silueta del mockup, forzamos la creación del texto
-        // en el centro exacto del mockup activo para que el recorte dinámico no lo oculte.
+        // Evitar texto fantasma fuera de límites
         if (window.currentMockup) {
             const mockupBounds = window.currentMockup.bounds;
             if (!mockupBounds.contains(point)) {
@@ -766,12 +756,11 @@ window.addEventListener("DOMContentLoaded", () => {
         txt.data = { locked: false, label: "Texto" };
         paper.project.activeLayer.addChild(txt);
         
-        // ENMASCARAR AUTOMÁTICAMENTE EL NUEVO TEXTO
         const clipped = window.clipItem(txt);
         if (window.currentMockup) {
             clipped.insertBelow(window.currentMockup);
         }
-        window.selectItem(clipped); // Selecciona el Clip Group
+        window.selectItem(clipped); 
         startTextEditing(txt);
     }
 
@@ -811,7 +800,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     let insertTextMode = false;
-    let lastClickTime = 0; // Para rastrear doble clics nativos de Paper.js
+    let lastClickTime = 0;
     const tool = new paper.Tool();
 
     tool.onMouseDown = function(event) {
@@ -819,6 +808,52 @@ window.addEventListener("DOMContentLoaded", () => {
         const isDoubleClick = (currentTime - lastClickTime) < 300;
         lastClickTime = currentTime;
 
+        // 1. Detección de clic sobre la pelotita azul de curvatura (isCurveHandle)
+        const hitHandleResult = paper.project.hitTest(event.point, {
+            fill: true,
+            stroke: true,
+            tolerance: 8 / paper.view.zoom,
+            match: function(hitResult) {
+                return hitResult.item.data && hitResult.item.data.isCurveHandle;
+            }
+        });
+
+        if (hitHandleResult && hitHandleResult.item) {
+            // DOBLE CLIC EN EL CONTROL AZUL: Restaurar a texto plano normal (Estilo LightBurn)
+            if (isDoubleClick && window.selectedItem) {
+                const targetText = window.selectedItem.data?.clipGroup 
+                    ? window.selectedItem.children.find(c => !c.clipMask) 
+                    : window.selectedItem;
+
+                if (targetText && targetText.data?.isCurvedGroup) {
+                    saveHistory();
+                    import("./modules/canvas-pro/textToolbar.js").then(module => {
+                        module.restoreFlatText(window.selectedItem, targetText);
+                    });
+                    return;
+                }
+            }
+
+            // Iniciar arrastre orgánico para doblar texto
+            window.curveDraggingActive = true;
+            window.curveDragTarget = window.selectedItem;
+            window.curveInitialPoint = event.point.clone();
+            
+            const targetItem = (window.curveDragTarget.data && window.curveDragTarget.data.clipGroup)
+                ? window.curveDragTarget.children.find(c => !c.clipMask)
+                : window.curveDragTarget;
+            
+            window.curveInitialVal = targetItem.data?.curvature || 0.01;
+            window.dragging = false;
+            window.resizeActive = false;
+
+            if (typeof hideContextualMenu === "function") {
+                hideContextualMenu();
+            }
+            return;
+        }
+
+        // 2. Tiradores estándar de escalado de selección
         if (window.selectionBoxGroup) {
             const hitHandle = window.selectionBoxGroup.hitTest(event.point, {
                 fill: true,
@@ -841,7 +876,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 
                 window.resizeLastScaleX = 1.0;
                 window.resizeLastScaleY = 1.0;
-                
                 window.dragging = false;
 
                 if (typeof hideContextualMenu === "function") {
@@ -858,6 +892,7 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        // 3. Selección y arrastre de objetos
         const hit = paper.project.hitTest(event.point, { 
             fill: true, 
             stroke: true, 
@@ -877,12 +912,9 @@ window.addEventListener("DOMContentLoaded", () => {
                     return;
                 }
 
-                // DOBLE CLIC PARA RE-EDITAR TEXTOS (Estilo LightBurn)
+                // DOBLE CLIC EN EL TEXTO: Iniciar edición en vivo (Estilo LightBurn)
                 if (isDoubleClick) {
-                    const textItem = selectable.data?.clipGroup 
-                        ? selectable.children.find(c => !c.clipMask) 
-                        : selectable;
-                    
+                    const textItem = selectable.data?.clipGroup ? selectable.children.find(c => !c.clipMask) : selectable;
                     if (textItem instanceof paper.PointText) {
                         window.dragging = false;
                         startTextEditing(textItem);
@@ -910,6 +942,35 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseDrag = function(event) {
+        // A. Arrastre orgánico del punto azul para curvar o doblar texto
+        if (window.curveDraggingActive && window.curveDragTarget) {
+            const targetItem = (window.curveDragTarget.data && window.curveDragTarget.data.clipGroup)
+                ? window.curveDragTarget.children.find(c => !c.clipMask)
+                : window.curveDragTarget;
+
+            if (targetItem) {
+                const deltaY = event.point.y - window.curveInitialPoint.y;
+                
+                // Mapear el delta de desplazamiento en Y al incremento del ángulo de curvatura
+                let newCurvature = window.curveInitialVal + (deltaY * 0.15);
+                
+                // Bounded safe limits
+                if (newCurvature > 150) newCurvature = 150;
+                if (newCurvature < -150) newCurvature = -150;
+                
+                // Si la curvatura es mínima, forzar plano
+                if (Math.abs(newCurvature) < 0.005) {
+                    newCurvature = 0;
+                }
+
+                import("./modules/canvas-pro/textToolbar.js").then(module => {
+                    module.applyTextCurve(window.curveDragTarget, newCurvature);
+                });
+            }
+            return;
+        }
+
+        // B. Arrastre de redimensionamiento de Canva
         if (window.resizeActive && window.resizeTarget) {
             const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
                 ? window.resizeTarget.children.find(c => !c.clipMask)
@@ -959,6 +1020,7 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        // C. Arrastre de posición
         if (window.dragging && window.selectedItem) {
             if (isLockedItem(window.selectedItem)) return;
 
@@ -977,6 +1039,21 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseUp = function(event) {
+        if (window.curveDraggingActive) {
+            saveHistory();
+            window.curveDraggingActive = false;
+            window.curveDragTarget = null;
+            window.curveInitialPoint = null;
+            window.curveInitialVal = 0;
+
+            updateSelectionInfo();
+            if (typeof updateContextualMenu === "function" && window.selectedItem) {
+                updateContextualMenu(window.selectedItem);
+            }
+            paper.view.update();
+            return;
+        }
+
         if (window.resizeActive) {
             saveHistory();
             window.resizeActive = false;
@@ -1065,7 +1142,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    // --- ENLAZAR EVENTOS DEL DOM DE FORMA TOTALMENTE DEFENSIVA ---
+    // --- ENLAZAR EVENTOS DEL DOM ---
     const safeAddListener = (elOrId, event, callback) => {
         const el = typeof elOrId === "string" ? document.getElementById(elOrId) : elOrId;
         if (el) {
@@ -1126,7 +1203,6 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // ENLAZAR GENERADOR DE CÓDIGO QR EN TODOS LOS IDs POSIBLES DE LA BARRA SUPERIOR
     const onQRClick = () => {
         const text = prompt("Ingrese el texto o enlace (URL) para generar el código QR:");
         if (text) {
