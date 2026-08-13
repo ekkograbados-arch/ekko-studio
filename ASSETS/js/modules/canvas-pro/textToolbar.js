@@ -1,5 +1,5 @@
 /**
- * ASSETS/js/modules/canvas-pro/textToolbar-v3.js
+ * ASSETS/js/modules/canvas-pro/textToolbar.js
  * Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn).
  */
 
@@ -20,6 +20,13 @@ export async function loadDynamicFonts() {
         if (!response.ok) throw new Error("Endpoint api/fonts no disponible");
         
         const fontFiles = await response.json();
+        
+        // CORRECCIÓN SENSACIONAL: Si el backend responde exitosamente pero devuelve un array vacío (ej. en Vercel)
+        // forzamos el lanzamiento de un error para que la carga salte al bloque catch e inyecte los woff2 de respaldo.
+        if (!fontFiles || fontFiles.length === 0) {
+            throw new Error("No se devolvieron tipografías desde el servidor.");
+        }
+
         const loaded = [];
 
         for (const item of fontFiles) {
@@ -37,8 +44,6 @@ export async function loadDynamicFonts() {
             }
             
             try {
-                // Inyectamos el descriptor { display: 'swap' } para indicarle a Chromium que use la fuente de respaldo
-                // de forma inmediata, silenciando por completo la advertencia [Intervention] Slow network is detected.
                 const fontFace = new FontFace(family, `url(/ASSETS/fonts/${encodeURIComponent(file)})`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
@@ -48,16 +53,19 @@ export async function loadDynamicFonts() {
             }
         }
 
+        if (loaded.length === 0) {
+            throw new Error("Ninguna tipografía dinámica pudo registrarse de forma exitosa.");
+        }
+
         // Ordenar alfabéticamente
         loaded.sort((a, b) => a.name.localeCompare(b.name));
         loadedFontsCache = loaded;
         return loaded;
     } catch (e) {
-        console.warn("Usando fuentes locales de respaldo por error de red o backend:", e);
+        console.warn("Inyectando fuentes locales de respaldo por error de red o backend vacío:", e);
         // Registrar fuentes fallback de forma segura
         for (const f of fallbacks) {
             try {
-                // Inyectamos el descriptor { display: 'swap' } también en el flujo de respaldo
                 const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
@@ -236,7 +244,7 @@ export function weldText(item) {
             return;
         }
 
-        let weldedPath = childrenPaths[0];
+        let weldedPath = childrenPaths;
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
             const temp = weldedPath.unite(nextPath);
@@ -364,4 +372,3 @@ export function toggleUnderline(item) {
     }
     paper.view.update();
 }
-
