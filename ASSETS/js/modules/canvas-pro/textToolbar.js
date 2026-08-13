@@ -211,12 +211,10 @@ export function weldText(item) {
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
 
-    // Convertimos la tipografía a formas vectoriales individuales mediante exportSVG / importSVG de Paper.js
     const svgElement = target.exportSVG({ asString: false });
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
 
-        // Limpiar el lienzo de textos nativos y trabajar sobre sus siluetas vectoriales
         const childrenPaths = [];
         vectorGroup.children.forEach(child => {
             if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
@@ -235,8 +233,7 @@ export function weldText(item) {
             return;
         }
 
-        // Realizar la soldadura por unión booleana (Unite) de todas las curvas cursivas cruzadas
-        let weldedPath = childrenPaths;
+        let weldedPath = childrenPaths[0];
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
             const temp = weldedPath.unite(nextPath);
@@ -249,7 +246,6 @@ export function weldText(item) {
         weldedPath.strokeColor = target.strokeColor || null;
         weldedPath.data = { ...target.data, label: "Texto Soldado" };
 
-        // Insertar dentro del clipGroup original de corte SVG si aplica
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, weldedPath);
@@ -297,7 +293,7 @@ export function toggleBold(item) {
     }
 }
 
-// Alternar estilo de cursiva (Italic / Inclinado) matemático con soporte para grupos de texto curvo (Estilo LightBurn)
+// Alternar estilo de cursiva (Italic / Inclinado) inclinando hacia la DERECHA (Estilo LightBurn)
 export function toggleItalic(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -307,15 +303,13 @@ export function toggleItalic(item) {
         target.data = target.data || {};
         const isItalic = target.data.isItalicSkewed || false;
         
-        // Ángulo de inclinación matemático (shear factor en el eje X, idéntico a LightBurn / Illustrator)
-        const slantAngle = 0.22; 
+        // slantAngle negativo para que la inclinación sea HACIA LA DERECHA (italics convencionales)
+        const slantAngle = -0.22; 
 
         if (isItalic) {
-            // Quitar inclinación de forma segura
             target.shear(-slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = false;
         } else {
-            // Aplicar inclinación
             target.shear(slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = true;
         }
