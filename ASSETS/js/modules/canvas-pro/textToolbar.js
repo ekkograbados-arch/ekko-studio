@@ -70,54 +70,44 @@ export async function loadDynamicFonts() {
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
-    
-    // Quitar el tirador temporalmente para que no ensucie la matemática de posición
-    if (target.data?.isCurvedGroup) {
-        const handle = target.children.find(c => c.data?.isCurveHandle);
-        if (handle) handle.remove();
-    }
-    
-    const origCenter = target.position.clone();
-    
-    // Obtener los datos de estilo y texto de forma persistente para evitar la caída a Arial
-    const textStr = target.data?.textString || target.content || "Texto";
-    const fontFamily = target.data?.fontFamily || target.fontFamily || (target.children && target.children.find(c => c instanceof paper.PointText)?.fontFamily) || "Arial";
-    const fontSize = target.data?.fontSize || target.fontSize || 42;
-    const fillColor = target.data?.fillColor || target.fillColor || new paper.Color(0);
-    const hspace = target.data?.hspace || 0;
-    
     target.data = target.data || {};
     target.data.curvature = curvature;
-    target.data.fontFamily = fontFamily;
-    target.data.fontSize = fontSize;
-    target.data.fillColor = fillColor;
-    
+
     // Si la curvatura es casi cero, restaurar a texto plano normal
     if (Math.abs(curvature) < 0.001) {
-        if (target.data?.isCurvedGroup) {
+        if (target.data.isCurvedGroup) {
             restoreFlatText(item, target);
         }
         return;
     }
-    
+
+    const textStr = target.data.textString || target.content || "Texto";
+
+    // --- DETECCIÓN ROBUSTA DE LA TIPOGRAFÍA ACTIVA ---
+    let fontFamily = target.fontFamily;
+    if (!fontFamily && target instanceof paper.Group) {
+        const firstChar = target.children.find(c => c instanceof paper.PointText);
+        if (firstChar) {
+            fontFamily = firstChar.fontFamily;
+        }
+    }
+    fontFamily = fontFamily || target.data?.fontFamily || "Arial";
+    // --------------------------------------------------
+
+    const fontSize = target.fontSize || 42;
+    const fillColor = target.fillColor || new paper.Color(0);
+    const origCenter = target.position.clone();
     let glyphGroup;
-    if (target.data?.isCurvedGroup) {
+
+    if (target.data.isCurvedGroup) {
         glyphGroup = target;
         glyphGroup.clear();
     } else {
         glyphGroup = new paper.Group();
-        glyphGroup.data = { 
-            ...target.data, 
-            isCurvedGroup: true, 
-            textString: textStr,
-            fontFamily: fontFamily,
-            fontSize: fontSize,
-            fillColor: fillColor
-        };
-        
+        // Guardamos explícitamente fontFamily en el data del grupo
+        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr, fontFamily: fontFamily };
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -129,60 +119,39 @@ export function applyTextCurve(item, curvature) {
             window.selectItem(glyphGroup);
         }
     }
-    
+
     const chars = textStr.split("");
     const numChars = chars.length;
     if (numChars === 0) return;
-    
-    // Matemática del Arco de Circunferencia estilo LightBurn con soporte de espaciado
     const radius = 2000 / curvature;
     const centerPoint = new paper.Point(0, radius);
-    
-    // Calcular ancho estimado de carácter
-    const charWidth = fontSize * 0.6;
-    const totalArcWidth = (numChars * charWidth) + ((numChars - 1) * hspace);
-    const arcAngle = totalArcWidth / radius;
+    const arcAngle = (numChars * fontSize * 0.6) / radius;
     const startAngle = -Math.PI / 2 - (arcAngle / 2);
-    
+
     for (let i = 0; i < numChars; i++) {
         const char = chars[i];
         if (char === " ") continue;
-        
         const t = numChars > 1 ? i / (numChars - 1) : 0.5;
         const angle = startAngle + (t * arcAngle);
-        
         const x = centerPoint.x + radius * Math.cos(angle);
         const y = centerPoint.y + radius * Math.sin(angle);
-        
         const glyph = new paper.PointText({
             point: [x, y],
             content: char,
-            fontFamily: fontFamily,
+            fontFamily: fontFamily, // <--- Aplicada de manera segura
             fontSize: fontSize,
             fillColor: fillColor,
             justification: "center"
         });
-        
-        if (target.data?.fontWeight) {
-            glyph.fontWeight = target.data.fontWeight;
-        }
-        
         const rotationAngle = (angle * 180 / Math.PI) + 90;
         glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
-        
-        if (target.data?.isItalicSkewed) {
-            glyph.shear(-0.22, 0, glyph.bounds.bottomCenter);
-        }
-        
         glyphGroup.addChild(glyph);
     }
-    
-    // Reposicionar el grupo de glifos en la coordenada original exacta del texto plano
+
     glyphGroup.position = origCenter;
     drawBlueCurveHandle(glyphGroup);
-    
     if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(item.data?.clipGroup ? item : glyphGroup);
+        window.updateSelectionBox(glyphGroup);
     }
     paper.view.update();
 }
@@ -240,20 +209,17 @@ function drawBlueCurveHandle(group) {
 export function applyTextSpacing(item, hspace) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
-    
     target.data = target.data || {};
     target.data.hspace = hspace;
-    
+
     if (target instanceof paper.Group) {
         if (target.data.isCurvedGroup) {
             applyTextCurve(item, target.data.curvature || 0);
             return;
         }
-        
-        // Distribución horizontal plana persistente
+        // Distribución horizontal plana
         let currentX = 0;
         target.children.forEach(child => {
             if (child.data?.isCurveHandle || child.data?.underlineId) return;
@@ -263,25 +229,26 @@ export function applyTextSpacing(item, hspace) {
     } else if (target instanceof paper.PointText) {
         const textStr = target.content || "Texto";
         if (Math.abs(hspace) < 0.001) return;
-        
-        const fontFamily = target.data?.fontFamily || target.fontFamily || "Arial";
-        const fontSize = target.data?.fontSize || target.fontSize || 42;
-        const fillColor = target.data?.fillColor || target.fillColor || new paper.Color(0);
-        
         const glyphGroup = new paper.Group();
-        glyphGroup.data = { 
-            ...target.data, 
-            isSpacedGroup: true, 
-            textString: textStr,
-            fontFamily: fontFamily,
-            fontSize: fontSize,
-            fillColor: fillColor
-        };
-        
+
+        // --- DETECCIÓN ROBUSTA DE LA TIPOGRAFÍA ACTIVA ---
+        let fontFamily = target.fontFamily;
+        if (!fontFamily && target instanceof paper.Group) {
+            const firstChar = target.children.find(c => c instanceof paper.PointText);
+            if (firstChar) {
+                fontFamily = firstChar.fontFamily;
+            }
+        }
+        fontFamily = fontFamily || target.data?.fontFamily || "Arial";
+        // --------------------------------------------------
+
+        glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr, fontFamily: fontFamily };
         const chars = textStr.split("");
+        const fontSize = target.fontSize || 42;
+        const fillColor = target.fillColor || new paper.Color(0);
         const origCenter = target.position.clone();
         let currentX = 0;
-        
+
         chars.forEach(char => {
             const glyph = new paper.PointText({
                 point: [currentX, 0],
@@ -291,18 +258,11 @@ export function applyTextSpacing(item, hspace) {
                 fillColor: fillColor,
                 justification: "left"
             });
-            if (target.data?.fontWeight) {
-                glyph.fontWeight = target.data.fontWeight;
-            }
-            if (target.data?.isItalicSkewed) {
-                glyph.shear(-0.22, 0, glyph.bounds.bottomCenter);
-            }
             glyphGroup.addChild(glyph);
             currentX += glyph.bounds.width + hspace;
         });
-        
+
         glyphGroup.position = origCenter;
-        
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -314,12 +274,13 @@ export function applyTextSpacing(item, hspace) {
             window.selectItem(glyphGroup);
         }
     }
-    
+
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(item);
     }
     paper.view.update();
 }
+
 
 // Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
 export function weldText(item) {
