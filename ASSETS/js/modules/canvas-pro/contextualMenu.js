@@ -34,7 +34,7 @@ function removeOverlapTab() {
     });
 }
 
-// Cargar las fuentes dinámicas del sistema y poblar los dropdowns con estilos inline de previsualización
+// Cargar las fuentes dinámicas del sistema y poblar los dropdowns con la previsualización tipográfica en tiempo real
 async function populateFontDropdowns() {
     const fonts = await loadDynamicFonts();
     const dropdowns = [
@@ -57,7 +57,7 @@ async function populateFontDropdowns() {
             const opt = document.createElement('option');
             opt.value = font.family;
             opt.textContent = font.name;
-            opt.style.fontFamily = font.family; // Previsualización en la opción del dropdown
+            opt.style.fontFamily = font.family; // PREVISUALIZACIÓN EN DROPDOWN (Estilo LightBurn)
             dropdown.appendChild(opt);
         });
     });
@@ -65,6 +65,7 @@ async function populateFontDropdowns() {
     renderSidebarFontGallery(fonts);
 }
 
+// Renderizar galería de tipografías con el sistema interactivo de deslizamiento (Hover Preview) en tiempo real
 function renderSidebarFontGallery(fonts) {
     const list = document.getElementById("fontList");
     if (!list) return;
@@ -74,27 +75,32 @@ function renderSidebarFontGallery(fonts) {
         const item = document.createElement("div");
         item.className = "font-item";
         item.style.cursor = "pointer";
-        item.innerHTML = `<div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div><div class="font-name">${font.name}</div>`;
-        
+        item.innerHTML = `
+            <div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div>
+            <div class="font-name" style="font-size: 12px; color: #666; margin-top: 4px;">${font.name}</div>
+        `;
+
         let originalFont = null;
 
-        // PREVISUALIZACIÓN AUTOMÁTICA EN TIEMPO REAL AL PASAR EL CURSOR (HOVER PREVIEW - Estilo LightBurn)
+        // PREVISUALIZACIÓN DINÁMICA POR HOVER (Al pasar el cursor del mouse por la lista)
         item.onmouseenter = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup 
                     ? window.selectedItem.children.find(c => !c.clipMask) 
                     : window.selectedItem;
-                if (target) {
-                    originalFont = target.fontFamily || "Arial";
-                    
-                    if (target.data?.isCurvedGroup) {
+
+                if (target && (target instanceof paper.PointText || target.data?.isCurvedGroup)) {
+                    if (target instanceof paper.PointText) {
+                        originalFont = target.fontFamily;
+                        target.fontFamily = font.family;
+                    } else if (target instanceof paper.Group) {
+                        // Soporte para textos curvos (Grupos de PointText)
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) {
+                                if (!originalFont) originalFont = child.fontFamily;
                                 child.fontFamily = font.family;
                             }
                         });
-                    } else {
-                        target.fontFamily = font.family;
                     }
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
@@ -104,22 +110,24 @@ function renderSidebarFontGallery(fonts) {
             }
         };
 
-        // RESTAURAR LA FUENTE ORIGINAL AL RETIRAR EL CURSOR
+        // RESTAURACIÓN INSTANTÁNEA (Al quitar el mouse de la tipografía de la lista)
         item.onmouseleave = () => {
             if (window.selectedItem && originalFont) {
                 const target = window.selectedItem.data?.clipGroup 
                     ? window.selectedItem.children.find(c => !c.clipMask) 
                     : window.selectedItem;
+
                 if (target) {
-                    if (target.data?.isCurvedGroup) {
+                    if (target instanceof paper.PointText) {
+                        target.fontFamily = originalFont;
+                    } else if (target instanceof paper.Group) {
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) {
                                 child.fontFamily = originalFont;
                             }
                         });
-                    } else {
-                        target.fontFamily = originalFont;
                     }
+                    originalFont = null;
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -128,33 +136,32 @@ function renderSidebarFontGallery(fonts) {
             }
         };
 
-        // CONFIRMAR LA SELECCIÓN AL HACER CLIC
+        // CONFIRMACIÓN DE SELECCIÓN (Al hacer clic en la tipografía)
         item.onclick = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup 
                     ? window.selectedItem.children.find(c => !c.clipMask) 
                     : window.selectedItem;
+
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
                     
-                    if (target.data?.isCurvedGroup) {
+                    if (target instanceof paper.PointText) {
+                        target.fontFamily = font.family;
+                    } else if (target instanceof paper.Group) {
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) {
                                 child.fontFamily = font.family;
                             }
                         });
-                        target.fontFamily = font.family;
-                    } else {
-                        target.fontFamily = font.family;
                     }
-                    
-                    originalFont = font.family; // Fijar la nueva fuente seleccionada
-                    
-                    // Sincronizar el dropdown de la barra flotante
-                    const fontSelector = document.getElementById('ctxFontSelector');
-                    if (fontSelector) {
-                        fontSelector.value = font.family;
-                    }
+
+                    // Forzar que el hover actualice la memoria de fuente de retorno
+                    originalFont = font.family;
+
+                    // Sincronizar el dropdown flotante de la barra emergente al valor seleccionado
+                    const ctxDropdown = document.getElementById('ctxFontSelector');
+                    if (ctxDropdown) ctxDropdown.value = font.family;
 
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
@@ -163,6 +170,7 @@ function renderSidebarFontGallery(fonts) {
                 }
             }
         };
+
         list.appendChild(item);
     });
 }
@@ -208,8 +216,8 @@ export function initContextualMenu() {
     // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
-        // change / input: se ejecuta dinámicamente cuando el usuario cambia la tipografía
-        fontSelector.onchange = () => {
+        // change / input: se ejecuta dinámicamente cuando el usuario navega las opciones con el teclado o ratón
+        const applyFontChange = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup 
                     ? window.selectedItem.children.find(c => !c.clipMask) 
@@ -217,17 +225,15 @@ export function initContextualMenu() {
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
                     
-                    if (target.data?.isCurvedGroup) {
+                    if (target instanceof paper.PointText) {
+                        target.fontFamily = fontSelector.value;
+                    } else if (target instanceof paper.Group) {
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) {
                                 child.fontFamily = fontSelector.value;
                             }
                         });
-                        target.fontFamily = fontSelector.value;
-                    } else {
-                        target.fontFamily = fontSelector.value;
                     }
-
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -235,8 +241,8 @@ export function initContextualMenu() {
                 }
             }
         };
-        // Soporte de previsualización al presionar arriba/abajo con teclado
-        fontSelector.oninput = fontSelector.onchange;
+        fontSelector.onchange = applyFontChange;
+        fontSelector.oninput = applyFontChange;
     }
 
     setClick('btnCtxBold', () => {
@@ -374,7 +380,6 @@ export function updateContextualMenu(item) {
         
         const fontSelector = document.getElementById('ctxFontSelector');
         if (fontSelector && target.fontFamily) {
-            // Sincronizar dropdown con el valor de la fuente actual del texto
             fontSelector.value = target.fontFamily;
         }
 
