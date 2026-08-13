@@ -1,96 +1,85 @@
-@font-face{
-  font-family:"ekko_billie";
-  src:url("../fonts/BillieJames-Regular.ttf");
-  font-display: swap; /* Inyección para evitar intervenciones de carga */
+@font-face {
+    font-family: "ekko_billie";
+    src: url("../fonts/BillieJames-Regular.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_romantic";
-  src:url("../fonts/Romantic Sunrise.otf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_romantic";
+    src: url("../fonts/Romantic Sunrise.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_farmhouse";
-  src:url("../fonts/Farmhouse.otf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_farmhouse";
+    src: url("../fonts/Farmhouse.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_chocolate";
-  src:url("../fonts/Chocolate.ttf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_chocolate";
+    src: url("../fonts/Chocolate.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_disney";
-  src:url("../fonts/waltograph42.otf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_disney";
+    src: url("../fonts/waltograph42.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_simpson";
-  src:url("../fonts/Simpsonfont DEMO.otf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_simpson";
+    src: url("../fonts/Simpsonfont DEMO.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_milk";
-  src:url("../fonts/Milk Water.otf");
+@font-face {
+    font-family: "ekko_milk";
+    src: url("../fonts/Milk Water.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_beyond";
-  src:url("../fonts/LMS Beyond Infinity.ttf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_beyond";
+    src: url("../fonts/LMS Beyond Infinity.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_breathing";
-  src:url("../fonts/Breathing Personal Use Only.ttf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_breathing";
+    src: url("../fonts/Breathing Personal Use Only.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_nostalgic";
-  src:url("../fonts/Nostalgic Letter.otf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_nostalgic";
+    src: url("../fonts/Nostalgic Letter.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_song";
-  src:url("../fonts/Please write me a song.ttf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_song";
+    src: url("../fonts/Please write me a song.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_simple";
-  src:url("../fonts/SimpleHandmade.ttf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_simple";
+    src: url("../fonts/SimpleHandmade.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_studynight";
-  src:url("../fonts/Study Night.otf");
-  font-display: swap; 
+@font-face {
+    font-family: "ekko_studynight";
+    src: url("../fonts/Study Night.woff2") format("woff2");
+    font-display: swap;
 }
 
-@font-face{
-  font-family:"ekko_studyperson";
-  src:url("../fonts/Study Person.otf");
-}
-
-@font-face{
-  font-family:"ekko_high";
-  src:url("../fonts/High Spirited.ttf");
-}
-
-@font-face{
-  font-family:"ekko_seine";
-  src:url("../fonts/Au Bord de la Seine.ttf");
-  font-display: swap; 
-}* {
-  box-sizing: border-box;
+@font-face {
+    font-family: "ekko_studyperson";
+    src: url("../fonts/Study Person.woff2") format("woff2");
+    font-display: swap;
 }
 
 body {
