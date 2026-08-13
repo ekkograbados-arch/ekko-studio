@@ -52,7 +52,7 @@
         }
         .rich-font-dropdown-list {
             position: absolute;
-            top: 100%; /* Despliega hacia abajo para una interacción más fluida */
+            top: 100%; /* Despliega hacia abajo para ir previsualizando cómodamente */
             left: 0;
             width: 280px;
             max-height: 250px;
@@ -160,7 +160,6 @@
     <div class="layout">
         
         <!-- SIDEBAR IZQUIERDA: PANELES DE CATEGORÍAS, PRODUCTOS Y CARAS (Vistas) -->
-        <!-- NOTA DE AUDITORÍA: La galería estática estorbosa de tipografías ha sido removida del sidebar lateral izquierdo -->
         <aside class="sidebar">
             <!-- Categorías -->
             <div class="sidebar-section">
@@ -202,7 +201,7 @@
                         <!-- 1. CONTROLES CONTEXTUALES DE TEXTO AVANZADO -->
                         <div id="ctxTextControls" class="toolbar-subgroup hidden" style="display: flex; align-items: center; gap: 8px;">
                             
-                            <!-- Dropdown de tipografías Enriquecido (Flota hacia arriba y es interactivo al hover) -->
+                            <!-- Dropdown de tipografías Enriquecido (Flota hacia abajo y es interactivo al hover) -->
                             <div class="rich-font-dropdown-container">
                                 <button id="btnCtxFontSelect" class="rich-font-dropdown-trigger" title="Seleccionar Fuente">
                                     <span id="txtCtxFontActive">Arial</span>
@@ -222,13 +221,13 @@
                             
                             <!-- Control Deslizante de Curvatura de Texto (Doblar en arco) -->
                             <div class="toolbar-slider-container" title="Curvatura de Texto" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                                <span style="font-weight: bold; color: #555;">Arco</span>
+                                <span style="font-weight: bold; color: #555;">Curvatura</span>
                                 <input id="ctxTextCurve" type="range" min="-100" max="100" value="0" step="1" style="width: 65px; accent-color: #ff00ff;">
                             </div>
                             
-                            <!-- Control Deslizante de Espaciado de Caracteres (HSpace) -->
-                            <div class="toolbar-slider-container" title="Espaciado de Caracteres (HSpace)" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                                <span style="font-weight: bold; color: #555;">Espacio</span>
+                            <!-- Control Deslizante de Espaciado de Caracteres (Espaciado) -->
+                            <div class="toolbar-slider-container" title="Espaciado de Caracteres" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                                <span style="font-weight: bold; color: #555;">Espaciado</span>
                                 <input id="ctxTextHSpace" type="range" min="-10" max="100" value="0" step="1" style="width: 65px; accent-color: #ff00ff;">
                             </div>
                         </div>
@@ -308,7 +307,7 @@
                         <div class="sidebar-title"><i class="fas fa-search-plus"></i> Vista y Zoom</div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
                             <button class="action-btn" id="btnZoomIn" title="Acercar"><i class="fas fa-search-plus"></i></button>
-                            <button class="action-btn" id="btnZoomOut" title="Alejar"><i class="fas fa-search-minus"></i></button>
+                            <button class="action-btn" id="btnZoomOut" title="Alejar"><i class="fas fa-search-minus\"></i></button>
                             <button class="action-btn" id="btnFit" title="Ajustar Vista"><i class="fas fa-compress-arrows-alt"></i> Ajustar</button>
                         </div>
                     </div>
