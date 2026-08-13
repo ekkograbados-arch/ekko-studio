@@ -1,3 +1,15 @@
+// Función auxiliar para desvincular de raíz las referencias del objeto .data en clones
+function sanitizeClonedData(item) {
+    if (!item) return;
+    if (item.data) {
+        item.data = { ...item.data }; // Copia superficial pura de propiedades primitivas
+    } else {
+        item.data = {};
+    }
+    if (item.children) {
+        item.children.forEach(sanitizeClonedData); // Se ejecuta recursivamente en hijos de Grupos
+    }
+}
 /**
  * ASSETS/js/modules/canvas-pro/imageToolbar.js
  * Módulo independiente para el procesamiento y control de imágenes en el editor.
