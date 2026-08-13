@@ -377,34 +377,41 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    function duplicateSelected() {
-        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
-        saveHistory();
-        let duplicatedObject;
-        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-            const content = window.selectedItem.children.find(c => !c.clipMask);
-            if (!content) return;
-            const contentClone = content.clone();
-            contentClone.position = contentClone.position.add(new paper.Point(20, 20));
-            contentClone.data = { ...(contentClone.data || {}), locked: false };
-            contentClone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
-            duplicatedObject = window.clipItem(contentClone);
-        } else {
-            const clone = window.selectedItem.clone();
-            clone.position = clone.position.add(new paper.Point(20, 20));
-            clone.data = { ...(clone.data || {}), locked: false };
-            clone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
-            duplicatedObject = clone;
-        }
-        if (duplicatedObject) {
-            paper.project.activeLayer.addChild(duplicatedObject);
-            if (window.currentMockup) {
-                duplicatedObject.insertBelow(window.currentMockup);
-            }
-            window.selectItem(duplicatedObject);
-        }
-        paper.view.update();
+function duplicateSelected() {
+    if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+    saveHistory();
+    let duplicatedObject;
+    if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+        const content = window.selectedItem.children.find(c => !c.clipMask);
+        if (!content) return;
+        const contentClone = content.clone();
+        contentClone.position = contentClone.position.add(new paper.Point(20, 20));
+        
+        sanitizeClonedData(contentClone); // <--- Desconecta referencias del hijo text/raster
+        contentClone.data.locked = false;
+        contentClone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
+        
+        duplicatedObject = window.clipItem(contentClone);
+    } else {
+        const clone = window.selectedItem.clone();
+        clone.position = clone.position.add(new paper.Point(20, 20));
+        
+        sanitizeClonedData(clone); // <--- Desconecta referencias del objeto plano
+        clone.data.locked = false;
+        clone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
+        
+        duplicatedObject = clone;
     }
+    if (duplicatedObject) {
+        paper.project.activeLayer.addChild(duplicatedObject);
+        if (window.currentMockup) {
+            duplicatedObject.insertBelow(window.currentMockup);
+        }
+        window.selectItem(duplicatedObject);
+    }
+    paper.view.update();
+}
+
 
     function copySelected() {
         if (!window.selectedItem) return;
@@ -412,17 +419,19 @@ window.addEventListener("DOMContentLoaded", () => {
         clipboardItem = window.selectedItem.clone();
     }
 
-    function pasteSelected() {
-        if (!clipboardItem) return;
-        saveHistory();
-        const clone = clipboardItem.clone();
-        clone.position = clone.position.add(new paper.Point(20, 20));
-        clone.data = { ...(clone.data || {}), locked: false };
-        paper.project.activeLayer.addChild(clone);
-        window.selectItem(clone);
-        paper.view.update();
-    }
-
+function pasteSelected() {
+    if (!clipboardItem) return;
+    saveHistory();
+    const clone = clipboardItem.clone();
+    clone.position = clone.position.add(new paper.Point(20, 20));
+    
+    sanitizeClonedData(clone); // <--- Desconecta referencias de todo el árbol clonado
+    clone.data.locked = false;
+    
+    paper.project.activeLayer.addChild(clone);
+    window.selectItem(clone);
+    paper.view.update();
+}
     function bringFront() {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         window.selectedItem.bringToFront();
