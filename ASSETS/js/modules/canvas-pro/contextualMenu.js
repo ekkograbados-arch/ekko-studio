@@ -458,4 +458,3 @@ export function hideContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (toolbar) toolbar.classList.remove('active');
 }
-
