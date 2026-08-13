@@ -69,8 +69,6 @@ function renderRichFontDropdown(fonts) {
     defaultItem.className = "rich-font-item";
     defaultItem.style.cursor = "pointer";
     
-    // Obtener el texto en vivo para la previsualización
-    let previewText = "Arial";
     defaultItem.innerHTML = `
         <div class="font-preview" style="font-family: Arial; font-size: 18px;">Arial</div>
         <div class="font-name" style="font-size: 10px; color: #888; text-transform: uppercase;">Arial (Sistema)</div>
@@ -89,10 +87,9 @@ function renderRichFontDropdown(fonts) {
         item.style.padding = "8px 12px";
         item.style.borderBottom = "1px solid #f0f0f0";
 
-        // Al renderizar el item, generamos dinámicamente su estructura
         item.innerHTML = `
             <div class="font-preview" style="font-family: ${font.family}; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Grabado</div>
-            <div class="font-name" style="font-size: 10px; color: #888; text-transform: uppercase; margin-top: 2px;">${font.name}</div>
+            <div class="font-name" style="font-size: 10px; color: #888; text-transform: uppercase; margin-top: 2px;\">${font.name}</div>
         `;
 
         // EVENTO: Al pasar el cursor por encima (Hover Preview en tiempo real sobre el canvas)
@@ -259,7 +256,6 @@ export function initContextualMenu() {
     if (fontTrigger && fontDropdown) {
         fontTrigger.onclick = (e) => {
             e.stopPropagation();
-            // Actualizar previsualizaciones en vivo con el texto redactado por el cliente antes de mostrar
             updateRichFontPreviews();
             fontDropdown.classList.toggle("hidden");
         };
@@ -297,7 +293,7 @@ export function initContextualMenu() {
         }
     });
 
-    // Control Deslizante de Curvatura de Texto (Estilo LightBurn)
+    // Control Deslizante de Curvatura de Texto (Estilo LightBurn) con Wheel interactivo
     const curveSlider = document.getElementById('ctxTextCurve');
     if (curveSlider) {
         curveSlider.oninput = () => {
@@ -306,14 +302,34 @@ export function initContextualMenu() {
                 applyTextCurve(window.selectedItem, val);
             }
         };
+        curveSlider.onwheel = (e) => {
+            e.preventDefault();
+            let val = parseFloat(curveSlider.value);
+            val += e.deltaY < 0 ? 1 : -1;
+            val = Math.max(-100, Math.min(100, val));
+            curveSlider.value = val;
+            if (window.selectedItem) {
+                applyTextCurve(window.selectedItem, val);
+            }
+        };
     }
 
-    // Control Deslizante de Espaciado de Caracteres (HSpace - Estilo LightBurn)
+    // Control Deslizante de Espaciado de Caracteres (Espaciado - Estilo LightBurn) con Wheel interactivo
     const hspaceSlider = document.getElementById('ctxTextHSpace');
     if (hspaceSlider) {
         hspaceSlider.oninput = () => {
             if (window.selectedItem) {
                 const val = parseFloat(hspaceSlider.value);
+                applyTextSpacing(window.selectedItem, val);
+            }
+        };
+        hspaceSlider.onwheel = (e) => {
+            e.preventDefault();
+            let val = parseFloat(hspaceSlider.value);
+            val += e.deltaY < 0 ? 1 : -1;
+            val = Math.max(-10, Math.min(100, val));
+            hspaceSlider.value = val;
+            if (window.selectedItem) {
                 applyTextSpacing(window.selectedItem, val);
             }
         };
@@ -409,7 +425,6 @@ export function updateContextualMenu(item) {
         // Sincronizar el nombre en el disparador del dropdown enriquecido
         const labelActive = document.getElementById("txtCtxFontActive");
         if (labelActive && target.fontFamily) {
-            // Extraer nombre de la tipografía eliminando prefijos
             let cleanName = target.fontFamily.replace("ekko_", "").replace(/_/g, " ");
             cleanName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
             labelActive.textContent = cleanName;
