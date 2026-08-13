@@ -76,7 +76,7 @@ export async function loadDynamicFonts() {
 }
 
 // Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
-export function applyTextCurve(item, curvature, hspace = 0) {
+export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -85,14 +85,11 @@ export function applyTextCurve(item, curvature, hspace = 0) {
 
     target.data = target.data || {};
     target.data.curvature = curvature;
-    target.data.hspace = hspace;
 
-    // Si la curvatura es casi cero, restaurar a texto plano normal (con espaciado si aplica)
+    // Si la curvatura es casi cero, restaurar a texto plano normal
     if (Math.abs(curvature) < 0.001) {
         if (target.data.isCurvedGroup) {
-            restoreFlatText(item, target, hspace);
-        } else {
-            applyTextSpacing(item, hspace);
+            restoreFlatText(item, target);
         }
         return;
     }
@@ -101,8 +98,9 @@ export function applyTextCurve(item, curvature, hspace = 0) {
     const fontFamily = target.fontFamily || "Arial";
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
-    const fontWeight = target.fontWeight || "normal";
-    const fontStyle = target.fontStyle || "normal";
+
+    // Guardar posición original para evitar que el texto vuele fuera del mockup
+    const origCenter = target.position.clone();
 
     let glyphGroup;
     if (target.data.isCurvedGroup) {
@@ -130,10 +128,7 @@ export function applyTextCurve(item, curvature, hspace = 0) {
 
     const radius = 2000 / curvature; 
     const centerPoint = new paper.Point(0, radius);
-    
-    // Incorporamos el espaciado HSpace al tamaño de cálculo de arco
-    const effectiveCharWidth = (fontSize * 0.6) + hspace;
-    const arcAngle = (numChars * effectiveCharWidth) / radius; 
+    const arcAngle = (numChars * fontSize * 0.6) / radius; 
     const startAngle = -Math.PI / 2 - (arcAngle / 2);
 
     for (let i = 0; i < numChars; i++) {
@@ -152,8 +147,6 @@ export function applyTextCurve(item, curvature, hspace = 0) {
             fontFamily: fontFamily,
             fontSize: fontSize,
             fillColor: fillColor,
-            fontWeight: fontWeight,
-            fontStyle: fontStyle,
             justification: "center"
         });
 
@@ -161,6 +154,9 @@ export function applyTextCurve(item, curvature, hspace = 0) {
         glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
         glyphGroup.addChild(glyph);
     }
+
+    // Reposicionar el grupo de glifos en la coordenada original exacta del texto plano
+    glyphGroup.position = origCenter;
 
     drawBlueCurveHandle(glyphGroup);
 
@@ -170,97 +166,7 @@ export function applyTextCurve(item, curvature, hspace = 0) {
     paper.view.update();
 }
 
-// Aplicar espaciado horizontal de caracteres (HSpace) en línea recta para texto plano (Estilo LightBurn)
-export function applyTextSpacing(item, hspace) {
-    if (!item || item.data?.locked) return;
-    
-    const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-    if (!target) return;
-
-    target.data = target.data || {};
-    target.data.hspace = hspace;
-
-    // Si ya está curvado, redirigimos a la función de arco
-    if (target.data.isCurvedGroup || (target.data.curvature && Math.abs(target.data.curvature) >= 0.001)) {
-        applyTextCurve(item, target.data.curvature || 0, hspace);
-        return;
-    }
-
-    if (typeof window.saveHistory === 'function') window.saveHistory();
-
-    const textStr = target.data.textString || target.content || "Texto";
-    const fontFamily = target.fontFamily || "Arial";
-    const fontSize = target.fontSize || 42;
-    const fillColor = target.fillColor || new paper.Color(0);
-    const fontWeight = target.fontWeight || "normal";
-    const fontStyle = target.fontStyle || "normal";
-
-    let glyphGroup;
-    if (target.data.isSpacedGroup) {
-        glyphGroup = target;
-        glyphGroup.clear();
-    } else {
-        glyphGroup = new paper.Group();
-        glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr };
-        
-        if (item.data?.clipGroup) {
-            const idx = item.children.indexOf(target);
-            item.insertChild(idx, glyphGroup);
-            target.remove();
-        } else {
-            const idx = paper.project.activeLayer.children.indexOf(item);
-            paper.project.activeLayer.insertChild(idx, glyphGroup);
-            item.remove();
-            window.selectItem(glyphGroup);
-        }
-    }
-
-    const chars = textStr.split("");
-    let currentX = 0;
-
-    for (let i = 0; i < chars.length; i++) {
-        const char = chars[i];
-        
-        // Creamos PointText temporal para medir ancho real del carácter
-        const tempGlyph = new paper.PointText({
-            point: [0, 0],
-            content: char,
-            fontFamily: fontFamily,
-            fontSize: fontSize,
-            fontWeight: fontWeight,
-            fontStyle: fontStyle
-        });
-        const charWidth = tempGlyph.bounds.width || (fontSize * 0.6);
-        tempGlyph.remove();
-
-        if (char === " ") {
-            currentX += charWidth + hspace;
-            continue;
-        }
-
-        const glyph = new paper.PointText({
-            point: [currentX + (charWidth / 2), 0],
-            content: char,
-            fontFamily: fontFamily,
-            fontSize: fontSize,
-            fillColor: fillColor,
-            fontWeight: fontWeight,
-            fontStyle: fontStyle,
-            justification: "center"
-        });
-
-        glyphGroup.addChild(glyph);
-        currentX += charWidth + hspace;
-    }
-
-    // Centrar la caja de la selección alineándola respecto a la posición anterior
-    if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(glyphGroup);
-    }
-    paper.view.update();
-}
-
-function restoreFlatText(item, curvedGroup, hspace = 0) {
+function restoreFlatText(item, curvedGroup) {
     const textStr = curvedGroup.data.textString || "Texto";
     const flatText = new paper.PointText({
         point: curvedGroup.bounds.bottomCenter,
@@ -268,24 +174,20 @@ function restoreFlatText(item, curvedGroup, hspace = 0) {
         fontSize: curvedGroup.data.fontSize || 42,
         fontFamily: curvedGroup.data.fontFamily || "Arial",
         fillColor: curvedGroup.data.fillColor || new paper.Color(0),
-        fontWeight: curvedGroup.data.fontWeight || "normal",
-        fontStyle: curvedGroup.data.fontStyle || "normal",
         justification: "center"
     });
-    flatText.data = { ...curvedGroup.data, isCurvedGroup: false, isSpacedGroup: false };
+    flatText.data = { ...curvedGroup.data, isCurvedGroup: false };
     delete flatText.data.curvature;
 
     if (item.data?.clipGroup) {
         const idx = item.children.indexOf(curvedGroup);
         item.insertChild(idx, flatText);
         curvedGroup.remove();
-        if (hspace !== 0) applyTextSpacing(item, hspace);
     } else {
         const idx = paper.project.activeLayer.children.indexOf(item);
         paper.project.activeLayer.insertChild(idx, flatText);
         item.remove();
         window.selectItem(flatText);
-        if (hspace !== 0) applyTextSpacing(flatText, hspace);
     }
 }
 
@@ -307,6 +209,78 @@ function drawBlueCurveHandle(group) {
     group.addChild(blueCircle);
 }
 
+// Control de Espaciado de Letras Horizontal (HSpace) - Estilo LightBurn
+export function applyTextSpacing(item, hspace) {
+    if (!item || item.data?.locked) return;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+
+    const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    if (!target) return;
+
+    target.data = target.data || {};
+    target.data.hspace = hspace;
+
+    if (target instanceof paper.Group) {
+        if (target.data.isCurvedGroup) {
+            applyTextCurve(item, target.data.curvature || 0);
+            return;
+        }
+
+        // Distribución horizontal plana
+        let currentX = 0;
+        target.children.forEach(child => {
+            if (child.data?.isCurveHandle || child.data?.underlineId) return;
+            child.position.x = currentX + child.bounds.width / 2;
+            currentX += child.bounds.width + hspace;
+        });
+    } else if (target instanceof paper.PointText) {
+        const textStr = target.content || "Texto";
+        if (Math.abs(hspace) < 0.001) return;
+
+        const glyphGroup = new paper.Group();
+        glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr };
+
+        const chars = textStr.split("");
+        const fontFamily = target.fontFamily || "Arial";
+        const fontSize = target.fontSize || 42;
+        const fillColor = target.fillColor || new paper.Color(0);
+
+        const origCenter = target.position.clone();
+        let currentX = 0;
+
+        chars.forEach(char => {
+            const glyph = new paper.PointText({
+                point: [currentX, 0],
+                content: char,
+                fontFamily: fontFamily,
+                fontSize: fontSize,
+                fillColor: fillColor,
+                justification: "left"
+            });
+            glyphGroup.addChild(glyph);
+            currentX += glyph.bounds.width + hspace;
+        });
+
+        glyphGroup.position = origCenter;
+
+        if (item.data?.clipGroup) {
+            const idx = item.children.indexOf(target);
+            item.insertChild(idx, glyphGroup);
+            target.remove();
+        } else {
+            const idx = paper.project.activeLayer.children.indexOf(item);
+            paper.project.activeLayer.insertChild(idx, glyphGroup);
+            item.remove();
+            window.selectItem(glyphGroup);
+        }
+    }
+
+    if (typeof window.updateSelectionBox === 'function') {
+        window.updateSelectionBox(item);
+    }
+    paper.view.update();
+}
+
 // Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
 export function weldText(item) {
     if (!item || item.data?.locked) return;
@@ -320,17 +294,25 @@ export function weldText(item) {
         if (!vectorGroup) return;
 
         const childrenPaths = [];
-        vectorGroup.children.forEach(child => {
-            if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
-                childrenPaths.push(child);
-            } else if (child instanceof paper.Group) {
-                child.children.forEach(subChild => {
-                    if (subChild instanceof paper.Path || subChild instanceof paper.CompoundPath) {
-                        childrenPaths.push(subChild);
-                    }
-                });
+        
+        // AUDITORÍA SENSACIONAL: Si es un solo path (no tiene vectorGroup.children), procesamos vectorGroup directo
+        if (vectorGroup.children) {
+            vectorGroup.children.forEach(child => {
+                if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
+                    childrenPaths.push(child);
+                } else if (child instanceof paper.Group) {
+                    child.children.forEach(subChild => {
+                        if (subChild instanceof paper.Path || subChild instanceof paper.CompoundPath) {
+                            childrenPaths.push(subChild);
+                        }
+                    });
+                }
+            });
+        } else {
+            if (vectorGroup instanceof paper.Path || vectorGroup instanceof paper.CompoundPath) {
+                childrenPaths.push(vectorGroup);
             }
-        });
+        }
 
         if (childrenPaths.length === 0) {
             vectorGroup.remove();
@@ -367,7 +349,7 @@ export function weldText(item) {
     });
 }
 
-// Alternar estilo de negrita (Bold) con soporte para grupos de texto curvo o espaciado
+// Alternar estilo de negrita (Bold) con soporte para grupos de texto curvo
 export function toggleBold(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -406,7 +388,6 @@ export function toggleItalic(item) {
     if (target) {
         target.data = target.data || {};
         const isItalic = target.data.isItalicSkewed || false;
-        
         const slantAngle = -0.22; 
 
         if (isItalic) {
@@ -464,3 +445,4 @@ export function toggleUnderline(item) {
     }
     paper.view.update();
 }
+
