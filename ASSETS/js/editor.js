@@ -1,5 +1,5 @@
 /**
- * ASSETS/js/editor.js (PRO Edition v2)
+ * ASSETS/js/editor.js (PRO Edition v4)
  * Controlador central interactivo para el canvas, historial, redimensionamiento,
  * rotación libre (Estilo Canva) e integración con LightBurn.
  */
@@ -124,8 +124,6 @@ window.addEventListener("DOMContentLoaded", () => {
         if (displayItem && displayItem.bounds) {
             if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
             if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
-            
-            // Mostrar rotación si existe en los metadatos
             const currentRot = displayItem.data?.rotationAngle || 0;
             const rotSuffix = currentRot !== 0 ? ` (${Math.round(((currentRot % 360) + 360) % 360)}°)` : "";
             if (ui.selectionInfo) ui.selectionInfo.textContent = (window.selectedItem.data?.label || "Objeto") + rotSuffix;
@@ -263,7 +261,6 @@ window.addEventListener("DOMContentLoaded", () => {
         const targetItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
         if (targetItem) {
             targetItem.rotate(angle);
-            // Sincronizar ángulo en metadatos
             targetItem.data = targetItem.data || {};
             targetItem.data.rotationAngle = (targetItem.data.rotationAngle || 0) + angle;
         }
@@ -592,7 +589,7 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderFontGallery() {
-        // Obsoleto: La galería estática lateral fue removida y reemplazada por el Popover Enriquecido
+        // Obsoleto: Reemplazado por selector tipográfico popover en contextualMenu.js
     }
 
     // --- INTERFAZ DINÁMICA DE PRODUCTOS ---
@@ -700,7 +697,14 @@ window.addEventListener("DOMContentLoaded", () => {
                 targetPoint = mockupBounds.center.clone();
             }
         }
-        const txt = new paper.PointText({ point: targetPoint, content: "Texto", fontSize: 42, fillColor: new paper.Color(0), justification: "center", fontFamily: "Arial" });
+        const txt = new paper.PointText({
+            point: targetPoint,
+            content: "Texto",
+            fontSize: 42,
+            fillColor: new paper.Color(0),
+            justification: "center",
+            fontFamily: "Arial"
+        });
         txt.data = { locked: false, label: "Texto" };
         paper.project.activeLayer.addChild(txt);
         const clipped = window.clipItem(txt);
@@ -727,7 +731,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const isDoubleClick = (currentTime - lastClickTime) < 300;
         lastClickTime = currentTime;
 
-        // 1. Tirador azul de curvatura (LightBurn)
+        // 1. Tirador de curvatura (LightBurn)
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Group) {
@@ -747,7 +751,6 @@ window.addEventListener("DOMContentLoaded", () => {
         if (window.selectionBoxGroup) {
             const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
             if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
-                // INTERCEPCIÓN DE ROTACIÓN ESTILO CANVA
                 if (hitHandle.item.data.handleType === 'rot') {
                     window.rotateActive = true;
                     window.rotateTarget = window.selectedItem;
@@ -785,7 +788,16 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        const hit = paper.project.hitTest(event.point, { fill: true, stroke: true, segments: true, tolerance: 8, match: function(hitResult) { return !hitResult.item.data || !hitResult.item.data.mockup; } });
+        const hit = paper.project.hitTest(event.point, {
+            fill: true,
+            stroke: true,
+            segments: true,
+            tolerance: 8,
+            match: function(hitResult) {
+                return !hitResult.item.data || !hitResult.item.data.mockup;
+            }
+        });
+
         if (hit && hit.item) {
             const selectable = window.getSelectableItem(hit.item);
             if (selectable) {
@@ -826,13 +838,11 @@ window.addEventListener("DOMContentLoaded", () => {
             if (targetItem) {
                 const currentVector = event.point.subtract(window.rotateCenter);
                 let angle = currentVector.angle - window.rotateStartVector.angle;
-                // Soporte para saltos de 15 grados si se presiona Shift (Estilo LightBurn)
                 if (event.modifiers.shift) {
                     angle = Math.round(angle / 15) * 15;
                 }
                 targetItem.rotate(angle, window.rotateCenter);
                 window.rotateStartVector = currentVector;
-                // Guardar acumulado de rotación en los metadatos para visualizarlo en el panel
                 targetItem.data = targetItem.data || {};
                 targetItem.data.rotationAngle = (targetItem.data.rotationAngle || 0) + angle;
                 window.updateSelectionBox(window.rotateTarget);
@@ -958,7 +968,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     };
 
-    tool.onKeyDown = function (event) {
+    tool.onKeyDown = function(event) {
         const active = document.activeElement;
         const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
         if (isTyping) return;
@@ -1029,14 +1039,14 @@ window.addEventListener("DOMContentLoaded", () => {
     safeAddListener("btnZoomIn", "click", () => zoomBy(1.15));
     safeAddListener("btnZoomOut", "click", () => zoomBy(1 / 1.15));
     safeAddListener("btnFit", "click", fitView);
-    
+
     safeAddListener("btnAddImage", "click", () => {
         if (ui.imagePicker) {
             ui.imagePicker.value = "";
             ui.imagePicker.click();
         }
     });
-    
+
     safeAddListener("btnAddSVG", "click", () => {
         if (ui.svgPicker) {
             ui.svgPicker.value = "";
@@ -1070,11 +1080,12 @@ window.addEventListener("DOMContentLoaded", () => {
             addQRCode(text);
         }
     };
-    
+
     safeAddListener("btnQR", "click", onQRClick);
     safeAddListener("btnAddQR", "click", onQRClick);
     safeAddListener("btnCreateQR", "click", onQRClick);
     safeAddListener("btnCreateQr", "click", onQRClick);
+
     safeAddListener(ui.btnApplySize, "click", applySelectedSize);
     safeAddListener(ui.btnToggleLock, "click", toggleLockSelected);
     safeAddListener(ui.btnAlignLeft, "click", () => alignSelected("left"));
@@ -1083,14 +1094,15 @@ window.addEventListener("DOMContentLoaded", () => {
     safeAddListener(ui.btnAlignTop, "click", () => alignSelected("top"));
     safeAddListener(ui.btnAlignCenterV, "click", () => alignSelected("centerV"));
     safeAddListener(ui.btnAlignBottom, "click", () => alignSelected("bottom"));
-    
+
     safeAddListener(ui.btnRotateLeft, "click", () => { rotateSelected(-90); });
     safeAddListener(ui.btnRotateRight, "click", () => { rotateSelected(90); });
     safeAddListener(ui.btnRotate180, "click", () => { rotateSelected(180); });
+
     safeAddListener(ui.btnCenterH, "click", () => { centerSelected("horizontal"); });
     safeAddListener(ui.btnCenterV, "click", () => { centerSelected("vertical"); });
     safeAddListener(ui.btnCenterBoth, "click", () => { centerSelected("both"); });
-    
+
     safeAddListener(ui.objWidth, "input", () => { lastSizeField = "width"; });
     safeAddListener(ui.objHeight, "input", () => { lastSizeField = "height"; });
 
@@ -1102,11 +1114,11 @@ window.addEventListener("DOMContentLoaded", () => {
     });
 
     safeAddListener(ui.btnApplyFont, "click", applySelectedFont);
+
     if (typeof initContextualMenu === 'function') {
         initContextualMenu();
     }
-    
-    // Cargar categorías al arranque
+
     renderCategories();
 });
 
