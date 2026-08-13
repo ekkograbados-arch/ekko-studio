@@ -3,7 +3,7 @@
  * Controlador central interactivo para el canvas, historial, redimensionamiento,
  * rotación libre (Estilo Canva) e integración con LightBurn.
  */
-import "./modules/selection-v2.js"; // Importamos la selección con tirador de rotación
+import "./modules/selection.js"; // Importamos la selección con tirador de rotación
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
