@@ -163,8 +163,17 @@ export function applyTextCurve(item, curvature) {
             justification: "center"
         });
         
+        if (target.data?.fontWeight) {
+            glyph.fontWeight = target.data.fontWeight;
+        }
+        
         const rotationAngle = (angle * 180 / Math.PI) + 90;
         glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
+        
+        if (target.data?.isItalicSkewed) {
+            glyph.shear(-0.22, 0, glyph.bounds.bottomCenter);
+        }
+        
         glyphGroup.addChild(glyph);
     }
     
@@ -282,6 +291,12 @@ export function applyTextSpacing(item, hspace) {
                 fillColor: fillColor,
                 justification: "left"
             });
+            if (target.data?.fontWeight) {
+                glyph.fontWeight = target.data.fontWeight;
+            }
+            if (target.data?.isItalicSkewed) {
+                glyph.shear(-0.22, 0, glyph.bounds.bottomCenter);
+            }
             glyphGroup.addChild(glyph);
             currentX += glyph.bounds.width + hspace;
         });
@@ -373,9 +388,11 @@ export function toggleBold(item) {
     if (typeof window.saveHistory === 'function') window.saveHistory();
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
+        target.data = target.data || {};
         if (target instanceof paper.PointText) {
             const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
             target.fontWeight = isBold ? 'normal' : 'bold';
+            target.data.fontWeight = target.fontWeight;
         } else if (target instanceof paper.Group) {
             let anyBold = false;
             target.children.forEach(child => {
@@ -388,6 +405,7 @@ export function toggleBold(item) {
                     child.fontWeight = anyBold ? 'normal' : 'bold';
                 }
             });
+            target.data.fontWeight = anyBold ? 'normal' : 'bold';
         }
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(item);
