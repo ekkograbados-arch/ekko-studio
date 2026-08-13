@@ -1,3 +1,9 @@
+/**
+ * ASSETS/js/modules/selection.js
+ * Módulo para la visualización del cuadro de selección con soporte para transformación de tamaño,
+ * tirador de rotación estilo Canva/LightBurn y nodos de vectores.
+ */
+
 window.selectedItem = null;
 window.dragOffset = null;
 window.selectionBoxGroup = null;
@@ -12,7 +18,6 @@ window.resizeLastScaleX = 1.0;
 window.resizeLastScaleY = 1.0;
 window.resizeAnchor = null;
 
-// Rotation state variables (Estilo Canva / LightBurn)
 window.rotateActive = false;
 window.rotateTarget = null;
 window.rotateCenter = null;
@@ -32,7 +37,6 @@ window.getSelectableItem = function(item) {
     if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle)) return null;
     if (item.parent && item.parent.data && (item.parent.data.isSelectionBox || item.parent.data.isNodeEditOverlay)) return null;
     if (item.data && item.data.mockup) return null;
-    
     let current = item;
     while (current) {
         if (current.data) {
@@ -60,15 +64,12 @@ window.updateSelectionBox = function(item) {
         window.selectionBoxGroup = null;
     }
     if (window.nodeEditMode) {
-        // Si estamos editando nodos, no dibujamos la caja de Canva tradicional
         return;
     }
     if (!item || (item.data && item.data.mockup)) {
         return;
     }
-    
-    // Si es un grupo recortado (clipGroup), dibujamos la caja sobre su contenido real (ej: la imagen)
-    // en lugar de la caja del grupo entero (que Paper.js limita a los bordes de la máscara).
+
     const displayItem = (item.data && item.data.clipGroup) ? item.children.find(function(c) { return !c.clipMask; }) : item;
     if (!displayItem) return;
     const bounds = displayItem.bounds;
@@ -96,7 +97,6 @@ window.updateSelectionBox = function(item) {
         { point: bounds.bottomLeft, type: 'bl' },
         { point: bounds.leftCenter, type: 'l' }
     ];
-
     handlesInfo.forEach(function(info) {
         const rect = new paper.Path.Rectangle({
             center: info.point,
@@ -109,28 +109,20 @@ window.updateSelectionBox = function(item) {
         window.selectionBoxGroup.addChild(rect);
     });
 
-    // 3. Tirador de rotación interactiva (Estilo Canva / LightBurn)
-    const rotLineLength = 25 / paper.view.zoom;
-    const rotLineStart = bounds.topCenter;
-    const rotLineEnd = bounds.topCenter.add(new paper.Point(0, -rotLineLength));
-
-    // Línea vertical que conecta el nodo con el tirador circular
+    // 3. Dibujar el tirador de rotación estilo Canva/LightBurn (Línea + Círculo magenta)
     const rotLine = new paper.Path.Line({
-        from: rotLineStart,
-        to: rotLineEnd,
+        from: bounds.topCenter,
+        to: bounds.topCenter.add(new paper.Point(0, -25 / paper.view.zoom)),
         strokeColor: '#007bff',
         strokeWidth: 1.5 / paper.view.zoom
     });
-    rotLine.data = { isHandle: false };
     window.selectionBoxGroup.addChild(rotLine);
 
-    // Círculo interactivo de rotación (Magenta EKKO)
-    const rotCircleRadius = 5 / paper.view.zoom;
     const rotCircle = new paper.Path.Circle({
-        center: rotLineEnd,
-        radius: rotCircleRadius,
-        strokeColor: '#007bff',
-        fillColor: '#ff00ff', // Identidad magenta de Grabados EKKO
+        center: bounds.topCenter.add(new paper.Point(0, -25 / paper.view.zoom)),
+        radius: 5 / paper.view.zoom,
+        fillColor: '#ff00ff', // Color de identidad de EKKO
+        strokeColor: '#ffffff',
         strokeWidth: 1.5 / paper.view.zoom
     });
     rotCircle.data = { isHandle: true, handleType: 'rot' };
@@ -146,14 +138,11 @@ window.drawNodeEditHandles = function(path) {
         window.nodeHandlesGroup = null;
     }
     if (!path || !path.segments) return;
-    
     window.nodeHandlesGroup = new paper.Group();
     window.nodeHandlesGroup.data = { isNodeEditOverlay: true };
     const handleSize = 5 / paper.view.zoom;
-    
     path.segments.forEach(function(segment, index) {
         const isSelected = (index === window.selectedNodeIndex);
-        // En el modo de edición de nodos vectoriales, usamos el color rojo/blanco para edición manual
         const handleCircle = new paper.Path.Circle({
             center: segment.point,
             radius: handleSize,
@@ -169,23 +158,19 @@ window.drawNodeEditHandles = function(path) {
 
 window.enterNodeEditMode = function(path) {
     if (!path || !path.segments) return;
-    // Salimos de cualquier modo anterior de edición de nodos para evitar colisiones
     window.exitNodeEditMode();
-    // Deseleccionar temporalmente el marco de Canva nativo
     if (window.selectedItem) {
         window.selectedItem.selected = false;
     }
     window.nodeEditMode = true;
     window.nodeEditTarget = path;
     window.selectedNodeIndex = -1;
-    window.updateSelectionBox(null); // Ocultar cuadro azul tradicional
+    window.updateSelectionBox(null);
     window.drawNodeEditHandles(path);
-    
-    // Mostrar controles de edición de nodos en la barra flotante
     document.getElementById('ctxNodeEditControls').classList.remove('hidden');
-    document.getElementById('ctxVectorControls').add('hidden');
-    document.getElementById('ctxImageControls').add('hidden');
-    document.getElementById('ctxTextControls').add('hidden');
+    document.getElementById('ctxVectorControls').classList.add('hidden');
+    document.getElementById('ctxImageControls').classList.add('hidden');
+    document.getElementById('ctxTextControls').classList.add('hidden');
     paper.view.update();
 };
 
@@ -198,12 +183,10 @@ window.exitNodeEditMode = function() {
     const path = window.nodeEditTarget;
     window.nodeEditTarget = null;
     window.selectedNodeIndex = -1;
-    
-    // Ocultar botones de nodos en la barra flotante
     const nodeEl = document.getElementById('ctxNodeEditControls');
     if (nodeEl) nodeEl.classList.add('hidden');
     if (path) {
-        window.selectItem(path); // Re-seleccionar de forma tradicional
+        window.selectItem(path);
     }
     paper.view.update();
 };
@@ -246,7 +229,6 @@ window.deselectItem = function() {
 };
 
 /* ========================= FUNCIONES AUXILIARES DE ESCALADO ========================= */
-// Obtiene el punto de ancla (opuesto al nodo arrastrado) para el escalado
 window.getOppositePoint = function(bounds, handleType) {
     switch (handleType) {
         case 'tl': return bounds.bottomRight;
@@ -261,7 +243,6 @@ window.getOppositePoint = function(bounds, handleType) {
     }
 };
 
-// Obtiene la coordenada inicial del nodo seleccionado para calcular deltas
 window.getHandlePoint = function(bounds, handleType) {
     switch (handleType) {
         case 'tl': return bounds.topLeft;
