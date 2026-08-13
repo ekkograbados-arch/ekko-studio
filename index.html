@@ -330,6 +330,11 @@
         <div class="sidebar-section">
             <div class="sidebar-title">Vistas</div>
             <div id="surfaceTabs"></div>
+              <!-- SECCIÓN DE GALERÍA DE TIPOGRAFÍAS -->
+        <div class="sidebar-section" id="fontGallery" style="margin-top: 20px;">
+            <div class="sidebar-title">Galería de Tipografías</div>
+            <div id="fontList" class="font-gallery" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; padding: 8px; background: #fff;"></div>
+        </div>
         </div>
     </div>
 
@@ -396,13 +401,28 @@
 
                 <div class="toolbar-divider"></div>
 
-                <!-- CONTROL TEXTO -->
-                <div id="ctxTextControls" class="toolbar-subgroup hidden">
-                    <select id="ctxFontSelector" class="toolbar-select"></select>
-                    <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
-                    <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
-                    <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
-                </div>
+              <!-- CONTROL TEXTO COMPLETO ESTILO LIGHTBURN -->
+        <div id="ctxTextControls" class="toolbar-subgroup hidden" style="display: flex; align-items: center; gap: 8px;">
+            <select id="ctxFontSelector" class="toolbar-select" style="min-width: 130px;"></select>
+            <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
+            
+            <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
+            <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
+            <button class="toolbar-btn" id="btnCtxUnderline" title="Subrayar"><i class="fas fa-underline"></i></button>
+            <button class="toolbar-btn" id="btnCtxWeld" title="Soldar Texto (Weld Contornos)"><i class="fas fa-ring"></i> Soldar</button>
+            
+            <!-- Control de Curvatura de Texto (Doblar en arco) -->
+            <div class="toolbar-slider-container" title="Curvatura de Texto" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                <span>Curva</span>
+                <input id="ctxTextCurve" type="range" min="-100" max="100" value="0" step="1" style="width: 70px;">
+            </div>
+            
+            <!-- Control de Espaciado de Caracteres (HSpace / Tracking) -->
+            <div class="toolbar-slider-container" title="Espaciado de Caracteres" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                <span>Espacio</span>
+                <input id="ctxTextHSpace" type="range" min="-10" max="100" value="0" step="1" style="width: 70px;">
+            </div>
+        </div>
 
                 <!-- CONTROL IMAGEN -->
                 <div id="ctxImageControls" class="toolbar-subgroup hidden">
