@@ -27,11 +27,12 @@ window.draggingNode = false;
 window.dragNodeIndex = -1;
 
 /* ========================= SELECCIÓN DE OBJETO ========================= */
-window.getSelectableItem = function(item){
-    if(!item) return null;
+window.getSelectableItem = function(item) {
+    if (!item) return null;
     if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle)) return null;
     if (item.parent && item.parent.data && (item.parent.data.isSelectionBox || item.parent.data.isNodeEditOverlay)) return null;
     if (item.data && item.data.mockup) return null;
+    
     let current = item;
     while (current) {
         if (current.data) {
@@ -65,6 +66,7 @@ window.updateSelectionBox = function(item) {
     if (!item || (item.data && item.data.mockup)) {
         return;
     }
+    
     // Si es un grupo recortado (clipGroup), dibujamos la caja sobre su contenido real (ej: la imagen)
     // en lugar de la caja del grupo entero (que Paper.js limita a los bordes de la máscara).
     const displayItem = (item.data && item.data.clipGroup) ? item.children.find(function(c) { return !c.clipMask; }) : item;
@@ -94,6 +96,7 @@ window.updateSelectionBox = function(item) {
         { point: bounds.bottomLeft, type: 'bl' },
         { point: bounds.leftCenter, type: 'l' }
     ];
+
     handlesInfo.forEach(function(info) {
         const rect = new paper.Path.Rectangle({
             center: info.point,
@@ -106,30 +109,32 @@ window.updateSelectionBox = function(item) {
         window.selectionBoxGroup.addChild(rect);
     });
 
-    // 3. AGREGAR TIRADOR DE ROTACIÓN INTERACTIVO (Estilo Canva / LightBurn)
-    // Línea que se extiende hacia arriba desde el centro superior
-    const rotOffset = 25 / paper.view.zoom;
-    const rotStart = bounds.topCenter;
-    const rotEnd = bounds.topCenter.subtract(new paper.Point(0, rotOffset));
+    // 3. Tirador de rotación interactiva (Estilo Canva / LightBurn)
+    const rotLineLength = 25 / paper.view.zoom;
+    const rotLineStart = bounds.topCenter;
+    const rotLineEnd = bounds.topCenter.add(new paper.Point(0, -rotLineLength));
 
-    const rotationLine = new paper.Path.Line({
-        from: rotStart,
-        to: rotEnd,
+    // Línea vertical que conecta el nodo con el tirador circular
+    const rotLine = new paper.Path.Line({
+        from: rotLineStart,
+        to: rotLineEnd,
         strokeColor: '#007bff',
         strokeWidth: 1.5 / paper.view.zoom
     });
-    window.selectionBoxGroup.addChild(rotationLine);
+    rotLine.data = { isHandle: false };
+    window.selectionBoxGroup.addChild(rotLine);
 
-    // Tirador circular verde/magenta de rotación en el extremo
-    const rotHandle = new paper.Path.Circle({
-        center: rotEnd,
-        radius: 6 / paper.view.zoom,
+    // Círculo interactivo de rotación (Magenta EKKO)
+    const rotCircleRadius = 5 / paper.view.zoom;
+    const rotCircle = new paper.Path.Circle({
+        center: rotLineEnd,
+        radius: rotCircleRadius,
         strokeColor: '#007bff',
-        fillColor: '#ff00ff', // Identidad visual magenta de EKKO
+        fillColor: '#ff00ff', // Identidad magenta de Grabados EKKO
         strokeWidth: 1.5 / paper.view.zoom
     });
-    rotHandle.data = { isHandle: true, handleType: 'rot' };
-    window.selectionBoxGroup.addChild(rotHandle);
+    rotCircle.data = { isHandle: true, handleType: 'rot' };
+    window.selectionBoxGroup.addChild(rotCircle);
 
     window.selectionBoxGroup.bringToFront();
 };
@@ -141,9 +146,11 @@ window.drawNodeEditHandles = function(path) {
         window.nodeHandlesGroup = null;
     }
     if (!path || !path.segments) return;
+    
     window.nodeHandlesGroup = new paper.Group();
     window.nodeHandlesGroup.data = { isNodeEditOverlay: true };
     const handleSize = 5 / paper.view.zoom;
+    
     path.segments.forEach(function(segment, index) {
         const isSelected = (index === window.selectedNodeIndex);
         // En el modo de edición de nodos vectoriales, usamos el color rojo/blanco para edición manual
@@ -173,11 +180,12 @@ window.enterNodeEditMode = function(path) {
     window.selectedNodeIndex = -1;
     window.updateSelectionBox(null); // Ocultar cuadro azul tradicional
     window.drawNodeEditHandles(path);
+    
     // Mostrar controles de edición de nodos en la barra flotante
     document.getElementById('ctxNodeEditControls').classList.remove('hidden');
-    document.getElementById('ctxVectorControls').classList.add('hidden');
-    document.getElementById('ctxImageControls').classList.add('hidden');
-    document.getElementById('ctxTextControls').classList.add('hidden');
+    document.getElementById('ctxVectorControls').add('hidden');
+    document.getElementById('ctxImageControls').add('hidden');
+    document.getElementById('ctxTextControls').add('hidden');
     paper.view.update();
 };
 
@@ -190,6 +198,7 @@ window.exitNodeEditMode = function() {
     const path = window.nodeEditTarget;
     window.nodeEditTarget = null;
     window.selectedNodeIndex = -1;
+    
     // Ocultar botones de nodos en la barra flotante
     const nodeEl = document.getElementById('ctxNodeEditControls');
     if (nodeEl) nodeEl.classList.add('hidden');
@@ -200,20 +209,20 @@ window.exitNodeEditMode = function() {
 };
 
 /* ========================= SELECT ========================= */
-window.selectItem = function(item){
+window.selectItem = function(item) {
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
     }
-    if(window.selectedItem){
+    if (window.selectedItem) {
         window.selectedItem.selected = false;
     }
     window.selectedItem = item;
-    if(!item){
+    if (!item) {
         window.updateSelectionBox(null);
         paper.view.update();
         return;
     }
-    if(item.data && item.data.mockup){
+    if (item.data && item.data.mockup) {
         item.selected = false;
         window.updateSelectionBox(null);
         paper.view.update();
@@ -224,14 +233,45 @@ window.selectItem = function(item){
 };
 
 /* ========================= DESELECT ========================= */
-window.deselectItem = function(){
+window.deselectItem = function() {
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
     }
-    if(window.selectedItem){
+    if (window.selectedItem) {
         window.selectedItem.selected = false;
     }
     window.selectedItem = null;
     window.updateSelectionBox(null);
     paper.view.update();
+};
+
+/* ========================= FUNCIONES AUXILIARES DE ESCALADO ========================= */
+// Obtiene el punto de ancla (opuesto al nodo arrastrado) para el escalado
+window.getOppositePoint = function(bounds, handleType) {
+    switch (handleType) {
+        case 'tl': return bounds.bottomRight;
+        case 'tr': return bounds.bottomLeft;
+        case 'bl': return bounds.topRight;
+        case 'br': return bounds.topLeft;
+        case 't': return bounds.bottomCenter;
+        case 'b': return bounds.topCenter;
+        case 'l': return bounds.rightCenter;
+        case 'r': return bounds.leftCenter;
+        default: return bounds.center;
+    }
+};
+
+// Obtiene la coordenada inicial del nodo seleccionado para calcular deltas
+window.getHandlePoint = function(bounds, handleType) {
+    switch (handleType) {
+        case 'tl': return bounds.topLeft;
+        case 'tr': return bounds.topRight;
+        case 'bl': return bounds.bottomLeft;
+        case 'br': return bounds.bottomRight;
+        case 't': return bounds.topCenter;
+        case 'b': return bounds.bottomCenter;
+        case 'l': return bounds.leftCenter;
+        case 'r': return bounds.rightCenter;
+        default: return bounds.center;
+    }
 };
