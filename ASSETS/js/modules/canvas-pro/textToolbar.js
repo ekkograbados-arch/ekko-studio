@@ -1,3 +1,8 @@
+/**
+ * ASSETS/js/modules/canvas-pro/textToolbar.js
+ * Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn).
+ */
+
 let loadedFontsCache = [];
 
 // Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts
@@ -69,6 +74,7 @@ export function applyTextCurve(item, curvature) {
     if (!target) return;
     target.data = target.data || {};
     target.data.curvature = curvature;
+
     // Si la curvatura es casi cero, restaurar a texto plano normal
     if (Math.abs(curvature) < 0.001) {
         if (target.data.isCurvedGroup) {
@@ -76,12 +82,24 @@ export function applyTextCurve(item, curvature) {
         }
         return;
     }
+
     const textStr = target.data.textString || target.content || "Texto";
     const fontFamily = target.fontFamily || "Arial";
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
-    // Guardar posición original para evitar que el texto vuele fuera del mockup
-    const origCenter = target.position.clone();
+
+    // SANEAMIENTO PRECISÓ CONTRA DRIFT (REMOVER HANDLE DE ROTACIÓN ANTES DEL CLON DE POSICIÓN)
+    let origCenter;
+    if (target.data.isCurvedGroup) {
+        const handle = target.children.find(c => c.data?.isCurveHandle);
+        if (handle) {
+            handle.remove();
+        }
+        origCenter = target.position.clone();
+    } else {
+        origCenter = target.position.clone();
+    }
+
     let glyphGroup;
     if (target.data.isCurvedGroup) {
         glyphGroup = target;
@@ -100,35 +118,50 @@ export function applyTextCurve(item, curvature) {
             window.selectItem(glyphGroup);
         }
     }
+
     const chars = textStr.split("");
     const numChars = chars.length;
     if (numChars === 0) return;
+
+    // MATEMÁTICA EN ARCO CON INTEGRACIÓN UNIFICADA DE ESPACIADO (HSPACE)
     const radius = 2000 / curvature;
     const centerPoint = new paper.Point(0, radius);
-    const arcAngle = (numChars * fontSize * 0.6) / radius;
+
+    const charWidth = fontSize * 0.6;
+    const hspace = target.data.hspace || 0;
+    const totalArcWidth = (numChars * charWidth) + ((numChars - 1) * hspace);
+    const arcAngle = totalArcWidth / radius;
     const startAngle = -Math.PI / 2 - (arcAngle / 2);
+
+    let accumulatedAngle = 0;
     for (let i = 0; i < numChars; i++) {
         const char = chars[i];
-        if (char === " ") continue;
-        const t = numChars > 1 ? i / (numChars - 1) : 0.5;
-        const angle = startAngle + (t * arcAngle);
+        const centerAngleOffset = accumulatedAngle + (charWidth / 2);
+        const angle = startAngle + (centerAngleOffset / radius);
+
         const x = centerPoint.x + radius * Math.cos(angle);
         const y = centerPoint.y + radius * Math.sin(angle);
-        const glyph = new paper.PointText({
-            point: [x, y],
-            content: char,
-            fontFamily: fontFamily,
-            fontSize: fontSize,
-            fillColor: fillColor,
-            justification: "center"
-        });
-        const rotationAngle = (angle * 180 / Math.PI) + 90;
-        glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
-        glyphGroup.addChild(glyph);
+
+        if (char !== " ") {
+            const glyph = new paper.PointText({
+                point: [x, y],
+                content: char,
+                fontFamily: fontFamily,
+                fontSize: fontSize,
+                fillColor: fillColor,
+                justification: "center"
+            });
+            const rotationAngle = (angle * 180 / Math.PI) + 90;
+            glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
+            glyphGroup.addChild(glyph);
+        }
+        accumulatedAngle += charWidth + hspace;
     }
+
     // Reposicionar el grupo de glifos en la coordenada original exacta del texto plano
     glyphGroup.position = origCenter;
     drawBlueCurveHandle(glyphGroup);
+
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(glyphGroup);
     }
@@ -183,11 +216,20 @@ export function applyTextSpacing(item, hspace) {
     if (!target) return;
     target.data = target.data || {};
     target.data.hspace = hspace;
+
     if (target instanceof paper.Group) {
         if (target.data.isCurvedGroup) {
             applyTextCurve(item, target.data.curvature || 0);
             return;
         }
+
+        // SANEAMIENTO PRECISÓ CONTRA DRIFT PLANO
+        const origCenter = target.position.clone();
+
+        // Quitar handle si existe para calcular
+        const handle = target.children.find(c => c.data?.isCurveHandle);
+        if (handle) handle.remove();
+
         // Distribución horizontal plana
         let currentX = 0;
         target.children.forEach(child => {
@@ -195,6 +237,8 @@ export function applyTextSpacing(item, hspace) {
             child.position.x = currentX + child.bounds.width / 2;
             currentX += child.bounds.width + hspace;
         });
+
+        target.position = origCenter;
     } else if (target instanceof paper.PointText) {
         const textStr = target.content || "Texto";
         if (Math.abs(hspace) < 0.001) return;
@@ -236,7 +280,7 @@ export function applyTextSpacing(item, hspace) {
     paper.view.update();
 }
 
-// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de contornos)
+// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
 export function weldText(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -246,7 +290,6 @@ export function weldText(item) {
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
         const childrenPaths = [];
-        // AUDITORÍA SENSACIONAL: Si es un solo path (no tiene vectorGroup.children), procesamos vectorGroup directo
         if (vectorGroup.children) {
             vectorGroup.children.forEach(child => {
                 if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
