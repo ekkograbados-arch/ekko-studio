@@ -21,8 +21,6 @@ export async function loadDynamicFonts() {
         
         const fontFiles = await response.json();
         
-        // CORRECCIÓN SENSACIONAL: Si el backend responde exitosamente pero devuelve un array vacío (ej. en Vercel)
-        // forzamos el lanzamiento de un error para que la carga salte al bloque catch e inyecte los woff2 de respaldo.
         if (!fontFiles || fontFiles.length === 0) {
             throw new Error("No se devolvieron tipografías desde el servidor.");
         }
@@ -57,13 +55,11 @@ export async function loadDynamicFonts() {
             throw new Error("Ninguna tipografía dinámica pudo registrarse de forma exitosa.");
         }
 
-        // Ordenar alfabéticamente
         loaded.sort((a, b) => a.name.localeCompare(b.name));
         loadedFontsCache = loaded;
         return loaded;
     } catch (e) {
         console.warn("Inyectando fuentes locales de respaldo por error de red o backend vacío:", e);
-        // Registrar fuentes fallback de forma segura
         for (const f of fallbacks) {
             try {
                 const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`, { display: 'swap' });
@@ -82,12 +78,10 @@ export async function loadDynamicFonts() {
 // Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
-    if (typeof window.saveHistory === 'function') window.saveHistory();
 
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
 
-    // Guardar el estado de curvatura en los metadatos del objeto
     target.data = target.data || {};
     target.data.curvature = curvature;
 
@@ -104,17 +98,14 @@ export function applyTextCurve(item, curvature) {
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
 
-    // Si ya es un grupo de letras curvas, trabajamos sobre él; si no, creamos la estructura
     let glyphGroup;
     if (target.data.isCurvedGroup) {
         glyphGroup = target;
         glyphGroup.clear();
     } else {
-        // Convertir PointText plano a un Grupo de glifos deformados
         glyphGroup = new paper.Group();
         glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr };
         
-        // Reemplazar el target plano en el lienzo o dentro de la máscara de recorte
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -131,15 +122,14 @@ export function applyTextCurve(item, curvature) {
     const numChars = chars.length;
     if (numChars === 0) return;
 
-    // Radio de curvatura inverso
     const radius = 2000 / curvature; 
     const centerPoint = new paper.Point(0, radius);
-    const arcAngle = (numChars * fontSize * 0.6) / radius; // Ángulo total ocupado por el arco en radianes
+    const arcAngle = (numChars * fontSize * 0.6) / radius; 
     const startAngle = -Math.PI / 2 - (arcAngle / 2);
 
     for (let i = 0; i < numChars; i++) {
         const char = chars[i];
-        if (char === " ") continue; // Omitir espacios pero mantener separación física
+        if (char === " ") continue; 
 
         const t = numChars > 1 ? i / (numChars - 1) : 0.5;
         const angle = startAngle + (t * arcAngle);
@@ -156,22 +146,20 @@ export function applyTextCurve(item, curvature) {
             justification: "center"
         });
 
-        // Rotar cada glifo para que sea perpendicular al radio (frente de grabado láser perpendicular)
         const rotationAngle = (angle * 180 / Math.PI) + 90;
         glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
         glyphGroup.addChild(glyph);
     }
 
-    // Dibujar el tirador o punto azul de doblado de LightBurn en el extremo superior derecho del arco
     drawBlueCurveHandle(glyphGroup);
 
     if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(glyphGroup);
+        window.updateSelectionBox(item.data?.clipGroup ? item : glyphGroup);
     }
     paper.view.update();
 }
 
-function restoreFlatText(item, curvedGroup) {
+export function restoreFlatText(item, curvedGroup) {
     const textStr = curvedGroup.data.textString || "Texto";
     const flatText = new paper.PointText({
         point: curvedGroup.bounds.bottomCenter,
@@ -210,7 +198,7 @@ function drawBlueCurveHandle(group) {
         strokeColor: '#ffffff',
         strokeWidth: 1.5
     });
-    blueCircle.data = { isCurveHandle: true, mockup: true }; // 'mockup: true' para que no sea exportado en el grabado láser
+    blueCircle.data = { isCurveHandle: true, mockup: true }; 
     group.addChild(blueCircle);
 }
 
@@ -228,11 +216,11 @@ export function weldText(item) {
 
         const childrenPaths = [];
         vectorGroup.children.forEach(child => {
-            if (child.className === "Path" || child.className === "CompoundPath") {
+            if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
                 childrenPaths.push(child);
-            } else if (child.className === "Group") {
+            } else if (child instanceof paper.Group) {
                 child.children.forEach(subChild => {
-                    if (subChild.className === "Path" || subChild.className === "CompoundPath") {
+                    if (subChild instanceof paper.Path || subChild instanceof paper.CompoundPath) {
                         childrenPaths.push(subChild);
                     }
                 });
@@ -281,18 +269,18 @@ export function toggleBold(item) {
 
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
-        if (target.className === "PointText") {
+        if (target instanceof paper.PointText) {
             const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
             target.fontWeight = isBold ? 'normal' : 'bold';
-        } else if (target.className === "Group") {
+        } else if (target instanceof paper.Group) {
             let anyBold = false;
             target.children.forEach(child => {
-                if (child.className === "PointText" && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
+                if (child instanceof paper.PointText && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
                     anyBold = true;
                 }
             });
             target.children.forEach(child => {
-                if (child.className === "PointText") {
+                if (child instanceof paper.PointText) {
                     child.fontWeight = anyBold ? 'normal' : 'bold';
                 }
             });
@@ -318,10 +306,10 @@ export function toggleItalic(item) {
         const slantAngle = -0.22; 
 
         if (isItalic) {
-            target.shear(new paper.Point(-slantAngle, 0), target.bounds.bottomCenter);
+            target.shear(-slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = false;
         } else {
-            target.shear(new paper.Point(slantAngle, 0), target.bounds.bottomCenter);
+            target.shear(slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = true;
         }
 
