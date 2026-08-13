@@ -4,6 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EKKO Studio - PRO Edition</title>
+    <!-- Inmunización contra advertencias de Canvas2D willReadFrequently -->
+    <script>
+        (function() {
+            const originalGetContext = HTMLCanvasElement.prototype.getContext;
+            HTMLCanvasElement.prototype.getContext = function(type, contextAttributes) {
+                if (type === '2d') {
+                    if (!contextAttributes) contextAttributes = {};
+                    contextAttributes.willReadFrequently = true;
+                }
+                return originalGetContext.call(this, type, contextAttributes);
+            };
+        })();
+    </script>
     <!-- Silenciar de raíz la advertencia del favicon.ico 404 en la consola F12 -->
     <link rel="shortcut icon" href="#">
     <!-- FontAwesome para todos los íconos de la interfaz y la barra contextual -->
@@ -344,6 +357,8 @@
     <!-- CARGA DE LIBRERÍAS DE SOPORTE -->
     <!-- Paper.js para el motor de rendering vectorial del canvas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.15/paper-full.min.js"></script>
+    <!-- Base de Datos estática de productos para el editor -->
+    <script src="ASSETS/js/productos.js"></script>
     <!-- Módulos dinámicos e inicialización del editor -->
     <script type="module" src="ASSETS/js/editor.js"></script>
 </body>
