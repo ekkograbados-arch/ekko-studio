@@ -6,17 +6,123 @@
     <title>EKKO Studio - PRO Edition</title>
     <!-- Silenciar de raíz la advertencia del favicon.ico 404 en la consola F12 -->
     <link rel="shortcut icon" href="#">
-    <!-- FontAwesome para todos los íconos de barra estilo LightBurn/Canva -->
+    <!-- FontAwesome para todos los íconos de la interfaz y la barra contextual -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- Hoja de estilos estática unificada del editor -->
     <link rel="stylesheet" href="ASSETS/css/styles.css">
+    
+    <!-- Estilos Adicionales Exclusivos para el Dropdown Enriquecido de Fuentes (Estilo Canva/LightBurn) -->
+    <style>
+        .rich-font-dropdown-container {
+            position: relative;
+            display: inline-block;
+        }
+        .rich-font-dropdown-trigger {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-width: 160px;
+            padding: 6px 12px;
+            background: #2a2a2a;
+            color: #ffffff;
+            border: 1px solid #ff00ff; /* Sutil borde de identidad magenta de EKKO */
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: left;
+            font-size: 13px;
+            font-weight: bold;
+            transition: all 0.2s ease;
+        }
+        .rich-font-dropdown-trigger:hover {
+            background: #3a3a3a;
+            box-shadow: 0 0 8px rgba(255, 0, 255, 0.4);
+        }
+        .rich-font-dropdown-list {
+            position: absolute;
+            bottom: 100%; /* Despliega hacia arriba para evitar desbordes visuales */
+            left: 0;
+            width: 280px;
+            max-height: 250px;
+            overflow-y: auto;
+            background: #1e1e1e;
+            border: 2px solid #ff00ff;
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            z-index: 10015;
+            margin-bottom: 8px;
+            padding: 4px 0;
+        }
+        /* Personalizar la barra de desplazamiento del desplegable */
+        .rich-font-dropdown-list::-webkit-scrollbar {
+            width: 6px;
+        }
+        .rich-font-dropdown-list::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+        .rich-font-dropdown-list::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 3px;
+        }
+        .rich-font-dropdown-list::-webkit-scrollbar-thumb:hover {
+            background: #ff00ff;
+        }
+        .rich-font-item {
+            padding: 10px 14px;
+            border-bottom: 1px solid #2d2d2d;
+            transition: background 0.15s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .rich-font-item:last-child {
+            border-bottom: none;
+        }
+        .rich-font-item:hover {
+            background: #2b2b2b;
+        }
+        .rich-font-item .font-preview {
+            color: #ffffff;
+            font-size: 20px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .rich-font-item .font-name {
+            color: #888888;
+            font-size: 10px;
+            text-transform: uppercase;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+        /* Limpieza de la barra lateral lateral izquierda */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .sidebar-section {
+            padding: 12px;
+            border: 1px solid #e6e6e6;
+            border-radius: 12px;
+            background: #ffffff;
+        }
+        .sidebar-title {
+            font-size: 13px;
+            font-weight: bold;
+            color: #222;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+    </style>
 </head>
 <body>
 
     <!-- CABECERA SUPERIOR FIJA (TOPBAR) -->
     <header class="topbar">
         <div class="brand">
-            <!-- Logo oficial de Grabados Ekko o fallback seguro -->
+            <!-- Logo vectorial offline codificado en Base64 para evitar errores 404 de red -->
             <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='72' height='72'><rect width='100%' height='100%' fill='%231a1a1a' rx='12'/><text x='50%' y='55%' dominant-baseline='middle' text-anchor='middle' fill='%23ff00ff' font-family='sans-serif' font-size='16' font-weight='bold'>EKKO</text></svg>" alt="EKKO Logo" class="brand-logo">
             <div>
                 <h1>EKKO Studio</h1>
@@ -40,237 +146,205 @@
     <!-- DISTRIBUCIÓN PRINCIPAL (LAYOUT GRID) -->
     <div class="layout">
         
-        <!-- SIDEBAR IZQUIERDA: PANELES DE CATEGORÍAS, PRODUCTOS Y GALERÍA -->
+        <!-- SIDEBAR IZQUIERDA: PANELES DE CATEGORÍAS, PRODUCTOS Y CARAS (Vistas) -->
+        <!-- NOTA DE AUDITORÍA: La galería estática estorbosa de tipografías ha sido removida del sidebar lateral izquierdo -->
         <aside class="sidebar">
             <!-- Categorías -->
-            <div class="panel">
-                <div class="sidebar-title" style="font-weight: bold; margin-bottom: 8px; color: #111;"><i class="fas fa-folder"></i> Categorías</div>
+            <div class="sidebar-section">
+                <div class="sidebar-title"><i class="fas fa-folder"></i> Categorías</div>
                 <div id="categoryTabs" class="tab-group vertical"></div>
             </div>
             
             <!-- Productos -->
-            <div class="panel">
-                <div class="sidebar-title" style="font-weight: bold; margin-bottom: 8px; color: #111;"><i class="fas fa-box"></i> Productos</div>
+            <div class="sidebar-section">
+                <div class="sidebar-title"><i class="fas fa-box-open"></i> Productos</div>
                 <div id="productTabs" class="tab-group vertical"></div>
             </div>
             
-            <!-- Superficies / Caras -->
-            <div class="panel">
-                <div class="sidebar-title" style="font-weight: bold; margin-bottom: 8px; color: #111;"><i class="fas fa-sync"></i> Vistas (Caras)</div>
+            <!-- Vistas / Caras del producto -->
+            <div class="sidebar-section">
+                <div class="sidebar-title"><i class="fas fa-sync-alt"></i> Caras / Vistas</div>
                 <div id="surfaceTabs" class="tab-group vertical"></div>
-            </div>
-
-            <!-- Galería de Fuentes Física en el DOM (Silencia F12 y activa Hover) -->
-            <div class="panel" id="fontGallery" style="margin-top: 10px;">
-                <div class="sidebar-title" style="font-weight: bold; margin-bottom: 8px; color: #111;"><i class="fas fa-font"></i> Galería de Tipografías</div>
-                <div id="fontList" class="font-gallery" style="max-height: 250px; overflow-y: auto; border: 1px solid #ddd; border-radius: 10px; padding: 8px; background: #ffffff;"></div>
             </div>
         </aside>
 
-        <!-- AREA DE TRABAJO (WORKSPACE) -->
+        <!-- AREA DE TRABAJO (LIENZO DE PAPER.JS + PANEL DE PROPIEDADES DERECHO) -->
         <main class="workspace">
             
-            <!-- BARRA DE CONFIGURACIÓN DE TAMAÑOS, ALINEACIONES Y CAPAS (EDITOR-HEADER) -->
-            <div class="editor-header" style="display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid #e6e6e6; border-radius: 14px; background: white;">
-                
-                <!-- Fila 1: Edición numérica de tamaño y bloqueo de proporción -->
-                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 13px; font-weight: bold; color: #444;">Ancho:</span>
-                        <input id="objWidth" type="number" step="0.1" style="width: 75px; padding: 6px; text-align: center; border: 1px solid #ccc; border-radius: 8px; font-weight: bold;">
-                        <span style="font-size: 13px; font-weight: bold; color: #666;">mm</span>
-                        
-                        <!-- Tirador interactivo de aspecto de LightBurn -->
-                        <button id="btnToggleLock" class="action-btn" title="Bloquear proporción" style="padding: 6px 10px; background: #fafafa; border: 1px solid #ddd; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                            <i class="fas fa-lock" id="lockIcon" style="color: #007bff;"></i> Proporción
-                        </button>
-                        <input type="checkbox" id="lockRatio" style="display: none;" checked>
-
-                        <span style="font-size: 13px; font-weight: bold; color: #444;">Alto:</span>
-                        <input id="objHeight" type="number" step="0.1" style="width: 75px; padding: 6px; text-align: center; border: 1px solid #ccc; border-radius: 8px; font-weight: bold;">
-                        <span style="font-size: 13px; font-weight: bold; color: #666;">mm</span>
-
-                        <button id="btnApplySize" class="action-btn" style="padding: 6px 14px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: background 0.2s;">Aplicar Tamaño</button>
-                    </div>
-
-                    <!-- Información de etiqueta activa -->
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <div style="background: #eef7ff; color: #0056b3; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: bold; border: 1px dashed rgba(0,123,255,0.25);" id="selectionInfo">Nada seleccionado</div>
-                    </div>
-                </div>
-
-                <!-- Fila 2: Barra de Alineaciones rápidas, Centrados del Mockup, Rotación y Capas -->
-                <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; border-top: 1px solid #eee; padding-top: 10px;">
-                    <!-- Caja de Alineación -->
-                    <div style="display: flex; align-items: center; gap: 4px;" title="Alineación relativa">
-                        <button id="btnAlignLeft" class="action-btn" title="Alinear a la izquierda" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; transition: background 0.2s;"><i class="fas fa-align-left"></i></button>
-                        <button id="btnAlignCenterH" class="action-btn" title="Alinear centro horizontal" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; transition: background 0.2s;"><i class="fas fa-align-center"></i></button>
-                        <button id="btnAlignRight" class="action-btn" title="Alinear a la derecha" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; transition: background 0.2s;"><i class="fas fa-align-right"></i></button>
-                        <button id="btnAlignTop" class="action-btn" title="Alinear arriba" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; transition: background 0.2s;"><i class="fas fa-align-justify" style="transform: rotate(90deg);"></i></button>
-                        <button id="btnAlignCenterV" class="action-btn" title="Alinear centro vertical" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; transition: background 0.2s;"><i class="fas fa-align-center" style="transform: rotate(90deg);"></i></button>
-                        <button id="btnAlignBottom" class="action-btn" title="Alinear abajo" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; transition: background 0.2s;"><i class="fas fa-align-justify" style="transform: rotate(-90deg);"></i></button>
-                    </div>
-
-                    <!-- Centrados físicos sobre el producto activo -->
-                    <div style="display: flex; align-items: center; gap: 4px;" title="Centrado Simétrico (Láser)">
-                        <button id="btnCenterH" class="action-btn" title="Centrar Horizontalmente" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; background: #eef7ff; color: #0056b3; cursor: pointer; font-size: 11px; font-weight: bold;"><i class="fas fa-arrows-alt-h"></i> Centrar H</button>
-                        <button id="btnCenterV" class="action-btn" title="Centrar Verticalmente" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; background: #eef7ff; color: #0056b3; cursor: pointer; font-size: 11px; font-weight: bold;"><i class="fas fa-arrows-alt-v"></i> Centrar V</button>
-                        <button id="btnCenterBoth" class="action-btn" title="Centrar en el centro simétrico" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; background: #eef7ff; color: #0056b3; cursor: pointer; font-size: 11px; font-weight: bold;"><i class="fas fa-crosshairs"></i> Centrar Ambos</button>
-                    </div>
-
-                    <!-- Rotación e Inclinación -->
-                    <div style="display: flex; align-items: center; gap: 4px;" title="Rotar">
-                        <button id="btnRotateLeft" class="action-btn" title="Girar 90° Antihorario" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer;"><i class="fas fa-undo"></i> -90°</button>
-                        <button id="btnRotateRight" class="action-btn" title="Girar 90° Horario" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer;"><i class="fas fa-redo"></i> +90°</button>
-                        <button id="btnRotate180" class="action-btn" title="Girar 180°" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer;"><i class="fas fa-sync-alt"></i> 180°</button>
-                    </div>
-
-                    <!-- Control de Orden de Dibujo (Capas del Canva) -->
-                    <div style="display: flex; align-items: center; gap: 4px;" title="Ordenación de capas">
-                        <button id="btnForward" class="action-btn" title="Subir una capa" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; font-size: 11px;"><i class="fas fa-chevron-up"></i> Subir</button>
-                        <button id="btnBackward" class="action-btn" title="Bajar una capa" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; font-size: 11px;"><i class="fas fa-chevron-down"></i> Bajar</button>
-                        <button id="btnBringFront" class="action-btn" title="Traer al frente" style="display: none;"></button>
-                        <button id="btnSendBack" class="action-btn" style="display: none;"></button>
-                    </div>
-
-                    <!-- Controles del Canvas (Zoom In/Out/Fit) -->
-                    <div style="display: flex; align-items: center; gap: 4px; margin-left: auto;">
-                        <button id="btnZoomIn" class="action-btn" title="Acercar Lienzo" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer;"><i class="fas fa-search-plus"></i></button>
-                        <button id="btnZoomOut" class="action-btn" title="Alejar Lienzo" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer;"><i class="fas fa-search-minus"></i></button>
-                        <button id="btnFit" class="action-btn" title="Ajustar Lienzo" style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; background: white; cursor: pointer; font-size: 11px; font-weight: bold;"><i class="fas fa-expand-arrows-alt"></i> Ajustar Vista</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- LIENZO CENTRAL DE CORTE Y PROPIEDADES DE CORTE LÁSER (EDITOR-AREA) -->
+            <!-- CONTENEDOR CENTRAL DEL LIENZO -->
             <div class="editor-area">
-                
-                <!-- Lienzo del Canvas interactivo con barra emergente contextual -->
                 <div class="canvas-wrap" style="position: relative;">
-                    <canvas id="editorCanvas" resize></canvas>
-
-                    <!-- BARRA DE HERRAMIENTAS CONTEXTUAL DINÁMICA (ESTILO CANVA / LIGHTBURN) -->
-                    <div id="contextual-toolbar" class="floating-toolbar hidden">
-                        <!-- Botones de Acción Global del Elemento Seleccionado -->
-                        <button id="btnCtxDelete" class="toolbar-btn" style="color: #dc3545;" title="Eliminar Objeto (Supr)"><i class="fas fa-trash-alt"></i></button>
-                        <button id="btnCtxDuplicate" class="toolbar-btn" title="Duplicar Objeto (Ctrl+D)"><i class="fas fa-copy"></i></button>
-                        <button id="btnCtxForward" class="toolbar-btn" title="Subir nivel de capa"><i class="fas fa-chevron-up"></i></button>
-                        <button id="btnCtxBackward" class="toolbar-btn" title="Bajar nivel de capa"><i class="fas fa-chevron-down"></i></button>
+                    
+                    <!-- BARRA CONTEXTUAL FLOTANTE EMERGENTE (CANVA / LIGHTBURN STYLE) -->
+                    <div id="contextual-toolbar" class="floating-toolbar" style="display: flex; align-items: center; gap: 10px; background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 8px 14px; border: 1px solid #ddd; z-index: 9999;">
                         
-                        <div style="width: 1px; height: 20px; background: #eee; margin: 0 4px;"></div>
+                        <!-- ACCIONES GENERALES DE OBJETOS -->
+                        <div class="toolbar-panel" style="display: flex; align-items: center; gap: 4px; border-right: 1px solid #eee; padding-right: 8px; margin-right: 4px;">
+                            <button class="toolbar-btn" id="btnCtxDuplicate" title="Duplicar"><i class="fas fa-clone"></i></button>
+                            <button class="toolbar-btn" id="btnCtxForward" title="Subir Capa"><i class="fas fa-layer-group"></i> <i class="fas fa-arrow-up" style="font-size: 8px;"></i></button>
+                            <button class="toolbar-btn" id="btnCtxBackward" title="Bajar Capa"><i class="fas fa-layer-group"></i> <i class="fas fa-arrow-down" style="font-size: 8px;"></i></button>
+                            <button class="toolbar-btn text-danger" id="btnCtxDelete" title="Eliminar"><i class="fas fa-trash-alt"></i></button>
+                        </div>
 
-                        <!-- PANEL emergente específico de IMÁGENES -->
-                        <div id="ctxImageControls" class="toolbar-panel hidden">
-                            <button id="btnCtxFlipH" class="toolbar-btn" title="Reflejar Horizontalmente"><i class="fas fa-arrows-alt-h"></i> Voltear H</button>
-                            <button id="btnCtxFlipV" class="toolbar-btn" title="Reflejar Verticalmente"><i class="fas fa-arrows-alt-v"></i> Voltear V</button>
-                            <button id="btnCtxAchicar" class="toolbar-btn" title="Achicar Imagen"><i class="fas fa-search-minus"></i></button>
-                            <button id="btnCtxAgrandar" class="toolbar-btn" title="Agrandar Imagen"><i class="fas fa-search-plus"></i></button>
+                        <!-- 1. CONTROLES CONTEXTUALES DE TEXTO AVANZADO -->
+                        <div id="ctxTextControls" class="toolbar-subgroup hidden" style="display: flex; align-items: center; gap: 8px;">
                             
-                            <div style="display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: #444; border-left: 1px solid #eee; padding-left: 8px; margin-left: 4px;">
-                                <div style="display: flex; align-items: center; gap: 4px;">
-                                    <span>Brillo</span>
-                                    <input id="ctxBrightness" type="range" min="-100" max="100" value="0" style="width: 60px; accent-color: #007bff;">
+                            <!-- Dropdown de tipografías Enriquecido (Flota hacia arriba y es interactivo al hover) -->
+                            <div class="rich-font-dropdown-container">
+                                <button id="btnCtxFontSelect" class="rich-font-dropdown-trigger" title="Seleccionar Fuente">
+                                    <span id="txtCtxFontActive">Arial</span>
+                                    <i class="fas fa-chevron-down" style="font-size: 10px; opacity: 0.7;"></i>
+                                </button>
+                                <div id="pnlCtxFontDropdown" class="rich-font-dropdown-list hidden">
+                                    <!-- Inyectado dinámicamente con contextualMenu.js -->
                                 </div>
-                                <div style="display: flex; align-items: center; gap: 4px;">
-                                    <span>Contraste</span>
-                                    <input id="ctxContrast" type="range" min="-100" max="100" value="0" style="width: 60px; accent-color: #007bff;">
-                                </div>
+                            </div>
+
+                            <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente" style="width: 55px; text-align: center; border-radius: 6px; padding: 4px; border: 1px solid #ccc;">
+                            
+                            <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
+                            <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
+                            <button class="toolbar-btn" id="btnCtxUnderline" title="Subrayar"><i class="fas fa-underline"></i></button>
+                            <button class="toolbar-btn" id="btnCtxWeld" title="Soldar Letras (Weld Contornos)" style="font-weight: bold; background: #222; color: #fff; border-radius: 6px; padding: 5px 10px;"><i class="fas fa-ring"></i> Soldar</button>
+                            
+                            <!-- Control Deslizante de Curvatura de Texto (Doblar en arco) -->
+                            <div class="toolbar-slider-container" title="Curvatura de Texto" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                                <span style="font-weight: bold; color: #555;">Arco</span>
+                                <input id="ctxTextCurve" type="range" min="-100" max="100" value="0" step="1" style="width: 65px; accent-color: #ff00ff;">
+                            </div>
+                            
+                            <!-- Control Deslizante de Espaciado de Caracteres (HSpace) -->
+                            <div class="toolbar-slider-container" title="Espaciado de Caracteres (HSpace)" style="display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                                <span style="font-weight: bold; color: #555;">Espacio</span>
+                                <input id="ctxTextHSpace" type="range" min="-10" max="100" value="0" step="1" style="width: 65px; accent-color: #ff00ff;">
                             </div>
                         </div>
 
-                        <!-- PANEL emergente específico de TEXTOS (ESTILO LIGHTBURN COMPLETO) -->
-                        <div id="ctxTextControls" class="toolbar-panel hidden" style="display: flex; align-items: center; gap: 8px;">
-                            <!-- Dropdown Sincronizado y Tipográfico -->
-                            <select id="ctxFontSelector" class="toolbar-select" style="min-width: 130px; border-radius: 6px; padding: 4px; font-size: 12px; font-weight: bold; border: 1px solid #ccc;"></select>
-                            <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente" style="width: 60px; padding: 4px; text-align: center; border-radius: 6px; border: 1px solid #ccc; font-weight: bold;">
+                        <!-- 2. CONTROLES CONTEXTUALES DE IMAGEN -->
+                        <div id="ctxImageControls" class="toolbar-subgroup hidden" style="display: flex; align-items: center; gap: 8px;">
+                            <button class="toolbar-btn" id="btnCtxFlipH" title="Voltear Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
+                            <button class="toolbar-btn" id="btnCtxFlipV" title="Voltear Vertical"><i class="fas fa-arrows-alt-v"></i></button>
+                            <button class="toolbar-btn" id="btnCtxAchicar" title="Achicar"><i class="fas fa-minus-circle"></i></button>
+                            <button class="toolbar-btn" id="btnCtxAgrandar" title="Agrandar"><i class="fas fa-plus-circle"></i></button>
                             
-                            <button class="toolbar-btn" id="btnCtxBold" title="Negrita" style="padding: 6px 10px; cursor: pointer;"><i class="fas fa-bold"></i></button>
-                            <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva" style="padding: 6px 10px; cursor: pointer;"><i class="fas fa-italic"></i></button>
-                            <button class="toolbar-btn" id="btnCtxUnderline" title="Subrayar" style="padding: 6px 10px; cursor: pointer;"><i class="fas fa-underline"></i></button>
-                            
-                            <!-- Botón de soldadura booleana para evitar doble quemado -->
-                            <button class="toolbar-btn" id="btnCtxWeld" title="Soldar Texto (Weld Contornos de letras cursivas)" style="padding: 6px 12px; cursor: pointer; font-weight: bold; background: #2a2a2a; color: white; border: none; border-radius: 6px; display: flex; align-items: center; gap: 4px; font-size: 11px;"><i class="fas fa-ring"></i> Soldar</button>
-                            
-                            <div style="width: 1px; height: 20px; background: #eee; margin: 0 4px;"></div>
-
-                            <!-- Deslizador de Curvatura de Texto (Doblar en arco) -->
-                            <div class="toolbar-slider-container" title="Curvatura de Texto" style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #333;">
-                                <span>Curva</span>
-                                <input id="ctxTextCurve" type="range" min="-100" max="100" value="0" step="1" style="width: 70px; accent-color: #007bff; cursor: pointer;">
+                            <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; margin-left: 4px;">
+                                <span>Brillo</span>
+                                <input id="ctxBrightness" type="range" min="-100" max="100" value="0" style="width: 50px; accent-color: #007bff;">
                             </div>
-                            
-                            <!-- Deslizador de Espaciado de Caracteres (HSpace / Tracking) -->
-                            <div class="toolbar-slider-container" title="Espaciado de Caracteres" style="display: flex; align-items: center; gap: 4px; font-size: 11px; color: #333;">
-                                <span>Espacio</span>
-                                <input id="ctxTextHSpace" type="range" min="-10" max="100" value="0" step="1" style="width: 70px; accent-color: #007bff; cursor: pointer;">
+                            <div style="display: flex; align-items: center; gap: 4px; font-size: 11px; margin-left: 4px;">
+                                <span>Contraste</span>
+                                <input id="ctxContrast" type="range" min="-100" max="100" value="0" style="width: 50px; accent-color: #007bff;">
                             </div>
                         </div>
 
-                        <!-- PANEL emergente específico de VECTORES / SVGs -->
-                        <div id="ctxVectorControls" class="toolbar-panel hidden">
-                            <span style="font-size: 11px; font-weight: bold; color: #666; display: flex; align-items: center; gap: 4px;"><i class="fas fa-vector-square" style="color: #007bff;"></i> Vector Seleccionado</span>
+                        <!-- 3. CONTROLES CONTEXTUALES DE VECTORES -->
+                        <div id="ctxVectorControls" class="toolbar-subgroup hidden" style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 12px; font-weight: bold; color: #007bff;"><i class="fas fa-draw-polygon"></i> Vector</span>
                         </div>
                     </div>
+
+                    <!-- LIENZO PRINCIPAL DEL EDITOR (PAPER.JS) -->
+                    <canvas id="editorCanvas"></canvas>
                 </div>
 
-                <!-- Panel Lateral de Cortes / Capas de Trabajo (Ajustes de Grabado) -->
-                <div class="properties" style="padding: 14px; border: 1px solid #e6e6e6; display: flex; flex-direction: column; gap: 14px;">
-                    <div style="font-weight: bold; font-size: 15px; border-bottom: 2px solid #007bff; padding-bottom: 6px; color: #111;"><i class="fas fa-layer-group"></i> Cortes y Capas</div>
-                    <div style="font-size: 12px; color: #555; line-height: 1.4;">Asigna los parámetros de marcado y grabado por color:</div>
+                <!-- PANEL DE PROPIEDADES DERECHO: EDICIONES NUMÉRICAS Y CAPAS LÁSER -->
+                <aside class="properties" style="padding: 14px; display: flex; flex-direction: column; gap: 14px; border: 1px solid #e6e6e6; border-radius: 16px;">
                     
-                    <div style="flex: 1; border: 1px solid #eee; border-radius: 8px; padding: 10px; background: #fafafa; max-height: 250px; overflow-y: auto;">
-                        <table style="width: 100%; font-size: 12px; border-collapse: collapse;">
+                    <!-- Información y Dimensiones del Objeto Seleccionado -->
+                    <div class="prop-box">
+                        <div class="sidebar-title" style="color: #007bff;"><i class="fas fa-info-circle"></i> Selección</div>
+                        <div id="selectionInfo" style="font-size: 12px; margin-bottom: 8px; color: #666; font-weight: bold;">Nada seleccionado</div>
+                        
+                        <!-- Ajuste de Ancho / Alto y Bloqueo de Proporción (Estilo LightBurn) -->
+                        <div class="numeric-inputs" style="display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; margin-bottom: 10px;">
+                            <div>
+                                <label style="font-size: 11px; color: #666; display: block; margin-bottom: 2px;">Ancho (mm)</label>
+                                <input type="number" id="objWidth" class="toolbar-input-number" style="width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #ccc; border-radius: 6px; text-align: center;">
+                            </div>
+                            <div style="text-align: center; margin-top: 12px;">
+                                <label class="checkbox-label" title="Mantener relación de aspecto" style="cursor: pointer;">
+                                    <input type="checkbox" id="lockRatio" checked style="display:none;">
+                                    <button id="btnToggleLock" class="toolbar-btn" style="padding: 6px; border: 1px solid #ccc; border-radius: 6px; background: #fafafa;"><i class="fas fa-lock"></i></button>
+                                </label>
+                            </div>
+                            <div>
+                                <label style="font-size: 11px; color: #666; display: block; margin-bottom: 2px;">Alto (mm)</label>
+                                <input type="number" id="objHeight" class="toolbar-input-number" style="width: 100%; box-sizing: border-box; padding: 6px; border: 1px solid #ccc; border-radius: 6px; text-align: center;">
+                            </div>
+                        </div>
+                        <button id="btnApplySize" class="action-btn" style="width: 100%; font-weight: bold; background: #2a2a2a; color: white; border-radius: 8px; padding: 8px 10px;">Aplicar Tamaño</button>
+                    </div>
+
+                    <!-- Alineación y Centrado Rápido (Estilo LightBurn) -->
+                    <div class="prop-box">
+                        <div class="sidebar-title"><i class="fas fa-align-center"></i> Centrado y Ajuste</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px;">
+                            <button class="action-btn" id="btnCenterH" title="Centrar Horizontalmente">Centrar H</button>
+                            <button class="action-btn" id="btnCenterV" title="Centrar Verticalmente">Centrar V</button>
+                            <button class="action-btn" id="btnCenterBoth" title="Centrar Ambos">Ambos</button>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+                            <button class="action-btn" id="btnRotateLeft" title="Girar -90°"><i class="fas fa-undo"></i> -90°</button>
+                            <button class="action-btn" id="btnRotateRight" title="Girar +90°"><i class="fas fa-redo"></i> +90°</button>
+                            <button class="action-btn" id="btnRotate180" title="Girar 180°"><i class="fas fa-sync"></i> 180°</button>
+                        </div>
+                    </div>
+
+                    <!-- Navegación, Enmarcado y Zoom -->
+                    <div class="prop-box">
+                        <div class="sidebar-title"><i class="fas fa-search-plus"></i> Vista y Zoom</div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;">
+                            <button class="action-btn" id="btnZoomIn" title="Acercar"><i class="fas fa-search-plus"></i></button>
+                            <button class="action-btn" id="btnZoomOut" title="Alejar"><i class="fas fa-search-minus"></i></button>
+                            <button class="action-btn" id="btnFit" title="Ajustar Vista"><i class="fas fa-compress-arrows-alt"></i> Ajustar</button>
+                        </div>
+                    </div>
+
+                    <!-- PARÁMETROS DE CORTES Y CAPAS LÁSER (Estilo LightBurn) -->
+                    <div class="prop-box">
+                        <div class="sidebar-title" style="color: #ff00ff;"><i class="fas fa-border-style"></i> Cortes y Capas</div>
+                        <p style="font-size: 11px; color: #666; margin: 0 0 8px 0; line-height: 1.3;">Asigna parámetros por color de capa:</p>
+                        <table class="layers-table" style="width: 100%; border-collapse: collapse; font-size: 11px; text-align: left;">
                             <thead>
-                                <tr style="border-bottom: 1px solid #ddd; text-align: left; color: #666; font-size: 11px;">
-                                    <th style="padding-bottom: 6px;">Capa</th>
-                                    <th style="padding-bottom: 6px;">Modo</th>
-                                    <th style="padding-bottom: 6px; text-align: right;">Spd/Pwr</th>
+                                <tr style="border-bottom: 2px solid #eee; color: #555;">
+                                    <th style="padding: 4px 0;">Capa</th>
+                                    <th style="padding: 4px 0;">Modo</th>
+                                    <th style="padding: 4px 0; text-align: right;">Spd/Pwr</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr style="border-bottom: 1px solid #eee;">
-                                    <td style="padding: 8px 0; display: flex; align-items: center; gap: 6px;">
-                                        <div style="width: 12px; height: 12px; background: #000000; border-radius: 3px;"></div>
-                                        <span>C00</span>
-                                    </td>
-                                    <td>Relleno</td>
-                                    <td style="text-align: right; font-weight: bold; color: #007bff;">100 / 45%</td>
+                                <tr style="border-bottom: 1px solid #f9f9f9;">
+                                    <td style="padding: 6px 0; display: flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 12px; height: 12px; background: #000; border-radius: 2px;"></span> C00</td>
+                                    <td style="padding: 6px 0;">Relleno</td>
+                                    <td style="padding: 6px 0; text-align: right; font-weight: bold;">100 / 45%</td>
                                 </tr>
-                                <tr>
-                                    <td style="padding: 8px 0; display: flex; align-items: center; gap: 6px;">
-                                        <div style="width: 12px; height: 12px; background: #ff0000; border-radius: 3px;"></div>
-                                        <span>C02</span>
-                                    </td>
-                                    <td>Línea (Corte)</td>
-                                    <td style="text-align: right; font-weight: bold; color: #007bff;">15 / 85%</td>
+                                <tr style="border-bottom: 1px solid #f9f9f9;">
+                                    <td style="padding: 6px 0; display: flex; align-items: center; gap: 4px;"><span style="display: inline-block; width: 12px; height: 12px; background: #f00; border-radius: 2px;"></span> C02</td>
+                                    <td style="padding: 6px 0;">Corte</td>
+                                    <td style="padding: 6px 0; text-align: right; font-weight: bold;">15 / 85%</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
-
-                    <div style="background: #fff3cd; color: #856404; font-size: 11px; padding: 10px; border-radius: 8px; border-left: 4px solid #ffc107; line-height: 1.4;">
-                        💡 <b>Guía de Grabado:</b> Al exportar las tipografías script que se superponen, presiona el botón <b>"Soldar"</b> para convertirlas en un único trazado unificado. De esta manera, el haz del láser no quemará dos veces las uniones de las letras.
-                    </div>
-                </div>
+                </aside>
             </div>
+            
+            <!-- PANEL DE INFORMACIÓN Y RECOMENDACIONES TÉCNICAS AL FINAL DE LA PÁGINA -->
+            <footer class="footer-ekko" style="background: #111; color: white; padding: 20px; border-radius: 14px; margin-top: 14px; font-size: 12px; text-align: center; border: 1px solid #222;">
+                <p style="margin: 0 0 10px 0; line-height: 1.5; color: #ccc;">
+                    💡 <b>Guía de Grabado:</b> Al exportar tipografías cursivas o script que se superponen, utiliza el botón <b>"Soldar"</b> para convertirlas en un trazado unificado. Así evitarás que el láser queme dos veces las uniones de las letras.
+                </p>
+                <div style="opacity: 0.6; font-size: 11px;">
+                    © 2026 Grabados Ekko — Todos los derechos reservados. Compatible con exportación vectorial a LightBurn.
+                </div>
+            </footer>
         </main>
     </div>
 
-    <!-- PIE DE PAGINA (FOOTER) -->
-    <footer class="footer-ekko">
-        <p class="copyright">&copy; 2026 Grabados Ekko — Todos los derechos reservados. Compatible con exportación vectorial a LightBurn.</p>
-    </footer>
-
-    <!-- INSERCIÓN DE LIBRERÍAS CLAVE DEL ENTORNO -->
-    <!-- Paper.js Library para Canvas Vectorial Complejo -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
-    <!-- QRCode JS Library para generación local de QRs de baja densidad (4mm) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-
-    <!-- ENLACE DE ARCHIVOS DE PROGRAMACIÓN DE EKKO STUDIO -->
-    <!-- Listado unificado de Medidas y mockups de Mate, Medallas y Pulseras -->
-    <script src="ASSETS/js/productos.js"></script>
-    <!-- Punto de Entrada Principal del Editor de Edición de Alto Rendimiento -->
+    <!-- CARGA DE LIBRERÍAS DE SOPORTE -->
+    <!-- Paper.js para el motor de rendering vectorial del canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.15/paper-full.min.js"></script>
+    <!-- Módulos dinámicos e inicialización del editor -->
     <script type="module" src="ASSETS/js/editor.js"></script>
 </body>
 </html>
