@@ -3,6 +3,7 @@
  * Controlador central interactivo para el canvas, historial, redimensionamiento,
  * rotación libre (Estilo Canva) e integración con LightBurn.
  */
+
 import "./modules/selection.js"; // Importamos la selección con tirador de rotación
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
@@ -123,6 +124,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (displayItem && displayItem.bounds) {
             if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
             if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
+            
             // Mostrar rotación si existe en los metadatos
             const currentRot = displayItem.data?.rotationAngle || 0;
             const rotSuffix = currentRot !== 0 ? ` (${Math.round(((currentRot % 360) + 360) % 360)}°)` : "";
@@ -428,6 +430,23 @@ window.addEventListener("DOMContentLoaded", () => {
         if (window.currentMockup) {
             window.selectedItem.insertBelow(window.currentMockup);
         }
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+    }
+
+    function bringForward() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        window.selectedItem.insertAbove(window.selectedItem.nextSibling);
+        if (window.currentMockup) {
+            window.currentMockup.bringToFront();
+        }
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+    }
+
+    function sendBackward() {
+        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+        window.selectedItem.insertBelow(window.selectedItem.previousSibling);
         window.updateSelectionBox(window.selectedItem);
         paper.view.update();
     }
@@ -999,6 +1018,7 @@ window.addEventListener("DOMContentLoaded", () => {
             el.addEventListener(event, callback);
         }
     };
+
     safeAddListener("btnAddText", "click", activateTextMode);
     safeAddListener("btnDelete", "click", deleteSelected);
     safeAddListener("btnDuplicate", "click", duplicateSelected);
@@ -1009,18 +1029,21 @@ window.addEventListener("DOMContentLoaded", () => {
     safeAddListener("btnZoomIn", "click", () => zoomBy(1.15));
     safeAddListener("btnZoomOut", "click", () => zoomBy(1 / 1.15));
     safeAddListener("btnFit", "click", fitView);
+    
     safeAddListener("btnAddImage", "click", () => {
         if (ui.imagePicker) {
             ui.imagePicker.value = "";
             ui.imagePicker.click();
         }
     });
+    
     safeAddListener("btnAddSVG", "click", () => {
         if (ui.svgPicker) {
             ui.svgPicker.value = "";
             ui.svgPicker.click();
         }
     });
+
     if (ui.imagePicker) {
         ui.imagePicker.addEventListener("change", (e) => {
             const files = e.target.files;
@@ -1030,6 +1053,7 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
+
     if (ui.svgPicker) {
         ui.svgPicker.addEventListener("change", (e) => {
             const files = e.target.files;
@@ -1039,12 +1063,14 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
+
     const onQRClick = () => {
         const text = prompt("Ingrese el texto o enlace (URL) para generar el código QR:");
         if (text) {
             addQRCode(text);
         }
     };
+    
     safeAddListener("btnQR", "click", onQRClick);
     safeAddListener("btnAddQR", "click", onQRClick);
     safeAddListener("btnCreateQR", "click", onQRClick);
@@ -1057,12 +1083,14 @@ window.addEventListener("DOMContentLoaded", () => {
     safeAddListener(ui.btnAlignTop, "click", () => alignSelected("top"));
     safeAddListener(ui.btnAlignCenterV, "click", () => alignSelected("centerV"));
     safeAddListener(ui.btnAlignBottom, "click", () => alignSelected("bottom"));
+    
     safeAddListener(ui.btnRotateLeft, "click", () => { rotateSelected(-90); });
     safeAddListener(ui.btnRotateRight, "click", () => { rotateSelected(90); });
     safeAddListener(ui.btnRotate180, "click", () => { rotateSelected(180); });
     safeAddListener(ui.btnCenterH, "click", () => { centerSelected("horizontal"); });
     safeAddListener(ui.btnCenterV, "click", () => { centerSelected("vertical"); });
     safeAddListener(ui.btnCenterBoth, "click", () => { centerSelected("both"); });
+    
     safeAddListener(ui.objWidth, "input", () => { lastSizeField = "width"; });
     safeAddListener(ui.objHeight, "input", () => { lastSizeField = "height"; });
 
@@ -1077,6 +1105,8 @@ window.addEventListener("DOMContentLoaded", () => {
     if (typeof initContextualMenu === 'function') {
         initContextualMenu();
     }
+    
     // Cargar categorías al arranque
     renderCategories();
 });
+
