@@ -1,3 +1,15 @@
+// Función auxiliar para desvincular de raíz las referencias del objeto .data en clones
+function sanitizeClonedData(item) {
+    if (!item) return;
+    if (item.data) {
+        item.data = { ...item.data }; // Copia superficial pura de propiedades primitivas
+    } else {
+        item.data = {};
+    }
+    if (item.children) {
+        item.children.forEach(sanitizeClonedData); // Se ejecuta recursivamente en hijos de Grupos
+    }
+}
 /**
  * ASSETS/js/editor.js (PRO Edition v4)
  * Controlador central interactivo para el canvas, historial, redimensionamiento,
