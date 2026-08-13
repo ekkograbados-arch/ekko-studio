@@ -228,11 +228,11 @@ export function weldText(item) {
 
         const childrenPaths = [];
         vectorGroup.children.forEach(child => {
-            if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
+            if (child.className === "Path" || child.className === "CompoundPath") {
                 childrenPaths.push(child);
-            } else if (child instanceof paper.Group) {
+            } else if (child.className === "Group") {
                 child.children.forEach(subChild => {
-                    if (subChild instanceof paper.Path || subChild instanceof paper.CompoundPath) {
+                    if (subChild.className === "Path" || subChild.className === "CompoundPath") {
                         childrenPaths.push(subChild);
                     }
                 });
@@ -244,7 +244,7 @@ export function weldText(item) {
             return;
         }
 
-        let weldedPath = childrenPaths;
+        let weldedPath = childrenPaths[0];
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
             const temp = weldedPath.unite(nextPath);
@@ -281,18 +281,18 @@ export function toggleBold(item) {
 
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
-        if (target instanceof paper.PointText) {
+        if (target.className === "PointText") {
             const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
             target.fontWeight = isBold ? 'normal' : 'bold';
-        } else if (target instanceof paper.Group) {
+        } else if (target.className === "Group") {
             let anyBold = false;
             target.children.forEach(child => {
-                if (child instanceof paper.PointText && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
+                if (child.className === "PointText" && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
                     anyBold = true;
                 }
             });
             target.children.forEach(child => {
-                if (child instanceof paper.PointText) {
+                if (child.className === "PointText") {
                     child.fontWeight = anyBold ? 'normal' : 'bold';
                 }
             });
@@ -318,10 +318,10 @@ export function toggleItalic(item) {
         const slantAngle = -0.22; 
 
         if (isItalic) {
-            target.shear(-slantAngle, 0, target.bounds.bottomCenter);
+            target.shear(new paper.Point(-slantAngle, 0), target.bounds.bottomCenter);
             target.data.isItalicSkewed = false;
         } else {
-            target.shear(slantAngle, 0, target.bounds.bottomCenter);
+            target.shear(new paper.Point(slantAngle, 0), target.bounds.bottomCenter);
             target.data.isItalicSkewed = true;
         }
 
