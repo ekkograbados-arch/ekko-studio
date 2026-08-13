@@ -77,27 +77,32 @@ function renderSidebarFontGallery(fonts) {
         item.style.cursor = "pointer";
         item.innerHTML = `
             <div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div>
-            <div class="font-name" style="font-size: 12px; color: #666; margin-top: 4px;">${font.name}</div>
+            <div class="font-name">${font.name}</div>
         `;
-
-        let originalFont = null;
 
         // PREVISUALIZACIÓN DINÁMICA POR HOVER (Al pasar el cursor del mouse por la lista)
         item.onmouseenter = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup 
-                    ? window.selectedItem.children.find(c => !c.clipMask) 
-                    : window.selectedItem;
+                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                if (target && (target.className === "PointText" || target.data?.isCurvedGroup)) {
+                    target.data = target.data || {};
+                    
+                    // Almacenar la fuente original si no existe aún
+                    if (!target.data.originalFontFamily) {
+                        if (target.className === "PointText") {
+                            target.data.originalFontFamily = target.fontFamily;
+                        } else if (target.className === "Group") {
+                            const firstText = target.children.find(c => c.className === "PointText");
+                            target.data.originalFontFamily = firstText ? firstText.fontFamily : "Arial";
+                        }
+                    }
 
-                if (target && (target instanceof paper.PointText || target.data?.isCurvedGroup)) {
-                    if (target instanceof paper.PointText) {
-                        originalFont = target.fontFamily;
+                    // Aplicar la tipografía temporal
+                    if (target.className === "PointText") {
                         target.fontFamily = font.family;
-                    } else if (target instanceof paper.Group) {
-                        // Soporte para textos curvos (Grupos de PointText)
+                    } else if (target.className === "Group") {
                         target.children.forEach(child => {
-                            if (child instanceof paper.PointText) {
-                                if (!originalFont) originalFont = child.fontFamily;
+                            if (child.className === "PointText") {
                                 child.fontFamily = font.family;
                             }
                         });
@@ -112,22 +117,19 @@ function renderSidebarFontGallery(fonts) {
 
         // RESTAURACIÓN INSTANTÁNEA (Al quitar el mouse de la tipografía de la lista)
         item.onmouseleave = () => {
-            if (window.selectedItem && originalFont) {
-                const target = window.selectedItem.data?.clipGroup 
-                    ? window.selectedItem.children.find(c => !c.clipMask) 
-                    : window.selectedItem;
-
-                if (target) {
-                    if (target instanceof paper.PointText) {
-                        target.fontFamily = originalFont;
-                    } else if (target instanceof paper.Group) {
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                if (target && target.data && target.data.originalFontFamily) {
+                    const orig = target.data.originalFontFamily;
+                    if (target.className === "PointText") {
+                        target.fontFamily = orig;
+                    } else if (target.className === "Group") {
                         target.children.forEach(child => {
-                            if (child instanceof paper.PointText) {
-                                child.fontFamily = originalFont;
+                            if (child.className === "PointText") {
+                                child.fontFamily = orig;
                             }
                         });
                     }
-                    originalFont = null;
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -139,30 +141,27 @@ function renderSidebarFontGallery(fonts) {
         // CONFIRMACIÓN DE SELECCIÓN (Al hacer clic en la tipografía)
         item.onclick = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup 
-                    ? window.selectedItem.children.find(c => !c.clipMask) 
-                    : window.selectedItem;
-
+                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
                     
-                    if (target instanceof paper.PointText) {
+                    target.data = target.data || {};
+                    target.data.originalFontFamily = font.family; // Se convierte en la nueva fuente base
+
+                    if (target.className === "PointText") {
                         target.fontFamily = font.family;
-                    } else if (target instanceof paper.Group) {
+                    } else if (target.className === "Group") {
                         target.children.forEach(child => {
-                            if (child instanceof paper.PointText) {
+                            if (child.className === "PointText") {
                                 child.fontFamily = font.family;
                             }
                         });
                     }
-
-                    // Forzar que el hover actualice la memoria de fuente de retorno
-                    originalFont = font.family;
-
+                    
                     // Sincronizar el dropdown flotante de la barra emergente al valor seleccionado
                     const ctxDropdown = document.getElementById('ctxFontSelector');
                     if (ctxDropdown) ctxDropdown.value = font.family;
-
+                    
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -170,7 +169,6 @@ function renderSidebarFontGallery(fonts) {
                 }
             }
         };
-
         list.appendChild(item);
     });
 }
@@ -216,20 +214,20 @@ export function initContextualMenu() {
     // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
-        // change / input: se ejecuta dinámicamente cuando el usuario navega las opciones con el teclado o ratón
         const applyFontChange = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup 
-                    ? window.selectedItem.children.find(c => !c.clipMask) 
-                    : window.selectedItem;
+                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
                     
-                    if (target instanceof paper.PointText) {
+                    target.data = target.data || {};
+                    target.data.originalFontFamily = fontSelector.value; // Guardar nuevo original para hover
+
+                    if (target.className === "PointText") {
                         target.fontFamily = fontSelector.value;
-                    } else if (target instanceof paper.Group) {
+                    } else if (target.className === "Group") {
                         target.children.forEach(child => {
-                            if (child instanceof paper.PointText) {
+                            if (child.className === "PointText") {
                                 child.fontFamily = fontSelector.value;
                             }
                         });
@@ -283,10 +281,8 @@ export function initContextualMenu() {
     // --- 3. ACCIONES DE IMAGEN ---
     setClick('btnCtxFlipH', () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup 
-                ? window.selectedItem.children.find(c => !c.clipMask) 
-                : window.selectedItem;
-            if (target && target instanceof paper.Raster) {
+            const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+            if (target && target.className === "Raster") {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(-1, 1);
                 paper.view.update();
@@ -296,10 +292,8 @@ export function initContextualMenu() {
 
     setClick('btnCtxFlipV', () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup 
-                ? window.selectedItem.children.find(c => !c.clipMask) 
-                : window.selectedItem;
-            if (target && target instanceof paper.Raster) {
+            const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+            if (target && target.className === "Raster") {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(1, -1);
                 paper.view.update();
@@ -325,10 +319,8 @@ export function initContextualMenu() {
 
     const handleFilterInput = () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup 
-                ? window.selectedItem.children.find(c => !c.clipMask) 
-                : window.selectedItem;
-            if (target && target instanceof paper.Raster) {
+            const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+            if (target && target.className === "Raster") {
                 const bVal = briSlider ? parseFloat(briSlider.value) : 0;
                 const cVal = conSlider ? parseFloat(conSlider.value) : 0;
                 
@@ -374,7 +366,7 @@ export function updateContextualMenu(item) {
     if (!target) return;
 
     // Mostrar subgrupos y restaurar valores de sliders e dropdowns según el objeto activo
-    if (target instanceof paper.PointText || target.data?.isCurvedGroup) {
+    if (target.className === "PointText" || target.data?.isCurvedGroup) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
         
@@ -387,7 +379,7 @@ export function updateContextualMenu(item) {
         if (curveSlider) {
             curveSlider.value = target.data?.curvature || 0;
         }
-    } else if (target instanceof paper.Raster) {
+    } else if (target.className === "Raster") {
         const imageControls = document.getElementById('ctxImageControls');
         if (imageControls) imageControls.classList.remove('hidden');
 
@@ -395,7 +387,7 @@ export function updateContextualMenu(item) {
         const conSlider = document.getElementById('ctxContrast');
         if (briSlider) briSlider.value = target.data?.brightness || 0;
         if (conSlider) conSlider.value = target.data?.contrast || 0;
-    } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
+    } else if (target.className === "Path" || target.className === "CompoundPath" || target.className === "Group") {
         const vectorControls = document.getElementById('ctxVectorControls');
         if (vectorControls) vectorControls.classList.remove('hidden');
     }
