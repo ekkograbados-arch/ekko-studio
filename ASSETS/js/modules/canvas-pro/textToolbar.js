@@ -1,5 +1,5 @@
 /**
- * ASSETS/js/modules/canvas-pro/textToolbar.js
+ * ASSETS/js/modules/canvas-pro/textToolbar-v3.js
  * Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn).
  */
 
@@ -10,9 +10,9 @@ export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
 
     const fallbacks = [
-        { name: "Nostalgic Letter", family: "ekko_nostalgic_letter", file: "Nostalgic Letter.otf" },
-        { name: "Please write me a song", family: "ekko_please_write_me_a_song", file: "Please write me a song.ttf" },
-        { name: "SimpleHandmade", family: "ekko_simplehandmade", file: "SimpleHandmade.ttf" }
+        { name: "Nostalgic Letter", family: "ekko_nostalgic_letter", file: "Nostalgic Letter.woff2" },
+        { name: "Please write me a song", family: "ekko_please_write_me_a_song", file: "Please write me a song.woff2" },
+        { name: "SimpleHandmade", family: "ekko_simplehandmade", file: "SimpleHandmade.woff2" }
     ];
 
     try {
@@ -37,7 +37,9 @@ export async function loadDynamicFonts() {
             }
             
             try {
-                const fontFace = new FontFace(family, `url(/ASSETS/fonts/${encodeURIComponent(file)})`);
+                // Inyectamos el descriptor { display: 'swap' } para indicarle a Chromium que use la fuente de respaldo
+                // de forma inmediata, silenciando por completo la advertencia [Intervention] Slow network is detected.
+                const fontFace = new FontFace(family, `url(/ASSETS/fonts/${encodeURIComponent(file)})`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
                 loaded.push({ name: name, family: family, file: file });
@@ -55,7 +57,8 @@ export async function loadDynamicFonts() {
         // Registrar fuentes fallback de forma segura
         for (const f of fallbacks) {
             try {
-                const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`);
+                // Inyectamos el descriptor { display: 'swap' } también en el flujo de respaldo
+                const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
             } catch (err) {
@@ -361,3 +364,4 @@ export function toggleUnderline(item) {
     }
     paper.view.update();
 }
+
