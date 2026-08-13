@@ -1,9 +1,8 @@
 /**
  * ASSETS/js/editor.js (PRO Edition v2)
- * Controlador central interactivo para el canvas, historial, redimensionamiento, 
+ * Controlador central interactivo para el canvas, historial, redimensionamiento,
  * rotación libre (Estilo Canva) e integración con LightBurn.
  */
-
 import "./modules/selection-v2.js"; // Importamos la selección con tirador de rotación
 import { startTextEditing } from "./modules/textEditor.js";
 import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
@@ -124,7 +123,6 @@ window.addEventListener("DOMContentLoaded", () => {
         if (displayItem && displayItem.bounds) {
             if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
             if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
-            
             // Mostrar rotación si existe en los metadatos
             const currentRot = displayItem.data?.rotationAngle || 0;
             const rotSuffix = currentRot !== 0 ? ` (${Math.round(((currentRot % 360) + 360) % 360)}°)` : "";
@@ -434,23 +432,6 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    function bringForward() {
-        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
-        window.selectedItem.insertAbove(window.selectedItem.nextSibling);
-        if (window.currentMockup) {
-            window.currentMockup.bringToFront();
-        }
-        window.updateSelectionBox(window.selectedItem);
-        paper.view.update();
-    }
-
-    function sendBackward() {
-        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
-        window.selectedItem.insertBelow(window.selectedItem.previousSibling);
-        window.updateSelectionBox(window.selectedItem);
-        paper.view.update();
-    }
-
     // --- CARGADORES DE ARCHIVOS ---
     function addImageFromFile(file) {
         if (!file) return;
@@ -484,7 +465,7 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.onload = (e) => {
             paper.project.importSVG(e.target.result, (item) => {
                 if (!item) return;
-                item.data = { locked: false, label: file.name.replace(\".svg\", \"\") };
+                item.data = { locked: false, label: file.name.replace(".svg", "") };
                 const bounds = item.bounds;
                 const canvasBounds = paper.view.bounds;
                 const scaleX = (canvasBounds.width * 0.45) / bounds.width;
@@ -509,23 +490,16 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!text) return;
         saveHistory();
         const generateRealQR = () => {
-            if (typeof QRCode !== \"undefined\") {
+            if (typeof QRCode !== "undefined") {
                 try {
-                    const tempDiv = document.createElement(\"div\");
-                    const qr = new QRCode(tempDiv, {
-                        text: text,
-                        width: 512,
-                        height: 512,
-                        colorDark: \"#000000\",
-                        colorLight: \"#ffffff\",
-                        correctLevel: QRCode.CorrectLevel.L
-                    });
+                    const tempDiv = document.createElement("div");
+                    const qr = new QRCode(tempDiv, { text: text, width: 512, height: 512, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.L });
                     setTimeout(() => {
-                        const qrCanvas = tempDiv.querySelector(\"canvas\");
+                        const qrCanvas = tempDiv.querySelector("canvas");
                         if (qrCanvas) {
                             const raster = new paper.Raster(qrCanvas);
                             raster.onLoad = () => {
-                                raster.data = { locked: false, label: \"QR: \" + text };
+                                raster.data = { locked: false, label: "QR: " + text };
                                 setupAndClipQR(raster);
                             };
                         } else {
@@ -533,12 +507,12 @@ window.addEventListener("DOMContentLoaded", () => {
                         }
                     }, 50);
                 } catch (e) {
-                    console.warn(\"Error con QRCode JS, usando fallback de red:\", e);
+                    console.warn("Error con QRCode JS, usando fallback de red:", e);
                     fallbackToGoogleChart(text);
                 }
             } else {
-                const script = document.createElement(\"script\");
-                script.src = \"https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js\";
+                const script = document.createElement("script");
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
                 script.onload = () => {
                     generateRealQR();
                 };
@@ -555,11 +529,11 @@ window.addEventListener("DOMContentLoaded", () => {
         const qrUrl = `https://chart.googleapis.com/chart?cht=qr&chs=512x512&chld=L|0&chl=${encodeURIComponent(text)}`;
         const raster = new paper.Raster({ source: qrUrl });
         raster.onLoad = () => {
-            raster.data = { locked: false, label: \"QR: \" + text };
+            raster.data = { locked: false, label: "QR: " + text };
             setupAndClipQR(raster);
         };
         raster.onError = () => {
-            alert(\"No se pudo generar el código QR. Verifique su conexión a Internet.\");
+            alert("No se pudo generar el código QR. Verifique su conexión a Internet.");
         };
     }
 
@@ -582,7 +556,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!window.selectedItem) return;
         const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
         if (!target) return;
-        const font = ui.fontSelector ? ui.fontSelector.value : \"Arial\";
+        const font = ui.fontSelector ? ui.fontSelector.value : "Arial";
         saveHistory();
         if (target instanceof paper.PointText) {
             target.fontFamily = font;
@@ -592,7 +566,7 @@ window.addEventListener("DOMContentLoaded", () => {
             });
         }
         window.updateSelectionBox(window.selectedItem);
-        if (typeof updateContextualMenu === \"function\") {
+        if (typeof updateContextualMenu === "function") {
             updateContextualMenu(window.selectedItem);
         }
         paper.view.update();
@@ -605,14 +579,14 @@ window.addEventListener("DOMContentLoaded", () => {
     // --- INTERFAZ DINÁMICA DE PRODUCTOS ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
-        ui.categoryTabs.innerHTML = \"\";
+        ui.categoryTabs.innerHTML = "";
         if (!window.EKKO_STUDIO_PRODUCTS) {
-            console.warn(\"Base de datos de productos no cargada todavía en window.\");
+            console.warn("Base de datos de productos no cargada todavía en window.");
             return;
         }
         window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
-            const btn = document.createElement(\"button\");
-            btn.className = \"tab-btn\" + (toolState.currentCategory === index ? \" active\" : \"\");
+            const btn = document.createElement("button");
+            btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
             btn.textContent = group.categoria;
             btn.onclick = () => {
                 saveCurrentScene();
@@ -627,8 +601,8 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderProducts(categoryIndex, activeProduct = null) {
-        if (ui.productTabs) ui.productTabs.innerHTML = \"\";
-        if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = \"\";
+        if (ui.productTabs) ui.productTabs.innerHTML = "";
+        if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
         const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
         if (!group || !group.productos || group.productos.length === 0) return;
         if (!activeProduct) {
@@ -643,9 +617,9 @@ window.addEventListener("DOMContentLoaded", () => {
         toolState.currentProduct = activeProduct;
         group.productos.forEach((prod) => {
             if (ui.productTabs) {
-                const btn = document.createElement(\"button\");
+                const btn = document.createElement("button");
                 const isSel = (activeProduct && prod.id === activeProduct.id);
-                btn.className = \"tab-btn\" + (isSel ? \" active\" : \"\");
+                btn.className = "tab-btn" + (isSel ? " active" : "");
                 btn.textContent = prod.nombre;
                 btn.onclick = () => {
                     saveCurrentScene();
@@ -670,13 +644,13 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderSurfacesOnly(product) {
-        if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = \"\";
+        if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
         if (!product || !product.superficies || product.superficies.length === 0) return;
         product.superficies.forEach((surf, index) => {
             if (ui.surfaceTabs) {
-                const btn = document.createElement(\"button\");
+                const btn = document.createElement("button");
                 const isSel = (toolState.currentSurface === index);
-                btn.className = \"tab-btn\" + (isSel ? \" active\" : \"\");
+                btn.className = "tab-btn" + (isSel ? " active" : "");
                 btn.textContent = surf.nombre;
                 btn.onclick = () => {
                     saveCurrentScene();
@@ -695,7 +669,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     function activateTextMode() {
         insertTextMode = true;
-        paper.view.element.style.cursor = \"text\";
+        paper.view.element.style.cursor = "text";
     }
 
     function createEditableText(point) {
@@ -707,15 +681,8 @@ window.addEventListener("DOMContentLoaded", () => {
                 targetPoint = mockupBounds.center.clone();
             }
         }
-        const txt = new paper.PointText({
-            point: targetPoint,
-            content: \"Texto\",
-            fontSize: 42,
-            fillColor: new paper.Color(0),
-            justification: \"center\",
-            fontFamily: \"Arial\"
-        });
-        txt.data = { locked: false, label: \"Texto\" };
+        const txt = new paper.PointText({ point: targetPoint, content: "Texto", fontSize: 42, fillColor: new paper.Color(0), justification: "center", fontFamily: "Arial" });
+        txt.data = { locked: false, label: "Texto" };
         paper.project.activeLayer.addChild(txt);
         const clipped = window.clipItem(txt);
         if (window.currentMockup) {
@@ -736,7 +703,6 @@ window.addEventListener("DOMContentLoaded", () => {
     window.curveInitialCurvature = 0;
 
     const tool = new paper.Tool();
-    
     tool.onMouseDown = function(event) {
         const currentTime = Date.now();
         const isDoubleClick = (currentTime - lastClickTime) < 300;
@@ -752,7 +718,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     window.curveTarget = target;
                     window.curveInitialPoint = event.point.clone();
                     window.curveInitialCurvature = target.data.curvature || 0;
-                    if (typeof hideContextualMenu === \"function\") hideContextualMenu();
+                    if (typeof hideContextualMenu === "function") hideContextualMenu();
                     return;
                 }
             }
@@ -770,7 +736,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     window.rotateCenter = targetItem.position.clone();
                     window.rotateStartVector = event.point.subtract(window.rotateCenter);
                     window.dragging = false;
-                    if (typeof hideContextualMenu === \"function\") {
+                    if (typeof hideContextualMenu === "function") {
                         hideContextualMenu();
                     }
                     return;
@@ -785,7 +751,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     window.resizeLastScaleX = 1.0;
                     window.resizeLastScaleY = 1.0;
                     window.dragging = false;
-                    if (typeof hideContextualMenu === \"function\") {
+                    if (typeof hideContextualMenu === "function") {
                         hideContextualMenu();
                     }
                     return;
@@ -796,20 +762,11 @@ window.addEventListener("DOMContentLoaded", () => {
         if (insertTextMode) {
             createEditableText(event.point);
             insertTextMode = false;
-            paper.view.element.style.cursor = \"default\";
+            paper.view.element.style.cursor = "default";
             return;
         }
 
-        const hit = paper.project.hitTest(event.point, {
-            fill: true,
-            stroke: true,
-            segments: true,
-            tolerance: 8,
-            match: function(hitResult) {
-                return !hitResult.item.data || !hitResult.item.data.mockup;
-            }
-        });
-
+        const hit = paper.project.hitTest(event.point, { fill: true, stroke: true, segments: true, tolerance: 8, match: function(hitResult) { return !hitResult.item.data || !hitResult.item.data.mockup; } });
         if (hit && hit.item) {
             const selectable = window.getSelectableItem(hit.item);
             if (selectable) {
@@ -834,7 +791,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 } else {
                     window.dragOffset = event.point.subtract(selectable.position);
                 }
-                if (typeof hideContextualMenu === \"function\") {
+                if (typeof hideContextualMenu === "function") {
                     hideContextualMenu();
                 }
             }
@@ -850,19 +807,15 @@ window.addEventListener("DOMContentLoaded", () => {
             if (targetItem) {
                 const currentVector = event.point.subtract(window.rotateCenter);
                 let angle = currentVector.angle - window.rotateStartVector.angle;
-
                 // Soporte para saltos de 15 grados si se presiona Shift (Estilo LightBurn)
                 if (event.modifiers.shift) {
                     angle = Math.round(angle / 15) * 15;
                 }
-
                 targetItem.rotate(angle, window.rotateCenter);
                 window.rotateStartVector = currentVector;
-
                 // Guardar acumulado de rotación en los metadatos para visualizarlo en el panel
                 targetItem.data = targetItem.data || {};
                 targetItem.data.rotationAngle = (targetItem.data.rotationAngle || 0) + angle;
-
                 window.updateSelectionBox(window.rotateTarget);
                 updateSelectionInfo();
                 paper.view.update();
@@ -880,7 +833,7 @@ window.addEventListener("DOMContentLoaded", () => {
                 curveSlider.value = newCurvature.toFixed(1);
             }
             const parentItem = window.curveTarget.parent && window.curveTarget.parent.data?.clipGroup ? window.curveTarget.parent : window.curveTarget;
-            import(\"./modules/canvas-pro/textToolbar.js\").then(module => {
+            import("./modules/canvas-pro/textToolbar.js").then(module => {
                 module.applyTextCurve(parentItem, newCurvature);
             });
             return;
@@ -946,7 +899,7 @@ window.addEventListener("DOMContentLoaded", () => {
             window.rotateCenter = null;
             window.rotateStartVector = null;
             updateSelectionInfo();
-            if (typeof updateContextualMenu === \"function\" && window.selectedItem) {
+            if (typeof updateContextualMenu === "function" && window.selectedItem) {
                 updateContextualMenu(window.selectedItem);
             }
             paper.view.update();
@@ -969,7 +922,7 @@ window.addEventListener("DOMContentLoaded", () => {
             window.resizeLastScaleX = 1.0;
             window.resizeLastScaleY = 1.0;
             updateSelectionInfo();
-            if (typeof updateContextualMenu === \"function\" && window.selectedItem) {
+            if (typeof updateContextualMenu === "function" && window.selectedItem) {
                 updateContextualMenu(window.selectedItem);
             }
             paper.view.update();
@@ -978,7 +931,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (window.dragging) {
             saveHistory();
             updateSelectionInfo();
-            if (typeof updateContextualMenu === \"function\" && window.selectedItem) {
+            if (typeof updateContextualMenu === "function" && window.selectedItem) {
                 updateContextualMenu(window.selectedItem);
             }
         }
@@ -988,51 +941,51 @@ window.addEventListener("DOMContentLoaded", () => {
 
     tool.onKeyDown = function (event) {
         const active = document.activeElement;
-        const isTyping = active && (active.tagName === \"INPUT\" || active.tagName === \"TEXTAREA\" || active.tagName === \"SELECT\" || active.isContentEditable);
+        const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
         if (isTyping) return;
-        if (event.modifiers.control && event.key === \"z\") {
+        if (event.modifiers.control && event.key === "z") {
             undo();
             return;
         }
-        if (event.modifiers.control && event.key === \"c\") {
+        if (event.modifiers.control && event.key === "c") {
             copySelected();
             return;
         }
-        if (event.modifiers.control && event.key === \"v\") {
+        if (event.modifiers.control && event.key === "v") {
             pasteSelected();
             return;
         }
-        if (event.modifiers.control && (event.key === \"y\" || (event.modifiers.shift && event.key === \"z\"))) {
+        if (event.modifiers.control && (event.key === "y" || (event.modifiers.shift && event.key === "z"))) {
             redo();
             return;
         }
-        if (event.key === \"delete\") {
+        if (event.key === "delete") {
             deleteSelected();
         }
         if (window.selectedItem && !isLockedItem(window.selectedItem)) {
             const step = event.modifiers.shift ? 10 : 1;
             const targetMove = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (targetMove) {
-                if (event.key === \"left\") {
+                if (event.key === "left") {
                     targetMove.position.x -= step;
                     event.preventDefault();
                 }
-                if (event.key === \"right\") {
+                if (event.key === "right") {
                     targetMove.position.x += step;
                     event.preventDefault();
                 }
-                if (event.key === \"up\") {
+                if (event.key === "up") {
                     targetMove.position.y -= step;
                     event.preventDefault();
                 }
-                if (event.key === \"down\") {
+                if (event.key === "down") {
                     targetMove.position.y += step;
                     event.preventDefault();
                 }
             }
             window.updateSelectionBox(window.selectedItem);
             updateSelectionInfo();
-            if (typeof updateContextualMenu === \"function\") {
+            if (typeof updateContextualMenu === "function") {
                 updateContextualMenu(window.selectedItem);
             }
             paper.view.update();
@@ -1041,39 +994,35 @@ window.addEventListener("DOMContentLoaded", () => {
 
     // --- ENLAZAR EVENTOS DEL DOM ---
     const safeAddListener = (elOrId, event, callback) => {
-        const el = typeof elOrId === \"string\" ? document.getElementById(elOrId) : elOrId;
+        const el = typeof elOrId === "string" ? document.getElementById(elOrId) : elOrId;
         if (el) {
             el.addEventListener(event, callback);
         }
     };
-
-    safeAddListener(\"btnAddText\", \"click\", activateTextMode);
-    safeAddListener(\"btnDelete\", \"click\", deleteSelected);
-    safeAddListener(\"btnDuplicate\", \"click\", duplicateSelected);
-    safeAddListener(\"btnBringFront\", \"click\", bringFront);
-    safeAddListener(\"btnSendBack\", \"click\", sendBack);
-    safeAddListener(ui.btnForward, \"click\", bringForward);
-    safeAddListener(ui.btnBackward, \"click\", sendBackward);
-    safeAddListener(\"btnZoomIn\", \"click\", () => zoomBy(1.15));
-    safeAddListener(\"btnZoomOut\", \"click\", () => zoomBy(1 / 1.15));
-    safeAddListener(\"btnFit\", \"click\", fitView);
-
-    safeAddListener(\"btnAddImage\", \"click\", () => {
+    safeAddListener("btnAddText", "click", activateTextMode);
+    safeAddListener("btnDelete", "click", deleteSelected);
+    safeAddListener("btnDuplicate", "click", duplicateSelected);
+    safeAddListener("btnBringFront", "click", bringFront);
+    safeAddListener("btnSendBack", "click", sendBack);
+    safeAddListener(ui.btnForward, "click", bringForward);
+    safeAddListener(ui.btnBackward, "click", sendBackward);
+    safeAddListener("btnZoomIn", "click", () => zoomBy(1.15));
+    safeAddListener("btnZoomOut", "click", () => zoomBy(1 / 1.15));
+    safeAddListener("btnFit", "click", fitView);
+    safeAddListener("btnAddImage", "click", () => {
         if (ui.imagePicker) {
-            ui.imagePicker.value = \"\";
+            ui.imagePicker.value = "";
             ui.imagePicker.click();
         }
     });
-
-    safeAddListener(\"btnAddSVG\", \"click\", () => {
+    safeAddListener("btnAddSVG", "click", () => {
         if (ui.svgPicker) {
-            ui.svgPicker.value = \"\";
+            ui.svgPicker.value = "";
             ui.svgPicker.click();
         }
     });
-
     if (ui.imagePicker) {
-        ui.imagePicker.addEventListener(\"change\", (e) => {
+        ui.imagePicker.addEventListener("change", (e) => {
             const files = e.target.files;
             if (files && files.length > 0) {
                 const file = files.item(0);
@@ -1081,9 +1030,8 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
-
     if (ui.svgPicker) {
-        ui.svgPicker.addEventListener(\"change\", (e) => {
+        ui.svgPicker.addEventListener("change", (e) => {
             const files = e.target.files;
             if (files && files.length > 0) {
                 const file = files.item(0);
@@ -1091,49 +1039,44 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         });
     }
-
     const onQRClick = () => {
-        const text = prompt(\"Ingrese el texto o enlace (URL) para generar el código QR:\");
+        const text = prompt("Ingrese el texto o enlace (URL) para generar el código QR:");
         if (text) {
             addQRCode(text);
         }
     };
-    safeAddListener(\"btnQR\", \"click\", onQRClick);
-    safeAddListener(\"btnAddQR\", \"click\", onQRClick);
-    safeAddListener(\"btnCreateQR\", \"click\", onQRClick);
-    safeAddListener(\"btnCreateQr\", \"click\", onQRClick);
+    safeAddListener("btnQR", "click", onQRClick);
+    safeAddListener("btnAddQR", "click", onQRClick);
+    safeAddListener("btnCreateQR", "click", onQRClick);
+    safeAddListener("btnCreateQr", "click", onQRClick);
+    safeAddListener(ui.btnApplySize, "click", applySelectedSize);
+    safeAddListener(ui.btnToggleLock, "click", toggleLockSelected);
+    safeAddListener(ui.btnAlignLeft, "click", () => alignSelected("left"));
+    safeAddListener(ui.btnAlignCenterH, "click", () => alignSelected("centerH"));
+    safeAddListener(ui.btnAlignRight, "click", () => alignSelected("right"));
+    safeAddListener(ui.btnAlignTop, "click", () => alignSelected("top"));
+    safeAddListener(ui.btnAlignCenterV, "click", () => alignSelected("centerV"));
+    safeAddListener(ui.btnAlignBottom, "click", () => alignSelected("bottom"));
+    safeAddListener(ui.btnRotateLeft, "click", () => { rotateSelected(-90); });
+    safeAddListener(ui.btnRotateRight, "click", () => { rotateSelected(90); });
+    safeAddListener(ui.btnRotate180, "click", () => { rotateSelected(180); });
+    safeAddListener(ui.btnCenterH, "click", () => { centerSelected("horizontal"); });
+    safeAddListener(ui.btnCenterV, "click", () => { centerSelected("vertical"); });
+    safeAddListener(ui.btnCenterBoth, "click", () => { centerSelected("both"); });
+    safeAddListener(ui.objWidth, "input", () => { lastSizeField = "width"; });
+    safeAddListener(ui.objHeight, "input", () => { lastSizeField = "height"; });
 
-    safeAddListener(ui.btnApplySize, \"click\", applySelectedSize);
-    safeAddListener(ui.btnToggleLock, \"click\", toggleLockSelected);
-    safeAddListener(ui.btnAlignLeft, \"click\", () => alignSelected(\"left\"));
-    safeAddListener(ui.btnAlignCenterH, \"click\", () => alignSelected(\"centerH\"));
-    safeAddListener(ui.btnAlignRight, \"click\", () => alignSelected(\"right\"));
-    safeAddListener(ui.btnAlignTop, \"click\", () => alignSelected(\"top\"));
-    safeAddListener(ui.btnAlignCenterV, \"click\", () => alignSelected(\"centerV\"));
-    safeAddListener(ui.btnAlignBottom, \"click\", () => alignSelected(\"bottom\"));
-    safeAddListener(ui.btnRotateLeft, \"click\", () => { rotateSelected(-90); });
-    safeAddListener(ui.btnRotateRight, \"click\", () => { rotateSelected(90); });
-    safeAddListener(ui.btnRotate180, \"click\", () => { rotateSelected(180); });
-    safeAddListener(ui.btnCenterH, \"click\", () => { centerSelected(\"horizontal\"); });
-    safeAddListener(ui.btnCenterV, \"click\", () => { centerSelected(\"vertical\"); });
-    safeAddListener(ui.btnCenterBoth, \"click\", () => { centerSelected(\"both\"); });
-
-    safeAddListener(ui.objWidth, \"input\", () => { lastSizeField = \"width\"; });
-    safeAddListener(ui.objHeight, \"input\", () => { lastSizeField = \"height\"; });
-
-    window.addEventListener(\"resize\", () => {
-        const canvasEl = document.getElementById(\"editorCanvas\");
+    window.addEventListener("resize", () => {
+        const canvasEl = document.getElementById("editorCanvas");
         if (canvasEl) {
             paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
         }
     });
 
-    safeAddListener(ui.btnApplyFont, \"click\", applySelectedFont);
-    
+    safeAddListener(ui.btnApplyFont, "click", applySelectedFont);
     if (typeof initContextualMenu === 'function') {
         initContextualMenu();
     }
-    
     // Cargar categorías al arranque
     renderCategories();
 });
