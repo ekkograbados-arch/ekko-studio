@@ -1,18 +1,19 @@
 /**
  * ASSETS/js/modules/canvas-pro/backgroundRemover.js
  * 
- * Módulo profesional de eliminación de fondo interactivo (Híbrido A + B).
+ * Módulo profesional de eliminación de fondo interactivo (PhotoRoom-style) - Versión 7.
  * Ofrece:
- * 1. Fase A (Automática): Remoción por Inteligencia Artificial Local (imgly) con descarga asíncrona.
- * 2. Fallback de Red / Offline (Garantía de Cobertura): Algoritmo de contraste Sobel Edge Barrier +
- *    Perimeter Color Keying + Defringe de nivel profesional. ¡Sin depender de internet!
- * 3. Fase B (Lienzo de Retoque Manual Canva-Style): Pincel borrador y restaurador con dureza radial, 
- *    zoom interactivo con la rueda del ratón y paneo (Shift + arrastrar o botón derecho).
- * 4. Garantía absoluta Antiacortamiento (Anti-Shrink Guarantee): Bloqueo y restauración de la matriz 
- *    matemática y coordenadas físicas de Paper.js en todos los flujos de confirmación.
+ * 1. Pincel borrador (Erase) y restaurador (Restore) con tamaño y dureza (suavizado radial) regulables.
+ * 2. Varita mágica (Magic Wand) con algoritmo de inundación (flood-fill) optimizado, tolerancia ajustable y delta local.
+ * 3. Conservación de calidad extrema (ejecuta los cambios sobre el lienzo de alta resolución de origen).
+ * 4. Historial interno de cambios (Deshacer/Rehacer) durante la sesión de recorte.
+ * 5. Interfaz de usuario (modal interactiva draggable) con fondo de tablero de ajedrez para previsualizar transparencia.
+ * 6. autoRemoveBackground: Eliminación de fondo automática instantánea con barrera de gradiente Sobel para escala de grises.
+ * 7. getRasterFromItem: Resolución segura de imágenes enmascaradas (clipGroup) para evitar TypeErrors.
+ * 8. GARANTÍA ABSOLUTA ANTI-ACORTAMIENTO (In-Place Canvas Rendering): Redibuja píxeles directamente sobre el lienzo de Paper.js para anular resets de escala.
  */
 
-// Estilos CSS dinámicos de la modal e indicador de carga de la IA
+// Estilos CSS dinámicos para la modal del eliminador de fondo
 const removeBgStylesId = 'background-remover-pro-styles';
 if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId)) {
     const styleEl = document.createElement('style');
@@ -21,7 +22,7 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         .bg-remover-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: rgba(0, 0, 0, 0.6);
             z-index: 10005;
             display: flex;
             align-items: center;
@@ -29,15 +30,15 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             font-family: system-ui, -apple-system, sans-serif;
         }
         .bg-remover-modal {
-            background-color: #121212;
+            background-color: #1a1a1a;
             color: #f3f3f3;
             border: 2px solid #007bff;
-            border-radius: 14px;
-            padding: 24px;
-            width: 1050px;
+            border-radius: 12px;
+            padding: 20px;
+            width: 900px;
             max-width: 95%;
-            height: 720px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9);
+            height: 680px;
+            box-shadow: 0 12px 50px rgba(0, 0, 0, 0.8);
             display: flex;
             flex-direction: column;
             user-select: none;
@@ -46,9 +47,9 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 2px solid rgba(0, 123, 255, 0.25);
-            padding-bottom: 12px;
-            margin-bottom: 18px;
+            border-bottom: 2px solid rgba(0, 123, 255, 0.3);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
             cursor: move;
         }
         .bg-remover-header h3 {
@@ -58,19 +59,19 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             font-weight: bold;
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
         .bg-remover-container {
             display: grid;
-            grid-template-columns: 1fr 300px;
-            gap: 20px;
+            grid-template-columns: 1fr 280px;
+            gap: 15px;
             flex-grow: 1;
             min-height: 0;
         }
         .bg-remover-canvas-area {
-            background: repeating-conic-gradient(#202020 0% 25%, #2a2a2a 0% 50%) 50% / 20px 20px;
-            border: 1px solid #333;
-            border-radius: 10px;
+            background: repeating-conic-gradient(#252525 0% 25%, #303030 0% 50%) 50% / 20px 20px;
+            border: 1px solid #444;
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -82,62 +83,61 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
-            box-shadow: 0 4px 30px rgba(0,0,0,0.7);
-            transform-origin: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
         .bg-remover-sidebar {
-            background-color: #1a1a1a;
-            border-radius: 10px;
-            padding: 18px;
+            background-color: #222;
+            border-radius: 8px;
+            padding: 15px;
             display: flex;
             flex-direction: column;
-            gap: 18px;
+            gap: 15px;
             overflow-y: auto;
-            border: 1px solid rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.05);
         }
         .bg-remover-section-title {
-            font-size: 11px;
+            font-size: 13px;
             text-transform: uppercase;
-            letter-spacing: 1.5px;
-            color: #777;
-            margin-bottom: 4px;
+            letter-spacing: 1px;
+            color: #888;
+            margin-bottom: 5px;
             font-weight: bold;
         }
         .bg-remover-tool-btn {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 11px 14px;
-            background-color: #242424;
-            border: 1px solid #333;
-            border-radius: 8px;
+            padding: 10px 12px;
+            background-color: #2d2d2d;
+            border: 1px solid #444;
+            border-radius: 6px;
             color: #fff;
             cursor: pointer;
-            font-size: 13.5px;
+            font-size: 14px;
             font-weight: bold;
             text-align: left;
             transition: all 0.2s;
             width: 100%;
         }
         .bg-remover-tool-btn:hover {
-            background-color: #2e2e2e;
-            border-color: #444;
+            background-color: #3d3d3d;
+            border-color: #555;
         }
         .bg-remover-tool-btn.active {
             background-color: #007bff;
             border-color: #007bff;
-            box-shadow: 0 0 12px rgba(0, 123, 255, 0.4);
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.4);
         }
         .bg-remover-slider-group {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 5px;
         }
         .bg-remover-slider-label {
             display: flex;
             justify-content: space-between;
             font-size: 12px;
-            color: #bbb;
+            color: #ccc;
             font-weight: 500;
         }
         .bg-remover-slider {
@@ -150,23 +150,23 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         .bg-remover-info {
             font-size: 11px;
             color: #aaa;
-            background-color: #1e1d1e;
-            padding: 10px 12px;
-            border-radius: 6px;
+            background-color: #2b2a2b;
+            padding: 8px 10px;
+            border-radius: 4px;
             border-left: 3px solid #007bff;
-            line-height: 1.5;
+            line-height: 1.4;
         }
         .bg-remover-actions {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 18px;
-            border-top: 1px solid #222;
-            padding-top: 18px;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 15px;
+            border-top: 1px solid #333;
+            padding-top: 15px;
         }
         .bg-remover-btn {
-            padding: 10px 22px;
-            border-radius: 8px;
+            padding: 8px 18px;
+            border-radius: 6px;
             font-weight: bold;
             font-size: 14px;
             cursor: pointer;
@@ -175,21 +175,21 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             outline: none;
         }
         .bg-remover-btn-cancel {
-            background-color: #2a2a2a;
-            color: #e0e0e0;
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            background-color: #3b3a3b;
+            color: #e6e6e6;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
         .bg-remover-btn-cancel:hover {
-            background-color: #353535;
+            background-color: #4a4a4b;
         }
         .bg-remover-btn-accept {
             background-color: #007bff;
             color: #ffffff;
-            box-shadow: 0 3px 12px rgba(0, 123, 255, 0.35);
+            box-shadow: 0 2px 8px rgba(0, 123, 255, 0.4);
         }
         .bg-remover-btn-accept:hover {
             background-color: #0056b3;
-            transform: translateY(-1px);
+            transform: scale(1.02);
         }
         .bg-remover-history-row {
             display: flex;
@@ -197,107 +197,56 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         }
         .bg-remover-history-btn {
             flex: 1;
-            padding: 8px;
-            background-color: #242424;
-            border: 1px solid #333;
+            padding: 6px;
+            background-color: #2d2d2d;
+            border: 1px solid #444;
             color: #fff;
-            border-radius: 6px;
+            border-radius: 4px;
             cursor: pointer;
             font-size: 12px;
             font-weight: bold;
             text-align: center;
-            transition: background 0.2s;
         }
         .bg-remover-history-btn:hover:not(:disabled) {
-            background-color: #2e2e2e;
+            background-color: #3d3d3d;
         }
         .bg-remover-history-btn:disabled {
-            opacity: 0.25;
+            opacity: 0.3;
             cursor: not-allowed;
-        }
-        
-        /* Overlay de progreso de carga de IA */
-        .bg-ia-loading-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(10, 10, 10, 0.85);
-            z-index: 10010;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            font-family: system-ui, -apple-system, sans-serif;
-            color: #fff;
-        }
-        .bg-ia-loading-card {
-            background-color: #161616;
-            border: 1.5px solid #007bff;
-            border-radius: 16px;
-            padding: 30px;
-            width: 450px;
-            text-align: center;
-            box-shadow: 0 15px 50px rgba(0, 123, 255, 0.2);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-        }
-        .bg-ia-spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(0, 123, 255, 0.1);
-            border-top: 4px solid #007bff;
-            border-radius: 50%;
-            animation: bg-spin 1s linear infinite;
-        }
-        @keyframes bg-spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .bg-ia-progress-bar-wrap {
-            width: 100%;
-            height: 6px;
-            background-color: #222;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 10px;
-        }
-        .bg-ia-progress-bar {
-            width: 0%;
-            height: 100%;
-            background-color: #007bff;
-            border-radius: 3px;
-            transition: width 0.3s ease;
-        }
-        .bg-ia-loading-text {
-            font-size: 14px;
-            font-weight: bold;
-            color: #fff;
-        }
-        .bg-ia-loading-subtext {
-            font-size: 11px;
-            color: #888;
-            line-height: 1.4;
         }
     `;
     document.head.appendChild(styleEl);
 }
 
-// Inyección del Overlay de progreso de la IA en el DOM
+// Elemento de Overlay de Carga para la descarga de IA de img.ly
 function showIaLoadingOverlay() {
-    if (document.getElementById('bgIaLoadingOverlay')) return;
+    const old = document.getElementById('bgIaLoadingOverlay');
+    if (old) old.remove();
+
     const loader = document.createElement('div');
     loader.id = 'bgIaLoadingOverlay';
-    loader.className = 'bg-ia-loading-overlay';
+    loader.style.cssText = `
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: rgba(0, 0, 0, 0.85);
+        z-index: 100010;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-family: system-ui, -apple-system, sans-serif;
+    `;
     loader.innerHTML = `
-        <div class="bg-ia-loading-card">
-            <div class="bg-ia-spinner"></div>
-            <div class="bg-ia-loading-text" id="bgIaLoadingText">Iniciando motor de Inteligencia Artificial...</div>
-            <div class="bg-ia-progress-bar-wrap">
-                <div class="bg-ia-progress-bar" id="bgIaProgressBar"></div>
+        <div style="background: #1a1a1a; padding: 30px; border-radius: 12px; border: 2px solid #007bff; text-align: center; max-width: 450px; width: 90%;">
+            <div style="font-size: 40px; margin-bottom: 15px;">🧠</div>
+            <h3 id="bgIaLoadingText" style="margin: 0 0 10px 0; color: #007bff; font-size: 18px;">Conectando con la red neuronal local...</h3>
+            <p id="bgIaLoadingSubtext" style="margin: 0 0 20px 0; font-size: 12px; color: #aaa;">Iniciando entorno WebAssembly...</p>
+            <div style="width: 100%; background-color: #333; height: 6px; border-radius: 3px; overflow: hidden; margin-bottom: 15px;">
+                <div id="bgIaProgressBar" style="width: 15%; height: 100%; background-color: #007bff; transition: width 0.3s;"></div>
             </div>
-            <div class="bg-ia-loading-subtext" id="bgIaLoadingSubtext">
-                Descargando modelo de segmentación semántica neuronal local (aprox. 10MB). 
+            <div style="font-size: 11px; color: #666; line-height: 1.4;">
+                Descargando modelo de segmentación semántica neuronal local (aprox. 10MB). <br>
                 Esto ocurre una sola vez y se procesa gratis y privado en tu GPU.
             </div>
         </div>
@@ -603,7 +552,7 @@ export function applyEdgeRefinements(canvas, featherRadius = 1) {
 
 /**
  * Realiza una eliminación de fondo automática utilizando Inteligencia Artificial Local (imgly) o 
- * Fallback Inteligente (Sobel Contrast Match) con garantía absoluta Antiacortamiento (Anti-Shrink).
+ * Fallback Inteligente (Sobel Contrast Match) con garantía absoluta Antiacortamiento (In-Place Canvas Rendering).
  * @param {paper.Raster} raster Objeto de imagen en Paper.js o clipGroup
  */
 export async function autoRemoveBackground(raster) {
@@ -613,23 +562,39 @@ export async function autoRemoveBackground(raster) {
         return;
     }
 
-    // 1. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
-    const oldMatrix = actualRaster.matrix.clone();
-    const oldPosition = actualRaster.position.clone();
+    // 1. Inicializar el canvas de Paper.js si no existe (Conversión de Imagen HTML a Canvas de alta calidad)
+    if (!actualRaster.canvas) {
+        const canvas = document.createElement('canvas');
+        const img = actualRaster.image;
+        canvas.width = img.naturalWidth || img.width || actualRaster.width;
+        canvas.height = img.naturalHeight || img.height || actualRaster.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        
+        // Conservar las propiedades físicas de Paper.js durante la asignación inicial del canvas
+        const oldMatrix = actualRaster.matrix.clone();
+        const oldPosition = actualRaster.position.clone();
+        
+        actualRaster.canvas = canvas;
+        
+        actualRaster.matrix = oldMatrix;
+        actualRaster.position = oldPosition;
+    }
 
-    // 2. Respaldar lienzo de alta calidad original si no existe
+    // 2. Inicializar la copia original (originalCanvas) de alta calidad si no existe
     if (!actualRaster.data) actualRaster.data = {};
-    let srcImage = actualRaster.canvas || actualRaster.image;
-    if (!srcImage) return;
-
     if (!actualRaster.data.originalCanvas) {
         const origCanvas = document.createElement('canvas');
-        origCanvas.width = srcImage.width || actualRaster.width;
-        origCanvas.height = srcImage.height || actualRaster.height;
+        origCanvas.width = actualRaster.canvas.width;
+        origCanvas.height = actualRaster.canvas.height;
         const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
-        origCtx.drawImage(srcImage, 0, 0);
+        origCtx.drawImage(actualRaster.canvas, 0, 0);
         actualRaster.data.originalCanvas = origCanvas;
     }
+
+    // 3. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
+    const oldMatrix = actualRaster.matrix.clone();
+    const oldPosition = actualRaster.position.clone();
 
     try {
         // Intentar cargar la Inteligencia Artificial (Fase A)
@@ -657,26 +622,26 @@ export async function autoRemoveBackground(raster) {
             resultImg.src = resultUrl;
         });
 
-        const editCanvas = document.createElement('canvas');
-        editCanvas.width = resultImg.width;
-        editCanvas.height = resultImg.height;
-        const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
-        editCtx.drawImage(resultImg, 0, 0);
+        // Escribir los píxeles editados de forma directa en el lienzo original (In-Place)
+        const ctx = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
+        ctx.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
+        ctx.drawImage(resultImg, 0, 0);
 
         // Suavizado Gaussiano y remoción de halos
-        applyEdgeRefinements(editCanvas, 1);
+        applyEdgeRefinements(actualRaster.canvas, 1);
 
         if (typeof window.saveHistory === 'function') {
             window.saveHistory();
         }
 
-        // Asignar los nuevos píxeles al Raster
-        actualRaster.canvas = editCanvas;
         actualRaster.data.backgroundAutoRemoved = true;
 
         // RESTAURAR PROPIEDADES FÍSICAS (Garantía Antiacortamiento)
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
+
+        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
+        actualRaster.canvas = actualRaster.canvas;
 
         URL.revokeObjectURL(resultUrl);
         hideIaLoadingOverlay();
@@ -686,17 +651,17 @@ export async function autoRemoveBackground(raster) {
         hideIaLoadingOverlay();
         
         // FALLBACK AUTÓNOMO (Garantía de Cobertura en Metales y Maderas)
-        const editCanvas = document.createElement('canvas');
-        editCanvas.width = actualRaster.data.originalCanvas.width;
-        editCanvas.height = actualRaster.data.originalCanvas.height;
-        const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
-        editCtx.drawImage(actualRaster.data.originalCanvas, 0, 0);
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = actualRaster.data.originalCanvas.width;
+        tempCanvas.height = actualRaster.data.originalCanvas.height;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        tempCtx.drawImage(actualRaster.data.originalCanvas, 0, 0);
 
-        const width = editCanvas.width;
-        const height = editCanvas.height;
+        const width = tempCanvas.width;
+        const height = tempCanvas.height;
 
         // Sobel Edge Map
-        const imgDataForEdges = editCtx.getImageData(0, 0, width, height);
+        const imgDataForEdges = tempCtx.getImageData(0, 0, width, height);
         const edgesMap = computeSobelEdges(imgDataForEdges.data, width, height);
 
         // Muestreo Perimetral Uniforme de Fondo
@@ -714,23 +679,30 @@ export async function autoRemoveBackground(raster) {
 
         samples.forEach(p => {
             if (p.x >= 0 && p.x < width && p.y >= 0 && p.y < height) {
-                magicWandFloodFillDirect(editCtx, p.x, p.y, 8, edgesMap);
+                magicWandFloodFillDirect(tempCtx, p.x, p.y, 8, edgesMap);
             }
         });
 
+        // Escribir los píxeles editados de forma directa en el lienzo original (In-Place)
+        const ctx = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
+        ctx.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
+        ctx.drawImage(tempCanvas, 0, 0);
+
         // Suavizado Gaussiano y remoción de halos
-        applyEdgeRefinements(editCanvas, 1);
+        applyEdgeRefinements(actualRaster.canvas, 1);
 
         if (typeof window.saveHistory === 'function') {
             window.saveHistory();
         }
 
-        actualRaster.canvas = editCanvas;
         actualRaster.data.backgroundAutoRemoved = true;
 
         // RESTAURAR PROPIEDADES FÍSICAS EN FALLBACK (Garantía Antiacortamiento)
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
+
+        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
+        actualRaster.canvas = actualRaster.canvas;
     }
 
     // Forzar actualización de la caja de selección azul celeste de Paper.js
@@ -752,11 +724,29 @@ export function openBackgroundRemovalModal(raster) {
         return;
     }
 
-    // 1. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
+    // 1. Inicializar el canvas de Paper.js si no existe (por si abren la modal directamente)
+    if (!actualRaster.canvas) {
+        const canvas = document.createElement('canvas');
+        const img = actualRaster.image;
+        canvas.width = img.naturalWidth || img.width || actualRaster.width;
+        canvas.height = img.naturalHeight || img.height || actualRaster.height;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0);
+        
+        const oldMatrix = actualRaster.matrix.clone();
+        const oldPosition = actualRaster.position.clone();
+        
+        actualRaster.canvas = canvas;
+        
+        actualRaster.matrix = oldMatrix;
+        actualRaster.position = oldPosition;
+    }
+
+    // 2. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
     const oldMatrix = actualRaster.matrix.clone();
     const oldPosition = actualRaster.position.clone();
 
-    // 2. Obtener la fuente de píxeles original (alta resolución)
+    // 3. Obtener la fuente de píxeles original (alta resolución)
     if (!actualRaster.data) actualRaster.data = {};
     let srcImage = actualRaster.data.originalCanvas || actualRaster.canvas || actualRaster.image;
     if (!srcImage) return;
@@ -777,7 +767,7 @@ export function openBackgroundRemovalModal(raster) {
     const rawOriginal = actualRaster.data.originalCanvas || srcImage;
     backupCtx.drawImage(rawOriginal, 0, 0);
 
-    // 3. Historial de sesión de recorte (Deshacer / Rehacer local)
+    // 4. Historial de sesión de recorte (Deshacer / Rehacer local)
     const historyStack = [];
     let historyIndex = -1;
 
@@ -791,7 +781,7 @@ export function openBackgroundRemovalModal(raster) {
         updateHistoryButtons();
     }
 
-    // 4. Crear Estructura de la Modal Interactiva
+    // 5. Crear Estructura de la Modal Interactiva
     const overlay = document.createElement('div');
     overlay.className = 'bg-remover-overlay';
 
@@ -1218,22 +1208,23 @@ export function openBackgroundRemovalModal(raster) {
             window.saveHistory();
         }
         
-        const finalCanvas = document.createElement('canvas');
-        finalCanvas.width = editCanvas.width;
-        finalCanvas.height = editCanvas.height;
-        const finalCtx = finalCanvas.getContext('2d');
-        finalCtx.drawImage(editCanvas, 0, 0);
+        // Escribir los píxeles editados de forma directa en el lienzo original (In-Place)
+        const ctx = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
+        ctx.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
+        ctx.drawImage(editCanvas, 0, 0);
 
         // Suavizado Gaussiano y remoción de halos
-        applyEdgeRefinements(finalCanvas, 1);
+        applyEdgeRefinements(actualRaster.canvas, 1);
 
-        // ASIGNAR PIXELES Y CONTROLAR FISICIDAD (Garantía Antiacortamiento / Anti-Shrink)
-        actualRaster.canvas = finalCanvas;
         actualRaster.data = actualRaster.data || {};
-        actualRaster.data.originalCanvas = finalCanvas;
+        actualRaster.data.backgroundAutoRemoved = true;
 
+        // Doble garantía: Restaurar matriz y posición
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
+
+        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
+        actualRaster.canvas = actualRaster.canvas;
 
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(window.selectedItem);
