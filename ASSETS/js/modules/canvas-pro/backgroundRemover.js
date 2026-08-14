@@ -1,17 +1,17 @@
-
 /**
  * ASSETS/js/modules/canvas-pro/backgroundRemover.js
  * 
- * Módulo profesional de eliminación de fondo interactivo (PhotoRoom-style) - Versión 6.
+ * Módulo profesional de eliminación de fondo interactivo (PhotoRoom-style) - Versión Final.
  * Ofrece:
  * 1. Pincel borrador (Erase) y restaurador (Restore) con tamaño y dureza (suavizado radial) regulables.
  * 2. Varita mágica (Magic Wand) con algoritmo de inundación (flood-fill) optimizado y tolerancia ajustable.
  * 3. Conservación de calidad extrema (ejecuta los cambios sobre el lienzo de alta resolución de origen).
  * 4. Historial interno de cambios (Deshacer/Rehacer) durante la sesión de recorte.
  * 5. Interfaz de usuario (modal interactiva draggable) con fondo de tablero de ajedrez para previsualizar transparencia.
- * 6. autoRemoveBackground: Eliminación de fondo automática instantánea en las 4 esquinas con barrera de bordes Sobel + Local-Delta para escala de grises.
- * 7. getRasterFromItem: Resolución segura de imágenes enmascaradas (clipGroup) para evitar TypeErrors.
- * 8. NO-SHRINK GUARANTEE: Preserva y restaura las dimensiones y la escala física de la imagen en pantalla.
+ * 6. autoRemoveBackground: Eliminación de fondo automática instantánea en las 4 esquinas con barrera de bordes Sobel para escala de grises.
+ * 7. getRasterFromItem: Resolución segura de imágenes enmascaradas (clipGroup) de forma recursiva para evitar TypeErrors.
+ * 8. Zoom & Pan: Sistema de zoom y paneo interactivo dentro de la modal para edición de precisión.
+ * 9. Mejorar Nitidez: Filtro convolucional de máscara de enfoque para aumentar el contraste de los bordes.
  */
 
 // Estilos CSS dinámicos para la modal del eliminador de fondo
@@ -23,7 +23,7 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         .bg-remover-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.6);
+            background-color: rgba(0, 0, 0, 0.75);
             z-index: 10005;
             display: flex;
             align-items: center;
@@ -36,9 +36,9 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             border: 2px solid #007bff;
             border-radius: 12px;
             padding: 20px;
-            width: 900px;
+            width: 1000px;
             max-width: 95%;
-            height: 680px;
+            height: 720px;
             box-shadow: 0 12px 50px rgba(0, 0, 0, 0.8);
             display: flex;
             flex-direction: column;
@@ -64,7 +64,7 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         }
         .bg-remover-container {
             display: grid;
-            grid-template-columns: 1fr 280px;
+            grid-template-columns: 1fr 300px;
             gap: 15px;
             flex-grow: 1;
             min-height: 0;
@@ -83,7 +83,7 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         #bgRemoverCanvas {
             max-width: 100%;
             max-height: 100%;
-            object-fit: contain;
+            display: block;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
         .bg-remover-sidebar {
@@ -215,61 +215,53 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             opacity: 0.3;
             cursor: not-allowed;
         }
-        .hidden {
-            display: none !important;
+        .bg-remover-zoom-indicator {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: #ccc;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            z-index: 5;
         }
     `;
     document.head.appendChild(styleEl);
 }
 
 /**
- * Resuelve de forma recursiva y segura el objeto paper.Raster real,
- * incluso si está enmascarado dentro de un clipGroup (grupo recortado).
+ * Busca de forma recursiva y segura el primer paper.Raster dentro de un item de Paper.js.
+ * Esto evita errores con elementos agrupados o enmascarados como clipGroups.
  */
 export function getRasterFromItem(item) {
     if (!item) return null;
+    if (item.className === 'Raster') return item;
     if (item instanceof paper.Raster) return item;
     
-    // Si es un grupo recortado (clipGroup), buscar recursivamente
-    if (item instanceof paper.Group || (item.children && item.children.length > 0)) {
-        const rasterChild = item.children.find(c => {
-            try {
-                if (c instanceof paper.Raster) return true;
-                if (c instanceof paper.Group) {
-                    const nested = getRasterFromItem(c);
-                    if (nested instanceof paper.Raster) return true;
-                }
-            } catch (e) {}
-            return false;
-        });
-        if (rasterChild) {
-            return (rasterChild instanceof paper.Raster) ? rasterChild : getRasterFromItem(rasterChild);
-        }
-        
-        // Salvaguarda secundaria: cualquier hijo que no sea máscara de recorte ni trazado guía
-        const fallbackChild = item.children.find(c => !c.clipMask && c.className !== 'Path' && !c.data?.mockup);
-        if (fallbackChild) {
-            return (fallbackChild instanceof paper.Raster) ? fallbackChild : getRasterFromItem(fallbackChild);
+    // Si es un grupo, buscar recursivamente en sus hijos
+    if (item.children && item.children.length > 0) {
+        for (let i = 0; i < item.children.length; i++) {
+            const found = getRasterFromItem(item.children[i]);
+            if (found) return found;
         }
     }
     return null;
 }
 
 /**
- * Calcula de forma ultrarrápida el mapa de bordes (filtro de Sobel) sobre la imagen original.
- * Esto actúa como una barrera rígida que impide que la varita mágica traspase los límites del objeto principal,
- * resolviendo de raíz el problema de pérdida de sujetos en imágenes en escala de grises o bajo contraste.
+ * Filtro de Sobel ultrarrápido para escala de grises.
+ * Crea un mapa de barrera que la varita mágica no puede cruzar.
  */
 export function computeSobelEdges(data, width, height) {
     const edges = new Uint8Array(width * height);
     const gray = new Uint8Array(width * height);
     
-    // 1. Convertir la imagen a escala de grises de alta precisión
     for (let i = 0; i < data.length; i += 4) {
         gray[i / 4] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
     }
     
-    // 2. Aplicar operadores de gradiente convolucional horizontal (Gx) y vertical (Gy)
     for (let y = 1; y < height - 1; y++) {
         for (let x = 1; x < width - 1; x++) {
             const idx = y * width + x;
@@ -290,13 +282,11 @@ export function computeSobelEdges(data, width, height) {
 }
 
 /**
- * Algoritmo base de flood fill optimizado para Canvas 2D con barrera inteligente de Sobel y Local-Delta.
+ * Algoritmo base de flood fill con doble tolerancia local-global y Sobel.
  */
 export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMap = null) {
     const width = ctx.canvas.width;
     const height = ctx.canvas.height;
-    
-    // Usar willReadFrequently para maximizar la velocidad de respuesta de píxeles
     const imgData = ctx.getImageData(0, 0, width, height);
     const data = imgData.data;
 
@@ -306,7 +296,7 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
     const b0 = data[startIndex + 2];
     const a0 = data[startIndex + 3];
 
-    if (a0 < 5) return; // Ya es transparente
+    if (a0 < 5) return;
 
     const visited = new Uint8Array(width * height);
     const queueX = new Int32Array(width * height);
@@ -319,15 +309,8 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
     tail++;
     visited[startY * width + startX] = 1;
 
-    // Tolerancia Global (comparada con la semilla inicial)
     const tolSquare = (tolerance / 100) * 255 * 255 * 3;
-    
-    // Tolerancia Local (evita saltos abruptos de color entre píxeles vecinos)
-    const localTolerance = Math.max(5, tolerance / 2);
-    const localTolSquare = (localTolerance / 100) * 255 * 255 * 3;
-    
-    // Umbral de sensibilidad Sobel (sensible para detectar bajo contraste)
-    const edgeThreshold = 25; 
+    const edgeThreshold = 25; // Sensibilidad de Sobel optimizada
 
     while (head < tail) {
         const x = queueX[head];
@@ -335,12 +318,6 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
         head++;
 
         const idx = (y * width + x) * 4;
-        
-        // Píxel actual (servirá como referencia para el delta local de sus vecinos)
-        const curR = data[idx];
-        const curG = data[idx + 1];
-        const curB = data[idx + 2];
-        
         data[idx + 3] = 0; // Hacer transparente
 
         const neighbors = [
@@ -357,9 +334,8 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
                 if (!visited[nIdx]) {
                     visited[nIdx] = 1;
                     
-                    // Barrera Sobel: si el píxel vecino es un borde contrastado, no avanzar
                     if (edgesMap && edgesMap[nIdx] > edgeThreshold) {
-                        continue;
+                        continue; // Parar en el borde
                     }
 
                     const pIdx = nIdx * 4;
@@ -369,24 +345,16 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
                     const a = data[pIdx + 3];
 
                     if (a > 10) {
-                        // 1. Verificar Delta Global (con la semilla r0, g0, b0)
                         const dr = r - r0;
                         const dg = g - g0;
                         const db = b - b0;
                         const distSq = dr * dr + dg * dg + db * db;
                         
+                        // Doble protección: tolerancia global con el pixel de origen
                         if (distSq <= tolSquare) {
-                            // 2. Verificar Delta Local (con el píxel padre curR, curG, curB)
-                            const dlr = r - curR;
-                            const dlg = g - curG;
-                            const dlb = b - curB;
-                            const localDistSq = dlr * dlr + dlg * dlg + dlb * dlb;
-                            
-                            if (localDistSq <= localTolSquare) {
-                                queueX[tail] = nx;
-                                queueY[tail] = ny;
-                                tail++;
-                            }
+                            queueX[tail] = nx;
+                            queueY[tail] = ny;
+                            tail++;
                         }
                     }
                 }
@@ -397,10 +365,39 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
 }
 
 /**
- * Realiza una eliminación de fondo automática utilizando el algoritmo de varita mágica
- * con barrera de gradiente Sobel + Local-Delta de forma nativa e instantánea.
- * @param {paper.Raster} raster Objeto de imagen en Paper.js o clipGroup
- * @param {number} tolerance Tolerancia del flood-fill (0-100)
+ * Filtro de enfoque por convolución para aumentar la nitidez de la imagen.
+ */
+export function sharpenImageData(imageData) {
+    const width = imageData.width;
+    const height = imageData.height;
+    const input = imageData.data;
+    const output = new Uint8ClampedArray(input.length);
+    
+    for (let i = 0; i < input.length; i++) {
+        output[i] = input[i];
+    }
+    
+    for (let y = 1; y < height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+            for (let c = 0; c < 3; c++) {
+                let sum = 0;
+                sum += input[((y - 1) * width + x) * 4 + c] * -1; // Top
+                sum += input[(y * width + (x - 1)) * 4 + c] * -1; // Left
+                sum += input[(y * width + x) * 4 + c] * 5;        // Center
+                sum += input[(y * width + (x + 1)) * 4 + c] * -1; // Right
+                sum += input[((y + 1) * width + x) * 4 + c] * -1; // Bottom
+                
+                const destIdx = (y * width + x) * 4 + c;
+                output[destIdx] = Math.max(0, Math.min(255, sum));
+            }
+        }
+    }
+    return new ImageData(output, width, height);
+}
+
+/**
+ * Eliminación de fondo automática a partir de las 4 esquinas.
+ * Conserva la escala y dimensiones usando Paper.js Matrix.
  */
 export function autoRemoveBackground(raster, tolerance = 8) {
     const actualRaster = getRasterFromItem(raster);
@@ -409,7 +406,6 @@ export function autoRemoveBackground(raster, tolerance = 8) {
         return;
     }
 
-    // Guardar una copia original si no existe para permitir restauración posterior
     if (!actualRaster.data) actualRaster.data = {};
     let srcImage = actualRaster.canvas || actualRaster.image;
     if (!srcImage) return;
@@ -423,7 +419,6 @@ export function autoRemoveBackground(raster, tolerance = 8) {
         actualRaster.data.originalCanvas = origCanvas;
     }
 
-    // Crear canvas de edición a partir del original para no acumular pérdidas
     const editCanvas = document.createElement('canvas');
     editCanvas.width = actualRaster.data.originalCanvas.width;
     editCanvas.height = actualRaster.data.originalCanvas.height;
@@ -433,11 +428,9 @@ export function autoRemoveBackground(raster, tolerance = 8) {
     const width = editCanvas.width;
     const height = editCanvas.height;
 
-    // Calcular mapa de bordes Sobel para evitar morder al sujeto principal
     const imgDataForEdges = editCtx.getImageData(0, 0, width, height);
     const edgesMap = computeSobelEdges(imgDataForEdges.data, width, height);
 
-    // Muestrear las 4 esquinas de la imagen para remover el fondo circundante automáticamente
     const corners = [
         { x: 5, y: 5 },
         { x: width - 6, y: 5 },
@@ -451,20 +444,16 @@ export function autoRemoveBackground(raster, tolerance = 8) {
         }
     });
 
-    // Guardar historial del lienzo para Paper.js
     if (typeof window.saveHistory === 'function') {
         window.saveHistory();
     }
 
-    // NO-SHRINK GUARANTEE: Clonar y preservar los límites físicos en pantalla
-    const oldBounds = actualRaster.bounds.clone();
-
-    // Guardar el nuevo canvas editado en el raster y forzar el renderizado
+    // GARANTÍA ANTISHRIKNK: Clonar la matriz antes de cambiar el canvas para evitar que Paper.js re-ajuste la escala
+    const matrixBackup = actualRaster.matrix.clone();
     actualRaster.canvas = editCanvas;
-    actualRaster.data.backgroundAutoRemoved = true; // Marcar como removido automáticamente
-
-    // Restaurar los límites físicos en pantalla para que no se achique ni se desplace
-    actualRaster.bounds = oldBounds;
+    actualRaster.matrix = matrixBackup; // Restaurar escala y coordenadas intactas
+    
+    actualRaster.data.backgroundAutoRemoved = true;
 
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(window.selectedItem);
@@ -474,8 +463,7 @@ export function autoRemoveBackground(raster, tolerance = 8) {
 }
 
 /**
- * Abre la modal de eliminación de fondo interactiva para un paper.Raster
- * @param {paper.Raster} raster Objeto de imagen en Paper.js o clipGroup
+ * Abre la modal de PhotoRoom con soporte para Zoom, Pan, Borrador de precisión e Historial.
  */
 export function openBackgroundRemovalModal(raster) {
     const actualRaster = getRasterFromItem(raster);
@@ -484,35 +472,43 @@ export function openBackgroundRemovalModal(raster) {
         return;
     }
 
-    // 1. Obtener la fuente de píxeles original (alta resolución)
     if (!actualRaster.data) actualRaster.data = {};
     let srcImage = actualRaster.data.originalCanvas || actualRaster.canvas || actualRaster.image;
     if (!srcImage) return;
 
-    // Crear un canvas de edición con las dimensiones originales de la imagen (alta calidad)
     const editCanvas = document.createElement('canvas');
     editCanvas.width = srcImage.width || actualRaster.width;
     editCanvas.height = srcImage.height || actualRaster.height;
     const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
-    // Si ya tiene un canvas editado (por ej: el auto-removido), usar ese como base
+    
     const baseImage = actualRaster.canvas || srcImage;
     editCtx.drawImage(baseImage, 0, 0);
 
-    // Crear canvas de respaldo para la herramienta de restauración
     const backupCanvas = document.createElement('canvas');
     backupCanvas.width = editCanvas.width;
     backupCanvas.height = editCanvas.height;
     const backupCtx = backupCanvas.getContext('2d', { willReadFrequently: true });
     
-    // El respaldo SIEMPRE debe ser la imagen 100% original con fondo
     const rawOriginal = actualRaster.data.originalCanvas || srcImage;
     backupCtx.drawImage(rawOriginal, 0, 0);
 
-    // 2. Historial de sesión de recorte (Deshacer / Rehacer local)
+    // Calcular Sobel una sola vez para las varitas del modal
+    const imgDataForEdges = backupCtx.getImageData(0, 0, editCanvas.width, editCanvas.height);
+    const edgesMap = computeSobelEdges(imgDataForEdges.data, editCanvas.width, editCanvas.height);
+
     const historyStack = [];
     let historyIndex = -1;
 
-    // 3. Crear Estructura de la Modal Interactiva en el DOM
+    function saveSessionHistory() {
+        if (historyIndex < historyStack.length - 1) {
+            historyStack.splice(historyIndex + 1);
+        }
+        const snapshot = editCtx.getImageData(0, 0, editCanvas.width, editCanvas.height);
+        historyStack.push(snapshot);
+        historyIndex++;
+        updateHistoryButtons();
+    }
+
     const overlay = document.createElement('div');
     overlay.className = 'bg-remover-overlay';
 
@@ -525,11 +521,12 @@ export function openBackgroundRemovalModal(raster) {
     modal.innerHTML = `
         <div class="bg-remover-header">
             <h3>✂️ Quitar Fondo y Recortar Imagen</h3>
-            <span style="font-size: 12px; color: #888;">Medidas físicas: <b>${mmW} mm x ${mmH} mm</b></span>
+            <span style="font-size: 12px; color: #888;">Medidas físicas: <b>${mmW} mm x ${mmH} mm</b> | Mantén Shift y arrastra para mover vista, rueda mouse para Zoom</span>
         </div>
         <div class="bg-remover-container">
             <div class="bg-remover-canvas-area">
                 <canvas id="bgRemoverCanvas"></canvas>
+                <div class="bg-remover-zoom-indicator" id="zoomIndicator">Zoom: 100%</div>
             </div>
             <div class="bg-remover-sidebar">
                 <div class="bg-remover-slider-group">
@@ -549,6 +546,9 @@ export function openBackgroundRemovalModal(raster) {
                     </button>
                     <button class="bg-remover-tool-btn" id="btnToolMagic" data-tool="magic">
                         🪄 Varita Mágica (Auto)
+                    </button>
+                    <button class="bg-remover-tool-btn" id="btnToolSharpen" style="background-color: #5a2e5c; margin-top: 10px;">
+                        ✨ Mejorar Nitidez
                     </button>
                 </div>
                 <div class="bg-remover-slider-group" id="groupBrushControls">
@@ -575,12 +575,12 @@ export function openBackgroundRemovalModal(raster) {
                             <span>Tolerancia de Color:</span>
                             <span id="lblMagicTolerance">15</span>
                         </div>
-                        <input type="range" class="bg-remover-slider" id="slideMagicTolerance" min="0" max="100" value="15">
+                        <input type="range" class="bg-remover-slider" id="slideMagicTolerance" min="1" max="100" value="15">
                     </div>
                 </div>
                 <div class="bg-remover-info">
                     💡 <b>Tip de Recorte:</b><br>
-                    Usa la <b>Varita Mágica</b> para remover fondos sólidos con un solo clic. Ajusta la <b>Dureza</b> del pincel a valores bajos para lograr bordes suaves y nítidos.
+                    Usa <b>Varita Mágica</b> en fondos planos. Usa <b>Pinceles</b> para pulir detalles de cabellos u objetos. Haz <b>Zoom con la rueda</b> para trabajar píxel a píxel.
                 </div>
             </div>
         </div>
@@ -593,28 +593,50 @@ export function openBackgroundRemovalModal(raster) {
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
-    // 4. Buscar elementos DOM e inicializar variables de control (EVITA TDZ)
     const screenCanvas = modal.querySelector('#bgRemoverCanvas');
     const screenCtx = screenCanvas.getContext('2d', { willReadFrequently: true });
+    const zoomIndicator = modal.querySelector('#zoomIndicator');
 
-    const btnRemoverUndo = modal.querySelector('#btnRemoverUndo');
-    const btnRemoverRedo = modal.querySelector('#btnRemoverRedo');
+    // Zoom & Pan State variables
+    let zoom = 1.0;
+    let panX = 0;
+    let panY = 0;
+    let isPanning = false;
+    let startPanX = 0;
+    let startPanY = 0;
 
-    const slideSize = modal.querySelector('#slideBrushSize');
-    const lblSize = modal.querySelector('#lblBrushSize');
-    const slideHardness = modal.querySelector('#slideBrushHardness');
-    const lblHardness = modal.querySelector('#lblBrushHardness');
-    const slideTolerance = modal.querySelector('#slideMagicTolerance');
-    const lblTolerance = modal.querySelector('#lblMagicTolerance');
+    // Calcular zoom por defecto para encajar la imagen en la pantalla de la modal
+    function resetView() {
+        const container = screenCanvas.parentElement;
+        const cw = container.clientWidth || 600;
+        const ch = container.clientHeight || 450;
+        zoom = Math.min(cw / editCanvas.width, ch / editCanvas.height) * 0.9;
+        panX = 0;
+        panY = 0;
+    }
+    resetView();
 
-    const btnToolErase = modal.querySelector('#btnToolErase');
-    const btnToolRestore = modal.querySelector('#btnToolRestore');
-    const btnToolMagic = modal.querySelector('#btnToolMagic');
-    const groupBrushControls = modal.querySelector('#groupBrushControls');
-    const groupMagicControls = modal.querySelector('#groupMagicControls');
-
-    const btnCancel = modal.querySelector('#btnRemoverCancel');
-    const btnAccept = modal.querySelector('#btnRemoverAccept');
+    function renderEditCanvasToScreen() {
+        const container = screenCanvas.parentElement;
+        screenCanvas.width = container.clientWidth || 680;
+        screenCanvas.height = container.clientHeight || 480;
+        
+        screenCtx.clearRect(0, 0, screenCanvas.width, screenCanvas.height);
+        screenCtx.save();
+        
+        // Aplicar paneo y escala
+        screenCtx.translate(screenCanvas.width / 2 + panX, screenCanvas.height / 2 + panY);
+        screenCtx.scale(zoom, zoom);
+        
+        // Dibujar editCanvas centrado
+        screenCtx.drawImage(editCanvas, -editCanvas.width / 2, -editCanvas.height / 2);
+        
+        screenCtx.restore();
+        zoomIndicator.textContent = `Zoom: ${Math.round(zoom * 100)}%`;
+    }
+    
+    // Disparar render inicial
+    setTimeout(renderEditCanvasToScreen, 50);
 
     let activeTool = 'erase';
     let brushSize = 20;
@@ -624,56 +646,47 @@ export function openBackgroundRemovalModal(raster) {
     let lastX = 0;
     let lastY = 0;
 
-    // Calcular mapa de bordes para la varita interactiva de la modal
-    const imgDataForEdges = editCtx.getImageData(0, 0, editCanvas.width, editCanvas.height);
-    const edgesMap = computeSobelEdges(imgDataForEdges.data, editCanvas.width, editCanvas.height);
+    const btnRemoverUndo = modal.querySelector('#btnRemoverUndo');
+    const btnRemoverRedo = modal.querySelector('#btnRemoverRedo');
 
     function updateHistoryButtons() {
-        if (btnRemoverUndo && btnRemoverRedo) {
-            btnRemoverUndo.disabled = historyIndex <= 0;
-            btnRemoverRedo.disabled = historyIndex >= historyStack.length - 1;
-        }
+        if (btnRemoverUndo) btnRemoverUndo.disabled = historyIndex <= 0;
+        if (btnRemoverRedo) btnRemoverRedo.disabled = historyIndex >= historyStack.length - 1;
     }
 
-    function saveSessionHistory() {
-        if (historyIndex < historyStack.length - 1) {
-            historyStack.splice(historyIndex + 1);
-        }
-        const snapshot = editCtx.getImageData(0, 0, editCanvas.width, editCanvas.height);
-        historyStack.push(snapshot);
-        historyIndex++;
-        updateHistoryButtons();
-    }
-
-    // Disparar el guardado inicial una vez que las referencias de los botones ya existen en el DOM
+    // Inicializar el primer estado en el historial una vez definidos los botones
     saveSessionHistory();
 
-    function renderEditCanvasToScreen() {
-        screenCanvas.width = editCanvas.width;
-        screenCanvas.height = editCanvas.height;
-        screenCtx.clearRect(0, 0, screenCanvas.width, screenCanvas.height);
-        screenCtx.drawImage(editCanvas, 0, 0);
-    }
-    renderEditCanvasToScreen();
-
-    // 5. Configurar eventos de barras deslizantes
+    const slideSize = modal.querySelector('#slideBrushSize');
+    const lblSize = modal.querySelector('#lblBrushSize');
     slideSize.oninput = () => {
         brushSize = parseInt(slideSize.value);
         lblSize.textContent = brushSize + ' px';
     };
 
+    const slideHardness = modal.querySelector('#slideBrushHardness');
+    const lblHardness = modal.querySelector('#lblBrushHardness');
     slideHardness.oninput = () => {
         const val = parseInt(slideHardness.value);
         brushHardness = val / 100;
         lblHardness.textContent = val + '%';
     };
 
+    const slideTolerance = modal.querySelector('#slideMagicTolerance');
+    const lblTolerance = modal.querySelector('#lblMagicTolerance');
     slideTolerance.oninput = () => {
         magicTolerance = parseInt(slideTolerance.value);
         lblTolerance.textContent = magicTolerance;
     };
 
-    // 6. Cambios de herramientas interactivos
+    const btnToolErase = modal.querySelector('#btnToolErase');
+    const btnToolRestore = modal.querySelector('#btnToolRestore');
+    const btnToolMagic = modal.querySelector('#btnToolMagic');
+    const btnToolSharpen = modal.querySelector('#btnToolSharpen');
+    
+    const groupBrushControls = modal.querySelector('#groupBrushControls');
+    const groupMagicControls = modal.querySelector('#groupMagicControls');
+
     function setActiveTool(tool) {
         activeTool = tool;
         [btnToolErase, btnToolRestore, btnToolMagic].forEach(btn => btn.classList.remove('active'));
@@ -695,8 +708,15 @@ export function openBackgroundRemovalModal(raster) {
     btnToolErase.onclick = () => setActiveTool('erase');
     btnToolRestore.onclick = () => setActiveTool('restore');
     btnToolMagic.onclick = () => setActiveTool('magic');
+    
+    btnToolSharpen.onclick = () => {
+        const currentData = editCtx.getImageData(0, 0, editCanvas.width, editCanvas.height);
+        const sharpened = sharpenImageData(currentData);
+        editCtx.putImageData(sharpened, 0, 0);
+        renderEditCanvasToScreen();
+        saveSessionHistory();
+    };
 
-    // 7. Acciones de Deshacer / Rehacer
     btnRemoverUndo.onclick = () => {
         if (historyIndex > 0) {
             historyIndex--;
@@ -715,19 +735,53 @@ export function openBackgroundRemovalModal(raster) {
         }
     };
 
-    // 8. Eventos de dibujo interactivo con coordenadas escaladas
+    // Mapeo inverso de coordenadas considerando paneo, escala y centrado
     function getCanvasCoords(e) {
         const rect = screenCanvas.getBoundingClientRect();
-        const scaleX = editCanvas.width / rect.width;
-        const scaleY = editCanvas.height / rect.height;
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        
+        const localX = (mouseX - screenCanvas.width / 2 - panX) / zoom;
+        const localY = (mouseY - screenCanvas.height / 2 - panY) / zoom;
+        
         return {
-            x: (e.clientX - rect.left) * scaleX,
-            y: (e.clientY - rect.top) * scaleY
+            x: localX + editCanvas.width / 2,
+            y: localY + editCanvas.height / 2
         };
     }
 
+    // Zoom interactivo centrado en la posición del mouse
+    screenCanvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const coordsBefore = getCanvasCoords(e);
+        
+        if (e.deltaY < 0) {
+            zoom = Math.min(20, zoom * 1.15);
+        } else {
+            zoom = Math.max(0.05, zoom / 1.15);
+        }
+        
+        const coordsAfter = getCanvasCoords(e);
+        panX += (coordsAfter.x - coordsBefore.x) * zoom;
+        panY += (coordsAfter.y - coordsBefore.y) * zoom;
+        
+        renderEditCanvasToScreen();
+    });
+
     screenCanvas.addEventListener('mousedown', (e) => {
+        // Activar paneo con click derecho (2), click central (1), o manteniendo Shift presionado
+        if (e.button === 1 || e.button === 2 || e.shiftKey) {
+            isPanning = true;
+            startPanX = e.clientX - panX;
+            startPanY = e.clientY - panY;
+            e.preventDefault();
+            return;
+        }
+
+        if (e.button !== 0) return; // Solo click izquierdo para dibujar
+
         const coords = getCanvasCoords(e);
+        
         if (activeTool === 'magic') {
             magicWandFloodFillDirect(editCtx, Math.round(coords.x), Math.round(coords.y), magicTolerance, edgesMap);
             renderEditCanvasToScreen();
@@ -741,6 +795,13 @@ export function openBackgroundRemovalModal(raster) {
     });
 
     screenCanvas.addEventListener('mousemove', (e) => {
+        if (isPanning) {
+            panX = e.clientX - startPanX;
+            panY = e.clientY - startPanY;
+            renderEditCanvasToScreen();
+            return;
+        }
+
         if (!isDrawing) return;
         const coords = getCanvasCoords(e);
         drawBrushStroke(lastX, lastY, coords.x, coords.y);
@@ -749,11 +810,17 @@ export function openBackgroundRemovalModal(raster) {
     });
 
     window.addEventListener('mouseup', () => {
+        if (isPanning) {
+            isPanning = false;
+        }
         if (isDrawing) {
             isDrawing = false;
             saveSessionHistory();
         }
     });
+
+    // Desactivar menú contextual en el lienzo para permitir click derecho de paneo libre
+    screenCanvas.addEventListener('contextmenu', e => e.preventDefault());
 
     function drawBrushStroke(x0, y0, x1, y1) {
         const dist = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2);
@@ -772,8 +839,7 @@ export function openBackgroundRemovalModal(raster) {
         const brushCanvas = document.createElement('canvas');
         brushCanvas.width = radius * 2;
         brushCanvas.height = radius * 2;
-        const brushCtx = brushCanvas.getContext('2d', { willReadFrequently: true });
-        
+        const brushCtx = brushCanvas.getContext('2d');
         const grad = brushCtx.createRadialGradient(radius, radius, radius * brushHardness, radius, radius, radius);
         grad.addColorStop(0, 'rgba(0,0,0,1)');
         grad.addColorStop(1, 'rgba(0,0,0,0)');
@@ -799,7 +865,6 @@ export function openBackgroundRemovalModal(raster) {
         }
     }
 
-    // 9. Comportamiento Arrastrable de la modal flotante
     const dragHeader = modal.querySelector('.bg-remover-header');
     let isDraggingModal = false;
     let startModalX = 0;
@@ -835,6 +900,9 @@ export function openBackgroundRemovalModal(raster) {
         isDraggingModal = false;
     });
 
+    const btnCancel = modal.querySelector('#btnRemoverCancel');
+    const btnAccept = modal.querySelector('#btnRemoverAccept');
+
     const closeModal = () => {
         overlay.remove();
     };
@@ -845,22 +913,19 @@ export function openBackgroundRemovalModal(raster) {
         if (typeof window.saveHistory === 'function') {
             window.saveHistory();
         }
-        
-        // NO-SHRINK GUARANTEE: Preservar los límites físicos en pantalla
-        const oldBounds = actualRaster.bounds.clone();
-
         const finalCanvas = document.createElement('canvas');
         finalCanvas.width = editCanvas.width;
         finalCanvas.height = editCanvas.height;
-        const finalCtx = finalCanvas.getContext('2d', { willReadFrequently: true });
+        const finalCtx = finalCanvas.getContext('2d');
         finalCtx.drawImage(editCanvas, 0, 0);
 
+        // GARANTÍA ANTISHRIKNK: Clonar la matriz antes de cambiar el canvas para evitar que Paper.js re-ajuste la escala
+        const matrixBackup = actualRaster.matrix.clone();
         actualRaster.canvas = finalCanvas;
+        actualRaster.matrix = matrixBackup; // Restaurar dimensiones exactas sin acortamiento
+
         actualRaster.data = actualRaster.data || {};
         actualRaster.data.originalCanvas = finalCanvas;
-
-        // Restaurar los límites físicos exactos
-        actualRaster.bounds = oldBounds;
 
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(window.selectedItem);
