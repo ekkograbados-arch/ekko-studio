@@ -1,15 +1,3 @@
-// Función auxiliar para desvincular de raíz las referencias del objeto .data en clones
-function sanitizeClonedData(item) {
-    if (!item) return;
-    if (item.data) {
-        item.data = { ...item.data }; // Copia superficial pura de propiedades primitivas
-    } else {
-        item.data = {};
-    }
-    if (item.children) {
-        item.children.forEach(sanitizeClonedData); // Se ejecuta recursivamente en hijos de Grupos
-    }
-}
 /**
  * ASSETS/js/modules/canvas-pro/imageToolbar.js
  * Módulo independiente para el procesamiento y control de imágenes en el editor.
@@ -38,26 +26,31 @@ export function scaleImage(item, factor) {
 export function duplicateImage(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+
     let duplicatedObject;
+
+    // Si es un grupo recortado (clipGroup), duplicamos solo el contenido y re-enmascaramos
     if (item.data && item.data.clipGroup) {
         const content = item.children.find(c => !c.clipMask);
         if (!content) return;
+
+        // 1. Clonar únicamente el contenido interno real (imagen, texto, svg, qr)
         const contentClone = content.clone();
+        
+        // 2. Desplazar únicamente el contenido levemente para visibilidad
         contentClone.position = contentClone.position.add(new paper.Point(20, 20));
-        
-        sanitizeClonedData(contentClone); // <--- Limpieza recursiva
-        contentClone.data.locked = false;
-        
+        contentClone.data = { ...(contentClone.data || {}), locked: false };
+
+        // 3. Crear una nueva máscara perfectamente alineada con el mockup original
         duplicatedObject = window.clipItem(contentClone);
     } else {
+        // Objeto normal sin máscara
         const clone = item.clone();
         clone.position = clone.position.add(new paper.Point(20, 20));
-        
-        sanitizeClonedData(clone); // <--- Limpieza recursiva
-        clone.data.locked = false;
-        
+        clone.data = { ...(clone.data || {}), locked: false };
         duplicatedObject = clone;
     }
+
     if (duplicatedObject) {
         paper.project.activeLayer.addChild(duplicatedObject);
         if (window.currentMockup) {
@@ -166,3 +159,4 @@ export function applyBrightnessContrast(raster, brightness, contrast) {
     raster.canvas = procCanvas;
     paper.view.update();
 }
+
