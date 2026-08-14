@@ -1,36 +1,29 @@
-/**
- * ASSETS/js/modules/canvas-pro/textToolbar.js
- * 
- * Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn).
- */
+/* * ASSETS/js/modules/canvas-pro/textToolbar.js
+ * Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn). */
 
 let loadedFontsCache = [];
 
 // Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts
 export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
-    
     const fallbacks = [
         { name: "Nostalgic Letter", family: "ekko_nostalgic_letter", file: "Nostalgic Letter.woff2" },
         { name: "Please write me a song", family: "ekko_please_write_me_a_song", file: "Please write me a song.woff2" },
         { name: "SimpleHandmade", family: "ekko_simplehandmade", file: "SimpleHandmade.woff2" }
     ];
-
     try {
         const response = await fetch('/api/fonts');
         if (!response.ok) throw new Error("Endpoint api/fonts no disponible");
         const fontFiles = await response.json();
-        
         if (!fontFiles || fontFiles.length === 0) {
             throw new Error("No se devolvieron tipografías desde el servidor.");
         }
-        
         const loaded = [];
         for (const item of fontFiles) {
             let name, family, file;
             if (typeof item === 'string') {
                 file = item;
-                name = file.replace(/\.[^/.]+$/, "");
+                name = file.replace(/^.*[\\/]/, '').replace(/\.[^/.]+$/, "");
                 family = "ekko_" + name.toLowerCase().replace(/[^a-z0-9]/g, "_");
             } else if (item && typeof item === 'object') {
                 name = item.name;
@@ -48,16 +41,14 @@ export async function loadDynamicFonts() {
                 console.warn(`No se pudo cargar la tipografía dinámica: ${file}`, err);
             }
         }
-        
         if (loaded.length === 0) {
             throw new Error("Ninguna tipografía dinámica pudo registrarse.");
         }
-        
         loaded.sort((a, b) => a.name.localeCompare(b.name));
         loadedFontsCache = loaded;
         return loaded;
     } catch (e) {
-        console.warn("Inyectando fuentes locales de respaldo por error de red o backend vacío:", e);
+        console.warn("Inyectando fuentes de respaldo por error de red o backend vacío:", e);
         for (const f of fallbacks) {
             try {
                 const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`, { display: 'swap' });
@@ -97,6 +88,7 @@ export function applyTextCurve(item, curvature) {
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
 
+    // Guardar posición original para evitar que el texto vuele fuera del mockup
     const origCenter = target.position.clone();
     let glyphGroup;
 
@@ -105,8 +97,8 @@ export function applyTextCurve(item, curvature) {
         glyphGroup.clear();
     } else {
         glyphGroup = new paper.Group();
-        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr, fontSize: fontSize, fontFamily: fontFamily, fillColor: fillColor };
-        
+        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr };
+
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -131,10 +123,8 @@ export function applyTextCurve(item, curvature) {
     for (let i = 0; i < numChars; i++) {
         const char = chars[i];
         if (char === " ") continue;
-
         const t = numChars > 1 ? i / (numChars - 1) : 0.5;
         const angle = startAngle + (t * arcAngle);
-
         const x = centerPoint.x + radius * Math.cos(angle);
         const y = centerPoint.y + radius * Math.sin(angle);
 
@@ -147,10 +137,12 @@ export function applyTextCurve(item, curvature) {
             justification: "center"
         });
 
-        glyph.rotate((angle * 180 / Math.PI) + 90, [x, y]);
+        const rotationAngle = (angle * 180 / Math.PI) + 90;
+        glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
         glyphGroup.addChild(glyph);
     }
 
+    // Reposicionar el grupo de glifos en la coordenada original exacta del texto plano
     glyphGroup.position = origCenter;
     drawBlueCurveHandle(glyphGroup);
 
@@ -170,7 +162,6 @@ function restoreFlatText(item, curvedGroup) {
         fillColor: curvedGroup.data.fillColor || new paper.Color(0),
         justification: "center"
     });
-
     flatText.data = { ...curvedGroup.data, isCurvedGroup: false };
     delete flatText.data.curvature;
 
@@ -181,7 +172,7 @@ function restoreFlatText(item, curvedGroup) {
     } else {
         const idx = paper.project.activeLayer.children.indexOf(item);
         paper.project.activeLayer.insertChild(idx, flatText);
-        curvedGroup.remove();
+        item.remove();
         window.selectItem(flatText);
     }
 }
@@ -200,7 +191,6 @@ function drawBlueCurveHandle(group) {
         strokeColor: '#ffffff',
         strokeWidth: 1.5
     });
-
     blueCircle.data = { isCurveHandle: true, mockup: true };
     group.addChild(blueCircle);
 }
@@ -221,7 +211,7 @@ export function applyTextSpacing(item, hspace) {
             applyTextCurve(item, target.data.curvature || 0);
             return;
         }
-        
+        // Distribución horizontal plana
         let currentX = 0;
         target.children.forEach(child => {
             if (child.data?.isCurveHandle || child.data?.underlineId) return;
@@ -234,6 +224,7 @@ export function applyTextSpacing(item, hspace) {
 
         const glyphGroup = new paper.Group();
         glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr };
+
         const chars = textStr.split("");
         const fontFamily = target.fontFamily || "Arial";
         const fontSize = target.fontSize || 42;
@@ -255,7 +246,7 @@ export function applyTextSpacing(item, hspace) {
         });
 
         glyphGroup.position = origCenter;
-        
+
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -274,7 +265,7 @@ export function applyTextSpacing(item, hspace) {
     paper.view.update();
 }
 
-// Convertir las fuentes tipográficas superpuestas a trazados vectoriales unidos (Soldadura de curvas)
+// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
 export function weldText(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -285,8 +276,8 @@ export function weldText(item) {
     const svgElement = target.exportSVG({ asString: false });
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
-        const childrenPaths = [];
 
+        const childrenPaths = [];
         if (vectorGroup.children) {
             vectorGroup.children.forEach(child => {
                 if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
@@ -347,11 +338,18 @@ export function toggleBold(item) {
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
         if (target instanceof paper.PointText) {
-            target.fontWeight = target.fontWeight === 'bold' ? 'normal' : 'bold';
+            const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
+            target.fontWeight = isBold ? 'normal' : 'bold';
         } else if (target instanceof paper.Group) {
+            let anyBold = false;
+            target.children.forEach(child => {
+                if (child instanceof paper.PointText && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
+                    anyBold = true;
+                }
+            });
             target.children.forEach(child => {
                 if (child instanceof paper.PointText) {
-                    child.fontWeight = child.fontWeight === 'bold' ? 'normal' : 'bold';
+                    child.fontWeight = anyBold ? 'normal' : 'bold';
                 }
             });
         }
@@ -362,7 +360,7 @@ export function toggleBold(item) {
     }
 }
 
-// Alternar estilo de cursiva (Italic / Inclinado) inclinando hacia la DERECHA
+// Alternar estilo de cursiva (Italic / Inclinado) inclinando hacia la DERECHA (Estilo LightBurn)
 export function toggleItalic(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -380,6 +378,7 @@ export function toggleItalic(item) {
             target.shear(slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = true;
         }
+
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(item);
         }
@@ -398,7 +397,9 @@ export function toggleUnderline(item) {
     if (!target) return;
 
     const underlineId = "underline_path_" + target.id;
-    const existingLine = isGroup ? item.children.find(c => c.data?.underlineId === underlineId) : paper.project.activeLayer.children.find(c => c.data?.underlineId === underlineId);
+    const existingLine = isGroup ? 
+        item.children.find(c => c.data?.underlineId === underlineId) : 
+        paper.project.activeLayer.children.find(c => c.data?.underlineId === underlineId);
 
     if (existingLine) {
         existingLine.remove();
@@ -406,6 +407,7 @@ export function toggleUnderline(item) {
         const bounds = target.bounds;
         const start = new paper.Point(bounds.bottomLeft.x, bounds.bottomLeft.y + 4);
         const end = new paper.Point(bounds.bottomRight.x, bounds.bottomRight.y + 4);
+
         const line = new paper.Path.Line({
             from: start,
             to: end,
