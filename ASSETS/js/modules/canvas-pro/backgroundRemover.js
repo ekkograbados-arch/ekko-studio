@@ -421,21 +421,46 @@ function loadImglyLibrary() {
         }
 
         showIaLoadingOverlay();
-        updateIaLoadingProgress(0.15, "Conectando con la red neuronal local...");
+        updateIaLoadingProgress(0.05, "Inicializando motor de Inteligencia Artificial...");
 
-        const script = document.createElement('script');
-        script.src = "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2.x/dist/bundle.js";
-        script.async = true;
+        // Lista de orígenes de carga ordenados por prioridad (Local -> CDNs)
+        const sources = [
+            "/ASSETS/js/modules/canvas-pro/background-removal-bundle.js",
+            "/ASSETS/js/vendor/background-removal-bundle.js",
+            "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2.x/dist/bundle.js",
+            "https://unpkg.com/@imgly/background-removal@2.x/dist/bundle.js"
+        ];
 
-        const tryFallback = () => {
-            console.warn("CDN Primario fallido. Cargando IA desde unpkg de respaldo...");
-            const fallbackScript = document.createElement('script');
-            fallbackScript.src = "https://unpkg.com/@imgly/background-removal@2.x/dist/bundle.js";
-            fallbackScript.async = true;
-            
-            fallbackScript.onload = () => {
+        let index = 0;
+
+        const tryLoadNext = () => {
+            if (index >= sources.length) {
+                reject(new Error("No se pudo cargar la librería de eliminación de fondo desde ninguna fuente local ni externa (CDNs)."));
+                return;
+            }
+
+            const currentSrc = sources[index];
+            index++;
+
+            const isLocal = !currentSrc.startsWith("http");
+            if (isLocal) {
+                updateIaLoadingProgress(0.1 + (index * 0.05), `Buscando librería local (${currentSrc.split('/').pop()})...`);
+            } else {
+                updateIaLoadingProgress(0.2 + (index * 0.15), `Cargando IA desde red externa (${currentSrc.includes("jsdelivr") ? "jsDelivr" : "unpkg"})...`);
+            }
+
+            const script = document.createElement('script');
+            script.src = currentSrc;
+            script.async = true;
+
+            script.onload = () => {
                 if (window.imglyBackgroundRemoval) {
+                    console.log(`Librería @imgly/background-removal cargada con éxito desde: ${currentSrc}`);
+                    
+                    // Configuración dinámica: si se carga localmente, configuramos publicPath hacia jsDelivr
+                    // para descargar los modelos ONNX y WASM si no estuvieran locales, previniendo CORS y 404s.
                     window.imglyConfig = {
+                        publicPath: isLocal ? "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2.x/dist/" : currentSrc.replace("bundle.js", ""),
                         progress: (status, progress) => {
                             const pct = progress ? (progress * 100).toFixed(0) : '0';
                             updateIaLoadingProgress(progress, `Cargando modelo neuronal: ${pct}%`, status);
@@ -443,33 +468,20 @@ function loadImglyLibrary() {
                     };
                     resolve(window.imglyBackgroundRemoval);
                 } else {
-                    reject(new Error("La variable de imgly no se registró correctamente."));
+                    console.warn(`Script cargado pero window.imglyBackgroundRemoval no está definido para: ${currentSrc}`);
+                    tryLoadNext();
                 }
             };
 
-            fallbackScript.onerror = () => {
-                reject(new Error("Error de carga en ambos CDNs"));
+            script.onerror = () => {
+                console.warn(`Fallo al cargar script desde: ${currentSrc}`);
+                tryLoadNext();
             };
 
-            document.head.appendChild(fallbackScript);
+            document.head.appendChild(script);
         };
 
-        script.onload = () => {
-            if (window.imglyBackgroundRemoval) {
-                window.imglyConfig = {
-                    progress: (status, progress) => {
-                        const pct = progress ? (progress * 100).toFixed(0) : '0';
-                        updateIaLoadingProgress(progress, `Procesando imagen con IA: ${pct}%`, status);
-                    }
-                };
-                resolve(window.imglyBackgroundRemoval);
-            } else {
-                tryFallback();
-            }
-        };
-
-        script.onerror = tryFallback;
-        document.head.appendChild(script);
+        tryLoadNext();
     });
 }
 
@@ -647,8 +659,26 @@ export async function autoRemoveBackground(raster) {
         hideIaLoadingOverlay();
 
     } catch (err) {
-        console.warn("La IA local no pudo ejecutarse. Usando algoritmo de contraste de respaldo (Sobel Contrast Match).", err);
+        console.warn("La IA local no pudo ejecutarse. Error de carga de modelos:", err);
         hideIaLoadingOverlay();
+        
+        // INTERFAZ AMIGABLE DE GARANTÍA: Evitar arruinar la imagen con el contraste Sobel silencioso
+        const msgManual = "⚠️ El motor de Inteligencia Artificial (IA) no pudo iniciarse.\n\n" +
+                          "Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados en su navegador.\n\n" +
+                          "¿Desea abrir el EDITOR MANUAL interactivo? (Recomendado: tiene Pincel Borrador, Restaurador y Varita Mágica 100% locales y offline, ideales para un recorte limpio).";
+        
+        if (confirm(msgManual)) {
+            openBackgroundRemovalModal(raster);
+            return;
+        }
+
+        const msgContrast = "La eliminación de fondo por IA está desactivada.\n\n" +
+                            "¿Desea ejecutar el algoritmo automático por contraste de respaldo (Sobel Contrast)?\n\n" +
+                            "(Atención: Solo se recomienda para imágenes con fondos de color muy liso y alto contraste. En fotos complejas como Don Ramón o perros puede morder partes del diseño).";
+        
+        if (!confirm(msgContrast)) {
+            return; // Detener sin alterar la imagen y preservar el diseño intacto
+        }
         
         // FALLBACK AUTÓNOMO (Garantía de Cobertura en Metales y Maderas)
         const tempCanvas = document.createElement('canvas');
