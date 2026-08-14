@@ -747,68 +747,69 @@ function pasteSelected() {
     window.curveInitialCurvature = 0;
 
     const tool = new paper.Tool();
-    tool.onMouseDown = function(event) {
-        const currentTime = Date.now();
-        const isDoubleClick = (currentTime - lastClickTime) < 300;
-        lastClickTime = currentTime;
+tool.onMouseDown = function(event) {
+    const currentTime = Date.now();
+    const isDoubleClick = (currentTime - lastClickTime) < 300;
+    lastClickTime = currentTime;
 
-        // 1. Tirador de curvatura (LightBurn)
-        if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-            if (target && target instanceof paper.Group) {
-                const hitHandle = target.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 });
-                if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isCurveHandle) {
-                    window.draggingCurveHandle = true;
-                    window.curveTarget = target;
-                    window.curveInitialPoint = event.point.clone();
-                    window.curveInitialCurvature = target.data.curvature || 0;
-                    if (typeof hideContextualMenu === "function") hideContextualMenu();
-                    return;
-                }
+    // 1. Detectar si el usuario hace clic sobre el tirador azul de doblado (Curvatura)
+    if (window.selectedItem) {
+        const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+        if (target && target instanceof paper.Group) {
+            const hitHandle = target.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 });
+            if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isCurveHandle) {
+                window.draggingCurveHandle = true;
+                window.curveTarget = target;
+                window.curveInitialPoint = event.point.clone();
+                window.curveInitialCurvature = target.data.curvature || 0;
+                if (typeof hideContextualMenu === "function") hideContextualMenu();
+                return;
             }
         }
+    }
 
-        // 2. Tiradores de Canva (Resizing y Rotación Libre)
-        if (window.selectionBoxGroup) {
-            const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
-            if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
-                if (hitHandle.item.data.handleType === 'rot') {
-                    window.rotateActive = true;
-                    window.rotateTarget = window.selectedItem;
-                    const targetItem = (window.rotateTarget.data && window.rotateTarget.data.clipGroup) ? window.rotateTarget.children.find(c => !c.clipMask) : window.rotateTarget;
-                    window.rotateCenter = targetItem.position.clone();
-                    window.rotateStartVector = event.point.subtract(window.rotateCenter);
-                    window.dragging = false;
-                    if (typeof hideContextualMenu === "function") {
-                        hideContextualMenu();
-                    }
-                    return;
-                } else {
-                    window.resizeActive = true;
-                    window.resizeHandleType = hitHandle.item.data.handleType;
-                    window.resizeTarget = window.selectedItem;
-                    const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup) ? window.resizeTarget.children.find(c => !c.clipMask) : window.resizeTarget;
-                    window.resizeInitialBounds = targetItem.bounds.clone();
-                    window.resizeInitialPoint = event.point.clone();
-                    window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
-                    window.resizeLastScaleX = 1.0;
-                    window.resizeLastScaleY = 1.0;
-                    window.dragging = false;
-                    if (typeof hideContextualMenu === "function") {
-                        hideContextualMenu();
-                    }
-                    return;
-                }
+    // 2. Detectar clics en los 8 tiradores de redimensionamiento de Canva
+    if (window.selectionBoxGroup) {
+        const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
+        if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
+            window.resizeActive = true;
+            window.resizeTarget = window.selectedItem;
+            window.resizeHandleType = hitHandle.item.data.handleType;
+            window.resizeInitialBounds = ((window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem).bounds.clone();
+            window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
+            window.resizeInitialPoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
+            window.resizeLastScaleX = 1.0;
+            window.resizeLastScaleY = 1.0;
+            window.dragging = false;
+            if (typeof hideContextualMenu === "function") {
+                hideContextualMenu();
             }
-        }
-
-        if (insertTextMode) {
-            createEditableText(event.point);
-            insertTextMode = false;
-            paper.view.element.style.cursor = "default";
             return;
         }
+    }
 
+    if (insertTextMode) {
+        createEditableText(event.point);
+        insertTextMode = false;
+        paper.view.element.style.cursor = "default";
+        return;
+    }
+
+    // --- INTERCEPCIÓN PROACTIVA DE LÍMITES (SOLUCIONA EL ARRASTRE FUERA DE SVG) ---
+    let selectable = null;
+    
+    // Si ya hay un elemento seleccionado, y hacemos clic dentro de sus límites reales (incluso si está oculto/enmascarado)
+    if (window.selectedItem && !isLockedItem(window.selectedItem)) {
+        const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
+            ? window.selectedItem.children.find(c => !c.clipMask)
+            : window.selectedItem;
+        if (displayItem && displayItem.bounds && displayItem.bounds.contains(event.point)) {
+            selectable = window.selectedItem;
+        }
+    }
+
+    // Si no se hizo clic en el seleccionado actual, buscar normalmente en el canvas
+    if (!selectable) {
         const hit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -818,39 +819,44 @@ function pasteSelected() {
                 return !hitResult.item.data || !hitResult.item.data.mockup;
             }
         });
-
         if (hit && hit.item) {
-            const selectable = window.getSelectableItem(hit.item);
-            if (selectable) {
-                if (isLockedItem(selectable)) {
-                    window.selectItem(selectable);
-                    window.dragging = false;
-                    return;
-                }
-                if (isDoubleClick) {
-                    const textItem = selectable.data?.clipGroup ? selectable.children.find(c => !c.clipMask) : selectable;
-                    if (textItem instanceof paper.PointText) {
-                        window.dragging = false;
-                        startTextEditing(textItem);
-                        return;
-                    }
-                }
-                window.selectItem(selectable);
-                window.dragging = true;
-                if (selectable.data && selectable.data.clipGroup) {
-                    const content = selectable.children.find(c => !c.clipMask);
-                    window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
-                } else {
-                    window.dragOffset = event.point.subtract(selectable.position);
-                }
-                if (typeof hideContextualMenu === "function") {
-                    hideContextualMenu();
-                }
-            }
-        } else {
-            window.deselectItem();
+            selectable = window.getSelectableItem(hit.item);
         }
-    };
+    }
+    // ------------------------------------------------------------------------------
+
+    if (selectable) {
+        if (isLockedItem(selectable)) {
+            window.selectItem(selectable);
+            window.dragging = false;
+            return;
+        }
+
+        // DOBLE CLIC PARA EDITAR TEXTOS (Estilo LightBurn)
+        if (isDoubleClick) {
+            const textItem = selectable.data?.clipGroup ? selectable.children.find(c => !c.clipMask) : selectable;
+            if (textItem instanceof paper.PointText) {
+                window.dragging = false;
+                startTextEditing(textItem);
+                return;
+            }
+        }
+
+        window.selectItem(selectable);
+        window.dragging = true;
+        if (selectable.data && selectable.data.clipGroup) {
+            const content = selectable.children.find(c => !c.clipMask);
+            window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
+        } else {
+            window.dragOffset = event.point.subtract(selectable.position);
+        }
+        if (typeof hideContextualMenu === "function") {
+            hideContextualMenu();
+        }
+    } else {
+        window.deselectItem();
+    }
+};
 
     tool.onMouseDrag = function(event) {
         // 1. Rotación interactiva por arrastre de tirador circular
