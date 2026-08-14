@@ -3,6 +3,7 @@
  * ASSETS/js/modules/canvas-pro/textToolbar.js
  * 
  * Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn).
+ * Ofrece curvatura de textos, soldadura de curvas (Weld), HSpace (espaciado entre letras), negritas y cursivas.
  */
 
 let loadedFontsCache = [];
@@ -10,72 +11,41 @@ let loadedFontsCache = [];
 // Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts
 export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
-    const fallbacks = [
-        { name: "Nostalgic Letter", family: "ekko_nostalgic_letter", file: "Nostalgic Letter.woff2" },
-        { name: "Please write me a song", family: "ekko_please_write_me_a_song", file: "Please write me a song.woff2" },
-        { name: "SimpleHandmade", family: "ekko_simplehandmade", file: "SimpleHandmade.woff2" }
-    ];
     try {
-        const response = await fetch('/api/fonts');
-        if (!response.ok) throw new Error("Endpoint api/fonts no disponible");
-        const fontFiles = await response.json();
-        if (!fontFiles || fontFiles.length === 0) {
-            throw new Error("No se devolvieron tipografías desde el servidor.");
+        const res = await fetch("/api/fonts");
+        if (res.ok) {
+            const fonts = await res.json();
+            loadedFontsCache = fonts;
+            return fonts;
         }
-        const loaded = [];
-        for (const item of fontFiles) {
-            let name, family, file;
-            if (typeof item === 'string') {
-                file = item;
-                name = file.replace(/\.[^/.]+$ /, "");
-                family = "ekko_" + name.toLowerCase().replace(/[^a-z0-9]/g, "_");
-            } else if (item && typeof item === 'object') {
-                name = item.name;
-                family = item.family;
-                file = item.file;
-            } else {
-                continue;
-            }
-            try {
-                const fontFace = new FontFace(family, `url(/ASSETS/fonts/${encodeURIComponent(file)})`, { display: 'swap' });
-                const loadedFace = await fontFace.load();
-                document.fonts.add(loadedFace);
-                loaded.push({ name: name, family: family, file: file });
-            } catch (err) {
-                console.warn(`No se pudo cargar la tipografía dinámica: ${file}`, err);
-            }
-        }
-        if (loaded.length === 0) {
-            throw new Error("Ninguna tipografía dinámica pudo registrarse.");
-        }
-        loaded.sort((a, b) => a.name.localeCompare(b.name));
-        loadedFontsCache = loaded;
-        return loaded;
-    } catch (e) {
-        console.warn("Inyectando fuentes locales de respaldo por error de red o backend vacío:", e);
-        for (const f of fallbacks) {
-            try {
-                const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`, { display: 'swap' });
-                const loadedFace = await fontFace.load();
-                document.fonts.add(loadedFace);
-            } catch (err) {
-                console.error("Error cargando fuente estática local:", err);
-            }
-        }
-        fallbacks.sort((a, b) => a.name.localeCompare(b.name));
-        loadedFontsCache = fallbacks;
-        return fallbacks;
+    } catch (err) {
+        console.error("Error cargando fuentes dinámicas, usando fallbacks:", err);
     }
+    
+    const fallbacks = [
+        { name: "Billie James", family: "ekko_billie" },
+        { name: "Romantic Sunrise", family: "ekko_romantic" },
+        { name: "Farmhouse", family: "ekko_farmhouse" },
+        { name: "Chocolate", family: "ekko_chocolate" },
+        { name: "Disney", family: "ekko_disney" },
+        { name: "Simpson", family: "ekko_simpson" },
+        { name: "Milk Water", family: "ekko_milk" }
+    ];
+    loadedFontsCache = fallbacks;
+    return fallbacks;
 }
 
 // Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+    
     target.data = target.data || {};
     target.data.curvature = curvature;
+    
     // Si la curvatura es casi cero, restaurar a texto plano normal
     if (Math.abs(curvature) < 0.001) {
         if (target.data.isCurvedGroup) {
@@ -83,19 +53,21 @@ export function applyTextCurve(item, curvature) {
         }
         return;
     }
+    
     const textStr = target.data.textString || target.content || "Texto";
     const fontFamily = target.fontFamily || "Arial";
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
-    // Guardar posición original para evitar que el texto vuele fuera del mockup
     const origCenter = target.position.clone();
+    
     let glyphGroup;
     if (target.data.isCurvedGroup) {
         glyphGroup = target;
         glyphGroup.clear();
     } else {
         glyphGroup = new paper.Group();
-        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr };
+        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr, fontSize: fontSize, fontFamily: fontFamily, fillColor: fillColor };
+        
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -107,37 +79,51 @@ export function applyTextCurve(item, curvature) {
             window.selectItem(glyphGroup);
         }
     }
+    
     const chars = textStr.split("");
-    const numChars = chars.length;
-    if (numChars === 0) return;
-    const radius = 2000 / curvature;
-    const centerPoint = new paper.Point(0, radius);
-    const arcAngle = (numChars * fontSize * 0.6) / radius;
-    const startAngle = -Math.PI / 2 - (arcAngle / 2);
-    for (let i = 0; i < numChars; i++) {
-        const char = chars[i];
-        if (char === " ") continue;
-        const t = numChars > 1 ? i / (numChars - 1) : 0.5;
-        const angle = startAngle + (t * arcAngle);
-        const x = centerPoint.x + radius * Math.cos(angle);
-        const y = centerPoint.y + radius * Math.sin(angle);
+    const radius = 25000 / curvature; // Curvatura mapeada matemáticamente a un radio de círculo
+    const absRadius = Math.abs(radius);
+    
+    // Calcular el ángulo total ocupado por las letras
+    let totalWidth = 0;
+    const tempGlyphs = chars.map(char => {
         const glyph = new paper.PointText({
-            point: [x, y],
             content: char,
             fontFamily: fontFamily,
             fontSize: fontSize,
-            fillColor: fillColor,
-            justification: "center"
+            justification: "center",
+            insert: false
         });
-        const rotationAngle = (angle * 180 / Math.PI) + 90;
-        glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
+        totalWidth += glyph.bounds.width;
+        return glyph;
+    });
+    
+    const totalAngle = totalWidth / absRadius;
+    let currentAngle = (curvature > 0) ? -totalAngle / 2 : totalAngle / 2;
+    
+    tempGlyphs.forEach((glyph, idx) => {
+        const charW = glyph.bounds.width;
+        const charAngle = charW / absRadius;
+        const angleStep = charAngle / 2;
+        
+        const targetAngle = (curvature > 0) ? currentAngle + angleStep : currentAngle - angleStep;
+        const x = Math.sin(targetAngle) * absRadius;
+        const y = (curvature > 0) ? -Math.cos(targetAngle) * absRadius + absRadius : Math.cos(targetAngle) * absRadius - absRadius;
+        
+        glyph.position = new paper.Point(x, y);
+        glyph.rotate(targetAngle * (180 / Math.PI));
+        glyph.fillColor = fillColor;
+        
         glyphGroup.addChild(glyph);
-    }
-    // Reposicionar el grupo de glifos en la coordenada original exacta del texto plano
+        
+        currentAngle = (curvature > 0) ? currentAngle + charAngle : currentAngle - charAngle;
+    });
+    
     glyphGroup.position = origCenter;
     drawBlueCurveHandle(glyphGroup);
+    
     if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(glyphGroup);
+        window.updateSelectionBox(item);
     }
     paper.view.update();
 }
@@ -152,8 +138,10 @@ function restoreFlatText(item, curvedGroup) {
         fillColor: curvedGroup.data.fillColor || new paper.Color(0),
         justification: "center"
     });
+    
     flatText.data = { ...curvedGroup.data, isCurvedGroup: false };
     delete flatText.data.curvature;
+    
     if (item.data?.clipGroup) {
         const idx = item.children.indexOf(curvedGroup);
         item.insertChild(idx, flatText);
@@ -171,6 +159,7 @@ function drawBlueCurveHandle(group) {
     if (oldHandle) oldHandle.remove();
     const bounds = group.bounds;
     const handlePoint = bounds.topRight.add(new paper.Point(10, -10));
+    
     const blueCircle = new paper.Path.Circle({
         center: handlePoint,
         radius: 6 / paper.view.zoom,
@@ -186,15 +175,19 @@ function drawBlueCurveHandle(group) {
 export function applyTextSpacing(item, hspace) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+    
     target.data = target.data || {};
     target.data.hspace = hspace;
+    
     if (target instanceof paper.Group) {
         if (target.data.isCurvedGroup) {
             applyTextCurve(item, target.data.curvature || 0);
             return;
         }
+        
         // Distribución horizontal plana
         let currentX = 0;
         target.children.forEach(child => {
@@ -205,6 +198,7 @@ export function applyTextSpacing(item, hspace) {
     } else if (target instanceof paper.PointText) {
         const textStr = target.content || "Texto";
         if (Math.abs(hspace) < 0.001) return;
+        
         const glyphGroup = new paper.Group();
         glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr };
         const chars = textStr.split("");
@@ -212,6 +206,7 @@ export function applyTextSpacing(item, hspace) {
         const fontSize = target.fontSize || 42;
         const fillColor = target.fillColor || new paper.Color(0);
         const origCenter = target.position.clone();
+        
         let currentX = 0;
         chars.forEach(char => {
             const glyph = new paper.PointText({
@@ -225,7 +220,9 @@ export function applyTextSpacing(item, hspace) {
             glyphGroup.addChild(glyph);
             currentX += glyph.bounds.width + hspace;
         });
+        
         glyphGroup.position = origCenter;
+        
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -237,6 +234,7 @@ export function applyTextSpacing(item, hspace) {
             window.selectItem(glyphGroup);
         }
     }
+    
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(item);
     }
@@ -247,34 +245,30 @@ export function applyTextSpacing(item, hspace) {
 export function weldText(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+    
     const svgElement = target.exportSVG({ asString: false });
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
+        
         const childrenPaths = [];
-        // AUDITORÍA SENSACIONAL: Si es un solo path (no tiene vectorGroup.children), procesamos vectorGroup directo
         if (vectorGroup.children) {
             vectorGroup.children.forEach(child => {
                 if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
-                    childrenPaths.push(child);
-                } else if (child instanceof paper.Group) {
-                    child.children.forEach(subChild => {
-                        if (subChild instanceof paper.Path || subChild instanceof paper.CompoundPath) {
-                            childrenPaths.push(subChild);
-                        }
-                    });
+                    childrenPaths.push(child.clone());
                 }
             });
-        } else {
-            if (vectorGroup instanceof paper.Path || vectorGroup instanceof paper.CompoundPath) {
-                childrenPaths.push(vectorGroup);
-            }
+        } else if (vectorGroup instanceof paper.Path || vectorGroup instanceof paper.CompoundPath) {
+            childrenPaths.push(vectorGroup.clone());
         }
+        
         if (childrenPaths.length === 0) {
             vectorGroup.remove();
             return;
         }
+        
         let weldedPath = childrenPaths[0];
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
@@ -283,9 +277,11 @@ export function weldText(item) {
             nextPath.remove();
             weldedPath = temp;
         }
+        
         weldedPath.fillColor = target.fillColor || new paper.Color(0);
         weldedPath.strokeColor = target.strokeColor || null;
         weldedPath.data = { ...target.data, label: "Texto Soldado" };
+        
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, weldedPath);
@@ -306,21 +302,17 @@ export function weldText(item) {
 export function toggleBold(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
         if (target instanceof paper.PointText) {
             const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
             target.fontWeight = isBold ? 'normal' : 'bold';
         } else if (target instanceof paper.Group) {
-            let anyBold = false;
-            target.children.forEach(child => {
-                if (child instanceof paper.PointText && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
-                    anyBold = true;
-                }
-            });
             target.children.forEach(child => {
                 if (child instanceof paper.PointText) {
-                    child.fontWeight = anyBold ? 'normal' : 'bold';
+                    const isBold = child.fontWeight === 'bold' || child.fontWeight === 700;
+                    child.fontWeight = isBold ? 'normal' : 'bold';
                 }
             });
         }
@@ -335,11 +327,13 @@ export function toggleBold(item) {
 export function toggleItalic(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
         target.data = target.data || {};
         const isItalic = target.data.isItalicSkewed || false;
         const slantAngle = -0.22;
+        
         if (isItalic) {
             target.shear(-slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = false;
@@ -347,6 +341,7 @@ export function toggleItalic(item) {
             target.shear(slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = true;
         }
+        
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(item);
         }
@@ -358,18 +353,22 @@ export function toggleItalic(item) {
 export function toggleUnderline(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+    
     const isGroup = item.data?.clipGroup;
     const parentGroup = isGroup ? item : null;
     const target = isGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+    
     const underlineId = "underline_path_" + target.id;
     const existingLine = isGroup ? item.children.find(c => c.data?.underlineId === underlineId) : paper.project.activeLayer.children.find(c => c.data?.underlineId === underlineId);
+    
     if (existingLine) {
         existingLine.remove();
     } else {
         const bounds = target.bounds;
         const start = new paper.Point(bounds.bottomLeft.x, bounds.bottomLeft.y + 4);
         const end = new paper.Point(bounds.bottomRight.x, bounds.bottomRight.y + 4);
+        
         const line = new paper.Path.Line({
             from: start,
             to: end,
@@ -377,6 +376,7 @@ export function toggleUnderline(item) {
             strokeWidth: Math.max(1.5, target.fontSize * 0.05)
         });
         line.data = { underlineId: underlineId, mockup: false };
+        
         if (isGroup && parentGroup) {
             parentGroup.addChild(line);
         } else {
