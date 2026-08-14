@@ -1,8 +1,3 @@
-/**
- * ASSETS/js/modules/canvas-pro/contextualMenu.js
- * Módulo para el control interactivo de la barra flotante emergente y menús de fuentes de alta fidelidad.
- */
-
 import { openImageTraceModal } from "./imageTracer.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { loadDynamicFonts, applyTextCurve, applyTextSpacing, weldText, toggleBold, toggleItalic, toggleUnderline } from "./textToolbar.js";
@@ -28,75 +23,52 @@ function removeOverlapTab() {
     });
 }
 
-// Cargar las fuentes dinámicas del sistema y poblar los dropdowns enriquecidos
+// Cargar las fuentes dinámicas del sistema y poblar los dropdowns con la previsualización tipográfica en tiempo real
 async function populateFontDropdowns() {
-    try {
-        const fonts = await loadDynamicFonts();
+    const fonts = await loadDynamicFonts();
+    const dropdowns = [
+        document.getElementById('ctxFontSelector'),
+        document.getElementById('fontSelector')
+    ];
+    dropdowns.forEach(dropdown => {
+        if (!dropdown) return;
+        dropdown.innerHTML = ""; // Limpiar dropdowns anteriores
         
-        // Poblar el dropdown estático de la barra de propiedades lateral de respaldo (si existiera)
-        const fontSelector = document.getElementById('fontSelector');
-        if (fontSelector) {
-            fontSelector.innerHTML = "";
-            const defOpt = document.createElement('option');
-            defOpt.value = "Arial";
-            defOpt.textContent = "Arial";
-            fontSelector.appendChild(defOpt);
-            fonts.forEach(font => {
-                const opt = document.createElement('option');
-                opt.value = font.family;
-                opt.textContent = font.name;
-                opt.style.fontFamily = font.family;
-                fontSelector.appendChild(opt);
-            });
-        }
-
-        // Renderizar el Dropdown Enriquecido (Floating Popover)
-        renderRichFontDropdown(fonts);
-    } catch (err) {
-        console.error("Error al poblar los selectores de tipografías:", err);
-    }
+        // Opción por defecto
+        const defOpt = document.createElement('option');
+        defOpt.value = "Arial";
+        defOpt.textContent = "Arial";
+        defOpt.style.fontFamily = "Arial";
+        dropdown.appendChild(defOpt);
+        
+        fonts.forEach(font => {
+            const opt = document.createElement('option');
+            opt.value = font.family;
+            opt.textContent = font.name;
+            opt.style.fontFamily = font.family; // Previsualización real de la fuente dentro de las opciones
+            dropdown.appendChild(opt);
+        });
+    });
+    renderSidebarFontGallery(fonts);
 }
 
-// Renderizar el selector flotante enriquecido con previsualización dinámica sin textos fijos
-function renderRichFontDropdown(fonts) {
-    const dropdownList = document.getElementById("pnlCtxFontDropdown");
-    if (!dropdownList) return;
-
-    dropdownList.innerHTML = "";
-
-    // Añadir opción por defecto Arial
-    const defaultItem = document.createElement("div");
-    defaultItem.className = "rich-font-item";
-    defaultItem.style.cursor = "pointer";
-    
-    defaultItem.innerHTML = `
-        <div class="font-preview" style="font-family: Arial; font-size: 18px;">Arial</div>
-        <div class="font-name" style="font-size: 10px; color: #888; text-transform: uppercase;">Arial (Sistema)</div>
-    `;
-    
-    defaultItem.onclick = () => {
-        applyFontSelection({ family: "Arial", name: "Arial" });
-    };
-    dropdownList.appendChild(defaultItem);
-
-    // Añadir las tipografías dinámicas
+// Renderizar galería de tipografías lateral con hover interactivo de previsualización (Hover Preview)
+function renderSidebarFontGallery(fonts) {
+    const list = document.getElementById("fontList");
+    if (!list) return;
+    list.innerHTML = "";
     fonts.forEach(font => {
         const item = document.createElement("div");
-        item.className = "rich-font-item";
+        item.className = "font-item";
         item.style.cursor = "pointer";
-        item.style.padding = "8px 12px";
-        item.style.borderBottom = "1px solid #f0f0f0";
-
-        item.innerHTML = `
-            <div class="font-preview" style="font-family: ${font.family}; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Grabado</div>
-            <div class="font-name" style="font-size: 10px; color: #888; text-transform: uppercase; margin-top: 2px;\">${font.name}</div>
-        `;
-
-        // EVENTO: Al pasar el cursor por encima (Hover Preview en tiempo real sobre el canvas)
+        item.innerHTML = `<div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div> <div class="font-name">${font.name}</div>`;
+        
+        // PREVISUALIZACIÓN DINÁMICA POR HOVER (Al pasar el cursor del mouse por encima)
         item.onmouseenter = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
                 if (target) {
+                    // Respaldar la tipografía original si no hay respaldo activo
                     if (!window.originalFontBackup) {
                         if (target instanceof paper.PointText) {
                             window.originalFontBackup = target.fontFamily;
@@ -105,7 +77,7 @@ function renderRichFontDropdown(fonts) {
                             if (firstChar) window.originalFontBackup = firstChar.fontFamily;
                         }
                     }
-                    // Aplicar fuente temporalmente
+                    // Aplicar tipografía en vivo
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
                     } else if (target instanceof paper.Group) {
@@ -120,8 +92,8 @@ function renderRichFontDropdown(fonts) {
                 }
             }
         };
-
-        // EVENTO: Al quitar el cursor (Leave - Restaurar estado original)
+        
+        // RESTAURACIÓN DE TIPOGRAFÍA ORIGINAL AL SALIR DEL CONTENEDOR (Unhover)
         item.onmouseleave = () => {
             if (window.selectedItem && window.originalFontBackup) {
                 const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
@@ -141,87 +113,48 @@ function renderRichFontDropdown(fonts) {
                 }
             }
         };
-
-        // EVENTO: Al confirmar con un clic
+        
+        // CONFIRMACIÓN DE TIPOGRAFÍA AL HACER CLIC (CORREGIDO PARA PERSISTENCIA)
         item.onclick = () => {
-            applyFontSelection(font);
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                if (target) {
+                    if (typeof window.saveHistory === 'function') window.saveHistory();
+                    
+                    target.data = target.data || {};
+                    
+                    if (target instanceof paper.PointText) {
+                        target.fontFamily = font.family;
+                        target.data.fontFamily = font.family; // <--- Guarda la fuente de forma persistente
+                    } else if (target instanceof paper.Group) {
+                        target.children.forEach(child => {
+                            if (child instanceof paper.PointText) child.fontFamily = font.family;
+                        });
+                        target.data.fontFamily = font.family; // <--- Guarda la fuente en el grupo para curvas y hspace
+                    }
+                    
+                    // Confirmar selección y evitar que el unhover posterior la restaure
+                    window.originalFontBackup = null;
+                    
+                    // Sincronizar selectores de fuentes
+                    const ctxDropdown = document.getElementById('ctxFontSelector');
+                    if (ctxDropdown) ctxDropdown.value = font.family;
+                    if (typeof window.updateSelectionBox === 'function') {
+                        window.updateSelectionBox(window.selectedItem);
+                    }
+                    paper.view.update();
+                }
+            }
         };
-
-        dropdownList.appendChild(item);
-    });
-}
-
-// Aplicar selección tipográfica permanente
-function applyFontSelection(font) {
-    if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-        if (target) {
-            if (typeof window.saveHistory === 'function') window.saveHistory();
-            
-            if (target instanceof paper.PointText) {
-                target.fontFamily = font.family;
-            } else if (target instanceof paper.Group) {
-                target.children.forEach(child => {
-                    if (child instanceof paper.PointText) child.fontFamily = font.family;
-                });
-            }
-            
-            window.originalFontBackup = null;
-
-            // Actualizar etiqueta del disparador enriquecido
-            const labelActive = document.getElementById("txtCtxFontActive");
-            if (labelActive) labelActive.textContent = font.name;
-
-            // Cerrar el panel automáticamente
-            const dropdownList = document.getElementById("pnlCtxFontDropdown");
-            if (dropdownList) dropdownList.classList.add("hidden");
-
-            if (typeof window.updateSelectionBox === 'function') {
-                window.updateSelectionBox(window.selectedItem);
-            }
-            paper.view.update();
-        }
-    }
-}
-
-// Actualizar los textos de previsualización dinámicamente con el texto activo del cliente antes de desplegar
-export function updateRichFontPreviews() {
-    const dropdownList = document.getElementById("pnlCtxFontDropdown");
-    if (!dropdownList) return;
-
-    // Obtener texto actual en vivo del canvas
-    let userText = "Grabado";
-    if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-        if (target) {
-            userText = target.data?.textString || target.content || "Texto";
-        }
-    }
-
-    // Estandarizar textos de previsualización cortos
-    if (userText === "Texto" || userText === "Haz clic para editar") {
-        userText = "Grabado Láser";
-    }
-
-    // Limitar longitud para evitar desbordes visuales en el menú desplegable
-    if (userText.length > 25) {
-        userText = userText.substring(0, 22) + "...";
-    }
-
-    // Actualizar dinámicamente los contenedores renderizados
-    const previews = dropdownList.querySelectorAll(".font-preview");
-    previews.forEach(preview => {
-        preview.textContent = userText;
+        list.appendChild(item);
     });
 }
 
 export function initContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
-
     removeOverlapTab();
     populateFontDropdowns();
-
     const setClick = (id, fn) => {
         const el = document.getElementById(id);
         if (el) el.onclick = fn;
@@ -250,28 +183,37 @@ export function initContextualMenu() {
         }
     });
 
-    // Enlazar disparador del Dropdown Enriquecido de fuentes
-    const fontTrigger = document.getElementById("btnCtxFontSelect");
-    const fontDropdown = document.getElementById("pnlCtxFontDropdown");
-    if (fontTrigger && fontDropdown) {
-        fontTrigger.onclick = (e) => {
-            e.stopPropagation();
-            updateRichFontPreviews();
-            fontDropdown.classList.toggle("hidden");
+    // --- 2. ACCIONES DE TEXTO AVANZADAS (CORREGIDO PARA PERSISTENCIA DESDE DROPDOWN) ---
+    const fontSelector = document.getElementById('ctxFontSelector');
+    if (fontSelector) {
+        const applyFontChange = () => {
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                if (target) {
+                    if (typeof window.saveHistory === 'function') window.saveHistory();
+                    
+                    target.data = target.data || {};
+                    
+                    if (target instanceof paper.PointText) {
+                        target.fontFamily = fontSelector.value;
+                        target.data.fontFamily = fontSelector.value; // <--- Guarda la fuente de forma persistente
+                    } else if (target instanceof paper.Group) {
+                        target.children.forEach(child => {
+                            if (child instanceof paper.PointText) child.fontFamily = fontSelector.value;
+                        });
+                        target.data.fontFamily = fontSelector.value; // <--- Guarda la fuente en el grupo para curvas y hspace
+                    }
+                    if (typeof window.updateSelectionBox === 'function') {
+                        window.updateSelectionBox(window.selectedItem);
+                    }
+                    paper.view.update();
+                }
+            }
         };
+        fontSelector.onchange = applyFontChange;
+        fontSelector.oninput = applyFontChange;
     }
 
-    // Cerrar el panel al hacer clic en cualquier parte fuera de la tipografía
-    document.addEventListener("click", (e) => {
-        if (fontDropdown && !fontDropdown.classList.contains("hidden")) {
-            const isClickInside = fontTrigger.contains(e.target) || fontDropdown.contains(e.target);
-            if (!isClickInside) {
-                fontDropdown.classList.add("hidden");
-            }
-        }
-    });
-
-    // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     setClick('btnCtxBold', () => {
         if (window.selectedItem) {
             toggleBold(window.selectedItem);
@@ -293,7 +235,7 @@ export function initContextualMenu() {
         }
     });
 
-    // Control Deslizante de Curvatura de Texto (Estilo LightBurn) con Wheel interactivo
+    // Control Deslizante de Curvatura de Texto (Estilo LightBurn)
     const curveSlider = document.getElementById('ctxTextCurve');
     if (curveSlider) {
         curveSlider.oninput = () => {
@@ -302,34 +244,14 @@ export function initContextualMenu() {
                 applyTextCurve(window.selectedItem, val);
             }
         };
-        curveSlider.onwheel = (e) => {
-            e.preventDefault();
-            let val = parseFloat(curveSlider.value);
-            val += e.deltaY < 0 ? 1 : -1;
-            val = Math.max(-100, Math.min(100, val));
-            curveSlider.value = val;
-            if (window.selectedItem) {
-                applyTextCurve(window.selectedItem, val);
-            }
-        };
     }
 
-    // Control Deslizante de Espaciado de Caracteres (Espaciado - Estilo LightBurn) con Wheel interactivo
+    // Control Deslizante de Espaciado de Caracteres (HSpace - Estilo LightBurn)
     const hspaceSlider = document.getElementById('ctxTextHSpace');
     if (hspaceSlider) {
         hspaceSlider.oninput = () => {
             if (window.selectedItem) {
                 const val = parseFloat(hspaceSlider.value);
-                applyTextSpacing(window.selectedItem, val);
-            }
-        };
-        hspaceSlider.onwheel = (e) => {
-            e.preventDefault();
-            let val = parseFloat(hspaceSlider.value);
-            val += e.deltaY < 0 ? 1 : -1;
-            val = Math.max(-10, Math.min(100, val));
-            hspaceSlider.value = val;
-            if (window.selectedItem) {
                 applyTextSpacing(window.selectedItem, val);
             }
         };
@@ -394,24 +316,19 @@ export function initContextualMenu() {
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
-    
     removeOverlapTab();
-    
     if (!item || (item.data && item.data.mockup)) {
         toolbar.classList.remove('active');
         return;
     }
     toolbar.classList.add('active');
-
     const hideSubgroup = (id) => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
     };
-
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
-
     const btnTrace = document.getElementById('btnCtxTrace');
     if (btnTrace) btnTrace.style.display = 'none';
 
@@ -421,20 +338,14 @@ export function updateContextualMenu(item) {
     if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
-
-        // Sincronizar el nombre en el disparador del dropdown enriquecido
-        const labelActive = document.getElementById("txtCtxFontActive");
-        if (labelActive && target.fontFamily) {
-            let cleanName = target.fontFamily.replace("ekko_", "").replace(/_/g, " ");
-            cleanName = cleanName.charAt(0).toUpperCase() + cleanName.slice(1);
-            labelActive.textContent = cleanName;
+        const fontSelector = document.getElementById('ctxFontSelector');
+        if (fontSelector && target.fontFamily) {
+            fontSelector.value = target.fontFamily;
         }
-
         const curveSlider = document.getElementById('ctxTextCurve');
         if (curveSlider) {
             curveSlider.value = target.data?.curvature || 0;
         }
-
         const hspaceSlider = document.getElementById('ctxTextHSpace');
         if (hspaceSlider) {
             hspaceSlider.value = target.data?.hspace || 0;
@@ -442,7 +353,6 @@ export function updateContextualMenu(item) {
     } else if (target instanceof paper.Raster) {
         const imageControls = document.getElementById('ctxImageControls');
         if (imageControls) imageControls.classList.remove('hidden');
-
         const briSlider = document.getElementById('ctxBrightness');
         const conSlider = document.getElementById('ctxContrast');
         if (briSlider) briSlider.value = target.data?.brightness || 0;
@@ -454,17 +364,13 @@ export function updateContextualMenu(item) {
 
     const bounds = item.bounds;
     if (!bounds) return;
-
     const viewPoint = paper.view.projectToView(bounds.topCenter);
     const toolbarWidth = toolbar.offsetWidth || 350;
     const toolbarHeight = toolbar.offsetHeight || 45;
-
     const posX = viewPoint.x - (toolbarWidth / 2);
     const posY = viewPoint.y - toolbarHeight - 20;
-
     const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
     const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
-
     toolbar.style.left = `${Math.max(10, Math.min(posX, maxLeft))}px`;
     toolbar.style.top = `${Math.max(10, Math.min(posY, maxTop))}px`;
 }
