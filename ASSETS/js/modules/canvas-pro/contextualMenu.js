@@ -1,10 +1,8 @@
-
 /**
  * ASSETS/js/modules/canvas-pro/contextualMenu.js
  * 
- * Controlador de barra de herramientas contextual flotante interactiva (Canva-style) - Versión 3.
+ * Controlador de barra de herramientas contextual flotante interactiva (Canva-style) - Versión Final.
  * Integra de forma nativa la eliminación automática de fondos (Auto Magic Wand) y la modal de edición manual.
- * Garantiza que ambos botones estén visibles permanentemente para las imágenes, sin errores en consola.
  */
 
 import { openImageTraceModal } from "./imageTracer.js";
@@ -48,32 +46,43 @@ async function populateFontDropdowns() {
         const defOpt = document.createElement('option');
         defOpt.value = "Arial";
         defOpt.textContent = "Arial";
+        defOpt.style.fontFamily = "Arial";
         dropdown.appendChild(defOpt);
         
         fonts.forEach(font => {
             const opt = document.createElement('option');
             opt.value = font.family;
             opt.textContent = font.name;
-            opt.style.fontFamily = font.family;
+            opt.style.fontFamily = font.family; // Previsualización real de la fuente dentro de las opciones
             dropdown.appendChild(opt);
         });
     });
-    
-    // Configurar hover interactivo de previsualización
-    const list = document.getElementById('fontList');
+    renderSidebarFontGallery(fonts);
+}
+
+// Renderizar galería de tipografías lateral con hover interactivo de previsualización (Hover Preview)
+function renderSidebarFontGallery(fonts) {
+    const list = document.getElementById("fontList");
     if (!list) return;
     list.innerHTML = "";
     
     fonts.forEach(font => {
-        const item = document.createElement('div');
+        const item = document.createElement("div");
         item.className = "font-item";
-        item.style.fontFamily = font.family;
-        item.innerHTML = `<span class="font-preview">Feliz Día Papá</span> <span class="font-name">${font.name}</span>`;
+        item.style.cursor = "pointer";
+        item.innerHTML = `
+            <div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div>
+            <div class="font-name">${font.name}</div>
+        `;
         
+        // PREVISUALIZACIÓN DINÁMICA POR HOVER (Al pasar el cursor del mouse por encima)
         item.onmouseenter = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                const target = window.selectedItem.data?.clipGroup ? 
+                    window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                    
                 if (target) {
+                    // Respaldar la tipografía original si no hay respaldo activo
                     if (!window.originalFontBackup) {
                         if (target instanceof paper.PointText) {
                             window.originalFontBackup = target.fontFamily;
@@ -82,6 +91,7 @@ async function populateFontDropdowns() {
                             if (firstChar) window.originalFontBackup = firstChar.fontFamily;
                         }
                     }
+                    
                     // Aplicar tipografía en vivo
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
@@ -90,6 +100,7 @@ async function populateFontDropdowns() {
                             if (child instanceof paper.PointText) child.fontFamily = font.family;
                         });
                     }
+                    
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -98,9 +109,12 @@ async function populateFontDropdowns() {
             }
         };
         
+        // RESTAURACIÓN DE TIPOGRAFÍA ORIGINAL AL SALIR DEL CONTENEDOR (Unhover)
         item.onmouseleave = () => {
             if (window.selectedItem && window.originalFontBackup) {
-                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                const target = window.selectedItem.data?.clipGroup ? 
+                    window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                    
                 if (target) {
                     if (target instanceof paper.PointText) {
                         target.fontFamily = window.originalFontBackup;
@@ -118,11 +132,15 @@ async function populateFontDropdowns() {
             }
         };
         
+        // CONFIRMACIÓN DE TIPOGRAFÍA AL HACER CLIC
         item.onclick = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                const target = window.selectedItem.data?.clipGroup ? 
+                    window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                    
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
+                    
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
                     } else if (target instanceof paper.Group) {
@@ -130,9 +148,14 @@ async function populateFontDropdowns() {
                             if (child instanceof paper.PointText) child.fontFamily = font.family;
                         });
                     }
+                    
+                    // Confirmar selección y evitar que el unhover posterior la restaure
                     window.originalFontBackup = null;
+                    
+                    // Sincronizar selectores de fuentes
                     const ctxDropdown = document.getElementById('ctxFontSelector');
                     if (ctxDropdown) ctxDropdown.value = font.family;
+                    
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -147,8 +170,10 @@ async function populateFontDropdowns() {
 export function initContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
+    
     removeOverlapTab();
     populateFontDropdowns();
+    
     const setClick = (id, fn) => {
         const el = document.getElementById(id);
         if (el) el.onclick = fn;
@@ -161,16 +186,19 @@ export function initContextualMenu() {
             hideContextualMenu();
         }
     });
+    
     setClick('btnCtxDuplicate', () => {
         if (window.selectedItem) {
             duplicateImage(window.selectedItem);
         }
     });
+    
     setClick('btnCtxForward', () => {
         if (window.selectedItem) {
             bringImageForward(window.selectedItem);
         }
     });
+    
     setClick('btnCtxBackward', () => {
         if (window.selectedItem) {
             sendImageBackward(window.selectedItem);
@@ -182,9 +210,12 @@ export function initContextualMenu() {
     if (fontSelector) {
         const applyFontChange = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                const target = window.selectedItem.data?.clipGroup ? 
+                    window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                    
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
+                    
                     if (target instanceof paper.PointText) {
                         target.fontFamily = fontSelector.value;
                     } else if (target instanceof paper.Group) {
@@ -192,6 +223,7 @@ export function initContextualMenu() {
                             if (child instanceof paper.PointText) child.fontFamily = fontSelector.value;
                         });
                     }
+                    
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -208,22 +240,26 @@ export function initContextualMenu() {
             toggleBold(window.selectedItem);
         }
     });
+    
     setClick('btnCtxItalic', () => {
         if (window.selectedItem) {
             toggleItalic(window.selectedItem);
         }
     });
+    
     setClick('btnCtxUnderline', () => {
         if (window.selectedItem) {
             toggleUnderline(window.selectedItem);
         }
     });
+    
     setClick('btnCtxWeld', () => {
         if (window.selectedItem) {
             weldText(window.selectedItem);
         }
     });
     
+    // Control Deslizante de Curvatura de Texto (Estilo LightBurn)
     const curveSlider = document.getElementById('ctxTextCurve');
     if (curveSlider) {
         curveSlider.oninput = () => {
@@ -234,6 +270,7 @@ export function initContextualMenu() {
         };
     }
     
+    // Control Deslizante de Espaciado de Caracteres (HSpace - Estilo LightBurn)
     const hspaceSlider = document.getElementById('ctxTextHSpace');
     if (hspaceSlider) {
         hspaceSlider.oninput = () => {
@@ -247,7 +284,8 @@ export function initContextualMenu() {
     // --- 3. ACCIONES DE IMAGEN ---
     setClick('btnCtxFlipH', () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+            const target = window.selectedItem.data?.clipGroup ? 
+                window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Raster) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(-1, 1);
@@ -255,9 +293,11 @@ export function initContextualMenu() {
             }
         }
     });
+    
     setClick('btnCtxFlipV', () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+            const target = window.selectedItem.data?.clipGroup ? 
+                window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Raster) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(1, -1);
@@ -266,12 +306,9 @@ export function initContextualMenu() {
         }
     });
     
-    const bindScaleDown = () => {
-        if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
-    };
-    const bindScaleUp = () => {
-        if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
-    };
+    // --- ACCIONES DE ESCALADO INTERACTIVO (ACHICAR / AGRANDAR) ---
+    const bindScaleDown = () => { if (window.selectedItem) scaleImage(window.selectedItem, 0.9); };
+    const bindScaleUp = () => { if (window.selectedItem) scaleImage(window.selectedItem, 1.1); };
     setClick('btnCtxAchicar', bindScaleDown);
     setClick('btnCtxScaleDown', bindScaleDown);
     setClick('btnCtxShrink', bindScaleDown);
@@ -279,11 +316,14 @@ export function initContextualMenu() {
     setClick('btnCtxScaleUp', bindScaleUp);
     setClick('btnCtxGrow', bindScaleUp);
     
+    // --- SLIDERS DE BRILLO Y CONTRASTE EN TIEMPO REAL ---
     const briSlider = document.getElementById('ctxBrightness');
     const conSlider = document.getElementById('ctxContrast');
+    
     const handleFilterInput = () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+            const target = window.selectedItem.data?.clipGroup ? 
+                window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Raster) {
                 const bVal = briSlider ? parseFloat(briSlider.value) : 0;
                 const cVal = conSlider ? parseFloat(conSlider.value) : 0;
@@ -294,6 +334,7 @@ export function initContextualMenu() {
             }
         }
     };
+    
     if (briSlider) briSlider.oninput = handleFilterInput;
     if (conSlider) conSlider.oninput = handleFilterInput;
 }
@@ -301,18 +342,21 @@ export function initContextualMenu() {
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
+    
     removeOverlapTab();
     
     if (!item || (item.data && item.data.mockup)) {
         toolbar.classList.remove('active');
         return;
     }
+    
     toolbar.classList.add('active');
     
     const hideSubgroup = (id) => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
     };
+    
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
@@ -326,14 +370,17 @@ export function updateContextualMenu(item) {
     if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
+        
         const fontSelector = document.getElementById('ctxFontSelector');
         if (fontSelector && target.fontFamily) {
             fontSelector.value = target.fontFamily;
         }
+        
         const curveSlider = document.getElementById('ctxTextCurve');
         if (curveSlider) {
             curveSlider.value = target.data?.curvature || 0;
         }
+        
         const hspaceSlider = document.getElementById('ctxTextHSpace');
         if (hspaceSlider) {
             hspaceSlider.value = target.data?.hspace || 0;
@@ -343,63 +390,56 @@ export function updateContextualMenu(item) {
         if (imageControls) {
             imageControls.classList.remove('hidden');
             
-            // --- INYECCIÓN DINÁMICA DE BOTONES DE EDICIÓN DE FONDO ---
+            // GARANTÍA DE VISIBILIDAD: Inyección dinámica defensiva de botones de Recorte
             let btnRemoveBg = document.getElementById('btnCtxRemoveBg');
             let btnEditRemoval = document.getElementById('btnCtxEditRemoval');
             
             if (!btnRemoveBg) {
                 btnRemoveBg = document.createElement('button');
                 btnRemoveBg.id = 'btnCtxRemoveBg';
-                btnRemoveBg.textContent = '🪄 Quitar Fondo';
-                btnRemoveBg.style.cssText = `
-                    padding: 6px 12px;
-                    background-color: #007bff;
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-weight: bold;
-                    margin-right: 8px;
-                    transition: background-color 0.2s;
-                `;
-                btnRemoveBg.onmouseover = () => btnRemoveBg.style.backgroundColor = '#0056b3';
-                btnRemoveBg.onmouseout = () => btnRemoveBg.style.backgroundColor = '#007bff';
-                
-                // Acción de Quitar Fondo Automático (no-shrink, barrera Sobel+Delta inteligente)
-                btnRemoveBg.onclick = () => {
-                    if (window.selectedItem) {
-                        autoRemoveBackground(window.selectedItem);
-                    }
-                };
-                imageControls.insertBefore(btnRemoveBg, imageControls.firstChild);
+                btnRemoveBg.className = 'action-btn';
+                btnRemoveBg.style.backgroundColor = '#007bff';
+                btnRemoveBg.style.color = '#fff';
+                btnRemoveBg.style.fontWeight = 'bold';
+                btnRemoveBg.style.border = 'none';
+                btnRemoveBg.style.borderRadius = '6px';
+                btnRemoveBg.style.padding = '6px 12px';
+                btnRemoveBg.style.cursor = 'pointer';
+                btnRemoveBg.style.marginRight = '8px';
+                btnRemoveBg.innerHTML = '🪄 Quitar Fondo';
+                imageControls.appendChild(btnRemoveBg);
             }
             
             if (!btnEditRemoval) {
                 btnEditRemoval = document.createElement('button');
                 btnEditRemoval.id = 'btnCtxEditRemoval';
-                btnEditRemoval.textContent = '✂️ Editar Recorte';
-                btnEditRemoval.style.cssText = `
-                    padding: 6px 12px;
-                    background-color: #28a745;
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-weight: bold;
-                    margin-right: 8px;
-                    transition: background-color 0.2s;
-                `;
-                btnEditRemoval.onmouseover = () => btnEditRemoval.style.backgroundColor = '#1e7e34';
-                btnEditRemoval.onmouseout = () => btnEditRemoval.style.backgroundColor = '#28a745';
-                
-                // Acción para abrir la modal PhotoRoom-style manual
-                btnEditRemoval.onclick = () => {
-                    if (window.selectedItem) {
-                        openBackgroundRemovalModal(window.selectedItem);
-                    }
-                };
-                imageControls.insertBefore(btnEditRemoval, btnRemoveBg.nextSibling);
+                btnEditRemoval.className = 'action-btn';
+                btnEditRemoval.style.backgroundColor = '#28a745';
+                btnEditRemoval.style.color = '#fff';
+                btnEditRemoval.style.fontWeight = 'bold';
+                btnEditRemoval.style.border = 'none';
+                btnEditRemoval.style.borderRadius = '6px';
+                btnEditRemoval.style.padding = '6px 12px';
+                btnEditRemoval.style.cursor = 'pointer';
+                btnEditRemoval.innerHTML = '✂️ Editar Recorte';
+                imageControls.appendChild(btnEditRemoval);
             }
+            
+            // Asegurar que ambos botones estén siempre visibles y listos para usar
+            btnRemoveBg.style.display = 'inline-block';
+            btnEditRemoval.style.display = 'inline-block';
+            
+            btnRemoveBg.onclick = () => {
+                if (window.selectedItem) {
+                    autoRemoveBackground(window.selectedItem, 8);
+                }
+            };
+            
+            btnEditRemoval.onclick = () => {
+                if (window.selectedItem) {
+                    openBackgroundRemovalModal(window.selectedItem);
+                }
+            };
         }
         
         const briSlider = document.getElementById('ctxBrightness');
