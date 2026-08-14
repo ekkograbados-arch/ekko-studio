@@ -1,9 +1,3 @@
-/**
-*  ASSETS/js/modules/canvas-pro/contextualMenu.js
-*  Módulo para el control interactivo de la barra flotante emergente y menús de fuentes de alta fidelidad.
-*  Basado en la versión nativa del proyecto (AYER) — 100% libre de conversiones experimentales y bugs.
-*/
-
 import { openImageTraceModal } from "./imageTracer.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { loadDynamicFonts, applyTextCurve, applyTextSpacing, weldText, toggleBold, toggleItalic, toggleUnderline } from "./textToolbar.js";
@@ -21,7 +15,7 @@ function removeOverlapTab() {
     const allElements = document.querySelectorAll('button, div, span, a, p, li');
     allElements.forEach(el => {
         if (el.textContent) {
-            const normalizedText = el.textContent.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+            const normalizedText = el.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
             if (normalizedText.includes('EVITAR SUPERPOSICION')) {
                 el.remove();
             }
@@ -55,7 +49,6 @@ async function populateFontDropdowns() {
             dropdown.appendChild(opt);
         });
     });
-    
     renderSidebarFontGallery(fonts);
 }
 
@@ -121,7 +114,7 @@ function renderSidebarFontGallery(fonts) {
             }
         };
         
-        // CONFIRMACIÓN DE TIPOGRAFÍA AL HACER CLIC
+        // CONFIRMACIÓN DE TIPOGRAFÍA AL HACER CLIC (CORREGIDO PARA PERSISTENCIA)
         item.onclick = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
@@ -132,12 +125,12 @@ function renderSidebarFontGallery(fonts) {
                     
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
-                        target.data.fontFamily = font.family; // Sincronización en data para curvas
+                        target.data.fontFamily = font.family; // <--- Guarda la fuente de forma persistente
                     } else if (target instanceof paper.Group) {
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) child.fontFamily = font.family;
                         });
-                        target.data.fontFamily = font.family; // Sincronización en data para curvas
+                        target.data.fontFamily = font.family; // <--- Guarda la fuente en el grupo para curvas y hspace
                     }
                     
                     // Confirmar selección y evitar que el unhover posterior la restaure
@@ -146,9 +139,6 @@ function renderSidebarFontGallery(fonts) {
                     // Sincronizar selectores de fuentes
                     const ctxDropdown = document.getElementById('ctxFontSelector');
                     if (ctxDropdown) ctxDropdown.value = font.family;
-                    const mainDropdown = document.getElementById('fontSelector');
-                    if (mainDropdown) mainDropdown.value = font.family;
-
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -193,7 +183,7 @@ export function initContextualMenu() {
         }
     });
 
-    // --- 2. ACCIONES DE TEXTO AVANZADAS ---
+    // --- 2. ACCIONES DE TEXTO AVANZADAS (CORREGIDO PARA PERSISTENCIA DESDE DROPDOWN) ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
         const applyFontChange = () => {
@@ -203,20 +193,16 @@ export function initContextualMenu() {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
                     
                     target.data = target.data || {};
-                    target.data.fontFamily = fontSelector.value; // Sincronización en data para persistencia de curvas
                     
                     if (target instanceof paper.PointText) {
                         target.fontFamily = fontSelector.value;
+                        target.data.fontFamily = fontSelector.value; // <--- Guarda la fuente de forma persistente
                     } else if (target instanceof paper.Group) {
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) child.fontFamily = fontSelector.value;
                         });
+                        target.data.fontFamily = fontSelector.value; // <--- Guarda la fuente en el grupo para curvas y hspace
                     }
-                    
-                    // Sincronizar el dropdown de la barra fija
-                    const mainDropdown = document.getElementById('fontSelector');
-                    if (mainDropdown) mainDropdown.value = fontSelector.value;
-
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -353,16 +339,8 @@ export function updateContextualMenu(item) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
         const fontSelector = document.getElementById('ctxFontSelector');
-        
-        let fontFamily = target.fontFamily;
-        if (!fontFamily && target instanceof paper.Group) {
-            const firstChar = target.children.find(c => c instanceof paper.PointText);
-            if (firstChar) fontFamily = firstChar.fontFamily;
-        }
-        fontFamily = fontFamily || target.data?.fontFamily || "Arial";
-
-        if (fontSelector && fontFamily) {
-            fontSelector.value = fontFamily;
+        if (fontSelector && target.fontFamily) {
+            fontSelector.value = target.fontFamily;
         }
         const curveSlider = document.getElementById('ctxTextCurve');
         if (curveSlider) {
@@ -401,3 +379,4 @@ export function hideContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (toolbar) toolbar.classList.remove('active');
 }
+
