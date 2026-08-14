@@ -84,6 +84,7 @@ function convertToRichDropdown(selectId) {
                 min-width: 180px;
                 vertical-align: middle;
                 font-family: Arial, sans-serif;
+                z-index: 999999 !important; /* Fuerza a que se dibuje por encima de Paper.js y mockups */
             }
             .rich-select-trigger {
                 padding: 8px 12px;
@@ -113,7 +114,7 @@ function convertToRichDropdown(selectId) {
                 border: 1px solid #ff00ff !important;
                 border-radius: 8px;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
-                z-index: 100000;
+                z-index: 1000000 !important;
                 max-height: 250px;
                 overflow-y: auto;
                 margin-top: 4px;
@@ -163,7 +164,7 @@ function convertToRichDropdown(selectId) {
 
     const trigger = document.createElement('div');
     trigger.className = 'rich-select-trigger';
-    trigger.innerHTML = `<span class="rich-select-text">Cargando...</span><span class="rich-select-arrow">▼</span>`;
+    trigger.innerHTML = `<span class="rich-select-text">Arial</span><span class="rich-select-arrow">▼</span>`;
 
     const optionsContainer = document.createElement('div');
     optionsContainer.className = 'rich-select-options hidden';
@@ -181,6 +182,25 @@ function convertToRichDropdown(selectId) {
             textSpan.style.fontFamily = selectedOpt.style.fontFamily || selectedOpt.value;
         }
     };
+
+    // INTERCEPCIÓN ULTRA-ROBUSTA DE ASIGNACIONES EN JAVASCRIPT (.value = '...')
+    // Esto asegura que cuando Paper.js o editor.js actualicen la tipografía programáticamente, el dropdown de Canva cambie de inmediato.
+    const originalValueProp = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+    if (originalValueProp) {
+        Object.defineProperty(select, 'value', {
+            get() {
+                return originalValueProp.get.call(this);
+            },
+            set(val) {
+                originalValueProp.set.call(this, val);
+                syncTriggerText(); // Sincronización instantánea de la UI
+            },
+            configurable: true
+        });
+    }
+
+    // Escuchar cambios estándar
+    select.addEventListener('change', syncTriggerText);
 
     // Llenar opciones dinámicas en base al select nativo oculto
     const populateOptions = () => {
@@ -273,15 +293,6 @@ function convertToRichDropdown(selectId) {
                         const otherSelect = document.getElementById(otherSelectId);
                         if (otherSelect) {
                             otherSelect.value = opt.value;
-                            // Encontrar el trigger hermano
-                            const otherWrapper = otherSelect.previousSibling;
-                            if (otherWrapper && otherWrapper.classList.contains('rich-select-wrapper')) {
-                                const otherTextSpan = otherWrapper.querySelector('.rich-select-text');
-                                if (otherTextSpan) {
-                                    otherTextSpan.textContent = opt.textContent;
-                                    otherTextSpan.style.fontFamily = opt.style.fontFamily || opt.value;
-                                }
-                            }
                         }
 
                         if (typeof window.updateSelectionBox === 'function') {
@@ -413,14 +424,6 @@ function renderSidebarFontGallery(fonts) {
                         const sel = document.getElementById(id);
                         if (sel) {
                             sel.value = font.family;
-                            const wrapper = sel.previousSibling;
-                            if (wrapper && wrapper.classList.contains('rich-select-wrapper')) {
-                                const textSpan = wrapper.querySelector('.rich-select-text');
-                                if (textSpan) {
-                                    textSpan.textContent = font.name;
-                                    textSpan.style.fontFamily = font.family;
-                                }
-                            }
                         }
                     });
 
@@ -626,16 +629,6 @@ export function updateContextualMenu(item) {
         const fontSelector = document.getElementById('ctxFontSelector');
         if (fontSelector && target.fontFamily) {
             fontSelector.value = target.fontFamily;
-            // Forzar sincronización de texto en el trigger personalizado
-            const wrapper = fontSelector.previousSibling;
-            if (wrapper && wrapper.classList.contains('rich-select-wrapper')) {
-                const textSpan = wrapper.querySelector('.rich-select-text');
-                const selectedOpt = fontSelector.options[fontSelector.selectedIndex];
-                if (textSpan && selectedOpt) {
-                    textSpan.textContent = selectedOpt.textContent;
-                    textSpan.style.fontFamily = selectedOpt.style.fontFamily || selectedOpt.value;
-                }
-            }
         }
         const curveSlider = document.getElementById('ctxTextCurve');
         if (curveSlider) {
