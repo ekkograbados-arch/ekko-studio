@@ -636,12 +636,12 @@ export async function autoRemoveBackground(raster) {
 
         actualRaster.data.backgroundAutoRemoved = true;
 
+        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
+        actualRaster.canvas = actualRaster.canvas;
+
         // RESTAURAR PROPIEDADES FÍSICAS (Garantía Antiacortamiento)
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
-
-        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
-        actualRaster.canvas = actualRaster.canvas;
 
         URL.revokeObjectURL(resultUrl);
         hideIaLoadingOverlay();
@@ -697,12 +697,12 @@ export async function autoRemoveBackground(raster) {
 
         actualRaster.data.backgroundAutoRemoved = true;
 
+        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
+        actualRaster.canvas = actualRaster.canvas;
+
         // RESTAURAR PROPIEDADES FÍSICAS EN FALLBACK (Garantía Antiacortamiento)
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
-
-        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
-        actualRaster.canvas = actualRaster.canvas;
     }
 
     // Forzar actualización de la caja de selección azul celeste de Paper.js
@@ -1219,12 +1219,12 @@ export function openBackgroundRemovalModal(raster) {
         actualRaster.data = actualRaster.data || {};
         actualRaster.data.backgroundAutoRemoved = true;
 
+        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
+        actualRaster.canvas = actualRaster.canvas;
+
         // Doble garantía: Restaurar matriz y posición
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
-
-        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
-        actualRaster.canvas = actualRaster.canvas;
 
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(window.selectedItem);
