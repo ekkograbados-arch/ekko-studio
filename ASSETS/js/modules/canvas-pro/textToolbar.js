@@ -1,12 +1,12 @@
 /**
- * ASSETS/js/modules/canvas-pro/textToolbar.js
- * Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn).
- */
+*  ASSETS/js/modules/canvas-pro/textToolbar.js
+*  Módulo independiente para el procesamiento, carga dinámica de fuentes y control de textos (Estilo LightBurn).
+*  Soporta curvatura de textos, espaciados, negrita, cursiva, subrayado y soldadura de trazados.
+*/
 
 let loadedFontsCache = [];
 
-
-// Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts (Corregido)
+// Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts (CON INTERPOLACIÓN Y SINTAXIS CORREGIDAS)
 export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
     const fallbacks = [
@@ -36,7 +36,7 @@ export async function loadDynamicFonts() {
                 continue;
             }
             try {
-                // CORRECCIÓN: Sintaxis limpia y remoción del espacio en la interpolación ${}
+                // CORRECCIÓN DE SINTAXIS: Se eliminó el espacio en la interpolación y se añadieron comillas simples correctas dentro de url()
                 const fontFace = new FontFace(family, `url('/ASSETS/fonts/${encodeURIComponent(file)}')`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
@@ -55,7 +55,7 @@ export async function loadDynamicFonts() {
         console.warn("Inyectando fuentes locales de respaldo por error de red o backend vacío:", e);
         for (const f of fallbacks) {
             try {
-                // CORRECCIÓN: También corregimos la sintaxis en la sección de fuentes locales de respaldo
+                // CORRECCIÓN DE SINTAXIS: También corregimos la sintaxis en la sección de fuentes locales de respaldo
                 const fontFace = new FontFace(f.family, `url('/ASSETS/fonts/${encodeURIComponent(f.file)}')`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
@@ -69,10 +69,8 @@ export async function loadDynamicFonts() {
     }
 }
 
-
-
-
-// 2. CURVATURA DE TEXTO SIN DESPLAZAMIENTO (Siempre genera un grupo limpio desde origCenter)
+// Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
+// Siempre genera un grupo limpio desde origCenter para evitar desplazamientos fantasmas
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -94,7 +92,7 @@ export function applyTextCurve(item, curvature) {
 
     const textStr = target.data.textString || target.content || "Texto";
     
-    // Obtener tipografía de forma segura
+    // Obtener tipografía de forma segura de las propiedades nativas o del objeto de datos
     let fontFamily = target.fontFamily;
     if (!fontFamily && target instanceof paper.Group) {
         const firstChar = target.children.find(c => c instanceof paper.PointText);
@@ -108,7 +106,7 @@ export function applyTextCurve(item, curvature) {
     const fillColor = target.fillColor || new paper.Color(0);
     const origCenter = target.position.clone(); // Respaldar posición exacta antes del cambio
 
-    // Creamos un nuevo grupo limpio con matriz identidad para evitar desplazamientos fantasma
+    // Creamos un nuevo grupo limpio con matriz identidad para evitar desplazamientos acumulativos
     const glyphGroup = new paper.Group();
     glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr, fontFamily: fontFamily };
 
@@ -163,7 +161,7 @@ export function applyTextCurve(item, curvature) {
     paper.view.update();
 }
 
-
+// Restaurar texto curvo de Paper.js a texto plano horizontal normal
 function restoreFlatText(item, curvedGroup) {
     const textStr = curvedGroup.data.textString || "Texto";
     const fontFamily = curvedGroup.data.fontFamily || "Arial";
@@ -179,12 +177,9 @@ function restoreFlatText(item, curvedGroup) {
         justification: "center"
     });
     
-    flatText.data = { 
-        ...curvedGroup.data, 
-        isCurvedGroup: false 
-    };
+    flatText.data = { ...curvedGroup.data, isCurvedGroup: false };
     delete flatText.data.curvature;
-    
+
     if (item.data?.clipGroup) {
         const idx = item.children.indexOf(curvedGroup);
         item.insertChild(idx, flatText);
@@ -192,11 +187,12 @@ function restoreFlatText(item, curvedGroup) {
     } else {
         const idx = paper.project.activeLayer.children.indexOf(item);
         paper.project.activeLayer.insertChild(idx, flatText);
-        item.remove();
+        curvedGroup.remove();
         window.selectItem(flatText);
     }
 }
 
+// Dibujar manejador azul de curvatura sobre el texto seleccionado (Canva/LightBurn style)
 function drawBlueCurveHandle(group) {
     const oldHandle = group.children.find(c => c.data?.isCurveHandle);
     if (oldHandle) oldHandle.remove();
@@ -213,7 +209,7 @@ function drawBlueCurveHandle(group) {
     group.addChild(blueCircle);
 }
 
-// 3. ESPACIADO HORIZONTAL SIN DESPLAZAMIENTO (Siempre genera un grupo limpio)
+// Control de Espaciado de Letras Horizontal (HSpace) - Estilo LightBurn
 export function applyTextSpacing(item, hspace) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -247,7 +243,7 @@ export function applyTextSpacing(item, hspace) {
     const fillColor = target.fillColor || new paper.Color(0);
     const origCenter = target.position.clone();
 
-    // Reconstruimos el grupo desde cero para evitar herencia de coordenadas
+    // Reconstruimos el grupo desde cero para evitar herencia indeseada de coordenadas
     const glyphGroup = new paper.Group();
     glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr, fontFamily: fontFamily };
 
@@ -285,15 +281,12 @@ export function applyTextSpacing(item, hspace) {
     paper.view.update();
 }
 
-
 // Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
 export function weldText(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
-    
     const svgElement = target.exportSVG({ asString: false });
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
@@ -302,23 +295,12 @@ export function weldText(item) {
             vectorGroup.children.forEach(child => {
                 if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
                     childrenPaths.push(child);
-                } else if (child instanceof paper.Group) {
-                    child.children.forEach(subChild => {
-                        if (subChild instanceof paper.Path || subChild instanceof paper.CompoundPath) {
-                            childrenPaths.push(subChild);
-                        }
-                    });
                 }
             });
-        } else {
-            if (vectorGroup instanceof paper.Path || vectorGroup instanceof paper.CompoundPath) {
-                childrenPaths.push(vectorGroup);
-            }
+        } else if (vectorGroup instanceof paper.Path || vectorGroup instanceof paper.CompoundPath) {
+            childrenPaths.push(vectorGroup);
         }
-        if (childrenPaths.length === 0) {
-            vectorGroup.remove();
-            return;
-        }
+        if (childrenPaths.length === 0) return;
         let weldedPath = childrenPaths[0];
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
@@ -330,7 +312,6 @@ export function weldText(item) {
         weldedPath.fillColor = target.fillColor || new paper.Color(0);
         weldedPath.strokeColor = target.strokeColor || null;
         weldedPath.data = { ...target.data, label: "Texto Soldado" };
-        
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, weldedPath);
