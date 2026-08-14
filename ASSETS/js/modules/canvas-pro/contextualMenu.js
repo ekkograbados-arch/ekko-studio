@@ -1,3 +1,9 @@
+/**
+*  ASSETS/js/modules/canvas-pro/contextualMenu.js
+*  Módulo para el control interactivo de la barra flotante emergente y menús de fuentes de alta fidelidad.
+*  Soporta conversión a Dropdowns Enriquecidos con Hover Preview real en tiempo real.
+*/
+
 import { openImageTraceModal } from "./imageTracer.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { loadDynamicFonts, applyTextCurve, applyTextSpacing, weldText, toggleBold, toggleItalic, toggleUnderline } from "./textToolbar.js";
@@ -49,7 +55,272 @@ async function populateFontDropdowns() {
             dropdown.appendChild(opt);
         });
     });
+    
     renderSidebarFontGallery(fonts);
+
+    // CONVERTIR AUTOMÁTICAMENTE AMBOS DROPDOWNS NATIVOS A SELECTORES ENRIQUECIDOS CON HOVER PREVIEW
+    convertToRichDropdown('ctxFontSelector');
+    convertToRichDropdown('fontSelector');
+}
+
+// Convertidor de <select> nativo a Dropdown Personalizado Enriquecido (Canva Style) con soporte de Hover
+function convertToRichDropdown(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+
+    // Si ya fue convertido, evitar duplicados
+    if (select.dataset.richConverted) return;
+    select.dataset.richConverted = "true";
+
+    // Inyectar estilos CSS para el dropdown personalizado de forma automática
+    const styleId = 'rich-select-styles';
+    if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.textContent = `
+            .rich-select-wrapper {
+                position: relative;
+                display: inline-block;
+                min-width: 180px;
+                vertical-align: middle;
+                font-family: Arial, sans-serif;
+            }
+            .rich-select-trigger {
+                padding: 8px 12px;
+                background: #2a2a2a !important;
+                color: #ffffff !important;
+                border: 1px solid #444444 !important;
+                border-radius: 8px;
+                cursor: pointer;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 14px;
+                font-weight: bold;
+                user-select: none;
+                transition: background 0.2s, border-color 0.2s;
+            }
+            .rich-select-trigger:hover {
+                background: #3a3a3a !important;
+                border-color: #ff00ff !important;
+            }
+            .rich-select-options {
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: #1e1e1e !important;
+                border: 1px solid #ff00ff !important;
+                border-radius: 8px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5) !important;
+                z-index: 100000;
+                max-height: 250px;
+                overflow-y: auto;
+                margin-top: 4px;
+                scrollbar-width: thin;
+                scrollbar-color: #ff00ff #1e1e1e;
+            }
+            .rich-select-options::-webkit-scrollbar {
+                width: 6px;
+            }
+            .rich-select-options::-webkit-scrollbar-thumb {
+                background: #ff00ff;
+                border-radius: 3px;
+            }
+            .rich-select-option {
+                padding: 8px 12px;
+                cursor: pointer;
+                color: #e2e8f0 !important;
+                font-size: 15px;
+                transition: background 0.15s, color 0.15s;
+                border-bottom: 1px solid rgba(255,255,255,0.03);
+            }
+            .rich-select-option:hover {
+                background: #ff00ff !important;
+                color: #ffffff !important;
+            }
+            .rich-select-arrow {
+                font-size: 10px;
+                margin-left: 8px;
+                opacity: 0.8;
+            }
+            .rich-select-options.hidden {
+                display: none !important;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // Ocultar select original
+    select.style.display = 'none';
+
+    // Crear la UI del Dropdown personalizado
+    const wrapper = document.createElement('div');
+    wrapper.className = 'rich-select-wrapper';
+    
+    // Mantener clases originales si existen
+    select.classList.forEach(cls => wrapper.classList.add(cls));
+
+    const trigger = document.createElement('div');
+    trigger.className = 'rich-select-trigger';
+    trigger.innerHTML = `<span class="rich-select-text">Cargando...</span><span class="rich-select-arrow">▼</span>`;
+
+    const optionsContainer = document.createElement('div');
+    optionsContainer.className = 'rich-select-options hidden';
+
+    select.parentNode.insertBefore(wrapper, select);
+    wrapper.appendChild(trigger);
+    wrapper.appendChild(optionsContainer);
+
+    // Sincronizar el valor inicial del trigger
+    const syncTriggerText = () => {
+        const selectedOpt = select.options[select.selectedIndex];
+        if (selectedOpt) {
+            const textSpan = trigger.querySelector('.rich-select-text');
+            textSpan.textContent = selectedOpt.textContent;
+            textSpan.style.fontFamily = selectedOpt.style.fontFamily || selectedOpt.value;
+        }
+    };
+
+    // Llenar opciones dinámicas en base al select nativo oculto
+    const populateOptions = () => {
+        optionsContainer.innerHTML = '';
+        Array.from(select.options).forEach(opt => {
+            const optDiv = document.createElement('div');
+            optDiv.className = 'rich-select-option';
+            optDiv.style.fontFamily = opt.style.fontFamily || opt.value;
+            optDiv.textContent = opt.textContent;
+
+            // HOVER PREVIEW: Al deslizar el puntero del mouse sobre la opción
+            optDiv.onmouseenter = () => {
+                if (window.selectedItem) {
+                    const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                    if (target) {
+                        // Almacenar respaldo original de la fuente
+                        if (!window.originalFontBackup) {
+                            if (target instanceof paper.PointText) {
+                                window.originalFontBackup = target.fontFamily;
+                            } else if (target instanceof paper.Group) {
+                                const firstChar = target.children.find(c => c instanceof paper.PointText);
+                                if (firstChar) window.originalFontBackup = firstChar.fontFamily;
+                            }
+                        }
+                        // Aplicar previsualización tipográfica interactiva en el lienzo
+                        if (target instanceof paper.PointText) {
+                            target.fontFamily = opt.value;
+                        } else if (target instanceof paper.Group) {
+                            target.children.forEach(child => {
+                                if (child instanceof paper.PointText) child.fontFamily = opt.value;
+                            });
+                        }
+                        if (typeof window.updateSelectionBox === 'function') {
+                            window.updateSelectionBox(window.selectedItem);
+                        }
+                        paper.view.update();
+                    }
+                }
+            };
+
+            // RESTAURACIÓN DE LA FUENTE ORIGINAL: Al mover el mouse fuera de la opción
+            optDiv.onmouseleave = () => {
+                if (window.selectedItem && window.originalFontBackup) {
+                    const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                    if (target) {
+                        if (target instanceof paper.PointText) {
+                            target.fontFamily = window.originalFontBackup;
+                        } else if (target instanceof paper.Group) {
+                            target.children.forEach(child => {
+                                if (child instanceof paper.PointText) child.fontFamily = window.originalFontBackup;
+                            });
+                        }
+                        window.originalFontBackup = null;
+                        if (typeof window.updateSelectionBox === 'function') {
+                            window.updateSelectionBox(window.selectedItem);
+                        }
+                        paper.view.update();
+                    }
+                }
+            };
+
+            // SELECCIÓN DEFINITIVA: Al hacer clic en la opción
+            optDiv.onclick = (e) => {
+                e.stopPropagation();
+                select.value = opt.value;
+                syncTriggerText();
+                optionsContainer.classList.add('hidden');
+
+                if (window.selectedItem) {
+                    const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                    if (target) {
+                        if (typeof window.saveHistory === 'function') window.saveHistory();
+                        
+                        target.data = target.data || {};
+                        
+                        if (target instanceof paper.PointText) {
+                            target.fontFamily = opt.value;
+                            target.data.fontFamily = opt.value;
+                        } else if (target instanceof paper.Group) {
+                            target.children.forEach(child => {
+                                if (child instanceof paper.PointText) child.fontFamily = opt.value;
+                            });
+                            target.data.fontFamily = opt.value;
+                        }
+                        // Limpiar respaldo para evitar restauraciones innecesarias
+                        window.originalFontBackup = null;
+                        
+                        // Sincronizar recíprocamente el otro selector de tipografía del sistema
+                        const otherSelectId = selectId === 'ctxFontSelector' ? 'fontSelector' : 'ctxFontSelector';
+                        const otherSelect = document.getElementById(otherSelectId);
+                        if (otherSelect) {
+                            otherSelect.value = opt.value;
+                            // Encontrar el trigger hermano
+                            const otherWrapper = otherSelect.previousSibling;
+                            if (otherWrapper && otherWrapper.classList.contains('rich-select-wrapper')) {
+                                const otherTextSpan = otherWrapper.querySelector('.rich-select-text');
+                                if (otherTextSpan) {
+                                    otherTextSpan.textContent = opt.textContent;
+                                    otherTextSpan.style.fontFamily = opt.style.fontFamily || opt.value;
+                                }
+                            }
+                        }
+
+                        if (typeof window.updateSelectionBox === 'function') {
+                            window.updateSelectionBox(window.selectedItem);
+                        }
+                        paper.view.update();
+                    }
+                }
+
+                // Desencadenar el evento original 'change' para conservar la compatibilidad de módulos externos
+                const event = new Event('change');
+                select.dispatchEvent(event);
+            };
+
+            optionsContainer.appendChild(optDiv);
+        });
+    };
+
+    // Desplegar/Ocultar lista al hacer clic sobre el trigger
+    trigger.onclick = (e) => {
+        e.stopPropagation();
+        document.querySelectorAll('.rich-select-options').forEach(el => {
+            if (el !== optionsContainer) el.classList.add('hidden');
+        });
+        populateOptions();
+        optionsContainer.classList.toggle('hidden');
+    };
+
+    // Cerrar el dropdown al hacer clic fuera del control
+    document.addEventListener('click', () => {
+        optionsContainer.classList.add('hidden');
+    });
+
+    // Escuchar mutaciones dinámicas de options del select por si cambian de forma remota
+    const observer = new MutationObserver(syncTriggerText);
+    observer.observe(select, { childList: true, subtree: true, attributes: true });
+
+    // Sincronizar el valor inicial
+    syncTriggerText();
 }
 
 // Renderizar galería de tipografías lateral con hover interactivo de previsualización (Hover Preview)
@@ -114,7 +385,7 @@ function renderSidebarFontGallery(fonts) {
             }
         };
         
-        // CONFIRMACIÓN DE TIPOGRAFÍA AL HACER CLIC (CORREGIDO PARA PERSISTENCIA)
+        // CONFIRMACIÓN DE TIPOGRAFÍA AL HACER CLIC
         item.onclick = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
@@ -125,20 +396,34 @@ function renderSidebarFontGallery(fonts) {
                     
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
-                        target.data.fontFamily = font.family; // <--- Guarda la fuente de forma persistente
+                        target.data.fontFamily = font.family; // Sincronización en data
                     } else if (target instanceof paper.Group) {
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) child.fontFamily = font.family;
                         });
-                        target.data.fontFamily = font.family; // <--- Guarda la fuente en el grupo para curvas y hspace
+                        target.data.fontFamily = font.family; // Sincronización en data
                     }
                     
                     // Confirmar selección y evitar que el unhover posterior la restaure
                     window.originalFontBackup = null;
                     
-                    // Sincronizar selectores de fuentes
-                    const ctxDropdown = document.getElementById('ctxFontSelector');
-                    if (ctxDropdown) ctxDropdown.value = font.family;
+                    // Sincronizar selectores de fuentes (Dropdowns nativos y wrappers dinámicos)
+                    const dropdowns = ['ctxFontSelector', 'fontSelector'];
+                    dropdowns.forEach(id => {
+                        const sel = document.getElementById(id);
+                        if (sel) {
+                            sel.value = font.family;
+                            const wrapper = sel.previousSibling;
+                            if (wrapper && wrapper.classList.contains('rich-select-wrapper')) {
+                                const textSpan = wrapper.querySelector('.rich-select-text');
+                                if (textSpan) {
+                                    textSpan.textContent = font.name;
+                                    textSpan.style.fontFamily = font.family;
+                                }
+                            }
+                        }
+                    });
+
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -183,7 +468,7 @@ export function initContextualMenu() {
         }
     });
 
-    // --- 2. ACCIONES DE TEXTO AVANZADAS (CORREGIDO PARA PERSISTENCIA DESDE DROPDOWN) ---
+    // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
         const applyFontChange = () => {
@@ -196,12 +481,12 @@ export function initContextualMenu() {
                     
                     if (target instanceof paper.PointText) {
                         target.fontFamily = fontSelector.value;
-                        target.data.fontFamily = fontSelector.value; // <--- Guarda la fuente de forma persistente
+                        target.data.fontFamily = fontSelector.value;
                     } else if (target instanceof paper.Group) {
                         target.children.forEach(child => {
                             if (child instanceof paper.PointText) child.fontFamily = fontSelector.value;
                         });
-                        target.data.fontFamily = fontSelector.value; // <--- Guarda la fuente en el grupo para curvas y hspace
+                        target.data.fontFamily = fontSelector.value;
                     }
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
@@ -341,6 +626,16 @@ export function updateContextualMenu(item) {
         const fontSelector = document.getElementById('ctxFontSelector');
         if (fontSelector && target.fontFamily) {
             fontSelector.value = target.fontFamily;
+            // Forzar sincronización de texto en el trigger personalizado
+            const wrapper = fontSelector.previousSibling;
+            if (wrapper && wrapper.classList.contains('rich-select-wrapper')) {
+                const textSpan = wrapper.querySelector('.rich-select-text');
+                const selectedOpt = fontSelector.options[fontSelector.selectedIndex];
+                if (textSpan && selectedOpt) {
+                    textSpan.textContent = selectedOpt.textContent;
+                    textSpan.style.fontFamily = selectedOpt.style.fontFamily || selectedOpt.value;
+                }
+            }
         }
         const curveSlider = document.getElementById('ctxTextCurve');
         if (curveSlider) {
