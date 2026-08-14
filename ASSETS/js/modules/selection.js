@@ -256,3 +256,4 @@ window.getHandlePoint = function(bounds, handleType) {
         default: return bounds.center;
     }
 };
+
