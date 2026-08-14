@@ -1,15 +1,4 @@
-/**
-*  ASSETS/js/editor.js
-*  Controlador central interactivo para el canvas, historial, redimensionamiento,
-*  rotación libre e integración con LightBurn.
-**/
-
-import "./modules/selection.js";
-import { startTextEditing } from "./modules/textEditor.js";
-import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
-import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
-
-// Función auxiliar para desvincular de raíz las referencias del objeto .data en clones (DUPLICACIONES PERSISTENTES)
+// Función auxiliar para desvincular de raíz las referencias del objeto .data en clones
 function sanitizeClonedData(item) {
     if (!item) return;
     if (item.data) {
@@ -21,6 +10,16 @@ function sanitizeClonedData(item) {
         item.children.forEach(sanitizeClonedData); // Se ejecuta recursivamente en hijos de Grupos
     }
 }
+/**
+ * ASSETS/js/editor.js (PRO Edition v4)
+ * Controlador central interactivo para el canvas, historial, redimensionamiento,
+ * rotación libre (Estilo Canva) e integración con LightBurn.
+ */
+
+import "./modules/selection.js"; // Importamos la selección con tirador de rotación
+import { startTextEditing } from "./modules/textEditor.js";
+import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
+import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 
 window.addEventListener("DOMContentLoaded", () => {
     // 1. Inicializar Paper.js de forma segura en el lienzo
@@ -133,13 +132,13 @@ window.addEventListener("DOMContentLoaded", () => {
             if (ui.objHeight) ui.objHeight.value = "";
             return;
         }
-        const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
-            ? window.selectedItem.children.find(c => !c.clipMask)
-            : window.selectedItem;
+        const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
         if (displayItem && displayItem.bounds) {
             if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
             if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
-            if (ui.selectionInfo) ui.selectionInfo.textContent = window.selectedItem.data?.label || "Objeto";
+            const currentRot = displayItem.data?.rotationAngle || 0;
+            const rotSuffix = currentRot !== 0 ? ` (${Math.round(((currentRot % 360) + 360) % 360)}°)` : "";
+            if (ui.selectionInfo) ui.selectionInfo.textContent = (window.selectedItem.data?.label || "Objeto") + rotSuffix;
         }
     }
 
@@ -176,23 +175,6 @@ window.addEventListener("DOMContentLoaded", () => {
         window.updateSelectionBox(item);
         updateSelectionInfo();
         updateLockButton();
-
-        // SINCRONIZACIÓN SEGURO DEL SELECTOR DE FUENTES (BARRA FIJA Y FLOTANTE) AL SELECCIONAR
-        const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-        if (target && (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup)) {
-            let fontFamily = target.fontFamily;
-            if (!fontFamily && target instanceof paper.Group) {
-                const firstChar = target.children.find(c => c instanceof paper.PointText);
-                if (firstChar) fontFamily = firstChar.fontFamily;
-            }
-            fontFamily = fontFamily || target.data?.fontFamily || "Arial";
-            
-            const fontSel = document.getElementById('fontSelector');
-            if (fontSel) fontSel.value = fontFamily;
-            const ctxSel = document.getElementById('ctxFontSelector');
-            if (ctxSel) ctxSel.value = fontFamily;
-        }
-
         if (typeof updateContextualMenu === "function") {
             updateContextualMenu(item);
         }
@@ -288,11 +270,11 @@ window.addEventListener("DOMContentLoaded", () => {
     function rotateSelected(angle) {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         saveHistory();
-        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-            const content = window.selectedItem.children.find(c => !c.clipMask);
-            if (content) content.rotate(angle);
-        } else {
-            window.selectedItem.rotate(angle);
+        const targetItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+        if (targetItem) {
+            targetItem.rotate(angle);
+            targetItem.data = targetItem.data || {};
+            targetItem.data.rotationAngle = (targetItem.data.rotationAngle || 0) + angle;
         }
         window.updateSelectionBox(window.selectedItem);
         updateSelectionInfo();
@@ -304,9 +286,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     function applySelectedSize() {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
-        const targetItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
-            ? window.selectedItem.children.find(c => !c.clipMask)
-            : window.selectedItem;
+        const targetItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
         if (!targetItem) return;
         const currentW = targetItem.bounds.width;
         const currentH = targetItem.bounds.height;
@@ -397,40 +377,41 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    function duplicateSelected() {
-        if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
-        saveHistory();
-        let duplicatedObject;
-        if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-            const content = window.selectedItem.children.find(c => !c.clipMask);
-            if (!content) return;
-            const contentClone = content.clone();
-            contentClone.position = contentClone.position.add(new paper.Point(20, 20));
-            
-            sanitizeClonedData(contentClone); // Romper referencias del contenido real
-            contentClone.data.locked = false;
-            contentClone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
-            
-            duplicatedObject = window.clipItem(contentClone);
-        } else {
-            const clone = window.selectedItem.clone();
-            clone.position = clone.position.add(new paper.Point(20, 20));
-            
-            sanitizeClonedData(clone); // Romper referencias del objeto plano
-            clone.data.locked = false;
-            clone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
-            
-            duplicatedObject = clone;
-        }
-        if (duplicatedObject) {
-            paper.project.activeLayer.addChild(duplicatedObject);
-            if (window.currentMockup) {
-                duplicatedObject.insertBelow(window.currentMockup);
-            }
-            window.selectItem(duplicatedObject);
-        }
-        paper.view.update();
+function duplicateSelected() {
+    if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+    saveHistory();
+    let duplicatedObject;
+    if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
+        const content = window.selectedItem.children.find(c => !c.clipMask);
+        if (!content) return;
+        const contentClone = content.clone();
+        contentClone.position = contentClone.position.add(new paper.Point(20, 20));
+        
+        sanitizeClonedData(contentClone); // <--- Desconecta referencias del hijo text/raster
+        contentClone.data.locked = false;
+        contentClone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
+        
+        duplicatedObject = window.clipItem(contentClone);
+    } else {
+        const clone = window.selectedItem.clone();
+        clone.position = clone.position.add(new paper.Point(20, 20));
+        
+        sanitizeClonedData(clone); // <--- Desconecta referencias del objeto plano
+        clone.data.locked = false;
+        clone.data.label = `${window.selectedItem.data?.label || "Objeto"} copia`;
+        
+        duplicatedObject = clone;
     }
+    if (duplicatedObject) {
+        paper.project.activeLayer.addChild(duplicatedObject);
+        if (window.currentMockup) {
+            duplicatedObject.insertBelow(window.currentMockup);
+        }
+        window.selectItem(duplicatedObject);
+    }
+    paper.view.update();
+}
+
 
     function copySelected() {
         if (!window.selectedItem) return;
@@ -438,20 +419,19 @@ window.addEventListener("DOMContentLoaded", () => {
         clipboardItem = window.selectedItem.clone();
     }
 
-    function pasteSelected() {
-        if (!clipboardItem) return;
-        saveHistory();
-        const clone = clipboardItem.clone();
-        clone.position = clone.position.add(new paper.Point(20, 20));
-        
-        sanitizeClonedData(clone); // Romper todas las referencias de .data del portapapeles
-        clone.data.locked = false;
-        
-        paper.project.activeLayer.addChild(clone);
-        window.selectItem(clone);
-        paper.view.update();
-    }
-
+function pasteSelected() {
+    if (!clipboardItem) return;
+    saveHistory();
+    const clone = clipboardItem.clone();
+    clone.position = clone.position.add(new paper.Point(20, 20));
+    
+    sanitizeClonedData(clone); // <--- Desconecta referencias de todo el árbol clonado
+    clone.data.locked = false;
+    
+    paper.project.activeLayer.addChild(clone);
+    window.selectItem(clone);
+    paper.view.update();
+}
     function bringFront() {
         if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
         window.selectedItem.bringToFront();
@@ -489,7 +469,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- CARGADORES DE ARCHIVOS CON ENMASCARAMIENTO COMPATIBLE ---
+    // --- CARGADORES DE ARCHIVOS ---
     function addImageFromFile(file) {
         if (!file) return;
         saveHistory();
@@ -542,6 +522,7 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsText(file);
     }
 
+    // --- QR EN CONDICIONES COMPATIBLES ---
     function addQRCode(text) {
         if (!text) return;
         saveHistory();
@@ -549,14 +530,7 @@ window.addEventListener("DOMContentLoaded", () => {
             if (typeof QRCode !== "undefined") {
                 try {
                     const tempDiv = document.createElement("div");
-                    const qr = new QRCode(tempDiv, {
-                        text: text,
-                        width: 512,
-                        height: 512,
-                        colorDark: "#000000",
-                        colorLight: "#ffffff",
-                        correctLevel: QRCode.CorrectLevel.L
-                    });
+                    const qr = new QRCode(tempDiv, { text: text, width: 512, height: 512, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.L });
                     setTimeout(() => {
                         const qrCanvas = tempDiv.querySelector("canvas");
                         if (qrCanvas) {
@@ -570,10 +544,19 @@ window.addEventListener("DOMContentLoaded", () => {
                         }
                     }, 50);
                 } catch (e) {
+                    console.warn("Error con QRCode JS, usando fallback de red:", e);
                     fallbackToGoogleChart(text);
                 }
             } else {
-                fallbackToGoogleChart(text);
+                const script = document.createElement("script");
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+                script.onload = () => {
+                    generateRealQR();
+                };
+                script.onerror = () => {
+                    fallbackToGoogleChart(text);
+                };
+                document.head.appendChild(script);
             }
         };
         generateRealQR();
@@ -585,6 +568,9 @@ window.addEventListener("DOMContentLoaded", () => {
         raster.onLoad = () => {
             raster.data = { locked: false, label: "QR: " + text };
             setupAndClipQR(raster);
+        };
+        raster.onError = () => {
+            alert("No se pudo generar el código QR. Verifique su conexión a Internet.");
         };
     }
 
@@ -602,17 +588,13 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.update();
     }
 
-    // --- ENLACE SEGURO DE FUENTES DESDE LA BARRA FIJA ---
+    // --- ENLACE DE FUENTES ---
     function applySelectedFont() {
         if (!window.selectedItem) return;
         const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
         if (!target) return;
         const font = ui.fontSelector ? ui.fontSelector.value : "Arial";
         saveHistory();
-        
-        target.data = target.data || {};
-        target.data.fontFamily = font; // Sincronización en data para curvas
-        
         if (target instanceof paper.PointText) {
             target.fontFamily = font;
         } else if (target instanceof paper.Group) {
@@ -620,11 +602,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 if (child instanceof paper.PointText) child.fontFamily = font;
             });
         }
-        
-        // Sincronizar el dropdown flotante contextual
-        const ctxSel = document.getElementById('ctxFontSelector');
-        if (ctxSel) ctxSel.value = font;
-
         window.updateSelectionBox(window.selectedItem);
         if (typeof updateContextualMenu === "function") {
             updateContextualMenu(window.selectedItem);
@@ -633,51 +610,17 @@ window.addEventListener("DOMContentLoaded", () => {
     }
 
     function renderFontGallery() {
-        const list = document.getElementById("fontList");
-        if (!list) return;
-        list.innerHTML = "";
-        FONTS.forEach(font => {
-            const item = document.createElement("div");
-            item.className = "font-item";
-            item.innerHTML = `Feliz Día Papá ${font.name}`;
-            item.onclick = () => {
-                if (window.selectedItem) {
-                    const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                    if (target) {
-                        saveHistory();
-                        
-                        target.data = target.data || {};
-                        target.data.fontFamily = font.family;
-                        
-                        if (target instanceof paper.PointText) {
-                            target.fontFamily = font.family;
-                        } else if (target instanceof paper.Group) {
-                            target.children.forEach(child => {
-                                if (child instanceof paper.PointText) child.fontFamily = font.family;
-                            });
-                        }
-                        
-                        // Sincronizar selectores de fuentes
-                        if (ui.fontSelector) ui.fontSelector.value = font.family;
-                        const ctxSel = document.getElementById('ctxFontSelector');
-                        if (ctxSel) ctxSel.value = font.family;
-
-                        window.updateSelectionBox(window.selectedItem);
-                        if (typeof updateContextualMenu === "function") {
-                            updateContextualMenu(window.selectedItem);
-                        }
-                        paper.view.update();
-                    }
-                }
-            };
-            list.appendChild(item);
-        });
+        // Obsoleto: Reemplazado por selector tipográfico popover en contextualMenu.js
     }
 
-    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS ---
+    // --- INTERFAZ DINÁMICA DE PRODUCTOS ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
+        if (!window.EKKO_STUDIO_PRODUCTS) {
+            console.warn("Base de datos de productos no cargada todavía en window.");
+            return;
+        }
         window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
             const btn = document.createElement("button");
             btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
@@ -743,7 +686,8 @@ window.addEventListener("DOMContentLoaded", () => {
         product.superficies.forEach((surf, index) => {
             if (ui.surfaceTabs) {
                 const btn = document.createElement("button");
-                btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
+                const isSel = (toolState.currentSurface === index);
+                btn.className = "tab-btn" + (isSel ? " active" : "");
                 btn.textContent = surf.nombre;
                 btn.onclick = () => {
                     saveCurrentScene();
@@ -792,38 +736,9 @@ window.addEventListener("DOMContentLoaded", () => {
         startTextEditing(txt);
     }
 
-    // --- MANEJO DE RATÓN Y CLIC EN EL CANVAS CON TIRADORES (PROTECCIÓN CONTRA NULL) ---
-    if (typeof window.getOppositePoint !== 'function') {
-        window.getOppositePoint = function(bounds, handleType) {
-            switch (handleType) {
-                case 'tl': return bounds.bottomRight;
-                case 'tr': return bounds.bottomLeft;
-                case 'bl': return bounds.topRight;
-                case 'br': return bounds.topLeft;
-                case 't': return bounds.bottomCenter;
-                case 'b': return bounds.topCenter;
-                case 'l': return bounds.rightCenter;
-                case 'r': return bounds.leftCenter;
-                default: return bounds.center;
-            }
-        };
-    }
-    if (typeof window.getHandlePoint !== 'function') {
-        window.getHandlePoint = function(bounds, handleType) {
-            switch (handleType) {
-                case 'tl': return bounds.topLeft;
-                case 'tr': return bounds.topRight;
-                case 'bl': return bounds.bottomLeft;
-                case 'br': return bounds.bottomRight;
-                case 't': return bounds.topCenter;
-                case 'b': return bounds.bottomCenter;
-                case 'l': return bounds.leftCenter;
-                case 'r': return bounds.rightCenter;
-                default: return bounds.center;
-            }
-        };
-    }
-
+    // ========================================================
+    // --- MANEJO DE HERRAMIENTA DE RATÓN Y TECLADO ---
+    // ========================================================
     let insertTextMode = false;
     let lastClickTime = 0;
     window.draggingCurveHandle = false;
@@ -832,13 +747,12 @@ window.addEventListener("DOMContentLoaded", () => {
     window.curveInitialCurvature = 0;
 
     const tool = new paper.Tool();
-    
     tool.onMouseDown = function(event) {
         const currentTime = Date.now();
         const isDoubleClick = (currentTime - lastClickTime) < 300;
         lastClickTime = currentTime;
 
-        // 1. Clic sobre tirador de doblado
+        // 1. Tirador de curvatura (LightBurn)
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Group) {
@@ -854,17 +768,26 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        // 2. Clic sobre los 8 tiradores de Canva (BLINDADO CONTRA NULLS)
-        if (window.selectedItem && window.selectionBoxGroup) {
+        // 2. Tiradores de Canva (Resizing y Rotación Libre)
+        if (window.selectionBoxGroup) {
             const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
             if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
-                window.resizeActive = true;
-                window.resizeHandleType = hitHandle.item.data.handleType;
-                window.resizeTarget = window.selectedItem;
-                const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
-                    ? window.resizeTarget.children.find(c => !c.clipMask)
-                    : window.resizeTarget;
-                if (targetItem && targetItem.bounds) {
+                if (hitHandle.item.data.handleType === 'rot') {
+                    window.rotateActive = true;
+                    window.rotateTarget = window.selectedItem;
+                    const targetItem = (window.rotateTarget.data && window.rotateTarget.data.clipGroup) ? window.rotateTarget.children.find(c => !c.clipMask) : window.rotateTarget;
+                    window.rotateCenter = targetItem.position.clone();
+                    window.rotateStartVector = event.point.subtract(window.rotateCenter);
+                    window.dragging = false;
+                    if (typeof hideContextualMenu === "function") {
+                        hideContextualMenu();
+                    }
+                    return;
+                } else {
+                    window.resizeActive = true;
+                    window.resizeHandleType = hitHandle.item.data.handleType;
+                    window.resizeTarget = window.selectedItem;
+                    const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup) ? window.resizeTarget.children.find(c => !c.clipMask) : window.resizeTarget;
                     window.resizeInitialBounds = targetItem.bounds.clone();
                     window.resizeInitialPoint = event.point.clone();
                     window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
@@ -886,56 +809,43 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
-        // Intercepción proactiva para selección de objetos reales
-        let selectable = null;
-        if (window.selectedItem && !isLockedItem(window.selectedItem)) {
-            const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
-                ? window.selectedItem.children.find(c => !c.clipMask)
-                : window.selectedItem;
-            if (displayItem && displayItem.bounds && displayItem.bounds.contains(event.point)) {
-                selectable = window.selectedItem;
+        const hit = paper.project.hitTest(event.point, {
+            fill: true,
+            stroke: true,
+            segments: true,
+            tolerance: 8,
+            match: function(hitResult) {
+                return !hitResult.item.data || !hitResult.item.data.mockup;
             }
-        }
+        });
 
-        if (!selectable) {
-            const hit = paper.project.hitTest(event.point, {
-                fill: true,
-                stroke: true,
-                segments: true,
-                tolerance: 8,
-                match: function(hitResult) {
-                    return !hitResult.item.data || !hitResult.item.data.mockup;
-                }
-            });
-            if (hit && hit.item) {
-                selectable = window.getSelectableItem(hit.item);
-            }
-        }
-
-        if (selectable) {
-            if (isLockedItem(selectable)) {
-                window.selectItem(selectable);
-                window.dragging = false;
-                return;
-            }
-            if (isDoubleClick) {
-                const textItem = selectable.data?.clipGroup ? selectable.children.find(c => !c.clipMask) : selectable;
-                if (textItem instanceof paper.PointText) {
+        if (hit && hit.item) {
+            const selectable = window.getSelectableItem(hit.item);
+            if (selectable) {
+                if (isLockedItem(selectable)) {
+                    window.selectItem(selectable);
                     window.dragging = false;
-                    startTextEditing(textItem);
                     return;
                 }
-            }
-            window.selectItem(selectable);
-            window.dragging = true;
-            if (selectable.data && selectable.data.clipGroup) {
-                const content = selectable.children.find(c => !c.clipMask);
-                window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
-            } else {
-                window.dragOffset = event.point.subtract(selectable.position);
-            }
-            if (typeof hideContextualMenu === "function") {
-                hideContextualMenu();
+                if (isDoubleClick) {
+                    const textItem = selectable.data?.clipGroup ? selectable.children.find(c => !c.clipMask) : selectable;
+                    if (textItem instanceof paper.PointText) {
+                        window.dragging = false;
+                        startTextEditing(textItem);
+                        return;
+                    }
+                }
+                window.selectItem(selectable);
+                window.dragging = true;
+                if (selectable.data && selectable.data.clipGroup) {
+                    const content = selectable.children.find(c => !c.clipMask);
+                    window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
+                } else {
+                    window.dragOffset = event.point.subtract(selectable.position);
+                }
+                if (typeof hideContextualMenu === "function") {
+                    hideContextualMenu();
+                }
             }
         } else {
             window.deselectItem();
@@ -943,6 +853,27 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseDrag = function(event) {
+        // 1. Rotación interactiva por arrastre de tirador circular
+        if (window.rotateActive && window.rotateTarget) {
+            const targetItem = (window.rotateTarget.data && window.rotateTarget.data.clipGroup) ? window.rotateTarget.children.find(c => !c.clipMask) : window.rotateTarget;
+            if (targetItem) {
+                const currentVector = event.point.subtract(window.rotateCenter);
+                let angle = currentVector.angle - window.rotateStartVector.angle;
+                if (event.modifiers.shift) {
+                    angle = Math.round(angle / 15) * 15;
+                }
+                targetItem.rotate(angle, window.rotateCenter);
+                window.rotateStartVector = currentVector;
+                targetItem.data = targetItem.data || {};
+                targetItem.data.rotationAngle = (targetItem.data.rotationAngle || 0) + angle;
+                window.updateSelectionBox(window.rotateTarget);
+                updateSelectionInfo();
+                paper.view.update();
+            }
+            return;
+        }
+
+        // 2. Tirador de doblado de LightBurn
         if (window.draggingCurveHandle && window.curveTarget) {
             const deltaY = event.point.y - window.curveInitialPoint.y;
             let newCurvature = window.curveInitialCurvature + (deltaY * 0.5);
@@ -951,19 +882,16 @@ window.addEventListener("DOMContentLoaded", () => {
             if (curveSlider) {
                 curveSlider.value = newCurvature.toFixed(1);
             }
-            const parentItem = window.curveTarget.parent && window.curveTarget.parent.data?.clipGroup
-                ? window.curveTarget.parent
-                : window.curveTarget;
+            const parentItem = window.curveTarget.parent && window.curveTarget.parent.data?.clipGroup ? window.curveTarget.parent : window.curveTarget;
             import("./modules/canvas-pro/textToolbar.js").then(module => {
                 module.applyTextCurve(parentItem, newCurvature);
             });
             return;
         }
 
+        // 3. Escalado interactivo (Resizing)
         if (window.resizeActive && window.resizeTarget) {
-            const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
-                ? window.resizeTarget.children.find(c => !c.clipMask)
-                : window.resizeTarget;
+            const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup) ? window.resizeTarget.children.find(c => !c.clipMask) : window.resizeTarget;
             if (!targetItem) return;
             let anchor = window.resizeAnchor;
             if (event.modifiers.control) {
@@ -997,6 +925,7 @@ window.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        // 4. Arrastre normal de objetos (Translación)
         if (window.dragging && window.selectedItem) {
             if (isLockedItem(window.selectedItem)) return;
             if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
@@ -1013,6 +942,19 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseUp = function(event) {
+        if (window.rotateActive) {
+            saveHistory();
+            window.rotateActive = false;
+            window.rotateTarget = null;
+            window.rotateCenter = null;
+            window.rotateStartVector = null;
+            updateSelectionInfo();
+            if (typeof updateContextualMenu === "function" && window.selectedItem) {
+                updateContextualMenu(window.selectedItem);
+            }
+            paper.view.update();
+            return;
+        }
         if (window.draggingCurveHandle) {
             window.draggingCurveHandle = false;
             window.curveTarget = null;
@@ -1072,9 +1014,7 @@ window.addEventListener("DOMContentLoaded", () => {
         }
         if (window.selectedItem && !isLockedItem(window.selectedItem)) {
             const step = event.modifiers.shift ? 10 : 1;
-            const targetMove = (window.selectedItem.data && window.selectedItem.data.clipGroup)
-                ? window.selectedItem.children.find(c => !c.clipMask)
-                : window.selectedItem;
+            const targetMove = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (targetMove) {
                 if (event.key === "left") {
                     targetMove.position.x -= step;
@@ -1111,12 +1051,6 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     safeAddListener("btnAddText", "click", activateTextMode);
-    const fontGalleryEl = document.getElementById("fontGallery");
-    if (fontGalleryEl) {
-        fontGalleryEl.classList.remove("hidden");
-    }
-    renderFontGallery();
-
     safeAddListener("btnDelete", "click", deleteSelected);
     safeAddListener("btnDuplicate", "click", duplicateSelected);
     safeAddListener("btnBringFront", "click", bringFront);
@@ -1133,6 +1067,7 @@ window.addEventListener("DOMContentLoaded", () => {
             ui.imagePicker.click();
         }
     });
+
     safeAddListener("btnAddSVG", "click", () => {
         if (ui.svgPicker) {
             ui.svgPicker.value = "";
@@ -1166,6 +1101,7 @@ window.addEventListener("DOMContentLoaded", () => {
             addQRCode(text);
         }
     };
+
     safeAddListener("btnQR", "click", onQRClick);
     safeAddListener("btnAddQR", "click", onQRClick);
     safeAddListener("btnCreateQR", "click", onQRClick);
@@ -1173,7 +1109,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
     safeAddListener(ui.btnApplySize, "click", applySelectedSize);
     safeAddListener(ui.btnToggleLock, "click", toggleLockSelected);
-
     safeAddListener(ui.btnAlignLeft, "click", () => alignSelected("left"));
     safeAddListener(ui.btnAlignCenterH, "click", () => alignSelected("centerH"));
     safeAddListener(ui.btnAlignRight, "click", () => alignSelected("right"));
@@ -1199,41 +1134,11 @@ window.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // EVENTO DE CAMBIO INSTANTÁNEO EN EL DROPDOWN DE FUENTES FIJO
-    if (ui.fontSelector) {
-        ui.fontSelector.onchange = () => {
-            if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                if (target) {
-                    if (typeof window.saveHistory === 'function') window.saveHistory();
-                    
-                    target.data = target.data || {};
-                    target.data.fontFamily = ui.fontSelector.value;
-                    
-                    if (target instanceof paper.PointText) {
-                        target.fontFamily = ui.fontSelector.value;
-                    } else if (target instanceof paper.Group) {
-                        target.children.forEach(child => {
-                            if (child instanceof paper.PointText) child.fontFamily = ui.fontSelector.value;
-                        });
-                    }
-                    
-                    // Sincronizar el dropdown flotante contextual
-                    const ctxSel = document.getElementById('ctxFontSelector');
-                    if (ctxSel) ctxSel.value = ui.fontSelector.value;
-
-                    if (typeof window.updateSelectionBox === 'function') {
-                        window.updateSelectionBox(window.selectedItem);
-                    }
-                    paper.view.update();
-                }
-            }
-        };
-    }
-
     safeAddListener(ui.btnApplyFont, "click", applySelectedFont);
+
     if (typeof initContextualMenu === 'function') {
         initContextualMenu();
     }
+
     renderCategories();
 });
