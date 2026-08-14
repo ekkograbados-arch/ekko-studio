@@ -9,24 +9,28 @@ let loadedFontsCache = [];
 // Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts
 export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
+    
     const fallbacks = [
         { name: "Nostalgic Letter", family: "ekko_nostalgic_letter", file: "Nostalgic Letter.woff2" },
         { name: "Please write me a song", family: "ekko_please_write_me_a_song", file: "Please write me a song.woff2" },
         { name: "SimpleHandmade", family: "ekko_simplehandmade", file: "SimpleHandmade.woff2" }
     ];
+
     try {
         const response = await fetch('/api/fonts');
         if (!response.ok) throw new Error("Endpoint api/fonts no disponible");
         const fontFiles = await response.json();
+        
         if (!fontFiles || fontFiles.length === 0) {
             throw new Error("No se devolvieron tipografías desde el servidor.");
         }
+        
         const loaded = [];
         for (const item of fontFiles) {
             let name, family, file;
             if (typeof item === 'string') {
                 file = item;
-                name = file.replace(/^.*[\\/]/, '').replace(/\\.[^/.]+$/, "");
+                name = file.replace(/\.[^/.]+$/, "");
                 family = "ekko_" + name.toLowerCase().replace(/[^a-z0-9]/g, "_");
             } else if (item && typeof item === 'object') {
                 name = item.name;
@@ -44,9 +48,11 @@ export async function loadDynamicFonts() {
                 console.warn(`No se pudo cargar la tipografía dinámica: ${file}`, err);
             }
         }
+        
         if (loaded.length === 0) {
             throw new Error("Ninguna tipografía dinámica pudo registrarse.");
         }
+        
         loaded.sort((a, b) => a.name.localeCompare(b.name));
         loadedFontsCache = loaded;
         return loaded;
@@ -71,30 +77,36 @@ export async function loadDynamicFonts() {
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+
     target.data = target.data || {};
     target.data.curvature = curvature;
-    
+
+    // Si la curvatura es casi cero, restaurar a texto plano normal
     if (Math.abs(curvature) < 0.001) {
-        if (target.data.isCurvedGroup) {
+        if (target.data?.isCurvedGroup) {
             restoreFlatText(item, target);
         }
         return;
     }
+
     const textStr = target.data.textString || target.content || "Texto";
     const fontFamily = target.fontFamily || "Arial";
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
+
     const origCenter = target.position.clone();
     let glyphGroup;
-    
-    if (target.data.isCurvedGroup) {
+
+    if (target.data?.isCurvedGroup) {
         glyphGroup = target;
         glyphGroup.clear();
     } else {
         glyphGroup = new paper.Group();
-        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr };
+        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr, fontSize: fontSize, fontFamily: fontFamily, fillColor: fillColor };
+        
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, glyphGroup);
@@ -106,21 +118,26 @@ export function applyTextCurve(item, curvature) {
             window.selectItem(glyphGroup);
         }
     }
+
     const chars = textStr.split("");
     const numChars = chars.length;
     if (numChars === 0) return;
+
     const radius = 2000 / curvature;
     const centerPoint = new paper.Point(0, radius);
     const arcAngle = (numChars * fontSize * 0.6) / radius;
     const startAngle = -Math.PI / 2 - (arcAngle / 2);
-    
+
     for (let i = 0; i < numChars; i++) {
         const char = chars[i];
         if (char === " ") continue;
+
         const t = numChars > 1 ? i / (numChars - 1) : 0.5;
         const angle = startAngle + (t * arcAngle);
+
         const x = centerPoint.x + radius * Math.cos(angle);
         const y = centerPoint.y + radius * Math.sin(angle);
+
         const glyph = new paper.PointText({
             point: [x, y],
             content: char,
@@ -129,12 +146,14 @@ export function applyTextCurve(item, curvature) {
             fillColor: fillColor,
             justification: "center"
         });
-        const rotationAngle = (angle * 180 / Math.PI) + 90;
-        glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
+
+        glyph.rotate((angle * 180 / Math.PI) + 90, [x, y]);
         glyphGroup.addChild(glyph);
     }
+
     glyphGroup.position = origCenter;
     drawBlueCurveHandle(glyphGroup);
+
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(glyphGroup);
     }
@@ -151,9 +170,10 @@ function restoreFlatText(item, curvedGroup) {
         fillColor: curvedGroup.data.fillColor || new paper.Color(0),
         justification: "center"
     });
+
     flatText.data = { ...curvedGroup.data, isCurvedGroup: false };
     delete flatText.data.curvature;
-    
+
     if (item.data?.clipGroup) {
         const idx = item.children.indexOf(curvedGroup);
         item.insertChild(idx, flatText);
@@ -161,7 +181,7 @@ function restoreFlatText(item, curvedGroup) {
     } else {
         const idx = paper.project.activeLayer.children.indexOf(item);
         paper.project.activeLayer.insertChild(idx, flatText);
-        item.remove();
+        curvedGroup.remove();
         window.selectItem(flatText);
     }
 }
@@ -169,8 +189,10 @@ function restoreFlatText(item, curvedGroup) {
 function drawBlueCurveHandle(group) {
     const oldHandle = group.children.find(c => c.data?.isCurveHandle);
     if (oldHandle) oldHandle.remove();
+
     const bounds = group.bounds;
     const handlePoint = bounds.topRight.add(new paper.Point(10, -10));
+
     const blueCircle = new paper.Path.Circle({
         center: handlePoint,
         radius: 6 / paper.view.zoom,
@@ -178,6 +200,7 @@ function drawBlueCurveHandle(group) {
         strokeColor: '#ffffff',
         strokeWidth: 1.5
     });
+
     blueCircle.data = { isCurveHandle: true, mockup: true };
     group.addChild(blueCircle);
 }
@@ -186,16 +209,19 @@ function drawBlueCurveHandle(group) {
 export function applyTextSpacing(item, hspace) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+
     target.data = target.data || {};
     target.data.hspace = hspace;
-    
+
     if (target instanceof paper.Group) {
         if (target.data.isCurvedGroup) {
             applyTextCurve(item, target.data.curvature || 0);
             return;
         }
+        
         let currentX = 0;
         target.children.forEach(child => {
             if (child.data?.isCurveHandle || child.data?.underlineId) return;
@@ -205,6 +231,7 @@ export function applyTextSpacing(item, hspace) {
     } else if (target instanceof paper.PointText) {
         const textStr = target.content || "Texto";
         if (Math.abs(hspace) < 0.001) return;
+
         const glyphGroup = new paper.Group();
         glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr };
         const chars = textStr.split("");
@@ -212,8 +239,8 @@ export function applyTextSpacing(item, hspace) {
         const fontSize = target.fontSize || 42;
         const fillColor = target.fillColor || new paper.Color(0);
         const origCenter = target.position.clone();
+
         let currentX = 0;
-        
         chars.forEach(char => {
             const glyph = new paper.PointText({
                 point: [currentX, 0],
@@ -226,6 +253,7 @@ export function applyTextSpacing(item, hspace) {
             glyphGroup.addChild(glyph);
             currentX += glyph.bounds.width + hspace;
         });
+
         glyphGroup.position = origCenter;
         
         if (item.data?.clipGroup) {
@@ -239,22 +267,26 @@ export function applyTextSpacing(item, hspace) {
             window.selectItem(glyphGroup);
         }
     }
+
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(item);
     }
     paper.view.update();
 }
 
-// Convertir las fuentes tipográficas superpuestas o cursivas a trazados vectoriales unidos (Soldadura de curvas)
+// Convertir las fuentes tipográficas superpuestas a trazados vectoriales unidos (Soldadura de curvas)
 export function weldText(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+
     const svgElement = target.exportSVG({ asString: false });
     paper.project.activeLayer.importSVG(svgElement, (vectorGroup) => {
         if (!vectorGroup) return;
         const childrenPaths = [];
+
         if (vectorGroup.children) {
             vectorGroup.children.forEach(child => {
                 if (child instanceof paper.Path || child instanceof paper.CompoundPath) {
@@ -272,10 +304,12 @@ export function weldText(item) {
                 childrenPaths.push(vectorGroup);
             }
         }
+
         if (childrenPaths.length === 0) {
             vectorGroup.remove();
             return;
         }
+
         let weldedPath = childrenPaths[0];
         for (let i = 1; i < childrenPaths.length; i++) {
             const nextPath = childrenPaths[i];
@@ -284,10 +318,11 @@ export function weldText(item) {
             nextPath.remove();
             weldedPath = temp;
         }
+
         weldedPath.fillColor = target.fillColor || new paper.Color(0);
         weldedPath.strokeColor = target.strokeColor || null;
         weldedPath.data = { ...target.data, label: "Texto Soldado" };
-        
+
         if (item.data?.clipGroup) {
             const idx = item.children.indexOf(target);
             item.insertChild(idx, weldedPath);
@@ -308,21 +343,15 @@ export function weldText(item) {
 export function toggleBold(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
         if (target instanceof paper.PointText) {
-            const isBold = target.fontWeight === 'bold' || target.fontWeight === 700;
-            target.fontWeight = isBold ? 'normal' : 'bold';
+            target.fontWeight = target.fontWeight === 'bold' ? 'normal' : 'bold';
         } else if (target instanceof paper.Group) {
-            let anyBold = false;
-            target.children.forEach(child => {
-                if (child instanceof paper.PointText && (child.fontWeight === 'bold' || child.fontWeight === 700)) {
-                    anyBold = true;
-                }
-            });
             target.children.forEach(child => {
                 if (child instanceof paper.PointText) {
-                    child.fontWeight = anyBold ? 'normal' : 'bold';
+                    child.fontWeight = child.fontWeight === 'bold' ? 'normal' : 'bold';
                 }
             });
         }
@@ -333,15 +362,17 @@ export function toggleBold(item) {
     }
 }
 
-// Alternar estilo de cursiva (Italic / Inclinado) inclinando hacia la DERECHA (Estilo LightBurn)
+// Alternar estilo de cursiva (Italic / Inclinado) inclinando hacia la DERECHA
 export function toggleItalic(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (target) {
         target.data = target.data || {};
         const isItalic = target.data.isItalicSkewed || false;
         const slantAngle = -0.22;
+
         if (isItalic) {
             target.shear(-slantAngle, 0, target.bounds.bottomCenter);
             target.data.isItalicSkewed = false;
@@ -360,13 +391,15 @@ export function toggleItalic(item) {
 export function toggleUnderline(item) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
+
     const isGroup = item.data?.clipGroup;
     const parentGroup = isGroup ? item : null;
     const target = isGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+
     const underlineId = "underline_path_" + target.id;
     const existingLine = isGroup ? item.children.find(c => c.data?.underlineId === underlineId) : paper.project.activeLayer.children.find(c => c.data?.underlineId === underlineId);
-    
+
     if (existingLine) {
         existingLine.remove();
     } else {
@@ -380,6 +413,7 @@ export function toggleUnderline(item) {
             strokeWidth: Math.max(1.5, target.fontSize * 0.05)
         });
         line.data = { underlineId: underlineId, mockup: false };
+
         if (isGroup && parentGroup) {
             parentGroup.addChild(line);
         } else {
