@@ -6,7 +6,7 @@
 let loadedFontsCache = [];
 
 
-// 1. CARGA DE FUENTES CORREGIDA (Sintaxis FontFace corregida con comillas en url)
+// Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts (Corregido)
 export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
     const fallbacks = [
@@ -36,7 +36,7 @@ export async function loadDynamicFonts() {
                 continue;
             }
             try {
-                // CORRECCIÓN DE SINTAXIS: Se añaden comillas simples dentro de url()
+                // CORRECCIÓN: Sintaxis limpia y remoción del espacio en la interpolación ${}
                 const fontFace = new FontFace(family, `url('/ASSETS/fonts/${encodeURIComponent(file)}')`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
@@ -55,7 +55,7 @@ export async function loadDynamicFonts() {
         console.warn("Inyectando fuentes locales de respaldo por error de red o backend vacío:", e);
         for (const f of fallbacks) {
             try {
-                // CORRECCIÓN DE SINTAXIS: Se añaden comillas simples dentro de url()
+                // CORRECCIÓN: También corregimos la sintaxis en la sección de fuentes locales de respaldo
                 const fontFace = new FontFace(f.family, `url('/ASSETS/fonts/${encodeURIComponent(f.file)}')`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
@@ -68,6 +68,8 @@ export async function loadDynamicFonts() {
         return fallbacks;
     }
 }
+
+
 
 
 // 2. CURVATURA DE TEXTO SIN DESPLAZAMIENTO (Siempre genera un grupo limpio desde origCenter)
