@@ -572,4 +572,162 @@ export function openBackgroundRemovalModal(raster) {
             editCtx.putImageData(historyStack[historyIndex], 0, 0);
             renderEditCanvasToScreen();
             updateHistoryButtons();
-        }\n    };\n\n    btnRemoverRedo.onclick = () => {\n        if (historyIndex < historyStack.length - 1) {\n            historyIndex++;\n            editCtx.putImageData(historyStack[historyIndex], 0, 0);\n            renderEditCanvasToScreen();\n            updateHistoryButtons();\n        }\n    };\n\n    function getCanvasCoords(e) {\n        const rect = screenCanvas.getBoundingClientRect();\n        const scaleX = editCanvas.width / rect.width;\n        const scaleY = editCanvas.height / rect.height;\n        return {\n            x: (e.clientX - rect.left) * scaleX,\n            y: (e.clientY - rect.top) * scaleY\n        };\n    }\n\n    screenCanvas.addEventListener('mousedown', (e) => {\n        const coords = getCanvasCoords(e);\n        if (activeTool === 'magic') {\n            magicWandFloodFillDirect(editCtx, Math.round(coords.x), Math.round(coords.y), magicTolerance);\n            renderEditCanvasToScreen();\n            saveSessionHistory();\n        } else {\n            isDrawing = true;\n            lastX = coords.x;\n            lastY = coords.y;\n            drawBrushStroke(coords.x, coords.y, coords.x, coords.y);\n        }\n    });\n\n    screenCanvas.addEventListener('mousemove', (e) => {\n        if (!isDrawing) return;\n        const coords = getCanvasCoords(e);\n        drawBrushStroke(lastX, lastY, coords.x, coords.y);\n        lastX = coords.x;\n        lastY = coords.y;\n    });\n\n    window.addEventListener('mouseup', () => {\n        if (isDrawing) {\n            isDrawing = false;\n            saveSessionHistory();\n        }\n    });\n\n    function drawBrushStroke(x0, y0, x1, y1) {\n        const dist = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2);\n        const steps = Math.max(1, Math.floor(dist / (brushSize / 8)));\n        for (let i = 0; i <= steps; i++) {\n            const t = i / steps;\n            const cx = x0 + (x1 - x0) * t;\n            const cy = y0 + (y1 - y0) * t;\n            applySingleBrushSpot(cx, cy);\n        }\n        renderEditCanvasToScreen();\n    }\n\n    function applySingleBrushSpot(cx, cy) {\n        const radius = brushSize;\n        const brushCanvas = document.createElement('canvas');\n        brushCanvas.width = radius * 2;\n        brushCanvas.height = radius * 2;\n        const brushCtx = brushCanvas.getContext('2d');\n        const grad = brushCtx.createRadialGradient(radius, radius, radius * brushHardness, radius, radius, radius);\n        grad.addColorStop(0, 'rgba(0,0,0,1)');\n        grad.addColorStop(1, 'rgba(0,0,0,0)');\n        brushCtx.fillStyle = grad;\n        brushCtx.beginPath();\n        brushCtx.arc(radius, radius, radius, 0, Math.PI * 2);\n        brushCtx.fill();\n\n        if (activeTool === 'erase') {\n            editCtx.save();\n            editCtx.globalCompositeOperation = 'destination-out';\n            editCtx.drawImage(brushCanvas, cx - radius, cy - radius);\n            editCtx.restore();\n        } else if (activeTool === 'restore') {\n            brushCtx.save();\n            brushCtx.globalCompositeOperation = 'source-in';\n            brushCtx.drawImage(backupCanvas, cx - radius, cy - radius, radius * 2, radius * 2, 0, 0, radius * 2, radius * 2);\n            brushCtx.restore();\n            editCtx.save();\n            editCtx.globalCompositeOperation = 'source-over';\n            editCtx.drawImage(brushCanvas, cx - radius, cy - radius);\n            editCtx.restore();\n        }\n    }\n\n    const dragHeader = modal.querySelector('.bg-remover-header');\n    let isDraggingModal = false;\n    let startModalX = 0;\n    let startModalY = 0;\n    let initialModalLeft = 0;\n    let initialModalTop = 0;\n\n    dragHeader.addEventListener('mousedown', (e) => {\n        if (e.button !== 0) return;\n        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;\n        isDraggingModal = true;\n        const rect = modal.getBoundingClientRect();\n        startModalX = e.clientX;\n        startModalY = e.clientY;\n        initialModalLeft = rect.left;\n        initialModalTop = rect.top;\n        modal.style.position = 'fixed';\n        modal.style.margin = '0';\n        modal.style.left = initialModalLeft + 'px';\n        modal.style.top = initialModalTop + 'px';\n        e.preventDefault();\n    });\n\n    document.addEventListener('mousemove', (e) => {\n        if (!isDraggingModal) return;\n        const deltaX = e.clientX - startModalX;\n        const deltaY = e.clientY - startModalY;\n        modal.style.left = (initialModalLeft + deltaX) + 'px';\n        modal.style.top = (initialModalTop + deltaY) + 'px';\n    });\n\n    document.addEventListener('mouseup', () => {\n        isDraggingModal = false;\n    });\n\n    const btnCancel = modal.querySelector('#btnRemoverCancel');\n    const btnAccept = modal.querySelector('#btnRemoverAccept');\n\n    const closeModal = () => {\n        overlay.remove();\n    };\n\n    btnCancel.onclick = closeModal;\n\n    btnAccept.onclick = () => {\n        if (typeof window.saveHistory === 'function') {\n            window.saveHistory();\n        }\n        const finalCanvas = document.createElement('canvas');\n        finalCanvas.width = editCanvas.width;\n        finalCanvas.height = editCanvas.height;\n        const finalCtx = finalCanvas.getContext('2d');\n        finalCtx.drawImage(editCanvas, 0, 0);\n\n        raster.canvas = finalCanvas;\n        raster.data = raster.data || {};\n        raster.data.originalCanvas = finalCanvas;\n\n        if (typeof window.updateSelectionBox === 'function') {\n            window.updateSelectionBox(window.selectedItem);\n        }\n        paper.view.update();\n        closeModal();\n    };\n}\n
+        }
+    };
+
+    btnRemoverRedo.onclick = () => {
+        if (historyIndex < historyStack.length - 1) {
+            historyIndex++;
+            editCtx.putImageData(historyStack[historyIndex], 0, 0);
+            renderEditCanvasToScreen();
+            updateHistoryButtons();
+        }
+    };
+
+    function getCanvasCoords(e) {
+        const rect = screenCanvas.getBoundingClientRect();
+        const scaleX = editCanvas.width / rect.width;
+        const scaleY = editCanvas.height / rect.height;
+        return {
+            x: (e.clientX - rect.left) * scaleX,
+            y: (e.clientY - rect.top) * scaleY
+        };
+    }
+
+    screenCanvas.addEventListener('mousedown', (e) => {
+        const coords = getCanvasCoords(e);
+        if (activeTool === 'magic') {
+            magicWandFloodFillDirect(editCtx, Math.round(coords.x), Math.round(coords.y), magicTolerance);
+            renderEditCanvasToScreen();
+            saveSessionHistory();
+        } else {
+            isDrawing = true;
+            lastX = coords.x;
+            lastY = coords.y;
+            drawBrushStroke(coords.x, coords.y, coords.x, coords.y);
+        }
+    });
+
+    screenCanvas.addEventListener('mousemove', (e) => {
+        if (!isDrawing) return;
+        const coords = getCanvasCoords(e);
+        drawBrushStroke(lastX, lastY, coords.x, coords.y);
+        lastX = coords.x;
+        lastY = coords.y;
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isDrawing) {
+            isDrawing = false;
+            saveSessionHistory();
+        }
+    });
+
+    function drawBrushStroke(x0, y0, x1, y1) {
+        const dist = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2);
+        const steps = Math.max(1, Math.floor(dist / (brushSize / 8)));
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const cx = x0 + (x1 - x0) * t;
+            const cy = y0 + (y1 - y0) * t;
+            applySingleBrushSpot(cx, cy);
+        }
+        renderEditCanvasToScreen();
+    }
+
+    function applySingleBrushSpot(cx, cy) {
+        const radius = brushSize;
+        const brushCanvas = document.createElement('canvas');
+        brushCanvas.width = radius * 2;
+        brushCanvas.height = radius * 2;
+        const brushCtx = brushCanvas.getContext('2d');
+        const grad = brushCtx.createRadialGradient(radius, radius, radius * brushHardness, radius, radius, radius);
+        grad.addColorStop(0, 'rgba(0,0,0,1)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        brushCtx.fillStyle = grad;
+        brushCtx.beginPath();
+        brushCtx.arc(radius, radius, radius, 0, Math.PI * 2);
+        brushCtx.fill();
+
+        if (activeTool === 'erase') {
+            editCtx.save();
+            editCtx.globalCompositeOperation = 'destination-out';
+            editCtx.drawImage(brushCanvas, cx - radius, cy - radius);
+            editCtx.restore();
+        } else if (activeTool === 'restore') {
+            brushCtx.save();
+            brushCtx.globalCompositeOperation = 'source-in';
+            brushCtx.drawImage(backupCanvas, cx - radius, cy - radius, radius * 2, radius * 2, 0, 0, radius * 2, radius * 2);
+            brushCtx.restore();
+            editCtx.save();
+            editCtx.globalCompositeOperation = 'source-over';
+            editCtx.drawImage(brushCanvas, cx - radius, cy - radius);
+            editCtx.restore();
+        }
+    }
+
+    const dragHeader = modal.querySelector('.bg-remover-header');
+    let isDraggingModal = false;
+    let startModalX = 0;
+    let startModalY = 0;
+    let initialModalLeft = 0;
+    let initialModalTop = 0;
+
+    dragHeader.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+        isDraggingModal = true;
+        const rect = modal.getBoundingClientRect();
+        startModalX = e.clientX;
+        startModalY = e.clientY;
+        initialModalLeft = rect.left;
+        initialModalTop = rect.top;
+        modal.style.position = 'fixed';
+        modal.style.margin = '0';
+        modal.style.left = initialModalLeft + 'px';
+        modal.style.top = initialModalTop + 'px';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isDraggingModal) return;
+        const deltaX = e.clientX - startModalX;
+        const deltaY = e.clientY - startModalY;
+        modal.style.left = (initialModalLeft + deltaX) + 'px';
+        modal.style.top = (initialModalTop + deltaY) + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDraggingModal = false;
+    });
+
+    const btnCancel = modal.querySelector('#btnRemoverCancel');
+    const btnAccept = modal.querySelector('#btnRemoverAccept');
+
+    const closeModal = () => {
+        overlay.remove();
+    };
+
+    btnCancel.onclick = closeModal;
+
+    btnAccept.onclick = () => {
+        if (typeof window.saveHistory === 'function') {
+            window.saveHistory();
+        }
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = editCanvas.width;
+        finalCanvas.height = editCanvas.height;
+        const finalCtx = finalCanvas.getContext('2d');
+        finalCtx.drawImage(editCanvas, 0, 0);
+
+        raster.canvas = finalCanvas;
+        raster.data = raster.data || {};
+        raster.data.originalCanvas = finalCanvas;
+
+        if (typeof window.updateSelectionBox === 'function') {
+            window.updateSelectionBox(window.selectedItem);
+        }
+        paper.view.update();
+        closeModal();
+    };
+}
