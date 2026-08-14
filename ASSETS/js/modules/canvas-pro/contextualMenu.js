@@ -1,7 +1,7 @@
 /**
  * ASSETS/js/modules/canvas-pro/contextualMenu.js
  * 
- * Controlador de barra de herramientas contextual flotante interactiva (Canva-style) - Versión Final.
+ * Controlador de barra de herramientas contextual flotante interactiva (Canva-style) - Versión 3.
  * Integra de forma nativa la eliminación automática de fondos (Auto Magic Wand) y la modal de edición manual.
  */
 
@@ -53,14 +53,13 @@ async function populateFontDropdowns() {
             const opt = document.createElement('option');
             opt.value = font.family;
             opt.textContent = font.name;
-            opt.style.fontFamily = font.family; // Previsualización real de la fuente dentro de las opciones
+            opt.style.fontFamily = font.family;
             dropdown.appendChild(opt);
         });
     });
-    renderSidebarFontGallery(fonts);
 }
 
-// Renderizar galería de tipografías lateral con hover interactivo de previsualización (Hover Preview)
+// Renderizar galería de tipografías con el sistema interactivo de deslizamiento (Hover Preview) en tiempo real
 function renderSidebarFontGallery(fonts) {
     const list = document.getElementById("fontList");
     if (!list) return;
@@ -78,11 +77,10 @@ function renderSidebarFontGallery(fonts) {
         // PREVISUALIZACIÓN DINÁMICA POR HOVER (Al pasar el cursor del mouse por encima)
         item.onmouseenter = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? 
+                const target = window.selectedItem.data?.clipGroup ?
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                    
+                
                 if (target) {
-                    // Respaldar la tipografía original si no hay respaldo activo
                     if (!window.originalFontBackup) {
                         if (target instanceof paper.PointText) {
                             window.originalFontBackup = target.fontFamily;
@@ -92,7 +90,6 @@ function renderSidebarFontGallery(fonts) {
                         }
                     }
                     
-                    // Aplicar tipografía en vivo
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
                     } else if (target instanceof paper.Group) {
@@ -112,9 +109,9 @@ function renderSidebarFontGallery(fonts) {
         // RESTAURACIÓN DE TIPOGRAFÍA ORIGINAL AL SALIR DEL CONTENEDOR (Unhover)
         item.onmouseleave = () => {
             if (window.selectedItem && window.originalFontBackup) {
-                const target = window.selectedItem.data?.clipGroup ? 
+                const target = window.selectedItem.data?.clipGroup ?
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                    
+                
                 if (target) {
                     if (target instanceof paper.PointText) {
                         target.fontFamily = window.originalFontBackup;
@@ -135,12 +132,11 @@ function renderSidebarFontGallery(fonts) {
         // CONFIRMACIÓN DE TIPOGRAFÍA AL HACER CLIC
         item.onclick = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? 
+                const target = window.selectedItem.data?.clipGroup ?
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                    
+                
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
-                    
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
                     } else if (target instanceof paper.Group) {
@@ -148,11 +144,7 @@ function renderSidebarFontGallery(fonts) {
                             if (child instanceof paper.PointText) child.fontFamily = font.family;
                         });
                     }
-                    
-                    // Confirmar selección y evitar que el unhover posterior la restaure
                     window.originalFontBackup = null;
-                    
-                    // Sincronizar selectores de fuentes
                     const ctxDropdown = document.getElementById('ctxFontSelector');
                     if (ctxDropdown) ctxDropdown.value = font.family;
                     
@@ -163,6 +155,7 @@ function renderSidebarFontGallery(fonts) {
                 }
             }
         };
+        
         list.appendChild(item);
     });
 }
@@ -186,19 +179,16 @@ export function initContextualMenu() {
             hideContextualMenu();
         }
     });
-    
     setClick('btnCtxDuplicate', () => {
         if (window.selectedItem) {
             duplicateImage(window.selectedItem);
         }
     });
-    
     setClick('btnCtxForward', () => {
         if (window.selectedItem) {
             bringImageForward(window.selectedItem);
         }
     });
-    
     setClick('btnCtxBackward', () => {
         if (window.selectedItem) {
             sendImageBackward(window.selectedItem);
@@ -208,14 +198,13 @@ export function initContextualMenu() {
     // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
-        const applyFontChange = () => {
+        fontSelector.onchange = () => {
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? 
+                const target = window.selectedItem.data?.clipGroup ?
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                    
+                
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
-                    
                     if (target instanceof paper.PointText) {
                         target.fontFamily = fontSelector.value;
                     } else if (target instanceof paper.Group) {
@@ -223,7 +212,6 @@ export function initContextualMenu() {
                             if (child instanceof paper.PointText) child.fontFamily = fontSelector.value;
                         });
                     }
-                    
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -231,8 +219,6 @@ export function initContextualMenu() {
                 }
             }
         };
-        fontSelector.onchange = applyFontChange;
-        fontSelector.oninput = applyFontChange;
     }
     
     setClick('btnCtxBold', () => {
@@ -240,26 +226,23 @@ export function initContextualMenu() {
             toggleBold(window.selectedItem);
         }
     });
-    
     setClick('btnCtxItalic', () => {
         if (window.selectedItem) {
             toggleItalic(window.selectedItem);
         }
     });
-    
     setClick('btnCtxUnderline', () => {
         if (window.selectedItem) {
             toggleUnderline(window.selectedItem);
         }
     });
-    
     setClick('btnCtxWeld', () => {
         if (window.selectedItem) {
             weldText(window.selectedItem);
         }
     });
     
-    // Control Deslizante de Curvatura de Texto (Estilo LightBurn)
+    // Control Deslizante de Curvatura de Texto
     const curveSlider = document.getElementById('ctxTextCurve');
     if (curveSlider) {
         curveSlider.oninput = () => {
@@ -270,7 +253,7 @@ export function initContextualMenu() {
         };
     }
     
-    // Control Deslizante de Espaciado de Caracteres (HSpace - Estilo LightBurn)
+    // Control Deslizante de Espaciado (HSpace)
     const hspaceSlider = document.getElementById('ctxTextHSpace');
     if (hspaceSlider) {
         hspaceSlider.oninput = () => {
@@ -284,7 +267,7 @@ export function initContextualMenu() {
     // --- 3. ACCIONES DE IMAGEN ---
     setClick('btnCtxFlipH', () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? 
+            const target = window.selectedItem.data?.clipGroup ?
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Raster) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -296,7 +279,7 @@ export function initContextualMenu() {
     
     setClick('btnCtxFlipV', () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? 
+            const target = window.selectedItem.data?.clipGroup ?
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Raster) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -306,23 +289,21 @@ export function initContextualMenu() {
         }
     });
     
-    // --- ACCIONES DE ESCALADO INTERACTIVO (ACHICAR / AGRANDAR) ---
-    const bindScaleDown = () => { if (window.selectedItem) scaleImage(window.selectedItem, 0.9); };
-    const bindScaleUp = () => { if (window.selectedItem) scaleImage(window.selectedItem, 1.1); };
-    setClick('btnCtxAchicar', bindScaleDown);
-    setClick('btnCtxScaleDown', bindScaleDown);
-    setClick('btnCtxShrink', bindScaleDown);
-    setClick('btnCtxAgrandar', bindScaleUp);
-    setClick('btnCtxScaleUp', bindScaleUp);
-    setClick('btnCtxGrow', bindScaleUp);
+    const bindScaleDown = () => {
+        if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
+    };
+    const bindScaleUp = () => {
+        if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
+    };
     
-    // --- SLIDERS DE BRILLO Y CONTRASTE EN TIEMPO REAL ---
+    setClick('btnCtxScaleDown', bindScaleDown);
+    setClick('btnCtxScaleUp', bindScaleUp);
+    
     const briSlider = document.getElementById('ctxBrightness');
     const conSlider = document.getElementById('ctxContrast');
-    
     const handleFilterInput = () => {
         if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? 
+            const target = window.selectedItem.data?.clipGroup ?
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (target && target instanceof paper.Raster) {
                 const bVal = briSlider ? parseFloat(briSlider.value) : 0;
@@ -334,7 +315,6 @@ export function initContextualMenu() {
             }
         }
     };
-    
     if (briSlider) briSlider.oninput = handleFilterInput;
     if (conSlider) conSlider.oninput = handleFilterInput;
 }
@@ -361,9 +341,6 @@ export function updateContextualMenu(item) {
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
     
-    const btnTrace = document.getElementById('btnCtxTrace');
-    if (btnTrace) btnTrace.style.display = 'none';
-    
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
     
@@ -371,16 +348,13 @@ export function updateContextualMenu(item) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
         
-        const fontSelector = document.getElementById('ctxFontSelector');
         if (fontSelector && target.fontFamily) {
             fontSelector.value = target.fontFamily;
         }
-        
         const curveSlider = document.getElementById('ctxTextCurve');
         if (curveSlider) {
             curveSlider.value = target.data?.curvature || 0;
         }
-        
         const hspaceSlider = document.getElementById('ctxTextHSpace');
         if (hspaceSlider) {
             hspaceSlider.value = target.data?.hspace || 0;
@@ -390,63 +364,45 @@ export function updateContextualMenu(item) {
         if (imageControls) {
             imageControls.classList.remove('hidden');
             
-            // GARANTÍA DE VISIBILIDAD: Inyección dinámica defensiva de botones de Recorte
-            let btnRemoveBg = document.getElementById('btnCtxRemoveBg');
-            let btnEditRemoval = document.getElementById('btnCtxEditRemoval');
-            
-            if (!btnRemoveBg) {
-                btnRemoveBg = document.createElement('button');
-                btnRemoveBg.id = 'btnCtxRemoveBg';
+            // Inyección automática única de los botones de recorte para la imagen
+            if (!document.getElementById('btnRemoveBg')) {
+                const btnRemoveBg = document.createElement('button');
+                btnRemoveBg.id = 'btnRemoveBg';
                 btnRemoveBg.className = 'action-btn';
                 btnRemoveBg.style.backgroundColor = '#007bff';
                 btnRemoveBg.style.color = '#fff';
                 btnRemoveBg.style.fontWeight = 'bold';
-                btnRemoveBg.style.border = 'none';
-                btnRemoveBg.style.borderRadius = '6px';
-                btnRemoveBg.style.padding = '6px 12px';
-                btnRemoveBg.style.cursor = 'pointer';
-                btnRemoveBg.style.marginRight = '8px';
+                btnRemoveBg.style.marginLeft = '5px';
                 btnRemoveBg.innerHTML = '🪄 Quitar Fondo';
-                imageControls.appendChild(btnRemoveBg);
-            }
-            
-            if (!btnEditRemoval) {
-                btnEditRemoval = document.createElement('button');
-                btnEditRemoval.id = 'btnCtxEditRemoval';
+                btnRemoveBg.onclick = async () => {
+                    if (window.selectedItem) {
+                        await autoRemoveBackground(window.selectedItem);
+                    }
+                };
+
+                const btnEditRemoval = document.createElement('button');
+                btnEditRemoval.id = 'btnEditRemoval';
                 btnEditRemoval.className = 'action-btn';
                 btnEditRemoval.style.backgroundColor = '#28a745';
                 btnEditRemoval.style.color = '#fff';
                 btnEditRemoval.style.fontWeight = 'bold';
-                btnEditRemoval.style.border = 'none';
-                btnEditRemoval.style.borderRadius = '6px';
-                btnEditRemoval.style.padding = '6px 12px';
-                btnEditRemoval.style.cursor = 'pointer';
+                btnEditRemoval.style.marginLeft = '5px';
                 btnEditRemoval.innerHTML = '✂️ Editar Recorte';
+                btnEditRemoval.onclick = () => {
+                    if (window.selectedItem) {
+                        openBackgroundRemovalModal(window.selectedItem);
+                    }
+                };
+
+                imageControls.appendChild(btnRemoveBg);
                 imageControls.appendChild(btnEditRemoval);
             }
-            
-            // Asegurar que ambos botones estén siempre visibles y listos para usar
-            btnRemoveBg.style.display = 'inline-block';
-            btnEditRemoval.style.display = 'inline-block';
-            
-            btnRemoveBg.onclick = () => {
-                if (window.selectedItem) {
-                    autoRemoveBackground(window.selectedItem, 8);
-                }
-            };
-            
-            btnEditRemoval.onclick = () => {
-                if (window.selectedItem) {
-                    openBackgroundRemovalModal(window.selectedItem);
-                }
-            };
         }
         
         const briSlider = document.getElementById('ctxBrightness');
         const conSlider = document.getElementById('ctxContrast');
         if (briSlider) briSlider.value = target.data?.brightness || 0;
         if (conSlider) conSlider.value = target.data?.contrast || 0;
-        
     } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
         const vectorControls = document.getElementById('ctxVectorControls');
         if (vectorControls) vectorControls.classList.remove('hidden');
@@ -458,6 +414,7 @@ export function updateContextualMenu(item) {
     const viewPoint = paper.view.projectToView(bounds.topCenter);
     const toolbarWidth = toolbar.offsetWidth || 350;
     const toolbarHeight = toolbar.offsetHeight || 45;
+    
     const posX = viewPoint.x - (toolbarWidth / 2);
     const posY = viewPoint.y - toolbarHeight - 20;
     
