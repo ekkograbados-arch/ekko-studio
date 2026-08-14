@@ -5,7 +5,8 @@
 
 let loadedFontsCache = [];
 
-// Cargar fuentes dinámicamente desde el endpoint del backend /api/fonts
+
+// 1. CARGA DE FUENTES CORREGIDA (Sintaxis FontFace corregida con comillas en url)
 export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
     const fallbacks = [
@@ -35,7 +36,8 @@ export async function loadDynamicFonts() {
                 continue;
             }
             try {
-                const fontFace = new FontFace(family, `url(/ASSETS/fonts/${encodeURIComponent(file)})`, { display: 'swap' });
+                // CORRECCIÓN DE SINTAXIS: Se añaden comillas simples dentro de url()
+                const fontFace = new FontFace(family, `url('/ASSETS/fonts/${encodeURIComponent(file)}')`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
                 loaded.push({ name: name, family: family, file: file });
@@ -53,7 +55,8 @@ export async function loadDynamicFonts() {
         console.warn("Inyectando fuentes locales de respaldo por error de red o backend vacío:", e);
         for (const f of fallbacks) {
             try {
-                const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`, { display: 'swap' });
+                // CORRECCIÓN DE SINTAXIS: Se añaden comillas simples dentro de url()
+                const fontFace = new FontFace(f.family, `url('/ASSETS/fonts/${encodeURIComponent(f.file)}')`, { display: 'swap' });
                 const loadedFace = await fontFace.load();
                 document.fonts.add(loadedFace);
             } catch (err) {
@@ -66,12 +69,16 @@ export async function loadDynamicFonts() {
     }
 }
 
-// Aplicar deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
+
+// 2. CURVATURA DE TEXTO SIN DESPLAZAMIENTO (Siempre genera un grupo limpio desde origCenter)
 export function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-    const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    
+    const isClipGroup = item.data?.clipGroup;
+    const target = isClipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+    
     target.data = target.data || {};
     target.data.curvature = curvature;
 
@@ -84,8 +91,8 @@ export function applyTextCurve(item, curvature) {
     }
 
     const textStr = target.data.textString || target.content || "Texto";
-
-    // --- DETECCIÓN ROBUSTA DE LA TIPOGRAFÍA ACTIVA ---
+    
+    // Obtener tipografía de forma segura
     let fontFamily = target.fontFamily;
     if (!fontFamily && target instanceof paper.Group) {
         const firstChar = target.children.find(c => c instanceof paper.PointText);
@@ -94,35 +101,19 @@ export function applyTextCurve(item, curvature) {
         }
     }
     fontFamily = fontFamily || target.data?.fontFamily || "Arial";
-    // --------------------------------------------------
 
     const fontSize = target.fontSize || 42;
     const fillColor = target.fillColor || new paper.Color(0);
-    const origCenter = target.position.clone();
-    let glyphGroup;
+    const origCenter = target.position.clone(); // Respaldar posición exacta antes del cambio
 
-    if (target.data.isCurvedGroup) {
-        glyphGroup = target;
-        glyphGroup.clear();
-    } else {
-        glyphGroup = new paper.Group();
-        // Guardamos explícitamente fontFamily en el data del grupo
-        glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr, fontFamily: fontFamily };
-        if (item.data?.clipGroup) {
-            const idx = item.children.indexOf(target);
-            item.insertChild(idx, glyphGroup);
-            target.remove();
-        } else {
-            const idx = paper.project.activeLayer.children.indexOf(item);
-            paper.project.activeLayer.insertChild(idx, glyphGroup);
-            item.remove();
-            window.selectItem(glyphGroup);
-        }
-    }
+    // Creamos un nuevo grupo limpio con matriz identidad para evitar desplazamientos fantasma
+    const glyphGroup = new paper.Group();
+    glyphGroup.data = { ...target.data, isCurvedGroup: true, textString: textStr, fontFamily: fontFamily };
 
     const chars = textStr.split("");
     const numChars = chars.length;
     if (numChars === 0) return;
+
     const radius = 2000 / curvature;
     const centerPoint = new paper.Point(0, radius);
     const arcAngle = (numChars * fontSize * 0.6) / radius;
@@ -135,26 +126,41 @@ export function applyTextCurve(item, curvature) {
         const angle = startAngle + (t * arcAngle);
         const x = centerPoint.x + radius * Math.cos(angle);
         const y = centerPoint.y + radius * Math.sin(angle);
+        
         const glyph = new paper.PointText({
             point: [x, y],
             content: char,
-            fontFamily: fontFamily, // <--- Aplicada de manera segura
+            fontFamily: fontFamily,
             fontSize: fontSize,
             fillColor: fillColor,
             justification: "center"
         });
+        
         const rotationAngle = (angle * 180 / Math.PI) + 90;
         glyph.rotate(rotationAngle, glyph.bounds.bottomCenter);
         glyphGroup.addChild(glyph);
     }
 
-    glyphGroup.position = origCenter;
+    glyphGroup.position = origCenter; // Reposicionar perfectamente
     drawBlueCurveHandle(glyphGroup);
-    if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(glyphGroup);
+
+    // Reemplazo e inserción en el árbol de Paper.js
+    if (isClipGroup) {
+        const idx = item.children.indexOf(target);
+        item.insertChild(idx, glyphGroup);
+        target.remove();
+        if (typeof window.updateSelectionBox === 'function') {
+            window.updateSelectionBox(item);
+        }
+    } else {
+        const idx = paper.project.activeLayer.children.indexOf(item);
+        paper.project.activeLayer.insertChild(idx, glyphGroup);
+        item.remove();
+        window.selectItem(glyphGroup);
     }
     paper.view.update();
 }
+
 
 function restoreFlatText(item, curvedGroup) {
     const textStr = curvedGroup.data.textString || "Texto";
@@ -205,12 +211,15 @@ function drawBlueCurveHandle(group) {
     group.addChild(blueCircle);
 }
 
-// Control de Espaciado de Letras Horizontal (HSpace) - Estilo LightBurn
+// 3. ESPACIADO HORIZONTAL SIN DESPLAZAMIENTO (Siempre genera un grupo limpio)
 export function applyTextSpacing(item, hspace) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-    const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    
+    const isClipGroup = item.data?.clipGroup;
+    const target = isClipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+    
     target.data = target.data || {};
     target.data.hspace = hspace;
 
@@ -219,64 +228,57 @@ export function applyTextSpacing(item, hspace) {
             applyTextCurve(item, target.data.curvature || 0);
             return;
         }
-        // Distribución horizontal plana
-        let currentX = 0;
-        target.children.forEach(child => {
-            if (child.data?.isCurveHandle || child.data?.underlineId) return;
-            child.position.x = currentX + child.bounds.width / 2;
-            currentX += child.bounds.width + hspace;
-        });
-    } else if (target instanceof paper.PointText) {
-        const textStr = target.content || "Texto";
-        if (Math.abs(hspace) < 0.001) return;
-        const glyphGroup = new paper.Group();
-
-        // --- DETECCIÓN ROBUSTA DE LA TIPOGRAFÍA ACTIVA ---
-        let fontFamily = target.fontFamily;
-        if (!fontFamily && target instanceof paper.Group) {
-            const firstChar = target.children.find(c => c instanceof paper.PointText);
-            if (firstChar) {
-                fontFamily = firstChar.fontFamily;
-            }
-        }
-        fontFamily = fontFamily || target.data?.fontFamily || "Arial";
-        // --------------------------------------------------
-
-        glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr, fontFamily: fontFamily };
-        const chars = textStr.split("");
-        const fontSize = target.fontSize || 42;
-        const fillColor = target.fillColor || new paper.Color(0);
-        const origCenter = target.position.clone();
-        let currentX = 0;
-
-        chars.forEach(char => {
-            const glyph = new paper.PointText({
-                point: [currentX, 0],
-                content: char,
-                fontFamily: fontFamily,
-                fontSize: fontSize,
-                fillColor: fillColor,
-                justification: "left"
-            });
-            glyphGroup.addChild(glyph);
-            currentX += glyph.bounds.width + hspace;
-        });
-
-        glyphGroup.position = origCenter;
-        if (item.data?.clipGroup) {
-            const idx = item.children.indexOf(target);
-            item.insertChild(idx, glyphGroup);
-            target.remove();
-        } else {
-            const idx = paper.project.activeLayer.children.indexOf(item);
-            paper.project.activeLayer.insertChild(idx, glyphGroup);
-            item.remove();
-            window.selectItem(glyphGroup);
-        }
     }
 
-    if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(item);
+    const textStr = target.data.textString || target.content || "Texto";
+    
+    let fontFamily = target.fontFamily;
+    if (!fontFamily && target instanceof paper.Group) {
+        const firstChar = target.children.find(c => c instanceof paper.PointText);
+        if (firstChar) {
+            fontFamily = firstChar.fontFamily;
+        }
+    }
+    fontFamily = fontFamily || target.data?.fontFamily || "Arial";
+
+    const fontSize = target.fontSize || 42;
+    const fillColor = target.fillColor || new paper.Color(0);
+    const origCenter = target.position.clone();
+
+    // Reconstruimos el grupo desde cero para evitar herencia de coordenadas
+    const glyphGroup = new paper.Group();
+    glyphGroup.data = { ...target.data, isSpacedGroup: true, textString: textStr, fontFamily: fontFamily };
+
+    const chars = textStr.split("");
+    let currentX = 0;
+
+    chars.forEach(char => {
+        const glyph = new paper.PointText({
+            point: [currentX, 0],
+            content: char,
+            fontFamily: fontFamily,
+            fontSize: fontSize,
+            fillColor: fillColor,
+            justification: "left"
+        });
+        glyphGroup.addChild(glyph);
+        currentX += glyph.bounds.width + hspace;
+    });
+
+    glyphGroup.position = origCenter;
+
+    if (isClipGroup) {
+        const idx = item.children.indexOf(target);
+        item.insertChild(idx, glyphGroup);
+        target.remove();
+        if (typeof window.updateSelectionBox === 'function') {
+            window.updateSelectionBox(item);
+        }
+    } else {
+        const idx = paper.project.activeLayer.children.indexOf(item);
+        paper.project.activeLayer.insertChild(idx, glyphGroup);
+        item.remove();
+        window.selectItem(glyphGroup);
     }
     paper.view.update();
 }
