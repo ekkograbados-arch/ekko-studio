@@ -426,3 +426,4 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
     });
 });
+
