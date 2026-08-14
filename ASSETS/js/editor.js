@@ -747,12 +747,14 @@ function pasteSelected() {
     window.curveInitialCurvature = 0;
 
     const tool = new paper.Tool();
-tool.onMouseDown = function(event) {
+
+
+    tool.onMouseDown = function(event) {
     const currentTime = Date.now();
     const isDoubleClick = (currentTime - lastClickTime) < 300;
     lastClickTime = currentTime;
 
-    // 1. Detectar si el usuario hace clic sobre el tirador azul de doblado (Curvatura)
+    // 1. Detectar si el usuario hace clic sobre el tirador azul de doblado de LightBurn (Curvatura)
     if (window.selectedItem) {
         const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
         if (target && target instanceof paper.Group) {
@@ -768,23 +770,31 @@ tool.onMouseDown = function(event) {
         }
     }
 
-    // 2. Detectar clics en los 8 tiradores de redimensionamiento de Canva
-    if (window.selectionBoxGroup) {
+    // 2. Detectar clics en los 8 tiradores de redimensionamiento (BLINDADO CONTRA EXCEPCIONES NULL)
+    if (window.selectedItem && window.selectionBoxGroup) {
         const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
         if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
             window.resizeActive = true;
-            window.resizeTarget = window.selectedItem;
             window.resizeHandleType = hitHandle.item.data.handleType;
-            window.resizeInitialBounds = ((window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem).bounds.clone();
-            window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
-            window.resizeInitialPoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
-            window.resizeLastScaleX = 1.0;
-            window.resizeLastScaleY = 1.0;
-            window.dragging = false;
-            if (typeof hideContextualMenu === "function") {
-                hideContextualMenu();
+            window.resizeTarget = window.selectedItem;
+            
+            // Acceso 100% seguro a las propiedades del elemento seleccionado
+            const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup) 
+                ? window.resizeTarget.children.find(c => !c.clipMask) 
+                : window.resizeTarget;
+                
+            if (targetItem && targetItem.bounds) {
+                window.resizeInitialBounds = targetItem.bounds.clone();
+                window.resizeInitialPoint = event.point.clone();
+                window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
+                window.resizeLastScaleX = 1.0;
+                window.resizeLastScaleY = 1.0;
+                window.dragging = false;
+                if (typeof hideContextualMenu === "function") {
+                    hideContextualMenu();
+                }
+                return;
             }
-            return;
         }
     }
 
@@ -795,7 +805,7 @@ tool.onMouseDown = function(event) {
         return;
     }
 
-    // --- INTERCEPCIÓN PROACTIVA DE LÍMITES (SOLUCIONA EL ARRASTRE FUERA DE SVG) ---
+    // --- INTERCEPCIÓN PROACTIVA DE LÍMITES (SOLUCIONA EL ARRASTRE FUERA DE SVG Y EVITA ERRORES NULL) ---
     let selectable = null;
     
     // Si ya hay un elemento seleccionado, y hacemos clic dentro de sus límites reales (incluso si está oculto/enmascarado)
@@ -823,8 +833,8 @@ tool.onMouseDown = function(event) {
             selectable = window.getSelectableItem(hit.item);
         }
     }
-    // ------------------------------------------------------------------------------
 
+    // --- MANEJO SEGURO DEL ELEMENTO ENCONTRADO ---
     if (selectable) {
         if (isLockedItem(selectable)) {
             window.selectItem(selectable);
