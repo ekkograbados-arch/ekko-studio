@@ -427,8 +427,10 @@ function loadImglyLibrary() {
         const sources = [
             "/ASSETS/js/modules/canvas-pro/background-removal-bundle.js",
             "/ASSETS/js/vendor/background-removal-bundle.js",
-            "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2.x/dist/bundle.js",
-            "https://unpkg.com/@imgly/background-removal@2.x/dist/bundle.js"
+            "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2/dist/bundle.js",
+            "https://unpkg.com/@imgly/background-removal@2/dist/bundle.js",
+            "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2.0.1/dist/bundle.js",
+            "https://unpkg.com/@imgly/background-removal@2.0.1/dist/bundle.js"
         ];
 
         let index = 0;
@@ -460,7 +462,7 @@ function loadImglyLibrary() {
                     // Configuración dinámica: si se carga localmente, configuramos publicPath hacia jsDelivr
                     // para descargar los modelos ONNX y WASM si no estuvieran locales, previniendo CORS y 404s.
                     window.imglyConfig = {
-                        publicPath: isLocal ? "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2.x/dist/" : currentSrc.replace("bundle.js", ""),
+                        publicPath: isLocal ? "https://cdn.jsdelivr.net/npm/@imgly/background-removal@2/dist/" : currentSrc.replace("bundle.js", ""),
                         progress: (status, progress) => {
                             const pct = progress ? (progress * 100).toFixed(0) : '0';
                             updateIaLoadingProgress(progress, `Cargando modelo neuronal: ${pct}%`, status);
