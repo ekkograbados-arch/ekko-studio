@@ -449,10 +449,19 @@ export async function loadImglyLibrary() {
                 // Resolver el export de la función según el tipo de bundle (default o named)
                 window.imglyBackgroundRemoval = module.default || module.removeBackground || module;
                 
-                // Configurar publicPath dinámicamente según la versión cargada
-                const baseCdn = src.substring(0, src.lastIndexOf("/dist/") + 6); // ej: https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/
+                // Configurar publicPath dinámicamente apuntando al paquete de datos de modelos (@imgly/background-removal-data)
+                const isLocal = !src.startsWith("http");
+                let publicPath = "https://staticimgly.com/@imgly/background-removal-data/1.7.0/dist/";
+                
+                if (isLocal) {
+                    publicPath = src.substring(0, src.lastIndexOf("/") + 1);
+                } else if (src.includes("unpkg.com")) {
+                    publicPath = "https://unpkg.com/@imgly/background-removal-data@1.7.0/dist/";
+                }
+                
+                console.log(`Configurando publicPath de la IA en: ${publicPath}`);
                 window.imglyConfig = {
-                    publicPath: baseCdn,
+                    publicPath: publicPath,
                     progress: (key, current, total) => {
                         const progressPct = total ? (current / total) : 0;
                         const pctStr = (progressPct * 100).toFixed(0);
@@ -473,10 +482,7 @@ export async function loadImglyLibrary() {
 }
 
 /**
- * Aplica el algoritmo de Feather (suavizado radial de bordes) y Defringe (quitar halos de fondo)
- * de nivel profesional sobre el canvas de salida para garantizar un grabado limpio en LightBurn.
- */
-export function applyEdgeRefinements(canvas, featherRadius = 1) {
+ * export function applyEdgeRefinements(canvas, featherRadius = 1) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const width = canvas.width;
     const height = canvas.height;
