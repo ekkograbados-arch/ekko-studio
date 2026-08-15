@@ -661,24 +661,18 @@ export async function autoRemoveBackground(raster) {
         hideIaLoadingOverlay();
         
         // INTERFAZ AMIGABLE DE GARANTÍA: Evitar arruinar la imagen con el contraste Sobel silencioso
-        const msgManual = "⚠️ El motor de Inteligencia Artificial (IA) no pudo iniciarse.
-
-" +
-                          "Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados en su navegador.
-
-" +
-                          "¿Desea abrir el EDITOR MANUAL interactivo? (Recomendado: tiene Pincel Borrador, Restaurador y Varita Mágica 100% locales y offline, ideales para un grabado láser impecable).";
+        const msgManual = `⚠️ El motor de Inteligencia Artificial (IA) no pudo iniciarse.\n\n` +
+                          `Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados en su navegador.\n\n` +
+                          `¿Desea abrir el EDITOR MANUAL interactivo? (Recomendado: tiene Pincel Borrador, Restaurador y Varita Mágica 100% locales y offline, ideales para un grabado láser impecable).`;
         
         if (confirm(msgManual)) {
             openBackgroundRemovalModal(raster);
             return;
         }
 
-        const msgContrast = "¿Desea ejecutar el algoritmo automático por contraste de respaldo (Sobel Contrast Match)?
+        const msgContrast = `¿Desea ejecutar el algoritmo automático por contraste de respaldo (Sobel Contrast Match)?\n\n` +
+                            `(Atención: Solo se recomienda para imágenes con fondos liso y alto contraste. En fotos complejas como medallas de personas o perros puede morder partes del diseño).`;
 
-" +
-                            "(Atención: Solo se recomienda para imágenes con fondos liso y alto contraste. En fotos complejas como medallas de personas o perros puede morder partes del diseño).";
-        
         if (!confirm(msgContrast)) {
             return; // Detener sin alterar la imagen y preservar el diseño intacto
         }
