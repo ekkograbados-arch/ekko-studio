@@ -440,65 +440,94 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
  * Usa importación ESM nativa en cascada con la versión estable real (1.7.0).
  */
 export async function loadImglyLibrary() {
-    if (window.imglyBackgroundRemoval) {
-        return window.imglyBackgroundRemoval;
-    }
-
-    showIaLoadingOverlay();
-    updateIaLoadingProgress(0.05, "Inicializando motor de Inteligencia Artificial...");
-
-    // Lista de orígenes de módulos ESM nativos (versión estable real 1.7.0)
-    const sources = [
-        "https://esm.sh/@imgly/background-removal@1.7.0",
-        "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs",
-        "https://unpkg.com/@imgly/background-removal@1.7.0/dist/index.mjs",
-        "/ASSETS/js/vendor/background-removal/index.mjs" // Ruta local alternativa
-    ];
-
-    let lastError = null;
-    for (const src of sources) {
-        try {
-            console.log(`Intentando cargar IA desde: ${src}`);
-            const provider = src.includes('jsdelivr') ? 'jsDelivr' : src.includes('unpkg') ? 'unpkg' : src.includes('esm.sh') ? 'esm.sh' : 'servidor local';
-            updateIaLoadingProgress(0.1, `Estableciendo conexión con ${provider}...`);
-            
-            const module = await import(src);
-            if (module) {
-                console.log(`Librería @imgly/background-removal cargada con éxito desde: ${src}`);
-                
-                // Resolver el export de la función según el tipo de bundle (default o named)
-                window.imglyBackgroundRemoval = module.default || module.removeBackground || module;
-                
-                // Configurar publicPath dinámicamente apuntando al paquete de datos de modelos (@imgly/background-removal-data)
-                const isLocal = !src.startsWith("http");
-                let publicPath = "https://staticimgly.com/@imgly/background-removal-data/1.7.0/dist/";
-                
-                if (isLocal) {
-                    publicPath = src.substring(0, src.lastIndexOf("/") + 1);
-                } else if (src.includes("unpkg.com")) {
-                    publicPath = "https://unpkg.com/@imgly/background-removal-data@1.7.0/dist/";
-                }
-                
-                console.log(`Configurando publicPath de la IA en: ${publicPath}`);
-                window.imglyConfig = {
-                    publicPath: publicPath,
-                    progress: (key, current, total) => {
-                        const progressPct = total ? (current / total) : 0;
-                        const pctStr = (progressPct * 100).toFixed(0);
-                        const fileName = key.split('/').pop() || key;
-                        updateIaLoadingProgress(0.1 + (progressPct * 0.8), `Descargando ${fileName}: ${pctStr}%`);
-                    }
-                };
-                
-                return window.imglyBackgroundRemoval;
-            }
-        } catch (err) {
-            console.warn(`Fallo al cargar desde ${src}:`, err);
-            lastError = err;
+    return new Promise((resolve, reject) => {
+        if (window.imglyBackgroundRemoval) {
+            resolve(window.imglyBackgroundRemoval);
+            return;
         }
-    }
 
-    throw new Error(`No se pudo cargar la librería de eliminación de fondo desde ninguna fuente. Último error: ${lastError?.message || lastError}`);
+        showIaLoadingOverlay();
+        updateIaLoadingProgress(0.05, "Inicializando motor de Inteligencia Artificial...");
+
+        // Lista de orígenes ordenados por prioridad (Locales primero para velocidad instantánea, luego CDNs de respaldo)
+        const sources = [
+            "/ASSETS/js/vendor/background-removal/index.mjs",
+            "/ASSETS/js/vendor/background-removal-bundle.js",
+            "https://esm.sh/@imgly/background-removal@1.7.0",
+            "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs",
+            "https://unpkg.com/@imgly/background-removal@1.7.0/dist/index.mjs"
+        ];
+
+        let index = 0;
+
+        const tryLoadNext = async () => {
+            if (index >= sources.length) {
+                reject(new Error("No se pudo cargar la librería de eliminación de fondo desde ninguna fuente local ni externa (CDNs)."));
+                return;
+            }
+
+            const currentSrc = sources[index];
+            index++;
+
+            const isLocal = !currentSrc.startsWith("http");
+            const provider = isLocal ? "servidor local" : currentSrc.includes("jsdelivr") ? "jsDelivr" : currentSrc.includes("unpkg") ? "unpkg" : "esm.sh";
+            updateIaLoadingProgress(0.1 + (index * 0.05), `Estableciendo conexión con ${provider}...`);
+
+            const isEsm = currentSrc.endsWith(".mjs") || currentSrc.includes("esm.sh");
+
+            try {
+                console.log(`Intentando cargar IA desde: ${currentSrc}`);
+                if (isEsm) {
+                    const module = await import(currentSrc);
+                    if (module) {
+                        window.imglyBackgroundRemoval = module.default || module.removeBackground || module;
+                    }
+                } else {
+                    await new Promise((res, rej) => {
+                        const script = document.createElement('script');
+                        script.src = currentSrc;
+                        script.async = true;
+                        script.onload = res;
+                        script.onerror = rej;
+                        document.head.appendChild(script);
+                    });
+                }
+
+                if (window.imglyBackgroundRemoval) {
+                    console.log(`Librería @imgly/background-removal cargada con éxito desde: ${currentSrc}`);
+                    
+                    // Configurar publicPath dinámicamente apuntando a staticimgly.com por defecto para los modelos ONNX (88MB)
+                    let publicPath = "https://staticimgly.com/@imgly/background-removal-data/1.7.0/dist/";
+                    
+                    if (isLocal) {
+                        publicPath = currentSrc.substring(0, currentSrc.lastIndexOf("/") + 1);
+                    } else if (currentSrc.includes("unpkg.com")) {
+                        publicPath = "https://unpkg.com/@imgly/background-removal-data@1.7.0/dist/";
+                    }
+
+                    console.log(`Configurando publicPath de la IA en: ${publicPath}`);
+                    window.imglyConfig = {
+                        publicPath: publicPath,
+                        progress: (key, current, total) => {
+                            const progressPct = total ? (current / total) : 0;
+                            const pctStr = (progressPct * 100).toFixed(0);
+                            const fileName = key.split('/').pop() || key;
+                            updateIaLoadingProgress(0.1 + (progressPct * 0.8), `Descargando ${fileName}: ${pctStr}%`);
+                        }
+                    };
+                    resolve(window.imglyBackgroundRemoval);
+                } else {
+                    console.warn(`Script cargado pero window.imglyBackgroundRemoval no está definido para: ${currentSrc}`);
+                    tryLoadNext();
+                }
+            } catch (err) {
+                console.warn(`Fallo al cargar desde ${currentSrc}:`, err);
+                tryLoadNext();
+            }
+        };
+
+        tryLoadNext();
+    });
 }
 
 /**
@@ -675,12 +704,23 @@ export async function autoRemoveBackground(raster) {
 
         actualRaster.data.backgroundAutoRemoved = true;
 
-        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
-        actualRaster.canvas = actualRaster.canvas;
+        // Convertir el canvas a PNG data URL para guardarlo permanentemente en Paper.js
+        const transparentDataUrl = actualRaster.canvas.toDataURL('image/png');
 
-        // RESTAURAR PROPIEDADES FÍSICAS (Garantía Antiacortamiento)
-        actualRaster.matrix = oldMatrix;
-        actualRaster.position = oldPosition;
+        actualRaster.onLoad = () => {
+            // RESTAURAR PROPIEDADES FÍSICAS (Garantía Antiacortamiento) tras cargar el nuevo source
+            actualRaster.matrix = oldMatrix;
+            actualRaster.position = oldPosition;
+            
+            // Forzar actualización de la caja de selección azul celeste de Paper.js
+            if (typeof window.updateSelectionBox === 'function') {
+                window.updateSelectionBox(window.selectedItem);
+            }
+            paper.view.update();
+        };
+
+        // Asignar el nuevo source transparente
+        actualRaster.source = transparentDataUrl;
 
         URL.revokeObjectURL(resultUrl);
         hideIaLoadingOverlay();
@@ -756,12 +796,22 @@ Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados e
 
         actualRaster.data.backgroundAutoRemoved = true;
 
-        // Forzar Paper.js a redibujar el mismo canvas con los nuevos píxeles
-        actualRaster.canvas = actualRaster.canvas;
+        // Convertir el canvas a PNG data URL para guardarlo permanentemente en Paper.js
+        const transparentDataUrl = actualRaster.canvas.toDataURL('image/png');
 
-        // RESTAURAR PROPIEDADES FÍSICAS EN FALLBACK (Garantía Antiacortamiento)
-        actualRaster.matrix = oldMatrix;
-        actualRaster.position = oldPosition;
+        actualRaster.onLoad = () => {
+            // RESTAURAR PROPIEDADES FÍSICAS EN FALLBACK (Garantía Antiacortamiento)
+            actualRaster.matrix = oldMatrix;
+            actualRaster.position = oldPosition;
+            
+            if (typeof window.updateSelectionBox === 'function') {
+                window.updateSelectionBox(window.selectedItem);
+            }
+            paper.view.update();
+        };
+
+        // Asignar el nuevo source transparente
+        actualRaster.source = transparentDataUrl;
     }
 
     // Forzar actualización de la caja de selección azul celeste de Paper.js
@@ -1522,19 +1572,24 @@ export function openBackgroundRemovalModal(raster) {
 
         actualRaster.data.backgroundAutoRemoved = true;
 
-        // Forzar Paper.js a actualizar el renderizado del lienzo con los nuevos píxeles
-        actualRaster.canvas = actualRaster.canvas;
+        // Convertir el canvas a PNG data URL para guardarlo permanentemente en Paper.js
+        const transparentDataUrl = actualRaster.canvas.toDataURL('image/png');
 
-        // RESTAURAR PROPIEDADES FISICAS (Garantía absoluta Antiacortamiento / Anti-Shrink)
-        actualRaster.matrix = oldMatrix;
-        actualRaster.position = oldPosition;
+        actualRaster.onLoad = () => {
+            // RESTAURAR PROPIEDADES FISICAS (Garantía absoluta Antiacortamiento / Anti-Shrink)
+            actualRaster.matrix = oldMatrix;
+            actualRaster.position = oldPosition;
 
-        // Forzar Paper.js a redibujar la caja de selección azul celeste alineada
-        if (typeof window.updateSelectionBox === 'function') {
-            window.updateSelectionBox(window.selectedItem);
-        }
+            // Forzar Paper.js a redibujar la caja de selección azul celeste alineada
+            if (typeof window.updateSelectionBox === 'function') {
+                window.updateSelectionBox(window.selectedItem);
+            }
+            paper.view.update();
+        };
 
-        paper.view.update();
+        // Asignar el nuevo source transparente
+        actualRaster.source = transparentDataUrl;
+        
         closeModal();
     };
 }
