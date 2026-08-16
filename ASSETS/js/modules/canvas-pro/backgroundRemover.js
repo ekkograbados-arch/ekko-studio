@@ -899,7 +899,6 @@ export function openBackgroundRemovalModal(raster) {
 
     // 4. Historial de sesión de recorte (Deshacer / Rehacer local)
     const historyStack = [];    // 4. Historial de sesión de recorte (Deshacer / Rehacer local)
-    const historyStack = [];
     let historyIndex = -1;
 
     function saveSessionHistory() {
