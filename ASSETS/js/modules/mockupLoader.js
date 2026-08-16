@@ -50,7 +50,7 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
                 svgPath.toLowerCase().includes("mate") ||
                 svgPath.toLowerCase().includes("militar") ||
                 svgPath.toLowerCase().includes("pulsera")
-            );
+            ) && !svgPath.toLowerCase().includes("virola");
             
             // También verificamos si el trazado tiene un color visible (stroke o fill) asignado originalmente
             const tieneColorVisible = (firstPath.strokeColor && firstPath.strokeColor.alpha > 0) || 
