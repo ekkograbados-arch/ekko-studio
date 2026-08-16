@@ -305,6 +305,19 @@ function hideIaLoadingOverlay() {
  * Resuelve de forma recursiva y segura el objeto paper.Raster real desde la selección,
  * contemplando el enmascaramiento dinámico (clipGroup) de EKKO Studio.
  */
+/**
+ * Duplica un elemento Canvas de HTML de forma profunda e independiente.
+ */
+function cloneCanvas(oldCanvas) {
+    if (!oldCanvas) return null;
+    const newCanvas = document.createElement('canvas');
+    newCanvas.width = oldCanvas.width;
+    newCanvas.height = oldCanvas.height;
+    const ctx = newCanvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(oldCanvas, 0, 0);
+    return newCanvas;
+}
+
 export function getRasterFromItem(item) {
     if (!item) return null;
     if (item instanceof paper.Raster) return item;
@@ -629,6 +642,9 @@ export async function autoRemoveBackground(raster) {
     // 1. Desvincular de raíz las referencias del objeto .data en clones/duplicados para garantizar independencia absoluta
     if (actualRaster.data) {
         actualRaster.data = { ...actualRaster.data }; // Copia superficial pura de propiedades primitivas
+        if (actualRaster.data.originalCanvas) {
+            actualRaster.data.originalCanvas = cloneCanvas(actualRaster.data.originalCanvas);
+        }
     } else {
         actualRaster.data = {};
     }
@@ -650,13 +666,15 @@ export async function autoRemoveBackground(raster) {
     actualRaster.matrix = oldMatrix;
     actualRaster.position = oldPosition;
 
-    // 3. Inicializar la copia original (originalCanvas) de alta calidad única para este Raster
-    const origCanvas = document.createElement('canvas');
-    origCanvas.width = canvas.width;
-    origCanvas.height = canvas.height;
-    const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
-    origCtx.drawImage(canvas, 0, 0);
-    actualRaster.data.originalCanvas = origCanvas;
+    // 3. Inicializar la copia original (originalCanvas) de alta calidad única para este Raster si no existe
+    if (!actualRaster.data.originalCanvas) {
+        const origCanvas = document.createElement('canvas');
+        origCanvas.width = canvas.width;
+        origCanvas.height = canvas.height;
+        const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
+        origCtx.drawImage(canvas, 0, 0);
+        actualRaster.data.originalCanvas = origCanvas;
+    }
 
     // 4. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
     const oldMatrixFinal = actualRaster.matrix.clone();
@@ -854,6 +872,9 @@ export function openBackgroundRemovalModal(raster) {
     // 1. Desvincular de raíz las referencias del objeto .data en clones/duplicados para garantizar independencia absoluta
     if (actualRaster.data) {
         actualRaster.data = { ...actualRaster.data }; // Copia superficial pura de propiedades primitivas
+        if (actualRaster.data.originalCanvas) {
+            actualRaster.data.originalCanvas = cloneCanvas(actualRaster.data.originalCanvas);
+        }
     } else {
         actualRaster.data = {};
     }
@@ -874,13 +895,15 @@ export function openBackgroundRemovalModal(raster) {
     actualRaster.matrix = oldMatrix;
     actualRaster.position = oldPosition;
 
-    // 3. Inicializar la copia original (originalCanvas) de alta calidad única para este Raster
-    const origCanvas = document.createElement('canvas');
-    origCanvas.width = canvas.width;
-    origCanvas.height = canvas.height;
-    const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
-    origCtx.drawImage(canvas, 0, 0);
-    actualRaster.data.originalCanvas = origCanvas;
+    // 3. Inicializar la copia original (originalCanvas) de alta calidad única para este Raster si no existe
+    if (!actualRaster.data.originalCanvas) {
+        const origCanvas = document.createElement('canvas');
+        origCanvas.width = canvas.width;
+        origCanvas.height = canvas.height;
+        const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
+        origCtx.drawImage(canvas, 0, 0);
+        actualRaster.data.originalCanvas = origCanvas;
+    }
 
     const oldMatrixFinal = actualRaster.matrix.clone();
     const oldPositionFinal = actualRaster.position.clone();
