@@ -623,39 +623,41 @@ export async function autoRemoveBackground(raster) {
         return;
     }
 
-    // 1. Inicializar el canvas de Paper.js si no existe (Conversión de Imagen HTML a Canvas de alta calidad)
-    if (!actualRaster.canvas) {
-        const canvas = document.createElement('canvas');
-        const img = actualRaster.image;
-        canvas.width = img.naturalWidth || img.width || actualRaster.width;
-        canvas.height = img.naturalHeight || img.height || actualRaster.height;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-        
-        // Conservar las propiedades físicas de Paper.js durante la asignación inicial del canvas
-        const oldMatrix = actualRaster.matrix.clone();
-        const oldPosition = actualRaster.position.clone();
-        
-        actualRaster.canvas = canvas;
-        
-        actualRaster.matrix = oldMatrix;
-        actualRaster.position = oldPosition;
+    // 1. Desvincular de raíz las referencias del objeto .data en clones/duplicados para garantizar independencia absoluta
+    if (actualRaster.data) {
+        actualRaster.data = { ...actualRaster.data }; // Copia superficial pura de propiedades primitivas
+    } else {
+        actualRaster.data = {};
     }
 
-    // 2. Inicializar la copia original (originalCanvas) de alta calidad si no existe
-    if (!actualRaster.data) actualRaster.data = {};
-    if (!actualRaster.data.originalCanvas) {
-        const origCanvas = document.createElement('canvas');
-        origCanvas.width = actualRaster.canvas.width;
-        origCanvas.height = actualRaster.canvas.height;
-        const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
-        origCtx.drawImage(actualRaster.canvas, 0, 0);
-        actualRaster.data.originalCanvas = origCanvas;
-    }
-
-    // 3. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
+    // 2. Inicializar un canvas único e independiente para este Raster (Garantía de Independencia de Imágenes Compartidas/Clonadas)
+    const canvas = document.createElement('canvas');
+    const img = actualRaster.image;
+    canvas.width = img.naturalWidth || img.width || actualRaster.width;
+    canvas.height = img.naturalHeight || img.height || actualRaster.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    
+    // Conservar las propiedades físicas de Paper.js durante la asignación inicial del canvas
     const oldMatrix = actualRaster.matrix.clone();
     const oldPosition = actualRaster.position.clone();
+    
+    actualRaster.canvas = canvas;
+    
+    actualRaster.matrix = oldMatrix;
+    actualRaster.position = oldPosition;
+
+    // 3. Inicializar la copia original (originalCanvas) de alta calidad única para este Raster
+    const origCanvas = document.createElement('canvas');
+    origCanvas.width = canvas.width;
+    origCanvas.height = canvas.height;
+    const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
+    origCtx.drawImage(canvas, 0, 0);
+    actualRaster.data.originalCanvas = origCanvas;
+
+    // 4. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
+    const oldMatrixFinal = actualRaster.matrix.clone();
+    const oldPositionFinal = actualRaster.position.clone();
 
     try {
         // Intentar cargar la Inteligencia Artificial (Fase A)
@@ -691,9 +693,9 @@ export async function autoRemoveBackground(raster) {
         });
 
         // Escribir los píxeles editados de forma directa en el lienzo original (In-Place)
-        const ctx = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
-        ctx.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
-        ctx.drawImage(resultImg, 0, 0);
+        const ctxEdit = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
+        ctxEdit.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
+        ctxEdit.drawImage(resultImg, 0, 0);
 
         // Suavizado Gaussiano y remoción de halos
         applyEdgeRefinements(actualRaster.canvas, 1);
@@ -707,20 +709,27 @@ export async function autoRemoveBackground(raster) {
         // Convertir el canvas a PNG data URL para guardarlo permanentemente en Paper.js
         const transparentDataUrl = actualRaster.canvas.toDataURL('image/png');
 
+        // PREVENCIÓN ABSOLUTA DE RACES DE CARGA SÍNCRONA: Anular onLoad original antes de cambiar el source
+        actualRaster.onLoad = null;
+
         actualRaster.onLoad = () => {
             // RESTAURAR PROPIEDADES FÍSICAS (Garantía Antiacortamiento) tras cargar el nuevo source
-            actualRaster.matrix = oldMatrix;
-            actualRaster.position = oldPosition;
+            actualRaster.matrix = oldMatrixFinal.clone();
+            actualRaster.position = oldPositionFinal.clone();
             
-            // Forzar actualización de la caja de selección azul celeste de Paper.js
+            // Forzar actualización de la caja de selección del objeto original (no de window.selectedItem que pudo haber cambiado)
             if (typeof window.updateSelectionBox === 'function') {
-                window.updateSelectionBox(window.selectedItem);
+                window.updateSelectionBox(raster);
             }
             paper.view.update();
         };
 
         // Asignar el nuevo source transparente
         actualRaster.source = transparentDataUrl;
+
+        // Restaurar físicamente de forma inmediata por si la carga del Data URL es síncrona en el navegador
+        actualRaster.matrix = oldMatrixFinal.clone();
+        actualRaster.position = oldPositionFinal.clone();
 
         URL.revokeObjectURL(resultUrl);
         hideIaLoadingOverlay();
@@ -730,20 +739,14 @@ export async function autoRemoveBackground(raster) {
         hideIaLoadingOverlay();
         
         // INTERFAZ AMIGABLE DE GARANTÍA: Evitar arruinar la imagen con el contraste Sobel silencioso
-        const msgManual = `⚠️ El motor de Inteligencia Artificial (IA) no pudo iniciarse.
-
-Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados en su navegador.
-
-¿Desea abrir el EDITOR MANUAL interactivo? (Recomendado: tiene Pincel Borrador, Restaurador y Varita Mágica 100% locales y offline, ideales para un grabado láser impecable).`;
+        const msgManual = `⚠️ El motor de Inteligencia Artificial (IA) no pudo iniciarse.\n\nEsto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados en su navegador.\n\n¿Desea abrir el EDITOR MANUAL interactivo? (Recomendado: tiene Pincel Borrador, Restaurador y Varita Mágica 100% locales y offline, ideales para un grabado láser impecable).`;
         
         if (confirm(msgManual)) {
             openBackgroundRemovalModal(raster);
             return;
         }
 
-        const msgContrast = `¿Desea ejecutar el algoritmo automático por contraste de respaldo (Sobel Contrast Match)?
-
-(Atención: Solo se recomienda para imágenes con fondos liso y alto contraste. En fotos complejas como medallas de personas o perros puede morder partes del diseño).`;
+        const msgContrast = `¿Desea ejecutar el algoritmo automático por contraste de respaldo (Sobel Contrast Match)?\n\n(Atención: Solo se recomienda para imágenes con fondos liso y alto contraste. En fotos complejas como medallas de personas o perros puede morder partes del diseño).`;
         
         if (!confirm(msgContrast)) {
             return; // Detener sin alterar la imagen y preservar el diseño intacto
@@ -783,9 +786,9 @@ Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados e
         });
 
         // Escribir los píxeles editados de forma directa en el lienzo original (In-Place)
-        const ctx = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
-        ctx.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
-        ctx.drawImage(tempCanvas, 0, 0);
+        const ctxFallback = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
+        ctxFallback.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
+        ctxFallback.drawImage(tempCanvas, 0, 0);
 
         // Suavizado Gaussiano y remoción de halos
         applyEdgeRefinements(actualRaster.canvas, 1);
@@ -799,24 +802,31 @@ Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados e
         // Convertir el canvas a PNG data URL para guardarlo permanentemente en Paper.js
         const transparentDataUrl = actualRaster.canvas.toDataURL('image/png');
 
+        // PREVENCIÓN ABSOLUTA DE RACES DE CARGA SÍNCRONA
+        actualRaster.onLoad = null;
+
         actualRaster.onLoad = () => {
             // RESTAURAR PROPIEDADES FÍSICAS EN FALLBACK (Garantía Antiacortamiento)
-            actualRaster.matrix = oldMatrix;
-            actualRaster.position = oldPosition;
+            actualRaster.matrix = oldMatrixFinal.clone();
+            actualRaster.position = oldPositionFinal.clone();
             
             if (typeof window.updateSelectionBox === 'function') {
-                window.updateSelectionBox(window.selectedItem);
+                window.updateSelectionBox(raster);
             }
             paper.view.update();
         };
 
         // Asignar el nuevo source transparente
         actualRaster.source = transparentDataUrl;
+
+        // Restaurar físicamente de forma inmediata por si la carga del Data URL es síncrona en el navegador
+        actualRaster.matrix = oldMatrixFinal.clone();
+        actualRaster.position = oldPositionFinal.clone();
     }
 
     // Forzar actualización de la caja de selección azul celeste de Paper.js
     if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(window.selectedItem);
+        window.updateSelectionBox(raster);
     }
     
     paper.view.update();
@@ -833,39 +843,39 @@ export function openBackgroundRemovalModal(raster) {
         return;
     }
 
-    // 1. Inicializar el canvas de Paper.js si no existe (por si abren la modal directamente)
-    if (!actualRaster.canvas) {
-        const canvas = document.createElement('canvas');
-        const img = actualRaster.image;
-        canvas.width = img.naturalWidth || img.width || actualRaster.width;
-        canvas.height = img.naturalHeight || img.height || actualRaster.height;
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(img, 0, 0);
-        
-        const oldMatrix = actualRaster.matrix.clone();
-        const oldPosition = actualRaster.position.clone();
-        
-        actualRaster.canvas = canvas;
-        
-        actualRaster.matrix = oldMatrix;
-        actualRaster.position = oldPosition;
+    // 1. Desvincular de raíz las referencias del objeto .data en clones/duplicados para garantizar independencia absoluta
+    if (actualRaster.data) {
+        actualRaster.data = { ...actualRaster.data }; // Copia superficial pura de propiedades primitivas
+    } else {
+        actualRaster.data = {};
     }
 
-    // 2. RESPALDAR FISICIDAD (Garantía absoluta Antiacortamiento / Anti-Shrink)
+    // 2. Inicializar un canvas único e independiente para este Raster (Garantía de Independencia de Imágenes Compartidas/Clonadas)
+    const canvas = document.createElement('canvas');
+    const img = actualRaster.image;
+    canvas.width = img.naturalWidth || img.width || actualRaster.width;
+    canvas.height = img.naturalHeight || img.height || actualRaster.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0);
+    
     const oldMatrix = actualRaster.matrix.clone();
     const oldPosition = actualRaster.position.clone();
+    
+    actualRaster.canvas = canvas;
+    
+    actualRaster.matrix = oldMatrix;
+    actualRaster.position = oldPosition;
 
-    // 3. Inicializar la copia original (originalCanvas) de alta calidad si no existe
-    if (!actualRaster.data) actualRaster.data = {};
-    if (!actualRaster.data.originalCanvas) {
-        const origCanvas = document.createElement('canvas');
-        const sourceImg = actualRaster.canvas || actualRaster.image;
-        origCanvas.width = sourceImg.naturalWidth || sourceImg.width || actualRaster.width;
-        origCanvas.height = sourceImg.naturalHeight || sourceImg.height || actualRaster.height;
-        const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
-        origCtx.drawImage(sourceImg, 0, 0);
-        actualRaster.data.originalCanvas = origCanvas;
-    }
+    // 3. Inicializar la copia original (originalCanvas) de alta calidad única para este Raster
+    const origCanvas = document.createElement('canvas');
+    origCanvas.width = canvas.width;
+    origCanvas.height = canvas.height;
+    const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
+    origCtx.drawImage(canvas, 0, 0);
+    actualRaster.data.originalCanvas = origCanvas;
+
+    const oldMatrixFinal = actualRaster.matrix.clone();
+    const oldPositionFinal = actualRaster.position.clone();
 
     let srcImage = actualRaster.data.originalCanvas;
     if (!srcImage) return;
@@ -888,6 +898,7 @@ export function openBackgroundRemovalModal(raster) {
     backupCtx.drawImage(srcImage, 0, 0);
 
     // 4. Historial de sesión de recorte (Deshacer / Rehacer local)
+    const historyStack = [];    // 4. Historial de sesión de recorte (Deshacer / Rehacer local)
     const historyStack = [];
     let historyIndex = -1;
 
@@ -1563,9 +1574,9 @@ export function openBackgroundRemovalModal(raster) {
         }
 
         // Sobrescribir los píxeles editados sobre el canvas real de Paper.js de forma directa
-        const ctx = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
-        ctx.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
-        ctx.drawImage(editCanvas, 0, 0);
+        const ctxAccept = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
+        ctxAccept.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
+        ctxAccept.drawImage(editCanvas, 0, 0);
 
         // Suavizado radial Gaussiano y remoción de halos en los bordes para LightBurn
         applyEdgeRefinements(actualRaster.canvas, 1);
@@ -1575,20 +1586,28 @@ export function openBackgroundRemovalModal(raster) {
         // Convertir el canvas a PNG data URL para guardarlo permanentemente en Paper.js
         const transparentDataUrl = actualRaster.canvas.toDataURL('image/png');
 
+        // PREVENCIÓN ABSOLUTA DE RACES DE CARGA SÍNCRONA: Anular onLoad original antes de cambiar el source
+        actualRaster.onLoad = null;
+
         actualRaster.onLoad = () => {
             // RESTAURAR PROPIEDADES FISICAS (Garantía absoluta Antiacortamiento / Anti-Shrink)
-            actualRaster.matrix = oldMatrix;
-            actualRaster.position = oldPosition;
+            actualRaster.matrix = oldMatrixFinal.clone();
+            actualRaster.position = oldPositionFinal.clone();
 
-            // Forzar Paper.js a redibujar la caja de selección azul celeste alineada
+            // Forzar Paper.js a redibujar la caja de selección azul celeste alineada sobre el raster original
             if (typeof window.updateSelectionBox === 'function') {
-                window.updateSelectionBox(window.selectedItem);
+                window.updateSelectionBox(raster);
             }
+
             paper.view.update();
         };
 
         // Asignar el nuevo source transparente
         actualRaster.source = transparentDataUrl;
+        
+        // Restaurar físicamente de forma inmediata por si la carga del Data URL es síncrona en el navegador
+        actualRaster.matrix = oldMatrixFinal.clone();
+        actualRaster.position = oldPositionFinal.clone();
         
         closeModal();
     };
