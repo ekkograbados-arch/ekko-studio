@@ -973,15 +973,21 @@ export function openBackgroundRemovalModal(raster) {
     let startPanY = 0;
 
     function renderEditCanvasToScreen() {
+        const rect = screenCanvas.getBoundingClientRect();
+        
         // Redimensionar el canvas de visualización física
         screenCanvas.width = editCanvas.width;
         screenCanvas.height = editCanvas.height;
         
         screenCtx.clearRect(0, 0, screenCanvas.width, screenCanvas.height);
         
-        // Dibujar el editCanvas actual considerando Zoom y Pan transaccional
+        // Calcular factores de escala física a lógica
+        const scaleFactorX = rect.width > 0 ? (editCanvas.width / rect.width) : 1;
+        const scaleFactorY = rect.height > 0 ? (editCanvas.height / rect.height) : 1;
+        
+        // Dibujar el editCanvas actual considerando Zoom y Pan transaccional alineado al píxel real
         screenCtx.save();
-        screenCtx.translate(panX, panY);
+        screenCtx.translate(panX * scaleFactorX, panY * scaleFactorY);
         screenCtx.scale(zoomLevel, zoomLevel);
         screenCtx.drawImage(editCanvas, 0, 0);
         screenCtx.restore();
@@ -1293,9 +1299,13 @@ export function openBackgroundRemovalModal(raster) {
         // Renderizar estado con el overlay celeste superpuesto temporalmente
         renderEditCanvasToScreen();
 
-        // Dibujar el flashCanvas con zoom y pan de forma directa temporal en el canvas de pantalla
+        // Dibujar el flashCanvas con zoom y pan de forma directa temporal en el canvas de pantalla con escala alineada
+        const rect = screenCanvas.getBoundingClientRect();
+        const scaleFactorX = rect.width > 0 ? (editCanvas.width / rect.width) : 1;
+        const scaleFactorY = rect.height > 0 ? (editCanvas.height / rect.height) : 1;
+
         screenCtx.save();
-        screenCtx.translate(panX, panY);
+        screenCtx.translate(panX * scaleFactorX, panY * scaleFactorY);
         screenCtx.scale(zoomLevel, zoomLevel);
         screenCtx.drawImage(flashCanvas, 0, 0);
         screenCtx.restore();
