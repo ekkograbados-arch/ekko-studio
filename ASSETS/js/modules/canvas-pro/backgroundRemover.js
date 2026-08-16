@@ -484,7 +484,10 @@ export async function loadImglyLibrary() {
 }
 
 /**
- * export function applyEdgeRefinements(canvas, featherRadius = 1) {
+ * Aplica el algoritmo de Feather (suavizado radial de bordes) y Defringe (quitar halos de fondo)
+ * de nivel profesional sobre el canvas de salida para garantizar un grabado limpio en LightBurn.
+ */
+export function applyEdgeRefinements(canvas, featherRadius = 1) {
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const width = canvas.width;
     const height = canvas.height;
