@@ -1405,7 +1405,9 @@ export function openBackgroundRemovalModal(raster) {
 
     function drawBrushStroke(x0, y0, x1, y1) {
         const dist = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2);
-        const steps = Math.max(1, Math.floor(dist / (brushSize / 8)));
+        // Usar un paso del 25% del tamaño de la brocha (brushSize / 4) para evitar la sobre-acumulación
+        // de opacidad en los bordes y conservar la suavidad real de la dureza seleccionada
+        const steps = Math.max(1, Math.floor(dist / Math.max(1, brushSize / 4)));
         for (let i = 0; i <= steps; i++) {
             const t = i / steps;
             const cx = x0 + (x1 - x0) * t;
@@ -1416,24 +1418,34 @@ export function openBackgroundRemovalModal(raster) {
     }
 
     function applySingleBrushSpot(cx, cy) {
-        const radius = brushSize;
+        // CORRECCIÓN MATEMÁTICA DEFINITIVA: El radio real del pincel es la mitad de su tamaño (diámetro)
+        const radius = brushSize / 2;
         const brushCanvas = document.createElement('canvas');
-        brushCanvas.width = radius * 2;
-        brushCanvas.height = radius * 2;
+        brushCanvas.width = brushSize;
+        brushCanvas.height = brushSize;
         const brushCtx = brushCanvas.getContext('2d');
 
-        // Gradiente radial para suavizado (dureza) de bordes
-        const grad = brushCtx.createRadialGradient(
-            radius, radius, radius * brushHardness,
-            radius, radius, radius
-        );
-        grad.addColorStop(0, 'rgba(0,0,0,1)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
+        // EVITAR DEGRADADO DEGENERADO: Si la dureza es máxima (>= 0.95), dibujamos un círculo de borde duro
+        // directo para evitar errores de compilación o fallos en el renderizado del navegador
+        if (brushHardness >= 0.95) {
+            brushCtx.fillStyle = 'rgba(0,0,0,1)';
+            brushCtx.beginPath();
+            brushCtx.arc(radius, radius, radius, 0, Math.PI * 2);
+            brushCtx.fill();
+        } else {
+            // Gradiente radial para suavizado (dureza) de bordes no degenerado
+            const grad = brushCtx.createRadialGradient(
+                radius, radius, radius * brushHardness,
+                radius, radius, radius
+            );
+            grad.addColorStop(0, 'rgba(0,0,0,1)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
 
-        brushCtx.fillStyle = grad;
-        brushCtx.beginPath();
-        brushCtx.arc(radius, radius, radius, 0, Math.PI * 2);
-        brushCtx.fill();
+            brushCtx.fillStyle = grad;
+            brushCtx.beginPath();
+            brushCtx.arc(radius, radius, radius, 0, Math.PI * 2);
+            brushCtx.fill();
+        }
 
         // Aplicar la pincelada al editCanvas principal
         editCtx.save();
