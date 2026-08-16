@@ -431,6 +431,7 @@ export async function loadImglyLibrary() {
 
     // Lista de orígenes de módulos ESM nativos (versión estable real 1.7.0)
     const sources = [
+        "https://esm.sh/@imgly/background-removal@1.7.0",
         "https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs",
         "https://unpkg.com/@imgly/background-removal@1.7.0/dist/index.mjs",
         "/ASSETS/js/vendor/background-removal/index.mjs" // Ruta local alternativa
@@ -440,7 +441,8 @@ export async function loadImglyLibrary() {
     for (const src of sources) {
         try {
             console.log(`Intentando cargar IA desde: ${src}`);
-            updateIaLoadingProgress(0.1, `Estableciendo conexión con ${src.includes('jsdelivr') ? 'jsDelivr' : src.includes('unpkg') ? 'unpkg' : 'servidor local'}...`);
+            const provider = src.includes('jsdelivr') ? 'jsDelivr' : src.includes('unpkg') ? 'unpkg' : src.includes('esm.sh') ? 'esm.sh' : 'servidor local';
+            updateIaLoadingProgress(0.1, `Estableciendo conexión con ${provider}...`);
             
             const module = await import(src);
             if (module) {
