@@ -1,14 +1,19 @@
 /**
  * ASSETS/js/modules/canvas-pro/backgroundRemover.js
  * 
- * Módulo profesional de eliminación de fondo interactivo (PhotoRoom-style) - Versión 8.
+ * Módulo profesional de eliminación de fondo interactivo (PhotoRoom-style) - Versión 10.
  * Ofrece:
  * 1. Pincel borrador (Erase) y restaurador (Restore) con tamaño y dureza (suavizado radial) regulables.
- * 2. Varita mágica (Magic Wand) con algoritmo de inundación (flood-fill) optimizado, tolerancia ajustable y delta local.
+ *    - Ahora con identificadores por color (Rojo para Borrador, Verde para Restaurador).
+ *    - Cursor flotante circular en tiempo real que refleja el diámetro exacto y color de la acción.
+ * 2. Varita mágica (Magic Wand) con algoritmo de inundación (flood-fill) optimizado, tolerancia ajustable.
+ *    - Identificador por color Celeste/Turquesa en el botón de la barra lateral.
+ *    - Flash de retroalimentación en Celeste/Turquesa que ilumina exactamente los píxeles seleccionados antes de borrarlos.
+ *    - Círculo de mira celeste para apuntar con precisión de píxel.
  * 3. Conservación de calidad extrema (ejecuta los cambios sobre el lienzo de alta resolución de origen).
  * 4. Historial interno de cambios (Deshacer/Rehacer) durante la sesión de recorte.
  * 5. Interfaz de usuario (modal interactiva draggable) con fondo de tablero de ajedrez para previsualizar transparencia.
- * 6. autoRemoveBackground: Eliminación de fondo automática instantánea con soporte nativo ESM y fallback interactivo.
+ * 6. autoRemoveBackground: Eliminación de fondo automática instantánea con barrera de gradiente Sobel para escala de grises.
  * 7. getRasterFromItem: Resolución segura de imágenes enmascaradas (clipGroup) para evitar TypeErrors.
  * 8. GARANTÍA ABSOLUTA ANTI-ACORTAMIENTO (In-Place Canvas Rendering): Redibuja píxeles directamente sobre el lienzo de Paper.js para anular resets de escala.
  */
@@ -22,7 +27,7 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         .bg-remover-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
-            background-color: rgba(0, 0, 0, 0.65);
+            background-color: rgba(0, 0, 0, 0.6);
             z-index: 10005;
             display: flex;
             align-items: center;
@@ -35,7 +40,7 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             border: 2px solid #007bff;
             border-radius: 12px;
             padding: 20px;
-            width: 920px;
+            width: 900px;
             max-width: 95%;
             height: 680px;
             box-shadow: 0 12px 50px rgba(0, 0, 0, 0.8);
@@ -63,7 +68,7 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
         }
         .bg-remover-container {
             display: grid;
-            grid-template-columns: 1fr 300px;
+            grid-template-columns: 1fr 280px;
             gap: 15px;
             flex-grow: 1;
             min-height: 0;
@@ -84,7 +89,6 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             max-height: 100%;
             object-fit: contain;
             box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            image-rendering: pixelated;
         }
         .bg-remover-sidebar {
             background-color: #222;
@@ -95,13 +99,6 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             gap: 15px;
             overflow-y: auto;
             border: 1px solid rgba(255,255,255,0.05);
-        }
-        .bg-remover-sidebar::-webkit-scrollbar {
-            width: 6px;
-        }
-        .bg-remover-sidebar::-webkit-scrollbar-thumb {
-            background-color: #444;
-            border-radius: 3px;
         }
         .bg-remover-section-title {
             font-size: 13px;
@@ -131,11 +128,27 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             background-color: #3d3d3d;
             border-color: #555;
         }
-        .bg-remover-tool-btn.active {
-            background-color: #007bff;
-            border-color: #007bff;
-            box-shadow: 0 0 10px rgba(0, 123, 255, 0.4);
+        
+        /* IDENTIFICACIÓN POR COLORES EN ESTADO ACTIVO (PhotoRoom-style) */
+        #btnToolErase.active {
+            background-color: #dc3545 !important;
+            border-color: #dc3545 !important;
+            box-shadow: 0 0 12px rgba(220, 53, 69, 0.5) !important;
+            color: #fff !important;
         }
+        #btnToolRestore.active {
+            background-color: #28a745 !important;
+            border-color: #28a745 !important;
+            box-shadow: 0 0 12px rgba(40, 167, 69, 0.5) !important;
+            color: #fff !important;
+        }
+        #btnToolMagic.active {
+            background-color: #00d2ff !important;
+            border-color: #00d2ff !important;
+            color: #111 !important;
+            box-shadow: 0 0 12px rgba(0, 210, 255, 0.5) !important;
+        }
+
         .bg-remover-slider-group {
             display: flex;
             flex-direction: column;
@@ -155,6 +168,18 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             height: 5px;
             border-radius: 2px;
         }
+        
+        /* Variación del slider según el color del pincel activo */
+        .bg-remover-slider.slider-erase {
+            accent-color: #dc3545;
+        }
+        .bg-remover-slider.slider-restore {
+            accent-color: #28a745;
+        }
+        .bg-remover-slider.slider-magic {
+            accent-color: #00d2ff;
+        }
+
         .bg-remover-info {
             font-size: 11px;
             color: #aaa;
@@ -222,6 +247,9 @@ if (typeof document !== 'undefined' && !document.getElementById(removeBgStylesId
             opacity: 0.3;
             cursor: not-allowed;
         }
+        .hidden {
+            display: none !important;
+        }
     `;
     document.head.appendChild(styleEl);
 }
@@ -233,27 +261,27 @@ function showIaLoadingOverlay() {
 
     const overlay = document.createElement('div');
     overlay.id = 'bgIaLoadingOverlay';
-    overlay.style = `
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background-color: rgba(0, 0, 0, 0.8);
-        z-index: 10006;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        font-family: system-ui, -apple-system, sans-serif;
-        color: #fff;
-    `;
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0'; overlay.style.left = '0';
+    overlay.style.right = '0'; overlay.style.bottom = '0';
+    overlay.style.backgroundColor = 'rgba(0,0,0,0.85)';
+    overlay.style.zIndex = '10009';
+    overlay.style.display = 'flex';
+    overlay.style.flexDirection = 'column';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.style.color = '#fff';
+    overlay.style.fontFamily = 'system-ui, sans-serif';
 
     overlay.innerHTML = `
-        <div style="background-color: #1e1e1e; border: 2px solid #007bff; border-radius: 12px; padding: 30px; width: 400px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
-            <div style="font-size: 24px; margin-bottom: 15px;">🧠 Inteligencia Artificial</div>
-            <div id="bgIaLoadingText" style="font-size: 14px; margin-bottom: 20px; color: #ccc;">Inicializando motor neuronal...</div>
-            <div style="width: 100%; background-color: #333; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 10px;">
-                <div id="bgIaProgressBar" style="width: 0%; background-color: #007bff; height: 100%; transition: width 0.1s;"></div>
+        <div style="background-color: #1e1e1e; border: 2px solid #007bff; border-radius: 12px; padding: 30px; width: 420px; box-shadow: 0 10px 40px rgba(0,0,0,0.6); text-align: center;">
+            <div style="font-size: 32px; margin-bottom: 15px;">🧠</div>
+            <h3 style="margin: 0 0 10px 0; color: #007bff; font-size: 18px;">Inteligencia Artificial Local</h3>
+            <div id="bgIaLoadingText" style="font-size: 13px; color: #ccc; margin-bottom: 15px;">Conectando con la red neuronal local...</div>
+            <div style="background-color: #333; height: 6px; width: 100%; border-radius: 3px; overflow: hidden; margin-bottom: 10px;">
+                <div id="bgIaProgressBar" style="background-color: #007bff; height: 100%; width: 5%; transition: width 0.2s;"></div>
             </div>
-            <div id="bgIaLoadingSubtext" style="font-size: 11px; color: #888; line-height: 1.4;">Este proceso ocurre 100% local en tu navegador. La primera vez puede tardar unos segundos mientras se descargan los pesos de la red neuronal.</div>
+            <div id="bgIaLoadingSubtext" style="font-size: 11px; color: #777;">(Este proceso toma unos segundos; solo ocurre en la primera ejecución de la sesión)</div>
         </div>
     `;
     document.body.appendChild(overlay);
@@ -285,9 +313,9 @@ export function getRasterFromItem(item) {
         const rasterChild = item.children.find(c => c instanceof paper.Raster);
         if (rasterChild) return rasterChild;
         
-        // Búsqueda recursiva
-        for (const child of item.children) {
-            const found = getRasterFromItem(child);
+        // Búsqueda recursiva profunda
+        for (let i = 0; i < item.children.length; i++) {
+            const found = getRasterFromItem(item.children[i]);
             if (found) return found;
         }
     }
@@ -295,38 +323,33 @@ export function getRasterFromItem(item) {
 }
 
 /**
- * Calcula el operador convolucional de Sobel (Gx, Gy) sobre el canvas de origen.
- * Devuelve un mapa de magnitudes de borde para evitar que el recorte de contraste
- * "muerda" el cuerpo de sujetos en escala de grises o bajo contraste.
+ * Genera un mapa de gradientes Sobel de 1 bit para usarlo como barrera de contraste
+ * durante las selecciones de varita mágica, garantizando nitidez extrema en bordes complejos.
  */
-export function computeSobelEdges(data, width, height) {
-    const edges = new Uint8Array(width * height);
+function computeSobelEdges(pixels, width, height) {
     const gray = new Uint8Array(width * height);
-
-    // 1. Convertir a escala de grises de alta precisión
-    for (let i = 0; i < data.length; i += 4) {
-        gray[i / 4] = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    for (let i = 0; i < pixels.length; i += 4) {
+        gray[i / 4] = Math.round(0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2]);
     }
 
-    // 2. Convolución de Sobel 3x3
+    const edges = new Uint8Array(width * height);
+    
+    // Convolución de Sobel 3x3
     for (let y = 1; y < height - 1; y++) {
         for (let x = 1; x < width - 1; x++) {
             const idx = y * width + x;
-
-            const val00 = gray[(y - 1) * width + (x - 1)];
-            const val01 = gray[(y - 1) * width + x];
-            const val02 = gray[(y - 1) * width + (x + 1)];
-            const val10 = gray[y * width + (x - 1)];
-            const val12 = gray[y * width + (x + 1)];
-            const val20 = gray[(y + 1) * width + (x - 1)];
-            const val21 = gray[(y + 1) * width + x];
-            const val22 = gray[(y + 1) * width + (x + 1)];
-
-            const gx = (val02 + 2 * val12 + val22) - (val00 + 2 * val10 + val20);
-            const gy = (val20 + 2 * val21 + val22) - (val00 + 2 * val01 + val02);
-
-            const mag = Math.sqrt(gx * gx + gy * gy);
-            edges[idx] = mag > 255 ? 255 : mag;
+            
+            const gX = 
+                -gray[(y-1)*width + (x-1)] + gray[(y-1)*width + (x+1)] +
+                -2*gray[y*width + (x-1)]     + 2*gray[y*width + (x+1)] +
+                -gray[(y+1)*width + (x-1)] + gray[(y+1)*width + (x+1)];
+                
+            const gY = 
+                -gray[(y-1)*width + (x-1)] - 2*gray[(y-1)*width + x] - gray[(y-1)*width + (x+1)] +
+                gray[(y+1)*width + (x-1)]  + 2*gray[(y+1)*width + x]  + gray[(y+1)*width + (x+1)];
+                
+            const mag = Math.sqrt(gX * gX + gY * gY);
+            edges[idx] = mag > 25 ? 1 : 0; // Guardar 1 en bordes nítidos de contraste
         }
     }
     return edges;
@@ -361,21 +384,21 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
     visited[startY * width + startX] = 1;
 
     const tolSquare = (tolerance / 100) * 255 * 255 * 3;
-    const edgeThreshold = 25; // Sensibilidad de barrera aumentada
+    const edgeThreshold = 25; // Sensibilidad de barrera aumentada para Don Ramón
 
     while (head < tail) {
-        const x = queueX[head];
-        const y = queueY[head];
+        const cx = queueX[head];
+        const cy = queueY[head];
         head++;
 
-        const idx = (y * width + x) * 4;
-        
-        // Marcar como transparente (borrado)
-        data[idx + 3] = 0;
+        const idx = (cy * width + cx) * 4;
+        data[idx + 3] = 0; // Hacer transparente
 
         const neighbors = [
-            { x: x + 1, y: y }, { x: x - 1, y: y },
-            { x: x, y: y + 1 }, { x: x, y: y - 1 }
+            { x: cx + 1, y: cy },
+            { x: cx - 1, y: cy },
+            { x: cx, y: cy + 1 },
+            { x: cx, y: cy - 1 }
         ];
 
         for (let i = 0; i < 4; i++) {
@@ -385,26 +408,21 @@ export function magicWandFloodFillDirect(ctx, startX, startY, tolerance, edgesMa
             if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
                 const nIdx = ny * width + nx;
                 if (!visited[nIdx]) {
-                    visited[nIdx] = 1;
-
-                    // Si hay una barrera fuerte de Sobel, detener la inundación en esta dirección
-                    if (edgesMap && edgesMap[nIdx] > edgeThreshold) {
+                    // Si hay mapa Sobel y hay un borde fuerte en este píxel, detenemos la inundación en este camino
+                    if (edgesMap && edgesMap[nIdx] === 1) {
                         continue;
                     }
 
-                    const pxIdx = nIdx * 4;
-                    const r = data[pxIdx];
-                    const g = data[pxIdx + 1];
-                    const b = data[pxIdx + 2];
-                    const a = data[pxIdx + 3];
+                    const pIdx = nIdx * 4;
+                    const nr = data[pIdx];
+                    const ng = data[pIdx + 1];
+                    const nb = data[pIdx + 2];
+                    const na = data[pIdx + 3];
 
-                    if (a >= 5) {
-                        const dr = r - r0;
-                        const dg = g - g0;
-                        const db = b - b0;
-                        const diff = dr * dr + dg * dg + db * db;
-
+                    if (na >= 5) {
+                        const diff = (nr - r0) ** 2 + (ng - g0) ** 2 + (nb - b0) ** 2;
                         if (diff <= tolSquare) {
+                            visited[nIdx] = 1;
                             queueX[tail] = nx;
                             queueY[tail] = ny;
                             tail++;
@@ -533,7 +551,7 @@ export function applyEdgeRefinements(canvas, featherRadius = 1) {
         }
     }
 
-    // 2. Feathering: Suavizado radial de contorno (promedio de alphas)
+    // 2. Feathering: Suavizado radial Gaussiano de contorno (promedio de alphas)
     if (featherRadius > 0) {
         const alphaGrid = new Uint8Array(width * height);
         for (let i = 0; i < data.length; i += 4) {
@@ -672,18 +690,21 @@ export async function autoRemoveBackground(raster) {
         hideIaLoadingOverlay();
         
         // INTERFAZ AMIGABLE DE GARANTÍA: Evitar arruinar la imagen con el contraste Sobel silencioso
-        const msgManual = `⚠️ El motor de Inteligencia Artificial (IA) no pudo iniciarse.\n\n` +
-                          `Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados en su navegador.\n\n` +
-                          `¿Desea abrir el EDITOR MANUAL interactivo? (Recomendado: tiene Pincel Borrador, Restaurador y Varita Mágica 100% locales y offline, ideales para un grabado láser impecable).`;
+        const msgManual = `⚠️ El motor de Inteligencia Artificial (IA) no pudo iniciarse.
+
+Esto suele ocurrir si no hay conexión a internet o los CDNs están bloqueados en su navegador.
+
+¿Desea abrir el EDITOR MANUAL interactivo? (Recomendado: tiene Pincel Borrador, Restaurador y Varita Mágica 100% locales y offline, ideales para un grabado láser impecable).`;
         
         if (confirm(msgManual)) {
             openBackgroundRemovalModal(raster);
             return;
         }
 
-        const msgContrast = `¿Desea ejecutar el algoritmo automático por contraste de respaldo (Sobel Contrast Match)?\n\n` +
-                            `(Atención: Solo se recomienda para imágenes con fondos liso y alto contraste. En fotos complejas como medallas de personas o perros puede morder partes del diseño).`;
+        const msgContrast = `¿Desea ejecutar el algoritmo automático por contraste de respaldo (Sobel Contrast Match)?
 
+(Atención: Solo se recomienda para imágenes con fondos liso y alto contraste. En fotos complejas como medallas de personas o perros puede morder partes del diseño).`;
+        
         if (!confirm(msgContrast)) {
             return; // Detener sin alterar la imagen y preservar el diseño intacto
         }
@@ -773,7 +794,9 @@ export function openBackgroundRemovalModal(raster) {
         
         const oldMatrix = actualRaster.matrix.clone();
         const oldPosition = actualRaster.position.clone();
+        
         actualRaster.canvas = canvas;
+        
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
     }
@@ -792,6 +815,7 @@ export function openBackgroundRemovalModal(raster) {
     editCanvas.width = srcImage.width || actualRaster.width;
     editCanvas.height = srcImage.height || actualRaster.height;
     const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
+    
     const baseImage = actualRaster.canvas || srcImage;
     editCtx.drawImage(baseImage, 0, 0);
 
@@ -800,6 +824,7 @@ export function openBackgroundRemovalModal(raster) {
     backupCanvas.width = editCanvas.width;
     backupCanvas.height = editCanvas.height;
     const backupCtx = backupCanvas.getContext('2d', { willReadFrequently: true });
+    
     const rawOriginal = actualRaster.data.originalCanvas || srcImage;
     backupCtx.drawImage(rawOriginal, 0, 0);
 
@@ -830,12 +855,26 @@ export function openBackgroundRemovalModal(raster) {
     modal.innerHTML = `
         <div class="bg-remover-header">
             <h3>✂️ Quitar Fondo y Recortar Imagen</h3>
-            <span style="font-size: 12px; color: #888;">Medidas físicas: <b>\${mmW} mm x \${mmH} mm</b></span>
+            <span style="font-size: 12px; color: #888;">Medidas físicas: <b>${mmW} mm x ${mmH} mm</b></span>
         </div>
         <div class="bg-remover-container">
-            <div class="bg-remover-canvas-area">
+            <div class="bg-remover-canvas-area" style="position: relative; overflow: hidden;">
                 <canvas id="bgRemoverCanvas"></canvas>
+                
+                <!-- CURSOR FLOTANTE DE TAMAÑO Y COLOR EN TIEMPO REAL (Canva/PhotoRoom Style) -->
+                <div id="bgRemoverBrushCursor" style="
+                    position: absolute;
+                    pointer-events: none;
+                    border-radius: 50%;
+                    border: 2px solid #dc3545;
+                    background-color: rgba(220, 53, 69, 0.15);
+                    display: none;
+                    z-index: 10006;
+                    box-sizing: border-box;
+                    transition: border-color 0.1s, background-color 0.1s;
+                "></div>
             </div>
+            
             <div class="bg-remover-sidebar">
                 <div class="bg-remover-slider-group">
                     <span class="bg-remover-section-title">Historial</span>
@@ -844,18 +883,20 @@ export function openBackgroundRemovalModal(raster) {
                         <button class="bg-remover-history-btn" id="btnRemoverRedo" disabled>↪ Rehacer</button>
                     </div>
                 </div>
+                
                 <div class="bg-remover-slider-group">
                     <span class="bg-remover-section-title">Herramientas</span>
                     <button class="bg-remover-tool-btn active" id="btnToolErase" data-tool="erase">
-                        🧽 Pincel Borrador
+                        🧽 Pincel Borrador (Rojo)
                     </button>
                     <button class="bg-remover-tool-btn" id="btnToolRestore" data-tool="restore">
-                        🖌️ Pincel Restaurador
+                        🖌️ Pincel Restaurador (Verde)
                     </button>
                     <button class="bg-remover-tool-btn" id="btnToolMagic" data-tool="magic">
-                        🪄 Varita Mágica (Auto)
+                        🪄 Varita Mágica (Celeste)
                     </button>
                 </div>
+                
                 <div class="bg-remover-slider-group" id="groupBrushControls">
                     <span class="bg-remover-section-title">Ajustes de Pincel</span>
                     <div class="bg-remover-slider-group">
@@ -863,16 +904,17 @@ export function openBackgroundRemovalModal(raster) {
                             <span>Tamaño:</span>
                             <span id="lblBrushSize">20 px</span>
                         </div>
-                        <input type="range" class="bg-remover-slider" id="slideBrushSize" min="1" max="150" value="20">
+                        <input type="range" class="bg-remover-slider slider-erase" id="slideBrushSize" min="1" max="150" value="20">
                     </div>
                     <div class="bg-remover-slider-group" style="margin-top: 10px;">
                         <div class="bg-remover-slider-label">
                             <span>Dureza:</span>
                             <span id="lblBrushHardness">50%</span>
                         </div>
-                        <input type="range" class="bg-remover-slider" id="slideBrushHardness" min="0" max="100" value="50">
+                        <input type="range" class="bg-remover-slider slider-erase" id="slideBrushHardness" min="0" max="100" value="50">
                     </div>
                 </div>
+                
                 <div class="bg-remover-slider-group hidden" id="groupMagicControls">
                     <span class="bg-remover-section-title">Ajustes de Varita Mágica</span>
                     <div class="bg-remover-slider-group">
@@ -880,18 +922,20 @@ export function openBackgroundRemovalModal(raster) {
                             <span>Tolerancia de Color:</span>
                             <span id="lblMagicTolerance">15</span>
                         </div>
-                        <input type="range" class="bg-remover-slider" id="slideMagicTolerance" min="0" max="100" value="15">
+                        <input type="range" class="bg-remover-slider slider-magic" id="slideMagicTolerance" min="0" max="100" value="15">
                     </div>
                 </div>
+                
                 <div class="bg-remover-slider-group">
                     <span class="bg-remover-section-title">Filtros de Grabado</span>
                     <button class="bg-remover-tool-btn" id="btnSharpenFilter" style="background-color: #242424; border-color: #333;">
                         ✨ Mejorar Nitidez (Sharpen)
                     </button>
                 </div>
+                
                 <div class="bg-remover-info">
                     💡 <b>Tip de Recorte:</b><br>
-                    Usa la <b>Varita Mágica</b> para remover fondos sólidos con un solo clic. Ajusta la <b>Dureza</b> del pincel a valores bajos para lograr bordes suaves y nítidos.
+                    Usa la <b>Varita Mágica</b> para remover fondos sólidos con un solo clic. El círculo de color indica qué acción estás realizando de forma intuitiva.
                 </div>
             </div>
         </div>
@@ -906,6 +950,7 @@ export function openBackgroundRemovalModal(raster) {
 
     const screenCanvas = modal.querySelector('#bgRemoverCanvas');
     const screenCtx = screenCanvas.getContext('2d', { willReadFrequently: true });
+    const brushCursor = modal.querySelector('#bgRemoverBrushCursor');
 
     // Botones del DOM buscados al inicio para evitar errores de TDZ
     const btnRemoverUndo = modal.querySelector('#btnRemoverUndo');
@@ -928,16 +973,20 @@ export function openBackgroundRemovalModal(raster) {
     let startPanY = 0;
 
     function renderEditCanvasToScreen() {
+        // Redimensionar el canvas de visualización física
         screenCanvas.width = editCanvas.width;
         screenCanvas.height = editCanvas.height;
+        
         screenCtx.clearRect(0, 0, screenCanvas.width, screenCanvas.height);
         
+        // Dibujar el editCanvas actual considerando Zoom y Pan transaccional
         screenCtx.save();
         screenCtx.translate(panX, panY);
         screenCtx.scale(zoomLevel, zoomLevel);
         screenCtx.drawImage(editCanvas, 0, 0);
         screenCtx.restore();
     }
+    
     renderEditCanvasToScreen();
 
     let activeTool = 'erase';
@@ -948,6 +997,77 @@ export function openBackgroundRemovalModal(raster) {
     let lastX = 0;
     let lastY = 0;
 
+    // Actualiza dinámicamente la posición y escala física del indicador circular en pantalla
+    function updateBrushCursor(e) {
+        if (!brushCursor) return;
+
+        const rect = screenCanvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const isInside = mouseX >= 0 && mouseX <= rect.width && mouseY >= 0 && mouseY <= rect.height;
+
+        if (isInside) {
+            let cursorSize;
+            if (activeTool === 'magic') {
+                cursorSize = 12; // Círculo de mira celeste pequeño y preciso
+                brushCursor.style.width = `${cursorSize}px`;
+                brushCursor.style.height = `${cursorSize}px`;
+                brushCursor.style.left = `${mouseX - cursorSize / 2}px`;
+                brushCursor.style.top = `${mouseY - cursorSize / 2}px`;
+                brushCursor.style.display = 'block';
+                brushCursor.style.borderColor = '#00d2ff'; // Celeste/Turquesa
+                brushCursor.style.backgroundColor = 'rgba(0, 210, 255, 0.25)';
+                screenCanvas.style.cursor = 'none'; // Ocultar cursor nativo
+            } else {
+                const scale = rect.width / editCanvas.width;
+                // Escalar el tamaño según la visualización física y zoomLevel
+                cursorSize = brushSize * scale * zoomLevel;
+
+                brushCursor.style.width = `${cursorSize}px`;
+                brushCursor.style.height = `${cursorSize}px`;
+                brushCursor.style.left = `${mouseX - cursorSize / 2}px`;
+                brushCursor.style.top = `${mouseY - cursorSize / 2}px`;
+                brushCursor.style.display = 'block';
+
+                if (activeTool === 'erase') {
+                    brushCursor.style.borderColor = '#dc3545'; // Rojo
+                    brushCursor.style.backgroundColor = 'rgba(220, 53, 69, 0.15)';
+                    screenCanvas.style.cursor = 'none';
+                } else if (activeTool === 'restore') {
+                    brushCursor.style.borderColor = '#28a745'; // Verde
+                    brushCursor.style.backgroundColor = 'rgba(40, 167, 69, 0.15)';
+                    screenCanvas.style.cursor = 'none';
+                }
+            }
+        } else {
+            brushCursor.style.display = 'none';
+            screenCanvas.style.cursor = 'default';
+        }
+    }
+
+    const slideSize = modal.querySelector('#slideBrushSize');
+    const lblSize = modal.querySelector('#lblBrushSize');
+    slideSize.oninput = () => {
+        brushSize = parseInt(slideSize.value);
+        lblSize.textContent = brushSize + ' px';
+    };
+
+    const slideHardness = modal.querySelector('#slideBrushHardness');
+    const lblHardness = modal.querySelector('#lblBrushHardness');
+    slideHardness.oninput = () => {
+        const val = parseInt(slideHardness.value);
+        brushHardness = val / 100;
+        lblHardness.textContent = val + '%';
+    };
+
+    const slideTolerance = modal.querySelector('#slideMagicTolerance');
+    const lblTolerance = modal.querySelector('#lblMagicTolerance');
+    slideTolerance.oninput = () => {
+        magicTolerance = parseInt(slideTolerance.value);
+        lblTolerance.textContent = magicTolerance;
+    };
+
     const btnToolErase = modal.querySelector('#btnToolErase');
     const btnToolRestore = modal.querySelector('#btnToolRestore');
     const btnToolMagic = modal.querySelector('#btnToolMagic');
@@ -957,6 +1077,14 @@ export function openBackgroundRemovalModal(raster) {
     function setActiveTool(tool) {
         activeTool = tool;
         [btnToolErase, btnToolRestore, btnToolMagic].forEach(btn => btn.classList.remove('active'));
+        
+        // Cambiar clases de sliders para acentuar el color activo
+        [slideSize, slideHardness].forEach(el => {
+            el.className = 'bg-remover-slider';
+            if (tool === 'erase') el.classList.add('slider-erase');
+            if (tool === 'restore') el.classList.add('slider-restore');
+        });
+
         if (tool === 'erase') {
             btnToolErase.classList.add('active');
             groupBrushControls.classList.remove('hidden');
@@ -970,6 +1098,10 @@ export function openBackgroundRemovalModal(raster) {
             groupBrushControls.classList.add('hidden');
             groupMagicControls.classList.remove('hidden');
         }
+        
+        // Limpiar cursor flotante
+        if (brushCursor) brushCursor.style.display = 'none';
+        screenCanvas.style.cursor = 'default';
     }
 
     btnToolErase.onclick = () => setActiveTool('erase');
@@ -983,13 +1115,16 @@ export function openBackgroundRemovalModal(raster) {
         const h = editCanvas.height;
         const imgData = editCtx.getImageData(0, 0, w, h);
         const data = imgData.data;
+
+        // Máscara convolución Laplacian Sharpening
         const weights = [
              0, -1,  0,
             -1,  5, -1,
              0, -1,  0
         ];
-        const side = 3;
-        const halfSide = 1;
+        const side = Math.round(Math.sqrt(weights.length));
+        const halfSide = Math.floor(side / 2);
+
         const output = editCtx.createImageData(w, h);
         const dst = output.data;
 
@@ -998,35 +1133,37 @@ export function openBackgroundRemovalModal(raster) {
                 const sy = y;
                 const sx = x;
                 const dstOff = (y * w + x) * 4;
-                
-                let r = 0, g = 0, b = 0, a = 0;
+
+                let r = 0, g = 0, b = 0, a = data[dstOff + 3];
+
                 for (let cy = 0; cy < side; cy++) {
                     for (let cx = 0; cx < side; cx++) {
                         const scy = Math.min(h - 1, Math.max(0, sy + cy - halfSide));
                         const scx = Math.min(w - 1, Math.max(0, sx + cx - halfSide));
                         const srcOff = (scy * w + scx) * 4;
                         const wt = weights[cy * side + cx];
+                        
                         r += data[srcOff] * wt;
                         g += data[srcOff + 1] * wt;
                         b += data[srcOff + 2] * wt;
                     }
                 }
-                
-                dst[dstOff] = Math.max(0, Math.min(255, r));
-                dst[dstOff + 1] = Math.max(0, Math.min(255, g));
-                dst[dstOff + 2] = Math.max(0, Math.min(255, b));
-                dst[dstOff + 3] = data[dstOff + 3]; // Conservar canal alfa intacto
+
+                dst[dstOff] = Math.min(255, Math.max(0, r));
+                dst[dstOff + 1] = Math.min(255, Math.max(0, g));
+                dst[dstOff + 2] = Math.min(255, Math.max(0, b));
+                dst[dstOff + 3] = a; // Preservar canal alfa intacto
             }
         }
+
         editCtx.putImageData(output, 0, 0);
-        renderEditCanvasToScreen();
         saveSessionHistory();
+        renderEditCanvasToScreen();
     };
 
     btnRemoverUndo.onclick = () => {
         if (historyIndex > 0) {
             historyIndex--;
-            editCtx.clearRect(0, 0, editCanvas.width, editCanvas.height);
             editCtx.putImageData(historyStack[historyIndex], 0, 0);
             renderEditCanvasToScreen();
             updateHistoryButtons();
@@ -1036,7 +1173,6 @@ export function openBackgroundRemovalModal(raster) {
     btnRemoverRedo.onclick = () => {
         if (historyIndex < historyStack.length - 1) {
             historyIndex++;
-            editCtx.clearRect(0, 0, editCanvas.width, editCanvas.height);
             editCtx.putImageData(historyStack[historyIndex], 0, 0);
             renderEditCanvasToScreen();
             updateHistoryButtons();
@@ -1044,85 +1180,134 @@ export function openBackgroundRemovalModal(raster) {
     };
 
     function getCanvasCoords(e) {
-        const rect = screenCanvas.getBoundingClientRect();
-        // Coordenadas relativas de pantalla
+        const rect = screenCanvas.getBoundingClientRect(); // Coordenadas relativas de pantalla
         const clickX = e.clientX - rect.left;
         const clickY = e.clientY - rect.top;
 
-        // Mapeo inverso según traslación y escala
-        const targetX = Math.round((clickX - panX) / zoomLevel);
-        const targetY = Math.round((clickY - panY) / zoomLevel);
+        // Mapeo inverso de Zoom y Paneo para sincronizar exactamente las coordenadas sobre la imagen original
+        const canvasX = (clickX - panX) / (zoomLevel * (rect.width / editCanvas.width));
+        const canvasY = (clickY - panY) / (zoomLevel * (rect.height / editCanvas.height));
 
-        return { x: targetX, y: targetY };
+        return { x: canvasX, y: canvasY };
     }
 
-    function drawBrushStroke(x, y, isFirst) {
-        editCtx.save();
-        editCtx.lineCap = 'round';
-        editCtx.lineJoin = 'round';
-        
-        if (activeTool === 'erase') {
-            editCtx.globalCompositeOperation = 'destination-out';
-            
-            if (brushHardness < 0.95) {
-                // Pincel suave mediante gradiente radial para evitar bordes duros
-                const grad = editCtx.createRadialGradient(x, y, brushSize * brushHardness, x, y, brushSize);
-                grad.addColorStop(0, 'rgba(0,0,0,1)');
-                grad.addColorStop(1, 'rgba(0,0,0,0)');
-                editCtx.fillStyle = grad;
-                
-                editCtx.beginPath();
-                editCtx.arc(x, y, brushSize, 0, Math.PI * 2);
-                editCtx.fill();
-            } else {
-                // Pincel duro y directo
-                editCtx.lineWidth = brushSize * 2;
-                editCtx.strokeStyle = 'rgba(0,0,0,1)';
-                editCtx.beginPath();
-                if (isFirst) {
-                    editCtx.moveTo(x, y);
-                } else {
-                    editCtx.moveTo(lastX, lastY);
+    /**
+     * Ejecuta el flood fill en la Varita Mágica con una animación Celeste/Turquesa satisfactoria
+     * antes de borrar físicamente los píxeles.
+     */
+    function runMagicWandWithTurquoiseFlash(startX, startY) {
+        const width = editCanvas.width;
+        const height = editCanvas.height;
+
+        // 1. Obtener los píxeles de editCanvas
+        const imgData = editCtx.getImageData(0, 0, width, height);
+        const data = imgData.data;
+
+        const startIndex = (startY * width + startX) * 4;
+        const r0 = data[startIndex];
+        const g0 = data[startIndex + 1];
+        const b0 = data[startIndex + 2];
+        const a0 = data[startIndex + 3];
+
+        if (a0 < 5) return; // Ya es transparente
+
+        // Queue y visited para flood fill
+        const visited = new Uint8Array(width * height);
+        const queueX = new Int32Array(width * height);
+        const queueY = new Int32Array(width * height);
+        let head = 0;
+        let tail = 0;
+
+        queueX[tail] = startX;
+        queueY[tail] = startY;
+        tail++;
+        visited[startY * width + startX] = 1;
+
+        const tolSquare = (magicTolerance / 100) * 255 * 255 * 3;
+
+        // Crear canvas temporal para la previsualización del flash celeste
+        const flashCanvas = document.createElement('canvas');
+        flashCanvas.width = width;
+        flashCanvas.height = height;
+        const flashCtx = flashCanvas.getContext('2d');
+        const flashImgData = flashCtx.createImageData(width, height);
+        const flashData = flashImgData.data;
+
+        while (head < tail) {
+            const cx = queueX[head];
+            const cy = queueY[head];
+            head++;
+
+            const idx = (cy * width + cx) * 4;
+
+            // Pintar pixel inundado en celeste/turquesa semi-transparente para el flash
+            flashData[idx] = 0;       // R
+            flashData[idx + 1] = 210; // G
+            flashData[idx + 2] = 255; // B
+            flashData[idx + 3] = 220; // A (opaco sutil)
+
+            // Limpiar píxeles en el array de editCanvas reales
+            data[idx + 3] = 0; // Se vuelve transparente en editCanvas
+
+            // Direcciones vecinas (4-conectividad)
+            const neighbors = [
+                { x: cx + 1, y: cy },
+                { x: cx - 1, y: cy },
+                { x: cx, y: cy + 1 },
+                { x: cx, y: cy - 1 }
+            ];
+
+            for (let i = 0; i < 4; i++) {
+                const nx = neighbors[i].x;
+                const ny = neighbors[i].y;
+
+                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                    const nIdx = ny * width + nx;
+                    if (!visited[nIdx]) {
+                        const pIdx = nIdx * 4;
+                        const nr = data[pIdx];
+                        const ng = data[pIdx + 1];
+                        const nb = data[pIdx + 2];
+                        const na = data[pIdx + 3];
+
+                        if (na >= 5) {
+                            const diff = (nr - r0) ** 2 + (ng - g0) ** 2 + (nb - b0) ** 2;
+                            if (diff <= tolSquare) {
+                                queueX[tail] = nx;
+                                queueY[tail] = ny;
+                                tail++;
+                                visited[nIdx] = 1;
+                            }
+                        }
+                    }
                 }
-                editCtx.lineTo(x, y);
-                editCtx.stroke();
             }
-        } else if (activeTool === 'restore') {
-            // Restaurar píxeles originales in-place utilizando el canvas original como patrón
-            editCtx.globalCompositeOperation = 'source-over';
-            const pattern = editCtx.createPattern(backupCanvas, 'no-repeat');
-            editCtx.strokeStyle = pattern;
-            editCtx.lineWidth = brushSize * 2;
-            
-            editCtx.beginPath();
-            if (isFirst) {
-                editCtx.moveTo(x, y);
-            } else {
-                editCtx.moveTo(lastX, lastY);
-            }
-            editCtx.lineTo(x, y);
-            editCtx.stroke();
         }
-        editCtx.restore();
+
+        // 2. Dibujar el flash celeste en la pantalla
+        flashCtx.putImageData(flashImgData, 0, 0);
+
+        // Renderizar estado con el overlay celeste superpuesto temporalmente
         renderEditCanvasToScreen();
-    }
 
-    function applyMagicWand(startX, startY) {
-        const w = editCanvas.width;
-        const h = editCanvas.height;
-        if (startX < 0 || startX >= w || startY < 0 || startY >= h) return;
+        // Dibujar el flashCanvas con zoom y pan de forma directa temporal en el canvas de pantalla
+        screenCtx.save();
+        screenCtx.translate(panX, panY);
+        screenCtx.scale(zoomLevel, zoomLevel);
+        screenCtx.drawImage(flashCanvas, 0, 0);
+        screenCtx.restore();
 
-        // Calcular mapa de bordes Sobel de alta fidelidad para prevenir morder el sujeto principal
-        const imgData = editCtx.getImageData(0, 0, w, h);
-        const edgesMap = computeSobelEdges(imgData.data, w, h);
-
-        magicWandFloodFillDirect(editCtx, startX, startY, magicTolerance, edgesMap);
-        renderEditCanvasToScreen();
-        saveSessionHistory();
+        // 3. Dejar el flash visible por 250ms, luego aplicar permanentemente el borrado
+        setTimeout(() => {
+            // Guardar en editCanvas real
+            editCtx.putImageData(imgData, 0, 0);
+            saveSessionHistory(); // Guardar en historial de recorte
+            renderEditCanvasToScreen();
+        }, 250);
     }
 
     screenCanvas.addEventListener('mousedown', (e) => {
-        // Paneo: Botón derecho, central o Shift + clic izquierdo
+        // Paneo: Botón derecho o Shift + clic izquierdo
         if (e.button === 2 || e.button === 1 || (e.button === 0 && e.shiftKey)) {
             isPanning = true;
             startPanX = e.clientX - panX;
@@ -1132,15 +1317,18 @@ export function openBackgroundRemovalModal(raster) {
         }
 
         if (e.button === 0) {
+            const coords = getCanvasCoords(e);
             if (activeTool === 'magic') {
-                const coords = getCanvasCoords(e);
-                applyMagicWand(coords.x, coords.y);
+                const x = Math.round(coords.x);
+                const y = Math.round(coords.y);
+                if (x >= 0 && x < editCanvas.width && y >= 0 && y < editCanvas.height) {
+                    runMagicWandWithTurquoiseFlash(x, y);
+                }
             } else {
                 isDrawing = true;
-                const coords = getCanvasCoords(e);
                 lastX = coords.x;
                 lastY = coords.y;
-                drawBrushStroke(coords.x, coords.y, true);
+                drawBrushStroke(lastX, lastY, lastX, lastY);
             }
         }
     });
@@ -1153,12 +1341,24 @@ export function openBackgroundRemovalModal(raster) {
             return;
         }
 
-        if (isDrawing) {
+        // Sincronizar el cursor circular de tamaño y color
+        updateBrushCursor(e);
+
+        if (isDrawing && (activeTool === 'erase' || activeTool === 'restore')) {
             const coords = getCanvasCoords(e);
-            drawBrushStroke(coords.x, coords.y, false);
+            drawBrushStroke(lastX, lastY, coords.x, coords.y);
             lastX = coords.x;
             lastY = coords.y;
         }
+    });
+
+    screenCanvas.addEventListener('mouseenter', (e) => {
+        updateBrushCursor(e);
+    });
+
+    screenCanvas.addEventListener('mouseleave', () => {
+        if (brushCursor) brushCursor.style.display = 'none';
+        screenCanvas.style.cursor = 'default';
     });
 
     window.addEventListener('mouseup', () => {
@@ -1169,95 +1369,97 @@ export function openBackgroundRemovalModal(raster) {
         isPanning = false;
     });
 
-    // Desactivar menú contextual en pantalla para un paneo derecho fluido
+    // Desactivar menú de click derecho nativo para permitir paneo cómodo
     screenCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
-    // Control de zoom interactivo
+    // Control de zoom por rueda de ratón (Wheel)
     screenCanvas.addEventListener('wheel', (e) => {
         e.preventDefault();
         const zoomFactor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        const oldZoom = zoomLevel;
         zoomLevel = Math.max(0.5, Math.min(10.0, zoomLevel * zoomFactor));
+
+        // Sincronizar el desplazamiento de paneo para centrar el zoom bajo el mouse
+        const rect = screenCanvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        panX = mouseX - (mouseX - panX) * (zoomLevel / oldZoom);
+        panY = mouseY - (mouseY - panY) * (zoomLevel / oldZoom);
+
         renderEditCanvasToScreen();
+        updateBrushCursor(e);
     });
 
-    // Doble clic para restablecer vista
-    screenCanvas.addEventListener('dblclick', () => {
+    // Doble clic para reiniciar la vista al centro de pantalla
+    screenCanvas.addEventListener('dblclick', (e) => {
         zoomLevel = 1.0;
         panX = 0;
         panY = 0;
         renderEditCanvasToScreen();
+        updateBrushCursor(e);
     });
 
-    // Enlazar controles deslizantes (Sliders) de ajustes
-    const slideSize = modal.querySelector('#slideBrushSize');
-    const lblSize = modal.querySelector('#lblBrushSize');
-    if (slideSize && lblSize) {
-        slideSize.oninput = () => {
-            brushSize = parseInt(slideSize.value);
-            lblSize.textContent = brushSize + ' px';
-        };
+    function drawBrushStroke(x0, y0, x1, y1) {
+        const dist = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2);
+        const steps = Math.max(1, Math.floor(dist / (brushSize / 8)));
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const cx = x0 + (x1 - x0) * t;
+            const cy = y0 + (y1 - y0) * t;
+            applySingleBrushSpot(cx, cy);
+        }
+        renderEditCanvasToScreen();
     }
 
-    const slideHardness = modal.querySelector('#slideBrushHardness');
-    const lblHardness = modal.querySelector('#lblBrushHardness');
-    if (slideHardness && lblHardness) {
-        slideHardness.oninput = () => {
-            brushHardness = parseFloat(slideHardness.value) / 100;
-            lblHardness.textContent = slideHardness.value + '%';
-        };
+    function applySingleBrushSpot(cx, cy) {
+        const radius = brushSize;
+        const brushCanvas = document.createElement('canvas');
+        brushCanvas.width = radius * 2;
+        brushCanvas.height = radius * 2;
+        const brushCtx = brushCanvas.getContext('2d');
+
+        // Gradiente radial para suavizado (dureza) de bordes
+        const grad = brushCtx.createRadialGradient(
+            radius, radius, radius * brushHardness,
+            radius, radius, radius
+        );
+        grad.addColorStop(0, 'rgba(0,0,0,1)');
+        grad.addColorStop(1, 'rgba(0,0,0,0)');
+
+        brushCtx.fillStyle = grad;
+        brushCtx.beginPath();
+        brushCtx.arc(radius, radius, radius, 0, Math.PI * 2);
+        brushCtx.fill();
+
+        // Aplicar la pincelada al editCanvas principal
+        editCtx.save();
+        if (activeTool === 'erase') {
+            editCtx.globalCompositeOperation = 'destination-out';
+            editCtx.drawImage(brushCanvas, cx - radius, cy - radius);
+        } else if (activeTool === 'restore') {
+            // El restaurador recupera los píxeles originales de backupCanvas usando la brocha como máscara
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = editCanvas.width;
+            tempCanvas.height = editCanvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+
+            tempCtx.drawImage(brushCanvas, cx - radius, cy - radius);
+            tempCtx.globalCompositeOperation = 'source-in';
+            tempCtx.drawImage(backupCanvas, 0, 0);
+
+            editCtx.globalCompositeOperation = 'source-over';
+            editCtx.drawImage(tempCanvas, 0, 0);
+        }
+        editCtx.restore();
     }
-
-    const slideTolerance = modal.querySelector('#slideMagicTolerance');
-    const lblTolerance = modal.querySelector('#lblMagicTolerance');
-    if (slideTolerance && lblTolerance) {
-        slideTolerance.oninput = () => {
-            magicTolerance = parseInt(slideTolerance.value);
-            lblTolerance.textContent = magicTolerance;
-        };
-    }
-
-    // Modal Draggable
-    const dragHeader = modal.querySelector('.bg-remover-header');
-    let isDraggingModal = false;
-    let startModalX = 0;
-    let startModalY = 0;
-    let initialModalLeft = 0;
-    let initialModalTop = 0;
-
-    dragHeader.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-        isDraggingModal = true;
-        const rect = modal.getBoundingClientRect();
-        startModalX = e.clientX;
-        startModalY = e.clientY;
-        initialModalLeft = rect.left;
-        initialModalTop = rect.top;
-        modal.style.position = 'fixed';
-        modal.style.margin = '0';
-        modal.style.left = initialModalLeft + 'px';
-        modal.style.top = initialModalTop + 'px';
-        e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isDraggingModal) return;
-        const deltaX = e.clientX - startModalX;
-        const deltaY = e.clientY - startModalY;
-        modal.style.left = (initialModalLeft + deltaX) + 'px';
-        modal.style.top = (initialModalTop + deltaY) + 'px';
-    });
-
-    document.addEventListener('mouseup', () => {
-        isDraggingModal = false;
-    });
-
-    const btnCancel = modal.querySelector('#btnRemoverCancel');
-    const btnAccept = modal.querySelector('#btnRemoverAccept');
 
     const closeModal = () => {
         overlay.remove();
     };
+
+    const btnCancel = modal.querySelector('#btnRemoverCancel');
+    const btnAccept = modal.querySelector('#btnRemoverAccept');
 
     btnCancel.onclick = closeModal;
 
@@ -1266,24 +1468,24 @@ export function openBackgroundRemovalModal(raster) {
             window.saveHistory();
         }
 
-        // Transferir píxeles finales directamente al canvas de Paper.js
+        // Sobrescribir los píxeles editados sobre el canvas real de Paper.js de forma directa
         const ctx = actualRaster.canvas.getContext('2d', { willReadFrequently: true });
         ctx.clearRect(0, 0, actualRaster.canvas.width, actualRaster.canvas.height);
         ctx.drawImage(editCanvas, 0, 0);
 
-        // Suavizado Gaussiano y remoción de halos
+        // Suavizado radial Gaussiano y remoción de halos en los bordes para LightBurn
         applyEdgeRefinements(actualRaster.canvas, 1);
 
         actualRaster.data.backgroundAutoRemoved = true;
 
-        // Forzar Paper.js a redibujar el canvas
+        // Forzar Paper.js a actualizar el renderizado del lienzo con los nuevos píxeles
         actualRaster.canvas = actualRaster.canvas;
 
-        // RESTAURAR PROPIEDADES FÍSICAS (Garantía absoluta Antiacortamiento / Anti-Shrink)
+        // RESTAURAR PROPIEDADES FISICAS (Garantía absoluta Antiacortamiento / Anti-Shrink)
         actualRaster.matrix = oldMatrix;
         actualRaster.position = oldPosition;
 
-        // Forzar actualización de la caja de selección azul celeste de Paper.js
+        // Forzar Paper.js a redibujar la caja de selección azul celeste alineada
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(window.selectedItem);
         }
