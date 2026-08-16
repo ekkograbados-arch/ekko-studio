@@ -1,9 +1,9 @@
 /**
- * ASSETS/js/modules/mockupLoader.js (Corrected)
+ * ASSETS/js/modules/mockupLoader.js (Corrected v2)
  * 
  * Carga, centrado y persistencia de mockups de productos y sus máscaras de recorte.
- * Corrige el error por el cual los productos con áreas rectangulares legítimas (como los Mates)
- * eran ocultados y descartados de la máscara de recorte.
+ * Corrige el error por el cual los productos con áreas rectangulares legítimas 
+ * (como los Mates, Medallas Militares y Pulseras) eran ocultados y descartados de la máscara de recorte.
  */
 
 function collectPaths(item, paths = []) {
@@ -27,7 +27,7 @@ function collectPaths(item, paths = []) {
  * Determina si el trazado más grande es una caja rectangular externa transparente 
  * (típica de exportaciones de Illustrator) que deba ser ignorada.
  * 
- * CORRECCIÓN: Si el producto legítimo tiene un área definida rectangular (ej: Mates),
+ * CORRECCIÓN: Si el producto legítimo tiene un área rectangular (ej: Mates, Medallas Militares, Pulseras),
  * no debemos ignorar su cuerpo principal, de lo contrario el producto desaparece.
  */
 function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
@@ -45,14 +45,22 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
     
     if (wRatio > 0.95 && hRatio > 0.95) {
         if (isPathRect(firstPath)) {
-            // Verificar si el archivo pertenece a un producto rectangular legítimo (ej: mates)
-            const esMate = svgPath && svgPath.toLowerCase().includes("mate");
+            // Verificar si el archivo pertenece a un producto rectangular legítimo (ej: mates, militares, pulseras)
+            const esProductoRectangular = svgPath && (
+                svgPath.toLowerCase().includes("mate") ||
+                svgPath.toLowerCase().includes("militar") ||
+                svgPath.toLowerCase().includes("pulsera")
+            );
             
-            // Si es un mate o producto legítimo rectangular, no ignoramos el trazado principal
-            if (esMate) {
+            // También verificamos si el trazado tiene un color visible (stroke o fill) asignado originalmente
+            const tieneColorVisible = (firstPath.strokeColor && firstPath.strokeColor.alpha > 0) || 
+                                      (firstPath.fillColor && firstPath.fillColor.alpha > 0);
+            
+            // Si es un producto legítimo o tiene color, no ignoramos el trazado principal
+            if (esProductoRectangular || tieneColorVisible) {
                 return false;
             }
-            return true;
+            return true; // Es solo un marco de exportación transparente
         }
     }
     return false;
