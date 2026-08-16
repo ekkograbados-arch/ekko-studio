@@ -1009,12 +1009,15 @@ export function openBackgroundRemovalModal(raster) {
 
         if (isInside) {
             let cursorSize;
+            const offsetLeft = screenCanvas.offsetLeft || 0;
+            const offsetTop = screenCanvas.offsetTop || 0;
+
             if (activeTool === 'magic') {
                 cursorSize = 12; // Círculo de mira celeste pequeño y preciso
                 brushCursor.style.width = `${cursorSize}px`;
                 brushCursor.style.height = `${cursorSize}px`;
-                brushCursor.style.left = `${mouseX - cursorSize / 2}px`;
-                brushCursor.style.top = `${mouseY - cursorSize / 2}px`;
+                brushCursor.style.left = `${offsetLeft + mouseX - cursorSize / 2}px`;
+                brushCursor.style.top = `${offsetTop + mouseY - cursorSize / 2}px`;
                 brushCursor.style.display = 'block';
                 brushCursor.style.borderColor = '#00d2ff'; // Celeste/Turquesa
                 brushCursor.style.backgroundColor = 'rgba(0, 210, 255, 0.25)';
@@ -1026,8 +1029,8 @@ export function openBackgroundRemovalModal(raster) {
 
                 brushCursor.style.width = `${cursorSize}px`;
                 brushCursor.style.height = `${cursorSize}px`;
-                brushCursor.style.left = `${mouseX - cursorSize / 2}px`;
-                brushCursor.style.top = `${mouseY - cursorSize / 2}px`;
+                brushCursor.style.left = `${offsetLeft + mouseX - cursorSize / 2}px`;
+                brushCursor.style.top = `${offsetTop + mouseY - cursorSize / 2}px`;
                 brushCursor.style.display = 'block';
 
                 if (activeTool === 'erase') {
