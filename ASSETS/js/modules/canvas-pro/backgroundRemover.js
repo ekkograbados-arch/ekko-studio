@@ -805,15 +805,25 @@ export function openBackgroundRemovalModal(raster) {
     const oldMatrix = actualRaster.matrix.clone();
     const oldPosition = actualRaster.position.clone();
 
-    // 3. Obtener la fuente de píxeles original (alta resolución)
+    // 3. Inicializar la copia original (originalCanvas) de alta calidad si no existe
     if (!actualRaster.data) actualRaster.data = {};
-    let srcImage = actualRaster.data.originalCanvas || actualRaster.canvas || actualRaster.image;
+    if (!actualRaster.data.originalCanvas) {
+        const origCanvas = document.createElement('canvas');
+        const sourceImg = actualRaster.canvas || actualRaster.image;
+        origCanvas.width = sourceImg.naturalWidth || sourceImg.width || actualRaster.width;
+        origCanvas.height = sourceImg.naturalHeight || sourceImg.height || actualRaster.height;
+        const origCtx = origCanvas.getContext('2d', { willReadFrequently: true });
+        origCtx.drawImage(sourceImg, 0, 0);
+        actualRaster.data.originalCanvas = origCanvas;
+    }
+
+    let srcImage = actualRaster.data.originalCanvas;
     if (!srcImage) return;
 
     // Crear un canvas de edición con las dimensiones originales de la imagen (alta calidad)
     const editCanvas = document.createElement('canvas');
-    editCanvas.width = srcImage.width || actualRaster.width;
-    editCanvas.height = srcImage.height || actualRaster.height;
+    editCanvas.width = srcImage.width;
+    editCanvas.height = srcImage.height;
     const editCtx = editCanvas.getContext('2d', { willReadFrequently: true });
     
     const baseImage = actualRaster.canvas || srcImage;
@@ -825,8 +835,7 @@ export function openBackgroundRemovalModal(raster) {
     backupCanvas.height = editCanvas.height;
     const backupCtx = backupCanvas.getContext('2d', { willReadFrequently: true });
     
-    const rawOriginal = actualRaster.data.originalCanvas || srcImage;
-    backupCtx.drawImage(rawOriginal, 0, 0);
+    backupCtx.drawImage(srcImage, 0, 0);
 
     // 4. Historial de sesión de recorte (Deshacer / Rehacer local)
     const historyStack = [];
@@ -989,7 +998,17 @@ export function openBackgroundRemovalModal(raster) {
         screenCtx.save();
         screenCtx.translate(panX * scaleFactorX, panY * scaleFactorY);
         screenCtx.scale(zoomLevel, zoomLevel);
+        
+        // 1. DIBUJAR FONDO "FANTASMA" DE LA IMAGEN ORIGINAL (OPACIDAD DE RESPALDO)
+        // Esto permite al cliente identificar exactamente qué partes se han quitado/borrado de forma intuitiva
+        screenCtx.save();
+        screenCtx.globalAlpha = 0.25; // Opacidad sutil del 25% para el fondo recortado
+        screenCtx.drawImage(backupCanvas, 0, 0);
+        screenCtx.restore();
+        
+        // 2. DIBUJAR LA IMAGEN EDITADA ACTUAL ENCIMA (CON TRANSPARENCIA COMPLETA DONDE SE BORRÓ)
         screenCtx.drawImage(editCanvas, 0, 0);
+        
         screenCtx.restore();
     }
     
