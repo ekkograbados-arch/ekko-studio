@@ -623,6 +623,9 @@ export async function autoRemoveBackground(raster) {
         return;
     }
 
+    // 0. Anular de raíz cualquier callback onLoad original para evitar re-escalados y re-posicionamientos fantasmas al modificar .canvas o .source
+    actualRaster.onLoad = null;
+
     // 1. Desvincular de raíz las referencias del objeto .data en clones/duplicados para garantizar independencia absoluta
     if (actualRaster.data) {
         actualRaster.data = { ...actualRaster.data }; // Copia superficial pura de propiedades primitivas
@@ -713,6 +716,7 @@ export async function autoRemoveBackground(raster) {
         actualRaster.onLoad = null;
 
         actualRaster.onLoad = () => {
+            actualRaster.onLoad = null; // Unbind after running once
             // RESTAURAR PROPIEDADES FÍSICAS (Garantía Antiacortamiento) tras cargar el nuevo source
             actualRaster.matrix = oldMatrixFinal.clone();
             actualRaster.position = oldPositionFinal.clone();
@@ -806,6 +810,7 @@ export async function autoRemoveBackground(raster) {
         actualRaster.onLoad = null;
 
         actualRaster.onLoad = () => {
+            actualRaster.onLoad = null; // Unbind after running once
             // RESTAURAR PROPIEDADES FÍSICAS EN FALLBACK (Garantía Antiacortamiento)
             actualRaster.matrix = oldMatrixFinal.clone();
             actualRaster.position = oldPositionFinal.clone();
@@ -842,6 +847,9 @@ export function openBackgroundRemovalModal(raster) {
         alert("Por favor, seleccione una imagen válida.");
         return;
     }
+
+    // 0. Anular de raíz cualquier callback onLoad original para evitar re-escalados y re-posicionamientos fantasmas al modificar .canvas o .source
+    actualRaster.onLoad = null;
 
     // 1. Desvincular de raíz las referencias del objeto .data en clones/duplicados para garantizar independencia absoluta
     if (actualRaster.data) {
@@ -1589,6 +1597,7 @@ export function openBackgroundRemovalModal(raster) {
         actualRaster.onLoad = null;
 
         actualRaster.onLoad = () => {
+            actualRaster.onLoad = null; // Unbind after running once
             // RESTAURAR PROPIEDADES FISICAS (Garantía absoluta Antiacortamiento / Anti-Shrink)
             actualRaster.matrix = oldMatrixFinal.clone();
             actualRaster.position = oldPositionFinal.clone();
