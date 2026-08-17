@@ -509,3 +509,10 @@ export function updateContextualMenu(item) {
     toolbar.style.top = `${y - 55}px`;
     toolbar.style.transform = 'translate(-50%, -100%)';
 }
+
+export function hideContextualMenu() {
+    const toolbar = document.getElementById('contextual-toolbar');
+    if (toolbar) {
+        toolbar.classList.remove('active');
+    }
+}
