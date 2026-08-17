@@ -1,10 +1,8 @@
 /**
- * ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v2)
+ * ASSETS/js/modules/canvas-pro/contextualMenu.js
  * 
- * Controlador de barra de herramientas contextual flotante interactiva (Canva-style).
- * Integra de forma nativa la binarización de trazados vectoriales (Trazar Imagen),
- * el modo de edición de nodos interactivo (Hotkeys LightBurn S, L, C, D, I, M, B) y
- * mantiene intactas las funciones tipográficas avanzadas y procesamiento de imágenes.
+ * Controlador de barra de herramientas contextual flotante interactiva (Canva-style) - Versión 2.
+ * Integra de forma nativa la eliminación automática de fondos (Auto Magic Wand) y la modal de edición manual.
  */
 
 import { openImageTraceModal } from "./imageTracer.js";
@@ -35,28 +33,31 @@ function removeOverlapTab() {
 
 // Cargar las fuentes dinámicas del sistema y poblar los dropdowns con la previsualización tipográfica en tiempo real
 async function populateFontDropdowns() {
-    try {
-        const fonts = await loadDynamicFonts();
-        const dropdowns = [
-            document.getElementById('ctxFontSelector'),
-            document.getElementById('fontSelector')
-        ];
-        dropdowns.forEach(dropdown => {
-            if (!dropdown) return;
-            dropdown.innerHTML = ""; // Limpiar dropdowns anteriores
-            fonts.forEach(font => {
-                const opt = document.createElement('option');
-                opt.value = font.family;
-                opt.textContent = font.name;
-                dropdown.appendChild(opt);
-            });
-        });
+    const fonts = await loadDynamicFonts();
+    const dropdowns = [
+        document.getElementById('ctxFontSelector'),
+        document.getElementById('fontSelector')
+    ];
+    dropdowns.forEach(dropdown => {
+        if (!dropdown) return;
+        dropdown.innerHTML = ""; // Limpiar dropdowns anteriores
+        
+        // Opción por defecto
+        const defOpt = document.createElement('option');
+        defOpt.value = "Arial";
+        defOpt.textContent = "Arial";
+        defOpt.style.fontFamily = "Arial";
+        dropdown.appendChild(defOpt);
 
-        // Poblar galería lateral si existe
-        renderSidebarFontGallery(fonts);
-    } catch (err) {
-        console.warn("Fallo al poblar selectores de fuentes. Usando fallbacks locales.", err);
-    }
+        fonts.forEach(font => {
+            const opt = document.createElement('option');
+            opt.value = font.family;
+            opt.textContent = font.name;
+            opt.style.fontFamily = font.family; // Previsualización real de la fuente dentro de las opciones
+            dropdown.appendChild(opt);
+        });
+    });
+    renderSidebarFontGallery(fonts);
 }
 
 // Renderizar galería de tipografías lateral con hover interactivo de previsualización (Hover Preview)
@@ -67,7 +68,7 @@ function renderSidebarFontGallery(fonts) {
 
     fonts.forEach(font => {
         const item = document.createElement("div");
-        item.className = "font-item-card";
+        item.className = "font-item";
         item.style.cursor = "pointer";
         item.innerHTML = `
             <div class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</div>
@@ -79,7 +80,7 @@ function renderSidebarFontGallery(fonts) {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup ? 
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                
+
                 if (target) {
                     // Respaldar la tipografía original si no hay respaldo activo
                     if (!window.originalFontBackup) {
@@ -90,6 +91,7 @@ function renderSidebarFontGallery(fonts) {
                             if (firstChar) window.originalFontBackup = firstChar.fontFamily;
                         }
                     }
+
                     // Aplicar tipografía en vivo
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
@@ -98,6 +100,7 @@ function renderSidebarFontGallery(fonts) {
                             if (child instanceof paper.PointText) child.fontFamily = font.family;
                         });
                     }
+
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -111,7 +114,7 @@ function renderSidebarFontGallery(fonts) {
             if (window.selectedItem && window.originalFontBackup) {
                 const target = window.selectedItem.data?.clipGroup ? 
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                
+
                 if (target) {
                     if (target instanceof paper.PointText) {
                         target.fontFamily = window.originalFontBackup;
@@ -121,6 +124,7 @@ function renderSidebarFontGallery(fonts) {
                         });
                     }
                     window.originalFontBackup = null;
+
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -134,9 +138,10 @@ function renderSidebarFontGallery(fonts) {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup ? 
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                
+
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
+
                     if (target instanceof paper.PointText) {
                         target.fontFamily = font.family;
                     } else if (target instanceof paper.Group) {
@@ -144,14 +149,13 @@ function renderSidebarFontGallery(fonts) {
                             if (child instanceof paper.PointText) child.fontFamily = font.family;
                         });
                     }
+
                     // Confirmar selección y evitar que el unhover posterior la restaure
                     window.originalFontBackup = null;
-                    
+
                     // Sincronizar selectores de fuentes
                     const ctxDropdown = document.getElementById('ctxFontSelector');
-                    const sideDropdown = document.getElementById('fontSelector');
                     if (ctxDropdown) ctxDropdown.value = font.family;
-                    if (sideDropdown) sideDropdown.value = font.family;
 
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
@@ -165,21 +169,17 @@ function renderSidebarFontGallery(fonts) {
     });
 }
 
-// Auxiliar para establecer clics seguros sobre IDs que podrían no existir en todo tipo de vistas
-function setClick(id, callback) {
-    const el = document.getElementById(id);
-    if (el) {
-        el.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            callback();
-        };
-    }
-}
-
 export function initContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
+
+    removeOverlapTab();
+    populateFontDropdowns();
+
+    const setClick = (id, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.onclick = fn;
+    };
 
     // --- 1. ACCIONES GENERALES ---
     setClick('btnCtxDelete', () => {
@@ -210,13 +210,14 @@ export function initContextualMenu() {
     // --- 2. ACCIONES DE TEXTO AVANZADAS ---
     const fontSelector = document.getElementById('ctxFontSelector');
     if (fontSelector) {
-        fontSelector.onchange = () => {
+        const applyFontChange = () => {
             if (window.selectedItem) {
                 const target = window.selectedItem.data?.clipGroup ? 
                     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-                
+
                 if (target) {
                     if (typeof window.saveHistory === 'function') window.saveHistory();
+
                     if (target instanceof paper.PointText) {
                         target.fontFamily = fontSelector.value;
                     } else if (target instanceof paper.Group) {
@@ -224,6 +225,7 @@ export function initContextualMenu() {
                             if (child instanceof paper.PointText) child.fontFamily = fontSelector.value;
                         });
                     }
+
                     if (typeof window.updateSelectionBox === 'function') {
                         window.updateSelectionBox(window.selectedItem);
                     }
@@ -231,6 +233,8 @@ export function initContextualMenu() {
                 }
             }
         };
+        fontSelector.onchange = applyFontChange;
+        fontSelector.oninput = applyFontChange;
     }
 
     setClick('btnCtxBold', () => {
@@ -284,6 +288,7 @@ export function initContextualMenu() {
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup ? 
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+
             if (target && target instanceof paper.Raster) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(-1, 1);
@@ -296,6 +301,7 @@ export function initContextualMenu() {
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup ? 
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+
             if (target && target instanceof paper.Raster) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 target.scale(1, -1);
@@ -305,13 +311,15 @@ export function initContextualMenu() {
     });
 
     // --- ACCIONES DE ESCALADO INTERACTIVO (ACHICAR / AGRANDAR) ---
-    const bindScaleDown = () => { if (window.selectedItem) scaleImage(window.selectedItem, 0.9); };
-    const bindScaleUp = () => { if (window.selectedItem) scaleImage(window.selectedItem, 1.1); };
-
+    const bindScaleDown = () => {
+        if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
+    };
+    const bindScaleUp = () => {
+        if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
+    };
     setClick('btnCtxAchicar', bindScaleDown);
     setClick('btnCtxScaleDown', bindScaleDown);
     setClick('btnCtxShrink', bindScaleDown);
-
     setClick('btnCtxAgrandar', bindScaleUp);
     setClick('btnCtxScaleUp', bindScaleUp);
     setClick('btnCtxGrow', bindScaleUp);
@@ -324,92 +332,22 @@ export function initContextualMenu() {
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup ? 
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+
             if (target && target instanceof paper.Raster) {
-                const b = parseInt(briSlider ? briSlider.value : 0);
-                const c = parseInt(conSlider ? conSlider.value : 0);
-                
+                const bVal = briSlider ? parseFloat(briSlider.value) : 0;
+                const cVal = conSlider ? parseFloat(conSlider.value) : 0;
+
                 target.data = target.data || {};
-                target.data.brightness = b;
-                target.data.contrast = c;
-                
-                applyBrightnessContrast(target, b, c);
+                target.data.brightness = bVal;
+                target.data.contrast = cVal;
+
+                applyBrightnessContrast(target, bVal, cVal);
             }
         }
     };
 
     if (briSlider) briSlider.oninput = handleFilterInput;
     if (conSlider) conSlider.oninput = handleFilterInput;
-
-    // --- BOTONES DE QUITAR FONDO IA (PhotoRoom Style) ---
-    setClick('btnCtxAutoRemoveBg', () => {
-        if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? 
-                window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-            if (target && target instanceof paper.Raster) {
-                autoRemoveBackground(target);
-            }
-        }
-    });
-
-    setClick('btnCtxManualRemoveBg', () => {
-        if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? 
-                window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-            if (target && target instanceof paper.Raster) {
-                openBackgroundRemovalModal(target);
-            }
-        }
-    });
-
-    // --- 4. ACCIONES DE VECTORES / EDICIÓN DE NODOS ---
-    setClick('btnCtxEditNodes', () => {
-        if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ? 
-                window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-            if (target && (target instanceof paper.Path || target instanceof paper.CompoundPath)) {
-                if (typeof window.enterNodeEditMode === 'function') {
-                    window.enterNodeEditMode(target);
-                }
-            }
-        }
-    });
-
-    // Enlace de los botones dentro de la barra flotante de control de nodos (ctxNodeEditControls)
-    setClick('btnNodeSmooth', () => simulateNodeAction('s'));
-    setClick('btnNodeLine', () => simulateNodeAction('l'));
-    setClick('btnNodeCorner', () => simulateNodeAction('c'));
-    setClick('btnNodeDelete', () => simulateNodeAction('d'));
-    setClick('btnNodeInsert', () => simulateNodeAction('i'));
-    setClick('btnNodeMidpoint', () => simulateNodeAction('m'));
-    setClick('btnNodeBreak', () => simulateNodeAction('b'));
-    setClick('btnNodeExit', () => {
-        if (typeof window.exitNodeEditMode === 'function') {
-            window.exitNodeEditMode();
-        }
-    });
-
-    // Inicializar dropdowns tipográficos de inmediato
-    populateFontDropdowns();
-}
-
-/**
- * Simula la pulsación de una tecla en el lienzo para ejecutar acciones del modo de edición de nodos
- */
-function simulateNodeAction(keyChar) {
-    if (!window.nodeEditMode || !window.nodeEditTarget) return;
-    
-    // Si la función handleNodeKeyDown de imageTracer.js está enlazada globalmente
-    if (typeof window.handleNodeKeyDown === 'function') {
-        window.handleNodeKeyDown({
-            key: keyChar.toLowerCase(),
-            preventDefault: () => {},
-            modifiers: { control: false, shift: false }
-        });
-    } else {
-        // Fallback: Disparar un Custom Event sintético sobre el documento
-        const event = new KeyboardEvent('keydown', { key: keyChar.toUpperCase(), bubbles: true });
-        document.dispatchEvent(event);
-    }
 }
 
 export function updateContextualMenu(item) {
@@ -433,14 +371,9 @@ export function updateContextualMenu(item) {
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
-    hideSubgroup('ctxNodeEditControls');
 
-    // Desvincular/Ocultar por defecto el botón de trazado y de quita fondos
     const btnTrace = document.getElementById('btnCtxTrace');
-    if (btnTrace) {
-        btnTrace.style.display = 'none';
-        btnTrace.onclick = null;
-    }
+    if (btnTrace) btnTrace.style.display = 'none';
 
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
@@ -449,9 +382,9 @@ export function updateContextualMenu(item) {
         const textControls = document.getElementById('ctxTextControls');
         if (textControls) textControls.classList.remove('hidden');
 
-        const sideSelector = document.getElementById('ctxFontSelector');
-        if (sideSelector && target.fontFamily) {
-            sideSelector.value = target.fontFamily;
+        const fontSelector = document.getElementById('ctxFontSelector');
+        if (fontSelector && target.fontFamily) {
+            fontSelector.value = target.fontFamily;
         }
 
         const curveSlider = document.getElementById('ctxTextCurve');
@@ -463,56 +396,93 @@ export function updateContextualMenu(item) {
         if (hspaceSlider) {
             hspaceSlider.value = target.data?.hspace || 0;
         }
-
     } else if (target instanceof paper.Raster) {
         const imageControls = document.getElementById('ctxImageControls');
-        if (imageControls) imageControls.classList.remove('hidden');
+        if (imageControls) {
+            imageControls.classList.remove('hidden');
+
+            // --- INYECCIÓN PERMANENTE DE BOTONES DE ELIMINACIÓN DE FONDO ---
+            let btnRemoveBg = document.getElementById('btnRemoveBg');
+            let btnEditRemoval = document.getElementById('btnEditRemoval');
+
+            if (!btnRemoveBg) {
+                btnRemoveBg = document.createElement('button');
+                btnRemoveBg.id = 'btnRemoveBg';
+                btnRemoveBg.className = 'bg-remover-tool-btn';
+                btnRemoveBg.style.margin = '4px';
+                btnRemoveBg.style.padding = '8px 12px';
+                btnRemoveBg.style.fontSize = '12px';
+                btnRemoveBg.style.backgroundColor = '#007bff';
+                btnRemoveBg.style.borderColor = '#007bff';
+                btnRemoveBg.style.color = '#fff';
+                btnRemoveBg.style.borderRadius = '6px';
+                btnRemoveBg.style.cursor = 'pointer';
+                btnRemoveBg.style.fontWeight = 'bold';
+                btnRemoveBg.innerHTML = '🪄 Quitar Fondo';
+                imageControls.appendChild(btnRemoveBg);
+            }
+
+            if (!btnEditRemoval) {
+                btnEditRemoval = document.createElement('button');
+                btnEditRemoval.id = 'btnEditRemoval';
+                btnEditRemoval.className = 'bg-remover-tool-btn';
+                btnEditRemoval.style.margin = '4px';
+                btnEditRemoval.style.padding = '8px 12px';
+                btnEditRemoval.style.fontSize = '12px';
+                btnEditRemoval.style.backgroundColor = '#28a745';
+                btnEditRemoval.style.borderColor = '#28a745';
+                btnEditRemoval.style.color = '#fff';
+                btnEditRemoval.style.borderRadius = '6px';
+                btnEditRemoval.style.cursor = 'pointer';
+                btnEditRemoval.style.fontWeight = 'bold';
+                btnEditRemoval.innerHTML = '✂️ Editar Recorte';
+                imageControls.appendChild(btnEditRemoval);
+            }
+
+            // Enlazar eventos de clic
+            btnRemoveBg.onclick = () => {
+                if (window.selectedItem) {
+                    autoRemoveBackground(window.selectedItem);
+                }
+            };
+
+            btnEditRemoval.onclick = () => {
+                if (window.selectedItem) {
+                    openBackgroundRemovalModal(window.selectedItem);
+                }
+            };
+        }
 
         const briSlider = document.getElementById('ctxBrightness');
         const conSlider = document.getElementById('ctxContrast');
         if (briSlider) briSlider.value = target.data?.brightness || 0;
         if (conSlider) conSlider.value = target.data?.contrast || 0;
 
-        // ACTIVACIÓN DEL TRAZADOR VECTORIAL DIRECTO:
-        // Si el objeto seleccionado es una imagen válida, inyectamos y mostramos el botón "Trazar Imagen"
-        if (btnTrace) {
-            btnTrace.style.display = 'inline-block';
-            btnTrace.onclick = () => {
-                openImageTraceModal(target);
-            };
-        }
-
     } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
-        if (window.nodeEditMode) {
-            const nodeControls = document.getElementById('ctxNodeEditControls');
-            if (nodeControls) nodeControls.classList.remove('hidden');
-        } else {
-            const vectorControls = document.getElementById('ctxVectorControls');
-            if (vectorControls) vectorControls.classList.remove('hidden');
-        }
+        const vectorControls = document.getElementById('ctxVectorControls');
+        if (vectorControls) vectorControls.classList.remove('hidden');
     }
 
-    // Calcular posición flotante del menú contextual (siempre por encima del bounding box del objeto)
     const bounds = item.bounds;
     if (!bounds) return;
 
     const viewPoint = paper.view.projectToView(bounds.topCenter);
-    const editorCanvas = document.getElementById('editorCanvas');
-    if (!editorCanvas) return;
+    const toolbarWidth = toolbar.offsetWidth || 350;
+    const toolbarHeight = toolbar.offsetHeight || 45;
 
-    const rect = editorCanvas.getBoundingClientRect();
-    const x = viewPoint.x + rect.left;
-    const y = viewPoint.y + rect.top;
+    const posX = viewPoint.x - (toolbarWidth / 2);
+    const posY = viewPoint.y - toolbarHeight - 20;
 
-    // Posicionar la barra con un desfase de 55 píxeles arriba del contorno celeste
-    toolbar.style.left = `${x}px`;
-    toolbar.style.top = `${y - 55}px`;
-    toolbar.style.transform = 'translate(-50%, -100%)';
+    const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
+    const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
+
+    toolbar.style.left = `${Math.max(10, Math.min(posX, maxLeft))}px`;
+    toolbar.style.top = `${Math.max(10, Math.min(posY, maxTop))}px`;
 }
 
 export function hideContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
-    if (toolbar) {
-        toolbar.classList.remove('active');
-    }
+    if (toolbar) toolbar.classList.remove('active');
 }
+
+
