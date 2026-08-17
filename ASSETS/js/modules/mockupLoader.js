@@ -49,7 +49,7 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath) {
             }
             
             if (esProductoRectangular) {
-                return false; // No ignorar, es el área de trabajo legítima del producto (Mates, Pulseras)
+                return false; // No ignorar, es el área de trabajo rectangular legítima del producto (Mates, Pulseras)
             }
             return true; // Es la caja externa transparente de Illustrator, ignorarla para usar la silueta real
         }
@@ -91,8 +91,8 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
     var isVirola = false;
     if (typeof svgPath === 'string' && svgPath !== "") {
         var pathLower = svgPath.toLowerCase();
-        isVirola = pathLower.indexOf("virola-\") !== -1 || 
-                   pathLower.split(\"/\").pop().indexOf(\"virola\") === 0;
+        isVirola = pathLower.indexOf("virola-") !== -1 || 
+                   pathLower.split("/").pop().indexOf("virola") === 0;
     }
     
     var baseArea = Math.abs(mask.area);
@@ -133,10 +133,10 @@ function makeMockupTransparent(item, ignoredPath) {
     }
     if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
         if (!item.strokeColor) {
-            item.strokeColor = new paper.Color(\"#111111\");
+            item.strokeColor = new paper.Color("#111111");
             item.strokeWidth = 1.5;
         } else {
-            item.strokeColor = new paper.Color(\"#111111\");
+            item.strokeColor = new paper.Color("#111111");
             item.strokeWidth = Math.max(item.strokeWidth, 1.2);
         }
     }
@@ -236,7 +236,7 @@ export function loadMockup(svgPath) {
         makeMockupTransparent(item, ignoredPath);
         lockMockup(item);
         window.currentMockup = item;
-        item.data = { locked: true, mockup: true, label: \"Mockup\", svgPath: svgPath };
+        item.data = { locked: true, mockup: true, label: "Mockup", svgPath: svgPath };
         item.bringToFront();
         paper.view.update();
     });
@@ -256,7 +256,7 @@ export function restoreMockupReferences() {
         });
         
         var ignoredPath = null;
-        var svgPath = (mockupItem.data && mockupItem.data.svgPath) ? mockupItem.data.svgPath : \"\";
+        var svgPath = (mockupItem.data && mockupItem.data.svgPath) ? mockupItem.data.svgPath : "";
         if (shouldIgnoreLargestPath(allPaths, mockupItem, svgPath)) {
             ignoredPath = allPaths[0];
         }
@@ -284,6 +284,6 @@ window.clipItem = function(item) {
     group.addChild(mask);
     group.addChild(item);
     group.clipped = true;
-    group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : \"Objeto\" };
+    group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : "Objeto" };
     return group;
 }
