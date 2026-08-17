@@ -1123,4 +1123,158 @@ window.addEventListener("DOMContentLoaded", () => {
         initContextualMenu();
     }
     renderCategories();
+    javascript
+  // ==========================================================================
+  // SISTEMA PROFESIONAL DE ZOOM EN EL PUNTERO Y PANEO DEL LIENZO (Estilo LightBurn)
+  // ==========================================================================
+
+  const canvasEl = document.getElementById("editorCanvas");
+
+  if (canvasEl) {
+    let isPanning = false;
+    let panStartPoint = null;
+    let isSpacePressed = false;
+
+    // --- 1. CONTROL DE ZOOM CENTRADO EN EL PUNTERO DEL MOUSE (Ruedita) ---
+    canvasEl.addEventListener("wheel", function(event) {
+      event.preventDefault(); // Evitar el scroll vertical nativo de la página
+
+      const rect = canvasEl.getBoundingClientRect();
+      const mouseX = event.clientX - rect.left;
+      const mouseY = event.clientY - rect.top;
+      const mouseViewPos = new paper.Point(mouseX, mouseY);
+
+      // Convertir la coordenada de pantalla del mouse a coordenadas reales del proyecto
+      const mouseProjectPos = paper.view.viewToProject(mouseViewPos);
+      const oldZoom = paper.view.zoom;
+
+      // Definir factor de zoom y dirección
+      const zoomFactor = 1.12;
+      let newZoom = oldZoom;
+
+      if (event.deltaY < 0) {
+        newZoom = oldZoom * zoomFactor; // Zoom In
+      } else {
+        newZoom = oldZoom / zoomFactor; // Zoom Out
+      }
+
+      // Límites estrictos de zoom idénticos a los de la función zoomBy (0.2 a 10)
+      newZoom = Math.max(0.2, Math.min(10, newZoom));
+
+      if (newZoom !== oldZoom) {
+        paper.view.zoom = newZoom;
+
+        // MATEMÁTICAS DE ANCLAJE: Re-centrar la vista para mantener el punto bajo el mouse inmóvil
+        const oldCenter = paper.view.center;
+        const newCenter = mouseProjectPos.subtract(
+          mouseProjectPos.subtract(oldCenter).multiply(oldZoom / newZoom)
+        );
+        paper.view.center = newCenter;
+
+        // Actualizar visualmente los elementos dependientes del nivel de zoom
+        if (window.selectedItem) {
+          if (typeof window.updateSelectionBox === "function") {
+            window.updateSelectionBox(window.selectedItem);
+          }
+        }
+
+        if (typeof updateContextualMenu === "function" && window.selectedItem) {
+          updateContextualMenu(window.selectedItem);
+        }
+
+        paper.view.update();
+      }
+    }, { passive: false });
+
+
+    // --- 2. CONTROL DETECTOR DE BARRA ESPACIADORA (Pan Mode) ---
+    window.addEventListener("keydown", function(event) {
+      const active = document.activeElement;
+      const isTyping = active && (
+        active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT" ||
+        active.isContentEditable ||
+        document.getElementById("ekko-text-editor")
+      );
+      if (isTyping) return;
+
+      if (event.code === "Space" || event.key === " ") {
+        if (!isSpacePressed) {
+          isSpacePressed = true;
+          canvasEl.style.cursor = "grab";
+        }
+        event.preventDefault(); // Evitar scroll de barra espaciadora
+      }
+    });
+
+    window.addEventListener("keyup", function(event) {
+      if (event.code === "Space" || event.key === " ") {
+        isSpacePressed = false;
+        canvasEl.style.cursor = isPanning ? "grabbing" : "default";
+      }
+    });
+
+
+    // --- 3. INTERCEPCIÓN DE CLICS PARA PANEO (Middle Click o Espacio + Clic Izquierdo) ---
+    canvasEl.addEventListener("mousedown", function(event) {
+      const isSpacePanning = event.button === 0 && isSpacePressed;
+      const isMiddleButton = event.button === 1;
+
+      if (isSpacePanning || isMiddleButton) {
+        isPanning = true;
+        panStartPoint = new paper.Point(event.clientX, event.clientY);
+        canvasEl.style.cursor = "grabbing";
+
+        // Detener la propagación evita que el tool de Paper.js reciba el evento,
+        // previniendo selecciones o arrastres accidentales de objetos mientras paneas.
+        event.stopPropagation();
+        event.preventDefault();
+      }
+    }, true); // Fase de captura (true) para interceptar antes que el listener interno de Paper.js
+
+
+    // --- 4. MOVIMIENTO EN TIEMPO REAL ---
+    canvasEl.addEventListener("mousemove", function(event) {
+      if (isPanning && panStartPoint) {
+        const currentPoint = new paper.Point(event.clientX, event.clientY);
+        const delta = currentPoint.subtract(panStartPoint);
+
+        // Desplazamiento del proyecto compensado por la escala de zoom actual
+        const projectDelta = delta.divide(paper.view.zoom);
+        
+        // Mover la vista en sentido opuesto al arrastre
+        paper.view.center = paper.view.center.subtract(projectDelta);
+        panStartPoint = currentPoint;
+
+        // Sincronizar UI de selección en tiempo real
+        if (window.selectedItem) {
+          if (typeof window.updateSelectionBox === "function") {
+            window.updateSelectionBox(window.selectedItem);
+          }
+        }
+
+        if (typeof updateContextualMenu === "function" && window.selectedItem) {
+          updateContextualMenu(window.selectedItem);
+        }
+
+        paper.view.update();
+
+        event.stopPropagation();
+        event.preventDefault();
+      }
+    }, true);
+
+
+    // --- 5. DETENCIÓN DEL PANEO ---
+    window.addEventListener("mouseup", function(event) {
+      if (isPanning) {
+        isPanning = false;
+        panStartPoint = null;
+        canvasEl.style.cursor = isSpacePressed ? "grab" : "default";
+      }
+    }, true);
+  }
+
+
 });
