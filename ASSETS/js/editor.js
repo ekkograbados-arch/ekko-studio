@@ -1123,7 +1123,7 @@ window.addEventListener("DOMContentLoaded", () => {
         initContextualMenu();
     }
     renderCategories();
-    javascript
+ ```   javascript
   // ==========================================================================
   // SISTEMA PROFESIONAL DE ZOOM EN EL PUNTERO Y PANEO DEL LIENZO (Estilo LightBurn)
   // ==========================================================================
@@ -1275,6 +1275,6 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     }, true);
   }
-
+```
 
 });
