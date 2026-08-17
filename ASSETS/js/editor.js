@@ -773,89 +773,105 @@ window.addEventListener("DOMContentLoaded", () => {
     window.curveInitialPoint = null;
     window.curveInitialCurvature = 0;
     const tool = new paper.Tool();
+
     tool.onMouseDown = function(event) {
-        const currentTime = Date.now();
-        const isDoubleClick = (currentTime - lastClickTime) < 300;
-        lastClickTime = currentTime;
-        // 1. Detectar si el usuario hace clic sobre el tirador azul de doblado de LightBurn (Curvatura)
-        if (window.selectedItem) {
-            const target = window.selectedItem.data?.clipGroup ?
-                window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-            if (target && target instanceof paper.Group) {
-                const hitHandle = target.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 });
-                if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isCurveHandle) {
-                    window.draggingCurveHandle = true;
-                    window.curveTarget = target;
-                    window.curveInitialPoint = event.point.clone();
-                    window.curveInitialCurvature = target.data.curvature || 0;
-                    if (typeof hideContextualMenu === "function") hideContextualMenu();
-                    return;
-                }
-            }
-        }
-        if (window.selectionBoxGroup) {
-            const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
-            if (hitHandle && hititem && hitHandle.item.data && hitHandle.item.data.isHandle) {
-                window.resizeActive = true;
-                window.resizeHandleType = hitHandle.item.data.handleType;
-                window.resizeTarget = window.selectedItem;
-                const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup) ?
-                    window.resizeTarget.children.find(c => !c.clipMask) : window.resizeTarget;
-                window.resizeInitialBounds = targetItem.bounds.clone();
-                window.resizeInitialPoint = event.point.clone();
-                window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
-                window.resizeLastScaleX = 1.0;
-                window.resizeLastScaleY = 1.0;
-                window.dragging = false;
-                if (typeof hideContextualMenu === "function") {
-                    hideContextualMenu();
-                }
+    const currentTime = Date.now();
+    const isDoubleClick = (currentTime - lastClickTime) < 300;
+    lastClickTime = currentTime;
+
+    // 1. Detectar si el usuario hace clic sobre el tirador azul de doblado (Curvatura)
+    if (window.selectedItem) {
+        const target = window.selectedItem.data?.clipGroup ?
+            window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+        if (target && target instanceof paper.Group) {
+            const hitHandle = target.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 });
+            if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isCurveHandle) {
+                window.draggingCurveHandle = true;
+                window.curveTarget = target;
+                window.curveInitialPoint = event.point.clone();
+                window.curveInitialCurvature = target.data.curvature || 0;
+                if (typeof hideContextualMenu === "function") hideContextualMenu();
                 return;
             }
         }
-        if (insertTextMode) {
-            createEditableText(event.point);
-            insertTextMode = false;
-            paper.view.element.style.cursor = "default";
+    }
+
+    // Tiradores de redimensionado de la caja azul de selección
+    if (window.selectionBoxGroup) {
+        const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
+        if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
+            window.resizeActive = true;
+            window.resizeHandleType = hitHandle.item.data.handleType;
+            window.resizeTarget = window.selectedItem;
+            const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup) ?
+                window.resizeTarget.children.find(c => !c.clipMask) : window.resizeTarget;
+            window.resizeInitialBounds = targetItem.bounds.clone();
+            window.resizeInitialPoint = event.point.clone();
+            window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
+            window.resizeLastScaleX = 1.0;
+            window.resizeLastScaleY = 1.0;
+            window.dragging = false;
+            if (typeof hideContextualMenu === "function") {
+                hideContextualMenu();
+            }
             return;
         }
-        const hit = paper.project.hitTest(event.point, { fill: true, stroke: true, segments: true, tolerance: 8, match: function(hitResult) {
-            return !hitResult.item.data || !hitResult.item.data.mockup;
-        } });
-        if (hit && hit.item) {
-            const selectable = window.getSelectableItem(hit.item);
-            if (selectable) {
-                if (isLockedItem(selectable)) {
-                    window.selectItem(selectable);
+    }
+
+    if (insertTextMode) {
+        createEditableText(event.point);
+        insertTextMode = false;
+        paper.view.element.style.cursor = "default";
+        return;
+    }
+
+    // CÓDIGO CORREGIDO: hitResult.item en lugar de hititem
+    const hit = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 8,
+        match: function(hitResult) {
+            // Aseguramos que exista 'hitResult.item' antes de evaluar sus metadatos
+            return hitResult && hitResult.item && (!hitResult.item.data || !hitResult.item.data.mockup);
+        }
+    });
+
+    if (hit && hit.item) {
+        const selectable = window.getSelectableItem(hit.item);
+        if (selectable) {
+            if (isLockedItem(selectable)) {
+                window.selectItem(selectable);
+                window.dragging = false;
+                return;
+            }
+            // Doble clic para editar texto inline
+            if (isDoubleClick) {
+                const textItem = selectable.data?.clipGroup ?
+                    selectable.children.find(c => !c.clipMask) : selectable;
+                if (textItem instanceof paper.PointText) {
                     window.dragging = false;
+                    startTextEditing(textItem);
                     return;
                 }
-                // DOBLE CLIC PARA EDITAR TEXTOS (Estilo LightBurn)
-                if (isDoubleClick) {
-                    const textItem = selectable.data?.clipGroup ?
-                        selectable.children.find(c => !c.clipMask) : selectable;
-                    if (textItem instanceof paper.PointText) {
-                        window.dragging = false;
-                        startTextEditing(textItem);
-                        return;
-                    }
-                }
-                window.selectItem(selectable);
-                window.dragging = true;
-                if (selectable.data && selectable.data.clipGroup) {
-                    const content = selectable.children.find(c => !c.clipMask);
-                    window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
-                } else {
-                    window.dragOffset = event.point.subtract(selectable.position);
-                }
-                if (typeof hideContextualMenu === "function") {
-                    hideContextualMenu();
-                }
             }
-        } else {
-            window.deselectItem();
+            window.selectItem(selectable);
+            window.dragging = true;
+
+            if (selectable.data && selectable.data.clipGroup) {
+                const content = selectable.children.find(c => !c.clipMask);
+                window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
+            } else {
+                window.dragOffset = event.point.subtract(selectable.position);
+            }
+            if (typeof hideContextualMenu === "function") {
+                hideContextualMenu();
+            }
         }
-    };
+    } else {
+        window.deselectItem();
+    }
+};
 
     tool.onMouseDrag = function(event) {
         // 2. Dragging dinámico para doblar el texto con el tirador azul
