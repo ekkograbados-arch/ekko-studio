@@ -23,14 +23,14 @@ function collectPaths(item, paths = []) {
     return paths;
 }
 
-javascript
+```javascript
 /**
  * Determina si el trazado más grande es una caja rectangular externa transparente
  * (típica de exportaciones de Illustrator) que deba ser ignorada.
  * 
- * CORRECCIÓN APLICADA: Se quitó "militar" de los productos legítimamente rectangulares,
- * ya que la medalla militar posee una silueta con bordes redondeados y un orificio para 
- * cadena que requiere enmascaramiento por silueta y sustracción de hueco.
+ * CORRECCIÓN APLICADA: Se restauró el operador lógico '&&' tras 'svgPath' para evitar 
+ * la llamada de función errónea, y se mantiene la exclusión de "militar" para que las 
+ * Medallas Militares se procesen correctamente como siluetas con curvas y huecos.
  */
 function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
     if (!paths || paths.length < 2) return false;
@@ -63,7 +63,7 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
     }
     return false;
 }
-
+```
 
 function isPathRect(path) {
     if (!path) return false;
