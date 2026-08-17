@@ -95,7 +95,7 @@ window.addEventListener("DOMContentLoaded", () => {
     paper.view.update();
   }
 
-  def redo() {
+  function redo() {
     if (redoStack.length === 0) return;
     undoStack.push(paper.project.exportJSON({ asString: true }));
     const state = redoStack.pop();
