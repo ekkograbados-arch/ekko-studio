@@ -23,13 +23,7 @@ function collectPaths(item, paths = []) {
     return paths;
 }
 
-/**
- * Determina si el trazado más grande es una caja rectangular externa transparente 
- * (típica de exportaciones de Illustrator) que deba ser ignorada.
- * 
- * CORRECCIÓN: Si el producto legítimo tiene un área rectangular (ej: Mates, Medallas Militares, Pulseras),
- * no debemos ignorar su cuerpo principal, de lo contrario el producto desaparece.
- */
+
 ```javascript
 /**
  * Determina si el trazado más grande es una caja rectangular externa transparente
