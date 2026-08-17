@@ -1,5 +1,5 @@
 /**
- * ASSETS/js/modules/productsLoader.js (Integración Frontend para Carga Dinámica)
+ * ASSETS/js/modules/productsLoader.js (Integración Frontend para Carga Dinámica - Corregido)
  * 
  * Reemplaza el array estático por una consulta dinámica asíncrona hacia /api/products
  * de Vercel. Si el backend está desconectado u opera localmente, se activa 
@@ -57,7 +57,8 @@ export async function loadDynamicProducts() {
         
         const products = await response.json();
         
-        if (products && products.length > 0 && !products.success === false) {
+        // CORRECCIÓN DE PRECEDENCIA: Reemplaza !products.success === false por products.success !== false
+        if (products && products.length > 0 && products.success !== false) {
             window.EKKO_STUDIO_PRODUCTS = products;
             console.log("🎒 Catálogo dinámico cargado y ordenado con éxito:", products);
             
@@ -74,12 +75,3 @@ export async function loadDynamicProducts() {
         console.warn("La API /api/products no está disponible (modo offline o desarrollo local). Cargando catálogo estático de resguardo.", err);
     }
 }
-
-// 2. INSTRUCCIONES DE INTEGRACIÓN EN EL EDITOR:
-//
-// A. Agrega este import en tu editor (al lado de loadDynamicFonts):
-//    import { loadDynamicProducts } from './modules/productsLoader.js';
-//
-// B. Ejecuta la carga asíncrona en la inicialización:
-//    loadDynamicProducts();
-//
