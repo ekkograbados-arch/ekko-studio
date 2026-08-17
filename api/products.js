@@ -1,11 +1,10 @@
 /**
- * /api/products.js
- * Vercel Serverless Function — Node.js
+ * /api/products.js (Optimizado para Vercel Serverless NFT)
  * 
  * Escanea dinámicamente el directorio de mockups SVG ("ASSETS/mockups-medidas/"),
  * procesa y agrupa los productos por categorías ordenadas alfabéticamente,
  * y genera las superficies de grabado ("Frente", "Dorso", "Virola", etc.)
- * de forma 100% automática según las reglas de nomenclatura de EKKO Studio.
+ * de forma 100% automática.
  */
 
 const fs = require('fs');
@@ -24,27 +23,14 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Encontrar la carpeta de mockups en múltiples ubicaciones posibles de Vercel (Higiene de Rutas)
-        const posiblesRutas = [
-            path.join(process.cwd(), 'ASSETS', 'mockups-medidas'),
-            path.join(process.cwd(), 'public', 'ASSETS', 'mockups-medidas'),
-            path.join(__dirname, '..', 'ASSETS', 'mockups-medidas'),
-            path.join(__dirname, '..', 'public', 'ASSETS', 'mockups-medidas')
-        ];
-
-        let directoryPath = "";
-        for (const ruta of posiblesRutas) {
-            if (fs.existsSync(ruta)) {
-                directoryPath = ruta;
-                break;
-            }
-        }
+        // RUTA ESTÁTICA Y DIRECTA: Permite que Vercel Node File Trace (NFT) rastree y bundlee los archivos
+        const directoryPath = path.join(process.cwd(), 'ASSETS', 'mockups-medidas');
 
         // Si no se encuentra físicamente, devolvemos un error descriptivo
-        if (!directoryPath) {
+        if (!fs.existsSync(directoryPath)) {
             return res.status(404).json({ 
                 success: false, 
-                error: "No se pudo localizar el directorio '/ASSETS/mockups-medidas/' en el servidor." 
+                error: `No se pudo localizar el directorio '${directoryPath}' en el servidor Vercel. Asegúrate de configurar 'includeFiles' en vercel.json.` 
             });
         }
 
@@ -75,7 +61,6 @@ function formatTitle(slug) {
         if (minorWords.includes(lower) && index > 0) {
             return lower;
         }
-        // Conservar mm o x de forma limpia
         if (lower.includes('mm') || lower.includes('x')) {
             return lower;
         }
@@ -94,7 +79,6 @@ function formatTitle(slug) {
 function parseProducts(files) {
     const productsMap = {};
 
-    // Ordenar alfabéticamente para asegurar un procesamiento predecible
     files.sort().forEach(file => {
         const nameNoExt = file.substring(0, file.length - 4);
         
@@ -102,30 +86,27 @@ function parseProducts(files) {
         const isFrente = nameNoExt.endsWith('-frente');
         const isDorso = nameNoExt.endsWith('-dorso');
 
-        // Extraer identificador de producto base
         let productId = nameNoExt;
         if (isVirola) {
-            productId = nameNoExt.substring(7); // Quitar 'virola-' para asociar al mate base
+            productId = nameNoExt.substring(7); // Quitar 'virola-'
         } else if (isFrente) {
             productId = nameNoExt.substring(0, nameNoExt.length - 7); // Quitar '-frente'
         } else if (isDorso) {
             productId = nameNoExt.substring(0, nameNoExt.length - 6); // Quitar '-dorso'
         }
 
-        // Determinar categoría por prefijo del nombre
         const firstWord = productId.split('-')[0].toLowerCase();
         let category = "Otros";
         
-        if (firstWord === 'medalla') category = "Medallas";
-        else if (firstWord === 'chapita') category = "Chapitas";
-        else if (firstWord === 'pulsera') category = "Pulseras";
-        else if (firstWord === 'mate') category = "Mates";
-        else if (firstWord === 'termo') category = "Termos";
+        if (firstWord === 'medalla') category = \"Medallas\";
+        else if (firstWord === 'chapita') category = \"Chapitas\";
+        else if (firstWord === 'pulsera') category = \"Pulseras\";
+        else if (firstWord === 'mate') category = \"Mates\";
+        else if (firstWord === 'termo') category = \"Termos\";
         else {
             category = firstWord.charAt(0).toUpperCase() + firstWord.slice(1) + "s";
         }
 
-        // Inicializar producto si no existe
         if (!productsMap[productId]) {
             productsMap[productId] = {
                 id: productId,
@@ -142,7 +123,6 @@ function parseProducts(files) {
             defaultArea = "rectangulo";
         }
 
-        // Insertar superficies según el nombre del archivo
         if (isVirola) {
             prod.superficies.push({
                 nombre: "Virola",
@@ -162,7 +142,6 @@ function parseProducts(files) {
                 area: defaultArea
             });
         } else {
-            // Archivo base único sin modificadores explícitos
             if (["Medallas", "Chapitas", "Pulseras"].includes(category)) {
                 prod.superficies.push({
                     nombre: "Frente",
@@ -185,7 +164,6 @@ function parseProducts(files) {
         }
     });
 
-    // Sorter de caras/superficies (Mate/Frente van primero, Dorso después, Virola al final)
     Object.keys(productsMap).forEach(prodId => {
         const prod = productsMap[prodId];
         prod.superficies.sort((a, b) => {
@@ -199,7 +177,6 @@ function parseProducts(files) {
         }
     });
 
-    // Agrupar todo bajo el formato de categorías ordenadas alfabéticamente
     const categoriesMap = {};
     Object.keys(productsMap).forEach(prodId => {
         const prod = productsMap[prodId];
@@ -215,7 +192,6 @@ function parseProducts(files) {
         categoriesMap[cat].productos.push(prodCopy);
     });
 
-    // Ordenar productos alfabéticamente dentro de cada categoría
     Object.keys(categoriesMap).forEach(cat => {
         categoriesMap[cat].productos.sort((a, b) => a.nombre.localeCompare(b.nombre));
     });
