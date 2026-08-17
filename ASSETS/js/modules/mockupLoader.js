@@ -6,16 +6,17 @@
  * (como los Mates, Medallas Militares y Pulseras) eran ocultados y descartados de la máscara de recorte.
  */
 
-function collectPaths(item, paths = []) {
+function collectPaths(item, paths) {
+    if (!paths) paths = [];
     if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
         paths.push(item);
     } else if (item instanceof paper.Shape) {
-        const converted = item.toPath();
+        var converted = item.toPath();
         converted.visible = false;
         paths.push(converted);
     }
     if (item.children) {
-        const children = item.children.slice();
+        var children = item.children.slice();
         children.forEach(function(child) {
             collectPaths(child, paths);
         });
@@ -24,43 +25,41 @@ function collectPaths(item, paths = []) {
 }
 
 /**
- * Determina si el trazado más grande es una caja rectangular externa transparente 
+ * Determina si el trazado más grande es una caja rectangular externa transparente
  * (típica de exportaciones de Illustrator) que deba ser ignorada.
  * 
- * CORRECCIÓN: Si el producto legítimo tiene un área rectangular (ej: Mates, Medallas Militares, Pulseras),
- * no debemos ignorar su cuerpo principal, de lo contrario el producto desaparece.
+ * CORRECCIÓN ROBUSTA: Sin parámetros por defecto conflictivos para evitar errores sintácticos.
+ * Se remueve la palabra "militar" de los productos legítimamente rectangulares para que las
+ * Medallas Militares se procesen por silueta con curvas y sustracción de orificios.
  */
-function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
+function shouldIgnoreLargestPath(paths, rootItem, svgPath) {
     if (!paths || paths.length < 2) return false;
     
-    const firstPath = paths.slice(0, 1).shift();
+    var firstPath = paths[0];
     if (!firstPath) return false;
     
-    const fBounds = firstPath.bounds;
-    const rBounds = rootItem.bounds;
+    var fBounds = firstPath.bounds;
+    var rBounds = rootItem.bounds;
     if (!fBounds || !rBounds || rBounds.width <= 0 || rBounds.height <= 0) return false;
     
-    const wRatio = fBounds.width / rBounds.width;
-    const hRatio = fBounds.height / rBounds.height;
+    var wRatio = fBounds.width / rBounds.width;
+    var hRatio = fBounds.height / rBounds.height;
     
     if (wRatio > 0.95 && hRatio > 0.95) {
         if (isPathRect(firstPath)) {
-            // Verificar si el archivo pertenece a un producto rectangular legítimo (ej: mates, militares, pulseras)
-            const esProductoRectangular = svgPath && (
-                svgPath.toLowerCase().includes("mate") ||
-                svgPath.toLowerCase().includes("militar") ||
-                svgPath.toLowerCase().includes("pulsera")
-            ) && !svgPath.toLowerCase().includes("virola");
-            
-            // También verificamos si el trazado tiene un color visible (stroke o fill) asignado originalmente
-            const tieneColorVisible = (firstPath.strokeColor && firstPath.strokeColor.alpha > 0) || 
-                                      (firstPath.fillColor && firstPath.fillColor.alpha > 0);
-            
-            // Si es un producto legítimo o tiene color, no ignoramos el trazado principal
-            if (esProductoRectangular || tieneColorVisible) {
-                return false;
+            var esProductoRectangular = false;
+            if (typeof svgPath === 'string' && svgPath !== "") {
+                var pathLower = svgPath.toLowerCase();
+                esProductoRectangular = (
+                    pathLower.indexOf("mate") !== -1 ||
+                    pathLower.indexOf("pulsera") !== -1
+                ) && pathLower.indexOf("virola") === -1;
             }
-            return true; // Es solo un marco de exportación transparente
+            
+            if (esProductoRectangular) {
+                return false; // No ignorar, es el área de trabajo legítima del producto (Mates, Pulseras)
+            }
+            return true; // Es la caja externa transparente de Illustrator, ignorarla para usar la silueta real
         }
     }
     return false;
@@ -68,14 +67,12 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
 
 function isPathRect(path) {
     if (!path) return false;
-    const bounds = path.bounds;
+    var bounds = path.bounds;
     if (bounds.width <= 0 || bounds.height <= 0) return false;
-    
-    const rectArea = bounds.width * bounds.height;
-    const pathArea = Math.abs(path.area);
-    const areaDiff = Math.abs(pathArea - rectArea);
-    
-    let hasHandles = false;
+    var rectArea = bounds.width * bounds.height;
+    var pathArea = Math.abs(path.area);
+    var areaDiff = Math.abs(pathArea - rectArea);
+    var hasHandles = false;
     if (path.curves) {
         hasHandles = path.curves.some(function(c) {
             return !c.isStraight();
@@ -85,39 +82,37 @@ function isPathRect(path) {
 }
 
 function buildCompoundMask(item, ignoredPath, svgPath) {
-    const allPaths = collectPaths(item);
-    const paths = allPaths.filter(function(path) {
+    var allPaths = collectPaths(item);
+    var paths = allPaths.filter(function(path) {
         if (!path || Math.abs(path.area) <= 0) return false;
         if (ignoredPath && path === ignoredPath) return false;
         return true;
     });
-    
     paths.sort(function(a, b) {
         return Math.abs(b.area) - Math.abs(a.area);
     });
-    
     if (!paths.length) return null;
-    
-    const firstPath = paths.slice(0, 1).shift();
-    let mask = firstPath.clone();
+    var firstPath = paths[0];
+    var mask = firstPath.clone();
     mask.applyMatrix = true;
     
-    const isVirola = svgPath && (
-        svgPath.toLowerCase().indexOf("virola-") !== -1 || 
-        svgPath.toLowerCase().split("/").pop().indexOf("virola") === 0
-    );
+    var isVirola = false;
+    if (typeof svgPath === 'string' && svgPath !== "") {
+        var pathLower = svgPath.toLowerCase();
+        isVirola = pathLower.indexOf("virola-") !== -1 || 
+                   pathLower.split("/").pop().indexOf("virola") === 0;
+    }
     
-    const baseArea = Math.abs(mask.area);
-    const remainingPaths = paths.slice(1);
-    
+    var baseArea = Math.abs(mask.area);
+    var remainingPaths = paths.slice(1);
     remainingPaths.forEach(function(path) {
-        const hole = path.clone();
+        var hole = path.clone();
         hole.applyMatrix = true;
         if (mask.bounds.contains(hole.bounds.center)) {
-            const holeArea = Math.abs(hole.area);
-            const areaRatio = holeArea / baseArea;
+            var holeArea = Math.abs(hole.area);
+            var areaRatio = holeArea / baseArea;
             if (isVirola || areaRatio < 0.15) {
-                const subtractedResult = mask.subtract(hole);
+                var subtractedResult = mask.subtract(hole);
                 if (subtractedResult) {
                     mask.remove();
                     mask = subtractedResult;
@@ -128,7 +123,6 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
             hole.remove();
         }
     });
-    
     mask.fillColor = "black";
     mask.strokeColor = null;
     mask.visible = false;
@@ -141,12 +135,10 @@ function makeMockupTransparent(item, ignoredPath) {
         item.visible = false;
         return;
     }
-    
     item.fillColor = null;
     if (item.style) {
         item.style.fillColor = null;
     }
-    
     if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
         if (!item.strokeColor) {
             item.strokeColor = new paper.Color("#111111");
@@ -156,9 +148,8 @@ function makeMockupTransparent(item, ignoredPath) {
             item.strokeWidth = Math.max(item.strokeWidth, 1.2);
         }
     }
-    
     if (item.children) {
-        const children = item.children.slice();
+        var children = item.children.slice();
         children.forEach(function(child) {
             makeMockupTransparent(child, ignoredPath);
         });
@@ -177,7 +168,7 @@ function lockMockup(item) {
 }
 
 function findLargestPath(item) {
-    let biggest = null;
+    var biggest = null;
     function walk(obj) {
         if (obj instanceof paper.Path || obj instanceof paper.CompoundPath) {
             if (!biggest || Math.abs(obj.area) > Math.abs(biggest.area)) {
@@ -195,7 +186,7 @@ function findLargestPath(item) {
 function convertAllShapesToPaths(item) {
     if (!item) return null;
     if (item instanceof paper.Shape) {
-        const path = item.toPath();
+        var path = item.toPath();
         path.data = item.data;
         path.name = item.name;
         path.applyMatrix = true;
@@ -209,45 +200,40 @@ function convertAllShapesToPaths(item) {
         item.applyMatrix = true;
     }
     if (item.children) {
-        const children = item.children.slice();
+        var children = item.children.slice();
         children.forEach(convertAllShapesToPaths);
     }
     return item;
 }
 
 export function loadMockup(svgPath) {
-    const token = ++window.loadToken;
+    var token = ++window.loadToken;
     paper.project.activeLayer.removeChildren();
-    
     paper.project.importSVG(svgPath, function (item) {
         if (token !== window.loadToken) {
             if (item) item.remove();
             return;
         }
         if (!item) return;
-        
         item = convertAllShapesToPaths(item);
-        const bounds = item.bounds;
-        const canvasBounds = paper.view.bounds;
-        
-        const scaleX = (canvasBounds.width * 0.75) / bounds.width;
-        const scaleY = (canvasBounds.height * 0.75) / bounds.height;
-        const scale = Math.min(scaleX, scaleY);
-        
+        var bounds = item.bounds;
+        var canvasBounds = paper.view.bounds;
+        var scaleX = (canvasBounds.width * 0.75) / bounds.width;
+        var scaleY = (canvasBounds.height * 0.75) / bounds.height;
+        var scale = Math.min(scaleX, scaleY);
         item.scale(scale);
         item.position = canvasBounds.center;
         
-        const allPaths = collectPaths(item).filter(function(p) {
+        var allPaths = collectPaths(item).filter(function(p) {
             return p && Math.abs(p.area) > 0;
         });
-        
         allPaths.sort(function(a, b) {
             return Math.abs(b.area) - Math.abs(a.area);
         });
         
-        let ignoredPath = null;
+        var ignoredPath = null;
         if (shouldIgnoreLargestPath(allPaths, item, svgPath)) {
-            ignoredPath = allPaths.slice(0, 1).shift();
+            ignoredPath = allPaths[0];
         }
         
         window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
@@ -255,10 +241,8 @@ export function loadMockup(svgPath) {
         if (window.clipMask) {
             window.clipMask.visible = false;
         }
-        
         makeMockupTransparent(item, ignoredPath);
         lockMockup(item);
-        
         window.currentMockup = item;
         item.data = { locked: true, mockup: true, label: "Mockup", svgPath: svgPath };
         item.bringToFront();
@@ -267,26 +251,22 @@ export function loadMockup(svgPath) {
 }
 
 export function restoreMockupReferences() {
-    const mockupItem = paper.project.activeLayer.children.find(function(c) {
+    var mockupItem = paper.project.activeLayer.children.find(function(c) {
         return c.data && c.data.mockup;
     });
-    
     if (mockupItem) {
         window.currentMockup = mockupItem;
-        
-        const allPaths = collectPaths(mockupItem).filter(function(p) {
+        var allPaths = collectPaths(mockupItem).filter(function(p) {
             return p && Math.abs(p.area) > 0;
         });
-        
         allPaths.sort(function(a, b) {
             return Math.abs(b.area) - Math.abs(a.area);
         });
         
-        const svgPath = mockupItem.data ? mockupItem.data.svgPath : null;
-        
-        let ignoredPath = null;
+        var ignoredPath = null;
+        var svgPath = (mockupItem.data && mockupItem.data.svgPath) ? mockupItem.data.svgPath : "";
         if (shouldIgnoreLargestPath(allPaths, mockupItem, svgPath)) {
-            ignoredPath = allPaths.slice(0, 1).shift();
+            ignoredPath = allPaths[0];
         }
         
         window.grabArea = buildCompoundMask(mockupItem, ignoredPath, svgPath);
@@ -305,18 +285,13 @@ window.clipItem = function(item) {
     if (!window.clipMask) {
         return item;
     }
-    const mask = window.clipMask.clone();
+    var mask = window.clipMask.clone();
     mask.clipMask = true;
     mask.visible = true;
-    
-    const group = new paper.Group();
+    var group = new paper.Group();
     group.addChild(mask);
     group.addChild(item);
     group.clipped = true;
-    group.data = {
-        locked: false,
-        clipGroup: true,
-        label: (item.data && item.data.label) ? item.data.label : "Objeto"
-    };
+    group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : "Objeto" };
     return group;
 }
