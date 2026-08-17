@@ -23,7 +23,7 @@ function collectPaths(item, paths = []) {
     return paths;
 }
 
-```javascript
+
 /**
  * Determina si el trazado más grande es una caja rectangular externa transparente
  * (típica de exportaciones de Illustrator) que deba ser ignorada.
@@ -63,7 +63,7 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
     }
     return false;
 }
-```
+
 
 function isPathRect(path) {
     if (!path) return false;
