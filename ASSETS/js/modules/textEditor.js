@@ -109,6 +109,3 @@ export function startTextEditing(textItem) {
 }
 
 
-    // Guardar cambios al hacer clic fuera del área de texto
-    area.addEventListener("blur", () => finish(true), { once: true });
-}
