@@ -1,5 +1,5 @@
 /**
- * /api/products.js (Optimizado para Vercel Serverless NFT)
+ * /api/products.js (Optimizado para Vercel Serverless NFT - v3)
  * 
  * Escanea dinámicamente el directorio de mockups SVG ("ASSETS/mockups-medidas/"),
  * procesa y agrupa los productos por categorías ordenadas alfabéticamente,
@@ -98,11 +98,11 @@ function parseProducts(files) {
         const firstWord = productId.split('-')[0].toLowerCase();
         let category = "Otros";
         
-        if (firstWord === 'medalla') category = \"Medallas\";
-        else if (firstWord === 'chapita') category = \"Chapitas\";
-        else if (firstWord === 'pulsera') category = \"Pulseras\";
-        else if (firstWord === 'mate') category = \"Mates\";
-        else if (firstWord === 'termo') category = \"Termos\";
+        if (firstWord === 'medalla') category = "Medallas";
+        else if (firstWord === 'chapita') category = "Chapitas";
+        else if (firstWord === 'pulsera') category = "Pulseras";
+        else if (firstWord === 'mate') category = "Mates";
+        else if (firstWord === 'termo') category = "Termos";
         else {
             category = firstWord.charAt(0).toUpperCase() + firstWord.slice(1) + "s";
         }
