@@ -287,3 +287,4 @@ window.clipItem = function(item) {
     group.data = { locked: false, clipGroup: true, label: (item.data && item.data.label) ? item.data.label : "Objeto" };
     return group;
 }
+
