@@ -30,6 +30,15 @@ function collectPaths(item, paths = []) {
  * CORRECCIÓN: Si el producto legítimo tiene un área rectangular (ej: Mates, Medallas Militares, Pulseras),
  * no debemos ignorar su cuerpo principal, de lo contrario el producto desaparece.
  */
+```javascript
+/**
+ * Determina si el trazado más grande es una caja rectangular externa transparente
+ * (típica de exportaciones de Illustrator) que deba ser ignorada.
+ * 
+ * CORRECCIÓN APLICADA: Se quitó "militar" de los productos legítimamente rectangulares,
+ * ya que la medalla militar posee una silueta con bordes redondeados y un orificio para 
+ * cadena que requiere enmascaramiento por silueta y sustracción de hueco.
+ */
 function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
     if (!paths || paths.length < 2) return false;
     
@@ -43,28 +52,25 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath = "") {
     const wRatio = fBounds.width / rBounds.width;
     const hRatio = fBounds.height / rBounds.height;
     
+    // Si el camino más grande cubre casi todo el SVG
     if (wRatio > 0.95 && hRatio > 0.95) {
         if (isPathRect(firstPath)) {
-            // Verificar si el archivo pertenece a un producto rectangular legítimo (ej: mates, militares, pulseras)
+            // Verificar si el archivo pertenece a un producto rectangular legítimo (ej: mates, pulseras)
+            // NOTA: Se remueve "militar" para que las Medallas Militares se procesen como siluetas con curvas y huecos
             const esProductoRectangular = svgPath && (
                 svgPath.toLowerCase().includes("mate") ||
-                svgPath.toLowerCase().includes("militar") ||
                 svgPath.toLowerCase().includes("pulsera")
             ) && !svgPath.toLowerCase().includes("virola");
             
-            // También verificamos si el trazado tiene un color visible (stroke o fill) asignado originalmente
-            const tieneColorVisible = (firstPath.strokeColor && firstPath.strokeColor.alpha > 0) || 
-                                      (firstPath.fillColor && firstPath.fillColor.alpha > 0);
-            
-            // Si es un producto legítimo o tiene color, no ignoramos el trazado principal
-            if (esProductoRectangular || tieneColorVisible) {
-                return false;
+            if (esProductoRectangular) {
+                return false; // No ignorar, es el área de trabajo rectangular legítima del producto (Mates, Pulseras)
             }
-            return true; // Es solo un marco de exportación transparente
+            return true; // Es la caja externa transparente de Illustrator, ignorarla para usar la silueta real
         }
     }
     return false;
 }
+```
 
 function isPathRect(path) {
     if (!path) return false;
