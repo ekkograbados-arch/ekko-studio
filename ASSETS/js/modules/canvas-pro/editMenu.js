@@ -12,7 +12,7 @@ export function isEditableItem(item) {
             return false;
         }
     }
-    // Debe estar directamente en la capa activa
+    // Debe estar directamente en la capa activa o ser un grupo recortado editable
     if (item.parent === paper.project.activeLayer) {
         return true;
     }
