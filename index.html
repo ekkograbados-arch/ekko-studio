@@ -4,12 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EKKO Studio - PRO Edition</title>
-    <!-- Paper.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
-    <!-- Cargamos tus productos de forma global -->
-    <script src="ASSETS/js/productos.js"></script>
-    <!-- FontAwesome para los íconos de la barra flotante -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="ASSETS/css/styles.css">
     <style>
         :root {
             --primary: #007bff;
@@ -19,7 +14,6 @@
             --lightburn-pink: #db2777; /* Rosa-Violeta oficial de LightBurn para Trazado */
             --lightburn-pink-hover: #be185d;
         }
-
         body {
             margin: 0;
             padding: 0;
@@ -29,7 +23,6 @@
             overflow: hidden;
             background-color: #f1f5f9;
         }
-
         /* Panel Izquierdo de Categorías y Productos */
         #leftSidebar {
             width: 320px;
@@ -41,11 +34,9 @@
             box-sizing: border-box;
             z-index: 10;
         }
-
         .sidebar-section {
             margin-bottom: 24px;
         }
-
         .sidebar-title {
             font-size: 14px;
             font-weight: 600;
@@ -54,7 +45,6 @@
             color: #64748b;
             margin-bottom: 12px;
         }
-
         .tab-btn {
             background: #f8fafc;
             border: 1px solid var(--border-color);
@@ -68,17 +58,14 @@
             margin-bottom: 6px;
             transition: all 0.2s;
         }
-
         .tab-btn.active {
             background-color: var(--primary);
             color: white;
             border-color: var(--primary);
         }
-
         .tab-btn:hover:not(.active) {
             background-color: #f1f5f9;
         }
-
         #workspace {
             flex-grow: 1;
             display: flex;
@@ -86,7 +73,6 @@
             position: relative;
             height: 100%;
         }
-
         /* Barra de Herramientas de Carga en el Top */
         #topBar {
             height: 60px;
@@ -98,13 +84,11 @@
             padding: 0 24px;
             z-index: 5;
         }
-
         .top-group {
             display: flex;
             align-items: center;
             gap: 12px;
         }
-
         .btn-action {
             background: #ffffff;
             border: 1px solid var(--border-color);
@@ -119,12 +103,10 @@
             gap: 8px;
             transition: all 0.2s;
         }
-
         .btn-action:hover {
             background: #f8fafc;
             border-color: #cbd5e1;
         }
-
         /* Contenedor del Canvas */
         #canvasContainer {
             flex-grow: 1;
@@ -136,7 +118,6 @@
             overflow: auto;
             padding: 40px;
         }
-
         #editorCanvas {
             width: 800px;
             height: 600px;
@@ -145,7 +126,6 @@
             border-radius: 8px;
             border: 1px solid #94a3b8;
         }
-
         /* BARRA CONTEXTUAL FLOTANTE (Estilo Canva & LightBurn) */
         #contextual-toolbar {
             position: absolute;
@@ -164,24 +144,20 @@
             flex-wrap: wrap;
             max-width: 650px;
         }
-
         #contextual-toolbar.active {
             display: flex;
         }
-
         .toolbar-group {
             display: flex;
             align-items: center;
             gap: 8px;
         }
-
         .toolbar-divider {
             width: 1px;
             height: 28px;
             background-color: #cbd5e1;
             margin: 0 4px;
         }
-
         .toolbar-btn {
             background: #f1f5f9;
             border: 1px solid #cbd5e1;
@@ -197,13 +173,11 @@
             font-weight: 500;
             transition: all 0.2s;
         }
-
         .toolbar-btn:hover {
             background-color: #e2e8f0;
             color: #0f172a;
             border-color: #94a3b8;
         }
-
         /* ESTILO ESPECÍFICO DE TRAZADO (Rosa LightBurn) */
         .btn-trace-lightburn {
             background: #fdf2f8 !important;
@@ -211,12 +185,10 @@
             border-color: #fbcfe8 !important;
             font-weight: 600 !important;
         }
-
         .btn-trace-lightburn:hover {
             background: #fce7f3 !important;
             border-color: #f472b6 !important;
         }
-
         /* ESTILO ESPECÍFICO DE RECORTE (Canva Mask Mode) */
         .btn-crop-canva {
             background: #fffbeb !important;
@@ -224,12 +196,10 @@
             border-color: #fef3c7 !important;
             font-weight: 600 !important;
         }
-
         .btn-crop-canva:hover {
             background: #fef3c7 !important;
             border-color: #fcd34d !important;
         }
-
         /* ESTILO ESPECÍFICO DE NODOS (Green Mode) */
         .btn-nodes-green {
             background: #f0fdf4 !important;
@@ -237,22 +207,18 @@
             border-color: #bbf7d0 !important;
             font-weight: 600 !important;
         }
-
         .btn-nodes-green:hover {
             background: #dcfce7 !important;
             border-color: #86efac !important;
         }
-
         .toolbar-subgroup {
             display: flex;
             align-items: center;
             gap: 8px;
         }
-
         .toolbar-subgroup.hidden {
             display: none !important;
         }
-
         .toolbar-select {
             padding: 4px 8px;
             border-radius: 4px;
@@ -264,7 +230,6 @@
             cursor: pointer;
             min-width: 160px;
         }
-
         .toolbar-input-number {
             width: 55px;
             padding: 4px 6px;
@@ -274,7 +239,6 @@
             text-align: center;
             outline: none;
         }
-
         /* Contenedores de Deslizadores Temáticos */
         .toolbar-slider-container {
             display: flex;
@@ -287,182 +251,151 @@
             border-radius: 4px;
             border: 1px solid #e2e8f0;
         }
-
         .toolbar-slider-container input[type="range"] {
             width: 80px;
             cursor: pointer;
         }
-
         /* Slider de trazado temático rosa */
         .slider-pink-container {
             border-color: #fbcfe8 !important;
             background: #fff1f2 !important;
             color: var(--lightburn-pink) !important;
         }
-
         .slider-pink-container input[type="range"] {
             accent-color: var(--lightburn-pink);
         }
-
         .hidden-picker {
             display: none;
         }
-
         #selectionInfo {
             font-size: 12px;
             color: #64748b;
             font-weight: 500;
         }
     </style>
-     <link rel="icon" type="image/png" href="/logo.png">
 </head>
 <body>
-
-    <!-- 1. PANEL IZQUIERDO DE PRODUCTOS (Único, sin duplicados) -->
+    <!-- Panel Izquierdo de Categorías y Productos -->
     <div id="leftSidebar">
         <div class="sidebar-section">
             <div class="sidebar-title">Categorías</div>
-            <div id="categoryTabs"></div>
+            <div id="categoryTabs" class="tab-group vertical">
+                <!-- Se pobla dinámicamente -->
+            </div>
         </div>
         <div class="sidebar-section">
             <div class="sidebar-title">Productos</div>
-            <div id="productTabs"></div>
+            <div id="productTabs" class="tab-group vertical">
+                <!-- Se pobla dinámicamente -->
+            </div>
         </div>
         <div class="sidebar-section">
-            <div class="sidebar-title">Vistas</div>
-            <div id="surfaceTabs"></div>
+            <div class="sidebar-title">Superficies / Vistas</div>
+            <div id="surfaceTabs" class="tab-group vertical">
+                <!-- Se pobla dinámicamente -->
+            </div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Fuentes del Sistema</div>
+            <div id="fontList" class="font-gallery">
+                <!-- Se pobla dinámicamente -->
+            </div>
         </div>
     </div>
 
-    <!-- 2. ÁREA DE TRABAJO -->
+    <!-- Espacio de Trabajo Principal -->
     <div id="workspace">
+        <!-- Barra de Herramientas de Carga en el Top -->
         <div id="topBar">
             <div class="top-group">
-                <button class="btn-action" id="btnAddImage">
-                    <i class="fas fa-image"></i> Cargar Imagen
-                </button>
-                <button class="btn-action" id="btnAddText">
-                    <i class="fas fa-font"></i> Agregar Texto
-                </button>
-                <button class="btn-action" id="btnAddSVG">
-                    <i class="fas fa-file-image"></i> Cargar SVG
-                </button>
-                <button class="btn-action" id="btnAddQR">
-                    <i class="fas fa-qrcode"></i> QR
-                </button>
+                <span style="font-weight: bold; font-size: 16px; color: #1e293b;">📐 EKKO Studio</span>
+                <span id="selectionInfo" style="font-size: 12px; color: #64748b; font-weight: 500; margin-left: 12px;">Nada seleccionado</span>
             </div>
-
-            <div id="selectionInfo">Selecciona un producto para comenzar</div>
-
+            
             <div class="top-group">
-                <button class="toolbar-btn" id="btnZoomIn" title="Zoom +"><i class="fas fa-search-plus"></i></button>
-                <button class="toolbar-btn" id="btnZoomOut" title="Zoom -"><i class="fas fa-search-minus"></i></button>
-                <button class="toolbar-btn" id="btnFit" title="Ajustar Vista"><i class="fas fa-compress"></i></button>
+                <button class="btn-action" id="btnAddImage">Cargar Imagen</button>
+                <button class="btn-action" id="btnAddText">Agregar Texto</button>
+                <button class="btn-action" id="btnAddSVG">Cargar SVG</button>
+                <button class="btn-action" id="btnQR">QR</button>
             </div>
         </div>
 
+        <!-- Contenedor del Canvas -->
         <div id="canvasContainer">
             <canvas id="editorCanvas"></canvas>
 
-            <!-- 3. BARRA CONTEXTUAL FLOTANTE (CON IDENTIDAD VISUAL DE LUZ CORREGIDA) -->
-            <div id="contextual-toolbar">
-                <!-- ACCIONES BASE DE CANVA -->
-                <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxDelete" title="Eliminar"><i class="fas fa-trash"></i> Eliminar</button>
-                    <button class="toolbar-btn" id="btnCtxDuplicate" title="Duplicar"><i class="fas fa-copy"></i> Duplicar</button>
-                    
-                    <button class="toolbar-btn" id="btnCtxScaleDown" title="Achicar"><i class="fas fa-minus"></i></button>
-                    <button class="toolbar-btn" id="btnCtxScaleUp" title="Agrandar"><i class="fas fa-plus"></i></button>
-                    
-                    <button class="toolbar-btn" id="btnCtxForward" title="Subir Capa"><i class="fas fa-layer-group"></i> +</button>
-                    <button class="toolbar-btn" id="btnCtxBackward" title="Bajar Capa"><i class="fas fa-layer-group"></i> -</button>
-                </div>
-
+            <!-- BARRA CONTEXTUAL FLOTANTE (Estilo Canva & LightBurn) -->
+            <div id="contextual-toolbar" class="floating-toolbar">
+                <!-- Botones Básicos -->
+                <button class="toolbar-btn" id="btnCtxDelete">🗑️ Eliminar</button>
+                <button class="toolbar-btn" id="btnCtxDuplicate">📋 Duplicar</button>
+                <button class="toolbar-btn" id="btnCtxForward">🔼 Adelante</button>
+                <button class="toolbar-btn" id="btnCtxBackward">🔽 Atrás</button>
+                
                 <div class="toolbar-divider"></div>
 
-                <!-- GRUPO DE ACCIONES ESPECIALES DE LIGHTBURN -->
-                <div class="toolbar-group">
-                    <!-- BOTÓN ROSA DE TRAZADO -->
-                    <button class="toolbar-btn btn-trace-lightburn" id="btnCtxTrace" style="display: none;"><i class="fas fa-magic"></i> 🪄 Trazar Imagen</button>
-                    
-                    <!-- BOTÓN AMARILLO DE RECORTE -->
-                    <button class="toolbar-btn btn-crop-canva" id="btnCtxApplyMask" style="display: none;"><i class="fas fa-crop-alt"></i> ✂️ Recortar Imagen</button>
-                    <button class="toolbar-btn" id="btnCtxRemoveMask" style="display: none;"><i class="fas fa-unlock"></i> 🔓 Quitar Recorte</button>
-                    
-                    <!-- BOTÓN VERDE DE NODOS -->
-                    <button class="toolbar-btn btn-nodes-green" id="btnCtxNodeEdit" style="display: none;"><i class="fas fa-bezier-curve"></i> ☋ Editar Nodos</button>
-                    
-                    <button class="toolbar-btn" id="btnCtxSubtract" title="Quitar superposiciones en el grabado de fondo"><i class="fas fa-eraser"></i> Evitar Superposición</button>
-                </div>
-
-                <div class="toolbar-divider"></div>
-
-                <!-- CONTROL TEXTO -->
+                <!-- Controles para Textos -->
                 <div id="ctxTextControls" class="toolbar-subgroup hidden">
-                    <select id="ctxFontSelector" class="toolbar-select"></select>
-                    <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
-                    <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
-                    <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
+                    <select id="ctxFontSelector" class="toolbar-select">
+                        <option value="Arial">Arial</option>
+                    </select>
+                    <button class="toolbar-btn" id="btnCtxBold"><b>N</b></button>
+                    <button class="toolbar-btn" id="btnCtxItalic"><i>K</i></button>
+                    <button class="toolbar-btn" id="btnCtxUnderline"><u>S</u></button>
+                    <button class="toolbar-btn" id="btnCtxWeld">🔗 Soldar</button>
+                    
+                    <div class="toolbar-slider-container">
+                        <label>Curva:</label>
+                        <input type="range" id="ctxTextCurve" min="-100" max="100" value="0" step="1">
+                    </div>
+                    <div class="toolbar-slider-container">
+                        <label>Espacio:</label>
+                        <input type="range" id="ctxTextHSpace" min="-20" max="100" value="0" step="1">
+                    </div>
                 </div>
 
-                <!-- CONTROL IMAGEN -->
+                <!-- Controles para Imágenes -->
                 <div id="ctxImageControls" class="toolbar-subgroup hidden">
-                    <button class="toolbar-btn" id="btnCtxFlipH" title="Espejo Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
-                    <button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
-                    <div class="toolbar-slider-container" title="Ajuste de Brillo">
-                        <span>Brillo</span>
-                        <input id="ctxBrightness" type="range" min="-100" max="100" value="0">
+                    <button class="toolbar-btn" id="btnCtxFlipH">↔️ Espejo H</button>
+                    <button class="toolbar-btn" id="btnCtxFlipV">↕️ Espejo V</button>
+                    <button class="toolbar-btn" id="btnCtxScaleDown">🔍 Achicar</button>
+                    <button class="toolbar-btn" id="btnCtxScaleUp">🔍 Agrandar</button>
+                    
+                    <div class="toolbar-slider-container">
+                        <label>Brillo:</label>
+                        <input type="range" id="ctxBrightness" min="-100" max="100" value="0" step="1">
                     </div>
-                    <div class="toolbar-slider-container" title="Ajuste de Contraste">
-                        <span>Contraste</span>
-                        <input id="ctxContrast" type="range" min="-100" max="100" value="0">
+                    <div class="toolbar-slider-container">
+                        <label>Contraste:</label>
+                        <input type="range" id="ctxContrast" min="-100" max="100" value="0" step="1">
                     </div>
                 </div>
 
-                <!-- CONTROL VECTOR -->
+                <!-- Controles para Vectores -->
                 <div id="ctxVectorControls" class="toolbar-subgroup hidden">
-                    <button class="toolbar-btn" id="btnCtxGroup" title="Agrupar Vectores"><i class="fas fa-object-group"></i> Agrupar</button>
-                    <button class="toolbar-btn" id="btnCtxUngroup" title="Desagrupar Vectores"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+                    <button class="toolbar-btn btn-trace-lightburn" id="btnCtxTrace">🪄 Trazar Imagen</button>
+                    <button class="toolbar-btn btn-crop-canva" id="btnCtxCrop">✂ Recortar Imagen</button>
+                    <button class="toolbar-btn btn-crop-canva" id="btnCtxUncrop">🔓 Quitar Recorte</button>
+                    <button class="toolbar-btn btn-nodes-green" id="btnCtxNodes">☋ Editar Nodos</button>
+                    <button class="toolbar-btn" id="btnCtxSubtract">Evitar Superposición</button>
                 </div>
 
-                <!-- PANEL DE TRAZADO CON ESTILO ROSA DE LIGHTBURN -->
-                <div id="ctxTraceControls" class="toolbar-subgroup hidden">
-                    <div class="toolbar-slider-container slider-pink-container" title="Umbral de Trazado (Threshold)">
-                        <span>Umbral</span>
-                        <input id="ctxTraceThreshold" type="range" min="10" max="255" value="128">
-                        <span id="lblTraceThreshold">128</span>
-                    </div>
-                    <div class="toolbar-slider-container slider-pink-container" title="Corte de Trazado (Cutoff)">
-                        <span>Corte</span>
-                        <input id="ctxTraceCutoff" type="range" min="0" max="240" value="0">
-                        <span id="lblTraceCutoff">0</span>
-                    </div>
-                    <div class="toolbar-slider-container slider-pink-container" title="Suavizado (Smoothness)">
-                        <span>Suavizado</span>
-                        <input id="ctxTraceSmooth" type="range" min="0.1" max="5.0" step="0.1" value="1.5">
-                        <span id="lblTraceSmooth">1.5</span>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:4px; font-size:12px; color:var(--lightburn-pink);" title="Trazado de Croquis (Sketch Trace)">
-                        <input id="ctxTraceSketch" type="checkbox">
-                        <span>Croquis</span>
-                    </div>
-                    <button class="toolbar-btn" id="btnCtxTraceApply" title="Confirmar Trazado" style="color: green; font-weight: bold; background:#f0fdf4;"><i class="fas fa-check"></i> ✔</button>
-                    <button class="toolbar-btn" id="btnCtxTraceCancel" title="Cancelar Trazado" style="color: red; font-weight: bold; background:#fef2f2;"><i class="fas fa-times"></i> ✖</button>
-                </div>
-
-                <!-- PANEL EDICIÓN DE NODOS -->
+                <!-- Controles para Edición de Nodos (Subgrupo) -->
                 <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
-                    <button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo Seleccionado" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
-                    <button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición de Nodos" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
+                    <button class="toolbar-btn btn-nodes-green" id="btnNodeDelete">Eliminar Nodo</button>
+                    <button class="toolbar-btn" id="btnNodeExit">Listo ✔</button>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Hidden File Pickers -->
     <input type="file" id="imagePicker" class="hidden-picker" accept="image/*">
     <input type="file" id="svgPicker" class="hidden-picker" accept=".svg">
 
-    <!-- Enlazamos al archivo principal JS del editor -->
+    <!-- Librerías de Terceros requeridas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script type="module" src="ASSETS/js/editor.js"></script>
 </body>
 </html>
