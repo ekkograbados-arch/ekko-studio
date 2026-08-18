@@ -1,11 +1,11 @@
-/**
- * ASSETS/js/modules/productsLoader.js (Integración Frontend para Carga Dinámica - Completo y Definitivo)
- * Reemplaza el array estático por una consulta dinámica asíncrona hacia /api/products
- * de Vercel. Si el backend está desconectado u opera localmente, se activa
- * automáticamente un fallback robusto sobre el catálogo preexistente.
+/*
+ * ASSETS/js/modules/productsLoader.js (Integración Frontend para Carga Dinámica con Sanitización de Rutas)
+ *
+ * Reemplaza el catálogo estático por una consulta dinámica asíncrona hacia /api/products de Vercel.
+ * SANITIZACIÓN ROBUSTA: Protege el sistema contra errores 404 de carga forzando el prefijo "ASSETS/".
  */
 
-// 1. Definición de Fallback de Resguardo (idéntico al catálogo estático productos.js original)
+// 1. Catálogo de Resguardo (Fallback) con prefijos unificados "ASSETS/mockups-medidas/"
 const CATALOGO_FALLBACK = [
   {
     categoria: "Medallas",
@@ -110,20 +110,51 @@ const CATALOGO_FALLBACK = [
         svgBase: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg",
         superficies: [
           { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg", area: "rectangulo" },
-          { name: "Virola", nombre: "Virola", svg: "ASSETS/mockups-medidas/virola-mate-de-algarrobo-con-virola.svg", area: "anillo" }
+          { nombre: "Virola", svg: "ASSETS/mockups-medidas/virola-mate-de-algarrobo-con-virola.svg", area: "anillo" }
         ]
       }
     ]
   }
 ];
 
-// Asignación inicial defensiva inmediata (sincronizada en el inicio de renderizado)
+// Asignación defensiva inicial
 window.EKKO_STUDIO_PRODUCTS = CATALOGO_FALLBACK;
 
 /**
+ * Sanitiza recursivamente las rutas de un catálogo asegurándose de que posean
+ * el prefijo "ASSETS/". Esto previene errores de carga de mockups (404 Not Found)
+ * cuando conviven definiciones relativas o formatos legados.
+ */
+function sanitizeCatalogPaths(catalog) {
+  if (!Array.isArray(catalog)) return catalog;
+  catalog.forEach(category => {
+    if (category.productos && Array.isArray(category.productos)) {
+      category.productos.forEach(prod => {
+        // Asegurar prefijo ASSETS/ en el mockup base
+        if (prod.svgBase && !prod.svgBase.startsWith('ASSETS/')) {
+          prod.svgBase = 'ASSETS/' + prod.svgBase;
+        }
+        if (prod.preview && !prod.preview.startsWith('ASSETS/')) {
+          prod.preview = 'ASSETS/' + prod.preview;
+        }
+        // Asegurar prefijo ASSETS/ en cada una de sus superficies
+        if (prod.superficies && Array.isArray(prod.superficies)) {
+          prod.superficies.forEach(surf => {
+            if (surf.svg && !surf.svg.startsWith('ASSETS/')) {
+              surf.svg = 'ASSETS/' + surf.svg;
+            }
+          });
+        }
+      });
+    }
+  });
+  return catalog;
+}
+
+/**
  * Carga el catálogo dinámicamente desde el backend de Vercel.
- * Si tiene éxito, actualiza window.EKKO_STUDIO_PRODUCTS.
- * Si falla o está fuera de línea, mantiene el CATALOGO_FALLBACK preestablecido de forma segura.
+ * Si tiene éxito, aplica sanitización de rutas preventiva y actualiza la variable global.
+ * Si falla, mantiene el CATALOGO_FALLBACK.
  */
 export async function loadDynamicProducts() {
   try {
@@ -132,15 +163,19 @@ export async function loadDynamicProducts() {
     if (response.ok) {
       const data = await response.json();
       if (data && data.length > 0) {
-        window.EKKO_STUDIO_PRODUCTS = data;
-        console.log("✅ Catálogo dinámico cargado con éxito desde la API:", data);
+        // Sanitizar rutas en caliente
+        window.EKKO_STUDIO_PRODUCTS = sanitizeCatalogPaths(data);
+        console.log("✅ Catálogo dinámico cargado y sanitizado con éxito desde la API:", window.EKKO_STUDIO_PRODUCTS);
       } else {
-        console.warn("⚠️ La API de productos devolvió un array vacío. Se mantiene el catálogo estático.");
+        console.warn("⚠️ La API de productos devolvió un catálogo vacío. Usando fallback de resguardo.");
+        window.EKKO_STUDIO_PRODUCTS = sanitizeCatalogPaths(CATALOGO_FALLBACK);
       }
     } else {
-      console.warn(`❌ Error en respuesta de API (/api/products): Código ${response.status}. Se mantiene el catálogo estático.`);
+      console.warn(`❌ Error en respuesta de API (/api/products): Código ${response.status}. Usando fallback.`);
+      window.EKKO_STUDIO_PRODUCTS = sanitizeCatalogPaths(CATALOGO_FALLBACK);
     }
   } catch (err) {
     console.warn("La API /api/products no está disponible (modo offline o desarrollo local). Cargando catálogo estático de resguardo.", err);
+    window.EKKO_STUDIO_PRODUCTS = sanitizeCatalogPaths(CATALOGO_FALLBACK);
   }
 }
