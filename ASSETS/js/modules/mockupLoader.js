@@ -1,9 +1,10 @@
 /*
- * ASSETS/js/modules/mockupLoader.js (v2 - Corrección para Preservación de Área Rectangular y Detección Robusta)
+ * ASSETS/js/modules/mockupLoader.js (v3 - Solución a Enmascaramiento y Carga de Imágenes en Mates con Virola)
  *
  * Módulo para la carga y renderizado de mockups SVG con enmascaramiento dinámico para Paper.js.
- * CORRECCIÓN RECTANGULAR: Evita ignorar erróneamente la caja transparente de Illustrator en mates
- * con nombres descriptivos complejos (ej: "mate-de-algarrobo-con-virola-mate.svg").
+ * CORRECCIÓN DE ENMASCARAMIENTO: Corrige el cálculo de isVirola en buildCompoundMask para evitar que
+ * se considere erróneamente como virola a productos como "mate-de-algarrobo-con-virola-mate.svg",
+ * lo que provocaba que se substrajeran todos los contornos grandes y la máscara de recorte quedara invisible.
  */
 
 function collectPaths(item, paths) {
@@ -27,7 +28,6 @@ function collectPaths(item, paths) {
 /**
  * Determina si el trazado más grande es una caja rectangular externa transparente
  * (típica de exportaciones de Illustrator) que deba ser ignorada.
- * CORRECCIÓN MÁS ROBUSTA PARA EVITAR ERRORES EN MATES CON LA PALABRA "VIROLA" EN EL PRODUCTO:
  */
 function shouldIgnoreLargestPath(paths, rootItem, svgPath) {
   if (!paths || paths.length < 2) return false;
@@ -98,10 +98,12 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
   var mask = firstPath.clone();
   mask.applyMatrix = true;
   
+  // CORRECCIÓN CLAVE: Identificar si es una virola de forma estricta (no un mate con virola)
   var isVirola = false;
   if (typeof svgPath === 'string' && svgPath !== "") {
     var pathLower = svgPath.toLowerCase();
-    isVirola = pathLower.indexOf("virola-") !== -1 || pathLower.split("/").pop().indexOf("virola") === 0;
+    var filename = pathLower.split("/").pop();
+    isVirola = filename.startsWith("virola-") || filename.endsWith("-virola.svg");
   }
   
   var baseArea = Math.abs(mask.area);
