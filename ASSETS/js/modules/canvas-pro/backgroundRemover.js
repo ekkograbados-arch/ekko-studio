@@ -453,12 +453,14 @@ export async function autoRemoveBackground(raster) {
 
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
+    const width = canvas.width;
+    const height = canvas.height;
 
-    // Detectar color de fondo analizando las 4 esquinas de la imagen
+    // Detectar color de fondo promedio analizando las 4 esquinas
     const cornerIndices = [
         0,                                         // Top-Left
-        (canvas.width - 1) * 4,                    // Top-Right
-        (canvas.height - 1) * canvas.width * 4,    // Bottom-Left
+        (width - 1) * 4,                           // Top-Right
+        (height - 1) * width * 4,                  // Bottom-Left
         (data.length - 4)                          // Bottom-Right
     ];
 
@@ -472,28 +474,76 @@ export async function autoRemoveBackground(raster) {
     avgG = Math.round(avgG / 4);
     avgB = Math.round(avgB / 4);
 
-    // Calcular Sobel para no borrar áreas internas del mismo color si hay contraste
-    const edgesMap = computeSobelEdges(data, canvas.width, canvas.height);
+    // BFS Flood Fill desde los bordes para eliminar el fondo conectado
+    const visited = new Uint8Array(width * height);
+    const queue = new Int32Array(width * height);
+    let head = 0;
+    let tail = 0;
 
-    // Binarización y extracción del fondo en <50ms
-    const tolerance = 40; // Tolerancia equilibrada para fondos claros u oscuros
+    // Sembrar queue con los bordes (top, bottom, left, right)
+    for (let x = 0; x < width; x++) {
+        // Top edge
+        const idxTop = 0 * width + x;
+        queue[tail++] = idxTop;
+        visited[idxTop] = 1;
+
+        // Bottom edge
+        const idxBot = (height - 1) * width + x;
+        queue[tail++] = idxBot;
+        visited[idxBot] = 1;
+    }
+    for (let y = 1; y < height - 1; y++) {
+        // Left edge
+        const idxLeft = y * width + 0;
+        queue[tail++] = idxLeft;
+        visited[idxLeft] = 1;
+
+        // Right edge
+        const idxRight = y * width + (width - 1);
+        queue[tail++] = idxRight;
+        visited[idxRight] = 1;
+    }
+
+    const tolerance = 35; // Tolerancia equilibrada para flood fill de fondo
     const tolSquare = tolerance * tolerance * 3;
 
-    for (let y = 0; y < canvas.height; y++) {
-        for (let x = 0; x < canvas.width; x++) {
-            const idx = (y * canvas.width + x) * 4;
-            const r = data[idx];
-            const g = data[idx + 1];
-            const b = data[idx + 2];
-            const a = data[idx + 3];
+    while (head < tail) {
+        const currIdx = queue[head++];
+        const cx = currIdx % width;
+        const cy = Math.floor(currIdx / width);
+        const idx = currIdx * 4;
+        
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        const a = data[idx + 3];
 
-            if (a > 5) {
-                // Si el píxel es blanco puro (común en bocetos/logos) o coincide con el color de esquina
-                const distToCorner = (r - avgR) ** 2 + (g - avgG) ** 2 + (b - avgB) ** 2;
-                const isLightBackground = (r > 215 && g > 215 && b > 215); // Fondo claro común
+        if (a > 5) {
+            // Verificar si el color del píxel es similar al fondo de esquina
+            const dist = (r - avgR) ** 2 + (g - avgG) ** 2 + (b - avgB) ** 2;
+            if (dist <= tolSquare) {
+                // Hacer transparente
+                data[idx + 3] = 0;
 
-                if ((distToCorner <= tolSquare || isLightBackground) && edgesMap[y * canvas.width + x] === 0) {
-                    data[idx + 3] = 0; // Quitar fondo
+                // Expandir a vecinos de 4 direcciones
+                const neighbors = [
+                    { x: cx + 1, y: cy },
+                    { x: cx - 1, y: cy },
+                    { x: cx, y: cy + 1 },
+                    { x: cx, y: cy - 1 }
+                ];
+
+                for (let i = 0; i < neighbors.length; i++) {
+                    const nx = neighbors[i].x;
+                    const ny = neighbors[i].y;
+
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        const nIdx = ny * width + nx;
+                        if (!visited[nIdx]) {
+                            visited[nIdx] = 1;
+                            queue[tail++] = nIdx;
+                        }
+                    }
                 }
             }
         }
@@ -502,7 +552,6 @@ export async function autoRemoveBackground(raster) {
     ctx.putImageData(imgData, 0, 0);
     applyEdgeRefinements(canvas, 1); // Suavizar bordes
 
-    // Guardar en el historial de Paper.js
     if (typeof window.saveHistory === 'function') {
         window.saveHistory();
     }
@@ -512,13 +561,9 @@ export async function autoRemoveBackground(raster) {
     }
     paper.view.update();
 
-    // Notificar al cliente con un toast o alerta sutil de éxito instantáneo
-    console.log("⚡ Eliminación automática inteligente completada instantáneamente en local.");
+    console.log("⚡ Eliminación automática por inundación perimetral completada.");
 }
 
-/**
- * Abre la modal de eliminación de fondo interactiva (Canva-style)
- */
 export function openBackgroundRemovalModal(raster) {
     const actualRaster = getRasterFromItem(raster);
     if (!actualRaster) {
@@ -539,19 +584,10 @@ export function openBackgroundRemovalModal(raster) {
 
     const canvas = document.createElement('canvas');
     const img = actualRaster.image;
-    const rCanvas = actualRaster.canvas;
-    const hasImg = img !== null && img !== undefined;
-    const hasCanvas = rCanvas !== null && rCanvas !== undefined;
-
-    canvas.width = (hasImg ? (img.naturalWidth || img.width) : null) || (hasCanvas ? rCanvas.width : null) || actualRaster.width || 400;
-    canvas.height = (hasImg ? (img.naturalHeight || img.height) : null) || (hasCanvas ? rCanvas.height : null) || actualRaster.height || 400;
-    
+    canvas.width = img.naturalWidth || img.width || actualRaster.width;
+    canvas.height = img.naturalHeight || img.height || actualRaster.height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (hasImg) {
-        ctx.drawImage(img, 0, 0);
-    } else if (hasCanvas) {
-        ctx.drawImage(rCanvas, 0, 0);
-    }
+    ctx.drawImage(img, 0, 0);
 
     const oldMatrix = actualRaster.matrix.clone();
     const oldPosition = actualRaster.position.clone();
