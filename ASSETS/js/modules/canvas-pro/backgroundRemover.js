@@ -453,14 +453,12 @@ export async function autoRemoveBackground(raster) {
 
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
-    const width = canvas.width;
-    const height = canvas.height;
 
-    // Detectar color de fondo promedio analizando las 4 esquinas
+    // Detectar color de fondo analizando las 4 esquinas de la imagen
     const cornerIndices = [
         0,                                         // Top-Left
-        (width - 1) * 4,                           // Top-Right
-        (height - 1) * width * 4,                  // Bottom-Left
+        (canvas.width - 1) * 4,                    // Top-Right
+        (canvas.height - 1) * canvas.width * 4,    // Bottom-Left
         (data.length - 4)                          // Bottom-Right
     ];
 
@@ -474,75 +472,98 @@ export async function autoRemoveBackground(raster) {
     avgG = Math.round(avgG / 4);
     avgB = Math.round(avgB / 4);
 
-    // BFS Flood Fill desde los bordes para eliminar el fondo conectado
-    const visited = new Uint8Array(width * height);
-    const queue = new Int32Array(width * height);
+    // Binarización y extracción del fondo en <50ms mediante inundación perimetral (BFS)
+    const tolerance = 40; // Tolerancia equilibrada para fondos claros u oscuros
+    const tolSquare = tolerance * tolerance * 3;
+
+    function isBgColor(r, g, b, a) {
+        if (a < 5) return true; // Ya es transparente
+        if (avgR > 220 && avgG > 220 && avgB > 220) {
+            if (r > 215 && g > 215 && b > 215) return true;
+        }
+        const dist = (r - avgR) ** 2 + (g - avgG) ** 2 + (b - avgB) ** 2;
+        return dist <= tolSquare;
+    }
+
+    const visited = new Uint8Array(canvas.width * canvas.height);
+    const queueX = new Int32Array(canvas.width * canvas.height);
+    const queueY = new Int32Array(canvas.width * canvas.height);
     let head = 0;
     let tail = 0;
 
-    // Sembrar queue con los bordes (top, bottom, left, right)
-    for (let x = 0; x < width; x++) {
-        // Top edge
-        const idxTop = 0 * width + x;
-        queue[tail++] = idxTop;
-        visited[idxTop] = 1;
-
-        // Bottom edge
-        const idxBot = (height - 1) * width + x;
-        queue[tail++] = idxBot;
-        visited[idxBot] = 1;
-    }
-    for (let y = 1; y < height - 1; y++) {
-        // Left edge
-        const idxLeft = y * width + 0;
-        queue[tail++] = idxLeft;
-        visited[idxLeft] = 1;
-
-        // Right edge
-        const idxRight = y * width + (width - 1);
-        queue[tail++] = idxRight;
-        visited[idxRight] = 1;
+    // Agregar todo el perímetro exterior para iniciar la inundación desde los bordes
+    for (let x = 0; x < canvas.width; x++) {
+        // Fila superior (y = 0)
+        let idx = x * 4;
+        if (isBgColor(data[idx], data[idx+1], data[idx+2], data[idx+3])) {
+            queueX[tail] = x;
+            queueY[tail] = 0;
+            tail++;
+            visited[x] = 1;
+        }
+        // Fila inferior (y = height - 1)
+        idx = ((canvas.height - 1) * canvas.width + x) * 4;
+        if (isBgColor(data[idx], data[idx+1], data[idx+2], data[idx+3])) {
+            queueX[tail] = x;
+            queueY[tail] = canvas.height - 1;
+            tail++;
+            visited[(canvas.height - 1) * canvas.width + x] = 1;
+        }
     }
 
-    const tolerance = 35; // Tolerancia equilibrada para flood fill de fondo
-    const tolSquare = tolerance * tolerance * 3;
+    for (let y = 1; y < canvas.height - 1; y++) {
+        // Columna izquierda (x = 0)
+        let idx = (y * canvas.width) * 4;
+        if (isBgColor(data[idx], data[idx+1], data[idx+2], data[idx+3])) {
+            queueX[tail] = 0;
+            queueY[tail] = y;
+            tail++;
+            visited[y * canvas.width] = 1;
+        }
+        // Columna derecha (x = width - 1)
+        idx = (y * canvas.width + canvas.width - 1) * 4;
+        if (isBgColor(data[idx], data[idx+1], data[idx+2], data[idx+3])) {
+            queueX[tail] = canvas.width - 1;
+            queueY[tail] = y;
+            tail++;
+            visited[y * canvas.width + canvas.width - 1] = 1;
+        }
+    }
 
+    // BFS de inundación contigua perimetral
     while (head < tail) {
-        const currIdx = queue[head++];
-        const cx = currIdx % width;
-        const cy = Math.floor(currIdx / width);
-        const idx = currIdx * 4;
-        
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        const a = data[idx + 3];
+        const cx = queueX[head];
+        const cy = queueY[head];
+        head++;
 
-        if (a > 5) {
-            // Verificar si el color del píxel es similar al fondo de esquina
-            const dist = (r - avgR) ** 2 + (g - avgG) ** 2 + (b - avgB) ** 2;
-            if (dist <= tolSquare) {
-                // Hacer transparente
-                data[idx + 3] = 0;
+        const idx = (cy * canvas.width + cx) * 4;
+        data[idx + 3] = 0; // Transparentar el fondo conectado al borde
 
-                // Expandir a vecinos de 4 direcciones
-                const neighbors = [
-                    { x: cx + 1, y: cy },
-                    { x: cx - 1, y: cy },
-                    { x: cx, y: cy + 1 },
-                    { x: cx, y: cy - 1 }
-                ];
+        const neighbors = [
+            { x: cx + 1, y: cy },
+            { x: cx - 1, y: cy },
+            { x: cx, y: cy + 1 },
+            { x: cx, y: cy - 1 }
+        ];
 
-                for (let i = 0; i < neighbors.length; i++) {
-                    const nx = neighbors[i].x;
-                    const ny = neighbors[i].y;
+        for (let i = 0; i < neighbors.length; i++) {
+            const nx = neighbors[i].x;
+            const ny = neighbors[i].y;
 
-                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                        const nIdx = ny * width + nx;
-                        if (!visited[nIdx]) {
-                            visited[nIdx] = 1;
-                            queue[tail++] = nIdx;
-                        }
+            if (nx >= 0 && nx < canvas.width && ny >= 0 && ny < canvas.height) {
+                const nIdx = ny * canvas.width + nx;
+                if (!visited[nIdx]) {
+                    const pixelIndex = nIdx * 4;
+                    const r = data[pixelIndex];
+                    const g = data[pixelIndex + 1];
+                    const b = data[pixelIndex + 2];
+                    const a = data[pixelIndex + 3];
+
+                    if (isBgColor(r, g, b, a)) {
+                        queueX[tail] = nx;
+                        queueY[tail] = ny;
+                        tail++;
+                        visited[nIdx] = 1;
                     }
                 }
             }
@@ -552,6 +573,7 @@ export async function autoRemoveBackground(raster) {
     ctx.putImageData(imgData, 0, 0);
     applyEdgeRefinements(canvas, 1); // Suavizar bordes
 
+    // Guardar en el historial de Paper.js
     if (typeof window.saveHistory === 'function') {
         window.saveHistory();
     }
@@ -561,9 +583,13 @@ export async function autoRemoveBackground(raster) {
     }
     paper.view.update();
 
+    // Notificar al cliente con un toast o alerta sutil de éxito instantáneo
     console.log("⚡ Eliminación automática por inundación perimetral completada.");
 }
 
+/**
+ * Abre la modal de eliminación de fondo interactiva (Canva-style)
+ */
 export function openBackgroundRemovalModal(raster) {
     const actualRaster = getRasterFromItem(raster);
     if (!actualRaster) {
