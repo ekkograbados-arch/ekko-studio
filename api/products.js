@@ -1,201 +1,186 @@
 /**
- * /api/products.js (Optimizado para Vercel Serverless NFT - v3)
- * 
- * Escanea dinámicamente el directorio de mockups SVG ("ASSETS/mockups-medidas/"),
- * procesa y agrupa los productos por categorías ordenadas alfabéticamente,
- * y genera las superficies de grabado ("Frente", "Dorso", "Virola", etc.)
- * de forma 100% automática.
+ * /api/products.js (Optimizado Dinámico - Orden Alfabético Absoluto sin Duplicaciones)
+ *
+ * Escanea dinámicamente el directorio "ASSETS/mockups-medidas/", agrupa los archivos SVG
+ * por Categoría, Producto y Superficie de forma 100% automatizada siguiendo la nomenclatura:
+ * nomenclature: [category]-[product_name_without_view]-[VISTA].svg
  */
-
 const fs = require('fs');
 const path = require('path');
 
 module.exports = async (req, res) => {
-    // Cabeceras de CORS para máxima compatibilidad
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  // Cabeceras de CORS para máxima compatibilidad
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
 
-    if (req.method === 'OPTIONS') {
-        res.status(200).end();
-        return;
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  try {
+    const directoryPath = path.join(process.cwd(), 'ASSETS', 'mockups-medidas');
+
+    if (!fs.existsSync(directoryPath)) {
+      return res.status(404).json({
+        success: false,
+        error: `No se pudo localizar el directorio '${directoryPath}' en el servidor Vercel.`
+      });
     }
 
-    try {
-        // RUTA ESTÁTICA Y DIRECTA: Permite que Vercel Node File Trace (NFT) rastree y bundlee los archivos
-        const directoryPath = path.join(process.cwd(), 'ASSETS', 'mockups-medidas');
+    const files = fs.readdirSync(directoryPath);
+    const svgFiles = files.filter(f => f.toLowerCase().endsWith('.svg'));
+    const products = parseProducts(svgFiles);
 
-        // Si no se encuentra físicamente, devolvemos un error descriptivo
-        if (!fs.existsSync(directoryPath)) {
-            return res.status(404).json({ 
-                success: false, 
-                error: `No se pudo localizar el directorio '${directoryPath}' en el servidor Vercel. Asegúrate de configurar 'includeFiles' en vercel.json.` 
-            });
-        }
-
-        const files = fs.readdirSync(directoryPath);
-        const svgFiles = files.filter(f => f.toLowerCase().endsWith('.svg'));
-
-        const products = parseProducts(svgFiles);
-        return res.status(200).json(products);
-
-    } catch (error) {
-        return res.status(500).json({ 
-            success: false, 
-            error: error.message 
-        });
-    }
+    return res.status(200).json(products);
+  } catch (error) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
 };
 
 /**
- * Formatea elegantemente el identificador (slug) en un título legible
- * Ej: "mate-algarrobo-sin-virola" -> "Mate de Algarrobo sin Virola"
+ * Formatea elegantemente el slug en un título legible y estético.
+ * Ej: "chapita-huesito" -> "Chapita Huesito"
  */
 function formatTitle(slug) {
-    const minorWords = ['de', 'con', 'sin', 'la', 'el', 'y', 'para'];
-    const words = slug.split('-');
-    
-    const capitalized = words.map((w, index) => {
-        const lower = w.toLowerCase();
-        if (minorWords.includes(lower) && index > 0) {
-            return lower;
-        }
-        if (lower.includes('mm') || lower.includes('x')) {
-            return lower;
-        }
-        return w.charAt(0).toUpperCase() + w.slice(1);
-    });
-
-    if (capitalized.length > 0) {
-        capitalized[0] = capitalized[0].charAt(0).toUpperCase() + capitalized[0].slice(1);
+  const minorWords = ['de', 'con', 'sin', 'la', 'el', 'y', 'para'];
+  const words = slug.split('-');
+  const capitalized = words.map((w, index) => {
+    const lower = w.toLowerCase();
+    if (minorWords.includes(lower) && index > 0) {
+      return lower;
     }
-    return capitalized.join(' ');
+    if (lower.includes('mm') || lower.includes('x')) {
+      return lower; // Mantener medidas intactas
+    }
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  });
+
+  if (capitalized.length > 0) {
+    capitalized[0] = capitalized[0].charAt(0).toUpperCase() + capitalized[0].slice(1);
+  }
+  return capitalized.join(' ');
 }
 
 /**
- * Procesa la lista de archivos SVG planos para agruparlos en productos y categorías
+ * Procesa la lista de archivos SVG para agruparlos siguiendo la estructura de EKKO Studio.
  */
 function parseProducts(files) {
-    const productsMap = {};
+  const productsMap = {};
 
-    files.sort().forEach(file => {
-        const nameNoExt = file.substring(0, file.length - 4);
-        
-        const isVirola = nameNoExt.startsWith('virola-');
-        const isFrente = nameNoExt.endsWith('-frente');
-        const isDorso = nameNoExt.endsWith('-dorso');
+  // Ordenamos los nombres de archivos para garantizar orden alfabético base
+  files.sort().forEach(file => {
+    const nameNoExt = file.substring(0, file.length - 4); // Quitar ".svg"
+    const nameNoExtLower = nameNoExt.toLowerCase();
 
-        let productId = nameNoExt;
-        if (isVirola) {
-            productId = nameNoExt.substring(7); // Quitar 'virola-'
-        } else if (isFrente) {
-            productId = nameNoExt.substring(0, nameNoExt.length - 7); // Quitar '-frente'
-        } else if (isDorso) {
-            productId = nameNoExt.substring(0, nameNoExt.length - 6); // Quitar '-dorso'
-        }
+    // Determinar la superficie/vista al final del nombre
+    const parts = nameNoExt.split('-');
+    const lastPart = parts[parts.length - 1].toLowerCase();
+    
+    const knownViews = ['frente', 'dorso', 'virola', 'mate'];
+    let surfaceName = "";
+    let productId = "";
 
-        const firstWord = productId.split('-')[0].toLowerCase();
-        let category = "Otros";
-        
-        if (firstWord === 'medalla') category = "Medallas";
-        else if (firstWord === 'chapita') category = "Chapitas";
-        else if (firstWord === 'pulsera') category = "Pulseras";
-        else if (firstWord === 'mate') category = "Mates";
-        else if (firstWord === 'termo') category = "Termos";
-        else {
-            category = firstWord.charAt(0).toUpperCase() + firstWord.slice(1) + "s";
-        }
+    if (knownViews.includes(lastPart)) {
+      // Tiene sufijo de vista conocido
+      surfaceName = lastPart.charAt(0).toUpperCase() + lastPart.slice(1);
+      productId = parts.slice(0, parts.length - 1).join('-');
+    } else {
+      // Archivo base genérico o sin vista explícita
+      productId = nameNoExt;
+      if (nameNoExtLower.includes('mate')) {
+        surfaceName = "Mate";
+      } else if (nameNoExtLower.includes('virola')) {
+        surfaceName = "Virola";
+      } else {
+        surfaceName = "Frente"; // Fallback por defecto
+      }
+    }
 
-        if (!productsMap[productId]) {
-            productsMap[productId] = {
-                id: productId,
-                nombre: formatTitle(productId),
-                category: category,
-                svgBase: `ASSETS/mockups-medidas/${productId}.svg`,
-                superficies: []
-            };
-        }
+    // Extraer la categoría del producto (quitando las medidas finales ej: -16x32, -25mm)
+    // El slug de categoría será todo el productId antes de la medida numérica.
+    const categorySlug = productId
+      .replace(/-\d+x\d+$/, '')
+      .replace(/-\d+mm$/, '')
+      .replace(/-\d+x\d+mm$/, '');
 
-        const prod = productsMap[productId];
-        let defaultArea = "silueta";
-        if (productId.includes("mate")) {
-            defaultArea = "rectangulo";
-        }
+    // Inicializar el producto si no existe
+    if (!productsMap[productId]) {
+      productsMap[productId] = {
+        id: productId,
+        nombre: formatTitle(productId),
+        category: formatTitle(categorySlug),
+        svgBase: `ASSETS/mockups-medidas/${file}`,
+        superficies: []
+      };
+    }
 
-        if (isVirola) {
-            prod.superficies.push({
-                nombre: "Virola",
-                svg: `ASSETS/mockups-medidas/${file}`,
-                area: "anillo"
-            });
-        } else if (isFrente) {
-            prod.superficies.push({
-                nombre: "Frente",
-                svg: `ASSETS/mockups-medidas/${file}`,
-                area: defaultArea
-            });
-        } else if (isDorso) {
-            prod.superficies.push({
-                nombre: "Dorso",
-                svg: `ASSETS/mockups-medidas/${file}`,
-                area: defaultArea
-            });
-        } else {
-            if (["Medallas", "Chapitas", "Pulseras"].includes(category)) {
-                prod.superficies.push({
-                    nombre: "Frente",
-                    svg: `ASSETS/mockups-medidas/${file}`,
-                    area: defaultArea
-                });
-                prod.superficies.push({
-                    nombre: "Dorso",
-                    svg: `ASSETS/mockups-medidas/${file}`,
-                    area: defaultArea
-                });
-            } else {
-                const surfaceName = (category === "Mates") ? "Mate" : "Frente";
-                prod.superficies.push({
-                    nombre: surfaceName,
-                    svg: `ASSETS/mockups-medidas/${file}`,
-                    area: defaultArea
-                });
-            }
-        }
+    const prod = productsMap[productId];
+
+    // Evitar duplicaciones de superficies
+    const hasSurface = prod.superficies.some(s => s.nombre === surfaceName);
+    if (!hasSurface) {
+      let defaultArea = "silueta";
+      if (productId.toLowerCase().includes("mate")) {
+        defaultArea = "rectangulo";
+      }
+      if (surfaceName === "Virola") {
+        defaultArea = "anillo";
+      } else if (surfaceName === "Mate") {
+        defaultArea = "rectangulo";
+      }
+
+      prod.superficies.push({
+        nombre: surfaceName,
+        svg: `ASSETS/mockups-medidas/${file}`,
+        area: defaultArea
+      });
+    }
+  });
+
+  // Ordenar las superficies de cada producto en el orden oficial: Mate, Frente, Dorso, Virola
+  Object.keys(productsMap).forEach(prodId => {
+    const prod = productsMap[prodId];
+    prod.superficies.sort((a, b) => {
+      const order = { "Mate": 0, "Frente": 1, "Dorso": 2, "Virola": 3 };
+      const orderA = order[a.nombre] !== undefined ? order[a.nombre] : 4;
+      const orderB = order[b.nombre] !== undefined ? order[b.nombre] : 4;
+      return orderA - orderB;
     });
 
-    Object.keys(productsMap).forEach(prodId => {
-        const prod = productsMap[prodId];
-        prod.superficies.sort((a, b) => {
-            const order = { "Mate": 0, "Frente": 0, "Dorso": 1, "Virola": 2 };
-            const orderA = order[a.nombre] !== undefined ? order[a.nombre] : 3;
-            const orderB = order[b.nombre] !== undefined ? order[b.nombre] : 3;
-            return orderA - orderB;
-        });
-        if (prod.superficies.length > 0) {
-            prod.svgBase = prod.superficies[0].svg;
-        }
-    });
+    if (prod.superficies.length > 0) {
+      prod.svgBase = prod.superficies[0].svg;
+    }
+  });
 
-    const categoriesMap = {};
-    Object.keys(productsMap).forEach(prodId => {
-        const prod = productsMap[prodId];
-        const cat = prod.category;
-        if (!categoriesMap[cat]) {
-            categoriesMap[cat] = {
-                categoria: cat,
-                productos: []
-            };
-        }
-        const prodCopy = { ...prod };
-        delete prodCopy.category;
-        categoriesMap[cat].productos.push(prodCopy);
-    });
+  // Agrupar productos en categorías
+  const categoriesMap = {};
+  Object.keys(productsMap).forEach(prodId => {
+    const prod = productsMap[prodId];
+    const cat = prod.category;
 
-    Object.keys(categoriesMap).forEach(cat => {
-        categoriesMap[cat].productos.sort((a, b) => a.nombre.localeCompare(b.nombre));
-    });
+    if (!categoriesMap[cat]) {
+      categoriesMap[cat] = {
+        categoria: cat,
+        productos: []
+      };
+    }
 
-    const sortedCategories = Object.keys(categoriesMap).sort().map(cat => categoriesMap[cat]);
-    return sortedCategories;
+    const prodCopy = { ...prod };
+    delete prodCopy.category; // Limpiar propiedad temporal
+    categoriesMap[cat].productos.push(prodCopy);
+  });
+
+  // Ordenar alfabéticamente los productos de cada categoría
+  Object.keys(categoriesMap).forEach(cat => {
+    categoriesMap[cat].productos.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  });
+
+  // Ordenar alfabéticamente las categorías por su nombre y retornar array plano
+  const sortedCategoriesKeys = Object.keys(categoriesMap).sort();
+  const sortedCategories = sortedCategoriesKeys.map(cat => categoriesMap[cat]);
+
+  return sortedCategories;
 }
