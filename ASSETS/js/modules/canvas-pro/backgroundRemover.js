@@ -421,11 +421,19 @@ export async function autoRemoveBackground(raster) {
 
     const canvas = document.createElement('canvas');
     const img = actualRaster.image;
-    canvas.width = img.naturalWidth || img.width || actualRaster.width;
-    canvas.height = img.naturalHeight || img.height || actualRaster.height;
+    const rCanvas = actualRaster.canvas;
+    const hasImg = img !== null && img !== undefined;
+    const hasCanvas = rCanvas !== null && rCanvas !== undefined;
+
+    canvas.width = (hasImg ? (img.naturalWidth || img.width) : null) || (hasCanvas ? rCanvas.width : null) || actualRaster.width || 400;
+    canvas.height = (hasImg ? (img.naturalHeight || img.height) : null) || (hasCanvas ? rCanvas.height : null) || actualRaster.height || 400;
     
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0);
+    if (hasImg) {
+        ctx.drawImage(img, 0, 0);
+    } else if (hasCanvas) {
+        ctx.drawImage(rCanvas, 0, 0);
+    }
 
     const oldMatrix = actualRaster.matrix.clone();
     const oldPosition = actualRaster.position.clone();
@@ -531,10 +539,19 @@ export function openBackgroundRemovalModal(raster) {
 
     const canvas = document.createElement('canvas');
     const img = actualRaster.image;
-    canvas.width = img.naturalWidth || img.width || actualRaster.width;
-    canvas.height = img.naturalHeight || img.height || actualRaster.height;
+    const rCanvas = actualRaster.canvas;
+    const hasImg = img !== null && img !== undefined;
+    const hasCanvas = rCanvas !== null && rCanvas !== undefined;
+
+    canvas.width = (hasImg ? (img.naturalWidth || img.width) : null) || (hasCanvas ? rCanvas.width : null) || actualRaster.width || 400;
+    canvas.height = (hasImg ? (img.naturalHeight || img.height) : null) || (hasCanvas ? rCanvas.height : null) || actualRaster.height || 400;
+    
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(img, 0, 0);
+    if (hasImg) {
+        ctx.drawImage(img, 0, 0);
+    } else if (hasCanvas) {
+        ctx.drawImage(rCanvas, 0, 0);
+    }
 
     const oldMatrix = actualRaster.matrix.clone();
     const oldPosition = actualRaster.position.clone();
