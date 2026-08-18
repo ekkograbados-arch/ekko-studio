@@ -4,18 +4,6 @@ import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
 import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
 
-// Importación interactiva del "Menú de Edición" estilo LightBurn
-import { 
-    selectAll, 
-    invertSelection, 
-    pasteInPlace, 
-    convertToPathSelected, 
-    closePathSelected, 
-    autoJoinSelectedPaths, 
-    optimizeSelectedShapes, 
-    deleteDuplicates 
-} from "./modules/canvas-pro/editMenu.js";
-
 window.addEventListener("DOMContentLoaded", () => {
     // 1. Inicializar Paper.js de forma segura en el lienzo
     const canvasEl = document.getElementById("editorCanvas");
@@ -405,7 +393,6 @@ window.addEventListener("DOMContentLoaded", () => {
         if (!window.selectedItem) return;
         if (isLockedItem(window.selectedItem)) return;
         clipboardItem = window.selectedItem.clone();
-        window.clipboardItem = clipboardItem; // Sincronización global
     }
 
     function pasteSelected() {
@@ -509,7 +496,7 @@ window.addEventListener("DOMContentLoaded", () => {
         reader.readAsText(file);
     }
 
-    // --- QR EN CONDICIONES COMPATIBLES ---
+    // --- QR EN CONDICIONES COMPATIBLES CON GRABADO DE 4MM ---
     function addQRCode(text) {
         if (!text) return;
         saveHistory();
@@ -544,8 +531,12 @@ window.addEventListener("DOMContentLoaded", () => {
             } else {
                 const script = document.createElement("script");
                 script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
-                script.onload = () => { generateRealQR(); };
-                script.onerror = () => { fallbackToGoogleChart(text); };
+                script.onload = () => {
+                    generateRealQR();
+                };
+                script.onerror = () => {
+                    fallbackToGoogleChart(text);
+                };
                 document.head.appendChild(script);
             }
         };
@@ -622,7 +613,7 @@ window.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS ---
+    // --- INTERFAZ DINÁMICA DE CATEGORÍAS Y PRODUCTOS (DEFENSIVA) ---
     function renderCategories() {
         if (!ui.categoryTabs) return;
         ui.categoryTabs.innerHTML = "";
@@ -740,7 +731,40 @@ window.addEventListener("DOMContentLoaded", () => {
         startTextEditing(txt);
     }
 
-    // --- MANEJO DE RATÓN Y TECLADO ---
+    // ========================================================
+    // --- MANEJO DE HERRAMIENTA DE RATÓN Y TECLADO ---
+    // ========================================================
+    if (typeof window.getOppositePoint !== 'function') {
+        window.getOppositePoint = function(bounds, handleType) {
+            switch (handleType) {
+                case 'tl': return bounds.bottomRight;
+                case 'tr': return bounds.bottomLeft;
+                case 'bl': return bounds.topRight;
+                case 'br': return bounds.topLeft;
+                case 't': return bounds.bottomCenter;
+                case 'b': return bounds.topCenter;
+                case 'l': return bounds.rightCenter;
+                case 'r': return bounds.leftCenter;
+                default: return bounds.center;
+            }
+        };
+    }
+    if (typeof window.getHandlePoint !== 'function') {
+        window.getHandlePoint = function(bounds, handleType) {
+            switch (handleType) {
+                case 'tl': return bounds.topLeft;
+                case 'tr': return bounds.topRight;
+                case 'bl': return bounds.bottomLeft;
+                case 'br': return bounds.bottomRight;
+                case 't': return bounds.topCenter;
+                case 'b': return bounds.bottomCenter;
+                case 'l': return bounds.leftCenter;
+                case 'r': return bounds.rightCenter;
+                default: return bounds.center;
+            }
+        };
+    }
+
     let insertTextMode = false;
     let lastClickTime = 0;
     window.draggingCurveHandle = false;
@@ -754,7 +778,7 @@ window.addEventListener("DOMContentLoaded", () => {
         const isDoubleClick = (currentTime - lastClickTime) < 300;
         lastClickTime = currentTime;
 
-        // Detectar tirador azul de curvatura
+        // 1. Detectar si el usuario hace clic sobre el tirador azul de doblado de LightBurn (Curvatura)
         if (window.selectedItem) {
             const target = window.selectedItem.data?.clipGroup ?
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
@@ -771,7 +795,6 @@ window.addEventListener("DOMContentLoaded", () => {
             }
         }
 
-        // Detectar tiradores de Canva (redimensionar)
         if (window.selectionBoxGroup) {
             const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
             if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
@@ -792,7 +815,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 return;
             }
         }
-
         if (insertTextMode) {
             createEditableText(event.point);
             insertTextMode = false;
@@ -809,7 +831,6 @@ window.addEventListener("DOMContentLoaded", () => {
                 return !hitResult.item.data || !hitResult.item.data.mockup;
             }
         });
-
         if (hit && hit.item) {
             const selectable = window.getSelectableItem(hit.item);
             if (selectable) {
@@ -818,6 +839,7 @@ window.addEventListener("DOMContentLoaded", () => {
                     window.dragging = false;
                     return;
                 }
+                // DOBLE CLIC PARA EDITAR TEXTOS (Estilo LightBurn)
                 if (isDoubleClick) {
                     const textItem = selectable.data?.clipGroup ?
                         selectable.children.find(c => !c.clipMask) : selectable;
@@ -845,6 +867,7 @@ window.addEventListener("DOMContentLoaded", () => {
     };
 
     tool.onMouseDrag = function(event) {
+        // 2. Dragging dinámico para doblar el texto con el tirador azul
         if (window.draggingCurveHandle && window.curveTarget) {
             const deltaY = event.point.y - window.curveInitialPoint.y;
             let newCurvature = window.curveInitialCurvature + (deltaY * 0.5);
@@ -951,50 +974,6 @@ window.addEventListener("DOMContentLoaded", () => {
         const active = document.activeElement;
         const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
         if (isTyping) return;
-
-        // --- Atajos de Teclado del Menú de Edición (LightBurn Style) ---
-        if (event.modifiers.control && event.key === "a") {
-            selectAll();
-            event.preventDefault();
-            return;
-        }
-        if (event.modifiers.control && event.modifiers.shift && event.key === "i") {
-            invertSelection();
-            event.preventDefault();
-            return;
-        }
-        if ((event.modifiers.control && event.modifiers.shift && event.key === "v") || (event.modifiers.option && event.key === "v") || (event.modifiers.alt && event.key === "v")) {
-            pasteInPlace();
-            event.preventDefault();
-            return;
-        }
-        if (event.modifiers.control && event.modifiers.shift && event.key === "c") {
-            convertToPathSelected();
-            event.preventDefault();
-            return;
-        }
-        if (event.modifiers.option && event.key === "c") {
-            closePathSelected();
-            event.preventDefault();
-            return;
-        }
-        if (event.modifiers.option && event.key === "j") {
-            autoJoinSelectedPaths();
-            event.preventDefault();
-            return;
-        }
-        if (event.modifiers.option && event.modifiers.shift && event.key === "o") {
-            optimizeSelectedShapes();
-            event.preventDefault();
-            return;
-        }
-        if (event.modifiers.option && event.key === "d") {
-            deleteDuplicates();
-            event.preventDefault();
-            return;
-        }
-
-        // --- Shortcuts Clásicos ---
         if (event.modifiers.control && event.key === "z") {
             undo();
             return;
@@ -1014,17 +993,27 @@ window.addEventListener("DOMContentLoaded", () => {
         if (event.key === "delete") {
             deleteSelected();
         }
-
-        // Teclas de dirección para micro-movimiento
         if (window.selectedItem && !isLockedItem(window.selectedItem)) {
             const step = event.modifiers.shift ? 10 : 1;
             const targetMove = (window.selectedItem.data && window.selectedItem.data.clipGroup) ?
                 window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
             if (targetMove) {
-                if (event.key === "left") { targetMove.position.x -= step; event.preventDefault(); }
-                if (event.key === "right") { targetMove.position.x += step; event.preventDefault(); }
-                if (event.key === "up") { targetMove.position.y -= step; event.preventDefault(); }
-                if (event.key === "down") { targetMove.position.y += step; event.preventDefault(); }
+                if (event.key === "left") {
+                    targetMove.position.x -= step;
+                    event.preventDefault();
+                }
+                if (event.key === "right") {
+                    targetMove.position.x += step;
+                    event.preventDefault();
+                }
+                if (event.key === "up") {
+                    targetMove.position.y -= step;
+                    event.preventDefault();
+                }
+                if (event.key === "down") {
+                    targetMove.position.y += step;
+                    event.preventDefault();
+                }
             }
             window.updateSelectionBox(window.selectedItem);
             updateSelectionInfo();
@@ -1056,6 +1045,7 @@ window.addEventListener("DOMContentLoaded", () => {
     safeAddListener("btnSendBack", "click", sendBack);
     safeAddListener(ui.btnForward, "click", bringForward);
     safeAddListener(ui.btnBackward, "click", sendBackward);
+
     safeAddListener("btnZoomIn", "click", () => zoomBy(1.15));
     safeAddListener("btnZoomOut", "click", () => zoomBy(1 / 1.15));
     safeAddListener("btnFit", "click", fitView);
@@ -1100,6 +1090,7 @@ window.addEventListener("DOMContentLoaded", () => {
             addQRCode(text);
         }
     };
+
     safeAddListener("btnQR", "click", onQRClick);
     safeAddListener("btnAddQR", "click", onQRClick);
     safeAddListener("btnCreateQR", "click", onQRClick);
@@ -1107,15 +1098,18 @@ window.addEventListener("DOMContentLoaded", () => {
 
     safeAddListener(ui.btnApplySize, "click", applySelectedSize);
     safeAddListener(ui.btnToggleLock, "click", toggleLockSelected);
+
     safeAddListener(ui.btnAlignLeft, "click", () => alignSelected("left"));
     safeAddListener(ui.btnAlignCenterH, "click", () => alignSelected("centerH"));
     safeAddListener(ui.btnAlignRight, "click", () => alignSelected("right"));
     safeAddListener(ui.btnAlignTop, "click", () => alignSelected("top"));
     safeAddListener(ui.btnAlignCenterV, "click", () => alignSelected("centerV"));
     safeAddListener(ui.btnAlignBottom, "click", () => alignSelected("bottom"));
+
     safeAddListener(ui.btnRotateLeft, "click", () => { rotateSelected(-90); });
     safeAddListener(ui.btnRotateRight, "click", () => { rotateSelected(90); });
     safeAddListener(ui.btnRotate180, "click", () => { rotateSelected(180); });
+
     safeAddListener(ui.btnCenterH, "click", () => { centerSelected("horizontal"); });
     safeAddListener(ui.btnCenterV, "click", () => { centerSelected("vertical"); });
     safeAddListener(ui.btnCenterBoth, "click", () => { centerSelected("both"); });
@@ -1132,16 +1126,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     safeAddListener(ui.btnApplyFont, "click", applySelectedFont);
 
-    // Enlazar los botones físicos del menú de edición dropdown si existen
-    safeAddListener("btnEditSelectAll", "click", selectAll);
-    safeAddListener("btnEditInvertSelection", "click", invertSelection);
-    safeAddListener("btnEditPasteInPlace", "click", pasteInPlace);
-    safeAddListener("btnEditConvertToPath", "click", convertToPathSelected);
-    safeAddListener("btnEditClosePath", "click", closePathSelected);
-    safeAddListener("btnEditAutoJoin", "click", autoJoinSelectedPaths);
-    safeAddListener("btnEditOptimize", "click", optimizeSelectedShapes);
-    safeAddListener("btnEditDeleteDuplicates", "click", deleteDuplicates);
-
+    // --- CORRECCIÓN APLICADA: Carga dinámica asíncrona de productos ---
     if (typeof loadDynamicProducts === "function") {
         loadDynamicProducts()
             .then(() => {
@@ -1150,7 +1135,7 @@ window.addEventListener("DOMContentLoaded", () => {
             })
             .catch((err) => {
                 console.error("❌ Fallo crítico al resolver catálogo dinámico:", err);
-                renderCategories();
+                renderCategories(); // Renderizado defensivo de resguardo
             });
     } else {
         renderCategories();
