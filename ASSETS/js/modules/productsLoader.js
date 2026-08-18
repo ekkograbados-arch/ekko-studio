@@ -1,14 +1,73 @@
 /*
- * ASSETS/js/modules/productsLoader.js (Integración Frontend para Carga Dinámica con Sanitización de Rutas)
+ * ASSETS/js/modules/productsLoader.js (v2 - Frontend con Categorización Unificada y Fallbacks Sanitizados)
  *
  * Reemplaza el catálogo estático por una consulta dinámica asíncrona hacia /api/products de Vercel.
- * SANITIZACIÓN ROBUSTA: Protege el sistema contra errores 404 de carga forzando el prefijo "ASSETS/".
+ * Agrupa los fallbacks en las Categorías Generales perfectas en orden alfabético.
+ * SANITIZACIÓN ROBUSTA: Protege el sistema contra errores 404 forzando el prefijo "ASSETS/".
  */
 
-// 1. Catálogo de Resguardo (Fallback) con prefijos unificados "ASSETS/mockups-medidas/"
+// 1. Catálogo de Resguardo (Fallback) unificado con las nuevas Categorías Generales
 const CATALOGO_FALLBACK = [
   {
-    categoria: "Medallas",
+    categoria: "Chapita Huesito",
+    productos: [
+      {
+        id: "chapita-huesito-16x32",
+        nombre: "Chapita Huesito 16x32",
+        svgBase: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg",
+        superficies: [
+          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg", area: "silueta" },
+          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg", area: "silueta" }
+        ]
+      },
+      {
+        id: "chapita-huesito-21x40",
+        nombre: "Chapita Huesito 21x40",
+        svgBase: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg",
+        superficies: [
+          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg", area: "silueta" },
+          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg", area: "silueta" }
+        ]
+      }
+    ]
+  },
+  {
+    categoria: "Mate Acero",
+    productos: [
+      {
+        id: "mate-acero",
+        nombre: "Mate Acero",
+        svgBase: "ASSETS/mockups-medidas/mate-acero.svg",
+        superficies: [
+          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-acero.svg", area: "rectangulo" }
+        ]
+      }
+    ]
+  },
+  {
+    categoria: "Mate de Algarrobo",
+    productos: [
+      {
+        id: "mate-algarrobo-con-virola",
+        nombre: "Mate Algarrobo con Virola",
+        svgBase: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg",
+        superficies: [
+          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg", area: "rectangulo" },
+          { nombre: "Virola", svg: "ASSETS/mockups-medidas/virola-mate-de-algarrobo-con-virola.svg", area: "anillo" }
+        ]
+      },
+      {
+        id: "mate-algarrobo-sin-virola",
+        nombre: "Mate Algarrobo sin Virola",
+        svgBase: "ASSETS/mockups-medidas/mate-algarrobo-sin-virola.svg",
+        superficies: [
+          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-algarrobo-sin-virola.svg", area: "rectangulo" }
+        ]
+      }
+    ]
+  },
+  {
+    categoria: "Medalla Militar",
     productos: [
       {
         id: "medalla-militar-25x45",
@@ -27,7 +86,12 @@ const CATALOGO_FALLBACK = [
           { nombre: "Frente", svg: "ASSETS/mockups-medidas/medalla-militar-29x50.svg", area: "silueta" },
           { nombre: "Dorso", svg: "ASSETS/mockups-medidas/medalla-militar-29x50.svg", area: "silueta" }
         ]
-      },
+      }
+    ]
+  },
+  {
+    categoria: "Medalla Redonda",
+    productos: [
       {
         id: "medalla-redonda-25mm",
         nombre: "Medalla Redonda 25mm",
@@ -35,29 +99,6 @@ const CATALOGO_FALLBACK = [
         superficies: [
           { nombre: "Frente", svg: "ASSETS/mockups-medidas/medalla-redonda-25mm.svg", area: "silueta" },
           { nombre: "Dorso", svg: "ASSETS/mockups-medidas/medalla-redonda-25mm.svg", area: "silueta" }
-        ]
-      }
-    ]
-  },
-  {
-    categoria: "Chapitas",
-    productos: [
-      {
-        id: "chapita-huesito-16x32",
-        nombre: "Chapita Huesito 16x32",
-        svgBase: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg",
-        superficies: [
-          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg", area: "silueta" },
-          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg", area: "silueta" }
-        ]
-      },
-      {
-        id: "chapita-huesito-21x40",
-        nombre: "Chapita Huesito 21x40",
-        svgBase: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg",
-        superficies: [
-          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg", area: "silueta" },
-          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg", area: "silueta" }
         ]
       }
     ]
@@ -84,36 +125,6 @@ const CATALOGO_FALLBACK = [
         ]
       }
     ]
-  },
-  {
-    categoria: "Mates",
-    productos: [
-      {
-        id: "mate-acero",
-        nombre: "Mate Acero",
-        svgBase: "ASSETS/mockups-medidas/mate-acero.svg",
-        superficies: [
-          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-acero.svg", area: "rectangulo" }
-        ]
-      },
-      {
-        id: "mate-algarrobo-sin-virola",
-        nombre: "Mate Algarrobo Sin Virola",
-        svgBase: "ASSETS/mockups-medidas/mate-algarrobo-sin-virola.svg",
-        superficies: [
-          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-algarrobo-sin-virola.svg", area: "rectangulo" }
-        ]
-      },
-      {
-        id: "mate-algarrobo-con-virola",
-        nombre: "Mate Algarrobo Con Virola",
-        svgBase: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg",
-        superficies: [
-          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg", area: "rectangulo" },
-          { nombre: "Virola", svg: "ASSETS/mockups-medidas/virola-mate-de-algarrobo-con-virola.svg", area: "anillo" }
-        ]
-      }
-    ]
   }
 ];
 
@@ -130,14 +141,12 @@ function sanitizeCatalogPaths(catalog) {
   catalog.forEach(category => {
     if (category.productos && Array.isArray(category.productos)) {
       category.productos.forEach(prod => {
-        // Asegurar prefijo ASSETS/ en el mockup base
         if (prod.svgBase && !prod.svgBase.startsWith('ASSETS/')) {
           prod.svgBase = 'ASSETS/' + prod.svgBase;
         }
         if (prod.preview && !prod.preview.startsWith('ASSETS/')) {
           prod.preview = 'ASSETS/' + prod.preview;
         }
-        // Asegurar prefijo ASSETS/ en cada una de sus superficies
         if (prod.superficies && Array.isArray(prod.superficies)) {
           prod.superficies.forEach(surf => {
             if (surf.svg && !surf.svg.startsWith('ASSETS/')) {
@@ -163,7 +172,6 @@ export async function loadDynamicProducts() {
     if (response.ok) {
       const data = await response.json();
       if (data && data.length > 0) {
-        // Sanitizar rutas en caliente
         window.EKKO_STUDIO_PRODUCTS = sanitizeCatalogPaths(data);
         console.log("✅ Catálogo dinámico cargado y sanitizado con éxito desde la API:", window.EKKO_STUDIO_PRODUCTS);
       } else {
