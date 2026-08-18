@@ -11,6 +11,9 @@
   "functions": {
     "api/products.js": {
       "includeFiles": "ASSETS/mockups-medidas/**"
+    },
+    "api/fonts.js": {
+      "includeFiles": "ASSETS/fonts/**"
     }
   }
 }
