@@ -305,20 +305,21 @@
 
     <!-- Espacio de Trabajo Principal -->
     <div id="workspace">
-        <!-- Barra de Herramientas de Carga en el Top -->
-        <div id="topBar">
-            <div class="top-group">
-                <span style="font-weight: bold; font-size: 16px; color: #1e293b;">📐 EKKO Studio</span>
-                <span id="selectionInfo" style="font-size: 12px; color: #64748b; font-weight: 500; margin-left: 12px;">Nada seleccionado</span>
-            </div>
-            
-            <div class="top-group">
-                <button class="btn-action" id="btnAddImage">Cargar Imagen</button>
-                <button class="btn-action" id="btnAddText">Agregar Texto</button>
-                <button class="btn-action" id="btnAddSVG">Cargar SVG</button>
-                <button class="btn-action" id="btnQR">QR</button>
+            <div class="topbar">
+        <div class="brand">
+            <img src="logo.png" class="brand-logo" alt="Logo">
+            <div>
+                <h1>EKKO Studio</h1>
+                <p>Editor de Grabados</p>
             </div>
         </div>
+        <div class="top-actions">
+            <button class="top-btn" id="btnAddImage">Cargar Imagen</button>
+            <button class="top-btn" id="btnAddText">Agregar Texto</button>
+            <button class="top-btn" id="btnAddSVG">Cargar SVG</button>
+            <button class="top-btn" id="btnQR">QR</button>
+        </div>
+    </div>
 
         <!-- Contenedor del Canvas -->
         <div id="canvasContainer">
