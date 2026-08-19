@@ -1,5 +1,6 @@
 /* =========================================================================
    Módulo: ASSETS/js/editor.js
+   Ruta de reemplazo: ASSETS/js/editor.js
    Descripción: Núcleo de la aplicación EKKO Studio basado en Paper.js.
                 Controla la inicialización de la escena, carga de mockups,
                 alineaciones, transformaciones, operaciones de zoom y
@@ -7,10 +8,10 @@
    ========================================================================= */
 
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
-import { loadDynamicProducts } from "./modules/canvas-pro/productsLoader.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
-import { restoreMockupReferences, loadMockup } from "./modules/canvas-pro/mockupLoader.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
+import { loadDynamicProducts } from "./modules/productsLoader.js"; // CORREGIDO: Está en modules/, no en canvas-pro/
+import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js"; // CORREGIDO: Está en modules/, no en canvas-pro/
 import { updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
-import { startTextEditing } from "./modules/canvas-pro/textEditor.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
+import { startTextEditing } from "./modules/textEditor.js"; // CORREGIDO: Está en modules/, no en canvas-pro/
 
 window.addEventListener("DOMContentLoaded", () => {
   // 1. Inicializar Paper.js de forma segura en el lienzo
@@ -124,8 +125,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (ui.objHeight) ui.objHeight.value = "";
       return;
     }
-    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ?
-      window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
     if (displayItem && displayItem.bounds) {
       if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
       if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
@@ -347,11 +347,10 @@ window.addEventListener("DOMContentLoaded", () => {
     FONTS.forEach(font => {
       const item = document.createElement("div");
       item.className = "font-item";
-      item.innerHTML = `Feliz Día Papá ${font.name}`;
+      item.innerHTML = `<span class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</span><div class="font-name">${font.name}</div>`;
       item.onclick = () => {
         if (window.selectedItem) {
-          const target = window.selectedItem.data?.clipGroup ?
-            window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+          const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
           if (target) {
             saveHistory();
             target.fontFamily = font.family;
@@ -430,21 +429,20 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   function renderSurfacesOnly(product) {
-    if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
-    if (!product || !product.superficies || product.superficies.length === 0) return;
-    product.superficies.forEach((surf, index) => {
-      if (ui.surfaceTabs) {
-        const btn = document.createElement("button");
-        btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
-        btn.textContent = surf.nombre;
-        btn.onclick = () => {
-          saveCurrentScene();
-          toolState.currentSurface = index;
-          renderSurfacesOnly(product);
-          loadSurfaceScene(product, surf);
-        };
-        ui.surfaceTabs.appendChild(btn);
-      }
+    if (!ui.surfaceTabs) return;
+    ui.surfaceTabs.innerHTML = "";
+    const surfaces = product.superficies || [];
+    surfaces.forEach((surf, index) => {
+      const btn = document.createElement("button");
+      btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
+      btn.textContent = surf.nombre;
+      btn.onclick = () => {
+        saveCurrentScene();
+        toolState.currentSurface = index;
+        renderSurfaces(product);
+        loadSurfaceScene(product, surf);
+      };
+      ui.surfaceTabs.appendChild(btn);
     });
   }
 
