@@ -7,10 +7,10 @@
    ========================================================================= */
 
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
-import { loadDynamicProducts } from "./modules/canvas-pro/productsloader.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
-import { restoreMockupReferences, loadMockup } from "./modules/canvas-pro/mockuploader.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
+import { loadDynamicProducts } from "./modules/canvas-pro/productsLoader.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
+import { restoreMockupReferences, loadMockup } from "./modules/canvas-pro/mockupLoader.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
 import { updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
-import { startTextEditing } from "./modules/canvas-pro/texteditor.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
+import { startTextEditing } from "./modules/canvas-pro/textEditor.js"; // CORRECCIÓN: Casing minúscula para compatibilidad Vercel (Linux)
 
 window.addEventListener("DOMContentLoaded", () => {
   // 1. Inicializar Paper.js de forma segura en el lienzo
