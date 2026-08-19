@@ -6,6 +6,7 @@
                 alineaciones, transformaciones, operaciones de zoom y
                 sincronización asíncrona de tipografías globales del backend.
    ========================================================================= */
+import "./modules/selection.js"; // REQUERIDO: Cargar manipuladores de selección globales
 
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js"; // CORREGIDO: Está en modules/, no en canvas-pro/
