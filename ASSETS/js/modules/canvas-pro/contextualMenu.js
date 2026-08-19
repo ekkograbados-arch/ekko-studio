@@ -1,10 +1,9 @@
 /* =========================================================================
    Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
-   Descripción: Barra de herramientas flotante de contexto. 
-                Soporta barra arrastrable, desplegable de fuentes personalizado 
-                basado en div con previsualización del texto dinámico en tiempo real, 
-                e inyección dinámica de familias de fuentes.
+   Descripción: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
+   desplegable de fuentes personalizado basado en div con previsualización del
+   texto dinámico en tiempo real, e inyección dinámica de familias de fuentes.
    ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -146,21 +145,14 @@ function injectFontFaces(fonts) {
  */
 function getSelectedTextString() {
   if (!window.selectedItem) return "EKKO Studio";
-  
-  const target = window.selectedItem.data?.clipGroup 
-    ? window.selectedItem.children.find(c => !c.clipMask) 
-    : window.selectedItem;
-    
+  const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
   if (!target) return "EKKO Studio";
-  
   if (target instanceof paper.PointText) {
     return target.content || "EKKO Studio";
   }
-  
   if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
     return target.data.textString || "EKKO Studio";
   }
-  
   return "EKKO Studio";
 }
 
@@ -169,11 +161,8 @@ function getSelectedTextString() {
  */
 function getSelectedFontFamily() {
   if (!window.selectedItem) return "Arial";
-  const target = window.selectedItem.data?.clipGroup 
-    ? window.selectedItem.children.find(c => !c.clipMask) 
-    : window.selectedItem;
+  const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
   if (!target) return "Arial";
-  
   if (target instanceof paper.PointText) {
     return target.fontFamily || "Arial";
   }
@@ -184,11 +173,35 @@ function getSelectedFontFamily() {
 }
 
 /**
+ * Aplica de forma directa o curva la tipografía seleccionada conservando la estructura y el Canvas de Paper.js
+ */
+export function applyFontFamily(item, fontFamily) {
+  if (!item || item.data?.locked) return;
+  let target = item;
+  if (item.data?.clipGroup) {
+    target = item.children.find(c => !c.clipMask);
+  }
+  if (!target) return;
+
+  if (target instanceof paper.PointText) {
+    target.fontFamily = fontFamily;
+    target.data = target.data || {};
+    target.data.fontFamily = fontFamily;
+  } else if (target.data?.isCurvedGroup) {
+    target.data.fontFamily = fontFamily;
+    applyTextCurve(target, target.data.curvature);
+  } else if (target.data?.isSpacedGroup) {
+    target.data.fontFamily = fontFamily;
+    applyTextSpacing(target, target.data.hspace);
+  }
+  paper.view.update();
+}
+
+/**
  * Genera los ítems de fuentes con previsualización dinámica dentro del dropdown personalizado
  */
 function renderCustomFontItems(listContainer, fonts) {
   listContainer.innerHTML = "";
-  
   const previewText = getSelectedTextString();
   const currentFamily = getSelectedFontFamily();
 
@@ -196,40 +209,39 @@ function renderCustomFontItems(listContainer, fonts) {
     const item = document.createElement('div');
     item.className = 'custom-font-item' + (currentFamily === font.family ? ' active' : '');
     
-    item.innerHTML = `
-      <span class="custom-font-preview" style="font-family: '${font.family}'">${previewText}</span>
-      <span class="custom-font-name">${font.name}</span>
-    `;
+    const previewSpan = document.createElement('span');
+    previewSpan.className = 'custom-font-preview';
+    previewSpan.style.fontFamily = `"${font.family}", Arial`;
+    previewSpan.textContent = previewText;
     
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'custom-font-name';
+    nameSpan.textContent = font.name;
+    
+    item.appendChild(previewSpan);
+    item.appendChild(nameSpan);
+    
+    // Al hacer click, aplicar la fuente permanentemente
     item.onclick = (e) => {
       e.stopPropagation();
-      if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup 
-          ? window.selectedItem.children.find(c => !c.clipMask) 
-          : window.selectedItem;
-          
-        if (target) {
-          if (typeof window.saveHistory === 'function') window.saveHistory();
-          
-          target.fontFamily = font.family;
-          
-          // Re-aplicar curvatura o espaciado para asegurar la reconstrucción del texto con la nueva fuente
-          if (target.data?.isCurvedGroup) {
-            applyTextCurve(target, target.data.curvature);
-          } else if (target.data?.isSpacedGroup) {
-            applyTextSpacing(target, target.data.hspace);
-          }
-          
-          window.updateSelectionBox(window.selectedItem);
-          updateContextualMenu(window.selectedItem);
-          paper.view.update();
-        }
-      }
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+      applyFontFamily(window.selectedItem, font.family);
       
-      const triggerLabel = document.getElementById('ctxCurrentFontName');
+      const triggerLabel = document.getElementById('selected-font-name');
       if (triggerLabel) triggerLabel.textContent = font.name;
       
       listContainer.classList.add('hidden');
+      window.originalFontBackup = null; // Confirmar la selección
+    };
+    
+    // Al pasar el cursor, previsualizar de forma temporal
+    item.onmouseenter = () => {
+      if (window.selectedItem) {
+        if (!window.originalFontBackup) {
+          window.originalFontBackup = currentFamily;
+        }
+        applyFontFamily(window.selectedItem, font.family);
+      }
     };
     
     listContainer.appendChild(item);
@@ -267,46 +279,66 @@ async function populateFontDropdowns() {
 
   fonts.sort((a, b) => a.name.localeCompare(b.name));
   fontsCache = fonts; // Guardar en caché del módulo
-  
+
   injectFontFaces(fonts);
 
   const nativeSelect = document.getElementById('ctxFontSelector');
   if (nativeSelect) {
-    const parent = nativeSelect.parentNode;
+    // Esconder el select original
+    nativeSelect.style.display = 'none';
+    nativeSelect.classList.add('hidden');
     
-    const customDropdown = document.createElement('div');
-    customDropdown.className = 'custom-font-dropdown';
-    customDropdown.id = 'ctxCustomFontDropdown';
-    
-    customDropdown.innerHTML = `
-      <div class="selected-font-trigger" id="ctxSelectedFontTrigger">
-        <span id="ctxCurrentFontName">Arial</span>
-        <span class="dropdown-arrow" style="font-size: 8px; margin-left: 8px; color: #777;">▼</span>
-      </div>
-      <div class="font-dropdown-list hidden" id="ctxFontDropdownList"></div>
-    `;
-    
-    parent.replaceChild(customDropdown, nativeSelect);
-    
-    const trigger = customDropdown.querySelector('#ctxSelectedFontTrigger');
-    const list = customDropdown.querySelector('#ctxFontDropdownList');
-    
-    trigger.onclick = (e) => {
-      e.stopPropagation();
+    // Verificar si ya creamos el dropdown personalizado antes
+    let customDropdown = document.getElementById('ekko-custom-font-dropdown');
+    if (!customDropdown) {
+      customDropdown = document.createElement('div');
+      customDropdown.id = 'ekko-custom-font-dropdown';
+      customDropdown.className = 'custom-font-dropdown';
       
-      // Cerrar otros dropdowns si existieran
-      const allLists = document.querySelectorAll('.font-dropdown-list');
-      allLists.forEach(l => {
-        if (l !== list) l.classList.add('hidden');
+      const trigger = document.createElement('div');
+      trigger.className = 'selected-font-trigger';
+      trigger.innerHTML = `<span id="selected-font-name">Seleccionar Fuente</span><span style="font-size: 10px;">▼</span>`;
+      
+      const list = document.createElement('div');
+      list.className = 'font-dropdown-list hidden';
+      
+      customDropdown.appendChild(trigger);
+      customDropdown.appendChild(list);
+      
+      nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
+      
+      trigger.onclick = (e) => {
+        e.stopPropagation();
+        const isHidden = list.classList.contains('hidden');
+        
+        // Cerrar otros dropdowns si los hubiera
+        document.querySelectorAll('.font-dropdown-list').forEach(el => el.classList.add('hidden'));
+        
+        if (isHidden) {
+          list.classList.remove('hidden');
+          renderCustomFontItems(list, fontsCache);
+        } else {
+          list.classList.add('hidden');
+        }
+      };
+      
+      // Cerrar al hacer clic fuera del dropdown
+      document.addEventListener('click', () => {
+        list.classList.add('hidden');
+        if (window.originalFontBackup && window.selectedItem) {
+          applyFontFamily(window.selectedItem, window.originalFontBackup);
+          window.originalFontBackup = null;
+        }
       });
       
-      renderCustomFontItems(list, fontsCache);
-      list.classList.toggle('hidden');
-    };
-    
-    document.addEventListener('click', () => {
-      list.classList.add('hidden');
-    });
+      customDropdown.onmouseleave = () => {
+        if (window.originalFontBackup && window.selectedItem) {
+          applyFontFamily(window.selectedItem, window.originalFontBackup);
+          window.originalFontBackup = null;
+          renderCustomFontItems(list, fontsCache);
+        }
+      };
+    }
   }
 
   const sidebarGallery = document.getElementById("fontGallery");
@@ -321,7 +353,7 @@ async function populateFontDropdowns() {
 function makeToolbarDraggable() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-  
+
   // Agregar cursor de movimiento sólo cuando no esté sobre controles interactivos
   toolbar.addEventListener('mouseover', (e) => {
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
@@ -330,10 +362,10 @@ function makeToolbarDraggable() {
       toolbar.style.cursor = 'move';
     }
   });
-  
+
   let isDraggingToolbar = false;
   let startX = 0, startY = 0;
-  
+
   toolbar.addEventListener('mousedown', (e) => {
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
       return;
@@ -343,22 +375,16 @@ function makeToolbarDraggable() {
     startY = e.clientY - toolbar.offsetTop;
     e.preventDefault();
   });
-  
+
   document.addEventListener('mousemove', (e) => {
     if (!isDraggingToolbar) return;
     const newLeft = e.clientX - startX;
     const newTop = e.clientY - startY;
-    
-    // Restringir a los bordes del lienzo
-    const maxLeft = window.innerWidth - toolbar.offsetWidth - 10;
-    const maxTop = window.innerHeight - toolbar.offsetHeight - 10;
-    
-    toolbar.style.left = `${Math.max(10, Math.min(newLeft, maxLeft))}px`;
-    toolbar.style.top = `${Math.max(10, Math.min(newTop, maxTop))}px`;
-    
-    toolbarDragged = true; // Recordar que el usuario la movió manualmente
+    toolbar.style.left = newLeft + 'px';
+    toolbar.style.top = newTop + 'px';
+    toolbarDragged = true;
   });
-  
+
   document.addEventListener('mouseup', () => {
     isDraggingToolbar = false;
   });
@@ -407,15 +433,15 @@ export function initContextualMenu() {
   setClick('btnCtxBold', () => {
     if (window.selectedItem) toggleBold(window.selectedItem);
   });
-  
+
   setClick('btnCtxItalic', () => {
     if (window.selectedItem) toggleItalic(window.selectedItem);
   });
-  
+
   setClick('btnCtxUnderline', () => {
     if (window.selectedItem) toggleUnderline(window.selectedItem);
   });
-  
+
   setClick('btnCtxWeld', () => {
     if (window.selectedItem) weldText(window.selectedItem);
   });
@@ -466,9 +492,13 @@ export function initContextualMenu() {
   });
 
   // --- ACCIONES DE ESCALADO INTERACTIVO ---
-  const bindScaleDown = () => { if (window.selectedItem) scaleImage(window.selectedItem, 0.9); };
-  const bindScaleUp = () => { if (window.selectedItem) scaleImage(window.selectedItem, 1.1); };
-  
+  const bindScaleDown = () => {
+    if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
+  };
+  const bindScaleUp = () => {
+    if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
+  };
+
   setClick('btnCtxAchicar', bindScaleDown);
   setClick('btnCtxScaleDown', bindScaleDown);
   setClick('btnCtxShrink', bindScaleDown);
@@ -506,7 +536,7 @@ export function updateContextualMenu(item) {
     lastSelectedItem = null;
     return;
   }
-  
+
   toolbar.classList.add('active');
 
   const hideSubgroup = (id) => {
@@ -527,24 +557,35 @@ export function updateContextualMenu(item) {
   if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
     const textControls = document.getElementById('ctxTextControls');
     if (textControls) textControls.classList.remove('hidden');
-    
+
+    // Actualizar el valor actual de los sliders de texto si corresponde
     const curveSlider = document.getElementById('ctxTextCurve');
-    if (curveSlider) curveSlider.value = target.data?.curvature || 0;
-    
+    if (curveSlider) {
+      curveSlider.value = target.data?.curvature || 0;
+    }
     const hspaceSlider = document.getElementById('ctxTextHSpace');
-    if (hspaceSlider) hspaceSlider.value = target.data?.hspace || 0;
-    
-    // Sincronizar etiqueta de la fuente actual
-    const activeFamily = getSelectedFontFamily();
-    const activeFontName = fontsCache.find(f => f.family === activeFamily)?.name || "Arial";
-    const triggerLabel = document.getElementById('ctxCurrentFontName');
-    if (triggerLabel) triggerLabel.textContent = activeFontName;
-    
+    if (hspaceSlider) {
+      hspaceSlider.value = target.data?.hspace || 0;
+    }
+
+    // Actualizar previsualización live del trigger con la fuente actual
+    const currentFamily = getSelectedFontFamily();
+    const matchedFont = fontsCache.find(f => f.family === currentFamily);
+    const triggerLabel = document.getElementById('selected-font-name');
+    if (triggerLabel) {
+      triggerLabel.textContent = matchedFont ? matchedFont.name : currentFamily;
+    }
+
   } else if (target instanceof paper.Raster) {
     const imageControls = document.getElementById('ctxImageControls');
     if (imageControls) {
       imageControls.classList.remove('hidden');
     }
+    const briSlider = document.getElementById('ctxBrightness');
+    if (briSlider) briSlider.value = target.data?.brightness || 0;
+    const conSlider = document.getElementById('ctxContrast');
+    if (conSlider) conSlider.value = target.data?.contrast || 0;
+
   } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
     const vectorControls = document.getElementById('ctxVectorControls');
     if (vectorControls) vectorControls.classList.remove('hidden');
@@ -555,24 +596,23 @@ export function updateContextualMenu(item) {
     const bounds = item.bounds;
     if (!bounds) return;
 
-    const viewPoint = paper.view.projectToView(bounds.topCenter);
-    const toolbarWidth = toolbar.offsetWidth || 350;
-    const toolbarHeight = toolbar.offsetHeight || 45;
+    const rect = paper.view.element.getBoundingClientRect();
+    const menuWidth = toolbar.offsetWidth || 340;
+    const menuHeight = toolbar.offsetHeight || 60;
 
-    const posX = viewPoint.x - (toolbarWidth / 2);
-    const posY = viewPoint.y - toolbarHeight - 20;
+    const viewPos = paper.view.projectToView(bounds.topCenter);
+    let top = rect.top + viewPos.y - menuHeight - 15;
+    let left = rect.left + viewPos.x - (menuWidth / 2);
 
-    const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
-    const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
+    // Margen de seguridad superior e izquierdo
+    if (top < rect.top) top = rect.top + viewPos.y + (bounds.height * paper.view.zoom) + 15;
+    if (left < rect.left) left = rect.left + 10;
+    if (left + menuWidth > rect.right) left = rect.right - menuWidth - 10;
 
-    toolbar.style.left = `${Math.max(10, Math.min(posX, maxLeft))}px`;
-    toolbar.style.top = `${Math.max(10, Math.min(posY, maxTop))}px`;
-    
-    if (lastSelectedItem !== item) {
-      toolbarDragged = false; // Resetear estado de arrastre para nueva selección
-    }
+    toolbar.style.top = top + "px";
+    toolbar.style.left = left + "px";
   }
-  
+
   lastSelectedItem = item;
 }
 
