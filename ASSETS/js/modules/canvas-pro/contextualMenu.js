@@ -13,7 +13,7 @@ import {
   applyTextCurve, 
   applyTextSpacing,
   loadDynamicFonts 
-} from "/js/modules/canvas-pro/textToolbar.js";
+} from "/ASSETS/js/modules/canvas-pro/textToolbar.js";
 
 import {
   scaleImage,
@@ -21,7 +21,7 @@ import {
   deleteImage,
   bringImageForward,
   sendImageBackward
-} from "/js/modules/canvas-pro/selection.js";
+} from "/ASSETS/js/modules/canvas-pro/selection.js";
 
 // Variable global de previsualización en window
 window.originalFontBackup = null;
