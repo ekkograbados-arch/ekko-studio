@@ -21,7 +21,7 @@ import {
   deleteImage, 
   bringImageForward, 
   sendImageBackward 
-} from "../selection.js"; // CORREGIDO: Está en modules/, no en modules/canvas-pro/
+} from "./imageToolbar.js";
 
 // Variable global de previsualización en window
 window.originalFontBackup = null;
