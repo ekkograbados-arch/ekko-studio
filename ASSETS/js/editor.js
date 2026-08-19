@@ -2,17 +2,17 @@
    Módulo: ASSETS/js/editor.js
    Ruta de reemplazo: ASSETS/js/editor.js
    Descripción: Núcleo de la aplicación EKKO Studio basado en Paper.js.
-                Controla la inicialización de la escena, carga de mockups,
-                alineaciones, transformaciones, operaciones de zoom y
-                sincronización asíncrona de tipografías globales del backend.
+   Controla la inicialización de la escena, carga de mockups, alineaciones,
+   transformaciones, operaciones de zoom y sincronización asíncrona de
+   tipografías globales del backend.
    ========================================================================= */
 
 import "./modules/selection.js"; // REQUERIDO: Cargar manipuladores de selección globales
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
-import { loadDynamicProducts } from "./modules/productsLoader.js"; 
-import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js"; 
-import { updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
-import { startTextEditing } from "./modules/textEditor.js"; 
+import { loadDynamicProducts } from "./modules/productsLoader.js";
+import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
+import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
+import { startTextEditing } from "./modules/textEditor.js";
 
 window.addEventListener("DOMContentLoaded", () => {
   // 1. Inicializar Paper.js de forma segura en el lienzo
@@ -118,14 +118,12 @@ window.addEventListener("DOMContentLoaded", () => {
       if (ui.objHeight) ui.objHeight.value = "";
       return;
     }
-    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) 
-      ? window.selectedItem.children.find(c => !c.clipMask) 
-      : window.selectedItem;
-      
-    if (displayItem && displayItem.bounds) {
-      if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
-      if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
-      if (ui.selectionInfo) ui.selectionInfo.textContent = window.selectedItem.data?.label || "Objeto";
+    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ?
+      window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+    if (displayItem && ui.selectionInfo) {
+      ui.selectionInfo.textContent = displayItem.data?.label || "Objeto";
+      if (ui.objWidth) ui.objWidth.value = Math.round(displayItem.bounds.width);
+      if (ui.objHeight) ui.objHeight.value = Math.round(displayItem.bounds.height);
     }
   }
 
@@ -400,6 +398,12 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // --- REGISTRO DE EVENTOS SEGUROS ---
+  const safeAddListener = (id, event, fn) => {
+    const el = typeof id === "string" ? document.getElementById(id) : id;
+    if (el) el.addEventListener(event, fn);
+  };
+
   function renderSurfaces(product) {
     renderSurfacesOnly(product);
   }
@@ -436,12 +440,7 @@ window.addEventListener("DOMContentLoaded", () => {
     startTextEditing(txt);
   }
 
-  // --- REGISTRO DE EVENTOS SEGUROS ---
-  const safeAddListener = (id, event, fn) => {
-    const el = typeof id === "string" ? document.getElementById(id) : id;
-    if (el) el.addEventListener(event, fn);
-  };
-
+  // Botón Agregar Texto
   safeAddListener("btnAddText", "click", activateTextMode);
 
   // Ocultar galería obsoleta si el elemento existe en el HTML
@@ -450,6 +449,21 @@ window.addEventListener("DOMContentLoaded", () => {
     obsoleteGallery.classList.add("hidden");
     obsoleteGallery.style.display = "none";
   }
+
+  // --- REGISTRO DE EVENTO DE CLIC EN EL LIENZO PARA INSERTAR TEXTO ---
+  // Se usa paper.view.on("mousedown") para no crear un nuevo paper.Tool y conservar el de selection.js
+  if (paper.view) {
+    paper.view.on("mousedown", (event) => {
+      if (window.insertTextMode) {
+        createEditableText(event.point);
+        window.insertTextMode = false;
+        paper.view.element.style.cursor = "default";
+      }
+    });
+  }
+
+  // Inicializar Menú Contextual Arrastrable y Custom Dropdowns
+  initContextualMenu();
 
   // --- CORRECCIÓN APLICADA: Carga de tipografías dinámicas globales para sincronización de head ---
   loadDynamicFonts().then(loadedFonts => {
@@ -471,3 +485,4 @@ window.addEventListener("DOMContentLoaded", () => {
     renderCategories();
   }
 });
+
