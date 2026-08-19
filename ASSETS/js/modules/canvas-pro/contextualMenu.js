@@ -1,5 +1,6 @@
 /* =========================================================================
-   Módulo: js/modules/canvas-pro/contextualMenu.js
+   Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js
+   Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
    Descripción: Barra de herramientas flotante de contexto. Soporta alineación de
                 fuentes redundantes dinámicas y mapeos retrocompatibles.
    ========================================================================= */
@@ -10,35 +11,35 @@ import {
   toggleUnderline, 
   weldText, 
   applyTextCurve, 
-  applyTextSpacing,
+  applyTextSpacing, 
   loadDynamicFonts 
 } from "./textToolbar.js";
 
-import {
-  scaleImage,
-  duplicateImage,
-  deleteImage,
-  bringImageForward,
-  sendImageBackward
-} from "./selection.js";
+import { 
+  scaleImage, 
+  duplicateImage, 
+  deleteImage, 
+  bringImageForward, 
+  sendImageBackward 
+} from "../selection.js"; // CORREGIDO: Está en modules/, no en modules/canvas-pro/
 
 // Variable global de previsualización en window
 window.originalFontBackup = null;
 
 // Diccionario duplicado local para inyección de estilos css dinámica
-const LEGACY_FONT_ALIASES = {
-  "billiejames": ["ekko_billie", "ekko_billiejames_regular"],
-  "romantic": ["ekko_romantic", "ekko_romantic_sunrise"],
-  "farmhouse": ["ekko_farmhouse"],
-  "chocolate": ["ekko_chocolate"],
-  "waltograph": ["ekko_disney", "ekko_waltograph", "ekko_waltograph42"],
-  "simpson": ["ekko_simpson", "ekko_simpsonfont_demo"],
-  "milk": ["ekko_milk", "ekko_milk_water"],
-  "simplehandmade": ["ekko_simple"],
-  "studynight": ["ekko_studynight"],
-  "studyperson": ["ekko_studyperson"],
-  "nostalgic": ["ekko_nostalgic"],
-  "please writ": ["ekko_song"]
+const LEGACY_FONT_ALIASES = { 
+  "billiejames": ["ekko_billie", "ekko_billiejames_regular"], 
+  "romantic": ["ekko_romantic", "ekko_romantic_sunrise"], 
+  "farmhouse": ["ekko_farmhouse"], 
+  "chocolate": ["ekko_chocolate"], 
+  "waltograph": ["ekko_disney", "ekko_waltograph", "ekko_waltograph42"], 
+  "simpson": ["ekko_simpson", "ekko_simpsonfont_demo"], 
+  "milk": ["ekko_milk", "ekko_milk_water"], 
+  "simplehandmade": ["ekko_simple"], 
+  "studynight": ["ekko_studynight"], 
+  "studyperson": ["ekko_studyperson"], 
+  "nostalgic": ["ekko_nostalgic"], 
+  "please writ": ["ekko_song"] 
 };
 
 // --- REMOVE OVERLAP TAB (EVITAR SUPERPOSICION) ---
@@ -121,7 +122,7 @@ async function populateFontDropdowns() {
   } catch (err) {
     console.error("Error al cargar las tipografías dinámicas en el menú contextual:", err);
   }
-  
+
   // Resguardo defensivo estático
   if (!fonts || fonts.length === 0) {
     fonts = [
@@ -132,19 +133,18 @@ async function populateFontDropdowns() {
       { name: "Disney", family: "ekko_disney", file: "waltograph42.woff2" }
     ];
   }
-  
+
   fonts.sort((a, b) => a.name.localeCompare(b.name));
   injectFontFaces(fonts);
-  
+
   const dropdowns = [
     document.getElementById('ctxFontSelector'),
     document.getElementById('fontSelector')
   ];
-  
+
   dropdowns.forEach(dropdown => {
     if (!dropdown) return;
     dropdown.innerHTML = "";
-    
     fonts.forEach(font => {
       const opt = document.createElement("option");
       opt.value = font.family;
@@ -153,7 +153,7 @@ async function populateFontDropdowns() {
       dropdown.appendChild(opt);
     });
   });
-  
+
   const sidebarGallery = document.getElementById("fontGallery");
   if (sidebarGallery) {
     sidebarGallery.classList.add("hidden");
@@ -163,15 +163,15 @@ async function populateFontDropdowns() {
 export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-  
+
   removeOverlapTab();
   populateFontDropdowns();
-  
+
   const setClick = (id, fn) => {
     const el = document.getElementById(id);
     if (el) el.onclick = fn;
   };
-  
+
   // --- 1. ACCIONES GENERALES ---
   setClick('btnCtxDelete', () => {
     if (window.selectedItem) {
@@ -179,25 +179,25 @@ export function initContextualMenu() {
       hideContextualMenu();
     }
   });
-  
+
   setClick('btnCtxDuplicate', () => {
     if (window.selectedItem) {
       duplicateImage(window.selectedItem);
     }
   });
-  
+
   setClick('btnCtxForward', () => {
     if (window.selectedItem) {
       bringImageForward(window.selectedItem);
     }
   });
-  
+
   setClick('btnCtxBackward', () => {
     if (window.selectedItem) {
       sendImageBackward(window.selectedItem);
     }
   });
-  
+
   // --- 2. ACCIONES DE TEXTO AVANZADAS ---
   const fontSelector = document.getElementById('ctxFontSelector');
   if (fontSelector) {
@@ -213,12 +213,12 @@ export function initContextualMenu() {
       }
     };
   }
-  
+
   setClick('btnCtxBold', () => { if (window.selectedItem) toggleBold(window.selectedItem); });
   setClick('btnCtxItalic', () => { if (window.selectedItem) toggleItalic(window.selectedItem); });
   setClick('btnCtxUnderline', () => { if (window.selectedItem) toggleUnderline(window.selectedItem); });
   setClick('btnCtxWeld', () => { if (window.selectedItem) weldText(window.selectedItem); });
-  
+
   // Control Deslizante de Curvatura de Texto
   const curveSlider = document.getElementById('ctxTextCurve');
   if (curveSlider) {
@@ -229,7 +229,7 @@ export function initContextualMenu() {
       }
     };
   }
-  
+
   // Control Deslizante de Espaciado de Caracteres
   const hspaceSlider = document.getElementById('ctxTextHSpace');
   if (hspaceSlider) {
@@ -240,7 +240,7 @@ export function initContextualMenu() {
       }
     };
   }
-  
+
   // --- 3. ACCIONES DE IMAGEN ---
   setClick('btnCtxFlipH', () => {
     if (window.selectedItem) {
@@ -252,7 +252,7 @@ export function initContextualMenu() {
       }
     }
   });
-  
+
   setClick('btnCtxFlipV', () => {
     if (window.selectedItem) {
       const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
@@ -263,7 +263,7 @@ export function initContextualMenu() {
       }
     }
   });
-  
+
   // --- ACCIONES DE ESCALADO INTERACTIVO ---
   const bindScaleDown = () => { if (window.selectedItem) scaleImage(window.selectedItem, 0.9); };
   const bindScaleUp = () => { if (window.selectedItem) scaleImage(window.selectedItem, 1.1); };
@@ -273,7 +273,7 @@ export function initContextualMenu() {
   setClick('btnCtxAgrandar', bindScaleUp);
   setClick('btnCtxScaleUp', bindScaleUp);
   setClick('btnCtxGrow', bindScaleUp);
-  
+
   // Sliders de brillo y contraste
   const briSlider = document.getElementById('ctxBrightness');
   const conSlider = document.getElementById('ctxContrast');
@@ -295,30 +295,30 @@ export function initContextualMenu() {
 export function updateContextualMenu(item) {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-  
+
   removeOverlapTab();
-  
+
   if (!item || (item.data && item.data.mockup)) {
     toolbar.classList.remove('active');
     return;
   }
   toolbar.classList.add('active');
-  
+
   const hideSubgroup = (id) => {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   };
-  
+
   hideSubgroup('ctxTextControls');
   hideSubgroup('ctxImageControls');
   hideSubgroup('ctxVectorControls');
-  
+
   const btnTrace = document.getElementById('btnCtxTrace');
   if (btnTrace) btnTrace.style.display = 'none';
-  
+
   const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
   if (!target) return;
-  
+
   if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
     const textControls = document.getElementById('ctxTextControls');
     if (textControls) textControls.classList.remove('hidden');
@@ -335,20 +335,20 @@ export function updateContextualMenu(item) {
     const vectorControls = document.getElementById('ctxVectorControls');
     if (vectorControls) vectorControls.classList.remove('hidden');
   }
-  
+
   const bounds = item.bounds;
   if (!bounds) return;
-  
+
   const viewPoint = paper.view.projectToView(bounds.topCenter);
   const toolbarWidth = toolbar.offsetWidth || 350;
   const toolbarHeight = toolbar.offsetHeight || 45;
-  
+
   const posX = viewPoint.x - (toolbarWidth / 2);
   const posY = viewPoint.y - toolbarHeight - 20;
-  
+
   const maxLeft = paper.view.element.clientWidth - toolbarWidth - 10;
   const maxTop = paper.view.element.clientHeight - toolbarHeight - 10;
-  
+
   toolbar.style.left = `${Math.max(10, Math.min(posX, maxLeft))}px`;
   toolbar.style.top = `${Math.max(10, Math.min(posY, maxTop))}px`;
 }
