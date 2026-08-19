@@ -7,11 +7,11 @@
                 sincronización asíncrona de tipografías globales del backend.
    ========================================================================= */
 
-import { loadDynamicFonts } from "/js/modules/canvas-pro/textToolbar.js";
-import { loadDynamicProducts } from "/js/modules/canvas-pro/productsLoader.js";
-import { restoreMockupReferences, loadMockup } from "/js/modules/canvas-pro/mockupLoader.js";
-import { updateContextualMenu, hideContextualMenu } from "/js/modules/canvas-pro/contextualMenu.js";
-import { startTextEditing } from "/js/modules/canvas-pro/textEditor.js";
+import { loadDynamicFonts } from "/ASSETS/js/modules/canvas-pro/textToolbar.js";
+import { loadDynamicProducts } from "/ASSETS/js/modules/canvas-pro/productsLoader.js";
+import { restoreMockupReferences, loadMockup } from "/ASSETS/js/modules/canvas-pro/mockupLoader.js";
+import { updateContextualMenu, hideContextualMenu } from "/ASSETS/js/modules/canvas-pro/contextualMenu.js";
+import { startTextEditing } from "/ASSETS/js/modules/canvas-pro/textEditor.js";
 
 window.addEventListener("DOMContentLoaded", () => {
   // 1. Inicializar Paper.js de forma segura en el lienzo
@@ -832,7 +832,7 @@ window.addEventListener("DOMContentLoaded", () => {
         if (textChild && (textChild instanceof paper.PointText || textChild.data?.isCurvedGroup || textChild.data?.isSpacedGroup)) {
           let editableText = textChild;
           if (textChild.data?.isCurvedGroup || textChild.data?.isSpacedGroup) {
-            import("/js/modules/canvas-pro/textToolbar.js").then(module => {
+            import("/ASSETS/js/modules/canvas-pro/textToolbar.js").then(module => {
               editableText = module.restoreFlatText(selectItem, textChild);
               startTextEditing(editableText);
             });
@@ -871,7 +871,7 @@ window.addEventListener("DOMContentLoaded", () => {
       const factor = 0.5;
       const newCurvature = Math.max(-100, Math.min(100, window.curveInitialCurvature + (deltaY * factor)));
       const parentItem = window.curveTarget;
-      import("/js/modules/canvas-pro/textToolbar.js").then(module => {
+      import("/ASSETS/js/modules/canvas-pro/textToolbar.js").then(module => {
         module.applyTextCurve(parentItem, newCurvature);
       });
       return;
