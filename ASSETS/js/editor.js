@@ -1,8 +1,17 @@
-import "./modules/selection.js"; // Importamos la selección con tirador de rotación
-import { startTextEditing } from "./modules/textEditor.js";
-import { loadMockup, restoreMockupReferences } from "./modules/mockupLoader.js";
-import { initContextualMenu, updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
-import { loadDynamicProducts } from "./modules/productsLoader.js";
+/* =========================================================================
+   Módulo: js/editor.js
+   Ruta de reemplazo: js/editor.js
+   Descripción: Núcleo de la aplicación EKKO Studio basado en Paper.js.
+                Controla la inicialización de la escena, carga de mockups,
+                alineaciones, transformaciones, operaciones de zoom y
+                sincronización asíncrona de tipografías globales del backend.
+   ========================================================================= */
+
+import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
+import { loadDynamicProducts } from "./modules/canvas-pro/productsLoader.js";
+import { restoreMockupReferences, loadMockup } from "./modules/canvas-pro/mockupLoader.js";
+import { updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
+import { startTextEditing } from "./modules/canvas-pro/textEditor.js";
 
 window.addEventListener("DOMContentLoaded", () => {
   // 1. Inicializar Paper.js de forma segura en el lienzo
@@ -24,6 +33,7 @@ window.addEventListener("DOMContentLoaded", () => {
   let lastSizeField = "width";
   let clipboardItem = null;
 
+  // Catálogo estático heredado
   const FONTS = [
     { name: "Billie James", family: "ekko_billie" },
     { name: "Romantic Sunrise", family: "ekko_romantic" },
@@ -63,6 +73,26 @@ window.addEventListener("DOMContentLoaded", () => {
     fontSelector: document.getElementById("fontSelector"),
     btnApplyFont: document.getElementById("btnApplyFont")
   };
+
+  // --- CORRECCIÓN APLICADA: Sincronización dinámica de tipografías globales ---
+  loadDynamicFonts().then(loadedFonts => {
+    if (loadedFonts && loadedFonts.length > 0) {
+      console.log("🔄 Sincronizando catálogo de fuentes estáticas en editor.js...");
+      FONTS.length = 0; // Limpiar array estático heredado
+      loadedFonts.forEach(f => {
+        FONTS.push({ name: f.name, family: f.family });
+      });
+      // Volver a renderizar la galería estática del editor si el elemento existe en el DOM
+      if (typeof renderFontGallery === "function") {
+        renderFontGallery();
+      }
+    }
+  }).catch(err => {
+    console.warn("Fallo no crítico al sincronizar fuentes en editor.js (usando fallback estático):", err);
+    if (typeof renderFontGallery === "function") {
+      renderFontGallery();
+    }
+  });
 
   function getSceneKey(product, surface) {
     if (!product || !surface) return "default_scene";
@@ -115,8 +145,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (ui.objHeight) ui.objHeight.value = "";
       return;
     }
-    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ?
-      window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
     if (displayItem && displayItem.bounds) {
       if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
       if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
@@ -268,8 +297,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
   function applySelectedSize() {
     if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
-    const targetItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ?
-      window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+    const targetItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
     if (!targetItem) return;
     const currentW = targetItem.bounds.width;
     const currentH = targetItem.bounds.height;
@@ -503,7 +531,14 @@ window.addEventListener("DOMContentLoaded", () => {
       if (typeof QRCode !== "undefined") {
         try {
           const tempDiv = document.createElement("div");
-          const qr = new QRCode(tempDiv, { text: text, width: 512, height: 512, colorDark: "#000000", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.L });
+          const qr = new QRCode(tempDiv, {
+            text: text,
+            width: 512,
+            height: 512,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.L
+          });
           setTimeout(() => {
             const qrCanvas = tempDiv.querySelector("canvas");
             if (qrCanvas) {
@@ -523,8 +558,12 @@ window.addEventListener("DOMContentLoaded", () => {
       } else {
         const script = document.createElement("script");
         script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
-        script.onload = () => { generateRealQR(); };
-        script.onerror = () => { fallbackToGoogleChart(text); };
+        script.onload = () => {
+          generateRealQR();
+        };
+        script.onerror = () => {
+          fallbackToGoogleChart(text);
+        };
         document.head.appendChild(script);
       }
     };
@@ -560,13 +599,26 @@ window.addEventListener("DOMContentLoaded", () => {
   // --- ENLACE SEGURO DE FUENTES ---
   function applySelectedFont() {
     if (!window.selectedItem) return;
-    if (!(window.selectedItem instanceof paper.PointText)) {
+    const target = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+    if (!target) return;
+    
+    if (!(target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup)) {
       alert("Seleccione un texto");
       return;
     }
     const font = ui.fontSelector ? ui.fontSelector.value : "Arial";
     saveHistory();
-    window.selectedItem.fontFamily = font;
+    
+    if (target instanceof paper.PointText) {
+      target.fontFamily = font;
+    } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+      target.data.fontFamily = font;
+      target.children.forEach(child => {
+        if (child instanceof paper.PointText) {
+          child.fontFamily = font;
+        }
+      });
+    }
     window.updateSelectionBox(window.selectedItem);
     if (typeof updateContextualMenu === "function") {
       updateContextualMenu(window.selectedItem);
@@ -581,14 +633,22 @@ window.addEventListener("DOMContentLoaded", () => {
     FONTS.forEach(font => {
       const item = document.createElement("div");
       item.className = "font-item";
-      item.innerHTML = `Feliz Día Papá ${font.name}`;
+      item.innerHTML = `Feliz Día Papá <span class="font-name" style="font-family: '${font.family}'">${font.name}</span>`;
       item.onclick = () => {
         if (window.selectedItem) {
-          const target = window.selectedItem.data?.clipGroup ?
-            window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+          const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
           if (target) {
             saveHistory();
-            target.fontFamily = font.family;
+            if (target instanceof paper.PointText) {
+              target.fontFamily = font.family;
+            } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+              target.data.fontFamily = font.family;
+              target.children.forEach(child => {
+                if (child instanceof paper.PointText) {
+                  child.fontFamily = font.family;
+                }
+              });
+            }
             window.updateSelectionBox(window.selectedItem);
             if (typeof updateContextualMenu === "function") {
               updateContextualMenu(window.selectedItem);
@@ -701,7 +761,14 @@ window.addEventListener("DOMContentLoaded", () => {
         targetPoint = mockupBounds.center.clone();
       }
     }
-    const txt = new paper.PointText({ point: targetPoint, content: "Texto", fontSize: 42, fillColor: new paper.Color(0), justification: "center", fontFamily: "Arial" });
+    const txt = new paper.PointText({
+      point: targetPoint,
+      content: "Texto",
+      fontSize: 42,
+      fillColor: new paper.Color(0),
+      justification: "center",
+      fontFamily: "Arial"
+    });
     txt.data = { locked: false, label: "Texto" };
     paper.project.activeLayer.addChild(txt);
     const clipped = window.clipItem(txt);
@@ -712,9 +779,6 @@ window.addEventListener("DOMContentLoaded", () => {
     startTextEditing(txt);
   }
 
-  // ========================================================
-  // --- MANEJO DE HERRAMIENTA DE RATÓN Y TECLADO ---
-  // ========================================================
   if (typeof window.getOppositePoint !== 'function') {
     window.getOppositePoint = function(bounds, handleType) {
       switch (handleType) {
@@ -745,100 +809,66 @@ window.addEventListener("DOMContentLoaded", () => {
     const isDoubleClick = (currentTime - lastClickTime) < 300;
     lastClickTime = currentTime;
 
-    // 1. Detectar si el usuario hace clic sobre el tirador azul de doblado de LightBurn (Curvatura)
-    if (window.selectedItem) {
-      const target = window.selectedItem.data?.clipGroup ?
-        window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-      if (target && target instanceof paper.Group) {
-        const hitHandle = target.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 });
-        if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isCurveHandle) {
-          window.draggingCurveHandle = true;
-          window.curveTarget = target;
-          window.curveInitialPoint = event.point.clone();
-          window.curveInitialCurvature = target.data.curvature || 0;
-          if (typeof hideContextualMenu === "function") hideContextualMenu();
+    const hitResult = paper.project.hitTest(event.point, {
+      segments: true,
+      stroke: true,
+      fill: true,
+      tolerance: 5 / paper.view.zoom
+    });
+
+    // Manejo de tirador de curvatura de texto (tirador azul celeste)
+    if (hitResult && hitResult.item && hitResult.item.data && hitResult.item.data.isCurveHandle) {
+      window.draggingCurveHandle = true;
+      window.curveTarget = hitResult.item.parent;
+      window.curveInitialPoint = event.point.clone();
+      window.curveInitialCurvature = window.curveTarget.data?.curvature || 0;
+      return;
+    }
+
+    if (isDoubleClick) {
+      const selectItem = window.getSelectableItem(hitResult ? hitResult.item : null);
+      if (selectItem) {
+        const textChild = selectItem.data?.clipGroup ? selectItem.children.find(c => c instanceof paper.PointText || c.data?.isCurvedGroup || c.data?.isSpacedGroup) : selectItem;
+        if (textChild && (textChild instanceof paper.PointText || textChild.data?.isCurvedGroup || textChild.data?.isSpacedGroup)) {
+          let editableText = textChild;
+          if (textChild.data?.isCurvedGroup || textChild.data?.isSpacedGroup) {
+            import("./modules/canvas-pro/textToolbar.js").then(module => {
+              editableText = module.restoreFlatText(selectItem, textChild);
+              startTextEditing(editableText);
+            });
+          } else {
+            startTextEditing(editableText);
+          }
           return;
         }
       }
     }
 
-    if (window.selectionBoxGroup) {
-      const hitHandle = window.selectionBoxGroup.hitTest(event.point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom });
-      if (hitHandle && hitHandle.item && hitHandle.item.data && hitHandle.item.data.isHandle) {
-        window.resizeActive = true;
-        window.resizeHandleType = hitHandle.item.data.handleType;
-        window.resizeTarget = window.selectedItem;
-        const displayItem = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-        window.resizeInitialBounds = displayItem.bounds.clone();
-        window.resizeInitialPoint = event.point.clone();
-        window.resizeLastScaleX = 1.0;
-        window.resizeLastScaleY = 1.0;
-        window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
-        window.dragging = false;
-        if (typeof hideContextualMenu === "function") {
-          hideContextualMenu();
-        }
+    if (hitResult) {
+      const item = window.getSelectableItem(hitResult.item);
+      if (item) {
+        window.selectItem(item);
+        window.dragging = true;
+        window.dragOffset = event.point.subtract(item.position);
         return;
       }
+    }
+
+    if (!hitResult && !insertTextMode) {
+      window.deselectItem();
     }
 
     if (insertTextMode) {
       createEditableText(event.point);
       insertTextMode = false;
       paper.view.element.style.cursor = "default";
-      return;
-    }
-
-    const hit = paper.project.hitTest(event.point, {
-      fill: true,
-      stroke: true,
-      segments: true,
-      tolerance: 8,
-      match: function(hitResult) {
-        return !hitResult.item.data || !hitResult.item.data.mockup;
-      }
-    });
-
-    if (hit && hit.item) {
-      const selectable = window.getSelectableItem(hit.item);
-      if (selectable) {
-        if (isLockedItem(selectable)) {
-          window.selectItem(selectable);
-          window.dragging = false;
-          return;
-        }
-        // DOBLE CLIC PARA EDITAR TEXTOS (Estilo LightBurn)
-        if (isDoubleClick) {
-          const textItem = selectable.data?.clipGroup ?
-            selectable.children.find(c => !c.clipMask) : selectable;
-          if (textItem instanceof paper.PointText) {
-            window.dragging = false;
-            startTextEditing(textItem);
-            return;
-          }
-        }
-        window.selectItem(selectable);
-        window.dragging = true;
-        if (selectable.data && selectable.data.clipGroup) {
-          const content = selectable.children.find(c => !c.clipMask);
-          window.dragOffset = event.point.subtract(content ? content.position : selectable.position);
-        } else {
-          window.dragOffset = event.point.subtract(selectable.position);
-        }
-        if (typeof hideContextualMenu === "function") {
-          hideContextualMenu();
-        }
-      }
-    } else {
-      window.deselectItem();
     }
   };
 
   tool.onMouseDrag = function(event) {
-    // 2. Dragging dinámico para doblar el texto con el tirador azul
     if (window.draggingCurveHandle && window.curveTarget) {
       const deltaY = event.point.y - window.curveInitialPoint.y;
-      const factor = 0.5; // Escala del gesto físico
+      const factor = 0.5;
       const newCurvature = Math.max(-100, Math.min(100, window.curveInitialCurvature + (deltaY * factor)));
       const parentItem = window.curveTarget;
       import("./modules/canvas-pro/textToolbar.js").then(module => {
@@ -847,62 +877,8 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (window.resizeActive && window.resizeTarget) {
-      const targetItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup) ?
-        window.resizeTarget.children.find(c => !c.clipMask) : window.resizeTarget;
-      if (!targetItem) return;
-      let anchor = window.resizeAnchor;
-      if (event.modifiers.control) {
-        anchor = window.resizeInitialBounds.center;
-      }
-      const initHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
-      const currPt = event.point;
-      
-      let scaleX = 1.0;
-      let scaleY = 1.0;
-      
-      const widthInit = window.resizeInitialBounds.width;
-      const heightInit = window.resizeInitialBounds.height;
-      
-      if (window.resizeHandleType === 'r' || window.resizeHandleType === 'l') {
-        const dX = currPt.x - anchor.x;
-        const dXInit = initHandlePoint.x - anchor.x;
-        if (Math.abs(dXInit) > 0) scaleX = dX / dXInit;
-      } else if (window.resizeHandleType === 'b' || window.resizeHandleType === 't') {
-        const dY = currPt.y - anchor.y;
-        const dYInit = initHandlePoint.y - anchor.y;
-        if (Math.abs(dYInit) > 0) scaleY = dY / dYInit;
-      } else {
-        // Proporcional de Canva
-        const dX = currPt.x - anchor.x;
-        const dXInit = initHandlePoint.x - anchor.x;
-        if (Math.abs(dXInit) > 0) {
-          scaleX = dX / dXInit;
-          scaleY = scaleX;
-        }
-      }
-      
-      if (scaleX !== 0 && scaleY !== 0) {
-        targetItem.scale(scaleX / window.resizeLastScaleX, scaleY / window.resizeLastScaleY, anchor);
-        window.resizeLastScaleX = scaleX;
-        window.resizeLastScaleY = scaleY;
-      }
-      window.updateSelectionBox(window.selectedItem);
-      updateSelectionInfo();
-      paper.view.update();
-      return;
-    }
-
-    if (window.dragging && window.selectedItem) {
-      if (isLockedItem(window.selectedItem)) return;
-      if (window.selectedItem.data && window.selectedItem.data.clipGroup) {
-        const content = window.selectedItem.children.find(c => !c.clipMask);
-        if (content) {
-          content.position = event.point.subtract(window.dragOffset);
-        }
-      } else {
-        window.selectedItem.position = event.point.subtract(window.dragOffset);
-      }
+    if (window.dragging && window.selectedItem && !isLockedItem(window.selectedItem)) {
+      window.selectedItem.position = event.point.subtract(window.dragOffset);
       window.updateSelectionBox(window.selectedItem);
       paper.view.update();
     }
@@ -917,140 +893,9 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    if (window.resizeActive) {
-      saveHistory();
-      window.resizeActive = false;
-      window.resizeHandleType = null;
-      window.resizeTarget = null;
-      window.resizeInitialBounds = null;
-      window.resizeAnchor = null;
-      window.resizeLastScaleX = 1.0;
-      window.resizeLastScaleY = 1.0;
-      updateSelectionInfo();
-      if (typeof updateContextualMenu === "function" && window.selectedItem) {
-        updateContextualMenu(window.selectedItem);
-      }
-      paper.view.update();
-      return;
-    }
-
     if (window.dragging) {
+      window.dragging = false;
       saveHistory();
-      updateSelectionInfo();
-      if (typeof updateContextualMenu === "function" && window.selectedItem) {
-        updateContextualMenu(window.selectedItem);
-      }
-    }
-    window.dragging = false;
-    paper.view.update();
-  };
-
-  tool.onKeyDown = function (event) {
-    const active = document.activeElement;
-    const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
-    if (isTyping) return;
-
-    // --- INTEGRACIÓN MENÚ DE EDICIÓN ESTILO LIGHTBURN (Sin alterar flujos originales) ---
-    if (event.modifiers.control && event.key === "a") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.selectAll();
-      });
-      return;
-    }
-    if (event.modifiers.control && event.modifiers.shift && event.key === "i") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.invertSelection();
-      });
-      return;
-    }
-    if (event.modifiers.alt && event.key === "v") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.pasteInPlace();
-      });
-      return;
-    }
-    if (event.modifiers.control && event.modifiers.shift && event.key === "c") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.convertToPathSelected();
-      });
-      return;
-    }
-    if (event.modifiers.alt && event.key === "c") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.closePathSelected();
-      });
-      return;
-    }
-    if (event.modifiers.alt && event.key === "j") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.autoJoinSelectedPaths();
-      });
-      return;
-    }
-    if (event.modifiers.alt && event.modifiers.shift && event.key === "o") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.optimizeSelectedShapes();
-      });
-      return;
-    }
-    if (event.modifiers.alt && event.key === "d") {
-      event.preventDefault();
-      import("./modules/canvas-pro/editMenu.js").then(module => {
-        module.deleteDuplicates();
-      });
-      return;
-    }
-
-    if (event.modifiers.control && event.key === "z") {
-      undo();
-      return;
-    }
-    if (event.modifiers.control && event.key === "c") {
-      copySelected();
-      return;
-    }
-    if (event.modifiers.control && event.key === "v") {
-      pasteSelected();
-      return;
-    }
-    if (event.modifiers.control && (event.key === "y" || (event.modifiers.shift && event.key === "z"))) {
-      redo();
-      return;
-    }
-    if (event.key === "delete") {
-      deleteSelected();
-    }
-    if (window.selectedItem && !isLockedItem(window.selectedItem)) {
-      const step = event.modifiers.shift ? 10 : 1;
-      const targetMove = (window.selectedItem.data && window.selectedItem.data.clipGroup) ?
-        window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-      if (targetMove) {
-        if (event.key === "left") {
-          targetMove.position.x -= step;
-          event.preventDefault();
-        }
-        if (event.key === "right") {
-          targetMove.position.x += step;
-          event.preventDefault();
-        }
-        if (event.key === "up") {
-          targetMove.position.y -= step;
-          event.preventDefault();
-        }
-        if (event.key === "down") {
-          targetMove.position.y += step;
-          event.preventDefault();
-        }
-      }
-      window.updateSelectionBox(window.selectedItem);
-      updateSelectionInfo();
       if (typeof updateContextualMenu === "function") {
         updateContextualMenu(window.selectedItem);
       }
@@ -1058,7 +903,31 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   };
 
-  // --- ENLAZAR EVENTOS DEL DOM ---
+  tool.onKeyDown = function (event) {
+    const active = document.activeElement;
+    const isTyping = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.tagName === "SELECT" || active.isContentEditable);
+    if (isTyping) return;
+
+    if (event.key === "delete" || event.key === "backspace") {
+      deleteSelected();
+    }
+
+    if (event.key === "d" && (event.modifiers.control || event.modifiers.command)) {
+      event.preventDefault();
+      duplicateSelected();
+    }
+
+    if (event.key === "z" && (event.modifiers.control || event.modifiers.command)) {
+      event.preventDefault();
+      undo();
+    }
+
+    if (event.key === "y" && (event.modifiers.control || event.modifiers.command)) {
+      event.preventDefault();
+      redo();
+    }
+  };
+
   const safeAddListener = (elOrId, event, callback) => {
     const el = typeof elOrId === "string" ? document.getElementById(elOrId) : elOrId;
     if (el) {
