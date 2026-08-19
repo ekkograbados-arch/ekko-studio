@@ -1,6 +1,5 @@
 /* =========================================================================
    Módulo: js/modules/canvas-pro/contextualMenu.js
-   Ruta de reemplazo: js/modules/canvas-pro/contextualMenu.js
    Descripción: Barra de herramientas flotante de contexto. Soporta alineación de
                 fuentes redundantes dinámicas y mapeos retrocompatibles.
    ========================================================================= */
@@ -13,7 +12,7 @@ import {
   applyTextCurve, 
   applyTextSpacing,
   loadDynamicFonts 
-} from "/ASSETS/js/modules/canvas-pro/textToolbar.js";
+} from "./textToolbar.js";
 
 import {
   scaleImage,
@@ -21,7 +20,7 @@ import {
   deleteImage,
   bringImageForward,
   sendImageBackward
-} from "/ASSETS/js/modules/canvas-pro/selection.js";
+} from "./selection.js";
 
 // Variable global de previsualización en window
 window.originalFontBackup = null;
@@ -52,7 +51,7 @@ function removeOverlapTab() {
   const allElements = document.querySelectorAll('button, div, span, a, p, li');
   allElements.forEach(el => {
     if (el.textContent) {
-      const normalizedText = el.textContent.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
+      const normalizedText = el.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
       if (normalizedText.includes('EVITAR SUPERPOSICION')) {
         el.remove();
       }
@@ -282,11 +281,9 @@ export function initContextualMenu() {
     if (window.selectedItem) {
       const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
       if (target && target instanceof paper.Raster) {
-        // Lógica de manipulación de filtros del raster
         target.data = target.data || {};
         target.data.brightness = briSlider ? parseFloat(briSlider.value) : 0;
         target.data.contrast = conSlider ? parseFloat(conSlider.value) : 0;
-        // Aplicar filtros en tiempo real
         paper.view.update();
       }
     }
@@ -325,7 +322,6 @@ export function updateContextualMenu(item) {
   if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
     const textControls = document.getElementById('ctxTextControls');
     if (textControls) textControls.classList.remove('hidden');
-    // Actualizar sliders contextuales para reflejar el estado actual del texto seleccionado
     const curveSlider = document.getElementById('ctxTextCurve');
     if (curveSlider) curveSlider.value = target.data?.curvature || 0;
     const hspaceSlider = document.getElementById('ctxTextHSpace');
@@ -340,7 +336,6 @@ export function updateContextualMenu(item) {
     if (vectorControls) vectorControls.classList.remove('hidden');
   }
   
-  // Posicionamiento de la barra flotante encima del elemento seleccionado
   const bounds = item.bounds;
   if (!bounds) return;
   
