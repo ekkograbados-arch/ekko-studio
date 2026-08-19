@@ -6,13 +6,13 @@
                 alineaciones, transformaciones, operaciones de zoom y
                 sincronización asíncrona de tipografías globales del backend.
    ========================================================================= */
-import "./modules/selection.js"; // REQUERIDO: Cargar manipuladores de selección globales
 
+import "./modules/selection.js"; // REQUERIDO: Cargar manipuladores de selección globales
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
-import { loadDynamicProducts } from "./modules/productsLoader.js"; // CORREGIDO: Está en modules/, no en canvas-pro/
-import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js"; // CORREGIDO: Está en modules/, no en canvas-pro/
+import { loadDynamicProducts } from "./modules/productsLoader.js"; 
+import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js"; 
 import { updateContextualMenu, hideContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
-import { startTextEditing } from "./modules/textEditor.js"; // CORREGIDO: Está en modules/, no en canvas-pro/
+import { startTextEditing } from "./modules/textEditor.js"; 
 
 window.addEventListener("DOMContentLoaded", () => {
   // 1. Inicializar Paper.js de forma segura en el lienzo
@@ -23,7 +23,12 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- Variables de Estado Global del Editor ---
-  const toolState = { currentCategory: 0, currentProduct: null, currentSurface: 0, zoom: 1 };
+  const toolState = {
+    currentCategory: 0,
+    currentProduct: null,
+    currentSurface: 0,
+    zoom: 1
+  };
   const sceneStates = {};
   const undoStack = [];
   const redoStack = [];
@@ -33,17 +38,6 @@ window.addEventListener("DOMContentLoaded", () => {
   window.dragging = false;
   let lastSizeField = "width";
   let clipboardItem = null;
-
-  // Catálogo estático heredado
-  const FONTS = [
-    { name: "Billie James", family: "ekko_billie" },
-    { name: "Romantic Sunrise", family: "ekko_romantic" },
-    { name: "Farmhouse", family: "ekko_farmhouse" },
-    { name: "Chocolate", family: "ekko_chocolate" },
-    { name: "Disney", family: "ekko_disney" },
-    { name: "Simpson", family: "ekko_simpson" },
-    { name: "Milk Water", family: "ekko_milk" }
-  ];
 
   const ui = {
     categoryTabs: document.getElementById("categoryTabs"),
@@ -70,9 +64,7 @@ window.addEventListener("DOMContentLoaded", () => {
     btnCenterV: document.getElementById("btnCenterV"),
     btnCenterBoth: document.getElementById("btnCenterBoth"),
     btnForward: document.getElementById("btnForward"),
-    btnBackward: document.getElementById("btnBackward"),
-    fontSelector: document.getElementById("fontSelector"),
-    btnApplyFont: document.getElementById("btnApplyFont")
+    btnBackward: document.getElementById("btnBackward")
   };
 
   function getSceneKey(product, surface) {
@@ -126,7 +118,10 @@ window.addEventListener("DOMContentLoaded", () => {
       if (ui.objHeight) ui.objHeight.value = "";
       return;
     }
-    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+    const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup) 
+      ? window.selectedItem.children.find(c => !c.clipMask) 
+      : window.selectedItem;
+      
     if (displayItem && displayItem.bounds) {
       if (ui.objWidth) ui.objWidth.value = displayItem.bounds.width.toFixed(1);
       if (ui.objHeight) ui.objHeight.value = displayItem.bounds.height.toFixed(1);
@@ -325,48 +320,6 @@ window.addEventListener("DOMContentLoaded", () => {
     reader.readAsText(file);
   }
 
-  function applySelectedFont() {
-    if (!window.selectedItem) return;
-    if (!(window.selectedItem instanceof paper.PointText)) {
-      alert("Seleccione un texto");
-      return;
-    }
-    const font = ui.fontSelector ? ui.fontSelector.value : "Arial";
-    saveHistory();
-    window.selectedItem.fontFamily = font;
-    window.updateSelectionBox(window.selectedItem);
-    if (typeof updateContextualMenu === "function") {
-      updateContextualMenu(window.selectedItem);
-    }
-    paper.view.update();
-  }
-
-  function renderFontGallery() {
-    const list = document.getElementById("fontList");
-    if (!list) return;
-    list.innerHTML = "";
-    FONTS.forEach(font => {
-      const item = document.createElement("div");
-      item.className = "font-item";
-      item.innerHTML = `<span class="font-preview" style="font-family: ${font.family}">Feliz Día Papá</span><div class="font-name">${font.name}</div>`;
-      item.onclick = () => {
-        if (window.selectedItem) {
-          const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-          if (target) {
-            saveHistory();
-            target.fontFamily = font.family;
-            window.updateSelectionBox(window.selectedItem);
-            if (typeof updateContextualMenu === "function") {
-              updateContextualMenu(window.selectedItem);
-            }
-            paper.view.update();
-          }
-        }
-      };
-      list.appendChild(item);
-    });
-  }
-
   function renderCategories() {
     if (!ui.categoryTabs) return;
     ui.categoryTabs.innerHTML = "";
@@ -491,30 +444,19 @@ window.addEventListener("DOMContentLoaded", () => {
 
   safeAddListener("btnAddText", "click", activateTextMode);
 
-  const fontGalleryEl = document.getElementById("fontGallery");
-  if (fontGalleryEl) {
-    fontGalleryEl.classList.remove("hidden");
+  // Ocultar galería obsoleta si el elemento existe en el HTML
+  const obsoleteGallery = document.getElementById("fontGallery");
+  if (obsoleteGallery) {
+    obsoleteGallery.classList.add("hidden");
+    obsoleteGallery.style.display = "none";
   }
-  renderFontGallery();
 
-  // --- CORRECCIÓN APLICADA: Sincronización dinámica de tipografías globales ---
+  // --- CORRECCIÓN APLICADA: Carga de tipografías dinámicas globales para sincronización de head ---
   loadDynamicFonts().then(loadedFonts => {
-    if (loadedFonts && loadedFonts.length > 0) {
-      console.log("🔄 Sincronizando catálogo de fuentes estáticas en editor.js...");
-      FONTS.length = 0; // Limpiar array estático heredado
-      loadedFonts.forEach(f => {
-        FONTS.push({ name: f.name, family: f.family });
-      });
-      renderFontGallery();
-    }
+    console.log("🔄 Tipografías del backend sincronizadas en el editor.");
   }).catch(err => {
-    console.warn("Fallo no crítico al sincronizar fuentes en editor.js (usando fallback estático):", err);
-    renderFontGallery();
+    console.warn("Fallo no crítico al sincronizar fuentes en editor.js:", err);
   });
-
-  if (ui.btnApplyFont) {
-    ui.btnApplyFont.addEventListener("click", applySelectedFont);
-  }
 
   // --- CARGA DINÁMICA ASÍNCRONA DE PRODUCTOS ---
   if (typeof loadDynamicProducts === "function") {
