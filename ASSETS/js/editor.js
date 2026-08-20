@@ -95,6 +95,11 @@ window.addEventListener("DOMContentLoaded", () => {
     if (typeof initCanvasZoomAndPan === "function") {
       initCanvasZoomAndPan();
     }
+
+    // Inyectar el control de rotación en la barra emergente de forma dinámica
+    if (typeof injectRotationControlToToolbar === "function") {
+      injectRotationControlToToolbar();
+    }
   }
 });
 
@@ -266,6 +271,15 @@ window.selectItem = function(item) {
   window.updateSelectionBox(item);
   updateSelectionInfo();
   updateLockButton();
+  
+  // Sincronizar valor de rotación en el input de la barra flotante
+  const rotationNum = document.getElementById('ctxRotationNum');
+  if (rotationNum) {
+    const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    const rot = Math.round(displayItem?.data?.rotation || 0);
+    rotationNum.value = rot + '°';
+  }
+
   if (typeof updateContextualMenu === "function") {
     updateContextualMenu(item);
   }
@@ -285,6 +299,13 @@ window.deselectItem = function() {
   if (ui.objWidth) ui.objWidth.value = "";
   if (ui.objHeight) ui.objHeight.value = "";
   updateLockButton();
+  
+  // Limpiar valor de rotación en el input de la barra flotante
+  const rotationNum = document.getElementById('ctxRotationNum');
+  if (rotationNum) {
+    rotationNum.value = "0°";
+  }
+
   if (typeof hideContextualMenu === "function") {
     hideContextualMenu();
   }
@@ -906,5 +927,469 @@ function initCanvasZoomAndPan() {
       window.updateSelectionBox(window.selectedItem);
     }
   }
+}
+
+
+// =========================================================================
+// SISTEMA PROFESIONAL DE ROTACIÓN EN EL CENTRO CON SNAPPING Y ENLACE BARRA
+// =========================================================================
+
+/**
+ * Inyecta dinámicamente el control numérico de rotación dentro de la barra contextual flotante
+ */
+function injectRotationControlToToolbar() {
+  const toolbar = document.getElementById('contextual-toolbar');
+  if (!toolbar) return;
+  
+  // Evitar duplicados
+  if (document.getElementById('ctxRotationGroup')) return;
+  
+  const rotationGroup = document.createElement('div');
+  rotationGroup.className = 'toolbar-group';
+  rotationGroup.id = 'ctxRotationGroup';
+  rotationGroup.innerHTML = `
+    <div class="toolbar-divider"></div>
+    <span style="font-size: 13px; color: #334155; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">
+      <i class="fas fa-sync-alt" style="color: #007bff;"></i> Rotar:
+    </span>
+    <input id="ctxRotationNum" type="text" class="toolbar-input-number" style="width: 55px; font-weight: bold; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 6px; text-align: center;" value="0°">
+  `;
+  
+  // Insertarlo antes de los controles de texto específicos si existen, de lo contrario al final
+  const textCtrl = document.getElementById('ctxTextControls');
+  if (textCtrl) {
+    toolbar.insertBefore(rotationGroup, textCtrl);
+  } else {
+    toolbar.appendChild(rotationGroup);
+  }
+  
+  const rotationNum = document.getElementById('ctxRotationNum');
+  if (rotationNum) {
+    const applyRotation = (val) => {
+      if (!window.selectedItem || window.selectedItem.data?.locked) return;
+      let angle = parseInt(val);
+      if (isNaN(angle)) angle = 0;
+      angle = (angle % 360 + 360) % 360;
+      
+      const displayItem = window.selectedItem.data?.clipGroup 
+        ? window.selectedItem.children.find(c => !c.clipMask) 
+        : window.selectedItem;
+        
+      if (displayItem) {
+        const center = displayItem.bounds.center.clone();
+        const oldRotation = displayItem.data?.rotation || 0;
+        let delta = angle - oldRotation;
+        
+        if (delta > 180) delta -= 360;
+        if (delta < -180) delta += 360;
+        
+        displayItem.rotate(delta, center);
+        displayItem.data = displayItem.data || {};
+        displayItem.data.rotation = angle;
+        
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+      }
+    };
+
+    // Sincronizar desde input directo al cambiar valor
+    rotationNum.onchange = () => {
+      applyRotation(rotationNum.value);
+      rotationNum.value = (parseInt(rotationNum.value) || 0) + '°';
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+    };
+    
+    rotationNum.onkeydown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyRotation(rotationNum.value);
+        rotationNum.value = (parseInt(rotationNum.value) || 0) + '°';
+        rotationNum.blur();
+      }
+    };
+    
+    // Soporte para rueda de mouse (Scroll wheel) sobre el input de rotación
+    rotationNum.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (!window.selectedItem || window.selectedItem.data?.locked) return;
+      
+      const currentVal = parseInt(rotationNum.value) || 0;
+      const direction = e.deltaY < 0 ? 1 : -1;
+      const step = e.shiftKey ? 5 : 1; // De a 5 grados con Shift presionado, de a 1 sin Shift
+      let newVal = currentVal + direction * step;
+      newVal = (newVal % 360 + 360) % 360;
+      
+      rotationNum.value = newVal + '°';
+      applyRotation(newVal);
+      
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+    }, { passive: false });
+  }
+}
+
+/**
+ * SOBREESCRITURA DE LA CAJA DE SELECCIÓN (updateSelectionBox)
+ * Añade el tirador con ícono de rotación encima del nodo superior medio (Estilo Figma/Canva)
+ */
+window.updateSelectionBox = function(item) {
+  if (window.selectionBoxGroup) {
+    window.selectionBoxGroup.remove();
+    window.selectionBoxGroup = null;
+  }
+
+  if (window.nodeEditMode) return;
+  if (!item || (item.data && item.data.mockup)) return;
+
+  const displayItem = (item.data && item.data.clipGroup)
+    ? item.children.find(function(c) { return !c.clipMask; })
+    : item;
+
+  if (!displayItem) return;
+
+  const bounds = displayItem.bounds;
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
+  window.selectionBoxGroup = new paper.Group();
+  window.selectionBoxGroup.data = { isSelectionBox: true };
+
+  // 1. Dibujar el rectángulo azul de contorno dashed
+  const border = new paper.Path.Rectangle(bounds);
+  border.strokeColor = '#007bff';
+  border.strokeWidth = 1.5 / paper.view.zoom;
+  border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
+  window.selectionBoxGroup.addChild(border);
+
+  // 2. Dibujar los 8 nodos de control tradicionales (cuadrados blancos con borde azul)
+  const handleSize = 8 / paper.view.zoom;
+  const handlesInfo = [
+    { point: bounds.topLeft, type: 'tl' },
+    { point: bounds.topCenter, type: 't' },
+    { point: bounds.topRight, type: 'tr' },
+    { point: bounds.rightCenter, type: 'r' },
+    { point: bounds.bottomRight, type: 'br' },
+    { point: bounds.bottomCenter, type: 'b' },
+    { point: bounds.bottomLeft, type: 'bl' },
+    { point: bounds.leftCenter, type: 'l' }
+  ];
+
+  handlesInfo.forEach(function(info) {
+    const rect = new paper.Path.Rectangle({
+      center: info.point,
+      size: [handleSize, handleSize],
+      strokeColor: '#007bff',
+      fillColor: '#ffffff',
+      strokeWidth: 1.5 / paper.view.zoom
+    });
+    rect.data = { isHandle: true, handleType: info.type };
+    window.selectionBoxGroup.addChild(rect);
+  });
+
+  // 3. TIRADOR DE ROTACIÓN EXCLUSIVO (Estilo LightBurn / Canva)
+  const rotHandleDistance = 25 / paper.view.zoom;
+  const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
+
+  // Línea conector azul entre topCenter y el tirador de rotación
+  const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
+  connector.strokeColor = '#007bff';
+  connector.strokeWidth = 1.2 / paper.view.zoom;
+  window.selectionBoxGroup.addChild(connector);
+
+  // Círculo blanco para el botón de rotación
+  const rotHandleCircle = new paper.Path.Circle({
+    center: rotHandleCenter,
+    radius: 7.5 / paper.view.zoom,
+    strokeColor: '#007bff',
+    fillColor: '#ffffff',
+    strokeWidth: 1.5 / paper.view.zoom
+  });
+  rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
+  window.selectionBoxGroup.addChild(rotHandleCircle);
+
+  // Ícono de doble flecha curva (semicírculo con flechas) dibujado vectorialmente
+  const iconRadius = 3.5 / paper.view.zoom;
+  const arrowIcon = new paper.Path.Arc(
+    rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
+    rotHandleCenter.add(new paper.Point(0, -iconRadius)),
+    rotHandleCenter.add(new paper.Point(iconRadius, 0))
+  );
+  arrowIcon.strokeColor = '#007bff';
+  arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
+  window.selectionBoxGroup.addChild(arrowIcon);
+
+  // Punta de flecha derecha del icono de rotación
+  const arrowTip = new paper.Path();
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+  arrowTip.strokeColor = '#007bff';
+  arrowTip.strokeWidth = 1.2 / paper.view.zoom;
+  window.selectionBoxGroup.addChild(arrowTip);
+
+  window.selectionBoxGroup.bringToFront();
+};
+
+/**
+ * SOBREESCRITURA DE LA HERRAMIENTA DE SELECCIÓN (initSelectionTool)
+ * Implementa el arrastre de rotación, cálculo de ángulos relativos y sensibilidad (snap) a 45°/90°
+ */
+window.initSelectionTool = function() {
+  if (!paper.view) {
+    console.warn("initSelectionTool: paper.view no está definido todavía.");
+    return;
+  }
+
+  const selectTool = new paper.Tool();
+  let lastClickTime = 0;
+
+  selectTool.onMouseDown = function(event) {
+    const currentTime = Date.now();
+    if (currentTime - lastClickTime < 300) {
+      lastClickTime = 0; // Evitar disparar múltiples doble clics
+      if (window.selectedItem) {
+        const target = window.selectedItem.data?.clipGroup 
+          ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) 
+          : window.selectedItem;
+        if (target instanceof paper.PointText) {
+          if (typeof window.startTextEditing === 'function') {
+            window.startTextEditing(target);
+          }
+          return;
+        }
+      }
+    }
+    lastClickTime = currentTime;
+
+    // 1. Hit test para verificar si se presionó un handle de redimensionamiento o de rotación
+    const hitResult = paper.project.hitTest(event.point, {
+      fill: true,
+      stroke: true,
+      segments: true,
+      tolerance: 8 / paper.view.zoom,
+      match: function(hit) {
+        return hit.item.data && hit.item.data.isHandle;
+      }
+    });
+
+    if (hitResult) {
+      const hType = hitResult.item.data.handleType;
+      
+      // CASO ESPECIAL: Tirador de Rotación ('rot')
+      if (hType === 'rot') {
+        window.rotationActive = true;
+        window.rotationTarget = window.selectedItem;
+        
+        const displayItem = (window.rotationTarget.data && window.rotationTarget.data.clipGroup)
+          ? window.rotationTarget.children.find(function(c) { return !c.clipMask; })
+          : window.rotationTarget;
+          
+        window.rotationCenter = displayItem.bounds.center.clone();
+        
+        // Obtener el ángulo inicial basado en la posición actual del cursor
+        const vector = event.point.subtract(window.rotationCenter);
+        window.rotationStartAngle = vector.angle;
+        window.rotationInitialAngle = displayItem.data?.rotation || 0;
+        return;
+      }
+
+      // Redimensionamiento normal (tl, t, tr, r, br, b, bl, l)
+      window.resizeActive = true;
+      window.resizeHandleType = hType;
+      window.resizeTarget = window.selectedItem;
+      
+      const displayItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
+        ? window.resizeTarget.children.find(function(c) { return !c.clipMask; })
+        : window.resizeTarget;
+        
+      window.resizeInitialBounds = displayItem.bounds.clone();
+      window.resizeInitialPoint = event.point.clone();
+      window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
+      window.resizeLastScaleX = 1.0;
+      window.resizeLastScaleY = 1.0;
+      return;
+    }
+
+    // 2. Hit test para elementos seleccionables normales
+    const generalHit = paper.project.hitTest(event.point, {
+      fill: true,
+      stroke: true,
+      segments: true,
+      bounds: true,
+      tolerance: 8 / paper.view.zoom,
+      match: function(hit) {
+        if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
+        if (hit.item.data && hit.item.data.mockup) return false;
+        return true;
+      }
+    });
+
+    if (generalHit) {
+      const selectableItem = window.getSelectableItem(generalHit.item);
+      if (selectableItem) {
+        window.selectItem(selectableItem);
+        window.dragging = true;
+        
+        const dragTarget = (selectableItem.data && selectableItem.data.clipGroup)
+          ? selectableItem.children.find(function(c) { return !c.clipMask; })
+          : selectableItem;
+          
+        window.dragOffset = event.point.subtract(dragTarget.position);
+        return;
+      }
+    }
+
+    // Clic en vacío -> Deseleccionar
+    window.deselectItem();
+  };
+
+  selectTool.onMouseDrag = function(event) {
+    if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
+      return;
+    }
+
+    // --- MANEJO DE ROTACIÓN INTERACTIVA ---
+    if (window.rotationActive && window.rotationTarget) {
+      const displayItem = (window.rotationTarget.data && window.rotationTarget.data.clipGroup)
+        ? window.rotationTarget.children.find(function(c) { return !c.clipMask; })
+        : window.rotationTarget;
+        
+      const currentPoint = event.point;
+      const vector = currentPoint.subtract(window.rotationCenter);
+      const currentAngle = vector.angle;
+      
+      // Calcular la diferencia angular
+      let angleDiff = currentAngle - window.rotationStartAngle;
+      let targetAngle = window.rotationInitialAngle + angleDiff;
+      
+      // Mantener ángulo dentro del rango de 0° a 360°
+      targetAngle = (targetAngle % 360 + 360) % 360;
+      
+      // SENSIBILIDAD (ALIGNMENT SNAP) A 45° Y 90°:
+      const snapAngle = 45;
+      const tolerance = 4.0; // Tolerancia de 4 grados para ajustar
+      const nearestSnap = Math.round(targetAngle / snapAngle) * snapAngle;
+      let isSnapped = false;
+      
+      if (Math.abs(targetAngle - nearestSnap) < tolerance) {
+        targetAngle = nearestSnap % 360;
+        isSnapped = true;
+      }
+      
+      // Calcular delta relativo a rotación actual para no acumular deformaciones
+      const oldRotation = displayItem.data?.rotation || 0;
+      let deltaRotate = targetAngle - oldRotation;
+      
+      // Optimizar camino de rotación corto
+      if (deltaRotate > 180) deltaRotate -= 360;
+      if (deltaRotate < -180) deltaRotate += 360;
+      
+      displayItem.rotate(deltaRotate, window.rotationCenter);
+      displayItem.data = displayItem.data || {};
+      displayItem.data.rotation = targetAngle;
+      
+      // Sincronizar el input de la barra emergente flotante
+      const rotationNum = document.getElementById('ctxRotationNum');
+      if (rotationNum) {
+        rotationNum.value = Math.round(targetAngle) + '°';
+      }
+      
+      // Re-dibujar la caja de selección del lienzo
+      window.updateSelectionBox(window.selectedItem);
+      
+      // Mostrar retroalimentación visual del ángulo en tiempo real sobre el lienzo
+      if (window.selectionBoxGroup) {
+        const rotHandleDistance = 25 / paper.view.zoom;
+        const rotHandleCenter = displayItem.bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
+        
+        const angleText = new paper.PointText({
+          point: rotHandleCenter.add(new paper.Point(12 / paper.view.zoom, -4 / paper.view.zoom)),
+          content: Math.round(targetAngle) + '°',
+          fillColor: isSnapped ? '#28a745' : '#007bff', // Verde esmeralda si está alineado/snapped, azul normal si es libre
+          fontSize: 12 / paper.view.zoom,
+          fontWeight: 'bold',
+          fontFamily: 'Arial'
+        });
+        window.selectionBoxGroup.addChild(angleText);
+      }
+      
+      paper.view.update();
+      return;
+    }
+
+    // --- MANEJO DE REDIMENSIONAMIENTO ---
+    if (window.resizeActive && window.resizeTarget) {
+      const displayItem = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
+        ? window.resizeTarget.children.find(function(c) { return !c.clipMask; })
+        : window.resizeTarget;
+        
+      const anchor = window.resizeAnchor;
+      const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
+      const currentHandlePoint = event.point;
+      
+      let factorX = 1.0;
+      let factorY = 1.0;
+      
+      const initialXDiff = initialHandlePoint.x - anchor.x;
+      const currentXDiff = currentHandlePoint.x - anchor.x;
+      if (Math.abs(initialXDiff) > 0.001) factorX = currentXDiff / initialXDiff;
+      
+      const initialYDiff = initialHandlePoint.y - anchor.y;
+      const currentYDiff = currentHandlePoint.y - anchor.y;
+      if (Math.abs(initialYDiff) > 0.001) factorY = currentYDiff / initialYDiff;
+
+      // Mantener proporciones en esquinas
+      if (['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType)) {
+        const factor = (Math.abs(factorX) + Math.abs(factorY)) / 2 * (factorX < 0 ? -1 : 1);
+        factorX = factor;
+        factorY = factor;
+      }
+
+      const scaleFactorX = factorX / window.resizeLastScaleX;
+      const scaleFactorY = factorY / window.resizeLastScaleY;
+
+      const targetToScale = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
+        ? window.resizeTarget.children.find(function(c) { return !c.clipMask; })
+        : window.resizeTarget;
+        
+      if (targetToScale) {
+        targetToScale.scale(scaleFactorX, scaleFactorY, anchor);
+      }
+      
+      window.resizeLastScaleX = factorX;
+      window.resizeLastScaleY = factorY;
+      window.updateSelectionBox(window.resizeTarget);
+      paper.view.update();
+      return;
+    }
+
+    // --- MANEJO DE ARRASTRE DE OBJETO ---
+    if (window.dragging && window.selectedItem) {
+      const dragTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
+        ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
+        : window.selectedItem;
+        
+      dragTarget.position = event.point.subtract(window.dragOffset);
+      window.updateSelectionBox(window.selectedItem);
+      paper.view.update();
+      return;
+    }
+  };
+
+  selectTool.onMouseUp = function(event) {
+    if (window.resizeActive || window.dragging || window.rotationActive) {
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+    }
+    window.dragging = false;
+    window.resizeActive = false;
+    window.rotationActive = false;
+    paper.view.update();
+  };
+
+  selectTool.activate();
+  console.log("🎯 Eventos de selección y redimensionamiento de Paper.js registrados con éxito.");
+};
+
+// Autoejecutar inmediatamente si Paper.js ya está activo
+if (typeof paper !== "undefined" && paper.view) {
+  window.initSelectionTool();
 }
 
