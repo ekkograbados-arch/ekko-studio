@@ -14,17 +14,34 @@ import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
 import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 import { startTextEditing } from "./modules/textEditor.js";
 // --- CONFIGURACIÓN DE DEPURACIÓN DE EKKO STUDIO ---
-// Mantenemos la consola viva para depuración, pero silenciamos quirúrgicamente el spam masivo de fuentes
-const originalLog = console.log;
-console.log = function(...args) {
-  if (args[0] && typeof args[0] === 'string' && (args[0].includes('[EKKO Fonts]') || args[0].includes('Registrado alias tipográfico'))) {
-    return; // Silenciar únicamente el spam de fuentes duplicadas en F12
-  }
-  originalLog.apply(console, args);
-};
+const DEBUG_MODE = false; // Cambia a true para ver la consola F12 con archivos y líneas reales al programar
+if (!DEBUG_MODE) {
+  // Apagamos logs y mensajes comunes para que en F12 salgan únicamente los errores y advertencias de código reales
+  console.log = () => {};
+  console.info = () => {};
+  console.debug = () => {};
+}
 
 
 window.addEventListener("DOMContentLoaded", () => {
+  // --- INYECCIÓN DINÁMICA DE INTERFAZ: DROP DOWN DE FUENTES PERSONALIZADO (Garantía WYSIWYG) ---
+  const nativeSelect = document.getElementById('ctxFontSelector');
+  if (nativeSelect) {
+    let customDropdown = document.querySelector('.custom-font-dropdown');
+    if (!customDropdown) {
+      customDropdown = document.createElement('div');
+      customDropdown.className = 'custom-font-dropdown';
+      customDropdown.innerHTML = `
+        <div class="selected-font-trigger">
+          <span>Seleccionar Fuente</span>
+          <i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
+        </div>
+        <div class="font-dropdown-list hidden"></div>
+      `;
+      nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
+    }
+  }
+
   // --- INYECCIÓN DINÁMICA DE ESTILOS DE LIENZO INFINITO (ESTILO FIGMA/CANVA) ---
   const infiniteCanvasStylesId = 'ekko-infinite-canvas-styles';
   if (!document.getElementById(infiniteCanvasStylesId)) {
@@ -1187,6 +1204,7 @@ window.initSelectionTool = function() {
       
       // CASO ESPECIAL: Tirador de Rotación ('rot')
       if (hType === 'rot') {
+        if (!window.selectedItem) return; // Guard de seguridad contra selección nula
         window.rotationActive = true;
         window.rotationTarget = window.selectedItem;
         
@@ -1204,6 +1222,7 @@ window.initSelectionTool = function() {
       }
 
       // Redimensionamiento normal (tl, t, tr, r, br, b, bl, l)
+      if (!window.selectedItem) return; // Guard de seguridad contra selección nula
       window.resizeActive = true;
       window.resizeHandleType = hType;
       window.resizeTarget = window.selectedItem;
@@ -1485,3 +1504,4 @@ window.initSelectionTool = function() {
 if (typeof paper !== "undefined" && paper.view) {
   window.initSelectionTool();
 }
+
