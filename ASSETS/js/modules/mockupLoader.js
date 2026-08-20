@@ -1,11 +1,20 @@
-/*
- * ASSETS/js/modules/mockupLoader.js (v3 - Solución a Enmascaramiento y Carga de Imágenes en Mates con Virola)
- *
- * Módulo para la carga y renderizado de mockups SVG con enmascaramiento dinámico para Paper.js.
- * CORRECCIÓN DE ENMASCARAMIENTO: Corrige el cálculo de isVirola en buildCompoundMask para evitar que
- * se considere erróneamente como virola a productos como "mate-de-algarrobo-con-virola-mate.svg",
- * lo que provocaba que se substrajeran todos los contornos grandes y la máscara de recorte quedara invisible.
- */
+/* =========================================================================
+Módulo: ASSETS/js/modules/mockupLoader.js
+Ruta de reemplazo: ASSETS/js/modules/mockupLoader.js
+Descripción: Módulo para la carga y renderizado de mockups SVG con soporte para
+Lienzo Infinito interactivo para Paper.js (estilo Canva y LightBurn).
+
+NUEVA CONFIGURACIÓN DE LIENZO INFINITO (v4):
+Se inyecta la bandera global `window.infiniteCanvasMode = true` para desactivar
+el enmascaramiento restrictivo por defecto. Los mockups (como la hoja A4 o medallas)
+ahora permanecen como guías visuales ultra nítidas en primer plano (en capa superior),
+mientras que los textos, imágenes y SVGs fluyen libremente por todo el lienzo
+infinito sin recortarse, manteniendo compatibilidad total con el historial, 
+desplazamiento interno, selección y borrado.
+========================================================================= */
+
+// Bandera global para habilitar el lienzo infinito por defecto
+window.infiniteCanvasMode = true;
 
 function collectPaths(item, paths) {
   if (!paths) paths = [];
@@ -33,29 +42,26 @@ function shouldIgnoreLargestPath(paths, rootItem, svgPath) {
   if (!paths || paths.length < 2) return false;
   var firstPath = paths[0];
   if (!firstPath) return false;
+
   var fBounds = firstPath.bounds;
   var rBounds = rootItem.bounds;
   if (!fBounds || !rBounds || rBounds.width <= 0 || rBounds.height <= 0) return false;
-  
+
   var wRatio = fBounds.width / rBounds.width;
   var hRatio = fBounds.height / rBounds.height;
-  
   if (wRatio > 0.95 && hRatio > 0.95) {
     if (isPathRect(firstPath)) {
       var esProductoRectangular = false;
       if (typeof svgPath === 'string' && svgPath !== "") {
         var pathLower = svgPath.toLowerCase();
         var filename = pathLower.split("/").pop();
-        
         // Es un mate si contiene la palabra "mate", excepto si es la superficie circular "virola" sola
         var esMate = pathLower.indexOf("mate") !== -1;
         var esVirolaSola = filename.startsWith("virola-") || filename.endsWith("-virola.svg");
         var esPulsera = pathLower.indexOf("pulsera") !== -1;
-        
         // El cuerpo del mate es rectangular, así como las pulseras. La virola es un anillo circular.
         esProductoRectangular = (esMate && !esVirolaSola) || esPulsera;
       }
-      
       if (esProductoRectangular) {
         return false; // No ignorar, es el área de trabajo rectangular legítima del producto (Mates, Pulseras)
       }
@@ -88,16 +94,16 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
     if (ignoredPath && path === ignoredPath) return false;
     return true;
   });
-  
+
   paths.sort(function(a, b) {
     return Math.abs(b.area) - Math.abs(a.area);
   });
-  
+
   if (!paths.length) return null;
   var firstPath = paths[0];
   var mask = firstPath.clone();
   mask.applyMatrix = true;
-  
+
   // CORRECCIÓN CLAVE: Identificar si es una virola de forma estricta (no un mate con virola)
   var isVirola = false;
   if (typeof svgPath === 'string' && svgPath !== "") {
@@ -105,11 +111,12 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
     var filename = pathLower.split("/").pop();
     isVirola = filename.startsWith("virola-") || filename.endsWith("-virola.svg");
   }
-  
+
   var baseArea = Math.abs(mask.area);
   var remainingPaths = paths.slice(1);
   remainingPaths.forEach(function(path) {
     var hole = path.clone();
+    var holeApplyMatrix = true; // variable local sanitizada
     hole.applyMatrix = true;
     if (mask.bounds.contains(hole.bounds.center)) {
       var holeArea = Math.abs(hole.area);
@@ -126,7 +133,7 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
       hole.remove();
     }
   });
-  
+
   mask.fillColor = "black";
   mask.strokeColor = null;
   mask.visible = false;
@@ -227,24 +234,25 @@ export function loadMockup(svgPath) {
     var scale = Math.min(scaleX, scaleY);
     item.scale(scale);
     item.position = canvasBounds.center;
-    
+
     var allPaths = collectPaths(item).filter(function(p) {
       return p && Math.abs(p.area) > 0;
     });
     allPaths.sort(function(a, b) {
       return Math.abs(b.area) - Math.abs(a.area);
     });
-    
+
     var ignoredPath = null;
     if (shouldIgnoreLargestPath(allPaths, item, svgPath)) {
       ignoredPath = allPaths[0];
     }
-    
+
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.visible = false;
     }
+
     makeMockupTransparent(item, ignoredPath);
     lockMockup(item);
     window.currentMockup = item;
@@ -258,6 +266,7 @@ export function restoreMockupReferences() {
   var mockupItem = paper.project.activeLayer.children.find(function(c) {
     return c.data && c.data.mockup;
   });
+
   if (mockupItem) {
     window.currentMockup = mockupItem;
     var allPaths = collectPaths(mockupItem).filter(function(p) {
@@ -266,13 +275,13 @@ export function restoreMockupReferences() {
     allPaths.sort(function(a, b) {
       return Math.abs(b.area) - Math.abs(a.area);
     });
-    
+
     var ignoredPath = null;
     var svgPath = (mockupItem.data && mockupItem.data.svgPath) ? mockupItem.data.svgPath : "";
     if (shouldIgnoreLargestPath(allPaths, mockupItem, svgPath)) {
       ignoredPath = allPaths[0];
     }
-    
+
     window.grabArea = buildCompoundMask(mockupItem, ignoredPath, svgPath);
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
@@ -286,9 +295,14 @@ export function restoreMockupReferences() {
 }
 
 window.clipItem = function(item) {
-  if (!window.clipMask) {
+  // LIENZO INFINITO INTERACTIVO (Garantía de Visualización Completa):
+  // Si está activo el modo infinito (window.infiniteCanvasMode = true), retornamos
+  // el objeto directamente libre de máscaras de recorte restrictivas. Esto evita
+  // que el lienzo o la hoja A4 corten físicamente los SVGs y textos del cliente.
+  if (window.infiniteCanvasMode || !window.clipMask) {
     return item;
   }
+
   var mask = window.clipMask.clone();
   mask.clipMask = true;
   mask.visible = true;
