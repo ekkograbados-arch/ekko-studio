@@ -13,6 +13,14 @@ import { loadDynamicProducts } from "./modules/productsLoader.js";
 import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
 import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 import { startTextEditing } from "./modules/textEditor.js";
+// --- CONFIGURACIÓN DE DEPURACIÓN DE EKKO STUDIO ---
+const DEBUG_MODE = false; // Cambia a true para habilitar logs de depuración en la consola F12
+if (!DEBUG_MODE) {
+  console.log = () => {};
+  console.info = () => {};
+  // console.warn y console.error permanecen activos para capturar incidentes reales
+}
+
 
 window.addEventListener("DOMContentLoaded", () => {
   // --- INYECCIÓN DINÁMICA DE ESTILOS DE LIENZO INFINITO (ESTILO FIGMA/CANVA) ---
