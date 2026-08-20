@@ -6,8 +6,8 @@ desplegable de fuentes personalizado basado en div con previsualización del tex
 en tiempo real, e inyección dinámica de familias de fuentes.
 ========================================================================= */
 
-import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from \"./textToolbar.js\";
-import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from \"./imageToolbar.js\";
+import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
+import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 
 // Variable global de previsualización en window
 window.originalFontBackup = null;
@@ -21,7 +21,17 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
   const styleEl = document.createElement('style');
   styleEl.id = dropdownStylesId;
   styleEl.textContent = `
-    .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }\n    .selected-font-trigger { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; color: #333; height: 100%; box-sizing: border-box; }\n    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; width: 320px; max-height: 380px; overflow-y: auto; background: white; border: 1px solid #bbb; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); z-index: 10010; padding: 6px; box-sizing: border-box; }\n    .font-dropdown-list.hidden { display: none; }\n    .custom-font-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; }\n    .custom-font-item:last-child { border-bottom: none; }\n    .custom-font-item:hover { background: #f0f8ff; }\n    .custom-font-item.active { background: #e6f2ff; border-left: 3px solid #007bff; }\n    .custom-font-preview { font-size: 22px; color: #000; line-height: 1.2; word-break: break-all; }\n    .custom-font-name { font-size: 11px; color: #777; }\n  `;
+    .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
+    .selected-font-trigger { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; color: #333; height: 100%; box-sizing: border-box; }
+    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; width: 320px; max-height: 380px; overflow-y: auto; background: white; border: 1px solid #bbb; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); z-index: 10010; padding: 6px; box-sizing: border-box; }
+    .font-dropdown-list.hidden { display: none; }
+    .custom-font-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; }
+    .custom-font-item:last-child { border-bottom: none; }
+    .custom-font-item:hover { background: #f0f8ff; }
+    .custom-font-item.active { background: #e6f2ff; border-left: 3px solid #007bff; }
+    .custom-font-preview { font-size: 22px; color: #000; line-height: 1.2; word-break: break-all; }
+    .custom-font-name { font-size: 11px; color: #777; }
+  `;
   document.head.appendChild(styleEl);
 }
 
@@ -192,7 +202,13 @@ async function populateFontDropdowns() {
   }
   // Resguardo defensivo estático
   if (!fonts || fonts.length === 0) {
-    fonts = [\n      { name: \"Billie James\", family: \"ekko_billie\", file: \"BillieJames-Regular.woff2\" },\n      { name: \"Romantic Sunrise\", family: \"ekko_romantic\", file: \"Romantic Sunrise.woff2\" },\n      { name: \"Farmhouse\", family: \"ekko_farmhouse\", file: \"Farmhouse.woff2\" },\n      { name: \"Chocolate\", family: \"ekko_chocolate\", file: \"Chocolate.woff2\" },\n      { name: \"Disney\", family: \"ekko_disney\", file: \"waltograph42.woff2\" }\n    ];
+    fonts = [
+      { name: "Billie James", family: "ekko_billie", file: "BillieJames-Regular.woff2" },
+      { name: "Romantic Sunrise", family: "ekko_romantic", file: "Romantic Sunrise.woff2" },
+      { name: "Farmhouse", family: "ekko_farmhouse", file: "Farmhouse.woff2" },
+      { name: "Chocolate", family: "ekko_chocolate", file: "Chocolate.woff2" },
+      { name: "Disney", family: "ekko_disney", file: "waltograph42.woff2" }
+    ];
   }
   fonts.sort((a, b) => a.name.localeCompare(b.name));
   fontsCache = fonts; // Guardar en caché del módulo
@@ -549,9 +565,8 @@ export function initContextualMenu() {
       }
     }
   };
-
-  setupSliderWithPrecision(briSlider, 'ctxBrightnessNum', handleFilterInput);
-  setupSliderWithPrecision(conSlider, 'ctxContrastNum', handleFilterInput);
+  if (briSlider) briSlider.oninput = handleFilterInput;
+  if (conSlider) conSlider.oninput = handleFilterInput;
 }
 
 export function updateContextualMenu(item) {
