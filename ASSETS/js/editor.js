@@ -1384,7 +1384,88 @@ window.initSelectionTool = function() {
     paper.view.update();
   };
 
+
+  selectTool.onMouseMove = function(event) {
+    // Si hay una acción activa, respetamos el cursor de esa acción
+    if (window.dragging) {
+      paper.view.element.style.cursor = "move";
+      return;
+    }
+    if (window.resizeActive) {
+      return; // Mantener el cursor actual de redimensionamiento
+    }
+    if (window.rotationActive) {
+      paper.view.element.style.cursor = "grabbing";
+      return;
+    }
+    if (window.insertTextMode) {
+      paper.view.element.style.cursor = "text";
+      return;
+    }
+    
+    // Evitar pisar los cursores de paneo (grab/grabbing) de la barra espaciadora o botón medio
+    const currentCursor = paper.view.element.style.cursor;
+    if (currentCursor === "grab" || currentCursor === "grabbing") {
+      return;
+    }
+
+    if (window.selectedItem) {
+      // 1. Hit test para verificar si el mouse está sobre un tirador (handle)
+      const hitResult = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 8 / paper.view.zoom,
+        match: function(hit) {
+          return hit.item.data && hit.item.data.isHandle;
+        }
+      });
+
+      if (hitResult) {
+        const hType = hitResult.item.data.handleType;
+        if (hType === 'rot') {
+          paper.view.element.style.cursor = "grab";
+        } else if (hType === 'tl' || hType === 'br') {
+          paper.view.element.style.cursor = "nwse-resize";
+        } else if (hType === 'tr' || hType === 'bl') {
+          paper.view.element.style.cursor = "nesw-resize";
+        } else if (hType === 't' || hType === 'b') {
+          paper.view.element.style.cursor = "ns-resize";
+        } else if (hType === 'l' || hType === 'r') {
+          paper.view.element.style.cursor = "ew-resize";
+        }
+        return;
+      }
+
+      // 2. Hit test para verificar si el mouse está sobre el elemento seleccionado en sí
+      const generalHit = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        bounds: true,
+        tolerance: 8 / paper.view.zoom,
+        match: function(hit) {
+          if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
+          if (hit.item.data && hit.item.data.mockup) return false;
+          return true;
+        }
+      });
+
+      if (generalHit) {
+        const selectableItem = window.getSelectableItem(generalHit.item);
+        if (selectableItem && selectableItem === window.selectedItem) {
+          paper.view.element.style.cursor = "move";
+          return;
+        }
+      }
+    }
+
+    // Por defecto, cursor normal
+    paper.view.element.style.cursor = "default";
+  };
+
   selectTool.activate();
+
   console.log("🎯 Eventos de selección y redimensionamiento de Paper.js registrados con éxito.");
 };
 
@@ -1392,4 +1473,3 @@ window.initSelectionTool = function() {
 if (typeof paper !== "undefined" && paper.view) {
   window.initSelectionTool();
 }
-
