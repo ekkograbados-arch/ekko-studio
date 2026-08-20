@@ -106,6 +106,12 @@ export function sendImageBackward(item) {
 export function applyBrightnessContrast(raster, brightness, contrast) {
   if (!raster || !(raster instanceof paper.Raster)) return;
 
+  // 0. SOLUCIÓN AL EVENT LEAK: Anular de raíz cualquier callback onLoad obsoleto para evitar que
+  // se re-dispare recursivamente al reasignar .canvas y destruya la imagen o resetee sus datos.
+  if (raster.onLoad) {
+    raster.onLoad = null;
+  }
+
   // 1. Inicializar la copia original (originalCanvas) de alta calidad si no existe con resolución súper robusta
   if (!raster.data.originalCanvas) {
     const canvas = document.createElement('canvas');
@@ -170,6 +176,12 @@ export function applyBrightnessContrast(raster, brightness, contrast) {
 
   raster.canvas = procCanvas;
   raster.matrix = oldMatrix;
+
+  // 5. Garantía de Caja de Selección: Sincronizar el contorno celeste azul de selección de Paper.js
+  if (typeof window.updateSelectionBox === 'function') {
+    const itemToUpdate = raster.parent && raster.parent.data?.clipGroup ? raster.parent : raster;
+    window.updateSelectionBox(itemToUpdate);
+  }
 
   paper.view.update();
 }
