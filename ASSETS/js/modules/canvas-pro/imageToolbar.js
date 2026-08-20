@@ -106,18 +106,20 @@ export function sendImageBackward(item) {
 export function applyBrightnessContrast(raster, brightness, contrast) {
   if (!raster || !(raster instanceof paper.Raster)) return;
 
-  // 1. Inicializar la copia original (originalCanvas) de alta calidad si no existe
+  // 1. Inicializar la copia original (originalCanvas) de alta calidad si no existe con resolución súper robusta
   if (!raster.data.originalCanvas) {
     const canvas = document.createElement('canvas');
-    canvas.width = raster.width || 1;
-    canvas.height = raster.height || 1;
+    const src = raster.image || raster.canvas;
+    const w = (src ? (src.naturalWidth || src.width) : 0) || raster.width || (raster.size ? raster.size.width : 300);
+    const h = (src ? (src.naturalHeight || src.height) : 0) || raster.height || (raster.size ? raster.size.height : 300);
+    
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d');
     
-    // Obtener la fuente de píxeles reales (imagen o canvas modificado)
-    const src = raster.image || raster.canvas;
-    if (src && canvas.width > 1 && canvas.height > 1) {
+    if (src && w > 0 && h > 0) {
       // Usar la versión de 5 parámetros para redimensionar y dibujar la imagen de forma exacta sin recortes
-      ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(src, 0, 0, w, h);
     }
     raster.data.originalCanvas = canvas;
   }
@@ -161,14 +163,13 @@ export function applyBrightnessContrast(raster, brightness, contrast) {
 
   procCtx.putImageData(imgData, 0, 0);
 
-  // 4. Respaldar propiedades físicas antes de re-asignar el canvas para evitar re-escalados o desplazamientos
+  // 4. Respaldar propiedades físicas antes de re-asignar el canvas para evitar re-escalados o desplazamientos.
+  // IMPORTANTE: Únicamente clonamos y restauramos la matriz del elemento en Paper.js.
+  // Al no manipular la propiedad de posición absoluta, evitamos el desplazamiento acumulativo por redondeo de bounds de rotación.
   const oldMatrix = raster.matrix.clone();
-  const oldPosition = raster.position.clone();
 
   raster.canvas = procCanvas;
-
   raster.matrix = oldMatrix;
-  raster.position = oldPosition;
 
   paper.view.update();
 }
