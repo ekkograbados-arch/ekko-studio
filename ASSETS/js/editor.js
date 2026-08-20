@@ -15,12 +15,17 @@ import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./
 import { startTextEditing } from "./modules/textEditor.js";
 
 window.addEventListener("DOMContentLoaded", () => {
-  // 1. Inicializar Paper.js de forma segura en el lienzo
-  const canvasEl = document.getElementById("editorCanvas");
-  if (canvasEl) {
-    paper.setup("editorCanvas");
-    paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
-  }
+    // 1. Inicializar Paper.js de forma segura en el lienzo
+    const canvasEl = document.getElementById("editorCanvas");
+    if (canvasEl) {
+        paper.setup("editorCanvas");
+        paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+        
+        // 🚀 CORRECCIÓN: Inicializar herramientas de selección después de paper.setup
+        if (typeof window.initSelectionTool === "function") {
+            window.initSelectionTool();
+        }
+    }
 
   // --- Variables de Estado Global del Editor ---
   const toolState = {
