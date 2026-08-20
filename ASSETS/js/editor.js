@@ -484,5 +484,90 @@ window.addEventListener("DOMContentLoaded", () => {
   } else {
     renderCategories();
   }
+   // =========================================================================
+// INTEGRACIÓN DE DISPARADORES DE LA BARRA SUPERIOR (Cargar Imagen, SVG y QR)
+// =========================================================================
+
+// 1. Enlace para Cargar Imagen
+safeAddListener("btnAddImage", "click", () => {
+    if (ui.imagePicker) ui.imagePicker.click();
+});
+
+safeAddListener("imagePicker", "change", (e) => {
+    const file = e.target.files;
+    if (file) {
+        addImageFromFile(file);
+        e.target.value = ""; // Resetear para permitir recargar el mismo archivo
+    }
+});
+
+// 2. Enlace para Cargar SVG
+safeAddListener("btnAddSVG", "click", () => {
+    if (ui.svgPicker) ui.svgPicker.click();
+});
+
+safeAddListener("svgPicker", "change", (e) => {
+    const file = e.target.files;
+    if (file) {
+        addSVGFromFile(file);
+        e.target.value = ""; // Resetear para permitir recargar el mismo archivo
+    }
+});
+
+// 3. Generación Dinámica de Código QR (Offline y Vectorizable en Paper.js)
+const loadQRCodeLibrary = () => {
+    return new Promise((resolve) => {
+        if (window.QRCode) return resolve();
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+        script.onload = () => resolve();
+        document.head.appendChild(script);
+    });
+};
+
+async function addQRToCanvas(text) {
+    await loadQRCodeLibrary();
+    saveHistory();
+    const tempDiv = document.createElement("div");
+    new QRCode(tempDiv, {
+        text: text,
+        width: 256,
+        height: 256,
+        correctLevel: QRCode.CorrectLevel.H
+    });
+
+    // Esperar un breve instante para que la librería dibuje el QR
+    setTimeout(() => {
+        const qrCanvas = tempDiv.querySelector("canvas") || tempDiv.querySelector("img");
+        if (qrCanvas) {
+            const src = qrCanvas.toDataURL ? qrCanvas.toDataURL() : qrCanvas.src;
+            const raster = new paper.Raster({ source: src });
+            raster.onLoad = () => {
+                raster.data = { locked: false, label: "Código QR" };
+                const area = paper.view.bounds;
+                const size = Math.min(area.width, area.height) * 0.3; // Escalar al 30% del lienzo
+                raster.scale(size / raster.width);
+                raster.position = area.center;
+                
+                // Enmascarar bajo el área segura del producto
+                const objeto = window.clipItem(raster);
+                if (window.currentMockup) {
+                    objeto.insertBelow(window.currentMockup);
+                }
+                window.selectItem(objeto);
+                paper.view.update();
+            };
+        }
+        tempDiv.remove();
+    }, 100);
+}
+
+// 4. Enlace para Generar QR
+safeAddListener("btnAddQR", "click", () => {
+    const text = prompt("Ingrese el texto o enlace (Instagram, WhatsApp, WiFi) para el código QR:", "https://www.instagram.com/grabados_ekko/");
+    if (text && text.trim() !== "") {
+        addQRToCanvas(text.trim());
+    }
+});
 });
 
