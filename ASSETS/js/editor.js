@@ -77,6 +77,16 @@ window.addEventListener("DOMContentLoaded", () => {
     if (typeof window.initSelectionTool === "function") {
       window.initSelectionTool();
     }
+
+    // Inicializar Menú Contextual Arrastrable y Custom Dropdowns
+    if (typeof initContextualMenu === "function") {
+      initContextualMenu();
+    }
+
+    // Inicializar Zoom y Panorámica Interactiva de Alto Rendimiento en el Lienzo
+    if (typeof initCanvasZoomAndPan === "function") {
+      initCanvasZoomAndPan();
+    }
   }
 });
 
@@ -585,11 +595,7 @@ window.addEventListener("resize", () => {
   }
 });
 
-// Inicializar Menú Contextual Arrastrable y Custom Dropdowns
-initContextualMenu();
-
-// Inicializar Zoom y Panorámica Interactiva de Alto Rendimiento en el Lienzo
-initCanvasZoomAndPan();
+// --- NOTA: Inicializaciones movidas dentro del evento DOMContentLoaded para sincronización correcta de paper.view ---
 
 // --- CORRECCIÓN APLICADA: Carga de tipografías dinámicas globales para sincronización de head ---
 loadDynamicFonts().then(loadedFonts => {
@@ -893,3 +899,4 @@ function initCanvasZoomAndPan() {
     }
   }
 }
+
