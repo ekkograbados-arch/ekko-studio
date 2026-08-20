@@ -121,7 +121,7 @@ export function applyBrightnessContrast(raster, brightness, contrast) {
     
     canvas.width = w;
     canvas.height = h;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     
     if (src && w > 0 && h > 0) {
       // Usar la versión de 5 parámetros para redimensionar y dibujar la imagen de forma exacta sin recortes
@@ -140,7 +140,7 @@ export function applyBrightnessContrast(raster, brightness, contrast) {
   procCanvas.width = w;
   procCanvas.height = h;
 
-  const procCtx = procCanvas.getContext('2d');
+  const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
   procCtx.drawImage(origCanvas, 0, 0);
 
   const imgData = procCtx.getImageData(0, 0, w, h);
