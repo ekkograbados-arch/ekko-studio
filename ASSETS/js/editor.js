@@ -15,11 +15,63 @@ import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./
 import { startTextEditing } from "./modules/textEditor.js";
 
 window.addEventListener("DOMContentLoaded", () => {
+  // --- INYECCIÓN DINÁMICA DE ESTILOS DE LIENZO INFINITO (ESTILO FIGMA/CANVA) ---
+  const infiniteCanvasStylesId = 'ekko-infinite-canvas-styles';
+  if (!document.getElementById(infiniteCanvasStylesId)) {
+    const styleEl = document.createElement('style');
+    styleEl.id = infiniteCanvasStylesId;
+    styleEl.textContent = `
+      #editorCanvas {
+        width: 100% !important;
+        height: 100% !important;
+        background-color: #e2e8f0 !important; /* Gris de espacio de trabajo Canva/Figma */
+        border: none !important;
+        box-shadow: none !important;
+      }
+      #canvasContainer {
+        padding: 0 !important;
+        overflow: hidden !important;
+        display: flex;
+        align-items: stretch;
+        justify-content: stretch;
+      }
+    `;
+    document.head.appendChild(styleEl);
+  }
+
   // 1. Inicializar Paper.js de forma segura en el lienzo
   const canvasEl = document.getElementById("editorCanvas");
-  if (canvasEl) {
+  const containerEl = document.getElementById("canvasContainer");
+  if (canvasEl && containerEl) {
+    // Forzar modo de lienzo infinito globalmente
+    window.infiniteCanvasMode = true;
+    
+    // Asignar tamaño físico real del contenedor para evitar límites de 800x600 o recortes
+    const initialWidth = containerEl.clientWidth || 800;
+    const initialHeight = containerEl.clientHeight || 600;
+    canvasEl.width = initialWidth;
+    canvasEl.height = initialHeight;
+    
     paper.setup("editorCanvas");
-    paper.view.viewSize = new paper.Size(canvasEl.clientWidth, canvasEl.clientHeight);
+    paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
+    
+    // Asegurar que tenemos un layer de diseño y un layer de fondo
+    let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
+    if (!backLayer) {
+      backLayer = new paper.Layer();
+      backLayer.name = 'backgroundLayer';
+      paper.project.insertLayer(0, backLayer);
+    }
+    
+    let designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+    if (!designLayer) {
+      designLayer = new paper.Layer();
+      designLayer.name = 'designLayer';
+    }
+    designLayer.activate();
+    
+    paper.view.center = new paper.Point(0, 0); // Centrar cámara en el origen (0, 0)
+    drawVirtualPage(); // Dibujar el lienzo A4 virtual en la capa de fondo
     
     // 🚀 NUEVO: Inicializar herramienta de selección después de paper.setup
     if (typeof window.initSelectionTool === "function") {
@@ -97,6 +149,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (typeof restoreMockupReferences === "function") {
       restoreMockupReferences();
     }
+    drawVirtualPage(); // Re-dibujar hoja de fondo tras limpiar proyecto
     paper.view.update();
   }
 
@@ -110,6 +163,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (typeof restoreMockupReferences === "function") {
       restoreMockupReferences();
     }
+    drawVirtualPage(); // Re-dibujar hoja de fondo tras limpiar proyecto
     paper.view.update();
   }
 
@@ -206,6 +260,11 @@ window.addEventListener("DOMContentLoaded", () => {
     if (!product || !surface) return;
     const key = getSceneKey(product, surface);
     window.deselectItem();
+    
+    // Resetear zoom y centrar cámara en el origen antes de cargar para alineación exacta de la hoja A4
+    paper.view.zoom = 1.0;
+    paper.view.center = new paper.Point(0, 0);
+    
     if (sceneStates[key]) {
       paper.project.clear();
       paper.project.importJSON(sceneStates[key]);
@@ -213,6 +272,7 @@ window.addEventListener("DOMContentLoaded", () => {
       if (typeof restoreMockupReferences === "function") {
         restoreMockupReferences();
       }
+      drawVirtualPage(); // Asegurar hoja de fondo virtual
       paper.view.update();
       return;
     }
@@ -469,6 +529,19 @@ window.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+    // Escuchar evento de cambio de tamaño de pantalla para actualizar las dimensiones lógicas de Paper.js
+  window.addEventListener("resize", () => {
+    if (canvasEl && containerEl && paper.view) {
+      const w = containerEl.clientWidth || 800;
+      const h = containerEl.clientHeight || 600;
+      canvasEl.width = w;
+      canvasEl.height = h;
+      paper.view.viewSize = new paper.Size(w, h);
+      drawVirtualPage(); // Redibujar hoja centrada
+      paper.view.update();
+    }
+  });
+
   // Inicializar Menú Contextual Arrastrable y Custom Dropdowns
   initContextualMenu();
 
@@ -585,6 +658,53 @@ window.addEventListener("DOMContentLoaded", () => {
 /**
  * Inicializa el sistema de Zoom, Panorámica y Atajos de Teclado del Lienzo de Paper.js
  */
+  // --- INYECCIÓN DE HOJA DE TRABAJO VIRTUAL A4 (LIENZO INFINITO) ---
+  function drawVirtualPage() {
+    let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
+    if (!backLayer) {
+      backLayer = new paper.Layer();
+      backLayer.name = 'backgroundLayer';
+      paper.project.insertLayer(0, backLayer);
+    }
+    
+    const activeLayer = paper.project.activeLayer;
+    backLayer.activate();
+    backLayer.removeChildren(); // Limpiar dibujos de fondo anteriores
+    
+    const width = 840;  // Ancho estándar de la hoja de trabajo virtual
+    const height = 594; // Alto de la hoja de trabajo virtual (proporción A4 horizontal)
+    const rect = new paper.Rectangle(-width / 2, -height / 2, width, height);
+    
+    const pageGroup = new paper.Group();
+    pageGroup.data = { isVirtualPage: true, locked: true, mockup: true }; // se hace pasar por mockup para ser inmune al hitTest de selección
+    
+    // A. Sombra elegante de la página para dar sensación de profundidad
+    const shadowRect = new paper.Rectangle(rect.left + 5, rect.top + 5, width, height);
+    const shadow = new paper.Path.Rectangle(shadowRect);
+    shadow.fillColor = 'rgba(15, 23, 42, 0.08)'; // Sombra de pizarra moderna
+    shadow.data = { locked: true, mockup: true };
+    pageGroup.addChild(shadow);
+    
+    // B. Fondo blanco limpio de la hoja de trabajo
+    const sheet = new paper.Path.Rectangle(rect);
+    sheet.fillColor = '#ffffff';
+    sheet.data = { locked: true, mockup: true };
+    pageGroup.addChild(sheet);
+    
+    // C. Borde gris suave de delimitación
+    const border = new paper.Path.Rectangle(rect);
+    border.strokeColor = '#cbd5e1';
+    border.strokeWidth = 1.5;
+    border.data = { locked: true, mockup: true };
+    pageGroup.addChild(border);
+    
+    backLayer.addChild(pageGroup);
+    
+    // Devolver el foco a la capa de diseño para que las cargas de SVGs/imágenes vayan ahí
+    activeLayer.activate();
+    paper.view.update();
+  }
+
 function initCanvasZoomAndPan() {
   const canvasEl = document.getElementById("editorCanvas");
   if (!canvasEl || !paper.view) {
@@ -775,12 +895,15 @@ function initCanvasZoomAndPan() {
 
   function resetCanvasView() {
     paper.view.zoom = 1.0;
+    if (typeof toolState !== 'undefined') {
+      toolState.zoom = 1.0;
+    }
     
-    // Centrar sobre el mockup del producto si existe, de lo contrario en el centro del canvas físico
+    // Centrar sobre el mockup del producto si existe, de lo contrario en el origen del lienzo infinito
     if (window.currentMockup) {
       paper.view.center = window.currentMockup.bounds.center;
     } else {
-      paper.view.center = new paper.Point(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2);
+      paper.view.center = new paper.Point(0, 0);
     }
     paper.view.update();
 
