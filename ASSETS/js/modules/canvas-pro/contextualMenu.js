@@ -6,8 +6,8 @@ desplegable de fuentes personalizado basado en div con previsualización del tex
 en tiempo real, e inyección dinámica de familias de fuentes.
 ========================================================================= */
 
-import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
-import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
+import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from \"./textToolbar.js\";
+import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from \"./imageToolbar.js\";
 
 // Variable global de previsualización en window
 window.originalFontBackup = null;
@@ -192,13 +192,7 @@ async function populateFontDropdowns() {
   }
   // Resguardo defensivo estático
   if (!fonts || fonts.length === 0) {
-    fonts = [
-      { name: "Billie James", family: "ekko_billie", file: "BillieJames-Regular.woff2" },
-      { name: "Romantic Sunrise", family: "ekko_romantic", file: "Romantic Sunrise.woff2" },
-      { name: "Farmhouse", family: "ekko_farmhouse", file: "Farmhouse.woff2" },
-      { name: "Chocolate", family: "ekko_chocolate", file: "Chocolate.woff2" },
-      { name: "Disney", family: "ekko_disney", file: "waltograph42.woff2" }
-    ];
+    fonts = [\n      { name: \"Billie James\", family: \"ekko_billie\", file: \"BillieJames-Regular.woff2\" },\n      { name: \"Romantic Sunrise\", family: \"ekko_romantic\", file: \"Romantic Sunrise.woff2\" },\n      { name: \"Farmhouse\", family: \"ekko_farmhouse\", file: \"Farmhouse.woff2\" },\n      { name: \"Chocolate\", family: \"ekko_chocolate\", file: \"Chocolate.woff2\" },\n      { name: \"Disney\", family: \"ekko_disney\", file: \"waltograph42.woff2\" }\n    ];
   }
   fonts.sort((a, b) => a.name.localeCompare(b.name));
   fontsCache = fonts; // Guardar en caché del módulo
@@ -499,28 +493,44 @@ export function initContextualMenu() {
       onChangeFn();
     };
 
+    // Al soltar el click del slider, registrar en el historial de forma transaccional
+    slider.onchange = () => {
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+    };
+
     // Sincronizar desde Input Numérico
     numInput.oninput = () => {
       syncAndTrigger(numInput.value);
     };
 
-    // Soporte para rueda de mouse (wheel) en el Slider
-    slider.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const step = 2; // Desplazamiento fluido de a 2 unidades
-      const direction = e.deltaY < 0 ? 1 : -1;
-      const newVal = parseFloat(slider.value) + (direction * step);
-      syncAndTrigger(newVal);
-    }, { passive: false });
+    // Al desenfocar o dar enter en el input de número, guardar en el historial
+    numInput.onchange = () => {
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+    };
 
-    // Soporte para rueda de mouse (wheel) en el Number Input
-    numInput.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const step = 1; // Precisión de 1 unidad
-      const direction = e.deltaY < 0 ? 1 : -1;
-      const newVal = parseFloat(numInput.value) + (direction * step);
-      syncAndTrigger(newVal);
-    }, { passive: false });
+    // Soporte anti-duplicados y rueda de mouse (wheel) en el Slider
+    if (!slider.dataset.wheelBound) {
+      slider.dataset.wheelBound = "true";
+      slider.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const step = 2; // Desplazamiento fluido de a 2 unidades
+        const direction = e.deltaY < 0 ? 1 : -1;
+        const newVal = parseFloat(slider.value) + (direction * step);
+        syncAndTrigger(newVal);
+      }, { passive: false });
+    }
+
+    // Soporte anti-duplicados y rueda de mouse (wheel) en el Number Input
+    if (!numInput.dataset.wheelBound) {
+      numInput.dataset.wheelBound = "true";
+      numInput.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const step = 1; // Precisión de 1 unidad
+        const direction = e.deltaY < 0 ? 1 : -1;
+        const newVal = parseFloat(numInput.value) + (direction * step);
+        syncAndTrigger(newVal);
+      }, { passive: false });
+    }
 
     return numInput;
   };
@@ -534,7 +544,7 @@ export function initContextualMenu() {
         const contrast = conSlider ? parseFloat(conSlider.value) : 0;
         target.data.brightness = brightness;
         target.data.contrast = contrast;
-        // Aplicar la corrección de brillo y contraste píxel a píxel en tiempo real sin desvíos
+        // Aplicar la corrección de brillo y contraste píxel a píxel en tiempo real
         applyBrightnessContrast(target, brightness, contrast);
       }
     }
