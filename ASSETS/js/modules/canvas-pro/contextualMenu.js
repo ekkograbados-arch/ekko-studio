@@ -230,6 +230,7 @@ async function populateFontDropdowns() {
 
     const nativeSelect = document.getElementById('ctxFontSelector');
     if (nativeSelect) {
+        // Esconder el select original
         nativeSelect.style.display = 'none';
         nativeSelect.classList.add('hidden');
     }
@@ -245,12 +246,14 @@ async function populateFontDropdowns() {
             trigger.onclick = (e) => {
                 e.stopPropagation();
                 
+                // Cerrar otros dropdowns si los hubiera
                 document.querySelectorAll('.font-dropdown-list').forEach(el => {
                     if (el !== list) el.classList.add('hidden');
                 });
                 
                 const isOpen = !list.classList.contains('hidden');
                 if (!isOpen) {
+                    // Copia de seguridad de la fuente original por si cancelan (hover)
                     window.originalFontBackup = getSelectedFontFamily();
                     renderCustomFontItems(list, fontsCache);
                     list.classList.remove('hidden');
@@ -259,6 +262,7 @@ async function populateFontDropdowns() {
                 }
             };
             
+            // Cerrar el listado al hacer clic fuera
             document.addEventListener('click', () => {
                 list.classList.add('hidden');
             });
@@ -278,6 +282,7 @@ function makeToolbarDraggable() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
 
+    // Agregar cursor de movimiento sólo cuando no esté sobre controles interactivos
     toolbar.addEventListener('mouseover', (e) => {
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
             toolbar.style.cursor = 'default';
@@ -353,6 +358,7 @@ export function ungroupSelectedItem() {
             // El usuario final requiere que el diseño permanezca recortado dentro del mate/medalla.
             // Para ello, inyectamos cada hijo en un nuevo sub-clipGroup duplicando la máscara nativa.
             newItem = window.clipItem(child);
+            parent.addChild(newItem); // Asegurar inserción en el árbol lógico de Paper.js
         } else {
             newItem = child;
             parent.addChild(newItem);
@@ -531,7 +537,7 @@ export function updateContextualMenu(item) {
     // BLOQUEO ARQUITECTÓNICO PREVENTIVO: Proteger mockups de productos en todo caso
     if (!item || (item.data && item.data.mockup)) {
         toolbar.classList.remove('active');
-        toolbarDragged = false; // Resetear arrastre al ocultarse
+        toolbarDragged = false; // Resetear bandera de arrastre al ocultarse
         lastSelectedItem = null;
         return;
     }
@@ -589,9 +595,11 @@ export function updateContextualMenu(item) {
         const bounds = item.bounds;
         if (!bounds) return;
         
+        // Colocar el menú centrado flotando ligeramente arriba del objeto seleccionado
         const canvasWrap = document.querySelector('.canvas-wrap');
-        const canvasRect = document.getElementById('editorCanvas').getBoundingClientRect();
-        if (canvasWrap) {
+        const canvasEl = document.getElementById('editorCanvas');
+        if (canvasWrap && canvasEl) {
+            const canvasRect = canvasEl.getBoundingClientRect();
             const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
             const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
             
