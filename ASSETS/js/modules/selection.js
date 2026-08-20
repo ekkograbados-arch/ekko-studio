@@ -2,9 +2,10 @@
 Módulo: ASSETS/js/modules/selection.js
 Descripción: Gestión de selección, redimensionamiento, arrastre y caja de selección
 en Paper.js para EKKO Studio.
-CORRECCIÓN DE ARRASTRE: Al arrastrar un objeto recortado (clipGroup), se mueve
-únicamente el contenido interno, manteniendo la máscara (silueta del mockup) fija
-en su lugar para que el diseño se desplace "dentro" del contorno del producto.
+CORRECCIÓN DE ARRASTRE Y ESCALA: Al arrastrar o redimensionar un objeto recortado
+(clipGroup), se opera únicamente sobre el contenido interno (imagen, texto, svg, qr),
+manteniendo la máscara (silueta del mockup) fija en su lugar para que el diseño
+se desplace o escale "dentro" del contorno original del producto sin deformarlo.
 ========================================================================= */
 
 window.selectedItem = null;
@@ -364,7 +365,19 @@ factorY = factor;
 // Aplicar escala incremental relativa
 const scaleFactorX = factorX / window.resizeLastScaleX;
 const scaleFactorY = factorY / window.resizeLastScaleY;
-window.resizeTarget.scale(scaleFactorX, scaleFactorY, anchor);
+
+// 🚀 ESCALADO SEGURO INTERNO (MÁSCARA FIJA):
+// Escalamos únicamente el contenido real interno y NO el grupo entero.
+// Esto garantiza que la máscara mantenga su escala fija alineada al mockup del producto
+// mientras el usuario modifica interactivamente el tamaño de su diseño.
+const targetToScale = (window.resizeTarget.data && window.resizeTarget.data.clipGroup)
+? window.resizeTarget.children.find(function(c) { return !c.clipMask; })
+: window.resizeTarget;
+
+if (targetToScale) {
+    targetToScale.scale(scaleFactorX, scaleFactorY, anchor);
+}
+
 window.resizeLastScaleX = factorX;
 window.resizeLastScaleY = factorY;
 window.updateSelectionBox(window.resizeTarget);
