@@ -21,17 +21,7 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
   const styleEl = document.createElement('style');
   styleEl.id = dropdownStylesId;
   styleEl.textContent = `
-    .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
-    .selected-font-trigger { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; color: #333; height: 100%; box-sizing: border-box; }
-    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; width: 320px; max-height: 380px; overflow-y: auto; background: white; border: 1px solid #bbb; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); z-index: 10010; padding: 6px; box-sizing: border-box; }
-    .font-dropdown-list.hidden { display: none; }
-    .custom-font-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; }
-    .custom-font-item:last-child { border-bottom: none; }
-    .custom-font-item:hover { background: #f0f8ff; }
-    .custom-font-item.active { background: #e6f2ff; border-left: 3px solid #007bff; }
-    .custom-font-preview { font-size: 22px; color: #000; line-height: 1.2; word-break: break-all; }
-    .custom-font-name { font-size: 11px; color: #777; }
-  `;
+    .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }\n    .selected-font-trigger { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; color: #333; height: 100%; box-sizing: border-box; }\n    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; width: 320px; max-height: 380px; overflow-y: auto; background: white; border: 1px solid #bbb; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); z-index: 10010; padding: 6px; box-sizing: border-box; }\n    .font-dropdown-list.hidden { display: none; }\n    .custom-font-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; }\n    .custom-font-item:last-child { border-bottom: none; }\n    .custom-font-item:hover { background: #f0f8ff; }\n    .custom-font-item.active { background: #e6f2ff; border-left: 3px solid #007bff; }\n    .custom-font-preview { font-size: 22px; color: #000; line-height: 1.2; word-break: break-all; }\n    .custom-font-name { font-size: 11px; color: #777; }\n  `;
   document.head.appendChild(styleEl);
 }
 
@@ -462,9 +452,79 @@ export function initContextualMenu() {
     ungroupSelectedItem();
   });
 
-  // Sliders de brillo y contraste
+  // Sliders de brillo y contraste con entradas numéricas de precisión y soporte para rueda de mouse
   const briSlider = document.getElementById('ctxBrightness');
   const conSlider = document.getElementById('ctxContrast');
+
+  const setupSliderWithPrecision = (slider, numId, onChangeFn) => {
+    if (!slider) return null;
+    
+    // Crear el elemento number dinámicamente si no existe
+    let numInput = document.getElementById(numId);
+    if (!numInput) {
+      numInput = document.createElement('input');
+      numInput.type = 'number';
+      numInput.id = numId;
+      numInput.min = slider.min || -100;
+      numInput.max = slider.max || 100;
+      numInput.value = slider.value || 0;
+      numInput.className = 'toolbar-input-number';
+      numInput.style.width = '55px';
+      numInput.style.marginLeft = '8px';
+      numInput.style.padding = '2px 4px';
+      numInput.style.border = '1px solid #ccc';
+      numInput.style.borderRadius = '4px';
+      numInput.style.fontSize = '12px';
+      numInput.style.textAlign = 'center';
+      
+      // Insertar justo después del slider
+      slider.parentNode.appendChild(numInput);
+    }
+
+    const syncAndTrigger = (val) => {
+      const min = parseFloat(slider.min);
+      const max = parseFloat(slider.max);
+      let cleanVal = parseFloat(val);
+      if (isNaN(cleanVal)) cleanVal = 0;
+      cleanVal = Math.max(min, Math.min(max, cleanVal));
+      
+      slider.value = cleanVal;
+      numInput.value = cleanVal;
+      onChangeFn();
+    };
+
+    // Sincronizar desde Slider
+    slider.oninput = () => {
+      numInput.value = slider.value;
+      onChangeFn();
+    };
+
+    // Sincronizar desde Input Numérico
+    numInput.oninput = () => {
+      syncAndTrigger(numInput.value);
+    };
+
+    // Soporte para rueda de mouse (wheel) en el Slider
+    slider.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const step = 2; // Desplazamiento fluido de a 2 unidades
+      const direction = e.deltaY < 0 ? 1 : -1;
+      const newVal = parseFloat(slider.value) + (direction * step);
+      syncAndTrigger(newVal);
+    }, { passive: false });
+
+    // Soporte para rueda de mouse (wheel) en el Number Input
+    numInput.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const step = 1; // Precisión de 1 unidad
+      const direction = e.deltaY < 0 ? 1 : -1;
+      const newVal = parseFloat(numInput.value) + (direction * step);
+      syncAndTrigger(newVal);
+    }, { passive: false });
+
+    return numInput;
+  };
+
   const handleFilterInput = () => {
     if (window.selectedItem) {
       const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
@@ -474,13 +534,14 @@ export function initContextualMenu() {
         const contrast = conSlider ? parseFloat(conSlider.value) : 0;
         target.data.brightness = brightness;
         target.data.contrast = contrast;
-        // Aplicar la corrección de brillo y contraste píxel a píxel en tiempo real
+        // Aplicar la corrección de brillo y contraste píxel a píxel en tiempo real sin desvíos
         applyBrightnessContrast(target, brightness, contrast);
       }
     }
   };
-  if (briSlider) briSlider.oninput = handleFilterInput;
-  if (conSlider) conSlider.oninput = handleFilterInput;
+
+  setupSliderWithPrecision(briSlider, 'ctxBrightnessNum', handleFilterInput);
+  setupSliderWithPrecision(conSlider, 'ctxContrastNum', handleFilterInput);
 }
 
 export function updateContextualMenu(item) {
@@ -517,9 +578,16 @@ export function updateContextualMenu(item) {
       imageControls.classList.remove('hidden');
     }
     const briSlider = document.getElementById('ctxBrightness');
-    if (briSlider) briSlider.value = target.data?.brightness || 0;
+    const briNum = document.getElementById('ctxBrightnessNum');
+    const bVal = target.data?.brightness || 0;
+    if (briSlider) briSlider.value = bVal;
+    if (briNum) briNum.value = bVal;
+
     const conSlider = document.getElementById('ctxContrast');
-    if (conSlider) conSlider.value = target.data?.contrast || 0;
+    const conNum = document.getElementById('ctxContrastNum');
+    const cVal = target.data?.contrast || 0;
+    if (conSlider) conSlider.value = cVal;
+    if (conNum) conNum.value = cVal;
   } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
     const vectorControls = document.getElementById('ctxVectorControls');
     if (vectorControls) {
