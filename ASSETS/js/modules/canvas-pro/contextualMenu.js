@@ -565,8 +565,8 @@ export function initContextualMenu() {
       }
     }
   };
-  if (briSlider) briSlider.oninput = handleFilterInput;
-  if (conSlider) conSlider.oninput = handleFilterInput;
+  setupSliderWithPrecision(briSlider, 'ctxBrightnessNum', handleFilterInput);
+  setupSliderWithPrecision(conSlider, 'ctxContrastNum', handleFilterInput);
 }
 
 export function updateContextualMenu(item) {
