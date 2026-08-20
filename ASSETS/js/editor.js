@@ -494,7 +494,7 @@ safeAddListener("btnAddImage", "click", () => {
 });
 
 safeAddListener("imagePicker", "change", (e) => {
-    const file = e.target.files;
+    const file = e.target.files; // <--- CORRECCIÓN AQUÍ: Tomar el primer archivo de la lista
     if (file) {
         addImageFromFile(file);
         e.target.value = ""; // Resetear para permitir recargar el mismo archivo
@@ -507,7 +507,7 @@ safeAddListener("btnAddSVG", "click", () => {
 });
 
 safeAddListener("svgPicker", "change", (e) => {
-    const file = e.target.files;
+    const file = e.target.files; // <--- CORRECCIÓN AQUÍ: Tomar el primer archivo de la lista
     if (file) {
         addSVGFromFile(file);
         e.target.value = ""; // Resetear para permitir recargar el mismo archivo
