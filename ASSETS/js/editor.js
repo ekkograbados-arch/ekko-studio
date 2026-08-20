@@ -71,7 +71,6 @@ window.addEventListener("DOMContentLoaded", () => {
     designLayer.activate();
     
     paper.view.center = new paper.Point(0, 0); // Centrar cámara en el origen (0, 0)
-    drawVirtualPage(); // Dibujar el lienzo A4 virtual en la capa de fondo
     
     // 🚀 NUEVO: Inicializar herramienta de selección después de paper.setup
     if (typeof window.initSelectionTool === "function") {
@@ -149,7 +148,6 @@ window.addEventListener("DOMContentLoaded", () => {
     if (typeof restoreMockupReferences === "function") {
       restoreMockupReferences();
     }
-    drawVirtualPage(); // Re-dibujar hoja de fondo tras limpiar proyecto
     paper.view.update();
   }
 
@@ -163,7 +161,6 @@ window.addEventListener("DOMContentLoaded", () => {
     if (typeof restoreMockupReferences === "function") {
       restoreMockupReferences();
     }
-    drawVirtualPage(); // Re-dibujar hoja de fondo tras limpiar proyecto
     paper.view.update();
   }
 
@@ -272,7 +269,6 @@ window.addEventListener("DOMContentLoaded", () => {
       if (typeof restoreMockupReferences === "function") {
         restoreMockupReferences();
       }
-      drawVirtualPage(); // Asegurar hoja de fondo virtual
       paper.view.update();
       return;
     }
@@ -537,7 +533,6 @@ window.addEventListener("DOMContentLoaded", () => {
       canvasEl.width = w;
       canvasEl.height = h;
       paper.view.viewSize = new paper.Size(w, h);
-      drawVirtualPage(); // Redibujar hoja centrada
       paper.view.update();
     }
   });
@@ -658,52 +653,6 @@ window.addEventListener("DOMContentLoaded", () => {
 /**
  * Inicializa el sistema de Zoom, Panorámica y Atajos de Teclado del Lienzo de Paper.js
  */
-  // --- INYECCIÓN DE HOJA DE TRABAJO VIRTUAL A4 (LIENZO INFINITO) ---
-  function drawVirtualPage() {
-    let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
-    if (!backLayer) {
-      backLayer = new paper.Layer();
-      backLayer.name = 'backgroundLayer';
-      paper.project.insertLayer(0, backLayer);
-    }
-    
-    const activeLayer = paper.project.activeLayer;
-    backLayer.activate();
-    backLayer.removeChildren(); // Limpiar dibujos de fondo anteriores
-    
-    const width = 840;  // Ancho estándar de la hoja de trabajo virtual
-    const height = 594; // Alto de la hoja de trabajo virtual (proporción A4 horizontal)
-    const rect = new paper.Rectangle(-width / 2, -height / 2, width, height);
-    
-    const pageGroup = new paper.Group();
-    pageGroup.data = { isVirtualPage: true, locked: true, mockup: true }; // se hace pasar por mockup para ser inmune al hitTest de selección
-    
-    // A. Sombra elegante de la página para dar sensación de profundidad
-    const shadowRect = new paper.Rectangle(rect.left + 5, rect.top + 5, width, height);
-    const shadow = new paper.Path.Rectangle(shadowRect);
-    shadow.fillColor = 'rgba(15, 23, 42, 0.08)'; // Sombra de pizarra moderna
-    shadow.data = { locked: true, mockup: true };
-    pageGroup.addChild(shadow);
-    
-    // B. Fondo blanco limpio de la hoja de trabajo
-    const sheet = new paper.Path.Rectangle(rect);
-    sheet.fillColor = '#ffffff';
-    sheet.data = { locked: true, mockup: true };
-    pageGroup.addChild(sheet);
-    
-    // C. Borde gris suave de delimitación
-    const border = new paper.Path.Rectangle(rect);
-    border.strokeColor = '#cbd5e1';
-    border.strokeWidth = 1.5;
-    border.data = { locked: true, mockup: true };
-    pageGroup.addChild(border);
-    
-    backLayer.addChild(pageGroup);
-    
-    // Devolver el foco a la capa de diseño para que las cargas de SVGs/imágenes vayan ahí
-    activeLayer.activate();
-    paper.view.update();
-  }
 
 function initCanvasZoomAndPan() {
   const canvasEl = document.getElementById("editorCanvas");
