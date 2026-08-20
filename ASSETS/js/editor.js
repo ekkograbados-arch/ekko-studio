@@ -594,18 +594,28 @@ safeAddListener("btnAddQR", "click", () => {
 });
 
 
-    /* =========================================================================
-Módulo: ASSETS/js/editor.js (Inyección de Zoom y Panorámica Interactiva)
+
+
+    
+});
+
+
+
+
+
+/* =========================================================================
+Módulo: ASSETS/js/editor.js (Inyección de Zoom y Panorámica Interactiva - v2)
 Ruta de inyección sugerida: Al final de ASSETS/js/editor.js, o antes del cierre del evento DOMContentLoaded.
 Descripción: Añade soporte avanzado para Zoom enfocado bajo el cursor (Mouse Wheel),
 desplazamiento de lienzo (Panorámica con clic central o Barra espaciadora + Clic izquierdo),
 sincronización de atajos de teclado clásicos (Ctrl+, Ctrl-, Ctrl0) y enlace de botones de la barra superior.
+SÓLO PARA ARCHIVOS COMPILADOS/NO-MÓDULO (SE REMOVIÓ EL KEYWORD 'export' PARA EVITAR SYNTAXERROR).
 ========================================================================= */
 
 /**
  * Inicializa el sistema de Zoom, Panorámica y Atajos de Teclado del Lienzo de Paper.js
  */
-export function initCanvasZoomAndPan() {
+function initCanvasZoomAndPan() {
   const canvasEl = document.getElementById("editorCanvas");
   if (!canvasEl || !paper.view) {
     console.warn("initCanvasZoomAndPan: Elemento del lienzo o paper.view no disponibles.");
@@ -730,7 +740,7 @@ export function initCanvasZoomAndPan() {
   window.addEventListener("mouseup", () => {
     if (isPanning) {
       isPanning = false;
-      canvasEl.style.cursor = spacePressed ? "grab" : "default";
+      canvasEl.style.cursor = spacePressed ? "grab" : \"default\";
     }
   });
 
@@ -820,17 +830,3 @@ export function initCanvasZoomAndPan() {
     }
   }
 }
-
-// =========================================================================
-// INSTRUCCIONES DE INSTALACIÓN EN editor.js:
-// =========================================================================
-// 1. Añade la importación de "initCanvasZoomAndPan" o simplemente pega este código
-//    en la parte final de tu archivo "ASSETS/js/editor.js".
-// 2. Al final de la inicialización de tu evento "DOMContentLoaded" en "editor.js",
-//    ejecuta la función llamando a:
-//    
-//    initCanvasZoomAndPan();
-//
-// =========================================================================
-});
-
