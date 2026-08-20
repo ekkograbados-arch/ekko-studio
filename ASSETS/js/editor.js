@@ -597,7 +597,7 @@ safeAddListener("btnAddQR", "click", () => {
 
 
     
-});
+
 
 
 
@@ -830,3 +830,6 @@ function initCanvasZoomAndPan() {
     }
   }
 }
+
+
+    });
