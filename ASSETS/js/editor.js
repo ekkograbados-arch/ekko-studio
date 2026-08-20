@@ -14,12 +14,14 @@ import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
 import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 import { startTextEditing } from "./modules/textEditor.js";
 // --- CONFIGURACIÓN DE DEPURACIÓN DE EKKO STUDIO ---
-const DEBUG_MODE = false; // Cambia a true para habilitar logs de depuración en la consola F12
-if (!DEBUG_MODE) {
-  console.log = () => {};
-  console.info = () => {};
-  // console.warn y console.error permanecen activos para capturar incidentes reales
-}
+// Mantenemos la consola viva para depuración, pero silenciamos quirúrgicamente el spam masivo de fuentes
+const originalLog = console.log;
+console.log = function(...args) {
+  if (args[0] && typeof args[0] === 'string' && (args[0].includes('[EKKO Fonts]') || args[0].includes('Registrado alias tipográfico'))) {
+    return; // Silenciar únicamente el spam de fuentes duplicadas en F12
+  }
+  originalLog.apply(console, args);
+};
 
 
 window.addEventListener("DOMContentLoaded", () => {
@@ -1142,6 +1144,16 @@ window.initSelectionTool = function() {
   let lastClickTime = 0;
 
   selectTool.onMouseDown = function(event) {
+    // --- NUEVO: INTERCEPTAR MODO DE INSERCIÓN DE TEXTO ---
+    if (window.insertTextMode) {
+      if (typeof createEditableText === "function") {
+        createEditableText(event.point);
+      }
+      window.insertTextMode = false;
+      paper.view.element.style.cursor = "default";
+      return;
+    }
+
     const currentTime = Date.now();
     if (currentTime - lastClickTime < 300) {
       lastClickTime = 0; // Evitar disparar múltiples doble clics
