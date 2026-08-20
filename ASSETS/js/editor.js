@@ -494,7 +494,7 @@ safeAddListener("btnAddImage", "click", () => {
 });
 
 safeAddListener("imagePicker", "change", (e) => {
-    const file = e.target.files; // <--- CORRECCIÓN AQUÍ: Tomar el primer archivo de la lista
+    const file = e.target.files[0]; // <--- CORREGIDO: Extrae el archivo individual (Blob)
     if (file) {
         addImageFromFile(file);
         e.target.value = ""; // Resetear para permitir recargar el mismo archivo
@@ -507,13 +507,14 @@ safeAddListener("btnAddSVG", "click", () => {
 });
 
 safeAddListener("svgPicker", "change", (e) => {
-    const file = e.target.files; // <--- CORRECCIÓN AQUÍ: Tomar el primer archivo de la lista
+    const file = e.target.files[0]; // <--- CORREGIDO: Extrae el archivo SVG individual
     if (file) {
         addSVGFromFile(file);
         e.target.value = ""; // Resetear para permitir recargar el mismo archivo
     }
 });
 
+   
 // 3. Generación Dinámica de Código QR (Offline y Vectorizable en Paper.js)
 const loadQRCodeLibrary = () => {
     return new Promise((resolve) => {
