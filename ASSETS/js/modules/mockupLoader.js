@@ -13,8 +13,8 @@ infinito sin recortarse, manteniendo compatibilidad total con el historial,
 desplazamiento interno, selección y borrado.
 ========================================================================= */
 
-// Bandera global para habilitar el lienzo infinito por defecto
-window.infiniteCanvasMode = true;
+// Bandera global para habilitar el lienzo infinito (se activa dinámicamente para plantillas de lienzo/A4)
+window.infiniteCanvasMode = false;
 
 function collectPaths(item, paths) {
   if (!paths) paths = [];
@@ -258,6 +258,9 @@ export function loadMockup(svgPath) {
     window.currentMockup = item;
     item.data = { locked: true, mockup: true, label: "Mockup", svgPath: svgPath };
     item.bringToFront();
+    // Activar modo infinito inteligente: si es una plantilla de hoja A4 o mesa, desactivamos el clipping mask
+    var isA4 = svgPath && (svgPath.toLowerCase().indexOf("a4") !== -1 || svgPath.toLowerCase().indexOf("lienzo") !== -1 || svgPath.toLowerCase().indexOf("placa") !== -1 || svgPath.toLowerCase().indexOf("mesa") !== -1 || svgPath.toLowerCase().indexOf("horizontal") !== -1);
+    window.infiniteCanvasMode = isA4;
     paper.view.update();
   });
 }
@@ -278,6 +281,9 @@ export function restoreMockupReferences() {
 
     var ignoredPath = null;
     var svgPath = (mockupItem.data && mockupItem.data.svgPath) ? mockupItem.data.svgPath : "";
+    // Sincronizar el modo de lienzo infinito inteligente al restaurar referencias
+    var isA4 = svgPath && (svgPath.toLowerCase().indexOf("a4") !== -1 || svgPath.toLowerCase().indexOf("lienzo") !== -1 || svgPath.toLowerCase().indexOf("placa") !== -1 || svgPath.toLowerCase().indexOf("mesa") !== -1 || svgPath.toLowerCase().indexOf("horizontal") !== -1);
+    window.infiniteCanvasMode = isA4;
     if (shouldIgnoreLargestPath(allPaths, mockupItem, svgPath)) {
       ignoredPath = allPaths[0];
     }
