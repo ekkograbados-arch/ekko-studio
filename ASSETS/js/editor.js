@@ -593,5 +593,244 @@ safeAddListener("btnAddQR", "click", () => {
     }
 });
 
+
+    /* =========================================================================
+Módulo: ASSETS/js/editor.js (Inyección de Zoom y Panorámica Interactiva)
+Ruta de inyección sugerida: Al final de ASSETS/js/editor.js, o antes del cierre del evento DOMContentLoaded.
+Descripción: Añade soporte avanzado para Zoom enfocado bajo el cursor (Mouse Wheel),
+desplazamiento de lienzo (Panorámica con clic central o Barra espaciadora + Clic izquierdo),
+sincronización de atajos de teclado clásicos (Ctrl+, Ctrl-, Ctrl0) y enlace de botones de la barra superior.
+========================================================================= */
+
+/**
+ * Inicializa el sistema de Zoom, Panorámica y Atajos de Teclado del Lienzo de Paper.js
+ */
+export function initCanvasZoomAndPan() {
+  const canvasEl = document.getElementById("editorCanvas");
+  if (!canvasEl || !paper.view) {
+    console.warn("initCanvasZoomAndPan: Elemento del lienzo o paper.view no disponibles.");
+    return;
+  }
+
+  // --- VARIABLES DE ESTADO ---
+  let isPanning = false;
+  let panStartPoint = null;
+  let spacePressed = false;
+
+  // --- 1. ZOOM INTERACTIVO POR RUEDA DE MOUSE (Centrado en el cursor, estilo LightBurn) ---
+  canvasEl.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const oldZoom = paper.view.zoom;
+    const factor = 1.12; // Transición fluida
+    let newZoom = oldZoom;
+
+    if (e.deltaY < 0) {
+      newZoom = oldZoom * factor;
+    } else {
+      newZoom = oldZoom / factor;
+    }
+
+    // Límites profesionales de zoom (0.15x para visión de conjunto a 20x para detalles microscópicos)
+    newZoom = Math.max(0.15, Math.min(20.0, newZoom));
+
+    // Obtener la posición del mouse física respecto al canvas
+    const rect = canvasEl.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Obtener la coordenada proyectada del Paper antes de aplicar el nuevo zoom
+    const mouseProjBefore = paper.view.viewToProject(new paper.Point(x, y));
+
+    // Aplicar el nuevo zoom de Paper.js
+    paper.view.zoom = newZoom;
+    
+    // Sincronizar con el estado de la herramienta si es necesario
+    if (typeof toolState !== 'undefined') {
+      toolState.zoom = newZoom;
+    }
+
+    // Obtener la coordenada proyectada del Paper con el nuevo zoom
+    const mouseProjAfter = paper.view.viewToProject(new paper.Point(x, y));
+
+    // Desplazar la cámara para que el punto que estaba bajo el cursor permanezca en su sitio físico
+    const diff = mouseProjBefore.subtract(mouseProjAfter);
+    paper.view.center = paper.view.center.add(diff);
+
+    paper.view.update();
+
+    // Actualizar caja de selección del objeto activo
+    if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+  }, { passive: false });
+
+  // --- 2. CONTROL DE PANORÁMICA (Ver arrastre del lienzo) ---
+  
+  // Registrar eventos de teclado globales para la barra espaciadora
+  window.addEventListener("keydown", (e) => {
+    if (e.code === "Space") {
+      const activeEl = document.activeElement;
+      // Evitar arrastre si el usuario está escribiendo o editando textos
+      if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.id === "ekko-text-editor")) {
+        return;
+      }
+      e.preventDefault();
+      if (!spacePressed) {
+        spacePressed = true;
+        canvasEl.style.cursor = "grab";
+      }
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space") {
+      spacePressed = false;
+      canvasEl.style.cursor = "default";
+      if (isPanning) {
+        isPanning = false;
+      }
+    }
+  });
+
+  // Eventos de ratón sobre el lienzo para paneo
+  canvasEl.addEventListener("mousedown", (e) => {
+    const isLeftButton = e.button === 0;
+    const isMiddleButton = e.button === 1; // Rueda de mouse presionada
+
+    if (isMiddleButton || (isLeftButton && spacePressed)) {
+      isPanning = true;
+      panStartPoint = new paper.Point(e.clientX, e.clientY);
+      canvasEl.style.cursor = "grabbing";
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  });
+
+  window.addEventListener("mousemove", (e) => {
+    if (!isPanning || !panStartPoint) return;
+
+    const currentPoint = new paper.Point(e.clientX, e.clientY);
+    const delta = currentPoint.subtract(panStartPoint);
+
+    // Escalar el desplazamiento lógicamente en base al zoom actual
+    const paperDelta = delta.divide(paper.view.zoom);
+
+    // Desplazar el centro de la escena
+    paper.view.center = paper.view.center.subtract(paperDelta);
+    panStartPoint = currentPoint;
+
+    paper.view.update();
+
+    // Mantener la caja de selección del objeto activo perfectamente alineada
+    if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+  });
+
+  window.addEventListener("mouseup", () => {
+    if (isPanning) {
+      isPanning = false;
+      canvasEl.style.cursor = spacePressed ? "grab" : "default";
+    }
+  });
+
+  // --- 3. ATAJOS DE TECLADO CLÁSICOS DE DISEÑO (Ctrl +, Ctrl -, Ctrl 0) ---
+  window.addEventListener("keydown", (e) => {
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === "INPUT" || activeEl.tagName === "TEXTAREA" || activeEl.id === "ekko-text-editor")) {
+      return;
+    }
+
+    // Ctrl/Cmd + "+" o "="
+    if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
+      e.preventDefault();
+      zoomCanvas(1.15);
+    }
+    // Ctrl/Cmd + "-"
+    if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+      e.preventDefault();
+      zoomCanvas(1 / 1.15);
+    }
+    // Ctrl/Cmd + "0" (Ajustar vista y centrar mockup)
+    if ((e.ctrlKey || e.metaKey) && e.key === "0") {
+      e.preventDefault();
+      resetCanvasView();
+    }
+  });
+
+  // --- 4. INTEGRACIÓN DE LOS BOTONES DE LA BARRA SUPERIOR ---
+  const btnZoomIn = document.getElementById("btnZoomIn");
+  const btnZoomOut = document.getElementById("btnZoomOut");
+  const btnFit = document.getElementById("btnFit");
+
+  if (btnZoomIn) {
+    btnZoomIn.onclick = (e) => {
+      e.preventDefault();
+      zoomCanvas(1.20);
+    };
+  }
+
+  if (btnZoomOut) {
+    btnZoomOut.onclick = (e) => {
+      e.preventDefault();
+      zoomCanvas(1 / 1.20);
+    };
+  }
+
+  if (btnFit) {
+    btnFit.onclick = (e) => {
+      e.preventDefault();
+      resetCanvasView();
+    };
+  }
+
+  // --- FUNCIONES AUXILIARES DE CAMBIO DE ESCALA ---
+  function zoomCanvas(factor) {
+    const oldZoom = paper.view.zoom;
+    let newZoom = oldZoom * factor;
+    newZoom = Math.max(0.15, Math.min(20.0, newZoom));
+    
+    paper.view.zoom = newZoom;
+    if (typeof toolState !== 'undefined') {
+      toolState.zoom = newZoom;
+    }
+    paper.view.update();
+
+    if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+  }
+
+  function resetCanvasView() {
+    paper.view.zoom = 1.0;
+    if (typeof toolState !== 'undefined') {
+      toolState.zoom = 1.0;
+    }
+    
+    // Centrar sobre el mockup del producto si existe, de lo contrario en el centro del canvas físico
+    if (window.currentMockup) {
+      paper.view.center = window.currentMockup.bounds.center;
+    } else {
+      paper.view.center = new paper.Point(canvasEl.clientWidth / 2, canvasEl.clientHeight / 2);
+    }
+    paper.view.update();
+
+    if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+  }
+}
+
+// =========================================================================
+// INSTRUCCIONES DE INSTALACIÓN EN editor.js:
+// =========================================================================
+// 1. Añade la importación de "initCanvasZoomAndPan" o simplemente pega este código
+//    en la parte final de tu archivo "ASSETS/js/editor.js".
+// 2. Al final de la inicialización de tu evento "DOMContentLoaded" en "editor.js",
+//    ejecuta la función llamando a:
+//    
+//    initCanvasZoomAndPan();
+//
+// =========================================================================
 });
 
