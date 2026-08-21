@@ -215,8 +215,20 @@ if (nativeSelect) {
 nativeSelect.style.display = 'none';
 nativeSelect.classList.add('hidden');
 }
-const customDropdown = document.querySelector('.custom-font-dropdown');
-if (customDropdown) {
+let customDropdown = document.querySelector('.custom-font-dropdown');
+if (!customDropdown && nativeSelect) {
+customDropdown = document.createElement('div');
+customDropdown.className = 'custom-font-dropdown';
+customDropdown.innerHTML = `
+<div class="selected-font-trigger">
+<span>Seleccionar Fuente</span>
+<i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
+</div>
+<div class="font-dropdown-list hidden"></div>
+`;
+nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
+}
+if (customDropdown) {"
 const trigger = customDropdown.querySelector('.selected-font-trigger');
 const list = customDropdown.querySelector('.font-dropdown-list');
 const triggerText = trigger ? trigger.querySelector('span') : null;
@@ -532,6 +544,59 @@ applyBrightnessContrast(target, brightness, contrast);
 };
 setupSliderWithPrecision(briSlider, 'ctxBrightnessNum', handleFilterInput);
 setupSliderWithPrecision(conSlider, 'ctxContrastNum', handleFilterInput);
+
+// --- 5. CONTROL DE TAMAÑO DE FUENTE (`ctxFontSize`) ---
+const fontSizeInput = document.getElementById('ctxFontSize');
+if (fontSizeInput) {
+    const updateSize = (val) => {
+        if (!window.selectedItem || window.selectedItem.data?.locked) return;
+        let newSize = parseFloat(val);
+        if (isNaN(newSize) || newSize < 5) return;
+        
+        if (typeof window.saveHistory === 'function') window.saveHistory();
+        
+        let target = window.selectedItem;
+        if (target.data?.clipGroup) {
+            target = target.children.find(c => !c.clipMask);
+        }
+        if (!target) return;
+        
+        if (target instanceof paper.PointText) {
+            target.fontSize = newSize;
+            target.data = target.data || {};
+            target.data.fontSize = newSize;
+        } else if (target.data?.isCurvedGroup) {
+            target.data.fontSize = newSize;
+            applyTextCurve(target, target.data.curvature);
+        } else if (target.data?.isSpacedGroup) {
+            target.data.fontSize = newSize;
+            applyTextSpacing(target, target.data.hspace);
+        }
+        
+        if (typeof window.updateSelectionBox === 'function') {
+            window.updateSelectionBox(window.selectedItem);
+        }
+        paper.view.update();
+    };
+
+    fontSizeInput.oninput = () => {
+        updateSize(fontSizeInput.value);
+    };
+
+    if (!fontSizeInput.dataset.wheelBound) {
+        fontSizeInput.dataset.wheelBound = "true";
+        fontSizeInput.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const step = e.shiftKey ? 5 : 1;
+            const direction = e.deltaY < 0 ? 1 : -1;
+            let val = parseInt(fontSizeInput.value) || 12;
+            let newVal = val + direction * step;
+            newVal = Math.max(5, Math.min(250, newVal));
+            fontSizeInput.value = newVal;
+            updateSize(newVal);
+        }, { passive: false });
+    }
+}
 }
 
 export function updateContextualMenu(item) {
@@ -566,6 +631,27 @@ if (!target) return;
 if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
 const textControls = document.getElementById('ctxTextControls');
 if (textControls) textControls.classList.remove('hidden');
+
+// 🚀 ACTUALIZAR LA FUENTE SELECCIONADA EN EL TRIGGER DEL DROPDOWN
+const currentFamily = getSelectedFontFamily();
+const matchingFont = fontsCache.find(f => f.family === currentFamily);
+const fontDisplayName = matchingFont ? matchingFont.name : currentFamily;
+const triggerText = document.querySelector('.selected-font-trigger span');
+if (triggerText) {
+    triggerText.textContent = fontDisplayName;
+}
+
+// 🚀 ACTUALIZAR EL TAMAÑO DE FUENTE EN EL INPUT REAL
+let currentSize = 42;
+if (target instanceof paper.PointText) {
+    currentSize = Math.round(target.fontSize);
+} else if (target.data && target.data.fontSize) {
+    currentSize = Math.round(target.data.fontSize);
+}
+const fontSizeInput = document.getElementById('ctxFontSize');
+if (fontSizeInput) {
+    fontSizeInput.value = currentSize;
+}
 } else if (target instanceof paper.Raster) {
 const imageControls = document.getElementById('ctxImageControls');
 if (imageControls) {
