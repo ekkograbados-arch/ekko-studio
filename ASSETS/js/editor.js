@@ -18,7 +18,7 @@ import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
 
 // --- CONFIGURACIÓN DE DEPURACIÓN DE EKKO STUDIO ---
-const DEBUG_MODE = false; // Cambia a true para ver la consola F12 con archivos y líneas reales al programar
+const DEBUG_MODE = true; // Cambia a true para ver la consola F12 con archivos y líneas reales al programar
 
 if (!DEBUG_MODE) {
   // Apagamos logs y mensajes comunes para que en F12 salgan únicamente los errores y advertencias de código reales
@@ -77,56 +77,66 @@ window.addEventListener("DOMContentLoaded", () => {
     // Forzar modo de lienzo infinito globalmente
     window.infiniteCanvasMode = true;
 
-    // Asignar tamaño físico real del contenedor para evitar límites de 800x600 o recortes
-    const initialWidth = containerEl.clientWidth || 800;
-    const initialHeight = containerEl.clientHeight || 600;
-    canvasEl.width = initialWidth;
-    canvasEl.height = initialHeight;
+    // ESPERA TÉCNICA (50ms): Esperar a que el motor de renderizado CSS del navegador pinte el layout 100%
+    // Esto previene de raíz el flicker (efecto parpadeo de la hoja A4) y sincroniza exactamente las coordenadas
+    setTimeout(() => {
+      try {
+        const initialWidth = containerEl.clientWidth || window.innerWidth;
+        const initialHeight = containerEl.clientHeight || window.innerHeight;
+        canvasEl.width = initialWidth;
+        canvasEl.height = initialHeight;
 
-    paper.setup("editorCanvas");
-    paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
+        paper.setup("editorCanvas");
+        paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
 
-    // Asegurar que tenemos un layer de diseño y un layer de fondo
-    let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
-    if (!backLayer) {
-      backLayer = new paper.Layer();
-      backLayer.name = 'backgroundLayer';
-      paper.project.insertLayer(0, backLayer);
-    }
+        // Asegurar que tenemos un layer de diseño y un layer de fondo
+        let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
+        if (!backLayer) {
+          backLayer = new paper.Layer();
+          backLayer.name = 'backgroundLayer';
+          paper.project.insertLayer(0, backLayer);
+        }
 
-    let designLayer = paper.project.layers.find(l => l.name === 'designLayer');
-    if (!designLayer) {
-      designLayer = new paper.Layer();
-      designLayer.name = 'designLayer';
-    }
-    designLayer.activate();
+        let designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+        if (!designLayer) {
+          designLayer = new paper.Layer();
+          designLayer.name = 'designLayer';
+        }
+        designLayer.activate();
 
-    paper.view.center = new paper.Point(0, 0); // Centrar cámara en el origen (0, 0)
+        paper.view.center = new paper.Point(0, 0); // Centrar cámara en el origen (0, 0)
 
-    // 🚀 NUEVO: Inicializar herramienta de selección después de paper.setup
-    if (typeof window.initSelectionTool === "function") {
-      window.initSelectionTool();
-    }
+        // Inicializar herramienta de selección después de paper.setup
+        if (typeof window.initSelectionTool === "function") {
+          window.initSelectionTool();
+        }
 
-    // Inicializar Menú Contextual Arrastrable y Custom Dropdowns
-    if (typeof initContextualMenu === "function") {
-      initContextualMenu();
-    }
+        // Inicializar Menú Contextual Arrastrable y Custom Dropdowns
+        if (typeof initContextualMenu === "function") {
+          initContextualMenu();
+        }
 
-    // Inicializar Zoom y Panorámica Interactiva de Alto Rendimiento en el Lienzo
-    if (typeof initCanvasZoomAndPan === "function") {
-      initCanvasZoomAndPan();
-    }
+        // Inicializar Zoom y Panorámica Interactiva de Alto Rendimiento en el Lienzo
+        if (typeof initCanvasZoomAndPan === "function") {
+          initCanvasZoomAndPan();
+        }
 
-    // Inyectar el control de rotación en la barra emergente de forma dinámica
-    if (typeof injectRotationControlToToolbar === "function") {
-      injectRotationControlToToolbar();
-    }
+        // Inyectar el control de rotación en la barra emergente de forma dinámica
+        if (typeof injectRotationControlToToolbar === "function") {
+          injectRotationControlToToolbar();
+        }
 
-    // 🚀 NUEVO: Inicializar Barra de Alineación, Distribución, Zoom en tiempo real, Reglas y Cotas
-    if (typeof initProControls === "function") {
-      initProControls();
-    }
+        // Inicializar Barra de Alineación, Distribución, Zoom en tiempo real, Reglas y Cotas
+        if (typeof initProControls === "function") {
+          initProControls();
+        }
+        
+        console.log("🚀 EKKO Studio inicializado con dimensiones estables de viewport:", initialWidth, "x", initialHeight);
+      } catch (err) {
+        console.error("❌ Error crítico durante la inicialización del lienzo de Paper.js:", err);
+        alert("Atención: Ocurrió un error al cargar el lienzo. Revisa la consola F12 para más detalles.");
+      }
+    }, 50);
   }
 });
 
