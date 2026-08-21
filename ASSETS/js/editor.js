@@ -154,6 +154,79 @@ const redoStack = [];
 
 window.loadToken = 0;
 window.selectedItem = null;
+
+window.getRealProductDimensions = function(product) {
+  if (!product) return { width: 50, height: 50 };
+  const id = (product.id || "").toLowerCase();
+  const nombre = (product.nombre || "").toLowerCase();
+
+  const regexX = /(\d+)\s*x\s*(\d+)/;
+  const matchX = id.match(regexX) || nombre.match(regexX);
+  if (matchX) {
+    let w = parseFloat(matchX[2]);
+    let h = parseFloat(matchX[1]);
+    return { width: w, height: h, parsed: true };
+  }
+
+  const regexMm = /(\d+)\s*mm/;
+  const matchMm = id.match(regexMm) || nombre.match(regexMm);
+  if (matchMm) {
+    const val = parseFloat(matchMm[1]);
+    return { width: val, height: val, parsed: true };
+  }
+
+  if (id.includes("huesito")) {
+    if (id.includes("16")) return { width: 32, height: 16 };
+    if (id.includes("21")) return { width: 40, height: 21 };
+    return { width: 32, height: 16 };
+  }
+  if (id.includes("militar")) {
+    if (id.includes("25")) return { width: 25, height: 45 };
+    if (id.includes("29")) return { width: 29, height: 50 };
+    return { width: 25, height: 45 };
+  }
+  if (id.includes("redonda")) {
+    return { width: 25, height: 25 };
+  }
+  if (id.includes("pulsera")) {
+    if (id.includes("chica") || id.includes("30")) return { width: 30, height: 5 };
+    if (id.includes("grande") || id.includes("35")) return { width: 35, height: 6 };
+    return { width: 30, height: 5 };
+  }
+  if (id.includes("mate-acero") || id.includes("mate_acero")) {
+    return { width: 80, height: 80 };
+  }
+  if (id.includes("algarrobo")) {
+    return { width: 70, height: 70 };
+  }
+  return { width: 50, height: 50 };
+};
+
+window.updateGlobalScaleFactor = function() {
+  if (!window.currentMockup || !window.paper) {
+    window.paperUnitsPerMm = 1.0;
+    window.mmPerPaperUnit = 1.0;
+    return;
+  }
+  let product = null;
+  if (typeof toolState !== "undefined" && toolState.currentProduct) {
+    product = toolState.currentProduct;
+  }
+  const realDims = window.getRealProductDimensions(product);
+  const mockupBounds = window.currentMockup.bounds;
+  let realW = realDims.width;
+  let realH = realDims.height;
+  const ratioReal = realW / realH;
+  const ratioMockup = mockupBounds.width / mockupBounds.height;
+  if ((ratioReal > 1 && ratioMockup < 1) || (ratioReal < 1 && ratioMockup > 1)) {
+    const temp = realW;
+    realW = realH;
+    realH = temp;
+  }
+  window.paperUnitsPerMm = mockupBounds.width / realW;
+  window.mmPerPaperUnit = 1 / window.paperUnitsPerMm;
+};
+
 window.selectedItems = []; // NUEVO: Soporte para selección múltiple
 window.dragOffset = null;
 window.dragging = false;
@@ -267,8 +340,8 @@ function updateSelectionInfo() {
     window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
   if (displayItem && ui.selectionInfo) {
     ui.selectionInfo.textContent = displayItem.data?.label || "Objeto";
-    if (ui.objWidth) ui.objWidth.value = Math.round(displayItem.bounds.width);
-    if (ui.objHeight) ui.objHeight.value = Math.round(displayItem.bounds.height);
+    if (ui.objWidth) ui.objWidth.value = (displayItem.bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
+    if (ui.objHeight) ui.objHeight.value = (displayItem.bounds.height * (window.mmPerPaperUnit || 1.0)).toFixed(1);
   }
 }
 
@@ -402,11 +475,13 @@ function loadSurfaceScene(product, surface) {
     window.deselectItem();
     if (typeof restoreMockupReferences === "function") {
       restoreMockupReferences();
+      if (typeof window.updateGlobalScaleFactor === "function") window.updateGlobalScaleFactor();
     }
     paper.view.update();
     return;
   }
   loadMockup(surface.svg);
+  setTimeout(() => { if (typeof window.updateGlobalScaleFactor === "function") window.updateGlobalScaleFactor(); }, 600);
 }
 
 function copySelected() {
@@ -1271,7 +1346,7 @@ window.initSelectionTool = function() {
         fill: true,
         stroke: true,
         segments: true,
-        tolerance: 8 / paper.view.zoom,
+        tolerance: 8,
         match: function(hit) {
           return hit.item.data && hit.item.data.isHandle;
         }
@@ -1322,7 +1397,7 @@ window.initSelectionTool = function() {
       stroke: true,
       segments: true,
       bounds: true,
-      tolerance: 8 / paper.view.zoom,
+      tolerance: 8,
       match: function(hit) {
         if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
         if (hit.item.data && hit.item.data.mockup) return false;
@@ -1524,7 +1599,7 @@ window.initSelectionTool = function() {
           fill: true,
           stroke: true,
           segments: true,
-          tolerance: 8 / paper.view.zoom,
+          tolerance: 8,
           match: function(hit) {
             return hit.item.data && hit.item.data.isHandle;
           }
@@ -1553,7 +1628,7 @@ window.initSelectionTool = function() {
         stroke: true,
         segments: true,
         bounds: true,
-        tolerance: 8 / paper.view.zoom,
+        tolerance: 8,
         match: function(hit) {
           if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
           if (hit.item.data && hit.item.data.mockup) return false;
