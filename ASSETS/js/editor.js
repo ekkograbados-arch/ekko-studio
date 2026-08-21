@@ -1,8 +1,14 @@
 // 🚀 GLOBAL OVERRIDE: Desactivar el renderizado nativo de líneas y nodos azul-celeste de Paper.js
 // Esto permite usar item.selected = true de forma lógica (para que funcione el menú contextual)
 // pero evita por completo que Paper.js dibuje sus propios contornos sobre los SVGs y textos.
-if (typeof paper !== "undefined" && paper.Item) {
-    paper.Item.prototype._drawSelected = function() {};
+if (typeof paper !== "undefined") {
+    const classesToDisable = [paper.Item, paper.Path, paper.CompoundPath, paper.Group, paper.Shape, paper.Raster, paper.PointText, paper.Layer];
+    classesToDisable.forEach(function(cls) {
+        if (cls && cls.prototype) {
+            cls.prototype._drawSelected = function() {};
+            cls.prototype.drawSelected = function() {};
+        }
+    });
 }
 
 /* =========================================================================
@@ -24,6 +30,12 @@ import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./
 import { startTextEditing } from "./modules/textEditor.js";
 // 🚀 INTEGRACIÓN: Importar controlador PRO para reglas, guías inteligentes, acotaciones y alineaciones
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
+
+// 🚀 EXPOSICIÓN GLOBAL: Exponer funciones importadas al objeto global window para compatibilidad total entre módulos
+window.updateContextualMenu = updateContextualMenu;
+window.hideContextualMenu = hideContextualMenu;
+window.initContextualMenu = initContextualMenu;
+window.startTextEditing = startTextEditing;
 
 // --- CONFIGURACIÓN DE DEPURACIÓN DE EKKO STUDIO ---
 const DEBUG_MODE = true; // Cambia a true para ver la consola F12 con archivos y líneas reales al programar
