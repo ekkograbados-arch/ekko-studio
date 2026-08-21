@@ -35,7 +35,20 @@ import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.
 window.updateContextualMenu = updateContextualMenu;
 window.hideContextualMenu = hideContextualMenu;
 window.initContextualMenu = initContextualMenu;
+
 window.startTextEditing = startTextEditing;
+
+// 🚀 BARRERA DE SEGURIDAD GLOBAL (Previene crashes por asincronía o nulos en otros módulos como canvasMeasurements o canvasGuidesAndRulers)
+window.EKKO_STUDIO_PRODUCTS = window.EKKO_STUDIO_PRODUCTS || [];
+window.paperUnitsPerMm = window.paperUnitsPerMm || 1.0;
+window.mmPerPaperUnit = window.mmPerPaperUnit || 1.0;
+window.currentMockup = window.currentMockup || null;
+window.grabArea = window.grabArea || null;
+window.clipMask = window.clipMask || null;
+window.infiniteCanvasMode = typeof window.infiniteCanvasMode !== 'undefined' ? window.infiniteCanvasMode : true;
+window.selectedItems = window.selectedItems || [];
+window.selectedItem = window.selectedItem || null;
+
 
 // --- CONFIGURACIÓN DE DEPURACIÓN DE EKKO STUDIO ---
 const DEBUG_MODE = true; // Cambia a true para ver la consola F12 con archivos y líneas reales al programar
@@ -124,29 +137,49 @@ window.addEventListener("DOMContentLoaded", () => {
 
                 paper.view.center = new paper.Point(0, 0); // Centrar cámara en el origen (0, 0)
 
-                // Inicializar herramienta de selección después de paper.setup
+                // Inicializar herramienta de selección después de paper.setup (Aislado de seguridad)
                 if (typeof window.initSelectionTool === "function") {
-                    window.initSelectionTool();
+                    try {
+                        window.initSelectionTool();
+                    } catch (err) {
+                        console.error("❌ Error crítico al inicializar la herramienta de selección:", err);
+                    }
                 }
 
                 // Inicializar Menú Contextual Arrastrable y Custom Dropdowns
                 if (typeof initContextualMenu === "function") {
-                    initContextualMenu();
+                    try {
+                        initContextualMenu();
+                    } catch (err) {
+                        console.error("⚠️ Error no crítico al inicializar el menú contextual:", err);
+                    }
                 }
 
                 // Inicializar Zoom y Panorámica Interactiva de Alto Rendimiento en el Lienzo
                 if (typeof initCanvasZoomAndPan === "function") {
-                    initCanvasZoomAndPan();
+                    try {
+                        initCanvasZoomAndPan();
+                    } catch (err) {
+                        console.error("⚠️ Error no crítico al inicializar zoom y panorámica:", err);
+                    }
                 }
 
                 // Inyectar el control de rotación en la barra emergente de forma dinámica
                 if (typeof injectRotationControlToToolbar === "function") {
-                    injectRotationControlToToolbar();
+                    try {
+                        injectRotationControlToToolbar();
+                    } catch (err) {
+                        console.error("⚠️ Error no crítico al inyectar control de rotación:", err);
+                    }
                 }
 
                 // Inicializar Barra de Alineación, Distribución, Zoom en tiempo real, Reglas y Cotas
                 if (typeof initProControls === "function") {
-                    initProControls();
+                    try {
+                        initProControls();
+                    } catch (err) {
+                        console.error("⚠️ Error no crítico en controles profesionales (reglas, cotas, guías):", err);
+                    }
                 }
 
                 console.log("🚀 EKKO Studio inicializado con dimensiones estables de viewport:", initialWidth, "x", initialHeight);
@@ -769,23 +802,41 @@ window.addEventListener("resize", () => {
     }
 });
 
-loadDynamicFonts().then(loadedFonts => {
-    console.log("🔄 Tipografías del backend sincronizadas en el editor.");
-}).catch(err => {
-    console.warn("Fallo no crítico al sincronizar fuentes en editor.js:", err);
-});
+// 🚀 INICIALIZACIÓN NO BLOQUEANTE AISLADA (Evita demoras/delays por consultas de red o fuentes caídas)
+setTimeout(() => {
+    try {
+        loadDynamicFonts().then(loadedFonts => {
+            console.log("🔄 Tipografías del backend sincronizadas en el editor.");
+        }).catch(err => {
+            console.warn("Fallo no crítico al sincronizar fuentes en editor.js:", err);
+        });
+    } catch (e) {
+        console.error("Error al iniciar carga asíncrona de fuentes:", e);
+    }
+}, 5);
 
-if (typeof loadDynamicProducts === "function") {
-    loadDynamicProducts().then(() => {
-        console.log("🔄 Actualizando interfaz con el catálogo dinámico...");
-        renderCategories();
-    }).catch((err) => {
-        console.error("❌ Fallo crítico al resolver catálogo dinámico:", err);
-        renderCategories();
-    });
-} else {
-    renderCategories();
-}
+setTimeout(() => {
+    try {
+        if (typeof loadDynamicProducts === "function") {
+            loadDynamicProducts().then(() => {
+                console.log("🔄 Actualizando interfaz con el catálogo dinámico...");
+                renderCategories();
+            }).catch((err) => {
+                console.error("❌ Fallo crítico al resolver catálogo dinámico:", err);
+                renderCategories();
+            });
+        } else {
+            renderCategories();
+        }
+    } catch (e) {
+        console.error("Error al iniciar carga asíncrona de productos:", e);
+        try {
+            renderCategories();
+        } catch (catErr) {
+            console.error("Fallo definitivo al renderizar categorías:", catErr);
+        }
+    }
+}, 10);
 
 safeAddListener("btnAddImage", "click", () => {
     const imagePicker = document.getElementById("imagePicker");
@@ -1902,4 +1953,3 @@ function applyPositionCorrections() {
     }
 }
 window.applyPositionCorrections = applyPositionCorrections;
-
