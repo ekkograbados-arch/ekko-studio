@@ -280,30 +280,60 @@ function toggleLockSelected() {
   paper.view.update();
 }
 
-window.selectItem = function(item) {
+window.selectItem = function(item, isMulti = false) {
   if (window.nodeEditMode) {
     window.exitNodeEditMode();
   }
-  if (window.selectedItem) {
-    window.selectedItem.selected = false;
-  }
+
   if (!item || (item.data && item.data.mockup)) {
     window.deselectItem();
     return;
   }
-  window.selectedItem = item;
-  window.updateSelectionBox(item);
+
+  // Inicializar si no está definido
+  if (!window.selectedItems) window.selectedItems = [];
+
+  if (isMulti) {
+    // Si ya está seleccionado, lo deseleccionamos (toggle)
+    const idx = window.selectedItems.indexOf(item);
+    if (idx > -1) {
+      item.selected = false;
+      window.selectedItems.splice(idx, 1);
+    } else {
+      item.selected = true;
+      window.selectedItems.push(item);
+    }
+    // El "selectedItem" primario será el último añadido
+    window.selectedItem = window.selectedItems[window.selectedItems.length - 1] || null;
+  } else {
+    // Selección simple: limpiar previas
+    if (window.selectedItems && window.selectedItems.length > 0) {
+      window.selectedItems.forEach(it => { if (it) it.selected = false; });
+    }
+    window.selectedItems = [item];
+    window.selectedItem = item;
+    item.selected = true;
+  }
+
+  // Si no queda nada seleccionado
+  if (window.selectedItems.length === 0) {
+    window.deselectItem();
+    return;
+  }
+
+  window.updateSelectionBox(window.selectedItem);
   updateSelectionInfo();
   updateLockButton();
+
   // Sincronizar valor de rotación en el input de la barra flotante
   const rotationNum = document.getElementById('ctxRotationNum');
   if (rotationNum) {
-    const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    const displayItem = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
     const rot = Math.round(displayItem?.data?.rotation || 0);
     rotationNum.value = rot + '°';
   }
   if (typeof updateContextualMenu === "function") {
-    updateContextualMenu(item);
+    updateContextualMenu(window.selectedItem);
   }
   paper.view.update();
 };
@@ -1037,91 +1067,100 @@ window.updateSelectionBox = function(item) {
     window.selectionBoxGroup = null;
   }
   if (window.nodeEditMode) return;
-  if (!item || (item.data && item.data.mockup)) return;
 
-  const displayItem = (item.data && item.data.clipGroup)
-    ? item.children.find(function(c) { return !c.clipMask; })
-    : item;
-
-  if (!displayItem) return;
-  const bounds = displayItem.bounds;
-  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+  // Si no se pasa un item, usar el seleccionado primario
+  const primaryItem = item || window.selectedItem;
+  if (!primaryItem || (primaryItem.data && primaryItem.data.mockup)) return;
 
   window.selectionBoxGroup = new paper.Group();
   window.selectionBoxGroup.data = { isSelectionBox: true };
 
-  // 1. Dibujar el rectángulo azul de contorno dashed
-  const border = new paper.Path.Rectangle(bounds);
-  border.strokeColor = '#007bff';
-  border.strokeWidth = 1.5 / paper.view.zoom;
-  border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
-  window.selectionBoxGroup.addChild(border);
+  // Obtener todos los elementos seleccionados para dibujar sus contornos
+  const itemsToDraw = (window.selectedItems && window.selectedItems.length > 0)
+    ? window.selectedItems
+    : [primaryItem];
 
-  // 2. Dibujar los 8 Nodos tradicionales (cuadrados blancos con borde azul)
-  const handleSize = 8 / paper.view.zoom;
-  const handlesInfo = [
-    { point: bounds.topLeft, type: 'tl' },
-    { point: bounds.topCenter, type: 't' },
-    { point: bounds.topRight, type: 'tr' },
-    { point: bounds.rightCenter, type: 'r' },
-    { point: bounds.bottomRight, type: 'br' },
-    { point: bounds.bottomCenter, type: 'b' },
-    { point: bounds.bottomLeft, type: 'bl' },
-    { point: bounds.leftCenter, type: 'l' }
-  ];
+  itemsToDraw.forEach(it => {
+    const displayItem = (it.data && it.data.clipGroup)
+      ? it.children.find(function(c) { return !c.clipMask; })
+      : it;
 
-  handlesInfo.forEach(function(info) {
-    const rect = new paper.Path.Rectangle({
-      center: info.point,
-      size: [handleSize, handleSize],
-      strokeColor: '#007bff',
-      fillColor: '#ffffff',
-      strokeWidth: 1.5 / paper.view.zoom
-    });
-    rect.data = { isHandle: true, handleType: info.type };
-    window.selectionBoxGroup.addChild(rect);
+    if (!displayItem) return;
+    const bounds = displayItem.bounds;
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
+    // 1. Dibujar el rectángulo azul de contorno dashed
+    const border = new paper.Path.Rectangle(bounds);
+    border.strokeColor = '#007bff';
+    border.strokeWidth = 1.5 / paper.view.zoom;
+    border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
+    window.selectionBoxGroup.addChild(border);
+
+    // Solo dibujar los tiradores (handles) de redimensionamiento y rotación para el elemento activo principal
+    if (it === primaryItem) {
+      // 2. Dibujar los 8 Nodos tradicionales
+      const handleSize = 8 / paper.view.zoom;
+      const handlesInfo = [
+        { point: bounds.topLeft, type: 'tl' },
+        { point: bounds.topCenter, type: 't' },
+        { point: bounds.topRight, type: 'tr' },
+        { point: bounds.rightCenter, type: 'r' },
+        { point: bounds.bottomRight, type: 'br' },
+        { point: bounds.bottomCenter, type: 'b' },
+        { point: bounds.bottomLeft, type: 'bl' },
+        { point: bounds.leftCenter, type: 'l' }
+      ];
+
+      handlesInfo.forEach(function(info) {
+        const rect = new paper.Path.Rectangle({
+          center: info.point,
+          size: [handleSize, handleSize],
+          strokeColor: '#007bff',
+          fillColor: '#ffffff',
+          strokeWidth: 1.5 / paper.view.zoom
+        });
+        rect.data = { isHandle: true, handleType: info.type };
+        window.selectionBoxGroup.addChild(rect);
+      });
+
+      // 3. TIRADOR DE ROTACIÓN EXCLUSIVO
+      const rotHandleDistance = 25 / paper.view.zoom;
+      const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
+
+      const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
+      connector.strokeColor = '#007bff';
+      connector.strokeWidth = 1.2 / paper.view.zoom;
+      window.selectionBoxGroup.addChild(connector);
+
+      const rotHandleCircle = new paper.Path.Circle({
+        center: rotHandleCenter,
+        radius: 7.5 / paper.view.zoom,
+        strokeColor: '#007bff',
+        fillColor: '#ffffff',
+        strokeWidth: 1.5 / paper.view.zoom
+      });
+      rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
+      window.selectionBoxGroup.addChild(rotHandleCircle);
+
+      const iconRadius = 3.5 / paper.view.zoom;
+      const arrowIcon = new paper.Path.Arc(
+        rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
+        rotHandleCenter.add(new paper.Point(0, -iconRadius)),
+        rotHandleCenter.add(new paper.Point(iconRadius, 0))
+      );
+      arrowIcon.strokeColor = '#007bff';
+      arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
+      window.selectionBoxGroup.addChild(arrowIcon);
+
+      const arrowTip = new paper.Path();
+      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
+      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+      arrowTip.strokeColor = '#007bff';
+      arrowTip.strokeWidth = 1.2 / paper.view.zoom;
+      window.selectionBoxGroup.addChild(arrowTip);
+    }
   });
-
-  // 3. TIRADOR DE ROTACIÓN EXCLUSIVO (Estilo LightBurn / Canva)
-  const rotHandleDistance = 25 / paper.view.zoom;
-  const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
-
-  // Línea conector azul entre topCenter y el tirador de rotación
-  const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
-  connector.strokeColor = '#007bff';
-  connector.strokeWidth = 1.2 / paper.view.zoom;
-  window.selectionBoxGroup.addChild(connector);
-
-  // Círculo blanco para el botón de rotación
-  const rotHandleCircle = new paper.Path.Circle({
-    center: rotHandleCenter,
-    radius: 7.5 / paper.view.zoom,
-    strokeColor: '#007bff',
-    fillColor: '#ffffff',
-    strokeWidth: 1.5 / paper.view.zoom
-  });
-  rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
-  window.selectionBoxGroup.addChild(rotHandleCircle);
-
-  // Ícono de doble flecha curva (semicírculo con flechas) dibujado vectorialmente
-  const iconRadius = 3.5 / paper.view.zoom;
-  const arrowIcon = new paper.Path.Arc(
-    rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
-    rotHandleCenter.add(new paper.Point(0, -iconRadius)),
-    rotHandleCenter.add(new paper.Point(iconRadius, 0))
-  );
-  arrowIcon.strokeColor = '#007bff';
-  arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
-  window.selectionBoxGroup.addChild(arrowIcon);
-
-  // Punta de flecha derecha del icono de rotación
-  const arrowTip = new paper.Path();
-  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
-  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
-  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
-  arrowTip.strokeColor = '#007bff';
-  arrowTip.strokeWidth = 1.2 / paper.view.zoom;
-  window.selectionBoxGroup.addChild(arrowTip);
 
   window.selectionBoxGroup.bringToFront();
 };
@@ -1377,7 +1416,7 @@ window.initSelectionTool = function() {
           : item;
         dragTarget.position = dragTarget.position.add(delta);
       });
-      window.updateSelectionBox();
+      window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
     }
