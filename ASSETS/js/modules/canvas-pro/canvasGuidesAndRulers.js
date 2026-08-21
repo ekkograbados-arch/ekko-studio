@@ -308,7 +308,7 @@ export function calculateSmartGuides(draggedItem, event) {
 
     const selBounds = activeDragged.bounds;
     const zoom = paper.view.zoom;
-    const snapThreshold = 5 / zoom; // Umbral de 5 píxeles en pantalla convertido a unidades de Paper (mm)
+    const snapThreshold = 3 / zoom; // Ajustado a 3px para un snapping suave estilo Canva y Figma // Umbral de 5 píxeles en pantalla convertido a unidades de Paper (mm)
 
     let snapX = null;
     let snapY = null;
