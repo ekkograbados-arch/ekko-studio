@@ -259,7 +259,7 @@ default:   return bounds.center;
 // --- FUNCIÓN DE INICIALIZACIÓN DE EVENTOS DE MOUSE ---
 window.initSelectionTool = function() {
 if (!paper.view) {
-console.warn(\"initSelectionTool: paper.view no está definido todavía.\");
+console.warn("initSelectionTool: paper.view no está definido todavía.");
 return;
 }
 const selectTool = new paper.Tool();
@@ -400,7 +400,7 @@ if (window.dragging && window.selectedItem) {
 // 🚀 ARRASTRE SEGURO DENTRO DEL CONTORNO (MÁSCARA)
 // Si el elemento es un grupo de recorte (clipGroup), movemos únicamente el hijo interno
 // real (dragTarget) que contiene la imagen, texto o vector. La máscara (clipMask) queda fija en
-// su posición original (alineada con el mockup), logrando el efecto WYSIWYG de \"desplazamiento interno\".
+// su posición original (alineada con el mockup), logrando el efecto WYSIWYG de "desplazamiento interno".
 const dragTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
 ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
 : window.selectedItem;
@@ -422,10 +422,10 @@ paper.view.update();
 };
 
 selectTool.activate();
-console.log(\"🎯 Eventos de selección y redimensionamiento de Paper.js registrados con éxito.\");
+console.log("🎯 Eventos de selección y redimensionamiento de Paper.js registrados con éxito.");
 };
 
 // Autoejecutar de inmediato si ya se inicializó paper.js
-if (typeof paper !== \"undefined\" && paper.view) {
+if (typeof paper !== "undefined" && paper.view) {
 window.initSelectionTool();
 }
