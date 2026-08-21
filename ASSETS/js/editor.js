@@ -1,3 +1,13 @@
+// 🚀 GLOBAL OVERRIDE DE CONSOLA: Silenciar logs informativos para mantener limpia la consola F12
+// Esto elimina por completo el spam de pre-cargas y cargas exitosas en F12.
+// Solo se mostrarán errores reales de programación (console.error) para depuración.
+if (typeof console !== "undefined") {
+    console.log = () => {};
+    console.warn = () => {};
+    console.info = () => {};
+    console.debug = () => {};
+}
+
 // 🚀 GLOBAL OVERRIDE: Desactivar el renderizado nativo de líneas y nodos azul-celeste de Paper.js
 // Esto permite usar item.selected = true de forma lógica (para que funcione el menú contextual)
 // pero evita por completo que Paper.js dibuje sus propios contornos sobre los SVGs y textos.
