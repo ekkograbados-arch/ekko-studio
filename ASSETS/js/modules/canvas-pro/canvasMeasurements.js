@@ -85,7 +85,7 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
     // Crear fondo blanco sutil detrás del texto para máxima legibilidad
     const textEl = new paper.PointText({
         point: midPoint.add(normalVector.multiply(-4 / zoom)), // Desplazar ligeramente encima de la línea
-        content: `${parseFloat(textValue).toFixed(1)} mm`,
+        content: `${(parseFloat(textValue) * (window.mmPerPaperUnit || 1.0)).toFixed(1)} mm`,
         fillColor: color,
         fontSize: 10 / zoom,
         fontWeight: "bold",
@@ -106,6 +106,7 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
 
 // Genera y dibuja las cotas de diseño en el lienzo
 export function drawMeasurements() {
+    if (typeof window.updateGlobalScaleFactor === "function") window.updateGlobalScaleFactor();
     if (!showMeasurements || !window.paper || !paper.project) return;
 
     clearMeasurements();
@@ -215,6 +216,10 @@ export function installMeasurementsHook() {
     console.log("🚀 Sistema de cotas dinámicas (mm) acoplado perfectamente al motor de Paper.js.");
 }
 
+// Iniciar gancho de forma automática
+window.addEventListener("DOMContentLoaded", () => {
+    setTimeout(installMeasurementsHook, 450);
+});
 // Iniciar gancho de forma automática
 window.addEventListener("DOMContentLoaded", () => {
     setTimeout(installMeasurementsHook, 450);
