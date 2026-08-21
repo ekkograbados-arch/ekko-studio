@@ -1,3 +1,13 @@
+// 🚀 GLOBAL OVERRIDE DE CONSOLA: Silenciar logs informativos para mantener limpia la consola F12
+// Esto elimina por completo el spam de pre-cargas y cargas exitosas en F12.
+// Solo se mostrarán errores reales de programación (console.error) para depuración.
+if (typeof console !== "undefined") {
+    console.log = () => {};
+    console.warn = () => {};
+    console.info = () => {};
+    console.debug = () => {};
+}
+
 /* =========================================================================
 
 Módulo: ASSETS/js/modules/mockupLoader.js
