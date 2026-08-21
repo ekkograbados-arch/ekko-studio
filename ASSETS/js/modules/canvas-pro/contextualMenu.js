@@ -289,9 +289,24 @@ const newTop = e.clientY - startY;
 toolbar.style.left = newLeft + 'px';
 toolbar.style.top = newTop + 'px';
 toolbarDragged = true;
+// Guardar posición personalizada persistente para no reventar la vista al seleccionar otros objetos
+window.customToolbarLeft = newLeft;
+window.customToolbarTop = newTop;
 });
 document.addEventListener('mouseup', () => {
 isDraggingToolbar = false;
+});
+// Doble clic sobre la barra (en zona vacía) para restablecer la posición automática original
+toolbar.addEventListener('dblclick', (e) => {
+if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
+return;
+}
+delete window.customToolbarLeft;
+delete window.customToolbarTop;
+toolbarDragged = false;
+if (window.selectedItem) {
+updateContextualMenu(window.selectedItem);
+}
 });
 }
 
@@ -686,7 +701,11 @@ btnUngroup.style.display = 'none';
 }
 
 // Reposicionar el menú si el usuario no lo ha arrastrado, o si cambió el objeto de selección
-if (!toolbarDragged || lastSelectedItem !== item) {
+if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
+toolbar.style.left = window.customToolbarLeft + 'px';
+toolbar.style.top = window.customToolbarTop + 'px';
+toolbar.style.zIndex = "2147483647";
+} else if (!toolbarDragged || lastSelectedItem !== item) {
 const bounds = item.bounds;
 if (!bounds) return;
 const canvasEl = document.getElementById('editorCanvas');
@@ -704,6 +723,7 @@ const x = canvasRect.left + scrollLeft + viewPos.x - (toolbar.offsetWidth / 2);
 const y = canvasRect.top + scrollTop + viewPos.y - toolbar.offsetHeight - 25;
 toolbar.style.left = Math.max(10, Math.min(x, window.innerWidth - toolbar.offsetWidth - 10)) + 'px';
 toolbar.style.top = Math.max(10, y) + 'px';
+toolbar.style.zIndex = "2147483647";
 }
 }
 lastSelectedItem = item;
@@ -732,18 +752,25 @@ const centerPos = paper.view.projectToView(bounds.center);
 
 // 1. Corregir Barra Contextual Flotante (Evita que quede oculta o desfasada)
 if (toolbar && toolbar.classList.contains("active")) {
-  const toolbarHeight = toolbar.offsetHeight || 45;
-  const toolbarWidth = toolbar.offsetWidth || 350;
-  const canvasEl = document.getElementById("editorCanvas");
-  if (canvasEl) {
-    const rect = canvasEl.getBoundingClientRect();
-    const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
-    const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen superior
-    
+  if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
     toolbar.style.position = "absolute";
-    toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
-    toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
-    toolbar.style.zIndex = "9999999"; // Stay above sidebar, topbar, and overlays
+    toolbar.style.left = window.customToolbarLeft + "px";
+    toolbar.style.top = window.customToolbarTop + "px";
+    toolbar.style.zIndex = "2147483646";
+  } else {
+    const toolbarHeight = toolbar.offsetHeight || 45;
+    const toolbarWidth = toolbar.offsetWidth || 350;
+    const canvasEl = document.getElementById("editorCanvas");
+    if (canvasEl) {
+      const rect = canvasEl.getBoundingClientRect();
+      const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
+      const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen superior
+      
+      toolbar.style.position = "absolute";
+      toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
+      toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
+      toolbar.style.zIndex = "2147483646"; // Maximum 32-bit integer priority to float over everything including rulers
+    }
   }
 }
 
@@ -760,7 +787,7 @@ if (textEditor) {
     textEditor.style.left = targetLeft + "px";
     textEditor.style.top = targetTop + "px";
     textEditor.style.position = "absolute";
-    textEditor.style.zIndex = "10000000"; // Stay above toolbar
+    textEditor.style.zIndex = "2147483647"; // Keep editor above toolbar in all contexts
   }
 }
 };
