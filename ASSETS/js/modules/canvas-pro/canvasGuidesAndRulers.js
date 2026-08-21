@@ -124,11 +124,22 @@ function resizeRulers() {
 }
 
 // Dibuja las marcas y etiquetas en milímetros
+
+// Dibuja las marcas y etiquetas en milímetros reales
 export function drawRulers() {
     if (!showRulers || !topRulerCanvas || !leftRulerCanvas || !window.paper || !paper.view) return;
 
+    if (typeof window.updateGlobalScaleFactor === "function") {
+        window.updateGlobalScaleFactor();
+    }
+
     const zoom = paper.view.zoom;
     const bounds = paper.view.bounds;
+
+    const originX = window.currentMockup ? window.currentMockup.bounds.left : 0;
+    const originY = window.currentMockup ? window.currentMockup.bounds.top : 0;
+    const scaleFactor = window.paperUnitsPerMm || 1.0;
+    const mmPerUnit = window.mmPerPaperUnit || 1.0;
 
     // Configuración regla superior
     const ctxTop = topRulerCanvas.getContext("2d");
@@ -148,22 +159,24 @@ export function drawRulers() {
 
     // Calcular el paso idóneo en milímetros (que quepan etiquetas cada ~60 a ~100 píxeles de pantalla)
     const targetPixels = 70;
-    const rawStep = targetPixels / zoom;
-    const standardSteps = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
-    let step = standardSteps[0];
+    const rawStepMm = targetPixels * (mmPerUnit / zoom);
+    const standardSteps = [1, 2, 5, 10, 20, 50, 100, 200, 500];
+    let stepMm = standardSteps[0];
     for (let s of standardSteps) {
-        if (rawStep >= s) {
-            step = s;
+        if (rawStepMm >= s) {
+            stepMm = s;
         } else {
             break;
         }
     }
 
-    // Regla Superior (Horizontal - Eje X)
-    const startX = Math.floor(bounds.left / step) * step;
-    for (let x = startX; x <= bounds.right; x += step) {
-        // Mapear de proyecto (mm) a pantalla (píxeles de la regla)
-        // bounds.left de Paper corresponde al píxel 0 de la zona útil de la regla superior
+    // --- REGLA SUPERIOR (Eje X) ---
+    const minMmX = (bounds.left - originX) * mmPerUnit;
+    const maxMmX = (bounds.right - originX) * mmPerUnit;
+    const startMmX = Math.floor(minMmX / stepMm) * stepMm;
+
+    for (let mm = startMmX; mm <= maxMmX; mm += stepMm) {
+        const x = originX + mm * scaleFactor;
         const screenX = (x - bounds.left) * zoom;
         if (screenX < 0 || screenX > topRulerCanvas.width) continue;
 
@@ -174,13 +187,14 @@ export function drawRulers() {
         ctxTop.stroke();
 
         // Etiqueta en mm
-        ctxTop.fillText(`${x} mm`, screenX + 4, 12);
+        ctxTop.fillText(`${Math.round(mm)} mm`, screenX + 4, 12);
 
-        // Sub-marcas (menores)
-        const subStep = step / 10;
-        if (subStep * zoom >= 2) { // Evitar pintar si están súper encimadas
+        // Sub-marcas (menores cada 1/10 de paso)
+        const subStepMm = stepMm / 10;
+        if (subStepMm * scaleFactor * zoom >= 2) {
             for (let i = 1; i < 10; i++) {
-                const subX = x + i * subStep;
+                const subMm = mm + i * subStepMm;
+                const subX = originX + subMm * scaleFactor;
                 const subScreenX = (subX - bounds.left) * zoom;
                 if (subScreenX < 0 || subScreenX > topRulerCanvas.width) continue;
 
@@ -192,9 +206,13 @@ export function drawRulers() {
         }
     }
 
-    // Regla Izquierda (Vertical - Eje Y)
-    const startY = Math.floor(bounds.top / step) * step;
-    for (let y = startY; y <= bounds.bottom; y += step) {
+    // --- REGLA IZQUIERDA (Eje Y) ---
+    const minMmY = (bounds.top - originY) * mmPerUnit;
+    const maxMmY = (bounds.bottom - originY) * mmPerUnit;
+    const startMmY = Math.floor(minMmY / stepMm) * stepMm;
+
+    for (let mm = startMmY; mm <= maxMmY; mm += stepMm) {
+        const y = originY + mm * scaleFactor;
         const screenY = (y - bounds.top) * zoom;
         if (screenY < 0 || screenY > leftRulerCanvas.height) continue;
 
@@ -208,14 +226,15 @@ export function drawRulers() {
         ctxLeft.save();
         ctxLeft.translate(12, screenY + 4);
         ctxLeft.rotate(-Math.PI / 2);
-        ctxLeft.fillText(`${y} mm`, 0, 0);
+        ctxLeft.fillText(`${Math.round(mm)} mm`, 0, 0);
         ctxLeft.restore();
 
-        // Sub-marcas (menores)
-        const subStep = step / 10;
-        if (subStep * zoom >= 2) {
+        // Sub-marcas (menores cada 1/10 de paso)
+        const subStepMm = stepMm / 10;
+        if (subStepMm * scaleFactor * zoom >= 2) {
             for (let i = 1; i < 10; i++) {
-                const subY = y + i * subStep;
+                const subMm = mm + i * subStepMm;
+                const subY = originY + subMm * scaleFactor;
                 const subScreenY = (subY - bounds.top) * zoom;
                 if (subScreenY < 0 || subScreenY > leftRulerCanvas.height) continue;
 
