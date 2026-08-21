@@ -879,9 +879,9 @@ function initCanvasZoomAndPan() {
   }
 
   // --- VARIABLES DE ESTADO ---
-  let isPanning = false;
+  window.window.isPanning = false;
   let panStartPoint = null;
-  let spacePressed = false;
+  window.window.spacePressed = false;
 
   // --- 1. ZOOM INTERACTIVO POR RUEDA DE MOUSE (Centrado en el cursor, estilo LightBurn) ---
   canvasEl.addEventListener("wheel", (e) => {
@@ -931,8 +931,8 @@ function initCanvasZoomAndPan() {
         return;
       }
       e.preventDefault();
-      if (!spacePressed) {
-        spacePressed = true;
+      if (!window.spacePressed) {
+        window.spacePressed = true;
         canvasEl.style.cursor = "grab";
       }
     }
@@ -940,10 +940,10 @@ function initCanvasZoomAndPan() {
 
   window.addEventListener("keyup", (e) => {
     if (e.code === "Space") {
-      spacePressed = false;
+      window.spacePressed = false;
       canvasEl.style.cursor = "default";
-      if (isPanning) {
-        isPanning = false;
+      if (window.isPanning) {
+        window.isPanning = false;
       }
     }
   });
@@ -952,8 +952,8 @@ function initCanvasZoomAndPan() {
   canvasEl.addEventListener("mousedown", (e) => {
     const isLeftButton = e.button === 0;
     const isMiddleButton = e.button === 1; // Rueda de mouse presionada
-    if (isMiddleButton || (isLeftButton && spacePressed)) {
-      isPanning = true;
+    if (isMiddleButton || (isLeftButton && window.spacePressed)) {
+      window.isPanning = true;
       panStartPoint = new paper.Point(e.clientX, e.clientY);
       canvasEl.style.cursor = "grabbing";
       e.preventDefault();
@@ -962,7 +962,7 @@ function initCanvasZoomAndPan() {
   });
 
   window.addEventListener("mousemove", (e) => {
-    if (!isPanning || !panStartPoint) return;
+    if (!window.isPanning || !panStartPoint) return;
     const currentPoint = new paper.Point(e.clientX, e.clientY);
     const delta = currentPoint.subtract(panStartPoint);
     // Escalar el desplazamiento lógicamente en base al zoom actual
@@ -979,9 +979,9 @@ function initCanvasZoomAndPan() {
   });
 
   window.addEventListener("mouseup", () => {
-    if (isPanning) {
-      isPanning = false;
-      canvasEl.style.cursor = spacePressed ? "grab" : "default";
+    if (window.isPanning) {
+      window.isPanning = false;
+      canvasEl.style.cursor = window.spacePressed ? "grab" : "default";
     }
   });
 
@@ -1339,19 +1339,16 @@ window.initSelectionTool = function() {
     }
     lastClickTime = currentTime;
 
-    // 1. Hit test para verificar si se presionó un handle de redimensionamiento o de rotación
-    let hitResult = null;
-    if (window.selectionBoxGroup) {
-      hitResult = window.selectionBoxGroup.hitTest(event.point, {
-        fill: true,
-        stroke: true,
-        segments: true,
-        tolerance: 8,
-        match: function(hit) {
-          return hit.item.data && hit.item.data.isHandle;
-        }
-      });
-    }
+        // 1. Hit test para verificar si se presionó un handle de redimensionamiento o de rotación (Precisión Sincronizada)
+    const hitResult = paper.project.hitTest(event.point, {
+      fill: true,
+      stroke: true,
+      segments: true,
+      tolerance: 6,
+      match: function(hit) {
+        return hit.item.data && hit.item.data.isHandle;
+      }
+    });
 
     if (hitResult) {
       const hType = hitResult.item.data.handleType;
@@ -1585,26 +1582,22 @@ window.initSelectionTool = function() {
       return;
     }
 
-    // Evitar pisar los cursores de paneo (grab/grabbing) de la barra espaciadora o botón medio
-    const currentCursor = paper.view.element.style.cursor;
-    if (currentCursor === "grab" || currentCursor === "grabbing") {
+        // Evitar pisar los cursores de paneo activos de la barra espaciadora o botón medio (Garantía Anti-Bloqueo de Cursores)
+    if (window.spacePressed || window.isPanning) {
       return;
     }
 
     if (window.selectedItem) {
-      // 1. Hit test para verificar si el mouse está sobre un tirador (handle)
-      let hitResult = null;
-      if (window.selectionBoxGroup) {
-        hitResult = window.selectionBoxGroup.hitTest(event.point, {
-          fill: true,
-          stroke: true,
-          segments: true,
-          tolerance: 8,
-          match: function(hit) {
-            return hit.item.data && hit.item.data.isHandle;
-          }
-        });
-      }
+            // 1. Hit test para verificar si el mouse está sobre un tirador (handle) (Precisión Sincronizada)
+      const hitResult = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 5, // Ajustado para un hover de alta precisión sobre el nodo blanco
+        match: function(hit) {
+          return hit.item.data && hit.item.data.isHandle;
+        }
+      });
 
       if (hitResult) {
         const hType = hitResult.item.data.handleType;
