@@ -87,9 +87,19 @@ export function initRulers() {
     drawRulers();
 
     // Hook en el render loop de Paper.js para actualizar reglas cuando cambie la vista
+    let lastZoom = 0;
+    let lastCenter = null;
     if (window.paper && paper.view) {
         paper.view.on("frame", () => {
-            if (showRulers) drawRulers();
+            if (!showRulers) return;
+            const currentZoom = paper.view.zoom;
+            const currentCenter = paper.view.center;
+            const centerChanged = !lastCenter || !lastCenter.equals(currentCenter);
+            if (currentZoom !== lastZoom || centerChanged || window.dragging || window.resizeActive || window.rotationActive) {
+                drawRulers();
+                lastZoom = currentZoom;
+                lastCenter = currentCenter ? currentCenter.clone() : null;
+            }
         });
     }
 }
