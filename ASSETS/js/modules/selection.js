@@ -288,17 +288,19 @@ return;
 }
 lastClickTime = currentTime;
 
-// 1. Hit test para verificar si se presionó un handle de redimensionamiento
-const hitResult = paper.project.hitTest(event.point, {
-fill: true,
-stroke: true,
-segments: true,
-tolerance: 8 / paper.view.zoom,
-match: function(hit) {
-// Solo nos interesan los handles de la caja de selección activa
-return hit.item.data && hit.item.data.isHandle;
+// 1. Hit test optimizado y directo contra los handles de la caja de selección celeste (estilo Canva)
+let hitResult = null;
+if (window.selectionBoxGroup) {
+    hitResult = window.selectionBoxGroup.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 12 / paper.view.zoom, // Aumentado a 12px para una captura ultra fluida del cursor/dedo
+        match: function(hit) {
+            return hit.item.data && hit.item.data.isHandle;
+        }
+    });
 }
-});
 
 if (hitResult) {
 // El usuario seleccionó un nodo de control para redimensionar
@@ -418,12 +420,74 @@ return;
 }
 };
 
+
+
+
+selectTool.onMouseMove = function(event) {
+    const canvas = document.getElementById("editorCanvas");
+    if (!canvas) return;
+
+    if (window.resizeActive) {
+        return; // Mantener cursor del resize activo
+    }
+
+    // 1. Hit-Test ultra rápido sobre los nodos de la caja de selección
+    let hitResult = null;
+    if (window.selectionBoxGroup) {
+        hitResult = window.selectionBoxGroup.hitTest(event.point, {
+            fill: true,
+            stroke: true,
+            segments: true,
+            tolerance: 12 / paper.view.zoom,
+            match: function(hit) {
+                return hit.item.data && hit.item.data.isHandle;
+            }
+        });
+    }
+
+    if (hitResult) {
+        const type = hitResult.item.data.handleType;
+        let cursorStyle = 'pointer';
+        if (type === 'tl' || type === 'br') cursorStyle = 'nwse-resize';
+        else if (type === 'tr' || type === 'bl') cursorStyle = 'nesw-resize';
+        else if (type === 't' || type === 'b') cursorStyle = 'ns-resize';
+        else if (type === 'l' || type === 'r') cursorStyle = 'ew-resize';
+        
+        canvas.style.cursor = cursorStyle;
+    } else {
+        // 2. Si pasa por encima de un objeto seleccionable, mostrar cursor de arrastre 'move'
+        const generalHit = paper.project.hitTest(event.point, {
+            fill: true,
+            stroke: true,
+            segments: true,
+            bounds: true,
+            tolerance: 8 / paper.view.zoom,
+            match: function(hit) {
+                if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
+                if (hit.item.data && hit.item.data.mockup) return false;
+                return true;
+            }
+        });
+
+        if (generalHit && window.selectedItem) {
+            const hitItem = window.getSelectableItem(generalHit.item);
+            if (hitItem === window.selectedItem) {
+                canvas.style.cursor = 'move';
+                return;
+            }
+        }
+        canvas.style.cursor = 'default';
+    }
+};
+
 selectTool.onMouseUp = function(event) {
 if (window.resizeActive || window.dragging) {
 if (typeof window.saveHistory === 'function') window.saveHistory();
 }
 window.dragging = false;
 window.resizeActive = false;
+const canvas = document.getElementById("editorCanvas");
+if (canvas) canvas.style.cursor = 'default';
 paper.view.update();
 };
 
