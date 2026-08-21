@@ -1169,6 +1169,35 @@ window.updateSelectionBox = function(item) {
 * SOBREESCRITURA DE LA HERRAMIENTA DE SELECCIÓN (initSelectionTool)
 * Implementa el arrastre de rotación, cálculo de ángulos relativos y sensibilidad (snap) a 45°/90°
 */
+
+window.getOppositePoint = function(bounds, handleType) {
+  switch (handleType) {
+    case "tl": return bounds.bottomRight;
+    case "tr": return bounds.bottomLeft;
+    case "bl": return bounds.topRight;
+    case "br": return bounds.topLeft;
+    case "t":  return bounds.bottomCenter;
+    case "b":  return bounds.topCenter;
+    case "l":  return bounds.rightCenter;
+    case "r":  return bounds.leftCenter;
+    default:   return bounds.center;
+  }
+};
+
+window.getHandlePoint = function(bounds, handleType) {
+  switch (handleType) {
+    case "tl": return bounds.topLeft;
+    case "tr": return bounds.topRight;
+    case "bl": return bounds.bottomLeft;
+    case "br": return bounds.bottomRight;
+    case "t":  return bounds.topCenter;
+    case "b":  return bounds.bottomCenter;
+    case "l":  return bounds.leftCenter;
+    case "r":  return bounds.rightCenter;
+    default:   return bounds.center;
+  }
+};
+
 window.initSelectionTool = function() {
   if (!paper.view) {
     console.warn("initSelectionTool: paper.view no está definido todavía.");
