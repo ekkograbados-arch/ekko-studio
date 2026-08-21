@@ -355,11 +355,28 @@ function toggleLockSelected() {
     paper.view.update();
 }
 
+
 window.selectItem = function(item, isMulti = false) {
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
     }
-    if (!item || (item.data && item.data.mockup)) {
+    
+    // Verificar inmunidad para mockup o máscaras
+    let isMockup = false;
+    let curr = item;
+    while (curr) {
+        if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+            isMockup = true;
+            break;
+        }
+        if (curr === window.currentMockup) {
+            isMockup = true;
+            break;
+        }
+        curr = curr.parent;
+    }
+    
+    if (!item || isMockup) {
         window.deselectItem();
         return;
     }
@@ -381,20 +398,12 @@ window.selectItem = function(item, isMulti = false) {
         return;
     }
     window.updateSelectionBox(window.selectedItem);
-    updateSelectionInfo();
-    updateLockButton();
-
-    const rotationNum = document.getElementById('ctxRotationNum');
-    if (rotationNum) {
-        const displayItem = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
-        const rot = Math.round(displayItem?.data?.rotation || 0);
-        rotationNum.value = rot + '°';
-    }
-    if (typeof updateContextualMenu === "function") {
-        updateContextualMenu(window.selectedItem);
+    if (typeof window.updateContextualMenu === 'function') {
+        window.updateContextualMenu(window.selectedItem);
     }
     paper.view.update();
 };
+
 
 window.deselectItem = function() {
     if (window.nodeEditMode) {
@@ -1067,6 +1076,7 @@ function injectRotationControlToToolbar() {
 }
 
 // CAJA DE SELECCIÓN UNIFICADA MULTI-OBJETO CANVA-STYLE
+
 window.updateSelectionBox = function(item) {
     if (window.paper && paper.project) {
         const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
@@ -1081,7 +1091,23 @@ window.updateSelectionBox = function(item) {
     if (window.nodeEditMode) return;
 
     const primaryItem = item || window.selectedItem;
-    if (!primaryItem || (primaryItem.data && primaryItem.data.mockup)) return;
+    if (!primaryItem) return;
+
+    // Inmunidad total para mockup, sus descendientes y máscaras
+    let isMockup = false;
+    let curr = primaryItem;
+    while (curr) {
+        if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+            isMockup = true;
+            break;
+        }
+        if (curr === window.currentMockup) {
+            isMockup = true;
+            break;
+        }
+        curr = curr.parent;
+    }
+    if (isMockup) return;
 
     const selected = (window.selectedItems && window.selectedItems.length > 0)
         ? window.selectedItems
@@ -1176,6 +1202,7 @@ window.updateSelectionBox = function(item) {
     }
 };
 
+
 window.getOppositePoint = function(bounds, handleType) {
     switch (handleType) {
         case "tl": return bounds.bottomRight;
@@ -1203,6 +1230,43 @@ window.getHandlePoint = function(bounds, handleType) {
         default:   return bounds.center;
     }
 };
+
+
+window.getSelectableItem = function(item) {
+    if (!item) return null;
+    
+    // Ignorar handles, cajas de selección, guías inteligentes y elementos de interfaz
+    if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) return null;
+    if (item.parent && item.parent.data && (item.parent.data.isSelectionBox || item.parent.data.isNodeEditOverlay)) return null;
+    
+    let current = item;
+    while (current) {
+        // Bloqueo total si el elemento o cualquier ancestro pertenece al mockup o es una máscara
+        if (current.data && (current.data.mockup || current.data.isMask)) {
+            return null;
+        }
+        if (current === window.currentMockup) {
+            return null;
+        }
+        if (current.data && current.data.clipGroup) {
+            return current;
+        }
+        if (current.parent instanceof paper.Layer || current.parent === paper.project.activeLayer) {
+            return current;
+        }
+        if (current.parent) {
+            current = current.parent;
+        } else {
+            break;
+        }
+    }
+    return current;
+};
+
+// --- MARQUEE SELECTION STATE ---
+window.marqueeActive = false;
+window.marqueeStartPoint = null;
+window.marqueePath = null;
 
 window.initSelectionTool = function() {
     if (!paper.view) {
@@ -1239,6 +1303,7 @@ window.initSelectionTool = function() {
         }
         lastClickTime = currentTime;
 
+        // 1. Hit test contra los handles de la caja de selección unificada
         let hitResult = null;
         if (window.selectionBoxGroup) {
             hitResult = window.selectionBoxGroup.hitTest(event.point, {
@@ -1258,13 +1323,40 @@ window.initSelectionTool = function() {
                 if (!window.selectedItem) return;
                 window.rotationActive = true;
                 window.rotationTarget = window.selectedItem;
-                const displayItem = (window.rotationTarget.data && window.rotationTarget.data.clipGroup)
-                    ? window.rotationTarget.children.find(function(c) { return !c.clipMask; })
-                    : window.rotationTarget;
-                window.rotationCenter = displayItem.bounds.center.clone();
+                
+                // Calcular centro de rotación unificado
+                let unifiedBounds = null;
+                window.selectedItems.forEach(function(it) {
+                    const displayItem = (it.data && it.data.clipGroup)
+                        ? it.children.find(function(c) { return !c.clipMask; })
+                        : it;
+                    if (!displayItem) return;
+                    if (!unifiedBounds) {
+                        unifiedBounds = displayItem.bounds.clone();
+                    } else {
+                        unifiedBounds = unifiedBounds.unite(displayItem.bounds);
+                    }
+                });
+                
+                window.rotationCenter = unifiedBounds ? unifiedBounds.center.clone() : window.selectedItem.bounds.center.clone();
                 const vector = event.point.subtract(window.rotationCenter);
                 window.rotationStartAngle = vector.angle;
-                window.rotationInitialAngle = displayItem.data?.rotation || 0;
+                window.rotationInitialAngle = 0;
+                
+                window.rotationTargets = [];
+                window.selectedItems.forEach(function(it) {
+                    const displayItem = (it.data && it.data.clipGroup)
+                        ? it.children.find(function(c) { return !c.clipMask; })
+                        : it;
+                    if (displayItem) {
+                        window.rotationTargets.push({
+                            item: it,
+                            target: displayItem,
+                            initialRotation: displayItem.data?.rotation || 0,
+                            initialPosition: displayItem.position.clone()
+                        });
+                    }
+                });
                 return;
             }
 
@@ -1294,6 +1386,7 @@ window.initSelectionTool = function() {
             return;
         }
 
+        // 2. Hit test contra elementos normales del lienzo con inmunidad total para mockups y máscaras
         const generalHit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -1301,8 +1394,15 @@ window.initSelectionTool = function() {
             bounds: true,
             tolerance: 8 / paper.view.zoom,
             match: function(hit) {
-                if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
-                if (hit.item.data && hit.item.data.mockup) return false;
+                if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle || hit.item.data.isNodeHandle)) return false;
+                
+                // Verificar si el item o sus ancestros son del mockup o máscaras
+                let curr = hit.item;
+                while (curr) {
+                    if (curr.data && (curr.data.mockup || curr.data.isMask)) return false;
+                    if (curr === window.currentMockup) return false;
+                    curr = curr.parent;
+                }
                 return true;
             }
         });
@@ -1326,7 +1426,7 @@ window.initSelectionTool = function() {
                     window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
                 } else {
                     if (window.selectedItems.includes(selectableItem)) {
-                        // Continuar arrastre sin resetear multi-selección
+                        // Mantener la multi-selección intacta para permitir arrastre sin deseleccionar
                     } else {
                         window.selectedItems.forEach(function(it) {
                             it.selected = false;
@@ -1358,7 +1458,43 @@ window.initSelectionTool = function() {
                 return;
             }
         }
+
+        // 3. Arrastre en bloque haciendo clic dentro del recuadro de selección unificada (Canva style)
+        if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
+            const selectionBoxBounds = window.selectionBoxGroup.bounds;
+            if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
+                window.dragging = true;
+                window.dragTargets = [];
+                window.selectedItems.forEach(function(item) {
+                    const dragTarget = (item.data && item.data.clipGroup)
+                        ? item.children.find(function(c) { return !c.clipMask; })
+                        : item;
+                    if (dragTarget) {
+                        window.dragTargets.push({
+                            item: item,
+                            target: dragTarget,
+                            dragOffset: event.point.subtract(dragTarget.position)
+                        });
+                    }
+                });
+                return;
+            }
+        }
+
+        // 4. Activar selección por arrastre (Marquee Selection) en vacío estilo Canva/Word
         window.deselectItem();
+        window.marqueeActive = true;
+        window.marqueeStartPoint = event.point.clone();
+        window.marqueePath = new paper.Path.Rectangle({
+            from: event.point,
+            to: event.point,
+            strokeColor: '#007bff',
+            fillColor: new paper.Color(0, 123, 255, 0.15),
+            strokeWidth: 1 / paper.view.zoom,
+            dashArray: [4 / paper.view.zoom, 4 / paper.view.zoom]
+        });
+        window.marqueePath.data = { isSelectionBox: true };
+        paper.view.update();
     };
 
     selectTool.onMouseDrag = function(event) {
@@ -1366,34 +1502,69 @@ window.initSelectionTool = function() {
             return;
         }
 
-        if (window.rotationActive && window.rotationTarget) {
-            const displayItem = (window.rotationTarget.data && window.rotationTarget.data.clipGroup)
-                ? window.rotationTarget.children.find(function(c) { return !c.clipMask; })
-                : window.rotationTarget;
-            const currentPoint = event.point;
-            const vector = currentPoint.subtract(window.rotationCenter);
-            const currentAngle = vector.angle;
-            let angleDiff = currentAngle - window.rotationStartAngle;
-            let targetAngle = window.rotationInitialAngle + angleDiff;
-
-            const oldRotation = displayItem.data?.rotation || 0;
-            let deltaRotate = targetAngle - oldRotation;
-            if (deltaRotate > 180) deltaRotate -= 360;
-            if (deltaRotate < -180) deltaRotate += 360;
-
-            displayItem.rotate(deltaRotate, window.rotationCenter);
-            displayItem.data = displayItem.data || {};
-            displayItem.data.rotation = targetAngle;
-
-            const rotationNum = document.getElementById('ctxRotationNum');
-            if (rotationNum) {
-                rotationNum.value = Math.round(targetAngle) + '°';
-            }
-            window.updateSelectionBox(window.selectedItem);
+        // Manejo de la caja de selección translúcida Marquee
+        if (window.marqueeActive && window.marqueePath) {
+            window.marqueePath.remove();
+            window.marqueePath = new paper.Path.Rectangle({
+                from: window.marqueeStartPoint,
+                to: event.point,
+                strokeColor: '#007bff',
+                fillColor: new paper.Color(0, 123, 255, 0.15),
+                strokeWidth: 1 / paper.view.zoom,
+                dashArray: [4 / paper.view.zoom, 4 / paper.view.zoom]
+            });
+            window.marqueePath.data = { isSelectionBox: true };
             paper.view.update();
             return;
         }
 
+        // Manejo de Rotación Unificada y Orbital
+        if (window.rotationActive && window.rotationTargets && window.rotationTargets.length > 0) {
+            const currentPoint = event.point;
+            const vector = currentPoint.subtract(window.rotationCenter);
+            const currentAngle = vector.angle;
+            let angleDiff = currentAngle - window.rotationStartAngle;
+
+            // Snap a 45 grados si se presiona Shift
+            const isShiftPressed = event.modifiers && event.modifiers.shift;
+            if (isShiftPressed) {
+                angleDiff = Math.round(angleDiff / 45) * 45;
+            }
+
+            window.rotationTargets.forEach(function(rt) {
+                if (rt.item.data && rt.item.data.locked) return;
+
+                // Rotar orbitalmente si hay más de un elemento seleccionado
+                if (window.selectedItems.length > 1) {
+                    rt.target.position = rt.initialPosition.rotate(angleDiff, window.rotationCenter);
+                }
+
+                // Rotar el elemento sobre su propio eje
+                const oldRotation = rt.target.data?.rotation || 0;
+                const targetAngle = (rt.initialRotation + angleDiff) % 360;
+                let deltaRotate = targetAngle - oldRotation;
+                if (deltaRotate > 180) deltaRotate -= 360;
+                if (deltaRotate < -180) deltaRotate += 360;
+
+                rt.target.rotate(deltaRotate, rt.target.bounds.center);
+                rt.target.data = rt.target.data || {};
+                rt.target.data.rotation = targetAngle;
+            });
+
+            const rotationNum = document.getElementById('ctxRotationNum');
+            if (rotationNum && window.selectedItem) {
+                const displayItem = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+                if (displayItem) {
+                    rotationNum.value = Math.round(displayItem.data?.rotation || 0) + '°';
+                }
+            }
+
+            window.updateSelectionBox(null);
+            paper.view.update();
+            return;
+        }
+
+        // Manejo de Escalado/Redimensionamiento Unificado
         if (window.resizeActive && window.resizeTargets && window.resizeTargets.length > 0) {
             const anchor = window.resizeAnchor;
             const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
@@ -1435,6 +1606,7 @@ window.initSelectionTool = function() {
             return;
         }
 
+        // Manejo de Arrastre Sincronizado
         if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
             window.dragTargets.forEach(function(dragInfo) {
                 if (dragInfo.item.data && dragInfo.item.data.locked) return;
@@ -1453,11 +1625,69 @@ window.initSelectionTool = function() {
     };
 
     selectTool.onMouseUp = function(event) {
-        if (window.resizeActive || window.dragging) {
+        // --- PROCESAR RESULTADO DE SELECCIÓN POR MARQUEE ---
+        if (window.marqueeActive && window.marqueePath) {
+            const marqueeBounds = window.marqueePath.bounds;
+            window.marqueePath.remove();
+            window.marqueePath = null;
+            window.marqueeActive = false;
+
+            const itemsToSelect = [];
+            paper.project.activeLayer.children.forEach(function(item) {
+                // Inmunidad total para mockups y máscaras
+                let isMockup = false;
+                let curr = item;
+                while (curr) {
+                    if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+                        isMockup = true;
+                        break;
+                    }
+                    if (curr === window.currentMockup) {
+                        isMockup = true;
+                        break;
+                    }
+                    curr = curr.parent;
+                }
+                if (isMockup) return;
+
+                if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) {
+                    return;
+                }
+                
+                const displayItem = (item.data && item.data.clipGroup)
+                    ? item.children.find(function(c) { return !c.clipMask; })
+                    : item;
+                if (displayItem && displayItem.bounds && marqueeBounds.intersects(displayItem.bounds)) {
+                    itemsToSelect.push(item);
+                }
+            });
+
+            if (itemsToSelect.length > 0) {
+                window.selectedItems = itemsToSelect;
+                window.selectedItem = itemsToSelect[itemsToSelect.length - 1];
+                window.selectedItems.forEach(function(it) {
+                    it.selected = true;
+                });
+                window.updateSelectionBox(window.selectedItem);
+                if (typeof window.updateContextualMenu === 'function') {
+                    window.updateContextualMenu(window.selectedItem);
+                }
+            } else {
+                window.deselectItem();
+            }
+            paper.view.update();
+            return;
+        }
+
+        if (window.resizeActive || window.dragging || window.rotationActive) {
             if (typeof window.saveHistory === 'function') window.saveHistory();
         }
+
         window.dragging = false;
         window.resizeActive = false;
+        window.rotationActive = false;
+        window.rotationTargets = [];
+
         const canvas = document.getElementById("editorCanvas");
         if (canvas) canvas.style.cursor = 'default';
         if (typeof clearSmartGuides === "function") clearSmartGuides();
@@ -1468,9 +1698,7 @@ window.initSelectionTool = function() {
         const canvas = document.getElementById("editorCanvas");
         if (!canvas) return;
 
-        if (window.resizeActive) {
-            return;
-        }
+        if (window.resizeActive) return;
 
         let hitResult = null;
         if (window.selectionBoxGroup) {
@@ -1488,7 +1716,8 @@ window.initSelectionTool = function() {
         if (hitResult) {
             const type = hitResult.item.data.handleType;
             let cursorStyle = 'pointer';
-            if (type === 'tl' || type === 'br') cursorStyle = 'nwse-resize';
+            if (type === 'rot') cursorStyle = 'grab';
+            else if (type === 'tl' || type === 'br') cursorStyle = 'nwse-resize';
             else if (type === 'tr' || type === 'bl') cursorStyle = 'nesw-resize';
             else if (type === 't' || type === 'b') cursorStyle = 'ns-resize';
             else if (type === 'l' || type === 'r') cursorStyle = 'ew-resize';
@@ -1502,7 +1731,14 @@ window.initSelectionTool = function() {
                 tolerance: 8 / paper.view.zoom,
                 match: function(hit) {
                     if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
-                    if (hit.item.data && hit.item.data.mockup) return false;
+                    
+                    // Inmunidad total para mockups y máscaras
+                    let curr = hit.item;
+                    while (curr) {
+                        if (curr.data && (curr.data.mockup || curr.data.isMask)) return false;
+                        if (curr === window.currentMockup) return false;
+                        curr = curr.parent;
+                    }
                     return true;
                 }
             });
@@ -1514,13 +1750,23 @@ window.initSelectionTool = function() {
                     return;
                 }
             }
+
+            // Hover sobre el recuadro unificado de selección grupal para indicar arrastre en vacío
+            if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
+                if (window.selectionBoxGroup.bounds.contains(event.point)) {
+                    canvas.style.cursor = 'move';
+                    return;
+                }
+            }
+
             canvas.style.cursor = 'default';
         }
     };
 
     selectTool.activate();
-    console.log("🎯 Eventos de selección y redimensionamiento de Paper.js registrados con éxito.");
+    console.log("🎯 Eventos de selección, marquee y redimensionamiento unificado registrados con éxito.");
 };
+
 
 if (typeof paper !== "undefined" && paper.view) {
     window.initSelectionTool();
@@ -1579,3 +1825,4 @@ function applyPositionCorrections() {
     }
 }
 window.applyPositionCorrections = applyPositionCorrections;
+
