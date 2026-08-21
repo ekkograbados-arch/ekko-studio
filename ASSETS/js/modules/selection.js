@@ -1,8 +1,14 @@
 // 🚀 GLOBAL OVERRIDE: Desactivar el renderizado nativo de líneas y nodos azul-celeste de Paper.js
 // Esto permite usar item.selected = true de forma lógica (para que funcione el menú contextual)
 // pero evita por completo que Paper.js dibuje sus propios contornos sobre los SVGs y textos.
-if (typeof paper !== "undefined" && paper.Item) {
-    paper.Item.prototype._drawSelected = function() {};
+if (typeof paper !== "undefined") {
+    const classesToDisable = [paper.Item, paper.Path, paper.CompoundPath, paper.Group, paper.Shape, paper.Raster, paper.PointText, paper.Layer];
+    classesToDisable.forEach(function(cls) {
+        if (cls && cls.prototype) {
+            cls.prototype._drawSelected = function() {};
+            cls.prototype.drawSelected = function() {};
+        }
+    });
 }
 
 /* =========================================================================
