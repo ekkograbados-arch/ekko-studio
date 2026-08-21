@@ -266,6 +266,12 @@ const selectTool = new paper.Tool();
 let lastClickTime = 0;
 
 selectTool.onMouseDown = function(event) {
+// 🚀 CANVA-STYLE CLICK OUTSIDE TO ACCEPT TEXT
+const activeEditor = document.getElementById("ekko-text-editor");
+if (activeEditor) {
+    activeEditor.blur(); // synchronous blur which runs finish(true)
+    paper.view.update();
+}
 // Manejar doble clic para edición de texto inline
 const currentTime = Date.now();
 if (currentTime - lastClickTime < 300) {
