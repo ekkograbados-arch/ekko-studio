@@ -123,15 +123,36 @@ window.addEventListener("DOMContentLoaded", () => {
         // Esto previene de raíz el flicker (efecto parpadeo de la hoja A4) y sincroniza exactamente las coordenadas
         setTimeout(() => {
             try {
-                const dpr = window.devicePixelRatio || 1;
                 const initialWidth = containerEl.clientWidth || window.innerWidth;
                 const initialHeight = containerEl.clientHeight || window.innerHeight;
-                canvasEl.width = initialWidth * dpr;
-                canvasEl.height = initialHeight * dpr;
-                canvasEl.style.width = initialWidth + "px";
-                canvasEl.style.height = initialHeight + "px";
+                
+                // Inicializar Paper.js de forma limpia con las medidas lógicas iniciales
+                canvasEl.width = initialWidth;
+                canvasEl.height = initialHeight;
                 paper.setup("editorCanvas");
                 paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
+                
+                // 🚀 OBSERVADOR DE REDIMENSIONAMIENTO (ResizeObserver): Garantía total contra el desfasaje de coordenadas.
+                // Sincroniza dinámicamente y en tiempo real el tamaño lógico del canvas con el tamaño real CSS del contenedor.
+                // Esto compensa de inmediato cualquier layout shift producido por barras, menús o tipografías asíncronas.
+                if (typeof ResizeObserver !== "undefined") {
+                    const observer = new ResizeObserver(entries => {
+                        for (let entry of entries) {
+                            const w = Math.round(entry.contentRect.width || containerEl.clientWidth);
+                            const h = Math.round(entry.contentRect.height || containerEl.clientHeight);
+                            if (w > 0 && h > 0 && paper.view) {
+                                canvasEl.width = w;
+                                canvasEl.height = h;
+                                paper.view.viewSize = new paper.Size(w, h);
+                                paper.view.update();
+                                if (window.selectedItem && typeof window.updateSelectionBox === "function") {
+                                    window.updateSelectionBox(window.selectedItem);
+                                }
+                            }
+                        }
+                    });
+                    observer.observe(containerEl);
+                }
 
                 // Asegurar que tenemos un layer de diseño y un layer de fondo
                 let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
@@ -803,18 +824,19 @@ if (paper.view) {
 }
 
 window.addEventListener("resize", () => {
+    // Sincronización secundaria para navegadores antiguos
     const canvasEl = document.getElementById("editorCanvas");
     const containerEl = document.getElementById("canvasContainer");
     if (canvasEl && containerEl && paper.view) {
         const w = containerEl.clientWidth || 800;
         const h = containerEl.clientHeight || 600;
-        const dpr = window.devicePixelRatio || 1;
-        canvasEl.width = w * dpr;
-        canvasEl.height = h * dpr;
-        canvasEl.style.width = w + "px";
-        canvasEl.style.height = h + "px";
+        canvasEl.width = w;
+        canvasEl.height = h;
         paper.view.viewSize = new paper.Size(w, h);
         paper.view.update();
+        if (window.selectedItem && typeof window.updateSelectionBox === "function") {
+            window.updateSelectionBox(window.selectedItem);
+        }
     }
 });
 
