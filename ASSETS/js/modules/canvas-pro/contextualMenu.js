@@ -228,7 +228,7 @@ customDropdown.innerHTML = `
 `;
 nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
 }
-if (customDropdown) {"
+if (customDropdown) {
 const trigger = customDropdown.querySelector('.selected-font-trigger');
 const list = customDropdown.querySelector('.font-dropdown-list');
 const triggerText = trigger ? trigger.querySelector('span') : null;
