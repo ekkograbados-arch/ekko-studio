@@ -347,6 +347,127 @@ function bindClickHandlers() {
     bindBtn("proBtnCenterV", () => centerSelection("v"));
     bindBtn("proBtnCenterBoth", () => centerSelection("both"));
 
+    // Dibuja guías de distribución en Paper.js con la separación en pixeles (Estilo Canva)
+    const drawDistributionGuides = (selected, axis, spacing) => {
+        if (!window.paper || !spacing || spacing <= 0) return;
+        if (window.distributionGuidesGroup) {
+            window.distributionGuidesGroup.remove();
+        }
+        window.distributionGuidesGroup = new paper.Group();
+        window.distributionGuidesGroup.data = { isGuide: true };
+
+        const zoom = paper.view.zoom;
+        const strokeW = 1.2 / zoom;
+        const fontSize = 11 / zoom;
+        const labelSpacing = Math.round(spacing);
+
+        const getActualBounds = (it) => {
+            const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
+            return displayItem ? displayItem.bounds : it.bounds;
+        };
+
+        for (let i = 0; i < selected.length - 1; i++) {
+            const boundsA = getActualBounds(selected[i]);
+            const boundsB = getActualBounds(selected[i+1]);
+            if (!boundsA || !boundsB) continue;
+
+            let startPt, endPt, textPt;
+            if (axis === "h") {
+                const yCenter = (boundsA.center.y + boundsB.center.y) / 2;
+                startPt = new paper.Point(boundsA.right, yCenter);
+                endPt = new paper.Point(boundsB.left, yCenter);
+                textPt = new paper.Point((boundsA.right + boundsB.left) / 2, yCenter);
+                
+                // Línea de cota discontinua fucsia estilo Canva
+                const mainLine = new paper.Path.Line(startPt, endPt);
+                mainLine.strokeColor = '#e0245e';
+                mainLine.strokeWidth = strokeW;
+                mainLine.dashArray = [3 / zoom, 3 / zoom];
+                window.distributionGuidesGroup.addChild(mainLine);
+
+                // Topes verticales
+                const tickSize = 6 / zoom;
+                const tickA = new paper.Path.Line(
+                    new paper.Point(boundsA.right, yCenter - tickSize),
+                    new paper.Point(boundsA.right, yCenter + tickSize)
+                );
+                tickA.strokeColor = '#e0245e';
+                tickA.strokeWidth = strokeW * 1.5;
+                window.distributionGuidesGroup.addChild(tickA);
+
+                const tickB = new paper.Path.Line(
+                    new paper.Point(boundsB.left, yCenter - tickSize),
+                    new paper.Point(boundsB.left, yCenter + tickSize)
+                );
+                tickB.strokeColor = '#e0245e';
+                tickB.strokeWidth = strokeW * 1.5;
+                window.distributionGuidesGroup.addChild(tickB);
+            } else {
+                const xCenter = (boundsA.center.x + boundsB.center.x) / 2;
+                startPt = new paper.Point(xCenter, boundsA.bottom);
+                endPt = new paper.Point(xCenter, boundsB.top);
+                textPt = new paper.Point(xCenter, (boundsA.bottom + boundsB.top) / 2);
+
+                const mainLine = new paper.Path.Line(startPt, endPt);
+                mainLine.strokeColor = '#e0245e';
+                mainLine.strokeWidth = strokeW;
+                mainLine.dashArray = [3 / zoom, 3 / zoom];
+                window.distributionGuidesGroup.addChild(mainLine);
+
+                // Topes horizontales
+                const tickSize = 6 / zoom;
+                const tickA = new paper.Path.Line(
+                    new paper.Point(xCenter - tickSize, boundsA.bottom),
+                    new paper.Point(xCenter + tickSize, boundsA.bottom)
+                );
+                tickA.strokeColor = '#e0245e';
+                tickA.strokeWidth = strokeW * 1.5;
+                window.distributionGuidesGroup.addChild(tickA);
+
+                const tickB = new paper.Path.Line(
+                    new paper.Point(xCenter - tickSize, boundsB.top),
+                    new paper.Point(xCenter + tickSize, boundsB.top)
+                );
+                tickB.strokeColor = '#e0245e';
+                tickB.strokeWidth = strokeW * 1.5;
+                window.distributionGuidesGroup.addChild(tickB);
+            }
+
+            // Etiqueta de texto de distancia con píldora blanca estilo Canva
+            const textLabel = new paper.PointText(textPt.add(new paper.Point(0, 4 / zoom)));
+            textLabel.content = labelSpacing + " px";
+            textLabel.fontFamily = 'Arial, sans-serif';
+            textLabel.fontSize = fontSize;
+            textLabel.fontWeight = 'bold';
+            textLabel.fillColor = '#e0245e';
+            textLabel.justification = 'center';
+
+            const textRect = new paper.Path.Rectangle({
+                center: textPt,
+                size: [textLabel.bounds.width + (8 / zoom), textLabel.bounds.height + (3 / zoom)],
+                fillColor: '#ffffff',
+                strokeColor: '#e0245e',
+                strokeWidth: 1 / zoom,
+                radius: 4 / zoom
+            });
+
+            window.distributionGuidesGroup.addChild(textRect);
+            window.distributionGuidesGroup.addChild(textLabel);
+        }
+
+        window.distributionGuidesGroup.bringToFront();
+        paper.view.update();
+
+        // Autodesvanecer después de 2.5 segundos
+        setTimeout(() => {
+            if (window.distributionGuidesGroup) {
+                window.distributionGuidesGroup.remove();
+                window.distributionGuidesGroup = null;
+                paper.view.update();
+            }
+        }, 2500);
+    };
+
     // Distribución de espacio inteligente ( mm / Paper.js ) de OBJETOS SELECCIONADOS
     const distributeSpacing = (axis) => {
         if (!window.paper) return;
@@ -423,6 +544,9 @@ function bindClickHandlers() {
             }
         }
 
+        // Llamar a los indicadores visuales estilo Canva
+        drawDistributionGuides(selected, axis, spacing);
+
         // Forzar actualización de caja de selección
         if (typeof window.updateSelectionBox === "function") {
             window.updateSelectionBox(window.selectedItem);
@@ -456,19 +580,26 @@ window.applyPositionCorrections = function() {
 
     // 1. Corregir Barra Contextual Flotante (Evita que quede oculta o desfasada)
     if (toolbar && toolbar.classList.contains("active")) {
-        const toolbarHeight = toolbar.offsetHeight || 45;
-        const toolbarWidth = toolbar.offsetWidth || 350;
-        const canvasEl = document.getElementById("editorCanvas");
-        if (canvasEl) {
-            const rect = canvasEl.getBoundingClientRect();
-            const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
-            const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen superior
-            
+        if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
             toolbar.style.position = "absolute";
-            toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
-            toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
+            toolbar.style.left = window.customToolbarLeft + "px";
+            toolbar.style.top = window.customToolbarTop + "px";
+            toolbar.style.zIndex = "2147483646";
+        } else {
+            const toolbarHeight = toolbar.offsetHeight || 45;
+            const toolbarWidth = toolbar.offsetWidth || 350;
+            const canvasEl = document.getElementById("editorCanvas");
+            if (canvasEl) {
+                const rect = canvasEl.getBoundingClientRect();
+                const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
+                const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen superior
+                
+                toolbar.style.position = "absolute";
+                toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
+                toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
+            }
+            toolbar.style.zIndex = "2147483646"; // MAX Z-INDEX: Stay above rulers (z-index 999), topbar, sidebar and overlays
         }
-        toolbar.style.zIndex = "2147483647"; // MAX Z-INDEX: Stay above rulers (z-index 999), topbar, sidebar and overlays
     }
 
     // 2. Corregir Editor de Texto (Evita que el recuadro de escritura aparezca en la esquina superior izquierda)
