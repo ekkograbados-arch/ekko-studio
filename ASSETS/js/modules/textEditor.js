@@ -75,7 +75,7 @@ export function startTextEditing(textItem) {
     area.style.overflow = "hidden";
     area.style.whiteSpace = "pre"; // Preserva saltos de línea sin auto-ajustes forzados
     area.style.boxSizing = "border-box";
-    area.style.zIndex = "10030"; // Queda por encima de la barra de herramientas flotante
+    area.style.zIndex = "10000000"; // Queda por encima de la barra de herramientas flotante
 
     // Inicializar posición y tamaño
     syncEditorSizeAndPosition();
