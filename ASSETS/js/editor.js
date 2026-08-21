@@ -123,10 +123,13 @@ window.addEventListener("DOMContentLoaded", () => {
         // Esto previene de raíz el flicker (efecto parpadeo de la hoja A4) y sincroniza exactamente las coordenadas
         setTimeout(() => {
             try {
+                const dpr = window.devicePixelRatio || 1;
                 const initialWidth = containerEl.clientWidth || window.innerWidth;
                 const initialHeight = containerEl.clientHeight || window.innerHeight;
-                canvasEl.width = initialWidth;
-                canvasEl.height = initialHeight;
+                canvasEl.width = initialWidth * dpr;
+                canvasEl.height = initialHeight * dpr;
+                canvasEl.style.width = initialWidth + "px";
+                canvasEl.style.height = initialHeight + "px";
                 paper.setup("editorCanvas");
                 paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
 
@@ -805,8 +808,11 @@ window.addEventListener("resize", () => {
     if (canvasEl && containerEl && paper.view) {
         const w = containerEl.clientWidth || 800;
         const h = containerEl.clientHeight || 600;
-        canvasEl.width = w;
-        canvasEl.height = h;
+        const dpr = window.devicePixelRatio || 1;
+        canvasEl.width = w * dpr;
+        canvasEl.height = h * dpr;
+        canvasEl.style.width = w + "px";
+        canvasEl.style.height = h + "px";
         paper.view.viewSize = new paper.Size(w, h);
         paper.view.update();
     }
@@ -1402,7 +1408,7 @@ window.initSelectionTool = function() {
                 // Inmunidad absoluta contra clipping masks nativos de Paper.js
                 if (hit.item.clipMask) return false;
                 // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
-                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
+                if (hit.type === 'bounds' && (hit.item.data && hit.item.data.clipGroup)) return false;
                     return hit.item.data && hit.item.data.isHandle;
                 }
             });
@@ -1822,7 +1828,7 @@ window.initSelectionTool = function() {
                 // Inmunidad absoluta contra clipping masks nativos de Paper.js
                 if (hit.item.clipMask) return false;
                 // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
-                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
+                if (hit.type === 'bounds' && (hit.item.data && hit.item.data.clipGroup)) return false;
                     return hit.item.data && hit.item.data.isHandle;
                 }
             });
