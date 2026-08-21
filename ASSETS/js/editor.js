@@ -144,6 +144,7 @@ const redoStack = [];
 
 window.loadToken = 0;
 window.selectedItem = null;
+window.selectedItems = []; // NUEVO: Soporte para selección múltiple
 window.dragOffset = null;
 window.dragging = false;
 
@@ -315,6 +316,7 @@ window.deselectItem = function() {
     window.selectedItem.selected = false;
   }
   window.selectedItem = null;
+window.selectedItems = []; // NUEVO: Soporte para selección múltiple
   window.updateSelectionBox(null);
   if (ui.selectionInfo) ui.selectionInfo.textContent = "Nada seleccionado";
   if (ui.objWidth) ui.objWidth.value = "";
@@ -1232,13 +1234,13 @@ window.initSelectionTool = function() {
     if (generalHit) {
       const selectableItem = window.getSelectableItem(generalHit.item);
       if (selectableItem) {
-        window.selectItem(selectableItem);
+        // NUEVO: Verificar si se mantiene presionada una tecla de multi-selección (Shift o Ctrl/Cmd)
+        const isMulti = event.modifiers.shift || event.modifiers.control || event.modifiers.command;
+        window.selectItem(selectableItem, isMulti);
+        
         window.dragging = true;
-        const dragTarget = (selectableItem.data && selectableItem.data.clipGroup)
-          ? selectableItem.children.find(function(c) { return !c.clipMask; })
-          : selectableItem;
-
-        window.dragOffset = event.point.subtract(dragTarget.position);
+        // El offset para mover objetos se calculará en base al delta de movimiento relativo
+        window.dragOffset = event.point;
         return;
       }
     }
@@ -1366,13 +1368,16 @@ window.initSelectionTool = function() {
     }
 
     // --- MANEJO DE ARRASTRE DE OBJETO ---
-    if (window.dragging && window.selectedItem) {
-      const dragTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
-        ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
-        : window.selectedItem;
-
-      dragTarget.position = event.point.subtract(window.dragOffset);
-      window.updateSelectionBox(window.selectedItem);
+    if (window.dragging && window.selectedItems && window.selectedItems.length > 0) {
+      const delta = event.delta;
+      window.selectedItems.forEach(item => {
+        if (item.data && item.data.locked) return;
+        const dragTarget = (item.data && item.data.clipGroup)
+          ? item.children.find(function(c) { return !c.clipMask; })
+          : item;
+        dragTarget.position = dragTarget.position.add(delta);
+      });
+      window.updateSelectionBox();
       paper.view.update();
       return;
     }
