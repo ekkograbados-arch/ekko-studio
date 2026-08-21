@@ -131,11 +131,14 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
             hole.remove();
         }
     });
+    
     mask.fillColor = "black";
     mask.strokeColor = null;
     mask.visible = false;
+    mask.data = { mockup: true, isMask: true };
     return mask;
 }
+
 
 function makeMockupTransparent(item, ignoredPath) {
     if (!item) return;
@@ -214,6 +217,7 @@ function convertAllShapesToPaths(item) {
     return item;
 }
 
+
 export function loadMockup(svgPath) {
     var token = ++window.loadToken;
 
@@ -221,7 +225,7 @@ export function loadMockup(svgPath) {
     var userItems = [];
     if (typeof paper !== "undefined" && paper.project && paper.project.activeLayer) {
         paper.project.activeLayer.children.forEach(function(c) {
-            if (c && c.data && (c.data.mockup || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) {
+            if (c && c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) {
                 // No guardar elementos de mockup o de interfaz
             } else if (c) {
                 userItems.push(c);
@@ -261,8 +265,12 @@ export function loadMockup(svgPath) {
             ignoredPath = allPaths[0];
         }
         window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
+        if (window.grabArea) {
+            window.grabArea.data = { mockup: true, isMask: true };
+        }
         window.clipMask = window.grabArea ? window.grabArea.clone() : null;
         if (window.clipMask) {
+            window.clipMask.data = { mockup: true, isMask: true };
             window.clipMask.visible = false;
         }
         makeMockupTransparent(item, ignoredPath);
@@ -275,8 +283,27 @@ export function loadMockup(svgPath) {
         var isA4 = svgPath && (svgPath.toLowerCase().indexOf("a4") !== -1 || svgPath.toLowerCase().indexOf("lienzo") !== -1 || svgPath.toLowerCase().indexOf("placa") !== -1 || svgPath.toLowerCase().indexOf("mesa") !== -1 || svgPath.toLowerCase().indexOf("horizontal") !== -1);
         window.infiniteCanvasMode = isA4;
 
-        // 🚀 RESTAURAR Y ENMASCARAR RETROACTIVAMENTE LOS ELEMENTOS PREVIOS DEL USUARIO
-        userItems.forEach(function(uItem) {
+        // Recoger ítems que se hayan creado en paralelo durante la carga asíncrona de este SVG
+        var itemsCreatedDuringLoad = [];
+        paper.project.activeLayer.children.forEach(function(c) {
+            if (c && c !== item) {
+                var isUI = c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview);
+                if (!isUI) {
+                    itemsCreatedDuringLoad.push(c);
+                }
+            }
+        });
+
+        // Remover temporalmente para asegurar el orden de apilado correcto por debajo
+        itemsCreatedDuringLoad.forEach(function(c) {
+            c.remove();
+        });
+
+        // Combinar todos los elementos de usuario
+        var allUserItems = userItems.concat(itemsCreatedDuringLoad);
+
+        // 🚀 RESTAURAR Y ENMASCARAR RETROACTIVAMENTE LOS ELEMENTOS PREVIOS Y PARALELOS DEL USUARIO
+        allUserItems.forEach(function(uItem) {
             let restored;
             if (uItem.data && uItem.data.clipGroup) {
                 paper.project.activeLayer.addChild(uItem);
@@ -297,6 +324,8 @@ export function loadMockup(svgPath) {
         paper.view.update();
     });
 }
+
+
 
 export function restoreMockupReferences() {
     var mockupItem = paper.project.activeLayer.children.find(function(c) {
@@ -321,8 +350,12 @@ export function restoreMockupReferences() {
             ignoredPath = allPaths[0];
         }
         window.grabArea = buildCompoundMask(mockupItem, ignoredPath, svgPath);
+        if (window.grabArea) {
+            window.grabArea.data = { mockup: true, isMask: true };
+        }
         window.clipMask = window.grabArea ? window.grabArea.clone() : null;
         if (window.clipMask) {
+            window.clipMask.data = { mockup: true, isMask: true };
             window.clipMask.visible = false;
         }
     } else {
@@ -331,6 +364,8 @@ export function restoreMockupReferences() {
         window.clipMask = null;
     }
 }
+
+
 
 window.clipItem = function(item) {
     // LIENZO INFINITO INTERACTIVO (Garantía de Visualización Completa):
@@ -343,6 +378,7 @@ window.clipItem = function(item) {
     var mask = window.clipMask.clone();
     mask.clipMask = true;
     mask.visible = true;
+    mask.data = { mockup: true, isMask: true };
     var group = new paper.Group();
     group.addChild(mask);
     group.addChild(item);
@@ -354,3 +390,4 @@ window.clipItem = function(item) {
     };
     return group;
 };
+
