@@ -90,6 +90,9 @@ export function startTextEditing(textItem) {
     function finish(save = true) {
         if (closed) return;
         closed = true;
+        
+        // Remover el detector de clics externos global
+        document.removeEventListener("mousedown", handleOutsideClick);
         if (save) {
             const val = area.value.trim();
             if (val === "") {
@@ -155,8 +158,20 @@ export function startTextEditing(textItem) {
         }
     });
 
-    // Guardar cambios al hacer clic fuera del área de texto (blur)
+        // Guardar cambios al hacer clic fuera del área de texto (blur)
     area.addEventListener("blur", () => finish(true), { once: true });
+
+    // Detector de clics externos global para guardar en caliente (Soporta clic izquierdo y derecho)
+    const handleOutsideClick = (e) => {
+        if (e.target !== area) {
+            finish(true);
+        }
+    };
+
+    // Retrasar el registro ligeramente para evitar que el doble clic que abrió el editor lo cierre de inmediato
+    setTimeout(() => {
+        document.addEventListener("mousedown", handleOutsideClick);
+    }, 50);
 }
 
 // Registrar globalmente para asegurar visibilidad en modules/selection.js
