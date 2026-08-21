@@ -242,7 +242,7 @@ const isOpen = !list.classList.contains('hidden');
 if (!isOpen) {
 window.originalFontBackup = getSelectedFontFamily();
 renderCustomFontItems(list, fontsCache);
-list.remove('hidden');
+list.classList.remove('hidden');
 } else {
 list.classList.add('hidden');
 }
