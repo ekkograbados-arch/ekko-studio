@@ -1417,7 +1417,7 @@ window.initSelectionTool = function() {
         }
 
         // 2. Hit test contra elementos normales del lienzo con inmunidad total para mockups y máscaras
-        const generalHit = paper.project.hitTest(event.point, {
+        let generalHit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
             segments: true,
@@ -1426,8 +1426,6 @@ window.initSelectionTool = function() {
             match: function(hit) {
                 // Inmunidad absoluta contra clipping masks nativos de Paper.js
                 if (hit.item.clipMask) return false;
-                // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
-                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
                 if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle || hit.item.data.isNodeHandle)) return false;
                 
                 // Verificar si el item o sus ancestros son del mockup o máscaras
@@ -1440,6 +1438,24 @@ window.initSelectionTool = function() {
                 return true;
             }
         });
+
+        // 🚀 FILTRO DE PRECISIÓN CANVA/AUTOCAD (Inmunidad al Espacio Vacío de la Máscara):
+        // Valida que el clic sea EXACTAMENTE dentro de los límites visuales reales de la imagen, texto o vector del usuario,
+        // y no en el espacio en blanco o transparente dentro de la máscara gigante del producto.
+        if (generalHit) {
+            const selectableItem = window.getSelectableItem(generalHit.item);
+            if (selectableItem) {
+                const displayItem = (selectableItem.data && selectableItem.data.clipGroup)
+                    ? selectableItem.children.find(function(c) { return !c.clipMask; })
+                    : selectableItem;
+                
+                if (!displayItem || !displayItem.bounds || !displayItem.bounds.contains(event.point)) {
+                    generalHit = null; // Ignorar el clic en el vacío de la máscara para permitir Marquee Selection
+                }
+            } else {
+                generalHit = null;
+            }
+        }
 
         if (generalHit) {
             const selectableItem = window.getSelectableItem(generalHit.item);
@@ -1761,20 +1777,18 @@ window.initSelectionTool = function() {
             else if (type === 'l' || type === 'r') cursorStyle = 'ew-resize';
             canvas.style.cursor = cursorStyle;
         } else {
-            const generalHit = paper.project.hitTest(event.point, {
+            let generalHit = paper.project.hitTest(event.point, {
                 fill: true,
                 stroke: true,
                 segments: true,
                 bounds: true,
                 tolerance: 8 / paper.view.zoom,
                 match: function(hit) {
-                // Inmunidad absoluta contra clipping masks nativos de Paper.js
-                if (hit.item.clipMask) return false;
-                // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
-                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
-                    if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
+                    // Inmunidad absoluta contra clipping masks nativos de Paper.js
+                    if (hit.item.clipMask) return false;
+                    if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle || hit.item.data.isNodeHandle)) return false;
                     
-                    // Inmunidad total para mockups y máscaras
+                    // Verificar si el item o sus ancestros son del mockup o máscaras
                     let curr = hit.item;
                     while (curr) {
                         if (curr.data && (curr.data.mockup || curr.data.isMask)) return false;
@@ -1784,6 +1798,27 @@ window.initSelectionTool = function() {
                     return true;
                 }
             });
+
+            // 🚀 HOVER DE PRECISIÓN (Cambio dinámico del cursor 'move' solo sobre el diseño real)
+            if (generalHit) {
+                const hitItem = window.getSelectableItem(generalHit.item);
+                if (hitItem) {
+                    const displayItem = (hitItem.data && hitItem.data.clipGroup)
+                        ? hitItem.children.find(function(c) { return !c.clipMask; })
+                        : hitItem;
+                    
+                    if (displayItem && displayItem.bounds && displayItem.bounds.contains(event.point)) {
+                        if (window.selectedItems && window.selectedItems.includes(hitItem)) {
+                            canvas.style.cursor = 'move';
+                            return;
+                        }
+                    } else {
+                        generalHit = null;
+                    }
+                } else {
+                    generalHit = null;
+                }
+            }
 
             if (generalHit && window.selectedItems && window.selectedItems.length > 0) {
                 const hitItem = window.getSelectableItem(generalHit.item);
@@ -1867,3 +1902,4 @@ function applyPositionCorrections() {
     }
 }
 window.applyPositionCorrections = applyPositionCorrections;
+
