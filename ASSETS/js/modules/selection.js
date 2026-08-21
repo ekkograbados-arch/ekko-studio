@@ -1,5 +1,6 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/selection.js
+Módulo: ASSETS/js/modules/selection.js (WYSIWYG Edition)
+Ruta de reemplazo: ASSETS/js/modules/selection.js
 Descripción: Gestión de selección, redimensionamiento, arrastre y caja de selección
 en Paper.js para EKKO Studio.
 CORRECCIÓN DE ARRASTRE Y ESCALA: Al arrastrar o redimensionar un objeto recortado
@@ -36,6 +37,7 @@ if(!item) return null;
 if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle)) return null;
 if (item.parent && item.parent.data && (item.parent.data.isSelectionBox || item.parent.data.isNodeEditOverlay)) return null;
 if (item.data && item.data.mockup) return null;
+
 let current = item;
 while (current) {
 if (current.data) {
@@ -74,8 +76,10 @@ const displayItem = (item.data && item.data.clipGroup)
 if (!displayItem) return;
 const bounds = displayItem.bounds;
 if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
 window.selectionBoxGroup = new paper.Group();
 window.selectionBoxGroup.data = { isSelectionBox: true };
+
 // 1. Dibujar el rectángulo azul de contorno dashed
 const border = new paper.Path.Rectangle(bounds);
 border.strokeColor = '#007bff';
@@ -95,6 +99,7 @@ const handlesInfo = [
 { point: bounds.bottomLeft, type: 'bl' },
 { point: bounds.leftCenter, type: 'l' }
 ];
+
 handlesInfo.forEach(function(info) {
 const rect = new paper.Path.Rectangle({
 center: info.point,
@@ -106,7 +111,13 @@ strokeWidth: 1.5 / paper.view.zoom
 rect.data = { isHandle: true, handleType: info.type };
 window.selectionBoxGroup.addChild(rect);
 });
+
 window.selectionBoxGroup.bringToFront();
+
+// 🚀 REPOSICIONAMIENTO EN TIEMPO REAL: Sincronizar elementos de interfaz flotantes HTML
+if (typeof window.applyPositionCorrections === "function") {
+window.applyPositionCorrections();
+}
 };
 
 /* ========================= NODE EDITING OVERLAY SYSTEM ========================= */
@@ -248,10 +259,9 @@ default:   return bounds.center;
 // --- FUNCIÓN DE INICIALIZACIÓN DE EVENTOS DE MOUSE ---
 window.initSelectionTool = function() {
 if (!paper.view) {
-console.warn("initSelectionTool: paper.view no está definido todavía.");
+console.warn(\"initSelectionTool: paper.view no está definido todavía.\");
 return;
 }
-
 const selectTool = new paper.Tool();
 let lastClickTime = 0;
 
@@ -283,6 +293,7 @@ match: function(hit) {
 return hit.item.data && hit.item.data.isHandle;
 }
 });
+
 if (hitResult) {
 // El usuario seleccionó un nodo de control para redimensionar
 window.resizeActive = true;
@@ -313,19 +324,18 @@ if (hit.item.data && hit.item.data.mockup) return false;
 return true;
 }
 });
+
 if (generalHit) {
 const selectableItem = window.getSelectableItem(generalHit.item);
 if (selectableItem) {
 window.selectItem(selectableItem);
 window.dragging = true;
-
 // 🚀 MEJORA DE ARRASTRE PARA GRUPOS DE RECORTE (ClipGroup)
 // Si es un clipGroup, calculamos el dragOffset en base al hijo interno real (la imagen/texto/vector),
 // y NO del grupo entero, para poder reposicionarlo de manera independiente.
 const dragTarget = (selectableItem.data && selectableItem.data.clipGroup)
 ? selectableItem.children.find(function(c) { return !c.clipMask; })
 : selectableItem;
-
 window.dragOffset = event.point.subtract(dragTarget.position);
 return;
 }
@@ -362,6 +372,7 @@ const factor = (Math.abs(factorX) + Math.abs(factorY)) / 2 * (factorX < 0 ? -1 :
 factorX = factor;
 factorY = factor;
 }
+
 // Aplicar escala incremental relativa
 const scaleFactorX = factorX / window.resizeLastScaleX;
 const scaleFactorY = factorY / window.resizeLastScaleY;
@@ -375,7 +386,7 @@ const targetToScale = (window.resizeTarget.data && window.resizeTarget.data.clip
 : window.resizeTarget;
 
 if (targetToScale) {
-    targetToScale.scale(scaleFactorX, scaleFactorY, anchor);
+targetToScale.scale(scaleFactorX, scaleFactorY, anchor);
 }
 
 window.resizeLastScaleX = factorX;
@@ -389,7 +400,7 @@ if (window.dragging && window.selectedItem) {
 // 🚀 ARRASTRE SEGURO DENTRO DEL CONTORNO (MÁSCARA)
 // Si el elemento es un grupo de recorte (clipGroup), movemos únicamente el hijo interno
 // real (dragTarget) que contiene la imagen, texto o vector. La máscara (clipMask) queda fija en
-// su posición original (alineada con el mockup), logrando el efecto WYSIWYG de "desplazamiento interno".
+// su posición original (alineada con el mockup), logrando el efecto WYSIWYG de \"desplazamiento interno\".
 const dragTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
 ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
 : window.selectedItem;
@@ -411,10 +422,10 @@ paper.view.update();
 };
 
 selectTool.activate();
-console.log("🎯 Eventos de selección y redimensionamiento de Paper.js registrados con éxito.");
+console.log(\"🎯 Eventos de selección y redimensionamiento de Paper.js registrados con éxito.\");
 };
 
 // Autoejecutar de inmediato si ya se inicializó paper.js
-if (typeof paper !== "undefined" && paper.view) {
+if (typeof paper !== \"undefined\" && paper.view) {
 window.initSelectionTool();
 }
