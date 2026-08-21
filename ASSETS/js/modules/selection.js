@@ -67,14 +67,32 @@ window.selectionBoxGroup = null;
 if (window.nodeEditMode) {
 return;
 }
-if (!item || (item.data && item.data.mockup)) {
-return;
-}
-const displayItem = (item.data && item.data.clipGroup)
-? item.children.find(function(c) { return !c.clipMask; })
-: item;
+const selected = (window.selectedItems && window.selectedItems.length > 0)
+? window.selectedItems
+: (item ? [item] : []);
+if (selected.length === 0) return;
+
+let bounds = null;
+if (selected.length === 1) {
+const singleItem = selected[0];
+const displayItem = (singleItem.data && singleItem.data.clipGroup)
+? singleItem.children.find(function(c) { return !c.clipMask; })
+: singleItem;
 if (!displayItem) return;
-const bounds = displayItem.bounds;
+bounds = displayItem.bounds;
+} else {
+selected.forEach(function(it) {
+const displayItem = (it.data && it.data.clipGroup)
+? it.children.find(function(c) { return !c.clipMask; })
+: it;
+if (!displayItem) return;
+if (!bounds) {
+bounds = displayItem.bounds.clone();
+} else {
+bounds = bounds.unite(displayItem.bounds);
+}
+});
+}
 if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
 
 window.selectionBoxGroup = new paper.Group();
@@ -189,10 +207,16 @@ window.selectItem = function(item){
 if (window.nodeEditMode) {
 window.exitNodeEditMode();
 }
-if(window.selectedItem){
-window.selectedItem.selected = false;
+if (window.selectedItems) {
+window.selectedItems.forEach(function(it) {
+it.selected = false;
+});
 }
 window.selectedItem = item;
+window.selectedItems = item ? [item] : [];
+if (item) {
+item.selected = true;
+}
 if(!item){
 window.updateSelectionBox(null);
 paper.view.update();
@@ -200,6 +224,8 @@ return;
 }
 if(item.data && item.data.mockup){
 item.selected = false;
+window.selectedItems = [];
+window.selectedItem = null;
 window.updateSelectionBox(null);
 paper.view.update();
 return;
@@ -215,6 +241,12 @@ paper.view.update();
 window.deselectItem = function(){
 if (window.nodeEditMode) {
 window.exitNodeEditMode();
+}
+if (window.selectedItems) {
+window.selectedItems.forEach(function(it) {
+it.selected = false;
+});
+window.selectedItems = [];
 }
 if(window.selectedItem){
 window.selectedItem.selected = false;
@@ -336,15 +368,55 @@ return true;
 if (generalHit) {
 const selectableItem = window.getSelectableItem(generalHit.item);
 if (selectableItem) {
-window.selectItem(selectableItem);
+const isShiftPressed = event.modifiers && event.modifiers.shift;
+if (!window.selectedItems) {
+window.selectedItems = [];
+}
+if (isShiftPressed) {
+const index = window.selectedItems.indexOf(selectableItem);
+if (index > -1) {
+selectableItem.selected = false;
+window.selectedItems.splice(index, 1);
+} else {
+selectableItem.selected = true;
+window.selectedItems.push(selectableItem);
+}
+window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
+} else {
+if (window.selectedItems.includes(selectableItem)) {
+// Continuar arrastre de multi-selección actual
+} else {
+window.selectedItems.forEach(function(it) {
+it.selected = false;
+});
+selectableItem.selected = true;
+window.selectedItem = selectableItem;
+window.selectedItems = [selectableItem];
+}
+}
+
 window.dragging = true;
-// 🚀 MEJORA DE ARRASTRE PARA GRUPOS DE RECORTE (ClipGroup)
-// Si es un clipGroup, calculamos el dragOffset en base al hijo interno real (la imagen/texto/vector),
-// y NO del grupo entero, para poder reposicionarlo de manera independiente.
-const dragTarget = (selectableItem.data && selectableItem.data.clipGroup)
-? selectableItem.children.find(function(c) { return !c.clipMask; })
-: selectableItem;
-window.dragOffset = event.point.subtract(dragTarget.position);
+
+// Preparar arrastre múltiple sincronizado
+window.dragTargets = [];
+window.selectedItems.forEach(function(item) {
+const dragTarget = (item.data && item.data.clipGroup)
+? item.children.find(function(c) { return !c.clipMask; })
+: item;
+if (dragTarget) {
+window.dragTargets.push({
+item: item,
+target: dragTarget,
+dragOffset: event.point.subtract(dragTarget.position)
+});
+}
+});
+
+window.updateSelectionBox(window.selectedItem);
+if (typeof window.updateContextualMenu === 'function') {
+window.updateContextualMenu(window.selectedItem);
+}
+paper.view.update();
 return;
 }
 }
@@ -404,16 +476,12 @@ paper.view.update();
 return;
 }
 
-if (window.dragging && window.selectedItem) {
-// 🚀 ARRASTRE SEGURO DENTRO DEL CONTORNO (MÁSCARA)
-// Si el elemento es un grupo de recorte (clipGroup), movemos únicamente el hijo interno
-// real (dragTarget) que contiene la imagen, texto o vector. La máscara (clipMask) queda fija en
-// su posición original (alineada con el mockup), logrando el efecto WYSIWYG de "desplazamiento interno".
-const dragTarget = (window.selectedItem.data && window.selectedItem.data.clipGroup)
-? window.selectedItem.children.find(function(c) { return !c.clipMask; })
-: window.selectedItem;
-
-dragTarget.position = event.point.subtract(window.dragOffset);
+if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
+// 🚀 ARRASTRE SEGURO MÚLTIPLE DENTRO DEL CONTORNO (MÁSCARA)
+window.dragTargets.forEach(function(dragInfo) {
+if (dragInfo.item.data && dragInfo.item.data.locked) return;
+dragInfo.target.position = event.point.subtract(dragInfo.dragOffset);
+});
 window.updateSelectionBox(window.selectedItem);
 paper.view.update();
 return;
