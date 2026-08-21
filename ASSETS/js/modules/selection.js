@@ -77,6 +77,7 @@ window.getSelectableItem = function(item){
 
 /* ========================= UPDATE SELECTION BOX OVERLAY ========================= */
 
+
 window.updateSelectionBox = function(item) {
     if (window.selectionBoxGroup) {
         window.selectionBoxGroup.remove();
@@ -92,11 +93,28 @@ window.updateSelectionBox = function(item) {
         if (designLayer) designLayer.activate();
     }
 
+    const primaryItem = item || window.selectedItem;
+    if (!primaryItem) return;
+
+    // Inmunidad total para mockup, sus descendientes y máscaras
+    let isMockup = false;
+    let curr = primaryItem;
+    while (curr) {
+        if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+            isMockup = true;
+            break;
+        }
+        if (curr === window.currentMockup) {
+            isMockup = true;
+            break;
+        }
+        curr = curr.parent;
+    }
+    if (isMockup) return;
+
     const selected = (window.selectedItems && window.selectedItems.length > 0)
         ? window.selectedItems
-        : (item ? [item] : []);
-
-    if (selected.length === 0) return;
+        : [primaryItem];
 
     let bounds = null;
     selected.forEach(function(it) {
@@ -116,14 +134,12 @@ window.updateSelectionBox = function(item) {
     window.selectionBoxGroup = new paper.Group();
     window.selectionBoxGroup.data = { isSelectionBox: true };
 
-    // 1. Dibujar el rectángulo azul de contorno dashed que engloba a todo el conjunto
     const border = new paper.Path.Rectangle(bounds);
     border.strokeColor = '#007bff';
     border.strokeWidth = 1.5 / paper.view.zoom;
     border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
     window.selectionBoxGroup.addChild(border);
 
-    // 2. Dibujar los 8 nodos de control (cuadrados blancos con borde azul) en las esquinas de la caja unificada
     const handleSize = 8 / paper.view.zoom;
     const handlesInfo = [
         { point: bounds.topLeft, type: 'tl' },
@@ -147,7 +163,6 @@ window.updateSelectionBox = function(item) {
         window.selectionBoxGroup.addChild(rect);
     });
 
-    // 3. TIRADOR DE ROTACIÓN UNIFICADO ESTILO CANVA/FIGMA
     const rotHandleDistance = 25 / paper.view.zoom;
     const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
 
@@ -166,7 +181,6 @@ window.updateSelectionBox = function(item) {
     rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
     window.selectionBoxGroup.addChild(rotHandleCircle);
 
-    // Icono de flecha curvada de rotación
     const iconRadius = 3.5 / paper.view.zoom;
     const arrowIcon = new paper.Path.Arc(
         rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
@@ -187,11 +201,11 @@ window.updateSelectionBox = function(item) {
 
     window.selectionBoxGroup.bringToFront();
 
-    // 🚀 REPOSICIONAMIENTO EN TIEMPO REAL: Sincronizar elementos de interfaz flotantes HTML
     if (typeof window.applyPositionCorrections === "function") {
         window.applyPositionCorrections();
     }
 };
+
 
 /* ========================= NODE EDITING OVERLAY SYSTEM ========================= */
 
@@ -260,9 +274,30 @@ window.exitNodeEditMode = function() {
 
 /* ========================= SELECT ========================= */
 
+
 window.selectItem = function(item, isMulti = false){
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
+    }
+    
+    // Verificar inmunidad para mockup o máscaras
+    let isMockup = false;
+    let curr = item;
+    while (curr) {
+        if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+            isMockup = true;
+            break;
+        }
+        if (curr === window.currentMockup) {
+            isMockup = true;
+            break;
+        }
+        curr = curr.parent;
+    }
+    
+    if (!item || isMockup) {
+        window.deselectItem();
+        return;
     }
     
     if (!window.selectedItems) window.selectedItems = [];
@@ -297,21 +332,13 @@ window.selectItem = function(item, isMulti = false){
         return;
     }
 
-    if(window.selectedItem.data && window.selectedItem.data.mockup){
-        window.selectedItem.selected = false;
-        window.selectedItems = [];
-        window.selectedItem = null;
-        window.updateSelectionBox(null);
-        paper.view.update();
-        return;
-    }
-
     window.updateSelectionBox(window.selectedItem);
     if (typeof window.updateContextualMenu === 'function') {
         window.updateContextualMenu(window.selectedItem);
     }
     paper.view.update();
 };
+
 
 /* ========================= DESELECT ========================= */
 
@@ -368,41 +395,37 @@ window.getHandlePoint = function(bounds, handleType) {
 
 // --- FUNCIÓN DE INICIALIZACIÓN DE EVENTOS DE MOUSE ---
 
+
+// --- MARQUEE SELECTION STATE ---
+window.marqueeActive = false;
+window.marqueeStartPoint = null;
+window.marqueePath = null;
+
 window.initSelectionTool = function() {
     if (!paper.view) {
         console.warn("initSelectionTool: paper.view no está definido todavía.");
         return;
     }
-
     const selectTool = new paper.Tool();
     let lastClickTime = 0;
 
-    // ACTIVADOR CANVA-STYLE DE BAJA LATENCIA (Sin Delay):
-    const canvas = document.getElementById("editorCanvas");
-    if (canvas) {
-        const activateToolSafely = function() {
-            if (paper.tool !== selectTool) {
-                selectTool.activate();
-            }
-        };
-        canvas.addEventListener("mousedown", activateToolSafely, true);
-        canvas.addEventListener("mouseenter", activateToolSafely, true);
-    }
-
     selectTool.onMouseDown = function(event) {
-        // 🚀 CANVA-STYLE CLICK OUTSIDE TO ACCEPT TEXT
-        const activeEditor = document.getElementById("ekko-text-editor");
-        if (activeEditor) {
-            activeEditor.blur(); // blur síncrono que corre finish(true)
-            paper.view.update();
+        if (window.insertTextMode) {
+            if (typeof createEditableText === "function") {
+                createEditableText(event.point);
+            }
+            window.insertTextMode = false;
+            paper.view.element.style.cursor = "default";
+            return;
         }
 
-        // Manejar doble clic para edición de texto inline
         const currentTime = Date.now();
         if (currentTime - lastClickTime < 300) {
-            lastClickTime = 0; // Evitar disparar múltiples doble clics
+            lastClickTime = 0;
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(function(c) { return !c.clipMask; }) : window.selectedItem;
+                const target = window.selectedItem.data?.clipGroup
+                    ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
+                    : window.selectedItem;
                 if (target instanceof paper.PointText) {
                     if (typeof window.startTextEditing === 'function') {
                         window.startTextEditing(target);
@@ -413,14 +436,14 @@ window.initSelectionTool = function() {
         }
         lastClickTime = currentTime;
 
-        // 1. Hit test optimizado y directo contra los handles de la caja de selección celeste unificada (estilo Canva)
+        // 1. Hit test contra los handles de la caja de selección unificada
         let hitResult = null;
         if (window.selectionBoxGroup) {
             hitResult = window.selectionBoxGroup.hitTest(event.point, {
                 fill: true,
                 stroke: true,
                 segments: true,
-                tolerance: 12 / paper.view.zoom, // Captura ultra fluida
+                tolerance: 12 / paper.view.zoom,
                 match: function(hit) {
                     return hit.item.data && hit.item.data.isHandle;
                 }
@@ -429,14 +452,12 @@ window.initSelectionTool = function() {
 
         if (hitResult) {
             const hType = hitResult.item.data.handleType;
-            
-            // CASO ESPECIAL: Tirador de Rotación ('rot')
             if (hType === 'rot') {
                 if (!window.selectedItem) return;
                 window.rotationActive = true;
                 window.rotationTarget = window.selectedItem;
                 
-                // Calcular centro de rotación unificado del conjunto
+                // Calcular centro de rotación unificado
                 let unifiedBounds = null;
                 window.selectedItems.forEach(function(it) {
                     const displayItem = (it.data && it.data.clipGroup)
@@ -472,12 +493,11 @@ window.initSelectionTool = function() {
                 return;
             }
 
-            // Redimensionamiento unificado normal (tl, t, tr, r, br, b, bl, l)
+            if (!window.selectedItem) return;
             window.resizeActive = true;
             window.resizeHandleType = hType;
             window.resizeTargets = [...(window.selectedItems || [])];
 
-            // Calcular los límites iniciales unificados de todos los objetos seleccionados para escalar proporcionalmente
             let unifiedBounds = null;
             window.resizeTargets.forEach(function(it) {
                 const displayItem = (it.data && it.data.clipGroup)
@@ -490,6 +510,7 @@ window.initSelectionTool = function() {
                     unifiedBounds = unifiedBounds.unite(displayItem.bounds);
                 }
             });
+
             window.resizeInitialBounds = unifiedBounds;
             window.resizeInitialPoint = event.point.clone();
             window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
@@ -498,16 +519,23 @@ window.initSelectionTool = function() {
             return;
         }
 
-        // 2. Hit test para elementos seleccionables normales
+        // 2. Hit test contra elementos normales del lienzo con inmunidad total para mockups y máscaras
         const generalHit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
             segments: true,
-            bounds: true, // Permite seleccionar imágenes, textos y códigos QR cómodamente
+            bounds: true,
             tolerance: 8 / paper.view.zoom,
             match: function(hit) {
-                if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
-                if (hit.item.data && hit.item.data.mockup) return false;
+                if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle || hit.item.data.isNodeHandle)) return false;
+                
+                // Verificar si el item o sus ancestros son del mockup o máscaras
+                let curr = hit.item;
+                while (curr) {
+                    if (curr.data && (curr.data.mockup || curr.data.isMask)) return false;
+                    if (curr === window.currentMockup) return false;
+                    curr = curr.parent;
+                }
                 return true;
             }
         });
@@ -516,9 +544,9 @@ window.initSelectionTool = function() {
             const selectableItem = window.getSelectableItem(generalHit.item);
             if (selectableItem) {
                 const isShiftPressed = event.modifiers && event.modifiers.shift;
-                
-                if (!window.selectedItems) window.selectedItems = [];
-                
+                if (!window.selectedItems) {
+                    window.selectedItems = [];
+                }
                 if (isShiftPressed) {
                     const index = window.selectedItems.indexOf(selectableItem);
                     if (index > -1) {
@@ -531,7 +559,7 @@ window.initSelectionTool = function() {
                     window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
                 } else {
                     if (window.selectedItems.includes(selectableItem)) {
-                        // Mantener la multi-selección actual intacta para arrastrar
+                        // Mantener la multi-selección intacta para permitir arrastre sin deseleccionar
                     } else {
                         window.selectedItems.forEach(function(it) {
                             it.selected = false;
@@ -541,9 +569,7 @@ window.initSelectionTool = function() {
                         window.selectedItems = [selectableItem];
                     }
                 }
-                
                 window.dragging = true;
-                // Preparar arrastre múltiple sincronizado
                 window.dragTargets = [];
                 window.selectedItems.forEach(function(item) {
                     const dragTarget = (item.data && item.data.clipGroup)
@@ -557,7 +583,6 @@ window.initSelectionTool = function() {
                         });
                     }
                 });
-                
                 window.updateSelectionBox(window.selectedItem);
                 if (typeof window.updateContextualMenu === 'function') {
                     window.updateContextualMenu(window.selectedItem);
@@ -567,9 +592,8 @@ window.initSelectionTool = function() {
             }
         }
 
-        // 3. 🚀 DRAG EXTRA SENSORIAL DE MÚLTIPLES OBJETOS (Canva style)
-        // Si hace clic dentro del área del recuadro unificado (aunque sea espacio en blanco entre los objetos), permitimos el arrastre directo de todo el grupo.
-        if (window.selectedItems.length > 1 && window.selectionBoxGroup) {
+        // 3. Arrastre en bloque haciendo clic dentro del recuadro de selección unificada (Canva style)
+        if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
             const selectionBoxBounds = window.selectionBoxGroup.bounds;
             if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
                 window.dragging = true;
@@ -590,7 +614,7 @@ window.initSelectionTool = function() {
             }
         }
 
-        // 4. 🚀 RECUADRO DE SELECCIÓN POR ARRASTRE (Marquee Selection) en vació
+        // 4. Activar selección por arrastre (Marquee Selection) en vacío estilo Canva/Word
         window.deselectItem();
         window.marqueeActive = true;
         window.marqueeStartPoint = event.point.clone();
@@ -611,7 +635,7 @@ window.initSelectionTool = function() {
             return;
         }
 
-        // --- MANEJO DE RECUADRO DE SELECCIÓN MARQUEE ---
+        // Manejo de la caja de selección translúcida Marquee
         if (window.marqueeActive && window.marqueePath) {
             window.marqueePath.remove();
             window.marqueePath = new paper.Path.Rectangle({
@@ -627,14 +651,14 @@ window.initSelectionTool = function() {
             return;
         }
 
-        // --- MANEJO DE ROTACIÓN INTERACTIVA ORBITAL GRUPAL ---
+        // Manejo de Rotación Unificada y Orbital
         if (window.rotationActive && window.rotationTargets && window.rotationTargets.length > 0) {
             const currentPoint = event.point;
             const vector = currentPoint.subtract(window.rotationCenter);
             const currentAngle = vector.angle;
             let angleDiff = currentAngle - window.rotationStartAngle;
 
-            // Snap a 45 grados si presiona Shift
+            // Snap a 45 grados si se presiona Shift
             const isShiftPressed = event.modifiers && event.modifiers.shift;
             if (isShiftPressed) {
                 angleDiff = Math.round(angleDiff / 45) * 45;
@@ -643,12 +667,12 @@ window.initSelectionTool = function() {
             window.rotationTargets.forEach(function(rt) {
                 if (rt.item.data && rt.item.data.locked) return;
 
-                // Rotar orbitalmente alrededor del centro unificado de la selección
+                // Rotar orbitalmente si hay más de un elemento seleccionado
                 if (window.selectedItems.length > 1) {
                     rt.target.position = rt.initialPosition.rotate(angleDiff, window.rotationCenter);
                 }
 
-                // Rotar el objeto localmente sobre su propio centro
+                // Rotar el elemento sobre su propio eje
                 const oldRotation = rt.target.data?.rotation || 0;
                 const targetAngle = (rt.initialRotation + angleDiff) % 360;
                 let deltaRotate = targetAngle - oldRotation;
@@ -660,7 +684,6 @@ window.initSelectionTool = function() {
                 rt.target.data.rotation = targetAngle;
             });
 
-            // Sincronizar input de rotación con el primario
             const rotationNum = document.getElementById('ctxRotationNum');
             if (rotationNum && window.selectedItem) {
                 const displayItem = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
@@ -674,21 +697,22 @@ window.initSelectionTool = function() {
             return;
         }
 
-        // --- MANEJO DE REDIMENSIONAMIENTO GRUPAL UNIFICADO (Estilo Canva) ---
+        // Manejo de Escalado/Redimensionamiento Unificado
         if (window.resizeActive && window.resizeTargets && window.resizeTargets.length > 0) {
             const anchor = window.resizeAnchor;
             const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
             const currentHandlePoint = event.point;
             let factorX = 1.0;
             let factorY = 1.0;
+
             const initialXDiff = initialHandlePoint.x - anchor.x;
             const currentXDiff = currentHandlePoint.x - anchor.x;
             if (Math.abs(initialXDiff) > 0.001) factorX = currentXDiff / initialXDiff;
+
             const initialYDiff = initialHandlePoint.y - anchor.y;
             const currentYDiff = currentHandlePoint.y - anchor.y;
             if (Math.abs(initialYDiff) > 0.001) factorY = currentYDiff / initialYDiff;
 
-            // Mantener proporciones automáticas en esquinas para escalados uniformes de Canva
             if (['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType)) {
                 const factor = (Math.abs(factorX) + Math.abs(factorY)) / 2 * (factorX < 0 ? -1 : 1);
                 factorX = factor;
@@ -698,7 +722,6 @@ window.initSelectionTool = function() {
             const scaleFactorX = factorX / window.resizeLastScaleX;
             const scaleFactorY = factorY / window.resizeLastScaleY;
 
-            // Escalar de forma unificada todos los elementos del grupo respecto al ancla común
             window.resizeTargets.forEach(function(item) {
                 if (item.data && item.data.locked) return;
                 const targetToScale = (item.data && item.data.clipGroup)
@@ -716,79 +739,21 @@ window.initSelectionTool = function() {
             return;
         }
 
-        // --- MANEJO DE ARRASTRE SEGURO MÚLTIPLE SINCRONIZADO ---
+        // Manejo de Arrastre Sincronizado
         if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
             window.dragTargets.forEach(function(dragInfo) {
                 if (dragInfo.item.data && dragInfo.item.data.locked) return;
                 dragInfo.target.position = event.point.subtract(dragInfo.dragOffset);
             });
+
+            if (typeof calculateSmartGuides === "function") {
+                calculateSmartGuides(window.selectedItem, event);
+            } else if (window.calculateSmartGuides) {
+                window.calculateSmartGuides(window.selectedItem, event);
+            }
             window.updateSelectionBox(window.selectedItem);
             paper.view.update();
             return;
-        }
-    };
-
-    selectTool.onMouseMove = function(event) {
-        const canvas = document.getElementById("editorCanvas");
-        if (!canvas) return;
-
-        if (window.resizeActive) return;
-
-        // 1. Hit-Test sobre los nodos de la caja de selección unificada
-        let hitResult = null;
-        if (window.selectionBoxGroup) {
-            hitResult = window.selectionBoxGroup.hitTest(event.point, {
-                fill: true,
-                stroke: true,
-                segments: true,
-                tolerance: 12 / paper.view.zoom,
-                match: function(hit) {
-                    return hit.item.data && hit.item.data.isHandle;
-                }
-            });
-        }
-
-        if (hitResult) {
-            const type = hitResult.item.data.handleType;
-            let cursorStyle = 'pointer';
-            if (type === 'rot') cursorStyle = 'grab';
-            else if (type === 'tl' || type === 'br') cursorStyle = 'nwse-resize';
-            else if (type === 'tr' || type === 'bl') cursorStyle = 'nesw-resize';
-            else if (type === 't' || type === 'b') cursorStyle = 'ns-resize';
-            else if (type === 'l' || type === 'r') cursorStyle = 'ew-resize';
-            canvas.style.cursor = cursorStyle;
-        } else {
-            // 2. Si pasa por encima de cualquiera de los objetos seleccionados, mostrar cursor 'move'
-            const generalHit = paper.project.hitTest(event.point, {
-                fill: true,
-                stroke: true,
-                segments: true,
-                bounds: true,
-                tolerance: 8 / paper.view.zoom,
-                match: function(hit) {
-                    if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
-                    if (hit.item.data && hit.item.data.mockup) return false;
-                    return true;
-                }
-            });
-
-            if (generalHit && window.selectedItems && window.selectedItems.length > 0) {
-                const hitItem = window.getSelectableItem(generalHit.item);
-                if (window.selectedItems.includes(hitItem)) {
-                    canvas.style.cursor = 'move';
-                    return;
-                }
-            }
-            
-            // 3. Hover sobre el recuadro unificado de selección grupal para indicar arrastre en vació
-            if (window.selectedItems.length > 1 && window.selectionBoxGroup) {
-                if (window.selectionBoxGroup.bounds.contains(event.point)) {
-                    canvas.style.cursor = 'move';
-                    return;
-                }
-            }
-
-            canvas.style.cursor = 'default';
         }
     };
 
@@ -802,9 +767,26 @@ window.initSelectionTool = function() {
 
             const itemsToSelect = [];
             paper.project.activeLayer.children.forEach(function(item) {
-                if (item.data && (item.data.mockup || item.data.isSelectionBox || item.data.isHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) {
+                // Inmunidad total para mockups y máscaras
+                let isMockup = false;
+                let curr = item;
+                while (curr) {
+                    if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+                        isMockup = true;
+                        break;
+                    }
+                    if (curr === window.currentMockup) {
+                        isMockup = true;
+                        break;
+                    }
+                    curr = curr.parent;
+                }
+                if (isMockup) return;
+
+                if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) {
                     return;
                 }
+                
                 const displayItem = (item.data && item.data.clipGroup)
                     ? item.children.find(function(c) { return !c.clipMask; })
                     : item;
@@ -841,12 +823,83 @@ window.initSelectionTool = function() {
 
         const canvas = document.getElementById("editorCanvas");
         if (canvas) canvas.style.cursor = 'default';
+        if (typeof clearSmartGuides === "function") clearSmartGuides();
         paper.view.update();
+    };
+
+    selectTool.onMouseMove = function(event) {
+        const canvas = document.getElementById("editorCanvas");
+        if (!canvas) return;
+
+        if (window.resizeActive) return;
+
+        let hitResult = null;
+        if (window.selectionBoxGroup) {
+            hitResult = window.selectionBoxGroup.hitTest(event.point, {
+                fill: true,
+                stroke: true,
+                segments: true,
+                tolerance: 12 / paper.view.zoom,
+                match: function(hit) {
+                    return hit.item.data && hit.item.data.isHandle;
+                }
+            });
+        }
+
+        if (hitResult) {
+            const type = hitResult.item.data.handleType;
+            let cursorStyle = 'pointer';
+            if (type === 'rot') cursorStyle = 'grab';
+            else if (type === 'tl' || type === 'br') cursorStyle = 'nwse-resize';
+            else if (type === 'tr' || type === 'bl') cursorStyle = 'nesw-resize';
+            else if (type === 't' || type === 'b') cursorStyle = 'ns-resize';
+            else if (type === 'l' || type === 'r') cursorStyle = 'ew-resize';
+            canvas.style.cursor = cursorStyle;
+        } else {
+            const generalHit = paper.project.hitTest(event.point, {
+                fill: true,
+                stroke: true,
+                segments: true,
+                bounds: true,
+                tolerance: 8 / paper.view.zoom,
+                match: function(hit) {
+                    if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
+                    
+                    // Inmunidad total para mockups y máscaras
+                    let curr = hit.item;
+                    while (curr) {
+                        if (curr.data && (curr.data.mockup || curr.data.isMask)) return false;
+                        if (curr === window.currentMockup) return false;
+                        curr = curr.parent;
+                    }
+                    return true;
+                }
+            });
+
+            if (generalHit && window.selectedItems && window.selectedItems.length > 0) {
+                const hitItem = window.getSelectableItem(generalHit.item);
+                if (window.selectedItems.includes(hitItem)) {
+                    canvas.style.cursor = 'move';
+                    return;
+                }
+            }
+
+            // Hover sobre el recuadro unificado de selección grupal para indicar arrastre en vacío
+            if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
+                if (window.selectionBoxGroup.bounds.contains(event.point)) {
+                    canvas.style.cursor = 'move';
+                    return;
+                }
+            }
+
+            canvas.style.cursor = 'default';
+        }
     };
 
     selectTool.activate();
     console.log("🎯 Eventos de selección, marquee y redimensionamiento unificado registrados con éxito.");
 };
+
 
 // Autoejecutar de inmediato si ya se inicializó paper.js
 if (typeof paper !== "undefined" && paper.view) {
