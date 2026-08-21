@@ -473,6 +473,11 @@ function addImageFromFile(file) {
   reader.onload = (e) => {
     const raster = new paper.Raster({ source: e.target.result });
     raster.onLoad = () => {
+      // 🚀 FORCE ACTIVATION OF DESIGN LAYER IN ASYNC CALLBACK TO PREVENT PAPER.JS LAYERING GLITCH
+      if (window.paper && paper.project) {
+        const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+        if (designLayer) designLayer.activate();
+      }
       raster.data = { locked: false, label: "Imagen" };
       const area = paper.view.bounds;
       const maxWidth = area.width * 0.60;
@@ -497,6 +502,11 @@ function addSVGFromFile(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
     paper.project.importSVG(e.target.result, (item) => {
+      // 🚀 FORCE ACTIVATION OF DESIGN LAYER IN ASYNC CALLBACK TO PREVENT PAPER.JS LAYERING GLITCH
+      if (window.paper && paper.project) {
+        const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+        if (designLayer) designLayer.activate();
+      }
       if (!item) return;
       item.data = { locked: false, label: file.name.replace(".svg", "") };
       const bounds = item.bounds;
@@ -756,6 +766,11 @@ async function addQRToCanvas(text) {
       const src = qrCanvas.toDataURL ? qrCanvas.toDataURL() : qrCanvas.src;
       const raster = new paper.Raster({ source: src });
       raster.onLoad = () => {
+        // 🚀 FORCE ACTIVATION OF DESIGN LAYER IN ASYNC CALLBACK TO PREVENT PAPER.JS LAYERING GLITCH
+        if (window.paper && paper.project) {
+          const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+          if (designLayer) designLayer.activate();
+        }
         raster.data = { locked: false, label: "Código QR" };
         const area = paper.view.bounds;
         const size = Math.min(area.width, area.height) * 0.3; // Escalar al 30% del lienzo
@@ -1072,6 +1087,12 @@ function injectRotationControlToToolbar() {
 * Añade el tirador con ícono de rotación encima del nodo superior medio (Estilo Figma/Canva)
 */
 window.updateSelectionBox = function(item) {
+  // 🚀 FORCE ACTIVATION OF DESIGN LAYER TO ENSURE HANDLES ARE IN THE ACTIVE HIT-TESTED LAYER
+  if (window.paper && paper.project) {
+    const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+    if (designLayer) designLayer.activate();
+  }
+
   if (window.selectionBoxGroup) {
     window.selectionBoxGroup.remove();
     window.selectionBoxGroup = null;
