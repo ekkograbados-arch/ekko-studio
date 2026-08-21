@@ -743,7 +743,7 @@ if (toolbar && toolbar.classList.contains("active")) {
     toolbar.style.position = "absolute";
     toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
     toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
-    toolbar.style.zIndex = "10020"; // Stay above sidebar, topbar, and overlays
+    toolbar.style.zIndex = "9999999"; // Stay above sidebar, topbar, and overlays
   }
 }
 
@@ -760,7 +760,7 @@ if (textEditor) {
     textEditor.style.left = targetLeft + "px";
     textEditor.style.top = targetTop + "px";
     textEditor.style.position = "absolute";
-    textEditor.style.zIndex = "10030"; // Stay above toolbar
+    textEditor.style.zIndex = "10000000"; // Stay above toolbar
   }
 }
 };
