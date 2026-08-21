@@ -307,22 +307,16 @@ window.selectItem = function(item, isMulti = false) {
     // Si ya está seleccionado, lo deseleccionamos (toggle)
     const idx = window.selectedItems.indexOf(item);
     if (idx > -1) {
-      item.selected = false;
       window.selectedItems.splice(idx, 1);
     } else {
-      item.selected = true;
       window.selectedItems.push(item);
     }
     // El "selectedItem" primario será el último añadido
     window.selectedItem = window.selectedItems[window.selectedItems.length - 1] || null;
   } else {
     // Selección simple: limpiar previas
-    if (window.selectedItems && window.selectedItems.length > 0) {
-      window.selectedItems.forEach(it => { if (it) it.selected = false; });
-    }
     window.selectedItems = [item];
     window.selectedItem = item;
-    item.selected = true;
   }
 
   // Si no queda nada seleccionado
@@ -352,11 +346,14 @@ window.deselectItem = function() {
   if (window.nodeEditMode) {
     window.exitNodeEditMode();
   }
+  if (window.selectedItems && window.selectedItems.length > 0) {
+    window.selectedItems.forEach(it => { if (it) it.selected = false; });
+  }
   if (window.selectedItem) {
     window.selectedItem.selected = false;
   }
   window.selectedItem = null;
-window.selectedItems = []; // NUEVO: Soporte para selección múltiple
+  window.selectedItems = []; // NUEVO: Soporte para selección múltiple
   window.updateSelectionBox(null);
   if (ui.selectionInfo) ui.selectionInfo.textContent = "Nada seleccionado";
   if (ui.objWidth) ui.objWidth.value = "";
@@ -1268,15 +1265,18 @@ window.initSelectionTool = function() {
     lastClickTime = currentTime;
 
     // 1. Hit test para verificar si se presionó un handle de redimensionamiento o de rotación
-    const hitResult = paper.project.hitTest(event.point, {
-      fill: true,
-      stroke: true,
-      segments: true,
-      tolerance: 8 / paper.view.zoom,
-      match: function(hit) {
-        return hit.item.data && hit.item.data.isHandle;
-      }
-    });
+    let hitResult = null;
+    if (window.selectionBoxGroup) {
+      hitResult = window.selectionBoxGroup.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 8 / paper.view.zoom,
+        match: function(hit) {
+          return hit.item.data && hit.item.data.isHandle;
+        }
+      });
+    }
 
     if (hitResult) {
       const hType = hitResult.item.data.handleType;
@@ -1518,15 +1518,18 @@ window.initSelectionTool = function() {
 
     if (window.selectedItem) {
       // 1. Hit test para verificar si el mouse está sobre un tirador (handle)
-      const hitResult = paper.project.hitTest(event.point, {
-        fill: true,
-        stroke: true,
-        segments: true,
-        tolerance: 8 / paper.view.zoom,
-        match: function(hit) {
-          return hit.item.data && hit.item.data.isHandle;
-        }
-      });
+      let hitResult = null;
+      if (window.selectionBoxGroup) {
+        hitResult = window.selectionBoxGroup.hitTest(event.point, {
+          fill: true,
+          stroke: true,
+          segments: true,
+          tolerance: 8 / paper.view.zoom,
+          match: function(hit) {
+            return hit.item.data && hit.item.data.isHandle;
+          }
+        });
+      }
 
       if (hitResult) {
         const hType = hitResult.item.data.handleType;
