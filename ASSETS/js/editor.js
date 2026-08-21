@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/editor.js
+Módulo: ASSETS/js/editor.js (v11 PRO)
 Ruta de reemplazo: ASSETS/js/editor.js
 Descripción: Núcleo de la aplicación EKKO Studio basado en Paper.js.
 Controla la inicialización de la escena, carga de mockups, alineaciones,
@@ -722,7 +722,16 @@ function createEditableText(point) {
 }
 
 // Botón Agregar Texto
-safeAddListener("btnAddText", "click", activateTextMode);
+// Botón Agregar Texto (Modificado para inserción instantánea en el centro estilo Canva/Word)
+safeAddListener("btnAddText", "click", () => {
+  let targetPoint = new paper.Point(0, 0);
+  if (window.currentMockup) {
+    targetPoint = window.currentMockup.bounds.center.clone();
+  } else if (paper.view) {
+    targetPoint = paper.view.center.clone();
+  }
+  createEditableText(targetPoint);
+});
 
 // Ocultar galería obsoleta si el elemento existe en el HTML
 const obsoleteGallery = document.getElementById("fontGallery");
@@ -1339,7 +1348,7 @@ window.initSelectionTool = function() {
     }
     lastClickTime = currentTime;
 
-        // 1. Hit test para verificar si se presionó un handle de redimensionamiento o de rotación (Precisión Sincronizada)
+    // 1. Hit test para verificar si se presionó un handle de redimensionamiento o de rotación (Precisión Sincronizada)
     const hitResult = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -1410,8 +1419,19 @@ window.initSelectionTool = function() {
         window.selectItem(selectableItem, isMulti);
         
         window.dragging = true;
-        // El offset para mover objetos se calculará en base al delta de movimiento relativo
         window.dragOffset = event.point;
+        
+        // SISTEMA PRO: Inicializar puntos de inicio originales y delta acumulado para romper el imán de snapping suavemente
+        window.dragStartPoints = new Map();
+        const items = window.selectedItems && window.selectedItems.length > 0 ? window.selectedItems : [window.selectedItem];
+        items.forEach(item => {
+          if (!item) return;
+          const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+          if (target) {
+            window.dragStartPoints.set(item, target.position.clone());
+          }
+        });
+        window.dragCumulativeDelta = new paper.Point(0, 0);
         return;
       }
     }
@@ -1540,14 +1560,37 @@ window.initSelectionTool = function() {
 
     // --- MANEJO DE ARRASTRE DE OBJETO ---
     if (window.dragging && window.selectedItems && window.selectedItems.length > 0) {
-      const delta = event.delta;
+      if (!window.dragStartPoints) {
+        window.dragStartPoints = new Map();
+        window.selectedItems.forEach(item => {
+          const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+          if (target) window.dragStartPoints.set(item, target.position.clone());
+        });
+        window.dragCumulativeDelta = new paper.Point(0, 0);
+      }
+      
+      // Acumular la distancia de arrastre real del mouse para romper el imán de snapping
+      window.dragCumulativeDelta = window.dragCumulativeDelta.add(event.delta);
+      
       window.selectedItems.forEach(item => {
         if (item.data && item.data.locked) return;
         const dragTarget = (item.data && item.data.clipGroup)
           ? item.children.find(function(c) { return !c.clipMask; })
           : item;
-        dragTarget.position = dragTarget.position.add(delta);
+        
+        const startPos = window.dragStartPoints.get(item);
+        if (startPos && dragTarget) {
+          dragTarget.position = startPos.add(window.dragCumulativeDelta);
+        }
       });
+      
+      // Calcular snapping inteligente sobre la posición ideal del mouse
+      if (typeof calculateSmartGuides === "function") {
+        calculateSmartGuides(window.selectedItem, event);
+      } else if (window.calculateSmartGuides) {
+        window.calculateSmartGuides(window.selectedItem, event);
+      }
+      
       window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
@@ -1561,6 +1604,9 @@ window.initSelectionTool = function() {
     window.dragging = false;
     window.resizeActive = false;
     window.rotationActive = false;
+    window.dragStartPoints = null;
+    window.dragCumulativeDelta = null;
+    if (typeof clearSmartGuides === "function") clearSmartGuides();
     paper.view.update();
   };
 
@@ -1582,13 +1628,13 @@ window.initSelectionTool = function() {
       return;
     }
 
-        // Evitar pisar los cursores de paneo activos de la barra espaciadora o botón medio (Garantía Anti-Bloqueo de Cursores)
+    // Evitar pisar los cursores de paneo activos de la barra espaciadora o botón medio (Garantía Anti-Bloqueo de Cursores)
     if (window.spacePressed || window.isPanning) {
       return;
     }
 
     if (window.selectedItem) {
-            // 1. Hit test para verificar si el mouse está sobre un tirador (handle) (Precisión Sincronizada)
+      // 1. Hit test para verificar si el mouse está sobre un tirador (handle) (Precisión Sincronizada)
       const hitResult = paper.project.hitTest(event.point, {
         fill: true,
         stroke: true,
@@ -1649,4 +1695,61 @@ window.initSelectionTool = function() {
 // Autoejecutar inmediatamente si Paper.js ya está activo
 if (typeof paper !== "undefined" && paper.view) {
   window.initSelectionTool();
+}
+
+// =========================================================================
+// SISTEMA DE ALINEACIÓN DINÁMICA DE ELEMENTOS HTML SOBRE EL CANVAS (ANTI-DESFASE)
+// =========================================================================
+function applyPositionCorrections() {
+  const toolbar = document.getElementById("contextual-toolbar");
+  const textEditor = document.getElementById("ekko-text-editor");
+  
+  if (!window.paper || !paper.view || !window.selectedItem) return;
+  
+  const item = window.selectedItem;
+  const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+  if (!displayItem) return;
+  
+  const bounds = displayItem.bounds;
+  const viewPos = paper.view.projectToView(bounds.topCenter);
+  const centerPos = paper.view.projectToView(bounds.center);
+  
+  // 1. Corregir Barra Contextual Flotante (Evita que quede oculta o desfasada)
+  if (toolbar && toolbar.classList.contains("active")) {
+    const toolbarHeight = toolbar.offsetHeight || 45;
+    const toolbarWidth = toolbar.offsetWidth || 350;
+    
+    const targetLeft = viewPos.x - (toolbarWidth / 2);
+    const targetTop = viewPos.y - toolbarHeight - 25; // 25px de margen superior
+    
+    const parent = toolbar.offsetParent || document.getElementById("canvasContainer");
+    const parentWidth = parent ? parent.clientWidth : window.innerWidth;
+    const parentHeight = parent ? parent.clientHeight : window.innerHeight;
+    
+    toolbar.style.position = "absolute";
+    toolbar.style.left = Math.max(30, Math.min(parentWidth - toolbarWidth - 30, targetLeft)) + "px";
+    toolbar.style.top = Math.max(30, Math.min(parentHeight - toolbarHeight - 20, targetTop)) + "px";
+    toolbar.style.zIndex = "1000";
+  }
+  
+  // 2. Corregir Editor de Texto (Evita que el recuadro de escritura aparezca en la esquina superior izquierda)
+  if (textEditor && textEditor.style.display !== "none") {
+    const editorWidth = textEditor.offsetWidth || 220;
+    const editorHeight = textEditor.offsetHeight || 50;
+    
+    const targetLeft = centerPos.x - (editorWidth / 2);
+    const targetTop = centerPos.y - (editorHeight / 2);
+    
+    const parent = textEditor.offsetParent;
+    if (parent && parent !== document.getElementById("canvasContainer")) {
+      const rect = document.getElementById("canvasContainer").getBoundingClientRect();
+      textEditor.style.left = (targetLeft + rect.left) + "px";
+      textEditor.style.top = (targetTop + rect.top) + "px";
+    } else {
+      textEditor.style.left = targetLeft + "px";
+      textEditor.style.top = targetTop + "px";
+    }
+    textEditor.style.position = "absolute";
+    textEditor.style.zIndex = "1005";
+  }
 }
