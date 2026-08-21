@@ -1,93 +1,88 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
-Descripción: Integrador de Interfaz Profesional (Versión v2 - Multi-Selección).
-             Inyecta la barra de formato/alineación con prefijos únicos,
-             evita colisiones de IDs, e integra comandos de alineación (Canva-style)
-             y distribución espacial para objetos seleccionados.
-========================================================================= */
+   Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (WYSIWYG Pro Edition - v3)
+   Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
+   Descripción: Integrador de Interfaz Profesional (Versión v3 - Multi-Selección).
+   Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
+   e integra comandos de alineación (Canva-style) y distribución espacial para objetos
+   seleccionados corregidos para soportar grupos de máscara (clipGroup).
+   ========================================================================= */
 
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
 import { setMeasurementsVisibility } from "./canvasMeasurements.js";
 
 // Estilos CSS modernos (estilo Canva y Figma) para la barra de alineaciones y zoom
 const proToolbarStylesId = "ekko-pro-toolbar-styles";
+
 if (!document.getElementById(proToolbarStylesId)) {
     const styleEl = document.createElement("style");
     styleEl.id = proToolbarStylesId;
     styleEl.textContent = `
-        /* Barra de Alineaciones Profesional estilo Canva */
-        #pro-layout-toolbar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 16px;
-            background: #ffffff;
-            border-bottom: 1px solid #e2e8f0;
-            gap: 16px;
-            flex-wrap: wrap;
-            user-select: none;
-            z-index: 100;
-        }
-
-        .pro-group {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .pro-divider {
-            width: 1px;
-            height: 20px;
-            background-color: #cbd5e1;
-            margin: 0 4px;
-        }
-
-        .pro-label {
-            font-size: 11px;
-            font-weight: 700;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-right: 6px;
-        }
-
-        .pro-btn {
-            background: #ffffff;
-            border: 1px solid #cbd5e1;
-            border-radius: 6px;
-            padding: 6px 10px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
-            cursor: pointer;
-            color: #334155;
-            font-size: 13px;
-            font-weight: 500;
-            transition: all 0.15s ease;
-        }
-
-        .pro-btn:hover {
-            background-color: #f1f5f9;
-            color: #0f172a;
-            border-color: #94a3b8;
-        }
-
-        .pro-btn.active {
-            background-color: #007bff;
-            color: #ffffff;
-            border-color: #007bff;
-        }
-
-        #pro-zoom-reset {
-            font-weight: bold;
-            color: #007bff;
-            border-color: #bbf7d0;
-            background-color: #f0fdf4;
-        }
-        #pro-zoom-reset:hover {
-            background-color: #dcfce7;
-        }
+    /* Barra de Alineaciones Profesional estilo Canva */
+    #pro-layout-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 16px;
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+        gap: 16px;
+        flex-wrap: wrap;
+        user-select: none;
+        z-index: 100;
+    }
+    .pro-group {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .pro-divider {
+        width: 1px;
+        height: 20px;
+        background-color: #cbd5e1;
+        margin: 0 4px;
+    }
+    .pro-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-right: 6px;
+    }
+    .pro-btn {
+        background: #ffffff;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        padding: 6px 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        cursor: pointer;
+        color: #334155;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.15s ease;
+    }
+    .pro-btn:hover {
+        background-color: #f1f5f9;
+        color: #0f172a;
+        border-color: #94a3b8;
+    }
+    .pro-btn.active {
+        background-color: #007bff;
+        color: #ffffff;
+        border-color: #007bff;
+    }
+    #pro-zoom-reset {
+        font-weight: bold;
+        color: #007bff;
+        border-color: #bbf7d0;
+        background-color: #f0fdf4;
+    }
+    #pro-zoom-reset:hover {
+        background-color: #dcfce7;
+    }
     `;
     document.head.appendChild(styleEl);
 }
@@ -116,39 +111,36 @@ export function initProControls() {
         proToolbar = document.createElement("div");
         proToolbar.id = "pro-layout-toolbar";
         proToolbar.innerHTML = `
-            <div class="pro-group">
-                <span class="pro-label">Alineación</span>
-                <button class="pro-btn" id="proBtnAlignLeft" title="Alinear a la izquierda"><i class="fas fa-align-left"></i> Left</button>
-                <button class="pro-btn" id="proBtnAlignCenterH" title="Alinear al centro horizontal"><i class="fas fa-align-center"></i> C-H</button>
-                <button class="pro-btn" id="proBtnAlignRight" title="Alinear a la derecha"><i class="fas fa-align-right"></i> Right</button>
-                <div class="pro-divider"></div>
-                <button class="pro-btn" id="proBtnAlignTop" title="Alinear arriba"><i class="fas fa-square" style="transform: rotate(180deg); height: 10px; width: 10px; display: inline-block;"></i> Top</button>
-                <button class="pro-btn" id="proBtnAlignCenterV" title="Alinear al centro vertical"><i class="fas fa-align-justify"></i> C-V</button>
-                <button class="pro-btn" id="proBtnAlignBottom" title="Alinear abajo"><i class="fas fa-square" style="height: 10px; width: 10px; display: inline-block;"></i> Bottom</button>
-            </div>
-
-            <div class="pro-group">
-                <span class="pro-label">Centrado Mockup</span>
-                <button class="pro-btn" id="proBtnCenterH" title="Centrar horizontalmente en producto"><i class="fas fa-arrows-alt-h"></i> H-Center</button>
-                <button class="pro-btn" id="proBtnCenterV" title="Centrar verticalmente en producto"><i class="fas fa-arrows-alt-v"></i> V-Center</button>
-                <button class="pro-btn" id="proBtnCenterBoth" title="Centrar en ambos ejes"><i class="fas fa-compress-arrows-alt"></i> Centrar Total</button>
-            </div>
-
-            <div class="pro-group">
-                <span class="pro-label">Distribución</span>
-                <button class="pro-btn" id="proBtnDistributeH" title="Distribuir espacio horizontal (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-h"></i> Distribuir H</button>
-                <button class="pro-btn" id="proBtnDistributeV" title="Distribuir espacio vertical (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-v"></i> Distribuir V</button>
-            </div>
-
-            <div class="pro-group">
-                <span class="pro-label">Opciones de Vista</span>
-                <button class="pro-btn active" id="proBtnToggleRulers" title="Activar/Desactivar reglas físicas"><i class="fas fa-ruler"></i> Reglas</button>
-                <button class="pro-btn active" id="proBtnToggleGuides" title="Activar/Desactivar guías inteligentes"><i class="fas fa-magic"></i> Guías</button>
-                <button class="pro-btn active" id="proBtnToggleMeasurements" title="Activar/Desactivar cotas en mm"><i class="fas fa-arrows-alt"></i> Cotas (mm)</button>
-                <div class="pro-divider"></div>
-                <span class="pro-label">Zoom</span>
-                <button class="pro-btn" id="pro-zoom-reset" title="Restablecer zoom al 100%"><i class="fas fa-search-plus"></i> <span id="pro-zoom-text">100%</span></button>
-            </div>
+        <div class="pro-group">
+            <span class="pro-label">Alineación</span>
+            <button class="pro-btn" id="proBtnAlignLeft" title="Alinear a la izquierda"><i class="fas fa-align-left"></i> Left</button>
+            <button class="pro-btn" id="proBtnAlignCenterH" title="Alinear al centro horizontal"><i class="fas fa-align-center"></i> C-H</button>
+            <button class="pro-btn" id="proBtnAlignRight" title="Alinear a la derecha"><i class="fas fa-align-right"></i> Right</button>
+            <div class="pro-divider"></div>
+            <button class="pro-btn" id="proBtnAlignTop" title="Alinear arriba"><i class="fas fa-square" style="transform: rotate(180deg); height: 10px; width: 10px; display: inline-block;"></i> Top</button>
+            <button class="pro-btn" id="proBtnAlignCenterV" title="Alinear al centro vertical"><i class="fas fa-align-justify"></i> C-V</button>
+            <button class="pro-btn" id="proBtnAlignBottom" title="Alinear abajo"><i class="fas fa-square" style="height: 10px; width: 10px; display: inline-block;"></i> Bottom</button>
+        </div>
+        <div class="pro-group">
+            <span class="pro-label">Centrado Mockup</span>
+            <button class="pro-btn" id="proBtnCenterH" title="Centrar horizontalmente en producto"><i class="fas fa-arrows-alt-h"></i> H-Center</button>
+            <button class="pro-btn" id="proBtnCenterV" title="Centrar verticalmente en producto"><i class="fas fa-arrows-alt-v\"></i> V-Center</button>
+            <button class="pro-btn" id="proBtnCenterBoth" title="Centrar en ambos ejes"><i class="fas fa-compress-arrows-alt"></i> Centrar Total</button>
+        </div>
+        <div class="pro-group">
+            <span class="pro-label">Distribución</span>
+            <button class="pro-btn" id="proBtnDistributeH" title="Distribuir espacio horizontal (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-h\"></i> Distribuir H</button>
+            <button class="pro-btn" id="proBtnDistributeV" title="Distribuir espacio vertical (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-v\"></i> Distribuir V</button>
+        </div>
+        <div class="pro-group">
+            <span class="pro-label">Opciones de Vista</span>
+            <button class="pro-btn active" id="proBtnToggleRulers" title="Activar/Desactivar reglas físicas"><i class="fas fa-ruler\"></i> Reglas</button>
+            <button class="pro-btn active" id="proBtnToggleGuides" title="Activar/Desactivar guías inteligentes"><i class="fas fa-magic\"></i> Guías</button>
+            <button class="pro-btn active" id="proBtnToggleMeasurements" title="Activar/Desactivar cotas en mm"><i class="fas fa-arrows-alt\"></i> Cotas (mm)</button>
+            <div class="pro-divider"></div>
+            <span class="pro-label">Zoom</span>
+            <button class="pro-btn" id="pro-zoom-reset" title="Restablecer zoom al 100%"><i class="fas fa-search-plus\"></i> <span id="pro-zoom-text\">100%</span></button>
+        </div>
         `;
         workspace.insertBefore(proToolbar, topBar.nextSibling);
     }
@@ -174,12 +166,14 @@ export function updateZoomReadout() {
     }
 }
 
-// Obtener límites unificados de todos los objetos seleccionados
+// Obtener límites unificados de todos los objetos seleccionados considerando clipGroups
 function getSelectionBounds(items) {
     if (!items || items.length === 0) return null;
     let rect = null;
     items.forEach(item => {
-        const bounds = item.bounds;
+        const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+        if (!displayItem) return;
+        const bounds = displayItem.bounds;
         if (!rect) {
             rect = bounds.clone();
         } else {
@@ -195,7 +189,6 @@ function bindClickHandlers() {
     const setupToggle = (btnId, toggleFn) => {
         const btn = document.getElementById(btnId);
         let state = true;
-
         if (btn) {
             btn.onclick = () => {
                 state = !state;
@@ -227,7 +220,7 @@ function bindClickHandlers() {
                 paper.view.update();
                 updateZoomReadout();
                 if (typeof window.updateSelectionBox === "function") {
-                    window.updateSelectionBox();
+                    window.updateSelectionBox(window.selectedItem);
                 }
             }
         };
@@ -241,15 +234,15 @@ function bindClickHandlers() {
             return;
         }
         if (typeof window.saveHistory === "function") window.saveHistory();
-
         const mockupBounds = window.currentMockup ? window.currentMockup.bounds : paper.view.bounds;
 
         if (selected.length === 1) {
-            // Un solo objeto seleccionado: se alinea respecto al producto (mockup)
+            // Un solo objeto seleccionado: se alinea respecto al producto (mockup) usando el displayItem real
             const item = selected[0];
-            const bounds = item.bounds;
-            const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-            if (!target) return;
+            const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+            if (!displayItem) return;
+            const bounds = displayItem.bounds;
+            const target = displayItem;
 
             switch (type) {
                 case "left":
@@ -278,9 +271,10 @@ function bindClickHandlers() {
 
             selected.forEach(item => {
                 if (item.data && item.data.locked) return;
-                const bounds = item.bounds;
-                const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-                if (!target) return;
+                const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+                if (!displayItem) return;
+                const bounds = displayItem.bounds;
+                const target = displayItem;
 
                 switch (type) {
                     case "left":
@@ -306,7 +300,7 @@ function bindClickHandlers() {
         }
 
         if (typeof window.updateSelectionBox === "function") {
-            window.updateSelectionBox();
+            window.updateSelectionBox(window.selectedItem);
         }
         paper.view.update();
     };
@@ -329,14 +323,12 @@ function bindClickHandlers() {
         const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
         if (selected.length === 0 || !window.paper || !window.currentMockup) return;
         if (typeof window.saveHistory === "function") window.saveHistory();
-
         const mockupCenter = window.currentMockup.bounds.center;
 
         selected.forEach(item => {
             if (item.data && item.data.locked) return;
             const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
             if (!target) return;
-
             if (axis === "h" || axis === "both") {
                 target.position.x = mockupCenter.x;
             }
@@ -346,7 +338,7 @@ function bindClickHandlers() {
         });
 
         if (typeof window.updateSelectionBox === "function") {
-            window.updateSelectionBox();
+            window.updateSelectionBox(window.selectedItem);
         }
         paper.view.update();
     };
@@ -358,68 +350,82 @@ function bindClickHandlers() {
     // Distribución de espacio inteligente ( mm / Paper.js ) de OBJETOS SELECCIONADOS
     const distributeSpacing = (axis) => {
         if (!window.paper) return;
-
         // Obtener solo los elementos que el usuario tiene seleccionados actualmente
-        const selected = (window.selectedItems && window.selectedItems.length > 0) 
-            ? [...window.selectedItems] 
+        const selected = (window.selectedItems && window.selectedItems.length > 0)
+            ? [...window.selectedItems]
             : (window.selectedItem ? [window.selectedItem] : []);
 
         if (selected.length < 3) {
             alert("Selecciona al menos 3 elementos para poder distribuirlos.");
             return;
         }
-
         if (typeof window.saveHistory === "function") window.saveHistory();
+
+        // Helper para obtener límites reales del contenido visual (evitando clipping)
+        const getActualBounds = (it) => {
+            const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
+            return displayItem ? displayItem.bounds : it.bounds;
+        };
 
         if (axis === "h") {
             // Distribuir horizontalmente
-            selected.sort((a, b) => a.bounds.left - b.bounds.left);
+            selected.sort((a, b) => getActualBounds(a).left - getActualBounds(b).left);
             const leftmost = selected[0];
             const rightmost = selected[selected.length - 1];
-            
-            const totalSpan = rightmost.bounds.right - leftmost.bounds.left;
-            const sumWidths = selected.reduce((sum, it) => sum + it.bounds.width, 0);
-            
+            const leftmostBounds = getActualBounds(leftmost);
+            const rightmostBounds = getActualBounds(rightmost);
+
+            const totalSpan = rightmostBounds.right - leftmostBounds.left;
+            const sumWidths = selected.reduce((sum, it) => sum + getActualBounds(it).width, 0);
+
             // Espacio disponible a repartir entre los elementos intermedios
             const remainingSpace = totalSpan - sumWidths;
             const spacing = remainingSpace / (selected.length - 1);
 
-            let currentX = leftmost.bounds.left;
+            let currentX = leftmostBounds.left;
             for (let i = 0; i < selected.length; i++) {
                 const item = selected[i];
                 if (item.data && item.data.locked) continue;
-                const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-                const halfWidth = item.bounds.width / 2;
-                target.position.x += (currentX + halfWidth - target.position.x);
-                currentX += item.bounds.width + spacing;
+                const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+                if (!displayItem) continue;
+
+                const bounds = displayItem.bounds;
+                const halfWidth = bounds.width / 2;
+                displayItem.position.x += (currentX + halfWidth - displayItem.position.x);
+                currentX += bounds.width + spacing;
             }
         } else {
             // Distribuir verticalmente
-            selected.sort((a, b) => a.bounds.top - b.bounds.top);
+            selected.sort((a, b) => getActualBounds(a).top - getActualBounds(b).top);
             const topmost = selected[0];
             const bottommost = selected[selected.length - 1];
+            const topmostBounds = getActualBounds(topmost);
+            const bottommostBounds = getActualBounds(bottommost);
 
-            const totalSpan = bottommost.bounds.bottom - topmost.bounds.top;
-            const sumHeights = selected.reduce((sum, it) => sum + it.bounds.height, 0);
-            
+            const totalSpan = bottommostBounds.bottom - topmostBounds.top;
+            const sumHeights = selected.reduce((sum, it) => sum + getActualBounds(it).height, 0);
+
             // Espacio disponible a repartir
             const remainingSpace = totalSpan - sumHeights;
             const spacing = remainingSpace / (selected.length - 1);
 
-            let currentY = topmost.bounds.top;
+            let currentY = topmostBounds.top;
             for (let i = 0; i < selected.length; i++) {
                 const item = selected[i];
                 if (item.data && item.data.locked) continue;
-                const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-                const halfHeight = item.bounds.height / 2;
-                target.position.y += (currentY + halfHeight - target.position.y);
-                currentY += item.bounds.height + spacing;
+                const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+                if (!displayItem) continue;
+
+                const bounds = displayItem.bounds;
+                const halfHeight = bounds.height / 2;
+                displayItem.position.y += (currentY + halfHeight - displayItem.position.y);
+                currentY += bounds.height + spacing;
             }
         }
 
         // Forzar actualización de caja de selección
         if (typeof window.updateSelectionBox === "function") {
-            window.updateSelectionBox();
+            window.updateSelectionBox(window.selectedItem);
         }
         paper.view.update();
     };
@@ -432,3 +438,52 @@ function bindClickHandlers() {
 window.addEventListener("DOMContentLoaded", () => {
     setTimeout(initProControls, 500);
 });
+
+
+// =========================================================================
+// SISTEMA DE ALINEACIÓN DINÁMICA DE ELEMENTOS HTML SOBRE EL CANVAS (ANTI-DESFASE)
+// =========================================================================
+window.applyPositionCorrections = function() {
+    const toolbar = document.getElementById("contextual-toolbar");
+    const textEditor = document.getElementById("ekko-text-editor");
+    if (!window.paper || !paper.view || !window.selectedItem) return;
+    const item = window.selectedItem;
+    const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    if (!displayItem) return;
+    const bounds = displayItem.bounds;
+    const viewPos = paper.view.projectToView(bounds.topCenter);
+    const centerPos = paper.view.projectToView(bounds.center);
+
+    // 1. Corregir Barra Contextual Flotante (Evita que quede oculta o desfasada)
+    if (toolbar && toolbar.classList.contains("active")) {
+        const toolbarHeight = toolbar.offsetHeight || 45;
+        const toolbarWidth = toolbar.offsetWidth || 350;
+        const canvasEl = document.getElementById("editorCanvas");
+        if (canvasEl) {
+            const rect = canvasEl.getBoundingClientRect();
+            const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
+            const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen superior
+            
+            toolbar.style.position = "absolute";
+            toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
+            toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
+        }
+        toolbar.style.zIndex = "2147483647"; // MAX Z-INDEX: Stay above rulers (z-index 999), topbar, sidebar and overlays
+    }
+
+    // 2. Corregir Editor de Texto (Evita que el recuadro de escritura aparezca en la esquina superior izquierda)
+    if (textEditor && textEditor.style.display !== "none") {
+        const editorWidth = textEditor.offsetWidth || 220;
+        const editorHeight = textEditor.offsetHeight || 50;
+        const canvasEl = document.getElementById("editorCanvas");
+        if (canvasEl) {
+            const rect = canvasEl.getBoundingClientRect();
+            const targetLeft = rect.left + window.scrollX + centerPos.x - (editorWidth / 2);
+            const targetTop = rect.top + window.scrollY + centerPos.y - (editorHeight / 2);
+            textEditor.style.left = targetLeft + "px";
+            textEditor.style.top = targetTop + "px";
+        }
+        textEditor.style.position = "absolute";
+        textEditor.style.zIndex = "2147483647"; // Stay above toolbar and rulers
+    }
+};
