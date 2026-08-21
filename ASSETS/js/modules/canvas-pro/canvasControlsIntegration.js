@@ -476,6 +476,8 @@ function bindClickHandlers() {
             ? [...window.selectedItems]
             : (window.selectedItem ? [window.selectedItem] : []);
 
+        let spacing = 0;
+
         if (selected.length < 3) {
             alert("Selecciona al menos 3 elementos para poder distribuirlos.");
             return;
@@ -501,7 +503,7 @@ function bindClickHandlers() {
 
             // Espacio disponible a repartir entre los elementos intermedios
             const remainingSpace = totalSpan - sumWidths;
-            const spacing = remainingSpace / (selected.length - 1);
+            spacing = remainingSpace / (selected.length - 1);
 
             let currentX = leftmostBounds.left;
             for (let i = 0; i < selected.length; i++) {
@@ -528,7 +530,7 @@ function bindClickHandlers() {
 
             // Espacio disponible a repartir
             const remainingSpace = totalSpan - sumHeights;
-            const spacing = remainingSpace / (selected.length - 1);
+            spacing = remainingSpace / (selected.length - 1);
 
             let currentY = topmostBounds.top;
             for (let i = 0; i < selected.length; i++) {
