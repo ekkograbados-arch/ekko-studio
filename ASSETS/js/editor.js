@@ -1,3 +1,10 @@
+// 🚀 GLOBAL OVERRIDE: Desactivar el renderizado nativo de líneas y nodos azul-celeste de Paper.js
+// Esto permite usar item.selected = true de forma lógica (para que funcione el menú contextual)
+// pero evita por completo que Paper.js dibuje sus propios contornos sobre los SVGs y textos.
+if (typeof paper !== "undefined" && paper.Item) {
+    paper.Item.prototype._drawSelected = function() {};
+}
+
 /* =========================================================================
 Módulo: ASSETS/js/editor.js (v12 PRO - COMPLETO CON SELECCIÓN UNIFICADA CANVA-STYLE)
 Ruta de reemplazo: ASSETS/js/editor.js
@@ -384,12 +391,18 @@ window.selectItem = function(item, isMulti = false) {
     if (isMulti) {
         const idx = window.selectedItems.indexOf(item);
         if (idx > -1) {
+            item.selected = false;
             window.selectedItems.splice(idx, 1);
         } else {
+            item.selected = true;
             window.selectedItems.push(item);
         }
         window.selectedItem = window.selectedItems[window.selectedItems.length - 1] || null;
     } else {
+        window.selectedItems.forEach(function(it) {
+            if (it) it.selected = false;
+        });
+        item.selected = true;
         window.selectedItems = [item];
         window.selectedItem = item;
     }
@@ -1234,6 +1247,7 @@ window.getHandlePoint = function(bounds, handleType) {
 
 window.getSelectableItem = function(item) {
     if (!item) return null;
+    if (item.clipMask) return null;
     
     // Ignorar handles, cajas de selección, guías inteligentes y elementos de interfaz
     if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) return null;
@@ -1312,6 +1326,10 @@ window.initSelectionTool = function() {
                 segments: true,
                 tolerance: 12 / paper.view.zoom,
                 match: function(hit) {
+                // Inmunidad absoluta contra clipping masks nativos de Paper.js
+                if (hit.item.clipMask) return false;
+                // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
+                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
                     return hit.item.data && hit.item.data.isHandle;
                 }
             });
@@ -1394,6 +1412,10 @@ window.initSelectionTool = function() {
             bounds: true,
             tolerance: 8 / paper.view.zoom,
             match: function(hit) {
+                // Inmunidad absoluta contra clipping masks nativos de Paper.js
+                if (hit.item.clipMask) return false;
+                // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
+                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
                 if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle || hit.item.data.isNodeHandle)) return false;
                 
                 // Verificar si el item o sus ancestros son del mockup o máscaras
@@ -1708,6 +1730,10 @@ window.initSelectionTool = function() {
                 segments: true,
                 tolerance: 12 / paper.view.zoom,
                 match: function(hit) {
+                // Inmunidad absoluta contra clipping masks nativos de Paper.js
+                if (hit.item.clipMask) return false;
+                // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
+                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
                     return hit.item.data && hit.item.data.isHandle;
                 }
             });
@@ -1730,6 +1756,10 @@ window.initSelectionTool = function() {
                 bounds: true,
                 tolerance: 8 / paper.view.zoom,
                 match: function(hit) {
+                // Inmunidad absoluta contra clipping masks nativos de Paper.js
+                if (hit.item.clipMask) return false;
+                // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
+                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
                     if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle)) return false;
                     
                     // Inmunidad total para mockups y máscaras
@@ -1825,4 +1855,3 @@ function applyPositionCorrections() {
     }
 }
 window.applyPositionCorrections = applyPositionCorrections;
-
