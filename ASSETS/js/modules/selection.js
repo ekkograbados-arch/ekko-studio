@@ -471,7 +471,7 @@ window.initSelectionTool = function() {
                 // Inmunidad absoluta contra clipping masks nativos de Paper.js
                 if (hit.item.clipMask) return false;
                 // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
-                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
+                if (hit.type === 'bounds' && (hit.item.data && hit.item.data.clipGroup)) return false;
                     return hit.item.data && hit.item.data.isHandle;
                 }
             });
@@ -891,7 +891,7 @@ window.initSelectionTool = function() {
                 // Inmunidad absoluta contra clipping masks nativos de Paper.js
                 if (hit.item.clipMask) return false;
                 // Si es un hit de tipo bounding box, ignorar si se trata de un grupo (Canva Style)
-                if (hit.type === 'bounds' && (hit.item.children || hit.item instanceof paper.Group)) return false;
+                if (hit.type === 'bounds' && (hit.item.data && hit.item.data.clipGroup)) return false;
                     return hit.item.data && hit.item.data.isHandle;
                 }
             });
