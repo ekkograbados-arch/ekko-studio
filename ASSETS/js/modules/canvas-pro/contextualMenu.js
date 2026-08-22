@@ -401,6 +401,19 @@ paper.view.update();
  * separando caracteres de texto, contornos o grupos de forma ordenada.
  */
 
+
+function getMatrixRelativeTo(item, targetAncestor) {
+    let matrix = new paper.Matrix();
+    let current = item;
+    while (current && current !== targetAncestor && !(current instanceof paper.Layer)) {
+        if (current.matrix) {
+            matrix = current.matrix.chain(matrix);
+        }
+        current = current.parent;
+    }
+    return matrix;
+}
+
 function getActiveGroupTarget(group) {
     let current = group;
     while (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
@@ -415,153 +428,150 @@ function getActiveGroupTarget(group) {
 }
 
 export function ungroupSelectedItem() {
-    const item = window.selectedItem;
-    if (!item || item.data?.locked || item.data?.mockup) return;
-    const isClipped = !!item.data?.clipGroup;
-    const target = isClipped ? item.children.find(c => !c.clipMask) : item;
-    if (!target) return;
-    
-    // Si es un grupo con envolturas de un solo hijo, lo resolvemos al grupo real con contenido
-    const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
+    // Soporte tanto para multi-selección como selección simple de grupos
+    const selected = (window.selectedItems && window.selectedItems.length > 0)
+        ? [...window.selectedItems]
+        : (window.selectedItem ? [window.selectedItem] : []);
+        
+    if (selected.length === 0) return;
     
     if (typeof window.saveHistory === 'function') {
         window.saveHistory();
     }
-    const parent = item.parent || paper.project.activeLayer;
-    const index = parent.children.indexOf(item);
-    const newItems = [];
-    const targetMatrix = item.matrix ? item.matrix.clone() : null;
-
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica (UN nivel a la vez, de más a menos)
-    if (activeTarget instanceof paper.Group) {
-        const children = [...activeTarget.children];
-        children.forEach(child => {
-            child.remove();
+    
+    const finalNewItems = [];
+    
+    selected.forEach(item => {
+        if (item.data?.locked || item.data?.mockup) return;
+        const isClipped = !!item.data?.clipGroup;
+        const target = isClipped ? item.children.find(c => !c.clipMask) : item;
+        if (!target) return;
+        
+        const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
+        const parent = item.parent || paper.project.activeLayer;
+        const index = parent.children.indexOf(item);
+        const newItems = [];
+        
+        // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica
+        if (activeTarget instanceof paper.Group) {
+            const children = [...activeTarget.children];
+            children.forEach(child => {
+                const relMatrix = getMatrixRelativeTo(child, item);
+                const absMatrix = getMatrixRelativeTo(child, parent);
+                child.remove();
+                
+                let newItem;
+                if (isClipped) {
+                    newItem = window.clipItem(child);
+                    newItem.matrix = item.matrix.clone();
+                    child.matrix = relMatrix;
+                } else {
+                    newItem = child;
+                    newItem.matrix = absMatrix;
+                    parent.addChild(newItem);
+                }
+                newItems.push(newItem);
+            });
+            item.remove();
+        }
+        // B. SI ES TEXTO: Dividimos en PointText independientes por letras
+        else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
+            const letters = splitPointTextIntoLetters(activeTarget);
+            const textRelMatrix = getMatrixRelativeTo(activeTarget, item);
+            const textAbsMatrix = getMatrixRelativeTo(activeTarget, parent);
             
-            let newItem;
-            if (isClipped) {
-                // Crear el clipGroup con el hijo en su estado local original
-                newItem = window.clipItem(child);
-                // Aplicar la matriz de transformación heredada del padre directamente al clipGroup
-                if (targetMatrix) {
-                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
+            letters.forEach(letter => {
+                let newItem;
+                if (isClipped) {
+                    newItem = window.clipItem(letter);
+                    newItem.matrix = item.matrix.clone();
+                    letter.matrix = textRelMatrix.clone();
+                } else {
+                    newItem = letter;
+                    newItem.matrix = textAbsMatrix.clone();
+                    parent.addChild(newItem);
                 }
-            } else {
-                newItem = child;
-                if (targetMatrix) {
-                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
-                }
-                parent.addChild(newItem);
-            }
-            newItems.push(newItem);
-        });
-        item.remove();
-    }
-
-    // B. SI ES UN TEXTO: Lo dividimos en letras independientes PointText
-    else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
-        const letters = splitPointTextIntoLetters(activeTarget);
-        letters.forEach(letter => {
-            let newItem;
-            if (isClipped) {
-                newItem = window.clipItem(letter);
-                if (targetMatrix) {
-                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
-                }
-            } else {
-                newItem = letter;
-                if (targetMatrix) {
-                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
-                }
-                parent.addChild(newItem);
-            }
-            newItems.push(newItem);
-        });
-        item.remove();
-    }
-
-    // C. SI ES UN TRAZADO COMPUESTO (CompoundPath con letras o múltiples formas):
-    // Lo dividimos en sus letras/islas independientes de forma progresiva sin rellenarlas de negro.
-    else if (activeTarget instanceof paper.CompoundPath) {
-        const subPaths = [...activeTarget.children];
-        if (subPaths.length === 0) return;
-        const outers = [];
-        const holesMap = new Map();
-        subPaths.forEach(p => {
-            let container = null;
-            subPaths.forEach(other => {
-                if (other !== p) {
-                    const otherArea = Math.abs(other.area) || other.bounds.area;
-                    const pArea = Math.abs(p.area) || p.bounds.area;
-                    if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
-                        if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
-                            container = other;
+                newItems.push(newItem);
+            });
+            item.remove();
+        }
+        // C. SI ES COMPOUNDPATH: Dividimos en sub-islas conservando calado
+        else if (activeTarget instanceof paper.CompoundPath) {
+            const subPaths = [...activeTarget.children];
+            if (subPaths.length === 0) return;
+            const outers = [];
+            const holesMap = new Map();
+            subPaths.forEach(p => {
+                let container = null;
+                subPaths.forEach(other => {
+                    if (other !== p) {
+                        const otherArea = Math.abs(other.area) || other.bounds.area;
+                        const pArea = Math.abs(p.area) || p.bounds.area;
+                        if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+                            if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
+                                container = other;
+                            }
                         }
                     }
+                });
+                if (container) {
+                    if (!holesMap.has(container)) holesMap.set(container, []);
+                    holesMap.get(container).push(p);
+                } else {
+                    outers.push(p);
+                    if (!holesMap.has(p)) holesMap.set(p, []);
                 }
             });
-            if (container) {
-                if (!holesMap.has(container)) holesMap.set(container, []);
-                holesMap.get(container).push(p);
-            } else {
-                outers.push(p);
-                if (!holesMap.has(p)) holesMap.set(p, []);
+            const originalFill = activeTarget.fillColor;
+            
+            if (outers.length === 1) {
+                separateContours();
+                return;
             }
-        });
-        const originalFill = activeTarget.fillColor;
-
-        // Si tiene un único Outer (ej: la silueta de un bebé o una sola letra con hueco),
-        // al presionar desagrupar de nuevo, ejecutamos la separación de huecos y contornos de forma transparente.
-        if (outers.length === 1) {
-            separateContours();
-            return;
+            
+            const pathRelMatrix = getMatrixRelativeTo(activeTarget, item);
+            const pathAbsMatrix = getMatrixRelativeTo(activeTarget, parent);
+            
+            outers.forEach(outerPath => {
+                const outerClone = outerPath.clone({ insert: false });
+                const associatedHoles = holesMap.get(outerPath) || [];
+                let letterItem;
+                if (associatedHoles.length > 0) {
+                    const childrenList = [outerClone, ...associatedHoles.map(h => h.clone({ insert: false }))];
+                    letterItem = new paper.CompoundPath({ children: childrenList, fillColor: originalFill });
+                } else {
+                    outerClone.fillColor = originalFill;
+                    letterItem = outerClone;
+                }
+                
+                let newItem;
+                if (isClipped) {
+                    newItem = window.clipItem(letterItem);
+                    newItem.matrix = item.matrix.clone();
+                    letterItem.matrix = pathRelMatrix.clone();
+                } else {
+                    newItem = letterItem;
+                    newItem.matrix = pathAbsMatrix.clone();
+                    parent.addChild(newItem);
+                }
+                newItems.push(newItem);
+            });
+            item.remove();
         }
-
-        // Si tiene múltiples Outers (ej: las letras "SOFIA" en un trazado compuesto), las separamos como CompoundPaths individuales
-        outers.forEach(outerPath => {
-            const outerClone = outerPath.clone({ insert: false });
-            const associatedHoles = holesMap.get(outerPath) || [];
-            let letterItem;
-            if (associatedHoles.length > 0) {
-                // Conservamos la letra con su hueco perfectamente calado y transparente
-                const childrenList = [outerClone, ...associatedHoles.map(h => h.clone({ insert: false }))];
-                letterItem = new paper.CompoundPath({ children: childrenList, fillColor: originalFill });
-            } else {
-                // Letra sólida
-                outerClone.fillColor = originalFill;
-                letterItem = outerClone;
-            }
-
-            let newItem;
-            if (isClipped) {
-                newItem = window.clipItem(letterItem);
-                if (targetMatrix) {
-                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
-                }
-            } else {
-                newItem = letterItem;
-                if (targetMatrix) {
-                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
-                }
-                parent.addChild(newItem);
-            }
-            newItems.push(newItem);
+        
+        newItems.reverse().forEach(newItem => {
+            parent.insertChild(index, newItem);
+            finalNewItems.push(newItem);
         });
-        item.remove();
-    }
-
-    // Reinsertar de forma atómica en el parent original respetando la capa y el índice exacto
-    newItems.reverse().forEach(newItem => {
-        parent.insertChild(index, newItem);
     });
+    
     window.deselectItem();
-
-    // Retardo controlado de 50ms para evitar carreras de renderizado en el menú flotante
+    
     setTimeout(() => {
-        if (newItems.length > 0) {
-            window.selectedItems = [...newItems];
-            window.selectedItem = newItems[newItems.length - 1];
-            newItems.forEach(it => { if (it) it.selected = true; });
+        if (finalNewItems.length > 0) {
+            window.selectedItems = [...finalNewItems];
+            window.selectedItem = finalNewItems[finalNewItems.length - 1];
+            finalNewItems.forEach(it => { if (it) it.selected = true; });
             if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
             if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
         }
@@ -632,55 +642,48 @@ export function separateContours() {
         }
     });
     const originalFillColor = target.fillColor;
-    const targetMatrix = item.matrix ? item.matrix.clone() : null;
+    
+    const pathRelMatrix = getMatrixRelativeTo(target, item);
+    const pathAbsMatrix = getMatrixRelativeTo(target, parent);
 
     outers.forEach(outerPath => {
-        // 1. Creamos el elemento contenedor exterior sólido principal
         const outerClone = outerPath.clone({ insert: false });
         outerClone.fillColor = originalFillColor;
 
         let newOuterItem;
         if (isClipped) {
             newOuterItem = window.clipItem(outerClone);
-            if (targetMatrix) {
-                newOuterItem.matrix = targetMatrix.clone().chain(newOuterItem.matrix);
-            }
+            newOuterItem.matrix = item.matrix.clone();
+            outerClone.matrix = pathRelMatrix.clone();
         } else {
             newOuterItem = outerClone;
-            if (targetMatrix) {
-                newOuterItem.matrix = targetMatrix.clone().chain(newOuterItem.matrix);
-            }
+            newOuterItem.matrix = pathAbsMatrix.clone();
             parent.addChild(newOuterItem);
         }
 
         newOuterItem.data = {
             ...(newOuterItem.data || {}),
             isOuterWithHoles: true,
-            originalPath: outerPath.clone({ insert: false }), // Guardar trazado original en coordenadas locales del CompoundPath
+            originalPath: outerPath.clone({ insert: false }),
             holeIds: [],
             label: item.data?.label || "Objeto"
         };
         newItems.push(newOuterItem);
 
-        // 2. Creamos cada hueco como un objeto independiente interactivo y 100% transparente en reposo
         const associatedHoles = holesMap.get(outerPath) || [];
         associatedHoles.forEach(holePath => {
             const holeClone = holePath.clone({ insert: false });
-            // Estilo Invisible en Reposo pero interactivo al 1% de opacidad de relleno
             holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
-            holeClone.strokeColor = new paper.Color(0,0,0,0); // Sin línea visible de bordes de colores molestos
+            holeClone.strokeColor = new paper.Color(0,0,0,0);
 
             let newHoleItem;
             if (isClipped) {
                 newHoleItem = window.clipItem(holeClone);
-                if (targetMatrix) {
-                    newHoleItem.matrix = targetMatrix.clone().chain(newHoleItem.matrix);
-                }
+                newHoleItem.matrix = item.matrix.clone();
+                holeClone.matrix = pathRelMatrix.clone();
             } else {
                 newHoleItem = holeClone;
-                if (targetMatrix) {
-                    newHoleItem.matrix = targetMatrix.clone().chain(newHoleItem.matrix);
-                }
+                newHoleItem.matrix = pathAbsMatrix.clone();
                 parent.addChild(newHoleItem);
             }
 
@@ -695,7 +698,6 @@ export function separateContours() {
             newItems.push(newHoleItem);
         });
 
-        // Registrar en el listado reactivo
         window.ekkoOuters.set(newOuterItem.id, newOuterItem);
         updateOuterPathGeometry(newOuterItem);
     });
@@ -723,24 +725,26 @@ export function updateOuterPathGeometry(outerItem) {
     const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
     if (!targetOuter) return;
 
-    // 1. Obtener la geometría exterior sólida limpia en coordenadas globales con transformaciones horneadas físicamente
+    // 1. Obtener la geometría exterior sólida en coordenadas globales utilizando el helper getMatrixRelativeTo
+    const absOuterMatrix = getMatrixRelativeTo(targetOuter, outerItem.parent);
     const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
-    if (outerItem.matrix) {
-        solidGlobal.transform(outerItem.matrix);
+    if (absOuterMatrix) {
+        solidGlobal.transform(absOuterMatrix);
     }
 
     const holeIds = outerItem.data.holeIds || [];
     let combined = solidGlobal;
 
-    // 2. Restar cada hueco interactivo en coordenadas globales alineadas horneadas
+    // 2. Restar cada hueco en coordenadas globales
     holeIds.forEach(id => {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
             const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
             if (targetHole) {
                 const holeGlobal = targetHole.clone({ insert: false });
-                if (hole.matrix) {
-                    holeGlobal.transform(hole.matrix);
+                const absHoleMatrix = getMatrixRelativeTo(targetHole, hole.parent);
+                if (absHoleMatrix) {
+                    holeGlobal.transform(absHoleMatrix);
                 }
 
                 const temp = combined.subtract(holeGlobal);
@@ -751,17 +755,17 @@ export function updateOuterPathGeometry(outerItem) {
         }
     });
 
-    // 3. Transformar el resultado de vuelta al espacio de coordenadas local de targetOuter para conservar la editabilidad
+    // 3. Transformar de vuelta a coordenadas locales de targetOuter
     const localCombined = combined.clone({ insert: false });
-    if (outerItem.matrix && !outerItem.matrix.isIdentity()) {
+    if (absOuterMatrix && !absOuterMatrix.isIdentity()) {
         try {
-            localCombined.transform(outerItem.matrix.inverted());
+            localCombined.transform(absOuterMatrix.inverted());
         } catch (err) {
             console.warn("Fallo no crítico al invertir la matriz en updateOuterPathGeometry:", err);
         }
     }
 
-    // 4. Reemplazar de forma atómica y limpia el trazado en el lienzo
+    // 4. Reemplazar de forma atómica el trazado
     const parent = targetOuter.parent;
     if (parent && localCombined) {
         const idx = parent.children.indexOf(targetOuter);
@@ -770,7 +774,7 @@ export function updateOuterPathGeometry(outerItem) {
             newPath.fillColor = targetOuter.fillColor;
             newPath.strokeColor = targetOuter.strokeColor;
             newPath.strokeWidth = targetOuter.strokeWidth;
-            newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz (generalmente identidad)
+            newPath.matrix = targetOuter.matrix.clone();
             newPath.data = { ...(targetOuter.data || {}) };
 
             parent.insertChild(idx, newPath);
@@ -784,7 +788,6 @@ export function updateOuterPathGeometry(outerItem) {
                     if (sIdx !== -1) window.selectedItems[sIdx] = newPath;
                 }
 
-                // Sincronizar listados de referencia
                 window.ekkoOuters.delete(outerItem.id);
                 window.ekkoOuters.set(newPath.id, newPath);
                 holeIds.forEach(id => {
@@ -1114,21 +1117,36 @@ const btnTrace = document.getElementById('btnCtxTrace');
 if (btnTrace) btnTrace.style.display = 'none';
 const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
 if (selectedCount > 1) {
-// Si hay multi-selección, mostramos el panel de vectores con el botón "Agrupar" visible
-const vectorControls = document.getElementById('ctxVectorControls');
-if (vectorControls) {
-vectorControls.classList.remove('hidden');
-const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
-const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
-if (btnGroup) {
-btnGroup.classList.remove('hidden');
-btnGroup.style.display = '';
-}
-if (btnUngroup) {
-btnUngroup.classList.add('hidden');
-btnUngroup.style.display = 'none';
-}
-}
+    const vectorControls = document.getElementById('ctxVectorControls');
+    if (vectorControls) {
+        vectorControls.classList.remove('hidden');
+        const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
+        const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
+        if (btnGroup) {
+            btnGroup.classList.remove('hidden');
+            btnGroup.style.display = '';
+        }
+        if (btnUngroup) {
+            const selected = window.selectedItems || [];
+            const canUngroupAny = selected.some(it => {
+                const targetObj = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
+                return targetObj && (
+                    targetObj instanceof paper.Group || 
+                    targetObj instanceof paper.CompoundPath || 
+                    (targetObj instanceof paper.PointText && targetObj.content.length > 1)
+                );
+            });
+            if (canUngroupAny) {
+                btnUngroup.classList.remove('hidden');
+                btnUngroup.style.display = '';
+                btnUngroup.textContent = "Desagrupar";
+                btnUngroup.title = "Desagrupar elementos vectoriales";
+            } else {
+                btnUngroup.classList.add('hidden');
+                btnUngroup.style.display = 'none';
+            }
+        }
+    }
 } else {
 // Si solo hay un elemento seleccionado
 const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
