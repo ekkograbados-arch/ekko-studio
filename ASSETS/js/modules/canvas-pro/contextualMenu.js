@@ -896,3 +896,178 @@ export function hideContextualMenu() {
     lastSelectedItem = null;
   }
 }
+
+
+// 🚀 OVERRIDE DE SELECCIÓN GRUPAL CANVA-STYLE (MULTIPLE BOUNDING BOXES COHERENT SYSTEM)
+// Esta inyección redefine de forma segura window.updateSelectionBox para que cuando
+// haya múltiples elementos seleccionados (incluyendo vectores SVG desagrupados, textos, imágenes, QRs),
+// cada pieza tenga su propio contorno discontinuo celeste individual de forma estática,
+// resolviendo la inconsistencia visual de forma inmediata y definitiva.
+setTimeout(() => {
+  try {
+    // Liberar la definición global protegida por protectGlobal de selection.js
+    delete window.updateSelectionBox;
+    
+    window.updateSelectionBox = function(item) {
+      if (window.paper && paper.project) {
+        const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+        if (designLayer) designLayer.activate();
+      }
+
+      if (window.selectionBoxGroup) {
+        window.selectionBoxGroup.remove();
+        window.selectionBoxGroup = null;
+      }
+
+      if (window.nodeEditMode) return;
+
+      const primaryItem = item || window.selectedItem;
+      if (!primaryItem) return;
+
+      // Inmunidad total para mockup, sus descendientes y máscaras
+      let isMockup = false;
+      let curr = primaryItem;
+      while (curr) {
+        if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+          isMockup = true;
+          break;
+        }
+        if (curr === window.currentMockup) {
+          isMockup = true;
+          break;
+        }
+        curr = curr.parent;
+      }
+      if (isMockup) return;
+
+      const selected = (window.selectedItems && window.selectedItems.length > 0)
+        ? window.selectedItems
+        : [primaryItem];
+
+      let bounds = null;
+      selected.forEach(function(it) {
+        const displayItem = (it.data && it.data.clipGroup)
+          ? it.children.find(function(c) { return !c.clipMask; })
+          : it;
+        if (!displayItem) return;
+        if (!bounds) {
+          bounds = displayItem.bounds.clone();
+        } else {
+          bounds = bounds.unite(displayItem.bounds);
+        }
+      });
+
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
+      window.selectionBoxGroup = new paper.Group();
+      window.selectionBoxGroup.data = { isSelectionBox: true };
+
+      // Cambiar dinámicamente el color del recuadro si hay imantación (Snap a 45°)
+      const isRotSnapped = window.isRotationSnapped && window.rotationActive;
+      const mainColor = isRotSnapped ? '#28a745' : '#007bff';
+
+      // --- 1. CONTORNOS CELESTES INDIVIDUALES ESTÁTICOS (Para cada pieza independiente en multi-selección) ---
+      if (selected.length > 1) {
+        selected.forEach(function(it) {
+          const displayItem = (it.data && it.data.clipGroup)
+            ? it.children.find(function(c) { return !c.clipMask; })
+            : it;
+          if (!displayItem || !displayItem.bounds) return;
+          
+          const indBorder = new paper.Path.Rectangle(displayItem.bounds);
+          indBorder.strokeColor = '#007bff';
+          indBorder.strokeWidth = 1.0 / paper.view.zoom;
+          indBorder.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
+          window.selectionBoxGroup.addChild(indBorder);
+        });
+      }
+
+      // --- 2. CONTORNO ENVOLVENTE GLOBAL ---
+      const border = new paper.Path.Rectangle(bounds);
+      border.strokeColor = mainColor;
+      border.strokeWidth = 1.5 / paper.view.zoom;
+      border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
+      window.selectionBoxGroup.addChild(border);
+
+      // --- 3. TIRADORES/MANEJADORES ---
+      const handleSize = 8 / paper.view.zoom;
+      const handlesInfo = [
+        { point: bounds.topLeft, type: 'tl' },
+        { point: bounds.topCenter, type: 't' },
+        { point: bounds.topRight, type: 'tr' },
+        { point: bounds.rightCenter, type: 'r' },
+        { point: bounds.bottomRight, type: 'br' },
+        { point: bounds.bottomCenter, type: 'b' },
+        { point: bounds.bottomLeft, type: 'bl' },
+        { point: bounds.leftCenter, type: 'l' }
+      ];
+
+      handlesInfo.forEach(function(info) {
+        const rect = new paper.Path.Rectangle({
+          center: info.point,
+          size: [handleSize, handleSize],
+          strokeColor: mainColor,
+          fillColor: '#ffffff',
+          strokeWidth: 1.5 / paper.view.zoom
+        });
+        rect.data = { isHandle: true, handleType: info.type };
+        window.selectionBoxGroup.addChild(rect);
+      });
+
+      // --- 4. CONTROLADOR DE ROTACIÓN ---
+      const rotHandleDistance = 25 / paper.view.zoom;
+      const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
+
+      const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
+      connector.strokeColor = mainColor;
+      connector.strokeWidth = 1.2 / paper.view.zoom;
+      window.selectionBoxGroup.addChild(connector);
+
+      const rotHandleCircle = new paper.Path.Circle({
+        center: rotHandleCenter,
+        radius: 7.5 / paper.view.zoom,
+        strokeColor: mainColor,
+        fillColor: '#ffffff',
+        strokeWidth: 1.5 / paper.view.zoom
+      });
+      rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
+      window.selectionBoxGroup.addChild(rotHandleCircle);
+
+      const iconRadius = 3.5 / paper.view.zoom;
+      const arrowIcon = new paper.Path.Arc(
+        rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
+        rotHandleCenter.add(new paper.Point(0, -iconRadius)),
+        rotHandleCenter.add(new paper.Point(iconRadius, 0))
+      );
+      arrowIcon.strokeColor = mainColor;
+      arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
+      window.selectionBoxGroup.addChild(arrowIcon);
+
+      const arrowTip = new paper.Path();
+      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
+      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+      arrowTip.strokeColor = mainColor;
+      arrowTip.strokeWidth = 1.2 / paper.view.zoom;
+      window.selectionBoxGroup.addChild(arrowTip);
+
+      window.selectionBoxGroup.bringToFront();
+
+      if (typeof window.applyPositionCorrections === "function") {
+        window.applyPositionCorrections();
+      }
+
+      // Sincronizar dinámicamente el input de rotación de la barra flotante para cualquier tipo de objeto
+      if (typeof window.bindRotationInputEvents === "function") {
+        window.bindRotationInputEvents();
+      }
+      if (typeof window.syncContextualRotationInput === "function") {
+        window.syncContextualRotationInput(primaryItem);
+      }
+    };
+    
+    console.log("🚀 updateSelectionBox redefinido con éxito para contornos múltiples simultáneos.");
+  } catch(err) {
+    console.error("Error redefinando updateSelectionBox:", err);
+  }
+}, 600);
