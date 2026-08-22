@@ -26,6 +26,27 @@ selección por arrastre (Marquee/Box Selection) y redimensionamiento/rotación
 grupal unificada estilo Canva/Figma para EKKO Studio.
 ========================================================================= */
 
+
+// 🛡️ EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
+function protectGlobal(name, fn) {
+  let currentImpl = fn;
+  try {
+    Object.defineProperty(window, name, {
+      get: function() {
+        return currentImpl;
+      },
+      set: function(newVal) {
+        // Ignoramos pacíficamente la sobreescritura de editor.js para mantener activa la versión optimizada
+        // pero permitimos depuración si es necesario.
+      },
+      configurable: true,
+      enumerable: true
+    });
+  } catch (e) {
+    window[name] = fn;
+  }
+}
+
 window.selectedItem = null;
 window.selectedItems = [];
 window.dragOffset = null;
@@ -66,7 +87,7 @@ window.marqueeStartPoint = null;
 window.marqueePath = null;
 
 /* ========================= SELECCIÓN DE OBJETO ========================= */
-window.getSelectableItem = function(item){
+const _getSelectableItem = function(item){
   if(!item) return null;
   if (item.clipMask) return null;
   if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) return null;
@@ -94,7 +115,7 @@ window.getSelectableItem = function(item){
 };
 
 /* ========================= UPDATE SELECTION BOX OVERLAY ========================= */
-window.updateSelectionBox = function(item) {
+const _updateSelectionBox = function(item) {
   if (window.selectionBoxGroup) {
     window.selectionBoxGroup.remove();
     window.selectionBoxGroup = null;
@@ -297,7 +318,7 @@ window.exitNodeEditMode = function() {
 };
 
 /* ========================= SELECT ========================= */
-window.selectItem = function(item, isMulti = false){
+const _selectItem = function(item, isMulti = false){
   if (window.nodeEditMode) {
     window.exitNodeEditMode();
   }
@@ -338,7 +359,28 @@ window.selectItem = function(item, isMulti = false){
       window.selectedItem = item;
       window.selectedItems = [item];
     } else {
-      window.selectedItem = null;
+      
+// 🛡️ EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
+function protectGlobal(name, fn) {
+  let currentImpl = fn;
+  try {
+    Object.defineProperty(window, name, {
+      get: function() {
+        return currentImpl;
+      },
+      set: function(newVal) {
+        // Ignoramos pacíficamente la sobreescritura de editor.js para mantener activa la versión optimizada
+        // pero permitimos depuración si es necesario.
+      },
+      configurable: true,
+      enumerable: true
+    });
+  } catch (e) {
+    window[name] = fn;
+  }
+}
+
+window.selectedItem = null;
       window.selectedItems = [];
     }
   }
@@ -355,7 +397,7 @@ window.selectItem = function(item, isMulti = false){
 };
 
 /* ========================= DESELECT ========================= */
-window.deselectItem = function(){
+const _deselectItem = function(){
   if (window.nodeEditMode) {
     window.exitNodeEditMode();
   }
@@ -368,7 +410,28 @@ window.deselectItem = function(){
   if(window.selectedItem){
     window.selectedItem.selected = false;
   }
-  window.selectedItem = null;
+  
+// 🛡️ EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
+function protectGlobal(name, fn) {
+  let currentImpl = fn;
+  try {
+    Object.defineProperty(window, name, {
+      get: function() {
+        return currentImpl;
+      },
+      set: function(newVal) {
+        // Ignoramos pacíficamente la sobreescritura de editor.js para mantener activa la versión optimizada
+        // pero permitimos depuración si es necesario.
+      },
+      configurable: true,
+      enumerable: true
+    });
+  } catch (e) {
+    window[name] = fn;
+  }
+}
+
+window.selectedItem = null;
   window.updateSelectionBox(null);
   if (typeof window.hideContextualMenu === 'function') {
     window.hideContextualMenu();
@@ -377,7 +440,7 @@ window.deselectItem = function(){
 };
 
 /* ========================= FUNCIONES AUXILIARES DE ESCALADO ========================= */
-window.getOppositePoint = function(bounds, handleType) {
+const _getOppositePoint = function(bounds, handleType) {
   switch (handleType) {
     case 'tl': return bounds.bottomRight;
     case 'tr': return bounds.bottomLeft;
@@ -391,7 +454,7 @@ window.getOppositePoint = function(bounds, handleType) {
   }
 };
 
-window.getHandlePoint = function(bounds, handleType) {
+const _getHandlePoint = function(bounds, handleType) {
   switch (handleType) {
     case 'tl': return bounds.topLeft;
     case 'tr': return bounds.topRight;
@@ -1192,3 +1255,12 @@ window.syncContextualRotationInput = function(item) {
     rotationNum.value = '0°';
   }
 };
+
+
+// 🛡️ EKKO STATE GUARD: Registrar protección global para evitar sobreescritura de editor.js
+protectGlobal('getSelectableItem', _getSelectableItem);
+protectGlobal('updateSelectionBox', _updateSelectionBox);
+protectGlobal('selectItem', _selectItem);
+protectGlobal('deselectItem', _deselectItem);
+protectGlobal('getOppositePoint', _getOppositePoint);
+protectGlobal('getHandlePoint', _getHandlePoint);
