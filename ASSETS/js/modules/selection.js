@@ -469,7 +469,7 @@ const _getHandlePoint = function(bounds, handleType) {
 };
 
 /* ========================= EVENTOS DE TOOL (INTERACCIONES DEL MOUSE) ========================= */
-window.initSelectionTool = function() {
+const _initSelectionTool = function() {
   if (!paper.view) {
     console.warn("initSelectionTool: paper.view no está definido todavía.");
     return;
@@ -1111,7 +1111,7 @@ window.initSelectionTool = function() {
 };
 
 if (typeof paper !== "undefined" && paper.view) {
-  window.initSelectionTool();
+  _initSelectionTool();
 }
 
 function applyPositionCorrections() {
@@ -1264,3 +1264,5 @@ protectGlobal('selectItem', _selectItem);
 protectGlobal('deselectItem', _deselectItem);
 protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
+protectGlobal('initSelectionTool', _initSelectionTool);
+protectGlobal('applyPositionCorrections', applyPositionCorrections);
