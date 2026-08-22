@@ -363,6 +363,14 @@ function bindClickHandlers() {
       console.warn("La función window.ungroupSelectedItem no está disponible.");
     }
   });
+
+  bindBtn("proBtnUngroupNodes", () => {
+    if (typeof window.separateContours === "function") {
+      window.separateContours();
+    } else {
+      console.warn("La función window.separateContours no está disponible.");
+    }
+  });
 }
 
 // Dibuja guías de distribución en Paper.js con la separación en milímetros reales (Estilo Canva)
