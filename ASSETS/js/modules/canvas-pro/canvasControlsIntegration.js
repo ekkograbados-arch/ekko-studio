@@ -1,23 +1,16 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (WYSIWYG Pro Edition - v3)
+Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (WYSIWYG Pro Edition - v4)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
-Descripción: Integrador de Interfaz Profesional (Versión v3 - Multi-Selección).
-Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
-e integra comandos de alineación (Canva-style) y distribución espacial para objetos
-seleccionados corregidos para soportar grupos de máscara (clipGroup).
-INCLUYE GRUPO DE ORGANIZACIÓN (AGRUPAR / DESAGRUPAR) EN LA BARRA SUPERIOR FIJA.
 ========================================================================= */
 
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
 import { setMeasurementsVisibility } from "./canvasMeasurements.js";
 
-// Estilos CSS modernos (estilo Canva y Figma) para la barra de alineaciones y zoom
 const proToolbarStylesId = "ekko-pro-toolbar-styles";
 if (!document.getElementById(proToolbarStylesId)) {
   const styleEl = document.createElement("style");
   styleEl.id = proToolbarStylesId;
   styleEl.textContent = `
-    /* Barra de Alineaciones Profesional estilo Canva */
     #pro-layout-toolbar {
       display: flex;
       align-items: center;
@@ -70,9 +63,9 @@ if (!document.getElementById(proToolbarStylesId)) {
       border-color: #94a3b8;
     }
     .pro-btn.active {
-      background-color: #007bff;
+      background-color: #ef4444;
       color: #ffffff;
-      border-color: #007bff;
+      border-color: #ef4444;
     }
     #pro-zoom-reset {
       font-weight: bold;
@@ -87,13 +80,11 @@ if (!document.getElementById(proToolbarStylesId)) {
   document.head.appendChild(styleEl);
 }
 
-// Inyección e inicialización de la barra de controles
 export function initProControls() {
   const workspace = document.getElementById("workspace");
   const topBar = document.getElementById("topBar");
   if (!workspace || !topBar) return;
 
-  // 1. Eliminar/Ocultar lupas antiguas de zoom para evitar duplicidad de controles
   const btnZoomIn = document.getElementById("btnZoomIn");
   const btnZoomOut = document.getElementById("btnZoomOut");
   const btnFit = document.getElementById("btnFit");
@@ -101,11 +92,9 @@ export function initProControls() {
   if (btnZoomOut) btnZoomOut.style.display = "none";
   if (btnFit) btnFit.style.display = "none";
 
-  // Ocultar barra flotante de visualización antigua si existiera
   const oldFloat = document.getElementById("pro-canvas-controls");
   if (oldFloat) oldFloat.remove();
 
-  // 2. Inyectar la Barra de Alineación Profesional debajo del topBar
   let proToolbar = document.getElementById("pro-layout-toolbar");
   if (!proToolbar) {
     proToolbar = document.createElement("div");
@@ -118,7 +107,7 @@ export function initProControls() {
         <button class="pro-btn" id="proBtnAlignRight" title="Alinear a la derecha"><i class="fas fa-align-right"></i> Right</button>
         <div class="pro-divider"></div>
         <button class="pro-btn" id="proBtnAlignTop" title="Alinear arriba"><i class="fas fa-square" style="transform: rotate(180deg); height: 10px; width: 10px; display: inline-block;"></i> Top</button>
-        <button class="pro-btn" id="proBtnAlignCenterV" title="Alinear al centro vertical"><i class="fas fa-align-justify"></i> C-V</button>
+        <button class="pro-btn" id="proBtnAlignCenterV" title="Alinear al centro vertical"><i class="fas fa-align-justify\"></i> C-V</button>
         <button class="pro-btn" id="proBtnAlignBottom" title="Alinear abajo"><i class="fas fa-square" style="height: 10px; width: 10px; display: inline-block;"></i> Bottom</button>
       </div>
 
@@ -126,27 +115,28 @@ export function initProControls() {
         <span class="pro-label">Centrado Mockup</span>
         <button class="pro-btn" id="proBtnCenterH" title="Centrar horizontalmente en producto"><i class="fas fa-arrows-alt-h"></i> H-Center</button>
         <button class="pro-btn" id="proBtnCenterV" title="Centrar verticalmente en producto"><i class="fas fa-arrows-alt-v"></i> V-Center</button>
-        <button class="pro-btn" id="proBtnCenterBoth" title="Centrar en ambos ejes"><i class="fas fa-compress-arrows-alt"></i> Centrar Total</button>
+        <button class="pro-btn" id="proBtnCenterBoth" title="Centrar en ambos ejes"><i class="fas fa-compress-arrows-alt\"></i> Centrar Total</button>
       </div>
 
       <div class="pro-group">
         <span class="pro-label">Distribución</span>
-        <button class="pro-btn" id="proBtnDistributeH" title="Distribuir espacio horizontal (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-h"></i> Distribuir H</button>
-        <button class="pro-btn" id="proBtnDistributeV" title="Distribuir espacio vertical (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-v"></i> Distribuir V</button>
+        <button class="pro-btn" id="proBtnDistributeH" title="Distribuir espacio horizontal (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-h\"></i> Distribuir H</button>
+        <button class="pro-btn" id="proBtnDistributeV" title="Distribuir espacio vertical (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-v\"></i> Distribuir V</button>
       </div>
 
       <div class="pro-group" id="proGroupOrganize">
         <span class="pro-label">Organizar</span>
         <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
-        <button class="pro-btn" id="proBtnUngroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
-        <button class="pro-btn" id="proBtnUngroupNodes" title="Separar contornos del trazado compuesto seleccionado"><i class="fas fa-bezier-curve"></i> Separar Nodos</button>
+        <button class="pro-btn" id="proBtnUngroup" title="Desagrupar o separar contornos (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+        <button class="pro-btn" id="proBtnUngroupNodes" title="Separar contornos del trazado compuesto seleccionado"><i class="fas fa-project-diagram"></i> Separar Nodos</button>
+        <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos (Illustrator Style)"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
       </div>
 
       <div class="pro-group">
         <span class="pro-label">Opciones de Vista</span>
         <button class="pro-btn active" id="proBtnToggleRulers" title="Activar/Desactivar reglas físicas"><i class="fas fa-ruler"></i> Reglas</button>
-        <button class="pro-btn active" id="proBtnToggleGuides" title="Activar/Desactivar guías inteligentes"><i class="fas fa-magic"></i> Guías</button>
-        <button class="pro-btn active" id="proBtnToggleMeasurements" title="Activar/Desactivar cotas en mm"><i class="fas fa-arrows-alt"></i> Cotas (mm)</button>
+        <button class="pro-btn active" id="proBtnToggleGuides" title="Activar/Desactivar guías inteligentes"><i class="fas fa-magic\"></i> Guías</button>
+        <button class="pro-btn active" id="proBtnToggleMeasurements" title="Activar/Desactivar cotas en mm"><i class="fas fa-arrows-alt\"></i> Cotas (mm)</button>
         <div class="pro-divider"></div>
         <span class="pro-label">Zoom</span>
         <button class="pro-btn" id="pro-zoom-reset" title="Restablecer zoom al 100%"><i class="fas fa-search-plus"></i> <span id="pro-zoom-text">100%</span></button>
@@ -155,10 +145,8 @@ export function initProControls() {
     workspace.insertBefore(proToolbar, topBar.nextSibling);
   }
 
-  // 3. Vincular los eventos de clic
   bindClickHandlers();
 
-  // 4. Configurar sincronización del Zoom en tiempo real al girar la rueda del ratón
   const canvasEl = document.getElementById("editorCanvas");
   if (canvasEl) {
     canvasEl.addEventListener("wheel", () => {
@@ -167,7 +155,6 @@ export function initProControls() {
   }
 }
 
-// Sincroniza y actualiza la lectura del zoom actual
 export function updateZoomReadout() {
   const readout = document.getElementById("pro-zoom-text");
   if (readout && window.paper && paper.view) {
@@ -176,7 +163,6 @@ export function updateZoomReadout() {
   }
 }
 
-// Obtener límites unificados de todos los objetos seleccionados considerando clipGroups
 function getSelectionBounds(items) {
   if (!items || items.length === 0) return null;
   let rect = null;
@@ -193,9 +179,7 @@ function getSelectionBounds(items) {
   return rect;
 }
 
-// Vincula las acciones de alineación, distribución, vista y organización a los botones
 function bindClickHandlers() {
-  // Vincular botones de visibilidad
   const setupToggle = (btnId, toggleFn) => {
     const btn = document.getElementById(btnId);
     let state = true;
@@ -216,7 +200,6 @@ function bindClickHandlers() {
   setupToggle("proBtnToggleGuides", (state) => setGuidesVisibility(state));
   setupToggle("proBtnToggleMeasurements", (state) => setMeasurementsVisibility(state));
 
-  // Resetear zoom al 100% al hacer clic en el indicador numérico
   const zoomReadoutBtn = document.getElementById("pro-zoom-reset");
   if (zoomReadoutBtn) {
     zoomReadoutBtn.onclick = () => {
@@ -236,7 +219,6 @@ function bindClickHandlers() {
     };
   }
 
-  // Vincular clics de alineación básicos
   const bindBtn = (id, actionFn) => {
     const el = document.getElementById(id);
     if (el) el.onclick = actionFn;
@@ -249,7 +231,6 @@ function bindClickHandlers() {
   bindBtn("proBtnAlignCenterV", () => alignSelection("centerY"));
   bindBtn("proBtnAlignBottom", () => alignSelection("bottom"));
 
-  // Centrados rápidos respecto al producto (mockup)
   const centerSelection = (axis) => {
     const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
     if (selected.length === 0 || !window.paper || !window.currentMockup) return;
@@ -276,7 +257,6 @@ function bindClickHandlers() {
   bindBtn("proBtnCenterV", () => centerSelection("v"));
   bindBtn("proBtnCenterBoth", () => centerSelection("both"));
 
-  // Distribución de espacio inteligente ( mm / Paper.js ) de OBJETOS SELECCIONADOS
   const distributeSpacing = (axis) => {
     if (!window.paper) return;
     const selected = (window.selectedItems && window.selectedItems.length > 0)
@@ -308,7 +288,7 @@ function bindClickHandlers() {
         const item = selected[i];
         if (item.data && item.data.locked) return;
         const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-        if (!displayItem) continue;
+        if (!displayItem) return;
         const bounds = displayItem.bounds;
         const halfWidth = bounds.width / 2;
         displayItem.position.x += (currentX + halfWidth - displayItem.position.x);
@@ -329,7 +309,7 @@ function bindClickHandlers() {
         const item = selected[i];
         if (item.data && item.data.locked) return;
         const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-        if (!displayItem) continue;
+        if (!displayItem) return;
         const bounds = displayItem.bounds;
         const halfHeight = bounds.height / 2;
         displayItem.position.y += (currentY + halfHeight - displayItem.position.y);
@@ -351,29 +331,41 @@ function bindClickHandlers() {
   bindBtn("proBtnGroup", () => {
     if (typeof window.groupSelectedItems === "function") {
       window.groupSelectedItems();
-    } else {
-      console.warn("La función window.groupSelectedItems no está disponible.");
     }
   });
 
   bindBtn("proBtnUngroup", () => {
     if (typeof window.ungroupSelectedItem === "function") {
       window.ungroupSelectedItem();
-    } else {
-      console.warn("La función window.ungroupSelectedItem no está disponible.");
     }
   });
 
   bindBtn("proBtnUngroupNodes", () => {
     if (typeof window.separateContours === "function") {
       window.separateContours();
+    }
+  });
+
+  // Vincular Modo de Edición Directa de Nodos (Illustrator Style)
+  let inNodeEditMode = false;
+  bindBtn("proBtnEditNodes", () => {
+    const btn = document.getElementById("proBtnEditNodes");
+    if (!inNodeEditMode && window.selectedItem) {
+      if (typeof window.enterNodeEditMode === "function") {
+        window.enterNodeEditMode(window.selectedItem);
+        inNodeEditMode = true;
+        if (btn) btn.classList.add("active");
+      }
     } else {
-      console.warn("La función window.separateContours no está disponible.");
+      if (typeof window.exitNodeEditMode === "function") {
+        window.exitNodeEditMode();
+        inNodeEditMode = false;
+        if (btn) btn.classList.remove("active");
+      }
     }
   });
 }
 
-// Dibuja guías de distribución en Paper.js con la separación en milímetros reales (Estilo Canva)
 const drawDistributionGuides = (selected, axis, spacing) => {
   if (!window.paper || !spacing || spacing <= 0) return;
   if (window.distributionGuidesGroup) {
@@ -449,7 +441,6 @@ const drawDistributionGuides = (selected, axis, spacing) => {
   }, 2500);
 };
 
-// Funciones profesionales de alineación de objetos
 const alignSelection = (type) => {
   const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
   if (selected.length === 0 || !window.paper) {
@@ -523,7 +514,7 @@ const alignSelection = (type) => {
   paper.view.update();
 };
 
-// Iniciar automáticamente al cargar el DOM
 window.addEventListener("DOMContentLoaded", () => {
   setTimeout(initProControls, 500);
 });
+
