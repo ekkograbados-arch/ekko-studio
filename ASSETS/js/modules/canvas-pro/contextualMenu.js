@@ -452,45 +452,43 @@ export function ungroupSelectedItem() {
         const index = parent.children.indexOf(item);
         const newItems = [];
         
-        // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica
+        // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica (UN nivel a la vez, de más a menos)
         if (activeTarget instanceof paper.Group) {
             const children = [...activeTarget.children];
             children.forEach(child => {
-                const relMatrix = getMatrixRelativeTo(child, item);
-                const absMatrix = getMatrixRelativeTo(child, parent);
+                const absMatrix = child.globalMatrix.clone();
                 child.remove();
                 
                 let newItem;
                 if (isClipped) {
                     newItem = window.clipItem(child);
-                    newItem.matrix = item.matrix.clone();
-                    child.matrix = relMatrix;
+                    newItem.matrix = new paper.Matrix(); // Identity
+                    child.matrix = absMatrix;
                 } else {
                     newItem = child;
                     newItem.matrix = absMatrix;
+                    parent.addChild(newItem);
                 }
-                parent.addChild(newItem); // Added immediately!
                 newItems.push(newItem);
             });
             item.remove();
         }
         // B. SI ES TEXTO: Dividimos en PointText independientes por letras
         else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
+            const textAbsMatrix = activeTarget.globalMatrix.clone();
             const letters = splitPointTextIntoLetters(activeTarget);
-            const textRelMatrix = getMatrixRelativeTo(activeTarget, item);
-            const textAbsMatrix = getMatrixRelativeTo(activeTarget, parent);
             
             letters.forEach(letter => {
                 let newItem;
                 if (isClipped) {
                     newItem = window.clipItem(letter);
-                    newItem.matrix = item.matrix.clone();
-                    letter.matrix = textRelMatrix.clone();
+                    newItem.matrix = new paper.Matrix(); // Identity
+                    letter.matrix = textAbsMatrix.clone().chain(letter.matrix);
                 } else {
                     newItem = letter;
-                    newItem.matrix = textAbsMatrix.clone();
+                    newItem.matrix = textAbsMatrix.clone().chain(letter.matrix);
+                    parent.addChild(newItem);
                 }
-                parent.addChild(newItem); // Added immediately!
                 newItems.push(newItem);
             });
             item.remove();
@@ -525,12 +523,11 @@ export function ungroupSelectedItem() {
             const originalFill = activeTarget.fillColor;
             
             if (outers.length === 1) {
-                separateContours(item); // Pass current item to prevent selection race duplications
+                separateContours();
                 return;
             }
             
-            const pathRelMatrix = getMatrixRelativeTo(activeTarget, item);
-            const pathAbsMatrix = getMatrixRelativeTo(activeTarget, parent);
+            const pathAbsMatrix = activeTarget.globalMatrix.clone();
             
             outers.forEach(outerPath => {
                 const outerClone = outerPath.clone({ insert: false });
@@ -547,26 +544,28 @@ export function ungroupSelectedItem() {
                 let newItem;
                 if (isClipped) {
                     newItem = window.clipItem(letterItem);
-                    newItem.matrix = item.matrix.clone();
-                    letterItem.matrix = pathRelMatrix.clone();
+                    newItem.matrix = new paper.Matrix(); // Identity
+                    letterItem.matrix = pathAbsMatrix.clone().chain(letterItem.matrix);
                 } else {
                     newItem = letterItem;
-                    newItem.matrix = pathAbsMatrix.clone();
+                    newItem.matrix = pathAbsMatrix.clone().chain(letterItem.matrix);
+                    parent.addChild(newItem);
                 }
-                parent.addChild(newItem); // Added immediately!
                 newItems.push(newItem);
             });
             item.remove();
         }
         
+        // Reinsertar de forma atómica en el parent original respetando la capa y el índice exacto
         newItems.reverse().forEach(newItem => {
             parent.insertChild(index, newItem);
-            finalNewItems.push(newItem);
         });
+        finalNewItems.push(...newItems);
     });
-    
+
     window.deselectItem();
-    
+
+    // Retardo controlado de 50ms para evitar carreras de renderizado en el menú flotante
     setTimeout(() => {
         if (finalNewItems.length > 0) {
             window.selectedItems = [...finalNewItems];
@@ -607,7 +606,6 @@ function splitPointTextIntoLetters(pointText) {
  */
 export function separateContours(itemToProcess) {
     const item = itemToProcess || window.selectedItem;
-
     if (!item || item.data?.locked || item.data?.mockup) return;
     const isClipped = !!item.data?.clipGroup;
     const target = isClipped ? item.children.find(c => !c.clipMask) : item;
@@ -643,9 +641,7 @@ export function separateContours(itemToProcess) {
         }
     });
     const originalFillColor = target.fillColor;
-    
-    const pathRelMatrix = getMatrixRelativeTo(target, item);
-    const pathAbsMatrix = getMatrixRelativeTo(target, parent);
+    const pathAbsMatrix = target.globalMatrix.clone();
 
     outers.forEach(outerPath => {
         const outerClone = outerPath.clone({ insert: false });
@@ -654,13 +650,13 @@ export function separateContours(itemToProcess) {
         let newOuterItem;
         if (isClipped) {
             newOuterItem = window.clipItem(outerClone);
-            newOuterItem.matrix = item.matrix.clone();
-            outerClone.matrix = pathRelMatrix.clone();
+            newOuterItem.matrix = new paper.Matrix(); // Identity
+            outerClone.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
         } else {
             newOuterItem = outerClone;
-            newOuterItem.matrix = pathAbsMatrix.clone();
+            newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
+            parent.addChild(newOuterItem);
         }
-        parent.addChild(newOuterItem); // Added immediately so updateOuterPathGeometry subtraction finds it in project
 
         newOuterItem.data = {
             ...(newOuterItem.data || {}),
@@ -680,13 +676,13 @@ export function separateContours(itemToProcess) {
             let newHoleItem;
             if (isClipped) {
                 newHoleItem = window.clipItem(holeClone);
-                newHoleItem.matrix = item.matrix.clone();
-                holeClone.matrix = pathRelMatrix.clone();
+                newHoleItem.matrix = new paper.Matrix(); // Identity
+                holeClone.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
             } else {
                 newHoleItem = holeClone;
-                newHoleItem.matrix = pathAbsMatrix.clone();
+                newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
+                parent.addChild(newHoleItem);
             }
-            parent.addChild(newHoleItem); // Added immediately so updateOuterPathGeometry subtraction finds it in project
 
             newHoleItem.data = {
                 ...(newHoleItem.data || {}),
@@ -726,11 +722,10 @@ export function updateOuterPathGeometry(outerItem) {
     const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
     if (!targetOuter) return;
 
-    // 1. Obtener la geometría exterior sólida en coordenadas globales utilizando el helper getMatrixRelativeTo
-    const absOuterMatrix = getMatrixRelativeTo(targetOuter, outerItem.parent);
+    // 1. Obtener la geometría exterior sólida en coordenadas globales utilizando globalMatrix
     const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
-    if (absOuterMatrix) {
-        solidGlobal.transform(absOuterMatrix);
+    if (targetOuter.globalMatrix) {
+        solidGlobal.transform(targetOuter.globalMatrix);
     }
 
     const holeIds = outerItem.data.holeIds || [];
@@ -741,12 +736,9 @@ export function updateOuterPathGeometry(outerItem) {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
             const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
-            if (targetHole) {
+            if (targetHole && targetHole.globalMatrix) {
                 const holeGlobal = targetHole.clone({ insert: false });
-                const absHoleMatrix = getMatrixRelativeTo(targetHole, hole.parent);
-                if (absHoleMatrix) {
-                    holeGlobal.transform(absHoleMatrix);
-                }
+                holeGlobal.transform(targetHole.globalMatrix);
 
                 const temp = combined.subtract(holeGlobal);
                 combined.remove();
@@ -756,17 +748,17 @@ export function updateOuterPathGeometry(outerItem) {
         }
     });
 
-    // 3. Transformar de vuelta a coordenadas locales de targetOuter
+    // 3. Transformar de vuelta a coordenadas locales de targetOuter para conservar la editabilidad
     const localCombined = combined.clone({ insert: false });
-    if (absOuterMatrix && !absOuterMatrix.isIdentity()) {
+    if (targetOuter.globalMatrix && !targetOuter.globalMatrix.isIdentity()) {
         try {
-            localCombined.transform(absOuterMatrix.inverted());
+            localCombined.transform(targetOuter.globalMatrix.inverted());
         } catch (err) {
             console.warn("Fallo no crítico al invertir la matriz en updateOuterPathGeometry:", err);
         }
     }
 
-    // 4. Reemplazar de forma atómica el trazado
+    // 4. Reemplazar de forma atómica y limpia el trazado en el lienzo
     const parent = targetOuter.parent;
     if (parent && localCombined) {
         const idx = parent.children.indexOf(targetOuter);
@@ -775,7 +767,7 @@ export function updateOuterPathGeometry(outerItem) {
             newPath.fillColor = targetOuter.fillColor;
             newPath.strokeColor = targetOuter.strokeColor;
             newPath.strokeWidth = targetOuter.strokeWidth;
-            newPath.matrix = targetOuter.matrix.clone();
+            newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz (generalmente identidad)
             newPath.data = { ...(targetOuter.data || {}) };
 
             parent.insertChild(idx, newPath);
@@ -789,6 +781,7 @@ export function updateOuterPathGeometry(outerItem) {
                     if (sIdx !== -1) window.selectedItems[sIdx] = newPath;
                 }
 
+                // Sincronizar listados de referencia
                 window.ekkoOuters.delete(outerItem.id);
                 window.ekkoOuters.set(newPath.id, newPath);
                 holeIds.forEach(id => {
