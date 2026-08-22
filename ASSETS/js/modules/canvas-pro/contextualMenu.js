@@ -400,65 +400,90 @@ paper.view.update();
  * Desagrupa el elemento seleccionado de forma jerárquica, limpia y progresiva (de más a menos),
  * separando caracteres de texto, contornos o grupos de forma ordenada.
  */
+
+function getActiveGroupTarget(group) {
+    let current = group;
+    while (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
+        const child = current.children[0];
+        if (child instanceof paper.Group) {
+            current = child;
+        } else {
+            break;
+        }
+    }
+    return current;
+}
+
 export function ungroupSelectedItem() {
     const item = window.selectedItem;
     if (!item || item.data?.locked || item.data?.mockup) return;
     const isClipped = !!item.data?.clipGroup;
     const target = isClipped ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
+    
+    // Si es un grupo con envolturas de un solo hijo, lo resolvemos al grupo real con contenido
+    const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
+    
     if (typeof window.saveHistory === 'function') {
         window.saveHistory();
     }
     const parent = item.parent || paper.project.activeLayer;
     const index = parent.children.indexOf(item);
     const newItems = [];
+    const targetMatrix = item.matrix ? item.matrix.clone() : null;
 
-    // 1. SI ES UN GRUPO: Desagrupamos de forma recursiva y profunda al instante (0% Onion Effect)
-    if (target instanceof paper.Group) {
-        const leaves = getLeafItemsRecursive(target);
-        leaves.forEach(leaf => {
-            leaf.remove();
-            // Aplicar matriz de transformación global heredada para evitar saltos o desvíos visuales de posición
-            if (leaf.data?.globalMatrix) {
-                leaf.matrix = leaf.data.globalMatrix;
-                delete leaf.data.globalMatrix;
-            }
-            // Si un elemento de texto nativo se desagrupa, lo dividimos en letras independientes PointText
-            if (leaf instanceof paper.PointText && leaf.content.length > 1) {
-                const letters = splitPointTextIntoLetters(leaf);
-                letters.forEach(letter => {
-                    let newItem = isClipped ? window.clipItem(letter) : letter;
-                    if (!isClipped) parent.addChild(newItem);
-                    newItems.push(newItem);
-                });
+    // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica (UN nivel a la vez, de más a menos)
+    if (activeTarget instanceof paper.Group) {
+        const children = [...activeTarget.children];
+        children.forEach(child => {
+            child.remove();
+            
+            let newItem;
+            if (isClipped) {
+                // Crear el clipGroup con el hijo en su estado local original
+                newItem = window.clipItem(child);
+                // Aplicar la matriz de transformación heredada del padre directamente al clipGroup
+                if (targetMatrix) {
+                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
+                }
             } else {
-                let newItem = isClipped ? window.clipItem(leaf) : leaf;
-                if (!isClipped) parent.addChild(newItem);
-                newItems.push(newItem);
+                newItem = child;
+                if (targetMatrix) {
+                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
+                }
+                parent.addChild(newItem);
             }
+            newItems.push(newItem);
         });
         item.remove();
     }
 
-    // 2. SI ES UN TEXTO: Lo dividimos en letras independientes PointText
-    else if (target instanceof paper.PointText && target.content.length > 1) {
-        const targetMatrix = target.matrix ? target.matrix.clone() : null;
-        const letters = splitPointTextIntoLetters(target);
+    // B. SI ES UN TEXTO: Lo dividimos en letras independientes PointText
+    else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
+        const letters = splitPointTextIntoLetters(activeTarget);
         letters.forEach(letter => {
-            if (targetMatrix) {
-                letter.matrix = targetMatrix.chain(letter.matrix);
+            let newItem;
+            if (isClipped) {
+                newItem = window.clipItem(letter);
+                if (targetMatrix) {
+                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
+                }
+            } else {
+                newItem = letter;
+                if (targetMatrix) {
+                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
+                }
+                parent.addChild(newItem);
             }
-            let clippedLetter = isClipped ? window.clipItem(letter) : letter;
-            if (!isClipped) parent.addChild(clippedLetter);
-            newItems.push(clippedLetter);
+            newItems.push(newItem);
         });
         item.remove();
     }
 
-    // 3. SI ES UN TRAZADO COMPUESTO (CompoundPath con letras o múltiples formas):
+    // C. SI ES UN TRAZADO COMPUESTO (CompoundPath con letras o múltiples formas):
     // Lo dividimos en sus letras/islas independientes de forma progresiva sin rellenarlas de negro.
-    else if (target instanceof paper.CompoundPath) {
-        const subPaths = [...target.children];
+    else if (activeTarget instanceof paper.CompoundPath) {
+        const subPaths = [...activeTarget.children];
         if (subPaths.length === 0) return;
         const outers = [];
         const holesMap = new Map();
@@ -483,8 +508,7 @@ export function ungroupSelectedItem() {
                 if (!holesMap.has(p)) holesMap.set(p, []);
             }
         });
-        const originalFill = target.fillColor;
-        const targetMatrix = target.matrix ? target.matrix.clone() : null;
+        const originalFill = activeTarget.fillColor;
 
         // Si tiene un único Outer (ej: la silueta de un bebé o una sola letra con hueco),
         // al presionar desagrupar de nuevo, ejecutamos la separación de huecos y contornos de forma transparente.
@@ -508,25 +532,27 @@ export function ungroupSelectedItem() {
                 letterItem = outerClone;
             }
 
-            // Aplicar la matriz de transformación heredada para prevenir desplazamientos ANTES de aplicar clipping
-            if (targetMatrix) {
-                letterItem.matrix = targetMatrix.clone().chain(letterItem.matrix);
+            let newItem;
+            if (isClipped) {
+                newItem = window.clipItem(letterItem);
+                if (targetMatrix) {
+                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
+                }
+            } else {
+                newItem = letterItem;
+                if (targetMatrix) {
+                    newItem.matrix = targetMatrix.clone().chain(newItem.matrix);
+                }
+                parent.addChild(newItem);
             }
-
-            const resultingItem = isClipped ? window.clipItem(letterItem) : letterItem;
-            if (!isClipped) parent.addChild(resultingItem);
-            newItems.push(resultingItem);
+            newItems.push(newItem);
         });
         item.remove();
     }
 
-    // Reinsertar ordenadamente en la escena y aplicar selección múltiple
+    // Reinsertar de forma atómica en el parent original respetando la capa y el índice exacto
     newItems.reverse().forEach(newItem => {
-        if (newItem.parent) {
-            newItem.parent.insertChild(index, newItem);
-        } else {
-            parent.insertChild(index, newItem);
-        }
+        parent.insertChild(index, newItem);
     });
     window.deselectItem();
 
@@ -543,9 +569,6 @@ export function ungroupSelectedItem() {
     }, 50);
 }
 
-/**
- * Divide una palabra de un PointText nativo en letras independientes que siguen siendo editables por teclado
- */
 function splitPointTextIntoLetters(pointText) {
     const letters = [];
     const text = pointText.content;
@@ -609,25 +632,31 @@ export function separateContours() {
         }
     });
     const originalFillColor = target.fillColor;
-    const targetMatrix = target.matrix ? target.matrix.clone() : null;
+    const targetMatrix = item.matrix ? item.matrix.clone() : null;
 
     outers.forEach(outerPath => {
         // 1. Creamos el elemento contenedor exterior sólido principal
         const outerClone = outerPath.clone({ insert: false });
         outerClone.fillColor = originalFillColor;
 
-        // Preservamos la matriz del objeto padre ANTES de aplicar el enmascarado (clipping)
-        if (targetMatrix) {
-            outerClone.matrix = targetMatrix.clone().chain(outerClone.matrix);
+        let newOuterItem;
+        if (isClipped) {
+            newOuterItem = window.clipItem(outerClone);
+            if (targetMatrix) {
+                newOuterItem.matrix = targetMatrix.clone().chain(newOuterItem.matrix);
+            }
+        } else {
+            newOuterItem = outerClone;
+            if (targetMatrix) {
+                newOuterItem.matrix = targetMatrix.clone().chain(newOuterItem.matrix);
+            }
+            parent.addChild(newOuterItem);
         }
-
-        let newOuterItem = isClipped ? window.clipItem(outerClone) : outerClone;
-        if (!isClipped) parent.addChild(newOuterItem);
 
         newOuterItem.data = {
             ...(newOuterItem.data || {}),
             isOuterWithHoles: true,
-            originalPath: outerPath.clone({ insert: false }), // Guardar trazado original en coordenadas locales
+            originalPath: outerPath.clone({ insert: false }), // Guardar trazado original en coordenadas locales del CompoundPath
             holeIds: [],
             label: item.data?.label || "Objeto"
         };
@@ -641,13 +670,19 @@ export function separateContours() {
             holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
             holeClone.strokeColor = new paper.Color(0,0,0,0); // Sin línea visible de bordes de colores molestos
 
-            // Preservamos la matriz del objeto padre para el hueco también ANTES de aplicar el enmascarado
-            if (targetMatrix) {
-                holeClone.matrix = targetMatrix.clone().chain(holeClone.matrix);
+            let newHoleItem;
+            if (isClipped) {
+                newHoleItem = window.clipItem(holeClone);
+                if (targetMatrix) {
+                    newHoleItem.matrix = targetMatrix.clone().chain(newHoleItem.matrix);
+                }
+            } else {
+                newHoleItem = holeClone;
+                if (targetMatrix) {
+                    newHoleItem.matrix = targetMatrix.clone().chain(newHoleItem.matrix);
+                }
+                parent.addChild(newHoleItem);
             }
-
-            let newHoleItem = isClipped ? window.clipItem(holeClone) : holeClone;
-            if (!isClipped) parent.addChild(newHoleItem);
 
             newHoleItem.data = {
                 ...(newHoleItem.data || {}),
@@ -667,11 +702,7 @@ export function separateContours() {
     item.remove();
 
     newItems.reverse().forEach(newItem => {
-        if (newItem.parent) {
-            newItem.parent.insertChild(index, newItem);
-        } else {
-            parent.insertChild(index, newItem);
-        }
+        parent.insertChild(index, newItem);
     });
     window.deselectItem();
 
@@ -687,9 +718,6 @@ export function separateContours() {
     }, 50);
 }
 
-/**
- * Realiza la resta booleana de forma ultra precisa alineando los espacios de coordenadas globales y locales (Optimizacion 0% CPU)
- */
 export function updateOuterPathGeometry(outerItem) {
     if (!outerItem || !outerItem.data?.originalPath) return;
     const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
@@ -697,8 +725,8 @@ export function updateOuterPathGeometry(outerItem) {
 
     // 1. Obtener la geometría exterior sólida limpia en coordenadas globales con transformaciones horneadas físicamente
     const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
-    if (targetOuter.matrix) {
-        solidGlobal.transform(targetOuter.matrix);
+    if (outerItem.matrix) {
+        solidGlobal.transform(outerItem.matrix);
     }
 
     const holeIds = outerItem.data.holeIds || [];
@@ -711,10 +739,8 @@ export function updateOuterPathGeometry(outerItem) {
             const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
             if (targetHole) {
                 const holeGlobal = targetHole.clone({ insert: false });
-                if (holeGlobal.matrix && !holeGlobal.matrix.isIdentity()) {
-                    const mat = holeGlobal.matrix.clone();
-                    holeGlobal.matrix = new paper.Matrix();
-                    holeGlobal.transform(mat);
+                if (hole.matrix) {
+                    holeGlobal.transform(hole.matrix);
                 }
 
                 const temp = combined.subtract(holeGlobal);
@@ -727,9 +753,9 @@ export function updateOuterPathGeometry(outerItem) {
 
     // 3. Transformar el resultado de vuelta al espacio de coordenadas local de targetOuter para conservar la editabilidad
     const localCombined = combined.clone({ insert: false });
-    if (targetOuter.matrix && !targetOuter.matrix.isIdentity()) {
+    if (outerItem.matrix && !outerItem.matrix.isIdentity()) {
         try {
-            localCombined.transform(targetOuter.matrix.inverted());
+            localCombined.transform(outerItem.matrix.inverted());
         } catch (err) {
             console.warn("Fallo no crítico al invertir la matriz en updateOuterPathGeometry:", err);
         }
@@ -744,7 +770,7 @@ export function updateOuterPathGeometry(outerItem) {
             newPath.fillColor = targetOuter.fillColor;
             newPath.strokeColor = targetOuter.strokeColor;
             newPath.strokeWidth = targetOuter.strokeWidth;
-            newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz
+            newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz (generalmente identidad)
             newPath.data = { ...(targetOuter.data || {}) };
 
             parent.insertChild(idx, newPath);
