@@ -389,22 +389,34 @@ export function ungroupSelectedItem() {
   }
   const isClipped = !!item.data?.clipGroup;
   const target = isClipped ? item.children.find(c => !c.clipMask) : item;
-  if (!target || !(target instanceof paper.Group)) {
-    console.warn("El objeto seleccionado no es un grupo desagrupable.");
+  if (!target) return;
+
+  const isGroup = target instanceof paper.Group;
+  const isCompound = target instanceof paper.CompoundPath;
+
+  if (!isGroup && !isCompound) {
+    console.warn("El objeto seleccionado no es desagrupable (debe ser Grupo o Trazado Compuesto).");
     return;
   }
+
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
+
+  // OPCIÓN A: Si es Grupo, obtenemos sus hijos directos (pueden ser CompoundPaths o sub-trazados).
+  // OPCIÓN B: Si es CompoundPath (trazado con huecos), extraemos sus trazados cerrados internos independientes.
   const children = [...target.children];
   if (children.length === 0) return;
+
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const newItems = [];
+
   children.forEach((child) => {
     child.remove();
     let newItem;
     if (isClipped) {
+      // Re-enmascaramos cada pieza resultante de forma limpia e independiente bajo el contorno
       newItem = window.clipItem(child);
     } else {
       newItem = child;
@@ -412,7 +424,10 @@ export function ungroupSelectedItem() {
     }
     newItems.push(newItem);
   });
+
   item.remove();
+
+  // Reinsertamos los elementos en el orden de apilamiento z-index original de la escena
   newItems.reverse().forEach(newItem => {
     if (newItem.parent) {
       newItem.parent.insertChild(index, newItem);
@@ -420,7 +435,10 @@ export function ungroupSelectedItem() {
       parent.insertChild(index, newItem);
     }
   });
+
   window.deselectItem();
+
+  // Selección múltiple unificada en bloque para evitar crashes en la caja de selección celeste
   if (newItems.length > 0) {
     window.selectedItems = [...newItems];
     window.selectedItem = newItems[newItems.length - 1];
@@ -805,7 +823,7 @@ export function updateContextualMenu(item) {
           btnGroup.style.display = 'none';
         }
         if (btnUngroup) {
-          if (target instanceof paper.Group) {
+          if (target instanceof paper.Group || target instanceof paper.CompoundPath) {
             btnUngroup.classList.remove('hidden');
             btnUngroup.style.display = '';
           } else {
