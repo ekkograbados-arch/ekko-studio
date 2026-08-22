@@ -306,7 +306,7 @@ function bindClickHandlers() {
       let currentX = leftmostBounds.left;
       for (let i = 0; i < selected.length; i++) {
         const item = selected[i];
-        if (item.data && item.data.locked) continue;
+        if (item.data && item.data.locked) return;
         const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
         if (!displayItem) continue;
         const bounds = displayItem.bounds;
@@ -327,7 +327,7 @@ function bindClickHandlers() {
       let currentY = topmostBounds.top;
       for (let i = 0; i < selected.length; i++) {
         const item = selected[i];
-        if (item.data && item.data.locked) continue;
+        if (item.data && item.data.locked) return;
         const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
         if (!displayItem) continue;
         const bounds = displayItem.bounds;
@@ -489,7 +489,7 @@ const alignSelection = (type) => {
     const combinedBounds = getSelectionBounds(selected);
     if (!combinedBounds) return;
     selected.forEach(item => {
-      if (item.data && item.data.locked) continue;
+      if (item.data && item.data.locked) return;
       const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
       if (!displayItem) return;
       const bounds = displayItem.bounds;
