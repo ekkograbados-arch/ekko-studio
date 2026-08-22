@@ -712,9 +712,15 @@ window.initSelectionTool = function() {
         }
       }
 
+      window.updateSelectionBox(null);
+
       // Inyección y actualización en tiempo real de la etiqueta flotante de rotación cerca del objeto
       if (rt0) {
-        const labelPosition = window.rotationCenter.add(new paper.Point(0, -60 / paper.view.zoom));
+        const zoom = paper.view.zoom;
+        const halfHeight = rt0.target.bounds ? (rt0.target.bounds.height / 2) : 50;
+        const labelOffset = halfHeight + (35 / zoom);
+        const labelPosition = window.rotationCenter.add(new paper.Point(0, -labelOffset));
+
         if (!window.rotationAngleLabel) {
           window.rotationAngleLabel = new paper.Group();
           window.rotationAngleLabel.data = { isSelectionBox: true, isSmartGuide: true }; // Libre de hit-tests
@@ -724,7 +730,6 @@ window.initSelectionTool = function() {
 
         const currentRot = rt0.target.data?.rotation || 0;
         const displayAngle = Math.round((currentRot % 360 + 360) % 360);
-        const zoom = paper.view.zoom;
         const fontSize = 12 / zoom;
 
         // Texto del ángulo
@@ -738,10 +743,22 @@ window.initSelectionTool = function() {
           justification: 'center'
         });
 
-        // Contenedor visual (badge fucsia, gris, o verde si está snapped)
+        // Resolver bug de Paper.js donde textLabel.bounds es 0 en creación inmediata (fallbacks de tamaño)
+        const approxWidth = (displayAngle + "°").length * (8 / zoom) + (12 / zoom);
+        const approxHeight = (14 / zoom) + (6 / zoom);
+        
+        const rectWidth = (textLabel.bounds && textLabel.bounds.width > 0) 
+          ? (textLabel.bounds.width + (12 / zoom)) 
+          : approxWidth;
+          
+        const rectHeight = (textLabel.bounds && textLabel.bounds.height > 0) 
+          ? (textLabel.bounds.height + (6 / zoom)) 
+          : approxHeight;
+
+        // Contenedor visual (badge verde si está snapped, o gris oscuro en rotación libre)
         const textRect = new paper.Path.Rectangle({
           center: labelPosition,
-          size: [textLabel.bounds.width + (12 / zoom), textLabel.bounds.height + (6 / zoom)],
+          size: [rectWidth, rectHeight],
           fillColor: isSnapped ? 'rgba(40, 167, 69, 0.95)' : 'rgba(15, 23, 42, 0.85)',
           strokeColor: isSnapped ? '#28a745' : '#334155',
           strokeWidth: 1 / zoom,
@@ -752,8 +769,6 @@ window.initSelectionTool = function() {
         window.rotationAngleLabel.addChild(textLabel);
         window.rotationAngleLabel.bringToFront();
       }
-
-      window.updateSelectionBox(null);
       paper.view.update();
       return;
     }
