@@ -312,6 +312,33 @@ function makeToolbarDraggable() {
  * Agrupa de forma segura múltiples elementos seleccionados bajo un único Paper.Group,
  * preservando el enmascaramiento dinámico (clipGroup) y el z-index de la escena.
  */
+
+// --- HELPER DE NAVEGACIÓN VECTORIAL SIN CICLOS (EVITA CRASHES DE MEMORIA EN SERIALIZACIÓN) ---
+function getPaperItemById(id) {
+  if (!id) return null;
+  let item = paper.project.getItem({ id: id });
+  if (item) return item;
+  if (paper.project.activeLayer) {
+    const search = (children) => {
+      for (let child of children) {
+        if (child.id === id) return child;
+        if (child.children) {
+          const found = search(child.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return search(paper.project.activeLayer.children);
+  }
+  return null;
+}
+
+function getHolesForOuter(outerItem) {
+  if (!outerItem || !outerItem.data?.holeIds) return [];
+  return outerItem.data.holeIds.map(id => getPaperItemById(id)).filter(Boolean);
+}
+
 export function groupSelectedItems() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
@@ -351,7 +378,8 @@ export function groupSelectedItems() {
       const originalPath = outerItem.data.originalPath;
       
       // Encontrar los huecos asociados a este Outer que también están seleccionados
-      const associatedHolesSelected = outerItem.data.holes.filter(hole => selected.includes(hole) && hole.parent);
+      const holes = getHolesForOuter(outerItem);
+      const associatedHolesSelected = holes.filter(hole => selected.includes(hole) && hole.parent);
       
       // Los huecos seleccionados se van a refundir, así que los sacamos de la selección para que no se procesen como objetos independientes
       associatedHolesSelected.forEach(h => {
@@ -585,7 +613,7 @@ export function ungroupSelectedItem() {
         ...(newOuterItem.data || {}),
         isOuterWithHoles: true,
         originalPath: outerPath.clone({ insert: false }),
-        holes: [],
+        holeIds: [],
         label: itemLabel
       };
       newItems.push(newOuterItem);
@@ -612,11 +640,12 @@ export function ungroupSelectedItem() {
         newHoleItem.data = {
           ...(newHoleItem.data || {}),
           isHoleController: true,
-          outerItem: newOuterItem,
+          outerItemId: newOuterItem.id,
           label: "Hueco de " + itemLabel
         };
 
-        newOuterItem.data.holes.push(newHoleItem);
+        newOuterItem.data.holeIds = newOuterItem.data.holeIds || [];
+        newOuterItem.data.holeIds.push(newHoleItem.id);
         newItems.push(newHoleItem);
       });
 
@@ -668,8 +697,9 @@ export function updateOuterPathGeometry(outerItem) {
   let combined = outerItem.data.originalPath.clone({ insert: false });
 
   // Restar de forma booleana cada hueco que siga existiendo en la escena
-  if (outerItem.data.holes && outerItem.data.holes.length > 0) {
-    outerItem.data.holes.forEach(hole => {
+  const holes = getHolesForOuter(outerItem);
+  if (holes.length > 0) {
+    holes.forEach(hole => {
       if (hole && hole.parent) {
         const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
         if (targetHole) {
@@ -693,7 +723,12 @@ export function updateOuterPathGeometry(outerItem) {
       newPath.strokeColor = targetOuter.strokeColor;
       newPath.strokeWidth = targetOuter.strokeWidth;
       newPath.dashArray = targetOuter.dashArray;
-      newPath.data = { ...(targetOuter.data || {}) };
+      
+      // Traspasar datos sin ciclos
+      newPath.data = { 
+        ...(targetOuter.data || {}),
+        holeIds: [...(outerItem.data.holeIds || [])]
+      };
 
       parent.insertChild(idx, newPath);
 
@@ -708,12 +743,11 @@ export function updateOuterPathGeometry(outerItem) {
             window.selectedItems[sIdx] = newPath;
           }
         }
-        // Actualizar la referencia de los huecos hacia el nuevo contorno exterior
-        if (outerItem.data?.holes) {
-          outerItem.data.holes.forEach(h => {
-            if (h && h.data) h.data.outerItem = newPath;
-          });
-        }
+        // Actualizar la referencia de los huecos hacia el nuevo contorno exterior (con ID)
+        const currentHoles = getHolesForOuter(newPath);
+        currentHoles.forEach(h => {
+          if (h && h.data) h.data.outerItemId = newPath.id;
+        });
       } else {
         // Si estaba enmascarado (clipGroup), el item visual principal sigue siendo outerItem,
         // pero la caja de selección celeste de Paper.js necesita redibujarse
@@ -746,26 +780,28 @@ if (typeof window.paper !== 'undefined' && paper.view) {
 
     outers.forEach(outerItem => {
       let needsUpdate = false;
-      const validHoles = [];
+      const validHoleIds = [];
+      const holes = getHolesForOuter(outerItem);
       
-      if (outerItem.data?.holes) {
-        outerItem.data.holes.forEach(hole => {
-          if (hole && hole.parent) {
-            validHoles.push(hole);
-            const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.width.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
-            if (hole.data.lastHash !== currentHash) {
-              hole.data.lastHash = currentHash;
-              needsUpdate = true;
-            }
-          } else {
-            // El hueco fue eliminado, requiere actualización para rellenarse
+      holes.forEach(hole => {
+        if (hole && hole.parent) {
+          validHoleIds.push(hole.id);
+          const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.width.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
+          if (hole.data.lastHash !== currentHash) {
+            hole.data.lastHash = currentHash;
             needsUpdate = true;
           }
-        });
+        } else {
+          needsUpdate = true;
+        }
+      });
+
+      if (validHoleIds.length < (outerItem.data.holeIds || []).length) {
+        needsUpdate = true;
       }
 
       if (needsUpdate) {
-        outerItem.data.holes = validHoles; // Limpiar los huecos que ya no existen para evitar bucles
+        outerItem.data.holeIds = validHoleIds; // Limpiar los huecos que ya no existen para evitar bucles
         updateOuterPathGeometry(outerItem);
       }
     });
