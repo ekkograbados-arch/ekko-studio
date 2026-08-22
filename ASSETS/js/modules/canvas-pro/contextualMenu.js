@@ -18,6 +18,10 @@ let fontsCache = [];
 let toolbarDragged = false;
 let lastSelectedItem = null;
 
+// Registro global de outers activos en el lienzo y sus geometrías originales (Inmune a ciclos de memoria)
+window.ekkoOuters = window.ekkoOuters || [];
+window.ekkoOriginalPaths = window.ekkoOriginalPaths || {};
+
 // --- INYECCIÓN DE ESTILOS CSS PARA EL MENÚ PERSONALIZADO ---
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
@@ -308,11 +312,6 @@ function makeToolbarDraggable() {
   });
 }
 
-/**
- * Agrupa de forma segura múltiples elementos seleccionados bajo un único Paper.Group,
- * preservando el enmascaramiento dinámico (clipGroup) y el z-index de la escena.
- */
-
 // --- HELPER DE NAVEGACIÓN VECTORIAL SIN CICLOS (EVITA CRASHES DE MEMORIA EN SERIALIZACIÓN) ---
 function getPaperItemById(id) {
   if (!id) return null;
@@ -339,6 +338,10 @@ function getHolesForOuter(outerItem) {
   return outerItem.data.holeIds.map(id => getPaperItemById(id)).filter(Boolean);
 }
 
+/**
+ * Agrupa de forma segura múltiples elementos seleccionados bajo un único Paper.Group,
+ * preservando el enmascaramiento dinámico (clipGroup) y el z-index de la escena.
+ */
 export function groupSelectedItems() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
@@ -375,8 +378,9 @@ export function groupSelectedItems() {
     // Procesamos cada Outer por separado para refundir sus huecos correspondientes que estén en la selección
     outersInSelection.forEach(outerItem => {
       const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
-      const originalPath = outerItem.data.originalPath;
-      
+      const originalPath = window.ekkoOriginalPaths[outerItem.id] || outerItem.data.originalPath;
+      if (!originalPath) return;
+
       // Encontrar los huecos asociados a este Outer que también están seleccionados
       const holes = getHolesForOuter(outerItem);
       const associatedHolesSelected = holes.filter(hole => selected.includes(hole) && hole.parent);
@@ -416,6 +420,11 @@ export function groupSelectedItems() {
         parent.addChild(finalItem);
       }
       contents.push(finalItem);
+
+      // Limpieza de memoria
+      delete window.ekkoOriginalPaths[outerItem.id];
+      const outerIndex = window.ekkoOuters.indexOf(outerItem.id);
+      if (outerIndex > -1) window.ekkoOuters.splice(outerIndex, 1);
     });
 
     // Procesamos el resto de elementos normales seleccionados que no eran parte de la relación Outer-Hole
@@ -500,10 +509,7 @@ export function groupSelectedItems() {
 /**
  * Desagrupa de forma segura un grupo vectorial del cliente (no el mockup del producto),
  * manteniendo cada uno de sus elementos resultantes enmascarados/recortados bajo el clipGroup del lienzo.
- * SOPORTA FLUJO INCREMENTAL CON LIVE HOLES:
- * - Fase A: Desagrupa paper.Group en sus islas lógicas (CompoundPaths, Textos, etc.).
- * - Fase B: Desagrupa paper.CompoundPath en sus trazados cerrados individuales, manteniendo
- *   los huecos con transparencia interactiva (Live Holes) y permitiendo arrastrarlos/editarlos/eliminarlos.
+ * SOPORTA EL FLUJO DE NIVEL 1 (Desagrupar paper.Group estándar).
  */
 export function ungroupSelectedItem() {
   const item = window.selectedItem;
@@ -515,11 +521,14 @@ export function ungroupSelectedItem() {
   const target = isClipped ? item.children.find(c => !c.clipMask) : item;
   if (!target) return;
 
-  const isGroup = target instanceof paper.Group;
-  const isCompound = target instanceof paper.CompoundPath;
+  // Si es un CompoundPath, redirigimos automáticamente a la Opción B (Separar Contornos) de forma intuitiva
+  if (target instanceof paper.CompoundPath) {
+    separateContours();
+    return;
+  }
 
-  if (!isGroup && !isCompound) {
-    console.warn("El objeto seleccionado no es desagrupable (debe ser Grupo o Trazado Compuesto).");
+  if (!(target instanceof paper.Group)) {
+    console.warn("El objeto seleccionado no es un grupo desagrupable.");
     return;
   }
 
@@ -531,170 +540,223 @@ export function ungroupSelectedItem() {
   const index = parent.children.indexOf(item);
   const newItems = [];
 
-  if (isGroup) {
-    // --- OPCIÓN A: DESAGRUPAR GRUPO VECTORIAL / SVG ---
-    const children = [...target.children];
-    if (children.length === 0) return;
+  // --- OPCIÓN A: DESAGRUPAR GRUPO VECTORIAL / SVG ---
+  const children = [...target.children];
+  if (children.length === 0) return;
 
-    children.forEach((child) => {
-      child.remove();
-      let newItem;
-      if (isClipped) {
-        newItem = window.clipItem(child);
-      } else {
-        newItem = child;
-        parent.addChild(newItem);
-      }
-      newItems.push(newItem);
-    });
-
-    item.remove();
-
-    // Reinsertamos los elementos en el orden de apilamiento z-index original de la escena
-    newItems.reverse().forEach(newItem => {
-      if (newItem.parent) {
-        newItem.parent.insertChild(index, newItem);
-      } else {
-        parent.insertChild(index, newItem);
-      }
-    });
-  } else if (isCompound) {
-    // --- OPCIÓN B: DESAGRUPAR TRAZADO COMPUESTO (Live Holes / Huecos Interactivos) ---
-    const subPaths = [...target.children];
-    if (subPaths.length === 0) return;
-
-    // Clasificar trazados por contención (Outer vs Holes)
-    const outers = [];
-    const holesMap = new Map(); // Map de outerPath -> Array de holePaths
-
-    subPaths.forEach(p => {
-      let container = null;
-      subPaths.forEach(other => {
-        if (other !== p) {
-          if (other.bounds.contains(p.bounds)) {
-            if (!container || Math.abs(other.area) < Math.abs(container.area)) {
-              container = other;
-            }
-          }
-        }
-      });
-
-      if (container) {
-        if (!holesMap.has(container)) {
-          holesMap.set(container, []);
-        }
-        holesMap.get(container).push(p);
-      } else {
-        outers.push(p);
-        if (!holesMap.has(p)) {
-          holesMap.set(p, []);
-        }
-      }
-    });
-
-    // Crear elementos independientes para los Outers y sus Huecos
-    const originalFillColor = target.fillColor;
-    const itemLabel = item.data?.label || "Objeto";
-
-    outers.forEach(outerPath => {
-      // 1. Clonar el contorno exterior como el elemento sólido principal
-      const outerClone = outerPath.clone();
-      outerClone.fillColor = originalFillColor;
-
-      let newOuterItem;
-      if (isClipped) {
-        newOuterItem = window.clipItem(outerClone);
-      } else {
-        newOuterItem = outerClone;
-        parent.addChild(newOuterItem);
-      }
-      
-      newOuterItem.data = {
-        ...(newOuterItem.data || {}),
-        isOuterWithHoles: true,
-        originalPath: outerPath.clone({ insert: false }),
-        holeIds: [],
-        label: itemLabel
-      };
-      newItems.push(newOuterItem);
-
-      // 2. Clonar cada uno de sus huecos como controladores interactivos independientes
-      const holesList = holesMap.get(outerPath) || [];
-      holesList.forEach(holePath => {
-        const holeClone = holePath.clone();
-        
-        // Estilización de Hueco Interactivo: Relleno transparente al 1% (para clicabilidad interna), contorno discontinuo fucsia
-        holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
-        holeClone.strokeColor = '#e0245e';
-        holeClone.strokeWidth = 1.2 / paper.view.zoom;
-        holeClone.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
-
-        let newHoleItem;
-        if (isClipped) {
-          newHoleItem = window.clipItem(holeClone);
-        } else {
-          newHoleItem = holeClone;
-          parent.addChild(newHoleItem);
-        }
-
-        newHoleItem.data = {
-          ...(newHoleItem.data || {}),
-          isHoleController: true,
-          outerItemId: newOuterItem.id,
-          label: "Hueco de " + itemLabel
-        };
-
-        newOuterItem.data.holeIds = newOuterItem.data.holeIds || [];
-        newOuterItem.data.holeIds.push(newHoleItem.id);
-        newItems.push(newHoleItem);
-      });
-
-      // Inicializar la geometría del outer restándole sus huecos de inmediato
-      updateOuterPathGeometry(newOuterItem);
-    });
-
-    item.remove();
-
-    // Reinsertar todo ordenadamente
-    newItems.reverse().forEach(newItem => {
-      if (newItem.parent) {
-        newItem.parent.insertChild(index, newItem);
-      } else {
-        parent.insertChild(index, newItem);
-      }
-    });
-  }
-
-  window.deselectItem();
-
-  // Selección múltiple unificada en bloque para evitar crashes en la caja de selección celeste
-  if (newItems.length > 0) {
-    window.selectedItems = [...newItems];
-    window.selectedItem = newItems[newItems.length - 1];
-    newItems.forEach(it => {
-      if (it) it.selected = true;
-    });
-    if (typeof window.updateSelectionBox === 'function') {
-      window.updateSelectionBox(window.selectedItem);
+  children.forEach((child) => {
+    child.remove();
+    let newItem;
+    if (isClipped) {
+      newItem = window.clipItem(child);
+    } else {
+      newItem = child;
+      parent.addChild(newItem);
     }
-    if (typeof window.updateContextualMenu === 'function') {
-      window.updateContextualMenu(window.selectedItem);
+    newItems.push(newItem);
+  });
+
+  item.remove();
+
+  // Reinsertamos los elementos en el orden de apilamiento z-index original de la escena
+  newItems.reverse().forEach(newItem => {
+    if (newItem.parent) {
+      newItem.parent.insertChild(index, newItem);
+    } else {
+      parent.insertChild(index, newItem);
     }
-  }
-  paper.view.update();
+  });
+
+  // Retraso defensivo de 50ms para prevenir carreras de eventos y desvanecimiento de botones
+  setTimeout(() => {
+    window.deselectItem();
+    if (newItems.length > 0) {
+      window.selectedItems = [...newItems];
+      window.selectedItem = newItems[newItems.length - 1];
+      newItems.forEach(it => {
+        if (it) it.selected = true;
+      });
+      if (typeof window.updateSelectionBox === 'function') {
+        window.updateSelectionBox(window.selectedItem);
+      }
+      if (typeof window.updateContextualMenu === 'function') {
+        window.updateContextualMenu(window.selectedItem);
+      }
+    }
+    paper.view.update();
+  }, 50);
 }
 
 /**
- * Recalcula dinámicamente el trazado sólido principal restándole la geometría actual de sus huecos interactivos
+ * Desagrupa de forma segura un trazado compuesto (paper.CompoundPath), desarmándolo en sus
+ * contornos cerrados individuales. Los huecos interiores se vuelven transparentes e interactivos.
+ * SOPORTA EL FLUJO DE NIVEL 2 (Separar contornos/nodos).
+ */
+export function separateContours() {
+  const item = window.selectedItem;
+  if (!item || item.data?.locked || item.data?.mockup) {
+    console.warn("No se puede separar un objeto protegido o bloqueado.");
+    return;
+  }
+  const isClipped = !!item.data?.clipGroup;
+  const target = isClipped ? item.children.find(c => !c.clipMask) : item;
+  if (!target || !(target instanceof paper.CompoundPath)) {
+    console.warn("El objeto seleccionado no es un Trazado Compuesto desarmable.");
+    return;
+  }
+
+  if (typeof window.saveHistory === 'function') {
+    window.saveHistory();
+  }
+
+  const parent = item.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(item);
+  const newItems = [];
+
+  const subPaths = [...target.children];
+  if (subPaths.length === 0) return;
+
+  // Clasificar trazados por contención espacial (Outer vs Holes)
+  const outers = [];
+  const holesMap = new Map(); // Map de outerPath -> Array de holePaths
+
+  subPaths.forEach(p => {
+    let container = null;
+    subPaths.forEach(other => {
+      if (other !== p) {
+        if (other.bounds.contains(p.bounds)) {
+          if (!container || Math.abs(other.area) < Math.abs(container.area)) {
+            container = other;
+          }
+        }
+      }
+    });
+
+    if (container) {
+      if (!holesMap.has(container)) {
+        holesMap.set(container, []);
+      }
+      holesMap.get(container).push(p);
+    } else {
+      outers.push(p);
+      if (!holesMap.has(p)) {
+        holesMap.set(p, []);
+      }
+    }
+  });
+
+  // Crear elementos independientes para los Outers y sus Huecos
+  const originalFillColor = target.fillColor;
+  const itemLabel = item.data?.label || "Objeto";
+
+  outers.forEach(outerPath => {
+    // 1. Clonar el contorno exterior como el elemento sólido principal
+    const outerClone = outerPath.clone();
+    outerClone.fillColor = originalFillColor;
+
+    let newOuterItem;
+    if (isClipped) {
+      newOuterItem = window.clipItem(outerClone);
+    } else {
+      newOuterItem = outerClone;
+      parent.addChild(newOuterItem);
+    }
+    
+    // Guardar referencia geométrica limpia sin insertar al lienzo para cálculos futuros
+    window.ekkoOriginalPaths[newOuterItem.id] = outerPath.clone({ insert: false });
+
+    newOuterItem.data = {
+      ...(newOuterItem.data || {}),
+      isOuterWithHoles: true,
+      holeIds: [],
+      label: itemLabel
+    };
+    newItems.push(newOuterItem);
+
+    // Registrar en outers activos en memoria
+    if (!window.ekkoOuters.includes(newOuterItem.id)) {
+      window.ekkoOuters.push(newOuterItem.id);
+    }
+
+    // 2. Clonar cada uno de sus huecos como controladores interactivos transparentes
+    const holesList = holesMap.get(outerPath) || [];
+    holesList.forEach(holePath => {
+      const holeClone = holePath.clone();
+      
+      // Controlador de Hueco Invisible: Relleno transparente al 1% (para clicabilidad interna sin bordes fucsias molestos)
+      holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
+      holeClone.strokeColor = null; // Completamente invisible en reposo
+      holeClone.strokeWidth = 0;
+
+      let newHoleItem;
+      if (isClipped) {
+        newHoleItem = window.clipItem(holeClone);
+      } else {
+        newHoleItem = holeClone;
+        parent.addChild(newHoleItem);
+      }
+
+      newHoleItem.data = {
+        ...(newHoleItem.data || {}),
+        isHoleController: true,
+        outerItemId: newOuterItem.id,
+        label: "Hueco de " + itemLabel
+      };
+
+      newOuterItem.data.holeIds.push(newHoleItem.id);
+      newItems.push(newHoleItem);
+    });
+
+    // Inicializar la geometría del outer restándole sus huecos de inmediato
+    updateOuterPathGeometry(newOuterItem);
+  });
+
+  item.remove();
+
+  // Reinsertar todo ordenadamente en el z-index correcto
+  newItems.reverse().forEach(newItem => {
+    if (newItem.parent) {
+      newItem.parent.insertChild(index, newItem);
+    } else {
+      parent.insertChild(index, newItem);
+    }
+  });
+
+  // Retraso de seguridad para estabilizar la interfaz de usuario
+  setTimeout(() => {
+    window.deselectItem();
+    if (newItems.length > 0) {
+      window.selectedItems = [...newItems];
+      window.selectedItem = newItems[newItems.length - 1];
+      newItems.forEach(it => {
+        if (it) it.selected = true;
+      });
+      if (typeof window.updateSelectionBox === 'function') {
+        window.updateSelectionBox(window.selectedItem);
+      }
+      if (typeof window.updateContextualMenu === 'function') {
+        window.updateContextualMenu(window.selectedItem);
+      }
+    }
+    paper.view.update();
+  }, 50);
+}
+
+/**
+ * Recalcula dinámicamente el trazado sólido principal restándole la geometría actual de sus huecos interactivos.
+ * Solución ultraestable libre de mutaciones de clase de Paper.js.
  */
 export function updateOuterPathGeometry(outerItem) {
-  if (!outerItem || !outerItem.data?.originalPath) return;
+  if (!outerItem) return;
+  
+  const originalPath = window.ekkoOriginalPaths[outerItem.id];
+  if (!originalPath) return;
 
   const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
   if (!targetOuter) return;
 
   // Empezar con una copia limpia del contorno original
-  let combined = outerItem.data.originalPath.clone({ insert: false });
+  let combined = originalPath.clone({ insert: false });
 
   // Restar de forma booleana cada hueco que siga existiendo en la escena
   const holes = getHolesForOuter(outerItem);
@@ -718,22 +780,29 @@ export function updateOuterPathGeometry(outerItem) {
     if (idx !== -1) {
       const newPath = combined.clone({ insert: false });
       
-      // Preservar estilo visual
+      // Preservar estilo visual del grabado
       newPath.fillColor = targetOuter.fillColor;
       newPath.strokeColor = targetOuter.strokeColor;
       newPath.strokeWidth = targetOuter.strokeWidth;
       newPath.dashArray = targetOuter.dashArray;
       
-      // Traspasar datos sin ciclos
-      newPath.data = { 
+      // Traspasar datos sin referencias cíclicas
+      newPath.data = {
         ...(targetOuter.data || {}),
+        isOuterWithHoles: true,
         holeIds: [...(outerItem.data.holeIds || [])]
       };
 
-      parent.insertChild(idx, newPath);
-
-      // Si targetOuter es el propio outerItem (caso no enmascarado)
+      // Si el ID del outer principal cambió (caso directo), migramos la referencia de geometría
       if (targetOuter === outerItem) {
+        window.ekkoOriginalPaths[newPath.id] = originalPath.clone({ insert: false });
+        delete window.ekkoOriginalPaths[outerItem.id];
+        
+        const outerIndex = window.ekkoOuters.indexOf(outerItem.id);
+        if (outerIndex > -1) {
+          window.ekkoOuters[outerIndex] = newPath.id;
+        }
+
         if (window.selectedItem === outerItem) {
           window.selectedItem = newPath;
         }
@@ -743,7 +812,7 @@ export function updateOuterPathGeometry(outerItem) {
             window.selectedItems[sIdx] = newPath;
           }
         }
-        // Actualizar la referencia de los huecos hacia el nuevo contorno exterior (con ID)
+        // Actualizar la referencia de los huecos hacia el nuevo contorno exterior
         const currentHoles = getHolesForOuter(newPath);
         currentHoles.forEach(h => {
           if (h && h.data) h.data.outerItemId = newPath.id;
@@ -760,6 +829,7 @@ export function updateOuterPathGeometry(outerItem) {
         }
       }
 
+      parent.insertChild(idx, newPath);
       targetOuter.remove();
     }
   }
@@ -768,46 +838,47 @@ export function updateOuterPathGeometry(outerItem) {
   paper.view.update();
 }
 
-// 🚀 RECEPTOR DE MARCO DE PAPER.JS PARA EVENTO TICK:
-// Monitorea a 60 FPS si algún hueco ha cambiado de posición para recalcular el trazado Outer
+// 🚀 RECEPTOR DE MARCO DE PAPER.JS CON OPTIMIZACIÓN EXTREMA (Consumo de CPU de 0% en Reposo/Zoom):
+// Monitorea a 60 FPS si algún hueco ha cambiado de posición únicamente si hay un arrastre o edición activa.
 if (typeof window.paper !== 'undefined' && paper.view) {
   paper.view.on('frame', () => {
     if (!paper.project || !paper.project.activeLayer) return;
     
-    const outers = paper.project.activeLayer.getItems({
-      match: (item) => item.data && item.data.isOuterWithHoles
-    });
+    // Si no hay arrastre o transformador activo del ratón, consumimos un 0% de CPU de inmediato
+    if (!window.dragging && !window.resizeActive && !window.rotationActive) return;
+    
+    if (window.ekkoOuters && window.ekkoOuters.length > 0) {
+      window.ekkoOuters.forEach(outerId => {
+        const outerItem = getPaperItemById(outerId);
+        if (outerItem) {
+          let needsUpdate = false;
+          const validHoleIds = [];
+          const holes = getHolesForOuter(outerItem);
+          
+          holes.forEach(hole => {
+            if (hole && hole.parent) {
+              validHoleIds.push(hole.id);
+              const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.width.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
+              if (hole.data?.lastHash !== currentHash) {
+                hole.data = hole.data || {};
+                hole.data.lastHash = currentHash;
+                needsUpdate = true;
+              }
+            } else {
+              // El hueco fue eliminado por el cliente, requiere recálculo para rellenar
+              needsUpdate = true;
+            }
+          });
 
-    outers.forEach(outerItem => {
-      let needsUpdate = false;
-      const validHoleIds = [];
-      const holes = getHolesForOuter(outerItem);
-      
-      holes.forEach(hole => {
-        if (hole && hole.parent) {
-          validHoleIds.push(hole.id);
-          const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.width.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
-          if (hole.data.lastHash !== currentHash) {
-            hole.data.lastHash = currentHash;
-            needsUpdate = true;
+          if (needsUpdate) {
+            outerItem.data.holeIds = validHoleIds; // Limpiar referencias de huecos eliminados
+            updateOuterPathGeometry(outerItem);
           }
-        } else {
-          needsUpdate = true;
         }
       });
-
-      if (validHoleIds.length < (outerItem.data.holeIds || []).length) {
-        needsUpdate = true;
-      }
-
-      if (needsUpdate) {
-        outerItem.data.holeIds = validHoleIds; // Limpiar los huecos que ya no existen para evitar bucles
-        updateOuterPathGeometry(outerItem);
-      }
-    });
+    }
   });
 }
-
 
 export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
@@ -1079,6 +1150,7 @@ export function initContextualMenu() {
   // Exposición global para compatibilidad de la barra superior
   window.groupSelectedItems = groupSelectedItems;
   window.ungroupSelectedItem = ungroupSelectedItem;
+  window.separateContours = separateContours;
 }
 
 export function updateContextualMenu(item) {
@@ -1172,14 +1244,24 @@ export function updateContextualMenu(item) {
         vectorControls.classList.remove('hidden');
         const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
         const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
+        
         if (btnGroup) {
           btnGroup.classList.add('hidden');
           btnGroup.style.display = 'none';
         }
+        
         if (btnUngroup) {
           if (target instanceof paper.Group) {
             btnUngroup.classList.remove('hidden');
             btnUngroup.style.display = '';
+            btnUngroup.innerHTML = '<i class="fas fa-object-ungroup"></i> Desagrupar';
+            btnUngroup.onclick = () => ungroupSelectedItem();
+          } else if (target instanceof paper.CompoundPath) {
+            // El objetivo es un Trazado Compuesto: cambiamos el botón a "Separar Nodos" para el Nivel 2
+            btnUngroup.classList.remove('hidden');
+            btnUngroup.style.display = '';
+            btnUngroup.innerHTML = '<i class="fas fa-bezier-curve"></i> Separar Nodos';
+            btnUngroup.onclick = () => separateContours();
           } else {
             btnUngroup.classList.add('hidden');
             btnUngroup.style.display = 'none';
