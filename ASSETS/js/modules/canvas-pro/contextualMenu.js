@@ -334,11 +334,103 @@ export function groupSelectedItems() {
     window.saveHistory();
   }
 
-  const contents = [];
   const parent = selected[0].parent || paper.project.activeLayer;
   const index = parent.children.indexOf(selected[0]);
   const isClipped = selected.some(item => !!item.data?.clipGroup);
 
+  // --- RECOPILAR E IDENTIFICAR RELACIONES DE HUECOS ---
+  // Si agrupamos un contorno Outer y sus controladores de Hueco, los fundimos nativamente en un CompoundPath limpio.
+  const outersInSelection = selected.filter(item => item.data?.isOuterWithHoles);
+  
+  if (outersInSelection.length > 0) {
+    const contents = [];
+    
+    // Procesamos cada Outer por separado para refundir sus huecos correspondientes que estén en la selección
+    outersInSelection.forEach(outerItem => {
+      const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
+      const originalPath = outerItem.data.originalPath;
+      
+      // Encontrar los huecos asociados a este Outer que también están seleccionados
+      const associatedHolesSelected = outerItem.data.holes.filter(hole => selected.includes(hole) && hole.parent);
+      
+      // Los huecos seleccionados se van a refundir, así que los sacamos de la selección para que no se procesen como objetos independientes
+      associatedHolesSelected.forEach(h => {
+        const idx = selected.indexOf(h);
+        if (idx > -1) selected.splice(idx, 1);
+        h.remove(); // Se destruye su controlador flotante
+      });
+
+      // Sacar el outer de la lista de procesamiento estándar
+      const idxOuter = selected.indexOf(outerItem);
+      if (idxOuter > -1) selected.splice(idxOuter, 1);
+      outerItem.remove(); // Se destruye el outer anterior
+
+      // Refundir: Crear un CompoundPath nativo con la silueta original y los huecos en sus posiciones actuales
+      const subPathsForCompound = [originalPath.clone({ insert: false })];
+      associatedHolesSelected.forEach(hole => {
+        const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
+        if (targetHole) {
+          subPathsForCompound.push(targetHole.clone({ insert: false }));
+        }
+      });
+
+      const rebuiltCompound = new paper.CompoundPath({
+        children: subPathsForCompound,
+        fillColor: targetOuter.fillColor
+      });
+      rebuiltCompound.data = { locked: false, label: outerItem.data.label || "Vectores" };
+
+      let finalItem;
+      if (isClipped && typeof window.clipItem === 'function') {
+        finalItem = window.clipItem(rebuiltCompound);
+      } else {
+        finalItem = rebuiltCompound;
+        parent.addChild(finalItem);
+      }
+      contents.push(finalItem);
+    });
+
+    // Procesamos el resto de elementos normales seleccionados que no eran parte de la relación Outer-Hole
+    selected.forEach(item => {
+      let content;
+      if (item.data?.clipGroup) {
+        content = item.children.find(c => !c.clipMask);
+        if (content) {
+          content.remove();
+        }
+      } else {
+        content = item;
+        content.remove();
+      }
+      if (content) {
+        contents.push(content);
+      }
+      item.remove();
+    });
+
+    // Si al final nos queda un solo objeto reconstruido, lo dejamos libre; si hay varios, creamos un Grupo
+    let finalGroupItem;
+    if (contents.length === 1) {
+      finalGroupItem = contents[0];
+    } else {
+      finalGroupItem = new paper.Group(contents);
+      finalGroupItem.data = { locked: false, label: "Grupo" };
+    }
+
+    if (finalGroupItem.parent) {
+      finalGroupItem.parent.insertChild(index, finalGroupItem);
+    } else {
+      parent.insertChild(index, finalGroupItem);
+    }
+
+    window.deselectItem();
+    window.selectItem(finalGroupItem);
+    paper.view.update();
+    return;
+  }
+
+  // --- COMPORTAMIENTO DE AGRUPACIÓN ESTÁNDAR (Para cuando no hay relación Outer-Hole seleccionada) ---
+  const contents = [];
   selected.forEach(item => {
     let content;
     if (item.data?.clipGroup) {
@@ -380,6 +472,10 @@ export function groupSelectedItems() {
 /**
  * Desagrupa de forma segura un grupo vectorial del cliente (no el mockup del producto),
  * manteniendo cada uno de sus elementos resultantes enmascarados/recortados bajo el clipGroup del lienzo.
+ * SOPORTA FLUJO INCREMENTAL CON LIVE HOLES:
+ * - Fase A: Desagrupa paper.Group en sus islas lógicas (CompoundPaths, Textos, etc.).
+ * - Fase B: Desagrupa paper.CompoundPath en sus trazados cerrados individuales, manteniendo
+ *   los huecos con transparencia interactiva (Live Holes) y permitiendo arrastrarlos/editarlos/eliminarlos.
  */
 export function ungroupSelectedItem() {
   const item = window.selectedItem;
@@ -403,38 +499,142 @@ export function ungroupSelectedItem() {
     window.saveHistory();
   }
 
-  // OPCIÓN A: Si es Grupo, obtenemos sus hijos directos (pueden ser CompoundPaths o sub-trazados).
-  // OPCIÓN B: Si es CompoundPath (trazado con huecos), extraemos sus trazados cerrados internos independientes.
-  const children = [...target.children];
-  if (children.length === 0) return;
-
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const newItems = [];
 
-  children.forEach((child) => {
-    child.remove();
-    let newItem;
-    if (isClipped) {
-      // Re-enmascaramos cada pieza resultante de forma limpia e independiente bajo el contorno
-      newItem = window.clipItem(child);
-    } else {
-      newItem = child;
-      parent.addChild(newItem);
-    }
-    newItems.push(newItem);
-  });
+  if (isGroup) {
+    // --- OPCIÓN A: DESAGRUPAR GRUPO VECTORIAL / SVG ---
+    const children = [...target.children];
+    if (children.length === 0) return;
 
-  item.remove();
+    children.forEach((child) => {
+      child.remove();
+      let newItem;
+      if (isClipped) {
+        newItem = window.clipItem(child);
+      } else {
+        newItem = child;
+        parent.addChild(newItem);
+      }
+      newItems.push(newItem);
+    });
 
-  // Reinsertamos los elementos en el orden de apilamiento z-index original de la escena
-  newItems.reverse().forEach(newItem => {
-    if (newItem.parent) {
-      newItem.parent.insertChild(index, newItem);
-    } else {
-      parent.insertChild(index, newItem);
-    }
-  });
+    item.remove();
+
+    // Reinsertamos los elementos en el orden de apilamiento z-index original de la escena
+    newItems.reverse().forEach(newItem => {
+      if (newItem.parent) {
+        newItem.parent.insertChild(index, newItem);
+      } else {
+        parent.insertChild(index, newItem);
+      }
+    });
+  } else if (isCompound) {
+    // --- OPCIÓN B: DESAGRUPAR TRAZADO COMPUESTO (Live Holes / Huecos Interactivos) ---
+    const subPaths = [...target.children];
+    if (subPaths.length === 0) return;
+
+    // Clasificar trazados por contención (Outer vs Holes)
+    const outers = [];
+    const holesMap = new Map(); // Map de outerPath -> Array de holePaths
+
+    subPaths.forEach(p => {
+      let container = null;
+      subPaths.forEach(other => {
+        if (other !== p) {
+          if (other.bounds.contains(p.bounds)) {
+            if (!container || Math.abs(other.area) < Math.abs(container.area)) {
+              container = other;
+            }
+          }
+        }
+      });
+
+      if (container) {
+        if (!holesMap.has(container)) {
+          holesMap.set(container, []);
+        }
+        holesMap.get(container).push(p);
+      } else {
+        outers.push(p);
+        if (!holesMap.has(p)) {
+          holesMap.set(p, []);
+        }
+      }
+    });
+
+    // Crear elementos independientes para los Outers y sus Huecos
+    const originalFillColor = target.fillColor;
+    const itemLabel = item.data?.label || "Objeto";
+
+    outers.forEach(outerPath => {
+      // 1. Clonar el contorno exterior como el elemento sólido principal
+      const outerClone = outerPath.clone();
+      outerClone.fillColor = originalFillColor;
+
+      let newOuterItem;
+      if (isClipped) {
+        newOuterItem = window.clipItem(outerClone);
+      } else {
+        newOuterItem = outerClone;
+        parent.addChild(newOuterItem);
+      }
+      
+      newOuterItem.data = {
+        ...(newOuterItem.data || {}),
+        isOuterWithHoles: true,
+        originalPath: outerPath.clone({ insert: false }),
+        holes: [],
+        label: itemLabel
+      };
+      newItems.push(newOuterItem);
+
+      // 2. Clonar cada uno de sus huecos como controladores interactivos independientes
+      const holesList = holesMap.get(outerPath) || [];
+      holesList.forEach(holePath => {
+        const holeClone = holePath.clone();
+        
+        // Estilización de Hueco Interactivo: Relleno transparente al 1% (para clicabilidad interna), contorno discontinuo fucsia
+        holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
+        holeClone.strokeColor = '#e0245e';
+        holeClone.strokeWidth = 1.2 / paper.view.zoom;
+        holeClone.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
+
+        let newHoleItem;
+        if (isClipped) {
+          newHoleItem = window.clipItem(holeClone);
+        } else {
+          newHoleItem = holeClone;
+          parent.addChild(newHoleItem);
+        }
+
+        newHoleItem.data = {
+          ...(newHoleItem.data || {}),
+          isHoleController: true,
+          outerItem: newOuterItem,
+          label: "Hueco de " + itemLabel
+        };
+
+        newOuterItem.data.holes.push(newHoleItem);
+        newItems.push(newHoleItem);
+      });
+
+      // Inicializar la geometría del outer restándole sus huecos de inmediato
+      updateOuterPathGeometry(newOuterItem);
+    });
+
+    item.remove();
+
+    // Reinsertar todo ordenadamente
+    newItems.reverse().forEach(newItem => {
+      if (newItem.parent) {
+        newItem.parent.insertChild(index, newItem);
+      } else {
+        parent.insertChild(index, newItem);
+      }
+    });
+  }
 
   window.deselectItem();
 
@@ -454,6 +654,76 @@ export function ungroupSelectedItem() {
   }
   paper.view.update();
 }
+
+/**
+ * Recalcula dinámicamente el trazado sólido principal restándole la geometría actual de sus huecos interactivos
+ */
+export function updateOuterPathGeometry(outerItem) {
+  if (!outerItem || !outerItem.data?.originalPath) return;
+
+  const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
+  if (!targetOuter) return;
+
+  // Empezar con una copia limpia del contorno original
+  let combined = outerItem.data.originalPath.clone({ insert: false });
+
+  // Restar de forma booleana cada hueco que siga existiendo en la escena
+  outerItem.data.holes.forEach(hole => {
+    if (hole && hole.parent) {
+      const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
+      if (targetHole) {
+        const temp = combined.subtract(targetHole);
+        combined.remove();
+        combined = temp;
+      }
+    }
+  });
+
+  // Copiar la geometría resultante de vuelta al objeto visual
+  targetOuter.segments = combined.segments;
+  if (combined instanceof paper.CompoundPath) {
+    // Si la resta dio un trazado compuesto (múltiples islas/huecos), clonamos sus hijos
+    targetOuter.children = combined.children.map(c => c.clone());
+  } else {
+    // Si es un trazado simple, vaciamos sub-trazados
+    targetOuter.children = [];
+  }
+  combined.remove();
+  paper.view.update();
+}
+
+// 🚀 RECEPTOR DE MARCO DE PAPER.JS PARA EVENTO TICK:
+// Monitorea a 60 FPS si algún hueco ha cambiado de posición para recalcular el trazado Outer
+if (typeof window.paper !== 'undefined' && paper.view) {
+  paper.view.on('frame', () => {
+    if (!paper.project || !paper.project.activeLayer) return;
+    
+    const outers = paper.project.activeLayer.getItems({
+      match: (item) => item.data && item.data.isOuterWithHoles
+    });
+
+    outers.forEach(outerItem => {
+      let needsUpdate = false;
+      outerItem.data.holes.forEach(hole => {
+        if (hole && hole.parent) {
+          const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.width.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
+          if (hole.data.lastHash !== currentHash) {
+            hole.data.lastHash = currentHash;
+            needsUpdate = true;
+          }
+        } else {
+          // El hueco fue eliminado, requiere actualización para rellenarse
+          needsUpdate = true;
+        }
+      });
+
+      if (needsUpdate) {
+        updateOuterPathGeometry(outerItem);
+      }
+    });
+  });
+}
+
 
 export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
@@ -823,7 +1093,7 @@ export function updateContextualMenu(item) {
           btnGroup.style.display = 'none';
         }
         if (btnUngroup) {
-          if (target instanceof paper.Group || target instanceof paper.CompoundPath) {
+          if (target instanceof paper.Group) {
             btnUngroup.classList.remove('hidden');
             btnUngroup.style.display = '';
           } else {
