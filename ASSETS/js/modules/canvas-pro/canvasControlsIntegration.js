@@ -139,6 +139,7 @@ export function initProControls() {
         <span class="pro-label">Organizar</span>
         <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
         <button class="pro-btn" id="proBtnUngroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+        <button class="pro-btn" id="proBtnUngroupNodes" title="Separar contornos del trazado compuesto seleccionado"><i class="fas fa-bezier-curve"></i> Separar Nodos</button>
       </div>
 
       <div class="pro-group">
@@ -287,7 +288,6 @@ function bindClickHandlers() {
       return;
     }
     if (typeof window.saveHistory === "function") window.saveHistory();
-
     const getActualBounds = (it) => {
       const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
       return displayItem ? displayItem.bounds : it.bounds;
@@ -347,7 +347,7 @@ function bindClickHandlers() {
   bindBtn("proBtnDistributeH", () => distributeSpacing("h"));
   bindBtn("proBtnDistributeV", () => distributeSpacing("v"));
 
-  // Vincular acciones de organización (Agrupar / Desagrupar)
+  // Vincular acciones de organización (Agrupar / Desagrupar / Separar Nodos)
   bindBtn("proBtnGroup", () => {
     if (typeof window.groupSelectedItems === "function") {
       window.groupSelectedItems();
@@ -401,73 +401,42 @@ const drawDistributionGuides = (selected, axis, spacing) => {
       const yCenter = (boundsA.center.y + boundsB.center.y) / 2;
       startPt = new paper.Point(boundsA.right, yCenter);
       endPt = new paper.Point(boundsB.left, yCenter);
-      textPt = new paper.Point((boundsA.right + boundsB.left) / 2, yCenter);
-      const mainLine = new paper.Path.Line(startPt, endPt);
-      mainLine.strokeColor = '#e0245e';
-      mainLine.strokeWidth = strokeW;
-      mainLine.dashArray = [3 / zoom, 3 / zoom];
-      window.distributionGuidesGroup.addChild(mainLine);
-      const tickSize = 6 / zoom;
-      const tickA = new paper.Path.Line(
-        new paper.Point(boundsA.right, yCenter - tickSize),
-        new paper.Point(boundsA.right, yCenter + tickSize)
-      );
-      tickA.strokeColor = '#e0245e';
-      tickA.strokeWidth = strokeW * 1.5;
-      window.distributionGuidesGroup.addChild(tickA);
-      const tickB = new paper.Path.Line(
-        new paper.Point(boundsB.left, yCenter - tickSize),
-        new paper.Point(boundsB.left, yCenter + tickSize)
-      );
-      tickB.strokeColor = '#e0245e';
-      tickB.strokeWidth = strokeW * 1.5;
-      window.distributionGuidesGroup.addChild(tickB);
+      textPt = new paper.Point((boundsA.right + boundsB.left)/2, yCenter - (10/zoom));
     } else {
       const xCenter = (boundsA.center.x + boundsB.center.x) / 2;
       startPt = new paper.Point(xCenter, boundsA.bottom);
       endPt = new paper.Point(xCenter, boundsB.top);
-      textPt = new paper.Point(xCenter, (boundsA.bottom + boundsB.top) / 2);
-      const mainLine = new paper.Path.Line(startPt, endPt);
-      mainLine.strokeColor = '#e0245e';
-      mainLine.strokeWidth = strokeW;
-      mainLine.dashArray = [3 / zoom, 3 / zoom];
-      window.distributionGuidesGroup.addChild(mainLine);
-      const tickSize = 6 / zoom;
-      const tickA = new paper.Path.Line(
-        new paper.Point(xCenter - tickSize, boundsA.bottom),
-        new paper.Point(xCenter + tickSize, boundsA.bottom)
-      );
-      tickA.strokeColor = '#e0245e';
-      tickA.strokeWidth = strokeW * 1.5;
-      window.distributionGuidesGroup.addChild(tickA);
-      const tickB = new paper.Path.Line(
-        new paper.Point(xCenter - tickSize, boundsB.top),
-        new paper.Point(xCenter + tickSize, boundsB.top)
-      );
-      tickB.strokeColor = '#e0245e';
-      tickB.strokeWidth = strokeW * 1.5;
-      window.distributionGuidesGroup.addChild(tickB);
+      textPt = new paper.Point(xCenter + (12/zoom), (boundsA.bottom + boundsB.top)/2);
     }
 
-    const textLabel = new paper.PointText(textPt.add(new paper.Point(0, 4 / zoom)));
-    textLabel.content = labelSpacing + " mm";
-    textLabel.fontFamily = 'Arial, sans-serif';
-    textLabel.fontSize = fontSize;
-    textLabel.fontWeight = 'bold';
-    textLabel.fillColor = '#e0245e';
-    textLabel.justification = 'center';
+    const line = new paper.Path.Line(startPt, endPt);
+    line.strokeColor = '#e0245e';
+    line.strokeWidth = strokeW;
+    window.distributionGuidesGroup.addChild(line);
+
+    const textLabel = new paper.PointText({
+      point: textPt,
+      content: labelSpacing + " mm",
+      fillColor: '#e0245e',
+      fontSize: fontSize,
+      justification: "center",
+      fontFamily: "Arial",
+      fontWeight: "bold"
+    });
 
     const textRect = new paper.Path.Rectangle({
-      center: textPt,
-      size: [textLabel.bounds.width + (8 / zoom), textLabel.bounds.height + (3 / zoom)],
+      center: textPt.add(new paper.Point(0, -fontSize/3)),
+      size: [textLabel.bounds.width + (8/zoom), textLabel.bounds.height + (4/zoom)],
       fillColor: '#ffffff',
       strokeColor: '#e0245e',
       strokeWidth: 1 / zoom,
       radius: 4 / zoom
     });
+
     window.distributionGuidesGroup.addChild(textRect);
     window.distributionGuidesGroup.addChild(textLabel);
   }
+
   window.distributionGuidesGroup.bringToFront();
   paper.view.update();
 
@@ -520,7 +489,7 @@ const alignSelection = (type) => {
     const combinedBounds = getSelectionBounds(selected);
     if (!combinedBounds) return;
     selected.forEach(item => {
-      if (item.data && item.data.locked) return;
+      if (item.data && item.data.locked) continue;
       const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
       if (!displayItem) return;
       const bounds = displayItem.bounds;
@@ -547,6 +516,7 @@ const alignSelection = (type) => {
       }
     });
   }
+
   if (typeof window.updateSelectionBox === "function") {
     window.updateSelectionBox(window.selectedItem);
   }
@@ -557,59 +527,3 @@ const alignSelection = (type) => {
 window.addEventListener("DOMContentLoaded", () => {
   setTimeout(initProControls, 500);
 });
-
-// =========================================================================
-// SISTEMA DE ALINEACIÓN DINÁMICA DE ELEMENTOS HTML SOBRE EL CANVAS (ANTI-DESFASE)
-// =========================================================================
-window.applyPositionCorrections = function() {
-  const toolbar = document.getElementById("contextual-toolbar");
-  const textEditor = document.getElementById("ekko-text-editor");
-  if (!window.paper || !paper.view || !window.selectedItem) return;
-
-  const item = window.selectedItem;
-  const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-  if (!displayItem) return;
-
-  const bounds = displayItem.bounds;
-  const viewPos = paper.view.projectToView(bounds.topCenter);
-  const centerPos = paper.view.projectToView(bounds.center);
-
-  // 1. Corregir Barra Contextual Flotante
-  if (toolbar && toolbar.classList.contains("active")) {
-    if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
-      toolbar.style.position = "absolute";
-      toolbar.style.left = window.customToolbarLeft + "px";
-      toolbar.style.top = window.customToolbarTop + "px";
-      toolbar.style.zIndex = "2147483646";
-    } else {
-      const toolbarHeight = toolbar.offsetHeight || 45;
-      const toolbarWidth = toolbar.offsetWidth || 350;
-      const canvasEl = document.getElementById("editorCanvas");
-      if (canvasEl) {
-        const rect = canvasEl.getBoundingClientRect();
-        const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
-        const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25;
-        toolbar.style.position = "absolute";
-        toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
-        toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
-      }
-      toolbar.style.zIndex = "2147483646";
-    }
-  }
-
-  // 2. Corregir Editor de Texto
-  if (textEditor && textEditor.style.display !== "none") {
-    const editorWidth = textEditor.offsetWidth || 220;
-    const editorHeight = textEditor.offsetHeight || 50;
-    const canvasEl = document.getElementById("editorCanvas");
-    if (canvasEl) {
-      const rect = canvasEl.getBoundingClientRect();
-      const targetLeft = rect.left + window.scrollX + centerPos.x - (editorWidth / 2);
-      const targetTop = rect.top + window.scrollY + centerPos.y - (editorHeight / 2);
-      textEditor.style.left = targetLeft + "px";
-      textEditor.style.top = targetTop + "px";
-    }
-    textEditor.style.position = "absolute";
-    textEditor.style.zIndex = "2147483647";
-  }
-};
