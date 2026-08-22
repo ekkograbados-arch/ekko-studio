@@ -128,7 +128,6 @@ export function initProControls() {
         <span class="pro-label">Organizar</span>
         <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
         <button class="pro-btn" id="proBtnUngroup" title="Desagrupar o separar contornos (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
-        <button class="pro-btn" id="proBtnUngroupNodes" title="Separar contornos del trazado compuesto seleccionado"><i class="fas fa-project-diagram"></i> Separar Nodos</button>
         <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos (Illustrator Style)"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
       </div>
 
@@ -340,11 +339,6 @@ function bindClickHandlers() {
     }
   });
 
-  bindBtn("proBtnUngroupNodes", () => {
-    if (typeof window.separateContours === "function") {
-      window.separateContours();
-    }
-  });
 
   // Vincular Modo de Edición Directa de Nodos (Illustrator Style)
   let inNodeEditMode = false;
@@ -517,4 +511,3 @@ const alignSelection = (type) => {
 window.addEventListener("DOMContentLoaded", () => {
   setTimeout(initProControls, 500);
 });
-
