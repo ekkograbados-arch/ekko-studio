@@ -395,414 +395,575 @@ paper.view.update();
  * Desagrupa el elemento seleccionado de forma jerárquica, limpia y progresiva (de más a menos),
  * separando caracteres de texto, contornos o grupos de forma ordenada.
  */
+
+/**
+ * Desagrupa el elemento seleccionado de forma jerárquica, limpia y progresiva (de más a menos),
+ * separando caracteres de texto, contornos o grupos de forma ordenada.
+ */
 export function ungroupSelectedItem() {
-const item = window.selectedItem;
-if (!item || item.data?.locked || item.data?.mockup) return;
-const isClipped = !!item.data?.clipGroup;
-const target = isClipped ? item.children.find(c => !c.clipMask) : item;
-if (!target) return;
-if (typeof window.saveHistory === 'function') {
-window.saveHistory();
-}
-const parent = item.parent || paper.project.activeLayer;
-const index = parent.children.indexOf(item);
-const newItems = [];
+    const item = window.selectedItem;
+    if (!item || item.data?.locked || item.data?.mockup) return;
+    const isClipped = !!item.data?.clipGroup;
+    const target = isClipped ? item.children.find(c => !c.clipMask) : item;
+    if (!target) return;
+    if (typeof window.saveHistory === 'function') {
+        window.saveHistory();
+    }
+    const parent = item.parent || paper.project.activeLayer;
+    const index = parent.children.indexOf(item);
+    const newItems = [];
 
-// 1. SI ES UN GRUPO: Desagrupamos de forma recursiva y profunda al instante (0% Onion Effect)
-if (target instanceof paper.Group) {
-const leaves = getLeafItemsRecursive(target);
-leaves.forEach(leaf => {
-leaf.remove();
-// Aplicar matriz de transformación global heredada para evitar saltos o desvíos visuales de posición
-if (leaf.data?.globalMatrix) {
-leaf.matrix = leaf.data.globalMatrix;
-delete leaf.data.globalMatrix;
-}
-// Si un elemento de texto nativo se desagrupa, lo dividimos en letras independientes PointText
-if (leaf instanceof paper.PointText && leaf.content.length > 1) {
-const letters = splitPointTextIntoLetters(leaf);
-letters.forEach(letter => {
-let newItem = isClipped ? window.clipItem(letter) : letter;
-parent.addChild(newItem);
-newItems.push(newItem);
-});
-} else {
-let newItem = isClipped ? window.clipItem(leaf) : leaf;
-parent.addChild(newItem);
-newItems.push(newItem);
-}
-});
-item.remove();
+    // 1. SI ES UN GRUPO: Desagrupamos de forma recursiva y profunda al instante (0% Onion Effect)
+    if (target instanceof paper.Group) {
+        const leaves = getLeafItemsRecursive(target);
+        leaves.forEach(leaf => {
+            leaf.remove();
+            // Aplicar matriz de transformación global heredada para evitar saltos o desvíos visuales de posición
+            if (leaf.data?.globalMatrix) {
+                leaf.matrix = leaf.data.globalMatrix;
+                delete leaf.data.globalMatrix;
+            }
+            // Si un elemento de texto nativo se desagrupa, lo dividimos en letras independientes PointText
+            if (leaf instanceof paper.PointText && leaf.content.length > 1) {
+                const letters = splitPointTextIntoLetters(leaf);
+                letters.forEach(letter => {
+                    let newItem = isClipped ? window.clipItem(letter) : letter;
+                    if (!isClipped) parent.addChild(newItem);
+                    newItems.push(newItem);
+                });
+            } else {
+                let newItem = isClipped ? window.clipItem(leaf) : leaf;
+                if (!isClipped) parent.addChild(newItem);
+                newItems.push(newItem);
+            }
+        });
+        item.remove();
+    }
+
+    // 2. SI ES UN TEXTO: Lo dividimos en letras independientes PointText
+    else if (target instanceof paper.PointText && target.content.length > 1) {
+        const targetMatrix = target.matrix ? target.matrix.clone() : null;
+        const letters = splitPointTextIntoLetters(target);
+        letters.forEach(letter => {
+            if (targetMatrix) {
+                letter.matrix = targetMatrix.chain(letter.matrix);
+            }
+            let clippedLetter = isClipped ? window.clipItem(letter) : letter;
+            if (!isClipped) parent.addChild(clippedLetter);
+            newItems.push(clippedLetter);
+        });
+        item.remove();
+    }
+
+    // 3. SI ES UN TRAZADO COMPUESTO (CompoundPath con letras o múltiples formas):
+    // Lo dividimos en sus letras/islas independientes de forma progresiva sin rellenarlas de negro.
+    else if (target instanceof paper.CompoundPath) {
+        const subPaths = [...target.children];
+        if (subPaths.length === 0) return;
+        const outers = [];
+        const holesMap = new Map();
+        subPaths.forEach(p => {
+            let container = null;
+            subPaths.forEach(other => {
+                if (other !== p) {
+                    const otherArea = Math.abs(other.area) || other.bounds.area;
+                    const pArea = Math.abs(p.area) || p.bounds.area;
+                    if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+                        if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
+                            container = other;
+                        }
+                    }
+                }
+            });
+            if (container) {
+                if (!holesMap.has(container)) holesMap.set(container, []);
+                holesMap.get(container).push(p);
+            } else {
+                outers.push(p);
+                if (!holesMap.has(p)) holesMap.set(p, []);
+            }
+        });
+        const originalFill = target.fillColor;
+        const targetMatrix = target.matrix ? target.matrix.clone() : null;
+
+        // Si tiene un único Outer (ej: la silueta de un bebé o una sola letra con hueco),
+        // al presionar desagrupar de nuevo, ejecutamos la separación de huecos y contornos de forma transparente.
+        if (outers.length === 1) {
+            separateContours();
+            return;
+        }
+
+        // Si tiene múltiples Outers (ej: las letras "SOFIA" en un trazado compuesto), las separamos como CompoundPaths individuales
+        outers.forEach(outerPath => {
+            const outerClone = outerPath.clone({ insert: false });
+            const associatedHoles = holesMap.get(outerPath) || [];
+            let letterItem;
+            if (associatedHoles.length > 0) {
+                // Conservamos la letra con su hueco perfectamente calado y transparente
+                const childrenList = [outerClone, ...associatedHoles.map(h => h.clone({ insert: false }))];
+                letterItem = new paper.CompoundPath({ children: childrenList, fillColor: originalFill });
+            } else {
+                // Letra sólida
+                outerClone.fillColor = originalFill;
+                letterItem = outerClone;
+            }
+
+            // Aplicar la matriz de transformación heredada para prevenir desplazamientos ANTES de aplicar clipping
+            if (targetMatrix) {
+                letterItem.matrix = targetMatrix.clone().chain(letterItem.matrix);
+            }
+
+            const resultingItem = isClipped ? window.clipItem(letterItem) : letterItem;
+            if (!isClipped) parent.addChild(resultingItem);
+            newItems.push(resultingItem);
+        });
+        item.remove();
+    }
+
+    // Reinsertar ordenadamente en la escena y aplicar selección múltiple
+    newItems.reverse().forEach(newItem => {
+        if (newItem.parent) {
+            newItem.parent.insertChild(index, newItem);
+        } else {
+            parent.insertChild(index, newItem);
+        }
+    });
+    window.deselectItem();
+
+    // Retardo controlado de 50ms para evitar carreras de renderizado en el menú flotante
+    setTimeout(() => {
+        if (newItems.length > 0) {
+            window.selectedItems = [...newItems];
+            window.selectedItem = newItems[newItems.length - 1];
+            newItems.forEach(it => { if (it) it.selected = true; });
+            if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+            if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }, 50);
 }
 
-// 2. SI ES UN TEXTO: Lo dividimos en letras independientes PointText
-else if (target instanceof paper.PointText && target.content.length > 1) {
-const targetMatrix = target.matrix ? target.matrix.clone() : null;
-const letters = splitPointTextIntoLetters(target);
-letters.forEach(letter => {
-if (targetMatrix) {
-letter.matrix = targetMatrix.chain(letter.matrix);
-}
-let clippedLetter = isClipped ? window.clipItem(letter) : letter;
-parent.addChild(clippedLetter);
-newItems.push(clippedLetter);
-});
-item.remove();
-}
-
-// 3. SI ES UN TRAZADO COMPUESTO (CompoundPath con letras o múltiples formas):
-// Lo dividimos en sus letras/islas independientes de forma progresiva sin rellenarlas de negro.
-else if (target instanceof paper.CompoundPath) {
-const subPaths = [...target.children];
-if (subPaths.length === 0) return;
-const outers = [];
-const holesMap = new Map();
-subPaths.forEach(p => {
-let container = null;
-subPaths.forEach(other => {
-if (other !== p) {
-const otherArea = Math.abs(other.area) || other.bounds.area;
-const pArea = Math.abs(p.area) || p.bounds.area;
-if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
-if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
-container = other;
-}
-}
-}
-});
-if (container) {
-if (!holesMap.has(container)) holesMap.set(container, []);
-holesMap.get(container).push(p);
-} else {
-outers.push(p);
-if (!holesMap.has(p)) holesMap.set(p, []);
-}
-});
-const originalFill = target.fillColor;
-const targetMatrix = target.matrix ? target.matrix.clone() : null;
-
-// Si tiene un único Outer (ej: la silueta de un bebé o una sola letra con hueco),
-// al presionar desagrupar de nuevo, ejecutamos la separación de huecos y contornos de forma transparente.
-if (outers.length === 1) {
-separateContours();
-return;
+/**
+ * Divide una palabra de un PointText nativo en letras independientes que siguen siendo editables por teclado
+ */
+function splitPointTextIntoLetters(pointText) {
+    const letters = [];
+    const text = pointText.content;
+    const startPoint = pointText.point;
+    // Calcular anchos aproximados de caracteres para posicionar las nuevas letras
+    let accumX = 0;
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i];
+        const singleLetterText = new paper.PointText({
+            point: startPoint.add(new paper.Point(accumX, 0)),
+            content: char,
+            fillColor: pointText.fillColor,
+            fontFamily: pointText.fontFamily,
+            fontSize: pointText.fontSize,
+            fontWeight: pointText.fontWeight
+        });
+        accumX += singleLetterText.bounds.width + 2; // Margen entre letras
+        letters.push(singleLetterText);
+    }
+    return letters;
 }
 
-// Si tiene múltiples Outers (ej: las letras "SOFIA" en un trazado compuesto), las separamos como CompoundPaths individuales
-outers.forEach(outerPath => {
-const outerClone = outerPath.clone({ insert: false });
-const associatedHoles = holesMap.get(outerPath) || [];
-let letterItem;
-if (associatedHoles.length > 0) {
-// Conservamos la letra con su hueco perfectamente calado y transparente
-const childrenList = [outerClone, ...associatedHoles.map(h => h.clone({ insert: false }))];
-letterItem = new paper.CompoundPath({ children: childrenList, fillColor: originalFill });
-} else {
-// Letra sólida
-outerClone.fillColor = originalFill;
-letterItem = outerClone;
-}
+/**
+ * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opción B).
+ * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
+ */
+export function separateContours() {
+    const item = window.selectedItem;
+    if (!item || item.data?.locked || item.data?.mockup) return;
+    const isClipped = !!item.data?.clipGroup;
+    const target = isClipped ? item.children.find(c => !c.clipMask) : item;
+    if (!target || !(target instanceof paper.CompoundPath)) return;
+    if (typeof window.saveHistory === 'function') {
+        window.saveHistory();
+    }
+    const parent = item.parent || paper.project.activeLayer;
+    const index = parent.children.indexOf(item);
+    const newItems = [];
+    const subPaths = [...target.children];
+    const outers = [];
+    const holesMap = new Map();
+    subPaths.forEach(p => {
+        let container = null;
+        subPaths.forEach(other => {
+            if (other !== p) {
+                const otherArea = Math.abs(other.area) || other.bounds.area;
+                const pArea = Math.abs(p.area) || p.bounds.area;
+                if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+                    if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
+                        container = other;
+                    }
+                }
+            }
+        });
+        if (container) {
+            if (!holesMap.has(container)) holesMap.set(container, []);
+            holesMap.get(container).push(p);
+        } else {
+            outers.push(p);
+            if (!holesMap.has(p)) holesMap.set(p, []);
+        }
+    });
+    const originalFillColor = target.fillColor;
+    const targetMatrix = target.matrix ? target.matrix.clone() : null;
 
-// Aplicar la matriz de transformación heredada para prevenir desplazamientos ANTES de aplicar clipping
-if (targetMatrix) {
-letterItem.matrix = targetMatrix.clone().chain(letterItem.matrix);
-}
+    outers.forEach(outerPath => {
+        // 1. Creamos el elemento contenedor exterior sólido principal
+        const outerClone = outerPath.clone({ insert: false });
+        outerClone.fillColor = originalFillColor;
 
-const resultingItem = isClipped ? window.clipItem(letterItem) : letterItem;
-parent.addChild(resultingItem);
-newItems.push(resultingItem);
-});
-item.remove();
-}
+        // Preservamos la matriz del objeto padre ANTES de aplicar el enmascarado (clipping)
+        if (targetMatrix) {
+            outerClone.matrix = targetMatrix.clone().chain(outerClone.matrix);
+        }
 
-// Reinsertar ordenadamente en la escena y aplicar selección múltiple
-newItems.reverse().forEach(newItem => {
-parent.insertChild(index, newItem);
-});
-window.deselectItem();
+        let newOuterItem = isClipped ? window.clipItem(outerClone) : outerClone;
+        if (!isClipped) parent.addChild(newOuterItem);
 
-setTimeout(() => {
-if (newItems.length > 0) {
-window.selectedItems = [...newItems];
-window.selectedItem = newItems[newItems.length - 1];
-newItems.forEach(it => { if (it) it.selected = true; });
-if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-}
-paper.view.update();
-}, 50);
+        newOuterItem.data = {
+            ...(newOuterItem.data || {}),
+            isOuterWithHoles: true,
+            originalPath: outerPath.clone({ insert: false }), // Guardar trazado original en coordenadas locales
+            holeIds: [],
+            label: item.data?.label || "Objeto"
+        };
+        newItems.push(newOuterItem);
+
+        // 2. Creamos cada hueco como un objeto independiente interactivo y 100% transparente en reposo
+        const associatedHoles = holesMap.get(outerPath) || [];
+        associatedHoles.forEach(holePath => {
+            const holeClone = holePath.clone({ insert: false });
+            // Estilo Invisible en Reposo pero interactivo al 1% de opacidad de relleno
+            holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
+            holeClone.strokeColor = new paper.Color(0,0,0,0); // Sin línea visible de bordes de colores molestos
+
+            // Preservamos la matriz del objeto padre para el hueco también ANTES de aplicar el enmascarado
+            if (targetMatrix) {
+                holeClone.matrix = targetMatrix.clone().chain(holeClone.matrix);
+            }
+
+            let newHoleItem = isClipped ? window.clipItem(holeClone) : holeClone;
+            if (!isClipped) parent.addChild(newHoleItem);
+
+            newHoleItem.data = {
+                ...(newHoleItem.data || {}),
+                isHoleController: true,
+                outerItemId: newOuterItem.id,
+                lastHash: "",
+                label: "Hueco"
+            };
+            newOuterItem.data.holeIds.push(newHoleItem.id);
+            newItems.push(newHoleItem);
+        });
+
+        // Registrar en el listado reactivo
+        window.ekkoOuters.set(newOuterItem.id, newOuterItem);
+        updateOuterPathGeometry(newOuterItem);
+    });
+    item.remove();
+
+    newItems.reverse().forEach(newItem => {
+        if (newItem.parent) {
+            newItem.parent.insertChild(index, newItem);
+        } else {
+            parent.insertChild(index, newItem);
+        }
+    });
+    window.deselectItem();
+
+    setTimeout(() => {
+        if (newItems.length > 0) {
+            window.selectedItems = [...newItems];
+            window.selectedItem = newItems[newItems.length - 1];
+            newItems.forEach(it => { if (it) it.selected = true; });
+            if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+            if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+    }, 50);
 }
 
 /**
  * Realiza la resta booleana de forma ultra precisa alineando los espacios de coordenadas globales y locales (Optimizacion 0% CPU)
  */
 export function updateOuterPathGeometry(outerItem) {
-if (!outerItem || !outerItem.data?.originalPath) return;
-const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
-if (!targetOuter) return;
+    if (!outerItem || !outerItem.data?.originalPath) return;
+    const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
+    if (!targetOuter) return;
 
-// 1. Obtener la geometría exterior sólida limpia en coordenadas globales con transformaciones horneadas físicamente
-const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
-if (targetOuter.matrix) {
-solidGlobal.transform(targetOuter.matrix);
-}
+    // 1. Obtener la geometría exterior sólida limpia en coordenadas globales con transformaciones horneadas físicamente
+    const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
+    if (targetOuter.matrix) {
+        solidGlobal.transform(targetOuter.matrix);
+    }
 
-const holeIds = outerItem.data.holeIds || [];
-let combined = solidGlobal;
+    const holeIds = outerItem.data.holeIds || [];
+    let combined = solidGlobal;
 
-// 2. Restar cada hueco interactivo en coordenadas globales alineadas horneadas
-holeIds.forEach(id => {
-const hole = paper.project.getItem({ id });
-if (hole && hole.parent) {
-const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
-if (targetHole) {
-const holeGlobal = targetHole.clone({ insert: false });
-if (holeGlobal.matrix && !holeGlobal.matrix.isIdentity()) {
-const mat = holeGlobal.matrix.clone();
-holeGlobal.matrix = new paper.Matrix();
-holeGlobal.transform(mat);
-}
+    // 2. Restar cada hueco interactivo en coordenadas globales alineadas horneadas
+    holeIds.forEach(id => {
+        const hole = paper.project.getItem({ id });
+        if (hole && hole.parent) {
+            const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
+            if (targetHole) {
+                const holeGlobal = targetHole.clone({ insert: false });
+                if (holeGlobal.matrix && !holeGlobal.matrix.isIdentity()) {
+                    const mat = holeGlobal.matrix.clone();
+                    holeGlobal.matrix = new paper.Matrix();
+                    holeGlobal.transform(mat);
+                }
 
-const temp = combined.subtract(holeGlobal);
-combined.remove();
-holeGlobal.remove();
-combined = temp;
-}
-}
-});
+                const temp = combined.subtract(holeGlobal);
+                combined.remove();
+                holeGlobal.remove();
+                combined = temp;
+            }
+        }
+    });
 
-// 3. Transformar el resultado de vuelta al espacio de coordenadas local de targetOuter para conservar la editabilidad
-const localCombined = combined.clone({ insert: false });
-if (targetOuter.matrix && !targetOuter.matrix.isIdentity()) {
-try {
-localCombined.transform(targetOuter.matrix.inverted());
-} catch (err) {
-console.warn("Fallo no crítico al invertir la matriz en updateOuterPathGeometry:", err);
-}
-}
+    // 3. Transformar el resultado de vuelta al espacio de coordenadas local de targetOuter para conservar la editabilidad
+    const localCombined = combined.clone({ insert: false });
+    if (targetOuter.matrix && !targetOuter.matrix.isIdentity()) {
+        try {
+            localCombined.transform(targetOuter.matrix.inverted());
+        } catch (err) {
+            console.warn("Fallo no crítico al invertir la matriz en updateOuterPathGeometry:", err);
+        }
+    }
 
-// 4. Reemplazar de forma atómica y limpia el trazado en el lienzo
-const parent = targetOuter.parent;
-if (parent && localCombined) {
-const idx = parent.children.indexOf(targetOuter);
-if (idx !== -1) {
-const newPath = localCombined.clone({ insert: false });
-newPath.fillColor = targetOuter.fillColor;
-newPath.strokeColor = targetOuter.strokeColor;
-newPath.strokeWidth = targetOuter.strokeWidth;
-newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz
-newPath.data = { ...(targetOuter.data || {}) };
+    // 4. Reemplazar de forma atómica y limpia el trazado en el lienzo
+    const parent = targetOuter.parent;
+    if (parent && localCombined) {
+        const idx = parent.children.indexOf(targetOuter);
+        if (idx !== -1) {
+            const newPath = localCombined.clone({ insert: false });
+            newPath.fillColor = targetOuter.fillColor;
+            newPath.strokeColor = targetOuter.strokeColor;
+            newPath.strokeWidth = targetOuter.strokeWidth;
+            newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz
+            newPath.data = { ...(targetOuter.data || {}) };
 
-parent.insertChild(idx, newPath);
+            parent.insertChild(idx, newPath);
 
-if (targetOuter === outerItem) {
-if (window.selectedItem === outerItem) {
-window.selectedItem = newPath;
-}
-if (window.selectedItems) {
-const sIdx = window.selectedItems.indexOf(outerItem);
-if (sIdx !== -1) window.selectedItems[sIdx] = newPath;
-}
+            if (targetOuter === outerItem) {
+                if (window.selectedItem === outerItem) {
+                    window.selectedItem = newPath;
+                }
+                if (window.selectedItems) {
+                    const sIdx = window.selectedItems.indexOf(outerItem);
+                    if (sIdx !== -1) window.selectedItems[sIdx] = newPath;
+                }
 
-// Sincronizar listados de referencia
-window.ekkoOuters.delete(outerItem.id);
-window.ekkoOuters.set(newPath.id, newPath);
-holeIds.forEach(id => {
-const hole = paper.project.getItem({ id });
-if (hole && hole.data) hole.data.outerItemId = newPath.id;
-});
-}
-targetOuter.remove();
-}
-}
+                // Sincronizar listados de referencia
+                window.ekkoOuters.delete(outerItem.id);
+                window.ekkoOuters.set(newPath.id, newPath);
+                holeIds.forEach(id => {
+                    const hole = paper.project.getItem({ id });
+                    if (hole && hole.data) hole.data.outerItemId = newPath.id;
+                });
+            }
+            targetOuter.remove();
+        }
+    }
 
-if (combined) combined.remove();
-if (localCombined) localCombined.remove();
-paper.view.update();
+    if (combined) combined.remove();
+    if (localCombined) localCombined.remove();
+    paper.view.update();
 }
 
 // 🚀 RECEPTOR DE MARCO DE PAPER.JS PARA EVENTO TICK (Reactivo al arrastre, 0% CPU en reposo)
 if (typeof window.paper !== 'undefined' && paper.view) {
-paper.view.on('frame', () => {
-if (!paper.project || !paper.project.activeLayer) return;
-window.ekkoOuters.forEach(outerItem => {
-let needsUpdate = false;
-const validHoleIds = [];
-const holeIds = outerItem.data?.holeIds || [];
-holeIds.forEach(id => {
-const hole = paper.project.getItem({ id });
-if (hole && hole.parent) {
-validHoleIds.push(id);
-const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
-if (hole.data.lastHash !== currentHash) {
-hole.data.lastHash = currentHash;
-needsUpdate = true;
-}
-} else {
-needsUpdate = true; // El hueco fue eliminado, requiere rellenar la silueta
-}
-});
-if (needsUpdate) {
-outerItem.data.holeIds = validHoleIds;
-updateOuterPathGeometry(outerItem);
-}
-});
-});
+    paper.view.on('frame', () => {
+        if (!paper.project || !paper.project.activeLayer) return;
+        window.ekkoOuters.forEach(outerItem => {
+            let needsUpdate = false;
+            const validHoleIds = [];
+            const holeIds = outerItem.data?.holeIds || [];
+            holeIds.forEach(id => {
+                const hole = paper.project.getItem({ id });
+                if (hole && hole.parent) {
+                    validHoleIds.push(id);
+                    const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
+                    if (hole.data.lastHash !== currentHash) {
+                        hole.data.lastHash = currentHash;
+                        needsUpdate = true;
+                    }
+                } else {
+                    needsUpdate = true; // El hueco fue eliminado, requiere rellenar la silueta
+                }
+            });
+            if (needsUpdate) {
+                outerItem.data.holeIds = validHoleIds;
+                updateOuterPathGeometry(outerItem);
+            }
+        });
+    });
 }
 
 // --- RENDEREADOR DE CAJA DE SELECCIÓN MULTIPLE CON CONTORNOS CELESTES INDEPENDIENTES (ESTILO FIGMA/CANVA/ILLUSTRATOR) ---
 if (typeof window !== 'undefined') {
-try {
-delete window.updateSelectionBox;
-} catch (e) {}
+    const customUpdateSelectionBox = function(item) {
+        if (window.selectionBoxGroup) {
+            window.selectionBoxGroup.remove();
+            window.selectionBoxGroup = null;
+        }
+        if (window.nodeEditMode) return;
+        
+        const primaryItem = item || window.selectedItem;
+        if (!primaryItem) return;
+        
+        let isMockup = false;
+        let curr = primaryItem;
+        while (curr) {
+            if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+                isMockup = true;
+                break;
+            }
+            if (curr === window.currentMockup) {
+                isMockup = true;
+                break;
+            }
+            curr = curr.parent;
+        }
+        if (isMockup) return;
+        
+        const selected = (window.selectedItems && window.selectedItems.length > 0)
+            ? window.selectedItems
+            : [primaryItem];
+            
+        let bounds = null;
+        selected.forEach(function(it) {
+            const displayItem = (it.data && it.data.clipGroup)
+                ? it.children.find(function(c) { return !c.clipMask; })
+                : it;
+            if (!displayItem) return;
+            if (!bounds) {
+                bounds = displayItem.bounds.clone();
+            } else {
+                bounds = bounds.unite(displayItem.bounds);
+            }
+        });
+        
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+        
+        window.selectionBoxGroup = new paper.Group();
+        window.selectionBoxGroup.data = { isSelectionBox: true };
+        
+        // 1. Dibujar contornos celestes discontinuos independientes alrededor de cada pieza individual (Para ver los 4 cuadrados de los 4 elementos)
+        if (selected.length > 1) {
+            selected.forEach(function(it) {
+                const displayItem = (it.data && it.data.clipGroup)
+                    ? it.children.find(function(c) { return !c.clipMask; })
+                    : it;
+                if (displayItem && displayItem.bounds) {
+                    const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
+                    singleBorder.strokeColor = '#007bff';
+                    singleBorder.strokeWidth = 1 / paper.view.zoom;
+                    singleBorder.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
+                    window.selectionBoxGroup.addChild(singleBorder);
+                }
+            });
+        }
+        
+        // 2. Dibujar la caja de selección global de color azul celeste alrededor de todo el conjunto
+        const isRotSnapped = window.isRotationSnapped && window.rotationActive;
+        const mainColor = isRotSnapped ? '#28a745' : '#007bff';
+        const border = new paper.Path.Rectangle(bounds);
+        border.strokeColor = mainColor;
+        border.strokeWidth = 1.5 / paper.view.zoom;
+        border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
+        window.selectionBoxGroup.addChild(border);
+        
+        const handleSize = 8 / paper.view.zoom;
+        const handlesInfo = [
+            { point: bounds.topLeft, type: 'tl' },
+            { point: bounds.topCenter, type: 't' },
+            { point: bounds.topRight, type: 'tr' },
+            { point: bounds.rightCenter, type: 'r' },
+            { point: bounds.bottomRight, type: 'br' },
+            { point: bounds.bottomCenter, type: 'b' },
+            { point: bounds.bottomLeft, type: 'bl' },
+            { point: bounds.leftCenter, type: 'l' }
+        ];
+        
+        handlesInfo.forEach(function(info) {
+            const rect = new paper.Path.Rectangle({
+                center: info.point,
+                size: [handleSize, handleSize],
+                strokeColor: mainColor,
+                fillColor: '#ffffff',
+                strokeWidth: 1.5 / paper.view.zoom
+            });
+            rect.data = { isHandle: true, handleType: info.type };
+            window.selectionBoxGroup.addChild(rect);
+        });
+        
+        const rotHandleDistance = 25 / paper.view.zoom;
+        const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
+        
+        const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
+        connector.strokeColor = mainColor;
+        connector.strokeWidth = 1.2 / paper.view.zoom;
+        window.selectionBoxGroup.addChild(connector);
+        
+        const rotHandleCircle = new paper.Path.Circle({
+            center: rotHandleCenter,
+            radius: 7.5 / paper.view.zoom,
+            strokeColor: mainColor,
+            fillColor: '#ffffff',
+            strokeWidth: 1.5 / paper.view.zoom
+        });
+        rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
+        window.selectionBoxGroup.addChild(rotHandleCircle);
+        
+        const iconRadius = 3.5 / paper.view.zoom;
+        const arrowIcon = new paper.Path.Arc(
+            rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
+            rotHandleCenter.add(new paper.Point(0, -iconRadius)),
+            rotHandleCenter.add(new paper.Point(iconRadius, 0))
+        );
+        arrowIcon.strokeColor = mainColor;
+        arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
+        window.selectionBoxGroup.addChild(arrowIcon);
+        
+        const arrowTip = new paper.Path();
+        arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+        arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
+        arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+        arrowTip.strokeColor = mainColor;
+        arrowTip.strokeWidth = 1.2 / paper.view.zoom;
+        window.selectionBoxGroup.addChild(arrowTip);
+        
+        window.selectionBoxGroup.bringToFront();
+        
+        if (typeof window.applyPositionCorrections === "function") {
+            window.applyPositionCorrections();
+        }
+        
+        if (typeof window.bindRotationInputEvents === "function") {
+            window.bindRotationInputEvents();
+        }
+        if (typeof window.syncContextualRotationInput === "function") {
+            window.syncContextualRotationInput(primaryItem);
+        }
+    };
 
-window.updateSelectionBox = function(item) {
-if (window.selectionBoxGroup) {
-window.selectionBoxGroup.remove();
-window.selectionBoxGroup = null;
+    // Sobreescribir el State Guard de selection.js de manera blindada
+    try {
+        Object.defineProperty(window, 'updateSelectionBox', {
+            get: function() { return customUpdateSelectionBox; },
+            set: function() {},
+            configurable: true,
+            enumerable: true
+        });
+    } catch(e) {
+        window.updateSelectionBox = customUpdateSelectionBox;
+    }
 }
-if (window.nodeEditMode) return;
-
-const primaryItem = item || window.selectedItem;
-if (!primaryItem) return;
-
-// Inmunidad total para mockup, sus descendientes y máscaras
-let isMockup = false;
-let curr = primaryItem;
-while (curr) {
-if (curr.data && (curr.data.mockup || curr.data.isMask)) {
-isMockup = true;
-break;
-}
-if (curr === window.currentMockup) {
-isMockup = true;
-break;
-}
-curr = curr.parent;
-}
-if (isMockup) return;
-
-const selected = (window.selectedItems && window.selectedItems.length > 0)
-? window.selectedItems
-: [primaryItem];
-let bounds = null;
-selected.forEach(function(it) {
-const displayItem = (it.data && it.data.clipGroup)
-? it.children.find(function(c) { return !c.clipMask; })
-: it;
-if (!displayItem) return;
-if (!bounds) {
-bounds = displayItem.bounds.clone();
-} else {
-bounds = bounds.unite(displayItem.bounds);
-}
-});
-if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
-
-window.selectionBoxGroup = new paper.Group();
-window.selectionBoxGroup.data = { isSelectionBox: true };
-
-// Cambiar dinámicamente el color del recuadro si hay imantación (Snap a 45°)
-const isRotSnapped = window.isRotationSnapped && window.rotationActive;
-const mainColor = isRotSnapped ? '#28a745' : '#007bfff0'; // Celeste/Azul vibrante
-
-// 1. DIBUJAR CONTORNOS CELESTES INDEPENDIENTES PARA MULTI-SELECCIÓN
-if (selected.length > 1) {
-selected.forEach(it => {
-const targetObj = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
-if (targetObj) {
-const rect = new paper.Path.Rectangle(targetObj.bounds);
-rect.strokeColor = mainColor;
-rect.strokeWidth = 1 / paper.view.zoom;
-rect.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
-window.selectionBoxGroup.addChild(rect);
-}
-});
-}
-
-// 2. DIBUJAR EL BORDE GLOBAL DE SELECCIÓN UNIFICADO
-const border = new paper.Path.Rectangle(bounds);
-border.strokeColor = mainColor;
-border.strokeWidth = 1.5 / paper.view.zoom;
-border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
-window.selectionBoxGroup.addChild(border);
-
-// 3. AGREGAR MANEJADORES DE ESCALA (CUADRADOS BLANCOS CON CONTORNO AZUL DE 8PX)
-const handleSize = 8 / paper.view.zoom;
-const handlesInfo = [
-{ point: bounds.topLeft, type: 'tl' },
-{ point: bounds.topCenter, type: 't' },
-{ point: bounds.topRight, type: 'tr' },
-{ point: bounds.rightCenter, type: 'r' },
-{ point: bounds.bottomRight, type: 'br' },
-{ point: bounds.bottomCenter, type: 'b' },
-{ point: bounds.bottomLeft, type: 'bl' },
-{ point: bounds.leftCenter, type: 'l' }
-];
-
-handlesInfo.forEach(function(info) {
-const rect = new paper.Path.Rectangle({
-center: info.point,
-size: [handleSize, handleSize],
-strokeColor: mainColor,
-fillColor: '#ffffff',
-strokeWidth: 1.5 / paper.view.zoom
-});
-rect.data = { isHandle: true, handleType: info.type };
-window.selectionBoxGroup.addChild(rect);
-});
-
-// 4. AGREGAR MANEJADOR DE ROTACIÓN INTERACTIVO CON ICONO DE GIRO
-const rotHandleDistance = 25 / paper.view.zoom;
-const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
-
-const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
-connector.strokeColor = mainColor;
-connector.strokeWidth = 1.2 / paper.view.zoom;
-window.selectionBoxGroup.addChild(connector);
-
-const rotHandleCircle = new paper.Path.Circle({
-center: rotHandleCenter,
-radius: 7.5 / paper.view.zoom,
-strokeColor: mainColor,
-fillColor: '#ffffff',
-strokeWidth: 1.5 / paper.view.zoom
-});
-rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
-window.selectionBoxGroup.addChild(rotHandleCircle);
-
-const iconRadius = 3.5 / paper.view.zoom;
-const arrowIcon = new paper.Path.Arc(
-rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
-rotHandleCenter.add(new paper.Point(0, -iconRadius)),
-rotHandleCenter.add(new paper.Point(iconRadius, 0))
-);
-arrowIcon.strokeColor = mainColor;
-arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
-window.selectionBoxGroup.addChild(arrowIcon);
-
-const arrowTip = new paper.Path();
-arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
-arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
-arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
-arrowTip.strokeColor = mainColor;
-arrowTip.strokeWidth = 1.2 / paper.view.zoom;
-window.selectionBoxGroup.addChild(arrowTip);
-
-window.selectionBoxGroup.bringToFront();
-
-if (typeof window.applyPositionCorrections === "function") {
-window.applyPositionCorrections();
-}
-if (typeof window.bindRotationInputEvents === "function") {
-window.bindRotationInputEvents();
-}
-if (typeof window.syncContextualRotationInput === "function") {
-window.syncContextualRotationInput(primaryItem);
-}
-};
-}
-
 export function initContextualMenu() {
 const toolbar = document.getElementById('contextual-toolbar');
 if (!toolbar) return;
