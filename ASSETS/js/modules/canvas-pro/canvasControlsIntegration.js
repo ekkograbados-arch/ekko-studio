@@ -5,6 +5,7 @@ Descripción: Integrador de Interfaz Profesional (Versión v3 - Multi-Selección
 Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
 e integra comandos de alineación (Canva-style) y distribución espacial para objetos
 seleccionados corregidos para soportar grupos de máscara (clipGroup).
+INCLUYE GRUPO DE ORGANIZACIÓN (AGRUPAR / DESAGRUPAR) EN LA BARRA SUPERIOR FIJA.
 ========================================================================= */
 
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
@@ -12,7 +13,6 @@ import { setMeasurementsVisibility } from "./canvasMeasurements.js";
 
 // Estilos CSS modernos (estilo Canva y Figma) para la barra de alineaciones y zoom
 const proToolbarStylesId = "ekko-pro-toolbar-styles";
-
 if (!document.getElementById(proToolbarStylesId)) {
   const styleEl = document.createElement("style");
   styleEl.id = proToolbarStylesId;
@@ -121,17 +121,26 @@ export function initProControls() {
         <button class="pro-btn" id="proBtnAlignCenterV" title="Alinear al centro vertical"><i class="fas fa-align-justify"></i> C-V</button>
         <button class="pro-btn" id="proBtnAlignBottom" title="Alinear abajo"><i class="fas fa-square" style="height: 10px; width: 10px; display: inline-block;"></i> Bottom</button>
       </div>
+
       <div class="pro-group">
         <span class="pro-label">Centrado Mockup</span>
         <button class="pro-btn" id="proBtnCenterH" title="Centrar horizontalmente en producto"><i class="fas fa-arrows-alt-h"></i> H-Center</button>
         <button class="pro-btn" id="proBtnCenterV" title="Centrar verticalmente en producto"><i class="fas fa-arrows-alt-v"></i> V-Center</button>
         <button class="pro-btn" id="proBtnCenterBoth" title="Centrar en ambos ejes"><i class="fas fa-compress-arrows-alt"></i> Centrar Total</button>
       </div>
+
       <div class="pro-group">
         <span class="pro-label">Distribución</span>
         <button class="pro-btn" id="proBtnDistributeH" title="Distribuir espacio horizontal (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-h"></i> Distribuir H</button>
         <button class="pro-btn" id="proBtnDistributeV" title="Distribuir espacio vertical (Mín. 3 seleccionados)"><i class="fas fa-ellipsis-v"></i> Distribuir V</button>
       </div>
+
+      <div class="pro-group" id="proGroupOrganize">
+        <span class="pro-label">Organizar</span>
+        <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
+        <button class="pro-btn" id="proBtnUngroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+      </div>
+
       <div class="pro-group">
         <span class="pro-label">Opciones de Vista</span>
         <button class="pro-btn active" id="proBtnToggleRulers" title="Activar/Desactivar reglas físicas"><i class="fas fa-ruler"></i> Reglas</button>
@@ -183,7 +192,7 @@ function getSelectionBounds(items) {
   return rect;
 }
 
-// Vincula las acciones de alineación, distribución y vista a los botones
+// Vincula las acciones de alineación, distribución, vista y organización a los botones
 function bindClickHandlers() {
   // Vincular botones de visibilidad
   const setupToggle = (btnId, toggleFn) => {
@@ -201,6 +210,7 @@ function bindClickHandlers() {
       };
     }
   };
+
   setupToggle("proBtnToggleRulers", (state) => setRulersVisibility(state));
   setupToggle("proBtnToggleGuides", (state) => setGuidesVisibility(state));
   setupToggle("proBtnToggleMeasurements", (state) => setMeasurementsVisibility(state));
@@ -265,137 +275,12 @@ function bindClickHandlers() {
   bindBtn("proBtnCenterV", () => centerSelection("v"));
   bindBtn("proBtnCenterBoth", () => centerSelection("both"));
 
-  // Dibuja guías de distribución en Paper.js con la separación en milímetros reales (Estilo Canva)
-  const drawDistributionGuides = (selected, axis, spacing) => {
-    if (!window.paper || !spacing || spacing <= 0) return;
-    if (window.distributionGuidesGroup) {
-      window.distributionGuidesGroup.remove();
-    }
-    window.distributionGuidesGroup = new paper.Group();
-    window.distributionGuidesGroup.data = { isGuide: true };
-    const zoom = paper.view.zoom;
-    const strokeW = 1.2 / zoom;
-    const fontSize = 11 / zoom;
-    
-    // CORRECCIÓN CLAVE: Convertir la separación (Paper units) a mm reales del producto
-    const spacingInMm = spacing * (window.mmPerPaperUnit || 1.0);
-    const labelSpacing = spacingInMm.toFixed(1);
-    
-    const getActualBounds = (it) => {
-      const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
-      return displayItem ? displayItem.bounds : it.bounds;
-    };
-
-    for (let i = 0; i < selected.length - 1; i++) {
-      const boundsA = getActualBounds(selected[i]);
-      const boundsB = getActualBounds(selected[i+1]);
-      if (!boundsA || !boundsB) continue;
-      let startPt, endPt, textPt;
-      if (axis === "h") {
-        const yCenter = (boundsA.center.y + boundsB.center.y) / 2;
-        startPt = new paper.Point(boundsA.right, yCenter);
-        endPt = new paper.Point(boundsB.left, yCenter);
-        textPt = new paper.Point((boundsA.right + boundsB.left) / 2, yCenter);
-
-        // Línea de cota discontinua fucsia estilo Canva
-        const mainLine = new paper.Path.Line(startPt, endPt);
-        mainLine.strokeColor = '#e0245e';
-        mainLine.strokeWidth = strokeW;
-        mainLine.dashArray = [3 / zoom, 3 / zoom];
-        window.distributionGuidesGroup.addChild(mainLine);
-
-        // Topes verticales
-        const tickSize = 6 / zoom;
-        const tickA = new paper.Path.Line(
-          new paper.Point(boundsA.right, yCenter - tickSize),
-          new paper.Point(boundsA.right, yCenter + tickSize)
-        );
-        tickA.strokeColor = '#e0245e';
-        tickA.strokeWidth = strokeW * 1.5;
-        window.distributionGuidesGroup.addChild(tickA);
-
-        const tickB = new paper.Path.Line(
-          new paper.Point(boundsB.left, yCenter - tickSize),
-          new paper.Point(boundsB.left, yCenter + tickSize)
-        );
-        tickB.strokeColor = '#e0245e';
-        tickB.strokeWidth = strokeW * 1.5;
-        window.distributionGuidesGroup.addChild(tickB);
-
-      } else {
-        const xCenter = (boundsA.center.x + boundsB.center.x) / 2;
-        startPt = new paper.Point(xCenter, boundsA.bottom);
-        endPt = new paper.Point(xCenter, boundsB.top);
-        textPt = new paper.Point(xCenter, (boundsA.bottom + boundsB.top) / 2);
-
-        const mainLine = new paper.Path.Line(startPt, endPt);
-        mainLine.strokeColor = '#e0245e';
-        mainLine.strokeWidth = strokeW;
-        mainLine.dashArray = [3 / zoom, 3 / zoom];
-        window.distributionGuidesGroup.addChild(mainLine);
-
-        // Topes horizontales
-        const tickSize = 6 / zoom;
-        const tickA = new paper.Path.Line(
-          new paper.Point(xCenter - tickSize, boundsA.bottom),
-          new paper.Point(xCenter + tickSize, boundsA.bottom)
-        );
-        tickA.strokeColor = '#e0245e';
-        tickA.strokeWidth = strokeW * 1.5;
-        window.distributionGuidesGroup.addChild(tickA);
-
-        const tickB = new paper.Path.Line(
-          new paper.Point(xCenter - tickSize, boundsB.top),
-          new paper.Point(xCenter + tickSize, boundsB.top)
-        );
-        tickB.strokeColor = '#e0245e';
-        tickB.strokeWidth = strokeW * 1.5;
-        window.distributionGuidesGroup.addChild(tickB);
-      }
-
-      // Etiqueta de texto de distancia con píldora blanca estilo Canva en mm reales
-      const textLabel = new paper.PointText(textPt.add(new paper.Point(0, 4 / zoom)));
-      textLabel.content = labelSpacing + " mm";
-      textLabel.fontFamily = 'Arial, sans-serif';
-      textLabel.fontSize = fontSize;
-      textLabel.fontWeight = 'bold';
-      textLabel.fillColor = '#e0245e';
-      textLabel.justification = 'center';
-
-      const textRect = new paper.Path.Rectangle({
-        center: textPt,
-        size: [textLabel.bounds.width + (8 / zoom), textLabel.bounds.height + (3 / zoom)],
-        fillColor: '#ffffff',
-        strokeColor: '#e0245e',
-        strokeWidth: 1 / zoom,
-        radius: 4 / zoom
-      });
-      window.distributionGuidesGroup.addChild(textRect);
-      window.distributionGuidesGroup.addChild(textLabel);
-    }
-
-    window.distributionGuidesGroup.bringToFront();
-    paper.view.update();
-
-    // Autodesvanecer después de 2.5 segundos
-    setTimeout(() => {
-      if (window.distributionGuidesGroup) {
-        window.distributionGuidesGroup.remove();
-        window.distributionGuidesGroup = null;
-        paper.view.update();
-      }
-    }, 2500);
-  };
-
   // Distribución de espacio inteligente ( mm / Paper.js ) de OBJETOS SELECCIONADOS
   const distributeSpacing = (axis) => {
     if (!window.paper) return;
-
-    // Obtener solo los elementos que el usuario tiene seleccionados actualmente
     const selected = (window.selectedItems && window.selectedItems.length > 0)
       ? [...window.selectedItems]
       : (window.selectedItem ? [window.selectedItem] : []);
-
     let spacing = 0;
     if (selected.length < 3) {
       alert("Selecciona al menos 3 elementos para poder distribuirlos.");
@@ -403,14 +288,12 @@ function bindClickHandlers() {
     }
     if (typeof window.saveHistory === "function") window.saveHistory();
 
-    // Helper para obtener límites reales del contenido visual (evitando clipping)
     const getActualBounds = (it) => {
       const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
       return displayItem ? displayItem.bounds : it.bounds;
     };
 
     if (axis === "h") {
-      // Distribuir horizontalmente
       selected.sort((a, b) => getActualBounds(a).left - getActualBounds(b).left);
       const leftmost = selected[0];
       const rightmost = selected[selected.length - 1];
@@ -418,11 +301,8 @@ function bindClickHandlers() {
       const rightmostBounds = getActualBounds(rightmost);
       const totalSpan = rightmostBounds.right - leftmostBounds.left;
       const sumWidths = selected.reduce((sum, it) => sum + getActualBounds(it).width, 0);
-
-      // Espacio disponible a repartir entre los elementos intermedios
       const remainingSpace = totalSpan - sumWidths;
       spacing = remainingSpace / (selected.length - 1);
-
       let currentX = leftmostBounds.left;
       for (let i = 0; i < selected.length; i++) {
         const item = selected[i];
@@ -434,9 +314,7 @@ function bindClickHandlers() {
         displayItem.position.x += (currentX + halfWidth - displayItem.position.x);
         currentX += bounds.width + spacing;
       }
-
     } else {
-      // Distribuir verticalmente
       selected.sort((a, b) => getActualBounds(a).top - getActualBounds(b).top);
       const topmost = selected[0];
       const bottommost = selected[selected.length - 1];
@@ -444,11 +322,8 @@ function bindClickHandlers() {
       const bottommostBounds = getActualBounds(bottommost);
       const totalSpan = bottommostBounds.bottom - topmostBounds.top;
       const sumHeights = selected.reduce((sum, it) => sum + getActualBounds(it).height, 0);
-
-      // Espacio disponible a repartir
       const remainingSpace = totalSpan - sumHeights;
       spacing = remainingSpace / (selected.length - 1);
-
       let currentY = topmostBounds.top;
       for (let i = 0; i < selected.length; i++) {
         const item = selected[i];
@@ -462,10 +337,7 @@ function bindClickHandlers() {
       }
     }
 
-    // Llamar a los indicadores visuales estilo Canva
     drawDistributionGuides(selected, axis, spacing);
-
-    // Forzar actualización de caja de selección
     if (typeof window.updateSelectionBox === "function") {
       window.updateSelectionBox(window.selectedItem);
     }
@@ -474,7 +346,131 @@ function bindClickHandlers() {
 
   bindBtn("proBtnDistributeH", () => distributeSpacing("h"));
   bindBtn("proBtnDistributeV", () => distributeSpacing("v"));
+
+  // Vincular acciones de organización (Agrupar / Desagrupar)
+  bindBtn("proBtnGroup", () => {
+    if (typeof window.groupSelectedItems === "function") {
+      window.groupSelectedItems();
+    } else {
+      console.warn("La función window.groupSelectedItems no está disponible.");
+    }
+  });
+
+  bindBtn("proBtnUngroup", () => {
+    if (typeof window.ungroupSelectedItem === "function") {
+      window.ungroupSelectedItem();
+    } else {
+      console.warn("La función window.ungroupSelectedItem no está disponible.");
+    }
+  });
 }
+
+// Dibuja guías de distribución en Paper.js con la separación en milímetros reales (Estilo Canva)
+const drawDistributionGuides = (selected, axis, spacing) => {
+  if (!window.paper || !spacing || spacing <= 0) return;
+  if (window.distributionGuidesGroup) {
+    window.distributionGuidesGroup.remove();
+  }
+  window.distributionGuidesGroup = new paper.Group();
+  window.distributionGuidesGroup.data = { isGuide: true };
+  const zoom = paper.view.zoom;
+  const strokeW = 1.2 / zoom;
+  const fontSize = 11 / zoom;
+  const spacingInMm = spacing * (window.mmPerPaperUnit || 1.0);
+  const labelSpacing = spacingInMm.toFixed(1);
+
+  const getActualBounds = (it) => {
+    const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
+    return displayItem ? displayItem.bounds : it.bounds;
+  };
+
+  for (let i = 0; i < selected.length - 1; i++) {
+    const boundsA = getActualBounds(selected[i]);
+    const boundsB = getActualBounds(selected[i+1]);
+    if (!boundsA || !boundsB) continue;
+    let startPt, endPt, textPt;
+    if (axis === "h") {
+      const yCenter = (boundsA.center.y + boundsB.center.y) / 2;
+      startPt = new paper.Point(boundsA.right, yCenter);
+      endPt = new paper.Point(boundsB.left, yCenter);
+      textPt = new paper.Point((boundsA.right + boundsB.left) / 2, yCenter);
+      const mainLine = new paper.Path.Line(startPt, endPt);
+      mainLine.strokeColor = '#e0245e';
+      mainLine.strokeWidth = strokeW;
+      mainLine.dashArray = [3 / zoom, 3 / zoom];
+      window.distributionGuidesGroup.addChild(mainLine);
+      const tickSize = 6 / zoom;
+      const tickA = new paper.Path.Line(
+        new paper.Point(boundsA.right, yCenter - tickSize),
+        new paper.Point(boundsA.right, yCenter + tickSize)
+      );
+      tickA.strokeColor = '#e0245e';
+      tickA.strokeWidth = strokeW * 1.5;
+      window.distributionGuidesGroup.addChild(tickA);
+      const tickB = new paper.Path.Line(
+        new paper.Point(boundsB.left, yCenter - tickSize),
+        new paper.Point(boundsB.left, yCenter + tickSize)
+      );
+      tickB.strokeColor = '#e0245e';
+      tickB.strokeWidth = strokeW * 1.5;
+      window.distributionGuidesGroup.addChild(tickB);
+    } else {
+      const xCenter = (boundsA.center.x + boundsB.center.x) / 2;
+      startPt = new paper.Point(xCenter, boundsA.bottom);
+      endPt = new paper.Point(xCenter, boundsB.top);
+      textPt = new paper.Point(xCenter, (boundsA.bottom + boundsB.top) / 2);
+      const mainLine = new paper.Path.Line(startPt, endPt);
+      mainLine.strokeColor = '#e0245e';
+      mainLine.strokeWidth = strokeW;
+      mainLine.dashArray = [3 / zoom, 3 / zoom];
+      window.distributionGuidesGroup.addChild(mainLine);
+      const tickSize = 6 / zoom;
+      const tickA = new paper.Path.Line(
+        new paper.Point(xCenter - tickSize, boundsA.bottom),
+        new paper.Point(xCenter + tickSize, boundsA.bottom)
+      );
+      tickA.strokeColor = '#e0245e';
+      tickA.strokeWidth = strokeW * 1.5;
+      window.distributionGuidesGroup.addChild(tickA);
+      const tickB = new paper.Path.Line(
+        new paper.Point(xCenter - tickSize, boundsB.top),
+        new paper.Point(xCenter + tickSize, boundsB.top)
+      );
+      tickB.strokeColor = '#e0245e';
+      tickB.strokeWidth = strokeW * 1.5;
+      window.distributionGuidesGroup.addChild(tickB);
+    }
+
+    const textLabel = new paper.PointText(textPt.add(new paper.Point(0, 4 / zoom)));
+    textLabel.content = labelSpacing + " mm";
+    textLabel.fontFamily = 'Arial, sans-serif';
+    textLabel.fontSize = fontSize;
+    textLabel.fontWeight = 'bold';
+    textLabel.fillColor = '#e0245e';
+    textLabel.justification = 'center';
+
+    const textRect = new paper.Path.Rectangle({
+      center: textPt,
+      size: [textLabel.bounds.width + (8 / zoom), textLabel.bounds.height + (3 / zoom)],
+      fillColor: '#ffffff',
+      strokeColor: '#e0245e',
+      strokeWidth: 1 / zoom,
+      radius: 4 / zoom
+    });
+    window.distributionGuidesGroup.addChild(textRect);
+    window.distributionGuidesGroup.addChild(textLabel);
+  }
+  window.distributionGuidesGroup.bringToFront();
+  paper.view.update();
+
+  setTimeout(() => {
+    if (window.distributionGuidesGroup) {
+      window.distributionGuidesGroup.remove();
+      window.distributionGuidesGroup = null;
+      paper.view.update();
+    }
+  }, 2500);
+};
 
 // Funciones profesionales de alineación de objetos
 const alignSelection = (type) => {
@@ -485,8 +481,8 @@ const alignSelection = (type) => {
   }
   if (typeof window.saveHistory === "function") window.saveHistory();
   const mockupBounds = window.currentMockup ? window.currentMockup.bounds : paper.view.bounds;
+
   if (selected.length === 1) {
-    // Un solo objeto seleccionado: se alinea respecto al producto (mockup) usando el displayItem real
     const item = selected[0];
     const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!displayItem) return;
@@ -513,7 +509,6 @@ const alignSelection = (type) => {
         break;
     }
   } else {
-    // Múltiples objetos seleccionados: se alinean respecto a su caja delimitadora unificada (Canva/Figma style)
     const combinedBounds = getSelectionBounds(selected);
     if (!combinedBounds) return;
     selected.forEach(item => {
@@ -562,14 +557,16 @@ window.applyPositionCorrections = function() {
   const toolbar = document.getElementById("contextual-toolbar");
   const textEditor = document.getElementById("ekko-text-editor");
   if (!window.paper || !paper.view || !window.selectedItem) return;
+
   const item = window.selectedItem;
   const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
   if (!displayItem) return;
+
   const bounds = displayItem.bounds;
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
 
-  // 1. Corregir Barra Contextual Flotante (Evita que quede oculta o desfasada)
+  // 1. Corregir Barra Contextual Flotante
   if (toolbar && toolbar.classList.contains("active")) {
     if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
       toolbar.style.position = "absolute";
@@ -583,16 +580,16 @@ window.applyPositionCorrections = function() {
       if (canvasEl) {
         const rect = canvasEl.getBoundingClientRect();
         const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
-        const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen superior
+        const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25;
         toolbar.style.position = "absolute";
         toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
         toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
       }
-      toolbar.style.zIndex = "2147483646"; // MAX Z-INDEX: Stay above rulers (z-index 999), topbar, sidebar and overlays
+      toolbar.style.zIndex = "2147483646";
     }
   }
 
-  // 2. Corregir Editor de Texto (Evita que el recuadro de escritura aparezca en la esquina superior izquierda)
+  // 2. Corregir Editor de Texto
   if (textEditor && textEditor.style.display !== "none") {
     const editorWidth = textEditor.offsetWidth || 220;
     const editorHeight = textEditor.offsetHeight || 50;
@@ -605,6 +602,6 @@ window.applyPositionCorrections = function() {
       textEditor.style.top = targetTop + "px";
     }
     textEditor.style.position = "absolute";
-    textEditor.style.zIndex = "2147483647"; // Stay above toolbar and rulers
+    textEditor.style.zIndex = "2147483647";
   }
 };
