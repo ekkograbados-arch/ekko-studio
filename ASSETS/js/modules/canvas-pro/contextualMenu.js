@@ -451,9 +451,13 @@ const holesMap = new Map();
 subPaths.forEach(p => {
 let container = null;
 subPaths.forEach(other => {
-if (other !== p && other.bounds.contains(p.bounds)) {
-if (!container || Math.abs(other.area) < Math.abs(container.area)) {
+if (other !== p) {
+const otherArea = Math.abs(other.area) || other.bounds.area;
+const pArea = Math.abs(p.area) || p.bounds.area;
+if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
 container = other;
+}
 }
 }
 });
@@ -572,9 +576,13 @@ const holesMap = new Map();
 subPaths.forEach(p => {
 let container = null;
 subPaths.forEach(other => {
-if (other !== p && other.bounds.contains(p.bounds)) {
-if (!container || Math.abs(other.area) < Math.abs(container.area)) {
+if (other !== p) {
+const otherArea = Math.abs(other.area) || other.bounds.area;
+const pArea = Math.abs(p.area) || p.bounds.area;
+if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
 container = other;
+}
 }
 }
 });
@@ -804,9 +812,8 @@ window.selectionBox = new paper.Group();
 window.selectionBox.data = { isSelectionBox: true };
 // 1. Dibujar contornos celestes discontinuos independientes alrededor de cada pieza
 selected.forEach(it => {
-const targetObj = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
-if (targetObj) {
-const rect = new paper.Path.Rectangle(targetObj.bounds);
+if (it && it.bounds) {
+const rect = new paper.Path.Rectangle(it.bounds);
 rect.strokeColor = '#007bff';
 rect.strokeWidth = 1 / paper.view.zoom;
 rect.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
@@ -817,12 +824,11 @@ window.selectionBox.addChild(rect);
 // 2. Dibujar la caja de selección global de color azul celeste alrededor de todo el conjunto
 let unionBounds = null;
 selected.forEach(it => {
-const targetObj = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
-if (targetObj) {
+if (it && it.bounds) {
 if (!unionBounds) {
-unionBounds = targetObj.bounds.clone();
+unionBounds = it.bounds.clone();
 } else {
-unionBounds = unionBounds.unite(targetObj.bounds);
+unionBounds = unionBounds.unite(it.bounds);
 }
 }
 });
@@ -848,15 +854,14 @@ window.selectionBox.addChild(handle);
 window.selectionBox.bringToFront();
 } else {
 // Dibujar caja de selección de elemento simple
-const targetObj = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-if (!targetObj) return;
+if (!item || !item.bounds) return;
 window.selectionBox = new paper.Group();
 window.selectionBox.data = { isSelectionBox: true };
-const rect = new paper.Path.Rectangle(targetObj.bounds);
+const rect = new paper.Path.Rectangle(item.bounds);
 rect.strokeColor = '#007bff';
 rect.strokeWidth = 1.5 / paper.view.zoom;
 window.selectionBox.addChild(rect);
-const corners = [targetObj.bounds.topLeft, targetObj.bounds.topRight, targetObj.bounds.bottomLeft, targetObj.bounds.bottomRight];
+const corners = [item.bounds.topLeft, item.bounds.topRight, item.bounds.bottomLeft, item.bounds.bottomRight];
 corners.forEach(corner => {
 const handle = new paper.Path.Circle({
 center: corner,
