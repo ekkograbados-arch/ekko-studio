@@ -214,6 +214,13 @@ window.updateSelectionBox = function(item) {
   if (typeof window.applyPositionCorrections === "function") {
     window.applyPositionCorrections();
   }
+  // Sincronizar dinámicamente el input de rotación de la barra flotante para cualquier tipo de objeto
+  if (typeof window.bindRotationInputEvents === "function") {
+    window.bindRotationInputEvents();
+  }
+  if (typeof window.syncContextualRotationInput === "function") {
+    window.syncContextualRotationInput(primaryItem);
+  }
 };
 
 /* ========================= NODE EDITING OVERLAY SYSTEM ========================= */
@@ -1059,3 +1066,95 @@ function applyPositionCorrections() {
 }
 
 window.applyPositionCorrections = applyPositionCorrections;
+
+
+/* =========================================================================
+   SISTEMA DE SINCRONIZACIÓN DINÁMICA DE ROTACIÓN DE LA BARRA FLOTANTE
+   Soporta: Imagen, Texto, SVG, QR, etc., con Rueda de Mouse y Entrada Numérica
+   ========================================================================= */
+
+window.applyRotationFromInput = function(val) {
+  if (!window.selectedItem || window.selectedItem.data?.locked) return;
+  let angle = parseInt(val);
+  if (isNaN(angle)) angle = 0;
+  angle = (angle % 360 + 360) % 360;
+
+  if (typeof window.saveHistory === 'function') window.saveHistory();
+
+  const targets = (window.selectedItems && window.selectedItems.length > 0) ? window.selectedItems : [window.selectedItem];
+  
+  targets.forEach(item => {
+    if (item.data?.locked) return;
+    const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    if (displayItem) {
+      const center = displayItem.bounds.center.clone();
+      const oldRotation = displayItem.data?.rotation || 0;
+      let delta = angle - oldRotation;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      displayItem.rotate(delta, center);
+      displayItem.data = displayItem.data || {};
+      displayItem.data.rotation = angle;
+    }
+  });
+
+  window.updateSelectionBox(window.selectedItem);
+  paper.view.update();
+};
+
+window.bindRotationInputEvents = function() {
+  const rotationNum = document.getElementById('ctxRotationNum');
+  const rotGroup = document.getElementById('ctxRotationGroup');
+  
+  // Forzar que el contenedor de rotación sea visible en la barra contextual para cualquier objeto seleccionado
+  if (rotGroup) {
+    rotGroup.classList.remove('hidden');
+    rotGroup.style.display = 'flex';
+  }
+
+  if (!rotationNum) return;
+  if (rotationNum.dataset.eventsBound) return;
+  rotationNum.dataset.eventsBound = "true";
+
+  rotationNum.onchange = () => {
+    window.applyRotationFromInput(rotationNum.value);
+    const angle = parseInt(rotationNum.value) || 0;
+    rotationNum.value = ((angle % 360 + 360) % 360) + '°';
+  };
+
+  rotationNum.onkeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      window.applyRotationFromInput(rotationNum.value);
+      const angle = parseInt(rotationNum.value) || 0;
+      rotationNum.value = ((angle % 360 + 360) % 360) + '°';
+      rotationNum.blur();
+    }
+  };
+
+  rotationNum.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (!window.selectedItem || window.selectedItem.data?.locked) return;
+    const currentVal = parseInt(rotationNum.value) || 0;
+    const direction = e.deltaY < 0 ? 1 : -1;
+    const step = e.shiftKey ? 5 : 1;
+    let newVal = currentVal + direction * step;
+    newVal = (newVal % 360 + 360) % 360;
+    rotationNum.value = newVal + '°';
+    window.applyRotationFromInput(newVal);
+  }, { passive: false });
+};
+
+window.syncContextualRotationInput = function(item) {
+  const rotationNum = document.getElementById('ctxRotationNum');
+  if (rotationNum && item) {
+    const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    if (displayItem) {
+      const currentRot = displayItem.data?.rotation || 0;
+      const displayAngle = Math.round((currentRot % 360 + 360) % 360);
+      rotationNum.value = displayAngle + '°';
+    }
+  } else if (rotationNum) {
+    rotationNum.value = '0°';
+  }
+};
