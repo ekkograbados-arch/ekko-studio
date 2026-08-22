@@ -19,7 +19,7 @@ if (typeof paper !== "undefined") {
 }
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/selection.js (WYSIWYG Canva-Style Grouping - v7 PRO)
+Módulo: ASSETS/js/modules/selection.js (WYSIWYG Canva-Style Grouping - v8 PRO)
 Ruta de reemplazo: ASSETS/js/modules/selection.js
 Descripción: Gestión de selección múltiple, arrastre en bloque, recuadro de
 selección por arrastre (Marquee/Box Selection) y redimensionamiento/rotación
@@ -50,6 +50,7 @@ window.rotationStartAngle = 0;
 window.rotationInitialAngle = 0;
 window.rotationTargets = [];
 window.rotationAngleLabel = null; // NUEVO: Para la cota flotante de ángulo
+window.isRotationSnapped = false; // Flag para indicar imantación visual
 
 // --- NODE EDITING STATE (LIGHTBURN STYLE) ---
 window.nodeEditMode = false;
@@ -67,14 +68,15 @@ window.marqueePath = null;
 /* ========================= SELECCIÓN DE OBJETO ========================= */
 window.getSelectableItem = function(item){
   if(!item) return null;
+  if (item.clipMask) return null;
   if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) return null;
   if (item.parent && item.parent.data && (item.parent.data.isSelectionBox || item.parent.data.isNodeEditOverlay)) return null;
-  if (item.data && item.data.mockup) return null;
   
   let current = item;
   while (current) {
     if (current.data) {
-      if (current.data.mockup) return null;
+      if (current.data.mockup || current.data.isMask) return null;
+      if (current === window.currentMockup) return null;
       if (current.data.clipGroup) {
         return current;
       }
@@ -144,8 +146,13 @@ window.updateSelectionBox = function(item) {
 
   window.selectionBoxGroup = new paper.Group();
   window.selectionBoxGroup.data = { isSelectionBox: true };
+
+  // Cambiar dinámicamente el color del recuadro si hay imantación (Snap a 45°)
+  const isRotSnapped = window.isRotationSnapped && window.rotationActive;
+  const mainColor = isRotSnapped ? '#28a745' : '#007bff';
+
   const border = new paper.Path.Rectangle(bounds);
-  border.strokeColor = '#007bff';
+  border.strokeColor = mainColor;
   border.strokeWidth = 1.5 / paper.view.zoom;
   border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
   window.selectionBoxGroup.addChild(border);
@@ -166,7 +173,7 @@ window.updateSelectionBox = function(item) {
     const rect = new paper.Path.Rectangle({
       center: info.point,
       size: [handleSize, handleSize],
-      strokeColor: '#007bff',
+      strokeColor: mainColor,
       fillColor: '#ffffff',
       strokeWidth: 1.5 / paper.view.zoom
     });
@@ -178,14 +185,14 @@ window.updateSelectionBox = function(item) {
   const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
 
   const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
-  connector.strokeColor = '#007bff';
+  connector.strokeColor = mainColor;
   connector.strokeWidth = 1.2 / paper.view.zoom;
   window.selectionBoxGroup.addChild(connector);
 
   const rotHandleCircle = new paper.Path.Circle({
     center: rotHandleCenter,
     radius: 7.5 / paper.view.zoom,
-    strokeColor: '#007bff',
+    strokeColor: mainColor,
     fillColor: '#ffffff',
     strokeWidth: 1.5 / paper.view.zoom
   });
@@ -198,7 +205,7 @@ window.updateSelectionBox = function(item) {
     rotHandleCenter.add(new paper.Point(0, -iconRadius)),
     rotHandleCenter.add(new paper.Point(iconRadius, 0))
   );
-  arrowIcon.strokeColor = '#007bff';
+  arrowIcon.strokeColor = mainColor;
   arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
   window.selectionBoxGroup.addChild(arrowIcon);
 
@@ -206,7 +213,7 @@ window.updateSelectionBox = function(item) {
   arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
   arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
   arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
-  arrowTip.strokeColor = '#007bff';
+  arrowTip.strokeColor = mainColor;
   arrowTip.strokeWidth = 1.2 / paper.view.zoom;
   window.selectionBoxGroup.addChild(arrowTip);
 
@@ -214,6 +221,7 @@ window.updateSelectionBox = function(item) {
   if (typeof window.applyPositionCorrections === "function") {
     window.applyPositionCorrections();
   }
+
   // Sincronizar dinámicamente el input de rotación de la barra flotante para cualquier tipo de objeto
   if (typeof window.bindRotationInputEvents === "function") {
     window.bindRotationInputEvents();
@@ -323,7 +331,7 @@ window.selectItem = function(item, isMulti = false){
     window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
   } else {
     window.selectedItems.forEach(function(it) {
-      it.selected = false;
+      if (it) it.selected = false;
     });
     if (item) {
       item.selected = true;
@@ -353,7 +361,7 @@ window.deselectItem = function(){
   }
   if (window.selectedItems) {
     window.selectedItems.forEach(function(it) {
-      it.selected = false;
+      if (it) it.selected = false;
     });
     window.selectedItems = [];
   }
@@ -569,7 +577,7 @@ window.initSelectionTool = function() {
             // Mantener la multi-selección intacta para permitir arrastre sin deseleccionar
           } else {
             window.selectedItems.forEach(function(it) {
-              it.selected = false;
+              if (it) it.selected = false;
             });
             selectableItem.selected = true;
             window.selectedItem = selectableItem;
@@ -681,11 +689,11 @@ window.initSelectionTool = function() {
         if (diffTo45 < -180) diffTo45 += 360;
 
         // Comportamiento de "Ralentización" / Resistencia Magnética (Stickiness) cerca de múltiplos de 45°
-        if (Math.abs(diffTo45) < 4.0) {
+        if (Math.abs(diffTo45) < 4.5) {
           if (Math.abs(diffTo45) < 1.5) {
             angleDiff = angleDiff - diffTo45; // Snap total
           } else {
-            angleDiff = angleDiff - diffTo45 * 0.65; // Ralentizar la sensibilidad
+            angleDiff = angleDiff - diffTo45 * 0.70; // Ralentizar la sensibilidad (firmeza del imán)
           }
           isSnapped = true;
         }
@@ -693,6 +701,9 @@ window.initSelectionTool = function() {
         angleDiff = Math.round(angleDiff / 45) * 45;
         isSnapped = true;
       }
+
+      // Propagar el estado de snapping global para actualizar el color de la caja de selección a verde
+      window.isRotationSnapped = isSnapped;
 
       window.rotationTargets.forEach(function(rt) {
         if (rt.item.data && rt.item.data.locked) return;
@@ -746,7 +757,7 @@ window.initSelectionTool = function() {
           fontFamily: 'Arial, sans-serif',
           fontSize: fontSize,
           fontWeight: 'bold',
-          fillColor: '#ffffff',
+          fillColor: new paper.Color(1, 1, 1),
           justification: 'center'
         });
 
@@ -762,20 +773,44 @@ window.initSelectionTool = function() {
           ? (textLabel.bounds.height + (6 / zoom)) 
           : approxHeight;
 
-        // Contenedor visual (badge verde si está snapped, o gris oscuro en rotación libre)
+        // Contenedor visual (badge verde si está imantado, o gris/negro en rotación libre) utilizando constructores nativos de color
         const textRect = new paper.Path.Rectangle({
           center: labelPosition,
           size: [rectWidth, rectHeight],
-          fillColor: isSnapped ? 'rgba(40, 167, 69, 0.95)' : 'rgba(15, 23, 42, 0.85)',
-          strokeColor: isSnapped ? '#28a745' : '#334155',
+          fillColor: isSnapped ? new paper.Color(0.15, 0.68, 0.37, 0.95) : new paper.Color(0.06, 0.09, 0.16, 0.85),
+          strokeColor: isSnapped ? new paper.Color(0.15, 0.68, 0.37) : new paper.Color(0.2, 0.25, 0.33),
           strokeWidth: 1 / zoom,
           radius: 4 / zoom
         });
+
+        // DIBUJAR LÍNEAS DE GUÍA VERDES (Crosshair) para indicar la alineación al hacer "snap" a los 45° o 90°
+        if (isSnapped) {
+          const crossSize = 250 / zoom;
+          const hLine = new paper.Path.Line(
+            window.rotationCenter.add(new paper.Point(-crossSize, 0)),
+            window.rotationCenter.add(new paper.Point(crossSize, 0))
+          );
+          hLine.strokeColor = new paper.Color(0.15, 0.68, 0.37, 0.85);
+          hLine.strokeWidth = 1.2 / zoom;
+          hLine.dashArray = [4 / zoom, 4 / zoom];
+
+          const vLine = new paper.Path.Line(
+            window.rotationCenter.add(new paper.Point(0, -crossSize)),
+            window.rotationCenter.add(new paper.Point(0, crossSize))
+          );
+          vLine.strokeColor = new paper.Color(0.15, 0.68, 0.37, 0.85);
+          vLine.strokeWidth = 1.2 / zoom;
+          vLine.dashArray = [4 / zoom, 4 / zoom];
+
+          window.rotationAngleLabel.addChild(hLine);
+          window.rotationAngleLabel.addChild(vLine);
+        }
 
         window.rotationAngleLabel.addChild(textRect);
         window.rotationAngleLabel.addChild(textLabel);
         window.rotationAngleLabel.bringToFront();
       }
+
       paper.view.update();
       return;
     }
@@ -908,11 +943,15 @@ window.initSelectionTool = function() {
     window.dragging = false;
     window.resizeActive = false;
     window.rotationActive = false;
+    window.isRotationSnapped = false; // Limpiar snapping flag al terminar
     window.rotationTargets = [];
 
     const canvas = document.getElementById("editorCanvas");
     if (canvas) canvas.style.cursor = 'default';
     if (typeof clearSmartGuides === "function") clearSmartGuides();
+    
+    // Redibujar selección con el color azul por defecto
+    window.updateSelectionBox(window.selectedItem);
     paper.view.update();
   };
 
@@ -1016,11 +1055,9 @@ function applyPositionCorrections() {
   const toolbar = document.getElementById("contextual-toolbar");
   const textEditor = document.getElementById("ekko-text-editor");
   if (!window.paper || !paper.view || !window.selectedItem) return;
-
   const item = window.selectedItem;
   const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
   if (!displayItem) return;
-
   const bounds = displayItem.bounds;
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
@@ -1067,12 +1104,10 @@ function applyPositionCorrections() {
 
 window.applyPositionCorrections = applyPositionCorrections;
 
-
 /* =========================================================================
-   SISTEMA DE SINCRONIZACIÓN DINÁMICA DE ROTACIÓN DE LA BARRA FLOTANTE
-   Soporta: Imagen, Texto, SVG, QR, etc., con Rueda de Mouse y Entrada Numérica
-   ========================================================================= */
-
+SISTEMA DE SINCRONIZACIÓN DINÁMICA DE ROTACIÓN DE LA BARRA FLOTANTE
+Soporta: Imagen, Texto, SVG, QR, etc., con Rueda de Mouse y Entrada Numérica
+========================================================================= */
 window.applyRotationFromInput = function(val) {
   if (!window.selectedItem || window.selectedItem.data?.locked) return;
   let angle = parseInt(val);
@@ -1082,7 +1117,6 @@ window.applyRotationFromInput = function(val) {
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const targets = (window.selectedItems && window.selectedItems.length > 0) ? window.selectedItems : [window.selectedItem];
-  
   targets.forEach(item => {
     if (item.data?.locked) return;
     const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
@@ -1105,7 +1139,7 @@ window.applyRotationFromInput = function(val) {
 window.bindRotationInputEvents = function() {
   const rotationNum = document.getElementById('ctxRotationNum');
   const rotGroup = document.getElementById('ctxRotationGroup');
-  
+
   // Forzar que el contenedor de rotación sea visible en la barra contextual para cualquier objeto seleccionado
   if (rotGroup) {
     rotGroup.classList.remove('hidden');
