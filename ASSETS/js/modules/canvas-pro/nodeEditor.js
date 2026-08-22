@@ -1,232 +1,258 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (Interactive Vector Node Editor)
-Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
-Descripción: Motor avanzado de edición de puntos de anclaje y nodos vectoriales.
-Permite seleccionar, arrastrar, deformar, multiseleccionar y eliminar nodos de
-forma independiente para trazados simples y compuestos (CompoundPaths).
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js
+Ruta de creación: ASSETS/js/modules/canvas-pro/nodeEditor.js
+Descripción: Motor interactivo de selección y edición de puntos de anclaje/nodos
+para EKKO Studio. Permite deformar de forma directa las curvas bézier del lienzo.
+Soporta multi-selección de puntos y borrado de nodos.
 ========================================================================= */
 
 let activeNodeItem = null;
 let nodeHandlesGroup = null;
-let selectedSegmentRefs = [];
-let isMarqueeDragging = false;
-let marqueeRect = null;
-let marqueeStart = null;
+let selectedNodes = new Set(); // Conjunto de índices de puntos seleccionados
+let isDraggingNode = false;
 
-/**
- * Activa el modo de edición de nodos para el elemento seleccionado.
- * Si es un PointText, ofrece convertirlo a curvas primero de forma segura.
- */
+// Entrar en modo de edición de nodos para un elemento
 export function enterNodeEditMode(item) {
-  if (!item || item.data?.locked || item.data?.mockup) return;
-
-  // Si es un PointText nativo, convertimos a curvas para poder editar nodos
-  let target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-  if (!target) return;
-
-  if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-    const confirmConvert = confirm("¿Deseas convertir este texto a curvas vectoriales para poder deformar y editar sus nodos de forma independiente? (El texto dejará de ser editable por teclado)");
+  if (!item || item.data?.locked) return;
+  
+  // Si el item es un texto nativo PointText, ofrecer la conversión a curvas primero
+  const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+  if (target && target instanceof paper.PointText) {
+    const confirmConvert = confirm("Para editar los nodos de este texto, primero debemos convertirlo a curvas (dejará de ser editable por teclado). ¿Deseas continuar?");
     if (!confirmConvert) return;
     
-    target = convertTextToCurves(item);
-    if (!target) return;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+    const converted = convertTextToPath(target);
+    if (!converted) return;
+    
+    // Reemplazar item en el lienzo
+    const parent = item.parent || paper.project.activeLayer;
+    const index = parent.children.indexOf(item);
+    
+    let newItem = item.data?.clipGroup ? window.clipItem(converted) : converted;
+    if (!item.data?.clipGroup) {
+      parent.addChild(newItem);
+    }
+    
+    if (newItem.parent) {
+      newItem.parent.insertChild(index, newItem);
+    }
+    item.remove();
+    item = newItem;
   }
 
-  // Guardar estado e inicializar
+  // Desactivar la caja de selección normal celeste de la app
+  window.deselectItem();
   activeNodeItem = item;
-  selectedSegmentRefs = [];
+  selectedNodes.clear();
   
-  if (typeof window.deselectItem === 'function') {
-    window.deselectItem();
+  // Ocultar caja visual de selección estándar
+  if (window.selectionBox) {
+    window.selectionBox.visible = false;
   }
-
-  renderNodeHandles();
   
-  // Registrar escuchador de teclado especial para borrar nodos
-  if (!window.nodeEditorKeyBound) {
-    window.nodeEditorKeyBound = true;
-    document.addEventListener('keydown', handleNodeEditorKeys);
-  }
-
+  drawNodeHandles();
   paper.view.update();
+  
+  // Vincular borrado de nodos con teclas de teclado
+  document.addEventListener('keydown', handleNodeKeydown);
 }
 
-/**
- * Sale del modo de edición de nodos limpiando los controladores visuales
- */
+// Salir del modo de edición de nodos
 export function exitNodeEditMode() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
     nodeHandlesGroup = null;
   }
+  
+  document.removeEventListener('keydown', handleNodeKeydown);
+  
+  const itemToRestore = activeNodeItem;
   activeNodeItem = null;
-  selectedSegmentRefs = [];
+  selectedNodes.clear();
+  isDraggingNode = false;
+  
+  if (itemToRestore) {
+    window.selectItem(itemToRestore);
+  }
   paper.view.update();
 }
 
-/**
- * Convierte texto nativo a curvas vectoriales planas (CompoundPath o Group de Paths)
- */
-function convertTextToCurves(item) {
-  if (typeof window.saveHistory === 'function') window.saveHistory();
-
-  let textItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-  if (!textItem) return null;
-
-  // Generamos el trazado vectorial a partir de las curvas del texto en Paper.js
-  const parent = item.parent || paper.project.activeLayer;
-  const index = parent.children.indexOf(item);
-  
-  // Crear un trazado compuesto a partir de la geometría del texto
-  const textPath = textItem.createPath();
-  textPath.fillColor = textItem.fillColor;
-  textPath.data = { label: "Texto Convertido" };
-
-  let finalItem;
-  if (item.data?.clipGroup && typeof window.clipItem === 'function') {
-    item.remove();
-    finalItem = window.clipItem(textPath);
-  } else {
-    item.remove();
-    finalItem = textPath;
-    parent.addChild(finalItem);
-  }
-
-  if (finalItem.parent) {
-    finalItem.parent.insertChild(index, finalItem);
-  }
-
-  return textPath;
+// Convertir un PointText a un CompoundPath vectorial
+function convertTextToPath(pointText) {
+  if (!pointText) return null;
+  // Crear un trazado compuesto limpio a partir de los vectores del texto usando paper.Path
+  const compound = pointText.createPath({ insert: false });
+  compound.fillColor = pointText.fillColor;
+  compound.strokeColor = pointText.strokeColor;
+  compound.strokeWidth = pointText.strokeWidth;
+  compound.data = { label: "Texto Convertido" };
+  return compound;
 }
 
-/**
- * Dibuja círculos interactivos blancos con borde rojo sobre cada nodo del trazado
- */
-function renderNodeHandles() {
+// Obtener los trazados vectoriales reales sobre los cuales operar (descomprimiendo clipGroup si es necesario)
+function getTargetPaths(item) {
+  const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+  if (!target) return [];
+  if (target instanceof paper.CompoundPath) {
+    return target.children;
+  }
+  if (target instanceof paper.Path) {
+    return [target];
+  }
+  return [];
+}
+
+// Dibujar físicamente los círculos blancos con borde rojo sobre cada nodo de las curvas
+function drawNodeHandles() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
   }
-
-  if (!activeNodeItem) return;
-
   nodeHandlesGroup = new paper.Group();
-  nodeHandlesGroup.data = { isNodeHandlesContainer: true };
-
-  const target = activeNodeItem.data?.clipGroup ? activeNodeItem.children.find(c => !c.clipMask) : activeNodeItem;
-  if (!target) return;
-
-  // Obtener todos los trazados (pueden ser hijos de un CompoundPath)
-  const paths = [];
-  if (target instanceof paper.CompoundPath) {
-    paths.push(...target.children);
-  } else if (target instanceof paper.Path) {
-    paths.push(target);
-  }
-
+  nodeHandlesGroup.data = { isNodeHandleContainer: true };
+  
+  if (!activeNodeItem) return;
+  
+  const paths = getTargetPaths(activeNodeItem);
   const zoom = paper.view.zoom;
-  const radius = 4.5 / zoom;
-  const strokeW = 1.5 / zoom;
-
-  paths.forEach(path => {
-    path.segments.forEach(segment => {
-      const handleCircle = new paper.Path.Circle({
+  const radius = 5 / zoom;
+  
+  let globalPointIdx = 0; // Índice incremental global para identificar cada nodo en la selección
+  
+  paths.forEach((path) => {
+    path.segments.forEach((segment, localIdx) => {
+      const ptIdx = globalPointIdx++;
+      
+      const handle = new paper.Path.Circle({
         center: segment.point,
         radius: radius,
-        fillColor: 'white',
-        strokeColor: '#ef4444',
-        strokeWidth: strokeW,
-        parent: nodeHandlesGroup
+        fillColor: selectedNodes.has(ptIdx) ? '#ff0000' : '#ffffff',
+        strokeColor: '#ff0000',
+        strokeWidth: 1.5 / zoom
       });
-
-      // Guardar referencias circulares seguras por ID para evitar crashes en el historial
-      handleCircle.data = {
+      
+      handle.data = {
         isNodeHandle: true,
-        segmentIndex: segment.index,
-        parentPathId: path.id,
-        targetItemId: activeNodeItem.id
+        globalIdx: ptIdx,
+        localIdx: localIdx,
+        pathId: path.id
       };
-
-      // Interactividad individual del nodo
-      handleCircle.onMouseEnter = () => {
-        if (!selectedSegmentRefs.some(ref => ref.segment === segment)) {
-          handleCircle.fillColor = '#fee2e2';
-        }
-        paper.view.element.style.cursor = 'pointer';
-      };
-
-      handleCircle.onMouseLeave = () => {
-        if (!selectedSegmentRefs.some(ref => ref.segment === segment)) {
-          handleCircle.fillColor = 'white';
-        }
-        paper.view.element.style.cursor = 'default';
-      };
-
-      handleCircle.onMouseDown = (e) => {
+      
+      // Controlar eventos de ratón sobre el nodo interactivo
+      handle.onMouseDown = (e) => {
         e.stopPropagation();
-        if (typeof window.saveHistory === 'function') window.saveHistory();
-
-        const isAlreadySelected = selectedSegmentRefs.some(ref => ref.segment === segment);
-
-        if (!e.modifiers.shift) {
-          if (!isAlreadySelected) {
-            selectedSegmentRefs = [{ segment, handleCircle, path }];
-            nodeHandlesGroup.children.forEach(c => {
-              if (c.data?.isNodeHandle) c.fillColor = 'white';
-            });
-            handleCircle.fillColor = '#ef4444'; // Pintar de rojo sólido (seleccionado)
+        isDraggingNode = true;
+        
+        if (e.modifiers.shift) {
+          // Multi-selección con Shift
+          if (selectedNodes.has(ptIdx)) {
+            selectedNodes.delete(ptIdx);
+          } else {
+            selectedNodes.add(ptIdx);
           }
         } else {
-          if (isAlreadySelected) {
-            selectedSegmentRefs = selectedSegmentRefs.filter(ref => ref.segment !== segment);
-            handleCircle.fillColor = 'white';
-          } else {
-            selectedSegmentRefs.push({ segment, handleCircle, path });
-            handleCircle.fillColor = '#ef4444';
+          // Selección simple
+          if (!selectedNodes.has(ptIdx)) {
+            selectedNodes.clear();
+            selectedNodes.add(ptIdx);
           }
         }
-      };
-
-      handleCircle.onMouseDrag = (e) => {
-        e.stopPropagation();
-        const delta = e.delta;
-
-        // Mover todos los nodos seleccionados en conjunto
-        selectedSegmentRefs.forEach(ref => {
-          ref.segment.point = ref.segment.point.add(delta);
-          ref.handleCircle.position = ref.segment.point;
-        });
-
-        // Actualizar el enmascarado/redibujado del lienzo
+        
+        drawNodeHandles(); // Redibujar para pintar de rojo los nodos seleccionados
         paper.view.update();
       };
+      
+      handle.onMouseDrag = (e) => {
+        e.stopPropagation();
+        if (!isDraggingNode) return;
+        
+        const delta = e.delta;
+        
+        // Mover todos los nodos seleccionados en conjunto
+        selectedNodes.forEach(selIdx => {
+          const matchingHandle = nodeHandlesGroup.children.find(c => c.data?.globalIdx === selIdx);
+          if (matchingHandle) {
+            const targetPath = paper.project.getItem({ id: matchingHandle.data.pathId });
+            if (targetPath && targetPath.segments[matchingHandle.data.localIdx]) {
+              const seg = targetPath.segments[matchingHandle.data.localIdx];
+              seg.point = seg.point.add(delta);
+              matchingHandle.position = seg.point; // Sincronizar mango visual
+            }
+          }
+        });
+        
+        // Si el elemento visual es un Outer reactivo, sincronizar su copia original para el láser
+        if (activeNodeItem.data?.isOuterWithHoles) {
+          const targetOuter = activeNodeItem.data.clipGroup ? activeNodeItem.children.find(c => !c.clipMask) : activeNodeItem;
+          if (targetOuter) {
+            activeNodeItem.data.originalPath = targetOuter.clone({ insert: false });
+          }
+        }
+        
+        paper.view.update();
+      };
+      
+      handle.onMouseUp = (e) => {
+        isDraggingNode = false;
+        if (typeof window.saveHistory === 'function') {
+          window.saveHistory();
+        }
+      };
+      
+      nodeHandlesGroup.addChild(handle);
     });
   });
-
+  
   nodeHandlesGroup.bringToFront();
 }
 
-/**
- * Escucha la tecla Suprimir/Retroceso para eliminar los nodos seleccionados
- */
-function handleNodeEditorKeys(e) {
-  if (!activeNodeItem || selectedSegmentRefs.length === 0) return;
-
+// Manejar borrado de nodos seleccionados con las teclas de teclado
+function handleNodeKeydown(e) {
+  if (selectedNodes.size === 0 || !activeNodeItem) return;
+  
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     if (typeof window.saveHistory === 'function') window.saveHistory();
-
-    // Eliminar los segmentos del trazado
-    selectedSegmentRefs.forEach(ref => {
-      ref.segment.remove();
+    
+    const paths = getTargetPaths(activeNodeItem);
+    
+    // Agrupar los índices de nodos a borrar por trazado
+    const pointsToDeleteByPath = new Map();
+    
+    nodeHandlesGroup.children.forEach(handle => {
+      if (handle.data?.isNodeHandle && selectedNodes.has(handle.data.globalIdx)) {
+        if (!pointsToDeleteByPath.has(handle.data.pathId)) {
+          pointsToDeleteByPath.set(handle.data.pathId, []);
+        }
+        pointsToDeleteByPath.get(handle.data.pathId).push(handle.data.localIdx);
+      }
     });
-
-    selectedSegmentRefs = [];
-    renderNodeHandles();
+    
+    // Eliminar los segmentos correspondientes de reversa (de mayor a menor índice) para no alterar índices de segmentos restantes
+    pointsToDeleteByPath.forEach((localIndices, pathId) => {
+      const path = paper.project.getItem({ id: pathId });
+      if (path) {
+        localIndices.sort((a, b) => b - a);
+        localIndices.forEach(idx => {
+          if (path.segments[idx]) {
+            path.removeSegment(idx);
+          }
+        });
+        
+        // Si el trazado se quedó vacío, lo borramos
+        if (path.segments.length === 0) {
+          path.remove();
+        }
+      }
+    });
+    
+    selectedNodes.clear();
+    drawNodeHandles();
     paper.view.update();
   }
 }
 
-// Exposición global segura
+// Exposición global
 if (typeof window !== 'undefined') {
   window.enterNodeEditMode = enterNodeEditMode;
   window.exitNodeEditMode = exitNodeEditMode;
