@@ -468,8 +468,8 @@ export function ungroupSelectedItem() {
                 } else {
                     newItem = child;
                     newItem.matrix = absMatrix;
-                    parent.addChild(newItem);
                 }
+                parent.addChild(newItem); // Added immediately!
                 newItems.push(newItem);
             });
             item.remove();
@@ -489,8 +489,8 @@ export function ungroupSelectedItem() {
                 } else {
                     newItem = letter;
                     newItem.matrix = textAbsMatrix.clone();
-                    parent.addChild(newItem);
                 }
+                parent.addChild(newItem); // Added immediately!
                 newItems.push(newItem);
             });
             item.remove();
@@ -525,7 +525,7 @@ export function ungroupSelectedItem() {
             const originalFill = activeTarget.fillColor;
             
             if (outers.length === 1) {
-                separateContours();
+                separateContours(item); // Pass current item to prevent selection race duplications
                 return;
             }
             
@@ -552,8 +552,8 @@ export function ungroupSelectedItem() {
                 } else {
                     newItem = letterItem;
                     newItem.matrix = pathAbsMatrix.clone();
-                    parent.addChild(newItem);
                 }
+                parent.addChild(newItem); // Added immediately!
                 newItems.push(newItem);
             });
             item.remove();
@@ -605,8 +605,9 @@ function splitPointTextIntoLetters(pointText) {
  * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opción B).
  * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
  */
-export function separateContours() {
-    const item = window.selectedItem;
+export function separateContours(itemToProcess) {
+    const item = itemToProcess || window.selectedItem;
+
     if (!item || item.data?.locked || item.data?.mockup) return;
     const isClipped = !!item.data?.clipGroup;
     const target = isClipped ? item.children.find(c => !c.clipMask) : item;
@@ -658,8 +659,8 @@ export function separateContours() {
         } else {
             newOuterItem = outerClone;
             newOuterItem.matrix = pathAbsMatrix.clone();
-            parent.addChild(newOuterItem);
         }
+        parent.addChild(newOuterItem); // Added immediately so updateOuterPathGeometry subtraction finds it in project
 
         newOuterItem.data = {
             ...(newOuterItem.data || {}),
@@ -684,8 +685,8 @@ export function separateContours() {
             } else {
                 newHoleItem = holeClone;
                 newHoleItem.matrix = pathAbsMatrix.clone();
-                parent.addChild(newHoleItem);
             }
+            parent.addChild(newHoleItem); // Added immediately so updateOuterPathGeometry subtraction finds it in project
 
             newHoleItem.data = {
                 ...(newHoleItem.data || {}),
