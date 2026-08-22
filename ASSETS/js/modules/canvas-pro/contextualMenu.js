@@ -380,7 +380,7 @@ export function ungroupSelectedItem() {
   const index = parent.children.indexOf(item);
   const newItems = [];
 
-  // 1. SI ES UN GRUPO: Desagrupamos de forma recursiva y profunda al instante
+  // 1. SI ES UN GRUPO: Desagrupamos de forma recursiva y profunda al instante (0% Onion Effect)
   if (target instanceof paper.Group) {
     const leaves = getLeafItemsRecursive(target);
     
@@ -405,7 +405,7 @@ export function ungroupSelectedItem() {
     item.remove();
   }
   // 2. SI ES UN TRAZADO COMPUESTO (CompoundPath con letras o múltiples formas):
-  // Lo dividimos en sus letras/islas independientes manteniendo sus huecos correspondientes unidos (Opción A).
+  // Lo dividimos en contornos exteriores y sus correspondientes huecos interactivos y transparentes
   else if (target instanceof paper.CompoundPath) {
     const subPaths = [...target.children];
     if (subPaths.length === 0) return;
@@ -432,37 +432,83 @@ export function ungroupSelectedItem() {
       }
     });
 
-    const originalFill = target.fillColor;
+    const originalFillColor = target.fillColor;
 
-    // Si tiene un único Outer, significa que ya está al nivel más básico de letra/corazón con hueco.
-    // Al presionar desagrupar de nuevo, ejecutamos el "Separar Nodos/Contornos" (Opción B) de forma transparente.
+    // A. Si tiene un único Outer, significa que ya está al nivel más básico de letra/corazón con hueco.
+    // Lo desagrupamos separando sus huecos/contornos interactivos independientes (Opción B).
     if (outers.length === 1) {
-      separateContours();
-      return;
+      outers.forEach(outerPath => {
+        // 1. Creamos el elemento contenedor exterior sólido principal
+        const outerClone = outerPath.clone();
+        outerClone.fillColor = originalFillColor;
+
+        let newOuterItem = isClipped ? window.clipItem(outerClone) : outerClone;
+        if (!isClipped) parent.addChild(newOuterItem);
+        
+        newOuterItem.data = {
+          ...(newOuterItem.data || {}),
+          isOuterWithHoles: true,
+          originalPath: outerPath.clone({ insert: false }),
+          holeIds: [],
+          label: item.data?.label || "Objeto"
+        };
+        newItems.push(newOuterItem);
+
+        // 2. Creamos cada hueco como un objeto independiente interactivo y 100% transparente en reposo
+        const associatedHoles = holesMap.get(outerPath) || [];
+        associatedHoles.forEach(holePath => {
+          const holeClone = holePath.clone();
+          
+          // Estilo Invisible en Reposo pero interactivo al 1% de opacidad de relleno
+          holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
+          holeClone.strokeColor = new paper.Color(0,0,0,0); // Sin línea visible de bordes de colores molestos
+
+          let newHoleItem = isClipped ? window.clipItem(holeClone) : holeClone;
+          if (!isClipped) parent.addChild(newHoleItem);
+
+          newHoleItem.data = {
+            ...(newHoleItem.data || {}),
+            isHoleController: true,
+            outerItemId: newOuterItem.id,
+            lastHash: "",
+            label: "Hueco"
+          };
+
+          newOuterItem.data.holeIds.push(newHoleItem.id);
+          newItems.push(newHoleItem);
+        });
+
+        // Registrar en el listado reactivo
+        window.ekkoOuters.set(newOuterItem.id, newOuterItem);
+        updateOuterPathGeometry(newOuterItem);
+      });
+
+      item.remove();
     }
+    // B. Si tiene múltiples Outers (ej: las letras curves "T", "E", "A", "M", "O" en un solo trazado compuesto), las separamos.
+    else {
+      outers.forEach(outerPath => {
+        const outerClone = outerPath.clone({ insert: false });
+        const associatedHoles = holesMap.get(outerPath) || [];
+        
+        let resultingItem;
+        if (associatedHoles.length > 0) {
+          // Creamos un CompoundPath para esta letra específica conservando sus huecos
+          const childrenList = [outerClone, ...associatedHoles.map(h => h.clone({ insert: false }))];
+          const letterCompound = new paper.CompoundPath({ children: childrenList, fillColor: originalFillColor });
+          resultingItem = isClipped ? window.clipItem(letterCompound) : letterCompound;
+        } else {
+          // Letra sólida sin hueco
+          outerClone.fillColor = originalFillColor;
+          resultingItem = isClipped ? window.clipItem(outerClone) : outerClone;
+        }
 
-    // Si tiene múltiples Outers (ej: las letras curves "T", "E", "A", "M", "O" en un solo trazado compuesto), las separamos.
-    outers.forEach(outerPath => {
-      const outerClone = outerPath.clone({ insert: false });
-      const associatedHoles = holesMap.get(outerPath) || [];
-      
-      let resultingItem;
-      if (associatedHoles.length > 0) {
-        // Creamos un CompoundPath para esta letra específica conservando sus huecos
-        const childrenList = [outerClone, ...associatedHoles.map(h => h.clone({ insert: false }))];
-        const letterCompound = new paper.CompoundPath({ children: childrenList, fillColor: originalFill });
-        resultingItem = isClipped ? window.clipItem(letterCompound) : letterCompound;
-      } else {
-        // Letra sólida sin hueco
-        outerClone.fillColor = originalFill;
-        resultingItem = isClipped ? window.clipItem(outerClone) : outerClone;
-      }
+        if (!isClipped) parent.addChild(resultingItem);
+        newItems.push(resultingItem);
+      });
 
-      if (!isClipped) parent.addChild(resultingItem);
-      newItems.push(resultingItem);
-    });
-
-    item.remove();
+      item.remove();
+    }
   }
 
   // Reinsertar ordenadamente en la escena y aplicar selección múltiple
@@ -521,116 +567,7 @@ function splitPointTextIntoLetters(pointText) {
  * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opción B).
  * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
  */
-export function separateContours() {
-  const item = window.selectedItem;
-  if (!item || item.data?.locked || item.data?.mockup) return;
 
-  const isClipped = !!item.data?.clipGroup;
-  const target = isClipped ? item.children.find(c => !c.clipMask) : item;
-  if (!target || !(target instanceof paper.CompoundPath)) return;
-
-  if (typeof window.saveHistory === 'function') {
-    window.saveHistory();
-  }
-
-  const parent = item.parent || paper.project.activeLayer;
-  const index = parent.children.indexOf(item);
-  const newItems = [];
-
-  const subPaths = [...target.children];
-  const outers = [];
-  const holesMap = new Map();
-
-  subPaths.forEach(p => {
-    let container = null;
-    subPaths.forEach(other => {
-      if (other !== p && other.bounds.contains(p.bounds)) {
-        if (!container || Math.abs(other.area) < Math.abs(container.area)) {
-          container = other;
-        }
-      }
-    });
-
-    if (container) {
-      if (!holesMap.has(container)) holesMap.set(container, []);
-      holesMap.get(container).push(p);
-    } else {
-      outers.push(p);
-      if (!holesMap.has(p)) holesMap.set(p, []);
-    }
-  });
-
-  const originalFillColor = target.fillColor;
-
-  outers.forEach(outerPath => {
-    // 1. Creamos el elemento contenedor exterior sólido principal
-    const outerClone = outerPath.clone();
-    outerClone.fillColor = originalFillColor;
-
-    let newOuterItem = isClipped ? window.clipItem(outerClone) : outerClone;
-    if (!isClipped) parent.addChild(newOuterItem);
-    
-    newOuterItem.data = {
-      ...(newOuterItem.data || {}),
-      isOuterWithHoles: true,
-      originalPath: outerPath.clone({ insert: false }),
-      holeIds: [],
-      label: item.data?.label || "Objeto"
-    };
-    newItems.push(newOuterItem);
-
-    // 2. Creamos cada hueco como un objeto independiente interactivo y 100% transparente en reposo
-    const associatedHoles = holesMap.get(outerPath) || [];
-    associatedHoles.forEach(holePath => {
-      const holeClone = holePath.clone();
-      
-      // Estilo Invisible en Reposo pero interactivo al 1% de opacidad de relleno
-      holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
-      holeClone.strokeColor = new paper.Color(0,0,0,0); // Sin línea visible de bordes de colores molestos
-
-      let newHoleItem = isClipped ? window.clipItem(holeClone) : holeClone;
-      if (!isClipped) parent.addChild(newHoleItem);
-
-      newHoleItem.data = {
-        ...(newHoleItem.data || {}),
-        isHoleController: true,
-        outerItemId: newOuterItem.id,
-        lastHash: "",
-        label: "Hueco"
-      };
-
-      newOuterItem.data.holeIds.push(newHoleItem.id);
-      newItems.push(newHoleItem);
-    });
-
-    // Registrar en el listado reactivo
-    window.ekkoOuters.set(newOuterItem.id, newOuterItem);
-    updateOuterPathGeometry(newOuterItem);
-  });
-
-  item.remove();
-
-  newItems.reverse().forEach(newItem => {
-    if (newItem.parent) {
-      newItem.parent.insertChild(index, newItem);
-    } else {
-      parent.insertChild(index, newItem);
-    }
-  });
-
-  window.deselectItem();
-
-  setTimeout(() => {
-    if (newItems.length > 0) {
-      window.selectedItems = [...newItems];
-      window.selectedItem = newItems[newItems.length - 1];
-      newItems.forEach(it => { if (it) it.selected = true; });
-      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-    }
-    paper.view.update();
-  }, 50);
-}
 
 /**
  * Realiza la resta booleana únicamente cuando el cliente arrastra o deforma activamente el hueco fucsia (Optimizacion 0% CPU)
@@ -766,7 +703,6 @@ export function initContextualMenu() {
   setClick('btnCtxDesagrupar', () => ungroupSelectedItem());
   
   // Botones especiales de la segunda capa
-  setClick('btnCtxSeparateNodes', () => separateContours());
   setClick('btnCtxEditNodes', () => {
     if (window.selectedItem) enterNodeEditMode(window.selectedItem);
   });
@@ -792,7 +728,7 @@ export function initContextualMenu() {
 
   window.groupSelectedItems = groupSelectedItems;
   window.ungroupSelectedItem = ungroupSelectedItem;
-  window.separateContours = separateContours;
+  window.separateContours = ungroupSelectedItem;
 }
 
 export function updateContextualMenu(item) {
@@ -856,13 +792,8 @@ export function updateContextualMenu(item) {
           btnUngroup.style.display = '';
           
           // Cambiar dinámicamente la etiqueta si es un trazado compuesto para que el cliente entienda que puede separar contornos
-          if (target instanceof paper.CompoundPath) {
-            btnUngroup.textContent = "Separar Nodos";
-            btnUngroup.title = "Separar contornos y huecos independientes";
-          } else {
-            btnUngroup.textContent = "Desagrupar";
-            btnUngroup.title = "Desagrupar grupo de objetos";
-          }
+          btnUngroup.textContent = "Desagrupar";
+          btnUngroup.title = "Desagrupar grupo de objetos o separar contornos";
         }
       }
     }
@@ -896,178 +827,3 @@ export function hideContextualMenu() {
     lastSelectedItem = null;
   }
 }
-
-
-// 🚀 OVERRIDE DE SELECCIÓN GRUPAL CANVA-STYLE (MULTIPLE BOUNDING BOXES COHERENT SYSTEM)
-// Esta inyección redefine de forma segura window.updateSelectionBox para que cuando
-// haya múltiples elementos seleccionados (incluyendo vectores SVG desagrupados, textos, imágenes, QRs),
-// cada pieza tenga su propio contorno discontinuo celeste individual de forma estática,
-// resolviendo la inconsistencia visual de forma inmediata y definitiva.
-setTimeout(() => {
-  try {
-    // Liberar la definición global protegida por protectGlobal de selection.js
-    delete window.updateSelectionBox;
-    
-    window.updateSelectionBox = function(item) {
-      if (window.paper && paper.project) {
-        const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
-        if (designLayer) designLayer.activate();
-      }
-
-      if (window.selectionBoxGroup) {
-        window.selectionBoxGroup.remove();
-        window.selectionBoxGroup = null;
-      }
-
-      if (window.nodeEditMode) return;
-
-      const primaryItem = item || window.selectedItem;
-      if (!primaryItem) return;
-
-      // Inmunidad total para mockup, sus descendientes y máscaras
-      let isMockup = false;
-      let curr = primaryItem;
-      while (curr) {
-        if (curr.data && (curr.data.mockup || curr.data.isMask)) {
-          isMockup = true;
-          break;
-        }
-        if (curr === window.currentMockup) {
-          isMockup = true;
-          break;
-        }
-        curr = curr.parent;
-      }
-      if (isMockup) return;
-
-      const selected = (window.selectedItems && window.selectedItems.length > 0)
-        ? window.selectedItems
-        : [primaryItem];
-
-      let bounds = null;
-      selected.forEach(function(it) {
-        const displayItem = (it.data && it.data.clipGroup)
-          ? it.children.find(function(c) { return !c.clipMask; })
-          : it;
-        if (!displayItem) return;
-        if (!bounds) {
-          bounds = displayItem.bounds.clone();
-        } else {
-          bounds = bounds.unite(displayItem.bounds);
-        }
-      });
-
-      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
-
-      window.selectionBoxGroup = new paper.Group();
-      window.selectionBoxGroup.data = { isSelectionBox: true };
-
-      // Cambiar dinámicamente el color del recuadro si hay imantación (Snap a 45°)
-      const isRotSnapped = window.isRotationSnapped && window.rotationActive;
-      const mainColor = isRotSnapped ? '#28a745' : '#007bff';
-
-      // --- 1. CONTORNOS CELESTES INDIVIDUALES ESTÁTICOS (Para cada pieza independiente en multi-selección) ---
-      if (selected.length > 1) {
-        selected.forEach(function(it) {
-          const displayItem = (it.data && it.data.clipGroup)
-            ? it.children.find(function(c) { return !c.clipMask; })
-            : it;
-          if (!displayItem || !displayItem.bounds) return;
-          
-          const indBorder = new paper.Path.Rectangle(displayItem.bounds);
-          indBorder.strokeColor = '#007bff';
-          indBorder.strokeWidth = 1.0 / paper.view.zoom;
-          indBorder.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
-          window.selectionBoxGroup.addChild(indBorder);
-        });
-      }
-
-      // --- 2. CONTORNO ENVOLVENTE GLOBAL ---
-      const border = new paper.Path.Rectangle(bounds);
-      border.strokeColor = mainColor;
-      border.strokeWidth = 1.5 / paper.view.zoom;
-      border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
-      window.selectionBoxGroup.addChild(border);
-
-      // --- 3. TIRADORES/MANEJADORES ---
-      const handleSize = 8 / paper.view.zoom;
-      const handlesInfo = [
-        { point: bounds.topLeft, type: 'tl' },
-        { point: bounds.topCenter, type: 't' },
-        { point: bounds.topRight, type: 'tr' },
-        { point: bounds.rightCenter, type: 'r' },
-        { point: bounds.bottomRight, type: 'br' },
-        { point: bounds.bottomCenter, type: 'b' },
-        { point: bounds.bottomLeft, type: 'bl' },
-        { point: bounds.leftCenter, type: 'l' }
-      ];
-
-      handlesInfo.forEach(function(info) {
-        const rect = new paper.Path.Rectangle({
-          center: info.point,
-          size: [handleSize, handleSize],
-          strokeColor: mainColor,
-          fillColor: '#ffffff',
-          strokeWidth: 1.5 / paper.view.zoom
-        });
-        rect.data = { isHandle: true, handleType: info.type };
-        window.selectionBoxGroup.addChild(rect);
-      });
-
-      // --- 4. CONTROLADOR DE ROTACIÓN ---
-      const rotHandleDistance = 25 / paper.view.zoom;
-      const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
-
-      const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
-      connector.strokeColor = mainColor;
-      connector.strokeWidth = 1.2 / paper.view.zoom;
-      window.selectionBoxGroup.addChild(connector);
-
-      const rotHandleCircle = new paper.Path.Circle({
-        center: rotHandleCenter,
-        radius: 7.5 / paper.view.zoom,
-        strokeColor: mainColor,
-        fillColor: '#ffffff',
-        strokeWidth: 1.5 / paper.view.zoom
-      });
-      rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
-      window.selectionBoxGroup.addChild(rotHandleCircle);
-
-      const iconRadius = 3.5 / paper.view.zoom;
-      const arrowIcon = new paper.Path.Arc(
-        rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
-        rotHandleCenter.add(new paper.Point(0, -iconRadius)),
-        rotHandleCenter.add(new paper.Point(iconRadius, 0))
-      );
-      arrowIcon.strokeColor = mainColor;
-      arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
-      window.selectionBoxGroup.addChild(arrowIcon);
-
-      const arrowTip = new paper.Path();
-      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
-      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
-      arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
-      arrowTip.strokeColor = mainColor;
-      arrowTip.strokeWidth = 1.2 / paper.view.zoom;
-      window.selectionBoxGroup.addChild(arrowTip);
-
-      window.selectionBoxGroup.bringToFront();
-
-      if (typeof window.applyPositionCorrections === "function") {
-        window.applyPositionCorrections();
-      }
-
-      // Sincronizar dinámicamente el input de rotación de la barra flotante para cualquier tipo de objeto
-      if (typeof window.bindRotationInputEvents === "function") {
-        window.bindRotationInputEvents();
-      }
-      if (typeof window.syncContextualRotationInput === "function") {
-        window.syncContextualRotationInput(primaryItem);
-      }
-    };
-    
-    console.log("🚀 updateSelectionBox redefinido con éxito para contornos múltiples simultáneos.");
-  } catch(err) {
-    console.error("Error redefinando updateSelectionBox:", err);
-  }
-}, 600);
