@@ -416,11 +416,23 @@ export function ungroupSelectedItem() {
   newItems.reverse().forEach(newItem => {
     if (newItem.parent) {
       newItem.parent.insertChild(index, newItem);
+    } else {
+      parent.insertChild(index, newItem);
     }
   });
   window.deselectItem();
   if (newItems.length > 0) {
-    window.selectItem(newItems);
+    window.selectedItems = [...newItems];
+    window.selectedItem = newItems[newItems.length - 1];
+    newItems.forEach(it => {
+      if (it) it.selected = true;
+    });
+    if (typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+    if (typeof window.updateContextualMenu === 'function') {
+      window.updateContextualMenu(window.selectedItem);
+    }
   }
   paper.view.update();
 }
