@@ -668,27 +668,69 @@ export function updateOuterPathGeometry(outerItem) {
   let combined = outerItem.data.originalPath.clone({ insert: false });
 
   // Restar de forma booleana cada hueco que siga existiendo en la escena
-  outerItem.data.holes.forEach(hole => {
-    if (hole && hole.parent) {
-      const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
-      if (targetHole) {
-        const temp = combined.subtract(targetHole);
-        combined.remove();
-        combined = temp;
+  if (outerItem.data.holes && outerItem.data.holes.length > 0) {
+    outerItem.data.holes.forEach(hole => {
+      if (hole && hole.parent) {
+        const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
+        if (targetHole) {
+          const temp = combined.subtract(targetHole);
+          combined.remove();
+          combined = temp;
+        }
       }
-    }
-  });
-
-  // Copiar la geometría resultante de vuelta al objeto visual
-  targetOuter.segments = combined.segments;
-  if (combined instanceof paper.CompoundPath) {
-    // Si la resta dio un trazado compuesto (múltiples islas/huecos), clonamos sus hijos
-    targetOuter.children = combined.children.map(c => c.clone());
-  } else {
-    // Si es un trazado simple, vaciamos sub-trazados
-    targetOuter.children = [];
+    });
   }
-  combined.remove();
+
+  // Copiar la geometría resultante de forma segura mediante reemplazo de nodos
+  const parent = targetOuter.parent;
+  if (parent && combined) {
+    const idx = parent.children.indexOf(targetOuter);
+    if (idx !== -1) {
+      const newPath = combined.clone({ insert: false });
+      
+      // Preservar estilo visual
+      newPath.fillColor = targetOuter.fillColor;
+      newPath.strokeColor = targetOuter.strokeColor;
+      newPath.strokeWidth = targetOuter.strokeWidth;
+      newPath.dashArray = targetOuter.dashArray;
+      newPath.data = { ...(targetOuter.data || {}) };
+
+      parent.insertChild(idx, newPath);
+
+      // Si targetOuter es el propio outerItem (caso no enmascarado)
+      if (targetOuter === outerItem) {
+        if (window.selectedItem === outerItem) {
+          window.selectedItem = newPath;
+        }
+        if (window.selectedItems) {
+          const sIdx = window.selectedItems.indexOf(outerItem);
+          if (sIdx !== -1) {
+            window.selectedItems[sIdx] = newPath;
+          }
+        }
+        // Actualizar la referencia de los huecos hacia el nuevo contorno exterior
+        if (outerItem.data?.holes) {
+          outerItem.data.holes.forEach(h => {
+            if (h && h.data) h.data.outerItem = newPath;
+          });
+        }
+      } else {
+        // Si estaba enmascarado (clipGroup), el item visual principal sigue siendo outerItem,
+        // pero la caja de selección celeste de Paper.js necesita redibujarse
+        if (window.selectedItem === outerItem) {
+          setTimeout(() => {
+            if (typeof window.updateSelectionBox === 'function') {
+              window.updateSelectionBox(outerItem);
+            }
+          }, 0);
+        }
+      }
+
+      targetOuter.remove();
+    }
+  }
+
+  if (combined) combined.remove();
   paper.view.update();
 }
 
@@ -704,20 +746,26 @@ if (typeof window.paper !== 'undefined' && paper.view) {
 
     outers.forEach(outerItem => {
       let needsUpdate = false;
-      outerItem.data.holes.forEach(hole => {
-        if (hole && hole.parent) {
-          const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.width.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
-          if (hole.data.lastHash !== currentHash) {
-            hole.data.lastHash = currentHash;
+      const validHoles = [];
+      
+      if (outerItem.data?.holes) {
+        outerItem.data.holes.forEach(hole => {
+          if (hole && hole.parent) {
+            validHoles.push(hole);
+            const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.bounds.width.toFixed(1)},${hole.bounds.height.toFixed(1)},${hole.rotation}`;
+            if (hole.data.lastHash !== currentHash) {
+              hole.data.lastHash = currentHash;
+              needsUpdate = true;
+            }
+          } else {
+            // El hueco fue eliminado, requiere actualización para rellenarse
             needsUpdate = true;
           }
-        } else {
-          // El hueco fue eliminado, requiere actualización para rellenarse
-          needsUpdate = true;
-        }
-      });
+        });
+      }
 
       if (needsUpdate) {
+        outerItem.data.holes = validHoles; // Limpiar los huecos que ya no existen para evitar bucles
         updateOuterPathGeometry(outerItem);
       }
     });
