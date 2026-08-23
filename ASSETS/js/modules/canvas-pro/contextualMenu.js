@@ -713,6 +713,7 @@ export function separateContours(itemToProcess) {
   const originalFillColor = target.fillColor;
   const pathAbsMatrix = getGlobalMatrix(target);
 
+  const outersToSelect = [];
   outers.forEach(outerPath => {
     const outerClone = outerPath.clone({ insert: false });
     outerClone.fillColor = originalFillColor;
@@ -738,6 +739,7 @@ export function separateContours(itemToProcess) {
       isOuterWithHoles: true
     };
     newItems.push(newOuterItem);
+    outersToSelect.push(newOuterItem);
 
     const associatedHoles = holesMap.get(outerPath) || [];
     associatedHoles.forEach(holePath => {
@@ -772,6 +774,10 @@ export function separateContours(itemToProcess) {
       if (outIdx !== -1) {
         newItems[outIdx] = updatedOuter;
       }
+      const selectIdx = outersToSelect.indexOf(newOuterItem);
+      if (selectIdx !== -1) {
+        outersToSelect[selectIdx] = updatedOuter;
+      }
     }
   });
 
@@ -781,10 +787,10 @@ export function separateContours(itemToProcess) {
   });
   window.deselectItem();
   setTimeout(() => {
-    if (newItems.length > 0) {
-      window.selectedItems = [...newItems];
-      window.selectedItem = newItems[newItems.length - 1];
-      newItems.forEach(it => { if (it) it.selected = true; });
+    if (outersToSelect.length > 0) {
+      window.selectedItems = [...outersToSelect];
+      window.selectedItem = outersToSelect[outersToSelect.length - 1];
+      outersToSelect.forEach(it => { if (it) it.selected = true; });
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     }
