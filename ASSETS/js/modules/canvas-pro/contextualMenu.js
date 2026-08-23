@@ -1,12 +1,12 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v13 PRO - NESTED HOLES FIX)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v13 PRO - NESTED HOLES FIX)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
-Descripción: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
-desplegable de fuentes personalizado basado en div con previsualización del texto dinámico
-en tiempo real, e inyección dinámica de familias de fuentes.
-SOPORTE COMPLETO DE AGRUPACIÓN Y DESAGRUPACIÓN EN LÍNEA PARA CLIENTES Y SVGS CARGADOS.
+Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
+desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
+en tiempo real, e inyeccion dinamica de familias de fuentes.
+SOPORTE COMPLETO DE AGRUPACION Y DESAGRUPACION EN LINEA PARA CLIENTES Y SVGS CARGADOS.
 
-CORRECCIÓN DE ERRORES CRÍTICOS: Matriz global segura, actualización reactiva de calados (eje X e Y)
+CORRECCION DE ERRORES CRITICOS: Matriz global segura, actualizacion reactiva de calados (eje X e Y)
 y acoplamiento correcto de separateContours().
 ========================================================================= */
 
@@ -14,7 +14,7 @@ import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, ap
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 
-// Variable global de previsualización en window
+// Variable global de previsualizacion en window
 window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
@@ -24,7 +24,7 @@ let lastSelectedItem = null;
 window.ekkoOuters = window.ekkoOuters || new Map();
 window.ekkoHolesMap = window.ekkoHolesMap || new Map();
 
-// --- INYECCIÓN DE ESTILOS CSS PARA EL MENÚ PERSONALIZADO ---
+// --- INYECCION DE ESTILOS CSS PARA EL MENU PERSONALIZADO ---
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
   const styleEl = document.createElement('style');
@@ -63,8 +63,8 @@ function removeOverlapTab() {
 }
 
 /**
- * Inyecta dinámicamente las reglas de @font-face en el encabezado (head) para cada fuente devuelta,
- * asegurando la creación de familias para los alias.
+ * Inyecta dinamicamente las reglas de @font-face en el encabezado (head) para cada fuente devuelta,
+ * asegurando la creacion de familias para los alias.
  */
 function injectFontFaces(fonts) {
   let styleEl = document.getElementById('ekko-dynamic-font-faces');
@@ -89,7 +89,7 @@ function injectFontFaces(fonts) {
 }
 
 /**
- * Obtiene el texto actualmente seleccionado para la previsualización interactiva del dropdown
+ * Obtiene el texto actualmente seleccionado para la previsualizacion interactiva del dropdown
  */
 function getSelectedTextString() {
   if (!window.selectedItem) return "EKKO Studio";
@@ -121,7 +121,7 @@ function getSelectedFontFamily() {
 }
 
 /**
- * Aplica de forma directa o curva la tipografía seleccionada conservando la estructura y el Canvas de Paper.js
+ * Aplica de forma directa o curva la tipografia seleccionada conservando la estructura y el Canvas de Paper.js
  */
 export function applyFontFamily(item, fontFamily) {
   if (!item || item.data?.locked) return;
@@ -145,7 +145,7 @@ export function applyFontFamily(item, fontFamily) {
 }
 
 /**
- * Genera los ítems de fuentes con previsualización dinámica dentro del dropdown personalizado
+ * Genera los items de fuentes con previsualizacion dinamica dentro del dropdown personalizado
  */
 function renderCustomFontItems(listContainer, fonts) {
   listContainer.innerHTML = "";
@@ -189,7 +189,7 @@ function renderCustomFontItems(listContainer, fonts) {
 }
 
 /**
- * Carga las fuentes dinámicas de la API, inyecta sus @font-face y puebla el dropdown personalizado
+ * Carga las fuentes dinamicas de la API, inyecta sus @font-face y puebla el dropdown personalizado
  */
 async function populateFontDropdowns() {
   let fonts = [];
@@ -203,7 +203,7 @@ async function populateFontDropdowns() {
       }
     }
   } catch (err) {
-    console.error("Error al cargar las tipografías dinámicas en el menú contextual:", err);
+    console.error("Error al cargar las tipografias dinamicas en el menu contextual:", err);
   }
   fontsCache = fonts;
   injectFontFaces(fonts);
@@ -251,7 +251,7 @@ async function populateFontDropdowns() {
 }
 
 /**
- * Hace que el menú contextual flotante sea arrastrable por el lienzo de edición
+ * Hace que el menu contextual flotante sea arrastrable por el lienzo de edicion
  */
 function makeToolbarDraggable() {
   const toolbar = document.getElementById('contextual-toolbar');
@@ -291,7 +291,7 @@ function makeToolbarDraggable() {
 
 /**
  * Obtiene de forma recursiva todos los elementos vectoriales finales de la escena (hijos finales),
- * disolviendo los grupos intermedios anidados y aplicando la matriz global de transformación
+ * disolviendo los grupos intermedios anidados y aplicando la matriz global de transformacion
  * para evitar saltos o saltos visuales indeseados (Cero Onion Effect).
  */
 function getLeafItemsRecursive(item) {
@@ -311,8 +311,8 @@ function getLeafItemsRecursive(item) {
 }
 
 /**
- * Agrupa múltiples elementos en un CompoundPath único (si son vectores) o en un Grupo tradicional de Paper.js.
- * Si se incluye un controlador de hueco y su Outer, los refunde nativamente para corte láser.
+ * Agrupa multiples elementos en un CompoundPath unico (si son vectores) o en un Grupo tradicional de Paper.js.
+ * Si se incluye un controlador de hueco y su Outer, los refunde nativamente para corte laser.
  */
 export function groupSelectedItems() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
@@ -341,11 +341,11 @@ export function groupSelectedItems() {
   outersInSelection.forEach(outerItem => {
     const originalPath = outerItem.data.originalPath;
     const holeIds = outerItem.data.holeIds || [];
-    // Obtener controladores de hueco asociados que también están seleccionados
+    // Obtener controladores de hueco asociados que tambien estan seleccionados
     const associatedHoles = holeIds
       .map(id => paper.project.getItem({ id }))
       .filter(h => h && selected.includes(h) && h.parent);
-    // Destruir los controladores y eliminarlos de la selección
+    // Destruir los controladores y eliminarlos de la seleccion
     associatedHoles.forEach(h => {
       const idx = selected.indexOf(h);
       if (idx > -1) selected.splice(idx, 1);
@@ -394,7 +394,7 @@ export function groupSelectedItems() {
 }
 
 /**
- * Desagrupa el elemento seleccionado de forma jerárquica, limpia y progresiva (de más a menos),
+ * Desagrupa el elemento seleccionado de forma jerarquica, limpia y progresiva (de mas a menos),
  * separando caracteres de texto, contornos o grupos de forma ordenada.
  */
 function getMatrixRelativeTo(item, targetAncestor) {
@@ -431,7 +431,7 @@ function getActiveGroupTarget(group) {
 }
 
 export function ungroupSelectedItem() {
-  // Soporte tanto para multi-selección como selección simple de grupos
+  // Soporte tanto para multi-seleccion como seleccion simple de grupos
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
@@ -450,11 +450,11 @@ export function ungroupSelectedItem() {
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica (UN nivel a la vez, de más a menos)
+    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica (UN nivel a la vez, de mas a menos)
     if (activeTarget instanceof paper.Group) {
       const children = [...activeTarget.children];
       children.forEach(child => {
-        // CORRECCIÓN 1: Acceder de forma segura a child.data.globalMatrix o usar child.matrix como fallback
+        // CORRECCION 1: Acceder de forma segura a child.data.globalMatrix o usar child.matrix como fallback
         const absMatrix = getGlobalMatrix(child);
         child.remove();
         let newItem;
@@ -492,7 +492,7 @@ export function ungroupSelectedItem() {
     }
     // C. SI ES COMPOUNDPATH: Dividimos en sub-islas conservando calado
     else if (activeTarget instanceof paper.CompoundPath) {
-      // State Guard: Si el elemento ya fue desagrupado y tiene huecos independientes interactivos, disolvemos el calado para separar físicamente los huecos
+      // State Guard: Si el elemento ya fue desagrupado y tiene huecos independientes interactivos, disolvemos el calado para separar fisicamente los huecos
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
         if (dissolved && dissolved.length > 0) {
@@ -526,7 +526,7 @@ export function ungroupSelectedItem() {
         });
         const originalFill = activeTarget.fillColor;
         if (outers.length === 1) {
-          // LLAMADA SEGURA: Pasar true para evitar colisión de timeouts de selección
+          // LLAMADA SEGURA: Pasar true para evitar colision de timeouts de seleccion
           const separated = separateContours(item, true);
           if (separated && separated.length > 0) {
             newItems.push(...separated);
@@ -559,17 +559,17 @@ export function ungroupSelectedItem() {
         item.remove();
       }
     }
-    // Reinsertar de forma atómica en el parent original respetando la capa y el índice exacto
+    // Reinsertar de forma atomica en el parent original respetando la capa y el indice exacto
     newItems.reverse().forEach(newItem => {
       parent.insertChild(index, newItem);
     });
     finalNewItems.push(...newItems);
   });
   window.deselectItem();
-  // Retardo controlado de 50ms para evitar carreras de renderizado en el menú flotante
+  // Retardo controlado de 50ms para evitar carreras de renderizado en el menu flotante
   setTimeout(() => {
     if (finalNewItems.length > 0) {
-      // Filtrar y omitir controladores de hueco transparentes en la auto-selección global de desagrupar
+      // Filtrar y omitir controladores de hueco transparentes en la auto-seleccion global de desagrupar
       const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
       const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
       window.selectedItems = [...selectList];
@@ -605,7 +605,7 @@ function splitPointTextIntoLetters(pointText) {
 }
 
 /**
- * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opción B).
+ * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opcion B).
  * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
  */
 export function dissolveOuterWithHoles(item) {
@@ -616,7 +616,7 @@ export function dissolveOuterWithHoles(item) {
   if (typeof window.ekkoOuters !== 'undefined') {
     window.ekkoOuters.delete(item.id);
   }
-  // 2. Crear clon de la silueta base sólida (sin calar)
+  // 2. Crear clon de la silueta base solida (sin calar)
   if (item.data.originalPath) {
     const restoredOuter = item.data.originalPath.clone({ insert: false });
     restoredOuter.fillColor = item.fillColor;
@@ -692,13 +692,13 @@ export function separateContours(itemToProcess, skipSelection = false) {
   pathNesting.forEach(entry => {
     const p = entry.path;
     const containers = entry.containers;
-    // Algoritmo Par-Impar (Even-Odd winding/nesting rule) para jerarquías vectoriales ilimitadas:
-    // Si el número de contenedores es par (0, 2, 4...), es un contorno exterior (isla rellena independiente).
+    // Algoritmo Par-Impar (Even-Odd winding/nesting rule) para jerarquias vectoriales ilimitadas:
+    // Si el numero de contenedores es par (0, 2, 4...), es un contorno exterior (isla rellena independiente).
     if (containers.length % 2 === 0) {
       outers.push(p);
       if (!holesMap.has(p)) holesMap.set(p, []);
     } else {
-      // Si es impar (1, 3, 5...), es un hueco calado de su contenedor inmediato más pequeño.
+      // Si es impar (1, 3, 5...), es un hueco calado de su contenedor inmediato mas pequeno.
       let immediateContainer = null;
       let minArea = Infinity;
       containers.forEach(c => {
@@ -809,7 +809,7 @@ export function updateOuterPathGeometry(outerItem) {
   if (!targetOuter) return outerItem;
   let resultOuter = outerItem;
 
-  // 1. Obtener la geometría exterior sólida en coordenadas globales con alineación absoluta
+  // 1. Obtener la geometria exterior solida en coordenadas globales con alineacion absoluta
   const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
   const outerGlobalMatrix = getGlobalMatrix(targetOuter);
   solidGlobal.matrix = outerGlobalMatrix;
@@ -817,7 +817,7 @@ export function updateOuterPathGeometry(outerItem) {
   const holeIds = outerItem.data.holeIds || [];
   let combined = solidGlobal;
 
-  // 2. Restar cada hueco en coordenadas globales utilizando applyMatrix para evitar doble transformación
+  // 2. Restar cada hueco en coordenadas globales utilizando applyMatrix para evitar doble transformacion
   holeIds.forEach(id => {
     const hole = paper.project.getItem({ id });
     if (hole && hole.parent) {
@@ -825,7 +825,7 @@ export function updateOuterPathGeometry(outerItem) {
       if (targetHole) {
         const holeGlobalMatrix = getGlobalMatrix(targetHole);
         const holeGlobal = targetHole.clone({ insert: false });
-        // Sobreescribimos la matriz local para aplicar únicamente la matriz global acumulada y la horneamos (applyMatrix)
+        // Sobreescribimos la matriz local para aplicar unicamente la matriz global acumulada y la horneamos (applyMatrix)
         holeGlobal.matrix = holeGlobalMatrix;
         holeGlobal.applyMatrix = true;
         let temp = null;
@@ -850,11 +850,11 @@ export function updateOuterPathGeometry(outerItem) {
       localCombined.matrix = outerGlobalMatrix.inverted();
       localCombined.applyMatrix = true; // Horneamos las coordenadas locales resultantes
     } catch (err) {
-      console.warn("Fallo no crítico al invertir la matriz en updateOuterPathGeometry:", err);
+      console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
     }
   }
 
-  // 4. Reemplazar de forma atómica y limpia el trazado en el lienzo
+  // 4. Reemplazar de forma atomica y limpia el trazado en el lienzo
   const parent = targetOuter.parent;
   if (parent && localCombined) {
     const idx = parent.children.indexOf(targetOuter);
@@ -893,7 +893,7 @@ export function updateOuterPathGeometry(outerItem) {
   return resultOuter;
 }
 
-// 🚀 RECEPTOR DE MARCO DE PAPER.JS PARA EVENTO TICK (Reactivo al arrastre, 0% CPU en reposo)
+//  RECEPTOR DE MARCO DE PAPER.JS PARA EVENTO TICK (Reactivo al arrastre, 0% CPU en reposo)
 if (typeof window.paper !== 'undefined' && paper.view) {
   paper.view.on('frame', () => {
     if (!paper.project || !paper.project.activeLayer) return;
@@ -905,7 +905,7 @@ if (typeof window.paper !== 'undefined' && paper.view) {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
-          // CORRECCIÓN 3: Agregar '$' para interpolar correctamente la expresión, e incluir el eje X en el Hash para detectar movimientos horizontales.
+          // CORRECCION 3: Agregar '$' para interpolar correctamente la expresion, e incluir el eje X en el Hash para detectar movimientos horizontales.
           const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
             hole.data.lastHash = currentHash;
@@ -923,7 +923,7 @@ if (typeof window.paper !== 'undefined' && paper.view) {
   });
 }
 
-// --- RENDEREADOR DE CAJA DE SELECCIÓN MULTIPLE CON CONTONTORNOS CELESTES INDEPENDIENTES (ESTILO FIGMA/CANVA/ILLUSTRATOR) ---
+// --- RENDEREADOR DE CAJA DE SELECCION MULTIPLE CON CONTONTORNOS CELESTES INDEPENDIENTES (ESTILO FIGMA/CANVA/ILLUSTRATOR) ---
 if (typeof window !== 'undefined') {
   const customUpdateSelectionBox = function(item) {
     if (window.selectionBoxGroup) {
@@ -982,7 +982,7 @@ if (typeof window !== 'undefined') {
       });
     }
 
-    // 2. Dibujar la caja de selección global de color azul celeste alrededor de todo el conjunto
+    // 2. Dibujar la caja de seleccion global de color azul celeste alrededor de todo el conjunto
     const isRotSnapped = window.isRotationSnapped && window.rotationActive;
     const mainColor = isRotSnapped ? '#28a745' : '#007bff';
     const border = new paper.Path.Rectangle(bounds);
@@ -1144,7 +1144,7 @@ export function initContextualMenu() {
     };
   }
 
-  // --- 3. ACCIONES DE ORGANIZACIÓN (VECTORES / SVGS) ---
+  // --- 3. ACCIONES DE ORGANIZACION (VECTORES / SVGS) ---
   setClick('btnCtxGroup', () => groupSelectedItems());
   setClick('btnCtxAgrupar', () => groupSelectedItems());
   setClick('btnCtxUngroup', () => ungroupSelectedItem());
@@ -1273,7 +1273,7 @@ export function updateContextualMenu(item) {
     }
   }
 
-  // Reposicionar el menú si el usuario no lo ha arrastrado, o si cambió el objeto de selección
+  // Reposicionar el menu si el usuario no lo ha arrastrado, o si cambio el objeto de seleccion
   if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
     toolbar.style.left = window.customToolbarLeft + 'px';
     toolbar.style.top = window.customToolbarTop + 'px';
@@ -1308,7 +1308,7 @@ export function hideContextualMenu() {
   }
 }
 
-// 🚀 REPOSICIONADOR GLOBAL HTML: Sincronizar elementos flotantes en body al arrastrar o hacer zoom
+//  REPOSICIONADOR GLOBAL HTML: Sincronizar elementos flotantes en body al arrastrar o hacer zoom
 window.applyPositionCorrections = function() {
   const toolbar = document.getElementById("contextual-toolbar");
   const textEditor = document.getElementById("ekko-text-editor");
