@@ -409,14 +409,6 @@ function getMatrixRelativeTo(item, targetAncestor) {
     return matrix;
 }
 
-function getGlobalMatrix(item) {
-    if (!item) return new paper.Matrix();
-    if (item.data && item.data.globalMatrix) {
-        return item.data.globalMatrix.clone();
-    }
-    return getMatrixRelativeTo(item, null);
-}
-
 function getActiveGroupTarget(group) {
     let current = group;
     while (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
@@ -455,7 +447,9 @@ export function ungroupSelectedItem() {
             const children = [...activeTarget.children];
             children.forEach(child => {
                 // CORRECCIÓN 1: Acceder de forma segura a child.data.globalMatrix o usar child.matrix como fallback
-                const absMatrix = getGlobalMatrix(child);
+                const absMatrix = (child.data && child.data.globalMatrix) 
+                    ? child.data.globalMatrix.clone() 
+                    : (child.matrix ? child.matrix.clone() : new paper.Matrix());
                 child.remove();
                 let newItem;
                 if (isClipped) {
@@ -473,7 +467,9 @@ export function ungroupSelectedItem() {
         }
         // B. SI ES TEXTO: Dividimos en PointText independientes por letras
         else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
-            const textAbsMatrix = getGlobalMatrix(activeTarget);
+            const textAbsMatrix = (activeTarget.data && activeTarget.data.globalMatrix)
+                ? activeTarget.data.globalMatrix.clone()
+                : (activeTarget.matrix ? activeTarget.matrix.clone() : new paper.Matrix());
             const letters = splitPointTextIntoLetters(activeTarget);
             letters.forEach(letter => {
                 let newItem;
@@ -492,6 +488,7 @@ export function ungroupSelectedItem() {
         }
         // C. SI ES COMPOUNDPATH: Dividimos en sub-islas conservando calado
         else if (activeTarget instanceof paper.CompoundPath) {
+            if (activeTarget.data?.isOuterWithHoles) return; // Evitar bucles de duplicidad y borrado
             const subPaths = [...activeTarget.children];
             if (subPaths.length === 0) return;
             const outers = [];
@@ -523,7 +520,9 @@ export function ungroupSelectedItem() {
                 separateContours(item);
                 return;
             }
-            const pathAbsMatrix = getGlobalMatrix(activeTarget);
+            const pathAbsMatrix = (activeTarget.data && activeTarget.data.globalMatrix)
+                ? activeTarget.data.globalMatrix.clone()
+                : (activeTarget.matrix ? activeTarget.matrix.clone() : new paper.Matrix());
             outers.forEach(outerPath => {
                 const outerClone = outerPath.clone({ insert: false });
                 const associatedHoles = holesMap.get(outerPath) || [];
@@ -634,7 +633,9 @@ export function separateContours(itemToProcess) {
     });
 
     const originalFillColor = target.fillColor;
-    const pathAbsMatrix = getGlobalMatrix(target);
+    const pathAbsMatrix = (target.data && target.data.globalMatrix)
+        ? target.data.globalMatrix.clone()
+        : (target.matrix ? target.matrix.clone() : new paper.Matrix());
 
     outers.forEach(outerPath => {
         const outerClone = outerPath.clone({ insert: false });
@@ -703,12 +704,24 @@ export function separateContours(itemToProcess) {
     }, 50);
 }
 
+function getGlobalMatrix(item) {
+    let matrix = new paper.Matrix();
+    let current = item;
+    while (current && !(current instanceof paper.Layer) && current.parent) {
+        if (current.matrix) {
+            matrix = current.matrix.chain(matrix);
+        }
+        current = current.parent;
+    }
+    return matrix;
+}
+
 export function updateOuterPathGeometry(outerItem) {
     if (!outerItem || !outerItem.data?.originalPath) return;
     const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
     if (!targetOuter) return;
 
-    // 1. Obtener la geometría exterior sólida en coordenadas globales utilizando globalMatrix
+    // 1. Obtener la geometría exterior sólida en coordenadas globales utilizando getGlobalMatrix
     const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
     const outerGlobalMatrix = getGlobalMatrix(targetOuter);
     solidGlobal.transform(outerGlobalMatrix);
