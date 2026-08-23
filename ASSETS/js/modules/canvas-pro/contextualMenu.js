@@ -691,7 +691,13 @@ export function separateContours(itemToProcess) {
             newItems.push(newHoleItem);
         });
         window.ekkoOuters.set(newOuterItem.id, newOuterItem);
-        updateOuterPathGeometry(newOuterItem);
+        const updatedOuter = updateOuterPathGeometry(newOuterItem);
+        if (updatedOuter && updatedOuter !== newOuterItem) {
+            const outIdx = newItems.indexOf(newOuterItem);
+            if (outIdx !== -1) {
+                newItems[outIdx] = updatedOuter;
+            }
+        }
     });
 
     item.remove();
@@ -712,9 +718,11 @@ export function separateContours(itemToProcess) {
 }
 
 export function updateOuterPathGeometry(outerItem) {
-    if (!outerItem || !outerItem.data?.originalPath) return;
+    if (!outerItem || !outerItem.data?.originalPath) return outerItem;
     const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
-    if (!targetOuter) return;
+    if (!targetOuter) return outerItem;
+
+    let resultOuter = outerItem;
 
     // 1. Obtener la geometría exterior sólida en coordenadas globales con alineación absoluta
     const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
@@ -766,6 +774,7 @@ export function updateOuterPathGeometry(outerItem) {
             newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz (generalmente identidad)
             newPath.data = { ...(targetOuter.data || {}) };
             parent.insertChild(idx, newPath);
+            resultOuter = newPath;
             if (targetOuter === outerItem) {
                 if (window.selectedItem === outerItem) {
                     window.selectedItem = newPath;
@@ -788,6 +797,7 @@ export function updateOuterPathGeometry(outerItem) {
     if (combined) combined.remove();
     if (localCombined) localCombined.remove();
     paper.view.update();
+    return resultOuter;
 }
 
 // 🚀 RECEPTOR DE MARCO DE PAPER.JS PARA EVENTO TICK (Reactivo al arrastre, 0% CPU en reposo)
