@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v12 PRO - CORREGIDO)
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v13 PRO - NESTED HOLES FIX)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripción: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
 desplegable de fuentes personalizado basado en div con previsualización del texto dinámico
@@ -666,28 +666,47 @@ export function separateContours(itemToProcess) {
   const index = parent.children.indexOf(item);
   const newItems = [];
   const subPaths = [...target.children];
-  const outers = [];
-  const holesMap = new Map();
-
+  const pathNesting = [];
   subPaths.forEach(p => {
-    let container = null;
+    const containers = [];
     subPaths.forEach(other => {
       if (other !== p) {
         const otherArea = Math.abs(other.area) || other.bounds.area;
         const pArea = Math.abs(p.area) || p.bounds.area;
         if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
-          if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
-            container = other;
-          }
+          containers.push(other);
         }
       }
     });
-    if (container) {
-      if (!holesMap.has(container)) holesMap.set(container, []);
-      holesMap.get(container).push(p);
-    } else {
+    pathNesting.push({ path: p, containers: containers });
+  });
+
+  const outers = [];
+  const holesMap = new Map();
+
+  pathNesting.forEach(entry => {
+    const p = entry.path;
+    const containers = entry.containers;
+    // Algoritmo Par-Impar (Even-Odd winding/nesting rule) para jerarquías vectoriales ilimitadas:
+    // Si el número de contenedores es par (0, 2, 4...), es un contorno exterior (isla rellena independiente).
+    if (containers.length % 2 === 0) {
       outers.push(p);
       if (!holesMap.has(p)) holesMap.set(p, []);
+    } else {
+      // Si es impar (1, 3, 5...), es un hueco calado de su contenedor inmediato más pequeño.
+      let immediateContainer = null;
+      let minArea = Infinity;
+      containers.forEach(c => {
+        const cArea = Math.abs(c.area) || c.bounds.area;
+        if (cArea < minArea) {
+          minArea = cArea;
+          immediateContainer = c;
+        }
+      });
+      if (immediateContainer) {
+        if (!holesMap.has(immediateContainer)) holesMap.set(immediateContainer, []);
+        holesMap.get(immediateContainer).push(p);
+      }
     }
   });
 
