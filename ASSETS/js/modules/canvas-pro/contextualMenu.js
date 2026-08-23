@@ -499,64 +499,11 @@ export function ungroupSelectedItem() {
           newItems.push(...dissolved);
         }
       } else {
-        const subPaths = [...activeTarget.children];
-        if (subPaths.length === 0) return;
-        const outers = [];
-        const holesMap = new Map();
-        subPaths.forEach(p => {
-          let container = null;
-          subPaths.forEach(other => {
-            if (other !== p) {
-              const otherArea = Math.abs(other.area) || other.bounds.area;
-              const pArea = Math.abs(p.area) || p.bounds.area;
-              if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
-                if (!container || otherArea < (Math.abs(container.area) || container.bounds.area)) {
-                  container = other;
-                }
-              }
-            }
-          });
-          if (container) {
-            if (!holesMap.has(container)) holesMap.set(container, []);
-            holesMap.get(container).push(p);
-          } else {
-            outers.push(p);
-            if (!holesMap.has(p)) holesMap.set(p, []);
-          }
-        });
-        const originalFill = activeTarget.fillColor;
-        if (outers.length === 1) {
-          // LLAMADA SEGURA: Pasar true para evitar colision de timeouts de seleccion
-          const separated = separateContours(item, true);
-          if (separated && separated.length > 0) {
-            newItems.push(...separated);
-          }
+        // LLAMADA UNIFICADA: separateContours maneja cualquier cantidad de islas exteriores (1 o mas)
+        const separated = separateContours(item, true);
+        if (separated && separated.length > 0) {
+          newItems.push(...separated);
         }
-        const pathAbsMatrix = getGlobalMatrix(activeTarget);
-        outers.forEach(outerPath => {
-          const outerClone = outerPath.clone({ insert: false });
-          const associatedHoles = holesMap.get(outerPath) || [];
-          let letterItem;
-          if (associatedHoles.length > 0) {
-            const childrenList = [outerClone, ...associatedHoles.map(h => h.clone({ insert: false }))];
-            letterItem = new paper.CompoundPath({ children: childrenList, fillColor: originalFill });
-          } else {
-            outerClone.fillColor = originalFill;
-            letterItem = outerClone;
-          }
-          let newItem;
-          if (isClipped) {
-            newItem = window.clipItem(letterItem);
-            newItem.matrix = new paper.Matrix(); // Identity
-            letterItem.matrix = pathAbsMatrix.clone().chain(letterItem.matrix);
-          } else {
-            newItem = letterItem;
-            newItem.matrix = pathAbsMatrix.clone().chain(letterItem.matrix);
-            parent.addChild(newItem);
-          }
-          newItems.push(newItem);
-        });
-        item.remove();
       }
     }
     // Reinsertar de forma atomica en el parent original respetando la capa y el indice exacto
