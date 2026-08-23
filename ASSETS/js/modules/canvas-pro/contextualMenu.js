@@ -1,10 +1,11 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v12 PRO)
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v12 PRO - CORREGIDO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripción: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
 desplegable de fuentes personalizado basado en div con previsualización del texto dinámico
 en tiempo real, e inyección dinámica de familias de fuentes.
 SOPORTE COMPLETO DE AGRUPACIÓN Y DESAGRUPACIÓN EN LÍNEA PARA CLIENTES Y SVGS CARGADOS.
+
 CORRECCIÓN DE ERRORES CRÍTICOS: Matriz global segura, actualización reactiva de calados (eje X e Y)
 y acoplamiento correcto de separateContours().
 ========================================================================= */
@@ -29,17 +30,17 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
     const styleEl = document.createElement('style');
     styleEl.id = dropdownStylesId;
     styleEl.textContent = `
-.custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
-.selected-font-trigger { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; color: #333; height: 100%; box-sizing: border-box; }
-.font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; width: 320px; max-height: 380px; overflow-y: auto; background: white; border: 1px solid #bbb; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); z-index: 10010; padding: 6px; box-sizing: border-box; }
-.font-dropdown-list.hidden { display: none; }
-.custom-font-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; }
-.custom-font-item:last-child { border-bottom: none; }
-.custom-font-item:hover { background: #f0f8ff; }
-.custom-font-item.active { background: #e6f2ff; border-left: 3px solid #007bff; }
-.custom-font-preview { font-size: 22px; color: #000; line-height: 1.2; word-break: break-all; }
-.custom-font-name { font-size: 11px; color: #777; }
-`;
+        .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
+        .selected-font-trigger { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; color: #333; height: 100%; box-sizing: border-box; }
+        .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; width: 320px; max-height: 380px; overflow-y: auto; background: white; border: 1px solid #bbb; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); z-index: 10010; padding: 6px; box-sizing: border-box; }
+        .font-dropdown-list.hidden { display: none; }
+        .custom-font-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; }
+        .custom-font-item:last-child { border-bottom: none; }
+        .custom-font-item:hover { background: #f0f8ff; }
+        .custom-font-item.active { background: #e6f2ff; border-left: 3px solid #007bff; }
+        .custom-font-preview { font-size: 22px; color: #000; line-height: 1.2; word-break: break-all; }
+        .custom-font-name { font-size: 11px; color: #777; }
+    `;
     document.head.appendChild(styleEl);
 }
 
@@ -60,7 +61,6 @@ function removeOverlapTab() {
         }
     });
 }
-
 /**
  * Inyecta dinámicamente las reglas de @font-face en el encabezado (head) para cada fuente devuelta,
  * asegurando la creación de familias para los alias.
@@ -75,14 +75,14 @@ function injectFontFaces(fonts) {
     let cssRules = "";
     fonts.forEach(font => {
         cssRules += `
-@font-face {
-font-family: "${font.family}";
-src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
-url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
-url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
-font-display: swap;
-}
-`;
+            @font-face {
+                font-family: "${font.family}";
+                src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
+                     url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
+                     url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
+                font-display: swap;
+            }
+        `;
     });
     styleEl.textContent += cssRules;
 }
@@ -186,7 +186,6 @@ function renderCustomFontItems(listContainer, fonts) {
         listContainer.appendChild(item);
     });
 }
-
 /**
  * Carga las fuentes dinámicas de la API, inyecta sus @font-face y puebla el dropdown personalizado
  */
@@ -216,12 +215,12 @@ async function populateFontDropdowns() {
         customDropdown = document.createElement('div');
         customDropdown.className = 'custom-font-dropdown';
         customDropdown.innerHTML = `
-<div class="selected-font-trigger">
-<span>Seleccionar Fuente</span>
-<i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
-</div>
-<div class="font-dropdown-list hidden"></div>
-`;
+            <div class="selected-font-trigger">
+                <span>Seleccionar Fuente</span>
+                <i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
+            </div>
+            <div class="font-dropdown-list hidden"></div>
+        `;
         nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
     }
     if (customDropdown) {
@@ -287,7 +286,6 @@ function makeToolbarDraggable() {
         isDraggingToolbar = false;
     });
 }
-
 /**
  * Obtiene de forma recursiva todos los elementos vectoriales finales de la escena (hijos finales),
  * disolviendo los grupos intermedios anidados y aplicando la matriz global de transformación
@@ -352,7 +350,7 @@ export function groupSelectedItems() {
         });
         const idxOuter = selected.indexOf(outerItem);
         if (idxOuter > -1) selected.splice(idxOuter, 1);
-        
+
         // Reconstruir como CompoundPath nativo refundido para LightBurn
         const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
         const rebuiltPath = targetOuter.clone({ insert: false });
@@ -429,7 +427,6 @@ function getActiveGroupTarget(group) {
     }
     return current;
 }
-
 export function ungroupSelectedItem() {
     // Soporte tanto para multi-selección como selección simple de grupos
     const selected = (window.selectedItems && window.selectedItems.length > 0)
@@ -492,11 +489,14 @@ export function ungroupSelectedItem() {
         }
         // C. SI ES COMPOUNDPATH: Dividimos en sub-islas conservando calado
         else if (activeTarget instanceof paper.CompoundPath) {
-            // State Guard: Si el elemento ya fue desagrupado y tiene huecos independientes interactivos, no hacemos nada para evitar duplicados o borrado
+            // State Guard: Si el elemento ya fue desagrupado y tiene huecos independientes interactivos, disolvemos el calado para separar físicamente los huecos
             if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
-                return;
-            }
-            const subPaths = [...activeTarget.children];
+                const dissolved = dissolveOuterWithHoles(item);
+                if (dissolved && dissolved.length > 0) {
+                    newItems.push(...dissolved);
+                }
+            } else {
+                const subPaths = [...activeTarget.children];
             if (subPaths.length === 0) return;
             const outers = [];
             const holesMap = new Map();
@@ -521,6 +521,7 @@ export function ungroupSelectedItem() {
                     if (!holesMap.has(p)) holesMap.set(p, []);
                 }
             });
+
             const originalFill = activeTarget.fillColor;
             if (outers.length === 1) {
                 // CORRECCIÓN 2: Pasar de forma explícita el 'item' actual en procesamiento
@@ -552,7 +553,9 @@ export function ungroupSelectedItem() {
                 newItems.push(newItem);
             });
             item.remove();
+            }
         }
+
         // Reinsertar de forma atómica en el parent original respetando la capa y el índice exacto
         newItems.reverse().forEach(newItem => {
             parent.insertChild(index, newItem);
@@ -573,7 +576,6 @@ export function ungroupSelectedItem() {
         paper.view.update();
     }, 50);
 }
-
 function splitPointTextIntoLetters(pointText) {
     const letters = [];
     const text = pointText.content;
@@ -600,6 +602,63 @@ function splitPointTextIntoLetters(pointText) {
  * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opción B).
  * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
  */
+
+export function dissolveOuterWithHoles(item) {
+    if (!item || !item.data?.isOuterWithHoles) return [];
+    const parent = item.parent || paper.project.activeLayer;
+    const newItems = [];
+
+    // 1. Desvincular de la reactividad global
+    if (typeof window.ekkoOuters !== 'undefined') {
+        window.ekkoOuters.delete(item.id);
+    }
+
+    // 2. Crear clon de la silueta base sólida (sin calar)
+    if (item.data.originalPath) {
+        const restoredOuter = item.data.originalPath.clone({ insert: false });
+        restoredOuter.fillColor = item.fillColor;
+        restoredOuter.strokeColor = item.strokeColor;
+        restoredOuter.strokeWidth = item.strokeWidth;
+        restoredOuter.matrix = item.matrix.clone();
+        restoredOuter.data = { ...(item.data || {}) };
+        delete restoredOuter.data.isOuterWithHoles;
+        delete restoredOuter.data.originalPath;
+        delete restoredOuter.data.holeIds;
+        parent.addChild(restoredOuter);
+        newItems.push(restoredOuter);
+    }
+
+    // 3. Procesar cada hueco controlador
+    const holeIds = item.data.holeIds || [];
+    holeIds.forEach(id => {
+        const hole = paper.project.getItem({ id });
+        if (hole) {
+            // Removerlo temporalmente para re-insertarlo en orden junto al outer
+            hole.remove();
+            
+            const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
+            if (targetHole) {
+                targetHole.fillColor = item.fillColor;
+                targetHole.strokeColor = item.strokeColor;
+                targetHole.strokeWidth = item.strokeWidth;
+            }
+            if (hole.data) {
+                delete hole.data.isHoleController;
+                delete hole.data.outerItemId;
+                delete hole.data.lastHash;
+                hole.data.label = "Trazado";
+            }
+            parent.addChild(hole);
+            newItems.push(hole);
+        }
+    });
+
+    // 4. Eliminar el item compuesto viejo calado
+    item.remove();
+
+    return newItems;
+}
+
 export function separateContours(itemToProcess) {
     const item = itemToProcess || window.selectedItem;
     if (!item || item.data?.locked || item.data?.mockup) return;
@@ -615,6 +674,7 @@ export function separateContours(itemToProcess) {
     const subPaths = [...target.children];
     const outers = [];
     const holesMap = new Map();
+
     subPaths.forEach(p => {
         let container = null;
         subPaths.forEach(other => {
@@ -653,6 +713,7 @@ export function separateContours(itemToProcess) {
             newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
             parent.addChild(newOuterItem);
         }
+
         newOuterItem.data = {
             ...(newOuterItem.data || {}),
             isOuterWithHoles: true,
@@ -665,6 +726,7 @@ export function separateContours(itemToProcess) {
             isOuterWithHoles: true
         };
         newItems.push(newOuterItem);
+
         const associatedHoles = holesMap.get(outerPath) || [];
         associatedHoles.forEach(holePath => {
             const holeClone = holePath.clone({ insert: false });
@@ -680,6 +742,7 @@ export function separateContours(itemToProcess) {
                 newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
                 parent.addChild(newHoleItem);
             }
+
             newHoleItem.data = {
                 ...(newHoleItem.data || {}),
                 isHoleController: true,
@@ -690,6 +753,7 @@ export function separateContours(itemToProcess) {
             newOuterItem.data.holeIds.push(newHoleItem.id);
             newItems.push(newHoleItem);
         });
+
         window.ekkoOuters.set(newOuterItem.id, newOuterItem);
         const updatedOuter = updateOuterPathGeometry(newOuterItem);
         if (updatedOuter && updatedOuter !== newOuterItem) {
@@ -704,6 +768,7 @@ export function separateContours(itemToProcess) {
     newItems.reverse().forEach(newItem => {
         parent.insertChild(index, newItem);
     });
+
     window.deselectItem();
     setTimeout(() => {
         if (newItems.length > 0) {
@@ -716,12 +781,10 @@ export function separateContours(itemToProcess) {
         paper.view.update();
     }, 50);
 }
-
 export function updateOuterPathGeometry(outerItem) {
     if (!outerItem || !outerItem.data?.originalPath) return outerItem;
     const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
     if (!targetOuter) return outerItem;
-
     let resultOuter = outerItem;
 
     // 1. Obtener la geometría exterior sólida en coordenadas globales con alineación absoluta
@@ -729,6 +792,7 @@ export function updateOuterPathGeometry(outerItem) {
     const outerGlobalMatrix = getGlobalMatrix(targetOuter);
     solidGlobal.matrix = outerGlobalMatrix;
     solidGlobal.applyMatrix = true; // Bakes global coordinates
+
     const holeIds = outerItem.data.holeIds || [];
     let combined = solidGlobal;
 
@@ -742,11 +806,20 @@ export function updateOuterPathGeometry(outerItem) {
                 const holeGlobal = targetHole.clone({ insert: false });
                 // Sobreescribimos la matriz local para aplicar únicamente la matriz global acumulada y la horneamos (applyMatrix)
                 holeGlobal.matrix = holeGlobalMatrix;
-                holeGlobal.applyMatrix = true; 
-                const temp = combined.subtract(holeGlobal);
-                combined.remove();
+                holeGlobal.applyMatrix = true;
+
+                let temp = null;
+                try {
+                    temp = combined.subtract(holeGlobal);
+                } catch (e) {
+                    console.error("Fallo booleano al restar un hueco en updateOuterPathGeometry:", e);
+                }
+                
+                if (temp) {
+                    combined.remove();
+                    combined = temp;
+                }
                 holeGlobal.remove();
-                combined = temp;
             }
         }
     });
@@ -775,6 +848,7 @@ export function updateOuterPathGeometry(outerItem) {
             newPath.data = { ...(targetOuter.data || {}) };
             parent.insertChild(idx, newPath);
             resultOuter = newPath;
+
             if (targetOuter === outerItem) {
                 if (window.selectedItem === outerItem) {
                     window.selectedItem = newPath;
@@ -794,6 +868,7 @@ export function updateOuterPathGeometry(outerItem) {
             targetOuter.remove();
         }
     }
+
     if (combined) combined.remove();
     if (localCombined) localCombined.remove();
     paper.view.update();
@@ -829,7 +904,6 @@ if (typeof window.paper !== 'undefined' && paper.view) {
         });
     });
 }
-
 // --- RENDEREADOR DE CAJA DE SELECCIÓN MULTIPLE CON CONTONTORNOS CELESTES INDEPENDIENTES (ESTILO FIGMA/CANVA/ILLUSTRATOR) ---
 if (typeof window !== 'undefined') {
     const customUpdateSelectionBox = function(item) {
@@ -840,6 +914,7 @@ if (typeof window !== 'undefined') {
         if (window.nodeEditMode) return;
         const primaryItem = item || window.selectedItem;
         if (!primaryItem) return;
+
         let isMockup = false;
         let curr = primaryItem;
         while (curr) {
@@ -854,6 +929,7 @@ if (typeof window !== 'undefined') {
             curr = curr.parent;
         }
         if (isMockup) return;
+
         const selected = (window.selectedItems && window.selectedItems.length > 0)
             ? window.selectedItems
             : [primaryItem];
@@ -870,10 +946,11 @@ if (typeof window !== 'undefined') {
             }
         });
         if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
         window.selectionBoxGroup = new paper.Group();
         window.selectionBoxGroup.data = { isSelectionBox: true };
 
-        // 1. Dibujar contornos celestes discontinuos independientes alrededor de cada pieza individual (Para ver los 4 cuadrados de los 4 elementos)
+        // 1. Dibujar contornos celestes discontinuos independientes alrededor de cada pieza individual
         if (selected.length > 1) {
             selected.forEach(function(it) {
                 const displayItem = (it.data && it.data.clipGroup)
@@ -982,7 +1059,6 @@ if (typeof window !== 'undefined') {
         window.updateSelectionBox = customUpdateSelectionBox;
     }
 }
-
 export function initContextualMenu() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
@@ -1086,12 +1162,13 @@ export function initContextualMenu() {
     window.groupSelectedItems = groupSelectedItems;
     window.ungroupSelectedItem = ungroupSelectedItem;
     window.separateContours = separateContours;
+    window.dissolveOuterWithHoles = dissolveOuterWithHoles;
 }
-
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
     removeOverlapTab();
+
     if (!item || (item.data && item.data.mockup)) {
         toolbar.classList.remove('active');
         toolbarDragged = false;
@@ -1148,6 +1225,7 @@ export function updateContextualMenu(item) {
         // Si solo hay un elemento seleccionado
         const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
         if (!target) return;
+
         if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
             const textControls = document.getElementById('ctxTextControls');
             if (textControls) textControls.classList.remove('hidden');
@@ -1217,40 +1295,34 @@ export function hideContextualMenu() {
         lastSelectedItem = null;
     }
 }
-
 // 🚀 REPOSICIONADOR GLOBAL HTML: Sincronizar elementos flotantes en body al arrastrar o hacer zoom
 window.applyPositionCorrections = function() {
     const toolbar = document.getElementById("contextual-toolbar");
     const textEditor = document.getElementById("ekko-text-editor");
     if (!window.paper || !paper.view || !window.selectedItem) return;
+
     const item = window.selectedItem;
     const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!displayItem) return;
+
     const bounds = displayItem.bounds;
     const viewPos = paper.view.projectToView(bounds.topCenter);
     const centerPos = paper.view.projectToView(bounds.center);
 
     // 1. Corregir Barra Contextual Flotante
     if (toolbar && toolbar.classList.contains("active")) {
-        if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
+        const toolbarHeight = toolbar.offsetHeight || 45;
+        const toolbarWidth = toolbar.offsetWidth || 350;
+        const canvasEl = document.getElementById("editorCanvas");
+        if (canvasEl) {
+            const rect = canvasEl.getBoundingClientRect();
+            const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
+            const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25;
             toolbar.style.position = "absolute";
-            toolbar.style.left = window.customToolbarLeft + "px";
-            toolbar.style.top = window.customToolbarTop + "px";
-            toolbar.style.zIndex = "2147483646";
-        } else {
-            const toolbarHeight = toolbar.offsetHeight || 45;
-            const toolbarWidth = toolbar.offsetWidth || 350;
-            const canvasEl = document.getElementById("editorCanvas");
-            if (canvasEl) {
-                const rect = canvasEl.getBoundingClientRect();
-                const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
-                const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25;
-                toolbar.style.position = "absolute";
-                toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
-                toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
-            }
-            toolbar.style.zIndex = "2147483646";
+            toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
+            toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
         }
+        toolbar.style.zIndex = "2147483646";
     }
 
     // 2. Corregir Editor de Texto
