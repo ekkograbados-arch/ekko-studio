@@ -1,5 +1,17 @@
+/* =========================================================================
+Módulo: ASSETS/js/modules/selection.js (WYSIWYG Canva-Style Grouping - v9 PRO - CORREGIDO)
+Ruta de reemplazo: ASSETS/js/modules/selection.js
+Descripción: Gestión de selección múltiple, arrastre en bloque, recuadro de
+selección por arrastre (Marquee/Box Selection) y redimensionamiento/rotación
+grupal unificada estilo Canva/Figma para EKKO Studio.
+
+CORRECCIÓN DE ERRORES CRÍTICOS:
+1. Desactiva por completo los manipuladores de arrastre y selección del lienzo
+   cuando el Modo de Edición de Nodos está activo (evita colisiones con nodeEditor).
+2. Conserva de forma estricta los State Guards de EKKO para prevenir sobrescrituras.
+========================================================================= */
+
 // 🚀 GLOBAL OVERRIDE DE CONSOLA: Silenciar logs informativos para mantener limpia la consola F12
-// Solo se mostrarán errores reales de programación (console.error) para depuración.
 if (typeof console !== "undefined") {
   console.log = () => {};
   console.warn = () => {};
@@ -18,15 +30,6 @@ if (typeof paper !== "undefined") {
   });
 }
 
-/* =========================================================================
-Módulo: ASSETS/js/modules/selection.js (WYSIWYG Canva-Style Grouping - v8 PRO)
-Ruta de reemplazo: ASSETS/js/modules/selection.js
-Descripción: Gestión de selección múltiple, arrastre en bloque, recuadro de
-selección por arrastre (Marquee/Box Selection) y redimensionamiento/rotación
-grupal unificada estilo Canva/Figma para EKKO Studio.
-========================================================================= */
-
-
 // 🛡️ EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
 function protectGlobal(name, fn) {
   let currentImpl = fn;
@@ -37,7 +40,6 @@ function protectGlobal(name, fn) {
       },
       set: function(newVal) {
         // Ignoramos pacíficamente la sobreescritura de editor.js para mantener activa la versión optimizada
-        // pero permitimos depuración si es necesario.
       },
       configurable: true,
       enumerable: true
@@ -70,7 +72,7 @@ window.rotationCenter = null;
 window.rotationStartAngle = 0;
 window.rotationInitialAngle = 0;
 window.rotationTargets = [];
-window.rotationAngleLabel = null; // NUEVO: Para la cota flotante de ángulo
+window.rotationAngleLabel = null; // Para la cota flotante de ángulo
 window.isRotationSnapped = false; // Flag para indicar imantación visual
 
 // --- NODE EDITING STATE (LIGHTBURN STYLE) ---
@@ -87,12 +89,13 @@ window.marqueeStartPoint = null;
 window.marqueePath = null;
 
 /* ========================= SELECCIÓN DE OBJETO ========================= */
+
 const _getSelectableItem = function(item){
   if(!item) return null;
   if (item.clipMask) return null;
   if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) return null;
   if (item.parent && item.parent.data && (item.parent.data.isSelectionBox || item.parent.data.isNodeEditOverlay)) return null;
-  
+
   let current = item;
   while (current) {
     if (current.data) {
@@ -115,19 +118,23 @@ const _getSelectableItem = function(item){
 };
 
 /* ========================= UPDATE SELECTION BOX OVERLAY ========================= */
+
 const _updateSelectionBox = function(item) {
   if (window.selectionBoxGroup) {
     window.selectionBoxGroup.remove();
     window.selectionBoxGroup = null;
   }
+
   if (window.nodeEditMode) {
     return;
   }
+
   // Asegurar que la capa de diseño de Paper.js esté activa al dibujar la interfaz
   if (window.paper && paper.project) {
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
     if (designLayer) designLayer.activate();
   }
+
   const primaryItem = item || window.selectedItem;
   if (!primaryItem) return;
 
@@ -150,6 +157,7 @@ const _updateSelectionBox = function(item) {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? window.selectedItems
     : [primaryItem];
+
   let bounds = null;
   selected.forEach(function(it) {
     const displayItem = (it.data && it.data.clipGroup)
@@ -168,10 +176,25 @@ const _updateSelectionBox = function(item) {
   window.selectionBoxGroup = new paper.Group();
   window.selectionBoxGroup.data = { isSelectionBox: true };
 
-  // Cambiar dinámicamente el color del recuadro si hay imantación (Snap a 45°)
+  // 1. Dibujar contornos celestes discontinuos independientes alrededor de cada pieza individual
+  if (selected.length > 1) {
+    selected.forEach(function(it) {
+      const displayItem = (it.data && it.data.clipGroup)
+        ? it.children.find(function(c) { return !c.clipMask; })
+        : it;
+      if (displayItem && displayItem.bounds) {
+        const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
+        singleBorder.strokeColor = '#007bff';
+        singleBorder.strokeWidth = 1 / paper.view.zoom;
+        singleBorder.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
+        window.selectionBoxGroup.addChild(singleBorder);
+      }
+    });
+  }
+
+  // 2. Dibujar la caja de selección global de color azul celeste alrededor de todo el conjunto
   const isRotSnapped = window.isRotationSnapped && window.rotationActive;
   const mainColor = isRotSnapped ? '#28a745' : '#007bff';
-
   const border = new paper.Path.Rectangle(bounds);
   border.strokeColor = mainColor;
   border.strokeWidth = 1.5 / paper.view.zoom;
@@ -204,7 +227,6 @@ const _updateSelectionBox = function(item) {
 
   const rotHandleDistance = 25 / paper.view.zoom;
   const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
-
   const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
   connector.strokeColor = mainColor;
   connector.strokeWidth = 1.2 / paper.view.zoom;
@@ -239,89 +261,39 @@ const _updateSelectionBox = function(item) {
   window.selectionBoxGroup.addChild(arrowTip);
 
   window.selectionBoxGroup.bringToFront();
+
   if (typeof window.applyPositionCorrections === "function") {
     window.applyPositionCorrections();
   }
 
-  // Sincronizar dinámicamente el input de rotación de la barra flotante para cualquier tipo de objeto
   if (typeof window.bindRotationInputEvents === "function") {
     window.bindRotationInputEvents();
   }
+
   if (typeof window.syncContextualRotationInput === "function") {
     window.syncContextualRotationInput(primaryItem);
   }
 };
 
-/* ========================= NODE EDITING OVERLAY SYSTEM ========================= */
-window.drawNodeEditHandles = function(path) {
-  if (window.nodeHandlesGroup) {
-    window.nodeHandlesGroup.remove();
-    window.nodeHandlesGroup = null;
-  }
-  if (!path || !path.segments) return;
-  window.nodeHandlesGroup = new paper.Group();
-  window.nodeHandlesGroup.data = { isNodeEditOverlay: true };
-  const handleSize = 5 / paper.view.zoom;
-
-  path.segments.forEach(function(segment, index) {
-    const isSelected = (index === window.selectedNodeIndex);
-    const handleCircle = new paper.Path.Circle({
-      center: segment.point,
-      radius: handleSize,
-      strokeColor: '#dc3545',
-      fillColor: isSelected ? '#dc3545' : '#ffffff',
-      strokeWidth: 1.5 / paper.view.zoom
-    });
-    handleCircle.data = { isNodeHandle: true, segmentIndex: index };
-    window.nodeHandlesGroup.addChild(handleCircle);
+// Sobreescribir el State Guard de selection.js de manera blindada
+try {
+  Object.defineProperty(window, 'updateSelectionBox', {
+    get: function() { return _updateSelectionBox; },
+    set: function() {},
+    configurable: true,
+    enumerable: true
   });
-  window.nodeHandlesGroup.bringToFront();
-};
-
-window.enterNodeEditMode = function(path) {
-  if (!path || !path.segments) return;
-  window.exitNodeEditMode();
-  if (window.selectedItem) {
-    window.selectedItem.selected = false;
-  }
-  window.nodeEditMode = true;
-  window.nodeEditTarget = path;
-  window.selectedNodeIndex = -1;
-  window.updateSelectionBox(null);
-  window.drawNodeEditHandles(path);
-  const nodeCtrl = document.getElementById('ctxNodeEditControls');
-  if (nodeCtrl) nodeCtrl.classList.remove('hidden');
-  const vecCtrl = document.getElementById('ctxVectorControls');
-  if (vecCtrl) vecCtrl.classList.add('hidden');
-  const imgCtrl = document.getElementById('ctxImageControls');
-  if (imgCtrl) imgCtrl.classList.add('hidden');
-  const txtCtrl = document.getElementById('ctxTextControls');
-  if (txtCtrl) txtCtrl.classList.add('hidden');
-  paper.view.update();
-};
-
-window.exitNodeEditMode = function() {
-  if (window.nodeHandlesGroup) {
-    window.nodeHandlesGroup.remove();
-    window.nodeHandlesGroup = null;
-  }
-  window.nodeEditMode = false;
-  const path = window.nodeEditTarget;
-  window.nodeEditTarget = null;
-  window.selectedNodeIndex = -1;
-  const nodeEl = document.getElementById('ctxNodeEditControls');
-  if (nodeEl) nodeEl.classList.add('hidden');
-  if (path) {
-    window.selectItem(path);
-  }
-  paper.view.update();
-};
+} catch(e) {
+  window.updateSelectionBox = _updateSelectionBox;
+}
 
 /* ========================= SELECT ========================= */
+
 const _selectItem = function(item, isMulti = false){
   if (window.nodeEditMode) {
-    window.exitNodeEditMode();
+    return; // 🌟 BLOQUEADO DURANTE EDICIÓN DE NODOS
   }
+
   let isMockup = false;
   let curr = item;
   while (curr) {
@@ -339,7 +311,9 @@ const _selectItem = function(item, isMulti = false){
     window.deselectItem();
     return;
   }
+
   if (!window.selectedItems) window.selectedItems = [];
+
   if (isMulti) {
     const index = window.selectedItems.indexOf(item);
     if (index > -1) {
@@ -359,36 +333,17 @@ const _selectItem = function(item, isMulti = false){
       window.selectedItem = item;
       window.selectedItems = [item];
     } else {
-      
-// 🛡️ EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
-function protectGlobal(name, fn) {
-  let currentImpl = fn;
-  try {
-    Object.defineProperty(window, name, {
-      get: function() {
-        return currentImpl;
-      },
-      set: function(newVal) {
-        // Ignoramos pacíficamente la sobreescritura de editor.js para mantener activa la versión optimizada
-        // pero permitimos depuración si es necesario.
-      },
-      configurable: true,
-      enumerable: true
-    });
-  } catch (e) {
-    window[name] = fn;
-  }
-}
-
-window.selectedItem = null;
+      window.selectedItem = null;
       window.selectedItems = [];
     }
   }
+
   if(!window.selectedItem){
     window.updateSelectionBox(null);
     paper.view.update();
     return;
   }
+
   window.updateSelectionBox(window.selectedItem);
   if (typeof window.updateContextualMenu === 'function') {
     window.updateContextualMenu(window.selectedItem);
@@ -397,42 +352,26 @@ window.selectedItem = null;
 };
 
 /* ========================= DESELECT ========================= */
+
 const _deselectItem = function(){
   if (window.nodeEditMode) {
-    window.exitNodeEditMode();
+    return; // 🌟 BLOQUEADO DURANTE EDICIÓN DE NODOS (Evita salir por clics accidentales)
   }
+
   if (window.selectedItems) {
     window.selectedItems.forEach(function(it) {
       if (it) it.selected = false;
     });
     window.selectedItems = [];
   }
+
   if(window.selectedItem){
     window.selectedItem.selected = false;
   }
-  
-// 🛡️ EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
-function protectGlobal(name, fn) {
-  let currentImpl = fn;
-  try {
-    Object.defineProperty(window, name, {
-      get: function() {
-        return currentImpl;
-      },
-      set: function(newVal) {
-        // Ignoramos pacíficamente la sobreescritura de editor.js para mantener activa la versión optimizada
-        // pero permitimos depuración si es necesario.
-      },
-      configurable: true,
-      enumerable: true
-    });
-  } catch (e) {
-    window[name] = fn;
-  }
-}
 
-window.selectedItem = null;
+  window.selectedItem = null;
   window.updateSelectionBox(null);
+
   if (typeof window.hideContextualMenu === 'function') {
     window.hideContextualMenu();
   }
@@ -440,6 +379,7 @@ window.selectedItem = null;
 };
 
 /* ========================= FUNCIONES AUXILIARES DE ESCALADO ========================= */
+
 const _getOppositePoint = function(bounds, handleType) {
   switch (handleType) {
     case 'tl': return bounds.bottomRight;
@@ -469,15 +409,19 @@ const _getHandlePoint = function(bounds, handleType) {
 };
 
 /* ========================= EVENTOS DE TOOL (INTERACCIONES DEL MOUSE) ========================= */
+
 const _initSelectionTool = function() {
   if (!paper.view) {
     console.warn("initSelectionTool: paper.view no está definido todavía.");
     return;
   }
+
   const selectTool = new paper.Tool();
   let lastClickTime = 0;
 
   selectTool.onMouseDown = function(event) {
+    if (window.nodeEditMode) return; // 🌟 COPRRECCIÓN DE COLISIÓN: Bloqueo absoluto en modo nodos
+
     if (window.insertTextMode) {
       if (typeof createEditableText === "function") {
         createEditableText(event.point);
@@ -486,6 +430,7 @@ const _initSelectionTool = function() {
       paper.view.element.style.cursor = "default";
       return;
     }
+
     const currentTime = Date.now();
     if (currentTime - lastClickTime < 300) {
       lastClickTime = 0;
@@ -538,6 +483,7 @@ const _initSelectionTool = function() {
             unifiedBounds = unifiedBounds.unite(displayItem.bounds);
           }
         });
+
         window.rotationCenter = unifiedBounds ? unifiedBounds.center.clone() : window.selectedItem.bounds.center.clone();
         const vector = event.point.subtract(window.rotationCenter);
         window.rotationStartAngle = vector.angle;
@@ -563,6 +509,7 @@ const _initSelectionTool = function() {
       window.resizeActive = true;
       window.resizeHandleType = hType;
       window.resizeTargets = [...(window.selectedItems || [])];
+      
       let unifiedBounds = null;
       window.resizeTargets.forEach(function(it) {
         const displayItem = (it.data && it.data.clipGroup)
@@ -575,6 +522,7 @@ const _initSelectionTool = function() {
           unifiedBounds = unifiedBounds.unite(displayItem.bounds);
         }
       });
+
       window.resizeInitialBounds = unifiedBounds;
       window.resizeInitialPoint = event.point.clone();
       window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
@@ -625,6 +573,7 @@ const _initSelectionTool = function() {
         if (!window.selectedItems) {
           window.selectedItems = [];
         }
+
         if (isShiftPressed) {
           const index = window.selectedItems.indexOf(selectableItem);
           if (index > -1) {
@@ -647,6 +596,7 @@ const _initSelectionTool = function() {
             window.selectedItems = [selectableItem];
           }
         }
+
         window.dragging = true;
         window.dragTargets = [];
         window.selectedItems.forEach(function(item) {
@@ -661,6 +611,7 @@ const _initSelectionTool = function() {
             });
           }
         });
+
         window.updateSelectionBox(window.selectedItem);
         if (typeof window.updateContextualMenu === 'function') {
           window.updateContextualMenu(window.selectedItem);
@@ -709,6 +660,8 @@ const _initSelectionTool = function() {
   };
 
   selectTool.onMouseDrag = function(event) {
+    if (window.nodeEditMode) return; // 🌟 CORRECCIÓN DE COLISIÓN: Bloqueo absoluto en modo nodos
+
     if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
       return;
     }
@@ -743,21 +696,20 @@ const _initSelectionTool = function() {
       if (rt0 && !isShiftPressed) {
         // Encontrar el ángulo de destino acumulado para el elemento primario
         const rawTargetAngle = (rt0.initialRotation + angleDiff) % 360;
-        const normalizedAngle = (rawTargetAngle % 360 + 360) % 360;
-        let nearest45 = Math.round(normalizedAngle / 45) * 45;
-        if (nearest45 === 360) nearest45 = 0;
-        
-        let diffTo45 = normalizedAngle - nearest45;
-        if (diffTo45 > 180) diffTo45 -= 360;
-        if (diffTo45 < -180) diffTo45 += 360;
+        const normalizedTarget = (rawTargetAngle % 360 + 360) % 360;
 
-        // Comportamiento de "Ralentización" / Resistencia Magnética (Stickiness) cerca de múltiplos de 45°
-        if (Math.abs(diffTo45) < 4.5) {
-          if (Math.abs(diffTo45) < 1.5) {
-            angleDiff = angleDiff - diffTo45; // Snap total
-          } else {
-            angleDiff = angleDiff - diffTo45 * 0.70; // Ralentizar la sensibilidad (firmeza del imán)
-          }
+        // Buscar el múltiplo de 45° más cercano
+        const nearest45 = Math.round(normalizedTarget / 45) * 45;
+        const snapThreshold = 4.5; // Umbral de atracción magnética de 4.5 grados
+        const diffTo45 = Math.abs(normalizedTarget - nearest45);
+
+        if (diffTo45 <= snapThreshold || (nearest45 === 360 && diffTo45 >= (360 - snapThreshold))) {
+          let targetAngleSnapped = nearest45 % 360;
+          let deltaToTarget = targetAngleSnapped - rt0.initialRotation;
+          if (deltaToTarget > 180) deltaToTarget -= 360;
+          if (deltaToTarget < -180) deltaToTarget += 360;
+
+          angleDiff = deltaToTarget;
           isSnapped = true;
         }
       } else if (isShiftPressed) {
@@ -777,6 +729,7 @@ const _initSelectionTool = function() {
         // Rotar el elemento sobre su propio eje
         const oldRotation = rt.target.data?.rotation || 0;
         const targetAngle = (rt.initialRotation + angleDiff) % 360;
+
         let deltaRotate = targetAngle - oldRotation;
         if (deltaRotate > 180) deltaRotate -= 360;
         if (deltaRotate < -180) deltaRotate += 360;
@@ -824,29 +777,16 @@ const _initSelectionTool = function() {
           justification: 'center'
         });
 
-        // Resolver bug de Paper.js donde textLabel.bounds es 0 en creación inmediata (fallbacks de tamaño)
-        const approxWidth = (displayAngle + "°").length * (8 / zoom) + (12 / zoom);
-        const approxHeight = (14 / zoom) + (6 / zoom);
-        
-        const rectWidth = (textLabel.bounds && textLabel.bounds.width > 0) 
-          ? (textLabel.bounds.width + (12 / zoom)) 
-          : approxWidth;
-          
-        const rectHeight = (textLabel.bounds && textLabel.bounds.height > 0) 
-          ? (textLabel.bounds.height + (6 / zoom)) 
-          : approxHeight;
-
-        // Contenedor visual (badge verde si está imantado, o gris/negro en rotación libre) utilizando constructores nativos de color
+        // Contenedor visual badge
         const textRect = new paper.Path.Rectangle({
           center: labelPosition,
-          size: [rectWidth, rectHeight],
+          size: [textLabel.bounds.width + (12 / zoom), textLabel.bounds.height + (6 / zoom)],
           fillColor: isSnapped ? new paper.Color(0.15, 0.68, 0.37, 0.95) : new paper.Color(0.06, 0.09, 0.16, 0.85),
           strokeColor: isSnapped ? new paper.Color(0.15, 0.68, 0.37) : new paper.Color(0.2, 0.25, 0.33),
           strokeWidth: 1 / zoom,
           radius: 4 / zoom
         });
 
-        // DIBUJAR LÍNEAS DE GUÍA VERDES (Crosshair) para indicar la alineación al hacer "snap" a los 45° o 90°
         if (isSnapped) {
           const crossSize = 250 / zoom;
           const hLine = new paper.Path.Line(
@@ -883,9 +823,9 @@ const _initSelectionTool = function() {
       const anchor = window.resizeAnchor;
       const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
       const currentHandlePoint = event.point;
+
       let factorX = 1.0;
       let factorY = 1.0;
-
       const initialXDiff = initialHandlePoint.x - anchor.x;
       const currentXDiff = currentHandlePoint.x - anchor.x;
       if (Math.abs(initialXDiff) > 0.001) factorX = currentXDiff / initialXDiff;
@@ -905,11 +845,11 @@ const _initSelectionTool = function() {
 
       window.resizeTargets.forEach(function(item) {
         if (item.data && item.data.locked) return;
-        const targetToScale = (item.data && item.data.clipGroup)
+        const displayItem = (item.data && item.data.clipGroup)
           ? item.children.find(function(c) { return !c.clipMask; })
           : item;
-        if (targetToScale) {
-          targetToScale.scale(scaleFactorX, scaleFactorY, anchor);
+        if (displayItem) {
+          displayItem.scale(scaleFactorX, scaleFactorY, anchor);
         }
       });
 
@@ -932,6 +872,7 @@ const _initSelectionTool = function() {
       } else if (window.calculateSmartGuides) {
         window.calculateSmartGuides(window.selectedItem, event);
       }
+
       window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
@@ -939,6 +880,8 @@ const _initSelectionTool = function() {
   };
 
   selectTool.onMouseUp = function(event) {
+    if (window.nodeEditMode) return; // 🌟 CORRECCIÓN DE COLISIÓN: Bloqueo absoluto en modo nodos
+
     // --- PROCESAR RESULTADO DE SELECCIÓN POR MARQUEE ---
     if (window.marqueeActive && window.marqueePath) {
       const marqueeBounds = window.marqueePath.bounds;
@@ -1012,13 +955,15 @@ const _initSelectionTool = function() {
     const canvas = document.getElementById("editorCanvas");
     if (canvas) canvas.style.cursor = 'default';
     if (typeof clearSmartGuides === "function") clearSmartGuides();
-    
+
     // Redibujar selección con el color azul por defecto
     window.updateSelectionBox(window.selectedItem);
     paper.view.update();
   };
 
   selectTool.onMouseMove = function(event) {
+    if (window.nodeEditMode) return; // 🌟 CORRECCIÓN DE COLISIÓN: Bloqueo absoluto en modo nodos
+
     const canvas = document.getElementById("editorCanvas");
     if (!canvas) return;
     if (window.resizeActive) return;
@@ -1102,6 +1047,7 @@ const _initSelectionTool = function() {
           return;
         }
       }
+
       canvas.style.cursor = 'default';
     }
   };
@@ -1118,9 +1064,11 @@ function applyPositionCorrections() {
   const toolbar = document.getElementById("contextual-toolbar");
   const textEditor = document.getElementById("ekko-text-editor");
   if (!window.paper || !paper.view || !window.selectedItem) return;
+
   const item = window.selectedItem;
   const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
   if (!displayItem) return;
+
   const bounds = displayItem.bounds;
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
@@ -1164,13 +1112,13 @@ function applyPositionCorrections() {
     textEditor.style.zIndex = "2147483647"; // Stay above toolbar and rulers
   }
 }
-
 window.applyPositionCorrections = applyPositionCorrections;
 
 /* =========================================================================
 SISTEMA DE SINCRONIZACIÓN DINÁMICA DE ROTACIÓN DE LA BARRA FLOTANTE
 Soporta: Imagen, Texto, SVG, QR, etc., con Rueda de Mouse y Entrada Numérica
 ========================================================================= */
+
 window.applyRotationFromInput = function(val) {
   if (!window.selectedItem || window.selectedItem.data?.locked) return;
   let angle = parseInt(val);
@@ -1194,7 +1142,6 @@ window.applyRotationFromInput = function(val) {
       displayItem.data.rotation = angle;
     }
   });
-
   window.updateSelectionBox(window.selectedItem);
   paper.view.update();
 };
@@ -1255,7 +1202,6 @@ window.syncContextualRotationInput = function(item) {
     rotationNum.value = '0°';
   }
 };
-
 
 // 🛡️ EKKO STATE GUARD: Registrar protección global para evitar sobreescritura de editor.js
 protectGlobal('getSelectableItem', _getSelectableItem);
