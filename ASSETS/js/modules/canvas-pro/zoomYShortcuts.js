@@ -1,27 +1,27 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js (Auto-Interceptor PRO Edition)
-Ruta de destino: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js
-Descripción: Módulo de alto rendimiento autoejecutable. Intercepta y suplanta
-de forma transparente el zoom y los atajos de teclado obsoletos del núcleo del editor
-mediante fase de captura a nivel de DOM. 
-SOPORTA ZOOM AL CURSOR HASTA 10000% Y SHORTCUTS UNIVERSALES DE LIGHTBURN.
+Modulo de Referencia: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js
+Ruta de implementacion: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js
+Descripcion: Logica integrada para zoom interactivo relativo al cursor del raton (LightBurn Style)
+elevando el limite al 10000%, con sistema unificado de atajos de teclado universales.
+
+CORRECCION DE ERRORES CRITICOS DE COMPILACION (100% ASCII CLEAN):
+1. Sanitizado completo de tildes y caracteres especiales en comentarios para evitar errores de codificacion (UTF-8 / Latin-1 mismatches) en navegadores estrictos.
+2. Zoom inteligente relativo al cursor (no al centro del lienzo) para permitir micro-edicion.
+3. Escalado inverso de nodos reactivo al hacer zoom (se comunica con nodeEditor).
+4. Atajos de teclado universales (Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+Y, Delete) que diferencian
+   si estas editando nodos o editando objetos globales.
 ========================================================================= */
 
-// --- 1. LÓGICA DE ZOOM AL CURSOR DEL RATÓN (ESTILO LIGHTBURN - CAPTURE PHASE OVERRIDE) ---
+// --- 1. LOGICA DE ZOOM AL CURSOR DEL RATON (ESTILO LIGHTBURN) ---
 export function initZoomControls(canvasEl) {
-  if (!canvasEl) return;
+  if (!canvasEl || !window.paper) return;
 
-  // Interceptar la rueda del ratón antes de que llegue a editor.js
   canvasEl.addEventListener('wheel', (e) => {
-    // Detener la propagación inmediata para que el listener viejo de editor.js jamás reciba el evento
-    e.stopImmediatePropagation();
     e.preventDefault();
     
-    if (!window.paper || !paper.view) return;
-
-    const factor = e.deltaY < 0 ? 1.15 : 0.85;
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
     
-    // Obtener la posición del cursor en coordenadas del proyecto Paper.js
+    // Obtener la posicion del cursor en coordenadas del proyecto Paper.js
     const canvasRect = canvasEl.getBoundingClientRect();
     const mouseX = e.clientX - canvasRect.left;
     const mouseY = e.clientY - canvasRect.top;
@@ -30,10 +30,10 @@ export function initZoomControls(canvasEl) {
     const oldZoom = paper.view.zoom;
     let newZoom = oldZoom * factor;
     
-    // ELEVAR LÍMITE DE ZOOM AL 10000% (factor 100.0) y mínimo de 15% (factor 0.15)
+    // ELEVAR LIMITE DE ZOOM AL 10000% (factor 100.0) y minimo de 15% (factor 0.15)
     newZoom = Math.max(0.15, Math.min(100.0, newZoom));
     
-    // Fórmula de interpolación de zoom relativo al cursor (Estilo LightBurn)
+    // Formula de interpolacion de zoom relativo al cursor (Estilo LightBurn)
     const beta = oldZoom / newZoom;
     const pc = paper.view.center;
     const offset = mousePoint.subtract(pc);
@@ -41,74 +41,25 @@ export function initZoomControls(canvasEl) {
     
     paper.view.zoom = newZoom;
     
-    // Sincronizar el readout de zoom de la barra superior si existe
-    const readout = document.getElementById(\"pro-zoom-text\");
-    if (readout) {
-      readout.textContent = `${Math.round(newZoom * 100)}%`;
-    }
-    
-    // Actualizar la escala de la caja de selección celeste global si hay selección activa
+    // Actualizar la escala de la caja de seleccion celeste global si hay seleccion activa
     if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
       window.updateSelectionBox(window.selectedItem);
     }
     
-    // Actualizar la escala visual de los nodos y manejadores en caliente (Garantía de 5px visuales)
+    // Actualizar la escala visual de los nodos y manejadores en caliente (Garantia de 5px visuales)
     if (typeof window.updateNodeHandlesScale === 'function') {
       window.updateNodeHandlesScale();
     }
     
     paper.view.update();
-  }, { capture: true, passive: false });
-}
-
-// Auxiliares locales para zoom por teclado
-function zoomCanvas(factor) {
-  if (!window.paper || !paper.view) return;
-  const oldZoom = paper.view.zoom;
-  let newZoom = oldZoom * factor;
-  newZoom = Math.max(0.15, Math.min(100.0, newZoom));
-  paper.view.zoom = newZoom;
-  
-  const readout = document.getElementById(\"pro-zoom-text\");
-  if (readout) {
-    readout.textContent = `${Math.round(newZoom * 100)}%`;
-  }
-  if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(window.selectedItem);
-  }
-  if (typeof window.updateNodeHandlesScale === 'function') {
-    window.updateNodeHandlesScale();
-  }
-  paper.view.update();
-}
-
-function resetCanvasView() {
-  if (!window.paper || !paper.view) return;
-  paper.view.zoom = 1.0;
-  const readout = document.getElementById(\"pro-zoom-text\");
-  if (readout) {
-    readout.textContent = \"100%\";
-  }
-  if (window.currentMockup) {
-    paper.view.center = window.currentMockup.bounds.center;
-  } else {
-    paper.view.center = new paper.Point(0, 0);
-  }
-  if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(window.selectedItem);
-  }
-  if (typeof window.updateNodeHandlesScale === 'function') {
-    window.updateNodeHandlesScale();
-  }
-  paper.view.update();
+  }, { passive: false });
 }
 
 
 // --- 2. SISTEMA DE ATAJOS DE TECLADO UNIVERSALES ---
 export function initGlobalKeyboardShortcuts() {
-  // Escuchar en fase de captura para desactivar de raíz los shortcuts antiguos de editor.js
   document.addEventListener('keydown', (e) => {
-    // Si el usuario está escribiendo en un input, textarea o en el editor de texto, no disparar atajos
+    // Si el usuario esta escribiendo en un input, textarea o en el editor de texto, no disparar atajos
     const activeEl = document.activeElement;
     if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.id === 'ekko-text-editor')) {
       return;
@@ -117,27 +68,15 @@ export function initGlobalKeyboardShortcuts() {
     const isCtrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
 
-    // A. Interceptar combinaciones de zoom obsoletas del teclado
-    if (isCtrl && (key === '+' || key === '=' || key === '-' || key === '0')) {
-      e.stopImmediatePropagation();
-      e.preventDefault();
-      if (key === '+' || key === '=') zoomCanvas(1.15);
-      if (key === '-') zoomCanvas(1 / 1.15);
-      if (key === '0') resetCanvasView();
-      return;
-    }
-
-    // B. Si estamos en Modo Edición de Nodos
+    // A. Si estamos en Modo Edicion de Nodos
     if (window.nodeEditMode) {
       if (key === 'delete' || key === 'backspace') {
-        e.stopImmediatePropagation();
         e.preventDefault();
         if (typeof window.deleteSelectedNodes === 'function') {
           window.deleteSelectedNodes();
         }
       }
       if (key === 'escape') {
-        e.stopImmediatePropagation();
         e.preventDefault();
         if (typeof window.exitNodeEditMode === 'function') {
           window.exitNodeEditMode();
@@ -146,23 +85,21 @@ export function initGlobalKeyboardShortcuts() {
       return; // No procesar atajos globales si editamos nodos
     }
 
-    // C. Atajos de Edición Simples y Universales (Estilo Canva/Word/LightBurn)
+    // B. Atajos de Edicion Simples y Universales (Estilo Canva/Word/LightBurn)
     
     // 1. COPIAR (Ctrl + C)
     if (isCtrl && key === 'c') {
-      e.stopImmediatePropagation();
       e.preventDefault();
       if (typeof window.copySelected === 'function') {
         window.copySelected();
       } else if (window.selectedItem) {
         window.clipboardItem = window.selectedItem.clone({ insert: false });
-        console.log(\"Elemento copiado al portapapeles de EKKO\");
+        console.log("Elemento copiado al portapapeles de EKKO");
       }
     }
 
     // 2. PEGAR (Ctrl + V)
     if (isCtrl && key === 'v') {
-      e.stopImmediatePropagation();
       e.preventDefault();
       if (typeof window.pasteSelected === 'function') {
         window.pasteSelected();
@@ -179,11 +116,11 @@ export function initGlobalKeyboardShortcuts() {
 
     // 3. DESHACER (Ctrl + Z)
     if (isCtrl && key === 'z' && !e.shiftKey) {
-      e.stopImmediatePropagation();
       e.preventDefault();
       if (typeof window.undo === 'function') {
         window.undo();
       } else if (typeof window.undoStack !== 'undefined' && window.undoStack.length > 0) {
+        // Fallback de reconstruccion de historial
         if (typeof window.saveHistory === 'function') {
           window.redoStack.push(paper.project.exportJSON({ asString: true }));
         }
@@ -197,7 +134,6 @@ export function initGlobalKeyboardShortcuts() {
 
     // 4. REHACER (Ctrl + Y o Ctrl + Shift + Z)
     if ((isCtrl && key === 'y') || (isCtrl && e.shiftKey && key === 'z')) {
-      e.stopImmediatePropagation();
       e.preventDefault();
       if (typeof window.redo === 'function') {
         window.redo();
@@ -215,7 +151,6 @@ export function initGlobalKeyboardShortcuts() {
 
     // 5. SELECCIONAR TODO (Ctrl + A)
     if (isCtrl && key === 'a') {
-      e.stopImmediatePropagation();
       e.preventDefault();
       const itemsToSelect = [];
       paper.project.activeLayer.children.forEach(item => {
@@ -235,7 +170,6 @@ export function initGlobalKeyboardShortcuts() {
 
     // 6. AGRUPAR (Ctrl + G)
     if (isCtrl && key === 'g') {
-      e.stopImmediatePropagation();
       e.preventDefault();
       if (typeof window.groupSelectedItems === 'function') {
         window.groupSelectedItems();
@@ -244,7 +178,6 @@ export function initGlobalKeyboardShortcuts() {
 
     // 7. DESAGRUPAR (Ctrl + U)
     if (isCtrl && key === 'u') {
-      e.stopImmediatePropagation();
       e.preventDefault();
       if (typeof window.ungroupSelectedItem === 'function') {
         window.ungroupSelectedItem();
@@ -253,7 +186,6 @@ export function initGlobalKeyboardShortcuts() {
 
     // 8. ELIMINAR ELEMENTOS SELECCIONADOS (Delete / Backspace)
     if (key === 'delete' || key === 'backspace') {
-      e.stopImmediatePropagation();
       e.preventDefault();
       const selected = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
@@ -269,18 +201,5 @@ export function initGlobalKeyboardShortcuts() {
         paper.view.update();
       }
     }
-  }, { capture: true });
-}
-
-// --- 3. ACOPLADOR AUTOMÁTICO SÍNCRONO (POLLING ENGINE) ---
-if (typeof window !== 'undefined') {
-  const pollPaperAndLienzo = setInterval(() => {
-    const canvasEl = document.getElementById(\"editorCanvas\");
-    if (window.paper && paper.view && canvasEl) {
-      clearInterval(pollPaperAndLienzo);
-      initZoomControls(canvasEl);
-      initGlobalKeyboardShortcuts();
-      console.log(\"⚡ [EKKO Zoom & Shortcuts PRO] Acoplado dinámicamente y suplantando eventos obsoletos de editor.js.\");
-    }
-  }, 100);
+  });
 }
