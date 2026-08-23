@@ -1,33 +1,23 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v13 PRO - CORREGIDO)
+Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v12 PRO - CORREGIDO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
-Descripción: Motor interactivo de selección y edición de puntos de anclaje/nodos
-para EKKO Studio. Permite deformar de forma directa las curvas bézier del lienzo.
-Soporta multi-selección de puntos, borrado de nodos y acoplamiento reactivo con calados.
+Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
+para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
+Soporta multi-seleccion de puntos, borrado de nodos y acoplamiento reactivo con calados.
 
-CORRECCIÓN DE ERRORES CRÍTICOS:
-1. Coordenadas globales/locales precisas (Onion effect & Desfase solucionados).
-2. Arrastre proporcional en curvas escaladas/rotadas (Uso de globalToLocal para deltas).
-3. Sincronización completa con originalPath de siluetas con agujeros reactivos.
-4. Deselección inteligente de nodos al hacer clic en vacío sin salir de Edición de Nodos.
+CORRECCION DE ERRORES CRITICOS:
+1. No destruye el originalPath de siluetas con agujeros. En su lugar, proyecta los movimientos.
+2. Actualizacion de calados interactivos reactivos en caliente tras mover un nodo.
+3. Escalado inverso dinamico de nodos y manejadores basado en zoom (Tamano visual constante de 5px).
+4. Evita que al arrastrar un nodo se mueva el SVG de fondo (event propagation stop).
 ========================================================================= */
 
 let activeNodeItem = null;
 let nodeHandlesGroup = null;
-let selectedNodes = new Set(); // Conjunto de índices globales de puntos seleccionados
+let selectedNodes = new Set(); // Conjunto de indices globales de puntos seleccionados
 let isDraggingNode = false;
 
-// Manejador para borrar la selección de nodos al hacer clic en el vacío
-function handleCanvasMouseDown(e) {
-  if (window.nodeEditMode && selectedNodes.size > 0) {
-    // Si el clic no fue detenido por un tirador, deseleccionamos todos los nodos
-    selectedNodes.clear();
-    drawNodeHandles();
-    paper.view.update();
-  }
-}
-
-// Entrar en modo de edición de nodos para un elemento
+// Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
   if (!item || item.data?.locked) return;
 
@@ -36,7 +26,7 @@ export function enterNodeEditMode(item) {
 
   // Si es un PointText nativo, ofrecer convertir a curvas primero
   if (target instanceof paper.PointText) {
-    if (confirm("Para poder editar los nodos de este texto, primero debes convertirlo a curvas (ruta vectorial). ¿Deseas continuar?")) {
+    if (confirm("Para poder editar los nodos de este texto, primero debes convertirlo a curvas (ruta vectorial). ?Deseas continuar?")) {
       const converted = convertTextToPath(target);
       if (converted) {
         if (item.data?.clipGroup) {
@@ -67,7 +57,7 @@ export function enterNodeEditMode(item) {
   window.nodeEditTarget = activeNodeItem;
   window.isDraggingNode = false;
 
-  // Ocultar caja de selección celeste global
+  // Ocultar caja de seleccion celeste global
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(null);
   }
@@ -76,12 +66,7 @@ export function enterNodeEditMode(item) {
   drawNodeHandles();
   paper.view.update();
 
-  // Escuchar mousedown global del canvas en Paper.js para limpiar selección de nodos
-  if (paper.view) {
-    paper.view.on('mousedown', handleCanvasMouseDown);
-  }
-
-  // Registrar eventos de botones en el menú flotante
+  // Registrar eventos de botones en el menu flotante
   const btnDeleteNode = document.getElementById('btnCtxDeleteNode');
   if (btnDeleteNode) {
     btnDeleteNode.onclick = () => deleteSelectedNodes();
@@ -96,7 +81,7 @@ export function enterNodeEditMode(item) {
   document.addEventListener('keydown', handleNodeKeydown);
 }
 
-// Salir del modo de edición de nodos
+// Salir del modo de edicion de nodos
 export function exitNodeEditMode() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
@@ -104,10 +89,6 @@ export function exitNodeEditMode() {
   }
 
   document.removeEventListener('keydown', handleNodeKeydown);
-  if (paper.view) {
-    paper.view.off('mousedown', handleCanvasMouseDown);
-  }
-
   const itemToRestore = activeNodeItem;
   
   activeNodeItem = null;
@@ -133,7 +114,7 @@ function convertTextToPath(pointText) {
   compound.fillColor = pointText.fillColor;
   compound.strokeColor = pointText.strokeColor;
   compound.strokeWidth = pointText.strokeWidth;
-  compound.data = { label: \"Texto Convertido\" };
+  compound.data = { label: "Texto Convertido" };
   return compound;
 }
 
@@ -150,19 +131,14 @@ function getTargetPaths(item) {
   return [];
 }
 
-// Sincronizar dinámicamente la escala visual de los nodos ante operaciones de zoom (Garantía de 5px visuales constantes)
+// Sincronizar dinamicamente la escala visual de los nodos ante operaciones de zoom (Garantia de 5px visuales constantes)
 export function updateNodeHandlesScale() {
   if (!nodeHandlesGroup || !window.paper) return;
   const zoom = paper.view.zoom;
   const handleSize = 5 / zoom;
   nodeHandlesGroup.children.forEach(handle => {
     if (handle.data?.isNodeHandle) {
-      const targetPath = paper.project.getItem({ id: handle.data.pathId });
-      if (targetPath && targetPath.segments[handle.data.localIdx]) {
-        const seg = targetPath.segments[handle.data.localIdx];
-        // Sincronizar en caliente la posición global de los tiradores
-        handle.position = targetPath.localToGlobal(seg.point);
-      }
+      // Si es un circulo de Paper.js, modificamos su radio
       if (handle instanceof paper.Path.Circle) {
         handle.radius = handleSize;
       } else {
@@ -174,7 +150,7 @@ export function updateNodeHandlesScale() {
 }
 window.updateNodeHandlesScale = updateNodeHandlesScale;
 
-// Dibujar físicamente los círculos blancos con borde rojo sobre cada nodo
+// Dibujar fisicamente los circulos blancos con borde rojo sobre cada nodo
 export function drawNodeHandles() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
@@ -195,13 +171,10 @@ export function drawNodeHandles() {
       const ptIdx = globalPointIdx++;
       const isSelected = selectedNodes.has(ptIdx);
 
-      // CORRECCIÓN CLAVE: Traducir de coordenadas locales del sub-trazado a coordenadas globales visuales
-      const globalPoint = path.localToGlobal(segment.point);
-
       const handle = new paper.Path.Circle({
-        center: globalPoint,
+        center: segment.point,
         radius: handleSize,
-        strokeColor: isSelected ? '#28a745' : '#dc3545', // Verde si está seleccionado, rojo si no
+        strokeColor: isSelected ? '#28a745' : '#dc3545', // Verde si esta seleccionado, rojo si no
         fillColor: isSelected ? '#28a745' : '#ffffff',
         strokeWidth: 1.5 / zoom,
         insert: false
@@ -214,21 +187,21 @@ export function drawNodeHandles() {
         pathId: path.id
       };
 
-      // Controladores de eventos de ratón para edición directa
+      // Controladores de eventos de raton para edicion directa
       handle.onMouseDown = (e) => {
-        e.stopPropagation(); // Evitar propagación a la escena para que no borre selección de nodos
+        e.stopPropagation(); // Evitar propagacion a la escena
         isDraggingNode = true;
         window.isDraggingNode = true;
 
         if (e.modifiers.shift) {
-          // Multi-selección con Shift
+          // Multi-seleccion con Shift
           if (selectedNodes.has(ptIdx)) {
             selectedNodes.delete(ptIdx);
           } else {
             selectedNodes.add(ptIdx);
           }
         } else {
-          // Selección simple (limpia los demás a menos que ya pertenezca al conjunto de selección múltiple)
+          // Seleccion simple (limpia los demas a menos que ya pertenezca al conjunto de seleccion multiple)
           if (!selectedNodes.has(ptIdx)) {
             selectedNodes.clear();
             selectedNodes.add(ptIdx);
@@ -239,8 +212,10 @@ export function drawNodeHandles() {
       };
 
       handle.onMouseDrag = (e) => {
-        e.stopPropagation(); // Evitar propagación absoluta (Garantía anti-arrastre de SVG de fondo)
+        e.stopPropagation(); // Evitar propagacion absoluta (Garantia anti-arrastre de SVG de fondo)
         if (!isDraggingNode) return;
+
+        const delta = e.delta;
 
         // Mover todos los nodos seleccionados en bloque
         selectedNodes.forEach(selIdx => {
@@ -249,18 +224,16 @@ export function drawNodeHandles() {
             const targetPath = paper.project.getItem({ id: matchingHandle.data.pathId });
             if (targetPath && targetPath.segments[matchingHandle.data.localIdx]) {
               const seg = targetPath.segments[matchingHandle.data.localIdx];
-              
-              // CORRECCIÓN MATEMÁTICA: Convertir delta de coordenadas globales del puntero a delta local de Paper.js
-              const localDelta = targetPath.globalToLocal(e.point).subtract(targetPath.globalToLocal(e.lastPoint));
-              seg.point = seg.point.add(localDelta);
-              matchingHandle.position = targetPath.localToGlobal(seg.point); // Actualizar posición visual del mango
+              seg.point = seg.point.add(delta);
+              matchingHandle.position = seg.point; // Actualizar posicion visual del mango
 
-              // 🛡️ CORRECCIÓN DE LA RAÍZ DEL PROBLEMA: No sobreescribir el molde sólido completo.
-              // En su lugar, modificamos la misma coordenada del segmento homólogo en originalPath
+              //  CORRECCION DE LA RAIZ DEL PROBLEMA: No sobreescribir el molde solido completo.
+              // En su lugar, modificamos la misma coordenada del segmento homologo en originalPath
               if (activeNodeItem.data?.isOuterWithHoles && activeNodeItem.data?.originalPath) {
                 const origPath = activeNodeItem.data.originalPath;
-                // Si originalPath es CompoundPath, buscamos la sub-ruta homóloga
+                // Si originalPath es CompoundPath, buscamos la sub-ruta homologa
                 if (origPath instanceof paper.CompoundPath) {
+                  // Mapear que subruta de targetPath corresponde en originalPath
                   const parentIdx = targetPath.parent.children.indexOf(targetPath);
                   const subPath = origPath.children[parentIdx];
                   if (subPath && subPath.segments[matchingHandle.data.localIdx]) {
@@ -274,7 +247,7 @@ export function drawNodeHandles() {
           }
         });
 
-        // 🚀 ACTUALIZACIÓN REACTIVA DE CALADOS: Recalcular la sustracción booleana en caliente
+        //  ACTUALIZACION REACTIVA DE CALADOS: Recalcular la sustraccion booleana en caliente
         if (activeNodeItem.data?.isOuterWithHoles) {
           if (typeof window.updateOuterPathGeometry === 'function') {
             window.updateOuterPathGeometry(activeNodeItem);
@@ -309,7 +282,7 @@ export function deleteSelectedNodes() {
   const paths = getTargetPaths(activeNodeItem);
   const pointsToDeleteByPath = new Map();
 
-  // Agrupar los índices de nodos a borrar por ruta física
+  // Agrupar los indices de nodos a borrar por ruta fisica
   nodeHandlesGroup.children.forEach(handle => {
     if (handle.data?.isNodeHandle && selectedNodes.has(handle.data.globalIdx)) {
       if (!pointsToDeleteByPath.has(handle.data.pathId)) {
@@ -319,7 +292,7 @@ export function deleteSelectedNodes() {
     }
   });
 
-  // Eliminar los segmentos de reversa (de mayor a menor índice) para evitar alteración de punteros
+  // Eliminar los segmentos de reversa (de mayor a menor indice) para evitar alteracion de punteros
   pointsToDeleteByPath.forEach((localIndices, pathId) => {
     const path = paper.project.getItem({ id: pathId });
     if (path) {
@@ -330,7 +303,7 @@ export function deleteSelectedNodes() {
         }
       });
 
-      // Si la sub-ruta queda vacía, la eliminamos
+      // Si la sub-ruta queda vacia, la eliminamos
       if (path.segments.length === 0) {
         path.remove();
       }
@@ -339,7 +312,7 @@ export function deleteSelectedNodes() {
 
   selectedNodes.clear();
   
-  // Forzar recalculo de calados tras la eliminación de nodos
+  // Forzar recalculo de calados tras la eliminacion de nodos
   if (activeNodeItem.data?.isOuterWithHoles) {
     if (typeof window.updateOuterPathGeometry === 'function') {
       window.updateOuterPathGeometry(activeNodeItem);
@@ -359,7 +332,7 @@ function handleNodeKeydown(e) {
   }
 }
 
-// Exposición global segura
+// Exposicion global segura
 if (typeof window !== 'undefined') {
   window.enterNodeEditMode = enterNodeEditMode;
   window.exitNodeEditMode = exitNodeEditMode;
