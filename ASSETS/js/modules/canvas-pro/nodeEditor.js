@@ -1,21 +1,31 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v12 PRO - CORREGIDO)
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v13 PRO - CORREGIDO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripción: Motor interactivo de selección y edición de puntos de anclaje/nodos
 para EKKO Studio. Permite deformar de forma directa las curvas bézier del lienzo.
 Soporta multi-selección de puntos, borrado de nodos y acoplamiento reactivo con calados.
 
 CORRECCIÓN DE ERRORES CRÍTICOS:
-1. No destruye el originalPath de siluetas con agujeros. En su lugar, proyecta los movimientos.
-2. Actualización de calados interactivos reactivos en caliente tras mover un nodo.
-3. Escalado inverso dinámico de nodos y manejadores basado en zoom (Tamaño visual constante de 5px).
-4. Evita que al arrastrar un nodo se mueva el SVG de fondo (event propagation stop).
+1. Coordenadas globales/locales precisas (Onion effect & Desfase solucionados).
+2. Arrastre proporcional en curvas escaladas/rotadas (Uso de globalToLocal para deltas).
+3. Sincronización completa con originalPath de siluetas con agujeros reactivos.
+4. Deselección inteligente de nodos al hacer clic en vacío sin salir de Edición de Nodos.
 ========================================================================= */
 
 let activeNodeItem = null;
 let nodeHandlesGroup = null;
 let selectedNodes = new Set(); // Conjunto de índices globales de puntos seleccionados
 let isDraggingNode = false;
+
+// Manejador para borrar la selección de nodos al hacer clic en el vacío
+function handleCanvasMouseDown(e) {
+  if (window.nodeEditMode && selectedNodes.size > 0) {
+    // Si el clic no fue detenido por un tirador, deseleccionamos todos los nodos
+    selectedNodes.clear();
+    drawNodeHandles();
+    paper.view.update();
+  }
+}
 
 // Entrar en modo de edición de nodos para un elemento
 export function enterNodeEditMode(item) {
@@ -66,6 +76,11 @@ export function enterNodeEditMode(item) {
   drawNodeHandles();
   paper.view.update();
 
+  // Escuchar mousedown global del canvas en Paper.js para limpiar selección de nodos
+  if (paper.view) {
+    paper.view.on('mousedown', handleCanvasMouseDown);
+  }
+
   // Registrar eventos de botones en el menú flotante
   const btnDeleteNode = document.getElementById('btnCtxDeleteNode');
   if (btnDeleteNode) {
@@ -89,6 +104,10 @@ export function exitNodeEditMode() {
   }
 
   document.removeEventListener('keydown', handleNodeKeydown);
+  if (paper.view) {
+    paper.view.off('mousedown', handleCanvasMouseDown);
+  }
+
   const itemToRestore = activeNodeItem;
   
   activeNodeItem = null;
@@ -114,7 +133,7 @@ function convertTextToPath(pointText) {
   compound.fillColor = pointText.fillColor;
   compound.strokeColor = pointText.strokeColor;
   compound.strokeWidth = pointText.strokeWidth;
-  compound.data = { label: "Texto Convertido" };
+  compound.data = { label: \"Texto Convertido\" };
   return compound;
 }
 
@@ -138,7 +157,12 @@ export function updateNodeHandlesScale() {
   const handleSize = 5 / zoom;
   nodeHandlesGroup.children.forEach(handle => {
     if (handle.data?.isNodeHandle) {
-      // Si es un círculo de Paper.js, modificamos su radio
+      const targetPath = paper.project.getItem({ id: handle.data.pathId });
+      if (targetPath && targetPath.segments[handle.data.localIdx]) {
+        const seg = targetPath.segments[handle.data.localIdx];
+        // Sincronizar en caliente la posición global de los tiradores
+        handle.position = targetPath.localToGlobal(seg.point);
+      }
       if (handle instanceof paper.Path.Circle) {
         handle.radius = handleSize;
       } else {
@@ -171,8 +195,11 @@ export function drawNodeHandles() {
       const ptIdx = globalPointIdx++;
       const isSelected = selectedNodes.has(ptIdx);
 
+      // CORRECCIÓN CLAVE: Traducir de coordenadas locales del sub-trazado a coordenadas globales visuales
+      const globalPoint = path.localToGlobal(segment.point);
+
       const handle = new paper.Path.Circle({
-        center: segment.point,
+        center: globalPoint,
         radius: handleSize,
         strokeColor: isSelected ? '#28a745' : '#dc3545', // Verde si está seleccionado, rojo si no
         fillColor: isSelected ? '#28a745' : '#ffffff',
@@ -189,7 +216,7 @@ export function drawNodeHandles() {
 
       // Controladores de eventos de ratón para edición directa
       handle.onMouseDown = (e) => {
-        e.stopPropagation(); // Evitar propagación a la escena
+        e.stopPropagation(); // Evitar propagación a la escena para que no borre selección de nodos
         isDraggingNode = true;
         window.isDraggingNode = true;
 
@@ -215,8 +242,6 @@ export function drawNodeHandles() {
         e.stopPropagation(); // Evitar propagación absoluta (Garantía anti-arrastre de SVG de fondo)
         if (!isDraggingNode) return;
 
-        const delta = e.delta;
-
         // Mover todos los nodos seleccionados en bloque
         selectedNodes.forEach(selIdx => {
           const matchingHandle = nodeHandlesGroup.children.find(c => c.data?.globalIdx === selIdx);
@@ -224,8 +249,11 @@ export function drawNodeHandles() {
             const targetPath = paper.project.getItem({ id: matchingHandle.data.pathId });
             if (targetPath && targetPath.segments[matchingHandle.data.localIdx]) {
               const seg = targetPath.segments[matchingHandle.data.localIdx];
-              seg.point = seg.point.add(delta);
-              matchingHandle.position = seg.point; // Actualizar posición visual del mango
+              
+              // CORRECCIÓN MATEMÁTICA: Convertir delta de coordenadas globales del puntero a delta local de Paper.js
+              const localDelta = targetPath.globalToLocal(e.point).subtract(targetPath.globalToLocal(e.lastPoint));
+              seg.point = seg.point.add(localDelta);
+              matchingHandle.position = targetPath.localToGlobal(seg.point); // Actualizar posición visual del mango
 
               // 🛡️ CORRECCIÓN DE LA RAÍZ DEL PROBLEMA: No sobreescribir el molde sólido completo.
               // En su lugar, modificamos la misma coordenada del segmento homólogo en originalPath
@@ -233,7 +261,6 @@ export function drawNodeHandles() {
                 const origPath = activeNodeItem.data.originalPath;
                 // Si originalPath es CompoundPath, buscamos la sub-ruta homóloga
                 if (origPath instanceof paper.CompoundPath) {
-                  // Mapear qué subruta de targetPath corresponde en originalPath
                   const parentIdx = targetPath.parent.children.indexOf(targetPath);
                   const subPath = origPath.children[parentIdx];
                   if (subPath && subPath.segments[matchingHandle.data.localIdx]) {
