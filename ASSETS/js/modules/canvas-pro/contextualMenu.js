@@ -526,9 +526,11 @@ export function ungroupSelectedItem() {
         });
         const originalFill = activeTarget.fillColor;
         if (outers.length === 1) {
-          // CORRECCIÓN 2: Pasar de forma explícita el 'item' actual en procesamiento
-          separateContours(item);
-          return;
+          // LLAMADA SEGURA: Pasar true para evitar colisión de timeouts de selección
+          const separated = separateContours(item, true);
+          if (separated && separated.length > 0) {
+            newItems.push(...separated);
+          }
         }
         const pathAbsMatrix = getGlobalMatrix(activeTarget);
         outers.forEach(outerPath => {
@@ -567,9 +569,12 @@ export function ungroupSelectedItem() {
   // Retardo controlado de 50ms para evitar carreras de renderizado en el menú flotante
   setTimeout(() => {
     if (finalNewItems.length > 0) {
-      window.selectedItems = [...finalNewItems];
-      window.selectedItem = finalNewItems[finalNewItems.length - 1];
-      finalNewItems.forEach(it => { if (it) it.selected = true; });
+      // Filtrar y omitir controladores de hueco transparentes en la auto-selección global de desagrupar
+      const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
+      const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
+      window.selectedItems = [...selectList];
+      window.selectedItem = selectList[selectList.length - 1];
+      selectList.forEach(it => { if (it) it.selected = true; });
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     }
@@ -653,7 +658,7 @@ export function dissolveOuterWithHoles(item) {
   return newItems;
 }
 
-export function separateContours(itemToProcess) {
+export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup) return;
   const isClipped = !!item.data?.clipGroup;
