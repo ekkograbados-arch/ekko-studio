@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v14 PRO - COMPLETADO)
+Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v15 PRO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
 para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
@@ -53,28 +53,43 @@ export function enterNodeEditMode(item) {
     activeNodeItem = item;
   }
 
-  // Desactivar temporalmente la mascara de recorte de TODOS los grupos padres o hijos para evitar limites de recorte
+  // Desactivar temporalmente la mascara de recorte de TODOS los grupos padres y descendientes para evitar limites de recorte
   disabledClipGroups = [];
+  
+  function disableClipGroup(g) {
+    if (disabledClipGroups.includes(g)) return;
+    g.clipped = false;
+    disabledClipGroups.push(g);
+    if (g.data?.clipGroup) {
+      const mask = g.children.find(c => c.clipMask);
+      if (mask) {
+        mask.clipMask = false;
+        mask.strokeColor = '#009dec'; // Darle un borde celeste sutil para que el cliente vea el limite original
+        mask.strokeWidth = 1 / paper.view.zoom;
+        mask.dashArray = [3, 3];
+        mask.data = mask.data || {};
+        mask.data.wasClipMask = true;
+      }
+    }
+  }
+
+  // Desactivar hacia arriba (ancestros)
   let currentClip = target;
   while (currentClip && currentClip !== paper.project.activeLayer) {
     if (currentClip instanceof paper.Group && currentClip.clipped) {
-      currentClip.clipped = false;
-      disabledClipGroups.push(currentClip);
-      
-      if (currentClip.data?.clipGroup) {
-        const mask = currentClip.children.find(c => c.clipMask);
-        if (mask) {
-          mask.clipMask = false;
-          mask.strokeColor = '#009dec'; // Darle un borde celeste sutil para que el cliente vea el limite original
-          mask.strokeWidth = 1 / paper.view.zoom;
-          mask.dashArray = [3, 3];
-          mask.data = mask.data || {};
-          mask.data.wasClipMask = true;
-        }
-      }
+      disableClipGroup(currentClip);
     }
     currentClip = currentClip.parent;
   }
+
+  // Desactivar hacia abajo (descendientes)
+  target.accept({
+    visit: function(node) {
+      if (node instanceof paper.Group && node.clipped) {
+        disableClipGroup(node);
+      }
+    }
+  });
 
   window.nodeEditMode = true;
   window.nodeEditTarget = activeNodeItem;
@@ -271,8 +286,8 @@ export function exitNodeEditMode() {
       }
     }
   });
+
   disabledClipGroups = [];
-  
   activeNodeItem = null;
   selectedNodes.clear();
   isDraggingNode = false;
@@ -351,7 +366,6 @@ export function drawNodeHandles() {
 
   nodeHandlesGroup = new paper.Group();
   nodeHandlesGroup.data = { isNodeEditOverlay: true, isNodeHandleContainer: true };
-
   if (!activeNodeItem) return;
 
   const paths = getTargetPaths(activeNodeItem);
@@ -366,7 +380,6 @@ export function drawNodeHandles() {
 
       // Dibujar en coordenadas globales absolutas utilizando localToGlobal para compensar transformaciones
       const globalPoint = path.localToGlobal(segment.point);
-
       const handle = new paper.Path.Circle({
         center: globalPoint,
         radius: handleSize,
@@ -393,7 +406,6 @@ export function drawNodeHandles() {
 // Eliminar nodos seleccionados
 export function deleteSelectedNodes() {
   if (selectedNodes.size === 0 || !activeNodeItem) return;
-
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const paths = getTargetPaths(activeNodeItem);
@@ -419,7 +431,6 @@ export function deleteSelectedNodes() {
           path.removeSegment(idx);
         }
       });
-
       if (path.segments.length === 0) {
         path.remove();
       }
@@ -427,7 +438,6 @@ export function deleteSelectedNodes() {
   });
 
   selectedNodes.clear();
-  
   if (activeNodeItem.data?.isOuterWithHoles) {
     if (typeof window.updateOuterPathGeometry === 'function') {
       window.updateOuterPathGeometry(activeNodeItem);
