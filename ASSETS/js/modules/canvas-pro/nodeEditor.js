@@ -7,6 +7,24 @@ Soporta multi-seleccion de puntos por Shift+Clic y caja de arrastre (marquee),
 borrado de nodos y acoplamiento reactivo con calados.
 ========================================================================= */
 
+
+
+function getContentItem(item) {
+  if (!item) return null;
+  if (item.data && item.data.clipGroup) {
+    var content = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
+    });
+    if (content) return content;
+    var fallback = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
+    });
+    if (fallback) return fallback;
+    return item.children[1] || item.children[0] || item;
+  }
+  return item;
+}
+
 let activeNodeItem = null;
 let nodeHandlesGroup = null;
 let selectedNodes = new Set(); // Conjunto de indices globales de puntos seleccionados
@@ -21,7 +39,7 @@ let disabledClipGroups = [];
 export function enterNodeEditMode(item) {
   if (!item || item.data?.locked) return;
 
-  const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+  const target = getContentItem(item);
   if (!target) return;
 
   // Si es un PointText nativo, ofrecer convertir a curvas primero
@@ -326,7 +344,7 @@ function convertTextToPath(pointText) {
 
 // Obtener los trazados vectoriales reales sobre los cuales operar
 function getTargetPaths(item) {
-  const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+  const target = getContentItem(item);
   if (!target) return [];
   const paths = [];
   const findPathsRecursive = (el) => {
