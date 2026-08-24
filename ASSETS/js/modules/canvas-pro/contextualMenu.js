@@ -1,17 +1,12 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (EDICIÓN DEFINITIVA - CORREGIDA)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (FINAL CORREGIDO - PRO GRABADO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
-Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
-desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
-en tiempo real, e inyeccion dinamica de familias de fuentes.
-SOPORTE DE DESAGRUPACIÓN JERÁRQUICA SECUENCIAL CON CALADOS REACTIVOS RECURSIVOS.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 
-// Variable global de previsualizacion en window
 function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
@@ -33,7 +28,6 @@ let fontsCache = [];
 let toolbarDragged = false;
 let lastSelectedItem = null;
 
-// Estructuras de memoria directas para el listado reactivo de huecos vectoriales
 window.ekkoOuters = window.ekkoOuters || new Map();
 window.ekkoHolesMap = window.ekkoHolesMap || new Map();
 
@@ -56,28 +50,14 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
   document.head.appendChild(styleEl);
 }
 
-// --- REMOVE OVERLAP TAB (EVITAR SUPERPOSICION) ---
 function removeOverlapTab() {
   const btnSubtract = document.getElementById('btnCtxSubtract');
   if (btnSubtract) {
     btnSubtract.style.display = 'none';
     btnSubtract.remove();
   }
-  const allElements = document.querySelectorAll('button, div, span, a, p, li');
-  allElements.forEach(el => {
-    if (el.textContent) {
-      const normalizedText = el.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
-      if (normalizedText.includes('EVITAR SUPERPOSICION')) {
-        el.remove();
-      }
-    }
-  });
 }
 
-/**
- * Inyecta dinamicamente las reglas de @font-face en el encabezado (head) para cada fuente devuelta,
- * asegurando la creacion de familias para los alias.
- */
 function injectFontFaces(fonts) {
   let styleEl = document.getElementById('ekko-dynamic-font-faces');
   if (!styleEl) {
@@ -100,9 +80,6 @@ function injectFontFaces(fonts) {
   styleEl.textContent += cssRules;
 }
 
-/**
- * Obtiene el texto actualmente seleccionado para la previsualizacion interactiva del dropdown
- */
 function getSelectedTextString() {
   if (!window.selectedItem) return "EKKO Studio";
   const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
@@ -116,9 +93,6 @@ function getSelectedTextString() {
   return "EKKO Studio";
 }
 
-/**
- * Obtiene la familia de fuente del elemento seleccionado
- */
 function getSelectedFontFamily() {
   if (!window.selectedItem) return "Arial";
   const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
@@ -132,9 +106,6 @@ function getSelectedFontFamily() {
   return "Arial";
 }
 
-/**
- * Aplica de forma directa o curva la tipografia seleccionada conservando la estructura y el Canvas de Paper.js
- */
 function applyFontFamily(item, family) {
   if (!item) return;
   const target = item.data?.clipGroup ? getContentItem(item) : item;
@@ -151,9 +122,6 @@ function applyFontFamily(item, family) {
   paper.view.update();
 }
 
-/**
- * Genera los items de fuentes con previsualizacion dinamica dentro del dropdown personalizado
- */
 function renderCustomFontItems(listContainer, fonts) {
   listContainer.innerHTML = "";
   const previewText = getSelectedTextString();
@@ -200,9 +168,6 @@ function renderCustomFontItems(listContainer, fonts) {
   });
 }
 
-/**
- * Carga las fuentes dinamicas de la API, inyecta sus @font-face y puebla el dropdown personalizado
- */
 async function populateFontDropdowns() {
   let fonts = [];
   try {
@@ -252,9 +217,6 @@ async function populateFontDropdowns() {
   }
 }
 
-/**
- * Hace que el menu contextual flotante sea arrastrable por el lienzo de edicion
- */
 function makeToolbarDraggable() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
@@ -296,40 +258,6 @@ function makeToolbarDraggable() {
   });
 }
 
-/**
- * Filtra y elimina los rectangulos invisibles de fondo (Artboards de Illustrator)
- * que generan cajas celestes de seleccion gigantes y molestas sobre el producto de fondo.
- */
-export function removeSvgBackgroundRectangles(rootItem) {
-  if (!rootItem) return;
-  const candidates = [];
-  const findRects = (node) => {
-    if (node instanceof paper.Path.Rectangle || (node instanceof paper.Path && node.closed && node.segments.length === 4)) {
-      const fill = node.fillColor;
-      const stroke = node.strokeColor;
-      const isTransparent = (!fill || fill.alpha === 0 || (fill.red === 1 && fill.green === 1 && fill.blue === 1 && fill.alpha < 0.05)) &&
-                            (!stroke || stroke.alpha === 0);
-      if (isTransparent) {
-        candidates.push(node);
-      }
-    }
-    if (node.children) {
-      [...node.children].forEach(findRects);
-    }
-  };
-  findRects(rootItem);
-  candidates.forEach(c => {
-    c.data = c.data || {};
-    c.data.isSvgBackground = true;
-    c.remove();
-  });
-}
-
-/**
- * Obtiene de forma recursiva todos los elementos vectoriales finales de la escena (hijos finales),
- * disolviendo los grupos intermedios anidados y aplicando la matriz global de transformacion
- * para evitar saltos o saltos visuales indeseados (Cero Onion Effect).
- */
 function getLeafItemsRecursive(item) {
   const leaves = [];
   const recurse = (node, parentMatrix) => {
@@ -346,10 +274,6 @@ function getLeafItemsRecursive(item) {
   return leaves;
 }
 
-/**
- * Agrupa multiples elementos en un CompoundPath unico (si son vectores) o en un Grupo tradicional de Paper.js.
- * Si se incluye un controlador de hueco y su Outer, los refunde nativamente para corte laser.
- */
 export function groupSelectedItems() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
@@ -376,10 +300,8 @@ export function groupSelectedItems() {
   const isClipped = selected.some(item => !!item.data?.clipGroup);
   const contents = [];
 
-  // Procesamiento de refundido interactivo de huecos antes de agrupar
   const outersInSelection = selected.filter(item => item.data?.isOuterWithHoles);
   outersInSelection.forEach(outerItem => {
-    const originalPath = outerItem.data.originalPath;
     const holeIds = outerItem.data.holeIds || [];
     const associatedHoles = holeIds
       .map(id => paper.project.getItem({ id }))
@@ -464,19 +386,21 @@ function getActiveGroupTarget(group) {
   return current;
 }
 
-/**
- * Desagrupa un único nivel de la jerarquía de grupos (Paso 2.1 del plan técnico corregido).
- * Respeta la integridad de los subgrupos y formas compuestas inferiores.
- */
-function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
-  const children = [...group.children];
+function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
+  const leafItems = [];
+  const findLeaves = (node) => {
+    if (node instanceof paper.Group && !node.data?.clipGroup) {
+      const children = [...node.children];
+      children.forEach(child => findLeaves(child));
+    } else {
+      leafItems.push(node);
+    }
+  };
+  findLeaves(group);
+  group.remove();
+
   const addedItems = [];
-
-  // Pulverizar rectángulos transparentes vacíos de Illustrator
-  removeSvgBackgroundRectangles(group);
-
-  children.forEach(child => {
-    if (child.data?.isSvgBackground) return;
+  leafItems.forEach(child => {
     const targetAncestor = isClipped ? oldClipGroup : group;
     const relMatrix = getMatrixRelativeTo(child, targetAncestor);
     child.remove();
@@ -497,6 +421,23 @@ function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
     addedItems.push(newItem);
   });
   return addedItems;
+}
+
+// COMPROBACIÓN DE FONDO TRANSPARENTE DEL ARTBOARD (Sani-Engine)
+function isArtboardBackground(path, parentItem) {
+  if (!parentItem) return false;
+  const parentBounds = parentItem.bounds;
+  const pathBounds = path.bounds;
+  const widthRatio = pathBounds.width / parentBounds.width;
+  const heightRatio = pathBounds.height / parentBounds.height;
+
+  if (widthRatio > 0.95 && heightRatio > 0.95) {
+    const hasStroke = path.strokeColor && path.strokeColor.alpha > 0;
+    if (!hasStroke || path.strokeWidth === 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function ungroupSelectedItem() {
@@ -523,16 +464,16 @@ export function ungroupSelectedItem() {
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-    // A. SI ES UN GRUPO: Desagrupamos únicamente un nivel (Evitamos colapsar el calado)
+    // A. SI ES UN GRUPO: Desagrupamos un único nivel jerárquico
     if (activeTarget instanceof paper.Group) {
-      const singleLevelItems = ungroupSingleLevel(activeTarget, parent, index, isClipped, isClipped ? item : null);
-      newItems.push(...singleLevelItems);
+      const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
+      newItems.push(...flatItems);
       if (isClipped && item) {
         item.clipped = false;
       }
       item.remove();
     }
-    // B. SI ES TEXTO: Dividimos por caracteres PointText independientes
+    // B. SI ES TEXTO
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
       const letters = splitPointTextIntoLetters(activeTarget);
       const textAbsMatrix = getGlobalMatrix(activeTarget);
@@ -556,15 +497,17 @@ export function ungroupSelectedItem() {
       }
       item.remove();
     }
-    // C. SI ES COMPOUNDPATH: Separación elástica de contornos y calados (Nivel 2)
+    // C. SI ES COMPOUNDPATH: Desagrupación jerárquica progresiva por niveles
     else if (activeTarget instanceof paper.CompoundPath) {
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
-        const dissolved = dissolveOuterWithHoles(item);
-        if (dissolved && dissolved.length > 0) {
-          newItems.push(...dissolved);
+        // SEGUNDO CLIC: Ya es una forma aislada con calados, la dividimos en controladores transparentes
+        const separated = separateContours(item, true);
+        if (separated && separated.length > 0) {
+          newItems.push(...separated);
         }
       } else {
-        const separated = separateContours(item, true);
+        // PRIMER CLIC: Es la silueta completa del SVG, la dividimos en outers independientes con sus calados integrados
+        const separated = separateContoursIntoIndependentShapes(item);
         if (separated && separated.length > 0) {
           newItems.push(...separated);
         }
@@ -581,7 +524,6 @@ export function ungroupSelectedItem() {
 
   setTimeout(() => {
     if (finalNewItems.length > 0) {
-      // Filtrar para no seleccionar huecos transparentes invisibles
       const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
       const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
       
@@ -618,10 +560,6 @@ function splitPointTextIntoLetters(pointText) {
   return letters;
 }
 
-/**
- * Separa los contornos y huecos de un trazado compuesto de forma independiente.
- * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
- */
 export function dissolveOuterWithHoles(item) {
   if (!item || !item.data?.isOuterWithHoles) return [];
   const parent = item.parent || paper.project.activeLayer;
@@ -688,10 +626,162 @@ export function dissolveOuterWithHoles(item) {
   return newItems;
 }
 
-/**
- * Divide trazados complejos en formas exteriores solidas y huecos de calado transparente (Nivel 2).
- * Soporta anidación profunda (huecos que a su vez contienen rellenos).
- */
+// PRIMER CLIC: SEPARA LAS PIEZAS VECTORIALES CON SUS HUECOS INCORPORADOS COMO COMPOUNDPATHS INDEPENDIENTES
+export function separateContoursIntoIndependentShapes(itemToProcess) {
+  const item = itemToProcess || window.selectedItem;
+  if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
+  const isClipped = !!item.data?.clipGroup;
+  const target = isClipped ? getContentItem(item) : item;
+  if (!target || !(target instanceof paper.CompoundPath)) return [];
+
+  if (typeof window.saveHistory === 'function') {
+    window.saveHistory();
+  }
+
+  const parent = item.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(item);
+  const newItems = [];
+
+  // Purga de Artboard
+  const subPaths = [...target.children].filter(p => {
+    if (isArtboardBackground(p, target)) {
+      p.remove();
+      return false;
+    }
+    return true;
+  });
+
+  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
+  const pathAbsMatrix = getGlobalMatrix(target);
+
+  const originalFillColor = target.fillColor;
+  const originalStrokeColor = target.strokeColor;
+  const originalStrokeWidth = target.strokeWidth;
+
+  const outers = [];
+  const holesMap = new Map();
+
+  // Nesting Analysis
+  const pathNesting = [];
+  subPaths.forEach(p => {
+    const containers = [];
+    subPaths.forEach(other => {
+      if (other !== p) {
+        const otherArea = Math.abs(other.area) || other.bounds.area;
+        const pArea = Math.abs(p.area) || p.bounds.area;
+        if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+          containers.push(other);
+        }
+      }
+    });
+    pathNesting.push({ path: p, containers: containers });
+  });
+
+  pathNesting.forEach(entry => {
+    const p = entry.path;
+    const containers = entry.containers;
+    if (containers.length % 2 === 0) {
+      outers.push(p);
+      holesMap.set(p, []);
+    }
+  });
+
+  pathNesting.forEach(entry => {
+    const p = entry.path;
+    const containers = entry.containers;
+    if (containers.length % 2 !== 0) {
+      let immediateOuter = null;
+      let minArea = Infinity;
+      containers.forEach(c => {
+        if (outers.includes(c)) {
+          const cArea = Math.abs(c.area) || c.bounds.area;
+          if (cArea < minArea) {
+            minArea = cArea;
+            immediateOuter = c;
+          }
+        }
+      });
+      if (immediateOuter) {
+        if (!holesMap.has(immediateOuter)) holesMap.set(immediateOuter, []);
+        holesMap.get(immediateOuter).push(p);
+      } else {
+        outers.push(p);
+        holesMap.set(p, []);
+      }
+    }
+  });
+
+  const outersToSelect = [];
+
+  outers.forEach(outerPath => {
+    const associatedHoles = holesMap.get(outerPath) || [];
+    let shapeToInsert;
+
+    if (associatedHoles.length > 0) {
+      const childrenClones = [];
+      const outerClone = outerPath.clone({ insert: false });
+      outerClone.data = { isOuterWithHoles: true };
+      childrenClones.push(outerClone);
+
+      associatedHoles.forEach(h => {
+        const hClone = h.clone({ insert: false });
+        childrenClones.push(hClone);
+      });
+
+      const compound = new paper.CompoundPath({
+        children: childrenClones,
+        insert: false
+      });
+      compound.fillColor = originalFillColor || '#000000';
+      compound.strokeColor = originalStrokeColor || '#000000';
+      compound.strokeWidth = originalStrokeWidth || 1;
+      
+      shapeToInsert = compound;
+    } else {
+      const pathClone = outerPath.clone({ insert: false });
+      pathClone.fillColor = originalFillColor || '#000000';
+      pathClone.strokeColor = originalStrokeColor || '#000000';
+      pathClone.strokeWidth = originalStrokeWidth || 1;
+      
+      shapeToInsert = pathClone;
+    }
+
+    let newItem;
+    if (isClipped) {
+      newItem = window.clipItem(shapeToInsert);
+      newItem.matrix = item.matrix.clone();
+      shapeToInsert.matrix = pathRelMatrix.clone().chain(shapeToInsert.matrix);
+    } else {
+      newItem = shapeToInsert;
+      newItem.matrix = pathAbsMatrix.clone().chain(shapeToInsert.matrix);
+      parent.addChild(newItem);
+    }
+
+    newItem.data = {
+      ...(newItem.data || {}),
+      isOuterWithHoles: associatedHoles.length > 0,
+      label: item.data?.label || "Objeto"
+    };
+
+    newItems.push(newItem);
+    outersToSelect.push(newItem);
+  });
+
+  if (isClipped && item) {
+    item.clipped = false;
+  }
+  item.remove();
+
+  if (!isClipped) {
+    newItems.reverse().forEach(newItem => {
+      parent.insertChild(index, newItem);
+    });
+  }
+
+  return newItems;
+}
+
+// SEGUNDO CLIC: SEPARA EL CONTORNO SÓLIDO DE SUS HUECOS COMO CONTROLADORES TRANSPARENTES
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
@@ -717,7 +807,6 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
   const outers = [];
   const holesMap = new Map();
-  const descendantsMap = new Map();
 
   const pathNesting = [];
   subPaths.forEach(p => {
@@ -817,48 +906,8 @@ export function separateContours(itemToProcess, skipSelection = false) {
         label: "Hueco"
       };
 
-      const descendants = descendantsMap.get(holePath) || [];
-      if (descendants.length > 0) {
-        const descClones = descendants.map(d => {
-          const dClone = d.clone({ insert: false });
-          dClone.matrix = pathRelMatrix.clone().chain(dClone.matrix);
-          return dClone;
-        });
-
-        const nestedContainer = new paper.CompoundPath({
-          children: descClones,
-          insert: false
-        });
-        nestedContainer.fillColor = originalFillColor || '#000000';
-        nestedContainer.strokeColor = originalStrokeColor || '#000000';
-        nestedContainer.strokeWidth = originalStrokeWidth || 1;
-        nestedContainer.data = { label: "Contenido Interno" };
-
-        let finalNestedItem;
-        if (isClipped) {
-          finalNestedItem = window.clipItem(nestedContainer);
-          finalNestedItem.matrix = item.matrix.clone();
-        } else {
-          finalNestedItem = nestedContainer;
-          parent.addChild(finalNestedItem);
-        }
-
-        const holeGroup = new paper.Group([newHoleItem, finalNestedItem]);
-        holeGroup.data = {
-          isCompoundHoleGroup: true,
-          label: "Calado Compuesto"
-        };
-
-        if (!isClipped) {
-          parent.addChild(holeGroup);
-        }
-
-        newOuterItem.data.holeIds.push(newHoleItem.id);
-        newItems.push(holeGroup);
-      } else {
-        newOuterItem.data.holeIds.push(newHoleItem.id);
-        newItems.push(newHoleItem);
-      }
+      newOuterItem.data.holeIds.push(newHoleItem.id);
+      newItems.push(newHoleItem);
     });
 
     window.ekkoOuters.set(newOuterItem.id, newOuterItem);
@@ -889,19 +938,6 @@ export function separateContours(itemToProcess, skipSelection = false) {
       parent.insertChild(index, newItem);
     });
   }
-
-  window.deselectItem();
-
-  setTimeout(() => {
-    if (outersToSelect.length > 0) {
-      window.selectedItems = [...outersToSelect];
-      window.selectedItem = outersToSelect[outersToSelect.length - 1];
-      outersToSelect.forEach(it => { if (it) it.selected = true; });
-      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-    }
-    paper.view.update();
-  }, 50);
 
   return newItems;
 }
@@ -993,86 +1029,18 @@ export function updateOuterPathGeometry(outerItem) {
   return resultOuter;
 }
 
-/**
- * Sanitiza permanentemente la seleccion en cada frame de Paper.js.
- * Bloquea la seleccion de mockups de fondo y destruye las cajas del artboard.
- */
-function sanitizeSelection() {
-  if (window.selectedItems && window.selectedItems.length > 0) {
-    const clean = window.selectedItems.filter(item => {
-      if (!item) return false;
-      if (item.data?.mockup || item.data?.isMask || item.data?.locked) {
-        item.selected = false;
-        return false;
-      }
-      if (item.data?.isSvgBackground) {
-        item.selected = false;
-        item.remove();
-        return false;
-      }
-      return true;
-    });
-    if (clean.length !== window.selectedItems.length) {
-      window.selectedItems = clean;
-      window.selectedItem = clean.length > 0 ? clean[clean.length - 1] : null;
-      if (window.selectedItem) {
-        if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-        if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-      } else {
-        window.deselectItem();
-      }
-    }
-  }
-  if (window.selectedItem && (window.selectedItem.data?.mockup || window.selectedItem.data?.isMask || window.selectedItem.data?.locked)) {
-    window.deselectItem();
-  }
-}
-
 if (typeof window.paper !== 'undefined' && paper.view) {
   paper.view.on('frame', () => {
     if (!paper.project || !paper.project.activeLayer) return;
-
-    // Saneamiento continuo de selección
-    sanitizeSelection();
-
-    // Sincronización interactiva y reasignación de calados dinámicos
     window.ekkoOuters.forEach(outerItem => {
       let needsUpdate = false;
       const validHoleIds = [];
       const holeIds = outerItem.data?.holeIds || [];
-      
       holeIds.forEach(id => {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
           const targetHole = hole.data?.clipGroup ? getContentItem(hole) : hole;
-          
-          // Reasignacion Dinamica: Verificar si el calado fue arrastrado a otra silueta outer sólida
-          const holeCenter = targetHole.bounds.center;
-          const currentOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
-          
-          if (currentOuter && !currentOuter.bounds.contains(holeCenter)) {
-            let newOuter = null;
-            window.ekkoOuters.forEach((otherOuter, otherId) => {
-              if (otherId !== outerItem.id) {
-                const otherCont = otherOuter.data.clipGroup ? getContentItem(otherOuter) : otherOuter;
-                if (otherCont && otherCont.bounds.contains(holeCenter)) {
-                  newOuter = otherOuter;
-                }
-              }
-            });
-            
-            if (newOuter) {
-              hole.data.outerItemId = newOuter.id;
-              newOuter.data.holeIds = newOuter.data.holeIds || [];
-              newOuter.data.holeIds.push(id);
-              needsUpdate = true;
-              setTimeout(() => {
-                updateOuterPathGeometry(newOuter);
-              }, 0);
-            }
-          }
-
           const currentHash = `${targetHole.position.x.toFixed(1)},${targetHole.position.y.toFixed(1)},${targetHole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
             hole.data.lastHash = currentHash;
@@ -1082,12 +1050,8 @@ if (typeof window.paper !== 'undefined' && paper.view) {
           needsUpdate = true;
         }
       });
-      
       if (needsUpdate) {
-        outerItem.data.holeIds = validHoleIds.filter(id => {
-          const h = paper.project.getItem({ id });
-          return h && h.data?.outerItemId === outerItem.id;
-        });
+        outerItem.data.holeIds = validHoleIds;
         updateOuterPathGeometry(outerItem);
       }
     });
@@ -1230,12 +1194,6 @@ if (typeof window !== 'undefined') {
     if (typeof window.applyPositionCorrections === "function") {
       window.applyPositionCorrections();
     }
-    if (typeof window.bindRotationInputEvents === "function") {
-      window.bindRotationInputEvents();
-    }
-    if (typeof window.syncContextualRotationInput === "function") {
-      window.syncContextualRotationInput(primaryItem);
-    }
   };
 
   try {
@@ -1253,8 +1211,10 @@ if (typeof window !== 'undefined') {
 export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-  if (toolbar.parentNode !== document.body) {
-    document.body.appendChild(toolbar);
+  
+  const container = document.getElementById('canvasContainer');
+  if (container && toolbar.parentNode !== container) {
+    container.appendChild(toolbar);
   }
 
   removeOverlapTab();
@@ -1357,6 +1317,7 @@ export function initContextualMenu() {
   window.groupSelectedItems = groupSelectedItems;
   window.ungroupSelectedItem = ungroupSelectedItem;
   window.separateContours = separateContours;
+  window.separateContoursIntoIndependentShapes = separateContoursIntoIndependentShapes;
   window.dissolveOuterWithHoles = dissolveOuterWithHoles;
 }
 
@@ -1399,15 +1360,24 @@ export function updateContextualMenu(item) {
         vecCtrl.classList.remove('hidden');
         const btnEditNodes = document.getElementById('btnCtxEditNodes');
         if (btnEditNodes) btnEditNodes.style.display = 'none';
-        const btnGroup = document.getElementById('btnCtxGroup');
-        if (btnGroup) btnGroup.style.display = 'inline-block';
-        const btnUngroup = document.getElementById('btnCtxUngroup');
+        const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
+        if (btnGroup) {
+          btnGroup.classList.remove('hidden');
+          btnGroup.style.display = '';
+        }
+        const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
         if (btnUngroup) {
           const canUngroup = window.selectedItems.some(it => {
             const t = it.data?.clipGroup ? getContentItem(it) : it;
             return t && (t instanceof paper.Group || t instanceof paper.CompoundPath);
           });
-          btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
+          if (canUngroup) {
+            btnUngroup.classList.remove('hidden');
+            btnUngroup.style.display = '';
+          } else {
+            btnUngroup.classList.add('hidden');
+            btnUngroup.style.display = 'none';
+          }
         }
       }
     }
@@ -1429,12 +1399,6 @@ export function updateContextualMenu(item) {
   } else if (target instanceof paper.Raster) {
     const imgCtrl = document.getElementById('ctxImageControls');
     if (imgCtrl) imgCtrl.classList.remove('hidden');
-    if (target.data && target.data.brightnessContrast) {
-      const brSlider = document.getElementById('ctxBrightness');
-      const coSlider = document.getElementById('ctxContrast');
-      if (brSlider) brSlider.value = target.data.brightnessContrast.brightness || 0;
-      if (coSlider) coSlider.value = target.data.brightnessContrast.contrast || 0;
-    }
   } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
     const vecCtrl = document.getElementById('ctxVectorControls');
     if (vecCtrl) {
@@ -1444,15 +1408,45 @@ export function updateContextualMenu(item) {
         const canEdit = !(target instanceof paper.Group);
         btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
       }
-      const btnGroup = document.getElementById('btnCtxGroup');
-      if (btnGroup) btnGroup.style.display = 'none';
-      const btnUngroup = document.getElementById('btnCtxUngroup');
+      const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
+      if (btnGroup) {
+        btnGroup.classList.add('hidden');
+        btnGroup.style.display = 'none';
+      }
+      const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
       if (btnUngroup) {
         const canUngroup = (target instanceof paper.Group) || (target instanceof paper.CompoundPath);
         btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
       }
     }
   }
+
+  if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
+    toolbar.style.left = window.customToolbarLeft + 'px';
+    toolbar.style.top = window.customToolbarTop + 'px';
+    toolbar.style.zIndex = "2147483647";
+  } else if (!toolbarDragged || lastSelectedItem !== item) {
+    const bounds = item.bounds;
+    if (!bounds) return;
+    const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
+    const targetBounds = displayItem ? displayItem.bounds : bounds;
+    
+    if (targetBounds && window.paper && paper.view) {
+      const viewPos = paper.view.projectToView(targetBounds.topCenter);
+      const x = viewPos.x - (toolbar.offsetWidth / 2);
+      const y = viewPos.y - toolbar.offsetHeight - 15;
+      
+      const container = document.getElementById('canvasContainer');
+      const containerWidth = container ? container.clientWidth : window.innerWidth;
+      const containerHeight = container ? container.clientHeight : window.innerHeight;
+
+      toolbar.style.position = "absolute";
+      toolbar.style.left = Math.max(10, Math.min(x, containerWidth - toolbar.offsetWidth - 10)) + 'px';
+      toolbar.style.top = Math.max(10, Math.min(y, containerHeight - toolbar.offsetHeight - 10)) + 'px';
+      toolbar.style.zIndex = "2147483647";
+    }
+  }
+  lastSelectedItem = item;
 }
 
 export function hideContextualMenu() {
@@ -1467,3 +1461,49 @@ export function hideContextualMenu() {
   toolbarDragged = false;
   lastSelectedItem = null;
 }
+
+window.applyPositionCorrections = function() {
+  const toolbar = document.getElementById("contextual-toolbar");
+  const textEditor = document.getElementById("ekko-text-editor");
+  if (!window.paper || !paper.view || !window.selectedItem) return;
+
+  const item = window.selectedItem;
+  const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
+  if (!displayItem) return;
+
+  const bounds = displayItem.bounds;
+  const viewPos = paper.view.projectToView(bounds.topCenter);
+  const centerPos = paper.view.projectToView(bounds.center);
+
+  if (toolbar && toolbar.classList.contains("active")) {
+    const toolbarHeight = toolbar.offsetHeight || 45;
+    const toolbarWidth = toolbar.offsetWidth || 350;
+    
+    const x = viewPos.x - (toolbarWidth / 2);
+    const y = viewPos.y - toolbarHeight - 15;
+    
+    const container = document.getElementById('canvasContainer');
+    const containerWidth = container ? container.clientWidth : window.innerWidth;
+    const containerHeight = container ? container.clientHeight : window.innerHeight;
+
+    toolbar.style.position = "absolute";
+    toolbar.style.left = Math.max(10, Math.min(containerWidth - toolbarWidth - 10, x)) + "px";
+    toolbar.style.top = Math.max(10, Math.min(containerHeight - toolbarHeight - 10, y)) + "px";
+    toolbar.style.zIndex = "2147483646";
+  }
+
+  if (textEditor) {
+    const editorWidth = textEditor.offsetWidth || 150;
+    const editorHeight = textEditor.offsetHeight || 40;
+    const canvasEl = document.getElementById("editorCanvas");
+    if (canvasEl) {
+      const rect = canvasEl.getBoundingClientRect();
+      const targetLeft = rect.left + window.scrollX + centerPos.x - (editorWidth / 2);
+      const targetTop = rect.top + window.scrollY + centerPos.y - (editorHeight / 2);
+      textEditor.style.left = targetLeft + "px";
+      textEditor.style.top = targetTop + "px";
+      textEditor.style.position = "absolute";
+      textEditor.style.zIndex = "2147483647";
+    }
+  }
+};
