@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v13 PRO - COMPLETADO)
+Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v14 PRO - COMPLETADO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
 para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
@@ -50,6 +50,19 @@ export function enterNodeEditMode(item) {
     }
   } else {
     activeNodeItem = item;
+  }
+
+  // Desactivar temporalmente la mascara de recorte para poder estirar los nodos libremente por fuera de la caja
+  if (activeNodeItem && activeNodeItem.data?.clipGroup) {
+    const mask = activeNodeItem.children.find(c => c.clipMask);
+    if (mask) {
+      mask.clipMask = false;
+      mask.strokeColor = '#009dec'; // Darle un borde celeste sutil para que el cliente vea el limite original
+      mask.strokeWidth = 1 / paper.view.zoom;
+      mask.dashArray = [3, 3];
+      mask.data = mask.data || {};
+      mask.data.wasClipMask = true;
+    }
   }
 
   window.nodeEditMode = true;
@@ -124,7 +137,7 @@ export function enterNodeEditMode(item) {
             
             // Mover el punto del segmento de forma local
             seg.point = seg.point.add(delta);
-            matchingHandle.position = seg.point; // Sincronizar mango visual
+            matchingHandle.position = targetPath.localToGlobal(seg.point); // Sincronizar mango visual
 
             // CORRECCION DE LA RAIZ DEL PROBLEMA: No sobreescribir el originalPath solido
             if (activeNodeItem.data?.isOuterWithHoles && activeNodeItem.data?.originalPath) {
@@ -223,6 +236,7 @@ export function exitNodeEditMode() {
     nodeHandlesGroup.remove();
     nodeHandlesGroup = null;
   }
+
   if (marqueeRect) {
     marqueeRect.remove();
     marqueeRect = null;
@@ -230,6 +244,17 @@ export function exitNodeEditMode() {
 
   document.removeEventListener('keydown', handleNodeKeydown);
   const itemToRestore = activeNodeItem;
+
+  // Restaurar la mascara de recorte del producto al salir de la edicion de nodos
+  if (activeNodeItem && activeNodeItem.data?.clipGroup) {
+    const mask = activeNodeItem.children.find(c => c.data?.wasClipMask);
+    if (mask) {
+      mask.clipMask = true;
+      mask.strokeColor = null;
+      mask.dashArray = null;
+      delete mask.data.wasClipMask;
+    }
+  }
   
   activeNodeItem = null;
   selectedNodes.clear();
@@ -245,7 +270,7 @@ export function exitNodeEditMode() {
   if (itemToRestore) {
     window.selectItem(itemToRestore);
   }
-  
+
   const nodeEl = document.getElementById('ctxNodeEditControls');
   if (nodeEl) nodeEl.classList.add('hidden');
 
@@ -263,14 +288,12 @@ function convertTextToPath(pointText) {
   return compound;
 }
 
-// Obtener los trazados vectoriales reales de forma recursiva (Soporte directo para SVG Grupos y mas)
+// Obtener los trazados vectoriales reales sobre los cuales operar
 function getTargetPaths(item) {
   const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
   if (!target) return [];
   const paths = [];
-
   const findPathsRecursive = (el) => {
-    if (!el) return;
     if (el instanceof paper.Path) {
       paths.push(el);
     } else if (el instanceof paper.CompoundPath) {
@@ -281,7 +304,6 @@ function getTargetPaths(item) {
       el.children.forEach(c => findPathsRecursive(c));
     }
   };
-
   findPathsRecursive(target);
   return paths;
 }
@@ -357,6 +379,7 @@ export function deleteSelectedNodes() {
 
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
+  const paths = getTargetPaths(activeNodeItem);
   const pointsToDeleteByPath = new Map();
 
   // Agrupar los indices de nodos a borrar por ruta fisica
@@ -369,7 +392,7 @@ export function deleteSelectedNodes() {
     }
   });
 
-  // Eliminar los segmentos de reversa (de mayor a menor indice)
+  // Eliminar los segmentos de reversa (de mayor a menor indice) para evitar alteracion de punteros
   pointsToDeleteByPath.forEach((localIndices, pathId) => {
     const path = paper.project.getItem({ id: pathId });
     if (path) {
