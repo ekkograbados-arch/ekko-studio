@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v15 PRO - OPTIMIZED)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v16 PRO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
 desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
@@ -11,6 +11,7 @@ import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, ap
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 
+// Variable global de previsualizacion en window
 function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
@@ -43,14 +44,13 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
   styleEl.id = dropdownStylesId;
   styleEl.textContent = `
     .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
-    .selected-font-trigger { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; font-size: 13px; font-weight: bold; cursor: pointer; color: #333; height: 100%; box-sizing: border-box; }
-    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; width: 320px; max-height: 380px; overflow-y: auto; background: white; border: 1px solid #bbb; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.18); z-index: 10010; padding: 6px; box-sizing: border-box; }
+    .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; height: 100%; cursor: pointer; font-size: 13px; color: #334155; font-weight: 500; }
+    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; overflow-y: auto; background: white; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10008; }
     .font-dropdown-list.hidden { display: none; }
-    .custom-font-item { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background 0.15s; }
+    .custom-font-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; }
     .custom-font-item:last-child { border-bottom: none; }
-    .custom-font-item:hover { background: #f0f8ff; }
-    .custom-font-item.active { background: #e6f2ff; border-left: 3px solid #007bff; }
-    .custom-font-preview { font-size: 22px; color: #000; line-height: 1.2; word-break: break-all; }
+    .custom-font-item:hover, .custom-font-item.active { background: #f1f5f9; }
+    .custom-font-preview { font-size: 18px; color: #0f172a; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .custom-font-name { font-size: 11px; color: #777; }
   `;
   document.head.appendChild(styleEl);
@@ -88,14 +88,14 @@ function injectFontFaces(fonts) {
   let cssRules = "";
   fonts.forEach(font => {
     cssRules += `
-@font-face {
-  font-family: "${font.family}";
-  src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
-       url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
-       url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
-  font-display: swap;
-}
-`;
+      @font-face {
+        font-family: "${font.family}";
+        src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
+             url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
+             url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
+        font-display: swap;
+      }
+    `;
   });
   styleEl.textContent += cssRules;
 }
@@ -135,22 +135,17 @@ function getSelectedFontFamily() {
 /**
  * Aplica de forma directa o curva la tipografia seleccionada conservando la estructura y el Canvas de Paper.js
  */
-export function applyFontFamily(item, fontFamily) {
-  if (!item || item.data?.locked) return;
-  let target = item;
-  if (item.data?.clipGroup) {
-    target = getContentItem(item);
-  }
+function applyFontFamily(item, family) {
+  if (!item) return;
+  const target = item.data?.clipGroup ? getContentItem(item) : item;
   if (!target) return;
   if (target instanceof paper.PointText) {
-    target.fontFamily = fontFamily;
-    target.data = target.data || {};
-    target.data.fontFamily = fontFamily;
+    target.fontFamily = family;
   } else if (target.data?.isCurvedGroup) {
-    target.data.fontFamily = fontFamily;
+    target.data.fontFamily = family;
     applyTextCurve(target, target.data.curvature);
   } else if (target.data?.isSpacedGroup) {
-    target.data.fontFamily = fontFamily;
+    target.data.fontFamily = family;
     applyTextSpacing(target, target.data.hspace);
   }
   paper.view.update();
@@ -163,16 +158,20 @@ function renderCustomFontItems(listContainer, fonts) {
   listContainer.innerHTML = "";
   const previewText = getSelectedTextString();
   const currentFamily = getSelectedFontFamily();
+
   fonts.forEach(font => {
     const item = document.createElement('div');
     item.className = 'custom-font-item' + (currentFamily === font.family ? ' active' : '');
+    
     const preview = document.createElement('div');
     preview.className = 'custom-font-preview';
     preview.style.fontFamily = font.family;
     preview.textContent = previewText;
+    
     const name = document.createElement('div');
     name.className = 'custom-font-name';
     name.textContent = font.name;
+    
     item.appendChild(preview);
     item.appendChild(name);
     
@@ -220,24 +219,14 @@ async function populateFontDropdowns() {
   }
   fontsCache = fonts;
   injectFontFaces(fonts);
+
   const nativeSelect = document.getElementById('ctxFontSelector');
   if (nativeSelect) {
     nativeSelect.style.display = 'none';
     nativeSelect.classList.add('hidden');
   }
+
   let customDropdown = document.querySelector('.custom-font-dropdown');
-  if (!customDropdown && nativeSelect) {
-    customDropdown = document.createElement('div');
-    customDropdown.className = 'custom-font-dropdown';
-    customDropdown.innerHTML = `
-<div class="selected-font-trigger">
-  <span>Seleccionar Fuente</span>
-  <i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
-</div>
-<div class="font-dropdown-list hidden"></div>
-`;
-    nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
-  }
   if (customDropdown) {
     const trigger = customDropdown.querySelector('.selected-font-trigger');
     const list = customDropdown.querySelector('.font-dropdown-list');
@@ -269,6 +258,7 @@ async function populateFontDropdowns() {
 function makeToolbarDraggable() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
+
   toolbar.addEventListener('mouseover', (e) => {
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
       toolbar.style.cursor = 'default';
@@ -276,8 +266,10 @@ function makeToolbarDraggable() {
       toolbar.style.cursor = 'move';
     }
   });
+
   let isDraggingToolbar = false;
   let startX = 0, startY = 0;
+
   toolbar.addEventListener('mousedown', (e) => {
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
       return;
@@ -287,6 +279,7 @@ function makeToolbarDraggable() {
     startY = e.clientY - toolbar.offsetTop;
     e.preventDefault();
   });
+
   document.addEventListener('mousemove', (e) => {
     if (!isDraggingToolbar) return;
     const newLeft = e.clientX - startX;
@@ -297,6 +290,7 @@ function makeToolbarDraggable() {
     window.customToolbarLeft = newLeft;
     window.customToolbarTop = newTop;
   });
+
   document.addEventListener('mouseup', () => {
     isDraggingToolbar = false;
   });
@@ -325,29 +319,34 @@ function getLeafItemsRecursive(item) {
 
 /**
  * Agrupa multiples elementos en un CompoundPath unico (si son vectores) o en un Grupo tradicional de Paper.js.
+ * Si se incluye un controlador de hueco y su Outer, los refunde nativamente para corte laser.
  */
 export function groupSelectedItems() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
+
   if (selected.length < 2) {
     alert("Selecciona al menos 2 elementos para poder agruparlos.");
     return;
   }
+
   for (let item of selected) {
-    if (item.data?.locked || item.data?.mockup) {
+    if (item.data?.locked || item.data?.mockup || item.data?.isMask) {
       alert("No se pueden agrupar objetos protegidos.");
       return;
     }
   }
+
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
+
   const parent = selected[0].parent || paper.project.activeLayer;
   const index = parent.children.indexOf(selected[0]);
   const isClipped = selected.some(item => !!item.data?.clipGroup);
   const contents = [];
-  
+
   // Procesamiento de refundido interactivo de huecos antes de agrupar
   const outersInSelection = selected.filter(item => item.data?.isOuterWithHoles);
   outersInSelection.forEach(outerItem => {
@@ -356,20 +355,23 @@ export function groupSelectedItems() {
     const associatedHoles = holeIds
       .map(id => paper.project.getItem({ id }))
       .filter(h => h && selected.includes(h) && h.parent);
+
     associatedHoles.forEach(h => {
       const idx = selected.indexOf(h);
       if (idx > -1) selected.splice(idx, 1);
       h.remove();
     });
+
     const idxOuter = selected.indexOf(outerItem);
     if (idxOuter > -1) selected.splice(idxOuter, 1);
+
     const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
     const rebuiltPath = targetOuter.clone({ insert: false });
     outerItem.remove();
     window.ekkoOuters.delete(outerItem.id);
     contents.push(rebuiltPath);
   });
-  
+
   selected.forEach(item => {
     let content;
     if (item.data?.clipGroup) {
@@ -382,8 +384,10 @@ export function groupSelectedItems() {
     if (content) contents.push(content);
     item.remove();
   });
+
   const newGroup = new paper.Group(contents);
   newGroup.data = { locked: false, label: "Grupo" };
+
   let finalItem;
   if (isClipped && typeof window.clipItem === 'function') {
     finalItem = window.clipItem(newGroup);
@@ -391,9 +395,11 @@ export function groupSelectedItems() {
     finalItem = newGroup;
     parent.addChild(finalItem);
   }
+
   if (finalItem.parent) {
     finalItem.parent.insertChild(index, finalItem);
   }
+
   window.deselectItem();
   window.selectItem(finalItem);
   paper.view.update();
@@ -444,13 +450,16 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
   };
   findLeaves(group);
   group.remove();
+
   const addedItems = [];
   leafItems.forEach(child => {
     const targetAncestor = isClipped ? oldClipGroup : group;
     const relMatrix = getMatrixRelativeTo(child, targetAncestor);
     child.remove();
+
     let newItem;
     if (isClipped && oldClipGroup) {
+      // Súper corrección: Cada hoja se inserta en un clipGroup INDEPENDIENTE heredando del padre
       newItem = window.clipItem(child);
       newItem.matrix = oldClipGroup.matrix.clone();
       child.matrix = relMatrix;
@@ -471,34 +480,41 @@ export function ungroupSelectedItem() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
+
   if (selected.length === 0) return;
+
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
+
   const finalNewItems = [];
+
   selected.forEach(item => {
-    if (item.data?.locked || item.data?.mockup) return;
+    if (item.data?.locked || item.data?.mockup || item.data?.isMask) return;
     const isClipped = !!item.data?.clipGroup;
     const target = isClipped ? getContentItem(item) : item;
     if (!target) return;
+
     const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
     const parent = item.parent || paper.project.activeLayer;
     const index = parent.children.indexOf(item);
     const newItems = [];
-    
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva
+
+    // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica y recursiva disolviendo grupos anidados
     if (activeTarget instanceof paper.Group) {
       const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
       newItems.push(...flatItems);
       if (isClipped && item) {
-        item.clipped = false;
+        item.clipped = false; // Desactivar el clipping de forma explícita para evitar fugas de recorte de Paper.js
       }
       item.remove();
     }
-    // B. SI ES TEXTO: Dividimos en PointText independientes
+    // B. SI ES TEXTO: Dividimos en PointText independientes por letras
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
-      const textAbsMatrix = getMatrixRelativeTo(activeTarget, isClipped ? item : null);
       const letters = splitPointTextIntoLetters(activeTarget);
+      const textAbsMatrix = getGlobalMatrix(activeTarget);
+      activeTarget.remove();
+
       letters.forEach(letter => {
         let newItem;
         if (isClipped) {
@@ -513,11 +529,11 @@ export function ungroupSelectedItem() {
         newItems.push(newItem);
       });
       if (isClipped && item) {
-        item.clipped = false;
+        item.clipped = false; // Evitar fuga de recorte de Paper.js
       }
       item.remove();
     }
-    // C. SI ES COMPOUNDPATH: Desagrupamos en contornos solidos individuales (Release Compound Path)
+    // C. SI ES COMPOUNDPATH: Desagrupamos en contornos sólidos individuales (Release Compound Path)
     else if (activeTarget instanceof paper.CompoundPath) {
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
@@ -531,21 +547,25 @@ export function ungroupSelectedItem() {
         }
       }
     }
-    
+
     newItems.reverse().forEach(newItem => {
       parent.insertChild(index, newItem);
     });
     finalNewItems.push(...newItems);
   });
-  
+
   window.deselectItem();
+
   setTimeout(() => {
     if (finalNewItems.length > 0) {
+      // Filtrar para no auto-seleccionar los controladores de huecos invisibles (Paso 1.1)
       const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
       const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
+      
       window.selectedItems = [...selectList];
       window.selectedItem = selectList[selectList.length - 1];
       selectList.forEach(it => { if (it) it.selected = true; });
+      
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     }
@@ -558,6 +578,7 @@ function splitPointTextIntoLetters(pointText) {
   const text = pointText.content;
   const startPoint = pointText.point;
   let accumX = 0;
+
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
     const singleLetterText = new paper.PointText({
@@ -568,29 +589,33 @@ function splitPointTextIntoLetters(pointText) {
       fontSize: pointText.fontSize,
       fontWeight: pointText.fontWeight
     });
-    accumX += singleLetterText.bounds.width + 2;
+    accumX += singleLetterText.bounds.width + 2; // Margen entre letras
     letters.push(singleLetterText);
   }
   return letters;
 }
 
 /**
- * Separa los contornos y huecos de un trazado compuesto de forma independiente.
+ * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opcion B).
+ * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
  */
 export function dissolveOuterWithHoles(item) {
   if (!item || !item.data?.isOuterWithHoles) return [];
   const parent = item.parent || paper.project.activeLayer;
   const newItems = [];
   const isClipped = !!item.data?.clipGroup;
+
   if (typeof window.ekkoOuters !== 'undefined') {
     window.ekkoOuters.delete(item.id);
   }
+
   if (item.data.originalPath) {
     const targetOuter = isClipped ? getContentItem(item) : item;
     const restoredOuter = item.data.originalPath.clone({ insert: false });
     restoredOuter.fillColor = targetOuter.fillColor;
     restoredOuter.strokeColor = targetOuter.strokeColor;
     restoredOuter.strokeWidth = targetOuter.strokeWidth;
+
     let newOuterItem;
     if (isClipped) {
       newOuterItem = window.clipItem(restoredOuter);
@@ -607,6 +632,7 @@ export function dissolveOuterWithHoles(item) {
     delete newOuterItem.data.holeIds;
     newItems.push(newOuterItem);
   }
+
   const holeIds = item.data.holeIds || [];
   for (let j = 0; j < holeIds.length; j++) {
     const id = holeIds[j];
@@ -631,6 +657,7 @@ export function dissolveOuterWithHoles(item) {
       newItems.push(newHoleItem);
     }
   }
+
   if (isClipped && item) {
     item.clipped = false;
   }
@@ -640,26 +667,31 @@ export function dissolveOuterWithHoles(item) {
 
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
-  if (!item || item.data?.locked || item.data?.mockup) return [];
+  if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
   const target = isClipped ? getContentItem(item) : item;
   if (!target || !(target instanceof paper.CompoundPath)) return [];
+
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
+
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const newItems = [];
   const subPaths = [...target.children];
+
   const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
   const pathAbsMatrix = getGlobalMatrix(target);
+
   const originalFillColor = target.fillColor;
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
+
   const outers = [];
   const holesMap = new Map();
+
   const pathNesting = [];
-  
   subPaths.forEach(p => {
     const containers = [];
     subPaths.forEach(other => {
@@ -673,7 +705,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
     });
     pathNesting.push({ path: p, containers: containers });
   });
-  
+
   pathNesting.forEach(entry => {
     const p = entry.path;
     const containers = entry.containers;
@@ -696,13 +728,15 @@ export function separateContours(itemToProcess, skipSelection = false) {
       }
     }
   });
-  
+
   const outersToSelect = [];
+
   outers.forEach(outerPath => {
     const outerClone = outerPath.clone({ insert: false });
     outerClone.fillColor = originalFillColor || new paper.Color(255, 255, 255, 0.01);
     outerClone.strokeColor = originalStrokeColor || '#000000';
     outerClone.strokeWidth = originalStrokeWidth || 1;
+
     let newOuterItem;
     if (isClipped) {
       newOuterItem = window.clipItem(outerClone);
@@ -713,7 +747,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
       newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
       parent.addChild(newOuterItem);
     }
-    
+
     newOuterItem.data = {
       ...(newOuterItem.data || {}),
       isOuterWithHoles: true,
@@ -721,18 +755,21 @@ export function separateContours(itemToProcess, skipSelection = false) {
       holeIds: [],
       label: item.data?.label || "Objeto"
     };
+
     outerClone.data = {
       ...(outerClone.data || {}),
       isOuterWithHoles: true
     };
+
     newItems.push(newOuterItem);
     outersToSelect.push(newOuterItem);
-    
+
     const associatedHoles = holesMap.get(outerPath) || [];
     associatedHoles.forEach(holePath => {
       const holeClone = holePath.clone({ insert: false });
       holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
       holeClone.strokeColor = new paper.Color(0, 0, 0, 0);
+
       let newHoleItem;
       if (isClipped) {
         newHoleItem = window.clipItem(holeClone);
@@ -743,6 +780,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
         newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
         parent.addChild(newHoleItem);
       }
+
       newHoleItem.data = {
         ...(newHoleItem.data || {}),
         isHoleController: true,
@@ -750,10 +788,11 @@ export function separateContours(itemToProcess, skipSelection = false) {
         lastHash: "",
         label: "Hueco"
       };
+
       newOuterItem.data.holeIds.push(newHoleItem.id);
       newItems.push(newHoleItem);
     });
-    
+
     window.ekkoOuters.set(newOuterItem.id, newOuterItem);
     const updatedOuter = updateOuterPathGeometry(newOuterItem);
     if (updatedOuter && updatedOuter !== newOuterItem) {
@@ -767,20 +806,24 @@ export function separateContours(itemToProcess, skipSelection = false) {
       }
     }
   });
-  
+
   if (isClipped && item) {
     item.clipped = false;
   }
   item.remove();
+
   if (skipSelection) {
     return newItems;
   }
+
   if (!isClipped) {
     newItems.reverse().forEach(newItem => {
       parent.insertChild(index, newItem);
     });
   }
+
   window.deselectItem();
+
   setTimeout(() => {
     if (outersToSelect.length > 0) {
       window.selectedItems = [...outersToSelect];
@@ -791,6 +834,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
     }
     paper.view.update();
   }, 50);
+
   return newItems;
 }
 
@@ -798,14 +842,16 @@ export function updateOuterPathGeometry(outerItem) {
   if (!outerItem || !outerItem.data?.originalPath) return outerItem;
   const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
   if (!targetOuter) return outerItem;
+
   let resultOuter = outerItem;
   const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
   const outerGlobalMatrix = getGlobalMatrix(targetOuter);
   solidGlobal.matrix = outerGlobalMatrix;
   solidGlobal.applyMatrix = true; // Bakes global coordinates
-  
+
   const holeIds = outerItem.data.holeIds || [];
   let combined = solidGlobal;
+
   holeIds.forEach(id => {
     const hole = paper.project.getItem({ id });
     if (hole && hole.parent) {
@@ -829,7 +875,7 @@ export function updateOuterPathGeometry(outerItem) {
       }
     }
   });
-  
+
   const localCombined = combined.clone({ insert: false });
   if (!outerGlobalMatrix.isIdentity()) {
     try {
@@ -839,6 +885,7 @@ export function updateOuterPathGeometry(outerItem) {
       console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
     }
   }
+
   const parent = targetOuter.parent;
   if (parent && localCombined) {
     const idx = parent.children.indexOf(targetOuter);
@@ -851,7 +898,7 @@ export function updateOuterPathGeometry(outerItem) {
       newPath.data = { ...(targetOuter.data || {}) };
       parent.insertChild(idx, newPath);
       resultOuter = newPath;
-      
+
       if (targetOuter === outerItem) {
         if (window.selectedItem === outerItem) {
           window.selectedItem = newPath;
@@ -863,13 +910,15 @@ export function updateOuterPathGeometry(outerItem) {
         window.ekkoOuters.delete(outerItem.id);
         window.ekkoOuters.set(newPath.id, newPath);
       }
+
       holeIds.forEach(id => {
         const hole = paper.project.getItem({ id });
         if (hole && hole.data) hole.data.outerItemId = newPath.id;
       });
-      targetOuter.remove();
     }
+    targetOuter.remove();
   }
+
   if (combined) combined.remove();
   if (localCombined) localCombined.remove();
   paper.view.update();
@@ -879,23 +928,15 @@ export function updateOuterPathGeometry(outerItem) {
 if (typeof window.paper !== 'undefined' && paper.view) {
   paper.view.on('frame', () => {
     if (!paper.project || !paper.project.activeLayer) return;
-    window.ekkoOuters.forEach((outerItem, key) => {
-      // MEMORY CLEANUP: Si el outer ya no forma parte del lienzo o capa activa, lo eliminamos del Map global
-      if (!outerItem || !outerItem.project || !outerItem.parent) {
-        window.ekkoOuters.delete(key);
-        return;
-      }
+    window.ekkoOuters.forEach(outerItem => {
       let needsUpdate = false;
       const validHoleIds = [];
       const holeIds = outerItem.data?.holeIds || [];
-      
       holeIds.forEach(id => {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
           const targetHole = hole.data?.clipGroup ? getContentItem(hole) : hole;
-          
-          // BUG FIX: Sincronización Y-hash y coordenadas X + Y para reacción a movimientos horizontales
           const currentHash = `${targetHole.position.x.toFixed(1)},${targetHole.position.y.toFixed(1)},${targetHole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
             hole.data.lastHash = currentHash;
@@ -905,7 +946,6 @@ if (typeof window.paper !== 'undefined' && paper.view) {
           needsUpdate = true;
         }
       });
-      
       if (needsUpdate) {
         outerItem.data.holeIds = validHoleIds;
         updateOuterPathGeometry(outerItem);
@@ -921,8 +961,10 @@ if (typeof window !== 'undefined') {
       window.selectionBoxGroup = null;
     }
     if (window.nodeEditMode) return;
+
     const primaryItem = item || window.selectedItem;
     if (!primaryItem) return;
+
     let isMockup = false;
     let curr = primaryItem;
     while (curr) {
@@ -937,12 +979,16 @@ if (typeof window !== 'undefined') {
       curr = curr.parent;
     }
     if (isMockup) return;
+
     const selected = (window.selectedItems && window.selectedItems.length > 0)
       ? window.selectedItems
       : [primaryItem];
+
     let bounds = null;
     selected.forEach(function(it) {
-      const displayItem = (it.data && it.data.clipGroup) ? getContentItem(it) : it;
+      const displayItem = (it.data && it.data.clipGroup)
+        ? getContentItem(it)
+        : it;
       if (!displayItem) return;
       if (!bounds) {
         bounds = displayItem.bounds.clone();
@@ -950,12 +996,17 @@ if (typeof window !== 'undefined') {
         bounds = bounds.unite(displayItem.bounds);
       }
     });
+
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
     window.selectionBoxGroup = new paper.Group();
     window.selectionBoxGroup.data = { isSelectionBox: true };
+
     if (selected.length > 1) {
       selected.forEach(function(it) {
-        const displayItem = (it.data && it.data.clipGroup) ? getContentItem(it) : it;
+        const displayItem = (it.data && it.data.clipGroup)
+          ? getContentItem(it)
+          : it;
         if (displayItem && displayItem.bounds) {
           const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
           singleBorder.strokeColor = '#007bff';
@@ -965,13 +1016,16 @@ if (typeof window !== 'undefined') {
         }
       });
     }
+
     const isRotSnapped = window.isRotationSnapped && window.rotationActive;
     const mainColor = isRotSnapped ? '#28a745' : '#007bff';
+
     const border = new paper.Path.Rectangle(bounds);
     border.strokeColor = mainColor;
     border.strokeWidth = 1.5 / paper.view.zoom;
     border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
     window.selectionBoxGroup.addChild(border);
+
     const handleSize = 8 / paper.view.zoom;
     const handlesInfo = [
       { point: bounds.topLeft, type: 'tl' },
@@ -983,6 +1037,7 @@ if (typeof window !== 'undefined') {
       { point: bounds.bottomLeft, type: 'bl' },
       { point: bounds.leftCenter, type: 'l' }
     ];
+
     handlesInfo.forEach(function(info) {
       const rect = new paper.Path.Rectangle({
         center: info.point,
@@ -994,12 +1049,14 @@ if (typeof window !== 'undefined') {
       rect.data = { isHandle: true, handleType: info.type };
       window.selectionBoxGroup.addChild(rect);
     });
+
     const rotHandleDistance = 25 / paper.view.zoom;
     const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
     const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
     connector.strokeColor = mainColor;
     connector.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(connector);
+
     const rotHandleCircle = new paper.Path.Circle({
       center: rotHandleCenter,
       radius: 7.5 / paper.view.zoom,
@@ -1009,6 +1066,7 @@ if (typeof window !== 'undefined') {
     });
     rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
     window.selectionBoxGroup.addChild(rotHandleCircle);
+
     const iconRadius = 3.5 / paper.view.zoom;
     const arrowIcon = new paper.Path.Arc(
       rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
@@ -1018,6 +1076,7 @@ if (typeof window !== 'undefined') {
     arrowIcon.strokeColor = mainColor;
     arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(arrowIcon);
+
     const arrowTip = new paper.Path();
     arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
     arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
@@ -1025,7 +1084,9 @@ if (typeof window !== 'undefined') {
     arrowTip.strokeColor = mainColor;
     arrowTip.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(arrowTip);
+
     window.selectionBoxGroup.bringToFront();
+
     if (typeof window.applyPositionCorrections === "function") {
       window.applyPositionCorrections();
     }
@@ -1036,6 +1097,7 @@ if (typeof window !== 'undefined') {
       window.syncContextualRotationInput(primaryItem);
     }
   };
+
   try {
     Object.defineProperty(window, 'updateSelectionBox', {
       get: function() { return customUpdateSelectionBox; },
@@ -1054,46 +1116,57 @@ export function initContextualMenu() {
   if (toolbar.parentNode !== document.body) {
     document.body.appendChild(toolbar);
   }
+
   removeOverlapTab();
   populateFontDropdowns();
   makeToolbarDraggable();
+
   const setClick = (id, fn) => {
     const el = document.getElementById(id);
     if (el) el.onclick = fn;
   };
+
   setClick('btnCtxDelete', () => {
     if (window.selectedItem) {
       deleteImage(window.selectedItem);
       hideContextualMenu();
     }
   });
+
   setClick('btnCtxDuplicate', () => {
     if (window.selectedItem) {
       duplicateImage(window.selectedItem);
     }
   });
+
   setClick('btnCtxForward', () => {
     if (window.selectedItem) {
       bringImageForward(window.selectedItem);
     }
   });
+
   setClick('btnCtxBackward', () => {
     if (window.selectedItem) {
       sendImageBackward(window.selectedItem);
     }
   });
+
   setClick('btnCtxBold', () => {
     if (window.selectedItem) toggleBold(window.selectedItem);
   });
+
   setClick('btnCtxItalic', () => {
     if (window.selectedItem) toggleItalic(window.selectedItem);
   });
+
   setClick('btnCtxUnderline', () => {
     if (window.selectedItem) toggleUnderline(window.selectedItem);
   });
+
   setClick('btnCtxWeld', () => {
     if (window.selectedItem) weldText(window.selectedItem);
   });
+
   const curveSlider = document.getElementById('ctxTextCurve');
   if (curveSlider) {
     curveSlider.oninput = () => {
@@ -1103,6 +1176,7 @@ export function initContextualMenu() {
       }
     };
   }
+
   const hspaceSlider = document.getElementById('ctxTextHSpace');
   if (hspaceSlider) {
     hspaceSlider.oninput = () => {
@@ -1112,13 +1186,16 @@ export function initContextualMenu() {
       }
     };
   }
+
   setClick('btnCtxGroup', () => groupSelectedItems());
   setClick('btnCtxAgrupar', () => groupSelectedItems());
   setClick('btnCtxUngroup', () => ungroupSelectedItem());
   setClick('btnCtxDesagrupar', () => ungroupSelectedItem());
+
   setClick('btnCtxEditNodes', () => {
     if (window.selectedItem) enterNodeEditMode(window.selectedItem);
   });
+
   if (!window.groupKeyboardEventsBound) {
     window.groupKeyboardEventsBound = true;
     document.addEventListener('keydown', (e) => {
@@ -1136,6 +1213,7 @@ export function initContextualMenu() {
       }
     });
   }
+
   window.groupSelectedItems = groupSelectedItems;
   window.ungroupSelectedItem = ungroupSelectedItem;
   window.separateContours = separateContours;
@@ -1145,30 +1223,39 @@ export function initContextualMenu() {
 export function updateContextualMenu(item) {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
+
   removeOverlapTab();
-  if (!item || (item.data && item.data.mockup)) {
+
+  if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
     toolbar.classList.remove('active');
     toolbarDragged = false;
     lastSelectedItem = null;
     return;
   }
+
   toolbar.classList.add('active');
+
   const hideSubgroup = (id) => {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   };
+
   hideSubgroup('ctxTextControls');
   hideSubgroup('ctxImageControls');
   hideSubgroup('ctxVectorControls');
+
   const btnTrace = document.getElementById('btnCtxTrace');
   if (btnTrace) btnTrace.style.display = 'none';
+
   const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
+
   if (selectedCount > 1) {
     const vectorControls = document.getElementById('ctxVectorControls');
     if (vectorControls) {
       vectorControls.classList.remove('hidden');
       const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
       const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
+      
       if (btnGroup) {
         btnGroup.classList.remove('hidden');
         btnGroup.style.display = '';
@@ -1197,6 +1284,7 @@ export function updateContextualMenu(item) {
   } else {
     const target = item.data?.clipGroup ? getContentItem(item) : item;
     if (!target) return;
+
     if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
       const textControls = document.getElementById('ctxTextControls');
       if (textControls) textControls.classList.remove('hidden');
@@ -1218,6 +1306,7 @@ export function updateContextualMenu(item) {
         vectorControls.classList.remove('hidden');
         const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
         const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
+        
         if (btnGroup) {
           btnGroup.classList.add('hidden');
           btnGroup.style.display = 'none';
@@ -1231,6 +1320,7 @@ export function updateContextualMenu(item) {
       }
     }
   }
+
   if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
     toolbar.style.left = window.customToolbarLeft + 'px';
     toolbar.style.top = window.customToolbarTop + 'px';
@@ -1238,16 +1328,20 @@ export function updateContextualMenu(item) {
   } else if (!toolbarDragged || lastSelectedItem !== item) {
     const bounds = item.bounds;
     if (!bounds) return;
+
     const canvasEl = document.getElementById('editorCanvas');
     if (canvasEl && window.paper && paper.view) {
       const canvasRect = canvasEl.getBoundingClientRect();
       const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
       const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+
       const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
       const targetBounds = displayItem ? displayItem.bounds : bounds;
       const viewPos = paper.view.projectToView(targetBounds.topCenter);
+
       const x = canvasRect.left + scrollLeft + viewPos.x - (toolbar.offsetWidth / 2);
       const y = canvasRect.top + scrollTop + viewPos.y - toolbar.offsetHeight - 25;
+
       toolbar.style.left = Math.max(10, Math.min(x, window.innerWidth - toolbar.offsetWidth - 10)) + 'px';
       toolbar.style.top = Math.max(10, y) + 'px';
       toolbar.style.zIndex = "2147483647";
@@ -1269,12 +1363,15 @@ window.applyPositionCorrections = function() {
   const toolbar = document.getElementById("contextual-toolbar");
   const textEditor = document.getElementById("ekko-text-editor");
   if (!window.paper || !paper.view || !window.selectedItem) return;
+
   const item = window.selectedItem;
   const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
   if (!displayItem) return;
+
   const bounds = displayItem.bounds;
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
+
   if (toolbar && toolbar.classList.contains("active")) {
     const toolbarHeight = toolbar.offsetHeight || 45;
     const toolbarWidth = toolbar.offsetWidth || 350;
@@ -1283,12 +1380,14 @@ window.applyPositionCorrections = function() {
       const rect = canvasEl.getBoundingClientRect();
       const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
       const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25;
+
       toolbar.style.position = "absolute";
       toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
       toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
     }
     toolbar.style.zIndex = "2147483646";
   }
+
   if (textEditor) {
     const editorWidth = textEditor.offsetWidth || 150;
     const editorHeight = textEditor.offsetHeight || 40;
@@ -1297,6 +1396,7 @@ window.applyPositionCorrections = function() {
       const rect = canvasEl.getBoundingClientRect();
       const targetLeft = rect.left + window.scrollX + centerPos.x - (editorWidth / 2);
       const targetTop = rect.top + window.scrollY + centerPos.y - (editorHeight / 2);
+
       textEditor.style.left = targetLeft + "px";
       textEditor.style.top = targetTop + "px";
       textEditor.style.position = "absolute";
