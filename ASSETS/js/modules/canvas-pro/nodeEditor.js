@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v16 PRO)
+Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Corrected Edition)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
 para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
@@ -35,7 +35,7 @@ let disabledClipGroups = [];
 
 // Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
-  // Blindaje absoluto contra edición del mockup de producto o elementos bloqueados (Paso de Seguridad)
+  // Blindaje absoluto contra edicion del mockup de producto o elementos bloqueados (Paso de Seguridad)
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
   const target = getContentItem(item);
   if (!target) return;
@@ -275,7 +275,7 @@ export function enterNodeEditMode(item) {
   // Vincular teclado
   document.addEventListener('keydown', handleNodeKeydown);
 
-  // Mostrar panel de edición de nodos en la barra flotante
+  // Mostrar panel de edicion de nodos en la barra flotante
   const nodeEl = document.getElementById('ctxNodeEditControls');
   if (nodeEl) nodeEl.classList.remove('hidden');
 
