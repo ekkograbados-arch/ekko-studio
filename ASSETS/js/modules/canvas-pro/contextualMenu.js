@@ -301,6 +301,61 @@ function makeToolbarDraggable() {
  * disolviendo los grupos intermedios anidados y aplicando la matriz global de transformacion
  * para evitar saltos o saltos visuales indeseados (Cero Onion Effect).
  */
+
+function removeSvgBackgroundRectangles(rootItem) {
+  if (!rootItem || !(rootItem instanceof paper.Group)) return;
+  const children = [...rootItem.children];
+  const rootBounds = rootItem.bounds;
+  
+  children.forEach(child => {
+    if (child instanceof paper.Path) {
+      const isRect = child.closed && child.segments.length === 4;
+      const childArea = child.bounds.width * child.bounds.height;
+      const rootArea = rootBounds.width * rootBounds.height;
+      
+      // Si el rectángulo representa más del 90% del área del grupo
+      if (childArea >= rootArea * 0.90) {
+        const isTransparent = !child.fillColor || child.fillColor.alpha === 0;
+        const isWhite = child.fillColor && child.fillColor.red === 1 && child.fillColor.green === 1 && child.fillColor.blue === 1;
+        const noStroke = !child.strokeColor || child.strokeColor.alpha === 0 || child.strokeWidth === 0;
+        
+        if ((isTransparent || isWhite) && noStroke) {
+          console.log("EKKO Studio Sani-Engine: Rectángulo de fondo eliminado:", child.id);
+          child.remove();
+        }
+      }
+    }
+  });
+}
+
+function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
+  const children = [...group.children];
+  group.remove();
+
+  const addedItems = [];
+  children.forEach(child => {
+    const targetAncestor = isClipped ? oldClipGroup : group;
+    const relMatrix = getMatrixRelativeTo(child, targetAncestor);
+    child.remove();
+
+    let newItem;
+    if (isClipped && oldClipGroup) {
+      newItem = window.clipItem(child);
+      newItem.matrix = oldClipGroup.matrix.clone();
+      child.matrix = relMatrix;
+    } else {
+      newItem = child;
+      newItem.matrix = relMatrix;
+      parent.addChild(newItem);
+    }
+    if (newItem.data) {
+      delete newItem.data.globalMatrix;
+    }
+    addedItems.push(newItem);
+  });
+  return addedItems;
+}
+
 function getLeafItemsRecursive(item) {
   const leaves = [];
   const recurse = (node, parentMatrix) => {
@@ -665,6 +720,7 @@ export function dissolveOuterWithHoles(item) {
   return newItems;
 }
 
+
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
@@ -690,7 +746,9 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
   const outers = [];
   const holesMap = new Map();
+  const descendantsMap = new Map();
 
+  // 1. Calcular el árbol de anidamiento geométrico por profundidad (depth)
   const pathNesting = [];
   subPaths.forEach(p => {
     const containers = [];
@@ -703,28 +761,46 @@ export function separateContours(itemToProcess, skipSelection = false) {
         }
       }
     });
-    pathNesting.push({ path: p, containers: containers });
+    pathNesting.push({ path: p, depth: containers.length, containers: containers });
   });
 
+  // 2. Clasificar outers de nivel raíz (depth === 0)
   pathNesting.forEach(entry => {
-    const p = entry.path;
-    const containers = entry.containers;
-    if (containers.length % 2 === 0) {
-      outers.push(p);
-      if (!holesMap.has(p)) holesMap.set(p, []);
-    } else {
-      let immediateContainer = null;
-      let minArea = Infinity;
-      containers.forEach(c => {
-        const cArea = Math.abs(c.area) || c.bounds.area;
-        if (cArea < minArea) {
-          minArea = cArea;
-          immediateContainer = c;
+    if (entry.depth === 0) {
+      outers.push(entry.path);
+      holesMap.set(entry.path, []);
+    }
+  });
+
+  // 3. Clasificar huecos directos (depth === 1) y vincularlos a su outer de depth 0
+  pathNesting.forEach(entry => {
+    if (entry.depth === 1) {
+      const parentOuter = entry.containers[0];
+      if (parentOuter) {
+        if (!holesMap.has(parentOuter)) {
+          holesMap.set(parentOuter, []);
+        }
+        holesMap.get(parentOuter).push(entry.path);
+        descendantsMap.set(entry.path, []);
+      }
+    }
+  });
+
+  // 4. Clasificar descendientes anidados (depth >= 2) y vincularlos a su hueco directo de depth 1
+  pathNesting.forEach(entry => {
+    if (entry.depth >= 2) {
+      let parentHole = null;
+      entry.containers.forEach(c => {
+        const cNesting = pathNesting.find(n => n.path === c);
+        if (cNesting && cNesting.depth === 1) {
+          parentHole = c;
         }
       });
-      if (immediateContainer) {
-        if (!holesMap.has(immediateContainer)) holesMap.set(immediateContainer, []);
-        holesMap.get(immediateContainer).push(p);
+      if (parentHole) {
+        if (!descendantsMap.has(parentHole)) {
+          descendantsMap.set(parentHole, []);
+        }
+        descendantsMap.get(parentHole).push(entry.path);
       }
     }
   });
@@ -789,8 +865,51 @@ export function separateContours(itemToProcess, skipSelection = false) {
         label: "Hueco"
       };
 
-      newOuterItem.data.holeIds.push(newHoleItem.id);
-      newItems.push(newHoleItem);
+      const descendants = descendantsMap.get(holePath) || [];
+      if (descendants.length > 0) {
+        // Creamos el contenedor de contenido anidado sólido (Nivel >= 2)
+        const descClones = descendants.map(d => {
+          const dClone = d.clone({ insert: false });
+          dClone.matrix = pathRelMatrix.clone().chain(dClone.matrix);
+          return dClone;
+        });
+
+        // Hacemos que sea un CompoundPath independiente que agrupa los hijos sólidos
+        const nestedContainer = new paper.CompoundPath({
+          children: descClones,
+          insert: false
+        });
+        nestedContainer.fillColor = originalFillColor || '#000000';
+        nestedContainer.strokeColor = originalStrokeColor || '#000000';
+        nestedContainer.strokeWidth = originalStrokeWidth || 1;
+        nestedContainer.data = { label: "Contenido Interno" };
+
+        let finalNestedItem;
+        if (isClipped) {
+          finalNestedItem = window.clipItem(nestedContainer);
+          finalNestedItem.matrix = item.matrix.clone();
+        } else {
+          finalNestedItem = nestedContainer;
+          parent.addChild(finalNestedItem);
+        }
+
+        // Agrupamos el hueco transparente y su contenido anidado para que se arrastren en bloque (Calado Compuesto)
+        const holeGroup = new paper.Group([newHoleItem, finalNestedItem]);
+        holeGroup.data = {
+          isCompoundHoleGroup: true,
+          label: "Calado Compuesto"
+        };
+
+        if (!isClipped) {
+          parent.addChild(holeGroup);
+        }
+
+        newOuterItem.data.holeIds.push(newHoleItem.id);
+        newItems.push(holeGroup);
+      } else {
+        newOuterItem.data.holeIds.push(newHoleItem.id);
+        newItems.push(newHoleItem);
+      }
     });
 
     window.ekkoOuters.set(newOuterItem.id, newOuterItem);
@@ -815,6 +934,29 @@ export function separateContours(itemToProcess, skipSelection = false) {
   if (skipSelection) {
     return newItems;
   }
+
+  if (!isClipped) {
+    newItems.reverse().forEach(newItem => {
+      parent.insertChild(index, newItem);
+    });
+  }
+
+  window.deselectItem();
+
+  setTimeout(() => {
+    if (outersToSelect.length > 0) {
+      window.selectedItems = [...outersToSelect];
+      window.selectedItem = outersToSelect[outersToSelect.length - 1];
+      outersToSelect.forEach(it => { if (it) it.selected = true; });
+      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+    }
+    paper.view.update();
+  }, 50);
+
+  return newItems;
+}
+
 
   if (!isClipped) {
     newItems.reverse().forEach(newItem => {
