@@ -453,9 +453,10 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 
     let newItem;
     if (isClipped && oldClipGroup) {
-      newItem = window.clipItem(child);
-      newItem.matrix = oldClipGroup.matrix.clone(); // Heredar la matriz del clipGroup original
-      child.matrix = relMatrix; // Matriz local relativa para evitar desplazamientos
+      // Sincronizacion directa: Insertamos como hermanos del clipMask dentro del mismo clipGroup original
+      newItem = child;
+      newItem.matrix = relMatrix;
+      oldClipGroup.addChild(newItem);
     } else {
       newItem = child;
       newItem.matrix = relMatrix;
@@ -490,11 +491,13 @@ export function ungroupSelectedItem() {
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva
+        // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva
     if (activeTarget instanceof paper.Group) {
       const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
       newItems.push(...flatItems);
-      item.remove();
+      if (!isClipped) {
+        item.remove();
+      }
     }
     // B. SI ES TEXTO: Dividimos en PointText independientes por letras
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
@@ -644,134 +647,62 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const index = parent.children.indexOf(item);
   const newItems = [];
   const subPaths = [...target.children];
-  const pathNesting = [];
-  subPaths.forEach(p => {
-    const containers = [];
-    subPaths.forEach(other => {
-      if (other !== p) {
-        const otherArea = Math.abs(other.area) || other.bounds.area;
-        const pArea = Math.abs(p.area) || p.bounds.area;
-        if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
-          containers.push(other);
-        }
-      }
-    });
-    pathNesting.push({ path: p, containers: containers });
-  });
-
-  const outers = [];
-  const holesMap = new Map();
-
-  pathNesting.forEach(entry => {
-    const p = entry.path;
-    const containers = entry.containers;
-    // Algoritmo Par-Impar (Even-Odd winding/nesting rule) para jerarquias vectoriales ilimitadas:
-    // Si el numero de contenedores es par (0, 2, 4...), es un contorno exterior (isla rellena independiente).
-    if (containers.length % 2 === 0) {
-      outers.push(p);
-      if (!holesMap.has(p)) holesMap.set(p, []);
-    } else {
-      // Si es impar (1, 3, 5...), es un hueco calado de su contenedor inmediato mas pequeno.
-      let immediateContainer = null;
-      let minArea = Infinity;
-      containers.forEach(c => {
-        const cArea = Math.abs(c.area) || c.bounds.area;
-        if (cArea < minArea) {
-          minArea = cArea;
-          immediateContainer = c;
-        }
-      });
-      if (immediateContainer) {
-        if (!holesMap.has(immediateContainer)) holesMap.set(immediateContainer, []);
-        holesMap.get(immediateContainer).push(p);
-      }
-    }
-  });
+  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
+  const pathAbsMatrix = getGlobalMatrix(target);
 
   const originalFillColor = target.fillColor;
-  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
+  const originalStrokeColor = target.strokeColor;
+  const originalStrokeWidth = target.strokeWidth;
 
-  const outersToSelect = [];
-  outers.forEach(outerPath => {
-    const outerClone = outerPath.clone({ insert: false });
-    outerClone.fillColor = originalFillColor;
-    let newOuterItem;
+  subPaths.forEach((subPath, idx) => {
+    const subClone = subPath.clone({ insert: false });
+
+    // Liberacion de Trazado Compuesto (Release Compound Path): Todos los subcontornos se vuelven solidos y visibles
+    subClone.fillColor = originalFillColor || new paper.Color(255, 255, 255, 0.01);
+    subClone.strokeColor = originalStrokeColor || '#000000';
+    subClone.strokeWidth = originalStrokeWidth || 1;
+
+    let newItem;
     if (isClipped) {
-      newOuterItem = window.clipItem(outerClone);
-      newOuterItem.matrix = item.matrix.clone(); // Heredar la matriz del clipGroup original
-      outerClone.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
+      newItem = subClone;
+      newItem.matrix = pathRelMatrix.clone().chain(subClone.matrix);
+      item.addChild(newItem); // Insertamos directamente dentro de la mascara de recorte original
     } else {
-      newOuterItem = outerClone;
-      newOuterItem.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
-      parent.addChild(newOuterItem);
+      newItem = subClone;
+      newItem.matrix = pathAbsMatrix.clone().chain(subClone.matrix);
+      parent.addChild(newItem);
     }
-    newOuterItem.data = {
-      ...(newOuterItem.data || {}),
-      isOuterWithHoles: true,
-      originalPath: outerPath.clone({ insert: false }),
-      holeIds: [],
-      label: item.data?.label || "Objeto"
-    };
-    outerClone.data = {
-      ...(outerClone.data || {}),
-      isOuterWithHoles: true
-    };
-    newItems.push(newOuterItem);
-    outersToSelect.push(newOuterItem);
 
-    const associatedHoles = holesMap.get(outerPath) || [];
-    associatedHoles.forEach(holePath => {
-      const holeClone = holePath.clone({ insert: false });
-      holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
-      holeClone.strokeColor = new paper.Color(0, 0, 0, 0);
-      let newHoleItem;
-      if (isClipped) {
-        newHoleItem = window.clipItem(holeClone);
-        newHoleItem.matrix = item.matrix.clone(); // Heredar la matriz del clipGroup original
-        holeClone.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
-      } else {
-        newHoleItem = holeClone;
-        newHoleItem.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
-        parent.addChild(newHoleItem);
-      }
-      newHoleItem.data = {
-        ...(newHoleItem.data || {}),
-        isHoleController: true,
-        outerItemId: newOuterItem.id,
-        lastHash: "",
-        label: "Hueco"
-      };
-      newOuterItem.data.holeIds.push(newHoleItem.id);
-      newItems.push(newHoleItem);
-    });
-
-    window.ekkoOuters.set(newOuterItem.id, newOuterItem);
-    const updatedOuter = updateOuterPathGeometry(newOuterItem);
-    if (updatedOuter && updatedOuter !== newOuterItem) {
-      const outIdx = newItems.indexOf(newOuterItem);
-      if (outIdx !== -1) {
-        newItems[outIdx] = updatedOuter;
-      }
-      const selectIdx = outersToSelect.indexOf(newOuterItem);
-      if (selectIdx !== -1) {
-        outersToSelect[selectIdx] = updatedOuter;
-      }
-    }
+    newItem.data = {
+      ...(newItem.data || {}),
+      label: idx === 0 ? "Contorno" : "Hueco",
+      wasHole: idx !== 0
+    };
+    newItems.push(newItem);
   });
 
-  item.remove();
+  if (isClipped) {
+    target.remove(); // Elimina el CompoundPath interno dejando intacto el clipGroup
+  } else {
+    item.remove(); // Elimina el CompoundPath suelto
+  }
+
   if (skipSelection) {
     return newItems;
   }
-  newItems.reverse().forEach(newItem => {
-    parent.insertChild(index, newItem);
-  });
+
+  if (!isClipped) {
+    newItems.reverse().forEach(newItem => {
+      parent.insertChild(index, newItem);
+    });
+  }
+
   window.deselectItem();
   setTimeout(() => {
-    if (outersToSelect.length > 0) {
-      window.selectedItems = [...outersToSelect];
-      window.selectedItem = outersToSelect[outersToSelect.length - 1];
-      outersToSelect.forEach(it => { if (it) it.selected = true; });
+    if (newItems.length > 0) {
+      window.selectedItems = [...newItems];
+      window.selectedItem = newItems[newItems.length - 1];
+      newItems.forEach(it => { if (it) it.selected = true; });
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     }
