@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v16 PRO)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Corrected Edition)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
 desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
@@ -297,6 +297,35 @@ function makeToolbarDraggable() {
 }
 
 /**
+ * Analiza recursivamente el item para eliminar cualquier rectangulo transparente
+ * gigante tipico de artboards exportados de Illustrator o Inkscape.
+ */
+export function removeSvgBackgroundRectangles(rootItem) {
+  if (!rootItem) return;
+  const findLargestRectangle = (item, state) => {
+    if (item instanceof paper.Path.Rectangle || (item instanceof paper.Path && item.closed && item.segments.length === 4)) {
+      const area = item.bounds.width * item.bounds.height;
+      if (area > state.maxArea) {
+        state.maxArea = area;
+        state.targetItem = item;
+      }
+    }
+    if (item.children) {
+      item.children.forEach(child => findLargestRectangle(child, state));
+    }
+  };
+  const state = { maxArea: 0, targetItem: null };
+  findLargestRectangle(rootItem, state);
+  
+  if (state.targetItem && state.targetItem.parent) {
+    const rootArea = rootItem.bounds.width * rootItem.bounds.height;
+    if (state.maxArea >= rootArea * 0.95) {
+      state.targetItem.remove();
+    }
+  }
+}
+
+/**
  * Obtiene de forma recursiva todos los elementos vectoriales finales de la escena (hijos finales),
  * disolviendo los grupos intermedios anidados y aplicando la matriz global de transformacion
  * para evitar saltos o saltos visuales indeseados (Cero Onion Effect).
@@ -459,7 +488,6 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 
     let newItem;
     if (isClipped && oldClipGroup) {
-      // Súper corrección: Cada hoja se inserta en un clipGroup INDEPENDIENTE heredando del padre
       newItem = window.clipItem(child);
       newItem.matrix = oldClipGroup.matrix.clone();
       child.matrix = relMatrix;
@@ -477,34 +505,11 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 }
 
 /**
- * Sanitiza recursivamente el SVG cargado removiendo rectangulos invisibles de mesa de trabajo (Artboards)
- * que entorpecen la seleccion directa y generan colisiones celestes fantasmas.
+ * Desagrupa unicamente el nivel superior jerarquico de un grupo tradicional
+ * respetando el orden de dibujo y la sanidad del lienzo Paper.js (WYSIWYG Canva-Style).
  */
-function removeSvgBackgroundRectangles(item) {
-  if (!item) return;
-  if (item instanceof paper.Path.Rectangle || item instanceof paper.Path) {
-    const bounds = item.bounds;
-    const isBig = bounds.width > 200 && bounds.height > 200;
-    const hasNoStroke = !item.strokeColor || item.strokeColor.alpha === 0;
-    const hasLightFill = !item.fillColor || item.fillColor.alpha === 0 || (item.fillColor.red > 0.95 && item.fillColor.green > 0.95 && item.fillColor.blue > 0.95);
-    if (isBig && hasNoStroke && hasLightFill && !item.data?.isMask && !item.data?.mockup) {
-      item.remove();
-      return;
-    }
-  }
-  if (item.children) {
-    const childs = [...item.children];
-    childs.forEach(child => removeSvgBackgroundRectangles(child));
-  }
-}
-
-/**
- * Desagrupa jerarquicamente un unico nivel del arbol vectorial para respetar la composicion de disenos
- * complejos como Minnie Mouse y el Escudo de la AFA sin desarmarlos de golpe (Cero colapsado plano).
- */
-function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
+export function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
   if (!group || !(group instanceof paper.Group)) return [];
-  removeSvgBackgroundRectangles(group);
   const children = [...group.children];
   group.remove();
 
@@ -532,6 +537,39 @@ function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
   return addedItems;
 }
 
+/**
+ * Desagrupa consecutivamente un hueco que cuenta con elementos internos solidos (Nivel >= 2),
+ * dividiendo de forma segura el contenedor del hueco del contorno interior.
+ */
+export function separateHoleController(holeGroupItem) {
+  if (!holeGroupItem || !holeGroupItem.data?.isCompoundHoleGroup) return [];
+  const parent = holeGroupItem.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(holeGroupItem);
+  const isClipped = !!holeGroupItem.data?.clipGroup;
+
+  const children = [...holeGroupItem.children];
+  holeGroupItem.remove();
+
+  const newItems = [];
+  children.forEach(child => {
+    let newItem;
+    if (isClipped) {
+      newItem = window.clipItem(child);
+      newItem.matrix = holeGroupItem.matrix.clone();
+    } else {
+      newItem = child;
+      parent.addChild(newItem);
+    }
+    newItems.push(newItem);
+  });
+
+  newItems.reverse().forEach(newItem => {
+    parent.insertChild(index, newItem);
+  });
+
+  return newItems;
+}
+
 export function ungroupSelectedItem() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
@@ -551,24 +589,35 @@ export function ungroupSelectedItem() {
     const target = isClipped ? getContentItem(item) : item;
     if (!target) return;
 
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica respetando un unico nivel a la vez
-    if (target instanceof paper.Group) {
-      const parent = item.parent || paper.project.activeLayer;
-      const index = parent.children.indexOf(item);
-      const levelItems = ungroupSingleLevel(target, parent, index, isClipped, isClipped ? item : null);
-      newItems.push(...levelItems);
+    // Eliminar rectangulos fantasmas antes de desagrupar si es un objeto cargado
+    removeSvgBackgroundRectangles(target);
+
+    const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
+    const parent = item.parent || paper.project.activeLayer;
+    const index = parent.children.indexOf(item);
+    const newItems = [];
+
+    // A. SI ES UN GRUPO COMPUESTO DE UN HUECO (Calado Compuesto Nivel >= 2)
+    if (item.data?.isCompoundHoleGroup) {
+      const separatedHoles = separateHoleController(item);
+      if (separatedHoles && separatedHoles.length > 0) {
+        newItems.push(...separatedHoles);
+      }
+    }
+    // B. SI ES UN GRUPO NORMAL: Desagrupamos UN SOLO NIVEL jerarquico (Paso 2.1)
+    else if (activeTarget instanceof paper.Group) {
+      const flatItems = ungroupSingleLevel(activeTarget, parent, index, isClipped, isClipped ? item : null);
+      newItems.push(...flatItems);
       if (isClipped && item) {
-        item.clipped = false;
+        item.clipped = false; // Desactivar el clipping de forma explícita para evitar fugas de recorte de Paper.js
       }
       item.remove();
     }
-    // B. SI ES TEXTO: Dividimos en PointText independientes por letras
-    else if (target instanceof paper.PointText && target.content.length > 1) {
-      const parent = item.parent || paper.project.activeLayer;
-      const index = parent.children.indexOf(item);
-      const letters = splitPointTextIntoLetters(target);
-      const textAbsMatrix = getGlobalMatrix(target);
-      target.remove();
+    // C. SI ES TEXTO: Dividimos en PointText independientes por letras
+    else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
+      const letters = splitPointTextIntoLetters(activeTarget);
+      const textAbsMatrix = getGlobalMatrix(activeTarget);
+      activeTarget.remove();
 
       letters.forEach(letter => {
         let newItem;
@@ -584,15 +633,13 @@ export function ungroupSelectedItem() {
         newItems.push(newItem);
       });
       if (isClipped && item) {
-        item.clipped = false;
+        item.clipped = false; // Evitar fuga de recorte de Paper.js
       }
       item.remove();
     }
-    // C. SI ES COMPOUNDPATH O CALADO COMPUESTO: Desagrupamos los contornos y huecos independientes
-    else if (target instanceof paper.CompoundPath) {
-      const parent = item.parent || paper.project.activeLayer;
-      const index = parent.children.indexOf(item);
-      if (item.data?.isOuterWithHoles || target.data?.isOuterWithHoles) {
+    // D. SI ES COMPOUNDPATH: Desagrupamos en contornos sólidos individuales (Release Compound Path)
+    else if (activeTarget instanceof paper.CompoundPath) {
+      if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
         if (dissolved && dissolved.length > 0) {
           newItems.push(...dissolved);
@@ -603,27 +650,6 @@ export function ungroupSelectedItem() {
           newItems.push(...separated);
         }
       }
-    }
-    // D. SI EL USUARIO CLICA DESAGRUPAR SOBRE UN CALADO COMPUESTO (GRUPO DE HUECO + CONTENIDO)
-    else if (item.data?.isCompoundHoleGroup && item instanceof paper.Group) {
-      const parent = item.parent || paper.project.activeLayer;
-      const index = parent.children.indexOf(item);
-      const children = [...item.children];
-      item.remove();
-      
-      children.forEach(child => {
-        parent.insertChild(index, child);
-        newItems.push(child);
-        if (child.data?.isHoleController) {
-          // Si es el hueco, lo aislamos como un calado simple reactivo
-          child.data.isIsolatedHole = true;
-        } else {
-          // El contenido solido interno queda liberado e independiente
-          if (child.data) {
-            child.data.isOuterWithHoles = true;
-          }
-        }
-      });
     }
 
     newItems.reverse().forEach(newItem => {
@@ -649,6 +675,9 @@ export function ungroupSelectedItem() {
     }
     paper.view.update();
   }, 50);
+
+  // CORREGIDO: Retornar finalNewItems en lugar de newItems que es de alcance de loop interno.
+  return finalNewItems;
 }
 
 function splitPointTextIntoLetters(pointText) {
@@ -769,7 +798,6 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const outers = [];
   const holesMap = new Map();
 
-  // 1. Analizar el anidamiento jerarquico completo de trazados del SVG
   const pathNesting = [];
   subPaths.forEach(p => {
     const containers = [];
@@ -785,20 +813,16 @@ export function separateContours(itemToProcess, skipSelection = false) {
     pathNesting.push({ path: p, containers: containers });
   });
 
-  // Clasificar trazados por nivel de profundidad (pares = outers, impares = holes)
-  const descendantsMap = new Map(); // Mapa de hueco -> trazados solidos contenidos adentro
-  
+  // Mapear los descendientes de cada hueco para el árbol de profundidad
+  const descendantsMap = new Map();
+
   pathNesting.forEach(entry => {
     const p = entry.path;
     const containers = entry.containers;
-    const depth = containers.length;
-    
-    if (depth % 2 === 0) {
-      // Es una silueta solida (Outer) de nivel de superficie o anidada
+    if (containers.length % 2 === 0) {
       outers.push(p);
       if (!holesMap.has(p)) holesMap.set(p, []);
     } else {
-      // Es un hueco (Hole) de un outer inmediato
       let immediateContainer = null;
       let minArea = Infinity;
       containers.forEach(c => {
@@ -812,35 +836,23 @@ export function separateContours(itemToProcess, skipSelection = false) {
         if (!holesMap.has(immediateContainer)) holesMap.set(immediateContainer, []);
         holesMap.get(immediateContainer).push(p);
       }
-    }
-  });
-
-  // 2. Mapear que trazados solidos profundos estan contenidos dentro de cada hueco (Anidamiento jerarquico Nivel >= 2)
-  pathNesting.forEach(entry => {
-    const p = entry.path;
-    const containers = entry.containers;
-    const depth = containers.length;
-    if (depth >= 2 && depth % 2 === 0) {
-      // Este trazado solido esta dentro de un hueco
-      let parentHole = null;
-      let minHoleArea = Infinity;
-      containers.forEach(c => {
-        const isHole = pathNesting.find(n => n.path === c).containers.length % 2 !== 0;
-        if (isHole) {
+      
+      // Si el nivel de anidamiento es >= 2 (un sólido dentro de un hueco)
+      if (containers.length >= 2) {
+        let immediateHole = null;
+        let minHoleArea = Infinity;
+        containers.forEach(c => {
           const cArea = Math.abs(c.area) || c.bounds.area;
-          if (cArea < minHoleArea) {
+          const isHole = pathNesting.find(e => e.path === c && e.containers.length % 2 !== 0);
+          if (isHole && cArea < minHoleArea) {
             minHoleArea = cArea;
-            parentHole = c;
+            immediateHole = c;
           }
+        });
+        if (immediateHole) {
+          if (!descendantsMap.has(immediateHole)) descendantsMap.set(immediateHole, []);
+          descendantsMap.get(immediateHole).push(p);
         }
-      });
-      if (parentHole) {
-        if (!descendantsMap.has(parentHole)) descendantsMap.set(parentHole, []);
-        descendantsMap.get(parentHole).push(p);
-        
-        // Lo removemos de la lista de outers de nivel raiz para evitar duplicidad de dibujo
-        const idx = outers.indexOf(p);
-        if (idx > -1) outers.splice(idx, 1);
       }
     }
   });
@@ -882,6 +894,10 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
     const associatedHoles = holesMap.get(outerPath) || [];
     associatedHoles.forEach(holePath => {
+      // Omitir si este trazado ya está englobado como un descendiente profundo de otro hueco de nivel 1
+      const isDeepDescendant = Array.from(descendantsMap.values()).some(arr => arr.includes(holePath));
+      if (isDeepDescendant) return;
+
       const holeClone = holePath.clone({ insert: false });
       holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
       holeClone.strokeColor = new paper.Color(0, 0, 0, 0);
@@ -1467,7 +1483,7 @@ export function updateContextualMenu(item) {
       if (btnGroup) btnGroup.style.display = 'none';
       const btnUngroup = document.getElementById('btnCtxUngroup');
       if (btnUngroup) {
-        const canUngroup = (target instanceof paper.Group) || (target instanceof paper.CompoundPath);
+        const canUngroup = (target instanceof paper.Group) || (target instanceof paper.CompoundPath) || (target.data?.isCompoundHoleGroup);
         btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
       }
     }
