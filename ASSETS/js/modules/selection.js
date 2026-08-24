@@ -11,7 +11,7 @@ CORRECCION DE ERRORES CRITICOS:
 2. Conserva de forma estricta los State Guards de EKKO para prevenir sobrescrituras.
 ========================================================================= */
 
-//  GLOBAL OVERRIDE DE CONSOLA: Silenciar logs informativos para mantener limpia la consola F12
+// Silenciar logs informativos para mantener limpia la consola F12
 if (typeof console !== "undefined") {
   console.log = () => {};
   console.warn = () => {};
@@ -19,7 +19,7 @@ if (typeof console !== "undefined") {
   console.debug = () => {};
 }
 
-//  GLOBAL OVERRIDE: Desactivar el renderizado nativo de lineas y nodos azul-celeste de Paper.js
+// Desactivar el renderizado nativo de lineas y nodos azul-celeste de Paper.js
 if (typeof paper !== "undefined") {
   const classesToDisable = [paper.Item, paper.Path, paper.CompoundPath, paper.Group, paper.Shape, paper.Raster, paper.PointText, paper.Layer];
   classesToDisable.forEach(function(cls) {
@@ -30,7 +30,7 @@ if (typeof paper !== "undefined") {
   });
 }
 
-//  EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
+// EKKO STATE GUARD: Evitar que editor.js re-defina y sobreescriba las funciones PRO optimizadas
 function protectGlobal(name, fn) {
   let currentImpl = fn;
   try {
@@ -89,13 +89,11 @@ window.marqueeStartPoint = null;
 window.marqueePath = null;
 
 /* ========================= SELECCION DE OBJETO ========================= */
-
 const _getSelectableItem = function(item){
   if(!item) return null;
   if (item.clipMask) return null;
   if (item.data && (item.data.isHandle || item.data.isSelectionBox || item.data.isNodeHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) return null;
   if (item.parent && item.parent.data && (item.parent.data.isSelectionBox || item.parent.data.isNodeEditOverlay)) return null;
-
   let current = item;
   while (current) {
     if (current.data) {
@@ -118,13 +116,11 @@ const _getSelectableItem = function(item){
 };
 
 /* ========================= UPDATE SELECTION BOX OVERLAY ========================= */
-
 const _updateSelectionBox = function(item) {
   if (window.selectionBoxGroup) {
     window.selectionBoxGroup.remove();
     window.selectionBoxGroup = null;
   }
-
   if (window.nodeEditMode) {
     return;
   }
@@ -192,7 +188,7 @@ const _updateSelectionBox = function(item) {
     });
   }
 
-  // 2. Dibujar la caja de seleccion global de color azul celeste alrededor de todo el conjunto
+  // 2. Dibujar la caja de seleccion global de color azul celeste de Paper.js alrededor de todo el conjunto
   const isRotSnapped = window.isRotationSnapped && window.rotationActive;
   const mainColor = isRotSnapped ? '#28a745' : '#007bff';
   const border = new paper.Path.Rectangle(bounds);
@@ -253,9 +249,9 @@ const _updateSelectionBox = function(item) {
   window.selectionBoxGroup.addChild(arrowIcon);
 
   const arrowTip = new paper.Path();
-  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
   arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
-  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5/paper.view.zoom, 1.5/paper.view.zoom)));
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
   arrowTip.strokeColor = mainColor;
   arrowTip.strokeWidth = 1.2 / paper.view.zoom;
   window.selectionBoxGroup.addChild(arrowTip);
@@ -265,35 +261,19 @@ const _updateSelectionBox = function(item) {
   if (typeof window.applyPositionCorrections === "function") {
     window.applyPositionCorrections();
   }
-
   if (typeof window.bindRotationInputEvents === "function") {
     window.bindRotationInputEvents();
   }
-
   if (typeof window.syncContextualRotationInput === "function") {
     window.syncContextualRotationInput(primaryItem);
   }
 };
 
-// Sobreescribir el State Guard de selection.js de manera blindada
-try {
-  Object.defineProperty(window, 'updateSelectionBox', {
-    get: function() { return _updateSelectionBox; },
-    set: function() {},
-    configurable: true,
-    enumerable: true
-  });
-} catch(e) {
-  window.updateSelectionBox = _updateSelectionBox;
-}
-
 /* ========================= SELECT ========================= */
-
 const _selectItem = function(item, isMulti = false){
   if (window.nodeEditMode) {
-    return; //  BLOQUEADO DURANTE EDICION DE NODOS
+    return; // BLOQUEADO DURANTE EDICION DE NODOS
   }
-
   let isMockup = false;
   let curr = item;
   while (curr) {
@@ -311,7 +291,6 @@ const _selectItem = function(item, isMulti = false){
     window.deselectItem();
     return;
   }
-
   if (!window.selectedItems) window.selectedItems = [];
 
   if (isMulti) {
@@ -343,7 +322,6 @@ const _selectItem = function(item, isMulti = false){
     paper.view.update();
     return;
   }
-
   window.updateSelectionBox(window.selectedItem);
   if (typeof window.updateContextualMenu === 'function') {
     window.updateContextualMenu(window.selectedItem);
@@ -352,26 +330,21 @@ const _selectItem = function(item, isMulti = false){
 };
 
 /* ========================= DESELECT ========================= */
-
 const _deselectItem = function(){
   if (window.nodeEditMode) {
-    return; //  BLOQUEADO DURANTE EDICION DE NODOS (Evita salir por clics accidentales)
+    return; // BLOQUEADO DURANTE EDICION DE NODOS (Evita salir por clics accidentales)
   }
-
   if (window.selectedItems) {
     window.selectedItems.forEach(function(it) {
       if (it) it.selected = false;
     });
     window.selectedItems = [];
   }
-
   if(window.selectedItem){
     window.selectedItem.selected = false;
   }
-
   window.selectedItem = null;
   window.updateSelectionBox(null);
-
   if (typeof window.hideContextualMenu === 'function') {
     window.hideContextualMenu();
   }
@@ -379,7 +352,6 @@ const _deselectItem = function(){
 };
 
 /* ========================= FUNCIONES AUXILIARES DE ESCALADO ========================= */
-
 const _getOppositePoint = function(bounds, handleType) {
   switch (handleType) {
     case 'tl': return bounds.bottomRight;
@@ -409,7 +381,6 @@ const _getHandlePoint = function(bounds, handleType) {
 };
 
 /* ========================= EVENTOS DE TOOL (INTERACCIONES DEL MOUSE) ========================= */
-
 const _initSelectionTool = function() {
   if (!paper.view) {
     console.warn("initSelectionTool: paper.view no esta definido todavia.");
@@ -420,7 +391,7 @@ const _initSelectionTool = function() {
   let lastClickTime = 0;
 
   selectTool.onMouseDown = function(event) {
-    if (window.nodeEditMode) return; //  COPRRECCION DE COLISION: Bloqueo absoluto en modo nodos
+    if (window.nodeEditMode) return; // CORRECCION DE COLISION: Bloqueo absoluto en modo nodos
 
     if (window.insertTextMode) {
       if (typeof createEditableText === "function") {
@@ -470,7 +441,6 @@ const _initSelectionTool = function() {
         if (!window.selectedItem) return;
         window.rotationActive = true;
         window.rotationTarget = window.selectedItem;
-        
         let unifiedBounds = null;
         window.selectedItems.forEach(function(it) {
           const displayItem = (it.data && it.data.clipGroup)
@@ -483,7 +453,6 @@ const _initSelectionTool = function() {
             unifiedBounds = unifiedBounds.unite(displayItem.bounds);
           }
         });
-
         window.rotationCenter = unifiedBounds ? unifiedBounds.center.clone() : window.selectedItem.bounds.center.clone();
         const vector = event.point.subtract(window.rotationCenter);
         window.rotationStartAngle = vector.angle;
@@ -509,7 +478,6 @@ const _initSelectionTool = function() {
       window.resizeActive = true;
       window.resizeHandleType = hType;
       window.resizeTargets = [...(window.selectedItems || [])];
-      
       let unifiedBounds = null;
       window.resizeTargets.forEach(function(it) {
         const displayItem = (it.data && it.data.clipGroup)
@@ -522,7 +490,6 @@ const _initSelectionTool = function() {
           unifiedBounds = unifiedBounds.unite(displayItem.bounds);
         }
       });
-
       window.resizeInitialBounds = unifiedBounds;
       window.resizeInitialPoint = event.point.clone();
       window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
@@ -551,7 +518,7 @@ const _initSelectionTool = function() {
       }
     });
 
-    //  FILTRO DE PRECISION CANVA/AUTOCAD (Inmunidad al Espacio Vacio de la Mascara)
+    // FILTRO DE PRECISION CANVA/AUTOCAD (Inmunidad al Espacio Vacio de la Mascara)
     if (generalHit) {
       const selectableItem = window.getSelectableItem(generalHit.item);
       if (selectableItem) {
@@ -596,7 +563,6 @@ const _initSelectionTool = function() {
             window.selectedItems = [selectableItem];
           }
         }
-
         window.dragging = true;
         window.dragTargets = [];
         window.selectedItems.forEach(function(item) {
@@ -611,7 +577,6 @@ const _initSelectionTool = function() {
             });
           }
         });
-
         window.updateSelectionBox(window.selectedItem);
         if (typeof window.updateContextualMenu === 'function') {
           window.updateContextualMenu(window.selectedItem);
@@ -660,8 +625,7 @@ const _initSelectionTool = function() {
   };
 
   selectTool.onMouseDrag = function(event) {
-    if (window.nodeEditMode) return; //  CORRECCION DE COLISION: Bloqueo absoluto en modo nodos
-
+    if (window.nodeEditMode) return; // CORRECCION DE COLISION: Bloqueo absoluto en modo nodos
     if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
       return;
     }
@@ -688,7 +652,6 @@ const _initSelectionTool = function() {
       const vector = currentPoint.subtract(window.rotationCenter);
       const currentAngle = vector.angle;
       let angleDiff = currentAngle - window.rotationStartAngle;
-
       const isShiftPressed = event.modifiers && event.modifiers.shift;
       let isSnapped = false;
       const rt0 = window.rotationTargets[0];
@@ -696,20 +659,10 @@ const _initSelectionTool = function() {
       if (rt0 && !isShiftPressed) {
         // Encontrar el angulo de destino acumulado para el elemento primario
         const rawTargetAngle = (rt0.initialRotation + angleDiff) % 360;
-        const normalizedTarget = (rawTargetAngle % 360 + 360) % 360;
-
-        // Buscar el multiplo de 45 mas cercano
-        const nearest45 = Math.round(normalizedTarget / 45) * 45;
-        const snapThreshold = 4.5; // Umbral de atraccion magnetica de 4.5 grados
-        const diffTo45 = Math.abs(normalizedTarget - nearest45);
-
-        if (diffTo45 <= snapThreshold || (nearest45 === 360 && diffTo45 >= (360 - snapThreshold))) {
-          let targetAngleSnapped = nearest45 % 360;
-          let deltaToTarget = targetAngleSnapped - rt0.initialRotation;
-          if (deltaToTarget > 180) deltaToTarget -= 360;
-          if (deltaToTarget < -180) deltaToTarget += 360;
-
-          angleDiff = deltaToTarget;
+        const snappedTargetAngle = Math.round(rawTargetAngle / 45) * 45;
+        const deltaToTarget = snappedTargetAngle - rawTargetAngle;
+        if (Math.abs(deltaToTarget) < 4.0) {
+          angleDiff = snappedTargetAngle - rt0.initialRotation;
           isSnapped = true;
         }
       } else if (isShiftPressed) {
@@ -717,19 +670,14 @@ const _initSelectionTool = function() {
         isSnapped = true;
       }
 
-      // Propagar el estado de snapping global para actualizar el color de la caja de seleccion a verde
       window.isRotationSnapped = isSnapped;
-
       window.rotationTargets.forEach(function(rt) {
         if (rt.item.data && rt.item.data.locked) return;
-        // Rotar orbitalmente si hay mas de un elemento seleccionado
         if (window.selectedItems.length > 1) {
           rt.target.position = rt.initialPosition.rotate(angleDiff, window.rotationCenter);
         }
-        // Rotar el elemento sobre su propio eje
         const oldRotation = rt.target.data?.rotation || 0;
         const targetAngle = (rt.initialRotation + angleDiff) % 360;
-
         let deltaRotate = targetAngle - oldRotation;
         if (deltaRotate > 180) deltaRotate -= 360;
         if (deltaRotate < -180) deltaRotate += 360;
@@ -748,7 +696,6 @@ const _initSelectionTool = function() {
 
       window.updateSelectionBox(null);
 
-      // Inyeccion y actualizacion en tiempo real de la etiqueta flotante de rotacion cerca del objeto
       if (rt0) {
         const zoom = paper.view.zoom;
         const halfHeight = rt0.target.bounds ? (rt0.target.bounds.height / 2) : 50;
@@ -757,7 +704,7 @@ const _initSelectionTool = function() {
 
         if (!window.rotationAngleLabel) {
           window.rotationAngleLabel = new paper.Group();
-          window.rotationAngleLabel.data = { isSelectionBox: true, isSmartGuide: true }; // Libre de hit-tests
+          window.rotationAngleLabel.data = { isSelectionBox: true, isSmartGuide: true };
         } else {
           window.rotationAngleLabel.removeChildren();
         }
@@ -766,7 +713,6 @@ const _initSelectionTool = function() {
         const displayAngle = Math.round((currentRot % 360 + 360) % 360);
         const fontSize = 12 / zoom;
 
-        // Texto del angulo
         const textLabel = new paper.PointText({
           point: labelPosition.add(new paper.Point(0, 4 / zoom)),
           content: displayAngle + "",
@@ -777,7 +723,6 @@ const _initSelectionTool = function() {
           justification: 'center'
         });
 
-        // Contenedor visual badge
         const textRect = new paper.Path.Rectangle({
           center: labelPosition,
           size: [textLabel.bounds.width + (12 / zoom), textLabel.bounds.height + (6 / zoom)],
@@ -823,9 +768,9 @@ const _initSelectionTool = function() {
       const anchor = window.resizeAnchor;
       const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
       const currentHandlePoint = event.point;
-
       let factorX = 1.0;
       let factorY = 1.0;
+
       const initialXDiff = initialHandlePoint.x - anchor.x;
       const currentXDiff = currentHandlePoint.x - anchor.x;
       if (Math.abs(initialXDiff) > 0.001) factorX = currentXDiff / initialXDiff;
@@ -872,7 +817,6 @@ const _initSelectionTool = function() {
       } else if (window.calculateSmartGuides) {
         window.calculateSmartGuides(window.selectedItem, event);
       }
-
       window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
@@ -880,7 +824,7 @@ const _initSelectionTool = function() {
   };
 
   selectTool.onMouseUp = function(event) {
-    if (window.nodeEditMode) return; //  CORRECCION DE COLISION: Bloqueo absoluto en modo nodos
+    if (window.nodeEditMode) return; // CORRECCION DE COLISION: Bloqueo absoluto en modo nodos
 
     // --- PROCESAR RESULTADO DE SELECCION POR MARQUEE ---
     if (window.marqueeActive && window.marqueePath) {
@@ -940,7 +884,6 @@ const _initSelectionTool = function() {
       if (typeof window.saveHistory === 'function') window.saveHistory();
     }
 
-    // Limpieza de etiqueta de rotacion flotante al terminar la accion
     if (window.rotationAngleLabel) {
       window.rotationAngleLabel.remove();
       window.rotationAngleLabel = null;
@@ -949,21 +892,19 @@ const _initSelectionTool = function() {
     window.dragging = false;
     window.resizeActive = false;
     window.rotationActive = false;
-    window.isRotationSnapped = false; // Limpiar snapping flag al terminar
+    window.isRotationSnapped = false;
     window.rotationTargets = [];
 
     const canvas = document.getElementById("editorCanvas");
     if (canvas) canvas.style.cursor = 'default';
     if (typeof clearSmartGuides === "function") clearSmartGuides();
 
-    // Redibujar seleccion con el color azul por defecto
     window.updateSelectionBox(window.selectedItem);
     paper.view.update();
   };
 
   selectTool.onMouseMove = function(event) {
-    if (window.nodeEditMode) return; //  CORRECCION DE COLISION: Bloqueo absoluto en modo nodos
-
+    if (window.nodeEditMode) return; // CORRECCION DE COLISION: Bloqueo absoluto en modo nodos
     const canvas = document.getElementById("editorCanvas");
     if (!canvas) return;
     if (window.resizeActive) return;
@@ -1012,7 +953,6 @@ const _initSelectionTool = function() {
         }
       });
 
-      //  HOVER DE PRECISION (Cambio dinamico del cursor 'move' solo sobre el diseno real)
       if (generalHit) {
         const hitItem = window.getSelectableItem(generalHit.item);
         if (hitItem) {
@@ -1040,7 +980,6 @@ const _initSelectionTool = function() {
         }
       }
 
-      // Hover sobre el recuadro unificado de seleccion grupal para indicar arrastre en vacio
       if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
         if (window.selectionBoxGroup.bounds.contains(event.point)) {
           canvas.style.cursor = 'move';
@@ -1053,7 +992,7 @@ const _initSelectionTool = function() {
   };
 
   selectTool.activate();
-  console.log(" Eventos de seleccion, marquee y redimensionamiento unificado registrados con exito.");
+  console.log("Eventos de seleccion unificada registrados con exito.");
 };
 
 if (typeof paper !== "undefined" && paper.view) {
@@ -1087,7 +1026,7 @@ function applyPositionCorrections() {
       if (canvasEl) {
         const rect = canvasEl.getBoundingClientRect();
         const targetLeft = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
-        const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen superior
+        const targetTop = rect.top + window.scrollY + viewPos.y - toolbarHeight - 25; // 25px de margen
         toolbar.style.position = "absolute";
         toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarWidth - 10, targetLeft)) + "px";
         toolbar.style.top = Math.max(10, Math.min(window.innerHeight - toolbarHeight - 10, targetTop)) + "px";
@@ -1096,7 +1035,7 @@ function applyPositionCorrections() {
     }
   }
 
-  // 2. Corregir Editor de Texto (Evita que el recuadro de escritura aparezca en la esquina superior izquierda)
+  // 2. Corregir Editor de Texto (Evita que aparezca desalineado)
   if (textEditor && textEditor.style.display !== "none") {
     const editorWidth = textEditor.offsetWidth || 220;
     const editorHeight = textEditor.offsetHeight || 50;
@@ -1109,16 +1048,15 @@ function applyPositionCorrections() {
       textEditor.style.top = targetTop + "px";
     }
     textEditor.style.position = "absolute";
-    textEditor.style.zIndex = "2147483647"; // Stay above toolbar and rulers
+    textEditor.style.zIndex = "2147483647";
   }
 }
+
 window.applyPositionCorrections = applyPositionCorrections;
 
 /* =========================================================================
 SISTEMA DE SINCRONIZACION DINAMICA DE ROTACION DE LA BARRA FLOTANTE
-Soporta: Imagen, Texto, SVG, QR, etc., con Rueda de Mouse y Entrada Numerica
 ========================================================================= */
-
 window.applyRotationFromInput = function(val) {
   if (!window.selectedItem || window.selectedItem.data?.locked) return;
   let angle = parseInt(val);
@@ -1126,7 +1064,6 @@ window.applyRotationFromInput = function(val) {
   angle = (angle % 360 + 360) % 360;
 
   if (typeof window.saveHistory === 'function') window.saveHistory();
-
   const targets = (window.selectedItems && window.selectedItems.length > 0) ? window.selectedItems : [window.selectedItem];
   targets.forEach(item => {
     if (item.data?.locked) return;
@@ -1150,12 +1087,10 @@ window.bindRotationInputEvents = function() {
   const rotationNum = document.getElementById('ctxRotationNum');
   const rotGroup = document.getElementById('ctxRotationGroup');
 
-  // Forzar que el contenedor de rotacion sea visible en la barra contextual para cualquier objeto seleccionado
   if (rotGroup) {
     rotGroup.classList.remove('hidden');
     rotGroup.style.display = 'flex';
   }
-
   if (!rotationNum) return;
   if (rotationNum.dataset.eventsBound) return;
   rotationNum.dataset.eventsBound = "true";
@@ -1203,7 +1138,7 @@ window.syncContextualRotationInput = function(item) {
   }
 };
 
-//  EKKO STATE GUARD: Registrar proteccion global para evitar sobreescritura de editor.js
+// State guards protecting global selection properties
 protectGlobal('getSelectableItem', _getSelectableItem);
 protectGlobal('updateSelectionBox', _updateSelectionBox);
 protectGlobal('selectItem', _selectItem);
