@@ -71,9 +71,8 @@ export function enterNodeEditMode(item) {
   nodeEditTool.onMouseDown = (event) => {
     // 1. Hit test para ver si hicimos clic sobre un tirador/nodo de interfaz
     const hitResult = paper.project.hitTest(event.point, {
-      segments: false,
-      stroke: false,
-      fill: false,
+      fill: true,
+      stroke: true,
       tolerance: 8 / paper.view.zoom,
       match: (hit) => hit.item && hit.item.data?.isNodeHandle
     });
