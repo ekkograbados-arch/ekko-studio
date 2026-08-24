@@ -1,32 +1,23 @@
 /* =========================================================================
-Modulo: ASSETS/js/editor.js (v13 PRO - CONECTOR DE ZOOM Y SHORTCUTS UNIFICADOS)
+Modulo: ASSETS/js/editor.js (v14 PRO - XML REUSE SANITIZED & CONNECTED)
 Ruta de reemplazo: ASSETS/js/editor.js
 Descripcion: Nucleo de la aplicacion EKKO Studio basado en Paper.js.
-Controla la inicializacion de la escena, carga de mockups, alineaciones,
-transformaciones, operaciones de zoom y sincronizacion asincrona de
-tipografias globales del backend.
-
-ESTADO: ESTABLE, INTEGRADO CON EL SISTEMA DE ZOOM AL CURSOR Y ATAJOS DE TECLADO.
 ========================================================================= */
 
-import "./modules/selection.js"; // REQUERIDO: Cargar manipuladores de seleccion globales
+import "./modules/selection.js";
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
 import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
 import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
 import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
-
-//  INTEGRACION: Importar controlador PRO de Zoom y Atajos de Teclado Universales de EKKO PRO
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 
-//  EXPOSICION GLOBAL: Exponer funciones importadas al objeto global window para compatibilidad total entre modulos
 window.updateContextualMenu = updateContextualMenu;
 window.hideContextualMenu = hideContextualMenu;
 window.initContextualMenu = initContextualMenu;
 window.startTextEditing = startTextEditing;
 
-//  BARRERA DE SEGURIDAD GLOBAL (Previene crashes por asincronia o nulos en otros modulos)
 window.EKKO_STUDIO_PRODUCTS = window.EKKO_STUDIO_PRODUCTS || [];
 window.paperUnitsPerMm = window.paperUnitsPerMm || 1.0;
 window.mmPerPaperUnit = window.mmPerPaperUnit || 1.0;
@@ -50,7 +41,6 @@ if (typeof paper !== "undefined") {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  // --- INYECCION DINAMICA DE INTERFAZ: DROP DOWN DE FUENTES PERSONALIZADO (Garantia WYSIWYG) ---
   const nativeSelect = document.getElementById('ctxFontSelector');
   if (nativeSelect) {
     let customDropdown = document.querySelector('.custom-font-dropdown');
@@ -68,7 +58,6 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // --- INYECCION DINAMICA DE ESTILOS DE LIENZO INFINITO ---
   const infiniteCanvasStylesId = 'infinite-canvas-styles';
   if (!document.getElementById(infiniteCanvasStylesId)) {
     const styleEl = document.createElement('style');
@@ -92,23 +81,19 @@ window.addEventListener("DOMContentLoaded", () => {
     document.head.appendChild(styleEl);
   }
 
-  // 1. Inicializar Paper.js de forma segura en el lienzo
   const canvasEl = document.getElementById("editorCanvas");
   const containerEl = document.getElementById("canvasContainer");
-
   if (canvasEl && containerEl) {
     window.infiniteCanvasMode = true;
     setTimeout(() => {
       try {
         const initialWidth = containerEl.clientWidth || window.innerWidth;
         const initialHeight = containerEl.clientHeight || window.innerHeight;
-
         canvasEl.width = initialWidth;
         canvasEl.height = initialHeight;
         paper.setup("editorCanvas");
         paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
 
-        // ResizeObserver para mantener sincronizadas las coordenadas
         if (typeof ResizeObserver !== "undefined") {
           const observer = new ResizeObserver(entries => {
             for (let entry of entries) {
@@ -128,7 +113,6 @@ window.addEventListener("DOMContentLoaded", () => {
           observer.observe(containerEl);
         }
 
-        // Asegurar capas backgroundLayer y designLayer
         let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
         if (!backLayer) {
           backLayer = new paper.Layer();
@@ -158,7 +142,6 @@ window.addEventListener("DOMContentLoaded", () => {
           }
         }
 
-        //  INTEGRACION: Inicializar Zoom Inteligente al Cursor (LightBurn Style)
         try {
           initZoomControls(canvasEl);
           initGlobalKeyboardShortcuts();
@@ -183,7 +166,6 @@ window.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// --- Variables de Estado Global del Editor ---
 const toolState = {
   currentCategory: 0,
   currentProduct: null,
@@ -349,7 +331,6 @@ function updateSelectionInfo() {
   const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
     ? window.selectedItem.children.find(c => !c.clipMask)
     : window.selectedItem;
-
   if (displayItem && ui.selectionInfo) {
     ui.selectionInfo.textContent = displayItem.data?.label || "Objeto";
     if (ui.objWidth) ui.objWidth.value = (displayItem.bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
@@ -379,7 +360,6 @@ window.selectItem = function(item, isMulti = false) {
   if (window.nodeEditMode) {
     window.exitNodeEditMode();
   }
-
   let isMockup = false;
   let curr = item;
   while (curr) {
@@ -397,7 +377,6 @@ window.selectItem = function(item, isMulti = false) {
     window.deselectItem();
     return;
   }
-
   if (!window.selectedItems) window.selectedItems = [];
   if (isMulti) {
     const idx = window.selectedItems.indexOf(item);
@@ -417,12 +396,10 @@ window.selectItem = function(item, isMulti = false) {
     window.selectedItems = [item];
     window.selectedItem = item;
   }
-
   if (window.selectedItems.length === 0) {
     window.deselectItem();
     return;
   }
-
   window.updateSelectionBox(window.selectedItem);
   if (typeof window.updateContextualMenu === 'function') {
     window.updateContextualMenu(window.selectedItem);
@@ -582,8 +559,6 @@ function addSVGFromFile(file) {
   const reader = new FileReader();
   reader.onload = (e) => {
     let svgText = e.target.result;
-    
-    // SANEAMIENTO XML SINCRONO: Prevenir duplicados de etiquetas <use> de Illustrator
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(svgText, "image/svg+xml");
@@ -593,8 +568,6 @@ function addSVGFromFile(file) {
         defs.id = "defs1";
         doc.documentElement.insertBefore(defs, doc.documentElement.firstChild);
       }
-      
-      // Mover los path referenciados que estan sueltos a <defs> para evitar duplicados
       for (let i = 0; i < uses.length; i++) {
         const href = uses[i].getAttribute("xlink:href") || uses[i].getAttribute("href");
         if (href && href.startsWith("#")) {
@@ -661,7 +634,6 @@ function renderProducts(categoryIndex, activeProduct = null) {
   if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
   const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
   if (!group || !group.productos || group.productos.length === 0) return;
-
   if (!activeProduct) {
     const current = toolState.currentProduct;
     const belongsToCategory = group.productos.some(p => current && p.id === current.id);
@@ -672,7 +644,6 @@ function renderProducts(categoryIndex, activeProduct = null) {
     }
   }
   toolState.currentProduct = activeProduct;
-
   group.productos.forEach((prod) => {
     if (ui.productTabs) {
       const btn = document.createElement("button");
@@ -688,7 +659,6 @@ function renderProducts(categoryIndex, activeProduct = null) {
       ui.productTabs.appendChild(btn);
     }
   });
-
   if (activeProduct) {
     renderSurfaces(activeProduct);
     const surfaces = activeProduct.superficies || [];
@@ -791,8 +761,8 @@ window.addEventListener("resize", () => {
   const canvasEl = document.getElementById("editorCanvas");
   const containerEl = document.getElementById("canvasContainer");
   if (canvasEl && containerEl && paper.view) {
-    const w = containerEl.clientWidth || 800;
-    const h = containerEl.clientHeight || 600;
+    const w = containerEl.contentRect?.width || containerEl.clientWidth || 800;
+    const h = containerEl.contentRect?.height || containerEl.clientHeight || 600;
     canvasEl.width = w;
     canvasEl.height = h;
     paper.view.viewSize = new paper.Size(w, h);
@@ -884,7 +854,6 @@ async function addQRToCanvas(text) {
     height: 256,
     correctLevel: QRCode.CorrectLevel.H
   });
-
   setTimeout(() => {
     const qrCanvas = tempDiv.querySelector("canvas") || tempDiv.querySelector("img");
     if (qrCanvas) {
@@ -919,7 +888,6 @@ safeAddListener("btnAddQR", "click", () => {
   }
 });
 
-// Fallbacks de compatibilidad obsoletos
 function initCanvasZoomAndPan() {
   console.log("initCanvasZoomAndPan: Obsoleta. El zoom se gestiona de manera unificada mediante zoomYShortcuts.js.");
 }
