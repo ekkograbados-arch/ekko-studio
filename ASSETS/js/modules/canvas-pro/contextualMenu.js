@@ -453,10 +453,10 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 
     let newItem;
     if (isClipped && oldClipGroup) {
-      // Sincronizacion directa: Insertamos como hermanos del clipMask dentro del mismo clipGroup original
-      newItem = child;
-      newItem.matrix = relMatrix;
-      oldClipGroup.addChild(newItem);
+      // Re-enmascaramos cada pieza individual en su propio clipGroup para que sea seleccionable y arrastrable por separado
+      newItem = window.clipItem(child);
+      newItem.matrix = oldClipGroup.matrix.clone(); // Heredar posicion/rotacion del clipGroup original
+      child.matrix = relMatrix; // Colocar posicion relativa interna
     } else {
       newItem = child;
       newItem.matrix = relMatrix;
@@ -491,13 +491,14 @@ export function ungroupSelectedItem() {
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-        // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva
+        // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva disolviendo grupos anidados
     if (activeTarget instanceof paper.Group) {
       const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
       newItems.push(...flatItems);
-      if (!isClipped) {
-        item.remove();
+      if (isClipped && item) {
+        item.clipped = false; // Desactivar el clipping de forma explicita para evitar fugas de recorte de Paper.js
       }
+      item.remove();
     }
     // B. SI ES TEXTO: Dividimos en PointText independientes por letras
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
@@ -516,23 +517,21 @@ export function ungroupSelectedItem() {
         }
         newItems.push(newItem);
       });
+      if (isClipped && item) {
+        item.clipped = false; // Evitar fuga de recorte de Paper.js
+      }
       item.remove();
     }
-    // C. SI ES COMPOUNDPATH: Dividimos en sub-islas conservando calado
+    // C. SI ES COMPOUNDPATH: Solo disolvemos el calado interactivo si ya fue previamente desagrupado
     else if (activeTarget instanceof paper.CompoundPath) {
-      // State Guard: Si el elemento ya fue desagrupado y tiene huecos independientes interactivos, disolvemos el calado para separar fisicamente los huecos
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
         if (dissolved && dissolved.length > 0) {
           newItems.push(...dissolved);
         }
-      } else {
-        // LLAMADA UNIFICADA: separateContours maneja cualquier cantidad de islas exteriores (1 o mas)
-        const separated = separateContours(item, true);
-        if (separated && separated.length > 0) {
-          newItems.push(...separated);
-        }
       }
+      // Nota: Si es un CompoundPath normal (como las letras de AFA o la cara de Minnie), NO hacemos nada.
+      // Quedan perfectamente resguardados con sus transparencias y rellenos intactos.
     }
     // Reinsertar de forma atomica en el parent original respetando la capa y el indice exacto
     newItems.reverse().forEach(newItem => {
@@ -630,6 +629,9 @@ export function dissolveOuterWithHoles(item) {
     }
   }
   // 4. Eliminar el item compuesto viejo calado
+  if (item.data?.clipGroup) {
+    item.clipped = false;
+  }
   item.remove();
   return newItems;
 }
@@ -813,7 +815,9 @@ if (typeof window.paper !== 'undefined' && paper.view) {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
-          const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.rotation}`;
+          // OBTENER LA POSICION DEL HIJO REAL (DENTRO DEL CLIPGROUP) PARA DETECTAR MOVIMIENTO SINCRONO REAL
+          const targetHole = hole.data?.clipGroup ? hole.children.find(function(c) { return !c.clipMask; }) : hole;
+          const currentHash = `${targetHole.position.x.toFixed(1)},${targetHole.position.y.toFixed(1)},${targetHole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
             hole.data.lastHash = currentHash;
             needsUpdate = true;
