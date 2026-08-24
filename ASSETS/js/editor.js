@@ -1,13 +1,13 @@
 /* =========================================================================
-   Modulo: ASSETS/js/editor.js (v14 PRO - UNIFIED WITH SVG USE SANITIZER)
-   Ruta de reemplazo: ASSETS/js/editor.js
-   Descripcion: Nucleo de la aplicacion EKKO Studio basado en Paper.js.
-   Controla la inicializacion de la escena, carga de mockups, alineaciones,
-   transformaciones, operaciones de zoom y sincronizacion asincrona de
-   tipografias globales del backend.
-   ESTADO: ESTABLE, INTEGRADO CON EL SISTEMA DE ZOOM AL CURSOR, ATAJOS DE TECLADO
-   Y PARSER DE IMPORTACION SVG ANTI-DUPLICADOS.
-   ========================================================================= */
+Modulo: ASSETS/js/editor.js (v13 PRO - CONECTOR DE ZOOM Y SHORTCUTS UNIFICADOS)
+Ruta de reemplazo: ASSETS/js/editor.js
+Descripcion: Nucleo de la aplicacion EKKO Studio basado en Paper.js.
+Controla la inicializacion de la escena, carga de mockups, alineaciones,
+transformaciones, operaciones de zoom y sincronizacion asincrona de
+tipografias globales del backend.
+
+ESTADO: ESTABLE, INTEGRADO CON EL SISTEMA DE ZOOM AL CURSOR Y ATAJOS DE TECLADO.
+========================================================================= */
 
 import "./modules/selection.js"; // REQUERIDO: Cargar manipuladores de seleccion globales
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
@@ -17,16 +17,16 @@ import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./
 import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
 
-// INTEGRACION: Importar controlador PRO de Zoom y Atajos de Teclado Universales de EKKO PRO
+//  INTEGRACION: Importar controlador PRO de Zoom y Atajos de Teclado Universales de EKKO PRO
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 
-// EXPOSICION GLOBAL: Exponer funciones importadas al objeto global window para compatibilidad total entre modulos
+//  EXPOSICION GLOBAL: Exponer funciones importadas al objeto global window para compatibilidad total entre modulos
 window.updateContextualMenu = updateContextualMenu;
 window.hideContextualMenu = hideContextualMenu;
 window.initContextualMenu = initContextualMenu;
 window.startTextEditing = startTextEditing;
 
-// BARRERA DE SEGURIDAD GLOBAL
+//  BARRERA DE SEGURIDAD GLOBAL (Previene crashes por asincronia o nulos en otros modulos)
 window.EKKO_STUDIO_PRODUCTS = window.EKKO_STUDIO_PRODUCTS || [];
 window.paperUnitsPerMm = window.paperUnitsPerMm || 1.0;
 window.mmPerPaperUnit = window.mmPerPaperUnit || 1.0;
@@ -50,8 +50,26 @@ if (typeof paper !== "undefined") {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  // --- INYECCION DINAMICA DE ESTILOS DE LIENZO INFINITO (ESTILO FIGMA/CANVA) ---
-  const infiniteCanvasStylesId = 'ekko-infinite-canvas-styles';
+  // --- INYECCION DINAMICA DE INTERFAZ: DROP DOWN DE FUENTES PERSONALIZADO (Garantia WYSIWYG) ---
+  const nativeSelect = document.getElementById('ctxFontSelector');
+  if (nativeSelect) {
+    let customDropdown = document.querySelector('.custom-font-dropdown');
+    if (!customDropdown) {
+      customDropdown = document.createElement('div');
+      customDropdown.className = 'custom-font-dropdown';
+      customDropdown.innerHTML = `
+        <div class="selected-font-trigger">
+          <span>Seleccionar Fuente</span>
+          <i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
+        </div>
+        <div class="font-dropdown-list hidden"></div>
+      `;
+      nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
+    }
+  }
+
+  // --- INYECCION DINAMICA DE ESTILOS DE LIENZO INFINITO ---
+  const infiniteCanvasStylesId = 'infinite-canvas-styles';
   if (!document.getElementById(infiniteCanvasStylesId)) {
     const styleEl = document.createElement('style');
     styleEl.id = infiniteCanvasStylesId;
@@ -59,7 +77,7 @@ window.addEventListener("DOMContentLoaded", () => {
       #editorCanvas {
         width: 100% !important;
         height: 100% !important;
-        background-color: #e2e8f0 !important; /* Gris de espacio de trabajo Canva/Figma */
+        background-color: #e2e8f0 !important;
         border: none !important;
         box-shadow: none !important;
       }
@@ -80,7 +98,6 @@ window.addEventListener("DOMContentLoaded", () => {
 
   if (canvasEl && containerEl) {
     window.infiniteCanvasMode = true;
-
     setTimeout(() => {
       try {
         const initialWidth = containerEl.clientWidth || window.innerWidth;
@@ -91,7 +108,7 @@ window.addEventListener("DOMContentLoaded", () => {
         paper.setup("editorCanvas");
         paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
 
-        // ResizeObserver para mantener el lienzo fluido estilo Canva/Figma
+        // ResizeObserver para mantener sincronizadas las coordenadas
         if (typeof ResizeObserver !== "undefined") {
           const observer = new ResizeObserver(entries => {
             for (let entry of entries) {
@@ -111,61 +128,56 @@ window.addEventListener("DOMContentLoaded", () => {
           observer.observe(containerEl);
         }
 
-        // Asegurar capas base
+        // Asegurar capas backgroundLayer y designLayer
         let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
         if (!backLayer) {
           backLayer = new paper.Layer();
           backLayer.name = 'backgroundLayer';
           paper.project.insertLayer(0, backLayer);
         }
-
         let designLayer = paper.project.layers.find(l => l.name === 'designLayer');
         if (!designLayer) {
           designLayer = new paper.Layer();
           designLayer.name = 'designLayer';
         }
         designLayer.activate();
-        paper.view.center = new paper.Point(0, 0);
 
-        // Inicializar herramienta de seleccion
         if (typeof window.initSelectionTool === "function") {
           try {
             window.initSelectionTool();
           } catch (err) {
-            console.error("Error al inicializar la herramienta de seleccion:", err);
+            console.error("Error inicializando herramienta seleccion:", err);
           }
         }
 
-        // Inicializar Menu Contextual
         if (typeof initContextualMenu === "function") {
           try {
             initContextualMenu();
           } catch (err) {
-            console.error("Error al inicializar el menu contextual:", err);
+            console.error("Error inicializando menu contextual:", err);
           }
         }
 
-        // INTEGRACION: Inicializar Zoom Inteligente al Cursor (LightBurn Style) y Atajos de Teclado
+        //  INTEGRACION: Inicializar Zoom Inteligente al Cursor (LightBurn Style)
         try {
           initZoomControls(canvasEl);
           initGlobalKeyboardShortcuts();
         } catch (err) {
-          console.error("Error al inicializar zoom y atajos de teclado de EKKO PRO:", err);
+          console.error("Error al inicializar zoom y atajos de teclado:", err);
         }
 
-        // Inicializar controles profesionales (reglas, cotas, guias)
         if (typeof initProControls === "function") {
           try {
             initProControls();
           } catch (err) {
-            console.error("Error en controles profesionales (reglas, cotas, guias):", err);
+            console.error("Error en controles profesionales:", err);
           }
         }
 
-        console.log("EKKO Studio inicializado con dimensiones estables de viewport:", initialWidth, "x", initialHeight);
+        console.log("EKKO Studio inicializado con dimensiones estables:", initialWidth, "x", initialHeight);
       } catch (err) {
-        console.error("Error critico durante la inicializacion del lienzo de Paper.js:", err);
-        alert("Atencion: Ocurrio un error al cargar el lienzo.");
+        console.error("Error critico durante inicializacion de Paper.js:", err);
+        alert("Ocurrio un error al cargar el lienzo. Revisa la consola F12.");
       }
     }, 50);
   }
@@ -337,6 +349,7 @@ function updateSelectionInfo() {
   const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
     ? window.selectedItem.children.find(c => !c.clipMask)
     : window.selectedItem;
+
   if (displayItem && ui.selectionInfo) {
     ui.selectionInfo.textContent = displayItem.data?.label || "Objeto";
     if (ui.objWidth) ui.objWidth.value = (displayItem.bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
@@ -366,6 +379,7 @@ window.selectItem = function(item, isMulti = false) {
   if (window.nodeEditMode) {
     window.exitNodeEditMode();
   }
+
   let isMockup = false;
   let curr = item;
   while (curr) {
@@ -383,6 +397,7 @@ window.selectItem = function(item, isMulti = false) {
     window.deselectItem();
     return;
   }
+
   if (!window.selectedItems) window.selectedItems = [];
   if (isMulti) {
     const idx = window.selectedItems.indexOf(item);
@@ -402,10 +417,12 @@ window.selectItem = function(item, isMulti = false) {
     window.selectedItems = [item];
     window.selectedItem = item;
   }
+
   if (window.selectedItems.length === 0) {
     window.deselectItem();
     return;
   }
+
   window.updateSelectionBox(window.selectedItem);
   if (typeof window.updateContextualMenu === 'function') {
     window.updateContextualMenu(window.selectedItem);
@@ -566,34 +583,32 @@ function addSVGFromFile(file) {
   reader.onload = (e) => {
     let svgText = e.target.result;
     
-    // SANITIZADOR DE DEFINICIONES DE REUSO SVG ( xlink:href / <use> ):
-    // Busca elementos <use> y mueve sus elementos originales fuera de la escena principal
-    // para guardarlos dentro de <defs> antes de importar, impidiendo que Paper.js importe duplicados invisibles a la izquierda.
+    // SANEAMIENTO XML SINCRONO: Prevenir duplicados de etiquetas <use> de Illustrator
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(svgText, "image/svg+xml");
-      const uses = doc.querySelectorAll('use');
-      if (uses.length > 0) {
-        let defs = doc.querySelector('defs');
-        if (!defs) {
-          defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
-          doc.documentElement.insertBefore(defs, doc.documentElement.firstChild);
-        }
-        uses.forEach(use => {
-          const href = use.getAttribute('xlink:href') || use.getAttribute('href');
-          if (href && href.startsWith('#')) {
-            const refId = href.substring(1);
-            const refEl = doc.getElementById(refId);
-            if (refEl && !refEl.closest('defs')) {
-              defs.appendChild(refEl);
-            }
-          }
-        });
-        const serializer = new XMLSerializer();
-        svgText = serializer.serializeToString(doc);
+      const uses = doc.getElementsByTagName("use");
+      const defs = doc.getElementById("defs1") || doc.createElementNS("http://www.w3.org/2000/svg", "defs");
+      if (!defs.parentNode && doc.documentElement) {
+        defs.id = "defs1";
+        doc.documentElement.insertBefore(defs, doc.documentElement.firstChild);
       }
+      
+      // Mover los path referenciados que estan sueltos a <defs> para evitar duplicados
+      for (let i = 0; i < uses.length; i++) {
+        const href = uses[i].getAttribute("xlink:href") || uses[i].getAttribute("href");
+        if (href && href.startsWith("#")) {
+          const id = href.substring(1);
+          const targetEl = doc.getElementById(id);
+          if (targetEl && targetEl.parentNode && targetEl.parentNode.tagName !== "defs") {
+            targetEl.parentNode.removeChild(targetEl);
+            defs.appendChild(targetEl);
+          }
+        }
+      }
+      svgText = new XMLSerializer().serializeToString(doc);
     } catch (err) {
-      console.error("Error sanitizing SVG <use> elements:", err);
+      console.error("Error al sanear XML de SVG:", err);
     }
 
     paper.project.importSVG(svgText, (item) => {
@@ -610,7 +625,6 @@ function addSVGFromFile(file) {
       const scale = Math.min(scaleX, scaleY);
       item.scale(scale);
       item.position = canvasBounds.center;
-      
       paper.project.activeLayer.addChild(item);
       const objeto = window.clipItem(item);
       if (window.currentMockup) {
@@ -647,7 +661,7 @@ function renderProducts(categoryIndex, activeProduct = null) {
   if (ui.surfaceTabs) ui.surfaceTabs.innerHTML = "";
   const group = window.EKKO_STUDIO_PRODUCTS[categoryIndex];
   if (!group || !group.productos || group.productos.length === 0) return;
-  
+
   if (!activeProduct) {
     const current = toolState.currentProduct;
     const belongsToCategory = group.productos.some(p => current && p.id === current.id);
@@ -805,14 +819,22 @@ setTimeout(() => {
   try {
     if (typeof loadDynamicProducts === "function") {
       loadDynamicProducts().then(() => {
+        print("Actualizando interfaz con el catalogo dinamico...");
         renderCategories();
-        if (window.EKKO_STUDIO_PRODUCTS && window.EKKO_STUDIO_PRODUCTS.length > 0) {
-          renderProducts(0);
-        }
+      }).catch((err) => {
+        console.error("Fallo critico al resolver catalogo dinamico:", err);
+        renderCategories();
       });
+    } else {
+      renderCategories();
     }
   } catch (e) {
-    console.error("Error al iniciar carga del catalogo de productos:", e);
+    console.error("Error al iniciar carga asincrona de productos:", e);
+    try {
+      renderCategories();
+    } catch (catErr) {
+      console.error("Fallo definitivo al renderizar categorias:", catErr);
+    }
   }
 }, 10);
 
@@ -862,6 +884,7 @@ async function addQRToCanvas(text) {
     height: 256,
     correctLevel: QRCode.CorrectLevel.H
   });
+
   setTimeout(() => {
     const qrCanvas = tempDiv.querySelector("canvas") || tempDiv.querySelector("img");
     if (qrCanvas) {
@@ -890,12 +913,13 @@ async function addQRToCanvas(text) {
 }
 
 safeAddListener("btnAddQR", "click", () => {
-  const text = prompt("Ingrese el texto o enlace para el codigo QR:", "https://www.instagram.com/grabados_ekko/");
+  const text = prompt("Ingrese el texto o enlace (Instagram, WhatsApp, WiFi) para el codigo QR:", "https://www.instagram.com/grabados_ekko/");
   if (text && text.trim() !== "") {
     addQRToCanvas(text.trim());
   }
 });
 
+// Fallbacks de compatibilidad obsoletos
 function initCanvasZoomAndPan() {
   console.log("initCanvasZoomAndPan: Obsoleta. El zoom se gestiona de manera unificada mediante zoomYShortcuts.js.");
 }
