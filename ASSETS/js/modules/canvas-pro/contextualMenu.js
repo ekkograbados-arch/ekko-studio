@@ -12,6 +12,24 @@ import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBa
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 
 // Variable global de previsualizacion en window
+
+
+function getContentItem(item) {
+  if (!item) return null;
+  if (item.data && item.data.clipGroup) {
+    var content = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
+    });
+    if (content) return content;
+    var fallback = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
+    });
+    if (fallback) return fallback;
+    return item.children[1] || item.children[0] || item;
+  }
+  return item;
+}
+
 window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
@@ -90,7 +108,7 @@ function injectFontFaces(fonts) {
  */
 function getSelectedTextString() {
   if (!window.selectedItem) return "EKKO Studio";
-  const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+  const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
   if (!target) return "EKKO Studio";
   if (target instanceof paper.PointText) {
     return target.content || "EKKO Studio";
@@ -106,7 +124,7 @@ function getSelectedTextString() {
  */
 function getSelectedFontFamily() {
   if (!window.selectedItem) return "Arial";
-  const target = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+  const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
   if (!target) return "Arial";
   if (target instanceof paper.PointText) {
     return target.fontFamily || "Arial";
@@ -124,7 +142,7 @@ export function applyFontFamily(item, fontFamily) {
   if (!item || item.data?.locked) return;
   let target = item;
   if (item.data?.clipGroup) {
-    target = item.children.find(c => !c.clipMask);
+    target = getContentItem(item);
   }
   if (!target) return;
   if (target instanceof paper.PointText) {
@@ -348,7 +366,7 @@ export function groupSelectedItems() {
     });
     const idxOuter = selected.indexOf(outerItem);
     if (idxOuter > -1) selected.splice(idxOuter, 1);
-    const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
+    const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
     const rebuiltPath = targetOuter.clone({ insert: false });
     outerItem.remove();
     window.ekkoOuters.delete(outerItem.id);
@@ -358,7 +376,7 @@ export function groupSelectedItems() {
   selected.forEach(item => {
     let content;
     if (item.data?.clipGroup) {
-      content = item.children.find(c => !c.clipMask);
+      content = getContentItem(item);
       if (content) content.remove();
     } else {
       content = item;
@@ -469,7 +487,7 @@ export function ungroupSelectedItem() {
   selected.forEach(item => {
     if (item.data?.locked || item.data?.mockup) return;
     const isClipped = !!item.data?.clipGroup;
-    const target = isClipped ? item.children.find(c => !c.clipMask) : item;
+    const target = isClipped ? getContentItem(item) : item;
     if (!target) return;
     const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
     const parent = item.parent || paper.project.activeLayer;
@@ -578,7 +596,7 @@ export function dissolveOuterWithHoles(item) {
   }
   
   if (item.data.originalPath) {
-    const targetOuter = isClipped ? item.children.find(c => !c.clipMask) : item;
+    const targetOuter = isClipped ? getContentItem(item) : item;
     const restoredOuter = item.data.originalPath.clone({ insert: false });
     restoredOuter.fillColor = targetOuter.fillColor;
     restoredOuter.strokeColor = targetOuter.strokeColor;
@@ -608,7 +626,7 @@ export function dissolveOuterWithHoles(item) {
     const hole = paper.project.getItem({ id: id });
     if (hole) {
       hole.remove();
-      const targetHole = hole.data.clipGroup ? hole.children.find(function(c) { return !c.clipMask; }) : hole;
+      const targetHole = hole.data.clipGroup ? getContentItem(hole) : hole;
       
       let newHoleItem;
       if (isClipped) {
@@ -640,7 +658,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup) return [];
   const isClipped = !!item.data?.clipGroup;
-  const target = isClipped ? item.children.find(c => !c.clipMask) : item;
+  const target = isClipped ? getContentItem(item) : item;
   if (!target || !(target instanceof paper.CompoundPath)) return [];
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
@@ -803,7 +821,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
 export function updateOuterPathGeometry(outerItem) {
   if (!outerItem || !outerItem.data?.originalPath) return outerItem;
-  const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
+  const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
   if (!targetOuter) return outerItem;
   let resultOuter = outerItem;
 
@@ -817,7 +835,7 @@ export function updateOuterPathGeometry(outerItem) {
   holeIds.forEach(id => {
     const hole = paper.project.getItem({ id });
     if (hole && hole.parent) {
-      const targetHole = hole.data.clipGroup ? hole.children.find(c => !c.clipMask) : hole;
+      const targetHole = hole.data.clipGroup ? getContentItem(hole) : hole;
       if (targetHole) {
         const holeGlobalMatrix = getGlobalMatrix(targetHole);
         const holeGlobal = targetHole.clone({ insert: false });
@@ -896,7 +914,7 @@ if (typeof window.paper !== 'undefined' && paper.view) {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
-          const targetHole = hole.data?.clipGroup ? hole.children.find(function(c) { return !c.clipMask; }) : hole;
+          const targetHole = hole.data?.clipGroup ? getContentItem(hole) : hole;
           const currentHash = `${targetHole.position.x.toFixed(1)},${targetHole.position.y.toFixed(1)},${targetHole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
             hole.data.lastHash = currentHash;
@@ -943,7 +961,7 @@ if (typeof window !== 'undefined') {
     let bounds = null;
     selected.forEach(function(it) {
       const displayItem = (it.data && it.data.clipGroup)
-        ? it.children.find(function(c) { return !c.clipMask; })
+        ? getContentItem(it)
         : it;
       if (!displayItem) return;
       if (!bounds) {
@@ -959,7 +977,7 @@ if (typeof window !== 'undefined') {
     if (selected.length > 1) {
       selected.forEach(function(it) {
         const displayItem = (it.data && it.data.clipGroup)
-          ? it.children.find(function(c) { return !c.clipMask; })
+          ? getContentItem(it)
           : it;
         if (displayItem && displayItem.bounds) {
           const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
@@ -1199,7 +1217,7 @@ export function updateContextualMenu(item) {
       if (btnUngroup) {
         const selected = window.selectedItems || [];
         const canUngroupAny = selected.some(it => {
-          const targetObj = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
+          const targetObj = it.data?.clipGroup ? getContentItem(it) : it;
           return targetObj && (
             targetObj instanceof paper.Group ||
             targetObj instanceof paper.CompoundPath ||
@@ -1218,7 +1236,7 @@ export function updateContextualMenu(item) {
       }
     }
   } else {
-    const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+    const target = item.data?.clipGroup ? getContentItem(item) : item;
     if (!target) return;
     if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
       const textControls = document.getElementById('ctxTextControls');
@@ -1267,7 +1285,7 @@ export function updateContextualMenu(item) {
       const canvasRect = canvasEl.getBoundingClientRect();
       const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
       const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-      const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+      const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
       const targetBounds = displayItem ? displayItem.bounds : bounds;
       const viewPos = paper.view.projectToView(targetBounds.topCenter);
       const x = canvasRect.left + scrollLeft + viewPos.x - (toolbar.offsetWidth / 2);
@@ -1294,7 +1312,7 @@ window.applyPositionCorrections = function() {
   const textEditor = document.getElementById("ekko-text-editor");
   if (!window.paper || !paper.view || !window.selectedItem) return;
   const item = window.selectedItem;
-  const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+  const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
   if (!displayItem) return;
   const bounds = displayItem.bounds;
   const viewPos = paper.view.projectToView(bounds.topCenter);
