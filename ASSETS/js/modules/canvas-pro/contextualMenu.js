@@ -1,13 +1,15 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v13 PRO - NESTED HOLES FIX)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v14 PRO - MATRIX RELATIVE FIX)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
 desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
 en tiempo real, e inyeccion dinamica de familias de fuentes.
-SOPORTE COMPLETO DE AGRUPACION Y DESAGRUPACION EN LINEA PARA CLIENTES Y SVGS CARGADOS.
+SOPORTE COMPLETO DE DESAGRUPACION Y AGRUPACION SINCRONICA PARA DISENOS Y SVGS COMPLEX (MATE, AFA, MINNIE).
 
-CORRECCION DE ERRORES CRITICOS: Matriz global segura, actualizacion reactiva de calados (eje X e Y)
-y acoplamiento correcto de separateContours().
+CORRECCION DE ERRORES CRITICOS:
+1. Resolucion de duplicado y desplazamiento lateral al desagrupar mediante herencia de matriz y alineacion matricial relativa.
+2. Evita la auto-seleccion accidental de controladores de huecos transparentes al separar contornos vectoriales.
+3. Desagrupado recursivo profundo que disuelve carpetas de grupos anidados en un solo clic.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -54,7 +56,7 @@ function removeOverlapTab() {
   const allElements = document.querySelectorAll('button, div, span, a, p, li');
   allElements.forEach(el => {
     if (el.textContent) {
-      const normalizedText = el.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
+      const normalizedText = el.textContent.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toUpperCase();
       if (normalizedText.includes('EVITAR SUPERPOSICION')) {
         el.remove();
       }
@@ -430,44 +432,41 @@ function getActiveGroupTarget(group) {
   return current;
 }
 
-function flattenGroupRecursive(group, parent, index, isClipped) {
+function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
   const leafItems = [];
-  
   const findLeaves = (node) => {
     if (node instanceof paper.Group && !node.data?.clipGroup) {
       const children = [...node.children];
       children.forEach(child => findLeaves(child));
     } else {
-      node.data = node.data || {};
-      node.data.globalMatrix = getGlobalMatrix(node);
       leafItems.push(node);
     }
   };
-  
   findLeaves(group);
   group.remove();
-  
+
   const addedItems = [];
   leafItems.forEach(child => {
-    const absMatrix = child.data.globalMatrix || getGlobalMatrix(child);
+    const targetAncestor = isClipped ? oldClipGroup : group;
+    const relMatrix = getMatrixRelativeTo(child, targetAncestor);
     child.remove();
-    
+
     let newItem;
-    if (isClipped) {
+    if (isClipped && oldClipGroup) {
       newItem = window.clipItem(child);
-      newItem.matrix = new paper.Matrix(); // Identity
-      child.matrix = absMatrix;
+      newItem.matrix = oldClipGroup.matrix.clone(); // Heredar la matriz del clipGroup original
+      child.matrix = relMatrix; // Matriz local relativa para evitar desplazamientos
     } else {
       newItem = child;
-      newItem.matrix = absMatrix;
+      newItem.matrix = relMatrix;
       parent.addChild(newItem);
     }
+
     if (newItem.data) {
       delete newItem.data.globalMatrix;
     }
     addedItems.push(newItem);
   });
-  
   return addedItems;
 }
 
@@ -491,21 +490,21 @@ export function ungroupSelectedItem() {
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-    // A. SI ES UN GRUPO: Desagrupamos de forma recursiva todos los grupos anidados (Evita clics repetitivos en cascada)
+    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva
     if (activeTarget instanceof paper.Group) {
-      const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped);
+      const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
       newItems.push(...flatItems);
       item.remove();
     }
     // B. SI ES TEXTO: Dividimos en PointText independientes por letras
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
-      const textAbsMatrix = getGlobalMatrix(activeTarget);
+      const textAbsMatrix = getMatrixRelativeTo(activeTarget, isClipped ? item : null);
       const letters = splitPointTextIntoLetters(activeTarget);
       letters.forEach(letter => {
         let newItem;
         if (isClipped) {
           newItem = window.clipItem(letter);
-          newItem.matrix = new paper.Matrix(); // Identity
+          newItem.matrix = item.matrix.clone(); // Heredar la matriz del clipGroup original
           letter.matrix = textAbsMatrix.clone().chain(letter.matrix);
         } else {
           newItem = letter;
@@ -633,10 +632,10 @@ export function dissolveOuterWithHoles(item) {
 
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
-  if (!item || item.data?.locked || item.data?.mockup) return;
+  if (!item || item.data?.locked || item.data?.mockup) return [];
   const isClipped = !!item.data?.clipGroup;
   const target = isClipped ? item.children.find(c => !c.clipMask) : item;
-  if (!target || !(target instanceof paper.CompoundPath)) return;
+  if (!target || !(target instanceof paper.CompoundPath)) return [];
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
@@ -689,7 +688,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
   });
 
   const originalFillColor = target.fillColor;
-  const pathAbsMatrix = getGlobalMatrix(target);
+  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
 
   const outersToSelect = [];
   outers.forEach(outerPath => {
@@ -698,11 +697,11 @@ export function separateContours(itemToProcess, skipSelection = false) {
     let newOuterItem;
     if (isClipped) {
       newOuterItem = window.clipItem(outerClone);
-      newOuterItem.matrix = new paper.Matrix(); // Identity
-      outerClone.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
+      newOuterItem.matrix = item.matrix.clone(); // Heredar la matriz del clipGroup original
+      outerClone.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
     } else {
       newOuterItem = outerClone;
-      newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
+      newOuterItem.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
       parent.addChild(newOuterItem);
     }
     newOuterItem.data = {
@@ -727,11 +726,11 @@ export function separateContours(itemToProcess, skipSelection = false) {
       let newHoleItem;
       if (isClipped) {
         newHoleItem = window.clipItem(holeClone);
-        newHoleItem.matrix = new paper.Matrix(); // Identity
-        holeClone.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
+        newHoleItem.matrix = item.matrix.clone(); // Heredar la matriz del clipGroup original
+        holeClone.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
       } else {
         newHoleItem = holeClone;
-        newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
+        newHoleItem.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
         parent.addChild(newHoleItem);
       }
       newHoleItem.data = {
@@ -882,7 +881,6 @@ if (typeof window.paper !== 'undefined' && paper.view) {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
-          // CORRECCION 3: Agregar '$' para interpolar correctamente la expresion, e incluir el eje X en el Hash para detectar movimientos horizontales.
           const currentHash = `${hole.position.x.toFixed(1)},${hole.position.y.toFixed(1)},${hole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
             hole.data.lastHash = currentHash;
@@ -1316,7 +1314,7 @@ window.applyPositionCorrections = function() {
   // 2. Corregir Editor de Texto
   if (textEditor) {
     const editorWidth = textEditor.offsetWidth || 150;
-    const editorHeight = textEditor.offsetHeight || 40;
+    const editorHeight = textEditor.offsetTop || 40;
     const canvasEl = document.getElementById("editorCanvas");
     if (canvasEl) {
       const rect = canvasEl.getBoundingClientRect();
