@@ -28,6 +28,25 @@ window.infiniteCanvasMode = typeof window.infiniteCanvasMode !== 'undefined' ? w
 window.selectedItems = window.selectedItems || [];
 window.selectedItem = window.selectedItem || null;
 
+
+function getContentItem(item) {
+  if (!item) return null;
+  if (item.data && item.data.clipGroup) {
+    var content = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
+    });
+    if (content) return content;
+    var fallback = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
+    });
+    if (fallback) return fallback;
+    return item.children[1] || item.children[0] || item;
+  }
+  return item;
+}
+
+
+
 const DEBUG_MODE = true;
 
 if (typeof paper !== "undefined") {
@@ -329,7 +348,7 @@ function updateSelectionInfo() {
     return;
   }
   const displayItem = (window.selectedItem.data && window.selectedItem.data.clipGroup)
-    ? window.selectedItem.children.find(c => !c.clipMask)
+    ? getContentItem(window.selectedItem)
     : window.selectedItem;
   if (displayItem && ui.selectionInfo) {
     ui.selectionInfo.textContent = displayItem.data?.label || "Objeto";
