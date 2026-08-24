@@ -448,9 +448,6 @@ function getMatrixRelativeTo(item, targetAncestor) {
 
 function getGlobalMatrix(item) {
   if (!item) return new paper.Matrix();
-  if (item.data && item.data.globalMatrix) {
-    return item.data.globalMatrix.clone();
-  }
   return getMatrixRelativeTo(item, null);
 }
 
