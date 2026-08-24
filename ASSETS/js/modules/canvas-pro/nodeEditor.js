@@ -40,7 +40,8 @@ export function enterNodeEditMode(item) {
   const target = getContentItem(item);
   if (!target) return;
 
-  // Si es un PointText nativo, ofrecer convertir a curvas primero\n  if (target instanceof paper.PointText) {
+  // Si es un PointText nativo, ofrecer convertir a curvas primero
+  if (target instanceof paper.PointText) {
     if (confirm("Para poder editar los nodos de este texto, primero debes convertirlo a curvas (ruta vectorial). Deseas continuar?")) {
       const converted = convertTextToPath(target);
       if (converted) {
