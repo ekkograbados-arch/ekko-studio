@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v15 PRO)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v15 PRO - OPTIMIZED)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
 desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
@@ -10,9 +10,6 @@ SOPORTE COMPLETO DE DESAGRUPACION Y AGRUPACION SINCRONICA PARA DISENOS Y SVGS CO
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
-
-// Variable global de previsualizacion en window
-
 
 function getContentItem(item) {
   if (!item) return null;
@@ -69,7 +66,7 @@ function removeOverlapTab() {
   const allElements = document.querySelectorAll('button, div, span, a, p, li');
   allElements.forEach(el => {
     if (el.textContent) {
-      const normalizedText = el.textContent.normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toUpperCase();
+      const normalizedText = el.textContent.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase();
       if (normalizedText.includes('EVITAR SUPERPOSICION')) {
         el.remove();
       }
@@ -91,14 +88,14 @@ function injectFontFaces(fonts) {
   let cssRules = "";
   fonts.forEach(font => {
     cssRules += `
-      @font-face {
-        font-family: "${font.family}";
-        src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
-             url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
-             url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
-        font-display: swap;
-      }
-    `;
+@font-face {
+  font-family: "${font.family}";
+  src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
+       url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
+       url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
+  font-display: swap;
+}
+`;
   });
   styleEl.textContent += cssRules;
 }
@@ -178,6 +175,7 @@ function renderCustomFontItems(listContainer, fonts) {
     name.textContent = font.name;
     item.appendChild(preview);
     item.appendChild(name);
+    
     item.onmouseenter = () => {
       if (window.selectedItem) {
         applyFontFamily(window.selectedItem, font.family);
@@ -232,12 +230,12 @@ async function populateFontDropdowns() {
     customDropdown = document.createElement('div');
     customDropdown.className = 'custom-font-dropdown';
     customDropdown.innerHTML = `
-      <div class="selected-font-trigger">
-        <span>Seleccionar Fuente</span>
-        <i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
-      </div>
-      <div class="font-dropdown-list hidden"></div>
-    `;
+<div class="selected-font-trigger">
+  <span>Seleccionar Fuente</span>
+  <i class="fas fa-chevron-down" style="font-size:11px; margin-left:8px; color:#64748b;"></i>
+</div>
+<div class="font-dropdown-list hidden"></div>
+`;
     nativeSelect.parentNode.insertBefore(customDropdown, nativeSelect.nextSibling);
   }
   if (customDropdown) {
@@ -327,7 +325,6 @@ function getLeafItemsRecursive(item) {
 
 /**
  * Agrupa multiples elementos en un CompoundPath unico (si son vectores) o en un Grupo tradicional de Paper.js.
- * Si se incluye un controlador de hueco y su Outer, los refunde nativamente para corte laser.
  */
 export function groupSelectedItems() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
@@ -350,7 +347,7 @@ export function groupSelectedItems() {
   const index = parent.children.indexOf(selected[0]);
   const isClipped = selected.some(item => !!item.data?.clipGroup);
   const contents = [];
-
+  
   // Procesamiento de refundido interactivo de huecos antes de agrupar
   const outersInSelection = selected.filter(item => item.data?.isOuterWithHoles);
   outersInSelection.forEach(outerItem => {
@@ -372,7 +369,7 @@ export function groupSelectedItems() {
     window.ekkoOuters.delete(outerItem.id);
     contents.push(rebuiltPath);
   });
-
+  
   selected.forEach(item => {
     let content;
     if (item.data?.clipGroup) {
@@ -385,7 +382,6 @@ export function groupSelectedItems() {
     if (content) contents.push(content);
     item.remove();
   });
-
   const newGroup = new paper.Group(contents);
   newGroup.data = { locked: false, label: "Grupo" };
   let finalItem;
@@ -448,16 +444,13 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
   };
   findLeaves(group);
   group.remove();
-
   const addedItems = [];
   leafItems.forEach(child => {
     const targetAncestor = isClipped ? oldClipGroup : group;
     const relMatrix = getMatrixRelativeTo(child, targetAncestor);
     child.remove();
-
     let newItem;
     if (isClipped && oldClipGroup) {
-      // Super correccion: Cada hoja se inserta en un clipGroup INDEPENDIENTE herendando del padre
       newItem = window.clipItem(child);
       newItem.matrix = oldClipGroup.matrix.clone();
       child.matrix = relMatrix;
@@ -466,7 +459,6 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
       newItem.matrix = relMatrix;
       parent.addChild(newItem);
     }
-
     if (newItem.data) {
       delete newItem.data.globalMatrix;
     }
@@ -493,17 +485,17 @@ export function ungroupSelectedItem() {
     const parent = item.parent || paper.project.activeLayer;
     const index = parent.children.indexOf(item);
     const newItems = [];
-
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva disolviendo grupos anidados
+    
+    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva
     if (activeTarget instanceof paper.Group) {
       const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
       newItems.push(...flatItems);
       if (isClipped && item) {
-        item.clipped = false; // Desactivar el clipping de forma explicita para evitar fugas de recorte de Paper.js
+        item.clipped = false;
       }
       item.remove();
     }
-    // B. SI ES TEXTO: Dividimos en PointText independientes por letras
+    // B. SI ES TEXTO: Dividimos en PointText independientes
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
       const textAbsMatrix = getMatrixRelativeTo(activeTarget, isClipped ? item : null);
       const letters = splitPointTextIntoLetters(activeTarget);
@@ -511,7 +503,7 @@ export function ungroupSelectedItem() {
         let newItem;
         if (isClipped) {
           newItem = window.clipItem(letter);
-          newItem.matrix = item.matrix.clone(); // Heredar la matriz del clipGroup original
+          newItem.matrix = item.matrix.clone();
           letter.matrix = textAbsMatrix.clone().chain(letter.matrix);
         } else {
           newItem = letter;
@@ -521,7 +513,7 @@ export function ungroupSelectedItem() {
         newItems.push(newItem);
       });
       if (isClipped && item) {
-        item.clipped = false; // Evitar fuga de recorte de Paper.js
+        item.clipped = false;
       }
       item.remove();
     }
@@ -545,6 +537,7 @@ export function ungroupSelectedItem() {
     });
     finalNewItems.push(...newItems);
   });
+  
   window.deselectItem();
   setTimeout(() => {
     if (finalNewItems.length > 0) {
@@ -575,33 +568,29 @@ function splitPointTextIntoLetters(pointText) {
       fontSize: pointText.fontSize,
       fontWeight: pointText.fontWeight
     });
-    accumX += singleLetterText.bounds.width + 2; // Margen entre letras
+    accumX += singleLetterText.bounds.width + 2;
     letters.push(singleLetterText);
   }
   return letters;
 }
 
 /**
- * Separa los contornos y huecos de un trazado compuesto de forma independiente (Nivel 2 - Opcion B).
- * Los huecos se vuelven 100% transparentes e invisibles, pero interactivos y arrastrables.
+ * Separa los contornos y huecos de un trazado compuesto de forma independiente.
  */
 export function dissolveOuterWithHoles(item) {
   if (!item || !item.data?.isOuterWithHoles) return [];
   const parent = item.parent || paper.project.activeLayer;
   const newItems = [];
   const isClipped = !!item.data?.clipGroup;
-  
   if (typeof window.ekkoOuters !== 'undefined') {
     window.ekkoOuters.delete(item.id);
   }
-  
   if (item.data.originalPath) {
     const targetOuter = isClipped ? getContentItem(item) : item;
     const restoredOuter = item.data.originalPath.clone({ insert: false });
     restoredOuter.fillColor = targetOuter.fillColor;
     restoredOuter.strokeColor = targetOuter.strokeColor;
     restoredOuter.strokeWidth = targetOuter.strokeWidth;
-    
     let newOuterItem;
     if (isClipped) {
       newOuterItem = window.clipItem(restoredOuter);
@@ -612,14 +601,12 @@ export function dissolveOuterWithHoles(item) {
       newOuterItem.matrix = item.matrix.clone();
       parent.addChild(newOuterItem);
     }
-    
     newOuterItem.data = { ...(item.data || {}) };
     delete newOuterItem.data.isOuterWithHoles;
     delete newOuterItem.data.originalPath;
     delete newOuterItem.data.holeIds;
     newItems.push(newOuterItem);
   }
-  
   const holeIds = item.data.holeIds || [];
   for (let j = 0; j < holeIds.length; j++) {
     const id = holeIds[j];
@@ -627,7 +614,6 @@ export function dissolveOuterWithHoles(item) {
     if (hole) {
       hole.remove();
       const targetHole = hole.data.clipGroup ? getContentItem(hole) : hole;
-      
       let newHoleItem;
       if (isClipped) {
         newHoleItem = window.clipItem(targetHole.clone({ insert: false }));
@@ -636,7 +622,6 @@ export function dissolveOuterWithHoles(item) {
         newHoleItem = hole;
         parent.addChild(newHoleItem);
       }
-      
       if (newHoleItem.data) {
         delete newHoleItem.data.isHoleController;
         delete newHoleItem.data.outerItemId;
@@ -646,7 +631,6 @@ export function dissolveOuterWithHoles(item) {
       newItems.push(newHoleItem);
     }
   }
-  
   if (isClipped && item) {
     item.clipped = false;
   }
@@ -669,15 +653,13 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const subPaths = [...target.children];
   const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
   const pathAbsMatrix = getGlobalMatrix(target);
-
   const originalFillColor = target.fillColor;
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
-
   const outers = [];
   const holesMap = new Map();
-
   const pathNesting = [];
+  
   subPaths.forEach(p => {
     const containers = [];
     subPaths.forEach(other => {
@@ -691,7 +673,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
     });
     pathNesting.push({ path: p, containers: containers });
   });
-
+  
   pathNesting.forEach(entry => {
     const p = entry.path;
     const containers = entry.containers;
@@ -714,26 +696,24 @@ export function separateContours(itemToProcess, skipSelection = false) {
       }
     }
   });
-
+  
   const outersToSelect = [];
   outers.forEach(outerPath => {
     const outerClone = outerPath.clone({ insert: false });
     outerClone.fillColor = originalFillColor || new paper.Color(255, 255, 255, 0.01);
     outerClone.strokeColor = originalStrokeColor || '#000000';
     outerClone.strokeWidth = originalStrokeWidth || 1;
-
     let newOuterItem;
     if (isClipped) {
-      // Super correccion: Cada subPath separado de un CompoundPath enmascarado se inserta como clipGroup individual!
       newOuterItem = window.clipItem(outerClone);
-      newOuterItem.matrix = item.matrix.clone(); // Heredar la posicion del clipGroup original
+      newOuterItem.matrix = item.matrix.clone();
       outerClone.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
     } else {
       newOuterItem = outerClone;
       newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
       parent.addChild(newOuterItem);
     }
-
+    
     newOuterItem.data = {
       ...(newOuterItem.data || {}),
       isOuterWithHoles: true,
@@ -747,24 +727,22 @@ export function separateContours(itemToProcess, skipSelection = false) {
     };
     newItems.push(newOuterItem);
     outersToSelect.push(newOuterItem);
-
+    
     const associatedHoles = holesMap.get(outerPath) || [];
     associatedHoles.forEach(holePath => {
       const holeClone = holePath.clone({ insert: false });
       holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
       holeClone.strokeColor = new paper.Color(0, 0, 0, 0);
-
       let newHoleItem;
       if (isClipped) {
         newHoleItem = window.clipItem(holeClone);
-        newHoleItem.matrix = item.matrix.clone(); // Heredar la posicion del clipGroup original
+        newHoleItem.matrix = item.matrix.clone();
         holeClone.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
       } else {
         newHoleItem = holeClone;
         newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
         parent.addChild(newHoleItem);
       }
-
       newHoleItem.data = {
         ...(newHoleItem.data || {}),
         isHoleController: true,
@@ -775,7 +753,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
       newOuterItem.data.holeIds.push(newHoleItem.id);
       newItems.push(newHoleItem);
     });
-
+    
     window.ekkoOuters.set(newOuterItem.id, newOuterItem);
     const updatedOuter = updateOuterPathGeometry(newOuterItem);
     if (updatedOuter && updatedOuter !== newOuterItem) {
@@ -789,22 +767,19 @@ export function separateContours(itemToProcess, skipSelection = false) {
       }
     }
   });
-
+  
   if (isClipped && item) {
-    item.clipped = false; // Detener mascara para evitar fugas de recortes
+    item.clipped = false;
   }
   item.remove();
-
   if (skipSelection) {
     return newItems;
   }
-
   if (!isClipped) {
     newItems.reverse().forEach(newItem => {
       parent.insertChild(index, newItem);
     });
   }
-
   window.deselectItem();
   setTimeout(() => {
     if (outersToSelect.length > 0) {
@@ -824,14 +799,13 @@ export function updateOuterPathGeometry(outerItem) {
   const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
   if (!targetOuter) return outerItem;
   let resultOuter = outerItem;
-
   const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
   const outerGlobalMatrix = getGlobalMatrix(targetOuter);
   solidGlobal.matrix = outerGlobalMatrix;
   solidGlobal.applyMatrix = true; // Bakes global coordinates
+  
   const holeIds = outerItem.data.holeIds || [];
   let combined = solidGlobal;
-
   holeIds.forEach(id => {
     const hole = paper.project.getItem({ id });
     if (hole && hole.parent) {
@@ -855,7 +829,7 @@ export function updateOuterPathGeometry(outerItem) {
       }
     }
   });
-
+  
   const localCombined = combined.clone({ insert: false });
   if (!outerGlobalMatrix.isIdentity()) {
     try {
@@ -865,7 +839,6 @@ export function updateOuterPathGeometry(outerItem) {
       console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
     }
   }
-
   const parent = targetOuter.parent;
   if (parent && localCombined) {
     const idx = parent.children.indexOf(targetOuter);
@@ -878,7 +851,7 @@ export function updateOuterPathGeometry(outerItem) {
       newPath.data = { ...(targetOuter.data || {}) };
       parent.insertChild(idx, newPath);
       resultOuter = newPath;
-
+      
       if (targetOuter === outerItem) {
         if (window.selectedItem === outerItem) {
           window.selectedItem = newPath;
@@ -889,11 +862,11 @@ export function updateOuterPathGeometry(outerItem) {
         }
         window.ekkoOuters.delete(outerItem.id);
         window.ekkoOuters.set(newPath.id, newPath);
-        holeIds.forEach(id => {
-          const hole = paper.project.getItem({ id });
-          if (hole && hole.data) hole.data.outerItemId = newPath.id;
-        });
       }
+      holeIds.forEach(id => {
+        const hole = paper.project.getItem({ id });
+        if (hole && hole.data) hole.data.outerItemId = newPath.id;
+      });
       targetOuter.remove();
     }
   }
@@ -906,15 +879,23 @@ export function updateOuterPathGeometry(outerItem) {
 if (typeof window.paper !== 'undefined' && paper.view) {
   paper.view.on('frame', () => {
     if (!paper.project || !paper.project.activeLayer) return;
-    window.ekkoOuters.forEach(outerItem => {
+    window.ekkoOuters.forEach((outerItem, key) => {
+      // MEMORY CLEANUP: Si el outer ya no forma parte del lienzo o capa activa, lo eliminamos del Map global
+      if (!outerItem || !outerItem.project || !outerItem.parent) {
+        window.ekkoOuters.delete(key);
+        return;
+      }
       let needsUpdate = false;
       const validHoleIds = [];
       const holeIds = outerItem.data?.holeIds || [];
+      
       holeIds.forEach(id => {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
           const targetHole = hole.data?.clipGroup ? getContentItem(hole) : hole;
+          
+          // BUG FIX: Sincronización Y-hash y coordenadas X + Y para reacción a movimientos horizontales
           const currentHash = `${targetHole.position.x.toFixed(1)},${targetHole.position.y.toFixed(1)},${targetHole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
             hole.data.lastHash = currentHash;
@@ -924,6 +905,7 @@ if (typeof window.paper !== 'undefined' && paper.view) {
           needsUpdate = true;
         }
       });
+      
       if (needsUpdate) {
         outerItem.data.holeIds = validHoleIds;
         updateOuterPathGeometry(outerItem);
@@ -960,9 +942,7 @@ if (typeof window !== 'undefined') {
       : [primaryItem];
     let bounds = null;
     selected.forEach(function(it) {
-      const displayItem = (it.data && it.data.clipGroup)
-        ? getContentItem(it)
-        : it;
+      const displayItem = (it.data && it.data.clipGroup) ? getContentItem(it) : it;
       if (!displayItem) return;
       if (!bounds) {
         bounds = displayItem.bounds.clone();
@@ -973,12 +953,9 @@ if (typeof window !== 'undefined') {
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
     window.selectionBoxGroup = new paper.Group();
     window.selectionBoxGroup.data = { isSelectionBox: true };
-
     if (selected.length > 1) {
       selected.forEach(function(it) {
-        const displayItem = (it.data && it.data.clipGroup)
-          ? getContentItem(it)
-          : it;
+        const displayItem = (it.data && it.data.clipGroup) ? getContentItem(it) : it;
         if (displayItem && displayItem.bounds) {
           const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
           singleBorder.strokeColor = '#007bff';
@@ -988,7 +965,6 @@ if (typeof window !== 'undefined') {
         }
       });
     }
-
     const isRotSnapped = window.isRotationSnapped && window.rotationActive;
     const mainColor = isRotSnapped ? '#28a745' : '#007bff';
     const border = new paper.Path.Rectangle(bounds);
@@ -1018,14 +994,12 @@ if (typeof window !== 'undefined') {
       rect.data = { isHandle: true, handleType: info.type };
       window.selectionBoxGroup.addChild(rect);
     });
-
     const rotHandleDistance = 25 / paper.view.zoom;
     const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
     const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
     connector.strokeColor = mainColor;
     connector.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(connector);
-
     const rotHandleCircle = new paper.Path.Circle({
       center: rotHandleCenter,
       radius: 7.5 / paper.view.zoom,
@@ -1035,7 +1009,6 @@ if (typeof window !== 'undefined') {
     });
     rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
     window.selectionBoxGroup.addChild(rotHandleCircle);
-
     const iconRadius = 3.5 / paper.view.zoom;
     const arrowIcon = new paper.Path.Arc(
       rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
@@ -1045,7 +1018,6 @@ if (typeof window !== 'undefined') {
     arrowIcon.strokeColor = mainColor;
     arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(arrowIcon);
-
     const arrowTip = new paper.Path();
     arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
     arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
@@ -1054,7 +1026,6 @@ if (typeof window !== 'undefined') {
     arrowTip.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(arrowTip);
     window.selectionBoxGroup.bringToFront();
-
     if (typeof window.applyPositionCorrections === "function") {
       window.applyPositionCorrections();
     }
@@ -1065,7 +1036,6 @@ if (typeof window !== 'undefined') {
       window.syncContextualRotationInput(primaryItem);
     }
   };
-
   try {
     Object.defineProperty(window, 'updateSelectionBox', {
       get: function() { return customUpdateSelectionBox; },
@@ -1091,7 +1061,6 @@ export function initContextualMenu() {
     const el = document.getElementById(id);
     if (el) el.onclick = fn;
   };
-
   setClick('btnCtxDelete', () => {
     if (window.selectedItem) {
       deleteImage(window.selectedItem);
@@ -1113,7 +1082,6 @@ export function initContextualMenu() {
       sendImageBackward(window.selectedItem);
     }
   });
-
   setClick('btnCtxBold', () => {
     if (window.selectedItem) toggleBold(window.selectedItem);
   });
@@ -1126,7 +1094,6 @@ export function initContextualMenu() {
   setClick('btnCtxWeld', () => {
     if (window.selectedItem) weldText(window.selectedItem);
   });
-
   const curveSlider = document.getElementById('ctxTextCurve');
   if (curveSlider) {
     curveSlider.oninput = () => {
@@ -1136,7 +1103,6 @@ export function initContextualMenu() {
       }
     };
   }
-
   const hspaceSlider = document.getElementById('ctxTextHSpace');
   if (hspaceSlider) {
     hspaceSlider.oninput = () => {
@@ -1146,7 +1112,6 @@ export function initContextualMenu() {
       }
     };
   }
-
   setClick('btnCtxGroup', () => groupSelectedItems());
   setClick('btnCtxAgrupar', () => groupSelectedItems());
   setClick('btnCtxUngroup', () => ungroupSelectedItem());
@@ -1154,7 +1119,6 @@ export function initContextualMenu() {
   setClick('btnCtxEditNodes', () => {
     if (window.selectedItem) enterNodeEditMode(window.selectedItem);
   });
-
   if (!window.groupKeyboardEventsBound) {
     window.groupKeyboardEventsBound = true;
     document.addEventListener('keydown', (e) => {
@@ -1172,7 +1136,6 @@ export function initContextualMenu() {
       }
     });
   }
-
   window.groupSelectedItems = groupSelectedItems;
   window.ungroupSelectedItem = ungroupSelectedItem;
   window.separateContours = separateContours;
@@ -1190,19 +1153,15 @@ export function updateContextualMenu(item) {
     return;
   }
   toolbar.classList.add('active');
-
   const hideSubgroup = (id) => {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   };
-
   hideSubgroup('ctxTextControls');
   hideSubgroup('ctxImageControls');
   hideSubgroup('ctxVectorControls');
-
   const btnTrace = document.getElementById('btnCtxTrace');
   if (btnTrace) btnTrace.style.display = 'none';
-
   const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
   if (selectedCount > 1) {
     const vectorControls = document.getElementById('ctxVectorControls');
@@ -1272,7 +1231,6 @@ export function updateContextualMenu(item) {
       }
     }
   }
-
   if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
     toolbar.style.left = window.customToolbarLeft + 'px';
     toolbar.style.top = window.customToolbarTop + 'px';
@@ -1317,7 +1275,6 @@ window.applyPositionCorrections = function() {
   const bounds = displayItem.bounds;
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
-
   if (toolbar && toolbar.classList.contains("active")) {
     const toolbarHeight = toolbar.offsetHeight || 45;
     const toolbarWidth = toolbar.offsetWidth || 350;
@@ -1332,7 +1289,6 @@ window.applyPositionCorrections = function() {
     }
     toolbar.style.zIndex = "2147483646";
   }
-
   if (textEditor) {
     const editorWidth = textEditor.offsetWidth || 150;
     const editorHeight = textEditor.offsetHeight || 40;
