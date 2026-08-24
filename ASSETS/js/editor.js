@@ -819,7 +819,7 @@ setTimeout(() => {
   try {
     if (typeof loadDynamicProducts === "function") {
       loadDynamicProducts().then(() => {
-        print("Actualizando interfaz con el catalogo dinamico...");
+        console.log("Actualizando interfaz con el catalogo dinamico...");
         renderCategories();
       }).catch((err) => {
         console.error("Fallo critico al resolver catalogo dinamico:", err);
