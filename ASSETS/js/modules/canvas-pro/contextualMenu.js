@@ -430,6 +430,47 @@ function getActiveGroupTarget(group) {
   return current;
 }
 
+function flattenGroupRecursive(group, parent, index, isClipped) {
+  const leafItems = [];
+  
+  const findLeaves = (node) => {
+    if (node instanceof paper.Group && !node.data?.clipGroup) {
+      const children = [...node.children];
+      children.forEach(child => findLeaves(child));
+    } else {
+      node.data = node.data || {};
+      node.data.globalMatrix = getGlobalMatrix(node);
+      leafItems.push(node);
+    }
+  };
+  
+  findLeaves(group);
+  group.remove();
+  
+  const addedItems = [];
+  leafItems.forEach(child => {
+    const absMatrix = child.data.globalMatrix || getGlobalMatrix(child);
+    child.remove();
+    
+    let newItem;
+    if (isClipped) {
+      newItem = window.clipItem(child);
+      newItem.matrix = new paper.Matrix(); // Identity
+      child.matrix = absMatrix;
+    } else {
+      newItem = child;
+      newItem.matrix = absMatrix;
+      parent.addChild(newItem);
+    }
+    if (newItem.data) {
+      delete newItem.data.globalMatrix;
+    }
+    addedItems.push(newItem);
+  });
+  
+  return addedItems;
+}
+
 export function ungroupSelectedItem() {
   // Soporte tanto para multi-seleccion como seleccion simple de grupos
   const selected = (window.selectedItems && window.selectedItems.length > 0)
@@ -450,25 +491,10 @@ export function ungroupSelectedItem() {
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica (UN nivel a la vez, de mas a menos)
+    // A. SI ES UN GRUPO: Desagrupamos de forma recursiva todos los grupos anidados (Evita clics repetitivos en cascada)
     if (activeTarget instanceof paper.Group) {
-      const children = [...activeTarget.children];
-      children.forEach(child => {
-        // CORRECCION 1: Acceder de forma segura a child.data.globalMatrix o usar child.matrix como fallback
-        const absMatrix = getGlobalMatrix(child);
-        child.remove();
-        let newItem;
-        if (isClipped) {
-          newItem = window.clipItem(child);
-          newItem.matrix = new paper.Matrix(); // Identity
-          child.matrix = absMatrix;
-        } else {
-          newItem = child;
-          newItem.matrix = absMatrix;
-          parent.addChild(newItem);
-        }
-        newItems.push(newItem);
-      });
+      const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped);
+      newItems.push(...flatItems);
       item.remove();
     }
     // B. SI ES TEXTO: Dividimos en PointText independientes por letras
@@ -734,6 +760,9 @@ export function separateContours(itemToProcess, skipSelection = false) {
   });
 
   item.remove();
+  if (skipSelection) {
+    return newItems;
+  }
   newItems.reverse().forEach(newItem => {
     parent.insertChild(index, newItem);
   });
@@ -748,6 +777,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
     }
     paper.view.update();
   }, 50);
+  return newItems;
 }
 
 export function updateOuterPathGeometry(outerItem) {
