@@ -1,10 +1,6 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (EDICIÓN DEFINITIVA - CORREGIDA)
+Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (FINAL CORREGIDO - PRO GRABADO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
-Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
-para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
-Soporta multi-seleccion de puntos por Shift+Clic y caja de arrastre (marquee),
-borrado de nodos y acoplamiento reactivo con calados.
 ========================================================================= */
 
 function getContentItem(item) {
@@ -33,7 +29,6 @@ let nodeEditTool = null;
 let previousTool = null;
 let disabledClipGroups = [];
 
-// Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
   const target = getContentItem(item);
@@ -67,43 +62,11 @@ export function enterNodeEditMode(item) {
     activeNodeItem = item;
   }
 
+  // ATENCION - GARANTÍA DE GRABADO SEGURO:
+  // NUNCA desactivamos ni alteramos las mascaras de recorte (clipping mask) de los productos 
+  // para que los vectores editados sigan siendo recortados por el area de grabado y los huecos
+  // (por ejemplo, la huella en la chapita huesito) en tiempo real mientras se arrastran los nodos.
   disabledClipGroups = [];
-  function disableClipGroup(g) {
-    if (disabledClipGroups.includes(g)) return;
-    g.clipped = false;
-    disabledClipGroups.push(g);
-    if (g.data?.clipGroup) {
-      const mask = g.children.find(c => c.clipMask);
-      if (mask) {
-        mask.clipMask = false;
-        mask.strokeColor = '#009dec';
-        mask.strokeWidth = 1 / paper.view.zoom;
-        mask.dashArray = [3, 3];
-        mask.data = mask.data || {};
-        mask.data.wasClipMask = true;
-      }
-    }
-  }
-
-  let currentClip = target;
-  while (currentClip && currentClip !== paper.project.activeLayer) {
-    if (currentClip instanceof paper.Group && currentClip.clipped) {
-      disableClipGroup(currentClip);
-    }
-    currentClip = currentClip.parent;
-  }
-
-  const disableDescendantClips = (node) => {
-    if (node instanceof paper.Group && node.clipped) {
-      disableClipGroup(node);
-    }
-    if (node.children) {
-      for (let i = 0; i < node.children.length; i++) {
-        disableDescendantClips(node.children[i]);
-      }
-    }
-  };
-  disableDescendantClips(target);
 
   window.nodeEditMode = true;
   window.nodeEditTarget = activeNodeItem;
@@ -261,7 +224,6 @@ export function enterNodeEditMode(item) {
   paper.view.update();
 }
 
-// Salir del modo de edicion de nodos
 export function exitNodeEditMode() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
@@ -274,21 +236,6 @@ export function exitNodeEditMode() {
 
   document.removeEventListener('keydown', handleNodeKeydown);
   const itemToRestore = activeNodeItem;
-
-  disabledClipGroups.forEach(g => {
-    if (g && g.parent) {
-      g.clipped = true;
-      if (g.data?.clipGroup) {
-        const mask = g.children.find(c => c.data?.wasClipMask || c.clipMask);
-        if (mask) {
-          mask.clipMask = true;
-          mask.strokeColor = null;
-          mask.dashArray = null;
-          if (mask.data) delete mask.data.wasClipMask;
-        }
-      }
-    }
-  });
 
   disabledClipGroups = [];
   activeNodeItem = null;
