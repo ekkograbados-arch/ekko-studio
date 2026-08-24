@@ -8,8 +8,7 @@ CORRECCION DE ERRORES CRITICOS DE COMPILACION (100% ASCII CLEAN):
 1. Sanitizado completo de tildes y caracteres especiales en comentarios para evitar errores de codificacion (UTF-8 / Latin-1 mismatches) en navegadores estrictos.
 2. Zoom inteligente relativo al cursor (no al centro del lienzo) para permitir micro-edicion.
 3. Escalado inverso de nodos reactivo al hacer zoom (se comunica con nodeEditor).
-4. Atajos de teclado universales (Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+Y, Delete) que diferencian
-   si estas editando nodos o editando objetos globales.
+4. Atajos de teclado universales (Ctrl+C, Ctrl+V, Ctrl+Z, Ctrl+Y, Delete) que diferencian si estas editando nodos o editando objetos globales.
 ========================================================================= */
 
 // --- 1. LOGICA DE ZOOM AL CURSOR DEL RATON (ESTILO LIGHTBURN) ---
@@ -18,7 +17,6 @@ export function initZoomControls(canvasEl) {
 
   canvasEl.addEventListener('wheel', (e) => {
     e.preventDefault();
-    
     const factor = e.deltaY < 0 ? 1.1 : 0.9;
     
     // Obtener la posicion del cursor en coordenadas del proyecto Paper.js
@@ -54,7 +52,6 @@ export function initZoomControls(canvasEl) {
     paper.view.update();
   }, { passive: false });
 }
-
 
 // --- 2. SISTEMA DE ATAJOS DE TECLADO UNIVERSALES ---
 export function initGlobalKeyboardShortcuts() {
