@@ -36,6 +36,24 @@ function protectGlobal(name, fn) {
   }
 }
 
+
+
+function getContentItem(item) {
+  if (!item) return null;
+  if (item.data && item.data.clipGroup) {
+    var content = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
+    });
+    if (content) return content;
+    var fallback = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
+    });
+    if (fallback) return fallback;
+    return item.children[1] || item.children[0] || item;
+  }
+  return item;
+}
+
 window.selectedItem = null;
 window.selectedItems = [];
 window.dragOffset = null;
@@ -130,9 +148,7 @@ const _updateSelectionBox = function(item) {
     : [primaryItem];
   let bounds = null;
   selected.forEach(function(it) {
-    const displayItem = (it.data && it.data.clipGroup)
-      ? it.children.find(function(c) { return !c.clipMask; })
-      : it;
+    const displayItem = getContentItem(it);
     if (!displayItem) return;
     if (!bounds) {
       bounds = displayItem.bounds.clone();
@@ -146,9 +162,7 @@ const _updateSelectionBox = function(item) {
 
   if (selected.length > 1) {
     selected.forEach(function(it) {
-      const displayItem = (it.data && it.data.clipGroup)
-        ? it.children.find(function(c) { return !c.clipMask; })
-        : it;
+      const displayItem = getContentItem(it);
       if (displayItem && displayItem.bounds) {
         const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
         singleBorder.strokeColor = '#007bff';
@@ -363,9 +377,7 @@ const _initSelectionTool = function() {
     if (currentTime - lastClickTime < 300) {
       lastClickTime = 0;
       if (window.selectedItem) {
-        const target = window.selectedItem.data?.clipGroup
-          ? window.selectedItem.children.find(function(c) { return !c.clipMask; })
-          : window.selectedItem;
+        const target = getContentItem(window.selectedItem);
         if (target instanceof paper.PointText) {
           if (typeof window.startTextEditing === 'function') {
             window.startTextEditing(target);
@@ -399,9 +411,7 @@ const _initSelectionTool = function() {
         window.rotationTarget = window.selectedItem;
         let unifiedBounds = null;
         window.selectedItems.forEach(function(it) {
-          const displayItem = (it.data && it.data.clipGroup)
-            ? it.children.find(function(c) { return !c.clipMask; })
-            : it;
+          const displayItem = getContentItem(it);
           if (!displayItem) return;
           if (!unifiedBounds) {
             unifiedBounds = displayItem.bounds.clone();
@@ -415,9 +425,7 @@ const _initSelectionTool = function() {
         window.rotationInitialAngle = 0;
         window.rotationTargets = [];
         window.selectedItems.forEach(function(it) {
-          const displayItem = (it.data && it.data.clipGroup)
-            ? it.children.find(function(c) { return !c.clipMask; })
-            : it;
+          const displayItem = getContentItem(it);
           if (displayItem) {
             window.rotationTargets.push({
               item: it,
@@ -435,9 +443,7 @@ const _initSelectionTool = function() {
       window.resizeTargets = [...(window.selectedItems || [])];
       let unifiedBounds = null;
       window.resizeTargets.forEach(function(it) {
-        const displayItem = (it.data && it.data.clipGroup)
-          ? it.children.find(function(c) { return !c.clipMask; })
-          : it;
+        const displayItem = getContentItem(it);
         if (!displayItem) return;
         if (!unifiedBounds) {
           unifiedBounds = displayItem.bounds.clone();
@@ -475,9 +481,7 @@ const _initSelectionTool = function() {
     if (generalHit) {
       const selectableItem = window.getSelectableItem(generalHit.item);
       if (selectableItem) {
-        const displayItem = (selectableItem.data && selectableItem.data.clipGroup)
-          ? selectableItem.children.find(function(c) { return !c.clipMask; })
-          : selectableItem;
+        const displayItem = getContentItem(selectableItem);
         if (!displayItem || !displayItem.bounds || !displayItem.bounds.contains(event.point)) {
           generalHit = null;
         }
@@ -518,9 +522,7 @@ const _initSelectionTool = function() {
         window.dragging = true;
         window.dragTargets = [];
         window.selectedItems.forEach(function(item) {
-          const dragTarget = (item.data && item.data.clipGroup)
-            ? item.children.find(function(c) { return !c.clipMask; })
-            : item;
+          const dragTarget = getContentItem(item);
           if (dragTarget) {
             window.dragTargets.push({
               item: item,
@@ -544,9 +546,7 @@ const _initSelectionTool = function() {
         window.dragging = true;
         window.dragTargets = [];
         window.selectedItems.forEach(function(item) {
-          const dragTarget = (item.data && item.data.clipGroup)
-            ? item.children.find(function(c) { return !c.clipMask; })
-            : item;
+          const dragTarget = getContentItem(item);
           if (dragTarget) {
             window.dragTargets.push({
               item: item,
@@ -633,7 +633,7 @@ const _initSelectionTool = function() {
 
       const rotationNum = document.getElementById('ctxRotationNum');
       if (rotationNum && window.selectedItem) {
-        const displayItem = window.selectedItem.data?.clipGroup ? window.selectedItem.children.find(c => !c.clipMask) : window.selectedItem;
+        const displayItem = getContentItem(window.selectedItem);
         if (displayItem) {
           rotationNum.value = Math.round(displayItem.data?.rotation || 0) + '';
         }
@@ -662,7 +662,7 @@ const _initSelectionTool = function() {
       }
       window.resizeTargets.forEach(function(it) {
         if (it.data && it.data.locked) return;
-        const displayItem = (it.data && it.data.clipGroup) ? it.children.find(c => !c.clipMask) : it;
+        const displayItem = getContentItem(it);
         if (displayItem) {
           const relScaleX = factorX / window.resizeLastScaleX;
           const relScaleY = factorY / window.resizeLastScaleY;
@@ -716,9 +716,7 @@ const _initSelectionTool = function() {
         if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) {
           return;
         }
-        const displayItem = (item.data && item.data.clipGroup)
-          ? item.children.find(function(c) { return !c.clipMask; })
-          : item;
+        const displayItem = getContentItem(item);
         if (displayItem && displayItem.bounds && marqueeBounds.intersects(displayItem.bounds)) {
           itemsToSelect.push(item);
         }
@@ -805,9 +803,7 @@ const _initSelectionTool = function() {
       if (generalHit) {
         const hitItem = window.getSelectableItem(generalHit.item);
         if (hitItem) {
-          const displayItem = (hitItem.data && hitItem.data.clipGroup)
-            ? hitItem.children.find(function(c) { return !c.clipMask; })
-            : hitItem;
+          const displayItem = getContentItem(hitItem);
           if (displayItem && displayItem.bounds && displayItem.bounds.contains(event.point)) {
             if (window.selectedItems && window.selectedItems.includes(hitItem)) {
               canvas.style.cursor = 'move';
