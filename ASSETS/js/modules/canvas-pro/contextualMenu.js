@@ -1,15 +1,10 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v14 PRO - MATRIX RELATIVE FIX)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v15 PRO)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
 desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
 en tiempo real, e inyeccion dinamica de familias de fuentes.
 SOPORTE COMPLETO DE DESAGRUPACION Y AGRUPACION SINCRONICA PARA DISENOS Y SVGS COMPLEX (MATE, AFA, MINNIE).
-
-CORRECCION DE ERRORES CRITICOS:
-1. Resolucion de duplicado y desplazamiento lateral al desagrupar mediante herencia de matriz y alineacion matricial relativa.
-2. Evita la auto-seleccion accidental de controladores de huecos transparentes al separar contornos vectoriales.
-3. Desagrupado recursivo profundo que disuelve carpetas de grupos anidados en un solo clic.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -343,11 +338,9 @@ export function groupSelectedItems() {
   outersInSelection.forEach(outerItem => {
     const originalPath = outerItem.data.originalPath;
     const holeIds = outerItem.data.holeIds || [];
-    // Obtener controladores de hueco asociados que tambien estan seleccionados
     const associatedHoles = holeIds
       .map(id => paper.project.getItem({ id }))
       .filter(h => h && selected.includes(h) && h.parent);
-    // Destruir los controladores y eliminarlos de la seleccion
     associatedHoles.forEach(h => {
       const idx = selected.indexOf(h);
       if (idx > -1) selected.splice(idx, 1);
@@ -355,7 +348,6 @@ export function groupSelectedItems() {
     });
     const idxOuter = selected.indexOf(outerItem);
     if (idxOuter > -1) selected.splice(idxOuter, 1);
-    // Reconstruir como CompoundPath nativo refundido para LightBurn
     const targetOuter = outerItem.data.clipGroup ? outerItem.children.find(c => !c.clipMask) : outerItem;
     const rebuiltPath = targetOuter.clone({ insert: false });
     outerItem.remove();
@@ -363,7 +355,6 @@ export function groupSelectedItems() {
     contents.push(rebuiltPath);
   });
 
-  // Extraer los contenidos del resto de elementos seleccionados
   selected.forEach(item => {
     let content;
     if (item.data?.clipGroup) {
@@ -377,7 +368,6 @@ export function groupSelectedItems() {
     item.remove();
   });
 
-  // Crear el nuevo grupo limpio
   const newGroup = new paper.Group(contents);
   newGroup.data = { locked: false, label: "Grupo" };
   let finalItem;
@@ -395,10 +385,6 @@ export function groupSelectedItems() {
   paper.view.update();
 }
 
-/**
- * Desagrupa el elemento seleccionado de forma jerarquica, limpia y progresiva (de mas a menos),
- * separando caracteres de texto, contornos o grupos de forma ordenada.
- */
 function getMatrixRelativeTo(item, targetAncestor) {
   let matrix = new paper.Matrix();
   let current = item;
@@ -453,7 +439,7 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 
     let newItem;
     if (isClipped && oldClipGroup) {
-      // Re-enmascaramos cada pieza individual en su propio clipGroup para que sea seleccionable y arrastrable por separado
+      // Súper corrección: Insertamos cada hoja en un clipGroup individual para ser independiente!
       newItem = window.clipItem(child);
       newItem.matrix = oldClipGroup.matrix.clone(); // Heredar posicion/rotacion del clipGroup original
       child.matrix = relMatrix; // Colocar posicion relativa interna
@@ -472,7 +458,6 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 }
 
 export function ungroupSelectedItem() {
-  // Soporte tanto para multi-seleccion como seleccion simple de grupos
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
@@ -491,7 +476,7 @@ export function ungroupSelectedItem() {
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-        // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva disolviendo grupos anidados
+    // A. SI ES UN GRUPO: Desagrupamos de forma jerarquica y recursiva disolviendo grupos anidados
     if (activeTarget instanceof paper.Group) {
       const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
       newItems.push(...flatItems);
@@ -530,20 +515,18 @@ export function ungroupSelectedItem() {
           newItems.push(...dissolved);
         }
       }
-      // Nota: Si es un CompoundPath normal (como las letras de AFA o la cara de Minnie), NO hacemos nada.
+      // Nota: Si es un CompoundPath normal, NO hacemos nada.
       // Quedan perfectamente resguardados con sus transparencias y rellenos intactos.
     }
-    // Reinsertar de forma atomica en el parent original respetando la capa y el indice exacto
+    
     newItems.reverse().forEach(newItem => {
       parent.insertChild(index, newItem);
     });
     finalNewItems.push(...newItems);
   });
   window.deselectItem();
-  // Retardo controlado de 50ms para evitar carreras de renderizado en el menu flotante
   setTimeout(() => {
     if (finalNewItems.length > 0) {
-      // Filtrar y omitir controladores de hueco transparentes en la auto-seleccion global de desagrupar
       const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
       const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
       window.selectedItems = [...selectList];
@@ -560,7 +543,6 @@ function splitPointTextIntoLetters(pointText) {
   const letters = [];
   const text = pointText.content;
   const startPoint = pointText.point;
-  // Calcular anchos aproximados de caracteres para posicionar las nuevas letras
   let accumX = 0;
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
@@ -586,50 +568,65 @@ export function dissolveOuterWithHoles(item) {
   if (!item || !item.data?.isOuterWithHoles) return [];
   const parent = item.parent || paper.project.activeLayer;
   const newItems = [];
-  // 1. Desvincular de la reactividad global
+  const isClipped = !!item.data?.clipGroup;
+  
   if (typeof window.ekkoOuters !== 'undefined') {
     window.ekkoOuters.delete(item.id);
   }
-  // 2. Crear clon de la silueta base solida (sin calar)
+  
   if (item.data.originalPath) {
+    const targetOuter = isClipped ? item.children.find(c => !c.clipMask) : item;
     const restoredOuter = item.data.originalPath.clone({ insert: false });
-    restoredOuter.fillColor = item.fillColor;
-    restoredOuter.strokeColor = item.strokeColor;
-    restoredOuter.strokeWidth = item.strokeWidth;
-    restoredOuter.matrix = item.matrix.clone();
-    restoredOuter.data = { ...(item.data || {}) };
-    delete restoredOuter.data.isOuterWithHoles;
-    delete restoredOuter.data.originalPath;
-    delete restoredOuter.data.holeIds;
-    parent.addChild(restoredOuter);
-    newItems.push(restoredOuter);
+    restoredOuter.fillColor = targetOuter.fillColor;
+    restoredOuter.strokeColor = targetOuter.strokeColor;
+    restoredOuter.strokeWidth = targetOuter.strokeWidth;
+    
+    let newOuterItem;
+    if (isClipped) {
+      newOuterItem = window.clipItem(restoredOuter);
+      newOuterItem.matrix = item.matrix.clone();
+      restoredOuter.matrix = targetOuter.matrix.clone();
+    } else {
+      newOuterItem = restoredOuter;
+      newOuterItem.matrix = item.matrix.clone();
+      parent.addChild(newOuterItem);
+    }
+    
+    newOuterItem.data = { ...(item.data || {}) };
+    delete newOuterItem.data.isOuterWithHoles;
+    delete newOuterItem.data.originalPath;
+    delete newOuterItem.data.holeIds;
+    newItems.push(newOuterItem);
   }
-  // 3. Procesar cada hueco controlador
+  
   const holeIds = item.data.holeIds || [];
   for (let j = 0; j < holeIds.length; j++) {
     const id = holeIds[j];
     const hole = paper.project.getItem({ id: id });
     if (hole) {
-      // Removerlo temporalmente para re-insertarlo en orden junto al outer
       hole.remove();
       const targetHole = hole.data.clipGroup ? hole.children.find(function(c) { return !c.clipMask; }) : hole;
-      if (targetHole) {
-        targetHole.fillColor = item.fillColor;
-        targetHole.strokeColor = item.strokeColor;
-        targetHole.strokeWidth = item.strokeWidth;
+      
+      let newHoleItem;
+      if (isClipped) {
+        newHoleItem = window.clipItem(targetHole.clone({ insert: false }));
+        newHoleItem.matrix = hole.matrix.clone();
+      } else {
+        newHoleItem = hole;
+        parent.addChild(newHoleItem);
       }
-      if (hole.data) {
-        delete hole.data.isHoleController;
-        delete hole.data.outerItemId;
-        delete hole.data.lastHash;
-        hole.data.label = "Trazado";
+      
+      if (newHoleItem.data) {
+        delete newHoleItem.data.isHoleController;
+        delete newHoleItem.data.outerItemId;
+        delete newHoleItem.data.lastHash;
+        newHoleItem.data.label = "Trazado";
       }
-      parent.addChild(hole);
-      newItems.push(hole);
+      newItems.push(newHoleItem);
     }
   }
-  // 4. Eliminar el item compuesto viejo calado
-  if (item.data?.clipGroup) {
+  
+  if (isClipped && item) {
     item.clipped = false;
   }
   item.remove();
@@ -656,38 +653,126 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
 
-  subPaths.forEach((subPath, idx) => {
-    const subClone = subPath.clone({ insert: false });
+  const outers = [];
+  const holesMap = new Map();
 
-    // Liberacion de Trazado Compuesto (Release Compound Path): Todos los subcontornos se vuelven solidos y visibles
-    subClone.fillColor = originalFillColor || new paper.Color(255, 255, 255, 0.01);
-    subClone.strokeColor = originalStrokeColor || '#000000';
-    subClone.strokeWidth = originalStrokeWidth || 1;
-
-    let newItem;
-    if (isClipped) {
-      newItem = subClone;
-      newItem.matrix = pathRelMatrix.clone().chain(subClone.matrix);
-      item.addChild(newItem); // Insertamos directamente dentro de la mascara de recorte original
-    } else {
-      newItem = subClone;
-      newItem.matrix = pathAbsMatrix.clone().chain(subClone.matrix);
-      parent.addChild(newItem);
-    }
-
-    newItem.data = {
-      ...(newItem.data || {}),
-      label: idx === 0 ? "Contorno" : "Hueco",
-      wasHole: idx !== 0
-    };
-    newItems.push(newItem);
+  const pathNesting = [];
+  subPaths.forEach(p => {
+    const containers = [];
+    subPaths.forEach(other => {
+      if (other !== p) {
+        const otherArea = Math.abs(other.area) || other.bounds.area;
+        const pArea = Math.abs(p.area) || p.bounds.area;
+        if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+          containers.push(other);
+        }
+      }
+    });
+    pathNesting.push({ path: p, containers: containers });
   });
 
-  if (isClipped) {
-    target.remove(); // Elimina el CompoundPath interno dejando intacto el clipGroup
-  } else {
-    item.remove(); // Elimina el CompoundPath suelto
+  pathNesting.forEach(entry => {
+    const p = entry.path;
+    const containers = entry.containers;
+    if (containers.length % 2 === 0) {
+      outers.push(p);
+      if (!holesMap.has(p)) holesMap.set(p, []);
+    } else {
+      let immediateContainer = null;
+      let minArea = Infinity;
+      containers.forEach(c => {
+        const cArea = Math.abs(c.area) || c.bounds.area;
+        if (cArea < minArea) {
+          minArea = cArea;
+          immediateContainer = c;
+        }
+      });
+      if (immediateContainer) {
+        if (!holesMap.has(immediateContainer)) holesMap.set(immediateContainer, []);
+        holesMap.get(immediateContainer).push(p);
+      }
+    }
+  });
+
+  const outersToSelect = [];
+  outers.forEach(outerPath => {
+    const outerClone = outerPath.clone({ insert: false });
+    outerClone.fillColor = originalFillColor || new paper.Color(255, 255, 255, 0.01);
+    outerClone.strokeColor = originalStrokeColor || '#000000';
+    outerClone.strokeWidth = originalStrokeWidth || 1;
+
+    let newOuterItem;
+    if (isClipped) {
+      // Súper corrección: Cada subPath separado de un CompoundPath enmascarado se inserta como clipGroup individual!
+      newOuterItem = window.clipItem(outerClone);
+      newOuterItem.matrix = item.matrix.clone(); // Heredar la posicion del clipGroup original
+      outerClone.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
+    } else {
+      newOuterItem = outerClone;
+      newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
+      parent.addChild(newOuterItem);
+    }
+
+    newOuterItem.data = {
+      ...(newOuterItem.data || {}),
+      isOuterWithHoles: true,
+      originalPath: outerPath.clone({ insert: false }),
+      holeIds: [],
+      label: item.data?.label || "Objeto"
+    };
+    outerClone.data = {
+      ...(outerClone.data || {}),
+      isOuterWithHoles: true
+    };
+    newItems.push(newOuterItem);
+    outersToSelect.push(newOuterItem);
+
+    const associatedHoles = holesMap.get(outerPath) || [];
+    associatedHoles.forEach(holePath => {
+      const holeClone = holePath.clone({ insert: false });
+      holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
+      holeClone.strokeColor = new paper.Color(0, 0, 0, 0);
+
+      let newHoleItem;
+      if (isClipped) {
+        newHoleItem = window.clipItem(holeClone);
+        newHoleItem.matrix = item.matrix.clone(); // Heredar la posicion del clipGroup original
+        holeClone.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
+      } else {
+        newHoleItem = holeClone;
+        newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
+        parent.addChild(newHoleItem);
+      }
+
+      newHoleItem.data = {
+        ...(newHoleItem.data || {}),
+        isHoleController: true,
+        outerItemId: newOuterItem.id,
+        lastHash: "",
+        label: "Hueco"
+      };
+      newOuterItem.data.holeIds.push(newHoleItem.id);
+      newItems.push(newHoleItem);
+    });
+
+    window.ekkoOuters.set(newOuterItem.id, newOuterItem);
+    const updatedOuter = updateOuterPathGeometry(newOuterItem);
+    if (updatedOuter && updatedOuter !== newOuterItem) {
+      const outIdx = newItems.indexOf(newOuterItem);
+      if (outIdx !== -1) {
+        newItems[outIdx] = updatedOuter;
+      }
+      const selectIdx = outersToSelect.indexOf(newOuterItem);
+      if (selectIdx !== -1) {
+        outersToSelect[selectIdx] = updatedOuter;
+      }
+    }
+  });
+
+  if (isClipped && item) {
+    item.clipped = false; // Detener mascara para evitar fugas de recortes
   }
+  item.remove();
 
   if (skipSelection) {
     return newItems;
@@ -701,10 +786,10 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
   window.deselectItem();
   setTimeout(() => {
-    if (newItems.length > 0) {
-      window.selectedItems = [...newItems];
-      window.selectedItem = newItems[newItems.length - 1];
-      newItems.forEach(it => { if (it) it.selected = true; });
+    if (outersToSelect.length > 0) {
+      window.selectedItems = [...outersToSelect];
+      window.selectedItem = outersToSelect[outersToSelect.length - 1];
+      outersToSelect.forEach(it => { if (it) it.selected = true; });
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     }
@@ -719,7 +804,6 @@ export function updateOuterPathGeometry(outerItem) {
   if (!targetOuter) return outerItem;
   let resultOuter = outerItem;
 
-  // 1. Obtener la geometria exterior solida en coordenadas globales con alineacion absoluta
   const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
   const outerGlobalMatrix = getGlobalMatrix(targetOuter);
   solidGlobal.matrix = outerGlobalMatrix;
@@ -727,7 +811,6 @@ export function updateOuterPathGeometry(outerItem) {
   const holeIds = outerItem.data.holeIds || [];
   let combined = solidGlobal;
 
-  // 2. Restar cada hueco en coordenadas globales utilizando applyMatrix para evitar doble transformacion
   holeIds.forEach(id => {
     const hole = paper.project.getItem({ id });
     if (hole && hole.parent) {
@@ -735,7 +818,6 @@ export function updateOuterPathGeometry(outerItem) {
       if (targetHole) {
         const holeGlobalMatrix = getGlobalMatrix(targetHole);
         const holeGlobal = targetHole.clone({ insert: false });
-        // Sobreescribimos la matriz local para aplicar unicamente la matriz global acumulada y la horneamos (applyMatrix)
         holeGlobal.matrix = holeGlobalMatrix;
         holeGlobal.applyMatrix = true;
         let temp = null;
@@ -753,18 +835,16 @@ export function updateOuterPathGeometry(outerItem) {
     }
   });
 
-  // 3. Transformar de vuelta a coordenadas locales de targetOuter para conservar la editabilidad
   const localCombined = combined.clone({ insert: false });
   if (!outerGlobalMatrix.isIdentity()) {
     try {
       localCombined.matrix = outerGlobalMatrix.inverted();
-      localCombined.applyMatrix = true; // Horneamos las coordenadas locales resultantes
+      localCombined.applyMatrix = true;
     } catch (err) {
       console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
     }
   }
 
-  // 4. Reemplazar de forma atomica y limpia el trazado en el lienzo
   const parent = targetOuter.parent;
   if (parent && localCombined) {
     const idx = parent.children.indexOf(targetOuter);
@@ -773,7 +853,7 @@ export function updateOuterPathGeometry(outerItem) {
       newPath.fillColor = targetOuter.fillColor;
       newPath.strokeColor = targetOuter.strokeColor;
       newPath.strokeWidth = targetOuter.strokeWidth;
-      newPath.matrix = targetOuter.matrix.clone(); // Heredar matriz (generalmente identidad)
+      newPath.matrix = targetOuter.matrix.clone();
       newPath.data = { ...(targetOuter.data || {}) };
       parent.insertChild(idx, newPath);
       resultOuter = newPath;
@@ -786,7 +866,6 @@ export function updateOuterPathGeometry(outerItem) {
           const sIdx = window.selectedItems.indexOf(outerItem);
           if (sIdx !== -1) window.selectedItems[sIdx] = newPath;
         }
-        // Sincronizar listados de referencia
         window.ekkoOuters.delete(outerItem.id);
         window.ekkoOuters.set(newPath.id, newPath);
         holeIds.forEach(id => {
@@ -803,7 +882,6 @@ export function updateOuterPathGeometry(outerItem) {
   return resultOuter;
 }
 
-//  RECEPTOR DE MARCO DE PAPER.JS PARA EVENTO TICK (Reactivo al arrastre, 0% CPU en reposo)
 if (typeof window.paper !== 'undefined' && paper.view) {
   paper.view.on('frame', () => {
     if (!paper.project || !paper.project.activeLayer) return;
@@ -815,7 +893,6 @@ if (typeof window.paper !== 'undefined' && paper.view) {
         const hole = paper.project.getItem({ id });
         if (hole && hole.parent) {
           validHoleIds.push(id);
-          // OBTENER LA POSICION DEL HIJO REAL (DENTRO DEL CLIPGROUP) PARA DETECTAR MOVIMIENTO SINCRONO REAL
           const targetHole = hole.data?.clipGroup ? hole.children.find(function(c) { return !c.clipMask; }) : hole;
           const currentHash = `${targetHole.position.x.toFixed(1)},${targetHole.position.y.toFixed(1)},${targetHole.rotation}`;
           if (hole.data.lastHash !== currentHash) {
@@ -823,7 +900,7 @@ if (typeof window.paper !== 'undefined' && paper.view) {
             needsUpdate = true;
           }
         } else {
-          needsUpdate = true; // El hueco fue eliminado, requiere rellenar la silueta
+          needsUpdate = true;
         }
       });
       if (needsUpdate) {
@@ -834,7 +911,6 @@ if (typeof window.paper !== 'undefined' && paper.view) {
   });
 }
 
-// --- RENDEREADOR DE CAJA DE SELECCION MULTIPLE CON CONTONTORNOS CELESTES INDEPENDIENTES (ESTILO FIGMA/CANVA/ILLUSTRATOR) ---
 if (typeof window !== 'undefined') {
   const customUpdateSelectionBox = function(item) {
     if (window.selectionBoxGroup) {
@@ -877,7 +953,6 @@ if (typeof window !== 'undefined') {
     window.selectionBoxGroup = new paper.Group();
     window.selectionBoxGroup.data = { isSelectionBox: true };
 
-    // 1. Dibujar contornos celestes discontinuos independientes alrededor de cada pieza individual
     if (selected.length > 1) {
       selected.forEach(function(it) {
         const displayItem = (it.data && it.data.clipGroup)
@@ -893,7 +968,6 @@ if (typeof window !== 'undefined') {
       });
     }
 
-    // 2. Dibujar la caja de seleccion global de color azul celeste alrededor de todo el conjunto
     const isRotSnapped = window.isRotationSnapped && window.rotationActive;
     const mainColor = isRotSnapped ? '#28a745' : '#007bff';
     const border = new paper.Path.Rectangle(bounds);
@@ -971,7 +1045,6 @@ if (typeof window !== 'undefined') {
     }
   };
 
-  // Sobreescribir el State Guard de selection.js de manera blindada
   try {
     Object.defineProperty(window, 'updateSelectionBox', {
       get: function() { return customUpdateSelectionBox; },
@@ -998,7 +1071,6 @@ export function initContextualMenu() {
     if (el) el.onclick = fn;
   };
 
-  // --- 1. ACCIONES GENERALES ---
   setClick('btnCtxDelete', () => {
     if (window.selectedItem) {
       deleteImage(window.selectedItem);
@@ -1021,7 +1093,6 @@ export function initContextualMenu() {
     }
   });
 
-  // --- 2. ACCIONES DE TEXTO AVANZADAS ---
   setClick('btnCtxBold', () => {
     if (window.selectedItem) toggleBold(window.selectedItem);
   });
@@ -1055,7 +1126,6 @@ export function initContextualMenu() {
     };
   }
 
-  // --- 3. ACCIONES DE ORGANIZACION (VECTORES / SVGS) ---
   setClick('btnCtxGroup', () => groupSelectedItems());
   setClick('btnCtxAgrupar', () => groupSelectedItems());
   setClick('btnCtxUngroup', () => ungroupSelectedItem());
@@ -1064,7 +1134,6 @@ export function initContextualMenu() {
     if (window.selectedItem) enterNodeEditMode(window.selectedItem);
   });
 
-  // --- 4. SHORTCUTS DE TECLADO ---
   if (!window.groupKeyboardEventsBound) {
     window.groupKeyboardEventsBound = true;
     document.addEventListener('keydown', (e) => {
@@ -1146,7 +1215,6 @@ export function updateContextualMenu(item) {
       }
     }
   } else {
-    // Si solo hay un elemento seleccionado
     const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!target) return;
     if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
@@ -1184,7 +1252,6 @@ export function updateContextualMenu(item) {
     }
   }
 
-  // Reposicionar el menu si el usuario no lo ha arrastrado, o si cambio el objeto de seleccion
   if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
     toolbar.style.left = window.customToolbarLeft + 'px';
     toolbar.style.top = window.customToolbarTop + 'px';
@@ -1219,7 +1286,6 @@ export function hideContextualMenu() {
   }
 }
 
-//  REPOSICIONADOR GLOBAL HTML: Sincronizar elementos flotantes en body al arrastrar o hacer zoom
 window.applyPositionCorrections = function() {
   const toolbar = document.getElementById("contextual-toolbar");
   const textEditor = document.getElementById("ekko-text-editor");
@@ -1231,7 +1297,6 @@ window.applyPositionCorrections = function() {
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
 
-  // 1. Corregir Barra Contextual Flotante
   if (toolbar && toolbar.classList.contains("active")) {
     const toolbarHeight = toolbar.offsetHeight || 45;
     const toolbarWidth = toolbar.offsetWidth || 350;
@@ -1247,10 +1312,9 @@ window.applyPositionCorrections = function() {
     toolbar.style.zIndex = "2147483646";
   }
 
-  // 2. Corregir Editor de Texto
   if (textEditor) {
     const editorWidth = textEditor.offsetWidth || 150;
-    const editorHeight = textEditor.offsetTop || 40;
+    const editorHeight = textEditor.offsetHeight || 40;
     const canvasEl = document.getElementById("editorCanvas");
     if (canvasEl) {
       const rect = canvasEl.getBoundingClientRect();
