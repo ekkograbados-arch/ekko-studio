@@ -83,13 +83,17 @@ export function enterNodeEditMode(item) {
   }
 
   // Desactivar hacia abajo (descendientes)
-  target.accept({
-    visit: function(node) {
-      if (node instanceof paper.Group && node.clipped) {
-        disableClipGroup(node);
+  const disableDescendantClips = (node) => {
+    if (node instanceof paper.Group && node.clipped) {
+      disableClipGroup(node);
+    }
+    if (node.children) {
+      for (let i = 0; i < node.children.length; i++) {
+        disableDescendantClips(node.children[i]);
       }
     }
-  });
+  };
+  disableDescendantClips(target);
 
   window.nodeEditMode = true;
   window.nodeEditTarget = activeNodeItem;
