@@ -301,61 +301,6 @@ function makeToolbarDraggable() {
  * disolviendo los grupos intermedios anidados y aplicando la matriz global de transformacion
  * para evitar saltos o saltos visuales indeseados (Cero Onion Effect).
  */
-
-function removeSvgBackgroundRectangles(rootItem) {
-  if (!rootItem || !(rootItem instanceof paper.Group)) return;
-  const children = [...rootItem.children];
-  const rootBounds = rootItem.bounds;
-  
-  children.forEach(child => {
-    if (child instanceof paper.Path) {
-      const isRect = child.closed && child.segments.length === 4;
-      const childArea = child.bounds.width * child.bounds.height;
-      const rootArea = rootBounds.width * rootBounds.height;
-      
-      // Si el rectángulo representa más del 90% del área del grupo
-      if (childArea >= rootArea * 0.90) {
-        const isTransparent = !child.fillColor || child.fillColor.alpha === 0;
-        const isWhite = child.fillColor && child.fillColor.red === 1 && child.fillColor.green === 1 && child.fillColor.blue === 1;
-        const noStroke = !child.strokeColor || child.strokeColor.alpha === 0 || child.strokeWidth === 0;
-        
-        if ((isTransparent || isWhite) && noStroke) {
-          console.log("EKKO Studio Sani-Engine: Rectángulo de fondo eliminado:", child.id);
-          child.remove();
-        }
-      }
-    }
-  });
-}
-
-function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
-  const children = [...group.children];
-  group.remove();
-
-  const addedItems = [];
-  children.forEach(child => {
-    const targetAncestor = isClipped ? oldClipGroup : group;
-    const relMatrix = getMatrixRelativeTo(child, targetAncestor);
-    child.remove();
-
-    let newItem;
-    if (isClipped && oldClipGroup) {
-      newItem = window.clipItem(child);
-      newItem.matrix = oldClipGroup.matrix.clone();
-      child.matrix = relMatrix;
-    } else {
-      newItem = child;
-      newItem.matrix = relMatrix;
-      parent.addChild(newItem);
-    }
-    if (newItem.data) {
-      delete newItem.data.globalMatrix;
-    }
-    addedItems.push(newItem);
-  });
-  return addedItems;
-}
-
 function getLeafItemsRecursive(item) {
   const leaves = [];
   const recurse = (node, parentMatrix) => {
@@ -531,6 +476,62 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
   return addedItems;
 }
 
+/**
+ * Sanitiza recursivamente el SVG cargado removiendo rectangulos invisibles de mesa de trabajo (Artboards)
+ * que entorpecen la seleccion directa y generan colisiones celestes fantasmas.
+ */
+function removeSvgBackgroundRectangles(item) {
+  if (!item) return;
+  if (item instanceof paper.Path.Rectangle || item instanceof paper.Path) {
+    const bounds = item.bounds;
+    const isBig = bounds.width > 200 && bounds.height > 200;
+    const hasNoStroke = !item.strokeColor || item.strokeColor.alpha === 0;
+    const hasLightFill = !item.fillColor || item.fillColor.alpha === 0 || (item.fillColor.red > 0.95 && item.fillColor.green > 0.95 && item.fillColor.blue > 0.95);
+    if (isBig && hasNoStroke && hasLightFill && !item.data?.isMask && !item.data?.mockup) {
+      item.remove();
+      return;
+    }
+  }
+  if (item.children) {
+    const childs = [...item.children];
+    childs.forEach(child => removeSvgBackgroundRectangles(child));
+  }
+}
+
+/**
+ * Desagrupa jerarquicamente un unico nivel del arbol vectorial para respetar la composicion de disenos
+ * complejos como Minnie Mouse y el Escudo de la AFA sin desarmarlos de golpe (Cero colapsado plano).
+ */
+function ungroupSingleLevel(group, parent, index, isClipped, oldClipGroup) {
+  if (!group || !(group instanceof paper.Group)) return [];
+  removeSvgBackgroundRectangles(group);
+  const children = [...group.children];
+  group.remove();
+
+  const addedItems = [];
+  children.forEach(child => {
+    const targetAncestor = isClipped ? oldClipGroup : group;
+    const relMatrix = getMatrixRelativeTo(child, targetAncestor);
+    child.remove();
+
+    let newItem;
+    if (isClipped && oldClipGroup) {
+      newItem = window.clipItem(child);
+      newItem.matrix = oldClipGroup.matrix.clone();
+      child.matrix = relMatrix;
+    } else {
+      newItem = child;
+      newItem.matrix = relMatrix;
+      parent.addChild(newItem);
+    }
+    if (newItem.data) {
+      delete newItem.data.globalMatrix;
+    }
+    addedItems.push(newItem);
+  });
+  return addedItems;
+}
+
 export function ungroupSelectedItem() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
@@ -550,25 +551,24 @@ export function ungroupSelectedItem() {
     const target = isClipped ? getContentItem(item) : item;
     if (!target) return;
 
-    const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
-    const parent = item.parent || paper.project.activeLayer;
-    const index = parent.children.indexOf(item);
-    const newItems = [];
-
-    // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica y recursiva disolviendo grupos anidados
-    if (activeTarget instanceof paper.Group) {
-      const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
-      newItems.push(...flatItems);
+    // A. SI ES UN GRUPO: Desagrupamos de forma jerárquica respetando un unico nivel a la vez
+    if (target instanceof paper.Group) {
+      const parent = item.parent || paper.project.activeLayer;
+      const index = parent.children.indexOf(item);
+      const levelItems = ungroupSingleLevel(target, parent, index, isClipped, isClipped ? item : null);
+      newItems.push(...levelItems);
       if (isClipped && item) {
-        item.clipped = false; // Desactivar el clipping de forma explícita para evitar fugas de recorte de Paper.js
+        item.clipped = false;
       }
       item.remove();
     }
     // B. SI ES TEXTO: Dividimos en PointText independientes por letras
-    else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
-      const letters = splitPointTextIntoLetters(activeTarget);
-      const textAbsMatrix = getGlobalMatrix(activeTarget);
-      activeTarget.remove();
+    else if (target instanceof paper.PointText && target.content.length > 1) {
+      const parent = item.parent || paper.project.activeLayer;
+      const index = parent.children.indexOf(item);
+      const letters = splitPointTextIntoLetters(target);
+      const textAbsMatrix = getGlobalMatrix(target);
+      target.remove();
 
       letters.forEach(letter => {
         let newItem;
@@ -584,13 +584,15 @@ export function ungroupSelectedItem() {
         newItems.push(newItem);
       });
       if (isClipped && item) {
-        item.clipped = false; // Evitar fuga de recorte de Paper.js
+        item.clipped = false;
       }
       item.remove();
     }
-    // C. SI ES COMPOUNDPATH: Desagrupamos en contornos sólidos individuales (Release Compound Path)
-    else if (activeTarget instanceof paper.CompoundPath) {
-      if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
+    // C. SI ES COMPOUNDPATH O CALADO COMPUESTO: Desagrupamos los contornos y huecos independientes
+    else if (target instanceof paper.CompoundPath) {
+      const parent = item.parent || paper.project.activeLayer;
+      const index = parent.children.indexOf(item);
+      if (item.data?.isOuterWithHoles || target.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
         if (dissolved && dissolved.length > 0) {
           newItems.push(...dissolved);
@@ -601,6 +603,27 @@ export function ungroupSelectedItem() {
           newItems.push(...separated);
         }
       }
+    }
+    // D. SI EL USUARIO CLICA DESAGRUPAR SOBRE UN CALADO COMPUESTO (GRUPO DE HUECO + CONTENIDO)
+    else if (item.data?.isCompoundHoleGroup && item instanceof paper.Group) {
+      const parent = item.parent || paper.project.activeLayer;
+      const index = parent.children.indexOf(item);
+      const children = [...item.children];
+      item.remove();
+      
+      children.forEach(child => {
+        parent.insertChild(index, child);
+        newItems.push(child);
+        if (child.data?.isHoleController) {
+          // Si es el hueco, lo aislamos como un calado simple reactivo
+          child.data.isIsolatedHole = true;
+        } else {
+          // El contenido solido interno queda liberado e independiente
+          if (child.data) {
+            child.data.isOuterWithHoles = true;
+          }
+        }
+      });
     }
 
     newItems.reverse().forEach(newItem => {
@@ -720,7 +743,6 @@ export function dissolveOuterWithHoles(item) {
   return newItems;
 }
 
-
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
@@ -746,9 +768,8 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
   const outers = [];
   const holesMap = new Map();
-  const descendantsMap = new Map();
 
-  // 1. Calcular el árbol de anidamiento geométrico por profundidad (depth)
+  // 1. Analizar el anidamiento jerarquico completo de trazados del SVG
   const pathNesting = [];
   subPaths.forEach(p => {
     const containers = [];
@@ -761,46 +782,65 @@ export function separateContours(itemToProcess, skipSelection = false) {
         }
       }
     });
-    pathNesting.push({ path: p, depth: containers.length, containers: containers });
+    pathNesting.push({ path: p, containers: containers });
   });
 
-  // 2. Clasificar outers de nivel raíz (depth === 0)
+  // Clasificar trazados por nivel de profundidad (pares = outers, impares = holes)
+  const descendantsMap = new Map(); // Mapa de hueco -> trazados solidos contenidos adentro
+  
   pathNesting.forEach(entry => {
-    if (entry.depth === 0) {
-      outers.push(entry.path);
-      holesMap.set(entry.path, []);
-    }
-  });
-
-  // 3. Clasificar huecos directos (depth === 1) y vincularlos a su outer de depth 0
-  pathNesting.forEach(entry => {
-    if (entry.depth === 1) {
-      const parentOuter = entry.containers[0];
-      if (parentOuter) {
-        if (!holesMap.has(parentOuter)) {
-          holesMap.set(parentOuter, []);
+    const p = entry.path;
+    const containers = entry.containers;
+    const depth = containers.length;
+    
+    if (depth % 2 === 0) {
+      // Es una silueta solida (Outer) de nivel de superficie o anidada
+      outers.push(p);
+      if (!holesMap.has(p)) holesMap.set(p, []);
+    } else {
+      // Es un hueco (Hole) de un outer inmediato
+      let immediateContainer = null;
+      let minArea = Infinity;
+      containers.forEach(c => {
+        const cArea = Math.abs(c.area) || c.bounds.area;
+        if (cArea < minArea) {
+          minArea = cArea;
+          immediateContainer = c;
         }
-        holesMap.get(parentOuter).push(entry.path);
-        descendantsMap.set(entry.path, []);
+      });
+      if (immediateContainer) {
+        if (!holesMap.has(immediateContainer)) holesMap.set(immediateContainer, []);
+        holesMap.get(immediateContainer).push(p);
       }
     }
   });
 
-  // 4. Clasificar descendientes anidados (depth >= 2) y vincularlos a su hueco directo de depth 1
+  // 2. Mapear que trazados solidos profundos estan contenidos dentro de cada hueco (Anidamiento jerarquico Nivel >= 2)
   pathNesting.forEach(entry => {
-    if (entry.depth >= 2) {
+    const p = entry.path;
+    const containers = entry.containers;
+    const depth = containers.length;
+    if (depth >= 2 && depth % 2 === 0) {
+      // Este trazado solido esta dentro de un hueco
       let parentHole = null;
-      entry.containers.forEach(c => {
-        const cNesting = pathNesting.find(n => n.path === c);
-        if (cNesting && cNesting.depth === 1) {
-          parentHole = c;
+      let minHoleArea = Infinity;
+      containers.forEach(c => {
+        const isHole = pathNesting.find(n => n.path === c).containers.length % 2 !== 0;
+        if (isHole) {
+          const cArea = Math.abs(c.area) || c.bounds.area;
+          if (cArea < minHoleArea) {
+            minHoleArea = cArea;
+            parentHole = c;
+          }
         }
       });
       if (parentHole) {
-        if (!descendantsMap.has(parentHole)) {
-          descendantsMap.set(parentHole, []);
-        }
-        descendantsMap.get(parentHole).push(entry.path);
+        if (!descendantsMap.has(parentHole)) descendantsMap.set(parentHole, []);
+        descendantsMap.get(parentHole).push(p);
+        
+        // Lo removemos de la lista de outers de nivel raiz para evitar duplicidad de dibujo
+        const idx = outers.indexOf(p);
+        if (idx > -1) outers.splice(idx, 1);
       }
     }
   });
@@ -934,29 +974,6 @@ export function separateContours(itemToProcess, skipSelection = false) {
   if (skipSelection) {
     return newItems;
   }
-
-  if (!isClipped) {
-    newItems.reverse().forEach(newItem => {
-      parent.insertChild(index, newItem);
-    });
-  }
-
-  window.deselectItem();
-
-  setTimeout(() => {
-    if (outersToSelect.length > 0) {
-      window.selectedItems = [...outersToSelect];
-      window.selectedItem = outersToSelect[outersToSelect.length - 1];
-      outersToSelect.forEach(it => { if (it) it.selected = true; });
-      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-    }
-    paper.view.update();
-  }, 50);
-
-  return newItems;
-}
-
 
   if (!isClipped) {
     newItems.reverse().forEach(newItem => {
