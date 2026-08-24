@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Corrected Edition)
+Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (EDICIÓN DEFINITIVA - CORREGIDA)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
 para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
@@ -25,7 +25,7 @@ function getContentItem(item) {
 
 let activeNodeItem = null;
 let nodeHandlesGroup = null;
-let selectedNodes = new Set(); // Conjunto de indices globales de puntos seleccionados
+let selectedNodes = new Set();
 let isDraggingNode = false;
 let dragStartPoint = null;
 let marqueeRect = null;
@@ -35,12 +35,10 @@ let disabledClipGroups = [];
 
 // Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
-  // Blindaje absoluto contra edicion del mockup de producto o elementos bloqueados (Paso de Seguridad)
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
   const target = getContentItem(item);
   if (!target) return;
 
-  // Si es un PointText nativo, ofrecer convertir a curvas primero
   if (target instanceof paper.PointText) {
     if (confirm("Para poder editar los nodos de este texto, primero debes convertirlo a curvas (ruta vectorial). Deseas continuar?")) {
       const converted = convertTextToPath(target);
@@ -69,7 +67,6 @@ export function enterNodeEditMode(item) {
     activeNodeItem = item;
   }
 
-  // Desactivar temporalmente la mascara de recorte de TODOS los grupos padres y descendientes para evitar limites de recorte
   disabledClipGroups = [];
   function disableClipGroup(g) {
     if (disabledClipGroups.includes(g)) return;
@@ -79,7 +76,7 @@ export function enterNodeEditMode(item) {
       const mask = g.children.find(c => c.clipMask);
       if (mask) {
         mask.clipMask = false;
-        mask.strokeColor = '#009dec'; // Darle un borde celeste sutil para que el cliente vea el limite original
+        mask.strokeColor = '#009dec';
         mask.strokeWidth = 1 / paper.view.zoom;
         mask.dashArray = [3, 3];
         mask.data = mask.data || {};
@@ -88,7 +85,6 @@ export function enterNodeEditMode(item) {
     }
   }
 
-  // Desactivar hacia arriba (ancestros)
   let currentClip = target;
   while (currentClip && currentClip !== paper.project.activeLayer) {
     if (currentClip instanceof paper.Group && currentClip.clipped) {
@@ -97,7 +93,6 @@ export function enterNodeEditMode(item) {
     currentClip = currentClip.parent;
   }
 
-  // Desactivar hacia abajo (descendientes)
   const disableDescendantClips = (node) => {
     if (node instanceof paper.Group && node.clipped) {
       disableClipGroup(node);
@@ -114,20 +109,16 @@ export function enterNodeEditMode(item) {
   window.nodeEditTarget = activeNodeItem;
   window.isDraggingNode = false;
 
-  // Ocultar caja de seleccion celeste global
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(null);
   }
 
-  // Dibujar tiradores de nodos en pantalla
   drawNodeHandles();
 
-  // CREAR Y ACTIVAR EL TOOL DEDICADO DE EDICION DE NODOS (Estilo LightBurn)
   previousTool = paper.tool;
   nodeEditTool = new paper.Tool();
 
   nodeEditTool.onMouseDown = (event) => {
-    // 1. Hit test para ver si hicimos clic sobre un tirador/nodo de interfaz
     const hitResult = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -142,14 +133,12 @@ export function enterNodeEditMode(item) {
       window.isDraggingNode = true;
 
       if (event.modifiers.shift) {
-        // Multi-seleccion con Shift
         if (selectedNodes.has(ptIdx)) {
           selectedNodes.delete(ptIdx);
         } else {
           selectedNodes.add(ptIdx);
         }
       } else {
-        // Click simple selecciona un solo nodo (si no estaba ya seleccionado)
         if (!selectedNodes.has(ptIdx)) {
           selectedNodes.clear();
           selectedNodes.add(ptIdx);
@@ -157,7 +146,6 @@ export function enterNodeEditMode(item) {
       }
       dragStartPoint = event.point.clone();
     } else {
-      // 2. Si hicimos clic fuera, iniciar marquee o deseleccionar
       if (!event.modifiers.shift) {
         selectedNodes.clear();
       }
@@ -168,7 +156,6 @@ export function enterNodeEditMode(item) {
   };
 
   nodeEditTool.onMouseDrag = (event) => {
-    // A. Arrastre de nodos seleccionados
     if (isDraggingNode) {
       const delta = event.delta;
       selectedNodes.forEach(selIdx => {
@@ -177,11 +164,9 @@ export function enterNodeEditMode(item) {
           const targetPath = paper.project.getItem({ id: matchingHandle.data.pathId });
           if (targetPath && targetPath.segments[matchingHandle.data.localIdx]) {
             const seg = targetPath.segments[matchingHandle.data.localIdx];
-            // Mover el punto del segmento de forma local
             seg.point = seg.point.add(delta);
-            matchingHandle.position = targetPath.localToGlobal(seg.point); // Sincronizar mango visual
+            matchingHandle.position = targetPath.localToGlobal(seg.point);
 
-            // CORRECCION DE LA RAIZ DEL PROBLEMA: No sobreescribir el originalPath solido
             if (activeNodeItem.data?.isOuterWithHoles && activeNodeItem.data?.originalPath) {
               const origPath = activeNodeItem.data.originalPath;
               if (origPath instanceof paper.CompoundPath) {
@@ -198,7 +183,6 @@ export function enterNodeEditMode(item) {
         }
       });
 
-      // SOLUCIÓN AL BUG CRÍTICO (Sincronización del calado al deformar nodos de un Hueco/Hole)
       if (activeNodeItem.data?.isOuterWithHoles) {
         if (typeof window.updateOuterPathGeometry === 'function') {
           window.updateOuterPathGeometry(activeNodeItem);
@@ -214,7 +198,6 @@ export function enterNodeEditMode(item) {
       return;
     }
 
-    // B. Arrastre de caja de seleccion (Marquee Selection Box)
     if (dragStartPoint) {
       if (marqueeRect) marqueeRect.remove();
       const rect = new paper.Rectangle(dragStartPoint, event.point);
@@ -229,7 +212,6 @@ export function enterNodeEditMode(item) {
       if (nodeHandlesGroup) {
         nodeHandlesGroup.children.forEach(handle => {
           if (handle.data?.isNodeHandle) {
-            // Verificar si el nodo esta dentro de la caja dibujada
             if (rect.contains(handle.position)) {
               selectedNodes.add(handle.data.globalIdx);
             } else if (!event.modifiers.shift) {
@@ -261,7 +243,6 @@ export function enterNodeEditMode(item) {
 
   nodeEditTool.activate();
 
-  // Registrar botones de menu flotante
   const btnDeleteNode = document.getElementById('btnCtxDeleteNode');
   if (btnDeleteNode) {
     btnDeleteNode.onclick = () => deleteSelectedNodes();
@@ -272,10 +253,8 @@ export function enterNodeEditMode(item) {
     btnExitNodeEdit.onclick = () => exitNodeEditMode();
   }
 
-  // Vincular teclado
   document.addEventListener('keydown', handleNodeKeydown);
 
-  // Mostrar panel de edicion de nodos en la barra flotante
   const nodeEl = document.getElementById('ctxNodeEditControls');
   if (nodeEl) nodeEl.classList.remove('hidden');
 
@@ -296,7 +275,6 @@ export function exitNodeEditMode() {
   document.removeEventListener('keydown', handleNodeKeydown);
   const itemToRestore = activeNodeItem;
 
-  // Al salir, reactivamos todos los recortes guardados
   disabledClipGroups.forEach(g => {
     if (g && g.parent) {
       g.clipped = true;
@@ -319,7 +297,6 @@ export function exitNodeEditMode() {
   window.nodeEditMode = false;
   window.nodeEditTarget = null;
 
-  // Restaurar la herramienta de seleccion global previa
   if (previousTool) {
     previousTool.activate();
   }
@@ -333,7 +310,6 @@ export function exitNodeEditMode() {
   paper.view.update();
 }
 
-// Convertir un PointText a un CompoundPath vectorial
 function convertTextToPath(pointText) {
   if (!pointText) return null;
   const compound = pointText.createPath({ insert: false });
@@ -344,7 +320,6 @@ function convertTextToPath(pointText) {
   return compound;
 }
 
-// Obtener los trazados vectoriales reales sobre los cuales operar
 function getTargetPaths(item) {
   const target = getContentItem(item);
   if (!target) return [];
@@ -365,7 +340,6 @@ function getTargetPaths(item) {
   return paths;
 }
 
-// Sincronizar dinamicamente la escala visual de los tiradores ante operaciones de zoom
 export function updateNodeHandlesScale() {
   if (!nodeHandlesGroup || !window.paper) return;
   const zoom = paper.view.zoom;
@@ -384,7 +358,6 @@ export function updateNodeHandlesScale() {
 }
 window.updateNodeHandlesScale = updateNodeHandlesScale;
 
-// Dibujar fisicamente los circulos de la interfaz de nodos
 export function drawNodeHandles() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
@@ -403,12 +376,11 @@ export function drawNodeHandles() {
       const ptIdx = globalPointIdx++;
       const isSelected = selectedNodes.has(ptIdx);
 
-      // Dibujar en coordenadas globales absolutas utilizando localToGlobal para compensar transformaciones
       const globalPoint = path.localToGlobal(segment.point);
       const handle = new paper.Path.Circle({
         center: globalPoint,
         radius: handleSize,
-        strokeColor: isSelected ? '#28a745' : '#dc3545', // Verde si esta seleccionado, rojo si no
+        strokeColor: isSelected ? '#28a745' : '#dc3545',
         fillColor: isSelected ? '#28a745' : '#ffffff',
         strokeWidth: 1.5 / zoom,
         insert: false
@@ -426,7 +398,6 @@ export function drawNodeHandles() {
   nodeHandlesGroup.bringToFront();
 }
 
-// Eliminar nodos seleccionados
 export function deleteSelectedNodes() {
   if (selectedNodes.size === 0 || !activeNodeItem) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -434,7 +405,6 @@ export function deleteSelectedNodes() {
   const paths = getTargetPaths(activeNodeItem);
   const pointsToDeleteByPath = new Map();
 
-  // Agrupar los indices de nodos a borrar por ruta fisica
   nodeHandlesGroup.children.forEach(handle => {
     if (handle.data?.isNodeHandle && selectedNodes.has(handle.data.globalIdx)) {
       if (!pointsToDeleteByPath.has(handle.data.pathId)) {
@@ -444,7 +414,6 @@ export function deleteSelectedNodes() {
     }
   });
 
-  // Eliminar los segmentos de reversa (de mayor a menor indice) para evitar alteracion de punteros
   pointsToDeleteByPath.forEach((localIndices, pathId) => {
     const path = paper.project.getItem({ id: pathId });
     if (path) {
@@ -462,7 +431,6 @@ export function deleteSelectedNodes() {
 
   selectedNodes.clear();
 
-  // Forzar recalculo de calado reactivo tras borrado (tanto si es el outer como si es un hole)
   if (activeNodeItem.data?.isOuterWithHoles) {
     if (typeof window.updateOuterPathGeometry === 'function') {
       window.updateOuterPathGeometry(activeNodeItem);
@@ -478,7 +446,6 @@ export function deleteSelectedNodes() {
   paper.view.update();
 }
 
-// Manejar teclado
 function handleNodeKeydown(e) {
   if (selectedNodes.size === 0 || !activeNodeItem) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -487,7 +454,6 @@ function handleNodeKeydown(e) {
   }
 }
 
-// Exposicion global segura
 if (typeof window !== 'undefined') {
   window.enterNodeEditMode = enterNodeEditMode;
   window.exitNodeEditMode = exitNodeEditMode;
