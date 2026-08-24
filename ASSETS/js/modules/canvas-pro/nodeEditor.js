@@ -15,6 +15,7 @@ let dragStartPoint = null;
 let marqueeRect = null;
 let nodeEditTool = null;
 let previousTool = null;
+let disabledClipGroups = [];
 
 // Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
@@ -52,17 +53,27 @@ export function enterNodeEditMode(item) {
     activeNodeItem = item;
   }
 
-  // Desactivar temporalmente la mascara de recorte para poder estirar los nodos libremente por fuera de la caja
-  if (activeNodeItem && activeNodeItem.data?.clipGroup) {
-    const mask = activeNodeItem.children.find(c => c.clipMask);
-    if (mask) {
-      mask.clipMask = false;
-      mask.strokeColor = '#009dec'; // Darle un borde celeste sutil para que el cliente vea el limite original
-      mask.strokeWidth = 1 / paper.view.zoom;
-      mask.dashArray = [3, 3];
-      mask.data = mask.data || {};
-      mask.data.wasClipMask = true;
+  // Desactivar temporalmente la mascara de recorte de TODOS los grupos padres o hijos para evitar limites de recorte
+  disabledClipGroups = [];
+  let currentClip = target;
+  while (currentClip && currentClip !== paper.project.activeLayer) {
+    if (currentClip instanceof paper.Group && currentClip.clipped) {
+      currentClip.clipped = false;
+      disabledClipGroups.push(currentClip);
+      
+      if (currentClip.data?.clipGroup) {
+        const mask = currentClip.children.find(c => c.clipMask);
+        if (mask) {
+          mask.clipMask = false;
+          mask.strokeColor = '#009dec'; // Darle un borde celeste sutil para que el cliente vea el limite original
+          mask.strokeWidth = 1 / paper.view.zoom;
+          mask.dashArray = [3, 3];
+          mask.data = mask.data || {};
+          mask.data.wasClipMask = true;
+        }
+      }
     }
+    currentClip = currentClip.parent;
   }
 
   window.nodeEditMode = true;
@@ -245,16 +256,22 @@ export function exitNodeEditMode() {
   document.removeEventListener('keydown', handleNodeKeydown);
   const itemToRestore = activeNodeItem;
 
-  // Restaurar la mascara de recorte del producto al salir de la edicion de nodos
-  if (activeNodeItem && activeNodeItem.data?.clipGroup) {
-    const mask = activeNodeItem.children.find(c => c.data?.wasClipMask);
-    if (mask) {
-      mask.clipMask = true;
-      mask.strokeColor = null;
-      mask.dashArray = null;
-      delete mask.data.wasClipMask;
+  // Al salir, reactivamos todos los recortes guardados
+  disabledClipGroups.forEach(g => {
+    if (g && g.parent) {
+      g.clipped = true;
+      if (g.data?.clipGroup) {
+        const mask = g.children.find(c => c.data?.wasClipMask || c.clipMask);
+        if (mask) {
+          mask.clipMask = true;
+          mask.strokeColor = null;
+          mask.dashArray = null;
+          if (mask.data) delete mask.data.wasClipMask;
+        }
+      }
     }
-  }
+  });
+  disabledClipGroups = [];
   
   activeNodeItem = null;
   selectedNodes.clear();
