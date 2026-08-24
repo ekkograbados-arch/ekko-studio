@@ -439,10 +439,10 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 
     let newItem;
     if (isClipped && oldClipGroup) {
-      // Súper corrección: Insertamos cada hoja en un clipGroup individual para ser independiente!
+      // Super correccion: Cada hoja se inserta en un clipGroup INDEPENDIENTE herendando del padre
       newItem = window.clipItem(child);
-      newItem.matrix = oldClipGroup.matrix.clone(); // Heredar posicion/rotacion del clipGroup original
-      child.matrix = relMatrix; // Colocar posicion relativa interna
+      newItem.matrix = oldClipGroup.matrix.clone();
+      child.matrix = relMatrix;
     } else {
       newItem = child;
       newItem.matrix = relMatrix;
@@ -507,16 +507,19 @@ export function ungroupSelectedItem() {
       }
       item.remove();
     }
-    // C. SI ES COMPOUNDPATH: Solo disolvemos el calado interactivo si ya fue previamente desagrupado
+    // C. SI ES COMPOUNDPATH: Desagrupamos en contornos solidos individuales (Release Compound Path)
     else if (activeTarget instanceof paper.CompoundPath) {
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
         if (dissolved && dissolved.length > 0) {
           newItems.push(...dissolved);
         }
+      } else {
+        const separated = separateContours(item, true);
+        if (separated && separated.length > 0) {
+          newItems.push(...separated);
+        }
       }
-      // Nota: Si es un CompoundPath normal, NO hacemos nada.
-      // Quedan perfectamente resguardados con sus transparencias y rellenos intactos.
     }
     
     newItems.reverse().forEach(newItem => {
@@ -703,7 +706,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
     let newOuterItem;
     if (isClipped) {
-      // Súper corrección: Cada subPath separado de un CompoundPath enmascarado se inserta como clipGroup individual!
+      // Super correccion: Cada subPath separado de un CompoundPath enmascarado se inserta como clipGroup individual!
       newOuterItem = window.clipItem(outerClone);
       newOuterItem.matrix = item.matrix.clone(); // Heredar la posicion del clipGroup original
       outerClone.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
