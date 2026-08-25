@@ -117,6 +117,8 @@ export function enterNodeEditMode(item) {
   disableDescendantClips(target);
 
   window.nodeEditMode = true;
+  const btnTopNodes = document.getElementById('proBtnEditNodes');
+  if (btnTopNodes) btnTopNodes.classList.add('active');
   window.nodeEditTarget = activeNodeItem;
   window.isDraggingNode = false;
 
@@ -400,6 +402,8 @@ export function exitNodeEditMode() {
   selectedNodes.clear();
   isDraggingNode = false;
   window.nodeEditMode = false;
+  const btnTopNodes = document.getElementById('proBtnEditNodes');
+  if (btnTopNodes) btnTopNodes.classList.remove('active');
   window.nodeEditTarget = null;
   
   // Limpiar estado de añadir nodo
