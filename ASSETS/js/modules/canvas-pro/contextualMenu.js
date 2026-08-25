@@ -334,7 +334,7 @@ export function groupSelectedItems() {
   });
 
   const newGroup = new paper.Group(contents);
-  newGroup.data = { locked: false, label: \"Grupo\" };
+  newGroup.data = { locked: false, label: "Grupo" };
   let finalItem;
   if (isClipped && typeof window.clipItem === 'function') {
     finalItem = window.clipItem(newGroup);
@@ -1390,10 +1390,10 @@ export function updateContextualMenu(item) {
       const container = document.getElementById('canvasContainer');
       const containerWidth = container ? container.clientWidth : window.innerWidth;
       const containerHeight = container ? container.clientHeight : window.innerHeight;
-      toolbar.style.position = \"absolute\";
+      toolbar.style.position = "absolute";
       toolbar.style.left = Math.max(10, Math.min(x, containerWidth - toolbar.offsetWidth - 10)) + 'px';
       toolbar.style.top = Math.max(10, Math.min(y, containerHeight - toolbar.offsetHeight - 10)) + 'px';
-      toolbar.style.zIndex = \"2147483647\";
+      toolbar.style.zIndex = "2147483647";
     }
   }
   lastSelectedItem = item;
@@ -1413,8 +1413,8 @@ export function hideContextualMenu() {
 }
 
 window.applyPositionCorrections = function() {
-  const toolbar = document.getElementById(\"contextual-toolbar\");
-  const textEditor = document.getElementById(\"ekko-text-editor\");
+  const toolbar = document.getElementById("contextual-toolbar");
+  const textEditor = document.getElementById("ekko-text-editor");
   if (!window.paper || !paper.view || !window.selectedItem) return;
   const item = window.selectedItem;
   const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
@@ -1423,7 +1423,7 @@ window.applyPositionCorrections = function() {
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
 
-  if (toolbar && toolbar.classList.contains(\"active\")) {
+  if (toolbar && toolbar.classList.contains("active")) {
     const toolbarHeight = toolbar.offsetHeight || 45;
     const toolbarWidth = toolbar.offsetWidth || 350;
     const x = viewPos.x - (toolbarWidth / 2);
@@ -1431,24 +1431,24 @@ window.applyPositionCorrections = function() {
     const container = document.getElementById('canvasContainer');
     const containerWidth = container ? container.clientWidth : window.innerWidth;
     const containerHeight = container ? container.clientHeight : window.innerHeight;
-    toolbar.style.position = \"absolute\";
-    toolbar.style.left = Math.max(10, Math.min(containerWidth - toolbarWidth - 10, x)) + \"px\";
-    toolbar.style.top = Math.max(10, Math.min(containerHeight - toolbarHeight - 10, y)) + \"px\";
-    toolbar.style.zIndex = \"2147483646\";
+    toolbar.style.position = "absolute";
+    toolbar.style.left = Math.max(10, Math.min(containerWidth - toolbarWidth - 10, x)) + "px";
+    toolbar.style.top = Math.max(10, Math.min(containerHeight - toolbarHeight - 10, y)) + "px";
+    toolbar.style.zIndex = "2147483646";
   }
 
   if (textEditor) {
     const editorWidth = textEditor.offsetWidth || 150;
     const editorHeight = textEditor.offsetHeight || 40;
-    const canvasEl = document.getElementById(\"editorCanvas\");
+    const canvasEl = document.getElementById("editorCanvas");
     if (canvasEl) {
       const rect = canvasEl.getBoundingClientRect();
       const targetLeft = rect.left + window.scrollX + centerPos.x - (editorWidth / 2);
       const targetTop = rect.top + window.scrollY + centerPos.y - (editorHeight / 2);
-      textEditor.style.left = targetLeft + \"px\";
-      textEditor.style.top = targetTop + \"px\";
-      textEditor.style.position = \"absolute\";
-      textEditor.style.zIndex = \"2147483647\";
+      textEditor.style.left = targetLeft + "px";
+      textEditor.style.top = targetTop + "px";
+      textEditor.style.position = "absolute";
+      textEditor.style.zIndex = "2147483647";
     }
   }
 };
