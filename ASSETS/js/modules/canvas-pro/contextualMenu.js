@@ -1,6 +1,11 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (FINAL CORREGIDO - PRO GRABADO)
-Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
+   Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v16 PRO)
+   Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
+   Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
+   desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
+   en tiempo real, e inyeccion dinamica de familias de fuentes.
+   SOPORTE COMPLETO DE DESAGRUPACION Y AGRUPACION SINCRONICA PARA DISENOS Y SVGS COMPLEX (MATE, AFA, MINNIE).
+   COMPATIBILIDAD INTEGRADA DE BOTONES DE NODOS PARA EVITAR COLISIONES DE ID EN EL ENTORNO STUDIO.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -38,13 +43,13 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
   styleEl.id = dropdownStylesId;
   styleEl.textContent = `
     .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
-    .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; height: 100%; cursor: pointer; font-size: 13px; color: #334155; font-weight: 500; }
-    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; overflow-y: auto; background: white; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); z-index: 10008; }
-    .font-dropdown-list.hidden { display: none; }
-    .custom-font-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; }
-    .custom-font-item:last-child { border-bottom: none; }
-    .custom-font-item:hover, .custom-font-item.active { background: #f1f5f9; }
-    .custom-font-preview { font-size: 18px; color: #0f172a; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; height: 100%; cursor: pointer; font-size: 13px; color: #334155; font-weight: 500; }
+    .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 250px; overflow-y: auto; background: white; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 100000; display: flex; flex-direction: column; }
+    .font-dropdown-list.hidden { display: none !important; }
+    .custom-font-item { display: flex; flex-direction: column; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; }
+    .custom-font-item:hover { background: #f8fafc; }
+    .custom-font-item.active { background: #f0fdf4; color: #16a34a; font-weight: bold; }
+    .custom-font-preview { font-size: 20px; color: #000; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .custom-font-name { font-size: 11px; color: #777; }
   `;
   document.head.appendChild(styleEl);
@@ -68,14 +73,14 @@ function injectFontFaces(fonts) {
   let cssRules = "";
   fonts.forEach(font => {
     cssRules += `
-      @font-face {
-        font-family: "${font.family}";
-        src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
-             url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
-             url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
-        font-display: swap;
-      }
-    `;
+@font-face {
+  font-family: "${font.family}";
+  src: url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("woff2"),
+       url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("truetype"),
+       url("/ASSETS/fonts/${encodeURIComponent(font.file)}") format("opentype");
+  font-display: swap;
+}
+`;
   });
   styleEl.textContent += cssRules;
 }
@@ -114,10 +119,12 @@ function applyFontFamily(item, family) {
     target.fontFamily = family;
   } else if (target.data?.isCurvedGroup) {
     target.data.fontFamily = family;
-    applyTextCurve(target, target.data.curvature);
+    const curvature = target.data.curvature || 0;
+    applyTextCurve(item, curvature);
   } else if (target.data?.isSpacedGroup) {
     target.data.fontFamily = family;
-    applyTextSpacing(target, target.data.hspace);
+    const hspace = target.data.hspace || 0;
+    applyTextSpacing(item, hspace);
   }
   paper.view.update();
 }
@@ -130,19 +137,17 @@ function renderCustomFontItems(listContainer, fonts) {
   fonts.forEach(font => {
     const item = document.createElement('div');
     item.className = 'custom-font-item' + (currentFamily === font.family ? ' active' : '');
-    
     const preview = document.createElement('div');
     preview.className = 'custom-font-preview';
     preview.style.fontFamily = font.family;
     preview.textContent = previewText;
-    
     const name = document.createElement('div');
     name.className = 'custom-font-name';
     name.textContent = font.name;
-    
+
     item.appendChild(preview);
     item.appendChild(name);
-    
+
     item.onmouseenter = () => {
       if (window.selectedItem) {
         applyFontFamily(window.selectedItem, font.family);
@@ -220,7 +225,6 @@ async function populateFontDropdowns() {
 function makeToolbarDraggable() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-
   toolbar.addEventListener('mouseover', (e) => {
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
       toolbar.style.cursor = 'default';
@@ -231,7 +235,6 @@ function makeToolbarDraggable() {
 
   let isDraggingToolbar = false;
   let startX = 0, startY = 0;
-
   toolbar.addEventListener('mousedown', (e) => {
     if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
       return;
@@ -278,44 +281,38 @@ export function groupSelectedItems() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
-
   if (selected.length < 2) {
     alert("Selecciona al menos 2 elementos para poder agruparlos.");
     return;
   }
-
   for (let item of selected) {
-    if (item.data?.locked || item.data?.mockup || item.data?.isMask) {
+    if (item.data?.locked || item.data?.mockup) {
       alert("No se pueden agrupar objetos protegidos.");
       return;
     }
   }
-
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
-
   const parent = selected[0].parent || paper.project.activeLayer;
   const index = parent.children.indexOf(selected[0]);
   const isClipped = selected.some(item => !!item.data?.clipGroup);
   const contents = [];
 
+  // Procesamiento de refundido interactivo de huecos antes de agrupar
   const outersInSelection = selected.filter(item => item.data?.isOuterWithHoles);
   outersInSelection.forEach(outerItem => {
     const holeIds = outerItem.data.holeIds || [];
     const associatedHoles = holeIds
       .map(id => paper.project.getItem({ id }))
       .filter(h => h && selected.includes(h) && h.parent);
-
     associatedHoles.forEach(h => {
       const idx = selected.indexOf(h);
       if (idx > -1) selected.splice(idx, 1);
       h.remove();
     });
-
     const idxOuter = selected.indexOf(outerItem);
     if (idxOuter > -1) selected.splice(idxOuter, 1);
-
     const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
     const rebuiltPath = targetOuter.clone({ insert: false });
     outerItem.remove();
@@ -337,8 +334,7 @@ export function groupSelectedItems() {
   });
 
   const newGroup = new paper.Group(contents);
-  newGroup.data = { locked: false, label: "Grupo" };
-
+  newGroup.data = { locked: false, label: \"Grupo\" };
   let finalItem;
   if (isClipped && typeof window.clipItem === 'function') {
     finalItem = window.clipItem(newGroup);
@@ -346,11 +342,9 @@ export function groupSelectedItems() {
     finalItem = newGroup;
     parent.addChild(finalItem);
   }
-
   if (finalItem.parent) {
     finalItem.parent.insertChild(index, finalItem);
   }
-
   window.deselectItem();
   window.selectItem(finalItem);
   paper.view.update();
@@ -370,6 +364,9 @@ function getMatrixRelativeTo(item, targetAncestor) {
 
 function getGlobalMatrix(item) {
   if (!item) return new paper.Matrix();
+  if (item.data && item.data.globalMatrix) {
+    return item.data.globalMatrix.clone();
+  }
   return getMatrixRelativeTo(item, null);
 }
 
@@ -398,13 +395,11 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
   };
   findLeaves(group);
   group.remove();
-
   const addedItems = [];
   leafItems.forEach(child => {
     const targetAncestor = isClipped ? oldClipGroup : group;
     const relMatrix = getMatrixRelativeTo(child, targetAncestor);
     child.remove();
-
     let newItem;
     if (isClipped && oldClipGroup) {
       newItem = window.clipItem(child);
@@ -423,14 +418,12 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
   return addedItems;
 }
 
-// COMPROBACIÓN DE FONDO TRANSPARENTE DEL ARTBOARD (Sani-Engine)
 function isArtboardBackground(path, parentItem) {
   if (!parentItem) return false;
   const parentBounds = parentItem.bounds;
   const pathBounds = path.bounds;
   const widthRatio = pathBounds.width / parentBounds.width;
   const heightRatio = pathBounds.height / parentBounds.height;
-
   if (widthRatio > 0.95 && heightRatio > 0.95) {
     const hasStroke = path.strokeColor && path.strokeColor.alpha > 0;
     if (!hasStroke || path.strokeWidth === 0) {
@@ -444,41 +437,31 @@ export function ungroupSelectedItem() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
-
   if (selected.length === 0) return;
-
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
-
   const finalNewItems = [];
-
   selected.forEach(item => {
     if (item.data?.locked || item.data?.mockup || item.data?.isMask) return;
     const isClipped = !!item.data?.clipGroup;
     const target = isClipped ? getContentItem(item) : item;
     if (!target) return;
-
     const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
     const parent = item.parent || paper.project.activeLayer;
     const index = parent.children.indexOf(item);
     const newItems = [];
 
-    // A. SI ES UN GRUPO: Desagrupamos un único nivel jerárquico
-    if (activeTarget instanceof paper.Group) {
-      const flatItems = flattenGroupRecursive(activeTarget, parent, index, isClipped, isClipped ? item : null);
-      newItems.push(...flatItems);
-      if (isClipped && item) {
-        item.clipped = false;
-      }
-      item.remove();
+    // A. SI ES GRUPO TRADICIONAL
+    if (activeTarget instanceof paper.Group && !activeTarget.data?.clipGroup) {
+      const flattened = flattenGroupRecursive(activeTarget, parent, index, isClipped, item);
+      newItems.push(...flattened);
     }
-    // B. SI ES TEXTO
+    // B. SI ES TEXTO PARA SEPARAR POR LETRAS
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
       const letters = splitPointTextIntoLetters(activeTarget);
       const textAbsMatrix = getGlobalMatrix(activeTarget);
       activeTarget.remove();
-
       letters.forEach(letter => {
         let newItem;
         if (isClipped) {
@@ -497,16 +480,14 @@ export function ungroupSelectedItem() {
       }
       item.remove();
     }
-    // C. SI ES COMPOUNDPATH: Desagrupación jerárquica progresiva por niveles
+    // C. SI ES COMPOUNDPATH
     else if (activeTarget instanceof paper.CompoundPath) {
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
-        // SEGUNDO CLIC: Ya es una forma aislada con calados, la dividimos en controladores transparentes
-        const separated = separateContours(item, true);
-        if (separated && separated.length > 0) {
-          newItems.push(...separated);
+        const dissolved = dissolveOuterWithHoles(item);
+        if (dissolved && dissolved.length > 0) {
+          newItems.push(...dissolved);
         }
       } else {
-        // PRIMER CLIC: Es la silueta completa del SVG, la dividimos en outers independientes con sus calados integrados
         const separated = separateContoursIntoIndependentShapes(item);
         if (separated && separated.length > 0) {
           newItems.push(...separated);
@@ -521,16 +502,13 @@ export function ungroupSelectedItem() {
   });
 
   window.deselectItem();
-
   setTimeout(() => {
     if (finalNewItems.length > 0) {
       const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
       const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
-      
       window.selectedItems = [...selectList];
       window.selectedItem = selectList[selectList.length - 1];
       selectList.forEach(it => { if (it) it.selected = true; });
-      
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     }
@@ -543,7 +521,6 @@ function splitPointTextIntoLetters(pointText) {
   const text = pointText.content;
   const startPoint = pointText.point;
   let accumX = 0;
-
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
     const singleLetterText = new paper.PointText({
@@ -563,6 +540,7 @@ function splitPointTextIntoLetters(pointText) {
 export function dissolveOuterWithHoles(item) {
   if (!item || !item.data?.isOuterWithHoles) return [];
   const parent = item.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(item);
   const newItems = [];
   const isClipped = !!item.data?.clipGroup;
 
@@ -626,23 +604,19 @@ export function dissolveOuterWithHoles(item) {
   return newItems;
 }
 
-// PRIMER CLIC: SEPARA LAS PIEZAS VECTORIALES CON SUS HUECOS INCORPORADOS COMO COMPOUNDPATHS INDEPENDIENTES
 export function separateContoursIntoIndependentShapes(itemToProcess) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
   const target = isClipped ? getContentItem(item) : item;
   if (!target || !(target instanceof paper.CompoundPath)) return [];
-
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
-
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const newItems = [];
 
-  // Purga de Artboard
   const subPaths = [...target.children].filter(p => {
     if (isArtboardBackground(p, target)) {
       p.remove();
@@ -653,7 +627,6 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
 
   const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
   const pathAbsMatrix = getGlobalMatrix(target);
-
   const originalFillColor = target.fillColor;
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
@@ -661,7 +634,6 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   const outers = [];
   const holesMap = new Map();
 
-  // Nesting Analysis
   const pathNesting = [];
   subPaths.forEach(p => {
     const containers = [];
@@ -712,22 +684,18 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   });
 
   const outersToSelect = [];
-
   outers.forEach(outerPath => {
     const associatedHoles = holesMap.get(outerPath) || [];
     let shapeToInsert;
-
     if (associatedHoles.length > 0) {
       const childrenClones = [];
       const outerClone = outerPath.clone({ insert: false });
       outerClone.data = { isOuterWithHoles: true };
       childrenClones.push(outerClone);
-
       associatedHoles.forEach(h => {
         const hClone = h.clone({ insert: false });
         childrenClones.push(hClone);
       });
-
       const compound = new paper.CompoundPath({
         children: childrenClones,
         insert: false
@@ -735,14 +703,12 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
       compound.fillColor = originalFillColor || '#000000';
       compound.strokeColor = originalStrokeColor || '#000000';
       compound.strokeWidth = originalStrokeWidth || 1;
-      
       shapeToInsert = compound;
     } else {
       const pathClone = outerPath.clone({ insert: false });
       pathClone.fillColor = originalFillColor || '#000000';
       pathClone.strokeColor = originalStrokeColor || '#000000';
       pathClone.strokeWidth = originalStrokeWidth || 1;
-      
       shapeToInsert = pathClone;
     }
 
@@ -756,13 +722,11 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
       newItem.matrix = pathAbsMatrix.clone().chain(shapeToInsert.matrix);
       parent.addChild(newItem);
     }
-
     newItem.data = {
       ...(newItem.data || {}),
       isOuterWithHoles: associatedHoles.length > 0,
       label: item.data?.label || "Objeto"
     };
-
     newItems.push(newItem);
     outersToSelect.push(newItem);
   });
@@ -771,44 +735,36 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     item.clipped = false;
   }
   item.remove();
-
   if (!isClipped) {
     newItems.reverse().forEach(newItem => {
       parent.insertChild(index, newItem);
     });
   }
-
   return newItems;
 }
 
-// SEGUNDO CLIC: SEPARA EL CONTORNO SÓLIDO DE SUS HUECOS COMO CONTROLADORES TRANSPARENTES
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
   const target = isClipped ? getContentItem(item) : item;
   if (!target || !(target instanceof paper.CompoundPath)) return [];
-
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
-
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const newItems = [];
   const subPaths = [...target.children];
-
   const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
   const pathAbsMatrix = getGlobalMatrix(target);
-
   const originalFillColor = target.fillColor;
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
-
   const outers = [];
   const holesMap = new Map();
-
   const pathNesting = [];
+
   subPaths.forEach(p => {
     const containers = [];
     subPaths.forEach(other => {
@@ -847,7 +803,6 @@ export function separateContours(itemToProcess, skipSelection = false) {
   });
 
   const outersToSelect = [];
-
   outers.forEach(outerPath => {
     const outerClone = outerPath.clone({ insert: false });
     outerClone.fillColor = originalFillColor || new paper.Color(255, 255, 255, 0.01);
@@ -873,19 +828,12 @@ export function separateContours(itemToProcess, skipSelection = false) {
       label: item.data?.label || "Objeto"
     };
 
-    outerClone.data = {
-      ...(outerClone.data || {}),
-      isOuterWithHoles: true
-    };
-
-    newItems.push(newOuterItem);
-    outersToSelect.push(newOuterItem);
-
     const associatedHoles = holesMap.get(outerPath) || [];
-    associatedHoles.forEach(holePath => {
-      const holeClone = holePath.clone({ insert: false });
+    associatedHoles.forEach(hPath => {
+      const holeClone = hPath.clone({ insert: false });
       holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
-      holeClone.strokeColor = new paper.Color(0, 0, 0, 0);
+      holeClone.strokeColor = originalStrokeColor || '#000000';
+      holeClone.strokeWidth = originalStrokeWidth || 1;
 
       let newHoleItem;
       if (isClipped) {
@@ -905,7 +853,6 @@ export function separateContours(itemToProcess, skipSelection = false) {
         lastHash: "",
         label: "Hueco"
       };
-
       newOuterItem.data.holeIds.push(newHoleItem.id);
       newItems.push(newHoleItem);
     });
@@ -928,16 +875,26 @@ export function separateContours(itemToProcess, skipSelection = false) {
     item.clipped = false;
   }
   item.remove();
-
   if (skipSelection) {
     return newItems;
   }
-
   if (!isClipped) {
     newItems.reverse().forEach(newItem => {
       parent.insertChild(index, newItem);
     });
   }
+
+  window.deselectItem();
+  setTimeout(() => {
+    if (outersToSelect.length > 0) {
+      window.selectedItems = [...outersToSelect];
+      window.selectedItem = outersToSelect[outersToSelect.length - 1];
+      outersToSelect.forEach(it => { if (it) it.selected = true; });
+      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+    }
+    paper.view.update();
+  }, 50);
 
   return newItems;
 }
@@ -946,16 +903,14 @@ export function updateOuterPathGeometry(outerItem) {
   if (!outerItem || !outerItem.data?.originalPath) return outerItem;
   const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
   if (!targetOuter) return outerItem;
-
   let resultOuter = outerItem;
   const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
   const outerGlobalMatrix = getGlobalMatrix(targetOuter);
   solidGlobal.matrix = outerGlobalMatrix;
   solidGlobal.applyMatrix = true;
-
   const holeIds = outerItem.data.holeIds || [];
-  let combined = solidGlobal;
 
+  let combined = solidGlobal;
   holeIds.forEach(id => {
     const hole = paper.project.getItem({ id });
     if (hole && hole.parent) {
@@ -969,7 +924,7 @@ export function updateOuterPathGeometry(outerItem) {
         try {
           temp = combined.subtract(holeGlobal);
         } catch (e) {
-          console.error("Fallo booleano al restar un hueco en updateOuterPathGeometry:", e);
+          console.error("Fallo substraction en updateOuterPathGeometry:", e);
         }
         if (temp) {
           combined.remove();
@@ -980,51 +935,63 @@ export function updateOuterPathGeometry(outerItem) {
     }
   });
 
-  const localCombined = combined.clone({ insert: false });
-  if (!outerGlobalMatrix.isIdentity()) {
-    try {
-      localCombined.matrix = outerGlobalMatrix.inverted();
-      localCombined.applyMatrix = true;
-    } catch (err) {
-      console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
-    }
-  }
-
-  const parent = targetOuter.parent;
-  if (parent && localCombined) {
-    const idx = parent.children.indexOf(targetOuter);
-    if (idx !== -1) {
-      const newPath = localCombined.clone({ insert: false });
-      newPath.fillColor = targetOuter.fillColor;
-      newPath.strokeColor = targetOuter.strokeColor;
-      newPath.strokeWidth = targetOuter.strokeWidth;
-      newPath.matrix = targetOuter.matrix.clone();
-      newPath.data = { ...(targetOuter.data || {}) };
-      parent.insertChild(idx, newPath);
-      resultOuter = newPath;
-
-      if (targetOuter === outerItem) {
-        if (window.selectedItem === outerItem) {
-          window.selectedItem = newPath;
-        }
-        if (window.selectedItems) {
-          const sIdx = window.selectedItems.indexOf(outerItem);
-          if (sIdx !== -1) window.selectedItems[sIdx] = newPath;
-        }
-        window.ekkoOuters.delete(outerItem.id);
-        window.ekkoOuters.set(newPath.id, newPath);
+  if (combined) {
+    let localCombined = combined.clone({ insert: false });
+    if (outerItem.data.clipGroup) {
+      try {
+        const inv = outerItem.matrix.inverted();
+        localCombined.matrix = inv;
+        localCombined.applyMatrix = true;
+      } catch (err) {
+        console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
       }
-
-      holeIds.forEach(id => {
-        const hole = paper.project.getItem({ id });
-        if (hole && hole.data) hole.data.outerItemId = newPath.id;
-      });
+    } else {
+      try {
+        const inv = outerGlobalMatrix.inverted();
+        localCombined.matrix = inv;
+        localCombined.applyMatrix = true;
+      } catch (err) {
+        console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
+      }
     }
-    targetOuter.remove();
+
+    const parent = targetOuter.parent;
+    if (parent && localCombined) {
+      const idx = parent.children.indexOf(targetOuter);
+      if (idx !== -1) {
+        const newPath = localCombined.clone({ insert: false });
+        newPath.fillColor = targetOuter.fillColor;
+        newPath.strokeColor = targetOuter.strokeColor;
+        newPath.strokeWidth = targetOuter.strokeWidth;
+        newPath.matrix = targetOuter.matrix.clone();
+        newPath.data = { ...(targetOuter.data || {}) };
+        parent.insertChild(idx, newPath);
+        resultOuter = newPath;
+
+        if (targetOuter === outerItem) {
+          if (window.selectedItem === outerItem) {
+            window.selectedItem = newPath;
+          }
+          if (window.selectedItems) {
+            const sIdx = window.selectedItems.indexOf(outerItem);
+            if (sIdx !== -1) window.selectedItems[sIdx] = newPath;
+          }
+          window.ekkoOuters.delete(outerItem.id);
+          window.ekkoOuters.set(newPath.id, newPath);
+        }
+
+        holeIds.forEach(id => {
+          const hole = paper.project.getItem({ id });
+          if (hole && hole.data) hole.data.outerItemId = newPath.id;
+        });
+      }
+      targetOuter.remove();
+    }
+    if (localCombined) localCombined.remove();
   }
 
+  if (solidGlobal) solidGlobal.remove();
   if (combined) combined.remove();
-  if (localCombined) localCombined.remove();
   paper.view.update();
   return resultOuter;
 }
@@ -1065,7 +1032,6 @@ if (typeof window !== 'undefined') {
       window.selectionBoxGroup = null;
     }
     if (window.nodeEditMode) return;
-
     const primaryItem = item || window.selectedItem;
     if (!primaryItem) return;
 
@@ -1090,9 +1056,7 @@ if (typeof window !== 'undefined') {
 
     let bounds = null;
     selected.forEach(function(it) {
-      const displayItem = (it.data && it.data.clipGroup)
-        ? getContentItem(it)
-        : it;
+      const displayItem = (it.data && it.data.clipGroup) ? getContentItem(it) : it;
       if (!displayItem) return;
       if (!bounds) {
         bounds = displayItem.bounds.clone();
@@ -1108,9 +1072,7 @@ if (typeof window !== 'undefined') {
 
     if (selected.length > 1) {
       selected.forEach(function(it) {
-        const displayItem = (it.data && it.data.clipGroup)
-          ? getContentItem(it)
-          : it;
+        const displayItem = (it.data && it.data.clipGroup) ? getContentItem(it) : it;
         if (displayItem && displayItem.bounds) {
           const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
           singleBorder.strokeColor = '#007bff';
@@ -1123,7 +1085,6 @@ if (typeof window !== 'undefined') {
 
     const isRotSnapped = window.isRotationSnapped && window.rotationActive;
     const mainColor = isRotSnapped ? '#28a745' : '#007bff';
-
     const border = new paper.Path.Rectangle(bounds);
     border.strokeColor = mainColor;
     border.strokeWidth = 1.5 / paper.view.zoom;
@@ -1190,7 +1151,6 @@ if (typeof window !== 'undefined') {
     window.selectionBoxGroup.addChild(arrowTip);
 
     window.selectionBoxGroup.bringToFront();
-
     if (typeof window.applyPositionCorrections === "function") {
       window.applyPositionCorrections();
     }
@@ -1211,12 +1171,10 @@ if (typeof window !== 'undefined') {
 export function initContextualMenu() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-  
   const container = document.getElementById('canvasContainer');
   if (container && toolbar.parentNode !== container) {
     container.appendChild(toolbar);
   }
-
   removeOverlapTab();
   populateFontDropdowns();
   makeToolbarDraggable();
@@ -1232,37 +1190,30 @@ export function initContextualMenu() {
       hideContextualMenu();
     }
   });
-
   setClick('btnCtxDuplicate', () => {
     if (window.selectedItem) {
       duplicateImage(window.selectedItem);
     }
   });
-
   setClick('btnCtxForward', () => {
     if (window.selectedItem) {
       bringImageForward(window.selectedItem);
     }
   });
-
   setClick('btnCtxBackward', () => {
     if (window.selectedItem) {
       sendImageBackward(window.selectedItem);
     }
   });
-
   setClick('btnCtxBold', () => {
     if (window.selectedItem) toggleBold(window.selectedItem);
   });
-
   setClick('btnCtxItalic', () => {
     if (window.selectedItem) toggleItalic(window.selectedItem);
   });
-
   setClick('btnCtxUnderline', () => {
     if (window.selectedItem) toggleUnderline(window.selectedItem);
   });
-
   setClick('btnCtxWeld', () => {
     if (window.selectedItem) weldText(window.selectedItem);
   });
@@ -1291,8 +1242,12 @@ export function initContextualMenu() {
   setClick('btnCtxAgrupar', () => groupSelectedItems());
   setClick('btnCtxUngroup', () => ungroupSelectedItem());
   setClick('btnCtxDesagrupar', () => ungroupSelectedItem());
-
+  
+  // Soporte dual de IDs para activar edición de nodos (Ilustrator Style)
   setClick('btnCtxEditNodes', () => {
+    if (window.selectedItem) enterNodeEditMode(window.selectedItem);
+  });
+  setClick('btnCtxNodeEdit', () => {
     if (window.selectedItem) enterNodeEditMode(window.selectedItem);
   });
 
@@ -1324,16 +1279,13 @@ export function initContextualMenu() {
 export function updateContextualMenu(item) {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-
   removeOverlapTab();
-
   if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
     toolbar.classList.remove('active');
     toolbarDragged = false;
     lastSelectedItem = null;
     return;
   }
-
   toolbar.classList.add('active');
 
   const hideSubgroup = (id) => {
@@ -1354,11 +1306,12 @@ export function updateContextualMenu(item) {
       const tgt = it.data?.clipGroup ? getContentItem(it) : it;
       return tgt && (tgt instanceof paper.Path || tgt instanceof paper.CompoundPath || tgt instanceof paper.Group || tgt instanceof paper.PointText);
     });
+
     if (allVectors) {
       const vecCtrl = document.getElementById('ctxVectorControls');
       if (vecCtrl) {
         vecCtrl.classList.remove('hidden');
-        const btnEditNodes = document.getElementById('btnCtxEditNodes');
+        const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
         if (btnEditNodes) btnEditNodes.style.display = 'none';
         const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
         if (btnGroup) {
@@ -1403,7 +1356,7 @@ export function updateContextualMenu(item) {
     const vecCtrl = document.getElementById('ctxVectorControls');
     if (vecCtrl) {
       vecCtrl.classList.remove('hidden');
-      const btnEditNodes = document.getElementById('btnCtxEditNodes');
+      const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
       if (btnEditNodes) {
         const canEdit = !(target instanceof paper.Group);
         btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
@@ -1430,20 +1383,17 @@ export function updateContextualMenu(item) {
     if (!bounds) return;
     const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
     const targetBounds = displayItem ? displayItem.bounds : bounds;
-    
     if (targetBounds && window.paper && paper.view) {
       const viewPos = paper.view.projectToView(targetBounds.topCenter);
       const x = viewPos.x - (toolbar.offsetWidth / 2);
       const y = viewPos.y - toolbar.offsetHeight - 15;
-      
       const container = document.getElementById('canvasContainer');
       const containerWidth = container ? container.clientWidth : window.innerWidth;
       const containerHeight = container ? container.clientHeight : window.innerHeight;
-
-      toolbar.style.position = "absolute";
+      toolbar.style.position = \"absolute\";
       toolbar.style.left = Math.max(10, Math.min(x, containerWidth - toolbar.offsetWidth - 10)) + 'px';
       toolbar.style.top = Math.max(10, Math.min(y, containerHeight - toolbar.offsetHeight - 10)) + 'px';
-      toolbar.style.zIndex = "2147483647";
+      toolbar.style.zIndex = \"2147483647\";
     }
   }
   lastSelectedItem = item;
@@ -1463,47 +1413,42 @@ export function hideContextualMenu() {
 }
 
 window.applyPositionCorrections = function() {
-  const toolbar = document.getElementById("contextual-toolbar");
-  const textEditor = document.getElementById("ekko-text-editor");
+  const toolbar = document.getElementById(\"contextual-toolbar\");
+  const textEditor = document.getElementById(\"ekko-text-editor\");
   if (!window.paper || !paper.view || !window.selectedItem) return;
-
   const item = window.selectedItem;
   const displayItem = item.data?.clipGroup ? getContentItem(item) : item;
   if (!displayItem) return;
-
   const bounds = displayItem.bounds;
   const viewPos = paper.view.projectToView(bounds.topCenter);
   const centerPos = paper.view.projectToView(bounds.center);
 
-  if (toolbar && toolbar.classList.contains("active")) {
+  if (toolbar && toolbar.classList.contains(\"active\")) {
     const toolbarHeight = toolbar.offsetHeight || 45;
     const toolbarWidth = toolbar.offsetWidth || 350;
-    
     const x = viewPos.x - (toolbarWidth / 2);
     const y = viewPos.y - toolbarHeight - 15;
-    
     const container = document.getElementById('canvasContainer');
     const containerWidth = container ? container.clientWidth : window.innerWidth;
     const containerHeight = container ? container.clientHeight : window.innerHeight;
-
-    toolbar.style.position = "absolute";
-    toolbar.style.left = Math.max(10, Math.min(containerWidth - toolbarWidth - 10, x)) + "px";
-    toolbar.style.top = Math.max(10, Math.min(containerHeight - toolbarHeight - 10, y)) + "px";
-    toolbar.style.zIndex = "2147483646";
+    toolbar.style.position = \"absolute\";
+    toolbar.style.left = Math.max(10, Math.min(containerWidth - toolbarWidth - 10, x)) + \"px\";
+    toolbar.style.top = Math.max(10, Math.min(containerHeight - toolbarHeight - 10, y)) + \"px\";
+    toolbar.style.zIndex = \"2147483646\";
   }
 
   if (textEditor) {
     const editorWidth = textEditor.offsetWidth || 150;
     const editorHeight = textEditor.offsetHeight || 40;
-    const canvasEl = document.getElementById("editorCanvas");
+    const canvasEl = document.getElementById(\"editorCanvas\");
     if (canvasEl) {
       const rect = canvasEl.getBoundingClientRect();
       const targetLeft = rect.left + window.scrollX + centerPos.x - (editorWidth / 2);
       const targetTop = rect.top + window.scrollY + centerPos.y - (editorHeight / 2);
-      textEditor.style.left = targetLeft + "px";
-      textEditor.style.top = targetTop + "px";
-      textEditor.style.position = "absolute";
-      textEditor.style.zIndex = "2147483647";
+      textEditor.style.left = targetLeft + \"px\";
+      textEditor.style.top = targetTop + \"px\";
+      textEditor.style.position = \"absolute\";
+      textEditor.style.zIndex = \"2147483647\";
     }
   }
 };
