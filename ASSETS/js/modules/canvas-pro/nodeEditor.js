@@ -35,7 +35,7 @@ let nodeEditTool = null;
 let previousTool = null;
 let disabledClipGroups = [];
 let isAddNodeActive = false; // Modo adición de nodos en caliente
-let clickedOutside = false; // Click outside detection
+
 
 // Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
@@ -200,7 +200,7 @@ export function enterNodeEditMode(item) {
           // Iniciar arrastre interactivo de inmediato
           isDraggingNode = true;
           window.isDraggingNode = true;
-          clickedOutside = false; // Reset clickedOutside on successful add
+          
           paper.view.update();
           return;
         }
@@ -217,7 +217,6 @@ export function enterNodeEditMode(item) {
     });
 
     if (hitResult) {
-      clickedOutside = false;
       const handleItem = hitResult.item;
 
       const ptIdx = handleItem.data.globalIdx;
@@ -244,22 +243,7 @@ export function enterNodeEditMode(item) {
     }
 
 
-    // 2. Si no tocamos ningun tirador, comprobamos si tocamos la figura en sí
-    const hitPath = paper.project.hitTest(event.point, {
-      fill: true,
-      stroke: true,
-      tolerance: 8 / paper.view.zoom,
-      match: (hit) => {
-        const targetPaths = getTargetPaths(activeNodeItem);
-        return targetPaths.some(p => p.id === hit.item.id);
-      }
-    });
 
-    if (!hitPath) {
-      clickedOutside = true;
-    } else {
-      clickedOutside = false;
-    }
 
     dragStartPoint = event.point.clone();
     if (!event.modifiers.shift) {
@@ -348,11 +332,6 @@ export function enterNodeEditMode(item) {
 
 
   nodeEditTool.onMouseUp = (event) => {
-    if (clickedOutside && dragStartPoint && event.point.getDistance(dragStartPoint) < 4) {
-      clickedOutside = false;
-      exitNodeEditMode();
-      return;
-    }
 
     if (isDraggingNode) {
       isDraggingNode = false;
