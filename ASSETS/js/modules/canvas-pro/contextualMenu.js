@@ -503,13 +503,15 @@ export function ungroupSelectedItem() {
   window.deselectItem();
   setTimeout(() => {
     if (finalNewItems.length > 0) {
-      // UX Pro: Select only the first split item so the user immediately sees the visual separation
-      const firstItem = finalNewItems[0];
-      window.selectedItems = [firstItem];
-      window.selectedItem = firstItem;
-      firstItem.selected = true;
-      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(firstItem);
-      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(firstItem);
+      // Select all newly created outer elements so the user sees everything ungrouped but still highlighted
+      const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
+      if (outersToSelect.length > 0) {
+        window.selectedItems = [...outersToSelect];
+        window.selectedItem = outersToSelect[outersToSelect.length - 1];
+        outersToSelect.forEach(it => { if (it) it.selected = true; });
+        if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+        if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+      }
     }
     paper.view.update();
   }, 50);
@@ -655,7 +657,10 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
-  const target = isClipped ? getContentItem(item) : item;
+  let target = isClipped ? getContentItem(item) : item;
+  if (target instanceof paper.Group) {
+    target = getActiveGroupTarget(target);
+  }
   if (!target || !(target instanceof paper.CompoundPath)) return [];
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
@@ -788,11 +793,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     item.clipped = false;
   }
   item.remove();
-  if (!isClipped) {
-    newItems.reverse().forEach(newItem => {
-      parent.insertChild(index, newItem);
-    });
-  }
+  // Removed redundant insertChild to let ungroupSelectedItem handle indexing and prevent stacking inversion
   return newItems;
 }
 
@@ -800,7 +801,10 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
-  const target = isClipped ? getContentItem(item) : item;
+  let target = isClipped ? getContentItem(item) : item;
+  if (target instanceof paper.Group) {
+    target = getActiveGroupTarget(target);
+  }
   if (!target || !(target instanceof paper.CompoundPath)) return [];
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
@@ -931,12 +935,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
   if (skipSelection) {
     return newItems;
   }
-  if (!isClipped) {
-    newItems.reverse().forEach(newItem => {
-      parent.insertChild(index, newItem);
-    });
-  }
-
+  // Removed redundant insertChild to let ungroupSelectedItem handle indexing and prevent stacking inversion
   window.deselectItem();
   setTimeout(() => {
     if (outersToSelect.length > 0) {
