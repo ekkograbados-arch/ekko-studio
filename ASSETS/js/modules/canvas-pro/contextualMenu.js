@@ -441,19 +441,11 @@ export function ungroupSelectedItem() {
     // A. SI ES GRUPO TRADICIONAL
     if (activeTarget instanceof paper.Group && !activeTarget.data?.clipGroup) {
       const flattened = flattenGroupRecursive(activeTarget, parent, index, isClipped, item);
-      flattened.forEach(leaf => {
-        const leafTarget = getContentItem(leaf);
-        if (leafTarget instanceof paper.CompoundPath && !leaf.data?.isOuterWithHoles && !leafTarget.data?.isOuterWithHoles) {
-          const separated = separateContoursIntoIndependentShapes(leaf);
-          if (separated && separated.length > 0) {
-            newItems.push(...separated);
-          } else {
-            newItems.push(leaf);
-          }
-        } else {
-          newItems.push(leaf);
-        }
-      });
+      newItems.push(...flattened);
+      if (isClipped && item) {
+        item.clipped = false;
+      }
+      item.remove();
     }
     // B. SI ES TEXTO PARA SEPARAR POR LETRAS
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
@@ -1449,9 +1441,8 @@ export function initContextualMenu() {
   installHoleDragAndImageClipHook();
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-  const container = document.getElementById('canvasContainer');
-  if (container && toolbar.parentNode !== container) {
-    container.appendChild(toolbar);
+  if (toolbar.parentNode !== document.body) {
+    document.body.appendChild(toolbar);
   }
   removeOverlapTab();
   populateFontDropdowns();
@@ -1661,15 +1652,16 @@ export function updateContextualMenu(item) {
     const targetBounds = displayItem ? displayItem.bounds : bounds;
     if (targetBounds && window.paper && paper.view) {
       const viewPos = paper.view.projectToView(targetBounds.topCenter);
-      const x = viewPos.x - (toolbar.offsetWidth / 2);
-      const y = viewPos.y - toolbar.offsetHeight - 15;
-      const container = document.getElementById('canvasContainer');
-      const containerWidth = container ? container.clientWidth : window.innerWidth;
-      const containerHeight = container ? container.clientHeight : window.innerHeight;
-      toolbar.style.position = "absolute";
-      toolbar.style.left = Math.max(10, Math.min(x, containerWidth - toolbar.offsetWidth - 10)) + 'px';
-      toolbar.style.top = Math.max(10, Math.min(y, containerHeight - toolbar.offsetHeight - 10)) + 'px';
-      toolbar.style.zIndex = "2147483647";
+      const canvasEl = document.getElementById('editorCanvas');
+      if (canvasEl) {
+        const rect = canvasEl.getBoundingClientRect();
+        const x = rect.left + window.scrollX + viewPos.x - (toolbar.offsetWidth / 2);
+        const y = rect.top + window.scrollY + viewPos.y - toolbar.offsetHeight - 15;
+        toolbar.style.position = "absolute";
+        toolbar.style.left = Math.max(10, x) + 'px';
+        toolbar.style.top = Math.max(10, y) + 'px';
+        toolbar.style.zIndex = "2147483647";
+      }
     }
   }
   lastSelectedItem = item;
@@ -1702,15 +1694,16 @@ window.applyPositionCorrections = function() {
   if (toolbar && toolbar.classList.contains("active")) {
     const toolbarHeight = toolbar.offsetHeight || 45;
     const toolbarWidth = toolbar.offsetWidth || 350;
-    const x = viewPos.x - (toolbarWidth / 2);
-    const y = viewPos.y - toolbarHeight - 15;
-    const container = document.getElementById('canvasContainer');
-    const containerWidth = container ? container.clientWidth : window.innerWidth;
-    const containerHeight = container ? container.clientHeight : window.innerHeight;
-    toolbar.style.position = "absolute";
-    toolbar.style.left = Math.max(10, Math.min(containerWidth - toolbarWidth - 10, x)) + "px";
-    toolbar.style.top = Math.max(10, Math.min(containerHeight - toolbarHeight - 10, y)) + "px";
-    toolbar.style.zIndex = "2147483646";
+    const canvasEl = document.getElementById("editorCanvas");
+    if (canvasEl) {
+      const rect = canvasEl.getBoundingClientRect();
+      const x = rect.left + window.scrollX + viewPos.x - (toolbarWidth / 2);
+      const y = rect.top + window.scrollY + viewPos.y - toolbarHeight - 15;
+      toolbar.style.position = "absolute";
+      toolbar.style.left = Math.max(10, x) + "px";
+      toolbar.style.top = Math.max(10, y) + "px";
+      toolbar.style.zIndex = "2147483646";
+    }
   }
 
   if (textEditor) {
