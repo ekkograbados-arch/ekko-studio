@@ -420,6 +420,39 @@ function isArtboardBackground(path, parentItem) {
   return false;
 }
 
+
+function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
+  const children = [...group.children];
+  const addedItems = [];
+  children.forEach(child => {
+    const targetAncestor = isClipped ? oldClipGroup : group;
+    const relMatrix = getMatrixRelativeTo(child, targetAncestor);
+    const globalMatrix = getGlobalMatrix(child);
+    child.remove();
+    let newItem;
+    if (isClipped && oldClipGroup) {
+      newItem = window.clipItem(child);
+      if (newItem === child) {
+        newItem.matrix = globalMatrix;
+      } else {
+        newItem.matrix = oldClipGroup.matrix.clone();
+        child.matrix = relMatrix;
+      }
+    } else {
+      newItem = child;
+      newItem.matrix = globalMatrix;
+      parent.addChild(newItem);
+    }
+    if (newItem.data) {
+      delete newItem.data.globalMatrix;
+    }
+    addedItems.push(newItem);
+  });
+  group.remove();
+  return addedItems;
+}
+
+
 export function ungroupSelectedItem() {
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
@@ -441,7 +474,7 @@ export function ungroupSelectedItem() {
 
     // A. SI ES GRUPO TRADICIONAL
     if (activeTarget instanceof paper.Group && !activeTarget.data?.clipGroup) {
-      const flattened = flattenGroupRecursive(activeTarget, parent, index, isClipped, item);
+      const flattened = ungroupGroupOneLevel(activeTarget, parent, index, isClipped, item);
       newItems.push(...flattened);
       if (isClipped && item) {
         item.clipped = false;
@@ -455,13 +488,18 @@ export function ungroupSelectedItem() {
       activeTarget.remove();
       letters.forEach(letter => {
         let newItem;
+        const letterGlobalMatrix = textAbsMatrix.clone().chain(letter.matrix);
         if (isClipped) {
           newItem = window.clipItem(letter);
-          newItem.matrix = item.matrix.clone();
-          letter.matrix = textAbsMatrix.clone().chain(letter.matrix);
+          if (newItem === letter) {
+            newItem.matrix = letterGlobalMatrix;
+          } else {
+            newItem.matrix = item.matrix.clone();
+            letter.matrix = getMatrixRelativeTo(letter, activeTarget).clone();
+          }
         } else {
           newItem = letter;
-          newItem.matrix = textAbsMatrix.clone().chain(letter.matrix);
+          newItem.matrix = letterGlobalMatrix;
           parent.addChild(newItem);
         }
         newItems.push(newItem);
@@ -531,7 +569,6 @@ export function ungroupSelectedItem() {
   window.deselectItem();
   setTimeout(() => {
     if (finalNewItems.length > 0) {
-      // Select all newly created outer elements so the user sees everything ungrouped but still highlighted
       const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
       const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
       window.selectedItems = [...selectList];
@@ -680,6 +717,7 @@ export function dissolveOuterWithHoles(item) {
   return newItems;
 }
 
+
 export function ungroupHoleController(item) {
   if (!item || !item.data?.isHoleController) return [];
   const isClipped = !!item.data?.clipGroup;
@@ -714,8 +752,12 @@ export function ungroupHoleController(item) {
     let newHoleItem;
     if (isClipped) {
       newHoleItem = window.clipItem(subClone);
-      newHoleItem.matrix = item.matrix.clone();
-      subClone.matrix = pathRelMatrix.clone().chain(subClone.matrix);
+      if (newHoleItem === subClone) {
+        newHoleItem.matrix = pathAbsMatrix.clone().chain(subClone.matrix);
+      } else {
+        newHoleItem.matrix = item.matrix.clone();
+        subClone.matrix = pathRelMatrix.clone().chain(subClone.matrix);
+      }
     } else {
       newHoleItem = subClone;
       newHoleItem.matrix = pathAbsMatrix.clone().chain(subClone.matrix);
@@ -756,6 +798,7 @@ export function ungroupHoleController(item) {
   item.remove();
   return newItems;
 }
+
 
 export function separateContoursIntoIndependentShapes(itemToProcess) {
   const item = itemToProcess || window.selectedItem;
@@ -875,8 +918,12 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     let newItem;
     if (isClipped) {
       newItem = window.clipItem(shapeToInsert);
-      newItem.matrix = item.matrix.clone();
-      shapeToInsert.matrix = pathRelMatrix.clone().chain(shapeToInsert.matrix);
+      if (newItem === shapeToInsert) {
+        newItem.matrix = pathAbsMatrix.clone().chain(shapeToInsert.matrix);
+      } else {
+        newItem.matrix = item.matrix.clone();
+        shapeToInsert.matrix = pathRelMatrix.clone().chain(shapeToInsert.matrix);
+      }
     } else {
       newItem = shapeToInsert;
       newItem.matrix = pathAbsMatrix.clone().chain(shapeToInsert.matrix);
@@ -896,6 +943,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   item.remove();
   return newItems;
 }
+
 
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
@@ -918,10 +966,8 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const originalFillColor = target.fillColor;
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
-  const outers = [];
-  const holesMap = new Map();
-  const pathNesting = [];
 
+  const pathNesting = [];
   subPaths.forEach(p => {
     const containers = [];
     subPaths.forEach(other => {
@@ -936,26 +982,51 @@ export function separateContours(itemToProcess, skipSelection = false) {
     pathNesting.push({ path: p, containers: containers });
   });
 
+  const outers = [];
+  const level1Holes = [];
+  const level2OuterLoops = [];
+
   pathNesting.forEach(entry => {
     const p = entry.path;
     const containers = entry.containers;
-    if (containers.length % 2 === 0) {
+    if (containers.length === 0) {
       outers.push(p);
-      if (!holesMap.has(p)) holesMap.set(p, []);
+    } else if (containers.length === 1) {
+      level1Holes.push(p);
     } else {
-      let immediateContainer = null;
-      let minArea = Infinity;
-      containers.forEach(c => {
+      level2OuterLoops.push(entry);
+    }
+  });
+
+  if (outers.length === 0 && subPaths.length > 0) {
+    subPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+    outers.push(subPaths[0]);
+    for (let i = 1; i < subPaths.length; i++) {
+      level1Holes.push(subPaths[i]);
+    }
+  }
+
+  const holeChildrenMap = new Map();
+  level1Holes.forEach(h => holeChildrenMap.set(h, []));
+
+  level2OuterLoops.forEach(entry => {
+    const p = entry.path;
+    const containers = entry.containers;
+    let immediateHole = null;
+    let minArea = Infinity;
+    containers.forEach(c => {
+      if (level1Holes.includes(c)) {
         const cArea = Math.abs(c.area) || c.bounds.area;
         if (cArea < minArea) {
           minArea = cArea;
-          immediateContainer = c;
+          immediateHole = c;
         }
-      });
-      if (immediateContainer) {
-        if (!holesMap.has(immediateContainer)) holesMap.set(immediateContainer, []);
-        holesMap.get(immediateContainer).push(p);
       }
+    });
+    if (immediateHole) {
+      holeChildrenMap.get(immediateHole).push(p);
+    } else {
+      outers.push(p);
     }
   });
 
@@ -969,8 +1040,12 @@ export function separateContours(itemToProcess, skipSelection = false) {
     let newOuterItem;
     if (isClipped) {
       newOuterItem = window.clipItem(outerClone);
-      newOuterItem.matrix = item.matrix.clone();
-      outerClone.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
+      if (newOuterItem === outerClone) {
+        newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
+      } else {
+        newOuterItem.matrix = item.matrix.clone();
+        outerClone.matrix = pathRelMatrix.clone().chain(outerClone.matrix);
+      }
     } else {
       newOuterItem = outerClone;
       newOuterItem.matrix = pathAbsMatrix.clone().chain(outerClone.matrix);
@@ -985,21 +1060,52 @@ export function separateContours(itemToProcess, skipSelection = false) {
       label: item.data?.label || "Objeto"
     };
 
-    const associatedHoles = holesMap.get(outerPath) || [];
-    associatedHoles.forEach(hPath => {
-      const holeClone = hPath.clone({ insert: false });
-      holeClone.fillColor = new paper.Color(255, 255, 255, 0.01);
-      holeClone.strokeColor = originalStrokeColor || '#000000';
-      holeClone.strokeWidth = originalStrokeWidth || 1;
+    level1Holes.forEach(hPath => {
+      if (!outerPath.bounds.contains(hPath.bounds.center)) return;
+
+      const subHoles = holeChildrenMap.get(hPath) || [];
+      let holeShape;
+
+      if (subHoles.length > 0) {
+        const holeClones = [];
+        const hClone = hPath.clone({ insert: false });
+        hClone.fillColor = null;
+        hClone.strokeColor = null;
+        holeClones.push(hClone);
+
+        subHoles.forEach(sh => {
+          const shClone = sh.clone({ insert: false });
+          shClone.fillColor = null;
+          shClone.strokeColor = null;
+          holeClones.push(shClone);
+        });
+
+        const compoundHole = new paper.CompoundPath({
+          children: holeClones,
+          insert: false
+        });
+        compoundHole.fillRule = 'evenodd';
+        holeShape = compoundHole;
+      } else {
+        holeShape = hPath.clone({ insert: false });
+      }
+
+      holeShape.fillColor = new paper.Color(255, 255, 255, 0.01);
+      holeShape.strokeColor = originalStrokeColor || '#000000';
+      holeShape.strokeWidth = originalStrokeWidth || 1;
 
       let newHoleItem;
       if (isClipped) {
-        newHoleItem = window.clipItem(holeClone);
-        newHoleItem.matrix = item.matrix.clone();
-        holeClone.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
+        newHoleItem = window.clipItem(holeShape);
+        if (newHoleItem === holeShape) {
+          newHoleItem.matrix = pathAbsMatrix.clone().chain(holeShape.matrix);
+        } else {
+          newHoleItem.matrix = item.matrix.clone();
+          holeShape.matrix = pathRelMatrix.clone().chain(holeShape.matrix);
+        }
       } else {
-        newHoleItem = holeClone;
-        newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
+        newHoleItem = holeShape;
+        newHoleItem.matrix = pathAbsMatrix.clone().chain(holeShape.matrix);
         parent.addChild(newHoleItem);
       }
 
@@ -1010,6 +1116,15 @@ export function separateContours(itemToProcess, skipSelection = false) {
         lastHash: "",
         label: "Hueco"
       };
+
+      const visualHole = newHoleItem.data.clipGroup ? getContentItem(newHoleItem) : newHoleItem;
+      if (visualHole) {
+        visualHole.strokeColor = '#009dec';
+        visualHole.strokeWidth = 1.5 / paper.view.zoom;
+        visualHole.dashArray = [4, 4];
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
+      }
+
       newOuterItem.data.holeIds.push(newHoleItem.id);
       newItems.push(newHoleItem);
     });
