@@ -1168,7 +1168,68 @@ if (typeof window !== 'undefined') {
   }
 }
 
-export function initContextualMenu() {
+
+// --- PROTOCOLO DE FINALIZACIÓN UNIFICADO DE TAREAS (ESTILO AUTOCAD / FIGMA) ---
+function installGlobalFinalizationHooks() {
+  const canvasEl = document.getElementById("editorCanvas");
+  if (!canvasEl) return;
+
+  // 1. Interceptar Clic Derecho (Context Menu) para Finalizar Tareas en el Lienzo Principal
+  canvasEl.addEventListener("contextmenu", (e) => {
+    // Si estamos editando nodos
+    if (window.nodeEditMode) {
+      e.preventDefault();
+      if (typeof window.exitNodeEditMode === "function") {
+        window.exitNodeEditMode();
+      }
+      return;
+    }
+
+    // Si estamos en modo de inserción de texto
+    if (window.insertTextMode) {
+      e.preventDefault();
+      window.insertTextMode = false;
+      canvasEl.style.cursor = "default";
+      paper.view.update();
+      return;
+    }
+
+    // Si el editor de texto flotante está activo
+    const textEditor = document.getElementById("ekko-text-editor");
+    if (textEditor) {
+      e.preventDefault();
+      textEditor.blur(); // El blur guarda los cambios automáticamente
+      return;
+    }
+  });
+
+  // 2. Interceptar Tecla Enter / Escape de forma Global para herramientas activas
+  document.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    
+    // Si presionamos Enter o Escape
+    if (key === "enter" || key === "escape") {
+      // Si estamos en edición de nodos
+      if (window.nodeEditMode) {
+        e.preventDefault();
+        if (typeof window.exitNodeEditMode === "function") {
+          window.exitNodeEditMode();
+        }
+        return;
+      }
+
+      // Si estamos en inserción de texto
+      if (window.insertTextMode) {
+        e.preventDefault();
+        window.insertTextMode = false;
+        canvasEl.style.cursor = "default";
+        paper.view.update();
+        return;
+      }
+    }
+  }, { capture: true }); // Fase de captura para precedencia absoluta
+}
+\nexport function initContextualMenu() {\n  installGlobalFinalizationHooks();\n
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
   const container = document.getElementById('canvasContainer');
