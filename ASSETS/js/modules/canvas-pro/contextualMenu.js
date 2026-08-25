@@ -477,10 +477,46 @@ export function ungroupSelectedItem() {
         if (dissolved && dissolved.length > 0) {
           newItems.push(...dissolved);
         }
+      } else if (item.data?.isHoleController || activeTarget.data?.isHoleController) {
+        const ungroupedHoles = ungroupHoleController(item);
+        if (ungroupedHoles && ungroupedHoles.length > 0) {
+          newItems.push(...ungroupedHoles);
+        }
       } else {
-        const separated = separateContoursIntoIndependentShapes(item);
-        if (separated && separated.length > 0) {
-          newItems.push(...separated);
+        const subPaths = [...activeTarget.children].filter(p => !isArtboardBackground(p, activeTarget));
+        const pathNesting = [];
+        subPaths.forEach(p => {
+          const containers = [];
+          subPaths.forEach(other => {
+            if (other !== p) {
+              const otherArea = Math.abs(other.area) || other.bounds.area;
+              const pArea = Math.abs(p.area) || p.bounds.area;
+              if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+                containers.push(other);
+              }
+            }
+          });
+          pathNesting.push({ path: p, containers: containers });
+        });
+
+        const outers = [];
+        pathNesting.forEach(entry => {
+          const containers = entry.containers;
+          if (containers.length % 2 === 0) {
+            outers.push(entry.path);
+          }
+        });
+
+        if (outers.length === 1 && subPaths.length > 1) {
+          const separated = separateContours(item);
+          if (separated && separated.length > 0) {
+            newItems.push(...separated);
+          }
+        } else {
+          const separated = separateContoursIntoIndependentShapes(item);
+          if (separated && separated.length > 0) {
+            newItems.push(...separated);
+          }
         }
       }
     }
@@ -639,6 +675,81 @@ export function dissolveOuterWithHoles(item) {
   if (isClipped && item) {
     item.clipped = false;
   }
+  item.remove();
+  return newItems;
+}\n\nexport function ungroupHoleController(item) {
+  if (!item || !item.data?.isHoleController) return [];
+  const isClipped = !!item.data?.clipGroup;
+  const target = isClipped ? getContentItem(item) : item;
+  if (!(target instanceof paper.CompoundPath)) return [];
+
+  const ownerId = item.data.outerItemId;
+  const owner = ownerId ? paper.project.getItem({ id: ownerId }) : null;
+
+  if (typeof window.saveHistory === 'function') {
+    window.saveHistory();
+  }
+
+  const parent = item.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(item);
+  const newItems = [];
+
+  const subPaths = [...target.children];
+  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
+  const pathAbsMatrix = getGlobalMatrix(target);
+
+  if (owner) {
+    owner.data.holeIds = (owner.data.holeIds || []).filter(id => id !== item.id);
+  }
+
+  subPaths.forEach(subPath => {
+    const subClone = subPath.clone({ insert: false });
+    subClone.fillColor = new paper.Color(255, 255, 255, 0.01);
+    subClone.strokeColor = target.strokeColor || '#000000';
+    subClone.strokeWidth = target.strokeWidth || 1;
+
+    let newHoleItem;
+    if (isClipped) {
+      newHoleItem = window.clipItem(subClone);
+      newHoleItem.matrix = item.matrix.clone();
+      subClone.matrix = pathRelMatrix.clone().chain(subClone.matrix);
+    } else {
+      newHoleItem = subClone;
+      newHoleItem.matrix = pathAbsMatrix.clone().chain(subClone.matrix);
+      parent.addChild(newHoleItem);
+    }
+
+    newHoleItem.data = {
+      ...(newHoleItem.data || {}),
+      isHoleController: true,
+      outerItemId: ownerId || "",
+      lastHash: "",
+      label: "Hueco/Calado"
+    };
+
+    const visualHole = newHoleItem.data.clipGroup ? getContentItem(newHoleItem) : newHoleItem;
+    if (visualHole) {
+      visualHole.strokeColor = '#009dec';
+      visualHole.strokeWidth = 1.5 / paper.view.zoom;
+      visualHole.dashArray = [4, 4];
+      visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
+    }
+
+    if (owner) {
+      owner.data.holeIds.push(newHoleItem.id);
+    }
+    newItems.push(newHoleItem);
+  });
+
+  if (owner) {
+    if (owner.data.holeIds.length === 0) {
+      delete owner.data.isOuterWithHoles;
+      window.ekkoOuters.delete(owner.id);
+    } else {
+      updateOuterPathGeometry(owner);
+    }
+  }
+
   item.remove();
   return newItems;
 }
@@ -1540,7 +1651,7 @@ export function initContextualMenu() {
   window.ungroupSelectedItem = ungroupSelectedItem;
   window.separateContours = separateContours;
   window.separateContoursIntoIndependentShapes = separateContoursIntoIndependentShapes;
-  window.dissolveOuterWithHoles = dissolveOuterWithHoles;
+  window.dissolveOuterWithHoles = dissolveOuterWithHoles;\n  window.ungroupHoleController = ungroupHoleController;
 }
 
 export function updateContextualMenu(item) {
