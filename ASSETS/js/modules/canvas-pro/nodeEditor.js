@@ -1,5 +1,5 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v16.1 PRO-AutoCAD)
+   Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v17.0 PRO-AutoCAD - Sync Group/Ungroup)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
    Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
    para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
@@ -175,6 +175,25 @@ export function enterNodeEditMode(item) {
         const location = nearestLoc.location;
         const newSegment = location.curve.divideAt(location);
         if (newSegment) {
+          // Sincronizar con el originalPath calado si aplica
+          if (activeNodeItem.data?.isOuterWithHoles && activeNodeItem.data?.originalPath) {
+            const origPath = activeNodeItem.data.originalPath;
+            if (origPath instanceof paper.CompoundPath) {
+              const parentIdx = path.parent.children.indexOf(path);
+              const subPath = origPath.children[parentIdx];
+              if (subPath) {
+                const origLoc = subPath.getNearestLocation(location.point);
+                if (origLoc) {
+                  origLoc.curve.divideAt(origLoc);
+                }
+              }
+            } else {
+              const origLoc = origPath.getNearestLocation(location.point);
+              if (origLoc) {
+                origLoc.curve.divideAt(origLoc);
+              }
+            }
+          }
           selectedNodes.clear();
           drawNodeHandles();
           const globalIdx = findGlobalIdxForSegment(path, newSegment.index);
@@ -598,6 +617,20 @@ export function deleteSelectedNodes() {
       localIndices.forEach(idx => {
         if (path.segments[idx]) {
           path.removeSegment(idx);
+          
+          // Sincronizar con el originalPath calado si aplica
+          if (activeNodeItem.data?.isOuterWithHoles && activeNodeItem.data?.originalPath) {
+            const origPath = activeNodeItem.data.originalPath;
+            if (origPath instanceof paper.CompoundPath) {
+              const parentIdx = path.parent.children.indexOf(path);
+              const subPath = origPath.children[parentIdx];
+              if (subPath && subPath.segments[idx]) {
+                subPath.removeSegment(idx);
+              }
+            } else if (origPath.segments[idx]) {
+              origPath.removeSegment(idx);
+            }
+          }
         }
       });
       if (path.segments.length === 0) {
