@@ -1138,9 +1138,18 @@ if (typeof window !== 'undefined') {
     border.strokeColor = mainColor;
     border.strokeWidth = 1.5 / paper.view.zoom;
     border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
-    window.selectionBoxGroup.addChild(border);\n
+    window.selectionBoxGroup.addChild(border);
     const handleSize = 8 / paper.view.zoom;
-    const handlesInfo = [\n      { point: bounds.topLeft, type: 'tl' },\n      { point: bounds.topCenter, type: 't' },\n      { point: bounds.topRight, type: 'tr' },\n      { point: bounds.rightCenter, type: 'r' },\n      { point: bounds.bottomRight, type: 'br' },\n      { point: bounds.bottomCenter, type: 'b' },\n      { point: bounds.bottomLeft, type: 'bl' },\n      { point: bounds.leftCenter, type: 'l' }\n    ];
+    const handlesInfo = [
+      { point: bounds.topLeft, type: 'tl' },
+      { point: bounds.topCenter, type: 't' },
+      { point: bounds.topRight, type: 'tr' },
+      { point: bounds.rightCenter, type: 'r' },
+      { point: bounds.bottomRight, type: 'br' },
+      { point: bounds.bottomCenter, type: 'b' },
+      { point: bounds.bottomLeft, type: 'bl' },
+      { point: bounds.leftCenter, type: 'l' }
+    ];
 
     handlesInfo.forEach(function(info) {
       const rect = new paper.Path.Rectangle({
