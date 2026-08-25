@@ -161,7 +161,7 @@ export function enterNodeEditMode(item) {
         // Mathematically find the closest point on the path boundary, even if it has no strokeColor or width
         const loc = path.getNearestLocation(event.point);
         if (loc) {
-          const dist = loc.point.distance(event.point);
+          const dist = loc.point.getDistance(event.point);
           if (dist < minDistance) {
             minDistance = dist;
             nearestLoc = { path: path, location: loc };
@@ -348,7 +348,7 @@ export function enterNodeEditMode(item) {
 
 
   nodeEditTool.onMouseUp = (event) => {
-    if (clickedOutside && dragStartPoint && event.point.distance(dragStartPoint) < 4) {
+    if (clickedOutside && dragStartPoint && event.point.getDistance(dragStartPoint) < 4) {
       clickedOutside = false;
       exitNodeEditMode();
       return;
