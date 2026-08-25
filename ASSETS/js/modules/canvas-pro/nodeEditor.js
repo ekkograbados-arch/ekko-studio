@@ -1,5 +1,5 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v16 PRO)
+   Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v16.1 PRO-AutoCAD)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
    Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
    para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
@@ -25,14 +25,7 @@ function getContentItem(item) {
   return item;
 }
 
-let 
-  const canvasEl = document.getElementById('editorCanvas');
-  if (canvasEl && window._handleNodeContextMenu) {
-    canvasEl.removeEventListener('contextmenu', window._handleNodeContextMenu);
-    delete window._handleNodeContextMenu;
-  }
-
-  activeNodeItem = null;
+let activeNodeItem = null;
 let nodeHandlesGroup = null;
 let selectedNodes = new Set(); // Conjunto de indices globales de puntos seleccionados
 let isDraggingNode = false;
