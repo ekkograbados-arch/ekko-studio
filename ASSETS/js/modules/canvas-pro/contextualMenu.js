@@ -503,13 +503,13 @@ export function ungroupSelectedItem() {
   window.deselectItem();
   setTimeout(() => {
     if (finalNewItems.length > 0) {
-      const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
-      const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
-      window.selectedItems = [...selectList];
-      window.selectedItem = selectList[selectList.length - 1];
-      selectList.forEach(it => { if (it) it.selected = true; });
-      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+      // UX Pro: Select only the first split item so the user immediately sees the visual separation
+      const firstItem = finalNewItems[0];
+      window.selectedItems = [firstItem];
+      window.selectedItem = firstItem;
+      firstItem.selected = true;
+      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(firstItem);
+      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(firstItem);
     }
     paper.view.update();
   }, 50);
