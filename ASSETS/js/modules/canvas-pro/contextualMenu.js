@@ -542,19 +542,23 @@ export function dissolveOuterWithHoles(item) {
   const index = parent.children.indexOf(item);
   const newItems = [];
   const isClipped = !!item.data?.clipGroup;
+  const target = isClipped ? getContentItem(item) : item; // FIX: Declare target!
 
   if (typeof window.ekkoOuters !== 'undefined') {
     window.ekkoOuters.delete(item.id);
   }
 
-  // Reconstruccion dinamica de originalPath y holeIds si proviene de la desagrupacion de primer nivel (sin controllers)
-  if (!item.data.originalPath && target instanceof paper.CompoundPath && target.children.length > 0) {
+  // Reconstruccion dinamica de originalPath y holeIds si proviene de la desagrupacion de primer nivel o si se perdieron
+  const hasNoHoleControllers = !item.data.holeIds || item.data.holeIds.length === 0;
+  if ((!item.data.originalPath || hasNoHoleControllers) && target instanceof paper.CompoundPath && target.children.length > 1) {
     const subPaths = [...target.children];
     subPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
     const outerPath = subPaths[0];
     const associatedHoles = subPaths.slice(1);
 
-    item.data.originalPath = outerPath.clone({ insert: false });
+    if (!item.data.originalPath) {
+      item.data.originalPath = outerPath.clone({ insert: false });
+    }
     item.data.holeIds = [];
 
     const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
@@ -582,6 +586,7 @@ export function dissolveOuterWithHoles(item) {
     });
   }
 
+  let newOuterItem = null;
   if (item.data.originalPath) {
     const targetOuter = isClipped ? getContentItem(item) : item;
     const restoredOuter = item.data.originalPath.clone({ insert: false });
@@ -589,7 +594,6 @@ export function dissolveOuterWithHoles(item) {
     restoredOuter.strokeColor = targetOuter.strokeColor;
     restoredOuter.strokeWidth = targetOuter.strokeWidth;
 
-    let newOuterItem;
     if (isClipped) {
       newOuterItem = window.clipItem(restoredOuter);
       newOuterItem.matrix = item.matrix.clone();
@@ -645,7 +649,7 @@ export function dissolveOuterWithHoles(item) {
   }
   item.remove();
   return newItems;
-}
+}}
 
 export function separateContoursIntoIndependentShapes(itemToProcess) {
   const item = itemToProcess || window.selectedItem;
@@ -730,9 +734,10 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   outers.forEach(outerPath => {
     const associatedHoles = holesMap.get(outerPath) || [];
     let shapeToInsert;
+    let outerClone = null; // FIX Scope ReferenceError: outerClone is not defined
     if (associatedHoles.length > 0) {
       const childrenClones = [];
-      const outerClone = outerPath.clone({ insert: false });
+      outerClone = outerPath.clone({ insert: false });
       outerClone.data = { isOuterWithHoles: true };
       childrenClones.push(outerClone);
       associatedHoles.forEach(h => {
@@ -1345,7 +1350,7 @@ function handleInteractiveDrop(event) {
   const draggedItem = window.selectedItem;
   if (!draggedItem) return;
 
-  // Caso A: Re-asociacion interactiva de Huecos sobre SVGs
+  // Caso A: Re-asociacion interactiva de Huecos sobre SVGs o Raster/Imagenes
   if (draggedItem.data?.isHoleController) {
     let newOwner = null;
     const holeCenter = draggedItem.bounds.center;
@@ -1402,6 +1407,41 @@ function handleInteractiveDrop(event) {
       
       updateOuterPathGeometry(newOwner);
       paper.view.update();
+    } else {
+      // FIX / EXTENSION: Dropping a hole controller on top of a Raster/Image!
+      const hitRaster = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        tolerance: 5 / paper.view.zoom,
+        match: (hit) => {
+          const item = hit.item;
+          const actual = item.data?.clipGroup ? getContentItem(item) : item;
+          return actual instanceof paper.Raster;
+        }
+      });
+
+      if (hitRaster) {
+        const rasterItem = window.getSelectableItem ? window.getSelectableItem(hitRaster.item) : hitRaster.item;
+        if (rasterItem) {
+          if (typeof window.saveHistory === 'function') window.saveHistory();
+          
+          const oldOwnerId = draggedItem.data.outerItemId;
+          const oldOwner = oldOwnerId ? paper.project.getItem({ id: oldOwnerId }) : null;
+          
+          if (oldOwner) {
+            oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== draggedItem.id);
+            if (oldOwner.data.holeIds.length === 0) {
+              delete oldOwner.data.isOuterWithHoles;
+              window.ekkoOuters.delete(oldOwner.id);
+            } else {
+              updateOuterPathGeometry(oldOwner);
+            }
+          }
+          
+          clipImageWithVector(draggedItem, rasterItem);
+          paper.view.update();
+        }
+      }
     }
   }
   
@@ -1426,6 +1466,7 @@ function handleInteractiveDrop(event) {
       }
     }
   }
+}
 }
 
 export function installHoleDragAndImageClipHook() {
