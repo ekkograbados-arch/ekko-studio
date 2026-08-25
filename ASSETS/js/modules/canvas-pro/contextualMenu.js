@@ -389,11 +389,11 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
     }
   };
   findLeaves(group);
-  group.remove();
   const addedItems = [];
   leafItems.forEach(child => {
     const targetAncestor = isClipped ? oldClipGroup : group;
     const relMatrix = getMatrixRelativeTo(child, targetAncestor);
+    const globalMatrix = getGlobalMatrix(child);
     child.remove();
     let newItem;
     if (isClipped && oldClipGroup) {
@@ -402,7 +402,7 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
       child.matrix = relMatrix;
     } else {
       newItem = child;
-      newItem.matrix = relMatrix;
+      newItem.matrix = globalMatrix;
       parent.addChild(newItem);
     }
     if (newItem.data) {
@@ -410,6 +410,7 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
     }
     addedItems.push(newItem);
   });
+  group.remove();
   return addedItems;
 }
 
