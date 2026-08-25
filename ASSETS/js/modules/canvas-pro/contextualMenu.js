@@ -737,20 +737,23 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   outers.forEach(outerPath => {
     const associatedHoles = holesMap.get(outerPath) || [];
     let shapeToInsert;
-    let outerClone = null;
     if (associatedHoles.length > 0) {
       const childrenClones = [];
-      outerClone = outerPath.clone({ insert: false });
-      outerClone.data = { isOuterWithHoles: true };
+      const outerClone = outerPath.clone({ insert: false });
+      outerClone.fillColor = null;
+      outerClone.strokeColor = null;
       childrenClones.push(outerClone);
       associatedHoles.forEach(h => {
         const hClone = h.clone({ insert: false });
+        hClone.fillColor = null;
+        hClone.strokeColor = null;
         childrenClones.push(hClone);
       });
       const compound = new paper.CompoundPath({
         children: childrenClones,
         insert: false
       });
+      compound.fillRule = 'evenodd';
       compound.fillColor = originalFillColor || '#000000';
       compound.strokeColor = originalStrokeColor || '#000000';
       compound.strokeWidth = originalStrokeWidth || 1;
@@ -775,14 +778,8 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     }
     newItem.data = {
       ...(newItem.data || {}),
-      isOuterWithHoles: associatedHoles.length > 0,
       label: item.data?.label || "Objeto"
     };
-    if (associatedHoles.length > 0) {
-      newItem.data.originalPath = outerClone.clone({ insert: false });
-      newItem.data.holeIds = [];
-      window.ekkoOuters.set(newItem.id, newItem);
-    }
     newItems.push(newItem);
     outersToSelect.push(newItem);
   });
