@@ -456,6 +456,10 @@ export function ungroupSelectedItem() {
     if (activeTarget instanceof paper.Group && !activeTarget.data?.clipGroup) {
       const flattened = flattenGroupRecursive(activeTarget, parent, index, isClipped, item);
       newItems.push(...flattened);
+      if (isClipped && item) {
+        item.clipped = false;
+      }
+      item.remove();
     }
     // B. SI ES TEXTO PARA SEPARAR POR LETRAS
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
