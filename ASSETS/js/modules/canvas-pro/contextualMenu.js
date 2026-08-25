@@ -25,7 +25,8 @@ let lastSelectedItem = null;
 window.ekkoOuters = window.ekkoOuters || new Map();
 window.ekkoHolesMap = window.ekkoHolesMap || new Map();
 
-// --- INYECCION DE ESTILOS CSS PARA EL MENU PERSONALIZADO ---\n
+// --- INYECCION DE ESTILOS CSS PARA EL MENU PERSONALIZADO ---
+
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
   const styleEl = document.createElement('style');
@@ -677,7 +678,9 @@ export function dissolveOuterWithHoles(item) {
   }
   item.remove();
   return newItems;
-}\n\nexport function ungroupHoleController(item) {
+}
+
+export function ungroupHoleController(item) {
   if (!item || !item.data?.isHoleController) return [];
   const isClipped = !!item.data?.clipGroup;
   const target = isClipped ? getContentItem(item) : item;
@@ -1651,7 +1654,8 @@ export function initContextualMenu() {
   window.ungroupSelectedItem = ungroupSelectedItem;
   window.separateContours = separateContours;
   window.separateContoursIntoIndependentShapes = separateContoursIntoIndependentShapes;
-  window.dissolveOuterWithHoles = dissolveOuterWithHoles;\n  window.ungroupHoleController = ungroupHoleController;
+  window.dissolveOuterWithHoles = dissolveOuterWithHoles;
+  window.ungroupHoleController = ungroupHoleController;
 }
 
 export function updateContextualMenu(item) {
