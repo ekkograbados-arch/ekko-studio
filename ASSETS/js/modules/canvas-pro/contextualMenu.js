@@ -1226,10 +1226,21 @@ function installGlobalFinalizationHooks() {
         paper.view.update();
         return;
       }
+
+      // Si estamos editando texto inline en el editor flotante
+      const textEditor = document.getElementById("ekko-text-editor");
+      if (textEditor && document.activeElement === textEditor) {
+        if (key === "escape" || (key === "enter" && !e.shiftKey)) {
+          e.preventDefault();
+          textEditor.blur(); // Confirma y cierra
+          return;
+        }
+      }
     }
   }, { capture: true }); // Fase de captura para precedencia absoluta
 }
-\nexport function initContextualMenu() {\n  installGlobalFinalizationHooks();\n
+export function initContextualMenu() {
+  installGlobalFinalizationHooks();
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
   const container = document.getElementById('canvasContainer');
