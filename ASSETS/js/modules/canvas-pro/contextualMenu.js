@@ -373,12 +373,7 @@ function getGlobalMatrix(item) {
 function getActiveGroupTarget(group) {
   let current = group;
   while (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
-    const child = current.children[0];
-    if (child instanceof paper.Group) {
-      current = child;
-    } else {
-      break;
-    }
+    current = current.children[0];
   }
   return current;
 }
@@ -550,6 +545,41 @@ export function dissolveOuterWithHoles(item) {
 
   if (typeof window.ekkoOuters !== 'undefined') {
     window.ekkoOuters.delete(item.id);
+  }
+
+  // Reconstruccion dinamica de originalPath y holeIds si proviene de la desagrupacion de primer nivel (sin controllers)
+  if (!item.data.originalPath && target instanceof paper.CompoundPath && target.children.length > 0) {
+    const subPaths = [...target.children];
+    subPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+    const outerPath = subPaths[0];
+    const associatedHoles = subPaths.slice(1);
+
+    item.data.originalPath = outerPath.clone({ insert: false });
+    item.data.holeIds = [];
+
+    const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
+    const pathAbsMatrix = getGlobalMatrix(target);
+
+    associatedHoles.forEach(hPath => {
+      const holeClone = hPath.clone({ insert: false });
+      let newHoleItem;
+      if (isClipped) {
+        newHoleItem = window.clipItem(holeClone);
+        newHoleItem.matrix = item.matrix.clone();
+        holeClone.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
+      } else {
+        newHoleItem = holeClone;
+        newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
+        parent.addChild(newHoleItem);
+      }
+      newHoleItem.data = {
+        isHoleController: true,
+        outerItemId: "", // Se asignara abajo
+        lastHash: "",
+        label: "Hueco"
+      };
+      item.data.holeIds.push(newHoleItem.id);
+    });
   }
 
   if (item.data.originalPath) {
@@ -740,6 +770,11 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
       isOuterWithHoles: associatedHoles.length > 0,
       label: item.data?.label || "Objeto"
     };
+    if (associatedHoles.length > 0) {
+      newItem.data.originalPath = outerClone.clone({ insert: false });
+      newItem.data.holeIds = [];
+      window.ekkoOuters.set(newItem.id, newItem);
+    }
     newItems.push(newItem);
     outersToSelect.push(newItem);
   });
@@ -1315,8 +1350,16 @@ function handleInteractiveDrop(event) {
     let newOwner = null;
     const holeCenter = draggedItem.bounds.center;
 
-    for (let [id, outer] of window.ekkoOuters) {
-      if (id === draggedItem.data.outerItemId) continue;
+    // Buscar candidatos en todos los elementos del designLayer
+    const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+    const candidates = designLayer.children.filter(c => {
+      if (c === draggedItem) return false;
+      if (c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) return false;
+      return c instanceof paper.Path || c instanceof paper.CompoundPath || c.data?.clipGroup;
+    });
+
+    for (let outer of candidates) {
+      if (outer.id === draggedItem.data.outerItemId) continue;
       const targetOuter = outer.data.clipGroup ? getContentItem(outer) : outer;
       if (targetOuter && targetOuter.bounds.contains(holeCenter)) {
         newOwner = outer;
@@ -1334,11 +1377,23 @@ function handleInteractiveDrop(event) {
         oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== draggedItem.id);
         if (oldOwner.data.holeIds.length === 0) {
           delete oldOwner.data.isOuterWithHoles;
+          window.ekkoOuters.delete(oldOwner.id);
+        } else {
+          updateOuterPathGeometry(oldOwner);
         }
-        updateOuterPathGeometry(oldOwner);
       }
 
-      newOwner.data.isOuterWithHoles = true;
+      const targetNewOwner = newOwner.data.clipGroup ? getContentItem(newOwner) : newOwner;
+
+      // Convertir sobre la marcha si el nuevo dueno no tenia comportamiento de calado reactivo
+      if (!newOwner.data?.isOuterWithHoles || !newOwner.data?.originalPath) {
+        newOwner.data = newOwner.data || {};
+        newOwner.data.isOuterWithHoles = true;
+        newOwner.data.originalPath = targetNewOwner.clone({ insert: false });
+        newOwner.data.holeIds = [];
+        window.ekkoOuters.set(newOwner.id, newOwner);
+      }
+
       newOwner.data.holeIds = newOwner.data.holeIds || [];
       if (!newOwner.data.holeIds.includes(draggedItem.id)) {
         newOwner.data.holeIds.push(draggedItem.id);
