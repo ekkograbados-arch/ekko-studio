@@ -649,7 +649,7 @@ export function dissolveOuterWithHoles(item) {
   }
   item.remove();
   return newItems;
-}}
+}
 
 export function separateContoursIntoIndependentShapes(itemToProcess) {
   const item = itemToProcess || window.selectedItem;
@@ -1466,7 +1466,6 @@ function handleInteractiveDrop(event) {
       }
     }
   }
-}
 }
 
 export function installHoleDragAndImageClipHook() {
