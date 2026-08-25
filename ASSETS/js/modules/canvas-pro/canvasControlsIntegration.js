@@ -1,11 +1,11 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (WYSIWYG Pro Edition - v3)
-Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
-Descripción: Integrador de Interfaz Profesional (Versión v3 - Multi-Selección).
-Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
-e integra comandos de alineación (Canva-style) y distribución espacial para objetos
-seleccionados corregidos para soportar grupos de máscara (clipGroup).
-INCLUYE GRUPO DE ORGANIZACIÓN (AGRUPAR / DESAGRUPAR) EN LA BARRA SUPERIOR FIJA.
+   Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (WYSIWYG Pro Edition - v16 PRO Sync)
+   Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
+   Descripción: Integrador de Interfaz Profesional (Versión v16 PRO - Sync).
+   Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
+   e integra comandos de alineación (Canva-style) y distribución espacial para objetos
+   seleccionados corregidos para soportar grupos de máscara (clipGroup).
+   SOPORTA SINCRONIZACIÓN ABSOLUTA EN EDICIÓN DE NODOS GLOBAL (window.nodeEditMode).
 ========================================================================= */
 
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
@@ -13,7 +13,7 @@ import { setMeasurementsVisibility } from "./canvasMeasurements.js";
 
 // Estilos CSS modernos (estilo Canva y Figma) para la barra de alineaciones y zoom
 const proToolbarStylesId = "ekko-pro-toolbar-styles";
-if (!document.getElementById(proToolbarStylesId)) {
+if (typeof document !== 'undefined' && !document.getElementById(proToolbarStylesId)) {
   const styleEl = document.createElement("style");
   styleEl.id = proToolbarStylesId;
   styleEl.textContent = `
@@ -42,27 +42,28 @@ if (!document.getElementById(proToolbarStylesId)) {
       margin: 0 4px;
     }
     .pro-label {
-      font-size: 11px;
-      font-weight: 700;
       color: #64748b;
+      font-size: 11px;
+      font-weight: bold;
       text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-right: 6px;
+      margin-right: 4px;
     }
     .pro-btn {
-      background: #ffffff;
+      background-color: #ffffff;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
-      padding: 6px 10px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
+      padding: 6px 12px;
       cursor: pointer;
       color: #334155;
       font-size: 13px;
       font-weight: 500;
       transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .pro-btn i {
+      font-size: 13px;
     }
     .pro-btn:hover {
       background-color: #f1f5f9;
@@ -278,16 +279,14 @@ function bindClickHandlers() {
 
   // Distribución de espacio inteligente ( mm / Paper.js ) de OBJETOS SELECCIONADOS
   const distributeSpacing = (axis) => {
-    if (!window.paper) return;
-    const selected = (window.selectedItems && window.selectedItems.length > 0)
-      ? [...window.selectedItems]
-      : (window.selectedItem ? [window.selectedItem] : []);
-    let spacing = 0;
+    const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
     if (selected.length < 3) {
-      alert("Selecciona al menos 3 elementos para poder distribuirlos.");
+      alert("Selecciona al menos 3 elementos para distribuir su espacio.");
       return;
     }
     if (typeof window.saveHistory === "function") window.saveHistory();
+    let spacing = 0;
+
     const getActualBounds = (it) => {
       const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
       return displayItem ? displayItem.bounds : it.bounds;
@@ -365,19 +364,19 @@ function bindClickHandlers() {
   });
 
   // Vincular Modo de Edición Directa de Nodos (Illustrator Style)
-  let inNodeEditMode = false;
   bindBtn("proBtnEditNodes", () => {
     const btn = document.getElementById("proBtnEditNodes");
-    if (!inNodeEditMode && window.selectedItem) {
+    // GARANTÍA DE SINCRONIZACIÓN DE ESTADOS:
+    // En lugar de una variable local closure 'inNodeEditMode', confiamos directamente
+    // en la variable de estado global unificada 'window.nodeEditMode'.
+    if (!window.nodeEditMode && window.selectedItem) {
       if (typeof window.enterNodeEditMode === "function") {
         window.enterNodeEditMode(window.selectedItem);
-        inNodeEditMode = true;
         if (btn) btn.classList.add("active");
       }
     } else {
       if (typeof window.exitNodeEditMode === "function") {
         window.exitNodeEditMode();
-        inNodeEditMode = false;
         if (btn) btn.classList.remove("active");
       }
     }
@@ -419,7 +418,6 @@ const drawDistributionGuides = (selected, axis, spacing) => {
       endPt = new paper.Point(xCenter, boundsB.top);
       textPt = new paper.Point(xCenter + (12/zoom), (boundsA.bottom + boundsB.top)/2);
     }
-
     const line = new paper.Path.Line(startPt, endPt);
     line.strokeColor = '#e0245e';
     line.strokeWidth = strokeW;
@@ -447,7 +445,6 @@ const drawDistributionGuides = (selected, axis, spacing) => {
     window.distributionGuidesGroup.addChild(textRect);
     window.distributionGuidesGroup.addChild(textLabel);
   }
-
   window.distributionGuidesGroup.bringToFront();
   paper.view.update();
 
@@ -475,7 +472,7 @@ const alignSelection = (type) => {
     const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
     if (!displayItem) return;
     const bounds = displayItem.bounds;
-    const target = displayItem;
+    const target = item;
     switch (type) {
       case "left":
         target.position.x += (mockupBounds.left - bounds.left);
@@ -504,7 +501,7 @@ const alignSelection = (type) => {
       const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
       if (!displayItem) return;
       const bounds = displayItem.bounds;
-      const target = displayItem;
+      const target = item;
       switch (type) {
         case "left":
           target.position.x += (combinedBounds.left - bounds.left);
@@ -527,7 +524,6 @@ const alignSelection = (type) => {
       }
     });
   }
-
   if (typeof window.updateSelectionBox === "function") {
     window.updateSelectionBox(window.selectedItem);
   }
@@ -535,11 +531,6 @@ const alignSelection = (type) => {
 };
 
 // Iniciar automáticamente al cargar el DOM
-window.addEventListener("DOMContentLoaded", () => {
-  setTimeout(initProControls, 500);
-});
-
-
 window.addEventListener("DOMContentLoaded", () => {
   setTimeout(initProControls, 500);
 });
