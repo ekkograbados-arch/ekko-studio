@@ -454,9 +454,27 @@ function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
 
 
 export function ungroupSelectedItem() {
-  const selected = (window.selectedItems && window.selectedItems.length > 0)
+  // COMPATIBILIDAD CON EDICIÓN DE NODOS:
+  // Si estamos en modo de edición de nodos, el objeto que queremos desagrupar es
+  // el que se está editando activamente (window.nodeEditTarget o activeNodeItem).
+  // Salimos limpiamente de la edición de nodos para evitar referencias nulas o tiradores huérfanos.
+  const wasInNodeEdit = !!window.nodeEditMode;
+  let targetNodeItem = null;
+  if (wasInNodeEdit) {
+    targetNodeItem = window.nodeEditTarget;
+    if (typeof window.exitNodeEditMode === 'function') {
+      window.exitNodeEditMode();
+    }
+  }
+
+  let selected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
+
+  if (wasInNodeEdit && targetNodeItem) {
+    selected = [targetNodeItem];
+  }
+
   if (selected.length === 0) return;
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
