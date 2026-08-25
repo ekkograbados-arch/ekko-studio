@@ -1,13 +1,3 @@
-/* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (DOM-Safe WYSIWYG Edition - v16 PRO)
-   Ruta de reemplazo: ASSETS/js/modules/canvas-pro/contextualMenu.js
-   Descripcion: Barra de herramientas flotante de contexto. Soporta barra arrastrable,
-   desplegable de fuentes personalizado basado en div con previsualizacion del texto dinamico
-   en tiempo real, e inyeccion dinamica de familias de fuentes.
-   SOPORTE COMPLETO DE DESAGRUPACION Y AGRUPACION SINCRONICA PARA DISENOS Y SVGS COMPLEX (MATE, AFA, MINNIE).
-   COMPATIBILIDAD INTEGRADA DE BOTONES DE NODOS PARA EVITAR COLISIONES DE ID EN EL ENTORNO STUDIO.
-========================================================================= */
-
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
@@ -32,11 +22,10 @@ window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
 let lastSelectedItem = null;
-
 window.ekkoOuters = window.ekkoOuters || new Map();
 window.ekkoHolesMap = window.ekkoHolesMap || new Map();
 
-// --- INYECCION DE ESTILOS CSS PARA EL MENU PERSONALIZADO ---
+// --- INYECCION DE ESTILOS CSS PARA EL MENU PERSONALIZADO ---\n
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
   const styleEl = document.createElement('style');
@@ -46,11 +35,6 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
     .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 12px; height: 100%; cursor: pointer; font-size: 13px; color: #334155; font-weight: 500; }
     .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; max-height: 250px; overflow-y: auto; background: white; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); z-index: 100000; display: flex; flex-direction: column; }
     .font-dropdown-list.hidden { display: none !important; }
-    .custom-font-item { display: flex; flex-direction: column; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; }
-    .custom-font-item:hover { background: #f8fafc; }
-    .custom-font-item.active { background: #f0fdf4; color: #16a34a; font-weight: bold; }
-    .custom-font-preview { font-size: 20px; color: #000; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .custom-font-name { font-size: 11px; color: #777; }
   `;
   document.head.appendChild(styleEl);
 }
@@ -373,7 +357,12 @@ function getGlobalMatrix(item) {
 function getActiveGroupTarget(group) {
   let current = group;
   while (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
-    current = current.children[0];
+    const child = current.children[0];
+    if (child instanceof paper.Group) {
+      current = child;
+    } else {
+      break;
+    }
   }
   return current;
 }
@@ -389,11 +378,11 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
     }
   };
   findLeaves(group);
+
   const addedItems = [];
   leafItems.forEach(child => {
     const targetAncestor = isClipped ? oldClipGroup : group;
     const relMatrix = getMatrixRelativeTo(child, targetAncestor);
-    const globalMatrix = getGlobalMatrix(child);
     child.remove();
     let newItem;
     if (isClipped && oldClipGroup) {
@@ -402,7 +391,7 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
       child.matrix = relMatrix;
     } else {
       newItem = child;
-      newItem.matrix = globalMatrix;
+      newItem.matrix = relMatrix;
       parent.addChild(newItem);
     }
     if (newItem.data) {
@@ -410,7 +399,8 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
     }
     addedItems.push(newItem);
   });
-  group.remove();
+
+  group.remove(); // Remoción segura al final
   return addedItems;
 }
 
@@ -451,11 +441,19 @@ export function ungroupSelectedItem() {
     // A. SI ES GRUPO TRADICIONAL
     if (activeTarget instanceof paper.Group && !activeTarget.data?.clipGroup) {
       const flattened = flattenGroupRecursive(activeTarget, parent, index, isClipped, item);
-      newItems.push(...flattened);
-      if (isClipped && item) {
-        item.clipped = false;
-      }
-      item.remove();
+      flattened.forEach(leaf => {
+        const leafTarget = getContentItem(leaf);
+        if (leafTarget instanceof paper.CompoundPath && !leaf.data?.isOuterWithHoles && !leafTarget.data?.isOuterWithHoles) {
+          const separated = separateContoursIntoIndependentShapes(leaf);
+          if (separated && separated.length > 0) {
+            newItems.push(...separated);
+          } else {
+            newItems.push(leaf);
+          }
+        } else {
+          newItems.push(leaf);
+        }
+      });
     }
     // B. SI ES TEXTO PARA SEPARAR POR LETRAS
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
@@ -506,13 +504,12 @@ export function ungroupSelectedItem() {
     if (finalNewItems.length > 0) {
       // Select all newly created outer elements so the user sees everything ungrouped but still highlighted
       const outersToSelect = finalNewItems.filter(it => !it.data?.isHoleController);
-      if (outersToSelect.length > 0) {
-        window.selectedItems = [...outersToSelect];
-        window.selectedItem = outersToSelect[outersToSelect.length - 1];
-        outersToSelect.forEach(it => { if (it) it.selected = true; });
-        if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-        if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-      }
+      const selectList = outersToSelect.length > 0 ? outersToSelect : finalNewItems;
+      window.selectedItems = [...selectList];
+      window.selectedItem = selectList[selectList.length - 1];
+      selectList.forEach(it => { if (it) it.selected = true; });
+      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     }
     paper.view.update();
   }, 50);
@@ -545,7 +542,7 @@ export function dissolveOuterWithHoles(item) {
   const index = parent.children.indexOf(item);
   const newItems = [];
   const isClipped = !!item.data?.clipGroup;
-  const target = isClipped ? getContentItem(item) : item; // FIX: Declare target!
+  const target = isClipped ? getContentItem(item) : item;
 
   if (typeof window.ekkoOuters !== 'undefined') {
     window.ekkoOuters.delete(item.id);
@@ -740,7 +737,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   outers.forEach(outerPath => {
     const associatedHoles = holesMap.get(outerPath) || [];
     let shapeToInsert;
-    let outerClone = null; // FIX Scope ReferenceError: outerClone is not defined
+    let outerClone = null;
     if (associatedHoles.length > 0) {
       const childrenClones = [];
       outerClone = outerPath.clone({ insert: false });
@@ -794,7 +791,6 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     item.clipped = false;
   }
   item.remove();
-  // Removed redundant insertChild to let ungroupSelectedItem handle indexing and prevent stacking inversion
   return newItems;
 }
 
@@ -936,7 +932,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
   if (skipSelection) {
     return newItems;
   }
-  // Removed redundant insertChild to let ungroupSelectedItem handle indexing and prevent stacking inversion
+
   window.deselectItem();
   setTimeout(() => {
     if (outersToSelect.length > 0) {
@@ -1142,19 +1138,9 @@ if (typeof window !== 'undefined') {
     border.strokeColor = mainColor;
     border.strokeWidth = 1.5 / paper.view.zoom;
     border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
-    window.selectionBoxGroup.addChild(border);
-
+    window.selectionBoxGroup.addChild(border);\n
     const handleSize = 8 / paper.view.zoom;
-    const handlesInfo = [
-      { point: bounds.topLeft, type: 'tl' },
-      { point: bounds.topCenter, type: 't' },
-      { point: bounds.topRight, type: 'tr' },
-      { point: bounds.rightCenter, type: 'r' },
-      { point: bounds.bottomRight, type: 'br' },
-      { point: bounds.bottomCenter, type: 'b' },
-      { point: bounds.bottomLeft, type: 'bl' },
-      { point: bounds.leftCenter, type: 'l' }
-    ];
+    const handlesInfo = [\n      { point: bounds.topLeft, type: 'tl' },\n      { point: bounds.topCenter, type: 't' },\n      { point: bounds.topRight, type: 'tr' },\n      { point: bounds.rightCenter, type: 'r' },\n      { point: bounds.bottomRight, type: 'br' },\n      { point: bounds.bottomCenter, type: 'b' },\n      { point: bounds.bottomLeft, type: 'bl' },\n      { point: bounds.leftCenter, type: 'l' }\n    ];
 
     handlesInfo.forEach(function(info) {
       const rect = new paper.Path.Rectangle({
@@ -1221,15 +1207,11 @@ if (typeof window !== 'undefined') {
   }
 }
 
-
-// --- PROTOCOLO DE FINALIZACIÓN UNIFICADO DE TAREAS (ESTILO AUTOCAD / FIGMA) ---
 function installGlobalFinalizationHooks() {
   const canvasEl = document.getElementById("editorCanvas");
   if (!canvasEl) return;
 
-  // 1. Interceptar Clic Derecho (Context Menu) para Finalizar Tareas en el Lienzo Principal
   canvasEl.addEventListener("contextmenu", (e) => {
-    // Si estamos editando nodos
     if (window.nodeEditMode) {
       e.preventDefault();
       if (typeof window.exitNodeEditMode === "function") {
@@ -1237,8 +1219,6 @@ function installGlobalFinalizationHooks() {
       }
       return;
     }
-
-    // Si estamos en modo de inserción de texto
     if (window.insertTextMode) {
       e.preventDefault();
       window.insertTextMode = false;
@@ -1246,23 +1226,17 @@ function installGlobalFinalizationHooks() {
       paper.view.update();
       return;
     }
-
-    // Si el editor de texto flotante está activo
     const textEditor = document.getElementById("ekko-text-editor");
     if (textEditor) {
       e.preventDefault();
-      textEditor.blur(); // El blur guarda los cambios automáticamente
+      textEditor.blur();
       return;
     }
   });
 
-  // 2. Interceptar Tecla Enter / Escape de forma Global para herramientas activas
   document.addEventListener("keydown", (e) => {
     const key = e.key.toLowerCase();
-    
-    // Si presionamos Enter o Escape
     if (key === "enter" || key === "escape") {
-      // Si estamos en edición de nodos
       if (window.nodeEditMode) {
         e.preventDefault();
         if (typeof window.exitNodeEditMode === "function") {
@@ -1270,8 +1244,6 @@ function installGlobalFinalizationHooks() {
         }
         return;
       }
-
-      // Si estamos en inserción de texto
       if (window.insertTextMode) {
         e.preventDefault();
         window.insertTextMode = false;
@@ -1279,21 +1251,18 @@ function installGlobalFinalizationHooks() {
         paper.view.update();
         return;
       }
-
-      // Si estamos editando texto inline en el editor flotante
       const textEditor = document.getElementById("ekko-text-editor");
       if (textEditor && document.activeElement === textEditor) {
         if (key === "escape" || (key === "enter" && !e.shiftKey)) {
           e.preventDefault();
-          textEditor.blur(); // Confirma y cierra
+          textEditor.blur();
           return;
         }
       }
     }
-  }, { capture: true }); // Fase de captura para precedencia absoluta
+  }, { capture: true });
 }
 
-// --- NUCLEO DE CALADO INTERACTIVO Y RE-ASOCIACIÓN DE HUECOS ---
 function getRasterFromItemLocal(item) {
   if (!item) return null;
   if (item instanceof paper.Raster) return item;
@@ -1310,22 +1279,18 @@ function getRasterFromItemLocal(item) {
 
 export function clipImageWithVector(vectorItem, rasterItem) {
   if (typeof window.saveHistory === 'function') window.saveHistory();
-  
   const actualVector = vectorItem.data?.clipGroup ? getContentItem(vectorItem) : vectorItem;
   const actualRaster = getRasterFromItemLocal(rasterItem);
   if (!actualVector || !actualRaster) return;
 
-  // Clonamos el vector para actuar como mascara
   const maskPath = actualVector.clone({ insert: false });
   maskPath.clipMask = true;
   maskPath.visible = true;
   maskPath.data = { isVectorMask: true };
 
-  // Clonamos la imagen original
   const rawRaster = actualRaster.clone({ insert: false });
   rawRaster.data = { locked: false, label: "Imagen Recortada" };
 
-  // Creamos el clipGroup
   const group = new paper.Group([maskPath, rawRaster]);
   group.clipped = true;
   group.data = {
@@ -1350,12 +1315,9 @@ function handleInteractiveDrop(event) {
   const draggedItem = window.selectedItem;
   if (!draggedItem) return;
 
-  // Caso A: Re-asociacion interactiva de Huecos sobre SVGs o Raster/Imagenes
   if (draggedItem.data?.isHoleController) {
     let newOwner = null;
     const holeCenter = draggedItem.bounds.center;
-
-    // Buscar candidatos en todos los elementos del designLayer
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     const candidates = designLayer.children.filter(c => {
       if (c === draggedItem) return false;
@@ -1374,10 +1336,8 @@ function handleInteractiveDrop(event) {
 
     if (newOwner) {
       if (typeof window.saveHistory === 'function') window.saveHistory();
-      
       const oldOwnerId = draggedItem.data.outerItemId;
       const oldOwner = oldOwnerId ? paper.project.getItem({ id: oldOwnerId }) : null;
-      
       if (oldOwner) {
         oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== draggedItem.id);
         if (oldOwner.data.holeIds.length === 0) {
@@ -1389,8 +1349,6 @@ function handleInteractiveDrop(event) {
       }
 
       const targetNewOwner = newOwner.data.clipGroup ? getContentItem(newOwner) : newOwner;
-
-      // Convertir sobre la marcha si el nuevo dueno no tenia comportamiento de calado reactivo
       if (!newOwner.data?.isOuterWithHoles || !newOwner.data?.originalPath) {
         newOwner.data = newOwner.data || {};
         newOwner.data.isOuterWithHoles = true;
@@ -1404,11 +1362,9 @@ function handleInteractiveDrop(event) {
         newOwner.data.holeIds.push(draggedItem.id);
       }
       draggedItem.data.outerItemId = newOwner.id;
-      
       updateOuterPathGeometry(newOwner);
       paper.view.update();
     } else {
-      // FIX / EXTENSION: Dropping a hole controller on top of a Raster/Image!
       const hitRaster = paper.project.hitTest(event.point, {
         fill: true,
         stroke: true,
@@ -1424,10 +1380,8 @@ function handleInteractiveDrop(event) {
         const rasterItem = window.getSelectableItem ? window.getSelectableItem(hitRaster.item) : hitRaster.item;
         if (rasterItem) {
           if (typeof window.saveHistory === 'function') window.saveHistory();
-          
           const oldOwnerId = draggedItem.data.outerItemId;
           const oldOwner = oldOwnerId ? paper.project.getItem({ id: oldOwnerId }) : null;
-          
           if (oldOwner) {
             oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== draggedItem.id);
             if (oldOwner.data.holeIds.length === 0) {
@@ -1437,17 +1391,12 @@ function handleInteractiveDrop(event) {
               updateOuterPathGeometry(oldOwner);
             }
           }
-          
           clipImageWithVector(draggedItem, rasterItem);
           paper.view.update();
         }
       }
     }
-  }
-  
-  // Caso B: Calar vector/hueco suelto sobre una imagen (Raster)
-  else if (draggedItem instanceof paper.Path || draggedItem instanceof paper.CompoundPath) {
-    // Buscar si soltamos sobre un raster de fondo
+  } else if (draggedItem instanceof paper.Path || draggedItem instanceof paper.CompoundPath) {
     const hitRaster = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -1478,7 +1427,6 @@ export function installHoleDragAndImageClipHook() {
     setTimeout(installHoleDragAndImageClipHook, 100);
     return;
   }
-  
   if (selectTool.data?.holeAndClipHooked) return;
   selectTool.data = selectTool.data || {};
   selectTool.data.holeAndClipHooked = true;
@@ -1566,8 +1514,6 @@ export function initContextualMenu() {
   setClick('btnCtxAgrupar', () => groupSelectedItems());
   setClick('btnCtxUngroup', () => ungroupSelectedItem());
   setClick('btnCtxDesagrupar', () => ungroupSelectedItem());
-  
-  // Soporte dual de IDs para activar edición de nodos (Ilustrator Style)
   setClick('btnCtxEditNodes', () => {
     if (window.selectedItem) enterNodeEditMode(window.selectedItem);
   });
