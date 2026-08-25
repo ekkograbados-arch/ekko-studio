@@ -1771,6 +1771,8 @@ export function initContextualMenu() {
   window.separateContoursIntoIndependentShapes = separateContoursIntoIndependentShapes;
   window.dissolveOuterWithHoles = dissolveOuterWithHoles;
   window.ungroupHoleController = ungroupHoleController;
+  window.handleInteractiveDrop = handleInteractiveDrop;
+  window.updateOuterPathGeometry = updateOuterPathGeometry;
 }
 
 export function updateContextualMenu(item) {
