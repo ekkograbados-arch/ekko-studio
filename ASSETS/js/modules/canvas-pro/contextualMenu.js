@@ -588,10 +588,19 @@ export function dissolveOuterWithHoles(item) {
         parent.addChild(newHoleItem);
       }
       if (newHoleItem.data) {
-        delete newHoleItem.data.isHoleController;
-        delete newHoleItem.data.outerItemId;
-        delete newHoleItem.data.lastHash;
-        newHoleItem.data.label = "Trazado";
+        newHoleItem.data.isHoleController = true;
+        newHoleItem.data.outerItemId = newOuterItem.id;
+        newHoleItem.data.lastHash = "";
+        newHoleItem.data.label = "Hueco/Calado";
+      }
+      
+      // Aplicar estetica visible de seguridad
+      const visualHole = newHoleItem.data.clipGroup ? getContentItem(newHoleItem) : newHoleItem;
+      if (visualHole) {
+        visualHole.strokeColor = '#009dec';
+        visualHole.strokeWidth = 1.5 / paper.view.zoom;
+        visualHole.dashArray = [4, 4];
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
       }
       newItems.push(newHoleItem);
     }
@@ -1239,8 +1248,152 @@ function installGlobalFinalizationHooks() {
     }
   }, { capture: true }); // Fase de captura para precedencia absoluta
 }
+
+// --- NUCLEO DE CALADO INTERACTIVO Y RE-ASOCIACIÓN DE HUECOS ---
+function getRasterFromItemLocal(item) {
+  if (!item) return null;
+  if (item instanceof paper.Raster) return item;
+  if (item.children) {
+    const rasterChild = item.children.find(c => c instanceof paper.Raster);
+    if (rasterChild) return rasterChild;
+    for (let i = 0; i < item.children.length; i++) {
+      const found = getRasterFromItemLocal(item.children[i]);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+export function clipImageWithVector(vectorItem, rasterItem) {
+  if (typeof window.saveHistory === 'function') window.saveHistory();
+  
+  const actualVector = vectorItem.data?.clipGroup ? getContentItem(vectorItem) : vectorItem;
+  const actualRaster = getRasterFromItemLocal(rasterItem);
+  if (!actualVector || !actualRaster) return;
+
+  // Clonamos el vector para actuar como mascara
+  const maskPath = actualVector.clone({ insert: false });
+  maskPath.clipMask = true;
+  maskPath.visible = true;
+  maskPath.data = { isVectorMask: true };
+
+  // Clonamos la imagen original
+  const rawRaster = actualRaster.clone({ insert: false });
+  rawRaster.data = { locked: false, label: "Imagen Recortada" };
+
+  // Creamos el clipGroup
+  const group = new paper.Group([maskPath, rawRaster]);
+  group.clipped = true;
+  group.data = {
+    locked: false,
+    clipGroup: true,
+    label: "Recorte Personalizado (" + (actualVector.data?.label || "Vector") + ")"
+  };
+
+  const parent = rasterItem.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(rasterItem);
+  parent.insertChild(index, group);
+
+  rasterItem.remove();
+  vectorItem.remove();
+
+  window.deselectItem();
+  window.selectItem(group);
+  paper.view.update();
+}
+
+function handleInteractiveDrop(event) {
+  const draggedItem = window.selectedItem;
+  if (!draggedItem) return;
+
+  // Caso A: Re-asociacion interactiva de Huecos sobre SVGs
+  if (draggedItem.data?.isHoleController) {
+    let newOwner = null;
+    const holeCenter = draggedItem.bounds.center;
+
+    for (let [id, outer] of window.ekkoOuters) {
+      if (id === draggedItem.data.outerItemId) continue;
+      const targetOuter = outer.data.clipGroup ? getContentItem(outer) : outer;
+      if (targetOuter && targetOuter.bounds.contains(holeCenter)) {
+        newOwner = outer;
+        break;
+      }
+    }
+
+    if (newOwner) {
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+      
+      const oldOwnerId = draggedItem.data.outerItemId;
+      const oldOwner = oldOwnerId ? paper.project.getItem({ id: oldOwnerId }) : null;
+      
+      if (oldOwner) {
+        oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== draggedItem.id);
+        if (oldOwner.data.holeIds.length === 0) {
+          delete oldOwner.data.isOuterWithHoles;
+        }
+        updateOuterPathGeometry(oldOwner);
+      }
+
+      newOwner.data.isOuterWithHoles = true;
+      newOwner.data.holeIds = newOwner.data.holeIds || [];
+      if (!newOwner.data.holeIds.includes(draggedItem.id)) {
+        newOwner.data.holeIds.push(draggedItem.id);
+      }
+      draggedItem.data.outerItemId = newOwner.id;
+      
+      updateOuterPathGeometry(newOwner);
+      paper.view.update();
+    }
+  }
+  
+  // Caso B: Calar vector/hueco suelto sobre una imagen (Raster)
+  else if (draggedItem instanceof paper.Path || draggedItem instanceof paper.CompoundPath) {
+    // Buscar si soltamos sobre un raster de fondo
+    const hitRaster = paper.project.hitTest(event.point, {
+      fill: true,
+      stroke: true,
+      tolerance: 5 / paper.view.zoom,
+      match: (hit) => {
+        const item = hit.item;
+        const actual = item.data?.clipGroup ? getContentItem(item) : item;
+        return actual instanceof paper.Raster;
+      }
+    });
+
+    if (hitRaster) {
+      const rasterItem = window.getSelectableItem ? window.getSelectableItem(hitRaster.item) : hitRaster.item;
+      if (rasterItem) {
+        clipImageWithVector(draggedItem, rasterItem);
+      }
+    }
+  }
+}
+
+export function installHoleDragAndImageClipHook() {
+  if (!window.paper || !paper.tools || paper.tools.length === 0) {
+    setTimeout(installHoleDragAndImageClipHook, 100);
+    return;
+  }
+  const selectTool = paper.tools.find(t => t.onMouseDrag);
+  if (!selectTool) {
+    setTimeout(installHoleDragAndImageClipHook, 100);
+    return;
+  }
+  
+  if (selectTool.data?.holeAndClipHooked) return;
+  selectTool.data = selectTool.data || {};
+  selectTool.data.holeAndClipHooked = true;
+
+  const originalOnMouseUp = selectTool.onMouseUp;
+  selectTool.onMouseUp = function(event) {
+    originalOnMouseUp.call(this, event);
+    handleInteractiveDrop(event);
+  };
+}
+
 export function initContextualMenu() {
   installGlobalFinalizationHooks();
+  installHoleDragAndImageClipHook();
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
   const container = document.getElementById('canvasContainer');
