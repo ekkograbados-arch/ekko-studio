@@ -25,7 +25,14 @@ function getContentItem(item) {
   return item;
 }
 
-let activeNodeItem = null;
+let 
+  const canvasEl = document.getElementById('editorCanvas');
+  if (canvasEl && window._handleNodeContextMenu) {
+    canvasEl.removeEventListener('contextmenu', window._handleNodeContextMenu);
+    delete window._handleNodeContextMenu;
+  }
+
+  activeNodeItem = null;
 let nodeHandlesGroup = null;
 let selectedNodes = new Set(); // Conjunto de indices globales de puntos seleccionados
 let isDraggingNode = false;
@@ -35,6 +42,7 @@ let nodeEditTool = null;
 let previousTool = null;
 let disabledClipGroups = [];
 let isAddNodeActive = false; // Modo adición de nodos en caliente
+let clickedOutside = false; // Click outside detection
 
 // Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
@@ -117,6 +125,20 @@ export function enterNodeEditMode(item) {
   disableDescendantClips(target);
 
   window.nodeEditMode = true;
+
+  // AutoCAD-style Right-Click to Exit Node Edit Mode
+  const canvasEl = document.getElementById('editorCanvas');
+  const handleNodeContextMenu = (e) => {
+    if (window.nodeEditMode) {
+      e.preventDefault();
+      exitNodeEditMode();
+    }
+  };
+  if (canvasEl) {
+    canvasEl.addEventListener('contextmenu', handleNodeContextMenu);
+  }
+  window._handleNodeContextMenu = handleNodeContextMenu; // Store reference to unbind later
+
   const btnTopNodes = document.getElementById('proBtnEditNodes');
   if (btnTopNodes) btnTopNodes.classList.add('active');
   window.nodeEditTarget = activeNodeItem;
@@ -136,53 +158,62 @@ export function enterNodeEditMode(item) {
 
   nodeEditTool.onMouseDown = (event) => {
     // 0. Interceptar si el modo "Añadir Nodo" está activo
+    // 0. Intercept if the "Add Node" mode is active
     if (isAddNodeActive) {
-      const hitResult = paper.project.hitTest(event.point, {
-        stroke: true,
-        tolerance: 8 / paper.view.zoom,
-        match: (hit) => {
-          const targetPaths = getTargetPaths(activeNodeItem);
-          return targetPaths.some(p => p.id === hit.item.id);
+      const targetPaths = getTargetPaths(activeNodeItem);
+      let nearestLoc = null;
+      let minDistance = 8 / paper.view.zoom; // tolerance in view pixels
+
+      targetPaths.forEach(path => {
+        // Mathematically find the closest point on the path boundary, even if it has no strokeColor or width
+        const loc = path.getNearestLocation(event.point);
+        if (loc) {
+          const dist = loc.point.distance(event.point);
+          if (dist < minDistance) {
+            minDistance = dist;
+            nearestLoc = { path: path, location: loc };
+          }
         }
       });
-      if (hitResult && hitResult.type === 'stroke') {
+
+      if (nearestLoc) {
         if (typeof window.saveHistory === 'function') window.saveHistory();
-        const path = hitResult.item;
-        const location = hitResult.location;
-        if (location) {
-          const newSegment = location.curve.divideAt(location);
-          if (newSegment) {
-            selectedNodes.clear();
+        const path = nearestLoc.path;
+        const location = nearestLoc.location;
+        const newSegment = location.curve.divideAt(location);
+        if (newSegment) {
+          selectedNodes.clear();
+          drawNodeHandles();
+          const globalIdx = findGlobalIdxForSegment(path, newSegment.index);
+          if (globalIdx !== -1) {
+            selectedNodes.add(globalIdx);
             drawNodeHandles();
-            const globalIdx = findGlobalIdxForSegment(path, newSegment.index);
-            if (globalIdx !== -1) {
-              selectedNodes.add(globalIdx);
-              drawNodeHandles();
-            }
-            if (activeNodeItem.data?.isOuterWithHoles) {
-              if (typeof window.updateOuterPathGeometry === 'function') {
-                window.updateOuterPathGeometry(activeNodeItem);
-              }
-            }
-            
-            // UX: Desactivar modo Añadir inmediatamente para poder arrastrar el nodo de una vez
-            isAddNodeActive = false;
-            const btnAddNode = document.getElementById('btnCtxAddNode');
-            if (btnAddNode) {
-              btnAddNode.classList.remove('active');
-              btnAddNode.style.backgroundColor = '';
-            }
-            paper.view.element.style.cursor = 'default';
-            
-            // Iniciar arrastre interactivo de inmediato
-            isDraggingNode = true;
-            window.isDraggingNode = true;
-            paper.view.update();
-            return;
           }
+          if (activeNodeItem.data?.isOuterWithHoles) {
+            if (typeof window.updateOuterPathGeometry === 'function') {
+              window.updateOuterPathGeometry(activeNodeItem);
+            }
+          }
+          
+          // UX: Desactivar modo Añadir inmediatamente para poder arrastrar el nodo de una vez
+          isAddNodeActive = false;
+          const btnAddNode = document.getElementById('btnCtxAddNode');
+          if (btnAddNode) {
+            btnAddNode.classList.remove('active');
+            btnAddNode.style.backgroundColor = '';
+          }
+          paper.view.element.style.cursor = 'default';
+          
+          // Iniciar arrastre interactivo de inmediato
+          isDraggingNode = true;
+          window.isDraggingNode = true;
+          clickedOutside = false; // Reset clickedOutside on successful add
+          paper.view.update();
+          return;
         }
       }
     }
+
 
     // 1. Hit test para ver si hicimos clic sobre un tirador/nodo de interfaz existente
     const hitResult = paper.project.hitTest(event.point, {
@@ -193,7 +224,9 @@ export function enterNodeEditMode(item) {
     });
 
     if (hitResult) {
+      clickedOutside = false;
       const handleItem = hitResult.item;
+
       const ptIdx = handleItem.data.globalIdx;
       isDraggingNode = true;
       window.isDraggingNode = true;
@@ -217,14 +250,32 @@ export function enterNodeEditMode(item) {
       return;
     }
 
-    // 2. Si no tocamos ningun tirador, iniciamos el arrastre de caja (marquee)
-    dragStartPoint = event.point;
+
+    // 2. Si no tocamos ningun tirador, comprobamos si tocamos la figura en sí
+    const hitPath = paper.project.hitTest(event.point, {
+      fill: true,
+      stroke: true,
+      tolerance: 8 / paper.view.zoom,
+      match: (hit) => {
+        const targetPaths = getTargetPaths(activeNodeItem);
+        return targetPaths.some(p => p.id === hit.item.id);
+      }
+    });
+
+    if (!hitPath) {
+      clickedOutside = true;
+    } else {
+      clickedOutside = false;
+    }
+
+    dragStartPoint = event.point.clone();
     if (!event.modifiers.shift) {
       selectedNodes.clear();
     }
     drawNodeHandles();
     paper.view.update();
   };
+
 
   nodeEditTool.onMouseDrag = (event) => {
     // A. Arrastre de nodos seleccionados
@@ -302,7 +353,14 @@ export function enterNodeEditMode(item) {
     }
   };
 
+
   nodeEditTool.onMouseUp = (event) => {
+    if (clickedOutside && dragStartPoint && event.point.distance(dragStartPoint) < 4) {
+      clickedOutside = false;
+      exitNodeEditMode();
+      return;
+    }
+
     if (isDraggingNode) {
       isDraggingNode = false;
       window.isDraggingNode = false;
@@ -398,6 +456,13 @@ export function exitNodeEditMode() {
   });
 
   disabledClipGroups = [];
+  
+  const canvasEl = document.getElementById('editorCanvas');
+  if (canvasEl && window._handleNodeContextMenu) {
+    canvasEl.removeEventListener('contextmenu', window._handleNodeContextMenu);
+    delete window._handleNodeContextMenu;
+  }
+
   activeNodeItem = null;
   selectedNodes.clear();
   isDraggingNode = false;
@@ -587,6 +652,13 @@ export function deleteSelectedNodes() {
 
 // Manejar teclado
 function handleNodeKeydown(e) {
+
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    exitNodeEditMode();
+    return;
+  }
+
   if (selectedNodes.size === 0 || !activeNodeItem) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
