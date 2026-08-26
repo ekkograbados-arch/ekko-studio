@@ -1,6 +1,7 @@
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
+import { geometricUngroupCompound } from "./geometricUngroup.js";
 
 // =========================================================================
 // EKKO TELEMETRY & DIAGNOSTIC SYSTEM (F12 TRACING - v21)
@@ -73,9 +74,9 @@ function isPointText(item) {
 
 function isSymbolItem(item) {
   if (!item) return false;
-  return item.className === 'SymbolItem' || item.className === 'PlacedSymbol' || 
+  return item.className === 'SymbolItem' || item.className === 'PlacedSymbol' ||
          (typeof paper !== 'undefined' && (
-           (paper.SymbolItem && item instanceof paper.SymbolItem) || 
+           (paper.SymbolItem && item instanceof paper.SymbolItem) ||
            (paper.PlacedSymbol && item instanceof paper.PlacedSymbol)
          ));
 }
@@ -89,7 +90,6 @@ function isShape(item) {
   if (!item) return false;
   return item.className === 'Shape' || (typeof paper !== 'undefined' && paper.Shape && item instanceof paper.Shape);
 }
-
 
 window.originalFontBackup = null;
 let fontsCache = [];
@@ -568,21 +568,456 @@ function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
   return addedItems;
 }
 
+function splitPointTextIntoLetters(pointText) {
+  const letters = [];
+  const text = pointText.content;
+  const startPoint = pointText.point;
+  let accumX = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const singleLetterText = new paper.PointText({
+      point: startPoint.add(new paper.Point(accumX, 0)),
+      content: char,
+      fillColor: pointText.fillColor,
+      fontFamily: pointText.fontFamily,
+      fontSize: pointText.fontSize,
+      fontWeight: pointText.fontWeight
+    });
+    accumX += singleLetterText.bounds.width + 2;
+    letters.push(singleLetterText);
+  }
+  return letters;
+}
+
+export function dissolveOuterWithHoles(outerItem) {
+  if (!outerItem) return [];
+  const parent = outerItem.parent || paper.project.activeLayer;
+  const newItems = [];
+  const isClipped = !!outerItem.data?.clipGroup;
+  const target = isClipped ? getContentItem(outerItem) : outerItem;
+
+  // 1. Obtener la lista de calados asociados antes de limpiar el outer
+  const holeIds = outerItem.data?.holeIds || [];
+  const associatedHoles = [];
+  holeIds.forEach(id => {
+    const h = paper.project.getItem({ id: id });
+    if (h) associatedHoles.push(h);
+  });
+
+  // Conservar una referencia al originalPath de forma segura ANTES de borrar los datos
+  const originalPath = outerItem.data?.originalPath;
+
+  // 2. Desvincular completamente el outer de la lógica reactiva de calado
+  delete outerItem.data.isOuterWithHoles;
+  delete outerItem.data.originalPath;
+  delete outerItem.data.holeIds;
+  if (typeof window.ekkoOuters !== 'undefined') {
+    window.ekkoOuters.delete(outerItem.id);
+  }
+
+  // Restaurar de forma real e inmediata la geometría del outer a su estado original sólido (sin calar)
+  if (originalPath) {
+    const original = originalPath.clone({ insert: false });
+    original.fillColor = outerItem.fillColor || new paper.Color('#000000');
+    original.strokeColor = outerItem.strokeColor || '#000000';
+    original.strokeWidth = outerItem.strokeWidth || 1;
+    original.matrix = target.matrix.clone();
+    original.data = { ...(outerItem.data || {}) };
+
+    // Quitar metadatos del clon restaurado
+    delete original.data.isOuterWithHoles;
+    delete original.data.originalPath;
+    delete original.data.holeIds;
+
+    let newOuterItem;
+    if (isClipped) {
+      newOuterItem = window.clipItem(original);
+      newOuterItem.matrix = outerItem.matrix.clone();
+    } else {
+      newOuterItem = original;
+      const idx = parent.children.indexOf(outerItem);
+      if (idx !== -1) {
+        parent.insertChild(idx, newOuterItem);
+      } else {
+        parent.addChild(newOuterItem);
+      }
+    }
+
+    outerItem.remove();
+    outerItem = newOuterItem;
+  }
+  newItems.push(outerItem);
+
+  // 3. Desvincular y limpiar cada calado asociado para que sea un objeto independiente normal
+  associatedHoles.forEach(hole => {
+    const cleanHoleNode = (node) => {
+      if (node.data?.isHoleController) {
+        delete node.data.isHoleController;
+        delete node.data.outerItemId;
+        delete node.data.lastHash;
+        node.data.label = "Objeto";
+
+        // Quitar estética visual celeste punteada de calado y restaurar aspecto estándar
+        const actualPath = node.data?.clipGroup ? getContentItem(node) : node;
+        if (actualPath) {
+          actualPath.strokeColor = '#000000';
+          actualPath.strokeWidth = 1;
+          actualPath.dashArray = [];
+          
+          // REGLA DE ORO: No visible fill (transparent) so it doesn't leave a white background or block anything behind!
+          actualPath.fillColor = new paper.Color(255, 255, 255, 0.01);
+        }
+      }
+      if (node.children) {
+        node.children.forEach(cleanHoleNode);
+      }
+    };
+
+    cleanHoleNode(hole);
+    newItems.push(hole);
+  });
+
+  // 4. Actualizar selección de forma limpia
+  window.deselectItem();
+  setTimeout(() => {
+    window.selectedItems = [...newItems];
+    window.selectedItem = newItems[newItems.length - 1];
+    newItems.forEach(it => { if (it) it.selected = true; });
+    if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+    if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+    paper.view.update();
+  }, 50);
+
+  return newItems;
+}
+
+export function hierarchicalDecompose(item, isHoleSource) {
+  const isClipped = !!item.data?.clipGroup;
+  let target = isClipped ? getContentItem(item) : item;
+  if (isGroup(target)) {
+    target = getActiveGroupTarget(target);
+  }
+  if (!target || !(isCompoundPath(target))) return [];
+
+  const parent = item.parent || paper.project.activeLayer;
+  const newItems = [];
+  const createdOuters = [];
+
+  // Filtrar fondos de mesa de trabajo (Artboards) de forma súper segura
+  const subPaths = [...target.children].filter(p => {
+    if (isArtboardBackground(p, target)) {
+      p.remove();
+      return false;
+    }
+    return true;
+  });
+
+  if (subPaths.length === 0) return [];
+
+  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
+  const pathAbsMatrix = getGlobalMatrix(target);
+  const originalFillColor = target.fillColor;
+  const originalStrokeColor = target.strokeColor;
+  const originalStrokeWidth = target.strokeWidth;
+
+  // 1. Calcular el árbol de contención de todos los subpaths (menor contenedor inmediato)
+  const parentMap = new Map(); // subpath -> parent subpath
+  subPaths.forEach(p => {
+    let immediateParent = null;
+    let minArea = Infinity;
+    subPaths.forEach(other => {
+      if (other !== p) {
+        const otherArea = Math.abs(other.area) || other.bounds.area;
+        const pArea = Math.abs(p.area) || p.bounds.area;
+        if (otherArea > pArea) {
+          const containsCenter = typeof other.contains === 'function'
+            ? other.contains(p.bounds.center)
+            : other.bounds.contains(p.bounds.center);
+          if (containsCenter) {
+            if (otherArea < minArea) {
+              minArea = otherArea;
+              immediateParent = other;
+            }
+          }
+        }
+      }
+    });
+    parentMap.set(p, immediateParent);
+  });
+
+  // 2. Calcular la profundidad de cada subpath en el árbol
+  const depthMap = new Map(); // subpath -> depth
+  const getDepth = (p) => {
+    if (depthMap.has(p)) return depthMap.get(p);
+    const parentNode = parentMap.get(p);
+    if (!parentNode) {
+      depthMap.set(p, 0);
+      return 0;
+    } else {
+      const d = getDepth(parentNode) + 1;
+      depthMap.set(p, d);
+      return d;
+    }
+  };
+  subPaths.forEach(p => getDepth(p));
+
+  // 3. Obtener raíces locales (depth = 0)
+  const roots = subPaths.filter(p => depthMap.get(p) === 0);
+
+  // Configuración base de un elemento individual
+  const configureItem = (pathItem, isHoleType, isOuterWithHoles) => {
+    let finalFillColor = originalFillColor;
+    if (isHoleType) {
+      finalFillColor = new paper.Color(255, 255, 255, 0.01);
+    } else {
+      // PRESERVAR EL RELLENO ORIGINAL DEL COMPOUND PATH
+      finalFillColor = originalFillColor || new paper.Color('#000000');
+    }
+
+    pathItem.fillColor = finalFillColor;
+    pathItem.strokeColor = originalStrokeColor || '#000000';
+    pathItem.strokeWidth = originalStrokeWidth || 1;
+
+    let newItem;
+    if (isClipped) {
+      newItem = window.clipItem(pathItem);
+      if (newItem === pathItem) {
+        newItem.matrix = pathAbsMatrix.clone().chain(pathItem.matrix);
+      } else {
+        newItem.matrix = item.matrix.clone();
+        pathItem.matrix = pathRelMatrix.clone().chain(pathItem.matrix);
+      }
+    } else {
+      newItem = pathItem;
+      newItem.matrix = pathAbsMatrix.clone().chain(pathItem.matrix);
+      parent.addChild(newItem);
+    }
+
+    newItem.data = {
+      ...(item.data || {}),
+      locked: false,
+      label: isHoleType ? "Hueco" : (item.data?.label || "Objeto")
+    };
+
+    if (isHoleType) {
+      newItem.data.isHoleController = true;
+      newItem.data.outerItemId = "";
+      newItem.data.lastHash = "";
+      newItem.data.label = "Hueco";
+
+      const visualHole = newItem.data.clipGroup ? getContentItem(newItem) : newItem;
+      if (visualHole) {
+        visualHole.strokeColor = '#009dec';
+        visualHole.strokeWidth = 1.5 / paper.view.zoom;
+        visualHole.dashArray = [4, 4];
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
+      }
+    } else if (isOuterWithHoles) {
+      newItem.data.isOuterWithHoles = true;
+      newItem.data.originalPath = pathItem.clone({ insert: false });
+      newItem.data.holeIds = [];
+      createdOuters.push(newItem);
+    } else {
+      delete newItem.data.isOuterWithHoles;
+      delete newItem.data.originalPath;
+      delete newItem.data.holeIds;
+      createdOuters.push(newItem);
+    }
+
+    return newItem;
+  };
+
+  // Función recursiva para crear un árbol geométrico (alternando solids y HoleControllers)
+  const createShapeFromSubtree = (rootPath, isHoleType) => {
+    const descendants = subPaths.filter(p => {
+      let curr = parentMap.get(p);
+      while (curr) {
+        if (curr === rootPath) return true;
+        curr = parentMap.get(curr);
+      }
+      return false;
+    });
+
+    const directChildren = descendants.filter(p => parentMap.get(p) === rootPath);
+
+    if (descendants.length === 0) {
+      const pathClone = rootPath.clone({ insert: false });
+      const simpleItem = configureItem(pathClone, isHoleType, false);
+      newItems.push(simpleItem);
+      return simpleItem;
+    }
+
+    if (!isHoleType) {
+      const outerClone = rootPath.clone({ insert: false });
+      const newOuterItem = configureItem(outerClone, false, true);
+      newItems.push(newOuterItem);
+
+      directChildren.forEach(child => {
+        const childHoleItem = createShapeFromSubtree(child, true);
+        childHoleItem.data.outerItemId = newOuterItem.id;
+        newOuterItem.data.holeIds.push(childHoleItem.id);
+      });
+
+      return newOuterItem;
+    } else {
+      const group = new paper.Group();
+      group.data = {
+        ...(item.data || {}),
+        locked: false,
+        label: "Grupo Calado Compuesto"
+      };
+
+      const holeClone = rootPath.clone({ insert: false });
+      const mainHoleController = configureItem(holeClone, true, false);
+      group.addChild(mainHoleController);
+      newItems.push(mainHoleController);
+
+      directChildren.forEach(child => {
+        const innerSolidItem = createShapeFromSubtree(child, false);
+        group.addChild(innerSolidItem);
+      });
+
+      let finalGroupItem;
+      if (isClipped) {
+        finalGroupItem = window.clipItem(group);
+        if (finalGroupItem === group) {
+          finalGroupItem.matrix = pathAbsMatrix.clone().chain(group.matrix);
+        } else {
+          finalGroupItem.matrix = item.matrix.clone();
+          group.matrix = pathRelMatrix.clone().chain(group.matrix);
+        }
+      } else {
+        finalGroupItem = group;
+        finalGroupItem.matrix = pathAbsMatrix.clone().chain(group.matrix);
+        parent.addChild(finalGroupItem);
+      }
+
+      newItems.push(finalGroupItem);
+      return finalGroupItem;
+    }
+  };
+
+  if (roots.length === 1 && subPaths.length > 1) {
+    const singleRoot = roots[0];
+    const newOuterItem = configureItem(singleRoot.clone({ insert: false }), isHoleSource, true);
+    newItems.push(newOuterItem);
+
+    const level1Items = subPaths.filter(p => depthMap.get(p) === 1);
+    level1Items.forEach(lvl1 => {
+      const childHoleItem = createShapeFromSubtree(lvl1, !isHoleSource);
+      childHoleItem.data.outerItemId = newOuterItem.id;
+      newOuterItem.data.holeIds.push(childHoleItem.id);
+    });
+  } else {
+    roots.forEach(root => {
+      createShapeFromSubtree(root, isHoleSource);
+    });
+  }
+
+  newItems.forEach(it => {
+    const isHole = it.data?.isHoleController;
+    if (isHole) {
+      const holeCenter = it.bounds.center;
+      let bestOuter = null;
+      let minArea = Infinity;
+
+      const allCandidates = [...createdOuters];
+      if (paper.project.activeLayer) {
+        paper.project.activeLayer.children.forEach(c => {
+          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController && !c.data?.clipGroup?.children?.some(ch => ch.data?.isHoleController)) {
+            if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
+              allCandidates.push(c);
+            }
+          }
+        });
+      }
+
+      allCandidates.forEach(outItem => {
+        const visualOuter = outItem.data?.clipGroup ? getContentItem(outItem) : outItem;
+        if (visualOuter && visualOuter.bounds.contains(holeCenter)) {
+          const area = visualOuter.bounds.area;
+          if (area < minArea) {
+            minArea = area;
+            bestOuter = outItem;
+          }
+        }
+      });
+
+      if (bestOuter) {
+        it.data.outerItemId = bestOuter.id;
+        bestOuter.data = bestOuter.data || {};
+        bestOuter.data.isOuterWithHoles = true;
+        bestOuter.data.originalPath = (bestOuter.data.clipGroup ? getContentItem(bestOuter) : bestOuter).clone({ insert: false });
+        bestOuter.data.holeIds = bestOuter.data.holeIds || [];
+        if (!bestOuter.data.holeIds.includes(it.id)) {
+          bestOuter.data.holeIds.push(it.id);
+        }
+
+        if (typeof window.ekkoOuters !== 'undefined') {
+          window.ekkoOuters.set(bestOuter.id, bestOuter);
+        }
+        if (typeof window.updateOuterPathGeometry === 'function') {
+          window.updateOuterPathGeometry(bestOuter);
+        }
+      }
+    }
+  });
+
+  if (isClipped && item) {
+    item.clipped = false;
+  }
+  item.remove();
+
+  return newItems.filter(it => it.parent === parent);
+}
+
+export function separateContoursIntoIndependentShapes(itemToProcess) {
+  const item = itemToProcess || window.selectedItem;
+  if (typeof window !== 'undefined') {
+    console.log("%c[EKKO HIERARCHICAL DECOMPOSE] Iniciando descomposición jerárquica para contorno sólido:", "color: #0f766e; font-weight: bold;", item ? { id: item.id, type: item.constructor.name } : "Ninguno");
+  }
+  return hierarchicalDecompose(item, false);
+}
+
+export function ungroupHoleController(item) {
+  if (!item || !item.data?.isHoleController) return [];
+  if (typeof window !== 'undefined') {
+    console.log("%c[EKKO HIERARCHICAL DECOMPOSE] Iniciando descomposición jerárquica para calado:", "color: #0f766e; font-weight: bold;", { id: item.id, label: item.data?.label });
+  }
+
+  const ownerId = item.data.outerItemId;
+  const owner = ownerId ? paper.project.getItem({ id: ownerId }) : null;
+
+  if (owner) {
+    owner.data.holeIds = (owner.data.holeIds || []).filter(id => id !== item.id);
+  }
+
+  const decomposedHoles = hierarchicalDecompose(item, true);
+
+  if (owner) {
+    if (owner.data.holeIds.length === 0 && (!owner.data.holeIds || owner.data.holeIds.length === 0)) {
+      delete owner.data.isOuterWithHoles;
+      window.ekkoOuters.delete(owner.id);
+    } else {
+      updateOuterPathGeometry(owner);
+    }
+  }
+
+  return decomposedHoles;
+}
+
 export function ungroupSelectedItem() {
   if (typeof window !== 'undefined') {
     console.log("%c[EKKO UNGROUP ACTION] 1. Clic detectado en Desagrupar 🔓", "color: #ffffff; font-weight: bold; background: #ea580c; padding: 4px 10px; border-radius: 6px; font-size: 13px;");
   }
 
   // COMPATIBILIDAD CON EDICIÓN DE NODOS:
-  // Si estamos en modo de edición de nodos, el objeto que queremos desagrupar es
-  // el que se está editando activamente (window.nodeEditTarget o activeNodeItem).
-  // Salimos limpiamente de la edición de nodos para evitar referencias nulas o tiradores huérfanos.
   const wasInNodeEdit = !!window.nodeEditMode;
   let targetNodeItem = null;
   if (wasInNodeEdit) {
     targetNodeItem = window.nodeEditTarget;
     if (typeof window.exitNodeEditMode === 'function') {
-      window.exitNodeEditMode(true); // Evitar re-seleccionar para que no haya conflictos en el primer clic
+      window.exitNodeEditMode(true);
     }
   }
 
@@ -597,7 +1032,6 @@ export function ungroupSelectedItem() {
     window.saveHistory();
   }
 
-  // PRE-PROCESAMIENTO INTELIGENTE: Expandimos símbolos y removemos wrappers redundantes en un solo paso
   const selected = rawSelected.map(item => resolveRedundantWrappers(item));
   const finalNewItems = [];
 
@@ -668,12 +1102,12 @@ export function ungroupSelectedItem() {
           newItems.push(...ungroupedHoles);
         }
       } else {
-        // Ejecutar separación jerárquica de contornos de afuera hacia adentro
-        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando separateContoursIntoIndependentShapes()...", "color: #0284c7; font-weight: bold;");
-        const separated = separateContoursIntoIndependentShapes(item);
-        if (separated && separated.length > 0) {
-          console.log(` - Se generaron ${separated.length} formas/huecos separados.`);
-          newItems.push(...separated);
+        // CORRECCIÓN DE ORO:
+        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando geometricUngroupCompound()...", "color: #10b981; font-weight: bold;");
+        const result = geometricUngroupCompound(item);
+        if (result && result.items) {
+          console.log(` - Se generaron ${result.items.length} formas/huecos separados geométricamente.`);
+          newItems.push(...result.items);
         }
       }
     }
@@ -697,493 +1131,10 @@ export function ungroupSelectedItem() {
         if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
         if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
         console.log("%c[EKKO UNGROUP ACTION] Desagrupación finalizada con éxito.", "color: #10b981; font-weight: bold; background: #ecfdf5; padding: 2px 6px; border-radius: 4px;");
-        console.log(" - Nuevos elementos seleccionados en pantalla:", selectList.map(it => ({ id: it.id, type: it.constructor.name, data: it.data })));
       }
       paper.view.update();
     }, 50);
   }
-}
-
-function splitPointTextIntoLetters(pointText) {
-  const letters = [];
-  const text = pointText.content;
-  const startPoint = pointText.point;
-  let accumX = 0;
-  for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const singleLetterText = new paper.PointText({
-      point: startPoint.add(new paper.Point(accumX, 0)),
-      content: char,
-      fillColor: pointText.fillColor,
-      fontFamily: pointText.fontFamily,
-      fontSize: pointText.fontSize,
-      fontWeight: pointText.fontWeight
-    });
-    accumX += singleLetterText.bounds.width + 2;
-    letters.push(singleLetterText);
-  }
-  return letters;
-}
-
-export function dissolveOuterWithHoles(outerItem) {
-  if (!outerItem) return [];
-  const parent = outerItem.parent || paper.project.activeLayer;
-  const newItems = [];
-  const isClipped = !!outerItem.data?.clipGroup;
-  const target = isClipped ? getContentItem(outerItem) : outerItem;
-
-  // 1. Obtener la lista de calados asociados antes de limpiar el outer
-  const holeIds = outerItem.data?.holeIds || [];
-  const associatedHoles = [];
-  holeIds.forEach(id => {
-    const h = paper.project.getItem({ id: id });
-    if (h) associatedHoles.push(h);
-  });
-
-  // Conservar una referencia al originalPath de forma segura ANTES de borrar los datos
-  const originalPath = outerItem.data?.originalPath;
-
-  // 2. Desvincular completamente el outer de la lógica reactiva de calado
-  delete outerItem.data.isOuterWithHoles;
-  delete outerItem.data.originalPath;
-  delete outerItem.data.holeIds;
-  if (typeof window.ekkoOuters !== 'undefined') {
-    window.ekkoOuters.delete(outerItem.id);
-  }
-
-  // Restaurar de forma real e inmediata la geometría del outer a su estado original sólido (sin calar)
-  if (originalPath) {
-    const original = originalPath.clone({ insert: false });
-    original.fillColor = outerItem.fillColor || new paper.Color('#000000');
-    original.strokeColor = outerItem.strokeColor || '#000000';
-    original.strokeWidth = outerItem.strokeWidth || 1;
-    original.matrix = target.matrix.clone();
-    original.data = { ...(outerItem.data || {}) };
-    
-    // Quitar metadatos del clon restaurado
-    delete original.data.isOuterWithHoles;
-    delete original.data.originalPath;
-    delete original.data.holeIds;
-
-    let newOuterItem;
-    if (isClipped) {
-      newOuterItem = window.clipItem(original);
-      newOuterItem.matrix = outerItem.matrix.clone();
-    } else {
-      newOuterItem = original;
-      const idx = parent.children.indexOf(outerItem);
-      if (idx !== -1) {
-        parent.insertChild(idx, newOuterItem);
-      } else {
-        parent.addChild(newOuterItem);
-      }
-    }
-    outerItem.remove();
-    outerItem = newOuterItem;
-  }
-  newItems.push(outerItem);
-
-  // 3. Desvincular y limpiar cada calado asociado para que sea un objeto independiente normal
-  associatedHoles.forEach(hole => {
-    const cleanHoleNode = (node) => {
-      if (node.data?.isHoleController) {
-        delete node.data.isHoleController;
-        delete node.data.outerItemId;
-        delete node.data.lastHash;
-        node.data.label = "Objeto";
-
-        // Quitar estética visual celeste punteada de calado y restaurar aspecto estándar
-        const actualPath = node.data?.clipGroup ? getContentItem(node) : node;
-        if (actualPath) {
-          actualPath.strokeColor = '#000000';
-          actualPath.strokeWidth = 1;
-          actualPath.dashArray = [];
-          
-          // Calcular contraste dinámico basado en el color del outerItem restaurado para que conserve su relleno real en el SVG
-          let holeFillColor = new paper.Color('#ffffff'); // Por defecto blanco
-          if (outerItem && outerItem.fillColor) {
-            const fc = outerItem.fillColor;
-            const isDark = fc.gray !== undefined
-              ? fc.gray < 0.5
-              : (fc.red * 0.299 + fc.green * 0.587 + fc.blue * 0.114) < 0.5;
-            holeFillColor = isDark ? new paper.Color('#ffffff') : new paper.Color('#000000');
-          }
-          actualPath.fillColor = holeFillColor;
-        }
-      }
-      if (node.children) {
-        node.children.forEach(cleanHoleNode);
-      }
-    };
-
-    cleanHoleNode(hole);
-    newItems.push(hole);
-  });
-
-  // 4. Actualizar selección de forma limpia
-  window.deselectItem();
-  setTimeout(() => {
-    window.selectedItems = [...newItems];
-    window.selectedItem = newItems[newItems.length - 1];
-    newItems.forEach(it => { if (it) it.selected = true; });
-    if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-    if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-    paper.view.update();
-  }, 50);
-
-  return newItems;
-}
-
-export function hierarchicalDecompose(item, isHoleSource) {
-  const isClipped = !!item.data?.clipGroup;
-  let target = isClipped ? getContentItem(item) : item;
-  if (isGroup(target)) {
-    target = getActiveGroupTarget(target);
-  }
-  if (!target || !(isCompoundPath(target))) return [];
-
-  const parent = item.parent || paper.project.activeLayer;
-  const index = parent.children.indexOf(item);
-  const newlyCreatedItems = [];
-  const createdOuters = [];
-
-  // Filtrar fondos de mesa de trabajo (Artboards) de forma súper segura
-  const subPaths = [...target.children].filter(p => {
-    if (isArtboardBackground(p, target)) {
-      p.remove();
-      return false;
-    }
-    return true;
-  });
-
-  if (subPaths.length === 0) return [];
-
-  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
-  const pathAbsMatrix = getGlobalMatrix(target);
-  const originalFillColor = target.fillColor;
-  const originalStrokeColor = target.strokeColor;
-  const originalStrokeWidth = target.strokeWidth;
-
-  // 1. Calcular el árbol de contención de todos los subpaths (menor contenedor inmediato)
-  const parentMap = new Map(); // subpath -> parent subpath
-  subPaths.forEach(p => {
-    let immediateParent = null;
-    let minArea = Infinity;
-    subPaths.forEach(other => {
-      if (other !== p) {
-        const otherArea = Math.abs(other.area) || other.bounds.area;
-        const pArea = Math.abs(p.area) || p.bounds.area;
-        if (otherArea > pArea) {
-          const containsCenter = typeof other.contains === 'function'
-            ? other.contains(p.bounds.center)
-            : other.bounds.contains(p.bounds.center);
-          if (containsCenter) {
-            if (otherArea < minArea) {
-              minArea = otherArea;
-              immediateParent = other;
-            }
-          }
-        }
-      }
-    });
-    parentMap.set(p, immediateParent);
-  });
-
-  // 2. Calcular la profundidad de cada subpath en el árbol
-  const depthMap = new Map(); // subpath -> depth
-  const getDepth = (p) => {
-    if (depthMap.has(p)) return depthMap.get(p);
-    const parentNode = parentMap.get(p);
-    if (!parentNode) {
-      depthMap.set(p, 0);
-      return 0;
-    } else {
-      const d = getDepth(parentNode) + 1;
-      depthMap.set(p, d);
-      return d;
-    }
-  };
-  subPaths.forEach(p => getDepth(p));
-
-  // 3. Obtener raíces locales (depth = 0)
-  const roots = subPaths.filter(p => depthMap.get(p) === 0);
-
-  // Configuración base de un elemento individual
-  const configureItem = (pathItem, isHoleType, isOuterWithHoles) => {
-    let finalFillColor = originalFillColor;
-    if (isHoleType) {
-      finalFillColor = new paper.Color(255, 255, 255, 0.01);
-    } else {
-      if (!originalFillColor || originalFillColor.alpha === 0) {
-        finalFillColor = new paper.Color('#ffffff');
-      } else {
-        // Lógica inteligente de contraste si está dentro de otra forma
-        const isNested = parentMap.get(pathItem) !== null;
-        if (isNested) {
-          const isDark = originalFillColor.gray !== undefined
-            ? originalFillColor.gray < 0.5
-            : (originalFillColor.red * 0.299 + originalFillColor.green * 0.587 + originalFillColor.blue * 0.114) < 0.5;
-          finalFillColor = isDark ? new paper.Color('#ffffff') : new paper.Color('#000000');
-        } else {
-          finalFillColor = originalFillColor;
-        }
-      }
-    }
-
-    pathItem.fillColor = finalFillColor;
-    pathItem.strokeColor = originalStrokeColor || '#000000';
-    pathItem.strokeWidth = originalStrokeWidth || 1;
-
-    let newItem;
-    if (isClipped) {
-      newItem = window.clipItem(pathItem);
-      if (newItem === pathItem) {
-        newItem.matrix = pathAbsMatrix.clone().chain(pathItem.matrix);
-      } else {
-        newItem.matrix = item.matrix.clone();
-        pathItem.matrix = pathRelMatrix.clone().chain(pathItem.matrix);
-      }
-    } else {
-      newItem = pathItem;
-      newItem.matrix = pathAbsMatrix.clone().chain(pathItem.matrix);
-      parent.addChild(newItem);
-    }
-
-    newItem.data = {
-      ...(item.data || {}),
-      locked: false,
-      label: isHoleType ? "Hueco" : (item.data?.label || "Objeto")
-    };
-
-    if (isHoleType) {
-      newItem.data.isHoleController = true;
-      newItem.data.outerItemId = "";
-      newItem.data.lastHash = "";
-      newItem.data.label = "Hueco";
-
-      const visualHole = newItem.data.clipGroup ? getContentItem(newItem) : newItem;
-      if (visualHole) {
-        visualHole.strokeColor = '#009dec';
-        visualHole.strokeWidth = 1.5 / paper.view.zoom;
-        visualHole.dashArray = [4, 4];
-        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
-      }
-    } else if (isOuterWithHoles) {
-      newItem.data.isOuterWithHoles = true;
-      newItem.data.originalPath = pathItem.clone({ insert: false });
-      newItem.data.holeIds = [];
-      createdOuters.push(newItem);
-    } else {
-      delete newItem.data.isOuterWithHoles;
-      delete newItem.data.originalPath;
-      delete newItem.data.holeIds;
-      createdOuters.push(newItem);
-    }
-
-    return newItem;
-  };
-
-  // Función recursiva para crear un árbol geométrico (alternando solids y HoleControllers)
-  const createShapeFromSubtree = (rootPath, isHoleType) => {
-    // Recolectar todos los descendientes de este sub-árbol
-    const descendants = subPaths.filter(p => {
-      let curr = parentMap.get(p);
-      while (curr) {
-        if (curr === rootPath) return true;
-        curr = parentMap.get(curr);
-      }
-      return false;
-    });
-
-    const directChildren = descendants.filter(p => parentMap.get(p) === rootPath);
-
-    if (descendants.length === 0) {
-      // Elemento simple final
-      const pathClone = rootPath.clone({ insert: false });
-      const simpleItem = configureItem(pathClone, isHoleType, false);
-      newlyCreatedItems.push(simpleItem);
-      return simpleItem;
-    }
-
-    // Elemento compuesto
-    if (!isHoleType) {
-      // CONTORNO COMPUESTO (Sólido + huecos directos)
-      const outerClone = rootPath.clone({ insert: false });
-      const newOuterItem = configureItem(outerClone, false, true);
-      newlyCreatedItems.push(newOuterItem);
-
-      // Los hijos directos (depth=1 en este sub-árbol) son calados (isHole = true)
-      directChildren.forEach(child => {
-        const childHoleItem = createShapeFromSubtree(child, true);
-        childHoleItem.data.outerItemId = newOuterItem.id;
-        newOuterItem.data.holeIds.push(childHoleItem.id);
-      });
-
-      return newOuterItem;
-    } else {
-      // HUECO COMPUESTO (Hueco + contornos sólidos directos adentro)
-      // Lo representamos como un Grupo tradicional de Paper.js para poder renderizar
-      // al hueco celeste y a sus hijos sólidos negros de forma simultánea y correcta.
-      const group = new paper.Group();
-      group.data = {
-        ...(item.data || {}),
-        locked: false,
-        label: "Grupo Calado Compuesto"
-      };
-
-      // 1. Crear el hueco celeste como un calado simple
-      const holeClone = rootPath.clone({ insert: false });
-      const mainHoleController = configureItem(holeClone, true, false);
-      group.addChild(mainHoleController);
-      newlyCreatedItems.push(mainHoleController);
-
-      // 2. Crear los sólidos interiores como hijos del grupo (depth=1 en este sub-árbol)
-      directChildren.forEach(child => {
-        const innerSolidItem = createShapeFromSubtree(child, false);
-        group.addChild(innerSolidItem);
-      });
-
-      // Insertar el grupo de forma correcta
-      let finalGroupItem;
-      if (isClipped) {
-        finalGroupItem = window.clipItem(group);
-        if (finalGroupItem === group) {
-          finalGroupItem.matrix = pathAbsMatrix.clone().chain(group.matrix);
-        } else {
-          finalGroupItem.matrix = item.matrix.clone();
-          group.matrix = pathRelMatrix.clone().chain(group.matrix);
-        }
-      } else {
-        finalGroupItem = group;
-        finalGroupItem.matrix = pathAbsMatrix.clone().chain(group.matrix);
-        parent.addChild(finalGroupItem);
-      }
-
-      newlyCreatedItems.push(finalGroupItem);
-      return finalGroupItem;
-    }
-  };
-
-  // 4. Ejecutar la descomposición recursiva de afuera hacia adentro
-  if (roots.length === 1 && subPaths.length > 1) {
-    // CASO A: Hay una sola raíz principal (ej: el escudo contenedor, o un calado compuesto).
-    // Pelamos la raíz exterior como un elemento simple, y desagrupamos su nivel inmediato inferior (depth = 1).
-    const singleRoot = roots[0];
-    
-    // Crear el outer principal pelado (sólido simple, sin huecos en su definición de CompoundPath)
-    const newOuterItem = configureItem(singleRoot.clone({ insert: false }), isHoleSource, true);
-    newlyCreatedItems.push(newOuterItem);
-
-    // Los elementos de nivel 1 se descomponen de forma recursiva como HoleControllers (isHole = !isHoleSource)
-    const level1Items = subPaths.filter(p => depthMap.get(p) === 1);
-    level1Items.forEach(lvl1 => {
-      const childHoleItem = createShapeFromSubtree(lvl1, !isHoleSource);
-      childHoleItem.data.outerItemId = newOuterItem.id;
-      newOuterItem.data.holeIds.push(childHoleItem.id);
-    });
-  } else {
-    // CASO B: Hay múltiples raíces independientes o es un único path simple.
-    roots.forEach(root => {
-      createShapeFromSubtree(root, isHoleSource);
-    });
-  }
-
-  // 5. Vincular de forma reactiva todos los HoleControllers
-  newlyCreatedItems.forEach(it => {
-    const isHole = it.data?.isHoleController;
-    if (isHole) {
-      const holeCenter = it.bounds.center;
-      let bestOuter = null;
-      let minArea = Infinity;
-
-      // Buscar tanto en los nuevos outers creados como en todo el activeLayer
-      const allCandidates = [...createdOuters];
-      if (paper.project.activeLayer) {
-        paper.project.activeLayer.children.forEach(c => {
-          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController && !c.data?.clipGroup?.children?.some(ch => ch.data?.isHoleController)) {
-            if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
-              allCandidates.push(c);
-            }
-          }
-        });
-      }
-
-      allCandidates.forEach(outItem => {
-        const visualOuter = outItem.data?.clipGroup ? getContentItem(outItem) : outItem;
-        if (visualOuter && visualOuter.bounds.contains(holeCenter)) {
-          const area = visualOuter.bounds.area;
-          if (area < minArea) {
-            minArea = area;
-            bestOuter = outItem;
-          }
-        }
-      });
-
-      if (bestOuter) {
-        it.data.outerItemId = bestOuter.id;
-        bestOuter.data = bestOuter.data || {};
-        bestOuter.data.isOuterWithHoles = true;
-        bestOuter.data.originalPath = (bestOuter.data.clipGroup ? getContentItem(bestOuter) : bestOuter).clone({ insert: false });
-        bestOuter.data.holeIds = bestOuter.data.holeIds || [];
-        if (!bestOuter.data.holeIds.includes(it.id)) {
-          bestOuter.data.holeIds.push(it.id);
-        }
-
-        if (typeof window.ekkoOuters !== 'undefined') {
-          window.ekkoOuters.set(bestOuter.id, bestOuter);
-        }
-        if (typeof window.updateOuterPathGeometry === 'function') {
-          window.updateOuterPathGeometry(bestOuter);
-        }
-      }
-    }
-  });
-
-  if (isClipped && item) {
-    item.clipped = false;
-  }
-  item.remove();
-
-  // Retornar solo los elementos que queden directamente en el activeLayer (o clipGroup) para evitar duplicados en la selección
-  return newlyCreatedItems.filter(it => it.parent === parent);
-}
-
-export function separateContoursIntoIndependentShapes(itemToProcess) {
-  const item = itemToProcess || window.selectedItem;
-  if (typeof window !== 'undefined') {
-    console.log("%c[EKKO HIERARCHICAL DECOMPOSE] Iniciando descomposición jerárquica para contorno sólido:", "color: #0f766e; font-weight: bold;", item ? { id: item.id, type: item.constructor.name } : "Ninguno");
-  }
-  return hierarchicalDecompose(item, false);
-}
-
-export function ungroupHoleController(item) {
-  if (!item || !item.data?.isHoleController) return [];
-  if (typeof window !== 'undefined') {
-    console.log("%c[EKKO HIERARCHICAL DECOMPOSE] Iniciando descomposición jerárquica para calado:", "color: #0f766e; font-weight: bold;", { id: item.id, label: item.data?.label });
-  }
-
-  const ownerId = item.data.outerItemId;
-  const owner = ownerId ? paper.project.getItem({ id: ownerId }) : null;
-
-  if (owner) {
-    // Desvincular temporalmente este calado compuesto de su dueño antes de descomponerlo
-    owner.data.holeIds = (owner.data.holeIds || []).filter(id => id !== item.id);
-  }
-
-  // Descomponer de forma jerárquica asumiendo que la raíz actual es un calado
-  const decomposedHoles = hierarchicalDecompose(item, true);
-
-  if (owner) {
-    if (owner.data.holeIds.length === 0 && (!owner.data.holeIds || owner.data.holeIds.length === 0)) {
-      // Si no quedan calados asociados, limpiar el estado del dueño
-      delete owner.data.isOuterWithHoles;
-      window.ekkoOuters.delete(owner.id);
-    } else {
-      updateOuterPathGeometry(owner);
-    }
-  }
-
-  return decomposedHoles;
 }
 
 export function separateContours(itemToProcess, skipSelection = false) {
@@ -1841,7 +1792,6 @@ export function clipImageWithVector(vectorItem, rasterItem) {
 function handleInteractiveDrop(event) {
   let draggedItem = window.selectedItem;
   if (!draggedItem) return;
-
   let holeController = null;
   if (draggedItem.data?.isHoleController) {
     holeController = draggedItem;
@@ -2129,7 +2079,7 @@ export function updateContextualMenu(item) {
   if (selectedCount > 1) {
     const allVectors = window.selectedItems.every(it => {
       const tgt = it.data?.clipGroup ? getContentItem(it) : it;
-      return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isSymbolItem(tgt) || isShape(tgt));
+      return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isShape(tgt));
     });
     if (allVectors) {
       const vecCtrl = document.getElementById('ctxVectorControls');
