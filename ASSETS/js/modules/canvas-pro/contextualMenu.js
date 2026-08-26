@@ -437,10 +437,75 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 }
 
 function isArtboardBackground(path, parentItem) {
-  // Desactivado para evitar borrar accidentalmente contornos válidos del SVG (como el escudo exterior de AFA)
+  if (!path || !parentItem) return false;
+  const parentBounds = parentItem.bounds;
+  const pathBounds = path.bounds;
+  
+  // 1. Verificar si tiene dimensiones casi idénticas al contenedor principal (como el lienzo de exportación)
+  const widthRatio = pathBounds.width / parentBounds.width;
+  const heightRatio = pathBounds.height / parentBounds.height;
+  if (widthRatio > 0.95 && heightRatio > 0.95) {
+    // 2. Verificar si es un rectángulo simple (habitualmente de fondo de artboard)
+    const isRect = path.segments && path.segments.length === 4;
+    
+    // 3. Verificar si es transparente o blanco sin trazo visible
+    const hasStroke = path.strokeColor && path.strokeColor.alpha > 0 && path.strokeWidth > 0;
+    const hasFill = path.fillColor && path.fillColor.alpha > 0;
+    
+    if (!hasStroke) {
+      // Si no tiene relleno o si es blanco / transparente
+      if (!hasFill) return true;
+      if (path.fillColor) {
+        const fill = path.fillColor;
+        // Blanco puro o transparente
+        if (fill.alpha === 0) return true;
+        const isWhite = (fill.red > 0.95 && fill.green > 0.95 && fill.blue > 0.95) || fill.gray > 0.95;
+        if (isWhite) return true;
+      }
+    }
+  }
   return false;
 }
 
+// NUEVA FUNCIÓN AUXILIAR: Resuelve y disuelve recursivamente grupos vacíos,
+// grupos de un solo hijo (redundantes) y símbolos SVG en un solo clic.
+function resolveRedundantWrappers(item) {
+  let current = item;
+  while (true) {
+    // A. Si es un SymbolItem (Clon de símbolo <use>), lo expandimos inmediatamente
+    if (current instanceof paper.SymbolItem || (paper.PlacedSymbol && current instanceof paper.PlacedSymbol)) {
+      if (current.symbol && current.symbol.item) {
+        console.log("%c[EKKO SYMBOL RESOLVE] Expandiendo símbolo SVG clonado:", "color: #ea580c; font-weight: bold;", current.id);
+        const clone = current.symbol.item.clone({ insert: false });
+        clone.matrix = current.matrix.clone();
+        clone.data = { ...(current.data || {}), label: "Objeto Expandido" };
+        const parent = current.parent;
+        const idx = parent.children.indexOf(current);
+        parent.insertChild(idx, clone);
+        current.remove();
+        current = clone;
+        continue; // Seguir evaluando el clon generado
+      }
+    }
+    // B. Si es un Grupo con un solo hijo que también es un Grupo o Trazado (Nesting redundante de exportación de Corel/Illustrator)
+    if (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
+      const child = current.children[0];
+      console.log("%c[EKKO GROUP FLATTEN] Disolviendo capa de grupo redundante de un solo hijo:", "color: #3b82f6; font-weight: bold;", current.id);
+      const relMatrix = getMatrixRelativeTo(child, current);
+      child.remove();
+      const parent = current.parent;
+      const idx = parent.children.indexOf(current);
+      parent.insertChild(idx, child);
+      child.matrix = current.matrix.clone().chain(relMatrix);
+      child.data = { ...(current.data || {}), ...(child.data || {}) };
+      current.remove();
+      current = child;
+      continue; // Seguir evaluando el elemento promovido
+    }
+    break;
+  }
+  return current;
+}
 
 function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
   const children = [...group.children];
@@ -477,11 +542,8 @@ function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
 export function ungroupSelectedItem() {
   if (typeof window !== 'undefined') {
     console.log("%c[EKKO UNGROUP ACTION] 1. Clic detectado en Desagrupar 🔓", "color: #ffffff; font-weight: bold; background: #ea580c; padding: 4px 10px; border-radius: 6px; font-size: 13px;");
-    console.log(" - window.selectedItem:", window.selectedItem ? { id: window.selectedItem.id, type: window.selectedItem.constructor.name, data: window.selectedItem.data } : "Ninguno");
-    console.log(" - window.selectedItems:", window.selectedItems ? window.selectedItems.map(it => ({ id: it.id, type: it.constructor.name, data: it.data })) : "Ninguno");
-    console.log(" - window.nodeEditMode:", !!window.nodeEditMode);
-    console.log(" - window.nodeEditTarget:", window.nodeEditTarget ? { id: window.nodeEditTarget.id, type: window.nodeEditTarget.constructor.name } : "Ninguno");
   }
+  
   // COMPATIBILIDAD CON EDICIÓN DE NODOS:
   // Si estamos en modo de edición de nodos, el objeto que queremos desagrupar es
   // el que se está editando activamente (window.nodeEditTarget o activeNodeItem).
@@ -495,18 +557,22 @@ export function ungroupSelectedItem() {
     }
   }
 
-  let selected = (window.selectedItems && window.selectedItems.length > 0)
+  let rawSelected = (window.selectedItems && window.selectedItems.length > 0)
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
 
   if (wasInNodeEdit && targetNodeItem) {
-    selected = [targetNodeItem];
+    rawSelected = [targetNodeItem];
   }
 
-  if (selected.length === 0) return;
+  if (rawSelected.length === 0) return;
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
+
+  // PRE-PROCESAMIENTO INTELIGENTE: Expandimos símbolos y removemos wrappers redundantes en un solo paso
+  const selected = rawSelected.map(item => resolveRedundantWrappers(item));
+
   const finalNewItems = [];
   selected.forEach((item, sIdx) => {
     console.log(`%c[EKKO UNGROUP PROCESS] Procesando elemento [${sIdx}] ID: ${item.id} (${item.constructor.name})`, "color: #0f766e; font-weight: bold;");
@@ -561,42 +627,6 @@ export function ungroupSelectedItem() {
       }
       item.remove();
     }
-    // D. SI ES UN SYMBOLITEM (SÍMBOLO CLONADO SVG <use>)
-    else if (activeTarget instanceof paper.SymbolItem || (paper.PlacedSymbol && activeTarget instanceof paper.PlacedSymbol)) {
-      if (typeof window !== 'undefined') {
-        console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: SÍMBOLO SVG (SymbolItem/PlacedSymbol).", "color: #d97706; font-weight: bold;");
-      }
-      if (activeTarget.symbol && activeTarget.symbol.item) {
-        const expanded = activeTarget.symbol.item.clone({ insert: false });
-        expanded.matrix = activeTarget.matrix.clone();
-        expanded.data = { ...(activeTarget.data || {}), label: "Objeto Expandido" };
-        
-        let newItem;
-        if (isClipped) {
-          newItem = window.clipItem(expanded);
-          if (newItem === expanded) {
-            newItem.matrix = getGlobalMatrix(activeTarget);
-          } else {
-            newItem.matrix = item.matrix.clone();
-            expanded.matrix = getMatrixRelativeTo(expanded, activeTarget).clone();
-          }
-        } else {
-          newItem = expanded;
-          newItem.matrix = getGlobalMatrix(activeTarget);
-          parent.addChild(newItem);
-        }
-        
-        newItems.push(newItem);
-        item.remove();
-        if (typeof window !== 'undefined') {
-          console.log(" - Símbolo expandido exitosamente en un objeto de tipo:", newItem.constructor.name);
-        }
-      } else {
-        if (typeof window !== 'undefined') {
-          console.warn(" - El símbolo no contiene una definición de ítem válida.");
-        }
-      }
-    }
     // C. SI ES COMPOUNDPATH
     else if (activeTarget instanceof paper.CompoundPath) {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: COMPOUNDPATH (Trazado Compuesto).", "color: #0369a1; font-weight: bold;");
@@ -611,34 +641,8 @@ export function ungroupSelectedItem() {
           newItems.push(...ungroupedHoles);
         }
       } else {
-        const subPaths = [...activeTarget.children].filter(p => !isArtboardBackground(p, activeTarget));
-        const pathNesting = [];
-        subPaths.forEach(p => {
-          const containers = [];
-          subPaths.forEach(other => {
-            if (other !== p) {
-              const otherArea = Math.abs(other.area) || other.bounds.area;
-              const pArea = Math.abs(p.area) || p.bounds.area;
-              if (otherArea > pArea && (typeof other.contains === 'function' ? other.contains(p.bounds.center) : other.bounds.contains(p.bounds.center))) {
-                containers.push(other);
-              }
-            }
-          });
-          pathNesting.push({ path: p, containers: containers });
-        });
-
-        const outers = [];
-        pathNesting.forEach(entry => {
-          const containers = entry.containers;
-          if (containers.length % 2 === 0) {
-            outers.push(entry.path);
-          }
-        });
-
-        // Usar separateContours para mantener los huecos/letras internos como calados reactivos (celestes)
-        // y los contornos externos (laureles, escudos) como formas sólidas. Gracias a la verificación precisa .contains(),
-        // los laureles externos no se catalogarán como huecos y mantendrán su relleno sólido original.
-        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando separateContours()...", "color: #0284c7; font-weight: bold;");
+        // Ejecutar separación jerárquica de contornos de afuera hacia adentro
+        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando separateContoursIntoIndependentShapes()...", "color: #0284c7; font-weight: bold;");
         const separated = separateContoursIntoIndependentShapes(item);
         if (separated && separated.length > 0) {
           console.log(` - Se generaron ${separated.length} formas/huecos separados.`);
@@ -895,7 +899,7 @@ export function ungroupHoleController(item) {
 export function separateContoursIntoIndependentShapes(itemToProcess) {
   const item = itemToProcess || window.selectedItem;
   if (typeof window !== 'undefined') {
-    console.log("%c[EKKO DIAGNOSTIC] Iniciando separateContoursIntoIndependentShapes() para:", "color: #0f766e; font-weight: bold;", item ? { id: item.id, type: item.constructor.name } : "Ninguno");
+    console.log("%c[EKKO HIERARCHICAL DECOMPOSE] Iniciando descomposición jerárquica para:", "color: #0f766e; font-weight: bold;", item ? { id: item.id, type: item.constructor.name } : "Ninguno");
   }
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
@@ -910,12 +914,23 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const newItems = [];
-  const subPaths = [...target.children];
+
+  // Filtrar fondos de mesa de trabajo (Artboards) de forma súper segura
+  const subPaths = [...target.children].filter(p => {
+    if (isArtboardBackground(p, target)) {
+      p.remove();
+      return false;
+    }
+    return true;
+  });
+
   const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
   const pathAbsMatrix = getGlobalMatrix(target);
   const originalFillColor = target.fillColor;
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
+
+  if (subPaths.length === 0) return [];
 
   // 1. Calcular el árbol de contención de todos los subpaths (menor contenedor inmediato)
   const parentMap = new Map(); // subpath -> parent subpath
@@ -927,7 +942,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
         const otherArea = Math.abs(other.area) || other.bounds.area;
         const pArea = Math.abs(p.area) || p.bounds.area;
         if (otherArea > pArea) {
-          // Comprobación geométrica precisa .contains()
+          // Comprobación geométrica precisa
           const containsCenter = typeof other.contains === 'function' 
             ? other.contains(p.bounds.center) 
             : other.bounds.contains(p.bounds.center);
@@ -944,7 +959,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   });
 
   // 2. Calcular la profundidad de cada subpath en el árbol
-  const depthMap = new Map(); // subpath -> integer depth
+  const depthMap = new Map(); // subpath -> depth
   const getDepth = (p) => {
     if (depthMap.has(p)) return depthMap.get(p);
     const parentNode = parentMap.get(p);
@@ -959,6 +974,9 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   };
   subPaths.forEach(p => getDepth(p));
 
+  // 3. Obtener raíces locales (depth = 0)
+  const roots = subPaths.filter(p => depthMap.get(p) === 0);
+
   if (typeof window !== 'undefined') {
     console.log("[EKKO DIAGNOSTIC] Jerarquía de anidamiento detectada por árbol de paridad:");
     subPaths.forEach(p => {
@@ -967,43 +985,70 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     });
   }
 
-  // 3. Agrupar subpaths en formas independientes usando la regla de paridad corrigiendo la inversión matemática:
-  // - Los nodos con profundidad par (0, 2, 4, ...) son raíces sólidas (independentOuters) que inician una nueva forma.
-  // - Los nodos con profundidad impar (1, 3, 5, ...) son huecos (holes) de su padre inmediato (que tiene profundidad par).
-  const independentOuters = [];
-  subPaths.forEach(p => {
-    const depth = depthMap.get(p);
-    if (depth % 2 === 0) {
-      independentOuters.push(p);
-    }
-  });
+  // Lógica de descomposición inteligente de afuera hacia adentro (Jerárquica):
+  let partsToCreate = []; // Array de { outer: Path, holes: [Path], isPeeledRoot: boolean }
 
-  const holesMap = new Map(); // independentOuter -> array of hole subpaths
-  independentOuters.forEach(r => holesMap.set(r, []));
+  if (roots.length === 1 && subPaths.length > 1) {
+    // CASO A: Hay una sola raíz principal (ej: el escudo contenedor, o una letra que contiene huecos).
+    // Pelamos la raíz exterior como un elemento simple, y desagrupamos su nivel inmediato inferior (depth = 1).
+    const singleRoot = roots[0];
+    
+    // La raíz exterior se convierte en una forma independiente simple
+    partsToCreate.push({ outer: singleRoot, holes: [], isPeeledRoot: true });
 
-  subPaths.forEach(p => {
-    const depth = depthMap.get(p);
-    if (depth % 2 !== 0) {
-      const parentNode = parentMap.get(p);
-      if (parentNode && independentOuters.includes(parentNode)) {
-        holesMap.get(parentNode).push(p);
-      }
-    }
-  });
+    // Los elementos de profundidad 1 se convierten en las nuevas raíces independientes de sus respectivos sub-árboles
+    const level1Items = subPaths.filter(p => depthMap.get(p) === 1);
+    level1Items.forEach(lvl1 => {
+      // Recolectar todos los descendientes de este elemento de nivel 1
+      const descendants = subPaths.filter(p => {
+        let curr = parentMap.get(p);
+        while (curr) {
+          if (curr === lvl1) return true;
+          curr = parentMap.get(curr);
+        }
+        return false;
+      });
+      // Los descendientes directos (depth=2 en el árbol original) actúan como huecos lógicos de lvl1
+      const immediateHoles = descendants.filter(p => parentMap.get(p) === lvl1);
+      partsToCreate.push({ outer: lvl1, holes: immediateHoles, isPeeledRoot: false });
+    });
+  } else {
+    // CASO B: Hay múltiples raíces independientes (Laureles, Escudo, Estrellas) o solo queda un elemento.
+    // Separamos en el nivel de las raíces de forma limpia, manteniendo sus respectivos descendientes/huecos.
+    roots.forEach(root => {
+      const descendants = subPaths.filter(p => {
+        let curr = parentMap.get(p);
+        while (curr) {
+          if (curr === root) return true;
+          curr = parentMap.get(curr);
+        }
+        return false;
+      });
+      // Los descendientes directos (depth=1 en el árbol original) actúan como huecos lógicos de root
+      const immediateHoles = descendants.filter(p => parentMap.get(p) === root);
+      partsToCreate.push({ outer: root, holes: immediateHoles, isPeeledRoot: false });
+    });
+  }
 
-  // 4. Crear los nuevos elementos independientes en el canvas
-  const createdItems = [];
+  // 4. Construir y colorear los elementos resultantes en el canvas
+  const newlyCreatedItems = [];
+  const createdOuters = [];
 
-  independentOuters.forEach(outerPath => {
-    const associatedHoles = holesMap.get(outerPath) || [];
+  partsToCreate.forEach(part => {
+    const outerPath = part.outer;
+    const associatedHoles = part.holes;
     let shapeToInsert;
 
-    // Determinar color de relleno con lógica inteligente de contraste
+    // Determinar color de relleno con lógica inteligente de contraste y transparencia
     let finalFillColor = originalFillColor;
-    const depth = depthMap.get(outerPath);
-    if (depth > 0 && depth % 2 === 0) {
-      // Era un hueco (substractivo) en el CompoundPath original, por lo que si lo dejamos negro sobre negro,
-      // desaparecerá. Le damos un color contrastante (blanco si el original es oscuro, o viceversa).
+    
+    if (part.isPeeledRoot) {
+      // Si es una raíz pelada (como el fondo del escudo exterior o de una letra), mantiene el color original de la forma
+      finalFillColor = originalFillColor || '#000000';
+    } else {
+      // Si es un nivel interno que se independizó (como las letras de AFA):
+      // Si estaba metido adentro de un contenedor oscuro, le damos contraste (blanco) para que no desaparezca.
+      // Si el original ya era blanco, lo mantenemos blanco.
       if (originalFillColor) {
         const isDark = originalFillColor.gray !== undefined 
           ? originalFillColor.gray < 0.5 
@@ -1015,6 +1060,8 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     }
 
     if (associatedHoles.length > 0) {
+      // Si tiene huecos lógicos de profundidad par (como la letra "A" con su triángulo interno):
+      // Se construye un CompoundPath local independiente para que la perforación siga siendo transparente en sí misma.
       const childrenClones = [];
       const outerClone = outerPath.clone({ insert: false });
       outerClone.fillColor = null;
@@ -1033,16 +1080,29 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
         insert: false
       });
       compound.fillRule = 'evenodd';
-      compound.fillColor = finalFillColor || '#000000';
+      compound.fillColor = finalFillColor;
       compound.strokeColor = originalStrokeColor || '#000000';
       compound.strokeWidth = originalStrokeWidth || 1;
       shapeToInsert = compound;
     } else {
-      const pathClone = outerPath.clone({ insert: false });
-      pathClone.fillColor = finalFillColor || '#000000';
-      pathClone.strokeColor = originalStrokeColor || '#000000';
-      pathClone.strokeWidth = originalStrokeWidth || 1;
-      shapeToInsert = pathClone;
+      // Si es un elemento simple sin huecos (laureles, estrellas, letra "F"), o si es un hueco final (como el triángulo interior):
+      // En este caso, si la forma era una raíz pelada (isPeeledRoot), se crea un Path simple sólido estándar.
+      // Pero si era un hueco suelto final y no tiene hijos, lo creamos como un Calado Reactivo (Hole Controller) transparente!
+      if (!part.isPeeledRoot && depthMap.get(outerPath) % 2 !== 0) {
+        // ¡Es un hueco final! Lo creamos como Calado Reactivo interactivo para que actúe como transparencia pura
+        const pathClone = outerPath.clone({ insert: false });
+        pathClone.fillColor = new paper.Color(255, 255, 255, 0.01);
+        pathClone.strokeColor = originalStrokeColor || '#000000';
+        pathClone.strokeWidth = originalStrokeWidth || 1;
+        shapeToInsert = pathClone;
+      } else {
+        // Es un elemento sólido (como una hoja de laurel o una estrella)
+        const pathClone = outerPath.clone({ insert: false });
+        pathClone.fillColor = finalFillColor;
+        pathClone.strokeColor = originalStrokeColor || '#000000';
+        pathClone.strokeWidth = originalStrokeWidth || 1;
+        shapeToInsert = pathClone;
+      }
     }
 
     let newItem;
@@ -1060,12 +1120,69 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
       parent.addChild(newItem);
     }
 
+    // Configurar metadatos del objeto
     newItem.data = {
       ...(newItem.data || {}),
       label: item.data?.label || "Objeto"
     };
 
-    createdItems.push(newItem);
+    // Si es un Calado Reactivo suelto (un hueco desprendido)
+    if (!part.isPeeledRoot && depthMap.get(outerPath) % 2 !== 0 && associatedHoles.length === 0) {
+      newItem.data.isHoleController = true;
+      newItem.data.outerItemId = ""; // Se asigna dinámicamente si hay colisión
+      newItem.data.lastHash = "";
+      newItem.data.label = "Hueco";
+      
+      const visualHole = newItem.data.clipGroup ? getContentItem(newItem) : newItem;
+      if (visualHole) {
+        visualHole.strokeColor = '#009dec';
+        visualHole.strokeWidth = 1.5 / paper.view.zoom;
+        visualHole.dashArray = [4, 4];
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15); // Transparente azulado interactivo
+      }
+    } else if (depthMap.get(outerPath) % 2 === 0) {
+      createdOuters.push(newItem);
+    }
+
+    newlyCreatedItems.push(newItem);
+  });
+
+  // Vincular los nuevos controladores de hueco a sus objetos exteriores correspondientes
+  newlyCreatedItems.forEach(it => {
+    if (it.data?.isHoleController) {
+      // Buscar cuál de las nuevas raíces contiene el centro de este hueco
+      const holeCenter = it.bounds.center;
+      let bestOuter = null;
+      let minArea = Infinity;
+      createdOuters.forEach(outItem => {
+        const visualOuter = outItem.data?.clipGroup ? getContentItem(outItem) : outItem;
+        if (visualOuter && visualOuter.bounds.contains(holeCenter)) {
+          const area = visualOuter.bounds.area;
+          if (area < minArea) {
+            minArea = area;
+            bestOuter = outItem;
+          }
+        }
+      });
+
+      if (bestOuter) {
+        it.data.outerItemId = bestOuter.id;
+        bestOuter.data = bestOuter.data || {};
+        bestOuter.data.isOuterWithHoles = true;
+        bestOuter.data.holeIds = bestOuter.data.holeIds || [];
+        bestOuter.data.holeIds.push(it.id);
+        
+        // Registrar en el mapa global de outers de EKKO
+        if (typeof window.ekkoOuters !== 'undefined') {
+          window.ekkoOuters.set(bestOuter.id, bestOuter);
+        }
+        
+        // Regenerar la geometría recortada en tiempo real
+        if (typeof window.updateOuterPathGeometry === 'function') {
+          window.updateOuterPathGeometry(bestOuter);
+        }
+      }
+    }
   });
 
   if (isClipped && item) {
@@ -1074,12 +1191,11 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   item.remove();
 
   if (typeof window !== 'undefined') {
-    console.log(`%c[EKKO UNGROUP PROCESS] separateContoursIntoIndependentShapes finalizado. Creados ${createdItems.length} objetos independientes.`, "color: #0f766e; font-weight: bold;");
+    console.log(`%c[EKKO DECOMPOSE PROCESS] separateContoursIntoIndependentShapes finalizado. Creados ${newlyCreatedItems.length} objetos independientes jerárquicos.`, "color: #0f766e; font-weight: bold;");
   }
 
-  return createdItems;
+  return newlyCreatedItems;
 }
-
 
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
