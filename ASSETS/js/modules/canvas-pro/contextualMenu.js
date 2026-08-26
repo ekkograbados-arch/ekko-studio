@@ -471,6 +471,12 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 
 function isArtboardBackground(path, parentItem) {
   if (!path || !parentItem) return false;
+  
+  // REGLA DE ORO DE SEGURIDAD: Solo puede ser un artboard background si el elemento contenedor está directamente en el nivel superior (Capa de diseño)
+  const parent = parentItem.parent;
+  const isTopLevel = parent && (isLayer(parent) || parent.className === 'Layer' || !parent.parent);
+  if (!isTopLevel) return false;
+
   const parentBounds = parentItem.bounds;
   const pathBounds = path.bounds;
   // 1. Verificar si tiene dimensiones casi idénticas al contenedor principal (como el lienzo de exportación)
@@ -598,8 +604,18 @@ export function dissolveOuterWithHoles(outerItem) {
   const holeIds = outerItem.data?.holeIds || [];
   const associatedHoles = [];
   holeIds.forEach(id => {
-    const h = paper.project.getItem({ id: id });
-    if (h) associatedHoles.push(h);
+    let h = paper.project.getItem({ id: id });
+    if (h) {
+      // REGLA DE ORO DE SEGURIDAD:
+      // Si el calado está anidado dentro de un Grupo de Calado Compuesto, el objeto real
+      // que debemos liberar e independizar es el Grupo completo (el compound parent), no el trazado interno aislado!
+      if (h.parent && h.parent.data?.geometricHierarchy === 'compound' && isGroup(h.parent)) {
+        h = h.parent;
+      }
+      if (!associatedHoles.includes(h)) {
+        associatedHoles.push(h);
+      }
+    }
   });
 
   // Conservar una referencia al originalPath de forma segura ANTES de borrar los datos
