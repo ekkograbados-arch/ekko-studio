@@ -476,7 +476,11 @@ function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
 
 export function ungroupSelectedItem() {
   if (typeof window !== 'undefined') {
-    console.log("%c[EKKO UNGROUP ACTION] Iniciando proceso de desagrupación...", "color: #10b981; font-weight: bold; background: #ecfdf5; padding: 4px 8px; border-radius: 6px;");
+    console.log("%c[EKKO UNGROUP ACTION] 1. Clic detectado en Desagrupar 🔓", "color: #ffffff; font-weight: bold; background: #ea580c; padding: 4px 10px; border-radius: 6px; font-size: 13px;");
+    console.log(" - window.selectedItem:", window.selectedItem ? { id: window.selectedItem.id, type: window.selectedItem.constructor.name, data: window.selectedItem.data } : "Ninguno");
+    console.log(" - window.selectedItems:", window.selectedItems ? window.selectedItems.map(it => ({ id: it.id, type: it.constructor.name, data: it.data })) : "Ninguno");
+    console.log(" - window.nodeEditMode:", !!window.nodeEditMode);
+    console.log(" - window.nodeEditTarget:", window.nodeEditTarget ? { id: window.nodeEditTarget.id, type: window.nodeEditTarget.constructor.name } : "Ninguno");
   }
   // COMPATIBILIDAD CON EDICIÓN DE NODOS:
   // Si estamos en modo de edición de nodos, el objeto que queremos desagrupar es
@@ -504,8 +508,12 @@ export function ungroupSelectedItem() {
     window.saveHistory();
   }
   const finalNewItems = [];
-  selected.forEach(item => {
-    if (item.data?.locked || item.data?.mockup || item.data?.isMask) return;
+  selected.forEach((item, sIdx) => {
+    console.log(`%c[EKKO UNGROUP PROCESS] Procesando elemento [${sIdx}] ID: ${item.id} (${item.constructor.name})`, "color: #0f766e; font-weight: bold;");
+    if (item.data?.locked || item.data?.mockup || item.data?.isMask) {
+      console.warn(` - Elemento bloqueado, mockup o máscara. Saltando.`);
+      return;
+    }
     const isClipped = !!item.data?.clipGroup;
     const target = isClipped ? getContentItem(item) : item;
     if (!target) return;
@@ -516,6 +524,7 @@ export function ungroupSelectedItem() {
 
     // A. SI ES GRUPO TRADICIONAL
     if (activeTarget instanceof paper.Group && !activeTarget.data?.clipGroup) {
+      console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: GRUPO TRADICIONAL.", "color: #0369a1; font-weight: bold;");
       const flattened = ungroupGroupOneLevel(activeTarget, parent, index, isClipped, item);
       newItems.push(...flattened);
       if (isClipped && item) {
@@ -525,6 +534,7 @@ export function ungroupSelectedItem() {
     }
     // B. SI ES TEXTO PARA SEPARAR POR LETRAS
     else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
+      console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: TEXTO VECTORIAL.", "color: #0369a1; font-weight: bold;");
       const letters = splitPointTextIntoLetters(activeTarget);
       const textAbsMatrix = getGlobalMatrix(activeTarget);
       activeTarget.remove();
@@ -553,6 +563,7 @@ export function ungroupSelectedItem() {
     }
     // C. SI ES COMPOUNDPATH
     else if (activeTarget instanceof paper.CompoundPath) {
+      console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: COMPOUNDPATH (Trazado Compuesto).", "color: #0369a1; font-weight: bold;");
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
         if (dissolved && dissolved.length > 0) {
@@ -572,7 +583,7 @@ export function ungroupSelectedItem() {
             if (other !== p) {
               const otherArea = Math.abs(other.area) || other.bounds.area;
               const pArea = Math.abs(p.area) || p.bounds.area;
-              if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+              if (otherArea > pArea && (typeof other.contains === 'function' ? other.contains(p.bounds.center) : other.bounds.contains(p.bounds.center))) {
                 containers.push(other);
               }
             }
@@ -588,11 +599,16 @@ export function ungroupSelectedItem() {
           }
         });
 
-        // SIEMPRE usar separateContoursIntoIndependentShapes para CompoundPaths estándar.
-        // NUNCA usar separateContours (que convierte contornos en "calados reactivos" celestes y transparentes).
-        const separated = separateContoursIntoIndependentShapes(item);
+        // Usar separateContours para mantener los huecos/letras internos como calados reactivos (celestes)
+        // y los contornos externos (laureles, escudos) como formas sólidas. Gracias a la verificación precisa .contains(),
+        // los laureles externos no se catalogarán como huecos y mantendrán su relleno sólido original.
+        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando separateContours()...", "color: #0284c7; font-weight: bold;");
+        const separated = separateContours(item);
         if (separated && separated.length > 0) {
+          console.log(` - Se generaron ${separated.length} formas/huecos separados.`);
           newItems.push(...separated);
+        } else {
+          console.warn(" - No se pudieron separar contornos para este CompoundPath.");
         }
       }
     }
@@ -880,7 +896,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
       if (other !== p) {
         const otherArea = Math.abs(other.area) || other.bounds.area;
         const pArea = Math.abs(p.area) || p.bounds.area;
-        if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+        if (otherArea > pArea && (typeof other.contains === 'function' ? other.contains(p.bounds.center) : other.bounds.contains(p.bounds.center))) {
           containers.push(other);
         }
       }
@@ -987,6 +1003,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
 
 export function separateContours(itemToProcess, skipSelection = false) {
   const item = itemToProcess || window.selectedItem;
+  console.log("%c[EKKO DIAGNOSTIC] Iniciando separateContours() para:", "color: #6d28d9; font-weight: bold;", item ? { id: item.id, type: item.constructor.name } : "Ninguno");
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
   let target = isClipped ? getContentItem(item) : item;
@@ -1014,7 +1031,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
       if (other !== p) {
         const otherArea = Math.abs(other.area) || other.bounds.area;
         const pArea = Math.abs(p.area) || p.bounds.area;
-        if (otherArea > pArea && other.bounds.contains(p.bounds.center)) {
+        if (otherArea > pArea && (typeof other.contains === 'function' ? other.contains(p.bounds.center) : other.bounds.contains(p.bounds.center))) {
           containers.push(other);
         }
       }
@@ -1025,6 +1042,11 @@ export function separateContours(itemToProcess, skipSelection = false) {
   const outers = [];
   const level1Holes = [];
   const level2OuterLoops = [];
+
+  console.log("[EKKO DIAGNOSTIC] Clasificando contornos basados en anidamiento .contains():");
+  pathNesting.forEach(entry => {
+    console.log(` - Contorno ${entry.path.id} (Área: ${Math.round(entry.path.area)}). Contenedores que lo encierran:`, entry.containers.map(c => c.id));
+  });
 
   pathNesting.forEach(entry => {
     const p = entry.path;
@@ -1101,7 +1123,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
     };
 
     level1Holes.forEach(hPath => {
-      if (!outerPath.bounds.contains(hPath.bounds.center)) return;
+      if (!(typeof outerPath.contains === 'function' ? outerPath.contains(hPath.bounds.center) : outerPath.bounds.contains(hPath.bounds.center))) return;
 
       const subHoles = holeChildrenMap.get(hPath) || [];
       let holeShape;
@@ -1595,7 +1617,7 @@ function handleInteractiveDrop(event) {
     for (let outer of candidates) {
       if (outer.id === draggedItem.data.outerItemId) continue;
       const targetOuter = outer.data.clipGroup ? getContentItem(outer) : outer;
-      if (targetOuter && targetOuter.bounds.contains(holeCenter)) {
+      if (targetOuter && (typeof targetOuter.contains === 'function' ? targetOuter.contains(holeCenter) : targetOuter.bounds.contains(holeCenter))) {
         newOwner = outer;
         break;
       }
