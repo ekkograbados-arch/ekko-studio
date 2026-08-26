@@ -2444,16 +2444,65 @@ export function geometricUngroupCompound(item) {
   const global = getGlobalMatrix(target);
   const result = [];
 
-  roots.forEach(root => {
-    const built = makeNode(root, global, isClipped, item, parent, target);
-    if (built) {
-      result.push(built);
+  // SI HAY UN SOLO CONTORNO EXTERIOR PRINCIPAL (RAÍZ), SEPARAMOS LA GEOMETRÍA DIRECTAMENTE EN EL 1ER CLIC
+  if (roots.length === 1) {
+    const root = roots[0];
+
+    // 1. Crear el contorno exterior como un contorno simple, cerrado y sólido, completamente libre de calados
+    const shellPath = clonePath(root.path);
+    shellPath.fillColor = target.fillColor || new paper.Color('#000000');
+    shellPath.strokeColor = target.strokeColor || new paper.Color('#000000');
+    shellPath.strokeWidth = target.strokeWidth || 1;
+
+    let configuredShell;
+    if (isClipped) {
+      configuredShell = window.clipItem(shellPath);
+      if (configuredShell === shellPath) {
+        configuredShell.matrix = global.clone().chain(shellPath.matrix);
+      } else {
+        configuredShell.matrix = item.matrix.clone();
+        shellPath.matrix = getMatrixRelativeTo(shellPath, target).clone().chain(shellPath.matrix);
+      }
+    } else {
+      configuredShell = shellPath;
+      configuredShell.matrix = global.clone().chain(shellPath.matrix);
+      parent.addChild(configuredShell);
     }
-  });
+
+    configuredShell.data = {
+      ...(item.data || {}),
+      locked: false,
+      geometricRole: 'solid',
+      geometricHierarchy: 'simple',
+      label: item.data?.label || "Objeto"
+    };
+    result.push(configuredShell);
+
+    // 2. Procesar los hijos de nivel 1 de forma recursiva (los calados y elementos internos)
+    root.children.forEach(child => {
+      const childItem = makeNode(child, global, isClipped, item, parent, target);
+      if (childItem) {
+        result.push(childItem);
+      }
+    });
+  } else {
+    // Si hay múltiples raíces independientes, procesamos cada una
+    roots.forEach(root => {
+      const built = makeNode(root, global, isClipped, item, parent, target);
+      if (built) {
+        result.push(built);
+      }
+    });
+  }
 
   item.remove();
 
-  const finalFiltered = result.filter(it => it.parent === parent);
+  const finalFiltered = [];
+  result.forEach(it => {
+    if (it && (it.parent === parent || (isClipped && it.parent))) {
+      finalFiltered.push(it);
+    }
+  });
   
   if (finalFiltered.length > 0) {
     window.deselectItem();
