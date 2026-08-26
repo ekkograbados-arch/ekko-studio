@@ -48,43 +48,46 @@ function getContentItem(item) {
 // Helpers para evitar fallos de 'instanceof' en iframe o contextos múltiples de Paper.js
 function isPath(item) {
   if (!item) return false;
-  return item.className === 'Path' || isPath(item);
+  return item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path);
 }
 
 function isCompoundPath(item) {
   if (!item) return false;
-  return item.className === 'CompoundPath' || isCompoundPath(item);
+  return item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath);
 }
 
 function isGroup(item) {
   if (!item) return false;
-  return item.className === 'Group' || isGroup(item);
+  return item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group);
 }
 
 function isRaster(item) {
   if (!item) return false;
-  return item.className === 'Raster' || isRaster(item);
+  return item.className === 'Raster' || (typeof paper !== 'undefined' && paper.Raster && item instanceof paper.Raster);
 }
 
 function isPointText(item) {
   if (!item) return false;
-  return item.className === 'PointText' || isPointText(item);
+  return item.className === 'PointText' || (typeof paper !== 'undefined' && paper.PointText && item instanceof paper.PointText);
 }
 
 function isSymbolItem(item) {
   if (!item) return false;
-  return item.className === 'SymbolItem' || isSymbolItem(item) || 
-         (typeof paper !== 'undefined' && paper.PlacedSymbol && (isSymbolItem(item) || item.className === 'PlacedSymbol'));
+  return item.className === 'SymbolItem' || item.className === 'PlacedSymbol' || 
+         (typeof paper !== 'undefined' && (
+           (paper.SymbolItem && item instanceof paper.SymbolItem) || 
+           (paper.PlacedSymbol && item instanceof paper.PlacedSymbol)
+         ));
 }
 
 function isLayer(item) {
   if (!item) return false;
-  return item.className === 'Layer' || isLayer(item);
+  return item.className === 'Layer' || (typeof paper !== 'undefined' && paper.Layer && item instanceof paper.Layer);
 }
 
 function isShape(item) {
   if (!item) return false;
-  return item.className === 'Shape' || isShape(item);
+  return item.className === 'Shape' || (typeof paper !== 'undefined' && paper.Shape && item instanceof paper.Shape);
 }
 
 
