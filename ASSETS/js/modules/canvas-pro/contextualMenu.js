@@ -938,7 +938,20 @@ export function hierarchicalDecompose(item, isHoleSource) {
       const allCandidates = [...createdOuters];
       if (paper.project.activeLayer) {
         paper.project.activeLayer.children.forEach(c => {
-          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController && !c.data?.clipGroup?.children?.some(ch => ch.data?.isHoleController)) {
+          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController) {
+            // EVITAR ABSOLUTAMENTE MOCKUPS, MÁSCARAS, COMPONENTES DEL PRODUCTO Y ELEMENTOS PROTEGIDOS
+            if (c.data && (
+              c.data.mockup || 
+              c.data.isMask || 
+              c.data.isSelectionBox || 
+              c.data.isHandle || 
+              c.data.isSmartGuide || 
+              c.data.isMeasurement || 
+              c.data.isTracePreview || 
+              c.data.locked
+            )) {
+              return;
+            }
             if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
               allCandidates.push(c);
             }
@@ -2488,6 +2501,19 @@ export function geometricUngroupCompound(item) {
       if (paper.project.activeLayer) {
         paper.project.activeLayer.children.forEach(c => {
           if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController) {
+            // EVITAR ABSOLUTAMENTE MOCKUPS, MÁSCARAS, COMPONENTES DEL PRODUCTO Y ELEMENTOS PROTEGIDOS
+            if (c.data && (
+              c.data.mockup || 
+              c.data.isMask || 
+              c.data.isSelectionBox || 
+              c.data.isHandle || 
+              c.data.isSmartGuide || 
+              c.data.isMeasurement || 
+              c.data.isTracePreview || 
+              c.data.locked
+            )) {
+              return;
+            }
             if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
               allCandidates.push(c);
             }
