@@ -470,18 +470,18 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 }
 
 function isIgnorable(item) {
-  if (!item) return True;
+  if (!item) return true;
   if (isGroup(item)) {
     return item.children.length === 0 || item.children.every(isIgnorable);
   }
   if (isPath(item) || isCompoundPath(item)) {
     const area = Math.abs(item.area || (item.bounds ? item.bounds.area : 0) || 0);
-    if (area < 0.1) return True;
+    if (area < 0.1) return true;
     const hasStroke = item.strokeColor && item.strokeColor.alpha > 0 && item.strokeWidth > 0;
     const hasFill = item.fillColor && item.fillColor.alpha > 0;
-    if (!hasStroke && !hasFill) return True;
+    if (!hasStroke && !hasFill) return true;
   }
-  return False;
+  return false;
 }
 
 function isArtboardBackground(path, parentItem) {
@@ -2625,4 +2625,3 @@ export function geometricUngroupOneLevel(item, isClipped = false, oldClipGroup =
 
   return { handled: true, items: addedItems };
 }
-
