@@ -725,123 +725,92 @@ function splitPointTextIntoLetters(pointText) {
   return letters;
 }
 
-export function dissolveOuterWithHoles(item) {
-  if (!item || !item.data?.isOuterWithHoles) return [];
-  const parent = item.parent || paper.project.activeLayer;
-  const index = parent.children.indexOf(item);
+export function dissolveOuterWithHoles(outerItem) {
+  if (!outerItem) return [];
+  const parent = outerItem.parent || paper.project.activeLayer;
   const newItems = [];
-  const isClipped = !!item.data?.clipGroup;
-  const target = isClipped ? getContentItem(item) : item;
+  const isClipped = !!outerItem.data?.clipGroup;
 
+  // 1. Obtener la lista de calados asociados antes de limpiar el outer
+  const holeIds = outerItem.data?.holeIds || [];
+  const associatedHoles = [];
+  holeIds.forEach(id => {
+    const h = paper.project.getItem({ id: id });
+    if (h) associatedHoles.push(h);
+  });
+
+  // 2. Desvincular completamente el outer de la lógica reactiva
+  delete outerItem.data.isOuterWithHoles;
+  delete outerItem.data.originalPath;
+  delete outerItem.data.holeIds;
   if (typeof window.ekkoOuters !== 'undefined') {
-    window.ekkoOuters.delete(item.id);
+    window.ekkoOuters.delete(outerItem.id);
   }
 
-  // Reconstruccion dinamica de originalPath y holeIds si proviene de la desagrupacion de primer nivel o si se perdieron
-  const hasNoHoleControllers = !item.data.holeIds || item.data.holeIds.length === 0;
-  if ((!item.data.originalPath || hasNoHoleControllers) && isCompoundPath(target) && target.children.length > 1) {
-    const subPaths = [...target.children];
-    subPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
-    const outerPath = subPaths[0];
-    const associatedHoles = subPaths.slice(1);
-    if (!item.data.originalPath) {
-      item.data.originalPath = outerPath.clone({ insert: false });
-    }
-    item.data.holeIds = [];
-    const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
-    const pathAbsMatrix = getGlobalMatrix(target);
-    associatedHoles.forEach(hPath => {
-      const holeClone = hPath.clone({ insert: false });
-      let newHoleItem;
-      if (isClipped) {
-        newHoleItem = window.clipItem(holeClone);
-        newHoleItem.matrix = item.matrix.clone();
-        holeClone.matrix = pathRelMatrix.clone().chain(holeClone.matrix);
-      } else {
-        newHoleItem = holeClone;
-        newHoleItem.matrix = pathAbsMatrix.clone().chain(holeClone.matrix);
-        parent.addChild(newHoleItem);
-      }
-      newHoleItem.data = {
-        isHoleController: true,
-        outerItemId: item.id,
-        lastHash: "",
-        label: "Hueco/Calado"
-      };
-      item.data.holeIds.push(newHoleItem.id);
-    });
-  }
+  // Restaurar la geometría del outer a su estado original sólido (sin calar)
+  if (outerItem.data?.originalPath) {
+    const original = outerItem.data.originalPath.clone({ insert: false });
+    original.fillColor = outerItem.fillColor || '#000000';
+    original.strokeColor = outerItem.strokeColor || '#000000';
+    original.strokeWidth = outerItem.strokeWidth || 1;
+    original.matrix = outerItem.matrix.clone();
+    original.data = { ...(outerItem.data || {}) };
+    delete original.data.isOuterWithHoles;
+    delete original.data.originalPath;
+    delete original.data.holeIds;
 
-  // Restaurar el contorno exterior como un elemento simple estándar (limpio de metadatos de calado)
-  const targetOuter = isCompoundPath(target) ? target.children[0] : target;
-  if (targetOuter) {
-    const restoredOuter = targetOuter.clone({ insert: false });
-    restoredOuter.fillColor = item.fillColor || '#000000';
-    restoredOuter.strokeColor = item.strokeColor || '#000000';
-    restoredOuter.strokeWidth = item.strokeWidth || 1;
-    let newOuterItem;
-    if (isClipped) {
-      newOuterItem = window.clipItem(restoredOuter);
-      newOuterItem.matrix = item.matrix.clone();
-      restoredOuter.matrix = targetOuter.matrix.clone();
+    const idx = parent.children.indexOf(outerItem);
+    if (idx !== -1) {
+      parent.insertChild(idx, original);
     } else {
-      newOuterItem = restoredOuter;
-      newOuterItem.matrix = item.matrix.clone();
-      parent.addChild(newOuterItem);
+      parent.addChild(original);
     }
-    newOuterItem.data = { ...(item.data || {}) };
-    delete newOuterItem.data.isOuterWithHoles;
-    delete newOuterItem.data.originalPath;
-    delete newOuterItem.data.holeIds;
-    newItems.push(newOuterItem);
+    outerItem.remove();
+    outerItem = original;
+  }
+  newItems.push(outerItem);
 
-    // Liberar y recrear todos los Hole Controllers asociados
-    const holeIds = item.data.holeIds || [];
-    for (let j = 0; j < holeIds.length; j++) {
-      const id = holeIds[j];
-      const hole = paper.project.getItem({ id: id });
-      if (hole) {
-        hole.remove();
-        const targetHole = hole.data.clipGroup ? getContentItem(hole) : hole;
-        let newHoleItem;
-        if (isClipped) {
-          newHoleItem = window.clipItem(targetHole.clone({ insert: false }));
-          newHoleItem.matrix = hole.matrix.clone();
-        } else {
-          newHoleItem = hole;
-          parent.addChild(newHoleItem);
+  // 3. Desvincular y limpiar cada calado asociado para que sea un objeto independiente normal
+  associatedHoles.forEach(hole => {
+    const cleanHoleNode = (node) => {
+      if (node.data?.isHoleController) {
+        delete node.data.isHoleController;
+        delete node.data.outerItemId;
+        delete node.data.lastHash;
+        node.data.label = "Objeto";
+
+        // Quitar estética visual celeste punteada de calado y restaurar aspecto estándar
+        const actualPath = node.data?.clipGroup ? getContentItem(node) : node;
+        if (actualPath) {
+          actualPath.strokeColor = '#000000';
+          actualPath.strokeWidth = 1;
+          actualPath.dashArray = [];
+          actualPath.fillColor = new paper.Color('#ffffff'); // Relleno blanco estándar
         }
-        if (newHoleItem.data) {
-          newHoleItem.data.isHoleController = true;
-          newHoleItem.data.outerItemId = newOuterItem.id;
-          newHoleItem.data.lastHash = "";
-          newHoleItem.data.label = "Hueco/Calado";
-        }
-        // Aplicar estetica visible de seguridad
-        const visualHole = newHoleItem.data.clipGroup ? getContentItem(newHoleItem) : newHoleItem;
-        if (visualHole) {
-          visualHole.strokeColor = '#009dec';
-          visualHole.strokeWidth = 1.5 / paper.view.zoom;
-          visualHole.dashArray = [4, 4];
-          visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
-        }
-        newItems.push(newHoleItem);
       }
-    }
-  }
+      if (node.children) {
+        node.children.forEach(cleanHoleNode);
+      }
+    };
 
-  if (isClipped && item) {
-    item.clipped = false;
-  }
-  item.remove();
+    cleanHoleNode(hole);
+    newItems.push(hole);
+  });
+
+  // 4. Actualizar selección de forma limpia
+  window.deselectItem();
+  setTimeout(() => {
+    window.selectedItems = [...newItems];
+    window.selectedItem = newItems[newItems.length - 1];
+    newItems.forEach(it => { if (it) it.selected = true; });
+    if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+    if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+    paper.view.update();
+  }, 50);
+
   return newItems;
 }
 
-/**
- * Función unificada de descomposición jerárquica para CompoundPaths.
- * Opera estrictamente "de afuera hacia adentro" y "de más a menos".
- * Identifica contornos sólidos (Relleno) y calados (Huecos) en paridades alternas.
- */
 export function hierarchicalDecompose(item, isHoleSource) {
   const isClipped = !!item.data?.clipGroup;
   let target = isClipped ? getContentItem(item) : item;
