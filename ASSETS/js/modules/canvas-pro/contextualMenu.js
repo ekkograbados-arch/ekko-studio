@@ -45,6 +45,49 @@ function getContentItem(item) {
   return item;
 }
 
+// Helpers para evitar fallos de 'instanceof' en iframe o contextos múltiples de Paper.js
+function isPath(item) {
+  if (!item) return false;
+  return item.className === 'Path' || isPath(item);
+}
+
+function isCompoundPath(item) {
+  if (!item) return false;
+  return item.className === 'CompoundPath' || isCompoundPath(item);
+}
+
+function isGroup(item) {
+  if (!item) return false;
+  return item.className === 'Group' || isGroup(item);
+}
+
+function isRaster(item) {
+  if (!item) return false;
+  return item.className === 'Raster' || isRaster(item);
+}
+
+function isPointText(item) {
+  if (!item) return false;
+  return item.className === 'PointText' || isPointText(item);
+}
+
+function isSymbolItem(item) {
+  if (!item) return false;
+  return item.className === 'SymbolItem' || isSymbolItem(item) || 
+         (typeof paper !== 'undefined' && paper.PlacedSymbol && (isSymbolItem(item) || item.className === 'PlacedSymbol'));
+}
+
+function isLayer(item) {
+  if (!item) return false;
+  return item.className === 'Layer' || isLayer(item);
+}
+
+function isShape(item) {
+  if (!item) return false;
+  return item.className === 'Shape' || isShape(item);
+}
+
+
 window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
@@ -100,7 +143,7 @@ function getSelectedTextString() {
   if (!window.selectedItem) return "EKKO Studio";
   const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
   if (!target) return "EKKO Studio";
-  if (target instanceof paper.PointText) {
+  if (isPointText(target)) {
     return target.content || "EKKO Studio";
   }
   if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
@@ -113,7 +156,7 @@ function getSelectedFontFamily() {
   if (!window.selectedItem) return "Arial";
   const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
   if (!target) return "Arial";
-  if (target instanceof paper.PointText) {
+  if (isPointText(target)) {
     return target.fontFamily || "Arial";
   }
   if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
@@ -126,7 +169,7 @@ function applyFontFamily(item, family) {
   if (!item) return;
   const target = item.data?.clipGroup ? getContentItem(item) : item;
   if (!target) return;
-  if (target instanceof paper.PointText) {
+  if (isPointText(target)) {
     target.fontFamily = family;
   } else if (target.data?.isCurvedGroup) {
     target.data.fontFamily = family;
@@ -272,7 +315,7 @@ function getLeafItemsRecursive(item) {
   const leaves = [];
   const recurse = (node, parentMatrix) => {
     const currentMatrix = parentMatrix ? parentMatrix.chain(node.matrix) : node.matrix.clone();
-    if (node instanceof paper.Group && !node.data?.clipGroup) {
+    if (isGroup(node) && !node.data?.clipGroup) {
       node.children.forEach(child => recurse(child, currentMatrix));
     } else {
       node.data = node.data || {};
@@ -360,7 +403,7 @@ export function groupSelectedItems() {
 function getMatrixRelativeTo(item, targetAncestor) {
   let matrix = new paper.Matrix();
   let current = item;
-  while (current && current !== targetAncestor && !(current instanceof paper.Layer)) {
+  while (current && current !== targetAncestor && !(isLayer(current))) {
     if (current.matrix) {
       matrix = current.matrix.chain(matrix);
     }
@@ -379,9 +422,9 @@ function getGlobalMatrix(item) {
 
 function getActiveGroupTarget(group) {
   let current = group;
-  while (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
+  while (isGroup(current) && current.children.length === 1 && !current.data?.clipGroup) {
     const child = current.children[0];
-    if (child instanceof paper.Group) {
+    if (isGroup(child)) {
       current = child;
     } else {
       break;
@@ -393,7 +436,7 @@ function getActiveGroupTarget(group) {
 function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
   const leafItems = [];
   const findLeaves = (node) => {
-    if (node instanceof paper.Group && !node.data?.clipGroup) {
+    if (isGroup(node) && !node.data?.clipGroup) {
       const children = [...node.children];
       children.forEach(child => findLeaves(child));
     } else {
@@ -457,7 +500,7 @@ function resolveRedundantWrappers(item) {
   let current = item;
   while (true) {
     // A. Si es un SymbolItem (Clon de símbolo <use>), lo expandimos inmediatamente
-    if (current instanceof paper.SymbolItem || (paper.PlacedSymbol && current instanceof paper.PlacedSymbol)) {
+    if (isSymbolItem(current)) {
       if (current.symbol && current.symbol.item) {
         console.log("%c[EKKO SYMBOL RESOLVE] Expandiendo símbolo SVG clonado:", "color: #ea580c; font-weight: bold;", current.id);
         const clone = current.symbol.item.clone({ insert: false });
@@ -472,7 +515,7 @@ function resolveRedundantWrappers(item) {
       }
     }
     // B. Si es un Grupo con un solo hijo que también es un Grupo o Trazado (Nesting redundante de exportación de Corel/Illustrator)
-    if (current instanceof paper.Group && current.children.length === 1 && !current.data?.clipGroup) {
+    if (isGroup(current) && current.children.length === 1 && !current.data?.clipGroup) {
       const child = current.children[0];
       console.log("%c[EKKO GROUP FLATTEN] Disolviendo capa de grupo redundante de un solo hijo:", "color: #3b82f6; font-weight: bold;", current.id);
       const relMatrix = getMatrixRelativeTo(child, current);
@@ -564,13 +607,13 @@ export function ungroupSelectedItem() {
     const isClipped = !!item.data?.clipGroup;
     const target = isClipped ? getContentItem(item) : item;
     if (!target) return;
-    const activeTarget = target instanceof paper.Group ? getActiveGroupTarget(target) : target;
+    const activeTarget = isGroup(target) ? getActiveGroupTarget(target) : target;
     const parent = item.parent || paper.project.activeLayer;
     const index = parent.children.indexOf(item);
     const newItems = [];
 
     // A. SI ES GRUPO TRADICIONAL
-    if (activeTarget instanceof paper.Group && !activeTarget.data?.clipGroup) {
+    if (isGroup(activeTarget) && !activeTarget.data?.clipGroup) {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: GRUPO TRADICIONAL.", "color: #0369a1; font-weight: bold;");
       const flattened = ungroupGroupOneLevel(activeTarget, parent, index, isClipped, item);
       newItems.push(...flattened);
@@ -580,7 +623,7 @@ export function ungroupSelectedItem() {
       item.remove();
     }
     // B. SI ES TEXTO PARA SEPARAR POR LETRAS
-    else if (activeTarget instanceof paper.PointText && activeTarget.content.length > 1) {
+    else if (isPointText(activeTarget) && activeTarget.content.length > 1) {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: TEXTO VECTORIAL.", "color: #0369a1; font-weight: bold;");
       const letters = splitPointTextIntoLetters(activeTarget);
       const textAbsMatrix = getGlobalMatrix(activeTarget);
@@ -609,7 +652,7 @@ export function ungroupSelectedItem() {
       item.remove();
     }
     // C. SI ES COMPOUNDPATH
-    else if (activeTarget instanceof paper.CompoundPath) {
+    else if (isCompoundPath(activeTarget)) {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: COMPOUNDPATH (Trazado Compuesto).", "color: #0369a1; font-weight: bold;");
       if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
         const dissolved = dissolveOuterWithHoles(item);
@@ -693,7 +736,7 @@ export function dissolveOuterWithHoles(item) {
 
   // Reconstruccion dinamica de originalPath y holeIds si proviene de la desagrupacion de primer nivel o si se perdieron
   const hasNoHoleControllers = !item.data.holeIds || item.data.holeIds.length === 0;
-  if ((!item.data.originalPath || hasNoHoleControllers) && target instanceof paper.CompoundPath && target.children.length > 1) {
+  if ((!item.data.originalPath || hasNoHoleControllers) && isCompoundPath(target) && target.children.length > 1) {
     const subPaths = [...target.children];
     subPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
     const outerPath = subPaths[0];
@@ -727,7 +770,7 @@ export function dissolveOuterWithHoles(item) {
   }
 
   // Restaurar el contorno exterior como un elemento simple estándar (limpio de metadatos de calado)
-  const targetOuter = target instanceof paper.CompoundPath ? target.children[0] : target;
+  const targetOuter = isCompoundPath(target) ? target.children[0] : target;
   if (targetOuter) {
     const restoredOuter = targetOuter.clone({ insert: false });
     restoredOuter.fillColor = item.fillColor || '#000000';
@@ -799,10 +842,10 @@ export function dissolveOuterWithHoles(item) {
 export function hierarchicalDecompose(item, isHoleSource) {
   const isClipped = !!item.data?.clipGroup;
   let target = isClipped ? getContentItem(item) : item;
-  if (target instanceof paper.Group) {
+  if (isGroup(target)) {
     target = getActiveGroupTarget(target);
   }
-  if (!target || !(target instanceof paper.CompoundPath)) return [];
+  if (!target || !(isCompoundPath(target))) return [];
 
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
@@ -1063,7 +1106,7 @@ export function hierarchicalDecompose(item, isHoleSource) {
       if (paper.project.activeLayer) {
         paper.project.activeLayer.children.forEach(c => {
           if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController && !c.data?.clipGroup?.children?.some(ch => ch.data?.isHoleController)) {
-            if (c instanceof paper.Path || c instanceof paper.CompoundPath || c.data?.clipGroup) {
+            if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
               allCandidates.push(c);
             }
           }
@@ -1154,10 +1197,10 @@ export function separateContours(itemToProcess, skipSelection = false) {
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
   let target = isClipped ? getContentItem(item) : item;
-  if (target instanceof paper.Group) {
+  if (isGroup(target)) {
     target = getActiveGroupTarget(target);
   }
-  if (!target || !(target instanceof paper.CompoundPath)) return [];
+  if (!target || !(isCompoundPath(target))) return [];
   if (typeof window.saveHistory === 'function') {
     window.saveHistory();
   }
@@ -1369,15 +1412,15 @@ export function separateContours(itemToProcess, skipSelection = false) {
 
 function ensurePathItem(item) {
   if (!item) return null;
-  if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
+  if (isPath(item) || isCompoundPath(item)) {
     return item;
   }
-  if (item instanceof paper.Group) {
+  if (isGroup(item)) {
     const children = [];
     const collectPaths = (node) => {
-      if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+      if (isPath(node) || isCompoundPath(node)) {
         children.push(node.clone({ insert: false }));
-      } else if (node instanceof paper.Group) {
+      } else if (isGroup(node)) {
         node.children.forEach(collectPaths);
       }
     };
@@ -1418,10 +1461,10 @@ export function updateOuterPathGeometry(outerItem) {
       if (!n) return;
       if (n.data?.isHoleController) {
         const actualPath = n.data.clipGroup ? getContentItem(n) : n;
-        if (actualPath instanceof paper.Path || actualPath instanceof paper.CompoundPath) {
+        if (isPath(actualPath) || isCompoundPath(actualPath)) {
           paths.push({ item: n, path: actualPath });
         }
-      } else if (n instanceof paper.Group) {
+      } else if (isGroup(n)) {
         n.children.forEach(recurse);
       } else if (n.data?.clipGroup) {
         const content = getContentItem(n);
@@ -1755,9 +1798,9 @@ function installGlobalFinalizationHooks() {
 
 function getRasterFromItemLocal(item) {
   if (!item) return null;
-  if (item instanceof paper.Raster) return item;
+  if (isRaster(item)) return item;
   if (item.children) {
-    const rasterChild = item.children.find(c => c instanceof paper.Raster);
+    const rasterChild = item.children.find(c => isRaster(c));
     if (rasterChild) return rasterChild;
     for (let i = 0; i < item.children.length; i++) {
       const found = getRasterFromItemLocal(item.children[i]);
@@ -1807,7 +1850,7 @@ function handleInteractiveDrop(event) {
   let holeController = null;
   if (draggedItem.data?.isHoleController) {
     holeController = draggedItem;
-  } else if (draggedItem instanceof paper.Group && !draggedItem.data?.clipGroup) {
+  } else if (isGroup(draggedItem) && !draggedItem.data?.clipGroup) {
     // Buscar si hay un calado controller celeste adentro
     holeController = draggedItem.children.find(c => c.data?.isHoleController);
   }
@@ -1819,7 +1862,7 @@ function handleInteractiveDrop(event) {
     const candidates = designLayer.children.filter(c => {
       if (c === draggedItem || c === holeController) return false;
       if (c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) return false;
-      return c instanceof paper.Path || c instanceof paper.CompoundPath || c.data?.clipGroup;
+      return isPath(c) || isCompoundPath(c) || c.data?.clipGroup;
     });
 
     for (let outer of candidates) {
@@ -1868,7 +1911,7 @@ function handleInteractiveDrop(event) {
         match: (hit) => {
           const item = hit.item;
           const actual = item.data?.clipGroup ? getContentItem(item) : item;
-          return actual instanceof paper.Raster;
+          return isRaster(actual);
         }
       });
       if (hitRaster) {
@@ -1891,7 +1934,7 @@ function handleInteractiveDrop(event) {
         }
       }
     }
-  } else if (draggedItem instanceof paper.Path || draggedItem instanceof paper.CompoundPath) {
+  } else if (isPath(draggedItem) || isCompoundPath(draggedItem)) {
     const hitRaster = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -1899,7 +1942,7 @@ function handleInteractiveDrop(event) {
       match: (hit) => {
         const item = hit.item;
         const actual = item.data?.clipGroup ? getContentItem(item) : item;
-        return actual instanceof paper.Raster;
+        return isRaster(actual);
       }
     });
     if (hitRaster) {
@@ -2050,12 +2093,12 @@ export function updateContextualMenu(item) {
     const actualTarget = item.data?.clipGroup ? getContentItem(item) : item;
     if (actualTarget) {
       console.log(" - Tipo de contenido real:", actualTarget.constructor.name);
-      if (actualTarget instanceof paper.CompoundPath) {
+      if (isCompoundPath(actualTarget)) {
         console.log(" - Sub-trazados (children):", actualTarget.children.length);
         actualTarget.children.forEach((child, index) => {
           console.log(`   └─ Subpath [${index}]: ID ${child.id}, Tipo: ${child.constructor.name}, Área: ${Math.round(child.area)}, Cerrado: ${child.closed}`);
         });
-      } else if (actualTarget instanceof paper.Group) {
+      } else if (isGroup(actualTarget)) {
         console.log(" - Elementos agrupados (children):", actualTarget.children.length);
       }
     }
@@ -2091,7 +2134,7 @@ export function updateContextualMenu(item) {
   if (selectedCount > 1) {
     const allVectors = window.selectedItems.every(it => {
       const tgt = it.data?.clipGroup ? getContentItem(it) : it;
-      return tgt && (tgt instanceof paper.Path || tgt instanceof paper.CompoundPath || tgt instanceof paper.Group || tgt instanceof paper.PointText || tgt instanceof paper.SymbolItem || tgt instanceof paper.PlacedSymbol || tgt instanceof paper.Shape);
+      return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isSymbolItem(tgt) || isShape(tgt));
     });
     if (allVectors) {
       const vecCtrl = document.getElementById('ctxVectorControls');
@@ -2108,7 +2151,7 @@ export function updateContextualMenu(item) {
         if (btnUngroup) {
           const canUngroup = window.selectedItems.some(it => {
             const t = it.data?.clipGroup ? getContentItem(it) : it;
-            return t && (t instanceof paper.Group || t instanceof paper.CompoundPath || t instanceof paper.SymbolItem || (paper.PlacedSymbol && t instanceof paper.PlacedSymbol));
+            return t && (isGroup(t) || isCompoundPath(t) || isSymbolItem(t));
           });
           if (canUngroup) {
             btnUngroup.classList.remove('hidden');
@@ -2126,7 +2169,7 @@ export function updateContextualMenu(item) {
   const target = item.data?.clipGroup ? getContentItem(item) : item;
   if (!target) return;
 
-  if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+  if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
     const txtCtrl = document.getElementById('ctxTextControls');
     if (txtCtrl) txtCtrl.classList.remove('hidden');
     const fontTrigger = document.querySelector('.selected-font-trigger span');
@@ -2135,16 +2178,16 @@ export function updateContextualMenu(item) {
       const found = fontsCache.find(f => f.family === currentFamily);
       fontTrigger.textContent = found ? found.name : currentFamily;
     }
-  } else if (target instanceof paper.Raster) {
+  } else if (isRaster(target)) {
     const imgCtrl = document.getElementById('ctxImageControls');
     if (imgCtrl) imgCtrl.classList.remove('hidden');
-  } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group || target instanceof paper.SymbolItem || (paper.PlacedSymbol && target instanceof paper.PlacedSymbol)) {
+  } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target)) {
     const vecCtrl = document.getElementById('ctxVectorControls');
     if (vecCtrl) {
       vecCtrl.classList.remove('hidden');
       const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
       if (btnEditNodes) {
-        const canEdit = !(target instanceof paper.Group) && !(target instanceof paper.SymbolItem) && !(paper.PlacedSymbol && target instanceof paper.PlacedSymbol);
+        const canEdit = !isGroup(target) && !isSymbolItem(target);
         btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
       }
       const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
@@ -2154,7 +2197,7 @@ export function updateContextualMenu(item) {
       }
       const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
       if (btnUngroup) {
-        const canUngroup = (target instanceof paper.Group) || (target instanceof paper.CompoundPath) || (target instanceof paper.SymbolItem) || (paper.PlacedSymbol && target instanceof paper.PlacedSymbol);
+        const canUngroup = isGroup(target) || isCompoundPath(target) || isSymbolItem(target);
         btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
       }
     }
