@@ -1367,39 +1367,107 @@ export function separateContours(itemToProcess, skipSelection = false) {
   return newItems;
 }
 
+function ensurePathItem(item) {
+  if (!item) return null;
+  if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
+    return item;
+  }
+  if (item instanceof paper.Group) {
+    const children = [];
+    const collectPaths = (node) => {
+      if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+        children.push(node.clone({ insert: false }));
+      } else if (node instanceof paper.Group) {
+        node.children.forEach(collectPaths);
+      }
+    };
+    collectPaths(item);
+    item.remove();
+    if (children.length === 0) return null;
+    return new paper.CompoundPath({
+      children: children,
+      insert: false,
+      fillRule: 'evenodd'
+    });
+  }
+  return null;
+}
+
 export function updateOuterPathGeometry(outerItem) {
   if (!outerItem || !outerItem.data?.originalPath) return outerItem;
   const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
   if (!targetOuter) return outerItem;
   let resultOuter = outerItem;
-  const solidGlobal = outerItem.data.originalPath.clone({ insert: false });
+
+  // Asegurar que el path original sea un PathItem válido
+  let solidGlobal = outerItem.data.originalPath.clone({ insert: false });
+  solidGlobal = ensurePathItem(solidGlobal);
+  if (!solidGlobal) return outerItem;
+
   const outerGlobalMatrix = getGlobalMatrix(targetOuter);
   solidGlobal.matrix = outerGlobalMatrix;
   solidGlobal.applyMatrix = true;
+
   const holeIds = outerItem.data.holeIds || [];
   let combined = solidGlobal;
+
+  // Función para recolectar todos los trazados reales de calado (isHoleController) de forma recursiva
+  const collectHolePaths = (node) => {
+    const paths = [];
+    const recurse = (n) => {
+      if (!n) return;
+      if (n.data?.isHoleController) {
+        const actualPath = n.data.clipGroup ? getContentItem(n) : n;
+        if (actualPath instanceof paper.Path || actualPath instanceof paper.CompoundPath) {
+          paths.push({ item: n, path: actualPath });
+        }
+      } else if (n instanceof paper.Group) {
+        n.children.forEach(recurse);
+      } else if (n.data?.clipGroup) {
+        const content = getContentItem(n);
+        if (content) recurse(content);
+      }
+    };
+    recurse(node);
+    return paths;
+  };
 
   holeIds.forEach(id => {
     const hole = paper.project.getItem({ id });
     if (hole && hole.parent) {
-      const targetHole = hole.data.clipGroup ? getContentItem(hole) : hole;
-      if (targetHole) {
-        const holeGlobalMatrix = getGlobalMatrix(targetHole);
-        const holeGlobal = targetHole.clone({ insert: false });
+      // Recolectar todos los trazados de calado reales dentro de este hole (puede ser un simple HoleController o un Grupo)
+      const holePaths = collectHolePaths(hole);
+      
+      holePaths.forEach(hpEntry => {
+        const hpItem = hpEntry.item;
+        const hpPath = hpEntry.path;
+        
+        const holeGlobalMatrix = getGlobalMatrix(hpItem);
+        const holeGlobal = hpPath.clone({ insert: false });
         holeGlobal.matrix = holeGlobalMatrix;
         holeGlobal.applyMatrix = true;
+        
         let temp = null;
         try {
-          temp = combined.subtract(holeGlobal);
+          if (combined && typeof combined.subtract === 'function') {
+            temp = combined.subtract(holeGlobal);
+          } else {
+            console.warn("[EKKO WARNING] combined no tiene la función subtract. Intentando forzar conversión.");
+            combined = ensurePathItem(combined);
+            if (combined && typeof combined.subtract === 'function') {
+              temp = combined.subtract(holeGlobal);
+            }
+          }
         } catch (e) {
           console.error("Fallo substraction en updateOuterPathGeometry:", e);
         }
+        
         if (temp) {
           combined.remove();
-          combined = temp;
+          combined = ensurePathItem(temp); // Asegurar que el resultado siempre sea un PathItem para la siguiente iteración
         }
         holeGlobal.remove();
-      }
+      });
     }
   });
 
