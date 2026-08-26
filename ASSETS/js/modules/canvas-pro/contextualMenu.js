@@ -805,8 +805,10 @@ export function hierarchicalDecompose(item, isHoleSource) {
   if (!target || !(target instanceof paper.CompoundPath)) return [];
 
   const parent = item.parent || paper.project.activeLayer;
-  const newItems = [];
-  
+  const index = parent.children.indexOf(item);
+  const newlyCreatedItems = [];
+  const createdOuters = [];
+
   // Filtrar fondos de mesa de trabajo (Artboards) de forma súper segura
   const subPaths = [...target.children].filter(p => {
     if (isArtboardBackground(p, target)) {
@@ -868,88 +870,17 @@ export function hierarchicalDecompose(item, isHoleSource) {
   // 3. Obtener raíces locales (depth = 0)
   const roots = subPaths.filter(p => depthMap.get(p) === 0);
 
-  let partsToCreate = []; // Array de { outer: Path, holes: [Path], isHole: boolean, descendants: [Path] }
-
-  if (roots.length === 1 && subPaths.length > 1) {
-    // CASO A: Hay una sola raíz principal (ej: el escudo contenedor, o un calado compuesto).
-    // Pelamos la raíz exterior como un elemento simple, y desagrupamos su nivel inmediato inferior (depth = 1).
-    const singleRoot = roots[0];
-    
-    // La raíz se crea como un elemento simple (sin huecos)
-    partsToCreate.push({ 
-      outer: singleRoot, 
-      holes: [], 
-      isHole: isHoleSource, 
-      descendants: [] 
-    });
-
-    // Los elementos de nivel 1 se convierten en las nuevas raíces de sus sub-árboles
-    const level1Items = subPaths.filter(p => depthMap.get(p) === 1);
-    level1Items.forEach(lvl1 => {
-      // Recolectar todos los descendientes de este lvl1
-      const descendants = subPaths.filter(p => {
-        let curr = parentMap.get(p);
-        while (curr) {
-          if (curr === lvl1) return true;
-          curr = parentMap.get(curr);
-        }
-        return false;
-      });
-
-      // Los hijos directos (depth=2) actúan como huecos locales de lvl1
-      const immediateHoles = descendants.filter(p => parentMap.get(p) === lvl1);
-      const isLvl1Hole = !isHoleSource;
-
-      partsToCreate.push({ 
-        outer: lvl1, 
-        holes: immediateHoles, 
-        isHole: isLvl1Hole, 
-        descendants: descendants 
-      });
-    });
-  } else {
-    // CASO B: Hay múltiples raíces independientes o es un único path simple.
-    roots.forEach(root => {
-      const descendants = subPaths.filter(p => {
-        let curr = parentMap.get(p);
-        while (curr) {
-          if (curr === root) return true;
-          curr = parentMap.get(curr);
-        }
-        return false;
-      });
-
-      // Hijos directos (depth=1) actúan como huecos de root
-      const immediateHoles = descendants.filter(p => parentMap.get(p) === root);
-
-      partsToCreate.push({ 
-        outer: root, 
-        holes: immediateHoles, 
-        isHole: isHoleSource, 
-        descendants: descendants 
-      });
-    });
-  }
-
-  // 4. Construir los elementos en el lienzo
-  const newlyCreatedItems = [];
-  const createdOuters = [];
-
-  partsToCreate.forEach(part => {
-    const outerPath = part.outer;
-    const descendants = part.descendants;
-    let shapeToInsert;
-
-    // Determinar color de relleno y estilo
+  // Configuración base de un elemento individual
+  const configureItem = (pathItem, isHoleType, isOuterWithHoles) => {
     let finalFillColor = originalFillColor;
-    if (part.isHole) {
+    if (isHoleType) {
       finalFillColor = new paper.Color(255, 255, 255, 0.01);
     } else {
       if (!originalFillColor || originalFillColor.alpha === 0) {
         finalFillColor = new paper.Color('#ffffff');
       } else {
         // Lógica inteligente de contraste si está dentro de otra forma
-        const isNested = parentMap.get(outerPath) !== null;
+        const isNested = parentMap.get(pathItem) !== null;
         if (isNested) {
           const isDark = originalFillColor.gray !== undefined
             ? originalFillColor.gray < 0.5
@@ -961,65 +892,34 @@ export function hierarchicalDecompose(item, isHoleSource) {
       }
     }
 
-    if (descendants.length > 0) {
-      // Es un elemento compuesto. Creamos un CompoundPath local
-      const childrenClones = [];
-      const outerClone = outerPath.clone({ insert: false });
-      outerClone.fillColor = null;
-      outerClone.strokeColor = null;
-      childrenClones.push(outerClone);
-
-      // Clonar TODOS los descendientes para mantener la jerarquía completa intacta
-      descendants.forEach(d => {
-        const dClone = d.clone({ insert: false });
-        dClone.fillColor = null;
-        dClone.strokeColor = null;
-        childrenClones.push(dClone);
-      });
-
-      const compound = new paper.CompoundPath({
-        children: childrenClones,
-        insert: false
-      });
-      compound.fillRule = 'evenodd';
-      compound.fillColor = finalFillColor;
-      compound.strokeColor = originalStrokeColor || '#000000';
-      compound.strokeWidth = originalStrokeWidth || 1;
-      shapeToInsert = compound;
-    } else {
-      // Es un elemento simple
-      const pathClone = outerPath.clone({ insert: false });
-      pathClone.fillColor = finalFillColor;
-      pathClone.strokeColor = originalStrokeColor || '#000000';
-      pathClone.strokeWidth = originalStrokeWidth || 1;
-      shapeToInsert = pathClone;
-    }
+    pathItem.fillColor = finalFillColor;
+    pathItem.strokeColor = originalStrokeColor || '#000000';
+    pathItem.strokeWidth = originalStrokeWidth || 1;
 
     let newItem;
     if (isClipped) {
-      newItem = window.clipItem(shapeToInsert);
-      if (newItem === shapeToInsert) {
-        newItem.matrix = pathAbsMatrix.clone().chain(shapeToInsert.matrix);
+      newItem = window.clipItem(pathItem);
+      if (newItem === pathItem) {
+        newItem.matrix = pathAbsMatrix.clone().chain(pathItem.matrix);
       } else {
         newItem.matrix = item.matrix.clone();
-        shapeToInsert.matrix = pathRelMatrix.clone().chain(shapeToInsert.matrix);
+        pathItem.matrix = pathRelMatrix.clone().chain(pathItem.matrix);
       }
     } else {
-      newItem = shapeToInsert;
-      newItem.matrix = pathAbsMatrix.clone().chain(shapeToInsert.matrix);
+      newItem = pathItem;
+      newItem.matrix = pathAbsMatrix.clone().chain(pathItem.matrix);
       parent.addChild(newItem);
     }
 
-    // Configurar metadatos del objeto
     newItem.data = {
       ...(item.data || {}),
       locked: false,
-      label: part.isHole ? "Hueco" : (item.data?.label || "Objeto")
+      label: isHoleType ? "Hueco" : (item.data?.label || "Objeto")
     };
 
-    if (part.isHole) {
+    if (isHoleType) {
       newItem.data.isHoleController = true;
-      newItem.data.outerItemId = ""; // Se vinculará abajo
+      newItem.data.outerItemId = "";
       newItem.data.lastHash = "";
       newItem.data.label = "Hueco";
 
@@ -1028,31 +928,141 @@ export function hierarchicalDecompose(item, isHoleSource) {
         visualHole.strokeColor = '#009dec';
         visualHole.strokeWidth = 1.5 / paper.view.zoom;
         visualHole.dashArray = [4, 4];
-        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15); // Transparente azulado interactivo
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
       }
+    } else if (isOuterWithHoles) {
+      newItem.data.isOuterWithHoles = true;
+      newItem.data.originalPath = pathItem.clone({ insert: false });
+      newItem.data.holeIds = [];
+      createdOuters.push(newItem);
     } else {
-      // Limpiar propiedades antiguas de calado reactivo si ahora es un outer simple
       delete newItem.data.isOuterWithHoles;
       delete newItem.data.originalPath;
       delete newItem.data.holeIds;
       createdOuters.push(newItem);
     }
 
-    newlyCreatedItems.push(newItem);
-  });
+    return newItem;
+  };
 
-  // 5. Vincular dinámicamente calados con sus outers correspondientes (Calado Reactivo)
+  // Función recursiva para crear un árbol geométrico (alternando solids y HoleControllers)
+  const createShapeFromSubtree = (rootPath, isHoleType) => {
+    // Recolectar todos los descendientes de este sub-árbol
+    const descendants = subPaths.filter(p => {
+      let curr = parentMap.get(p);
+      while (curr) {
+        if (curr === rootPath) return true;
+        curr = parentMap.get(curr);
+      }
+      return false;
+    });
+
+    const directChildren = descendants.filter(p => parentMap.get(p) === rootPath);
+
+    if (descendants.length === 0) {
+      // Elemento simple final
+      const pathClone = rootPath.clone({ insert: false });
+      const simpleItem = configureItem(pathClone, isHoleType, false);
+      newlyCreatedItems.push(simpleItem);
+      return simpleItem;
+    }
+
+    // Elemento compuesto
+    if (!isHoleType) {
+      // CONTORNO COMPUESTO (Sólido + huecos directos)
+      const outerClone = rootPath.clone({ insert: false });
+      const newOuterItem = configureItem(outerClone, false, true);
+      newlyCreatedItems.push(newOuterItem);
+
+      // Los hijos directos (depth=1 en este sub-árbol) son calados (isHole = true)
+      directChildren.forEach(child => {
+        const childHoleItem = createShapeFromSubtree(child, true);
+        childHoleItem.data.outerItemId = newOuterItem.id;
+        newOuterItem.data.holeIds.push(childHoleItem.id);
+      });
+
+      return newOuterItem;
+    } else {
+      // HUECO COMPUESTO (Hueco + contornos sólidos directos adentro)
+      // Lo representamos como un Grupo tradicional de Paper.js para poder renderizar
+      // al hueco celeste y a sus hijos sólidos negros de forma simultánea y correcta.
+      const group = new paper.Group();
+      group.data = {
+        ...(item.data || {}),
+        locked: false,
+        label: "Grupo Calado Compuesto"
+      };
+
+      // 1. Crear el hueco celeste como un calado simple
+      const holeClone = rootPath.clone({ insert: false });
+      const mainHoleController = configureItem(holeClone, true, false);
+      group.addChild(mainHoleController);
+      newlyCreatedItems.push(mainHoleController);
+
+      // 2. Crear los sólidos interiores como hijos del grupo (depth=1 en este sub-árbol)
+      directChildren.forEach(child => {
+        const innerSolidItem = createShapeFromSubtree(child, false);
+        group.addChild(innerSolidItem);
+      });
+
+      // Insertar el grupo de forma correcta
+      let finalGroupItem;
+      if (isClipped) {
+        finalGroupItem = window.clipItem(group);
+        if (finalGroupItem === group) {
+          finalGroupItem.matrix = pathAbsMatrix.clone().chain(group.matrix);
+        } else {
+          finalGroupItem.matrix = item.matrix.clone();
+          group.matrix = pathRelMatrix.clone().chain(group.matrix);
+        }
+      } else {
+        finalGroupItem = group;
+        finalGroupItem.matrix = pathAbsMatrix.clone().chain(group.matrix);
+        parent.addChild(finalGroupItem);
+      }
+
+      newlyCreatedItems.push(finalGroupItem);
+      return finalGroupItem;
+    }
+  };
+
+  // 4. Ejecutar la descomposición recursiva de afuera hacia adentro
+  if (roots.length === 1 && subPaths.length > 1) {
+    // CASO A: Hay una sola raíz principal (ej: el escudo contenedor, o un calado compuesto).
+    // Pelamos la raíz exterior como un elemento simple, y desagrupamos su nivel inmediato inferior (depth = 1).
+    const singleRoot = roots[0];
+    
+    // Crear el outer principal pelado (sólido simple, sin huecos en su definición de CompoundPath)
+    const newOuterItem = configureItem(singleRoot.clone({ insert: false }), isHoleSource, true);
+    newlyCreatedItems.push(newOuterItem);
+
+    // Los elementos de nivel 1 se descomponen de forma recursiva como HoleControllers (isHole = !isHoleSource)
+    const level1Items = subPaths.filter(p => depthMap.get(p) === 1);
+    level1Items.forEach(lvl1 => {
+      const childHoleItem = createShapeFromSubtree(lvl1, !isHoleSource);
+      childHoleItem.data.outerItemId = newOuterItem.id;
+      newOuterItem.data.holeIds.push(childHoleItem.id);
+    });
+  } else {
+    // CASO B: Hay múltiples raíces independientes o es un único path simple.
+    roots.forEach(root => {
+      createShapeFromSubtree(root, isHoleSource);
+    });
+  }
+
+  // 5. Vincular de forma reactiva todos los HoleControllers
   newlyCreatedItems.forEach(it => {
-    if (it.data?.isHoleController) {
+    const isHole = it.data?.isHoleController;
+    if (isHole) {
       const holeCenter = it.bounds.center;
       let bestOuter = null;
       let minArea = Infinity;
 
-      // Buscar tanto en los nuevos outers creados como en todo el activeLayer (para calados huérfanos reactivos)
+      // Buscar tanto en los nuevos outers creados como en todo el activeLayer
       const allCandidates = [...createdOuters];
       if (paper.project.activeLayer) {
         paper.project.activeLayer.children.forEach(c => {
-          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController) {
+          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController && !c.data?.clipGroup?.children?.some(ch => ch.data?.isHoleController)) {
             if (c instanceof paper.Path || c instanceof paper.CompoundPath || c.data?.clipGroup) {
               allCandidates.push(c);
             }
@@ -1096,7 +1106,8 @@ export function hierarchicalDecompose(item, isHoleSource) {
   }
   item.remove();
 
-  return newlyCreatedItems;
+  // Retornar solo los elementos que queden directamente en el activeLayer (o clipGroup) para evitar duplicados en la selección
+  return newlyCreatedItems.filter(it => it.parent === parent);
 }
 
 export function separateContoursIntoIndependentShapes(itemToProcess) {
@@ -1722,20 +1733,29 @@ export function clipImageWithVector(vectorItem, rasterItem) {
 }
 
 function handleInteractiveDrop(event) {
-  const draggedItem = window.selectedItem;
+  let draggedItem = window.selectedItem;
   if (!draggedItem) return;
+
+  let holeController = null;
   if (draggedItem.data?.isHoleController) {
+    holeController = draggedItem;
+  } else if (draggedItem instanceof paper.Group && !draggedItem.data?.clipGroup) {
+    // Buscar si hay un calado controller celeste adentro
+    holeController = draggedItem.children.find(c => c.data?.isHoleController);
+  }
+
+  if (holeController) {
     let newOwner = null;
-    const holeCenter = draggedItem.bounds.center;
+    const holeCenter = holeController.bounds.center;
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     const candidates = designLayer.children.filter(c => {
-      if (c === draggedItem) return false;
+      if (c === draggedItem || c === holeController) return false;
       if (c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) return false;
       return c instanceof paper.Path || c instanceof paper.CompoundPath || c.data?.clipGroup;
     });
 
     for (let outer of candidates) {
-      if (outer.id === draggedItem.data.outerItemId) continue;
+      if (outer.id === holeController.data.outerItemId) continue;
       const targetOuter = outer.data.clipGroup ? getContentItem(outer) : outer;
       if (targetOuter && (typeof targetOuter.contains === 'function' ? targetOuter.contains(holeCenter) : targetOuter.bounds.contains(holeCenter))) {
         newOwner = outer;
@@ -1745,10 +1765,10 @@ function handleInteractiveDrop(event) {
 
     if (newOwner) {
       if (typeof window.saveHistory === 'function') window.saveHistory();
-      const oldOwnerId = draggedItem.data.outerItemId;
+      const oldOwnerId = holeController.data.outerItemId;
       const oldOwner = oldOwnerId ? paper.project.getItem({ id: oldOwnerId }) : null;
       if (oldOwner) {
-        oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== draggedItem.id);
+        oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== holeController.id);
         if (oldOwner.data.holeIds.length === 0) {
           delete oldOwner.data.isOuterWithHoles;
           window.ekkoOuters.delete(oldOwner.id);
@@ -1766,10 +1786,10 @@ function handleInteractiveDrop(event) {
         window.ekkoOuters.set(newOwner.id, newOwner);
       }
       newOwner.data.holeIds = newOwner.data.holeIds || [];
-      if (!newOwner.data.holeIds.includes(draggedItem.id)) {
-        newOwner.data.holeIds.push(draggedItem.id);
+      if (!newOwner.data.holeIds.includes(holeController.id)) {
+        newOwner.data.holeIds.push(holeController.id);
       }
-      draggedItem.data.outerItemId = newOwner.id;
+      holeController.data.outerItemId = newOwner.id;
       updateOuterPathGeometry(newOwner);
       paper.view.update();
     } else {
@@ -1787,10 +1807,10 @@ function handleInteractiveDrop(event) {
         const rasterItem = window.getSelectableItem ? window.getSelectableItem(hitRaster.item) : hitRaster.item;
         if (rasterItem) {
           if (typeof window.saveHistory === 'function') window.saveHistory();
-          const oldOwnerId = draggedItem.data.outerItemId;
+          const oldOwnerId = holeController.data.outerItemId;
           const oldOwner = oldOwnerId ? paper.project.getItem({ id: oldOwnerId }) : null;
           if (oldOwner) {
-            oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== draggedItem.id);
+            oldOwner.data.holeIds = (oldOwner.data.holeIds || []).filter(hid => hid !== holeController.id);
             if (oldOwner.data.holeIds.length === 0) {
               delete oldOwner.data.isOuterWithHoles;
               window.ekkoOuters.delete(oldOwner.id);
@@ -1798,7 +1818,7 @@ function handleInteractiveDrop(event) {
               updateOuterPathGeometry(oldOwner);
             }
           }
-          clipImageWithVector(draggedItem, rasterItem);
+          clipImageWithVector(holeController, rasterItem);
           paper.view.update();
         }
       }
