@@ -430,6 +430,9 @@ export function enterNodeEditMode(item) {
 
 // Salir del modo de edicion de nodos
 export function exitNodeEditMode(skipSelect = false) {
+  if (typeof window !== 'undefined') {
+    console.log(`%c[EKKO NODE EDITOR] Saliendo del modo edición de nodos (skipSelect = ${skipSelect}) 🚪`, "color: #8b5cf6; font-weight: bold; background: #f5f3ff; padding: 4px 8px; border-radius: 6px;");
+  }
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
     nodeHandlesGroup = null;
