@@ -2340,6 +2340,94 @@ function makeShell(node) {
   return shell;
 }
 
+function makeNode(node, global, isClipped, item, parent, target) {
+  const hasChildren = node.children.length > 0;
+  const isHoleType = node.depth % 2 === 1;
+
+  if (!hasChildren) {
+    // ELEMENTO SIMPLE (Hijo final sin anidación)
+    const leaf = clonePath(node.path);
+    leaf.fillColor = node.path.fillColor ? node.path.fillColor.clone() : (isHoleType ? new paper.Color(255, 255, 255, 0.01) : new paper.Color('#000000'));
+    leaf.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : new paper.Color('#000000');
+    leaf.strokeWidth = node.path.strokeWidth || 1;
+
+    let newItem;
+    if (isClipped) {
+      newItem = window.clipItem(leaf);
+      if (newItem === leaf) {
+        newItem.matrix = global.clone().chain(leaf.matrix);
+      } else {
+        newItem.matrix = item.matrix.clone();
+        leaf.matrix = getMatrixRelativeTo(leaf, target).clone().chain(leaf.matrix);
+      }
+    } else {
+      newItem = leaf;
+      newItem.matrix = global.clone().chain(leaf.matrix);
+      parent.addChild(newItem);
+    }
+
+    newItem.data = {
+      ...(item.data || {}),
+      locked: false,
+      geometricRole: isHoleType ? 'hole' : 'solid',
+      geometricHierarchy: 'simple',
+      label: isHoleType ? "Hueco" : (item.data?.label || "Objeto")
+    };
+    return newItem;
+  }
+
+  // ELEMENTO COMPUESTO (Tiene más descendientes en capas profundas)
+  const group = new paper.Group({ insert: false });
+  group.data = {
+    ...(item.data || {}),
+    locked: false,
+    geometricHierarchy: 'compound',
+    geometricDepth: node.depth,
+    geometricRole: isHoleType ? 'hole' : 'solid',
+    label: isHoleType ? "Grupo Calado Compuesto" : "Grupo Sólido Compuesto"
+  };
+
+  // Añadir la corteza de este nivel
+  const shell = makeShell(node);
+  let configuredShell;
+  if (shell) {
+    configuredShell = shell;
+    configuredShell.fillColor = shell.fillColor || (isHoleType ? new paper.Color(255, 255, 255, 0.01) : new paper.Color('#000000'));
+    group.addChild(configuredShell);
+  } else {
+    const selfPath = clonePath(node.path);
+    selfPath.fillColor = selfPath.fillColor || (isHoleType ? new paper.Color(255, 255, 255, 0.01) : new paper.Color('#000000'));
+    configuredShell = selfPath;
+    group.addChild(configuredShell);
+  }
+
+  // Añadir hijos recursivos dentro del grupo compuesto
+  node.children.forEach(child => {
+    const childItem = makeNode(child, global, isClipped, item, parent, target);
+    if (childItem) {
+      childItem.remove(); // Desprender de la capa activa para agruparlo
+      group.addChild(childItem);
+    }
+  });
+
+  let finalGroupItem;
+  if (isClipped) {
+    finalGroupItem = window.clipItem(group);
+    if (finalGroupItem === group) {
+      finalGroupItem.matrix = global.clone().chain(group.matrix);
+    } else {
+      finalGroupItem.matrix = item.matrix.clone();
+      group.matrix = getMatrixRelativeTo(group, target).clone().chain(group.matrix);
+    }
+  } else {
+    finalGroupItem = group;
+    finalGroupItem.matrix = global.clone().chain(group.matrix);
+    parent.addChild(finalGroupItem);
+  }
+
+  return finalGroupItem;
+}
+
 export function geometricUngroupCompound(item) {
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return null;
   const isClipped = !!item.data?.clipGroup;
@@ -2355,206 +2443,14 @@ export function geometricUngroupCompound(item) {
   const index = parent.children.indexOf(item);
   const global = getGlobalMatrix(target);
   const result = [];
-  const createdOuters = [];
-
-  const configureItem = (pathItem, isHoleType, isOuterWithHoles) => {
-    pathItem.fillColor = isHoleType ? new paper.Color(255, 255, 255, 0.01) : (target.fillColor || '#ffffff');
-    pathItem.strokeColor = target.strokeColor || '#000000';
-    pathItem.strokeWidth = target.strokeWidth || 1;
-
-    let newItem;
-    if (isClipped) {
-      newItem = window.clipItem(pathItem);
-      if (newItem === pathItem) {
-        newItem.matrix = global.clone().chain(pathItem.matrix);
-      } else {
-        newItem.matrix = item.matrix.clone();
-        pathItem.matrix = getMatrixRelativeTo(pathItem, target).clone().chain(pathItem.matrix);
-      }
-    } else {
-      newItem = pathItem;
-      newItem.matrix = global.clone().chain(pathItem.matrix);
-      parent.addChild(newItem);
-    }
-
-    newItem.data = {
-      ...(item.data || {}),
-      locked: false,
-      label: isHoleType ? "Hueco" : (item.data?.label || "Objeto")
-    };
-
-    if (isHoleType) {
-      newItem.data.isHoleController = true;
-      newItem.data.outerItemId = "";
-      newItem.data.lastHash = "";
-      newItem.data.label = "Hueco";
-
-      const visualHole = newItem.data.clipGroup ? getContentItem(newItem) : newItem;
-      if (visualHole) {
-        visualHole.strokeColor = '#009dec';
-        visualHole.strokeWidth = 1.5 / paper.view.zoom;
-        visualHole.dashArray = [4, 4];
-        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
-      }
-    } else if (isOuterWithHoles) {
-      newItem.data.isOuterWithHoles = true;
-      newItem.data.originalPath = pathItem.clone({ insert: false });
-      newItem.data.holeIds = [];
-      createdOuters.push(newItem);
-    } else {
-      delete newItem.data.isOuterWithHoles;
-      delete newItem.data.originalPath;
-      delete newItem.data.holeIds;
-      createdOuters.push(newItem);
-    }
-
-    return newItem;
-  };
-
-  const makeNodeLocal = (node) => {
-    const hasChildren = node.children.length > 0;
-    const isHoleType = node.depth % 2 === 1;
-
-    if (!hasChildren) {
-      if (isHoleType) {
-        const hole = clonePath(node.path);
-        const configuredHole = configureItem(hole, true, false);
-        result.push(configuredHole);
-        return configuredHole;
-      } else {
-        const leaf = clonePath(node.path);
-        const configuredLeaf = configureItem(leaf, false, false);
-        result.push(configuredLeaf);
-        return configuredLeaf;
-      }
-    }
-
-    if (!isHoleType) {
-      const shell = makeShell(node);
-      if (!shell) return null;
-      const configuredShell = configureItem(shell, false, true);
-      result.push(configuredShell);
-
-      node.children.forEach(child => {
-        const childItem = makeNodeLocal(child);
-        if (childItem) {
-          childItem.data.outerItemId = configuredShell.id;
-          configuredShell.data.holeIds.push(childItem.id);
-        }
-      });
-      return configuredShell;
-    } else {
-      const group = new paper.Group({ insert: false });
-      group.data = {
-        ...(item.data || {}),
-        locked: false,
-        geometricHierarchy: 'compound',
-        geometricDepth: node.depth,
-        geometricRole: 'hole',
-        label: "Grupo Calado Compuesto"
-      };
-
-      const hole = clonePath(node.path);
-      const configuredHole = configureItem(hole, true, false);
-      group.addChild(configuredHole);
-      result.push(configuredHole);
-
-      node.children.forEach(child => {
-        const childItem = makeNodeLocal(child);
-        if (childItem) {
-          childItem.remove();
-          group.addChild(childItem);
-        }
-      });
-
-      let finalGroupItem;
-      if (isClipped) {
-        finalGroupItem = window.clipItem(group);
-        if (finalGroupItem === group) {
-          finalGroupItem.matrix = global.clone().chain(group.matrix);
-        } else {
-          finalGroupItem.matrix = item.matrix.clone();
-          group.matrix = getMatrixRelativeTo(group, target).clone().chain(group.matrix);
-        }
-      } else {
-        finalGroupItem = group;
-        finalGroupItem.matrix = global.clone().chain(group.matrix);
-        parent.addChild(finalGroupItem);
-      }
-
-      result.push(finalGroupItem);
-      return finalGroupItem;
-    }
-  };
 
   roots.forEach(root => {
-    makeNodeLocal(root);
-  });
-
-  result.forEach(it => {
-    if (it.data?.isHoleController) {
-      const holeCenter = it.bounds.center;
-      let bestOuter = null;
-      let minArea = Infinity;
-
-      const allCandidates = [...createdOuters];
-      if (paper.project.activeLayer) {
-        paper.project.activeLayer.children.forEach(c => {
-          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController) {
-            // EVITAR ABSOLUTAMENTE MOCKUPS, MÁSCARAS, COMPONENTES DEL PRODUCTO Y ELEMENTOS PROTEGIDOS
-            if (c.data && (
-              c.data.mockup || 
-              c.data.isMask || 
-              c.data.isSelectionBox || 
-              c.data.isHandle || 
-              c.data.isSmartGuide || 
-              c.data.isMeasurement || 
-              c.data.isTracePreview || 
-              c.data.locked
-            )) {
-              return;
-            }
-            if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
-              allCandidates.push(c);
-            }
-          }
-        });
-      }
-
-      allCandidates.forEach(outItem => {
-        const visualOuter = outItem.data?.clipGroup ? getContentItem(outItem) : outItem;
-        if (visualOuter && visualOuter.bounds.contains(holeCenter)) {
-          const area = visualOuter.bounds.area;
-          if (area < minArea) {
-            minArea = area;
-            bestOuter = outItem;
-          }
-        }
-      });
-
-      if (bestOuter) {
-        it.data.outerItemId = bestOuter.id;
-        bestOuter.data = bestOuter.data || {};
-        bestOuter.data.isOuterWithHoles = true;
-        bestOuter.data.originalPath = (bestOuter.data.clipGroup ? getContentItem(bestOuter) : bestOuter).clone({ insert: false });
-        bestOuter.data.holeIds = bestOuter.data.holeIds || [];
-        if (!bestOuter.data.holeIds.includes(it.id)) {
-          bestOuter.data.holeIds.push(it.id);
-        }
-
-        if (typeof window.ekkoOuters !== 'undefined') {
-          window.ekkoOuters.set(bestOuter.id, bestOuter);
-        }
-        if (typeof window.updateOuterPathGeometry === 'function') {
-          window.updateOuterPathGeometry(bestOuter);
-        }
-      }
+    const built = makeNode(root, global, isClipped, item, parent, target);
+    if (built) {
+      result.push(built);
     }
   });
 
-  if (isClipped && item) {
-    item.clipped = false;
-  }
   item.remove();
 
   const finalFiltered = result.filter(it => it.parent === parent);
