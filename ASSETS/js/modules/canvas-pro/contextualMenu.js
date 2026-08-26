@@ -2347,7 +2347,7 @@ function makeNode(node, global, isClipped, item, parent, target) {
   if (!hasChildren) {
     // ELEMENTO SIMPLE (Hijo final sin anidación)
     const leaf = clonePath(node.path);
-    leaf.fillColor = node.path.fillColor ? node.path.fillColor.clone() : (isHoleType ? new paper.Color(255, 255, 255, 0.01) : new paper.Color('#000000'));
+    leaf.fillColor = isHoleType ? new paper.Color(255, 255, 255, 0.01) : (node.path.fillColor ? node.path.fillColor.clone() : new paper.Color('#000000'));
     leaf.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : new paper.Color('#000000');
     leaf.strokeWidth = node.path.strokeWidth || 1;
 
@@ -2392,11 +2392,11 @@ function makeNode(node, global, isClipped, item, parent, target) {
   let configuredShell;
   if (shell) {
     configuredShell = shell;
-    configuredShell.fillColor = shell.fillColor || (isHoleType ? new paper.Color(255, 255, 255, 0.01) : new paper.Color('#000000'));
+    configuredShell.fillColor = isHoleType ? new paper.Color(255, 255, 255, 0.01) : (shell.fillColor || new paper.Color('#000000'));
     group.addChild(configuredShell);
   } else {
     const selfPath = clonePath(node.path);
-    selfPath.fillColor = selfPath.fillColor || (isHoleType ? new paper.Color(255, 255, 255, 0.01) : new paper.Color('#000000'));
+    selfPath.fillColor = isHoleType ? new paper.Color(255, 255, 255, 0.01) : (selfPath.fillColor || new paper.Color('#000000'));
     configuredShell = selfPath;
     group.addChild(configuredShell);
   }
