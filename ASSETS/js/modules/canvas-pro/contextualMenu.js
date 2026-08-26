@@ -406,17 +406,7 @@ function flattenGroupRecursive(group, parent, index, isClipped, oldClipGroup) {
 }
 
 function isArtboardBackground(path, parentItem) {
-  if (!parentItem) return false;
-  const parentBounds = parentItem.bounds;
-  const pathBounds = path.bounds;
-  const widthRatio = pathBounds.width / parentBounds.width;
-  const heightRatio = pathBounds.height / parentBounds.height;
-  if (widthRatio > 0.95 && heightRatio > 0.95) {
-    const hasStroke = path.strokeColor && path.strokeColor.alpha > 0;
-    if (!hasStroke || path.strokeWidth === 0) {
-      return true;
-    }
-  }
+  // Desactivado para evitar borrar accidentalmente contornos válidos del SVG (como el escudo exterior de AFA)
   return false;
 }
 
@@ -463,7 +453,7 @@ export function ungroupSelectedItem() {
   if (wasInNodeEdit) {
     targetNodeItem = window.nodeEditTarget;
     if (typeof window.exitNodeEditMode === 'function') {
-      window.exitNodeEditMode();
+      window.exitNodeEditMode(true); // Evitar re-seleccionar para que no haya conflictos en el primer clic
     }
   }
 
@@ -564,16 +554,11 @@ export function ungroupSelectedItem() {
           }
         });
 
-        if (outers.length === 1 && subPaths.length > 1) {
-          const separated = separateContours(item);
-          if (separated && separated.length > 0) {
-            newItems.push(...separated);
-          }
-        } else {
-          const separated = separateContoursIntoIndependentShapes(item);
-          if (separated && separated.length > 0) {
-            newItems.push(...separated);
-          }
+        // SIEMPRE usar separateContoursIntoIndependentShapes para CompoundPaths estándar.
+        // NUNCA usar separateContours (que convierte contornos en "calados reactivos" celestes y transparentes).
+        const separated = separateContoursIntoIndependentShapes(item);
+        if (separated && separated.length > 0) {
+          newItems.push(...separated);
         }
       }
     }
