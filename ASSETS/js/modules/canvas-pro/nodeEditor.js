@@ -420,7 +420,7 @@ export function enterNodeEditMode(item) {
 }
 
 // Salir del modo de edicion de nodos
-export function exitNodeEditMode() {
+export function exitNodeEditMode(skipSelect = false) {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
     nodeHandlesGroup = null;
@@ -479,7 +479,7 @@ export function exitNodeEditMode() {
     previousTool.activate();
   }
 
-  if (itemToRestore) {
+  if (itemToRestore && !skipSelect) {
     window.selectItem(itemToRestore);
   }
 
