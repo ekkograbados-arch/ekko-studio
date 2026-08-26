@@ -1,8 +1,6 @@
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
-import { geometricUngroupCompound } from "./geometricUngroup.js";
-
 // =========================================================================
 // EKKO TELEMETRY & DIAGNOSTIC SYSTEM (F12 TRACING - v21)
 // =========================================================================
@@ -1051,6 +1049,13 @@ export function ungroupSelectedItem() {
 
     // A. SI ES GRUPO TRADICIONAL
     if (isGroup(activeTarget) && !activeTarget.data?.clipGroup) {
+      if (activeTarget.data?.geometricHierarchy === 'compound') {
+        console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: GRUPO GEOMÉTRICO COMPUESTO.", "color: #0369a1; font-weight: bold;");
+        const result = geometricUngroupOneLevel(activeTarget);
+        if (result && result.items) {
+          newItems.push(...result.items);
+        }
+      } else {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: GRUPO TRADICIONAL.", "color: #0369a1; font-weight: bold;");
       const flattened = ungroupGroupOneLevel(activeTarget, parent, index, isClipped, item);
       newItems.push(...flattened);
@@ -1059,6 +1064,7 @@ export function ungroupSelectedItem() {
       }
       item.remove();
     }
+      }
     // B. SI ES TEXTO PARA SEPARAR POR LETRAS
     else if (isPointText(activeTarget) && activeTarget.content.length > 1) {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: TEXTO VECTORIAL.", "color: #0369a1; font-weight: bold;");
@@ -2228,3 +2234,330 @@ window.applyPositionCorrections = function() {
     }
   }
 };
+
+
+// =========================================================================
+// EMULATION ENGINE: GEOMETRIC UNGROUP (OUTSIDE-IN RECURSIVE DECOMPOSITION)
+// =========================================================================
+
+function areaOf(path) {
+  if (!path) return 0;
+  return Math.abs(path.area || (path.bounds ? path.bounds.area : 0) || 0);
+}
+
+function contains(parent, child) {
+  if (!parent || !child) return false;
+  const p = child.bounds?.center;
+  if (!p) return false;
+  if (typeof parent.contains === 'function') {
+    try { return parent.contains(p); } catch (_) {}
+  }
+  return parent.bounds ? parent.bounds.contains(p) : false;
+}
+
+function buildTree(paths) {
+  const nodes = paths.map(path => ({ path, parent: null, children: [], depth: 0 }));
+  for (const node of nodes) {
+    let best = null;
+    let bestArea = Infinity;
+    for (const candidate of nodes) {
+      if (candidate === node) continue;
+      const ca = areaOf(candidate.path);
+      const na = areaOf(node.path);
+      if (ca > na && contains(candidate.path, node.path)) {
+        if (ca < bestArea) {
+          bestArea = ca;
+          best = candidate;
+        }
+      }
+    }
+    if (best) {
+      node.parent = best;
+      best.children.push(node);
+    }
+  }
+
+  const roots = nodes.filter(n => !n.parent);
+  const assign = (n, d) => {
+    n.depth = d;
+    n.children.forEach(c => assign(c, d + 1));
+  };
+  roots.forEach(root => assign(root, 0));
+  return roots;
+}
+
+function clonePath(path) {
+  return path.clone({ insert: false });
+}
+
+function makeShell(node) {
+  const shell = new paper.CompoundPath({ insert: false });
+  const outer = clonePath(node.path);
+  shell.addChild(outer);
+
+  // Even depth = filled contour; odd depth = transparent cutout.
+  if (node.depth % 2 === 1) {
+    shell.remove();
+    return null;
+  }
+  
+  node.children.filter(child => child.depth % 2 === 1).forEach(hole => {
+    shell.addChild(clonePath(hole.path));
+  });
+  
+  shell.fillColor = node.path.fillColor ? node.path.fillColor.clone() : null;
+  shell.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : null;
+  shell.strokeWidth = node.path.strokeWidth || 0;
+  return shell;
+}
+
+export function geometricUngroupCompound(item) {
+  if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return null;
+  const isClipped = !!item.data?.clipGroup;
+  const target = isClipped ? getContentItem(item) : item;
+  
+  if (!isCompoundPath(target)) return null;
+
+  const paths = [...target.children].filter(p => p && p.bounds && !p.data?.mockup && !p.data?.isMask);
+  if (paths.length <= 1) return { handled: true, simple: true, items: [item] };
+
+  const roots = buildTree(paths);
+  const parent = item.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(item);
+  const global = getGlobalMatrix(target);
+  const result = [];
+  const createdOuters = [];
+
+  const configureItem = (pathItem, isHoleType, isOuterWithHoles) => {
+    pathItem.fillColor = isHoleType ? new paper.Color(255, 255, 255, 0.01) : (target.fillColor || '#ffffff');
+    pathItem.strokeColor = target.strokeColor || '#000000';
+    pathItem.strokeWidth = target.strokeWidth || 1;
+
+    let newItem;
+    if (isClipped) {
+      newItem = window.clipItem(pathItem);
+      if (newItem === pathItem) {
+        newItem.matrix = global.clone().chain(pathItem.matrix);
+      } else {
+        newItem.matrix = item.matrix.clone();
+        pathItem.matrix = getMatrixRelativeTo(pathItem, target).clone().chain(pathItem.matrix);
+      }
+    } else {
+      newItem = pathItem;
+      newItem.matrix = global.clone().chain(pathItem.matrix);
+      parent.addChild(newItem);
+    }
+
+    newItem.data = {
+      ...(item.data || {}),
+      locked: false,
+      label: isHoleType ? "Hueco" : (item.data?.label || "Objeto")
+    };
+
+    if (isHoleType) {
+      newItem.data.isHoleController = true;
+      newItem.data.outerItemId = "";
+      newItem.data.lastHash = "";
+      newItem.data.label = "Hueco";
+
+      const visualHole = newItem.data.clipGroup ? getContentItem(newItem) : newItem;
+      if (visualHole) {
+        visualHole.strokeColor = '#009dec';
+        visualHole.strokeWidth = 1.5 / paper.view.zoom;
+        visualHole.dashArray = [4, 4];
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
+      }
+    } else if (isOuterWithHoles) {
+      newItem.data.isOuterWithHoles = true;
+      newItem.data.originalPath = pathItem.clone({ insert: false });
+      newItem.data.holeIds = [];
+      createdOuters.push(newItem);
+    } else {
+      delete newItem.data.isOuterWithHoles;
+      delete newItem.data.originalPath;
+      delete newItem.data.holeIds;
+      createdOuters.push(newItem);
+    }
+
+    return newItem;
+  };
+
+  const makeNodeLocal = (node) => {
+    const hasChildren = node.children.length > 0;
+    const isHoleType = node.depth % 2 === 1;
+
+    if (!hasChildren) {
+      if (isHoleType) {
+        const hole = clonePath(node.path);
+        const configuredHole = configureItem(hole, true, false);
+        result.push(configuredHole);
+        return configuredHole;
+      } else {
+        const leaf = clonePath(node.path);
+        const configuredLeaf = configureItem(leaf, false, false);
+        result.push(configuredLeaf);
+        return configuredLeaf;
+      }
+    }
+
+    if (!isHoleType) {
+      const shell = makeShell(node);
+      if (!shell) return null;
+      const configuredShell = configureItem(shell, false, true);
+      result.push(configuredShell);
+
+      node.children.forEach(child => {
+        const childItem = makeNodeLocal(child);
+        if (childItem) {
+          childItem.data.outerItemId = configuredShell.id;
+          configuredShell.data.holeIds.push(childItem.id);
+        }
+      });
+      return configuredShell;
+    } else {
+      const group = new paper.Group({ insert: false });
+      group.data = {
+        ...(item.data || {}),
+        locked: false,
+        geometricHierarchy: 'compound',
+        geometricDepth: node.depth,
+        geometricRole: 'hole',
+        label: "Grupo Calado Compuesto"
+      };
+
+      const hole = clonePath(node.path);
+      const configuredHole = configureItem(hole, true, false);
+      group.addChild(configuredHole);
+      result.push(configuredHole);
+
+      node.children.forEach(child => {
+        const childItem = makeNodeLocal(child);
+        if (childItem) {
+          childItem.remove();
+          group.addChild(childItem);
+        }
+      });
+
+      let finalGroupItem;
+      if (isClipped) {
+        finalGroupItem = window.clipItem(group);
+        if (finalGroupItem === group) {
+          finalGroupItem.matrix = global.clone().chain(group.matrix);
+        } else {
+          finalGroupItem.matrix = item.matrix.clone();
+          group.matrix = getMatrixRelativeTo(group, target).clone().chain(group.matrix);
+        }
+      } else {
+        finalGroupItem = group;
+        finalGroupItem.matrix = global.clone().chain(group.matrix);
+        parent.addChild(finalGroupItem);
+      }
+
+      result.push(finalGroupItem);
+      return finalGroupItem;
+    }
+  };
+
+  roots.forEach(root => {
+    makeNodeLocal(root);
+  });
+
+  result.forEach(it => {
+    if (it.data?.isHoleController) {
+      const holeCenter = it.bounds.center;
+      let bestOuter = null;
+      let minArea = Infinity;
+
+      const allCandidates = [...createdOuters];
+      if (paper.project.activeLayer) {
+        paper.project.activeLayer.children.forEach(c => {
+          if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController) {
+            if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
+              allCandidates.push(c);
+            }
+          }
+        });
+      }
+
+      allCandidates.forEach(outItem => {
+        const visualOuter = outItem.data?.clipGroup ? getContentItem(outItem) : outItem;
+        if (visualOuter && visualOuter.bounds.contains(holeCenter)) {
+          const area = visualOuter.bounds.area;
+          if (area < minArea) {
+            minArea = area;
+            bestOuter = outItem;
+          }
+        }
+      });
+
+      if (bestOuter) {
+        it.data.outerItemId = bestOuter.id;
+        bestOuter.data = bestOuter.data || {};
+        bestOuter.data.isOuterWithHoles = true;
+        bestOuter.data.originalPath = (bestOuter.data.clipGroup ? getContentItem(bestOuter) : bestOuter).clone({ insert: false });
+        bestOuter.data.holeIds = bestOuter.data.holeIds || [];
+        if (!bestOuter.data.holeIds.includes(it.id)) {
+          bestOuter.data.holeIds.push(it.id);
+        }
+
+        if (typeof window.ekkoOuters !== 'undefined') {
+          window.ekkoOuters.set(bestOuter.id, bestOuter);
+        }
+        if (typeof window.updateOuterPathGeometry === 'function') {
+          window.updateOuterPathGeometry(bestOuter);
+        }
+      }
+    }
+  });
+
+  if (isClipped && item) {
+    item.clipped = false;
+  }
+  item.remove();
+
+  const finalFiltered = result.filter(it => it.parent === parent);
+  
+  if (finalFiltered.length > 0) {
+    window.deselectItem();
+    setTimeout(() => {
+      window.selectedItems = [...finalFiltered];
+      window.selectedItem = finalFiltered[finalFiltered.length - 1];
+      finalFiltered.forEach(it => { if (it) it.selected = true; });
+      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+      paper.view.update();
+    }, 50);
+  }
+
+  return { handled: true, simple: false, items: finalFiltered };
+}
+
+export function geometricUngroupOneLevel(item) {
+  if (!item || item.data?.geometricHierarchy !== 'compound' || !isGroup(item)) return null;
+  const parent = item.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(item);
+  const children = [...item.children];
+  const matrix = getGlobalMatrix(item);
+
+  children.forEach(child => {
+    child.remove();
+    child.matrix = matrix.clone().chain(child.matrix);
+    parent.addChild(child);
+  });
+  item.remove();
+  children.forEach((child, i) => parent.insertChild(index + i, child));
+  
+  if (children.length > 0) {
+    window.deselectItem();
+    setTimeout(() => {
+      window.selectedItems = [...children];
+      window.selectedItem = children[children.length - 1];
+      children.forEach(it => { if (it) it.selected = true; });
+      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
+      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+      paper.view.update();
+    }, 50);
+  }
+
+  return { handled: true, items: children };
+}
