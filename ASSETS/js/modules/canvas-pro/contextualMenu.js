@@ -603,7 +603,7 @@ export function ungroupSelectedItem() {
         // y los contornos externos (laureles, escudos) como formas sólidas. Gracias a la verificación precisa .contains(),
         // los laureles externos no se catalogarán como huecos y mantendrán su relleno sólido original.
         console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando separateContours()...", "color: #0284c7; font-weight: bold;");
-        const separated = separateContours(item);
+        const separated = separateContoursIntoIndependentShapes(item);
         if (separated && separated.length > 0) {
           console.log(` - Se generaron ${separated.length} formas/huecos separados.`);
           newItems.push(...separated);
@@ -858,6 +858,9 @@ export function ungroupHoleController(item) {
 
 export function separateContoursIntoIndependentShapes(itemToProcess) {
   const item = itemToProcess || window.selectedItem;
+  if (typeof window !== 'undefined') {
+    console.log("%c[EKKO DIAGNOSTIC] Iniciando separateContoursIntoIndependentShapes() para:", "color: #0f766e; font-weight: bold;", item ? { id: item.id, type: item.constructor.name } : "Ninguno");
+  }
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return [];
   const isClipped = !!item.data?.clipGroup;
   let target = isClipped ? getContentItem(item) : item;
@@ -871,101 +874,136 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const newItems = [];
-
-  const subPaths = [...target.children].filter(p => {
-    if (isArtboardBackground(p, target)) {
-      p.remove();
-      return false;
-    }
-    return true;
-  });
-
+  const subPaths = [...target.children];
   const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? item : null);
   const pathAbsMatrix = getGlobalMatrix(target);
   const originalFillColor = target.fillColor;
   const originalStrokeColor = target.strokeColor;
   const originalStrokeWidth = target.strokeWidth;
 
-  const outers = [];
-  const holesMap = new Map();
-
-  const pathNesting = [];
+  // 1. Calcular el árbol de contención de todos los subpaths (menor contenedor inmediato)
+  const parentMap = new Map(); // subpath -> parent subpath
   subPaths.forEach(p => {
-    const containers = [];
+    let immediateParent = null;
+    let minArea = Infinity;
     subPaths.forEach(other => {
       if (other !== p) {
         const otherArea = Math.abs(other.area) || other.bounds.area;
         const pArea = Math.abs(p.area) || p.bounds.area;
-        if (otherArea > pArea && (typeof other.contains === 'function' ? other.contains(p.bounds.center) : other.bounds.contains(p.bounds.center))) {
-          containers.push(other);
+        if (otherArea > pArea) {
+          // Comprobación geométrica precisa .contains()
+          const containsCenter = typeof other.contains === 'function' 
+            ? other.contains(p.bounds.center) 
+            : other.bounds.contains(p.bounds.center);
+          if (containsCenter) {
+            if (otherArea < minArea) {
+              minArea = otherArea;
+              immediateParent = other;
+            }
+          }
         }
       }
     });
-    pathNesting.push({ path: p, containers: containers });
+    parentMap.set(p, immediateParent);
   });
 
-  pathNesting.forEach(entry => {
-    const p = entry.path;
-    const containers = entry.containers;
-    if (containers.length % 2 === 0) {
-      outers.push(p);
-      holesMap.set(p, []);
+  // 2. Calcular la profundidad de cada subpath en el árbol
+  const depthMap = new Map(); // subpath -> integer depth
+  const getDepth = (p) => {
+    if (depthMap.has(p)) return depthMap.get(p);
+    const parentNode = parentMap.get(p);
+    if (!parentNode) {
+      depthMap.set(p, 0);
+      return 0;
+    } else {
+      const d = getDepth(parentNode) + 1;
+      depthMap.set(p, d);
+      return d;
+    }
+  };
+  subPaths.forEach(p => getDepth(p));
+
+  if (typeof window !== 'undefined') {
+    console.log("[EKKO DIAGNOSTIC] Jerarquía de anidamiento detectada por árbol de paridad:");
+    subPaths.forEach(p => {
+      const pNode = parentMap.get(p);
+      console.log(` - Subtrazado ${p.id} (Área: ${Math.round(p.area)}): Profundidad = ${depthMap.get(p)}, Padre = ${pNode ? pNode.id : 'Ninguno'}`);
+    });
+  }
+
+  // 3. Agrupar subpaths en formas independientes usando la regla de paridad:
+  // - Los nodos con profundidad impar (1, 3, ...) rompen la conexión y se convierten en raíces de sus propias formas.
+  // - Los nodos con profundidad par (0, 2, ...) se mantienen como huecos de su ancestro impar más cercano.
+  const independentOuters = [];
+  subPaths.forEach(p => {
+    const depth = depthMap.get(p);
+    if (depth === 0 || depth % 2 !== 0) {
+      independentOuters.push(p);
     }
   });
 
-  pathNesting.forEach(entry => {
-    const p = entry.path;
-    const containers = entry.containers;
-    if (containers.length % 2 !== 0) {
-      let immediateOuter = null;
-      let minArea = Infinity;
-      containers.forEach(c => {
-        if (outers.includes(c)) {
-          const cArea = Math.abs(c.area) || c.bounds.area;
-          if (cArea < minArea) {
-            minArea = cArea;
-            immediateOuter = c;
-          }
-        }
-      });
-      if (immediateOuter) {
-        if (!holesMap.has(immediateOuter)) holesMap.set(immediateOuter, []);
-        holesMap.get(immediateOuter).push(p);
-      } else {
-        outers.push(p);
-        holesMap.set(p, []);
+  const holesMap = new Map(); // independentOuter -> array of hole subpaths
+  independentOuters.forEach(r => holesMap.set(r, []));
+
+  subPaths.forEach(p => {
+    const depth = depthMap.get(p);
+    if (depth > 0 && depth % 2 === 0) {
+      const parentNode = parentMap.get(p);
+      if (parentNode && independentOuters.includes(parentNode)) {
+        holesMap.get(parentNode).push(p);
       }
     }
   });
 
-  const outersToSelect = [];
-  outers.forEach(outerPath => {
+  // 4. Crear los nuevos elementos independientes en el canvas
+  const createdItems = [];
+
+  independentOuters.forEach(outerPath => {
     const associatedHoles = holesMap.get(outerPath) || [];
     let shapeToInsert;
+
+    // Determinar color de relleno con lógica inteligente de contraste
+    let finalFillColor = originalFillColor;
+    const depth = depthMap.get(outerPath);
+    if (depth > 0 && depth % 2 !== 0) {
+      // Era un hueco (substractivo) en el CompoundPath original, por lo que si lo dejamos negro sobre negro,
+      // desaparecerá. Le damos un color contrastante (blanco si el original es oscuro, o viceversa).
+      if (originalFillColor) {
+        const isDark = originalFillColor.gray !== undefined 
+          ? originalFillColor.gray < 0.5 
+          : (originalFillColor.red * 0.299 + originalFillColor.green * 0.587 + originalFillColor.blue * 0.114) < 0.5;
+        finalFillColor = isDark ? new paper.Color('#ffffff') : new paper.Color('#000000');
+      } else {
+        finalFillColor = new paper.Color('#ffffff');
+      }
+    }
+
     if (associatedHoles.length > 0) {
       const childrenClones = [];
       const outerClone = outerPath.clone({ insert: false });
       outerClone.fillColor = null;
       outerClone.strokeColor = null;
       childrenClones.push(outerClone);
+
       associatedHoles.forEach(h => {
         const hClone = h.clone({ insert: false });
         hClone.fillColor = null;
         hClone.strokeColor = null;
         childrenClones.push(hClone);
       });
+
       const compound = new paper.CompoundPath({
         children: childrenClones,
         insert: false
       });
       compound.fillRule = 'evenodd';
-      compound.fillColor = originalFillColor || '#000000';
+      compound.fillColor = finalFillColor || '#000000';
       compound.strokeColor = originalStrokeColor || '#000000';
       compound.strokeWidth = originalStrokeWidth || 1;
       shapeToInsert = compound;
     } else {
       const pathClone = outerPath.clone({ insert: false });
-      pathClone.fillColor = originalFillColor || '#000000';
+      pathClone.fillColor = finalFillColor || '#000000';
       pathClone.strokeColor = originalStrokeColor || '#000000';
       pathClone.strokeWidth = originalStrokeWidth || 1;
       shapeToInsert = pathClone;
@@ -985,19 +1023,25 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
       newItem.matrix = pathAbsMatrix.clone().chain(shapeToInsert.matrix);
       parent.addChild(newItem);
     }
+
     newItem.data = {
       ...(newItem.data || {}),
       label: item.data?.label || "Objeto"
     };
-    newItems.push(newItem);
-    outersToSelect.push(newItem);
+
+    createdItems.push(newItem);
   });
 
   if (isClipped && item) {
     item.clipped = false;
   }
   item.remove();
-  return newItems;
+
+  if (typeof window !== 'undefined') {
+    console.log(`%c[EKKO UNGROUP PROCESS] separateContoursIntoIndependentShapes finalizado. Creados ${createdItems.length} objetos independientes.`, "color: #0f766e; font-weight: bold;");
+  }
+
+  return createdItems;
 }
 
 
@@ -1886,7 +1930,7 @@ export function updateContextualMenu(item) {
   if (selectedCount > 1) {
     const allVectors = window.selectedItems.every(it => {
       const tgt = it.data?.clipGroup ? getContentItem(it) : it;
-      return tgt && (tgt instanceof paper.Path || tgt instanceof paper.CompoundPath || tgt instanceof paper.Group || tgt instanceof paper.PointText);
+      return tgt && (tgt instanceof paper.Path || tgt instanceof paper.CompoundPath || tgt instanceof paper.Group || tgt instanceof paper.PointText || tgt instanceof paper.SymbolItem || tgt instanceof paper.PlacedSymbol || tgt instanceof paper.Shape);
     });
 
     if (allVectors) {
@@ -2036,3 +2080,4 @@ window.applyPositionCorrections = function() {
     }
   }
 };
+
