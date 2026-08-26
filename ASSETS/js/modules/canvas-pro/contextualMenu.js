@@ -519,7 +519,11 @@ function isArtboardBackground(path, parentItem) {
 }
 
 function resolveRedundantWrappers(item) {
-  let current = item;
+  let isClipped = !!item.data?.clipGroup;
+  let current = isClipped ? getContentItem(item) : item;
+  if (!current) return item;
+
+  let changed = false;
   while (true) {
     if (isGroup(current) && !current.data?.clipGroup) {
       // Limpieza en caliente de hijos inútiles (artboards, vacíos, transparentes) para colapsar envolturas
@@ -543,6 +547,7 @@ function resolveRedundantWrappers(item) {
         parent.insertChild(idx, clone);
         current.remove();
         current = clone;
+        changed = true;
         continue; // Seguir evaluando el clon generado
       }
     }
@@ -559,11 +564,12 @@ function resolveRedundantWrappers(item) {
       child.data = { ...(current.data || {}), ...(child.data || {}) };
       current.remove();
       current = child;
+      changed = true;
       continue; // Seguir evaluando el elemento promovido
     }
     break;
   }
-  return current;
+  return isClipped ? item : current;
 }
 
 function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
@@ -2535,6 +2541,13 @@ export function geometricUngroupCompound(item) {
     }
   });
   
+  // Insertar los elementos resultantes en la misma posición de capa (index) para preservar el z-index original y evitar fugas sobre el mockup
+  finalFiltered.forEach((child, i) => {
+    if (child && child.parent) {
+      child.parent.insertChild(index + i, child);
+    }
+  });
+
   if (finalFiltered.length > 0) {
     window.deselectItem();
     setTimeout(() => {
@@ -2612,3 +2625,4 @@ export function geometricUngroupOneLevel(item, isClipped = false, oldClipGroup =
 
   return { handled: true, items: addedItems };
 }
+
