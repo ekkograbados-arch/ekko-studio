@@ -505,6 +505,7 @@ function isArtboardBackground(path, parentItem) {
 
 function resolveRedundantWrappers(item) {
   let current = item;
+  if (!current) return null;
   while (true) {
     // A. Si es un SymbolItem (Clon de símbolo <use>), lo expandimos inmediatamente
     if (isSymbolItem(current)) {
@@ -521,20 +522,39 @@ function resolveRedundantWrappers(item) {
         continue; // Seguir evaluando el clon generado
       }
     }
-    // B. Si es un Grupo con un solo hijo que también es un Grupo o Trazado (Nesting redundante de exportación de Corel/Illustrator)
-    if (isGroup(current) && current.children.length === 1 && !current.data?.clipGroup) {
-      const child = current.children[0];
-      console.log("%c[EKKO GROUP FLATTEN] Disolviendo capa de grupo redundante de un solo hijo:", "color: #3b82f6; font-weight: bold;", current.id);
-      const relMatrix = getMatrixRelativeTo(child, current);
-      child.remove();
-      const parent = current.parent;
-      const idx = parent.children.indexOf(current);
-      parent.insertChild(idx, child);
-      child.matrix = current.matrix.clone().chain(relMatrix);
-      child.data = { ...(current.data || {}), ...(child.data || {}) };
-      current.remove();
-      current = child;
-      continue; // Seguir evaluando el elemento promovido
+    // B. Si es un Grupo, filtrar y contar cuántos hijos reales/visibles tiene (ignorando cajas, guías, metadatos y trazados vacíos)
+    if (isGroup(current)) {
+      const realChildren = current.children.filter(child => {
+        if (!child) return false;
+        if (child.data && (
+          child.data.isSelectionBox || 
+          child.data.isHandle || 
+          child.data.isSmartGuide || 
+          child.data.isMeasurement || 
+          child.data.isTracePreview ||
+          child.data.mockup ||
+          child.data.isMask
+        )) return false;
+        if (isPath(child) && (!child.segments || child.segments.length === 0)) return false;
+        return true;
+      });
+
+      if (realChildren.length === 1) {
+        const child = realChildren[0];
+        console.log("%c[EKKO GROUP FLATTEN] Disolviendo capa de grupo redundante con un solo hijo visible:", "color: #3b82f6; font-weight: bold;", current.id);
+        const relMatrix = getMatrixRelativeTo(child, current);
+        child.remove();
+        const parent = current.parent;
+        if (parent) {
+          const idx = parent.children.indexOf(current);
+          parent.insertChild(idx, child);
+          child.matrix = current.matrix.clone().chain(relMatrix);
+          child.data = { ...(current.data || {}), ...(child.data || {}) };
+          current.remove();
+          current = child;
+          continue; // Seguir evaluando el elemento promovido
+        }
+      }
     }
     break;
   }
@@ -691,12 +711,16 @@ export function dissolveOuterWithHoles(outerItem) {
     newItems.push(hole);
   });
 
-  // 4. Actualizar selección de forma limpia
+  // 4. Actualizar selección de forma limpia (Seleccionar únicamente el outer para evitar caja de selección global)
   window.deselectItem();
   setTimeout(() => {
-    window.selectedItems = [...newItems];
-    window.selectedItem = newItems[newItems.length - 1];
-    newItems.forEach(it => { if (it) it.selected = true; });
+    if (newItems.length > 0) {
+      const mainOuter = newItems[0];
+      window.selectedItems = [mainOuter];
+      window.selectedItem = mainOuter;
+      if (mainOuter) mainOuter.selected = true;
+      console.log("%c[EKKO DISSOLVE SELECTION] Seleccionado únicamente el outer restaurado sólido para evitar caja de selección global.", "color: #10b981; font-weight: bold;");
+    }
     if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
     if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
     paper.view.update();
@@ -2507,9 +2531,20 @@ export function geometricUngroupCompound(item) {
   if (finalFiltered.length > 0) {
     window.deselectItem();
     setTimeout(() => {
-      window.selectedItems = [...finalFiltered];
-      window.selectedItem = finalFiltered[finalFiltered.length - 1];
-      finalFiltered.forEach(it => { if (it) it.selected = true; });
+      // REGLA DE ORO EKKO (v14): Si hay un único contorno principal (roots.length === 1), seleccionamos SOLO el contorno exterior (primer elemento)
+      // de forma que no se cree una caja de selección global. El usuario puede arrastrar inmediatamente el fondo negro,
+      // dejando los ojos y demás detalles flotando intactos en el lienzo.
+      if (typeof roots !== 'undefined' && roots.length === 1) {
+        const mainOuter = finalFiltered[0];
+        window.selectedItems = [mainOuter];
+        window.selectedItem = mainOuter;
+        if (mainOuter) mainOuter.selected = true;
+        console.log("%c[EKKO UNGROUP SELECTION] Seleccionado únicamente el contorno exterior sólido para evitar caja de selección global.", "color: #10b981; font-weight: bold;");
+      } else {
+        window.selectedItems = [...finalFiltered];
+        window.selectedItem = finalFiltered[finalFiltered.length - 1];
+        finalFiltered.forEach(it => { if (it) it.selected = true; });
+      }
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
       paper.view.update();
