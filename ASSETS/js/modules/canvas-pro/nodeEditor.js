@@ -57,6 +57,10 @@ let isAddNodeActive = false; // Modo adición de nodos en caliente
 
 // Entrar en modo de edicion de nodos para un elemento
 export function enterNodeEditMode(item) {
+  if (typeof window !== 'undefined') {
+    console.log("%c[EKKO NODE EDITOR] Entrando en modo edición de nodos para el objeto:", "color: #8b5cf6; font-weight: bold; background: #f5f3ff; padding: 4px 8px; border-radius: 6px;");
+    console.log(" - Elemento objetivo:", item ? { id: item.id, type: item.constructor.name, data: item.data } : "Ninguno");
+  }
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
   const target = getContentItem(item);
   if (!target) return;
@@ -267,6 +271,11 @@ export function enterNodeEditMode(item) {
     // A. Arrastre de nodos seleccionados
     if (isDraggingNode) {
       const delta = event.delta;
+      if (typeof window !== 'undefined' && Math.random() < 0.15) { // Muestrear para no saturar la consola
+        console.log("%c[EKKO NODE EDITOR] Arrastrando nodos...", "color: #6366f1; font-weight: bold;");
+        console.log(" - Desplazamiento delta:", { x: delta.x, y: delta.y });
+        console.log(" - Nodos siendo modificados:", Array.from(selectedNodes));
+      }
       selectedNodes.forEach(selIdx => {
         const matchingHandle = nodeHandlesGroup.children.find(c => c.data?.globalIdx === selIdx);
         if (matchingHandle) {
@@ -661,6 +670,10 @@ export function deleteSelectedNodes() {
 
 // NUEVA FUNCIÓN: Desprender trazados correspondientes a los nodos seleccionados (Desagrupar Nodos)
 export function detachSelectedSubpaths() {
+  if (typeof window !== 'undefined') {
+    console.log("%c[EKKO NODE EDITOR] Desprendiendo trazados seleccionados (Desagrupar Nodos desde editor)...", "color: #ea580c; font-weight: bold; background: #fff7ed; padding: 4px 8px; border-radius: 6px;");
+    console.log(" - Índices de nodos seleccionados (globalIdx):", Array.from(selectedNodes));
+  }
   if (!activeNodeItem || selectedNodes.size === 0) return;
 
   const target = getContentItem(activeNodeItem);
