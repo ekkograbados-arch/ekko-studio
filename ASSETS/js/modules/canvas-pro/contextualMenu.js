@@ -2,6 +2,37 @@ import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, ap
 import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 
+// =========================================================================
+// EKKO TELEMETRY & DIAGNOSTIC SYSTEM (F12 TRACING - v21)
+// =========================================================================
+if (typeof window !== 'undefined') {
+  console.log("%c[EKKO TELEMETRY] Sistema de diagnóstico F12 iniciado. Registrando eventos de carga de SVG e interacción.", "color: #0284c7; font-weight: bold; background: #e0f2fe; padding: 4px 8px; border-radius: 6px;");
+  
+  // Hook de monitorización para elementos añadidos al lienzo activo (SVG drop/load)
+  setTimeout(() => {
+    if (window.paper && paper.project && paper.project.activeLayer) {
+      paper.project.activeLayer.on('child-add', (event) => {
+        const item = event.item;
+        if (!item || (item.data && (item.data.mockup || item.data.isMask))) return;
+        
+        setTimeout(() => {
+          console.log("%c[EKKO SVG LOAD] Se detectó un nuevo elemento en el lienzo:", "color: #ea580c; font-weight: bold; background: #fff7ed; padding: 2px 6px; border-radius: 4px;");
+          console.log(" - ID del elemento:", item.id);
+          console.log(" - Clase del objeto:", item.constructor.name);
+          console.log(" - Nombre/Etiqueta:", item.name || item.data?.label || "Sin etiqueta");
+          if (item.children) {
+            console.log(" - Cantidad de hijos directos:", item.children.length);
+            const types = item.children.map(c => c.constructor.name);
+            console.log(" - Tipos de hijos:", types);
+          }
+          console.log(" - Límites (Bounds):", item.bounds ? { x: Math.round(item.bounds.x), y: Math.round(item.bounds.y), width: Math.round(item.bounds.width), height: Math.round(item.bounds.height) } : "N/A");
+        }, 50);
+      });
+    }
+  }, 1000);
+}
+
+
 function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
@@ -444,6 +475,9 @@ function ungroupGroupOneLevel(group, parent, index, isClipped, oldClipGroup) {
 
 
 export function ungroupSelectedItem() {
+  if (typeof window !== 'undefined') {
+    console.log("%c[EKKO UNGROUP ACTION] Iniciando proceso de desagrupación...", "color: #10b981; font-weight: bold; background: #ecfdf5; padding: 4px 8px; border-radius: 6px;");
+  }
   // COMPATIBILIDAD CON EDICIÓN DE NODOS:
   // Si estamos en modo de edición de nodos, el objeto que queremos desagrupar es
   // el que se está editando activamente (window.nodeEditTarget o activeNodeItem).
@@ -579,6 +613,9 @@ export function ungroupSelectedItem() {
       selectList.forEach(it => { if (it) it.selected = true; });
       if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+      
+      console.log("%c[EKKO UNGROUP ACTION] Desagrupación finalizada con éxito.", "color: #10b981; font-weight: bold; background: #ecfdf5; padding: 2px 6px; border-radius: 4px;");
+      console.log(" - Nuevos elementos seleccionados en pantalla:", selectList.map(it => ({ id: it.id, type: it.constructor.name, data: it.data })));
     }
     paper.view.update();
   }, 50);
@@ -1779,6 +1816,27 @@ export function initContextualMenu() {
 }
 
 export function updateContextualMenu(item) {
+  // Telemetría en tiempo real para selección de elementos
+  if (typeof window !== 'undefined' && item) {
+    console.log("%c[EKKO CLICK / SELECTION] Objeto seleccionado en pantalla:", "color: #3b82f6; font-weight: bold; background: #eff6ff; padding: 2px 6px; border-radius: 4px;");
+    console.log(" - ID del elemento:", item.id);
+    console.log(" - Tipo del objeto:", item.constructor.name);
+    console.log(" - Datos asociados (item.data):", JSON.stringify(item.data || {}));
+    const actualTarget = item.data?.clipGroup ? getContentItem(item) : item;
+    if (actualTarget) {
+      console.log(" - Tipo de contenido real:", actualTarget.constructor.name);
+      if (actualTarget instanceof paper.CompoundPath) {
+        console.log(" - Sub-trazados (children):", actualTarget.children.length);
+        actualTarget.children.forEach((child, index) => {
+          console.log(`   └─ Subpath [${index}]: ID ${child.id}, Tipo: ${child.constructor.name}, Área: ${Math.round(child.area)}, Cerrado: ${child.closed}`);
+        });
+      } else if (actualTarget instanceof paper.Group) {
+        console.log(" - Elementos agrupados (children):", actualTarget.children.length);
+      }
+    }
+  } else if (typeof window !== 'undefined') {
+    console.log("%c[EKKO SELECTION] Selección vacía o limpia.", "color: #64748b; font-weight: bold; background: #f1f5f9; padding: 2px 6px; border-radius: 4px;");
+  }
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
   removeOverlapTab();
