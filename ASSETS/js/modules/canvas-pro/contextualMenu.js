@@ -561,6 +561,42 @@ export function ungroupSelectedItem() {
       }
       item.remove();
     }
+    // D. SI ES UN SYMBOLITEM (SÍMBOLO CLONADO SVG <use>)
+    else if (activeTarget instanceof paper.SymbolItem || (paper.PlacedSymbol && activeTarget instanceof paper.PlacedSymbol)) {
+      if (typeof window !== 'undefined') {
+        console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: SÍMBOLO SVG (SymbolItem/PlacedSymbol).", "color: #d97706; font-weight: bold;");
+      }
+      if (activeTarget.symbol && activeTarget.symbol.item) {
+        const expanded = activeTarget.symbol.item.clone({ insert: false });
+        expanded.matrix = activeTarget.matrix.clone();
+        expanded.data = { ...(activeTarget.data || {}), label: "Objeto Expandido" };
+        
+        let newItem;
+        if (isClipped) {
+          newItem = window.clipItem(expanded);
+          if (newItem === expanded) {
+            newItem.matrix = getGlobalMatrix(activeTarget);
+          } else {
+            newItem.matrix = item.matrix.clone();
+            expanded.matrix = getMatrixRelativeTo(expanded, activeTarget).clone();
+          }
+        } else {
+          newItem = expanded;
+          newItem.matrix = getGlobalMatrix(activeTarget);
+          parent.addChild(newItem);
+        }
+        
+        newItems.push(newItem);
+        item.remove();
+        if (typeof window !== 'undefined') {
+          console.log(" - Símbolo expandido exitosamente en un objeto de tipo:", newItem.constructor.name);
+        }
+      } else {
+        if (typeof window !== 'undefined') {
+          console.warn(" - El símbolo no contiene una definición de ítem válida.");
+        }
+      }
+    }
     // C. SI ES COMPOUNDPATH
     else if (activeTarget instanceof paper.CompoundPath) {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: COMPOUNDPATH (Trazado Compuesto).", "color: #0369a1; font-weight: bold;");
@@ -931,13 +967,13 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     });
   }
 
-  // 3. Agrupar subpaths en formas independientes usando la regla de paridad:
-  // - Los nodos con profundidad impar (1, 3, ...) rompen la conexión y se convierten en raíces de sus propias formas.
-  // - Los nodos con profundidad par (0, 2, ...) se mantienen como huecos de su ancestro impar más cercano.
+  // 3. Agrupar subpaths en formas independientes usando la regla de paridad corrigiendo la inversión matemática:
+  // - Los nodos con profundidad par (0, 2, 4, ...) son raíces sólidas (independentOuters) que inician una nueva forma.
+  // - Los nodos con profundidad impar (1, 3, 5, ...) son huecos (holes) de su padre inmediato (que tiene profundidad par).
   const independentOuters = [];
   subPaths.forEach(p => {
     const depth = depthMap.get(p);
-    if (depth === 0 || depth % 2 !== 0) {
+    if (depth % 2 === 0) {
       independentOuters.push(p);
     }
   });
@@ -947,7 +983,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
 
   subPaths.forEach(p => {
     const depth = depthMap.get(p);
-    if (depth > 0 && depth % 2 === 0) {
+    if (depth % 2 !== 0) {
       const parentNode = parentMap.get(p);
       if (parentNode && independentOuters.includes(parentNode)) {
         holesMap.get(parentNode).push(p);
@@ -965,7 +1001,7 @@ export function separateContoursIntoIndependentShapes(itemToProcess) {
     // Determinar color de relleno con lógica inteligente de contraste
     let finalFillColor = originalFillColor;
     const depth = depthMap.get(outerPath);
-    if (depth > 0 && depth % 2 !== 0) {
+    if (depth > 0 && depth % 2 === 0) {
       // Era un hueco (substractivo) en el CompoundPath original, por lo que si lo dejamos negro sobre negro,
       // desaparecerá. Le damos un color contrastante (blanco si el original es oscuro, o viceversa).
       if (originalFillColor) {
@@ -1948,7 +1984,7 @@ export function updateContextualMenu(item) {
         if (btnUngroup) {
           const canUngroup = window.selectedItems.some(it => {
             const t = it.data?.clipGroup ? getContentItem(it) : it;
-            return t && (t instanceof paper.Group || t instanceof paper.CompoundPath);
+            return t && (t instanceof paper.Group || t instanceof paper.CompoundPath || t instanceof paper.SymbolItem || (paper.PlacedSymbol && t instanceof paper.PlacedSymbol));
           });
           if (canUngroup) {
             btnUngroup.classList.remove('hidden');
@@ -1978,13 +2014,13 @@ export function updateContextualMenu(item) {
   } else if (target instanceof paper.Raster) {
     const imgCtrl = document.getElementById('ctxImageControls');
     if (imgCtrl) imgCtrl.classList.remove('hidden');
-  } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group) {
+  } else if (target instanceof paper.Path || target instanceof paper.CompoundPath || target instanceof paper.Group || target instanceof paper.SymbolItem || (paper.PlacedSymbol && target instanceof paper.PlacedSymbol)) {
     const vecCtrl = document.getElementById('ctxVectorControls');
     if (vecCtrl) {
       vecCtrl.classList.remove('hidden');
       const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
       if (btnEditNodes) {
-        const canEdit = !(target instanceof paper.Group);
+        const canEdit = !(target instanceof paper.Group) && !(target instanceof paper.SymbolItem) && !(paper.PlacedSymbol && target instanceof paper.PlacedSymbol);
         btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
       }
       const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
@@ -1994,7 +2030,7 @@ export function updateContextualMenu(item) {
       }
       const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
       if (btnUngroup) {
-        const canUngroup = (target instanceof paper.Group) || (target instanceof paper.CompoundPath);
+        const canUngroup = (target instanceof paper.Group) || (target instanceof paper.CompoundPath) || (target instanceof paper.SymbolItem) || (paper.PlacedSymbol && target instanceof paper.PlacedSymbol);
         btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
       }
     }
@@ -2080,4 +2116,3 @@ window.applyPositionCorrections = function() {
     }
   }
 };
-
