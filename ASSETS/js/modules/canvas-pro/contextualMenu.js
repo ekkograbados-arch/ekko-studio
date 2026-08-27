@@ -31,19 +31,22 @@ if (typeof window !== 'undefined') {
 }
 
 function getContentItem(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup) {
-        var content = item.children.find(function(c) {
-            return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
-        });
-        if (content) return content;
-        var fallback = item.children.find(function(c) {
-            return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
-        });
-        if (fallback) return fallback;
-        return item.children[1] || item.children[0] || item;
-    }
-    return item;
+  if (!item) return null;
+  if (item.data && item.data.clipGroup) {
+    // BLINDAJE DE SEGURIDAD: Si es un elemento simple sin hijos, retornarlo directamente
+    if (!item.children) return item;
+
+    var content = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
+    });
+    if (content) return content;
+    var fallback = item.children.find(function(c) {
+      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
+    });
+    if (fallback) return fallback;
+    return item.children[8] || item.children || item;
+  }
+  return item;
 }
 
 // Helpers para evitar fallos de 'instanceof' en iframe o contextos múltiples de Paper.js
