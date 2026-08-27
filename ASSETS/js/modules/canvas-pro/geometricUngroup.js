@@ -1,13 +1,13 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.1)
+   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
    Descripción: Motor de desagrupado geométrico progresivo y reactivo.
                 Cumple estrictamente con la filosofía de EKKO Studio V23:
                 - Los huecos físicos reales de la geometría siempre permanecen como tal.
                 - Sin simulación de huecos con cuerpos celestes o transparencias artificiales.
                 - Permite descomponer trazados compuestos con múltiples raíces independientes.
-                - Permite descomponer trazados de raíz única (como la letra "A") en su mínima
-                  expresión física (silueta sólida + triángulo sólido) en el último nivel.
+                - Evita desarmar trazados de raíz única (como la letra "A") protegiendo
+                  su naturaleza y calado físico nativo.
 ========================================================================= */
 
 function isPath(item) {
@@ -135,92 +135,9 @@ export function geometricUngroupCompound(item) {
   const result = [];
 
   // Si hay una sola raíz en todo el trazado compuesto (por ejemplo, una letra "A" con su triángulo interior):
-  // Al desagruparla (3er Clic), la descomponemos en su mínima expresión física:
-  // - El contorno exterior sólido.
-  // - Los huecos interiores como formas sólidas independientes.
+  // Es una única entidad geométrica con huecos físicos reales, no se descompone más para no destruir su naturaleza.
   if (roots.length === 1) {
-    const root = roots[0];
-    
-    const rootPathClone = clonePath(root.path);
-    rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-    rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-    rootPathClone.strokeWidth = target.strokeWidth || 0;
-    
-    let configuredShell;
-    if (isClipped) {
-      configuredShell = window.clipItem(rootPathClone);
-      configuredShell.matrix = item.matrix.clone();
-    } else {
-      configuredShell = rootPathClone;
-      configuredShell.matrix = global.clone();
-      parent.addChild(configuredShell);
-    }
-    configuredShell.data = {
-      ...(item.data || {}),
-      locked: false,
-      geometricHierarchy: 'simple',
-      label: item.data?.label || "Objeto"
-    };
-    result.push(configuredShell);
-
-    // Procesar todos los descendientes (los huecos) como elementos independientes sólidos
-    const descendants = [];
-    collectDescendantPaths(root, descendants);
-    
-    descendants.forEach(desc => {
-      desc.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-      desc.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-      desc.strokeWidth = target.strokeWidth || 0;
-      
-      let newElem;
-      if (isClipped) {
-        newElem = window.clipItem(desc);
-        newElem.matrix = item.matrix.clone();
-      } else {
-        newElem = desc;
-        newElem.matrix = global.clone();
-        parent.addChild(newElem);
-      }
-      newElem.data = {
-        ...(item.data || {}),
-        locked: false,
-        geometricHierarchy: 'simple',
-        label: "Objeto"
-      };
-      result.push(newElem);
-    });
-
-    // Quitar el CompoundPath original del lienzo de forma limpia
-    item.remove();
-
-    const finalFiltered = result.filter(it => it && (it.parent === parent || (isClipped && it.parent)));
-
-    // Insertar los nuevos elementos en el mismo índice para preservar el apilamiento original (z-index)
-    if (index !== -1 && parent.insertChild) {
-      finalFiltered.forEach((newItem, i) => {
-        parent.insertChild(index + i, newItem);
-      });
-    }
-
-    // Refrescar la pantalla
-    if (typeof paper !== 'undefined' && paper.view) {
-      paper.view.update();
-    }
-
-    // Selección automática del primer elemento para evitar la caja de selección global de arrastre
-    if (finalFiltered.length > 0) {
-      window.deselectItem();
-      setTimeout(() => {
-        const primaryItem = finalFiltered[0];
-        window.selectedItems = [primaryItem];
-        window.selectedItem = primaryItem;
-        primaryItem.selected = true;
-        if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-        if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
-      }, 50);
-    }
-
-    return { handled: true, simple: false, items: finalFiltered };
+    return { handled: true, simple: true, items: [item] };
   }
 
   // Si hay múltiples raíces independientes (por ejemplo: estrellas, bandas, letras mezcladas en un solo CompoundPath):
