@@ -184,8 +184,16 @@ function configurePathFill(path, targetFillColor, targetStrokeColor, targetStrok
 export function updateOuterCompoundPathGeometry(outerItem) {
   if (!outerItem || !outerItem.data || !outerItem.data.holeIds) return;
   
+  const isClipped = !!outerItem.data.clipGroup;
+  const targetCompound = isClipped ? getContentItem(outerItem) : outerItem;
+  if (!targetCompound || !isCompoundPath(targetCompound)) return;
+  
   const holeIds = outerItem.data.holeIds;
-  const targetPaths = [outerItem.children[0]]; // Mantener la silueta outer de base
+  if (!targetCompound.children || targetCompound.children.length === 0) return;
+  
+  // Clonamos el primer hijo de forma segura antes de limpiar, para no destruirlo
+  const baseOuter = targetCompound.children[0].clone({ insert: false });
+  const targetPaths = [baseOuter]; // Mantener la silueta outer de base
   
   holeIds.forEach(holeId => {
     const holeItem = paper.project.getItem({ id: holeId });
@@ -198,7 +206,7 @@ export function updateOuterCompoundPathGeometry(outerItem) {
       if (activePath && (isPath(activePath) || isCompoundPath(activePath))) {
         const clonedHole = activePath.clone({ insert: false });
         const pathMatrix = getGlobalMatrix(activePath);
-        const outerMatrix = getGlobalMatrix(outerItem);
+        const outerMatrix = getGlobalMatrix(targetCompound);
         const relMatrix = outerMatrix.inverted().chain(pathMatrix);
         clonedHole.matrix = relMatrix;
         
@@ -211,8 +219,8 @@ export function updateOuterCompoundPathGeometry(outerItem) {
     }
   });
   
-  outerItem.removeChildren();
-  outerItem.addChildren(targetPaths);
+  targetCompound.removeChildren();
+  targetCompound.addChildren(targetPaths);
   
   if (paper.view) {
     paper.view.update();
