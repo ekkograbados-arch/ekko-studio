@@ -79,6 +79,27 @@ function isSymbolItem(item) {
          ));
 }
 
+function isMockupOrProductElement(item) {
+  let curr = item;
+  while (curr) {
+    if (curr.data && (
+      curr.data.mockup || 
+      curr.data.isMask || 
+      curr.data.locked ||
+      curr.data.isSelectionBox ||
+      curr.data.isHandle ||
+      curr.data.isSmartGuide ||
+      curr.data.isMeasurement ||
+      curr.data.isTracePreview
+    )) {
+      return true;
+    }
+    curr = curr.parent;
+  }
+  return false;
+}
+
+
 function isLayer(item) {
   if (!item) return false;
   return item.className === 'Layer' || (typeof paper !== 'undefined' && paper.Layer && item instanceof paper.Layer);
@@ -818,7 +839,6 @@ export function hierarchicalDecompose(item, isHoleSource) {
     if (isHoleType) {
       finalFillColor = new paper.Color(255, 255, 255, 0.01);
     } else {
-      // PRESERVAR EL RELLENO ORIGINAL DEL COMPOUND PATH
       finalFillColor = originalFillColor || new paper.Color('#000000');
     }
 
@@ -974,16 +994,7 @@ export function hierarchicalDecompose(item, isHoleSource) {
         paper.project.activeLayer.children.forEach(c => {
           if (c && c.parent && c !== it && c !== item && !c.data?.isHoleController) {
             // EVITAR ABSOLUTAMENTE MOCKUPS, MÁSCARAS, COMPONENTES DEL PRODUCTO Y ELEMENTOS PROTEGIDOS
-            if (c.data && (
-              c.data.mockup || 
-              c.data.isMask || 
-              c.data.isSelectionBox || 
-              c.data.isHandle || 
-              c.data.isSmartGuide || 
-              c.data.isMeasurement || 
-              c.data.isTracePreview || 
-              c.data.locked
-            )) {
+            if (isMockupOrProductElement(c)) {
               return;
             }
             if (isPath(c) || isCompoundPath(c) || c.data?.clipGroup) {
@@ -1172,11 +1183,11 @@ export function ungroupSelectedItem() {
         }
       } else {
         // CORRECCIÓN DE ORO:
-        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando geometricUngroupCompound()...", "color: #10b981; font-weight: bold;");
-        const result = geometricUngroupCompound(item);
-        if (result && result.items) {
-          console.log(` - Se generaron ${result.items.length} formas/huecos separados geométricamente.`);
-          newItems.push(...result.items);
+        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando separateContoursIntoIndependentShapes()...", "color: #0284c7; font-weight: bold;");
+        const separated = separateContoursIntoIndependentShapes(item);
+        if (separated && separated.length > 0) {
+          console.log(` - Se generaron ${separated.length} formas/huecos separados.`);
+          newItems.push(...separated);
         }
       }
     }
@@ -1878,7 +1889,7 @@ function handleInteractiveDrop(event) {
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     const candidates = designLayer.children.filter(c => {
       if (c === draggedItem || c === holeController) return false;
-      if (c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) return false;
+      if (isMockupOrProductElement(c)) return false;
       return isPath(c) || isCompoundPath(c) || c.data?.clipGroup;
     });
 
