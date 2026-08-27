@@ -1608,6 +1608,40 @@ export function updateOuterPathGeometry(outerItem) {
 if (typeof window.paper !== 'undefined' && paper.view) {
   paper.view.on('frame', () => {
     if (!paper.project || !paper.project.activeLayer) return;
+
+    // Sincronizar de forma reactiva la visibilidad del controlador celeste según la selección del usuario
+    if (paper.project.activeLayer && paper.project.activeLayer.children) {
+      const syncHoleVisuals = (node) => {
+        if (node.data?.isHoleController) {
+          const actualPath = node.data.clipGroup ? getContentItem(node) : node;
+          if (actualPath) {
+            const isSelected = node.selected || actualPath.selected || 
+                               window.selectedItem === node || window.selectedItem === actualPath ||
+                               (window.selectedItems && (window.selectedItems.includes(node) || window.selectedItems.includes(actualPath)));
+            if (isSelected) {
+              actualPath.strokeColor = '#009dec';
+              actualPath.strokeWidth = 1.5 / paper.view.zoom;
+              actualPath.dashArray = [4, 4];
+              actualPath.fillColor = new paper.Color(0, 157, 236, 0.001);
+            } else {
+              // Si no está seleccionado, el hueco es un verdadero calado físico (vacío absoluto, sin líneas celestes)
+              actualPath.strokeColor = null;
+              actualPath.dashArray = null;
+              actualPath.fillColor = new paper.Color(0, 157, 236, 0.001); // Invisible pero seleccionable por clic en su área vacía
+            }
+          }
+        }
+        if (node.children) {
+          for (let i = 0; i < node.children.length; i++) {
+            syncHoleVisuals(node.children[i]);
+          }
+        }
+      };
+      for (let i = 0; i < paper.project.activeLayer.children.length; i++) {
+        syncHoleVisuals(paper.project.activeLayer.children[i]);
+      }
+    }
+
     window.ekkoOuters.forEach(outerItem => {
       let needsUpdate = false;
       const validHoleIds = [];
