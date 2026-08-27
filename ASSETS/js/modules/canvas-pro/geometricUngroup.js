@@ -1,11 +1,11 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v22.1)
+Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v22.3)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 Descripción: Motor de desagrupado geométrico progresivo "de afuera hacia adentro"
              y "de más a menos". Descompone CompoundPaths en jerarquías de
              sólidos y calados celestes reactivos (HoleControllers).
-             Soporta vinculación dinámica retroactiva e imantación de huecos.
-             Garantiza la física de calados reales y previene transparencias visuales.
+             Soporta vinculación dinámica retroactiva e imantación de huecos,
+             y garantiza la física de calados reales frente a transparencias.
 ========================================================================= */
 
 function isPath(item) {
@@ -108,25 +108,33 @@ function clonePath(path) {
     return path.clone({ insert: false });
 }
 
-function hasDeeperSolids(node) {
-    if (!node.children || node.children.length === 0) return false;
-    return node.children.some(child => {
-        // child is a hole (odd depth)
-        return child.children && child.children.length > 0; // if child (hole) has children, those must be solids!
+function makeShell(node) {
+    const shell = new paper.CompoundPath({ insert: false });
+    const outer = clonePath(node.path);
+    shell.addChild(outer);
+    // Even depth = filled contour; odd depth = transparent cutout.
+    if (node.depth % 2 === 1) {
+        shell.remove();
+        return null;
+    }
+    node.children.filter(child => child.depth % 2 === 1).forEach(hole => {
+        shell.addChild(clonePath(hole.path));
     });
+    shell.fillColor = node.path.fillColor ? node.path.fillColor.clone() : null;
+    shell.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : null;
+    shell.strokeWidth = node.path.strokeWidth || 0;
+    return shell;
 }
 
 function makeNode(node, global, isClipped, item, parent, target) {
     const hasChildren = node.children.length > 0;
     const isHoleType = node.depth % 2 === 1;
-
-    // 1. ELEMENTO SIMPLE (Sin hijos)
     if (!hasChildren) {
+        // ELEMENTO SIMPLE (Hijo final sin anidación)
         const leaf = clonePath(node.path);
-        leaf.fillColor = isHoleType ? new paper.Color(255, 255, 255, 0.01) : (node.path.fillColor ? node.path.fillColor.clone() : new paper.Color('#000000'));
+        leaf.fillColor = isHoleType ? new paper.Color(0, 157, 236, 0.001) : (node.path.fillColor ? node.path.fillColor.clone() : new paper.Color('#000000'));
         leaf.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : new paper.Color('#000000');
         leaf.strokeWidth = node.path.strokeWidth || 1;
-        
         let newItem;
         if (isClipped) {
             newItem = window.clipItem(leaf);
@@ -141,7 +149,6 @@ function makeNode(node, global, isClipped, item, parent, target) {
             newItem.matrix = global.clone().chain(leaf.matrix);
             parent.addChild(newItem);
         }
-        
         newItem.data = {
             ...(item.data || {}),
             locked: false,
@@ -152,48 +159,7 @@ function makeNode(node, global, isClipped, item, parent, target) {
         return newItem;
     }
 
-    // 2. ELEMENTO COMPUESTO (Sólido con calados, ej: Letra "A")
-    // Si es un sólido (even depth) y NO tiene sólidos más profundos en sus calados,
-    // lo representamos directamente como un CompoundPath real para mantener calado físico sólido.
-    if (!isHoleType && !hasDeeperSolids(node)) {
-        const shell = new paper.CompoundPath({ insert: false });
-        const outer = clonePath(node.path);
-        shell.addChild(outer);
-        
-        node.children.forEach(hole => {
-            shell.addChild(clonePath(hole.path));
-        });
-        
-        shell.fillColor = node.path.fillColor ? node.path.fillColor.clone() : new paper.Color('#000000');
-        shell.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : new paper.Color('#000000');
-        shell.strokeWidth = node.path.strokeWidth || 1;
-        
-        let newItem;
-        if (isClipped) {
-            newItem = window.clipItem(shell);
-            if (newItem === shell) {
-                newItem.matrix = global.clone().chain(shell.matrix);
-            } else {
-                newItem.matrix = item.matrix.clone();
-                shell.matrix = getMatrixRelativeTo(shell, target).clone().chain(shell.matrix);
-            }
-        } else {
-            newItem = shell;
-            newItem.matrix = global.clone().chain(shell.matrix);
-            parent.addChild(newItem);
-        }
-        
-        newItem.data = {
-            ...(item.data || {}),
-            locked: false,
-            geometricRole: 'solid',
-            geometricHierarchy: 'compound',
-            label: item.data?.label || "Objeto Compuesto"
-        };
-        return newItem;
-    }
-
-    // 3. GRUPO GEOMÉTRICO (Estructura de anidamiento complejo, ej: El Escudo o el Cutout)
+    // ELEMENTO COMPUESTO (Tiene más descendientes en capas profundas)
     const group = new paper.Group({ insert: false });
     group.data = {
         ...(item.data || {}),
@@ -204,43 +170,33 @@ function makeNode(node, global, isClipped, item, parent, target) {
         label: isHoleType ? "Grupo Calado Compuesto" : "Grupo Sólido Compuesto"
     };
 
-    // Si es un sólido con calados profundos, su "corteza" o silueta exterior simple
-    // se agrega al grupo como el fondo del diseño de este nivel.
-    if (!isHoleType) {
-        const outerShell = clonePath(node.path);
-        outerShell.fillColor = node.path.fillColor ? node.path.fillColor.clone() : new paper.Color('#000000');
-        outerShell.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : new paper.Color('#000000');
-        outerShell.strokeWidth = node.path.strokeWidth || 1;
-        outerShell.data = {
-            ...(item.data || {}),
-            locked: false,
-            geometricRole: 'solid',
-            geometricHierarchy: 'simple',
-            label: "Silueta Exterior"
-        };
-        group.addChild(outerShell);
+    // Añadir la corteza de este nivel
+    const shell = makeShell(node);
+    let configuredShell;
+    if (shell) {
+        configuredShell = shell;
+        configuredShell.fillColor = isHoleType ? new paper.Color(0, 157, 236, 0.001) : (shell.fillColor || new paper.Color('#000000'));
     } else {
-        // Si es un calado compuesto (ej: el cutout del escudo), el calado en sí mismo
-        // se agrega como el primer hijo del grupo representando la frontera del calado.
-        const holeShell = clonePath(node.path);
-        holeShell.fillColor = new paper.Color(255, 255, 255, 0.01);
-        holeShell.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : new paper.Color('#000000');
-        holeShell.strokeWidth = node.path.strokeWidth || 1;
-        holeShell.data = {
-            ...(item.data || {}),
-            locked: false,
-            geometricRole: 'hole',
-            geometricHierarchy: 'simple',
-            label: "Hueco"
-        };
-        group.addChild(holeShell);
+        const selfPath = clonePath(node.path);
+        selfPath.fillColor = isHoleType ? new paper.Color(0, 157, 236, 0.001) : (selfPath.fillColor || new paper.Color('#000000'));
+        configuredShell = selfPath;
     }
 
-    // Procesar recursivamente todos los hijos del árbol geométrico
+    // Garantizar asignación de metadatos de rol geométrico y jerarquía en la corteza
+    configuredShell.data = {
+        ...(item.data || {}),
+        locked: false,
+        geometricRole: isHoleType ? 'hole' : 'solid',
+        geometricHierarchy: 'simple',
+        label: isHoleType ? "Hueco" : (item.data?.label || "Objeto")
+    };
+    group.addChild(configuredShell);
+
+    // Añadir hijos recursivos dentro del grupo compuesto
     node.children.forEach(child => {
         const childItem = makeNode(child, global, isClipped, item, parent, target);
         if (childItem) {
-            childItem.remove(); // Desprender para insertarlo dentro de nuestro grupo
+            childItem.remove(); // Desprender de la capa activa para agruparlo
             group.addChild(childItem);
         }
     });
@@ -262,7 +218,7 @@ function makeNode(node, global, isClipped, item, parent, target) {
     return finalGroupItem;
 }
 
-// Vincula retroactivamente huecos/calados con sus respectivos outers sólidos
+// Vincula retroactivamente huecos/calados con sus respectivos outers sólidos y actualiza la lista en caliente
 function linkHolesToOuters(items) {
     if (!items || items.length === 0) return;
     const outersToUpdate = new Set();
@@ -280,7 +236,7 @@ function linkHolesToOuters(items) {
         }
     });
 
-    // Buscar también en la capa de diseño activa para imantación global retroactiva
+    // Buscar también en la capa de diseño para imantación global
     if (typeof paper !== 'undefined' && paper.project && paper.project.activeLayer) {
         paper.project.activeLayer.children.forEach(c => {
             if (c && c.data?.geometricRole === 'solid' && !solidCandidates.includes(c)) {
@@ -321,9 +277,7 @@ function linkHolesToOuters(items) {
             holeItem.data.outerItemId = bestOuter.id;
             holeItem.data.label = "Hueco";
             
-            // Si el holeItem es un grupo, aplicamos estética celeste punteada SOLO a su primer hijo (el path)
-            // para evitar propagación masiva de color que vuelva transparentes a los sólidos anidados
-            const visualHole = isGroup(holeItem) ? holeItem.children[0] : (holeItem.data?.clipGroup ? getContentItem(holeItem) : holeItem);
+            const visualHole = holeItem.data?.clipGroup ? getContentItem(holeItem) : holeItem;
             if (visualHole) {
                 visualHole.strokeColor = '#009dec';
                 visualHole.strokeWidth = 1.5 / paper.view.zoom;
@@ -349,7 +303,24 @@ function linkHolesToOuters(items) {
 
     outersToUpdate.forEach(outer => {
         if (typeof window.updateOuterPathGeometry === 'function') {
-            window.updateOuterPathGeometry(outer);
+            const updatedOuter = window.updateOuterPathGeometry(outer);
+            if (updatedOuter && updatedOuter !== outer) {
+                // Reemplazar la referencia física en caliente en el array de entrada
+                const idx = items.indexOf(outer);
+                if (idx !== -1) {
+                    items[idx] = updatedOuter;
+                }
+                // Sincronizar punteros de selección global de la UI de EKKO
+                if (window.selectedItem === outer) {
+                    window.selectedItem = updatedOuter;
+                }
+                if (window.selectedItems) {
+                    const sIdx = window.selectedItems.indexOf(outer);
+                    if (sIdx !== -1) {
+                        window.selectedItems[sIdx] = updatedOuter;
+                    }
+                }
+            }
         }
     });
 }
