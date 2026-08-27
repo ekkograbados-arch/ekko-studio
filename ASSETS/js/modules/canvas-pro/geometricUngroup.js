@@ -28,6 +28,7 @@ function isGroup(item) {
 function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
+    if (!item.children) return item;
     var content = item.children.find(function(c) {
       return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
     });
@@ -66,14 +67,37 @@ function areaOf(path) {
   return Math.abs(path.area || (path.bounds ? path.bounds.area : 0) || 0);
 }
 
+// Comprobación geométrica robusta basada en vértices para evitar errores de cajas delimitadoras en formas curvas (ej. laureles)
 function contains(parent, child) {
   if (!parent || !child) return false;
-  const p = child.bounds?.center;
-  if (!p) return false;
-  if (typeof parent.contains === 'function') {
-    try { return parent.contains(p); } catch (_) {}
+  
+  // Rápida comprobación preliminar por intersección de límites de Paper.js
+  if (!parent.bounds.intersects(child.bounds) && !parent.bounds.contains(child.bounds)) {
+    return false;
   }
-  return parent.bounds ? parent.bounds.contains(p) : false;
+  
+  const pointsToCheck = [];
+  if (child.segments && child.segments.length > 0) {
+    // Tomar hasta 8 puntos distribuidos a lo largo del contorno del hijo
+    const step = Math.max(1, Math.floor(child.segments.length / 8));
+    for (let i = 0; i < child.segments.length; i += step) {
+      pointsToCheck.push(child.segments[i].point);
+    }
+  } else {
+    pointsToCheck.push(child.bounds.center);
+  }
+  
+  let insideCount = 0;
+  pointsToCheck.forEach(p => {
+    try {
+      if (parent.contains(p)) {
+        insideCount++;
+      }
+    } catch (_) {}
+  });
+  
+  // Se considera contenido si más del 50% de sus puntos de contorno físico caen dentro de la forma del padre
+  return insideCount > (pointsToCheck.length / 2);
 }
 
 // Construye un árbol de contención geométrica para clasificar contornos exteriores y sus huecos nested.
@@ -119,6 +143,137 @@ function collectDescendantPaths(node, list) {
   });
 }
 
+// Determina si una rama contiene sólidos anidados en profundidades pares (por ejemplo, Depth 2, 4, etc.)
+function hasNestedSolids(rootNode) {
+  let found = false;
+  const check = (node) => {
+    if (node.depth > 0 && node.depth % 2 === 0) {
+      found = true;
+      return;
+    }
+    node.children.forEach(check);
+  };
+  rootNode.children.forEach(check);
+  return found;
+}
+
+// Genera el contorno recortado (shell) de un nodo excluyendo sus huecos directos (hijos a depth + 1)
+function makeShell(node) {
+  const outer = clonePath(node.path);
+  // Si el nodo de por sí representa un hueco (profundidad impar), no genera relleno sólido
+  if (node.depth % 2 === 1) {
+    return null;
+  }
+  
+  // Creamos un CompoundPath con la silueta exterior del nodo y le restamos sus huecos de primer nivel
+  const shell = new paper.CompoundPath({
+    insert: false,
+    fillRule: 'evenodd'
+  });
+  shell.addChild(outer);
+  
+  node.children.forEach(child => {
+    shell.addChild(clonePath(child.path));
+  });
+  
+  shell.fillColor = node.path.fillColor ? node.path.fillColor.clone() : new paper.Color('#000000');
+  shell.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : null;
+  shell.strokeWidth = node.path.strokeWidth || 0;
+  return shell;
+}
+
+// Descompone recursivamente un nodo complejo extrayendo su corteza y promoviendo sus nietos sólidos a elementos independientes
+function decomposeNode(node, global, isClipped, item, parent, target) {
+  const elements = [];
+  
+  // 1. Crear la corteza de este nivel (el marco sólido exterior)
+  const shell = makeShell(node);
+  if (shell) {
+    let configuredShell;
+    if (isClipped) {
+      configuredShell = window.clipItem(shell);
+      configuredShell.matrix = item.matrix.clone();
+    } else {
+      configuredShell = shell;
+      configuredShell.matrix = global.clone();
+      parent.addChild(configuredShell);
+    }
+    configuredShell.data = {
+      ...(item.data || {}),
+      locked: false,
+      geometricHierarchy: 'simple',
+      label: item.data?.label || "Objeto"
+    };
+    elements.push(configuredShell);
+  }
+  
+  // 2. Extraer los nietos sólidos (los hijos de nuestros huecos directos)
+  node.children.forEach(hole => {
+    hole.children.forEach(solidGrandchild => {
+      // Si el nieto sólido tiene a su vez más anidamiento complejo (Depth >= 4), se descompone recursivamente
+      if (hasNestedSolids(solidGrandchild)) {
+        const subDecomposed = decomposeNode(solidGrandchild, global, isClipped, item, parent, target);
+        elements.push(...subDecomposed);
+      } else {
+        // De lo contrario, se genera como una sola pieza (simple o con calado básico de un solo nivel, como la "A")
+        const rootPathClone = clonePath(solidGrandchild.path);
+        const descendants = [];
+        collectDescendantPaths(solidGrandchild, descendants);
+        
+        let newElement;
+        if (descendants.length > 0) {
+          const compoundChildren = [rootPathClone, ...descendants];
+          const newCompound = new paper.CompoundPath({
+            children: compoundChildren,
+            insert: false,
+            fillRule: 'evenodd'
+          });
+          newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+          newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+          newCompound.strokeWidth = target.strokeWidth || 0;
+          
+          if (isClipped) {
+            newElement = window.clipItem(newCompound);
+            newElement.matrix = item.matrix.clone();
+          } else {
+            newElement = newCompound;
+            newElement.matrix = global.clone();
+            parent.addChild(newElement);
+          }
+          newElement.data = {
+            ...(item.data || {}),
+            locked: false,
+            geometricHierarchy: 'compound',
+            label: item.data?.label || "Objeto Compuesto"
+          };
+        } else {
+          rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+          rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+          rootPathClone.strokeWidth = target.strokeWidth || 0;
+          
+          if (isClipped) {
+            newElement = window.clipItem(rootPathClone);
+            newElement.matrix = item.matrix.clone();
+          } else {
+            newElement = rootPathClone;
+            newElement.matrix = global.clone();
+            parent.addChild(newElement);
+          }
+          newElement.data = {
+            ...(item.data || {}),
+            locked: false,
+            geometricHierarchy: 'simple',
+            label: item.data?.label || "Objeto"
+          };
+        }
+        elements.push(newElement);
+      }
+    });
+  });
+  
+  return elements;
+}
+
 export function geometricUngroupCompound(item) {
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return null;
   const isClipped = !!item.data?.clipGroup;
@@ -134,69 +289,80 @@ export function geometricUngroupCompound(item) {
   const global = getGlobalMatrix(target);
   const result = [];
 
-  // Si hay una sola raíz en todo el trazado compuesto (por ejemplo, una letra "A" con su triángulo interior):
-  // Es una única entidad geométrica con huecos físicos reales, no se descompone más para no destruir su naturaleza.
-  if (roots.length === 1) {
+  // Si hay una sola raíz en todo el trazado compuesto y no tiene sólidos anidados:
+  // Es una única entidad geométrica simple con calados físicos (como una letra "A"), se protege de desagrupar más.
+  if (roots.length === 1 && !hasNestedSolids(roots[0])) {
     return { handled: true, simple: true, items: [item] };
   }
 
-  // Si hay múltiples raíces independientes (por ejemplo: estrellas, bandas, letras mezcladas en un solo CompoundPath):
-  // Separamos cada raíz en su propio elemento (que mantendrá sus propios huecos físicos correspondientes).
-  roots.forEach(root => {
-    const rootPathClone = clonePath(root.path);
-    const descendants = [];
-    collectDescendantPaths(root, descendants);
+  // Si hay una sola raíz pero sí tiene sólidos anidados (como el Cuerpo del Escudo):
+  // Descomponemos esta raíz en sus niveles correspondientes de forma controlada.
+  if (roots.length === 1 && hasNestedSolids(roots[0])) {
+    const decomposed = decomposeNode(roots[0], global, isClipped, item, parent, target);
+    result.push(...decomposed);
+  } else {
+    // Si hay múltiples raíces independientes (estrellas, laureles, escudo mezclados):
+    roots.forEach(root => {
+      // Si cada raíz tiene sólidos anidados, la descomponemos
+      if (hasNestedSolids(root)) {
+        const decomposed = decomposeNode(root, global, isClipped, item, parent, target);
+        result.push(...decomposed);
+      } else {
+        // De lo contrario, se genera como un solo elemento simple o compuesto de un solo nivel (manteniendo su jerarquía de un nivel)
+        const rootPathClone = clonePath(root.path);
+        const descendants = [];
+        collectDescendantPaths(root, descendants);
 
-    let newElement;
-    if (descendants.length > 0) {
-      // Tiene huecos: creamos un CompoundPath para mantener la física real de la geometría
-      const compoundChildren = [rootPathClone, ...descendants];
-      const newCompound = new paper.CompoundPath({
-        children: compoundChildren,
-        insert: false,
-        fillRule: 'evenodd'
-      });
-      newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-      newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-      newCompound.strokeWidth = target.strokeWidth || 0;
-      
-      if (isClipped) {
-        newElement = window.clipItem(newCompound);
-        newElement.matrix = item.matrix.clone();
-      } else {
-        newElement = newCompound;
-        newElement.matrix = global.clone();
-        parent.addChild(newElement);
+        let newElement;
+        if (descendants.length > 0) {
+          const compoundChildren = [rootPathClone, ...descendants];
+          const newCompound = new paper.CompoundPath({
+            children: compoundChildren,
+            insert: false,
+            fillRule: 'evenodd'
+          });
+          newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+          newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+          newCompound.strokeWidth = target.strokeWidth || 0;
+          
+          if (isClipped) {
+            newElement = window.clipItem(newCompound);
+            newElement.matrix = item.matrix.clone();
+          } else {
+            newElement = newCompound;
+            newElement.matrix = global.clone();
+            parent.addChild(newElement);
+          }
+          newElement.data = {
+            ...(item.data || {}),
+            locked: false,
+            geometricHierarchy: 'compound',
+            label: item.data?.label || "Objeto Compuesto"
+          };
+        } else {
+          rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+          rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+          rootPathClone.strokeWidth = target.strokeWidth || 0;
+          
+          if (isClipped) {
+            newElement = window.clipItem(rootPathClone);
+            newElement.matrix = item.matrix.clone();
+          } else {
+            newElement = rootPathClone;
+            newElement.matrix = global.clone();
+            parent.addChild(newElement);
+          }
+          newElement.data = {
+            ...(item.data || {}),
+            locked: false,
+            geometricHierarchy: 'simple',
+            label: item.data?.label || "Objeto"
+          };
+        }
+        result.push(newElement);
       }
-      newElement.data = {
-        ...(item.data || {}),
-        locked: false,
-        geometricHierarchy: 'compound',
-        label: item.data?.label || "Objeto Compuesto"
-      };
-    } else {
-      // Es una forma simple sin huecos
-      rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-      rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-      rootPathClone.strokeWidth = target.strokeWidth || 0;
-      
-      if (isClipped) {
-        newElement = window.clipItem(rootPathClone);
-        newElement.matrix = item.matrix.clone();
-      } else {
-        newElement = rootPathClone;
-        newElement.matrix = global.clone();
-        parent.addChild(newElement);
-      }
-      newElement.data = {
-        ...(item.data || {}),
-        locked: false,
-        geometricHierarchy: 'simple',
-        label: item.data?.label || "Objeto"
-      };
-    }
-    result.push(newElement);
-  });
+    });
+  }
 
   // Quitar el CompoundPath original del lienzo de forma limpia
   item.remove();
