@@ -1,5 +1,5 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v10)
+   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v11)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
    Descripción: Motor de desagrupado geométrico progresivo y reactivo.
                 Cumple estrictamente con la filosofía de EKKO Studio V23:
@@ -136,12 +136,31 @@ function clonePath(path) {
   return path.clone({ insert: false });
 }
 
-// Función recursiva para recolectar todos los descendientes de un nodo en el árbol de contención
-function collectDescendantPaths(node, list) {
-  node.children.forEach(child => {
-    list.push(clonePath(child.path));
-    collectDescendantPaths(child, list);
-  });
+// Establece la profundidad global de los nodos de forma recursiva
+function establishGlobalDepths(roots) {
+  const walk = (node, currentDepth) => {
+    if (typeof node.path.data.globalDepth === 'undefined') {
+      node.path.data.globalDepth = currentDepth;
+    }
+    node.children.forEach(child => walk(child, currentDepth + 1));
+  };
+  roots.forEach(root => walk(root, 0));
+}
+
+// Configura el relleno y borde de un trazado según su rol físico (Sólido vs Hueco)
+function configurePathFill(path, targetFillColor, targetStrokeColor, targetStrokeWidth) {
+  const depth = (typeof path.data?.globalDepth !== 'undefined') ? path.data.globalDepth : 0;
+  if (depth % 2 === 0) {
+    // SÓLIDO (Profundidad par: 0, 2, 4...) -> Se rellena con color negro o de la imagen
+    path.fillColor = targetFillColor ? targetFillColor.clone() : new paper.Color('#000000');
+    path.strokeColor = targetStrokeColor ? targetStrokeColor.clone() : null;
+    path.strokeWidth = targetStrokeWidth || 0;
+  } else {
+    // HUECO / VACÍO FÍSICO (Profundidad impar: 1, 3, 5...) -> Es 100% transparente y calado real
+    path.fillColor = new paper.Color(255, 255, 255, 0.001); // Hit-testable pero visualmente invisible
+    path.strokeColor = targetStrokeColor ? targetStrokeColor.clone() : new paper.Color('#000000');
+    path.strokeWidth = targetStrokeWidth || 1;
+  }
 }
 
 export function geometricUngroupCompound(item) {
@@ -154,162 +173,133 @@ export function geometricUngroupCompound(item) {
   if (paths.length <= 1) return { handled: true, simple: true, items: [item] };
 
   const roots = buildTree(paths);
+  establishGlobalDepths(roots);
+
   const parent = item.parent || paper.project.activeLayer;
   const index = parent.children.indexOf(item);
   const global = getGlobalMatrix(target);
   const result = [];
 
-  // =========================================================================
-  // CASO A: Hay una única raíz en la selección actual (ej: el Cuerpo del Escudo, o una letra "A")
-  // Descomponemos un único nivel de esta raíz, promoviendo sus hijos directos (Nivel 1) a elementos independientes.
-  // =========================================================================
+  // SI HAY UNA SOLA RAÍZ Y NO TIENE HIJOS, ES UN ELEMENTO SIMPLE
+  if (roots.length === 1 && roots[0].children.length === 0) {
+    return { handled: true, simple: true, items: [item] };
+  }
+
+  // CONSTRUCTOR RECURSIVO DE ESTRUCTURAS GEOMÉTRICAS (Mantiene Física Real de Huecos)
+  const buildGeometricNode = (node) => {
+    const hasChildren = node.children.length > 0;
+    if (!hasChildren) {
+      // Elemento simple (sin estructura interna profunda)
+      const pathClone = clonePath(node.path);
+      configurePathFill(pathClone, target.fillColor, target.strokeColor, target.strokeWidth);
+      
+      let newElement;
+      if (isClipped) {
+        newElement = window.clipItem(pathClone);
+        newElement.matrix = item.matrix.clone();
+      } else {
+        newElement = pathClone;
+        newElement.matrix = global.clone();
+        parent.addChild(newElement);
+      }
+      
+      newElement.data = {
+        ...(item.data || {}),
+        locked: false,
+        globalDepth: node.path.data.globalDepth,
+        geometricHierarchy: 'simple',
+        label: node.path.data.globalDepth % 2 === 1 ? "Hueco" : "Objeto"
+      };
+      return newElement;
+    } else {
+      // Elemento compuesto (se representa como un Group para soportar fillColors independientes en sus componentes)
+      const group = new paper.Group({ insert: false });
+      
+      // Añadir la corteza (shell) de este nivel
+      const outerPath = clonePath(node.path);
+      configurePathFill(outerPath, target.fillColor, target.strokeColor, target.strokeWidth);
+      outerPath.data = {
+        ...(item.data || {}),
+        locked: false,
+        globalDepth: node.path.data.globalDepth,
+        geometricHierarchy: 'simple',
+        label: node.path.data.globalDepth % 2 === 1 ? "Hueco" : "Objeto"
+      };
+      group.addChild(outerPath);
+      
+      // Añadir hijos recursivamente dentro del grupo compuesto
+      node.children.forEach(childNode => {
+        const childItem = buildGeometricNode(childNode);
+        if (childItem) {
+          childItem.remove(); // Desprender para agruparlo limpiamente
+          group.addChild(childItem);
+        }
+      });
+      
+      let finalGroupItem;
+      if (isClipped) {
+        finalGroupItem = window.clipItem(group);
+        finalGroupItem.matrix = item.matrix.clone();
+      } else {
+        finalGroupItem = group;
+        finalGroupItem.matrix = global.clone();
+        parent.addChild(finalGroupItem);
+      }
+      
+      finalGroupItem.data = {
+        ...(item.data || {}),
+        locked: false,
+        geometricHierarchy: 'compound',
+        label: node.path.data.globalDepth % 2 === 1 ? "Grupo Calado Compuesto" : "Grupo Sólido Compuesto"
+      };
+      
+      return finalGroupItem;
+    }
+  };
+
+  // Si hay una sola raíz en todo el trazado compuesto (ej: el Cuerpo del Escudo)
+  // Decomponemos un único nivel de esta raíz, promoviendo sus hijos directos (Nivel 1) a elementos independientes.
   if (roots.length === 1) {
     const root = roots[0];
     
-    // Si la raíz no tiene hijos, es un elemento simple, no se puede desagrupar más.
-    if (root.children.length === 0) {
-      return { handled: true, simple: true, items: [item] };
-    }
-
-    // 1. Crear el contorno de la raíz (el nivel superior) como un elemento independiente simple.
-    const rootPathClone = clonePath(root.path);
-    rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-    rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-    rootPathClone.strokeWidth = target.strokeWidth || 0;
+    // 1. Crear la silueta o contorno exterior como un contorno simple
+    const shellPath = clonePath(root.path);
+    configurePathFill(shellPath, target.fillColor, target.strokeColor, target.strokeWidth);
     
-    let rootElement;
+    let configuredShell;
     if (isClipped) {
-      rootElement = window.clipItem(rootPathClone);
-      rootElement.matrix = item.matrix.clone();
+      configuredShell = window.clipItem(shellPath);
+      configuredShell.matrix = item.matrix.clone();
     } else {
-      rootElement = rootPathClone;
-      rootElement.matrix = global.clone();
-      parent.addChild(rootElement);
+      configuredShell = shellPath;
+      configuredShell.matrix = global.clone();
+      parent.addChild(configuredShell);
     }
-    rootElement.data = {
+    configuredShell.data = {
       ...(item.data || {}),
       locked: false,
+      globalDepth: root.path.data.globalDepth,
       geometricHierarchy: 'simple',
-      label: item.data?.label || "Objeto"
+      label: root.path.data.globalDepth % 2 === 1 ? "Hueco" : "Objeto"
     };
-    result.push(rootElement);
+    result.push(configuredShell);
 
-    // 2. Promover cada hijo directo (Nivel 1) de la raíz a su propio elemento independiente.
-    root.children.forEach(child => {
-      const childPathClone = clonePath(child.path);
-      const descendants = [];
-      collectDescendantPaths(child, descendants);
-
-      let newElement;
-      if (descendants.length > 0) {
-        // El hijo tiene descendientes (es compuesto, ej: la letra "A" dentro del escudo en el 2do clic).
-        // Creamos un CompoundPath para mantener su jerarquía unificada de forma transparente.
-        const compoundChildren = [childPathClone, ...descendants];
-        const newCompound = new paper.CompoundPath({
-          children: compoundChildren,
-          insert: false,
-          fillRule: 'evenodd'
-        });
-        newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-        newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-        newCompound.strokeWidth = target.strokeWidth || 0;
-
-        if (isClipped) {
-          newElement = window.clipItem(newCompound);
-          newElement.matrix = item.matrix.clone();
-        } else {
-          newElement = newCompound;
-          newElement.matrix = global.clone();
-          parent.addChild(newElement);
-        }
-        newElement.data = {
-          ...(item.data || {}),
-          locked: false,
-          geometricHierarchy: 'compound',
-          label: item.data?.label || "Objeto Compuesto"
-        };
-      } else { 
-        // El hijo no tiene descendientes (es simple, ej: bandas, letra "F", o el triángulo de la "A" en el 3er clic).
-        childPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-        childPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-        childPathClone.strokeWidth = target.strokeWidth || 0;
-
-        if (isClipped) {
-          newElement = window.clipItem(childPathClone);
-          newElement.matrix = item.matrix.clone();
-        } else {
-          newElement = childPathClone;
-          newElement.matrix = global.clone();
-          parent.addChild(newElement);
-        }
-        newElement.data = {
-          ...(item.data || {}),
-          locked: false,
-          geometricHierarchy: 'simple',
-          label: item.data?.label || "Objeto"
-        };
+    // 2. Promover cada hijo directo de primer nivel a un elemento independiente (sea simple o un grupo compuesto)
+    root.children.forEach(childNode => {
+      const childItem = buildGeometricNode(childNode);
+      if (childItem) {
+        result.push(childItem);
       }
-      result.push(newElement);
     });
 
   } else {
-    // =========================================================================
-    // CASO B: Hay múltiples raíces independientes a nivel global (estrellas, laurel, escudo mezclados)
-    // REGLA DE ORO DE DESAGRUPADO (1er clic): Se separan únicamente las raíces independientes a nivel global,
-    // manteniendo la jerarquía interna de cada una de ellas 100% unificada e intacta (sin deconstrucción prematura).
-    // =========================================================================
-    roots.forEach(root => {
-      const rootPathClone = clonePath(root.path);
-      const descendants = [];
-      collectDescendantPaths(root, descendants);
-
-      let newElement;
-      if (descendants.length > 0) {
-        const compoundChildren = [rootPathClone, ...descendants];
-        const newCompound = new paper.CompoundPath({
-          children: compoundChildren,
-          insert: false,
-          fillRule: 'evenodd'
-        });
-        newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-        newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-        newCompound.strokeWidth = target.strokeWidth || 0;
-
-        if (isClipped) {
-          newElement = window.clipItem(newCompound);
-          newElement.matrix = item.matrix.clone();
-        } else {
-          newElement = newCompound;
-          newElement.matrix = global.clone();
-          parent.addChild(newElement);
-        }
-        newElement.data = {
-          ...(item.data || {}),
-          locked: false,
-          geometricHierarchy: 'compound',
-          label: item.data?.label || "Objeto Compuesto"
-        };
-      } else {
-        rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-        rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-        rootPathClone.strokeWidth = target.strokeWidth || 0;
-
-        if (isClipped) {
-          newElement = window.clipItem(rootPathClone);
-          newElement.matrix = item.matrix.clone();
-        } else {
-          newElement = rootPathClone;
-          newElement.matrix = global.clone();
-          parent.addChild(newElement);
-        }
-        newElement.data = {
-          ...(item.data || {}),
-          locked: false,
-          geometricHierarchy: 'simple',
-          label: item.data?.label || "Objeto"
-        };
+    // Si hay múltiples raíces independientes (estrellas, laureles, escudo mezclados):
+    // Separamos únicamente las raíces independientes a nivel global
+    roots.forEach(rootNode => {
+      const built = buildGeometricNode(rootNode);
+      if (built) {
+        result.push(built);
       }
-      result.push(newElement);
     });
   }
 
