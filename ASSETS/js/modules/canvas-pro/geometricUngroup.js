@@ -1,5 +1,5 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync)
+   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v8)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
    Descripción: Motor de desagrupado geométrico progresivo y reactivo.
                 Cumple estrictamente con la filosofía de EKKO Studio V23:
@@ -157,118 +157,88 @@ function hasNestedSolids(rootNode) {
   return found;
 }
 
-// Genera el contorno recortado (shell) de un nodo excluyendo sus huecos directos (hijos a depth + 1)
-function makeShell(node) {
-  const outer = clonePath(node.path);
-  // Si el nodo de por sí representa un hueco (profundidad impar), no genera relleno sólido
-  if (node.depth % 2 === 1) {
-    return null;
-  }
-  
-  // Creamos un CompoundPath con la silueta exterior del nodo y le restamos sus huecos de primer nivel
-  const shell = new paper.CompoundPath({
-    insert: false,
-    fillRule: 'evenodd'
-  });
-  shell.addChild(outer);
-  
-  node.children.forEach(child => {
-    shell.addChild(clonePath(child.path));
-  });
-  
-  shell.fillColor = node.path.fillColor ? node.path.fillColor.clone() : new paper.Color('#000000');
-  shell.strokeColor = node.path.strokeColor ? node.path.strokeColor.clone() : null;
-  shell.strokeWidth = node.path.strokeWidth || 0;
-  return shell;
-}
-
-// Descompone recursivamente un nodo complejo extrayendo su corteza y promoviendo sus nietos sólidos a elementos independientes
+// Descompone un nodo complejo extrayendo la corteza (silueta exterior) y promoviendo sus hijos directos
 function decomposeNode(node, global, isClipped, item, parent, target) {
   const elements = [];
   
   // 1. Crear la corteza de este nivel (el marco sólido exterior)
-  const shell = makeShell(node);
-  if (shell) {
-    let configuredShell;
-    if (isClipped) {
-      configuredShell = window.clipItem(shell);
-      configuredShell.matrix = item.matrix.clone();
-    } else {
-      configuredShell = shell;
-      configuredShell.matrix = global.clone();
-      parent.addChild(configuredShell);
-    }
-    configuredShell.data = {
-      ...(item.data || {}),
-      locked: false,
-      geometricHierarchy: 'simple',
-      label: item.data?.label || "Objeto"
-    };
-    elements.push(configuredShell);
-  }
+  const shellPath = clonePath(node.path);
+  shellPath.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+  shellPath.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+  shellPath.strokeWidth = target.strokeWidth || 0;
   
-  // 2. Extraer los nietos sólidos (los hijos de nuestros huecos directos)
-  node.children.forEach(hole => {
-    hole.children.forEach(solidGrandchild => {
-      // Si el nieto sólido tiene a su vez más anidamiento complejo (Depth >= 4), se descompone recursivamente
-      if (hasNestedSolids(solidGrandchild)) {
-        const subDecomposed = decomposeNode(solidGrandchild, global, isClipped, item, parent, target);
-        elements.push(...subDecomposed);
+  let configuredShell;
+  if (isClipped) {
+    configuredShell = window.clipItem(shellPath);
+    configuredShell.matrix = item.matrix.clone();
+  } else {
+    configuredShell = shellPath;
+    configuredShell.matrix = global.clone();
+    parent.addChild(configuredShell);
+  }
+  configuredShell.data = {
+    ...(item.data || {}),
+    locked: false,
+    geometricHierarchy: 'simple',
+    label: item.data?.label || "Objeto"
+  };
+  elements.push(configuredShell);
+  
+  // 2. Extraer cada hijo directo como un elemento independiente
+  node.children.forEach(child => {
+    const rootPathClone = clonePath(child.path);
+    const descendants = [];
+    collectDescendantPaths(child, descendants);
+    
+    let newElement;
+    if (descendants.length > 0) {
+      // Tiene descendientes (ej. la "A" con su triángulo): lo creamos como un CompoundPath
+      const compoundChildren = [rootPathClone, ...descendants];
+      const newCompound = new paper.CompoundPath({
+        children: compoundChildren,
+        insert: false,
+        fillRule: 'evenodd'
+      });
+      newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+      newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+      newCompound.strokeWidth = target.strokeWidth || 0;
+      
+      if (isClipped) {
+        newElement = window.clipItem(newCompound);
+        newElement.matrix = item.matrix.clone();
       } else {
-        // De lo contrario, se genera como una sola pieza (simple o con calado básico de un solo nivel, como la "A")
-        const rootPathClone = clonePath(solidGrandchild.path);
-        const descendants = [];
-        collectDescendantPaths(solidGrandchild, descendants);
-        
-        let newElement;
-        if (descendants.length > 0) {
-          const compoundChildren = [rootPathClone, ...descendants];
-          const newCompound = new paper.CompoundPath({
-            children: compoundChildren,
-            insert: false,
-            fillRule: 'evenodd'
-          });
-          newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-          newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-          newCompound.strokeWidth = target.strokeWidth || 0;
-          
-          if (isClipped) {
-            newElement = window.clipItem(newCompound);
-            newElement.matrix = item.matrix.clone();
-          } else {
-            newElement = newCompound;
-            newElement.matrix = global.clone();
-            parent.addChild(newElement);
-          }
-          newElement.data = {
-            ...(item.data || {}),
-            locked: false,
-            geometricHierarchy: 'compound',
-            label: item.data?.label || "Objeto Compuesto"
-          };
-        } else {
-          rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-          rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-          rootPathClone.strokeWidth = target.strokeWidth || 0;
-          
-          if (isClipped) {
-            newElement = window.clipItem(rootPathClone);
-            newElement.matrix = item.matrix.clone();
-          } else {
-            newElement = rootPathClone;
-            newElement.matrix = global.clone();
-            parent.addChild(newElement);
-          }
-          newElement.data = {
-            ...(item.data || {}),
-            locked: false,
-            geometricHierarchy: 'simple',
-            label: item.data?.label || "Objeto"
-          };
-        }
-        elements.push(newElement);
+        newElement = newCompound;
+        newElement.matrix = global.clone();
+        parent.addChild(newElement);
       }
-    });
+      newElement.data = {
+        ...(item.data || {}),
+        locked: false,
+        geometricHierarchy: 'compound',
+        label: item.data?.label || "Objeto Compuesto"
+      };
+    } else {
+      // Es una forma simple sin descendientes (ej. las bandas, la "F")
+      rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+      rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+      rootPathClone.strokeWidth = target.strokeWidth || 0;
+      
+      if (isClipped) {
+        newElement = window.clipItem(rootPathClone);
+        newElement.matrix = item.matrix.clone();
+      } else {
+        newElement = rootPathClone;
+        newElement.matrix = global.clone();
+        parent.addChild(newElement);
+      }
+      newElement.data = {
+        ...(item.data || {}),
+        locked: false,
+        geometricHierarchy: 'simple',
+        label: item.data?.label || "Objeto"
+      };
+    }
+    elements.push(newElement);
   });
   
   return elements;
@@ -335,6 +305,7 @@ export function geometricUngroupCompound(item) {
           geometricHierarchy: 'compound',
           label: item.data?.label || "Objeto Compuesto"
         };
+        result.push(newElement);
       } else {
         rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
         rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
@@ -354,8 +325,8 @@ export function geometricUngroupCompound(item) {
           geometricHierarchy: 'simple',
           label: item.data?.label || "Objeto"
         };
+        result.push(newElement);
       }
-      result.push(newElement);
     });
   }
 
