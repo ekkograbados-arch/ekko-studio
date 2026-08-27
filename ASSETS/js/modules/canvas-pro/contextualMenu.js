@@ -878,7 +878,7 @@ export function hierarchicalDecompose(item, isHoleSource) {
         visualHole.strokeColor = '#009dec';
         visualHole.strokeWidth = 1.5 / paper.view.zoom;
         visualHole.dashArray = [4, 4];
-        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.001);
       }
     } else if (isOuterWithHoles) {
       newItem.data.isOuterWithHoles = true;
@@ -1398,7 +1398,7 @@ export function separateContours(itemToProcess, skipSelection = false) {
         visualHole.strokeColor = '#009dec';
         visualHole.strokeWidth = 1.5 / paper.view.zoom;
         visualHole.dashArray = [4, 4];
-        visualHole.fillColor = new paper.Color(0, 157, 236, 0.15);
+        visualHole.fillColor = new paper.Color(0, 157, 236, 0.001);
       }
       newOuterItem.data.holeIds.push(newHoleItem.id);
       newItems.push(newHoleItem);
