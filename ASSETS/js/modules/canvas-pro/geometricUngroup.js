@@ -1,5 +1,5 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v11)
+   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v12)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
    Descripción: Motor de desagrupado geométrico progresivo y reactivo.
                 Cumple estrictamente con la filosofía de EKKO Studio V23:
@@ -8,7 +8,7 @@
                 - Descompone CompoundPaths en jerarquías de elementos simples o compuestos,
                   nivel por nivel, de afuera hacia adentro.
                 - Permite desagrupar hasta llegar a la mínima expresión de elementos simples
-                  (ya sean sólidos/rellenos o huecos/vacíos/calados físicos).
+                  (ya sean sólidos/rellenos o huecos/vacíos/calados físicos sin relleno).
 ========================================================================= */
 
 function isPath(item) {
@@ -133,31 +133,46 @@ function buildTree(paths) {
 }
 
 function clonePath(path) {
-  return path.clone({ insert: false });
+  const clone = path.clone({ insert: false });
+  if (path.data) {
+    clone.data = JSON.parse(JSON.stringify(path.data));
+  }
+  return clone;
 }
 
 // Establece la profundidad global de los nodos de forma recursiva
 function establishGlobalDepths(roots) {
   const walk = (node, currentDepth) => {
-    if (typeof node.path.data.globalDepth === 'undefined') {
-      node.path.data.globalDepth = currentDepth;
+    if (node.path && node.path.data) {
+      if (typeof node.path.data.globalDepth === 'undefined') {
+        node.path.data.globalDepth = currentDepth;
+      }
     }
     node.children.forEach(child => walk(child, currentDepth + 1));
   };
   roots.forEach(root => walk(root, 0));
 }
 
-// Configura el relleno y borde de un trazado según su rol físico (Sólido vs Hueco)
+// Función recursiva para recolectar todos los descendientes de un nodo en el árbol de contención
+function collectDescendantPaths(node, list) {
+  node.children.forEach(child => {
+    list.push(clonePath(child.path));
+    collectDescendantPaths(child, list);
+  });
+}
+
+// Configura el relleno y borde de un trazado según su rol físico real (Sólido vs Hueco)
 function configurePathFill(path, targetFillColor, targetStrokeColor, targetStrokeWidth) {
-  const depth = (typeof path.data?.globalDepth !== 'undefined') ? path.data.globalDepth : 0;
+  const depth = (path.data && typeof path.data.globalDepth !== 'undefined') ? path.data.globalDepth : 0;
+  
   if (depth % 2 === 0) {
-    // SÓLIDO (Profundidad par: 0, 2, 4...) -> Se rellena con color negro o de la imagen
+    // SÓLIDO (Profundidad par: 0, 2, 4...) -> Relleno sólido macizo
     path.fillColor = targetFillColor ? targetFillColor.clone() : new paper.Color('#000000');
     path.strokeColor = targetStrokeColor ? targetStrokeColor.clone() : null;
     path.strokeWidth = targetStrokeWidth || 0;
   } else {
-    // HUECO / VACÍO FÍSICO (Profundidad impar: 1, 3, 5...) -> Es 100% transparente y calado real
-    path.fillColor = new paper.Color(255, 255, 255, 0.001); // Hit-testable pero visualmente invisible
+    // HUECO VACÍO FÍSICO (Profundidad impar: 1, 3, 5...) -> Vacío real, sin relleno (null)
+    path.fillColor = null; // FÍSICAMENTE HUECO, ABSOLUTAMENTE VACÍO (SIN TRANSPARENCIAS RELLENAS)
     path.strokeColor = targetStrokeColor ? targetStrokeColor.clone() : new paper.Color('#000000');
     path.strokeWidth = targetStrokeWidth || 1;
   }
@@ -212,52 +227,45 @@ export function geometricUngroupCompound(item) {
       };
       return newElement;
     } else {
-      // Elemento compuesto (se representa como un Group para soportar fillColors independientes en sus componentes)
-      const group = new paper.Group({ insert: false });
+      // Elemento compuesto unificado (se representa como CompoundPath con fillRule 'evenodd')
+      const descendants = [];
+      collectDescendantPaths(node, descendants);
       
-      // Añadir la corteza (shell) de este nivel
-      const outerPath = clonePath(node.path);
-      configurePathFill(outerPath, target.fillColor, target.strokeColor, target.strokeWidth);
-      outerPath.data = {
+      const compoundChildren = [clonePath(node.path), ...descendants];
+      const newCompound = new paper.CompoundPath({
+        children: compoundChildren,
+        insert: false,
+        fillRule: 'evenodd'
+      });
+      
+      // El CompoundPath unificado se rellena con color negro o de la imagen (sólido a nivel compuesto)
+      newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+      newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+      newCompound.strokeWidth = target.strokeWidth || 0;
+      
+      let finalCompoundItem;
+      if (isClipped) {
+        finalCompoundItem = window.clipItem(newCompound);
+        finalCompoundItem.matrix = item.matrix.clone();
+      } else {
+        finalCompoundItem = newCompound;
+        finalCompoundItem.matrix = global.clone();
+        parent.addChild(finalCompoundItem);
+      }
+      
+      finalCompoundItem.data = {
         ...(item.data || {}),
         locked: false,
         globalDepth: node.path.data.globalDepth,
-        geometricHierarchy: 'simple',
-        label: node.path.data.globalDepth % 2 === 1 ? "Hueco" : "Objeto"
-      };
-      group.addChild(outerPath);
-      
-      // Añadir hijos recursivamente dentro del grupo compuesto
-      node.children.forEach(childNode => {
-        const childItem = buildGeometricNode(childNode);
-        if (childItem) {
-          childItem.remove(); // Desprender para agruparlo limpiamente
-          group.addChild(childItem);
-        }
-      });
-      
-      let finalGroupItem;
-      if (isClipped) {
-        finalGroupItem = window.clipItem(group);
-        finalGroupItem.matrix = item.matrix.clone();
-      } else {
-        finalGroupItem = group;
-        finalGroupItem.matrix = global.clone();
-        parent.addChild(finalGroupItem);
-      }
-      
-      finalGroupItem.data = {
-        ...(item.data || {}),
-        locked: false,
         geometricHierarchy: 'compound',
-        label: node.path.data.globalDepth % 2 === 1 ? "Grupo Calado Compuesto" : "Grupo Sólido Compuesto"
+        label: "Objeto Compuesto"
       };
       
-      return finalGroupItem;
+      return finalCompoundItem;
     }
   };
 
-  // Si hay una sola raíz en todo el trazado compuesto (ej: el Cuerpo del Escudo)
+  // Si hay una sola raíz en todo el trazado compuesto (ej: el Cuerpo del Escudo, o la letra "A" unificada)
   // Decomponemos un único nivel de esta raíz, promoviendo sus hijos directos (Nivel 1) a elementos independientes.
   if (roots.length === 1) {
     const root = roots[0];
@@ -284,7 +292,7 @@ export function geometricUngroupCompound(item) {
     };
     result.push(configuredShell);
 
-    // 2. Promover cada hijo directo de primer nivel a un elemento independiente (sea simple o un grupo compuesto)
+    // 2. Promover cada hijo directo de primer nivel a un elemento independiente (sea simple o un grupo compuesto unificado)
     root.children.forEach(childNode => {
       const childItem = buildGeometricNode(childNode);
       if (childItem) {
