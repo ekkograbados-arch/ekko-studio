@@ -1,5 +1,5 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v14)
+   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v15)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
    Descripción: Motor de desagrupado geométrico progresivo y reactivo.
                 Cumple estrictamente con la filosofía de EKKO Studio V23:
@@ -9,7 +9,8 @@
                   nivel por nivel, de afuera hacia adentro.
                 - Permite desagrupar hasta llegar a la mínima expresión de elementos simples
                   (ya sean sólidos/rellenos o huecos/vacíos/calados físicos sin relleno).
-                - Sincronización geométrica total 100% inmune a desalineaciones y arrastres.
+                - Sincronización geométrica interactiva 100% inmune a desalineaciones y arrastres
+                  por medio de ganchos limpios y seguros sobre las herramientas de Paper.js.
 ========================================================================= */
 
 function isPath(item) {
@@ -616,103 +617,104 @@ export function geometricUngroupOneLevel(item, isClipped = false, oldClipGroup =
 }
 
 // =========================================================================
-// HOOKS DE SINCRONIZACIÓN GEOMÉTRICA GLOBAL (100% INMUNE A DESALINEACIONES)
+// GANCHOS DE SINCRONIZACIÓN GEOMÉTRICA INTERACTIVOS SOBRE LA SELECCIÓN
 // =========================================================================
-function installHoleSyncHooks() {
-  if (typeof paper === 'undefined' || !paper.Item) {
-    setTimeout(installHoleSyncHooks, 100);
-    return;
-  }
-  
-  if (paper.Item.prototype.data?.hooksInstalled) return;
-
-  // 1. Hook para position setter
-  const desc = Object.getOwnPropertyDescriptor(paper.Item.prototype, 'position');
-  if (desc && desc.set) {
-    const originalPositionSetter = desc.set;
-    Object.defineProperty(paper.Item.prototype, 'position', {
-      set: function(newPos) {
-        const oldPos = this.position.clone();
-        originalPositionSetter.call(this, newPos);
-        const delta = newPos.subtract(oldPos);
-        if (delta.length > 0 && this.data && this.data.isOuterWithHoles && this.data.holeIds) {
-          this.data.holeIds.forEach(holeId => {
-            const holeItem = paper.project.getItem({ id: holeId });
-            if (holeItem && !holeItem.selected) {
-              holeItem.position = holeItem.position.add(delta);
-            }
-          });
-        }
-      },
-      get: desc.get,
-      configurable: true
-    });
-  }
-
-  // 2. Hook para translate
-  const originalTranslate = paper.Item.prototype.translate;
-  paper.Item.prototype.translate = function(delta) {
-    originalTranslate.call(this, delta);
-    if (this.data && this.data.isOuterWithHoles && this.data.holeIds) {
-      this.data.holeIds.forEach(holeId => {
-        const holeItem = paper.project.getItem({ id: holeId });
-        if (holeItem && !holeItem.selected) {
-          holeItem.translate(delta);
-        }
-      });
-    }
-  };
-
-  // 3. Hook para rotate
-  const originalRotate = paper.Item.prototype.rotate;
-  paper.Item.prototype.rotate = function(angle, center) {
-    const rotCenter = center || this.position;
-    originalRotate.call(this, angle, rotCenter);
-    if (this.data && this.data.isOuterWithHoles && this.data.holeIds) {
-      this.data.holeIds.forEach(holeId => {
-        const holeItem = paper.project.getItem({ id: holeId });
-        if (holeItem && !holeItem.selected) {
-          holeItem.rotate(angle, rotCenter);
-        }
-      });
-    }
-  };
-
-  // 4. Hook para scale
-  const originalScale = paper.Item.prototype.scale;
-  paper.Item.prototype.scale = function(hor, ver, center) {
-    const scaleCenter = center || this.position;
-    originalScale.call(this, hor, ver, scaleCenter);
-    if (this.data && this.data.isOuterWithHoles && this.data.holeIds) {
-      this.data.holeIds.forEach(holeId => {
-        const holeItem = paper.project.getItem({ id: holeId });
-        if (holeItem && !holeItem.selected) {
-          holeItem.scale(hor, ver, scaleCenter);
-        }
-      });
-    }
-  };
-
-  paper.Item.prototype.data = paper.Item.prototype.data || {};
-  paper.Item.prototype.data.hooksInstalled = true;
-  console.log("🔥 Hooks de sincronización geométrica global instalados con éxito en Paper.js.");
-}
-
-// Hook de arrastre reactivo secundario para HoleControllers individuales
-function installHoleDragHook() {
+function installSelectionToolHoleSync() {
   if (typeof paper === 'undefined' || !paper.tools || paper.tools.length === 0) {
-    setTimeout(installHoleDragHook, 100);
+    setTimeout(installSelectionToolHoleSync, 100);
     return;
   }
   
-  const selectTool = paper.tools.find(t => t.onMouseDrag && !t.data?.holeHooked);
+  const selectTool = paper.tools.find(t => t.onMouseDrag && !t.data?.holeSyncInstalled);
   if (!selectTool) return;
   
+  const originalOnMouseDown = selectTool.onMouseDown;
   const originalOnMouseDrag = selectTool.onMouseDrag;
-  selectTool.onMouseDrag = function(event) {
-    // Si arrastramos el escudo/silueta principal, los HoleControllers ya se mueven gracias a los hooks globales.
-    originalOnMouseDrag.call(this, event);
+  const originalOnMouseUp = selectTool.onMouseUp;
+  
+  selectTool.onMouseDown = function(event) {
+    const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+    selected.forEach(item => {
+      if (item && item.data && item.data.isOuterWithHoles) {
+        item.data.lastPosition = item.position.clone();
+        item.data.lastRotation = item.data.rotation || 0;
+        item.data.lastBounds = item.bounds.clone();
+      }
+    });
     
+    if (typeof originalOnMouseDown === 'function') {
+      originalOnMouseDown.call(this, event);
+    }
+  };
+  
+  selectTool.onMouseDrag = function(event) {
+    if (typeof originalOnMouseDrag === 'function') {
+      originalOnMouseDrag.call(this, event);
+    }
+    
+    const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+    selected.forEach(item => {
+      if (item && item.data && item.data.isOuterWithHoles && item.data.holeIds) {
+        
+        // A. CONTROL DE ROTACIÓN INTERACTIVA
+        if (window.rotationActive) {
+          const angleDiff = (item.data.rotation || 0) - (item.data.lastRotation || 0);
+          if (angleDiff !== 0) {
+            const rotCenter = window.rotationCenter || item.bounds.center;
+            item.data.holeIds.forEach(holeId => {
+              const hole = paper.project.getItem({ id: holeId });
+              if (hole && !hole.selected) {
+                hole.position = hole.position.rotate(angleDiff, rotCenter);
+                hole.rotate(angleDiff, hole.bounds.center);
+              }
+            });
+            item.data.lastRotation = item.data.rotation;
+          }
+        }
+        
+        // B. CONTROL DE REDIMENSIONADO INTERACTIVO (RESIZE)
+        else if (window.resizeActive && item.data.lastBounds) {
+          const currentBounds = item.bounds;
+          const lastBounds = item.data.lastBounds;
+          const scaleX = currentBounds.width / lastBounds.width;
+          const scaleY = currentBounds.height / lastBounds.height;
+          
+          if (scaleX !== 1 || scaleY !== 1) {
+            const anchor = window.resizeAnchor || lastBounds.center;
+            item.data.holeIds.forEach(holeId => {
+              const hole = paper.project.getItem({ id: holeId });
+              if (hole && !hole.selected) {
+                const relPos = hole.position.subtract(anchor);
+                hole.position = anchor.add(new paper.Point(relPos.x * scaleX, relPos.y * scaleY));
+                hole.scale(scaleX, scaleY, hole.position);
+              }
+            });
+            item.data.lastBounds = currentBounds.clone();
+          }
+        }
+        
+        // C. CONTROL DE ARRASTRE INTERACTIVO SIMPLE
+        else if (window.dragging && item.data.lastPosition) {
+          const delta = item.position.subtract(item.data.lastPosition);
+          if (delta.length > 0) {
+            item.data.holeIds.forEach(holeId => {
+              const hole = paper.project.getItem({ id: holeId });
+              if (hole && !hole.selected) {
+                hole.position = hole.position.add(delta);
+              }
+            });
+            item.data.lastPosition = item.position.clone();
+          }
+        }
+        
+        // Recalcular la geometría real recortada sobre el lienzo
+        if (typeof window.updateOuterPathGeometry === 'function') {
+          window.updateOuterPathGeometry(item);
+        }
+      }
+    });
+    
+    // D. RECALCULAR HUECO AL ARRASTRAR DIRECTAMENTE LOS HOLECONTROLLERS
     if (window.dragging && window.selectedItems) {
       window.selectedItems.forEach(item => {
         let outerItemId = null;
@@ -731,18 +733,35 @@ function installHoleDragHook() {
         }
       });
     }
+    
+    if (paper.view) {
+      paper.view.update();
+    }
+  };
+  
+  selectTool.onMouseUp = function(event) {
+    if (typeof originalOnMouseUp === 'function') {
+      originalOnMouseUp.call(this, event);
+    }
+    
+    const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+    selected.forEach(item => {
+      if (item && item.data && item.data.isOuterWithHoles) {
+        delete item.data.lastPosition;
+        delete item.data.lastRotation;
+        delete item.data.lastBounds;
+      }
+    });
   };
   
   selectTool.data = selectTool.data || {};
-  selectTool.data.holeHooked = true;
-  console.log("🚀 Hook de arrastre interactivo secundario registrado con éxito en Paper.js.");
+  selectTool.data.holeSyncInstalled = true;
+  console.log("🚀 Sincronizador interactivo de calados físicos registrado con éxito en Paper.js.");
 }
 
 if (typeof window !== 'undefined') {
-  installHoleSyncHooks();
-  setTimeout(installHoleDragHook, 500);
+  installSelectionToolHoleSync();
   window.addEventListener("DOMContentLoaded", () => {
-    installHoleSyncHooks();
-    setTimeout(installHoleDragHook, 500);
+    setTimeout(installSelectionToolHoleSync, 500);
   });
 }
