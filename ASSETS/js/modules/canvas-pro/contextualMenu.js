@@ -1480,8 +1480,7 @@ export function updateOuterPathGeometry(outerItem) {
   if (!solidGlobal) return outerItem;
 
   const outerGlobalMatrix = getGlobalMatrix(targetOuter);
-  solidGlobal.matrix = outerGlobalMatrix;
-  solidGlobal.applyMatrix = true;
+  solidGlobal.transform(outerGlobalMatrix);
 
   const holeIds = outerItem.data.holeIds || [];
   let combined = solidGlobal;
@@ -1519,8 +1518,7 @@ export function updateOuterPathGeometry(outerItem) {
         
         const holeGlobalMatrix = getGlobalMatrix(hpItem);
         const holeGlobal = hpPath.clone({ insert: false });
-        holeGlobal.matrix = holeGlobalMatrix;
-        holeGlobal.applyMatrix = true;
+        holeGlobal.transform(holeGlobalMatrix);
         
         let temp = null;
         try {
@@ -1551,16 +1549,14 @@ export function updateOuterPathGeometry(outerItem) {
     if (outerItem.data.clipGroup) {
       try {
         const inv = outerItem.matrix.inverted();
-        localCombined.matrix = inv;
-        localCombined.applyMatrix = true;
+        localCombined.transform(inv);
       } catch (err) {
         console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
       }
     } else {
       try {
         const inv = outerGlobalMatrix.inverted();
-        localCombined.matrix = inv;
-        localCombined.applyMatrix = true;
+        localCombined.transform(inv);
       } catch (err) {
         console.warn("Fallo no critico al invertir la matriz en updateOuterPathGeometry:", err);
       }
