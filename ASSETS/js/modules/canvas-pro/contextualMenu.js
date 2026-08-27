@@ -1171,29 +1171,26 @@ export function ungroupSelectedItem() {
     // C. SI ES COMPOUNDPATH
     else if (isCompoundPath(activeTarget)) {
       console.log("%c[EKKO UNGROUP PROCESS] -> Tipo: COMPOUNDPATH (Trazado Compuesto).", "color: #0369a1; font-weight: bold;");
-      const result = geometricUngroupCompound(item);
-      if (result && result.items) {
-        newItems.push(...result.items);
+      
+      if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
+        // REGLA DE ORO DE FABRICACIÓN DE EKKO: Los calados siempre se mantienen calados.
+        // No se disuelve la pieza en trazados planos e independientes de color blanco/transparente,
+        // ya que esto arruinaría las transparencias reales de fabricación sobre el mockup.
+        console.log("%c[EKKO UNGROUP PROCESS] El elemento ya es una pieza sólida con calados activos. Manteniendo calados interactivos estables.", "color: #ea580c; font-weight: bold;");
+        return;
+      } else if (item.data?.isHoleController || activeTarget.data?.isHoleController) {
+        const ungroupedHoles = ungroupHoleController(item);
+        if (ungroupedHoles && ungroupedHoles.length > 0) {
+          newItems.push(...ungroupedHoles);
+        }
       } else {
-        // Fallback al sistema reactivo tradicional
-        if (item.data?.isOuterWithHoles || activeTarget.data?.isOuterWithHoles) {
-          const dissolved = dissolveOuterWithHoles(item);
-          if (dissolved && dissolved.length > 0) {
-            newItems.push(...dissolved);
-          }
-        } else if (item.data?.isHoleController || activeTarget.data?.isHoleController) {
-          const ungroupedHoles = ungroupHoleController(item);
-          if (ungroupedHoles && ungroupedHoles.length > 0) {
-            newItems.push(...ungroupedHoles);
-          }
-        } else {
-          // CORRECCIÓN DE ORO:
-          console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar. Invocando separateContoursIntoIndependentShapes()...", "color: #0284c7; font-weight: bold;");
-          const separated = separateContoursIntoIndependentShapes(item);
-          if (separated && separated.length > 0) {
-            console.log(` - Se generaron ${separated.length} formas/huecos separados.`);
-            newItems.push(...separated);
-          }
+        // Ejecutar la separación geométrica progresiva exterior -> interior -> más a menos de Paper.js.
+        // Esto genera una silueta exterior sólida y calados representados reactivamente por ID (isHoleController = true).
+        console.log("%c[EKKO UNGROUP PROCESS] El elemento es un CompoundPath estándar de SVG. Iniciando descomposición jerárquica...", "color: #0284c7; font-weight: bold;");
+        const separated = separateContoursIntoIndependentShapes(item);
+        if (separated && separated.length > 0) {
+          console.log(` - Se generaron ${separated.length} formas sólidas y/o calados celestes reactivos de primer nivel.`);
+          newItems.push(...separated);
         }
       }
     }
