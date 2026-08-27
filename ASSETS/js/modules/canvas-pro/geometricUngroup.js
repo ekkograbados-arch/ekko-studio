@@ -302,65 +302,60 @@ export function geometricUngroupCompound(item) {
     result.push(...decomposed);
   } else {
     // Si hay múltiples raíces independientes (estrellas, laureles, escudo mezclados):
+    // REGLA DE ORO DE DESAGRUPADO (1er clic): Se separan únicamente las raíces independientes a nivel global,
+    // manteniendo la jerarquía interna de cada una 100% unificada e intacta (sin descomposición recursiva prematura).
     roots.forEach(root => {
-      // Si cada raíz tiene sólidos anidados, la descomponemos
-      if (hasNestedSolids(root)) {
-        const decomposed = decomposeNode(root, global, isClipped, item, parent, target);
-        result.push(...decomposed);
-      } else {
-        // De lo contrario, se genera como un solo elemento simple o compuesto de un solo nivel (manteniendo su jerarquía de un nivel)
-        const rootPathClone = clonePath(root.path);
-        const descendants = [];
-        collectDescendantPaths(root, descendants);
+      const rootPathClone = clonePath(root.path);
+      const descendants = [];
+      collectDescendantPaths(root, descendants);
 
-        let newElement;
-        if (descendants.length > 0) {
-          const compoundChildren = [rootPathClone, ...descendants];
-          const newCompound = new paper.CompoundPath({
-            children: compoundChildren,
-            insert: false,
-            fillRule: 'evenodd'
-          });
-          newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-          newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-          newCompound.strokeWidth = target.strokeWidth || 0;
-          
-          if (isClipped) {
-            newElement = window.clipItem(newCompound);
-            newElement.matrix = item.matrix.clone();
-          } else {
-            newElement = newCompound;
-            newElement.matrix = global.clone();
-            parent.addChild(newElement);
-          }
-          newElement.data = {
-            ...(item.data || {}),
-            locked: false,
-            geometricHierarchy: 'compound',
-            label: item.data?.label || "Objeto Compuesto"
-          };
+      let newElement;
+      if (descendants.length > 0) {
+        const compoundChildren = [rootPathClone, ...descendants];
+        const newCompound = new paper.CompoundPath({
+          children: compoundChildren,
+          insert: false,
+          fillRule: 'evenodd'
+        });
+        newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+        newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+        newCompound.strokeWidth = target.strokeWidth || 0;
+        
+        if (isClipped) {
+          newElement = window.clipItem(newCompound);
+          newElement.matrix = item.matrix.clone();
         } else {
-          rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-          rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-          rootPathClone.strokeWidth = target.strokeWidth || 0;
-          
-          if (isClipped) {
-            newElement = window.clipItem(rootPathClone);
-            newElement.matrix = item.matrix.clone();
-          } else {
-            newElement = rootPathClone;
-            newElement.matrix = global.clone();
-            parent.addChild(newElement);
-          }
-          newElement.data = {
-            ...(item.data || {}),
-            locked: false,
-            geometricHierarchy: 'simple',
-            label: item.data?.label || "Objeto"
-          };
+          newElement = newCompound;
+          newElement.matrix = global.clone();
+          parent.addChild(newElement);
         }
-        result.push(newElement);
+        newElement.data = {
+          ...(item.data || {}),
+          locked: false,
+          geometricHierarchy: 'compound',
+          label: item.data?.label || "Objeto Compuesto"
+        };
+      } else {
+        rootPathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+        rootPathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+        rootPathClone.strokeWidth = target.strokeWidth || 0;
+        
+        if (isClipped) {
+          newElement = window.clipItem(rootPathClone);
+          newElement.matrix = item.matrix.clone();
+        } else {
+          newElement = rootPathClone;
+          newElement.matrix = global.clone();
+          parent.addChild(newElement);
+        }
+        newElement.data = {
+          ...(item.data || {}),
+          locked: false,
+          geometricHierarchy: 'simple',
+          label: item.data?.label || "Objeto"
+        };
       }
+      result.push(newElement);
     });
   }
 
