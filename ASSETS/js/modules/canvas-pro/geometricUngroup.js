@@ -1,5 +1,5 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v12)
+   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v14)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
    Descripción: Motor de desagrupado geométrico progresivo y reactivo.
                 Cumple estrictamente con la filosofía de EKKO Studio V23:
@@ -9,6 +9,7 @@
                   nivel por nivel, de afuera hacia adentro.
                 - Permite desagrupar hasta llegar a la mínima expresión de elementos simples
                   (ya sean sólidos/rellenos o huecos/vacíos/calados físicos sin relleno).
+                - Sincronización geométrica total 100% inmune a desalineaciones y arrastres.
 ========================================================================= */
 
 function isPath(item) {
@@ -178,6 +179,155 @@ function configurePathFill(path, targetFillColor, targetStrokeColor, targetStrok
   }
 }
 
+// Sincroniza dinámicamente la geometría de un CompoundPath OuterWithHoles reconstruyendo sus sub-trazados
+export function updateOuterCompoundPathGeometry(outerItem) {
+  if (!outerItem || !outerItem.data || !outerItem.data.holeIds) return;
+  
+  const holeIds = outerItem.data.holeIds;
+  const targetPaths = [outerItem.children[0]]; // Mantener la silueta outer de base
+  
+  holeIds.forEach(holeId => {
+    const holeItem = paper.project.getItem({ id: holeId });
+    if (holeItem && holeItem.parent) {
+      let activePath = holeItem;
+      if (isGroup(holeItem)) {
+        activePath = holeItem.children.find(c => c.data && c.data.isHoleController) || holeItem.children[0];
+      }
+      
+      if (activePath && (isPath(activePath) || isCompoundPath(activePath))) {
+        const clonedHole = activePath.clone({ insert: false });
+        const pathMatrix = getGlobalMatrix(activePath);
+        const outerMatrix = getGlobalMatrix(outerItem);
+        const relMatrix = outerMatrix.inverted().chain(pathMatrix);
+        clonedHole.matrix = relMatrix;
+        
+        if (isCompoundPath(clonedHole)) {
+          clonedHole.children.forEach(c => targetPaths.push(clonePath(c)));
+        } else {
+          targetPaths.push(clonedHole);
+        }
+      }
+    }
+  });
+  
+  outerItem.removeChildren();
+  outerItem.addChildren(targetPaths);
+  
+  if (paper.view) {
+    paper.view.update();
+  }
+}
+window.updateOuterPathGeometry = updateOuterCompoundPathGeometry;
+
+// Constructor recursivo para calados físicos y sólidos anidados
+function buildHoleTree(node, outerItem, groupToAppend, targetColor, targetStrokeColor, targetStrokeWidth, isClipped, item, global, parent) {
+  const isHole = node.path.data.globalDepth % 2 === 1;
+  
+  if (isHole) {
+    // Es un Hueco físico independiente (HoleController)
+    const pathClone = clonePath(node.path);
+    pathClone.fillColor = null; // Vacío físico real
+    pathClone.strokeColor = targetStrokeColor ? targetStrokeColor.clone() : new paper.Color('#000000');
+    pathClone.strokeWidth = targetStrokeWidth || 1;
+    
+    let newElement;
+    if (isClipped) {
+      newElement = window.clipItem(pathClone);
+      newElement.matrix = item.matrix.clone();
+    } else {
+      newElement = pathClone;
+      newElement.matrix = global.clone();
+      parent.addChild(newElement);
+    }
+    
+    newElement.data = {
+      ...(item.data || {}),
+      locked: false,
+      isHoleController: true,
+      outerItemId: outerItem.id,
+      globalDepth: node.path.data.globalDepth,
+      geometricHierarchy: 'simple',
+      label: "Hueco"
+    };
+    
+    outerItem.data.holeIds.push(newElement.id);
+    groupToAppend.addChild(newElement);
+    
+    // Construir recursivamente los descendientes de este hueco
+    node.children.forEach(childNode => {
+      buildHoleTree(childNode, outerItem, groupToAppend, targetColor, targetStrokeColor, targetStrokeWidth, isClipped, item, global, parent);
+    });
+  } else {
+    // Es un Sólido interno (ej. el triángulo de la "A")
+    const pathClone = clonePath(node.path);
+    pathClone.fillColor = targetColor ? targetColor.clone() : new paper.Color('#000000');
+    pathClone.strokeColor = targetStrokeColor ? targetStrokeColor.clone() : null;
+    pathClone.strokeWidth = targetStrokeWidth || 0;
+    
+    let newElement;
+    if (isClipped) {
+      newElement = window.clipItem(pathClone);
+      newElement.matrix = item.matrix.clone();
+    } else {
+      newElement = pathClone;
+      newElement.matrix = global.clone();
+      parent.addChild(newElement);
+    }
+    
+    newElement.data = {
+      ...(item.data || {}),
+      locked: false,
+      globalDepth: node.path.data.globalDepth,
+      geometricHierarchy: 'simple',
+      label: "Objeto"
+    };
+    
+    groupToAppend.addChild(newElement);
+    
+    if (node.children.length > 0) {
+      // Si este sólido tiene a su vez huecos más internos, actúa como outer de ese nivel
+      const solidChildren = [clonePath(node.path)];
+      node.children.forEach(gNode => solidChildren.push(clonePath(gNode.path)));
+      
+      const solidCompound = new paper.CompoundPath({
+        children: solidChildren,
+        insert: false,
+        fillRule: 'evenodd'
+      });
+      solidCompound.fillColor = targetColor ? targetColor.clone() : new paper.Color('#000000');
+      solidCompound.strokeColor = targetStrokeColor ? targetStrokeColor.clone() : null;
+      solidCompound.strokeWidth = targetStrokeWidth || 0;
+      
+      newElement.remove();
+      let replacedElement;
+      if (isClipped) {
+        replacedElement = window.clipItem(solidCompound);
+        replacedElement.matrix = item.matrix.clone();
+      } else {
+        replacedElement = solidCompound;
+        replacedElement.matrix = global.clone();
+        parent.addChild(replacedElement);
+      }
+      
+      replacedElement.data = {
+        ...(item.data || {}),
+        locked: false,
+        isOuterWithHoles: true,
+        holeIds: [],
+        originalPath: clonePath(node.path),
+        globalDepth: node.path.data.globalDepth,
+        geometricHierarchy: 'simple',
+        label: "Objeto"
+      };
+      groupToAppend.addChild(replacedElement);
+      
+      node.children.forEach(gNode => {
+        buildHoleTree(gNode, replacedElement, groupToAppend, targetColor, targetStrokeColor, targetStrokeWidth, isClipped, item, global, parent);
+      });
+    }
+  }
+}
+
 export function geometricUngroupCompound(item) {
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return null;
   const isClipped = !!item.data?.clipGroup;
@@ -200,11 +350,10 @@ export function geometricUngroupCompound(item) {
     return { handled: true, simple: true, items: [item] };
   }
 
-  // CONSTRUCTOR RECURSIVO DE ESTRUCTURAS GEOMÉTRICAS (Mantiene Física Real de Huecos)
-  const buildGeometricNode = (node) => {
+  // CONSTRUCTOR RECURSIVO DE ESTRUCTURAS GEOMÉTRICAS UNIFICADAS (Para 1er Clic de Desagrupar)
+  const buildUnifiedCompoundNode = (node) => {
     const hasChildren = node.children.length > 0;
     if (!hasChildren) {
-      // Elemento simple (sin estructura interna profunda)
       const pathClone = clonePath(node.path);
       configurePathFill(pathClone, target.fillColor, target.strokeColor, target.strokeWidth);
       
@@ -238,7 +387,6 @@ export function geometricUngroupCompound(item) {
         fillRule: 'evenodd'
       });
       
-      // El CompoundPath unificado se rellena con color negro o de la imagen (sólido a nivel compuesto)
       newCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
       newCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
       newCompound.strokeWidth = target.strokeWidth || 0;
@@ -265,46 +413,112 @@ export function geometricUngroupCompound(item) {
     }
   };
 
-  // Si hay una sola raíz en todo el trazado compuesto (ej: el Cuerpo del Escudo, o la letra "A" unificada)
+  // CASO A: SI HAY UNA SOLA RAÍZ EN LA SELECCIÓN ACTUAL (ej: el Cuerpo del Escudo)
   // Decomponemos un único nivel de esta raíz, promoviendo sus hijos directos (Nivel 1) a elementos independientes.
   if (roots.length === 1) {
     const root = roots[0];
     
-    // 1. Crear la silueta o contorno exterior como un contorno simple
-    const shellPath = clonePath(root.path);
-    configurePathFill(shellPath, target.fillColor, target.strokeColor, target.strokeWidth);
+    // 1. Crear la corteza (shell) o contorno exterior como un CompoundPath con sus huecos directos de primer nivel
+    // Esto garantiza que visualmente y físicamente el escudo sea calado de forma nativa en el 2do clic.
+    const shellChildren = [clonePath(root.path)];
+    root.children.forEach(childNode => {
+      shellChildren.push(clonePath(childNode.path));
+    });
+    
+    const shellCompound = new paper.CompoundPath({
+      children: shellChildren,
+      insert: false,
+      fillRule: 'evenodd'
+    });
+    shellCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+    shellCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+    shellCompound.strokeWidth = target.strokeWidth || 0;
     
     let configuredShell;
     if (isClipped) {
-      configuredShell = window.clipItem(shellPath);
+      configuredShell = window.clipItem(shellCompound);
       configuredShell.matrix = item.matrix.clone();
     } else {
-      configuredShell = shellPath;
+      configuredShell = shellCompound;
       configuredShell.matrix = global.clone();
       parent.addChild(configuredShell);
     }
+    
     configuredShell.data = {
       ...(item.data || {}),
       locked: false,
+      isOuterWithHoles: true,
+      holeIds: [], // Se poblará dinámicamente con los HoleControllers independientes
+      originalPath: clonePath(root.path),
       globalDepth: root.path.data.globalDepth,
       geometricHierarchy: 'simple',
-      label: root.path.data.globalDepth % 2 === 1 ? "Hueco" : "Objeto"
+      label: "Objeto"
     };
     result.push(configuredShell);
 
     // 2. Promover cada hijo directo de primer nivel a un elemento independiente (sea simple o un grupo compuesto unificado)
     root.children.forEach(childNode => {
-      const childItem = buildGeometricNode(childNode);
-      if (childItem) {
-        result.push(childItem);
+      const hasChildren = childNode.children.length > 0;
+      if (!hasChildren) {
+        // Es una forma simple (ej. bandas, "F"): se crea como HoleController directo
+        const pathClone = clonePath(childNode.path);
+        pathClone.fillColor = null; // Vacío real
+        pathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : new paper.Color('#000000');
+        pathClone.strokeWidth = target.strokeWidth || 1;
+        
+        let newElement;
+        if (isClipped) {
+          newElement = window.clipItem(pathClone);
+          newElement.matrix = item.matrix.clone();
+        } else {
+          newElement = pathClone;
+          newElement.matrix = global.clone();
+          parent.addChild(newElement);
+        }
+        
+        newElement.data = {
+          ...(item.data || {}),
+          locked: false,
+          isHoleController: true,
+          outerItemId: configuredShell.id,
+          globalDepth: childNode.path.data.globalDepth,
+          geometricHierarchy: 'simple',
+          label: "Hueco"
+        };
+        
+        configuredShell.data.holeIds.push(newElement.id);
+        result.push(newElement);
+      } else {
+        // Es un elemento compuesto (ej. letras "A"): se crea como un Group con estructura geométrica interna
+        const group = new paper.Group({ insert: false });
+        
+        buildHoleTree(childNode, configuredShell, group, target.fillColor, target.strokeColor, target.strokeWidth, isClipped, item, global, parent);
+        
+        let finalGroupItem;
+        if (isClipped) {
+          finalGroupItem = window.clipItem(group);
+          finalGroupItem.matrix = item.matrix.clone();
+        } else {
+          finalGroupItem = group;
+          finalGroupItem.matrix = global.clone();
+          parent.addChild(finalGroupItem);
+        }
+        
+        finalGroupItem.data = {
+          ...(item.data || {}),
+          locked: false,
+          geometricHierarchy: 'compound',
+          label: "Objeto Compuesto"
+        };
+        result.push(finalGroupItem);
       }
     });
 
   } else {
-    // Si hay múltiples raíces independientes (estrellas, laureles, escudo mezclados):
+    // CASO B: SI HAY MÚLTIPLES RAÍCES INDEPENDIENTES (estrellas, laureles, escudo mezclados)
     // Separamos únicamente las raíces independientes a nivel global
     roots.forEach(rootNode => {
-      const built = buildGeometricNode(rootNode);
+      const built = buildUnifiedCompoundNode(rootNode);
       if (built) {
         result.push(built);
       }
@@ -399,4 +613,136 @@ export function geometricUngroupOneLevel(item, isClipped = false, oldClipGroup =
   }
 
   return { handled: true, items: addedItems };
+}
+
+// =========================================================================
+// HOOKS DE SINCRONIZACIÓN GEOMÉTRICA GLOBAL (100% INMUNE A DESALINEACIONES)
+// =========================================================================
+function installHoleSyncHooks() {
+  if (typeof paper === 'undefined' || !paper.Item) {
+    setTimeout(installHoleSyncHooks, 100);
+    return;
+  }
+  
+  if (paper.Item.prototype.data?.hooksInstalled) return;
+
+  // 1. Hook para position setter
+  const desc = Object.getOwnPropertyDescriptor(paper.Item.prototype, 'position');
+  if (desc && desc.set) {
+    const originalPositionSetter = desc.set;
+    Object.defineProperty(paper.Item.prototype, 'position', {
+      set: function(newPos) {
+        const oldPos = this.position.clone();
+        originalPositionSetter.call(this, newPos);
+        const delta = newPos.subtract(oldPos);
+        if (delta.length > 0 && this.data && this.data.isOuterWithHoles && this.data.holeIds) {
+          this.data.holeIds.forEach(holeId => {
+            const holeItem = paper.project.getItem({ id: holeId });
+            if (holeItem && !holeItem.selected) {
+              holeItem.position = holeItem.position.add(delta);
+            }
+          });
+        }
+      },
+      get: desc.get,
+      configurable: true
+    });
+  }
+
+  // 2. Hook para translate
+  const originalTranslate = paper.Item.prototype.translate;
+  paper.Item.prototype.translate = function(delta) {
+    originalTranslate.call(this, delta);
+    if (this.data && this.data.isOuterWithHoles && this.data.holeIds) {
+      this.data.holeIds.forEach(holeId => {
+        const holeItem = paper.project.getItem({ id: holeId });
+        if (holeItem && !holeItem.selected) {
+          holeItem.translate(delta);
+        }
+      });
+    }
+  };
+
+  // 3. Hook para rotate
+  const originalRotate = paper.Item.prototype.rotate;
+  paper.Item.prototype.rotate = function(angle, center) {
+    const rotCenter = center || this.position;
+    originalRotate.call(this, angle, rotCenter);
+    if (this.data && this.data.isOuterWithHoles && this.data.holeIds) {
+      this.data.holeIds.forEach(holeId => {
+        const holeItem = paper.project.getItem({ id: holeId });
+        if (holeItem && !holeItem.selected) {
+          holeItem.rotate(angle, rotCenter);
+        }
+      });
+    }
+  };
+
+  // 4. Hook para scale
+  const originalScale = paper.Item.prototype.scale;
+  paper.Item.prototype.scale = function(hor, ver, center) {
+    const scaleCenter = center || this.position;
+    originalScale.call(this, hor, ver, scaleCenter);
+    if (this.data && this.data.isOuterWithHoles && this.data.holeIds) {
+      this.data.holeIds.forEach(holeId => {
+        const holeItem = paper.project.getItem({ id: holeId });
+        if (holeItem && !holeItem.selected) {
+          holeItem.scale(hor, ver, scaleCenter);
+        }
+      });
+    }
+  };
+
+  paper.Item.prototype.data = paper.Item.prototype.data || {};
+  paper.Item.prototype.data.hooksInstalled = true;
+  console.log("🔥 Hooks de sincronización geométrica global instalados con éxito en Paper.js.");
+}
+
+// Hook de arrastre reactivo secundario para HoleControllers individuales
+function installHoleDragHook() {
+  if (typeof paper === 'undefined' || !paper.tools || paper.tools.length === 0) {
+    setTimeout(installHoleDragHook, 100);
+    return;
+  }
+  
+  const selectTool = paper.tools.find(t => t.onMouseDrag && !t.data?.holeHooked);
+  if (!selectTool) return;
+  
+  const originalOnMouseDrag = selectTool.onMouseDrag;
+  selectTool.onMouseDrag = function(event) {
+    // Si arrastramos el escudo/silueta principal, los HoleControllers ya se mueven gracias a los hooks globales.
+    originalOnMouseDrag.call(this, event);
+    
+    if (window.dragging && window.selectedItems) {
+      window.selectedItems.forEach(item => {
+        let outerItemId = null;
+        if (item.data && item.data.isHoleController) {
+          outerItemId = item.data.outerItemId;
+        } else if (isGroup(item)) {
+          const hc = item.children.find(c => c.data && c.data.isHoleController);
+          if (hc) outerItemId = hc.data.outerItemId;
+        }
+        
+        if (outerItemId) {
+          const outerItem = paper.project.getItem({ id: outerItemId });
+          if (outerItem && typeof window.updateOuterPathGeometry === 'function') {
+            window.updateOuterPathGeometry(outerItem);
+          }
+        }
+      });
+    }
+  };
+  
+  selectTool.data = selectTool.data || {};
+  selectTool.data.holeHooked = true;
+  console.log("🚀 Hook de arrastre interactivo secundario registrado con éxito en Paper.js.");
+}
+
+if (typeof window !== 'undefined') {
+  installHoleSyncHooks();
+  setTimeout(installHoleDragHook, 500);
+  window.addEventListener("DOMContentLoaded", () => {
+    installHoleSyncHooks();
+    setTimeout(installHoleDragHook, 500);
+  });
 }
