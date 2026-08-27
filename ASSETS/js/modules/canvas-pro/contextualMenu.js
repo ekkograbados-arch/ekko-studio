@@ -345,76 +345,64 @@ function getLeafItemsRecursive(item) {
 }
 
 export function groupSelectedItems() {
-    const selected = (window.selectedItems && window.selectedItems.length > 0)
-        ? [...window.selectedItems]
-        : (window.selectedItem ? [window.selectedItem] : []);
-    if (selected.length < 2) {
-        alert("Selecciona al menos 2 elementos para poder agruparlos.");
-        return;
-    }
-    for (let item of selected) {
-        if (item.data?.locked || item.data?.mockup) {
-            alert("No se pueden agrupar objetos protegidos.");
-            return;
-        }
-    }
-    if (typeof window.saveHistory === 'function') {
-        window.saveHistory();
-    }
-    const parent = selected[0].parent || paper.project.activeLayer;
-    const index = parent.children.indexOf(selected[0]);
-    const isClipped = selected.some(item => !!item.data?.clipGroup);
-    const contents = [];
+  const selected = (window.selectedItems && window.selectedItems.length > 0)
+    ? [...window.selectedItems]
+    : (window.selectedItem ? [window.selectedItem] : []);
 
-    // Procesamiento de refundido interactivo de huecos antes de agrupar
-    const outersInSelection = selected.filter(item => item.data?.isOuterWithHoles);
-    outersInSelection.forEach(outerItem => {
-        const holeIds = outerItem.data.holeIds || [];
-        const associatedHoles = holeIds
-            .map(id => paper.project.getItem({ id }))
-            .filter(h => h && selected.includes(h) && h.parent);
-        associatedHoles.forEach(h => {
-            const idx = selected.indexOf(h);
-            if (idx > -1) selected.splice(idx, 1);
-            h.remove();
-        });
-        const idxOuter = selected.indexOf(outerItem);
-        if (idxOuter > -1) selected.splice(idxOuter, 1);
-        const targetOuter = outerItem.data.clipGroup ? getContentItem(outerItem) : outerItem;
-        const rebuiltPath = targetOuter.clone({ insert: false });
-        outerItem.remove();
-        window.ekkoOuters.delete(outerItem.id);
-        contents.push(rebuiltPath);
-    });
+  if (selected.length < 2) {
+    alert("Selecciona al menos 2 elementos para poder agruparlos.");
+    return;
+  }
 
-    selected.forEach(item => {
-        let content;
-        if (item.data?.clipGroup) {
-            content = getContentItem(item);
-            if (content) content.remove();
-        } else {
-            content = item;
-            content.remove();
-        }
-        if (content) contents.push(content);
-        item.remove();
-    });
+  for (let item of selected) {
+    if (item.data?.locked || item.data?.mockup) {
+      alert("No se pueden agrupar objetos protegidos.");
+      return;
+    }
+  }
 
-    const newGroup = new paper.Group(contents);
-    newGroup.data = { locked: false, label: "Grupo" };
-    let finalItem;
-    if (isClipped && typeof window.clipItem === 'function') {
-        finalItem = window.clipItem(newGroup);
+  if (typeof window.saveHistory === 'function') {
+    window.saveHistory();
+  }
+
+  const parent = selected.parent || paper.project.activeLayer;
+  const index = parent.children.indexOf(selected);
+  const isClipped = selected.some(item => !!item.data?.clipGroup);
+  const contents = [];
+
+  // Agrupar los elementos seleccionados respetando estrictamente su geometría real actual.
+  // Se elimina por completo la destrucción/fusión forzada de huecos independientes.
+  selected.forEach(item => {
+    let content;
+    if (item.data?.clipGroup) {
+      content = getContentItem(item);
+      if (content) content.remove();
     } else {
-        finalItem = newGroup;
-        parent.addChild(finalItem);
+      content = item;
+      content.remove();
     }
-    if (finalItem.parent) {
-        finalItem.parent.insertChild(index, finalItem);
-    }
-    window.deselectItem();
-    window.selectItem(finalItem);
-    paper.view.update();
+    if (content) contents.push(content);
+    item.remove();
+  });
+
+  const newGroup = new paper.Group(contents);
+  newGroup.data = { locked: false, label: "Grupo" };
+
+  let finalItem;
+  if (isClipped && typeof window.clipItem === 'function') {
+    finalItem = window.clipItem(newGroup);
+  } else {
+    finalItem = newGroup;
+    parent.addChild(finalItem);
+  }
+
+  if (finalItem.parent) {
+    finalItem.parent.insertChild(index, finalItem);
+  }
+
+  window.deselectItem();
+  window.selectItem(finalItem);
+  paper.view.update();
 }
 
 function getMatrixRelativeTo(item, targetAncestor) {
