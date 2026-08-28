@@ -1,10 +1,11 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/selection.js (WYSIWYG Canva-Style Grouping - v9 PRO)
-Ruta de reemplazo: ASSETS/js/modules/selection.js
-Descripcion: Gestion de seleccion multiple, arrastre en bloque, recuadro de
-             seleccion por arrastre y redimensionamiento/rotacion grupal estilo Canva/Figma.
-             Sincronizado y blindado contra TypeErrors de children indefinidos.
-========================================================================= */
+   Módulo: ASSETS/js/modules/selection.js (WYSIWYG Canva-Style Grouping - v10 PRO)
+   Ruta de reemplazo: ASSETS/js/modules/selection.js
+   Descripción: Gestión de selección múltiple, arrastre en bloque, recuadro de
+   selección por arrastre y redimensionamiento/rotación grupal estilo Canva/Figma.
+   Sincronizado y blindado contra TypeErrors de children indefinidos e integrado
+   con el motor CSG reactivo de sustracción dinámica.
+   ========================================================================= */
 
 if (typeof console !== "undefined") {
     console.log = () => {};
@@ -134,26 +135,35 @@ const _updateSelectionBox = function(item) {
         curr = curr.parent;
     }
     if (isMockup) return;
+
     const selected = (window.selectedItems && window.selectedItems.length > 0)
         ? window.selectedItems
         : [primaryItem];
+    
     let bounds = null;
     selected.forEach(function(it) {
         const displayItem = getContentItem(it);
         if (!displayItem) return;
+        // FILTRADO DE CONTENCIÓN: Si el elemento fue físicamente desintegrado (visible === false o vacío), saltar de bounds
+        if (displayItem.visible === false || displayItem.pathData === "") return;
         if (!bounds) {
             bounds = displayItem.bounds.clone();
         } else {
             bounds = bounds.unite(displayItem.bounds);
         }
     });
+
     if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
     window.selectionBoxGroup = new paper.Group();
     window.selectionBoxGroup.data = { isSelectionBox: true };
+
     if (selected.length > 1) {
         selected.forEach(function(it) {
             const displayItem = getContentItem(it);
             if (displayItem && displayItem.bounds) {
+                // Saltar bordes individuales de sólidos desintegrados
+                if (displayItem.visible === false || displayItem.pathData === "") return;
                 const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
                 singleBorder.strokeColor = '#007bff';
                 singleBorder.strokeWidth = 1 / paper.view.zoom;
@@ -162,6 +172,7 @@ const _updateSelectionBox = function(item) {
             }
         });
     }
+
     const isRotSnapped = window.isRotationSnapped && window.rotationActive;
     const mainColor = isRotSnapped ? '#28a745' : '#007bff';
     const border = new paper.Path.Rectangle(bounds);
@@ -169,6 +180,7 @@ const _updateSelectionBox = function(item) {
     border.strokeWidth = 1.5 / paper.view.zoom;
     border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
     window.selectionBoxGroup.addChild(border);
+
     const handleSize = 8 / paper.view.zoom;
     const handlesInfo = [
         { point: bounds.topLeft, type: 'tl' },
@@ -180,6 +192,7 @@ const _updateSelectionBox = function(item) {
         { point: bounds.bottomLeft, type: 'bl' },
         { point: bounds.leftCenter, type: 'l' }
     ];
+
     handlesInfo.forEach(function(info) {
         const rect = new paper.Path.Rectangle({
             center: info.point,
@@ -191,12 +204,14 @@ const _updateSelectionBox = function(item) {
         rect.data = { isHandle: true, handleType: info.type };
         window.selectionBoxGroup.addChild(rect);
     });
+
     const rotHandleDistance = 25 / paper.view.zoom;
     const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
     const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
     connector.strokeColor = mainColor;
     connector.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(connector);
+
     const rotHandleCircle = new paper.Path.Circle({
         center: rotHandleCenter,
         radius: 7.5 / paper.view.zoom,
@@ -206,6 +221,7 @@ const _updateSelectionBox = function(item) {
     });
     rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
     window.selectionBoxGroup.addChild(rotHandleCircle);
+
     const iconRadius = 3.5 / paper.view.zoom;
     const arrowIcon = new paper.Path.Arc(
         rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
@@ -215,6 +231,7 @@ const _updateSelectionBox = function(item) {
     arrowIcon.strokeColor = mainColor;
     arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(arrowIcon);
+
     const arrowTip = new paper.Path();
     arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
     arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
@@ -222,7 +239,9 @@ const _updateSelectionBox = function(item) {
     arrowTip.strokeColor = mainColor;
     arrowTip.strokeWidth = 1.2 / paper.view.zoom;
     window.selectionBoxGroup.addChild(arrowTip);
+    
     window.selectionBoxGroup.bringToFront();
+
     if (typeof window.applyPositionCorrections === "function") {
         window.applyPositionCorrections();
     }
@@ -256,6 +275,7 @@ const _selectItem = function(item, isMulti = false){
         return;
     }
     if (!window.selectedItems) window.selectedItems = [];
+
     if (isMulti) {
         const index = window.selectedItems.indexOf(item);
         if (index > -1) {
@@ -441,6 +461,7 @@ const _initSelectionTool = function() {
             window.resizeLastScaleY = 1.0;
             return;
         }
+
         let generalHit = paper.project.hitTest(event.point, {
             fill: true,
             stroke: true,
@@ -459,6 +480,7 @@ const _initSelectionTool = function() {
                 return true;
             }
         });
+
         if (generalHit) {
             const selectableItem = window.getSelectableItem(generalHit.item);
             if (selectableItem) {
@@ -470,6 +492,7 @@ const _initSelectionTool = function() {
                 generalHit = null;
             }
         }
+
         if (generalHit) {
             const selectableItem = window.getSelectableItem(generalHit.item);
             if (selectableItem) {
@@ -519,6 +542,7 @@ const _initSelectionTool = function() {
                 return;
             }
         }
+
         if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
             const selectionBoxBounds = window.selectionBoxGroup.bounds;
             if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
@@ -537,6 +561,7 @@ const _initSelectionTool = function() {
                 return;
             }
         }
+
         window.deselectItem();
         window.marqueeActive = true;
         window.marqueeStartPoint = event.point.clone();
@@ -571,6 +596,7 @@ const _initSelectionTool = function() {
             paper.view.update();
             return;
         }
+
         if (window.rotationActive && window.rotationTargets && window.rotationTargets.length > 0) {
             const currentPoint = event.point;
             const vector = currentPoint.subtract(window.rotationCenter);
@@ -606,6 +632,12 @@ const _initSelectionTool = function() {
                 rt.target.data = rt.target.data || {};
                 rt.target.data.rotation = targetAngle;
             });
+
+            // RECALCULO REACTIVO AL ROTAR
+            if (typeof window.recalculateDynamicSubtractions === 'function') {
+                window.recalculateDynamicSubtractions();
+            }
+
             const rotationNum = document.getElementById('ctxRotationNum');
             if (rotationNum && window.selectedItem) {
                 const displayItem = getContentItem(window.selectedItem);
@@ -617,6 +649,7 @@ const _initSelectionTool = function() {
             paper.view.update();
             return;
         }
+
         if (window.resizeActive && window.resizeTargets && window.resizeTargets.length > 0) {
             const anchor = window.resizeAnchor;
             const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
@@ -629,6 +662,7 @@ const _initSelectionTool = function() {
             const initialYDiff = initialHandlePoint.y - anchor.y;
             const currentYDiff = currentHandlePoint.y - anchor.y;
             if (Math.abs(initialYDiff) > 0.001) factorY = currentYDiff / initialYDiff;
+
             if (['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType)) {
                 const factor = (Math.abs(factorX) + Math.abs(factorY)) / 2 * (factorX < 0 ? -1 : 1);
                 factorX = factor;
@@ -645,15 +679,28 @@ const _initSelectionTool = function() {
             });
             window.resizeLastScaleX = factorX;
             window.resizeLastScaleY = factorY;
+
+            // RECALCULO REACTIVO AL ESCALAR/REDIMENSIONAR
+            if (typeof window.recalculateDynamicSubtractions === 'function') {
+                window.recalculateDynamicSubtractions();
+            }
+
             window.updateSelectionBox(null);
             paper.view.update();
             return;
         }
+
         if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
             window.dragTargets.forEach(function(dragInfo) {
                 if (dragInfo.item.data && dragInfo.item.data.locked) return;
                 dragInfo.target.position = event.point.subtract(dragInfo.dragOffset);
             });
+
+            // RECALCULO REACTIVO AL MOVER EN TIEMPO REAL
+            if (typeof window.recalculateDynamicSubtractions === 'function') {
+                window.recalculateDynamicSubtractions();
+            }
+
             if (typeof calculateSmartGuides === "function") {
                 calculateSmartGuides(window.selectedItem, event);
             }
@@ -661,11 +708,6 @@ const _initSelectionTool = function() {
             paper.view.update();
             return;
         }
-      if (window.dragging && window.selectedItem) {
-    if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-    }
-}
     };
 
     selectTool.onMouseUp = function(event) {
@@ -695,7 +737,8 @@ const _initSelectionTool = function() {
                     return;
                 }
                 const displayItem = getContentItem(item);
-                if (displayItem && displayItem.bounds && marqueeBounds.intersects(displayItem.bounds)) {
+                // Saltar sólidos invisibles o desintegrados de la marquee
+                if (displayItem && displayItem.bounds && (displayItem.visible !== false && displayItem.pathData !== "") && marqueeBounds.intersects(displayItem.bounds)) {
                     itemsToSelect.push(item);
                 }
             });
@@ -715,6 +758,7 @@ const _initSelectionTool = function() {
             paper.view.update();
             return;
         }
+
         if (window.resizeActive || window.dragging || window.rotationActive) {
             if (typeof window.saveHistory === 'function') window.saveHistory();
         }
@@ -781,7 +825,7 @@ const _initSelectionTool = function() {
                 const hitItem = window.getSelectableItem(generalHit.item);
                 if (hitItem) {
                     const displayItem = getContentItem(hitItem);
-                    if (displayItem && displayItem.bounds && displayItem.bounds.contains(event.point)) {
+                    if (displayItem && displayItem.bounds && (displayItem.visible !== false && displayItem.pathData !== "") && displayItem.bounds.contains(event.point)) {
                         if (window.selectedItems && window.selectedItems.includes(hitItem)) {
                             canvas.style.cursor = 'move';
                             return;
@@ -809,6 +853,7 @@ const _initSelectionTool = function() {
             canvas.style.cursor = 'default';
         }
     };
+
     selectTool.activate();
 };
 
