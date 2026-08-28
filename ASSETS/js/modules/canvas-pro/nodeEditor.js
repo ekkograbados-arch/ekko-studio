@@ -796,3 +796,13 @@ if (typeof window !== 'undefined') {
   window.drawNodeHandles = drawNodeHandles;
   window.detachSelectedSubpaths = detachSelectedSubpaths;
 }
+// En el evento onMouseDrag del editor de nodos, justo después de mover el segmento:
+if (activeNodeItem && activeNodeItem.data?.isHole) {
+    const localClone = activeNodeItem.clone({ insert: false });
+    localClone.matrix = new paper.Matrix(); // Resetea transformaciones para coordenadas puras
+    activeNodeItem.data.geomBase = localClone;
+
+    if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
+    }
+}
