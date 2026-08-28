@@ -661,6 +661,11 @@ const _initSelectionTool = function() {
             paper.view.update();
             return;
         }
+      if (window.dragging && window.selectedItem) {
+    if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
+    }
+}
     };
 
     selectTool.onMouseUp = function(event) {
