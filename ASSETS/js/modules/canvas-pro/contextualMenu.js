@@ -765,12 +765,18 @@ export function initContextualMenu() {
     if (window.selectedItem) {
       bringImageForward(window.selectedItem);
     }
+     if (typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
+}
   });
 
   setClick('btnCtxBackward', () => {
     if (window.selectedItem) {
       sendImageBackward(window.selectedItem);
     }
+      if (typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
+}
   });
 
   setClick('btnCtxBold', () => {
