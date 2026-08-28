@@ -1,5 +1,5 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (v24.1 - Stacking CSG)
+   Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (v24.2 - Stacking CSG with OneLevel Support)
    Ruta: ASSETS/js/modules/canvas-pro/geometricUngroup.js
    ========================================================================= */
 
@@ -36,7 +36,7 @@ function contains(parent, child) {
     return insideCount > (pointsToCheck.length / 2);
 }
 
-// Construye el árbol de contención espacial para calcular la profundidad (depth) [1]
+// Construye el árbol de contención espacial para calcular la profundidad (depth)
 function buildTree(paths) {
     const nodes = paths.map(path => ({ path, parent: null, children: [], depth: 0 }));
     for (const node of nodes) {
@@ -102,7 +102,7 @@ export function recalculateDynamicSubtractions(layer) {
             }
             for (let j = i - 1; j >= 0; j--) {
                 const solid = items[j];
-                // BLINDAJE ANTICRASH CONTRA EL ERROR F12 [2]
+                // BLINDAJE ANTICRASH CONTRA EL ERROR F12
                 if (solid && (!solid.data || !solid.data.isHole) && solid.visible && typeof solid.subtract === 'function') {
                     if (solid.bounds.intersects(holeBase.bounds) || solid.bounds.contains(holeBase.bounds)) {
                         const subtracted = solid.subtract(holeBase);
@@ -129,7 +129,7 @@ if (typeof window !== 'undefined') {
     window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
 }
 
-// ACCIÓN DE UN SOLO CLIC: Disuelve todos los niveles y clasifica sólidos y calados vacíos [1]
+// ACCIÓN DE UN SOLO CLIC: Disuelve todos los niveles y clasifica sólidos y calados vacíos
 export function geometricUngroupCompound(item) {
     if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return null;
     if (!isCompoundPath(item)) return null;
@@ -141,7 +141,7 @@ export function geometricUngroupCompound(item) {
     const global = getGlobalMatrix(item);
     const result = [];
 
-    // Ordenar de afuera hacia adentro (Z-Index natural de apilamiento) [1]
+    // Ordenar de afuera hacia adentro (Z-Index natural de apilamiento)
     nodes.sort((a, b) => a.depth - b.depth);
     nodes.forEach(node => {
         const isHole = (node.depth % 2 === 1); // Regla matemática par (sólido) / impar (calado)
@@ -200,6 +200,66 @@ export function geometricUngroupCompound(item) {
     return { handled: true, simple: false, items: result };
 }
 
+/**
+ * DESAGRUPADO UNINIVEL GEOMÉTRICO (OneLevel)
+ * Disuelve un Grupo Geométrico Compuesto (geometricHierarchy === 'compound') en caliente, 
+ * liberando sus trazados hijos, recalculando sus transformaciones locales a globales
+ * y manteniendo intactas las capas de calado reactivo.
+ */
+export function geometricUngroupOneLevel(group, isClipped, oldClipGroup) {
+    if (!group) return null;
+    const parent = group.parent || paper.project.activeLayer;
+    const index = parent.children.indexOf(isClipped ? oldClipGroup : group);
+    const children = [...group.children];
+    const addedItems = [];
+
+    children.forEach(child => {
+        const targetAncestor = isClipped ? oldClipGroup : group;
+        const relMatrix = getMatrixRelativeTo(child, targetAncestor);
+        const childGlobalMatrix = getGlobalMatrix(child);
+        child.remove();
+
+        let newItem;
+        if (isClipped && oldClipGroup) {
+            // Re-enmascara el objeto dentro de un nuevo clipGroup seguro
+            newItem = window.clipItem(child);
+            if (newItem === child) {
+                newItem.matrix = childGlobalMatrix;
+            } else {
+                newItem.matrix = oldClipGroup.matrix.clone();
+                child.matrix = relMatrix;
+            }
+        } else {
+            newItem = child;
+            newItem.matrix = childGlobalMatrix;
+            parent.addChild(newItem);
+        }
+
+        // Blindaje geométrico: Inicializa geomBase si no la tiene para no perder la física reactiva
+        if (newItem.data) {
+            delete newItem.data.globalMatrix;
+            if (!newItem.data.geomBase && (isPath(newItem) || isCompoundPath(newItem))) {
+                const localBase = newItem.clone({ insert: false });
+                localBase.matrix = new paper.Matrix();
+                newItem.data.geomBase = localBase;
+            }
+        }
+        addedItems.push(newItem);
+    });
+
+    group.remove();
+    
+    // Insertar exactamente en la posición ordenada del padre
+    if (index !== -1 && parent.insertChild) {
+        addedItems.forEach((newItem, i) => parent.insertChild(index + i, newItem));
+    }
+
+    // Actualizar calados vectoriales en caliente
+    recalculateDynamicSubtractions(parent);
+
+    return { handled: true, items: addedItems };
+}
+
 function getGlobalMatrix(item) {
     if (!item) return new paper.Matrix();
     if (item.data && item.data.globalMatrix) {
@@ -221,9 +281,9 @@ function getMatrixRelativeTo(item, targetAncestor) {
 }
 
 /* =========================================================================
-   2. Parches de Integración para las Otras Cuatro Rutas del Repositorio [7]
+   2. Parches de Integración para las Otras Cuatro Rutas del Repositorio
    Para que esta física opere de forma unificada e interactiva en todo el sistema,
-   debes inyectar estas rutinas en los siguientes archivos [7]:
+   debes inyectar estas rutinas en los siguientes archivos:
 
    Ruta 1: ASSETS/js/modules/canvas-pro/contextualMenu.js (Acciones de Capa / Z-Index)
    Qué hace: Actualiza los calados vectoriales al alterar el orden de capas (Z-Index) del calado y los sólidos mediante la barra emergente.
