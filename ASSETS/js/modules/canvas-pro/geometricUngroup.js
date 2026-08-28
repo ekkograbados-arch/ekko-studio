@@ -1,15 +1,21 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v23.0 - Pure Geometry & Sync v18)
+   Modulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Edition - v25.0 - Pure Geometry & Real-Time Laser Sync)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
-   Descripción: Motor de desagrupado geométrico progresivo y reactivo.
-                Cumple estrictamente con la filosofía de EKKO Studio V23:
-                - Los huecos físicos reales de la geometría siempre permanecen como tal.
+   Descripción: Motor de desagrupado geométrico progresivo, reactivo y universal.
+                Cumple al 100% con la filosofía y las "Reglas de Oro" de EKKO Studio V23:
+                - Los calados permanecen como ausencias físicas reales de material.
                 - Sin simulación de huecos con cuerpos celestes o transparencias artificiales.
                 - Descompone CompoundPaths en jerarquías de elementos simples o compuestos,
                   nivel por nivel, de afuera hacia adentro.
-                - Permite desagrupar hasta llegar a la mínima expresión de elementos simples
-                  (ya sean sólidos/rellenos o huecos/vacíos/calados físicos sin relleno).
+                - Integra un Hook Global en el ciclo de renderizado de Paper.js para
+                  recalcular de forma síncrona y reactiva las sustracciones de los HoleControllers
+                  calculando matrices relativas inversas (evitando conflictos de coordenadas).
 ========================================================================= */
+
+// Inicializar el set global de seguimiento para optimización extrema de rendimiento
+if (typeof window !== 'undefined') {
+  window.activeOuterItemIds = window.activeOuterItemIds || new Set();
+}
 
 function isPath(item) {
   if (!item) return false;
@@ -55,6 +61,7 @@ function getMatrixRelativeTo(item, targetAncestor) {
   return matrix;
 }
 
+// Obtiene la matriz de transformación global de Paper.js
 function getGlobalMatrix(item) {
   if (!item) return new paper.Matrix();
   if (item.data && item.data.globalMatrix) {
@@ -148,6 +155,96 @@ function collectDescendantPaths(node, list) {
   });
 }
 
+// =========================================================================
+// HOOK GLOBAL DE CALADO REACTIVO EN VIVO (Paper.js Render Cycle Integration)
+// Recalcula dinámicamente las sustracciones físicas antes de refrescar pantalla
+// resolviendo las coordenadas locales mediante matrices inversas absolutas.
+// =========================================================================
+if (typeof window !== 'undefined' && typeof window.updateOuterPathGeometry !== 'function') {
+  window.updateOuterPathGeometry = function(outerItem) {
+    if (!outerItem || !outerItem.data?.isOuterWithHoles || !outerItem.data?.originalPath) return;
+    
+    // Clonar la base sólida original (que no posee calados iniciales)
+    let base = outerItem.data.originalPath.clone({ insert: false });
+    
+    // Obtener los HoleControllers activos referenciados
+    const holeIds = outerItem.data.holeIds || [];
+    const activeHoles = [];
+    holeIds.forEach(id => {
+      const hole = paper.project.getItem({ id: id });
+      if (hole && hole.parent) {
+        activeHoles.push(hole);
+      }
+    });
+    
+    // Restar físicamente cada HoleController utilizando booleanos nativos de Paper.js
+    activeHoles.forEach(hole => {
+      let holePath = hole;
+      if (hole.className === 'Group') {
+        // Para grupos compuestos (ej: letra "A"), el primer hijo representa el contorno exterior del calado
+        holePath = hole.children.find(c => !c.clipMask) || hole;
+      }
+      
+      // Obtener las transformaciones globales absolutas
+      const holeGlobal = getGlobalMatrix(holePath);
+      const outerGlobal = getGlobalMatrix(outerItem);
+      
+      // Calcular la matriz relativa inversa para llevar la geometría al espacio local de base
+      const relMatrix = outerGlobal.inverted().chain(holeGlobal);
+      
+      // Clonar el HoleController y aplicarle la transformación local correspondiente
+      const holeLocal = holePath.clone({ insert: false });
+      holeLocal.matrix = relMatrix;
+      
+      // Realizar la resta booleana nativa en Paper.js
+      const subtracted = base.subtract(holeLocal);
+      if (subtracted) {
+        base.remove();
+        base = subtracted;
+      }
+      holeLocal.remove();
+    });
+    
+    // Reemplazar la estructura geométrica interna de outerItem (que siempre es CompoundPath) de forma segura
+    if (outerItem instanceof paper.CompoundPath) {
+      outerItem.children.forEach(c => c.remove());
+      if (base instanceof paper.CompoundPath) {
+        base.children.forEach(c => outerItem.addChild(c.clone()));
+      } else {
+        outerItem.addChild(base.clone());
+      }
+    }
+    
+    base.remove();
+  };
+}
+
+// Inyección del Hook en el prototipo de Paper.js View para automatización a prueba de fallos
+if (typeof paper !== 'undefined' && paper.View && paper.View.prototype && !paper.View.prototype._hooked) {
+  paper.View.prototype._hooked = true;
+  const originalUpdate = paper.View.prototype.update;
+  paper.View.prototype.update = function() {
+    if (paper.project && window.activeOuterItemIds && window.activeOuterItemIds.size > 0) {
+      window.activeOuterItemIds.forEach(id => {
+        const outerItem = paper.project.getItem({ id: id });
+        if (outerItem && outerItem.data && outerItem.data.isOuterWithHoles) {
+          try {
+            window.updateOuterPathGeometry(outerItem);
+          } catch (e) {
+            console.error("[EKKO SYNC ERROR] Fallo al recalcular sustracción física:", e);
+          }
+        } else {
+          window.activeOuterItemIds.delete(id); // Limpieza de referencias huérfanas
+        }
+      });
+    }
+    return originalUpdate.apply(this, arguments);
+  };
+}
+
+// =========================================================================
+// MOTOR DE DESAGRUPADO GEOMÉTRICO PRINCIPAL
+// =========================================================================
 export function geometricUngroupCompound(item) {
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return null;
   const isClipped = !!item.data?.clipGroup;
@@ -163,7 +260,9 @@ export function geometricUngroupCompound(item) {
   const global = getGlobalMatrix(target);
   const result = [];
 
-  // SI HAY MÚLTIPLES RAÍCES INDEPENDIENTES (1er Clic: estrellas, laurel, escudo mezclados)
+  // =========================================================================
+  // CASO B: SI HAY MÚLTIPLES RAÍCES INDEPENDIENTES (1er Clic: estrellas, laurel, escudo mezclados)
+  // =========================================================================
   if (roots.length > 1) {
     roots.forEach(rootNode => {
       const rootPathClone = clonePath(rootNode.path);
@@ -195,7 +294,7 @@ export function geometricUngroupCompound(item) {
           ...(item.data || {}),
           locked: false,
           geometricHierarchy: 'compound',
-          label: "Cuerpo del Escudo"
+          label: rootNode.path.data?.label || "Cuerpo del Escudo"
         };
       } else {
         // Es simple (ej: estrellas, laurel)
@@ -215,17 +314,29 @@ export function geometricUngroupCompound(item) {
           ...(item.data || {}),
           locked: false,
           geometricHierarchy: 'simple',
-          label: "Objeto"
+          label: rootNode.path.data?.label || "Objeto"
         };
       }
+
+      // Preservamos el estado de HoleController si el original ya lo era
+      if (item.data?.isHoleController) {
+        newElement.data.isHoleController = true;
+        newElement.data.outerItemId = item.data.outerItemId;
+      } else {
+        delete newElement.data.isHoleController;
+        delete newElement.data.outerItemId;
+      }
+
       result.push(newElement);
     });
 
   } else {
-    // CASO A: SI HAY UNA SOLA RAÍZ EN LA SELECCIÓN ACTUAL (Cuerpo del Escudo en 2do clic, o letra "A" en 3er clic)
+    // =========================================================================
+    // CASO A: SI HAY UNA SOLA RAÍZ EN LA SELECCIÓN (Cuerpo del Escudo en 2do clic, o letra "A" en 3er clic)
+    // =========================================================================
     const root = roots[0];
     
-    // Verificamos si tiene nietos (es decir, si es una estructura anidada profunda como el Cuerpo del Escudo)
+    // Verificamos si tiene nietos (estrucura profunda como el Cuerpo del Escudo)
     let hasGrandchildren = false;
     root.children.forEach(child => {
       if (child.children.length > 0) {
@@ -235,114 +346,152 @@ export function geometricUngroupCompound(item) {
 
     if (hasGrandchildren) {
       // -----------------------------------------------------------------------
-      // 2do Clic: Descomposición del Cuerpo del Escudo
+      // 2do Clic: Descomposición del Cuerpo del Escudo en Silueta y Huecos Reactivos
       // -----------------------------------------------------------------------
       
-      // 1. Crear la silueta o contorno exterior calado (Corteza de Nivel 0 + Hueco de Nivel 1)
-      const shellChildren = [clonePath(root.path)];
-      root.children.forEach(childNode => {
-        shellChildren.push(clonePath(childNode.path));
-      });
+      // 1. Crear el contorno base sólido de Nivel 0 (La base sólida del Escudo) como CompoundPath
+      const basePathClone = clonePath(root.path);
+      basePathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+      basePathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
+      basePathClone.strokeWidth = target.strokeWidth || 0;
       
       const shellCompound = new paper.CompoundPath({
-        children: shellChildren,
+        children: [basePathClone],
         insert: false,
         fillRule: 'evenodd'
       });
-      shellCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-      shellCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-      shellCompound.strokeWidth = target.strokeWidth || 0;
       
-      let configuredShell;
+      let basePath;
       if (isClipped) {
-        configuredShell = window.clipItem(shellCompound);
-        configuredShell.matrix = item.matrix.clone();
+        basePath = window.clipItem(shellCompound);
+        basePath.matrix = item.matrix.clone();
       } else {
-        configuredShell = shellCompound;
-        configuredShell.matrix = global.clone();
-        parent.addChild(configuredShell);
+        basePath = shellCompound;
+        basePath.matrix = global.clone();
+        parent.addChild(basePath);
       }
-      configuredShell.data = {
+      basePath.data = {
         ...(item.data || {}),
         locked: false,
         geometricHierarchy: 'simple',
         label: "Silueta del Escudo"
       };
-      result.push(configuredShell);
 
-      // 2. Promover cada nieto (los elementos de Depth 2: bandas, "F", letras "A")
-      root.children.forEach(holeNode => {
-        holeNode.children.forEach(solidNode => {
-          const hasChildren = solidNode.children.length > 0;
-          let newElement;
+      if (item.data?.isHoleController) {
+        basePath.data.isHoleController = true;
+        basePath.data.outerItemId = item.data.outerItemId;
+      } else {
+        delete basePath.data.isHoleController;
+        delete basePath.data.outerItemId;
+      }
+
+      // Activar comportamiento de Calado Reactivo Geométrico Real
+      basePath.data.isOuterWithHoles = true;
+      basePath.data.originalPath = clonePath(root.path);
+      basePath.data.holeIds = [];
+      
+      // Registrar en el set reactivo global
+      window.activeOuterItemIds.add(basePath.id);
+
+      // 2. Promover cada hijo directo (Nivel 1: bandas, "F", letras "A") como Hueco Físico (HoleController)
+      root.children.forEach(childNode => {
+        const childPathClone = clonePath(childNode.path);
+        const descendants = [];
+        collectDescendantPaths(childNode, descendants);
+        
+        let newElement;
+        if (descendants.length > 0) {
+          // El hijo es compuesto (ej: letra "A" con su triángulo)
+          // Creación de un paper.Group puro con jerarquía "compound" para representar el hueco compuesto interactivo.
+          // Esto preserva el triángulo interior como sólido visible negro y el contorno como hueco de corte reactivo.
+          const group = new paper.Group({
+            insert: false
+          });
           
-          if (!hasChildren) {
-            // Es un objeto simple (bandas, "F") -> Sólido negro
-            const pathClone = clonePath(solidNode.path);
-            pathClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-            pathClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-            pathClone.strokeWidth = target.strokeWidth || 0;
-            
-            if (isClipped) {
-              newElement = window.clipItem(pathClone);
-              newElement.matrix = item.matrix.clone();
-            } else {
-              newElement = pathClone;
-              newElement.matrix = global.clone();
-              parent.addChild(newElement);
-            }
-            newElement.data = {
-              ...(item.data || {}),
-              locked: false,
+          // El contorno exterior de la "A" es un corte vacío puro (hueco físico, fillColor/strokeColor = null)
+          childPathClone.fillColor = null;
+          childPathClone.strokeColor = null;
+          childPathClone.strokeWidth = 0;
+          childPathClone.data = {
+            geometricHierarchy: 'simple',
+            label: "Hueco"
+          };
+          group.addChild(childPathClone);
+          
+          // Los descendientes (triángulo interior de la "A") se agregan como sólidos negros macizos
+          descendants.forEach(desc => {
+            const descClone = desc.clone();
+            descClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
+            descClone.strokeColor = null;
+            descClone.strokeWidth = 0;
+            descClone.data = {
               geometricHierarchy: 'simple',
               label: "Objeto"
             };
+            group.addChild(descClone);
+          });
+          
+          if (isClipped) {
+            newElement = window.clipItem(group);
+            newElement.matrix = item.matrix.clone();
           } else {
-            // Es un objeto compuesto (letras "A" unificadas con sus triángulos)
-            // Se genera como un CompoundPath con regla evenodd filled with black
-            const letterOutline = clonePath(solidNode.path);
-            const letterDescendants = [];
-            collectDescendantPaths(solidNode, letterDescendants);
-            
-            const compoundChildren = [letterOutline, ...letterDescendants];
-            const letterCompound = new paper.CompoundPath({
-              children: compoundChildren,
-              insert: false,
-              fillRule: 'evenodd'
-            });
-            letterCompound.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
-            letterCompound.strokeColor = target.strokeColor ? target.strokeColor.clone() : null;
-            letterCompound.strokeWidth = target.strokeWidth || 0;
-            
-            if (isClipped) {
-              newElement = window.clipItem(letterCompound);
-              newElement.matrix = item.matrix.clone();
-            } else {
-              newElement = letterCompound;
-              newElement.matrix = global.clone();
-              parent.addChild(newElement);
-            }
-            newElement.data = {
-              ...(item.data || {}),
-              locked: false,
-              geometricHierarchy: 'compound',
-              label: "Objeto Compuesto"
-            };
+            newElement = group;
+            newElement.matrix = global.clone();
+            parent.addChild(newElement);
           }
-          result.push(newElement);
-        });
+          newElement.data = {
+            ...(item.data || {}),
+            locked: false,
+            geometricHierarchy: 'compound',
+            label: "Objeto Compuesto"
+          };
+        } else {
+          // El hijo es simple (ej: bandas, "F")
+          childPathClone.fillColor = null; // Vacío real interactivo sin parches celestes
+          childPathClone.strokeColor = null; // EL HUECO ES HUECO, NO TIENE CONTORNO NI NADA (v23)
+          childPathClone.strokeWidth = 0;
+          
+          if (isClipped) {
+            newElement = window.clipItem(childPathClone);
+            newElement.matrix = item.matrix.clone();
+          } else {
+            newElement = childPathClone;
+            newElement.matrix = global.clone();
+            parent.addChild(newElement);
+          }
+          newElement.data = {
+            ...(item.data || {}),
+            locked: false,
+            geometricHierarchy: 'simple',
+            label: "Hueco"
+          };
+        }
+        
+        // Registrar rigurosamente el elemento como HoleController del basePath
+        newElement.data.isHoleController = true;
+        newElement.data.outerItemId = basePath.id;
+        
+        basePath.data.holeIds.push(newElement.id);
+        result.push(newElement);
       });
+
+      result.unshift(basePath);
+
+      // Ejecutar la primera sustracción síncrona
+      if (typeof window.updateOuterPathGeometry === 'function') {
+        window.updateOuterPathGeometry(basePath);
+      }
 
     } else {
       // -----------------------------------------------------------------------
-      // 3er Clic: Descomposición de la Letra "A" Compuesta
+      // 3er Clic: Descomposición de Elemento Compuesto de 2 Niveles (ej: letra "A" independiente)
       // -----------------------------------------------------------------------
       
-      // La silueta exterior de la letra "A" (root) se convierte en un HUECO VACÍO FÍSICO (transparent)
+      // 1. Promover el contorno exterior de la letra "A" (como contorno vacío físico / HoleController)
       const outlineClone = clonePath(root.path);
-      outlineClone.fillColor = null; // Vacío real
-      outlineClone.strokeColor = target.strokeColor ? target.strokeColor.clone() : new paper.Color('#000000');
-      outlineClone.strokeWidth = target.strokeWidth || 1;
+      outlineClone.fillColor = null; // Vacío real transparente
+      outlineClone.strokeColor = null; // EL HUECO ES HUECO, NO TIENE CONTORNO NI NADA (v23)
+      outlineClone.strokeWidth = 0;
       
       let configuredOutline;
       if (isClipped) {
@@ -359,9 +508,30 @@ export function geometricUngroupCompound(item) {
         geometricHierarchy: 'simple',
         label: "Hueco"
       };
+
+      // Si el elemento desarmado ya era un HoleController, transferimos su estatus al outline
+      if (item.data?.isHoleController) {
+        configuredOutline.data.isHoleController = true;
+        configuredOutline.data.outerItemId = item.data.outerItemId;
+        
+        // Actualizar el mapa de IDs en el escudo base para mantener la resta activa
+        const outerItem = paper.project.getItem({ id: item.data.outerItemId });
+        if (outerItem && outerItem.data?.holeIds) {
+          const idx = outerItem.data.holeIds.indexOf(item.id);
+          if (idx !== -1) {
+            outerItem.data.holeIds[idx] = configuredOutline.id;
+          } else {
+            outerItem.data.holeIds.push(configuredOutline.id);
+          }
+        }
+      } else {
+        delete configuredOutline.data.isHoleController;
+        delete configuredOutline.data.outerItemId;
+      }
+
       result.push(configuredOutline);
 
-      // Los hijos directos (el triángulo interior) se convierten en un SÓLIDO RELLENO NEGRO
+      // 2. Promover cada hijo (el triángulo interior de la "A") como SÓLIDO negro macizo independiente
       root.children.forEach(childNode => {
         const childClone = clonePath(childNode.path);
         childClone.fillColor = target.fillColor ? target.fillColor.clone() : new paper.Color('#000000');
@@ -383,8 +553,21 @@ export function geometricUngroupCompound(item) {
           geometricHierarchy: 'simple',
           label: "Objeto"
         };
+        
+        // El triángulo es un sólido macizo, por lo tanto se sanea y limpia de la cadena de calados
+        delete configuredChild.data.isHoleController;
+        delete configuredChild.data.outerItemId;
+        
         result.push(configuredChild);
       });
+
+      // Recalcular la sustracción del escudo padre con la nueva referencia del outline
+      if (configuredOutline.data.isHoleController && configuredOutline.data.outerItemId) {
+        const outerItem = paper.project.getItem({ id: configuredOutline.data.outerItemId });
+        if (outerItem && typeof window.updateOuterPathGeometry === 'function') {
+          window.updateOuterPathGeometry(outerItem);
+        }
+      }
     }
   }
 
@@ -428,7 +611,10 @@ export function geometricUngroupOneLevel(item, isClipped = false, oldClipGroup =
   const children = [...item.children];
   const addedItems = [];
 
-  children.forEach(child => {
+  const isHole = !!item.data?.isHoleController;
+  const outerItemId = item.data?.outerItemId;
+
+  children.forEach((child, i) => {
     const targetAncestor = isClipped ? oldClipGroup : item;
     const relMatrix = getMatrixRelativeTo(child, targetAncestor);
     const globalMatrix = getGlobalMatrix(child);
@@ -447,6 +633,33 @@ export function geometricUngroupOneLevel(item, isClipped = false, oldClipGroup =
       newItem.matrix = globalMatrix;
       parent.addChild(newItem);
     }
+    
+    // Si el grupo era un HoleController (ej. letra "A" compuesta en el 3er clic), transferimos el estatus de calado al outline exterior (Hijo 0)
+    if (isHole && i === 0) {
+      newItem.data.isHoleController = true;
+      newItem.data.outerItemId = outerItemId;
+      newItem.data.label = "Hueco";
+      
+      const outerItem = paper.project.getItem({ id: outerItemId });
+      if (outerItem && outerItem.data?.holeIds) {
+        const idx = outerItem.data.holeIds.indexOf(item.id);
+        if (idx !== -1) {
+          outerItem.data.holeIds[idx] = newItem.id;
+        } else {
+          outerItem.data.holeIds.push(newItem.id);
+        }
+        
+        // Sincronizar el calado síncronamente
+        if (typeof window.updateOuterPathGeometry === 'function') {
+          window.updateOuterPathGeometry(outerItem);
+        }
+      }
+    } else {
+      // Los sólidos promovidos de profundidad par (triángulo de la "A") se limpian de metadatos de calado
+      delete newItem.data.isHoleController;
+      delete newItem.data.outerItemId;
+    }
+
     addedItems.push(newItem);
   });
 
@@ -476,4 +689,32 @@ export function geometricUngroupOneLevel(item, isClipped = false, oldClipGroup =
   }
 
   return { handled: true, items: addedItems };
+}
+
+// =========================================================================
+// FUNCIÓN DE VERIFICACIÓN DE LÍMITE DE DESAGRUPADO (Previene romper vectores para el Láser)
+// =========================================================================
+export function canUngroupItem(item) {
+  if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return false;
+  const target = item.data?.clipGroup ? getContentItem(item) : item;
+  if (!target) return false;
+  
+  // Grupos tradicionales se pueden desagrupar
+  if (isGroup(target) && !target.data?.clipGroup) return true;
+  
+  // Textos vectorizados se pueden desagrupar por letras
+  if (target instanceof paper.PointText && target.content && target.content.length > 1) return true;
+  
+  // CompoundPaths compuestos se pueden deconstruir
+  if (isCompoundPath(target)) {
+    const paths = [...target.children].filter(p => p && p.bounds && !p.data?.mockup && !p.data?.isMask);
+    return paths.length > 1; // Si tiene más de un trazado cerrado adentro, se puede desagrupar
+  }
+  
+  return false;
+}
+
+// Registro global seguro
+if (typeof window !== 'undefined') {
+  window.canUngroupItem = canUngroupItem;
 }
