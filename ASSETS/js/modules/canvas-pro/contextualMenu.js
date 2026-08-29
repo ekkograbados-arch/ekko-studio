@@ -1,9 +1,9 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition - v24.3 - Containment Decomposition)
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition - v25.0 - True Hierarchy Decomposition)
 Ruta de implementacion: ASSETS/js/modules/canvas-pro/contextualMenu.js
-Descripción: Gestor unificado del menú contextual y de las acciones de grabado/
-edición de vectores y textos en caliente. Sincronizado 100% con
-geometricUngroup.js y el motor de Descomposición por Jerarquía de Contención en 1 Clic.
+Descripcion: Gestor unificado del menu contextual y de las acciones de grabado/
+edicion de vectores y textos en caliente. Sincronizado 100% con
+geometricUngroup.js y el motor de Descomposicion por Jerarquia de Contencion en 1 Clic.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -62,6 +62,31 @@ function isSymbolItem(item) {
     ));
 }
 
+function isMockupOrProductElement(item) {
+  let curr = item;
+  while (curr) {
+    if (curr.data && (
+      curr.data.mockup ||
+      curr.data.isMask ||
+      curr.data.locked ||
+      curr.data.isSelectionBox ||
+      curr.data.isHandle ||
+      curr.data.isSmartGuide ||
+      curr.data.isMeasurement ||
+      curr.data.isTracePreview
+    )) {
+      return true;
+    }
+    curr = curr.parent;
+  }
+  return false;
+}
+
+function isLayer(item) {
+  if (!item) return false;
+  return item.className === 'Layer' || (typeof paper !== 'undefined' && paper.Layer && item instanceof paper.Layer);
+}
+
 function isShape(item) {
   if (!item) return false;
   return item.className === 'Shape' || (typeof paper !== 'undefined' && paper.Shape && item instanceof paper.Shape);
@@ -71,10 +96,8 @@ window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
 let lastSelectedItem = null;
-window.ekkoOuters = window.ekkoOuters || new Map();
-window.ekkoHolesMap = window.ekkoHolesMap || new Map();
 
-// --- INYECCIÓN DE ESTILOS CSS PARA EL MENÚ PERSONALIZADO ---
+// --- INYECCION DE ESTILOS CSS PARA EL MENU PERSONALIZADO ---
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
   const styleEl = document.createElement('style');
@@ -341,7 +364,11 @@ export function groupSelectedItems() {
   const hasMockup = !!window.currentMockup;
   if (hasMockup) {
     finalItem = window.clipItem(newGroup);
-    parent.addChild(finalItem);
+    if (finalItem === newGroup) {
+      parent.addChild(finalItem);
+    } else {
+      parent.addChild(finalItem);
+    }
   } else {
     finalItem = newGroup;
     parent.addChild(finalItem);
@@ -356,16 +383,24 @@ export function groupSelectedItems() {
   paper.view.update();
 }
 
-function getGlobalMatrix(item) {
+function getMatrixRelativeTo(item, targetAncestor) {
   let matrix = new paper.Matrix();
   let current = item;
-  while (current && !(current instanceof paper.Layer)) {
+  while (current && current !== targetAncestor && !(isLayer(current))) {
     if (current.matrix) {
       matrix = current.matrix.chain(matrix);
     }
     current = current.parent;
   }
   return matrix;
+}
+
+function getGlobalMatrix(item) {
+  if (!item) return new paper.Matrix();
+  if (item.data && item.data.globalMatrix) {
+    return item.data.globalMatrix.clone();
+  }
+  return getMatrixRelativeTo(item, null);
 }
 
 function splitPointTextIntoLetters(pointText) {
@@ -390,14 +425,13 @@ function splitPointTextIntoLetters(pointText) {
 }
 
 /**
- * ACCIÓN PRINCIPAL: DESAGRUPAR EN UN SOLO CLIC
- * Aplica el motor de Descomposición por Jerarquía de Contención sobre cualquier
- * elemento compuesto o grupo de SVG (ej. Escudo AFA, Minnie Mouse).
- * Disuelve el clipGroup y deposita cada capa como elemento independiente en la capa de trabajo.
+ * ACCION PRINCIPAL: DESAGRUPAR EN UN SOLO CLIC
+ * Aplica la Descomposicion por Jerarquia de Contencion desarmando de raiz cualquier clipGroup
+ * o contenedor SVG para depositar las capas independientes directamente en la capa de diseno.
  */
 export function ungroupSelectedItem() {
   if (typeof window !== 'undefined') {
-    console.log("%c[EKKO UNGROUP ACTION] Descomposición por Jerarquía de Contención (1 Clic) 🔓", "color: #ffffff; font-weight: bold; background: #0284c7; padding: 4px 10px; border-radius: 6px; font-size: 13px;\");
+    console.log("%c[EKKO UNGROUP ACTION] Descomposición por Jerarquía de Contención (1 Clic) 🔓", "color: #ffffff; font-weight: bold; background: #0284c7; padding: 4px 10px; border-radius: 6px; font-size: 13px;");
   }
 
   const wasInNodeEdit = !!window.nodeEditMode;
@@ -462,15 +496,19 @@ export function ungroupSelectedItem() {
     }
   });
 
-  // Seleccion individual del elemento primario en Z2 (ej. triangulo interior)
+  // Seleccion individual del elemento primario en Z2 (ej. triangulo interior con mayor profundidad)
   if (allCreatedItems.length > 0) {
     window.deselectItem();
     setTimeout(() => {
-      // Buscar prioritariamente la masa interior en nivel superior (Z >= 2, ej. triángulo)
-      const primaryItem = allCreatedItems.slice().reverse().find(it => it.data && it.data.layerDepth >= 2 && !it.data.isHole) ||
-                          allCreatedItems.slice().reverse().find(it => it.data && !it.data.isHole) ||
-                          allCreatedItems[allCreatedItems.length - 1];
-
+      let maxDepth = -1;
+      let primaryItem = allCreatedItems[allCreatedItems.length - 1];
+      allCreatedItems.forEach(it => {
+        const d = (it.data && typeof it.data.layerDepth === 'number') ? it.data.layerDepth : 0;
+        if (d > maxDepth) {
+          maxDepth = d;
+          primaryItem = it;
+        }
+      });
       window.selectedItems = [primaryItem];
       window.selectedItem = primaryItem;
       primaryItem.selected = true;
@@ -489,7 +527,7 @@ export function initContextualMenu() {
     canvasEl.addEventListener("contextmenu", (e) => {
       if (window.nodeEditMode) {
         e.preventDefault();
-        if (typeof window.exitNodeEditMode === "function") {
+        if (typeof window.exitNodeEditMode === 'function') {
           window.exitNodeEditMode();
         }
         return;
@@ -501,6 +539,7 @@ export function initContextualMenu() {
         paper.view.update();
         return;
       }
+
       const textEditor = document.getElementById("ekko-text-editor");
       if (textEditor) {
         e.preventDefault();
@@ -515,7 +554,7 @@ export function initContextualMenu() {
     if (key === "enter" || key === "escape") {
       if (window.nodeEditMode) {
         e.preventDefault();
-        if (typeof window.exitNodeEditMode === "function") {
+        if (typeof window.exitNodeEditMode === 'function') {
           window.exitNodeEditMode();
         }
         return;
@@ -527,6 +566,7 @@ export function initContextualMenu() {
         paper.view.update();
         return;
       }
+
       const textEditor = document.getElementById("ekko-text-editor");
       if (textEditor && document.activeElement === textEditor) {
         if (key === "escape" || (key === "enter" && !e.shiftKey)) {
@@ -538,7 +578,7 @@ export function initContextualMenu() {
     }
   }, { capture: true });
 
-  const toolbar = document.getElementById('contextual-toolbar');
+  const toolbar = document.getElementById("contextual-toolbar");
   if (!toolbar) return;
 
   if (toolbar.parentNode !== document.body) {
@@ -768,11 +808,12 @@ export function updateContextualMenu(item) {
       toolbar.style.zIndex = "2147483647";
     }
   }
+
   lastSelectedItem = item;
 }
 
 export function hideContextualMenu() {
-  const toolbar = document.getElementById('contextual-toolbar');
+  const toolbar = document.getElementById("contextual-toolbar");
   if (toolbar) {
     toolbar.classList.remove('active');
   }
