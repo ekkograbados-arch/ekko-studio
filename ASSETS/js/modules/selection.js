@@ -47,18 +47,14 @@ function protectGlobal(name, fn) {
   }
 }
 
-// Blindaje de getContentItem para evitar errores de children indefinidos
+// Blindaje de getContentItem para evitar errores 'children of undefined' en paths normales o con clipGroup
 function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
     if (!item.children) return item;
-    var content = item.children.find(function(c) {
-      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
-    });
+    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
     if (content) return content;
-    var fallback = item.children.find(function(c) {
-      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
-    });
+    const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
     if (fallback) return fallback;
     return item.children[1] || item.children[0] || item;
   }
@@ -96,8 +92,8 @@ window.marqueeActive = false;
 window.marqueeStartPoint = null;
 window.marqueePath = null;
 
-const _getSelectableItem = function(item){
-  if(!item) return null;
+const _getSelectableItem = function(item) {
+  if (!item) return null;
   if (item.clipMask) return null;
   let current = item;
   while (current) {
@@ -128,8 +124,10 @@ const _updateSelectionBox = function(item) {
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
     if (designLayer) designLayer.activate();
   }
+
   const primaryItem = item || window.selectedItem;
   if (!primaryItem) return;
+
   let isMockup = false;
   let curr = primaryItem;
   while (curr) {
@@ -144,24 +142,32 @@ const _updateSelectionBox = function(item) {
     curr = curr.parent;
   }
   if (isMockup) return;
+
   const selected = (window.selectedItems && window.selectedItems.length > 0)
     ? window.selectedItems
     : [primaryItem];
+
   let bounds = null;
   selected.forEach(function(it) {
     const displayItem = getContentItem(it);
     if (!displayItem) return;
-    // Excluir capas desintegradas por sustraccion completa
+
+    // FILTRADO DE CONTENCIÓN: Si el elemento fue físicamente desintegrado (visible === false o vacío), saltar de bounds
     if (displayItem.visible === false || displayItem.pathData === "") return;
+
     if (!bounds) {
       bounds = displayItem.bounds.clone();
     } else {
       bounds = bounds.unite(displayItem.bounds);
     }
   });
+
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+
   window.selectionBoxGroup = new paper.Group();
   window.selectionBoxGroup.data = { isSelectionBox: true };
+
+  // Delineado secundario punteado si hay selección múltiple
   if (selected.length > 1) {
     selected.forEach(function(it) {
       const displayItem = getContentItem(it);
@@ -175,13 +181,16 @@ const _updateSelectionBox = function(item) {
       }
     });
   }
+
   const isRotSnapped = window.isRotationSnapped && window.rotationActive;
   const mainColor = isRotSnapped ? '#28a745' : '#007bff';
+
   const border = new paper.Path.Rectangle(bounds);
   border.strokeColor = mainColor;
   border.strokeWidth = 1.5 / paper.view.zoom;
   border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
   window.selectionBoxGroup.addChild(border);
+
   const handleSize = 8 / paper.view.zoom;
   const handlesInfo = [
     { point: bounds.topLeft, type: 'tl' },
@@ -193,6 +202,7 @@ const _updateSelectionBox = function(item) {
     { point: bounds.bottomLeft, type: 'bl' },
     { point: bounds.leftCenter, type: 'l' }
   ];
+
   handlesInfo.forEach(function(info) {
     const rect = new paper.Path.Rectangle({
       center: info.point,
@@ -204,12 +214,14 @@ const _updateSelectionBox = function(item) {
     rect.data = { isHandle: true, handleType: info.type };
     window.selectionBoxGroup.addChild(rect);
   });
+
   const rotHandleDistance = 25 / paper.view.zoom;
   const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
   const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
   connector.strokeColor = mainColor;
   connector.strokeWidth = 1.2 / paper.view.zoom;
   window.selectionBoxGroup.addChild(connector);
+
   const rotHandleCircle = new paper.Path.Circle({
     center: rotHandleCenter,
     radius: 7.5 / paper.view.zoom,
@@ -219,6 +231,7 @@ const _updateSelectionBox = function(item) {
   });
   rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
   window.selectionBoxGroup.addChild(rotHandleCircle);
+
   const iconRadius = 3.5 / paper.view.zoom;
   const arrowIcon = new paper.Path.Arc(
     rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
@@ -228,6 +241,7 @@ const _updateSelectionBox = function(item) {
   arrowIcon.strokeColor = mainColor;
   arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
   window.selectionBoxGroup.addChild(arrowIcon);
+
   const arrowTip = new paper.Path();
   arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
   arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
@@ -235,7 +249,9 @@ const _updateSelectionBox = function(item) {
   arrowTip.strokeColor = mainColor;
   arrowTip.strokeWidth = 1.2 / paper.view.zoom;
   window.selectionBoxGroup.addChild(arrowTip);
+
   window.selectionBoxGroup.bringToFront();
+
   if (typeof window.applyPositionCorrections === "function") {
     window.applyPositionCorrections();
   }
@@ -247,7 +263,7 @@ const _updateSelectionBox = function(item) {
   }
 };
 
-const _selectItem = function(item, isMulti = false){
+const _selectItem = function(item, isMulti = false) {
   if (window.nodeEditMode) {
     return;
   }
@@ -268,7 +284,9 @@ const _selectItem = function(item, isMulti = false){
     window.deselectItem();
     return;
   }
+
   if (!window.selectedItems) window.selectedItems = [];
+
   if (isMulti) {
     const index = window.selectedItems.indexOf(item);
     if (index > -1) {
@@ -292,11 +310,13 @@ const _selectItem = function(item, isMulti = false){
       window.selectedItems = [];
     }
   }
-  if(!window.selectedItem){
+
+  if (!window.selectedItem) {
     window.updateSelectionBox(null);
     paper.view.update();
     return;
   }
+
   window.updateSelectionBox(window.selectedItem);
   if (typeof window.updateContextualMenu === 'function') {
     window.updateContextualMenu(window.selectedItem);
@@ -304,7 +324,7 @@ const _selectItem = function(item, isMulti = false){
   paper.view.update();
 };
 
-const _deselectItem = function(){
+const _deselectItem = function() {
   if (window.nodeEditMode) {
     return;
   }
@@ -314,7 +334,7 @@ const _deselectItem = function(){
     });
     window.selectedItems = [];
   }
-  if(window.selectedItem){
+  if (window.selectedItem) {
     window.selectedItem.selected = false;
   }
   window.selectedItem = null;
@@ -358,10 +378,13 @@ const _initSelectionTool = function() {
     console.warn("initSelectionTool: paper.view no esta definido todavia.");
     return;
   }
+
   const selectTool = new paper.Tool();
   let lastClickTime = 0;
+
   selectTool.onMouseDown = function(event) {
     if (window.nodeEditMode) return;
+
     if (window.insertTextMode) {
       if (typeof createEditableText === "function") {
         createEditableText(event.point);
@@ -370,6 +393,7 @@ const _initSelectionTool = function() {
       paper.view.element.style.cursor = "default";
       return;
     }
+
     const currentTime = Date.now();
     if (currentTime - lastClickTime < 300) {
       lastClickTime = 0;
@@ -384,6 +408,7 @@ const _initSelectionTool = function() {
       }
     }
     lastClickTime = currentTime;
+
     let hitResult = null;
     if (window.selectionBoxGroup) {
       hitResult = window.selectionBoxGroup.hitTest(event.point, {
@@ -398,6 +423,7 @@ const _initSelectionTool = function() {
         }
       });
     }
+
     if (hitResult) {
       const hType = hitResult.item.data.handleType;
       if (hType === 'rot') {
@@ -432,6 +458,7 @@ const _initSelectionTool = function() {
         });
         return;
       }
+
       if (!window.selectedItem) return;
       window.resizeActive = true;
       window.resizeHandleType = hType;
@@ -453,6 +480,8 @@ const _initSelectionTool = function() {
       window.resizeLastScaleY = 1.0;
       return;
     }
+
+    // Hit-testing general en el lienzo (soporta masas sólidas y calados activos)
     let generalHit = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -471,6 +500,7 @@ const _initSelectionTool = function() {
         return true;
       }
     });
+
     if (generalHit) {
       const selectableItem = window.getSelectableItem(generalHit.item);
       if (selectableItem) {
@@ -482,6 +512,7 @@ const _initSelectionTool = function() {
         generalHit = null;
       }
     }
+
     if (generalHit) {
       const selectableItem = window.getSelectableItem(generalHit.item);
       if (selectableItem) {
@@ -500,9 +531,7 @@ const _initSelectionTool = function() {
           }
           window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
         } else {
-          if (window.selectedItems.includes(selectableItem)) {
-            // Mantener seleccion
-          } else {
+          if (!window.selectedItems.includes(selectableItem)) {
             window.selectedItems.forEach(function(it) {
               if (it) it.selected = false;
             });
@@ -511,6 +540,7 @@ const _initSelectionTool = function() {
             window.selectedItems = [selectableItem];
           }
         }
+
         window.dragging = true;
         window.dragTargets = [];
         window.selectedItems.forEach(function(item) {
@@ -531,6 +561,8 @@ const _initSelectionTool = function() {
         return;
       }
     }
+
+    // Arrastre por dentro de la caja de selección múltiple existente
     if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
       const selectionBoxBounds = window.selectionBoxGroup.bounds;
       if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
@@ -549,6 +581,8 @@ const _initSelectionTool = function() {
         return;
       }
     }
+
+    // Selección por ventana / Marquee
     window.deselectItem();
     window.marqueeActive = true;
     window.marqueeStartPoint = event.point.clone();
@@ -569,6 +603,7 @@ const _initSelectionTool = function() {
     if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
       return;
     }
+
     if (window.marqueeActive && window.marqueePath) {
       window.marqueePath.remove();
       window.marqueePath = new paper.Path.Rectangle({
@@ -583,6 +618,8 @@ const _initSelectionTool = function() {
       paper.view.update();
       return;
     }
+
+    // Rotación grupal / individual
     if (window.rotationActive && window.rotationTargets && window.rotationTargets.length > 0) {
       const currentPoint = event.point;
       const vector = currentPoint.subtract(window.rotationCenter);
@@ -591,6 +628,7 @@ const _initSelectionTool = function() {
       const isShiftPressed = event.modifiers && event.modifiers.shift;
       let isSnapped = false;
       const rt0 = window.rotationTargets[0];
+
       if (rt0 && !isShiftPressed) {
         const rawTargetAngle = (rt0.initialRotation + angleDiff) % 360;
         const snappedTargetAngle = Math.round(rawTargetAngle / 45) * 45;
@@ -604,6 +642,7 @@ const _initSelectionTool = function() {
         isSnapped = true;
       }
       window.isRotationSnapped = isSnapped;
+
       window.rotationTargets.forEach(function(rt) {
         if (rt.item.data && rt.item.data.locked) return;
         if (window.selectedItems.length > 1) {
@@ -619,7 +658,7 @@ const _initSelectionTool = function() {
         rt.target.data.rotation = targetAngle;
       });
 
-      // Recalculo reactivo al rotar
+      // Recálculo reactivo CSG al rotar
       if (typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
       }
@@ -631,10 +670,13 @@ const _initSelectionTool = function() {
           rotationNum.value = Math.round(displayItem.data?.rotation || 0) + '';
         }
       }
+
       window.updateSelectionBox(null);
       paper.view.update();
       return;
     }
+
+    // Escalado grupal / individual
     if (window.resizeActive && window.resizeTargets && window.resizeTargets.length > 0) {
       const anchor = window.resizeAnchor;
       const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
@@ -647,11 +689,13 @@ const _initSelectionTool = function() {
       const initialYDiff = initialHandlePoint.y - anchor.y;
       const currentYDiff = currentHandlePoint.y - anchor.y;
       if (Math.abs(initialYDiff) > 0.001) factorY = currentYDiff / initialYDiff;
+
       if (['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType)) {
         const factor = (Math.abs(factorX) + Math.abs(factorY)) / 2 * (factorX < 0 ? -1 : 1);
         factorX = factor;
         factorY = factor;
       }
+
       window.resizeTargets.forEach(function(it) {
         if (it.data && it.data.locked) return;
         const displayItem = getContentItem(it);
@@ -664,7 +708,7 @@ const _initSelectionTool = function() {
       window.resizeLastScaleX = factorX;
       window.resizeLastScaleY = factorY;
 
-      // Recalculo reactivo al escalar
+      // Recálculo reactivo CSG al escalar
       if (typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
       }
@@ -673,13 +717,15 @@ const _initSelectionTool = function() {
       paper.view.update();
       return;
     }
+
+    // Arrastre en tiempo real
     if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
       window.dragTargets.forEach(function(dragInfo) {
         if (dragInfo.item.data && dragInfo.item.data.locked) return;
         dragInfo.target.position = event.point.subtract(dragInfo.dragOffset);
       });
 
-      // Recalculo reactivo al arrastrar en vivo
+      // Recálculo reactivo CSG en vivo al mover
       if (typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
       }
@@ -687,6 +733,7 @@ const _initSelectionTool = function() {
       if (typeof calculateSmartGuides === "function") {
         calculateSmartGuides(window.selectedItem, event);
       }
+
       window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
@@ -695,11 +742,13 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseUp = function(event) {
     if (window.nodeEditMode) return;
+
     if (window.marqueeActive && window.marqueePath) {
       const marqueeBounds = window.marqueePath.bounds;
       window.marqueePath.remove();
       window.marqueePath = null;
       window.marqueeActive = false;
+
       const itemsToSelect = [];
       paper.project.activeLayer.children.forEach(function(item) {
         let isMockup = false;
@@ -716,12 +765,17 @@ const _initSelectionTool = function() {
           curr = curr.parent;
         }
         if (isMockup) return;
-        if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isNodeHandle)) return;
+        if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isSmartGuide || item.data.isMeasurement || item.data.isTracePreview)) {
+          return;
+        }
+
         const displayItem = getContentItem(item);
-        if (displayItem && displayItem.bounds && marqueeBounds.intersects(displayItem.bounds)) {
+        // Filtrar sólidos desintegrados
+        if (displayItem && displayItem.bounds && (displayItem.visible !== false && displayItem.pathData !== "") && marqueeBounds.intersects(displayItem.bounds)) {
           itemsToSelect.push(item);
         }
       });
+
       if (itemsToSelect.length > 0) {
         window.selectedItems = itemsToSelect;
         window.selectedItem = itemsToSelect[itemsToSelect.length - 1];
@@ -738,17 +792,25 @@ const _initSelectionTool = function() {
       paper.view.update();
       return;
     }
+
     if (window.resizeActive || window.dragging || window.rotationActive) {
       if (typeof window.saveHistory === 'function') window.saveHistory();
+      // Asegurar el recálculo final al terminar cualquier transformación
+      if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
+      }
     }
+
     window.dragging = false;
     window.resizeActive = false;
     window.rotationActive = false;
     window.isRotationSnapped = false;
     window.rotationTargets = [];
+
     const canvas = document.getElementById("editorCanvas");
     if (canvas) canvas.style.cursor = 'default';
     if (typeof clearSmartGuides === "function") clearSmartGuides();
+
     window.updateSelectionBox(window.selectedItem);
     paper.view.update();
   };
@@ -758,6 +820,7 @@ const _initSelectionTool = function() {
     const canvas = document.getElementById("editorCanvas");
     if (!canvas) return;
     if (window.resizeActive) return;
+
     let hitResult = null;
     if (window.selectionBoxGroup) {
       hitResult = window.selectionBoxGroup.hitTest(event.point, {
@@ -772,6 +835,7 @@ const _initSelectionTool = function() {
         }
       });
     }
+
     if (hitResult) {
       const type = hitResult.item.data.handleType;
       let cursorStyle = 'pointer';
@@ -800,6 +864,7 @@ const _initSelectionTool = function() {
           return true;
         }
       });
+
       if (generalHit) {
         const hitItem = window.getSelectableItem(generalHit.item);
         if (hitItem) {
@@ -816,6 +881,7 @@ const _initSelectionTool = function() {
           generalHit = null;
         }
       }
+
       if (generalHit && window.selectedItems && window.selectedItems.length > 0) {
         const hitItem = window.getSelectableItem(generalHit.item);
         if (window.selectedItems.includes(hitItem)) {
@@ -823,6 +889,7 @@ const _initSelectionTool = function() {
           return;
         }
       }
+
       if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
         if (window.selectionBoxGroup.bounds.contains(event.point)) {
           canvas.style.cursor = 'move';
