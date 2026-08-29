@@ -1,15 +1,53 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (DOM-Safe WYSIWYG Edition - v25.0 PRO - Auto-Snapping & Subpath Detach)
-Ruta de reemplazo: ASSETS/js/modules/canvas-pro/nodeEditor.js
-Descripcion: Motor interactivo de seleccion y edicion de puntos de anclaje/nodos
-para EKKO Studio. Permite deformar de forma directa las curvas bezier del lienzo.
-Soporta multi-seleccion de puntos por Shift+Clic y caja de arrastre (marquee),
-borrado de nodos, acoplamiento reactivo con calados, y la nueva funcion de
-DESPRENDER NODOS (Separar sub-trazados seleccionados de CompoundPaths).
+Módulo: ASSETS/js/modules/selection.js (WYSIWYG Canva-Style Grouping - v11 PRO)
+Ruta de reemplazo: ASSETS/js/modules/selection.js
+Descripción: Gestión de selección múltiple, arrastre en bloque, recuadro de
+selección por arrastre y redimensionamiento/rotación grupal estilo Canva/Figma.
+Sincronizado y blindado contra TypeErrors de children indefinidos e integrado
+con el motor CSG reactivo de descomposición por jerarquía de contención.
 ========================================================================= */
 
-import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+if (typeof console !== "undefined") {
+  console.log = () => {};
+  console.warn = () => {};
+  console.info = () => {};
+  console.debug = () => {};
+}
 
+if (typeof paper !== "undefined") {
+  const classesToDisable = [
+    paper.Item,
+    paper.Path,
+    paper.CompoundPath,
+    paper.Group,
+    paper.Shape,
+    paper.Raster,
+    paper.PointText,
+    paper.Layer
+  ];
+  classesToDisable.forEach(function(cls) {
+    if (cls && cls.prototype) {
+      cls.prototype._drawSelected = function() {};
+      cls.prototype.drawSelected = function() {};
+    }
+  });
+}
+
+function protectGlobal(name, fn) {
+  let currentImpl = fn;
+  try {
+    Object.defineProperty(window, name, {
+      get: function() { return currentImpl; },
+      set: function(newVal) {},
+      configurable: true,
+      enumerable: true
+    });
+  } catch (e) {
+    window[name] = fn;
+  }
+}
+
+// Blindaje de getContentItem para evitar errores de children indefinidos
 function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
@@ -27,753 +65,785 @@ function getContentItem(item) {
   return item;
 }
 
-function getMatrixRelativeTo(item, targetAncestor) {
-  let matrix = new paper.Matrix();
+window.selectedItem = null;
+window.selectedItems = [];
+window.dragOffset = null;
+window.selectionBoxGroup = null;
+window.resizeActive = false;
+window.resizeHandleType = null;
+window.resizeTarget = null;
+window.resizeTargets = [];
+window.resizeInitialBounds = null;
+window.resizeInitialPoint = null;
+window.resizeLastScaleX = 1.0;
+window.resizeLastScaleY = 1.0;
+window.resizeAnchor = null;
+window.rotationActive = false;
+window.rotationTarget = null;
+window.rotationCenter = null;
+window.rotationStartAngle = 0;
+window.rotationInitialAngle = 0;
+window.rotationTargets = [];
+window.rotationAngleLabel = null;
+window.isRotationSnapped = false;
+window.nodeEditMode = false;
+window.nodeEditTarget = null;
+window.nodeHandlesGroup = null;
+window.selectedNodeIndex = -1;
+window.draggingNode = false;
+window.dragNodeIndex = -1;
+window.marqueeActive = false;
+window.marqueeStartPoint = null;
+window.marqueePath = null;
+
+const _getSelectableItem = function(item){
+  if(!item) return null;
+  if (item.clipMask) return null;
   let current = item;
-  while (current && current !== targetAncestor && !(current instanceof paper.Layer)) {
-    if (current.matrix) {
-      matrix = current.matrix.chain(matrix);
+  while (current) {
+    if (current.data && current.data.clipGroup) {
+      return current;
     }
-    current = current.parent;
-  }
-  return matrix;
-}
-
-function getGlobalMatrix(item) {
-  if (!item) return new paper.Matrix();
-  if (item.data && item.data.globalMatrix) {
-    return item.data.globalMatrix.clone();
-  }
-  return getMatrixRelativeTo(item, null);
-}
-
-let activeNodeItem = null;
-let nodeHandlesGroup = null;
-let selectedNodes = new Set(); // Conjunto de indices globales de puntos seleccionados
-let isDraggingNode = false;
-let dragStartPoint = null;
-let marqueeRect = null;
-let nodeEditTool = null;
-let previousTool = null;
-let disabledClipGroups = [];
-let isAddNodeActive = false; // Modo adicion de nodos en caliente
-
-// Entrar en modo de edicion de nodos para un elemento
-export function enterNodeEditMode(item) {
-  if (typeof window !== 'undefined') {
-    console.log("%c[EKKO NODE EDITOR] Entrando en modo edicion de nodos para el objeto:", "color: #8b5cf6; font-weight: bold; background: #f5f3ff; padding: 4px 8px; border-radius: 6px;");
-    console.log(" - Elemento objetivo:", item ? { id: item.id, type: item.constructor.name, data: item.data } : "Ninguno");
-  }
-
-  if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
-
-  const target = getContentItem(item);
-  if (!target) return;
-
-  // Si es un PointText nativo, ofrecer convertir a curvas primero
-  if (target instanceof paper.PointText) {
-    if (confirm("Para poder editar los nodos de este texto, primero debes convertirlo a curvas (ruta vectorial). Deseas continuar?")) {
-      const converted = convertTextToPath(target);
-      if (converted) {
-        if (item.data?.clipGroup) {
-          target.remove();
-          item.addChild(converted);
-          activeNodeItem = item;
-        } else {
-          const parent = item.parent || paper.project.activeLayer;
-          const idx = parent.children.indexOf(item);
-          parent.insertChild(idx, converted);
-          item.remove();
-          activeNodeItem = converted;
-        }
-        window.deselectItem();
-        window.selectedItem = activeNodeItem;
-        activeNodeItem.selected = true;
-      } else {
-        return;
-      }
+    if (current.parent instanceof paper.Layer || current.parent === paper.project.activeLayer) {
+      return current;
+    }
+    if (current.parent) {
+      current = current.parent;
     } else {
+      break;
+    }
+  }
+  return current;
+};
+
+const _updateSelectionBox = function(item) {
+  if (window.selectionBoxGroup) {
+    window.selectionBoxGroup.remove();
+    window.selectionBoxGroup = null;
+  }
+  if (window.nodeEditMode) {
+    return;
+  }
+  if (window.paper && paper.project) {
+    const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
+    if (designLayer) designLayer.activate();
+  }
+  const primaryItem = item || window.selectedItem;
+  if (!primaryItem) return;
+  let isMockup = false;
+  let curr = primaryItem;
+  while (curr) {
+    if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+      isMockup = true;
+      break;
+    }
+    if (curr === window.currentMockup) {
+      isMockup = true;
+      break;
+    }
+    curr = curr.parent;
+  }
+  if (isMockup) return;
+  const selected = (window.selectedItems && window.selectedItems.length > 0)
+    ? window.selectedItems
+    : [primaryItem];
+  let bounds = null;
+  selected.forEach(function(it) {
+    const displayItem = getContentItem(it);
+    if (!displayItem) return;
+    // Excluir capas desintegradas por sustraccion completa
+    if (displayItem.visible === false || displayItem.pathData === "") return;
+    if (!bounds) {
+      bounds = displayItem.bounds.clone();
+    } else {
+      bounds = bounds.unite(displayItem.bounds);
+    }
+  });
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+  window.selectionBoxGroup = new paper.Group();
+  window.selectionBoxGroup.data = { isSelectionBox: true };
+  if (selected.length > 1) {
+    selected.forEach(function(it) {
+      const displayItem = getContentItem(it);
+      if (displayItem && displayItem.bounds) {
+        if (displayItem.visible === false || displayItem.pathData === "") return;
+        const singleBorder = new paper.Path.Rectangle(displayItem.bounds);
+        singleBorder.strokeColor = '#007bff';
+        singleBorder.strokeWidth = 1 / paper.view.zoom;
+        singleBorder.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
+        window.selectionBoxGroup.addChild(singleBorder);
+      }
+    });
+  }
+  const isRotSnapped = window.isRotationSnapped && window.rotationActive;
+  const mainColor = isRotSnapped ? '#28a745' : '#007bff';
+  const border = new paper.Path.Rectangle(bounds);
+  border.strokeColor = mainColor;
+  border.strokeWidth = 1.5 / paper.view.zoom;
+  border.dashArray = [4 / paper.view.zoom, 4 / paper.view.zoom];
+  window.selectionBoxGroup.addChild(border);
+  const handleSize = 8 / paper.view.zoom;
+  const handlesInfo = [
+    { point: bounds.topLeft, type: 'tl' },
+    { point: bounds.topCenter, type: 't' },
+    { point: bounds.topRight, type: 'tr' },
+    { point: bounds.rightCenter, type: 'r' },
+    { point: bounds.bottomRight, type: 'br' },
+    { point: bounds.bottomCenter, type: 'b' },
+    { point: bounds.bottomLeft, type: 'bl' },
+    { point: bounds.leftCenter, type: 'l' }
+  ];
+  handlesInfo.forEach(function(info) {
+    const rect = new paper.Path.Rectangle({
+      center: info.point,
+      size: [handleSize, handleSize],
+      strokeColor: mainColor,
+      fillColor: '#ffffff',
+      strokeWidth: 1.5 / paper.view.zoom
+    });
+    rect.data = { isHandle: true, handleType: info.type };
+    window.selectionBoxGroup.addChild(rect);
+  });
+  const rotHandleDistance = 25 / paper.view.zoom;
+  const rotHandleCenter = bounds.topCenter.add(new paper.Point(0, -rotHandleDistance));
+  const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
+  connector.strokeColor = mainColor;
+  connector.strokeWidth = 1.2 / paper.view.zoom;
+  window.selectionBoxGroup.addChild(connector);
+  const rotHandleCircle = new paper.Path.Circle({
+    center: rotHandleCenter,
+    radius: 7.5 / paper.view.zoom,
+    strokeColor: mainColor,
+    fillColor: '#ffffff',
+    strokeWidth: 1.5 / paper.view.zoom
+  });
+  rotHandleCircle.data = { isHandle: true, handleType: 'rot' };
+  window.selectionBoxGroup.addChild(rotHandleCircle);
+  const iconRadius = 3.5 / paper.view.zoom;
+  const arrowIcon = new paper.Path.Arc(
+    rotHandleCenter.add(new paper.Point(-iconRadius, 0)),
+    rotHandleCenter.add(new paper.Point(0, -iconRadius)),
+    rotHandleCenter.add(new paper.Point(iconRadius, 0))
+  );
+  arrowIcon.strokeColor = mainColor;
+  arrowIcon.strokeWidth = 1.2 / paper.view.zoom;
+  window.selectionBoxGroup.addChild(arrowIcon);
+  const arrowTip = new paper.Path();
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius - 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius, 0)));
+  arrowTip.add(rotHandleCenter.add(new paper.Point(iconRadius + 1.5 / paper.view.zoom, 1.5 / paper.view.zoom)));
+  arrowTip.strokeColor = mainColor;
+  arrowTip.strokeWidth = 1.2 / paper.view.zoom;
+  window.selectionBoxGroup.addChild(arrowTip);
+  window.selectionBoxGroup.bringToFront();
+  if (typeof window.applyPositionCorrections === "function") {
+    window.applyPositionCorrections();
+  }
+  if (typeof window.bindRotationInputEvents === "function") {
+    window.bindRotationInputEvents();
+  }
+  if (typeof window.syncContextualRotationInput === "function") {
+    window.syncContextualRotationInput(primaryItem);
+  }
+};
+
+const _selectItem = function(item, isMulti = false){
+  if (window.nodeEditMode) {
+    return;
+  }
+  let isMockup = false;
+  let curr = item;
+  while (curr) {
+    if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+      isMockup = true;
+      break;
+    }
+    if (curr === window.currentMockup) {
+      isMockup = true;
+      break;
+    }
+    curr = curr.parent;
+  }
+  if (!item || isMockup) {
+    window.deselectItem();
+    return;
+  }
+  if (!window.selectedItems) window.selectedItems = [];
+  if (isMulti) {
+    const index = window.selectedItems.indexOf(item);
+    if (index > -1) {
+      item.selected = false;
+      window.selectedItems.splice(index, 1);
+    } else {
+      item.selected = true;
+      window.selectedItems.push(item);
+    }
+    window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
+  } else {
+    window.selectedItems.forEach(function(it) {
+      if (it) it.selected = false;
+    });
+    if (item) {
+      item.selected = true;
+      window.selectedItem = item;
+      window.selectedItems = [item];
+    } else {
+      window.selectedItem = null;
+      window.selectedItems = [];
+    }
+  }
+  if(!window.selectedItem){
+    window.updateSelectionBox(null);
+    paper.view.update();
+    return;
+  }
+  window.updateSelectionBox(window.selectedItem);
+  if (typeof window.updateContextualMenu === 'function') {
+    window.updateContextualMenu(window.selectedItem);
+  }
+  paper.view.update();
+};
+
+const _deselectItem = function(){
+  if (window.nodeEditMode) {
+    return;
+  }
+  if (window.selectedItems) {
+    window.selectedItems.forEach(function(it) {
+      if (it) it.selected = false;
+    });
+    window.selectedItems = [];
+  }
+  if(window.selectedItem){
+    window.selectedItem.selected = false;
+  }
+  window.selectedItem = null;
+  window.updateSelectionBox(null);
+  if (typeof window.hideContextualMenu === 'function') {
+    window.hideContextualMenu();
+  }
+  paper.view.update();
+};
+
+const _getOppositePoint = function(bounds, handleType) {
+  switch (handleType) {
+    case 'tl': return bounds.bottomRight;
+    case 'tr': return bounds.bottomLeft;
+    case 'bl': return bounds.topRight;
+    case 'br': return bounds.topLeft;
+    case 't':  return bounds.bottomCenter;
+    case 'b':  return bounds.topCenter;
+    case 'l':  return bounds.rightCenter;
+    case 'r':  return bounds.leftCenter;
+    default:   return bounds.center;
+  }
+};
+
+const _getHandlePoint = function(bounds, handleType) {
+  switch (handleType) {
+    case 'tl': return bounds.topLeft;
+    case 'tr': return bounds.topRight;
+    case 'bl': return bounds.bottomLeft;
+    case 'br': return bounds.bottomRight;
+    case 't':  return bounds.topCenter;
+    case 'b':  return bounds.bottomCenter;
+    case 'l':  return bounds.leftCenter;
+    case 'r':  return bounds.rightCenter;
+    default:   return bounds.center;
+  }
+};
+
+const _initSelectionTool = function() {
+  if (!paper.view) {
+    console.warn("initSelectionTool: paper.view no esta definido todavia.");
+    return;
+  }
+  const selectTool = new paper.Tool();
+  let lastClickTime = 0;
+  selectTool.onMouseDown = function(event) {
+    if (window.nodeEditMode) return;
+    if (window.insertTextMode) {
+      if (typeof createEditableText === "function") {
+        createEditableText(event.point);
+      }
+      window.insertTextMode = false;
+      paper.view.element.style.cursor = "default";
       return;
     }
-  } else {
-    activeNodeItem = item;
-  }
-
-  // ATENCION - GARANTIA DE GRABADO SEGURO:
-  // Desactivamos temporalmente el clipping de grupos padres/hijos EXCEPTO el del clipGroup de producto
-  // para permitir deformar y arrastrar los nodos de un SVG por fuera de su caja original/viewBox.
-  disabledClipGroups = [];
-  function disableClipGroup(g) {
-    if (disabledClipGroups.includes(g)) return;
-    disabledClipGroups.push(g);
-    g.clipped = false;
-    const mask = g.children.find(c => c.clipMask);
-    if (mask) {
-      mask.clipMask = false;
-      mask.data = mask.data || {};
-      mask.data.wasClipMask = true;
-      mask.strokeColor = new paper.Color('#38bdf8');
-      mask.strokeWidth = 1 / paper.view.zoom;
-      mask.dashArray = [4, 4];
-    }
-  }
-
-  let currParent = target.parent;
-  while (currParent && !(currParent instanceof paper.Layer)) {
-    if (currParent instanceof paper.Group && currParent.clipped && !currParent.data?.clipGroup) {
-      disableClipGroup(currParent);
-    }
-    currParent = currParent.parent;
-  }
-
-  const disableDescendantClips = (node) => {
-    if (node instanceof paper.Group && node.clipped && !node.data?.clipGroup) {
-      disableClipGroup(node);
-    }
-    if (node.children) {
-      for (let i = 0; i < node.children.length; i++) {
-        disableDescendantClips(node.children[i]);
-      }
-    }
-  };
-  disableDescendantClips(target);
-
-  window.nodeEditMode = true;
-
-  // AutoCAD-style Right-Click to Exit Node Edit Mode
-  const canvasEl = document.getElementById('editorCanvas');
-  const handleNodeContextMenu = (e) => {
-    if (window.nodeEditMode) {
-      e.preventDefault();
-      exitNodeEditMode();
-    }
-  };
-  if (canvasEl) {
-    canvasEl.addEventListener('contextmenu', handleNodeContextMenu);
-  }
-  window._handleNodeContextMenu = handleNodeContextMenu;
-
-  const btnTopNodes = document.getElementById('proBtnEditNodes');
-  if (btnTopNodes) btnTopNodes.classList.add('active');
-
-  window.nodeEditTarget = activeNodeItem;
-  window.isDraggingNode = false;
-
-  // Ocultar caja de seleccion celeste global
-  if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(null);
-  }
-
-  // Dibujar tiradores de nodos en pantalla
-  drawNodeHandles();
-
-  // CREAR Y ACTIVAR EL TOOL DEDICADO DE EDICION DE NODOS (Estilo LightBurn)
-  previousTool = paper.tool;
-  nodeEditTool = new paper.Tool();
-
-  nodeEditTool.onMouseDown = (event) => {
-    // 0. Interceptar si el modo "Anadir Nodo" esta activo
-    if (isAddNodeActive) {
-      const targetPaths = getTargetPaths(activeNodeItem);
-      let nearestLoc = null;
-      let minDistance = 8 / paper.view.zoom;
-
-      for (const path of targetPaths) {
-        const loc = path.getNearestLocation(event.point);
-        if (loc) {
-          const dist = loc.point.getDistance(event.point);
-          if (dist < minDistance) {
-            minDistance = dist;
-            nearestLoc = loc;
+    const currentTime = Date.now();
+    if (currentTime - lastClickTime < 300) {
+      lastClickTime = 0;
+      if (window.selectedItem) {
+        const target = getContentItem(window.selectedItem);
+        if (target instanceof paper.PointText) {
+          if (typeof window.startTextEditing === 'function') {
+            window.startTextEditing(target);
           }
-        }
-      }
-
-      if (nearestLoc) {
-        const path = nearestLoc.path;
-        const newSegment = nearestLoc.curve.divideAt(nearestLoc);
-        if (newSegment) {
-          // Sincronizar con geomBase si aplica
-          if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.geomBase) {
-            const localClone = activeNodeItem.clone({ insert: false });
-            localClone.matrix = new paper.Matrix();
-            activeNodeItem.data.geomBase = localClone;
-          }
-
-          if (typeof recalculateDynamicSubtractions === 'function') {
-            recalculateDynamicSubtractions();
-          } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-            window.recalculateDynamicSubtractions();
-          }
-
-          selectedNodes.clear();
-          drawNodeHandles();
-
-          const globalIdx = findGlobalIdxForSegment(path, newSegment.index);
-          if (globalIdx !== -1) {
-            selectedNodes.add(globalIdx);
-            drawNodeHandles();
-          }
-
-          // UX: Desactivar modo Anadir inmediatamente para poder arrastrar el nodo
-          isAddNodeActive = false;
-          const btnAddNode = document.getElementById('btnCtxAddNode');
-          if (btnAddNode) {
-            btnAddNode.classList.remove('active');
-            btnAddNode.style.backgroundColor = '';
-          }
-          paper.view.element.style.cursor = 'default';
-          isDraggingNode = true;
-          window.isDraggingNode = true;
-          paper.view.update();
           return;
         }
       }
     }
-
-    // 1. Hit test para ver si hicimos clic sobre un tirador/nodo de interfaz existente
-    const hitResult = paper.project.hitTest(event.point, {
-      fill: true,
-      stroke: true,
-      tolerance: 8 / paper.view.zoom,
-      match: (hit) => hit.item && hit.item.data?.isNodeHandle
-    });
-
+    lastClickTime = currentTime;
+    let hitResult = null;
+    if (window.selectionBoxGroup) {
+      hitResult = window.selectionBoxGroup.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 12 / paper.view.zoom,
+        match: function(hit) {
+          if (hit.item.clipMask) return false;
+          if (hit.type === 'bounds' && (hit.item.data && hit.item.data.clipGroup)) return false;
+          return hit.item.data && hit.item.data.isHandle;
+        }
+      });
+    }
     if (hitResult) {
-      const handleItem = hitResult.item;
-      const ptIdx = handleItem.data.globalIdx;
-      isDraggingNode = true;
-      window.isDraggingNode = true;
-
-      if (event.modifiers.shift) {
-        if (selectedNodes.has(ptIdx)) {
-          selectedNodes.delete(ptIdx);
-        } else {
-          selectedNodes.add(ptIdx);
-        }
-      } else {
-        if (!selectedNodes.has(ptIdx)) {
-          selectedNodes.clear();
-          selectedNodes.add(ptIdx);
-        }
-      }
-
-      drawNodeHandles();
-      paper.view.update();
-      return;
-    }
-
-    dragStartPoint = event.point.clone();
-    if (!event.modifiers.shift) {
-      selectedNodes.clear();
-    }
-    drawNodeHandles();
-    paper.view.update();
-  };
-
-  nodeEditTool.onMouseDrag = (event) => {
-    // A. Arrastre de nodos seleccionados
-    if (isDraggingNode) {
-      const delta = event.delta;
-
-      selectedNodes.forEach(selIdx => {
-        const matchingHandle = nodeHandlesGroup.children.find(c => c.data?.globalIdx === selIdx);
-        if (matchingHandle) {
-          const targetPath = paper.project.getItem({ id: matchingHandle.data.pathId });
-          if (targetPath && targetPath.segments[matchingHandle.data.localIdx]) {
-            const seg = targetPath.segments[matchingHandle.data.localIdx];
-            seg.point = seg.point.add(delta);
-            matchingHandle.position = targetPath.localToGlobal(seg.point);
-          }
-        }
-      });
-
-      // CORRECCION CRITICA: Actualizacion de geomBase en tiempo real para solidos y calados
-      if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.geomBase) {
-        const localClone = activeNodeItem.clone({ insert: false });
-        localClone.matrix = new paper.Matrix();
-        activeNodeItem.data.geomBase = localClone;
-      }
-
-      // Recalculo reactivo no destructivo CSG en caliente
-      if (typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
-      } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-      }
-
-      paper.view.update();
-      return;
-    }
-
-    // B. Arrastre de caja de seleccion (Marquee Selection Box)
-    if (dragStartPoint) {
-      if (marqueeRect) marqueeRect.remove();
-      const rect = new paper.Rectangle(dragStartPoint, event.point);
-      marqueeRect = new paper.Path.Rectangle({
-        rectangle: rect,
-        strokeColor: '#009dec',
-        dashArray: [4, 4],
-        strokeWidth: 1.5 / paper.view.zoom,
-        fillColor: new paper.Color(0, 157, 236, 0.15)
-      });
-
-      if (nodeHandlesGroup) {
-        nodeHandlesGroup.children.forEach(handle => {
-          if (handle.data?.isNodeHandle) {
-            if (rect.contains(handle.position)) {
-              selectedNodes.add(handle.data.globalIdx);
-            } else if (!event.modifiers.shift) {
-              selectedNodes.delete(handle.data.globalIdx);
-            }
+      const hType = hitResult.item.data.handleType;
+      if (hType === 'rot') {
+        if (!window.selectedItem) return;
+        window.rotationActive = true;
+        window.rotationTarget = window.selectedItem;
+        let unifiedBounds = null;
+        window.selectedItems.forEach(function(it) {
+          const displayItem = getContentItem(it);
+          if (!displayItem) return;
+          if (!unifiedBounds) {
+            unifiedBounds = displayItem.bounds.clone();
+          } else {
+            unifiedBounds = unifiedBounds.unite(displayItem.bounds);
           }
         });
+        window.rotationCenter = unifiedBounds ? unifiedBounds.center.clone() : window.selectedItem.bounds.center.clone();
+        const vector = event.point.subtract(window.rotationCenter);
+        window.rotationStartAngle = vector.angle;
+        window.rotationInitialAngle = 0;
+        window.rotationTargets = [];
+        window.selectedItems.forEach(function(it) {
+          const displayItem = getContentItem(it);
+          if (displayItem) {
+            window.rotationTargets.push({
+              item: it,
+              target: displayItem,
+              initialRotation: displayItem.data?.rotation || 0,
+              initialPosition: displayItem.position.clone()
+            });
+          }
+        });
+        return;
       }
-
-      drawNodeHandles();
-      paper.view.update();
-    }
-  };
-
-  nodeEditTool.onMouseUp = (event) => {
-    if (isDraggingNode) {
-      isDraggingNode = false;
-      window.isDraggingNode = false;
-      if (typeof window.saveHistory === 'function') {
-        window.saveHistory();
-      }
-      // Actualizar geomBase al soltar
-      if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.geomBase) {
-        const localClone = activeNodeItem.clone({ insert: false });
-        localClone.matrix = new paper.Matrix();
-        activeNodeItem.data.geomBase = localClone;
-      }
-      if (typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
-      } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-      }
-    }
-
-    if (marqueeRect) {
-      marqueeRect.remove();
-      marqueeRect = null;
-    }
-    dragStartPoint = null;
-    paper.view.update();
-  };
-
-  nodeEditTool.activate();
-
-  // Inyectar y configurar el boton "Anadir Nodo" y "Desprender Nodos"
-  const parentControls = document.getElementById('ctxNodeEditControls');
-  if (parentControls) {
-    let btnAddNode = document.getElementById('btnCtxAddNode');
-    if (!btnAddNode) {
-      btnAddNode = document.createElement('button');
-      btnAddNode.className = 'toolbar-btn';
-      btnAddNode.id = 'btnCtxAddNode';
-      btnAddNode.title = 'Anadir Nodo sobre el contorno';
-      btnAddNode.style.cssText = 'color: #0284c7; background: #f0f9ff; border-color: #bae6fd; font-weight: bold; margin-right: 8px;';
-      btnAddNode.innerHTML = '<i class="fas fa-plus-circle"></i> Anadir Nodo';
-      parentControls.insertBefore(btnAddNode, parentControls.firstChild);
-    }
-    btnAddNode.onclick = () => {
-      isAddNodeActive = !isAddNodeActive;
-      if (isAddNodeActive) {
-        btnAddNode.classList.add('active');
-        btnAddNode.style.backgroundColor = '#bae6fd';
-        paper.view.element.style.cursor = 'crosshair';
-      } else {
-        btnAddNode.classList.remove('active');
-        btnAddNode.style.backgroundColor = '#f0f9ff';
-        paper.view.element.style.cursor = 'default';
-      }
-    };
-
-    let btnDetach = document.getElementById('btnCtxDetachSubpath');
-    if (!btnDetach) {
-      btnDetach = document.createElement('button');
-      btnDetach.className = 'toolbar-btn';
-      btnDetach.id = 'btnCtxDetachSubpath';
-      btnDetach.title = 'Desprender sub-trazados correspondientes a los nodos seleccionados';
-      btnDetach.style.cssText = 'color: #ea580c; background: #fff7ed; border-color: #ffedd5; font-weight: bold; margin-right: 8px;';
-      btnDetach.innerHTML = '<i class="fas fa-scissors"></i> Desprender Nodos';
-      btnAddNode.parentNode.insertBefore(btnDetach, btnAddNode.nextSibling);
-    }
-    btnDetach.onclick = () => detachSelectedSubpaths();
-  }
-
-  const btnDeleteNode = document.getElementById('btnCtxDeleteNode');
-  if (btnDeleteNode) {
-    btnDeleteNode.onclick = () => deleteSelectedNodes();
-  }
-
-  const btnExitNodeEdit = document.getElementById('btnCtxExitNodeEdit');
-  if (btnExitNodeEdit) {
-    btnExitNodeEdit.onclick = () => exitNodeEditMode();
-  }
-
-  document.addEventListener('keydown', handleNodeKeydown);
-  const nodeEl = document.getElementById('ctxNodeEditControls');
-  if (nodeEl) nodeEl.classList.remove('hidden');
-  paper.view.update();
-}
-
-// Salir del modo de edicion de nodos
-export function exitNodeEditMode(skipSelect = false) {
-  if (typeof window !== 'undefined') {
-    console.log(`%c[EKKO NODE EDITOR] Saliendo del modo edicion de nodos (skipSelect = ${skipSelect}) 🚪`, "color: #8b5cf6; font-weight: bold; background: #f5f3ff; padding: 4px 8px; border-radius: 6px;");
-  }
-
-  if (nodeHandlesGroup) {
-    nodeHandlesGroup.remove();
-    nodeHandlesGroup = null;
-  }
-  if (marqueeRect) {
-    marqueeRect.remove();
-    marqueeRect = null;
-  }
-
-  document.removeEventListener('keydown', handleNodeKeydown);
-
-  const itemToRestore = activeNodeItem;
-
-  // Reactivar recortes guardados
-  disabledClipGroups.forEach(g => {
-    if (g && g.parent) {
-      g.clipped = true;
-      if (g.data?.clipGroup) return;
-      const mask = g.children.find(c => c.data?.wasClipMask || c.clipMask);
-      if (mask) {
-        mask.clipMask = true;
-        mask.strokeColor = null;
-        mask.dashArray = null;
-        if (mask.data) delete mask.data.wasClipMask;
-      }
-    }
-  });
-  disabledClipGroups = [];
-
-  const canvasEl = document.getElementById('editorCanvas');
-  if (canvasEl && window._handleNodeContextMenu) {
-    canvasEl.removeEventListener('contextmenu', window._handleNodeContextMenu);
-    delete window._handleNodeContextMenu;
-  }
-
-  activeNodeItem = null;
-  selectedNodes.clear();
-  isDraggingNode = false;
-  window.nodeEditMode = false;
-
-  const btnTopNodes = document.getElementById('proBtnEditNodes');
-  if (btnTopNodes) btnTopNodes.classList.remove('active');
-
-  window.nodeEditTarget = null;
-  isAddNodeActive = false;
-
-  const btnAddNode = document.getElementById('btnCtxAddNode');
-  if (btnAddNode) {
-    btnAddNode.classList.remove('active');
-    btnAddNode.style.backgroundColor = '';
-  }
-
-  if (paper.view && paper.view.element) {
-    paper.view.element.style.cursor = 'default';
-  }
-
-  if (previousTool) {
-    previousTool.activate();
-  }
-
-  if (itemToRestore && !skipSelect) {
-    window.selectItem(itemToRestore);
-  }
-
-  const nodeEl = document.getElementById('ctxNodeEditControls');
-  if (nodeEl) nodeEl.classList.add('hidden');
-
-  // Asegurar recálculo CSG al salir
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-    window.recalculateDynamicSubtractions();
-  }
-
-  paper.view.update();
-}
-
-// Convertir un PointText a un CompoundPath vectorial
-function convertTextToPath(pointText) {
-  if (!pointText) return null;
-  const compound = pointText.createPath({ insert: false });
-  compound.fillColor = pointText.fillColor;
-  compound.strokeColor = pointText.strokeColor;
-  compound.strokeWidth = pointText.strokeWidth;
-  compound.data = { label: "Texto Convertido" };
-  return compound;
-}
-
-// Obtener los trazados vectoriales reales sobre los cuales operar
-function getTargetPaths(item) {
-  const target = getContentItem(item);
-  if (!target) return [];
-  const paths = [];
-  const findPathsRecursive = (el) => {
-    if (el instanceof paper.Path) {
-      paths.push(el);
-    } else if (el instanceof paper.CompoundPath) {
-      el.children.forEach(c => findPathsRecursive(c));
-    } else if (el instanceof paper.Group) {
-      el.children.forEach(c => findPathsRecursive(c));
-    }
-  };
-  findPathsRecursive(target);
-  return paths;
-}
-
-function findGlobalIdxForSegment(path, localIdx) {
-  const paths = getTargetPaths(activeNodeItem);
-  let globalPointIdx = 0;
-  for (const p of paths) {
-    if (p === path) {
-      return globalPointIdx + localIdx;
-    }
-    globalPointIdx += p.segments.length;
-  }
-  return -1;
-}
-
-// Sincronizar dinamicamente la escala visual de los tiradores ante operaciones de zoom
-export function updateNodeHandlesScale() {
-  if (!nodeHandlesGroup || !window.paper) return;
-  const zoom = paper.view.zoom;
-  const handleSize = 5 / zoom;
-  nodeHandlesGroup.children.forEach(handle => {
-    if (handle.data?.isNodeHandle) {
-      if (handle instanceof paper.Path.Circle) {
-        handle.radius = handleSize;
-      } else {
-        handle.bounds.size = new paper.Size(handleSize * 2, handleSize * 2);
-      }
-      handle.strokeWidth = 1.5 / zoom;
-    }
-  });
-}
-window.updateNodeHandlesScale = updateNodeHandlesScale;
-
-// Dibujar fisicamente los circulos de la interfaz de nodos
-export function drawNodeHandles() {
-  if (nodeHandlesGroup) {
-    nodeHandlesGroup.remove();
-  }
-  nodeHandlesGroup = new paper.Group();
-  nodeHandlesGroup.data = { isNodeEditOverlay: true, isNodeHandleContainer: true };
-
-  if (!activeNodeItem) return;
-
-  const paths = getTargetPaths(activeNodeItem);
-  const zoom = paper.view.zoom;
-  const handleSize = 5 / zoom;
-  let globalPointIdx = 0;
-
-  paths.forEach(path => {
-    path.segments.forEach((segment, localIdx) => {
-      const ptIdx = globalPointIdx++;
-      const isSelected = selectedNodes.has(ptIdx);
-      const globalPoint = path.localToGlobal(segment.point);
-
-      const handle = new paper.Path.Circle({
-        center: globalPoint,
-        radius: handleSize,
-        strokeColor: isSelected ? '#28a745' : '#dc3545',
-        fillColor: isSelected ? '#28a745' : '#ffffff',
-        strokeWidth: 1.5 / zoom,
-        insert: false
-      });
-
-      handle.data = {
-        isNodeHandle: true,
-        globalIdx: ptIdx,
-        localIdx: localIdx,
-        pathId: path.id
-      };
-
-      nodeHandlesGroup.addChild(handle);
-    });
-  });
-
-  nodeHandlesGroup.bringToFront();
-}
-
-// Eliminar nodos seleccionados
-export function deleteSelectedNodes() {
-  if (selectedNodes.size === 0 || !activeNodeItem) return;
-  if (typeof window.saveHistory === 'function') window.saveHistory();
-
-  const paths = getTargetPaths(activeNodeItem);
-  const pointsToDeleteByPath = new Map();
-
-  nodeHandlesGroup.children.forEach(handle => {
-    if (handle.data?.isNodeHandle && selectedNodes.has(handle.data.globalIdx)) {
-      if (!pointsToDeleteByPath.has(handle.data.pathId)) {
-        pointsToDeleteByPath.set(handle.data.pathId, []);
-      }
-      pointsToDeleteByPath.get(handle.data.pathId).push(handle.data.localIdx);
-    }
-  });
-
-  pointsToDeleteByPath.forEach((localIndices, pathId) => {
-    const path = paper.project.getItem({ id: pathId });
-    if (path) {
-      localIndices.sort((a, b) => b - a);
-      localIndices.forEach(idx => {
-        if (path.segments[idx]) {
-          path.removeSegment(idx);
+      if (!window.selectedItem) return;
+      window.resizeActive = true;
+      window.resizeHandleType = hType;
+      window.resizeTargets = [...(window.selectedItems || [])];
+      let unifiedBounds = null;
+      window.resizeTargets.forEach(function(it) {
+        const displayItem = getContentItem(it);
+        if (!displayItem) return;
+        if (!unifiedBounds) {
+          unifiedBounds = displayItem.bounds.clone();
+        } else {
+          unifiedBounds = unifiedBounds.unite(displayItem.bounds);
         }
       });
-      if (path.segments.length === 0) {
-        path.remove();
+      window.resizeInitialBounds = unifiedBounds;
+      window.resizeInitialPoint = event.point.clone();
+      window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
+      window.resizeLastScaleX = 1.0;
+      window.resizeLastScaleY = 1.0;
+      return;
+    }
+    let generalHit = paper.project.hitTest(event.point, {
+      fill: true,
+      stroke: true,
+      segments: true,
+      bounds: true,
+      tolerance: 8 / paper.view.zoom,
+      match: function(hit) {
+        if (hit.item.clipMask) return false;
+        if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle || hit.item.data.isNodeHandle)) return false;
+        let curr = hit.item;
+        while (curr) {
+          if (curr.data && (curr.data.mockup || curr.data.isMask)) return false;
+          if (curr === window.currentMockup) return false;
+          curr = curr.parent;
+        }
+        return true;
       }
-    }
-  });
-
-  selectedNodes.clear();
-
-  // Actualizacion de geomBase
-  if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.geomBase) {
-    const localClone = activeNodeItem.clone({ insert: false });
-    localClone.matrix = new paper.Matrix();
-    activeNodeItem.data.geomBase = localClone;
-  }
-
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-    window.recalculateDynamicSubtractions();
-  }
-
-  drawNodeHandles();
-  paper.view.update();
-}
-
-// Desprender trazados correspondientes a los nodos seleccionados
-export function detachSelectedSubpaths() {
-  if (typeof window !== 'undefined') {
-    console.log("%c[EKKO NODE EDITOR] Desprendiendo trazados seleccionados...", "color: #ea580c; font-weight: bold; background: #fff7ed; padding: 4px 8px; border-radius: 6px;");
-  }
-
-  if (!activeNodeItem || selectedNodes.size === 0) return;
-  const target = getContentItem(activeNodeItem);
-  if (!target || !(target instanceof paper.CompoundPath)) {
-    alert("Esta funcion solo es aplicable para desarmar sub-trazados de objetos combinados o compuestos.");
-    return;
-  }
-
-  if (typeof window.saveHistory === 'function') window.saveHistory();
-
-  const pathsToExtract = new Set();
-  nodeHandlesGroup.children.forEach(handle => {
-    if (handle.data?.isNodeHandle && selectedNodes.has(handle.data.globalIdx)) {
-      pathsToExtract.add(handle.data.pathId);
-    }
-  });
-
-  if (pathsToExtract.size === 0) return;
-
-  const parent = activeNodeItem.parent || paper.project.activeLayer;
-  const index = parent.children.indexOf(activeNodeItem);
-  const isClipped = !!activeNodeItem.data?.clipGroup;
-  const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? activeNodeItem : null);
-  const pathAbsMatrix = getGlobalMatrix(target);
-  const extractedItems = [];
-
-  pathsToExtract.forEach(pathId => {
-    const subPath = paper.project.getItem({ id: pathId });
-    if (subPath && subPath.parent === target) {
-      const clone = subPath.clone({ insert: false });
-      clone.fillColor = target.fillColor || '#000000';
-      clone.strokeColor = target.strokeColor || '#000000';
-      clone.strokeWidth = target.strokeWidth || 1;
-
-      let newItem;
-      if (isClipped) {
-        newItem = window.clipItem(clone);
-        newItem.matrix = activeNodeItem.matrix.clone();
-        clone.matrix = pathRelMatrix.clone().chain(clone.matrix);
+    });
+    if (generalHit) {
+      const selectableItem = window.getSelectableItem(generalHit.item);
+      if (selectableItem) {
+        const displayItem = getContentItem(selectableItem);
+        if (!displayItem || !displayItem.bounds || !displayItem.bounds.contains(event.point)) {
+          generalHit = null;
+        }
       } else {
-        newItem = clone;
-        newItem.matrix = pathAbsMatrix.clone().chain(clone.matrix);
-        parent.addChild(newItem);
+        generalHit = null;
+      }
+    }
+    if (generalHit) {
+      const selectableItem = window.getSelectableItem(generalHit.item);
+      if (selectableItem) {
+        const isShiftPressed = event.modifiers && event.modifiers.shift;
+        if (!window.selectedItems) {
+          window.selectedItems = [];
+        }
+        if (isShiftPressed) {
+          const index = window.selectedItems.indexOf(selectableItem);
+          if (index > -1) {
+            selectableItem.selected = false;
+            window.selectedItems.splice(index, 1);
+          } else {
+            selectableItem.selected = true;
+            window.selectedItems.push(selectableItem);
+          }
+          window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
+        } else {
+          if (window.selectedItems.includes(selectableItem)) {
+            // Mantener seleccion
+          } else {
+            window.selectedItems.forEach(function(it) {
+              if (it) it.selected = false;
+            });
+            selectableItem.selected = true;
+            window.selectedItem = selectableItem;
+            window.selectedItems = [selectableItem];
+          }
+        }
+        window.dragging = true;
+        window.dragTargets = [];
+        window.selectedItems.forEach(function(item) {
+          const dragTarget = getContentItem(item);
+          if (dragTarget) {
+            window.dragTargets.push({
+              item: item,
+              target: dragTarget,
+              dragOffset: event.point.subtract(dragTarget.position)
+            });
+          }
+        });
+        window.updateSelectionBox(window.selectedItem);
+        if (typeof window.updateContextualMenu === 'function') {
+          window.updateContextualMenu(window.selectedItem);
+        }
+        paper.view.update();
+        return;
+      }
+    }
+    if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
+      const selectionBoxBounds = window.selectionBoxGroup.bounds;
+      if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
+        window.dragging = true;
+        window.dragTargets = [];
+        window.selectedItems.forEach(function(item) {
+          const dragTarget = getContentItem(item);
+          if (dragTarget) {
+            window.dragTargets.push({
+              item: item,
+              target: dragTarget,
+              dragOffset: event.point.subtract(dragTarget.position)
+            });
+          }
+        });
+        return;
+      }
+    }
+    window.deselectItem();
+    window.marqueeActive = true;
+    window.marqueeStartPoint = event.point.clone();
+    window.marqueePath = new paper.Path.Rectangle({
+      from: event.point,
+      to: event.point,
+      strokeColor: '#007bff',
+      fillColor: new paper.Color(0, 123, 255, 0.15),
+      strokeWidth: 1 / paper.view.zoom,
+      dashArray: [4 / paper.view.zoom, 4 / paper.view.zoom]
+    });
+    window.marqueePath.data = { isSelectionBox: true };
+    paper.view.update();
+  };
+
+  selectTool.onMouseDrag = function(event) {
+    if (window.nodeEditMode) return;
+    if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
+      return;
+    }
+    if (window.marqueeActive && window.marqueePath) {
+      window.marqueePath.remove();
+      window.marqueePath = new paper.Path.Rectangle({
+        from: window.marqueeStartPoint,
+        to: event.point,
+        strokeColor: '#007bff',
+        fillColor: new paper.Color(0, 123, 255, 0.15),
+        strokeWidth: 1 / paper.view.zoom,
+        dashArray: [4 / paper.view.zoom, 4 / paper.view.zoom]
+      });
+      window.marqueePath.data = { isSelectionBox: true };
+      paper.view.update();
+      return;
+    }
+    if (window.rotationActive && window.rotationTargets && window.rotationTargets.length > 0) {
+      const currentPoint = event.point;
+      const vector = currentPoint.subtract(window.rotationCenter);
+      const currentAngle = vector.angle;
+      let angleDiff = currentAngle - window.rotationStartAngle;
+      const isShiftPressed = event.modifiers && event.modifiers.shift;
+      let isSnapped = false;
+      const rt0 = window.rotationTargets[0];
+      if (rt0 && !isShiftPressed) {
+        const rawTargetAngle = (rt0.initialRotation + angleDiff) % 360;
+        const snappedTargetAngle = Math.round(rawTargetAngle / 45) * 45;
+        const deltaToTarget = snappedTargetAngle - rawTargetAngle;
+        if (Math.abs(deltaToTarget) < 4.0) {
+          angleDiff = snappedTargetAngle - rt0.initialRotation;
+          isSnapped = true;
+        }
+      } else if (isShiftPressed) {
+        angleDiff = Math.round(angleDiff / 45) * 45;
+        isSnapped = true;
+      }
+      window.isRotationSnapped = isSnapped;
+      window.rotationTargets.forEach(function(rt) {
+        if (rt.item.data && rt.item.data.locked) return;
+        if (window.selectedItems.length > 1) {
+          rt.target.position = rt.initialPosition.rotate(angleDiff, window.rotationCenter);
+        }
+        const oldRotation = rt.target.data?.rotation || 0;
+        const targetAngle = (rt.initialRotation + angleDiff) % 360;
+        let deltaRotate = targetAngle - oldRotation;
+        if (deltaRotate > 180) deltaRotate -= 360;
+        if (deltaRotate < -180) deltaRotate += 360;
+        rt.target.rotate(deltaRotate, rt.target.bounds.center);
+        rt.target.data = rt.target.data || {};
+        rt.target.data.rotation = targetAngle;
+      });
+
+      // Recalculo reactivo al rotar
+      if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
       }
 
-      const localBase = newItem.clone({ insert: false });
-      localBase.matrix = new paper.Matrix();
-
-      newItem.data = {
-        ...(newItem.data || {}),
-        locked: false,
-        isHole: false,
-        geomBase: localBase,
-        label: "Trazado Desprendido"
-      };
-
-      extractedItems.push(newItem);
-      subPath.remove();
+      const rotationNum = document.getElementById('ctxRotationNum');
+      if (rotationNum && window.selectedItem) {
+        const displayItem = getContentItem(window.selectedItem);
+        if (displayItem) {
+          rotationNum.value = Math.round(displayItem.data?.rotation || 0) + '';
+        }
+      }
+      window.updateSelectionBox(null);
+      paper.view.update();
+      return;
     }
-  });
+    if (window.resizeActive && window.resizeTargets && window.resizeTargets.length > 0) {
+      const anchor = window.resizeAnchor;
+      const initialHandlePoint = window.getHandlePoint(window.resizeInitialBounds, window.resizeHandleType);
+      const currentHandlePoint = event.point;
+      let factorX = 1.0;
+      let factorY = 1.0;
+      const initialXDiff = initialHandlePoint.x - anchor.x;
+      const currentXDiff = currentHandlePoint.x - anchor.x;
+      if (Math.abs(initialXDiff) > 0.001) factorX = currentXDiff / initialXDiff;
+      const initialYDiff = initialHandlePoint.y - anchor.y;
+      const currentYDiff = currentHandlePoint.y - anchor.y;
+      if (Math.abs(initialYDiff) > 0.001) factorY = currentYDiff / initialYDiff;
+      if (['tl', 'tr', 'bl', 'br'].includes(window.resizeHandleType)) {
+        const factor = (Math.abs(factorX) + Math.abs(factorY)) / 2 * (factorX < 0 ? -1 : 1);
+        factorX = factor;
+        factorY = factor;
+      }
+      window.resizeTargets.forEach(function(it) {
+        if (it.data && it.data.locked) return;
+        const displayItem = getContentItem(it);
+        if (displayItem) {
+          const relScaleX = factorX / window.resizeLastScaleX;
+          const relScaleY = factorY / window.resizeLastScaleY;
+          displayItem.scale(relScaleX, relScaleY, anchor);
+        }
+      });
+      window.resizeLastScaleX = factorX;
+      window.resizeLastScaleY = factorY;
 
-  if (target.children.length === 0) {
-    activeNodeItem.remove();
-  } else {
-    // Actualizar geomBase del compuesto restante
-    if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.geomBase) {
-      const localClone = activeNodeItem.clone({ insert: false });
-      localClone.matrix = new paper.Matrix();
-      activeNodeItem.data.geomBase = localClone;
+      // Recalculo reactivo al escalar
+      if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
+      }
+
+      window.updateSelectionBox(null);
+      paper.view.update();
+      return;
     }
-  }
+    if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
+      window.dragTargets.forEach(function(dragInfo) {
+        if (dragInfo.item.data && dragInfo.item.data.locked) return;
+        dragInfo.target.position = event.point.subtract(dragInfo.dragOffset);
+      });
 
-  exitNodeEditMode();
-  window.deselectItem();
+      // Recalculo reactivo al arrastrar en vivo
+      if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
+      }
 
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-    window.recalculateDynamicSubtractions();
-  }
-
-  setTimeout(() => {
-    if (extractedItems.length > 0) {
-      window.selectedItems = [...extractedItems];
-      window.selectedItem = extractedItems[extractedItems.length - 1];
-      extractedItems.forEach(it => { if (it) it.selected = true; });
-      if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(window.selectedItem);
-      if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(window.selectedItem);
+      if (typeof calculateSmartGuides === "function") {
+        calculateSmartGuides(window.selectedItem, event);
+      }
+      window.updateSelectionBox(window.selectedItem);
+      paper.view.update();
+      return;
     }
+  };
+
+  selectTool.onMouseUp = function(event) {
+    if (window.nodeEditMode) return;
+    if (window.marqueeActive && window.marqueePath) {
+      const marqueeBounds = window.marqueePath.bounds;
+      window.marqueePath.remove();
+      window.marqueePath = null;
+      window.marqueeActive = false;
+      const itemsToSelect = [];
+      paper.project.activeLayer.children.forEach(function(item) {
+        let isMockup = false;
+        let curr = item;
+        while (curr) {
+          if (curr.data && (curr.data.mockup || curr.data.isMask)) {
+            isMockup = true;
+            break;
+          }
+          if (curr === window.currentMockup) {
+            isMockup = true;
+            break;
+          }
+          curr = curr.parent;
+        }
+        if (isMockup) return;
+        if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isNodeHandle)) return;
+        const displayItem = getContentItem(item);
+        if (displayItem && displayItem.bounds && marqueeBounds.intersects(displayItem.bounds)) {
+          itemsToSelect.push(item);
+        }
+      });
+      if (itemsToSelect.length > 0) {
+        window.selectedItems = itemsToSelect;
+        window.selectedItem = itemsToSelect[itemsToSelect.length - 1];
+        window.selectedItems.forEach(function(it) {
+          it.selected = true;
+        });
+        window.updateSelectionBox(window.selectedItem);
+        if (typeof window.updateContextualMenu === 'function') {
+          window.updateContextualMenu(window.selectedItem);
+        }
+      } else {
+        window.deselectItem();
+      }
+      paper.view.update();
+      return;
+    }
+    if (window.resizeActive || window.dragging || window.rotationActive) {
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+    }
+    window.dragging = false;
+    window.resizeActive = false;
+    window.rotationActive = false;
+    window.isRotationSnapped = false;
+    window.rotationTargets = [];
+    const canvas = document.getElementById("editorCanvas");
+    if (canvas) canvas.style.cursor = 'default';
+    if (typeof clearSmartGuides === "function") clearSmartGuides();
+    window.updateSelectionBox(window.selectedItem);
     paper.view.update();
-  }, 50);
+  };
+
+  selectTool.onMouseMove = function(event) {
+    if (window.nodeEditMode) return;
+    const canvas = document.getElementById("editorCanvas");
+    if (!canvas) return;
+    if (window.resizeActive) return;
+    let hitResult = null;
+    if (window.selectionBoxGroup) {
+      hitResult = window.selectionBoxGroup.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: 12 / paper.view.zoom,
+        match: function(hit) {
+          if (hit.item.clipMask) return false;
+          if (hit.type === 'bounds' && (hit.item.data && hit.item.data.clipGroup)) return false;
+          return hit.item.data && hit.item.data.isHandle;
+        }
+      });
+    }
+    if (hitResult) {
+      const type = hitResult.item.data.handleType;
+      let cursorStyle = 'pointer';
+      if (type === 'rot') cursorStyle = 'grab';
+      else if (type === 'tl' || type === 'br') cursorStyle = 'nwse-resize';
+      else if (type === 'tr' || type === 'bl') cursorStyle = 'nesw-resize';
+      else if (type === 't' || type === 'b') cursorStyle = 'ns-resize';
+      else if (type === 'l' || type === 'r') cursorStyle = 'ew-resize';
+      canvas.style.cursor = cursorStyle;
+    } else {
+      let generalHit = paper.project.hitTest(event.point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        bounds: true,
+        tolerance: 8 / paper.view.zoom,
+        match: function(hit) {
+          if (hit.item.clipMask) return false;
+          if (hit.item.data && (hit.item.data.isSelectionBox || hit.item.data.isHandle || hit.item.data.isNodeHandle)) return false;
+          let curr = hit.item;
+          while (curr) {
+            if (curr.data && (curr.data.mockup || curr.data.isMask)) return false;
+            if (curr === window.currentMockup) return false;
+            curr = curr.parent;
+          }
+          return true;
+        }
+      });
+      if (generalHit) {
+        const hitItem = window.getSelectableItem(generalHit.item);
+        if (hitItem) {
+          const displayItem = getContentItem(hitItem);
+          if (displayItem && displayItem.bounds && (displayItem.visible !== false && displayItem.pathData !== "") && displayItem.bounds.contains(event.point)) {
+            if (window.selectedItems && window.selectedItems.includes(hitItem)) {
+              canvas.style.cursor = 'move';
+              return;
+            }
+          } else {
+            generalHit = null;
+          }
+        } else {
+          generalHit = null;
+        }
+      }
+      if (generalHit && window.selectedItems && window.selectedItems.length > 0) {
+        const hitItem = window.getSelectableItem(generalHit.item);
+        if (window.selectedItems.includes(hitItem)) {
+          canvas.style.cursor = 'move';
+          return;
+        }
+      }
+      if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
+        if (window.selectionBoxGroup.bounds.contains(event.point)) {
+          canvas.style.cursor = 'move';
+          return;
+        }
+      }
+      canvas.style.cursor = 'default';
+    }
+  };
+
+  selectTool.activate();
+};
+
+if (typeof paper !== "undefined" && paper.view) {
+  _initSelectionTool();
 }
 
-// Manejar teclado
-function handleNodeKeydown(e) {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    exitNodeEditMode();
-    return;
-  }
-  if (selectedNodes.size === 0 || !activeNodeItem) return;
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    e.preventDefault();
-    deleteSelectedNodes();
-  }
-}
-
-// Exposicion global segura
-if (typeof window !== 'undefined') {
-  window.enterNodeEditMode = enterNodeEditMode;
-  window.exitNodeEditMode = exitNodeEditMode;
-  window.updateNodeHandlesScale = updateNodeHandlesScale;
-  window.drawNodeHandles = drawNodeHandles;
-  window.detachSelectedSubpaths = detachSelectedSubpaths;
-}
+protectGlobal('getSelectableItem', _getSelectableItem);
+protectGlobal('updateSelectionBox', _updateSelectionBox);
+protectGlobal('selectItem', _selectItem);
+protectGlobal('deselectItem', _deselectItem);
+protectGlobal('getOppositePoint', _getOppositePoint);
+protectGlobal('getHandlePoint', _getHandlePoint);
+protectGlobal('initSelectionTool', _initSelectionTool);
