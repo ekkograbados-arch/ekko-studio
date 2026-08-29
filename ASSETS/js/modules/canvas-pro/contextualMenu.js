@@ -1,14 +1,9 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition - v25.0)
-Ruta de implementación: ASSETS/js/modules/canvas-pro/contextualMenu.js
-Descripción: Gestor unificado del menú contextual y de las acciones de grabado/
-edición de vectores y textos en caliente. Sincronizado 100% con
-geometricUngroup.js y el motor de Descomposición por Jerarquía de Contención en 1 Clic.
-
-- Desagrupado instantáneo de 1 solo clic para siluetas complejas (Escudo AFA, Minnie Mouse).
-- Los calados permanecen como entidades físicas que sustraen material en caliente.
-- Reactividad bidireccional inmediata en Subir Capa, Bajar Capa, Duplicar y Eliminar.
-- Eliminación de escuchadores duplicados (Ctrl+G y Ctrl+U delegados a zoomYShortcuts.js).
+Modulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition - v25.0 - True Hierarchy Decomposition)
+Ruta de implementacion: ASSETS/js/modules/canvas-pro/contextualMenu.js
+Descripcion: Gestor unificado del menu contextual y de las acciones de grabado/
+edicion de vectores y textos en caliente. Sincronizado 100% con
+geometricUngroup.js y el motor de Descomposicion por Jerarquia de Contencion en 1 Clic.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -101,10 +96,8 @@ window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
 let lastSelectedItem = null;
-window.ekkoOuters = window.ekkoOuters || new Map();
-window.ekkoHolesMap = window.ekkoHolesMap || new Map();
 
-// --- INYECCIÓN DE ESTILOS CSS PARA EL MENÚ PERSONALIZADO ---
+// --- INYECCION DE ESTILOS CSS PARA EL MENU PERSONALIZADO ---
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
   const styleEl = document.createElement('style');
@@ -187,28 +180,35 @@ function renderCustomFontItems(listContainer, fonts) {
   listContainer.innerHTML = "";
   const previewText = getSelectedTextString();
   const currentFamily = getSelectedFontFamily();
+
   fonts.forEach(font => {
     const item = document.createElement('div');
     item.className = 'custom-font-item' + (currentFamily === font.family ? ' active' : '');
+
     const preview = document.createElement('div');
     preview.className = 'custom-font-preview';
     preview.style.fontFamily = font.family;
     preview.textContent = previewText;
+
     const name = document.createElement('div');
     name.className = 'custom-font-name';
     name.textContent = font.name;
+
     item.appendChild(preview);
     item.appendChild(name);
+
     item.onmouseenter = () => {
       if (window.selectedItem) {
         applyFontFamily(window.selectedItem, font.family);
       }
     };
+
     item.onmouseleave = () => {
       if (window.selectedItem && window.originalFontBackup) {
         applyFontFamily(window.selectedItem, window.originalFontBackup);
       }
     };
+
     item.onclick = (e) => {
       e.stopPropagation();
       window.originalFontBackup = font.family;
@@ -220,6 +220,7 @@ function renderCustomFontItems(listContainer, fonts) {
       const triggerText = document.querySelector('.selected-font-trigger span');
       if (triggerText) triggerText.textContent = font.name;
     };
+
     listContainer.appendChild(item);
   });
 }
@@ -238,6 +239,7 @@ async function populateFontDropdowns() {
   } catch (err) {
     console.error("Error al cargar las tipografias dinamicas en el menu contextual:", err);
   }
+
   fontsCache = fonts;
   injectFontFaces(fonts);
 
@@ -266,6 +268,7 @@ async function populateFontDropdowns() {
           list.classList.add('hidden');
         }
       };
+
       document.addEventListener('click', () => {
         list.classList.add('hidden');
       });
@@ -361,7 +364,11 @@ export function groupSelectedItems() {
   const hasMockup = !!window.currentMockup;
   if (hasMockup) {
     finalItem = window.clipItem(newGroup);
-    parent.addChild(finalItem);
+    if (finalItem === newGroup) {
+      parent.addChild(finalItem);
+    } else {
+      parent.addChild(finalItem);
+    }
   } else {
     finalItem = newGroup;
     parent.addChild(finalItem);
@@ -418,9 +425,9 @@ function splitPointTextIntoLetters(pointText) {
 }
 
 /**
- * ACCIÓN PRINCIPAL: DESAGRUPAR EN UN SOLO CLIC
- * Aplica el motor de Descomposición por Jerarquía de Contención sobre cualquier
- * elemento compuesto o grupo de SVG (ej. Escudo AFA, Minnie Mouse).
+ * ACCION PRINCIPAL: DESAGRUPAR EN UN SOLO CLIC
+ * Aplica la Descomposicion por Jerarquia de Contencion desarmando de raiz cualquier clipGroup
+ * o contenedor SVG para depositar las capas independientes directamente en la capa de diseno.
  */
 export function ungroupSelectedItem() {
   if (typeof window !== 'undefined') {
@@ -452,7 +459,8 @@ export function ungroupSelectedItem() {
   rawSelected.forEach(item => {
     if (!item || (item.data && item.data.locked)) return;
 
-    const actualItem = item.data?.clipGroup ? getContentItem(item) : item;
+    const isClipped = !!(item.data && item.data.clipGroup);
+    const actualItem = isClipped ? getContentItem(item) : item;
     if (!actualItem) return;
 
     // Desensamblado de textos PointText en letras individuales
@@ -462,6 +470,7 @@ export function ungroupSelectedItem() {
       const textAbsMatrix = getGlobalMatrix(actualItem);
       const letters = splitPointTextIntoLetters(actualItem);
       actualItem.remove();
+      if (isClipped) item.remove();
       const textItems = [];
       letters.forEach(letter => {
         let newItem = letter;
@@ -476,14 +485,18 @@ export function ungroupSelectedItem() {
       return;
     }
 
-    // Descomposición por Jerarquía de Contención en 1 Clic para geometrías y grupos vectoriales
+    // Descomposicion por Jerarquia de Contencion en 1 Clic
     const result = decomposeByContainmentHierarchy(actualItem);
-    if (result && result.items) {
+    if (result && result.items && result.items.length > 0) {
+      // Liberacion absoluta del contenedor clipGroup
+      if (isClipped && item.parent) {
+        item.remove();
+      }
       allCreatedItems.push(...result.items);
     }
   });
 
-  // Selección individual del elemento primario resultante en la capa superior (ej. triángulo interior)
+  // Seleccion individual del elemento primario en Z2 (ej. triangulo interior)
   if (allCreatedItems.length > 0) {
     window.deselectItem();
     setTimeout(() => {
@@ -506,7 +519,7 @@ export function initContextualMenu() {
     canvasEl.addEventListener("contextmenu", (e) => {
       if (window.nodeEditMode) {
         e.preventDefault();
-        if (typeof window.exitNodeEditMode === "function") {
+        if (typeof window.exitNodeEditMode === 'function') {
           window.exitNodeEditMode();
         }
         return;
@@ -518,6 +531,7 @@ export function initContextualMenu() {
         paper.view.update();
         return;
       }
+
       const textEditor = document.getElementById("ekko-text-editor");
       if (textEditor) {
         e.preventDefault();
@@ -532,7 +546,7 @@ export function initContextualMenu() {
     if (key === "enter" || key === "escape") {
       if (window.nodeEditMode) {
         e.preventDefault();
-        if (typeof window.exitNodeEditMode === "function") {
+        if (typeof window.exitNodeEditMode === 'function') {
           window.exitNodeEditMode();
         }
         return;
@@ -544,6 +558,7 @@ export function initContextualMenu() {
         paper.view.update();
         return;
       }
+
       const textEditor = document.getElementById("ekko-text-editor");
       if (textEditor && document.activeElement === textEditor) {
         if (key === "escape" || (key === "enter" && !e.shiftKey)) {
@@ -555,7 +570,7 @@ export function initContextualMenu() {
     }
   }, { capture: true });
 
-  const toolbar = document.getElementById('contextual-toolbar');
+  const toolbar = document.getElementById("contextual-toolbar");
   if (!toolbar) return;
 
   if (toolbar.parentNode !== document.body) {
@@ -571,7 +586,6 @@ export function initContextualMenu() {
     if (el) el.onclick = fn;
   };
 
-  // Eliminación reactiva: si se elimina un calado, se recalcula la masa sólida subyacente
   setClick('btnCtxDelete', () => {
     if (window.selectedItem) {
       deleteImage(window.selectedItem);
@@ -585,13 +599,9 @@ export function initContextualMenu() {
   setClick('btnCtxDuplicate', () => {
     if (window.selectedItem) {
       duplicateImage(window.selectedItem);
-      if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-      }
     }
   });
 
-  // Reordenamiento reactivo Z en caliente
   setClick('btnCtxForward', () => {
     if (window.selectedItem) {
       bringImageForward(window.selectedItem);
@@ -664,7 +674,7 @@ export function initContextualMenu() {
 }
 
 export function updateContextualMenu(item) {
-  const toolbar = document.getElementById('contextual-toolbar');
+  const toolbar = document.getElementById("contextual-toolbar");
   if (!toolbar) return;
 
   removeOverlapTab();
@@ -701,7 +711,6 @@ export function updateContextualMenu(item) {
       const vecCtrl = document.getElementById('ctxVectorControls');
       if (vecCtrl) {
         vecCtrl.classList.remove('hidden');
-
         const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
         if (btnEditNodes) btnEditNodes.style.display = 'none';
 
@@ -750,7 +759,6 @@ export function updateContextualMenu(item) {
     const vecCtrl = document.getElementById('ctxVectorControls');
     if (vecCtrl) {
       vecCtrl.classList.remove('hidden');
-
       const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
       if (btnEditNodes) {
         const canEdit = !isGroup(target) && !isSymbolItem(target);
@@ -792,11 +800,12 @@ export function updateContextualMenu(item) {
       toolbar.style.zIndex = "2147483647";
     }
   }
+
   lastSelectedItem = item;
 }
 
 export function hideContextualMenu() {
-  const toolbar = document.getElementById('contextual-toolbar');
+  const toolbar = document.getElementById("contextual-toolbar");
   if (toolbar) {
     toolbar.classList.remove('active');
   }
