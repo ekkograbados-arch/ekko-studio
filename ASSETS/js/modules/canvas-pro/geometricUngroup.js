@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v31 - Anti-Annihilation Engine)
+Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v32 - 1-Click Atomic & Reversible - Anti-Annihilation Engine)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 
 Descripción:
@@ -340,7 +340,8 @@ export function decomposeByContainmentHierarchy(rootTarget) {
             label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
             isHole: false,
             geomBase: geomBase,
-            layerDepth: 0
+            layerDepth: 0,
+            decomposedLayer: true
         };
 
         compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
@@ -390,7 +391,8 @@ export function decomposeByContainmentHierarchy(rootTarget) {
             isHole: isHole,
             geomBase: geomBase,
             layerDepth: node.depth,
-            containmentId: node.id
+            containmentId: node.id,
+            decomposedLayer: true
         };
 
         // Asignación de color preservando estilos del SVG
