@@ -1,25 +1,25 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v30)
-   Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
+   Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Architecture v30)
+   Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
    
    Descripción:
-   Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
-   para EKKO Studio basado en Paper.js.
+   Controlador de la barra contextual y acciones estructurales (Agrupar /
+   Desagrupar en 1 Clic / Edición de Nodos) para EKKO Studio.
    
    Cumple rigurosamente con:
    - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
    - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-   - DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt):
-     Resuelve de raíz el bug crítico donde 'activeNodeItem.clone({ insert: false })'
-     sobreescribía 'geomBase' con la geometría visible ya mutilada/perforada por CSG.
-   - Preservación inmaculada de 'geomBase' en coordenadas locales neutras.
-   - Sincronización reactiva del motor CSG durante el arrastre y salida de nodos.
+   - DIAGNÓSTICO DE ARQUITECTURA Y DEPENDENCIAS DE EKKO STUDIO V0
+   - RESULTADO ESPERADO (Desagrupación atómica en 1 clic, selección limpia,
+     agrupación simétrica y preservación de calados dinámicos)
    ========================================================================= */
 
-import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
+import { decomposeByContainmentHierarchy, recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
 /**
- * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
+ * Obtiene el elemento gráfico real dentro de un grupo de recorte (clipGroup)
+ * o devuelve el ítem directo si no está recortado.
  * @param {paper.Item} item
  * @returns {paper.Item|null}
  */
@@ -27,334 +27,319 @@ function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
     if (!item.children) return item;
-    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    return content || item.children || item;
+    return item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) || item.children[0] || item;
   }
   return item;
 }
 
-// Variables de estado del editor de nodos
-let activeNodeItem = null;
-let nodeHandlesGroup = null;
-let selectedNodes = new Set();
-let isDraggingNode = false;
-let dragStartPoint = null;
-let nodeEditTool = null;
-let previousTool = null;
-
 /**
- * Extrae todos los trazados terminales (paper.Path) de un elemento o grupo compuesto.
+ * Determina si el elemento es un CompoundPath
  * @param {paper.Item} item
- * @returns {Array<paper.Path>}
+ * @returns {boolean}
  */
-function getTargetPaths(item) {
-  const paths = [];
-  if (item instanceof paper.Path) {
-    paths.push(item);
-  } else if (item instanceof paper.CompoundPath) {
-    if (item.children) {
-      item.children.forEach(c => {
-        if (c instanceof paper.Path) paths.push(c);
-      });
-    }
-  }
-  return paths;
+function isCompoundPath(item) {
+  return item && (item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath));
 }
 
 /**
- * Sincroniza la mutación de los segmentos directamente sobre 'geomBase'.
- * 
- * Corrección de Arquitectura Fundamental:
- * Jamás clona 'activeNodeItem' directamente para asignarlo a 'geomBase', porque el item
- * visible puede contener perforaciones booleanas activas causadas por capas superiores en Z.
- * En su lugar, transforma los trazados editados a su espacio local neutro invirtiendo
- * la matriz de transformación del elemento y reconstruye 'geomBase' inmaculada.
- * 
+ * Determina si el elemento es un Group
  * @param {paper.Item} item
+ * @returns {boolean}
  */
-function syncGeometryToGeomBase(item) {
-  if (!item || !item.data || !item.data.geomBase) return;
-  const target = getContentItem(item);
-  if (!target) return;
+function isGroup(item) {
+  return item && (item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group));
+}
 
-  const newGeomBase = new paper.CompoundPath({ insert: false });
-  const paths = getTargetPaths(target);
+/**
+ * AGRUPAR SELECCIÓN:
+ * Agrupa los elementos seleccionados preservando su semántica de capas,
+ * orden de apilamiento Z, calados activos (isHole) y geometría base (geomBase).
+ * Utiliza la jerarquía semántica 'compoundGroup' para garantizar simetría
+ * reversible en el ciclo Agrupar <-> Desagrupar.
+ */
+export function groupSelectedItems() {
+  const selected = (window.selectedItems && window.selectedItems.length > 0)
+    ? [...window.selectedItems]
+    : (window.selectedItem ? [window.selectedItem] : []);
 
-  paths.forEach(p => {
-    const pClone = p.clone({ insert: false });
-    // Proyectar de vuelta al espacio local neutro (matriz identidad)
-    if (item.matrix && !item.matrix.isIdentity()) {
-      pClone.matrix = item.matrix.inverted();
-      pClone.applyMatrix = true;
+  if (selected.length < 2) {
+    if (typeof window.showToast === 'function') {
+      window.showToast("Selecciona al menos 2 elementos para agrupar.");
+    } else {
+      alert("Selecciona al menos 2 elementos para poder agruparlos.");
     }
-    newGeomBase.addChild(pClone);
+    return;
+  }
+
+  if (typeof window.saveHistory === 'function') {
+    window.saveHistory();
+  }
+
+  const parent = selected[0].parent || (paper.project ? paper.project.activeLayer : null);
+  if (!parent) return;
+
+  const newGroup = new paper.Group();
+  newGroup.data = {
+    locked: false,
+    label: "Grupo de Capas",
+    geometricHierarchy: "compoundGroup"
+  };
+
+  // Mantener el orden Z relativo de los elementos al agrupar
+  selected.sort((a, b) => (a.index || 0) - (b.index || 0));
+
+  selected.forEach(item => {
+    if (item.data && item.data.locked) return;
+    newGroup.addChild(item);
   });
 
-  newGeomBase.matrix = new paper.Matrix();
+  parent.addChild(newGroup);
 
-  if (item.data.geomBase) {
-    item.data.geomBase.remove();
-  }
-  item.data.geomBase = newGeomBase;
-}
-
-/**
- * Ingresa al modo de edición de nodos para el elemento seleccionado.
- * @param {paper.Item} item
- */
-export function enterNodeEditMode(item) {
-  if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
-  const target = getContentItem(item);
-  if (!target) return;
-
-  // Conversión automática de texto a curvas si se intenta editar nodos de un PointText
-  if (target instanceof paper.PointText) {
-    if (confirm("Para editar los nodos de este texto, primero debes convertirlo a curvas. ¿Deseas continuar?")) {
-      const converted = convertTextToPath(target);
-      if (converted) {
-        const parent = target.parent;
-        parent.addChild(converted);
-        target.remove();
-        item = converted;
-      } else {
-        return;
-      }
-    } else {
-      return;
-    }
+  // Actualizar selección al nuevo grupo
+  if (typeof window.selectItem === 'function') {
+    window.selectItem(newGroup);
+  } else {
+    window.selectedItems = [newGroup];
+    window.selectedItem = newGroup;
+    newGroup.selected = true;
   }
 
-  activeNodeItem = item;
-  window.nodeEditMode = true;
-  window.nodeEditTarget = item;
-
-  // Ocultar caja envolvente de selección global
-  if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(null);
-  }
-
-  // Si el elemento es un sólido afectado por CSG, mostramos temporalmente su silueta completa
-  // para permitir al operador editar su masa íntegra sin deformaciones visuales parásitas
-  if (activeNodeItem.data && activeNodeItem.data.geomBase && !activeNodeItem.data.isHole) {
-    const pristine = activeNodeItem.data.geomBase.clone({ insert: false });
-    pristine.matrix = activeNodeItem.matrix.clone();
-    activeNodeItem.removeChildren();
-    if (pristine instanceof paper.CompoundPath) {
-      const cl = pristine.clone({ insert: false });
-      activeNodeItem.addChildren(cl.removeChildren());
-      cl.remove();
-    } else if (pristine instanceof paper.Path) {
-      activeNodeItem.addChild(pristine.clone({ insert: false }));
-    }
-    pristine.remove();
-  }
-
-  drawNodeHandles();
-  setupNodeEditTool();
-
-  const nodeEl = document.getElementById('ctxNodeEditControls');
-  if (nodeEl) nodeEl.classList.remove('hidden');
-
-  paper.view.update();
-}
-
-/**
- * Sale del modo de edición de nodos y restaura el estado interactivo general.
- * @param {boolean} skipSelect Si es true, no vuelve a seleccionar el item automáticamente
- */
-export function exitNodeEditMode(skipSelect = false) {
-  window.nodeEditMode = false;
-  window.nodeEditTarget = null;
-  const itemToRestore = activeNodeItem;
-  activeNodeItem = null;
-
-  if (nodeHandlesGroup) {
-    nodeHandlesGroup.remove();
-    nodeHandlesGroup = null;
-  }
-  selectedNodes.clear();
-
-  if (previousTool) {
-    previousTool.activate();
-  }
-
-  const nodeEl = document.getElementById('ctxNodeEditControls');
-  if (nodeEl) nodeEl.classList.add('hidden');
-
-  // Recalcular sustracciones dinámicas CSG para restablecer calados físicos exactos
   if (typeof recalculateDynamicSubtractions === 'function') {
     recalculateDynamicSubtractions();
   }
 
-  if (itemToRestore && !skipSelect && typeof window.selectItem === 'function') {
-    window.selectItem(itemToRestore);
+  if (typeof updateContextualMenu === 'function') {
+    updateContextualMenu(newGroup);
   }
 
   paper.view.update();
 }
 
 /**
- * Renderiza los tiradores visuales de los nodos sobre el lienzo.
+ * DESAGRUPAR SELECCIÓN EN UN SOLO CLIC:
+ * Ejecuta la descomposición completa por jerarquía de contención.
+ * - Descompone grupos de capas o CompoundPaths en capas y calados independientes.
+ * - Desacopla la selección forzada arbitraria: selecciona limpiamente todas las
+ *   entidades generadas para que el usuario tenga control total.
+ * - Dispara el recálculo CSG para materializar perforaciones reactivas según orden Z.
  */
-function drawNodeHandles() {
-  if (nodeHandlesGroup) {
-    nodeHandlesGroup.remove();
-    nodeHandlesGroup = null;
+export function ungroupSelectedItem() {
+  const wasInNodeEdit = !!window.nodeEditMode;
+  if (wasInNodeEdit && typeof exitNodeEditMode === 'function') {
+    exitNodeEditMode(true);
   }
-  if (!activeNodeItem) return;
 
-  const target = getContentItem(activeNodeItem);
-  if (!target) return;
+  const selectedList = (window.selectedItems && window.selectedItems.length > 0)
+    ? [...window.selectedItems]
+    : (window.selectedItem ? [window.selectedItem] : []);
 
-  nodeHandlesGroup = new paper.Group();
-  nodeHandlesGroup.data = { isSelectionBox: true, isNodeOverlay: true, isNodeEditOverlay: true };
+  if (selectedList.length === 0) return;
 
-  const paths = getTargetPaths(target);
-  const zoom = paper.view.zoom;
-  const handleSize = 6 / zoom;
-  let globalPointIdx = 0;
+  if (typeof window.saveHistory === 'function') {
+    window.saveHistory();
+  }
 
-  paths.forEach(path => {
-    path.segments.forEach(seg => {
-      const pt = path.localToGlobal(seg.point);
-      const isSelected = selectedNodes.has(globalPointIdx);
+  const allLiberatedItems = [];
 
-      const handle = new paper.Path.Rectangle({
-        center: pt,
-        size: new paper.Size(handleSize, handleSize),
-        fillColor: isSelected ? '#3b82f6' : '#ffffff',
-        strokeColor: '#1d4ed8',
-        strokeWidth: 1.5 / zoom,
-        insert: false
+  selectedList.forEach(item => {
+    if (!item || item.data?.locked) return;
+
+    const isClipped = !!(item.data && item.data.clipGroup);
+    const actualItem = isClipped ? getContentItem(item) : item;
+    if (!actualItem) return;
+
+    // Caso A: Grupo estructurado previo ('compoundGroup')
+    if (isGroup(actualItem) && actualItem.data?.geometricHierarchy === "compoundGroup") {
+      const children = [...actualItem.children];
+      const targetLayer = actualItem.layer || (paper.project ? paper.project.activeLayer : null);
+
+      children.forEach(child => {
+        if (targetLayer) {
+          targetLayer.addChild(child);
+        }
+        allLiberatedItems.push(child);
       });
 
-      handle.data = {
-        isNodeHandle: true,
-        pathId: path.id,
-        pointIndex: globalPointIdx,
-        segment: seg,
-        ownerPath: path
-      };
-
-      nodeHandlesGroup.addChild(handle);
-      globalPointIdx++;
-    });
+      actualItem.remove();
+      if (isClipped && item.parent) {
+        item.remove();
+      }
+    } else {
+      // Caso B: Descomposición geométrica por jerarquía de contención en 1 clic
+      const result = decomposeByContainmentHierarchy(actualItem);
+      if (result && result.items && result.items.length > 0) {
+        if (isClipped && item.parent) {
+          item.remove();
+        }
+        allLiberatedItems.push(...result.items);
+      }
+    }
   });
 
-  nodeHandlesGroup.bringToFront();
+  // Selección unificada de todos los elementos liberados
+  if (allLiberatedItems.length > 0) {
+    window.selectedItems = [...allLiberatedItems];
+    window.selectedItem = allLiberatedItems[allLiberatedItems.length - 1];
+
+    allLiberatedItems.forEach(it => {
+      if (it) it.selected = true;
+    });
+
+    if (typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+    if (typeof updateContextualMenu === 'function') {
+      updateContextualMenu(window.selectedItem);
+    }
+  } else {
+    window.selectedItems = [];
+    window.selectedItem = null;
+    if (typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(null);
+    }
+    hideContextualMenu();
+  }
+
+  // Recálculo CSG dinámico global para consolidar perforaciones según apilamiento Z
+  if (typeof recalculateDynamicSubtractions === 'function') {
+    recalculateDynamicSubtractions();
+  }
+
+  paper.view.update();
 }
 
 /**
- * Configura la herramienta de interacción con nodos (Paper.js Tool).
+ * ENTRAR EN MODO EDICIÓN DE NODOS
  */
-function setupNodeEditTool() {
-  if (!nodeEditTool) {
-    nodeEditTool = new paper.Tool();
-    nodeEditTool.name = 'nodeEditTool';
+export function handleEnterNodeEdit() {
+  const item = window.selectedItem;
+  if (!item) return;
+  if (typeof enterNodeEditMode === 'function') {
+    enterNodeEditMode(item);
+  }
+}
 
-    nodeEditTool.onMouseDown = function(e) {
-      const hit = paper.project.hitTest(e.point, {
-        segments: false,
-        stroke: false,
-        fill: false,
-        tolerance: 8 / paper.view.zoom,
-        match: hitResult => hitResult.item && hitResult.item.data && hitResult.item.data.isNodeHandle
-      });
+/**
+ * SALIR DEL MODO EDICIÓN DE NODOS
+ */
+export function handleExitNodeEdit() {
+  if (typeof exitNodeEditMode === 'function') {
+    exitNodeEditMode(false);
+  }
+}
 
-      if (hit && hit.item) {
-        isDraggingNode = true;
-        dragStartPoint = e.point.clone();
-        const ptIdx = hit.item.data.pointIndex;
-        if (!e.modifiers.shift) {
-          if (!selectedNodes.has(ptIdx)) {
-            selectedNodes.clear();
-            selectedNodes.add(ptIdx);
-          }
-        } else {
-          if (selectedNodes.has(ptIdx)) {
-            selectedNodes.delete(ptIdx);
-          } else {
-            selectedNodes.add(ptIdx);
-          }
-        }
-        drawNodeHandles();
-      } else {
-        selectedNodes.clear();
-        drawNodeHandles();
-      }
-    };
+/**
+ * ACTUALIZAR VISIBILIDAD Y ESTADO DE LA BARRA CONTEXTUAL
+ * @param {paper.Item|Array<paper.Item>} item
+ */
+export function updateContextualMenu(item) {
+  const toolbar = document.getElementById('contextual-toolbar');
+  if (!toolbar) return;
 
-    nodeEditTool.onMouseDrag = function(e) {
-      if (!isDraggingNode || selectedNodes.size === 0 || !activeNodeItem) return;
-      const delta = e.point.subtract(dragStartPoint);
-      dragStartPoint = e.point.clone();
+  const currentSelection = (window.selectedItems && window.selectedItems.length > 0)
+    ? window.selectedItems
+    : (item ? [item] : []);
 
-      nodeHandlesGroup.children.forEach(handle => {
-        if (handle.data && handle.data.isNodeHandle && selectedNodes.has(handle.data.pointIndex)) {
-          const seg = handle.data.segment;
-          const ownerPath = handle.data.ownerPath;
-          const localDelta = ownerPath.globalToLocal(ownerPath.localToGlobal(seg.point).add(delta)).subtract(seg.point);
-          seg.point = seg.point.add(localDelta);
-          handle.position = ownerPath.localToGlobal(seg.point);
-        }
-      });
+  if (currentSelection.length === 0) {
+    toolbar.style.display = 'none';
+    toolbar.classList.remove('active');
+    return;
+  }
 
-      // Sincronizar las mutaciones sobre la geomBase original
-      syncGeometryToGeomBase(activeNodeItem);
+  toolbar.style.display = 'flex';
+  toolbar.classList.add('active');
 
-      // Si el elemento mutado es un calado activo, recalcula las perforaciones dinámicas en tiempo real
-      if (activeNodeItem.data && activeNodeItem.data.isHole) {
-        recalculateDynamicSubtractions();
-      }
+  const btnUngroup = document.getElementById('btnCtxUngroup');
+  const btnGroup = document.getElementById('btnCtxGroup');
+  const btnNodeEdit = document.getElementById('btnCtxNodeEdit');
 
-      paper.view.update();
-    };
+  // Control del botón Agrupar: habilitado si hay 2 o más seleccionados
+  if (btnGroup) {
+    btnGroup.style.display = (currentSelection.length >= 2) ? 'inline-flex' : 'none';
+  }
 
-    nodeEditTool.onMouseUp = function() {
-      if (isDraggingNode) {
-        isDraggingNode = false;
-        syncGeometryToGeomBase(activeNodeItem);
-        recalculateDynamicSubtractions();
-        if (typeof window.saveHistory === 'function') window.saveHistory();
-        paper.view.update();
-      }
+  // Control del botón Desagrupar: habilitado si hay grupos o CompoundPaths
+  if (btnUngroup) {
+    const hasUngroupable = currentSelection.some(it => {
+      const real = getContentItem(it);
+      return isGroup(real) || isCompoundPath(real) || (real && real.className === 'PlacedSymbol');
+    });
+    btnUngroup.style.display = hasUngroupable ? 'inline-flex' : 'none';
+  }
+
+  // Control del botón Edición de Nodos: solo para selección única compatible
+  if (btnNodeEdit) {
+    if (currentSelection.length === 1 && !window.nodeEditMode) {
+      const single = getContentItem(currentSelection[0]);
+      const canEditNodes = single && (single instanceof paper.Path || single instanceof paper.CompoundPath || single instanceof paper.PointText);
+      btnNodeEdit.style.display = canEditNodes ? 'inline-flex' : 'none';
+    } else {
+      btnNodeEdit.style.display = 'none';
+    }
+  }
+}
+
+/**
+ * OCULTAR BARRA CONTEXTUAL
+ */
+export function hideContextualMenu() {
+  const toolbar = document.getElementById('contextual-toolbar');
+  if (toolbar) {
+    toolbar.style.display = 'none';
+    toolbar.classList.remove('active');
+  }
+}
+
+/**
+ * INICIALIZACIÓN DE ESCUCHADORES DE EVENTOS DE LA BARRA CONTEXTUAL
+ */
+export function initContextualMenu() {
+  const btnUngroup = document.getElementById('btnCtxUngroup');
+  if (btnUngroup) {
+    btnUngroup.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      ungroupSelectedItem();
     };
   }
 
-  previousTool = paper.tool;
-  nodeEditTool.activate();
+  const btnGroup = document.getElementById('btnCtxGroup');
+  if (btnGroup) {
+    btnGroup.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      groupSelectedItems();
+    };
+  }
+
+  const btnNodeEdit = document.getElementById('btnCtxNodeEdit');
+  if (btnNodeEdit) {
+    btnNodeEdit.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleEnterNodeEdit();
+    };
+  }
+
+  const btnExitNodeEdit = document.getElementById('btnExitNodeEdit');
+  if (btnExitNodeEdit) {
+    btnExitNodeEdit.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      handleExitNodeEdit();
+    };
+  }
 }
 
-/**
- * Convierte texto tipográfico a curvas vectoriales compuestas con su geomBase inicializada.
- * @param {paper.PointText} pointText
- * @returns {paper.CompoundPath|null}
- */
-function convertTextToPath(pointText) {
-  if (!pointText) return null;
-  const compound = pointText.createPath({ insert: false });
-  compound.fillColor = pointText.fillColor;
-  compound.strokeColor = pointText.strokeColor;
-  compound.strokeWidth = pointText.strokeWidth;
-  compound.data = {
-    label: "Texto Convertido",
-    isHole: false,
-    geomBase: compound.clone({ insert: false })
-  };
-  return compound;
-}
-
-/**
- * Actualiza la escala visual de los tiradores de nodos frente a eventos de zoom.
- */
-export function updateNodeHandlesScale() {
-  if (!nodeHandlesGroup || !window.paper) return;
-  drawNodeHandles();
-}
-
-// Exposición global segura
+// Exposición en el ámbito global para compatibilidad con eventos DOM e interfaces previas
 if (typeof window !== 'undefined') {
+  window.ungroupSelectedItem = ungroupSelectedItem;
+  window.groupSelectedItems = groupSelectedItems;
   window.enterNodeEditMode = enterNodeEditMode;
   window.exitNodeEditMode = exitNodeEditMode;
-  window.updateNodeHandlesScale = updateNodeHandlesScale;
+  window.handleEnterNodeEdit = handleEnterNodeEdit;
+  window.handleExitNodeEdit = handleExitNodeEdit;
+  window.updateContextualMenu = updateContextualMenu;
+  window.hideContextualMenu = hideContextualMenu;
+  window.initContextualMenu = initContextualMenu;
 }
