@@ -446,4 +446,3 @@ if (typeof window !== 'undefined') {
     window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
     window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
 }
-
