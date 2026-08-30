@@ -1,54 +1,87 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v3.0 Real-Time Auto-Audit)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v4.0 Live Stream Audit Engine)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 
 Descripción:
-Sistema de Diagnóstico, Instrumentación y Auditoría Vectorial de 5 Niveles en Tiempo Real.
-Diseñado para EKKO Studio bajo las REGLAS DE ORO del Prompt Maestro y nuevos comandos a crear.txt.
+Sistema de Instrumentación, Diagnóstico y Auditoría Vectorial EN TIEMPO REAL para EKKO Studio.
+Registra de forma instantánea y automática CADA CLIC, ARRASTRE, SELECCIÓN, DESAGRUPACIÓN,
+CAMBIO DE Z Y EDICIÓN DE NODOS en la consola F12, sin necesidad de comandos manuales.
 
-CARACTERÍSTICAS INDUSTRIALES:
-- Auto-desbloqueo de consola (Anti-Silenciamiento): Restaura automáticamente console.log,
-  console.warn, console.info si fueron sobreescritos por otros módulos.
-- Detección automática en caliente de anomalías (Desagrupación fallida, pérdida de elementos,
-  huérfanos de selección, mutación de geomBase y falta de recálculo reactivo CSG).
-- API Global inmediata en consola F12: EKKO_DIAG.report(), EKKO_DIAG.last(), EKKO_DIAG.dump().
+Cumple rigurosamente con:
+- nuevos comandos a crear.txt (Auditoría estructurada de 5 niveles en tiempo real)
+- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+- REPOSITORIO EKKO STUDIO V1 y Diagnostico.txt
+
+NIVELES DE AUDITORÍA:
+- NIVEL 1: Acción de Usuario (Click, Drag, Select, Deselect, Ungroup, Group, Z-Order, Node Edit)
+- NIVEL 2: Estado de Selección (Item, tipo, ID, bounds, posición, rotación, escala, Z, isHole, geomBase)
+- NIVEL 3: Grafo de Ejecución (Orden de llamadas, archivo, función, argumentos, duración, errores)
+- NIVEL 4: Estado Geométrico (Antes/Después: children, masas, calados, Z-order, geomBase)
+- NIVEL 5: Auditoría de Consistencia (Verificación automática de invariantes y alertas rojas inmediatas)
+
+COMANDOS DISPONIBLES EN CONSOLA (F12):
+- EKKO_DIAG.report()  : Imprime y retorna el informe consolidado tabular completo.
+- EKKO_DIAG.dump()    : Imprime y COPIA AUTOMÁTICAMENTE el volcado al portapapeles.
+- EKKO_DIAG.last()    : Analiza detalladamente la última operación registrada.
+- EKKO_DIAG.clear()   : Limpia el historial de operaciones en memoria.
+- EKKO_DIAG.stop()    : Pausa temporalmente el monitoreo en vivo.
+- EKKO_DIAG.start()   : Reanuda el monitoreo en vivo.
 ========================================================================= */
 
-(function (global) {
-    // 0. MECANISMO DE DESMUTEO DE CONSOLA (Anti-Silenciamiento Activo)
-    // Protege contra: console.log = () => {} en textToolbar.js o mockupLoader.js
-    let nativeLog = console.log;
-    let nativeWarn = console.warn;
-    let nativeInfo = console.info;
-    let nativeError = console.error;
+(function (root, factory) {
+    if (typeof define === 'function' && define.amd) {
+        define([], factory);
+    } else if (typeof module === 'object' && module.exports) {
+        module.exports = factory();
+    } else {
+        root.EKKO_DIAG = factory();
+    }
+}(typeof window !== 'undefined' ? window : this, function () {
 
-    function restoreNativeConsole() {
-        try {
-            if (typeof document !== 'undefined' && document.createElement) {
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                (document.body || document.documentElement).appendChild(iframe);
-                if (iframe.contentWindow && iframe.contentWindow.console) {
-                    const freshConsole = iframe.contentWindow.console;
-                    nativeLog = freshConsole.log.bind(console);
-                    nativeWarn = freshConsole.warn.bind(console);
-                    nativeInfo = freshConsole.info.bind(console);
-                    nativeError = freshConsole.error.bind(console);
+    // 0. DESMUTEO Y PRESERVACIÓN ABSOLUTA DE CONSOLA NATIVA (Anti-Silenciador de EKKO)
+    let nativeConsole = {
+        log: console.log.bind(console),
+        warn: console.warn.bind(console),
+        error: console.error.bind(console),
+        info: console.info ? console.info.bind(console) : console.log.bind(console),
+        group: console.group ? console.group.bind(console) : console.log.bind(console),
+        groupCollapsed: console.groupCollapsed ? console.groupCollapsed.bind(console) : console.log.bind(console),
+        groupEnd: console.groupEnd ? console.groupEnd.bind(console) : function () {},
+        table: console.table ? console.table.bind(console) : console.log.bind(console)
+    };
 
-                    // Blindar métodos de consola para que no puedan ser silenciados
-                    try {
-                        Object.defineProperty(console, 'log', { value: nativeLog, writable: true, configurable: true });
-                        Object.defineProperty(console, 'warn', { value: nativeWarn, writable: true, configurable: true });
-                        Object.defineProperty(console, 'info', { value: nativeInfo, writable: true, configurable: true });
-                    } catch (e) {}
-                }
-                iframe.remove();
+    // Rescatar consola prístina del navegador mediante iframe neutro si fue silenciada con () => {}
+    try {
+        if (typeof document !== 'undefined' && document.body) {
+            const tempIframe = document.createElement('iframe');
+            tempIframe.style.display = 'none';
+            document.body.appendChild(tempIframe);
+            if (tempIframe.contentWindow && tempIframe.contentWindow.console) {
+                const pureCon = tempIframe.contentWindow.console;
+                nativeConsole = {
+                    log: pureCon.log.bind(pureCon),
+                    warn: pureCon.warn.bind(pureCon),
+                    error: pureCon.error.bind(pureCon),
+                    info: pureCon.info ? pureCon.info.bind(pureCon) : pureCon.log.bind(pureCon),
+                    group: pureCon.group ? pureCon.group.bind(pureCon) : pureCon.log.bind(pureCon),
+                    groupCollapsed: pureCon.groupCollapsed ? pureCon.groupCollapsed.bind(pureCon) : pureCon.log.bind(pureCon),
+                    groupEnd: pureCon.groupEnd ? pureCon.groupEnd.bind(pureCon) : function () {},
+                    table: pureCon.table ? pureCon.table.bind(pureCon) : pureCon.log.bind(pureCon)
+                };
             }
-        } catch (err) {}
+            tempIframe.remove();
+        }
+    } catch (e) {
+        // Fallback a la consola existente
     }
 
-    // Ejecutar desmuto inicial
-    restoreNativeConsole();
+    // Proteger consola global para que otros módulos no la silencien
+    try {
+        window.console.log = nativeConsole.log;
+        window.console.warn = nativeConsole.warn;
+        window.console.error = nativeConsole.error;
+        window.console.info = nativeConsole.info;
+    } catch (e) {}
 
     // Estado interno del motor de diagnóstico
     const diagState = {
@@ -59,24 +92,27 @@ CARACTERÍSTICAS INDUSTRIALES:
         maxHistory: 200,
         originalMethods: {},
         activeInterceptors: false,
-        callDepth: 0
+        dragThrottleTimer: null,
+        lastDragPoint: null,
+        dragStartPoint: null,
+        dragTargetItem: null
     };
 
     /**
-     * Utilidad para extraer límites de forma limpia
+     * Extrae límites espaciales (Bounds) resumidos
      */
     function extractBounds(bounds) {
         if (!bounds) return null;
         return {
-            x: Number(bounds.x.toFixed(2)),
-            y: Number(bounds.y.toFixed(2)),
-            width: Number(bounds.width.toFixed(2)),
-            height: Number(bounds.height.toFixed(2))
+            x: Number(bounds.x.toFixed(1)),
+            y: Number(bounds.y.toFixed(1)),
+            w: Number(bounds.width.toFixed(1)),
+            h: Number(bounds.height.toFixed(1))
         };
     }
 
     /**
-     * Cuenta recursivamente segmentos de trazados
+     * Cuenta de forma recursiva los segmentos de curvas de un elemento
      */
     function countSegments(item) {
         if (!item) return 0;
@@ -88,7 +124,7 @@ CARACTERÍSTICAS INDUSTRIALES:
     }
 
     /**
-     * Captura el estado de la selección (Nivel 2)
+     * Captura el snapshot de la selección activa (Nivel 2)
      */
     function snapshotSelection() {
         const item = typeof window !== 'undefined' ? (window.selectedItem || null) : null;
@@ -106,15 +142,15 @@ CARACTERÍSTICAS INDUSTRIALES:
 
         const primaryData = primary ? {
             id: primary.id,
-            className: primary.className || (primary.constructor ? primary.constructor.name : 'Unknown'),
-            label: (primary.data && primary.data.label) || 'Sin etiqueta',
+            className: primary.className || (primary.constructor ? primary.constructor.name : 'Item'),
+            label: (primary.data && primary.data.label) || 'Item ' + primary.id,
             zIndex: zIndex,
             isHole: !!(primary.data && primary.data.isHole),
             hasGeomBase: !!(primary.data && primary.data.geomBase),
             geomBaseSegments: (primary.data && primary.data.geomBase) ? countSegments(primary.data.geomBase) : 0,
             visibleSegments: countSegments(primary),
             bounds: extractBounds(primary.bounds),
-            position: primary.position ? { x: Number(primary.position.x.toFixed(2)), y: Number(primary.position.y.toFixed(2)) } : null,
+            position: primary.position ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null,
             rotation: primary.data ? (primary.data.rotation || 0) : 0,
             isLocked: !!(primary.data && primary.data.locked),
             isClipGroup: !!(primary.data && primary.data.clipGroup)
@@ -138,7 +174,7 @@ CARACTERÍSTICAS INDUSTRIALES:
 
         const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
         if (!designLayer || !designLayer.children) {
-            return { totalUsefulItems: 0, massCount: 0, holeCount: 0, missingGeomBaseCount: 0, itemsSummary: [] };
+            return { totalUsefulItems: 0, massCount: 0, holeCount: 0, itemsSummary: [] };
         }
 
         const items = [];
@@ -166,21 +202,15 @@ CARACTERÍSTICAS INDUSTRIALES:
             const isHole = !!(child.data && child.data.isHole);
             const hasGeomBase = !!(child.data && child.data.geomBase);
 
-            if (isHole) {
-                holeCount++;
-            } else {
-                massCount++;
-            }
+            if (isHole) holeCount++;
+            else massCount++;
 
-            if (!hasGeomBase) {
-                missingGeomBaseCount++;
-            }
+            if (!hasGeomBase) missingGeomBaseCount++;
 
             items.push({
                 index: index,
                 id: child.id,
-                name: child.name || null,
-                className: child.className || (child.constructor ? child.constructor.name : 'Unknown'),
+                className: child.className || (child.constructor ? child.constructor.name : 'Item'),
                 label: (child.data && child.data.label) || 'Item ' + child.id,
                 isHole: isHole,
                 hasGeomBase: hasGeomBase,
@@ -202,7 +232,7 @@ CARACTERÍSTICAS INDUSTRIALES:
     }
 
     /**
-     * Auditoría de Consistencia de Nivel 5 (Invariantes y Reglas de Oro)
+     * Auditoría de Consistencia Automática (Nivel 5)
      */
     function auditConsistency(beforeGeo, afterGeo, beforeSel, afterSel, callLog, opType) {
         const inconsistencies = [];
@@ -211,105 +241,90 @@ CARACTERÍSTICAS INDUSTRIALES:
             selectionValid: true,
             csgExecuted: true,
             holeClassificationValid: true,
-            itemsPreserved: true,
-            ungroupEffective: true
+            ungroupSucceeded: true,
+            noItemsLost: true
         };
 
         if (beforeGeo.error || afterGeo.error) {
-            inconsistencies.push('Paper.js no estuvo disponible para calcular la geometría.');
+            inconsistencies.push('Paper.js no estuvo disponible durante la operación.');
             return { checks, inconsistencies, pass: false };
         }
 
-        // 1. Verificación de Preservación de geomBase
-        const beforeItemMap = new Map();
-        beforeGeo.itemsSummary.forEach(item => beforeItemMap.set(item.id, item));
+        // 1. Verificación de Desagrupación (Ungroup)
+        if (opType === 'UNGROUP') {
+            const beforeCount = beforeGeo.totalUsefulItems || 0;
+            const afterCount = afterGeo.totalUsefulItems || 0;
 
-        afterGeo.itemsSummary.forEach(afterItem => {
+            if (beforeSel.hasSelection && beforeSel.primary && (beforeSel.primary.className === 'Group' || beforeSel.primary.className === 'CompoundPath')) {
+                if (afterCount <= beforeCount) {
+                    checks.ungroupSucceeded = false;
+                    inconsistencies.push(
+                        `[DESAGRUPACIÓN FALLIDA] Se solicitó desagrupar ID: ${beforeSel.primary.id} (${beforeSel.primary.className}), ` +
+                        `pero los elementos útiles no aumentaron (Antes: ${beforeCount}, Después: ${afterCount}).`
+                    );
+                }
+            }
+
+            if (afterCount < beforeCount) {
+                checks.noItemsLost = false;
+                const beforeIds = new Set((beforeGeo.itemsSummary || []).map(i => i.id));
+                const afterIds = new Set((afterGeo.itemsSummary || []).map(i => i.id));
+                const missing = [...beforeIds].filter(id => !afterIds.has(id));
+                inconsistencies.push(
+                    `[PÉRDIDA DE ELEMENTOS EN DESAGRUPAR] Desaparecieron ${missing.length} elementos útiles del lienzo. IDs: [${missing.join(', ')}].`
+                );
+            }
+        }
+
+        // 2. Verificación de geomBase inmaculada
+        const beforeItemMap = new Map();
+        (beforeGeo.itemsSummary || []).forEach(item => beforeItemMap.set(item.id, item));
+
+        (afterGeo.itemsSummary || []).forEach(afterItem => {
             const beforeItem = beforeItemMap.get(afterItem.id);
             if (beforeItem && beforeItem.hasGeomBase && afterItem.hasGeomBase) {
-                if (opType !== 'NODE_EDIT' && beforeItem.geomBaseSegments !== afterItem.geomBaseSegments) {
+                if (opType !== 'NODE_EDIT' && opType !== 'EXIT_NODE_EDIT' && beforeItem.geomBaseSegments !== afterItem.geomBaseSegments) {
                     checks.geomBasePreserved = false;
                     inconsistencies.push(
-                        `[ID: ${afterItem.id} "${afterItem.label}"] geomBase mutó inesperadamente en operación "${opType}". ` +
+                        `[CORRUPCIÓN GEOMBASE] [ID: ${afterItem.id} "${afterItem.label}"] geomBase mutó en "${opType}". ` +
                         `Segmentos antes: ${beforeItem.geomBaseSegments}, después: ${afterItem.geomBaseSegments}. ` +
-                        `Posible contaminación destructiva de geomBase por geometría perforada CSG.`
+                        `Posible contaminación de geomBase por geometría perforada CSG.`
                     );
                 }
             }
         });
 
-        // 2. Verificación de Desagrupación Efectiva y Pérdida de Elementos
-        if (opType === 'UNGROUP') {
-            if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
-                checks.itemsPreserved = false;
-                const lostCount = beforeGeo.totalUsefulItems - afterGeo.totalUsefulItems;
-                const afterIds = new Set(afterGeo.itemsSummary.map(it => it.id));
-                const missingIds = beforeGeo.itemsSummary.filter(it => !afterIds.has(it.id)).map(it => it.id);
-                inconsistencies.push(
-                    `[PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN] Se perdieron ${lostCount} elementos de diseño. IDs desaparecidos: [${missingIds.join(', ')}].`
-                );
-            }
-
-            if (beforeSel.hasSelection && beforeSel.count === 1) {
-                const selId = beforeSel.ids[0];
-                const stillExists = afterGeo.itemsSummary.some(it => it.id === selId && it.className === 'Group');
-                if (stillExists && afterGeo.totalUsefulItems === beforeGeo.totalUsefulItems) {
-                    checks.ungroupEffective = false;
-                    inconsistencies.push(
-                        `[DESAGRUPACIÓN FALLIDA] Se solicitó desagrupar el grupo ID: ${selId}, pero el grupo sigue existiendo y no se liberaron sus capas internas.`
-                    );
-                }
-            }
-        }
-
-        // 3. Verificación de Integridad de Selección (Huérfanos)
+        // 3. Verificación de Selección Huérfana
         if (afterSel.hasSelection && typeof window !== 'undefined') {
-            const currentItem = window.selectedItem;
-            if (currentItem) {
-                const isOrphan = !currentItem.project || !currentItem.parent;
-                if (isOrphan) {
-                    checks.selectionValid = false;
-                    inconsistencies.push(
-                        `[SELECCIÓN HUÉRFANA] window.selectedItem apunta a un elemento desvinculado de Paper.js (ID: ${currentItem.id}).`
-                    );
-                }
-            }
-        }
-
-        // 4. Verificación de Calados sin geomBase
-        if (opType === 'UNGROUP') {
-            const unbackedHoles = afterGeo.itemsSummary.filter(it => it.isHole && !it.hasGeomBase);
-            if (unbackedHoles.length > 0) {
-                checks.holeClassificationValid = false;
+            const cur = window.selectedItem;
+            if (cur && (!cur.project || !cur.parent)) {
+                checks.selectionValid = false;
                 inconsistencies.push(
-                    `Se generaron ${unbackedHoles.length} calados activos (isHole) sin objeto 'geomBase' inmaculado de respaldo.`
+                    `[SELECCIÓN HUÉRFANA] window.selectedItem apunta a un elemento desvinculado o eliminado (ID: ${cur.id}).`
                 );
             }
         }
 
-        // 5. Verificación de Recálculo CSG
-        const csgTriggerOps = ['UNGROUP', 'GROUP', 'BRING_FORWARD', 'SEND_BACKWARD', 'BRING_FRONT', 'SEND_BACK', 'DRAG_END', 'DELETE', 'PASTE'];
+        // 4. Verificación de Recálculo CSG
+        const csgTriggerOps = ['UNGROUP', 'GROUP', 'BRING_FORWARD', 'SEND_BACKWARD', 'BRING_FRONT', 'SEND_BACK', 'DELETE', 'DUPLICATE', 'DRAG_END'];
         if (csgTriggerOps.includes(opType)) {
             const csgExecuted = callLog.some(c => c.fnName === 'recalculateDynamicSubtractions');
             if (!csgExecuted) {
                 checks.csgExecuted = false;
                 inconsistencies.push(
-                    `La operación "${opType}" debió disparar el recálculo CSG dinámico (recalculateDynamicSubtractions), pero no figura en el grafo de llamadas.`
+                    `[CSG OMITIDO] La operación "${opType}" debió recalcular sustracciones CSG (recalculateDynamicSubtractions), pero no figura en el flujo.`
                 );
             }
         }
 
-        return {
-            checks,
-            inconsistencies,
-            pass: inconsistencies.length === 0
-        };
+        const pass = inconsistencies.length === 0;
+        return { checks, inconsistencies, pass };
     }
 
     /**
-     * Inicia una transacción de auditoría
+     * Inicia una transacción de diagnóstico
      */
-    function beginOperation(actionName, triggerSource) {
+    function beginOperation(actionName, triggerSource, emoji = '⚡') {
         if (!diagState.active) return null;
 
         diagState.opCounter++;
@@ -318,6 +333,7 @@ CARACTERÍSTICAS INDUSTRIALES:
         const opRecord = {
             id: opId,
             action: actionName,
+            emoji: emoji,
             source: triggerSource || 'UI',
             timestamp: Date.now(),
             startTime: performance.now(),
@@ -336,7 +352,7 @@ CARACTERÍSTICAS INDUSTRIALES:
     }
 
     /**
-     * Finaliza la transacción de auditoría y emite alertas en caliente
+     * Finaliza la transacción de diagnóstico Y EMITE LA SALIDA EN VIVO EN CONSOLA
      */
     function endOperation() {
         if (!diagState.active || !diagState.currentOp) return null;
@@ -361,32 +377,67 @@ CARACTERÍSTICAS INDUSTRIALES:
             diagState.operations.shift();
         }
 
-        // SALIDA FORENSE AUTOMÁTICA EN TIEMPO REAL
-        restoreNativeConsole();
-        if (!op.consistency.pass) {
-            nativeWarn(
-                `%c🚨 [EKKO_DIAG ALERTA EN TIEMPO REAL] ${op.id} | Acción: ${op.action} | ❌ INCONSISTENCIAS DETECTADAS`,
-                'color: #ffffff; background: #dc2626; font-weight: bold; padding: 4px 8px; border-radius: 4px; font-size: 12px;'
-            );
-            op.consistency.inconsistencies.forEach(msg => {
-                nativeWarn(`   ⚠️ ${msg}`);
-            });
-            nativeInfo(
-                `   ℹ️ Diagnóstico rápido: Escribe EKKO_DIAG.dump() en consola para copiar el informe forense completo.`
-            );
-        } else {
-            nativeLog(
-                `%c✓ [EKKO_DIAG] ${op.id} | ${op.action} (${op.durationMs} ms) | Geometría: ${op.geometryAfter.totalUsefulItems} items | Masas: ${op.geometryAfter.massCount} | Calados: ${op.geometryAfter.holeCount} | Consistencia: OK ✓`,
-                'color: #059669; font-weight: 500; font-size: 11px;'
-            );
-        }
+        // =====================================================================
+        // EMISIÓN EN TIEMPO REAL EN CONSOLA F12 (AUTO LIVE STREAMING)
+        // =====================================================================
+        emitRealTimeLog(op);
 
         diagState.currentOp = null;
         return op;
     }
 
     /**
-     * Registra llamadas de funciones en el grafo de Nivel 3
+     * Da formato y emite el registro en vivo a la consola nativa
+     */
+    function emitRealTimeLog(op) {
+        const isAlert = !op.consistency.pass;
+        const sel = op.selectionAfter.hasSelection && op.selectionAfter.primary ? op.selectionAfter.primary : null;
+        const geo = op.geometryAfter;
+
+        let selText = 'Ninguno';
+        if (sel) {
+            selText = `ID: ${sel.id} (${sel.className}) | Z: ${sel.zIndex} | ${sel.isHole ? '🕳️ CALADO' : '⬛ MASA'} | geomBase: ${sel.hasGeomBase ? '✓' : '✗'}`;
+        }
+
+        const geoText = `Capas: ${geo.totalUsefulItems || 0} (Masas: ${geo.massCount || 0}, Calados: ${geo.holeCount || 0})`;
+
+        if (isAlert) {
+            // ALERTA ROJA PROMINENTE EN TIEMPO REAL
+            nativeConsole.group(
+                `%c🚨 [EKKO_DIAG ALERTA] ${op.id} | ${op.action} | ❌ INCONSISTENCIAS DETECTADAS`,
+                'color: #ffffff; background: #dc2626; font-weight: bold; font-size: 13px; padding: 4px 8px; border-radius: 4px;'
+            );
+            nativeConsole.log(`%cOrigen: ${op.source} | Duración: ${op.durationMs} ms`, 'color: #f87171; font-weight: bold;');
+            nativeConsole.log(`%cSelección: ${selText}`, 'color: #fecaca;');
+            nativeConsole.log(`%cEstado Geométrico: ${geoText}`, 'color: #fecaca;');
+            op.consistency.inconsistencies.forEach(msg => {
+                nativeConsole.warn(`%c⚠️ ${msg}`, 'color: #f59e0b; font-weight: bold; font-size: 12px;');
+            });
+            nativeConsole.log('%c💡 Tip: Escribe EKKO_DIAG.dump() para copiar el diagnóstico completo y pegarlo en el chat.', 'color: #38bdf8; font-style: italic;');
+            nativeConsole.groupEnd();
+        } else {
+            // NOTIFICACIÓN VERDE / AZUL ELEGANTE EN TIEMPO REAL
+            const badgeStyle = 'color: #ffffff; background: #0284c7; font-weight: bold; font-size: 11px; padding: 2px 6px; border-radius: 3px;';
+            const actionStyle = 'color: #0369a1; font-weight: bold; font-size: 11px;';
+            const textStyle = 'color: #334155; font-size: 11px;';
+
+            nativeConsole.groupCollapsed(
+                `%c[EKKO_DIAG ${op.id}]%c ${op.emoji} ${op.action} %c| ${selText} | ${geoText} (${op.durationMs}ms) ✓`,
+                badgeStyle, actionStyle, textStyle
+            );
+            nativeConsole.log(`• Origen: ${op.source}`);
+            nativeConsole.log(`• Selección Después:`, op.selectionAfter);
+            nativeConsole.log(`• Geometría Después:`, op.geometryAfter);
+            if (op.callGraph.length > 0) {
+                nativeConsole.log(`• Grafo de Llamadas (${op.callGraph.length}):`);
+                nativeConsole.table(op.callGraph);
+            }
+            nativeConsole.groupEnd();
+        }
+    }
+
+    /**
+     * Registra una invocación de función en el grafo de ejecución (Nivel 3)
      */
     function recordCall(moduleFile, fnName, args, result, executionTimeMs, error) {
         if (!diagState.active) return;
@@ -396,7 +447,6 @@ CARACTERÍSTICAS INDUSTRIALES:
             timestamp: Date.now(),
             module: moduleFile,
             fnName: fnName,
-            argsSummary: summarizeArgs(args),
             status: error ? 'ERROR' : 'OK',
             executionTimeMs: Number(executionTimeMs.toFixed(2)),
             error: error ? error.message : null
@@ -407,24 +457,10 @@ CARACTERÍSTICAS INDUSTRIALES:
         }
     }
 
-    function summarizeArgs(args) {
-        if (!args || args.length === 0) return [];
-        return Array.from(args).map(arg => {
-            if (arg === null) return 'null';
-            if (arg === undefined) return 'undefined';
-            if (typeof arg === 'object') {
-                if (arg.id) return `{ id: ${arg.id}, class: ${arg.className || 'Item'} }`;
-                if (arg.name) return `{ name: "${arg.name}" }`;
-                return `{ Object keys: ${Object.keys(arg).slice(0, 3).join(', ')} }`;
-            }
-            return String(arg);
-        });
-    }
-
     /**
-     * Proxy Wrapper para interceptar llamadas clave
+     * Envoltorio (Proxy Interceptor) para registrar la ejecución de funciones
      */
-    function wrapFunction(targetObject, fnName, modulePath, actionType) {
+    function wrapFunction(targetObject, fnName, modulePath, actionType, emoji = '⚡') {
         if (!targetObject || typeof targetObject[fnName] !== 'function') return;
 
         const original = targetObject[fnName];
@@ -439,21 +475,19 @@ CARACTERÍSTICAS INDUSTRIALES:
             let op = null;
 
             if (diagState.active && !hasExistingOp && actionType) {
-                op = beginOperation(actionType, `${modulePath} -> ${fnName}`);
+                op = beginOperation(actionType, `${modulePath} -> ${fnName}`, emoji);
             }
 
             const tStart = performance.now();
             let result;
             let errCaught = null;
 
-            diagState.callDepth++;
             try {
                 result = original.apply(this, args);
             } catch (err) {
                 errCaught = err;
                 throw err;
             } finally {
-                diagState.callDepth--;
                 const tEnd = performance.now();
                 if (diagState.active) {
                     recordCall(modulePath, fnName, args, result, tEnd - tStart, errCaught);
@@ -469,120 +503,178 @@ CARACTERÍSTICAS INDUSTRIALES:
     }
 
     /**
-     * Instala interceptores en el entorno global y Paper.js
+     * Intercepta directamente los eventos del ratón del lienzo para registrar Clics y Arrastres
+     */
+    function hookCanvasInteraction() {
+        const canvasEl = document.getElementById('editorCanvas');
+        if (!canvasEl || canvasEl.dataset.ekkoDiagHooked) return;
+
+        canvasEl.dataset.ekkoDiagHooked = 'true';
+
+        // 1. Clic en lienzo (MouseDown)
+        canvasEl.addEventListener('mousedown', (e) => {
+            if (!diagState.active) return;
+            diagState.dragStartPoint = { x: e.clientX, y: e.clientY };
+            diagState.lastDragPoint = { x: e.clientX, y: e.clientY };
+
+            setTimeout(() => {
+                const sel = snapshotSelection();
+                if (sel.hasSelection && sel.primary) {
+                    diagState.dragTargetItem = sel.primary;
+                } else {
+                    diagState.dragTargetItem = null;
+                }
+            }, 30);
+        }, { capture: true });
+
+        // 2. Arrastre en lienzo (MouseMove)
+        canvasEl.addEventListener('mousemove', (e) => {
+            if (!diagState.active || !diagState.dragStartPoint) return;
+            if (e.buttons !== 1) return; // Solo clic izquierdo presionado
+
+            const dist = Math.hypot(e.clientX - diagState.dragStartPoint.x, e.clientY - diagState.dragStartPoint.y);
+            if (dist > 6 && !diagState.currentOp) {
+                // Registrar micro-operación de arrastre
+                diagState.lastDragPoint = { x: e.clientX, y: e.clientY };
+            }
+        });
+
+        // 3. Fin de Arrastre o Clic (MouseUp)
+        window.addEventListener('mouseup', (e) => {
+            if (!diagState.active || !diagState.dragStartPoint) return;
+
+            const dist = Math.hypot(e.clientX - diagState.dragStartPoint.x, e.clientY - diagState.dragStartPoint.y);
+            const wasDrag = dist > 6;
+            const startPt = diagState.dragStartPoint;
+            diagState.dragStartPoint = null;
+
+            if (wasDrag) {
+                // Finalizó un arrastre
+                const op = beginOperation('DRAG_END', 'editorCanvas -> mouseup', '↔️');
+                setTimeout(() => {
+                    if (op) {
+                        endOperation();
+                    }
+                }, 40);
+            } else {
+                // Clic simple en el lienzo
+                const op = beginOperation('CANVAS_CLICK', 'editorCanvas -> click', '🖱️');
+                setTimeout(() => {
+                    if (op) {
+                        endOperation();
+                    }
+                }, 40);
+            }
+        }, { capture: true });
+    }
+
+    /**
+     * Instala interceptores en las funciones clave de EKKO Studio
      */
     function installInterceptors() {
-        if (typeof window === 'undefined') return;
+        if (diagState.activeInterceptors || typeof window === 'undefined') return;
 
-        // geometricUngroup.js y CSG
-        wrapFunction(window, 'decomposeByContainmentHierarchy', 'geometricUngroup.js', 'UNGROUP');
-        wrapFunction(window, 'geometricUngroupCompound', 'geometricUngroup.js', 'UNGROUP');
-        wrapFunction(window, 'geometricUngroupOneLevel', 'geometricUngroup.js', 'UNGROUP');
+        // 1. geometricUngroup.js y CSG
+        wrapFunction(window, 'decomposeByContainmentHierarchy', 'geometricUngroup.js', 'UNGROUP', '🔓');
+        wrapFunction(window, 'geometricUngroupCompound', 'geometricUngroup.js', 'UNGROUP', '🔓');
+        wrapFunction(window, 'geometricUngroupOneLevel', 'geometricUngroup.js', 'UNGROUP', '🔓');
         wrapFunction(window, 'recalculateDynamicSubtractions', 'geometricUngroup.js', null);
         wrapFunction(window, 'getGlobalUnsubtractedPath', 'geometricUngroup.js', null);
 
-        // selection.js
-        wrapFunction(window, 'selectItem', 'selection.js', 'SELECT');
-        wrapFunction(window, 'deselectItem', 'selection.js', 'DESELECT');
+        // 2. selection.js
+        wrapFunction(window, 'selectItem', 'selection.js', 'SELECT', '🎯');
+        wrapFunction(window, 'deselectItem', 'selection.js', 'DESELECT', '⚪');
         wrapFunction(window, 'updateSelectionBox', 'selection.js', null);
 
-        // contextualMenu.js
-        wrapFunction(window, 'ungroupSelectedItem', 'contextualMenu.js', 'UNGROUP');
-        wrapFunction(window, 'groupSelectedItems', 'contextualMenu.js', 'GROUP');
+        // 3. contextualMenu.js
+        wrapFunction(window, 'ungroupSelectedItem', 'contextualMenu.js', 'UNGROUP', '🔓');
+        wrapFunction(window, 'groupSelectedItems', 'contextualMenu.js', 'GROUP', '📦');
 
-        // nodeEditor.js
-        wrapFunction(window, 'enterNodeEditMode', 'nodeEditor.js', 'NODE_EDIT');
-        wrapFunction(window, 'exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT');
+        // 4. nodeEditor.js
+        wrapFunction(window, 'enterNodeEditMode', 'nodeEditor.js', 'NODE_EDIT', '✏️');
+        wrapFunction(window, 'exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT', '🚪');
 
-        // editor.js (Z-Order, Undo, Redo, Portapapeles)
-        wrapFunction(window, 'bringFront', 'editor.js', 'BRING_FRONT');
-        wrapFunction(window, 'sendBack', 'editor.js', 'SEND_BACK');
-        wrapFunction(window, 'bringForward', 'editor.js', 'BRING_FORWARD');
-        wrapFunction(window, 'sendBackward', 'editor.js', 'SEND_BACKWARD');
-        wrapFunction(window, 'undo', 'editor.js', 'UNDO');
-        wrapFunction(window, 'redo', 'editor.js', 'REDO');
-        wrapFunction(window, 'copySelected', 'editor.js', 'COPY');
-        wrapFunction(window, 'pasteSelected', 'editor.js', 'PASTE');
+        // 5. editor.js (Z-Order, Undo, Redo, Clipboard)
+        wrapFunction(window, 'bringFront', 'editor.js', 'BRING_FRONT', '⏫');
+        wrapFunction(window, 'sendBack', 'editor.js', 'SEND_BACK', '⏬');
+        wrapFunction(window, 'bringForward', 'editor.js', 'BRING_FORWARD', '🔼');
+        wrapFunction(window, 'sendBackward', 'editor.js', 'SEND_BACKWARD', '🔽');
+        wrapFunction(window, 'undo', 'editor.js', 'UNDO', '↩️');
+        wrapFunction(window, 'redo', 'editor.js', 'REDO', '↪️');
+        wrapFunction(window, 'copySelected', 'editor.js', 'COPY', '📋');
+        wrapFunction(window, 'pasteSelected', 'editor.js', 'PASTE', '📑');
 
-        // exportSVG.js
-        wrapFunction(window, 'prepareSVGForExport', 'exportSVG.js', 'EXPORT_SVG');
+        // 6. exportSVG.js
+        wrapFunction(window, 'prepareSVGForExport', 'exportSVG.js', 'EXPORT_SVG', '💾');
 
-        // Paper.js Importación
+        // 7. Paper.js importSVG
         if (typeof paper !== 'undefined' && paper.project) {
-            wrapFunction(paper.project, 'importSVG', 'paper.project', 'IMPORT_SVG');
+            wrapFunction(paper.project, 'importSVG', 'paper.project', 'IMPORT_SVG', '📥');
         }
 
-        // Eventos de arrastre en Paper.js Tool
-        if (typeof paper !== 'undefined' && paper.tools && paper.tools.length > 0) {
-            paper.tools.forEach((t, idx) => {
-                if (t.onMouseUp && !t._diagHooked) {
-                    const origUp = t.onMouseUp;
-                    t.onMouseUp = function (event) {
-                        const wasDragging = !!(window.dragging || window.resizeActive || window.rotationActive);
-                        let op = null;
-                        if (wasDragging) {
-                            op = beginOperation('DRAG_END', `paper.tool[${idx}].onMouseUp`);
-                        }
-                        const r = origUp.call(this, event);
-                        if (op) {
-                            endOperation();
-                        }
-                        return r;
-                    };
-                    t._diagHooked = true;
-                }
-            });
-        }
-
+        hookCanvasInteraction();
         diagState.activeInterceptors = true;
+    }
+
+    // Inicialización automática y periódica para engancharse apenas Paper.js y el DOM estén listos
+    if (typeof window !== 'undefined') {
+        installInterceptors();
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                installInterceptors();
+                setTimeout(installInterceptors, 500);
+            });
+        } else {
+            setTimeout(installInterceptors, 500);
+        }
     }
 
     // =========================================================================
     // API PÚBLICA DE EKKO_DIAG
     // =========================================================================
+
     const publicAPI = {
         start: function () {
             diagState.active = true;
             installInterceptors();
-            restoreNativeConsole();
-            nativeLog(
-                '%c[EKKO_DIAG v3.0] Sistema de Auditoría y Diagnóstico Vectorial ACTIVADO 🟢',
-                'color: #10b981; font-weight: bold; font-size: 13px; background: #ecfdf5; padding: 4px 8px; border-radius: 4px; border: 1px solid #a7f3d0;'
-            );
-            nativeLog('Comandos listos: EKKO_DIAG.report() | EKKO_DIAG.last() | EKKO_DIAG.dump() | EKKO_DIAG.clear()');
-            return 'EKKO_DIAG activo. Todo evento en el lienzo es auditado en tiempo real.';
+            nativeConsole.log('%c[EKKO_DIAG v4.0 Live Stream] Monitoreo en tiempo real ACTIVADO 🟢', 'color: #10b981; font-weight: bold;');
+            return 'EKKO_DIAG activo. Cada clic, arrastre o comando se reportará en la consola.';
         },
 
         stop: function () {
             diagState.active = false;
-            restoreNativeConsole();
-            nativeLog(
-                '%c[EKKO_DIAG] Sistema de Auditoría DETENIDO 🔴',
-                'color: #ef4444; font-weight: bold; font-size: 13px; background: #fef2f2; padding: 4px 8px; border-radius: 4px;'
-            );
-            return 'EKKO_DIAG detenido. Usa EKKO_DIAG.report() para ver el registro histórico.';
+            nativeConsole.log('%c[EKKO_DIAG v4.0 Live Stream] Monitoreo en tiempo real PAUSADO 🔴', 'color: #ef4444; font-weight: bold;');
+            return 'EKKO_DIAG pausado. Escribe EKKO_DIAG.start() para reanudar.';
         },
 
         clear: function () {
             diagState.operations = [];
             diagState.opCounter = 0;
             diagState.currentOp = null;
-            restoreNativeConsole();
-            nativeLog('[EKKO_DIAG] Historial de transacciones limpiado.');
+            nativeConsole.log('[EKKO_DIAG] Historial de transacciones reiniciado.');
             return true;
         },
 
+        last: function () {
+            if (diagState.operations.length === 0) {
+                nativeConsole.log('No hay operaciones registradas aún.');
+                return null;
+            }
+            const lastOp = diagState.operations[diagState.operations.length - 1];
+            nativeConsole.log(`[EKKO_DIAG] Última Operación: ${lastOp.id} (${lastOp.action})`, lastOp);
+            return lastOp;
+        },
+
         report: function () {
-            restoreNativeConsole();
             const ops = diagState.operations;
-            nativeLog('\n');
-            nativeLog('╔══════════════════════════════════════════════════════════════════════════════════╗');
-            nativeLog('║                   EKKO STUDIO DIAGNOSTIC - INFORME CONSOLIDADO                   ║');
-            nativeLog('╚══════════════════════════════════════════════════════════════════════════════════╝');
+            let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
+            outputText += '║               EKKO STUDIO DIAGNOSTIC v4.0 - INFORME CONSOLIDADO                  ║\n';
+            outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
 
             if (ops.length === 0) {
-                nativeLog('No hay operaciones registradas aún. Opera en el lienzo (Desagrupar, Mover, etc.) y vuelve a ejecutar EKKO_DIAG.report().');
-                return;
+                outputText += 'No hay operaciones registradas aún. Interactúa en el lienzo o carga un SVG.\n';
+                nativeConsole.log(outputText);
+                return outputText;
             }
 
             const summaryTable = ops.map(op => ({
@@ -599,92 +691,46 @@ CARACTERÍSTICAS INDUSTRIALES:
                 'Consistencia': op.consistency ? (op.consistency.pass ? '✓ OK' : '⚠ ALERTA') : 'N/A'
             }));
 
-            if (console.table) {
-                console.table(summaryTable);
-            } else {
-                nativeLog(JSON.stringify(summaryTable, null, 2));
-            }
+            nativeConsole.log(outputText);
+            nativeConsole.table(summaryTable);
 
-            const issues = ops.filter(op => op.consistency && !op.consistency.pass);
-            if (issues.length > 0) {
-                nativeLog(`\n%cSe detectaron ${issues.length} operaciones con anomalías o inconsistencias:`, 'color: #dc2626; font-weight: bold;');
-                issues.forEach(op => {
-                    nativeLog(`\n--- [${op.id}] ${op.action} (${op.durationMs} ms) ---`);
-                    op.consistency.inconsistencies.forEach(err => nativeLog(`   ❌ ${err}`));
-                });
-            } else {
-                nativeLog('\n%cTodas las operaciones registradas cumplieron con las invariantes y Reglas de Oro ✓', 'color: #059669; font-weight: bold;');
-            }
-        },
+            // Generar versión textual para copia directa
+            summaryTable.forEach(row => {
+                outputText += `[${row.ID}] ${row.Acción} | Items: ${row['Items Antes']} -> ${row['Items Después']} (M:${row.Masas} C:${row.Calados}) | CSG: ${row['CSG OK']} | geomBase: ${row['geomBase OK']} | ${row.Consistencia}\n`;
+            });
 
-        last: function () {
-            restoreNativeConsole();
-            if (diagState.operations.length === 0) {
-                nativeLog('[EKKO_DIAG] No hay operaciones registradas.');
-                return null;
-            }
-            const lastOp = diagState.operations[diagState.operations.length - 1];
-            nativeLog(`\n=== DETALLE DE ÚLTIMA OPERACIÓN: ${lastOp.id} (${lastOp.action}) ===`);
-            nativeLog('Duración:', `${lastOp.durationMs} ms`);
-            nativeLog('Disparador:', lastOp.source);
-            nativeLog('Selección Antes:', lastOp.selectionBefore);
-            nativeLog('Selección Después:', lastOp.selectionAfter);
-            nativeLog('Geometría Antes:', lastOp.geometryBefore);
-            nativeLog('Geometría Después:', lastOp.geometryAfter);
-            nativeLog('Grafo de llamadas internas (Nivel 3):', lastOp.callGraph);
-            nativeLog('Auditoría de Consistencia (Nivel 5):', lastOp.consistency);
-            return lastOp;
+            return outputText;
         },
 
         dump: function () {
-            restoreNativeConsole();
-            const payload = {
-                timestamp: new Date().toISOString(),
-                totalOperations: diagState.operations.length,
-                operations: diagState.operations
-            };
-            const jsonText = JSON.stringify(payload, null, 2);
+            const reportStr = publicAPI.report();
+            let fullJSON = '';
+            try {
+                fullJSON = JSON.stringify(diagState.operations, null, 2);
+            } catch (e) {
+                fullJSON = 'Error al serializar JSON completo.';
+            }
+
+            const forensicDump = `${reportStr}\n\n--- DETALLE FORENSE COMPLETO (JSON) ---\n${fullJSON}`;
 
             if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(jsonText).then(() => {
-                    nativeLog('%c[EKKO_DIAG] El reporte forense completo fue COPIADO AL PORTAPAPELES exitosamente 📋. Puedes pegarlo (Ctrl+V) en el chat.', 'color: #059669; font-weight: bold; font-size: 12px;');
+                navigator.clipboard.writeText(forensicDump).then(() => {
+                    nativeConsole.log('%c📋 [EKKO_DIAG] ¡Reporte copiado automáticamente al portapapeles! Haz Ctrl+V en el chat.', 'color: #10b981; font-weight: bold; font-size: 12px;');
                 }).catch(() => {
-                    nativeLog('%c[EKKO_DIAG] Copia el siguiente JSON forense:', 'color: #0284c7; font-weight: bold;');
-                    nativeLog(jsonText);
+                    nativeConsole.log('Copia manual: Selecciona el texto del reporte en la consola.');
                 });
-            } else {
-                nativeLog('%c[EKKO_DIAG] Copia el siguiente JSON forense:', 'color: #0284c7; font-weight: bold;');
-                nativeLog(jsonText);
             }
-            return 'Reporte exportado.';
+
+            return forensicDump;
         }
     };
 
-    // Exposición global absoluta
-    global.EKKO_DIAG = publicAPI;
-    if (typeof window !== 'undefined') {
-        window.EKKO_DIAG = publicAPI;
-    }
+    // Mensaje de bienvenida inicial
+    nativeConsole.log(
+        '%c[EKKO_DIAG v4.0 Live Stream] Motor de Diagnóstico en Tiempo Real ACTIVO 🟢',
+        'color: #10b981; font-weight: bold; font-size: 13px; background: #ecfdf5; padding: 4px 8px; border-radius: 4px; border: 1px solid #a7f3d0;'
+    );
+    nativeConsole.log('📡 Modo Live Stream activo: Cada clic, arrastre, selección y desagrupación se mostrará automáticamente en F12.');
 
-    // Inicialización automática y periódica de hooks
-    function autoInit() {
-        installInterceptors();
-        restoreNativeConsole();
-        nativeLog(
-            '%c[EKKO_DIAG v3.0 Real-Time] Motor de Diagnóstico y Auditoría Vectorial ACTIVO 🟢',
-            'color: #059669; font-weight: bold; font-size: 13px; background: #ecfdf5; padding: 4px 8px; border-radius: 4px; border: 1px solid #a7f3d0;'
-        );
-        nativeLog('Comandos listos en F12: EKKO_DIAG.report() | EKKO_DIAG.dump() | EKKO_DIAG.last()');
-    }
-
-    if (typeof document !== 'undefined') {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', autoInit);
-        } else {
-            autoInit();
-        }
-        // Segundo chequeo por si Paper.js u otros módulos tardan en inicializarse
-        setTimeout(installInterceptors, 1000);
-        setTimeout(installInterceptors, 3000);
-    }
-})(typeof window !== 'undefined' ? window : this);
+    return publicAPI;
+}));
