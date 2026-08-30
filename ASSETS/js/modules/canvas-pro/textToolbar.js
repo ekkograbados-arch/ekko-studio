@@ -6,12 +6,7 @@ para eliminar por completo el delay de red de 2 minutos.
 ========================================================================= */
 
 // 🚀 SILENCIADOR DE CONSOLA GLOBAL: Mantener la consola limpia de logs informativos o repetitivos
-if (typeof console !== "undefined") {
-    console.log = () => {};
-    console.warn = () => {};
-    console.info = () => {};
-    console.debug = () => {};
-}
+
 
 let loadedFontsCache = [];
 
