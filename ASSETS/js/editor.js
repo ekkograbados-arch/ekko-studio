@@ -11,8 +11,9 @@ Descripcion: Nucleo de la aplicacion EKKO Studio basado en Paper.js.
   en reordenamiento Z (bringFront, sendBack, bringForward, sendBackward),
   duplicacion/pegado y restauracion de historial (undo/redo).
 ========================================================================= */
-import "./modules/canvas-pro/ekkoDiagnostics.js";
+
 import "./modules/selection.js";
+import "./modules/canvas-pro/ekkoDiagnostics.js";
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
 import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
