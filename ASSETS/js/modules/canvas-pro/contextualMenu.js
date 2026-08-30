@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v31 - Full Unified Selection)
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v32 - Symmetrical Group & Layer Safety - Full Unified Selection)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
 
 Descripción:
@@ -374,13 +374,31 @@ export function ungroupSelectedItem() {
         const actualItem = isClipped ? getContentItem(item) : item;
         if (!actualItem) return;
 
-        const canDecompose = isGroup(actualItem) || isCompoundPath(actualItem) || isSymbolItem(actualItem) || isPath(actualItem);
+        // Verificación de simetría Reversible:
+        // Si el elemento es un Grupo que contiene capas ya descompuestas (agrupadas previamente por el usuario con Agrupar / Ctrl+G),
+        // disolvemos el grupo directamente conservando intacta la identidad de cada capa, su geomBase, isHole y orden Z.
+        if (isGroup(actualItem) && actualItem.data?.geometricHierarchy === "compoundGroup") {
+            const groupParent = actualItem.parent || paper.project.activeLayer;
+            const groupChildren = [...actualItem.children];
+            
+            groupChildren.forEach(child => {
+                if (groupParent) groupParent.addChild(child);
+            });
+            actualItem.remove();
+            allCreatedItems.push(...groupChildren);
+        } else {
+            // Descomposición por Jerarquía de Contención en 1 Clic (para SVGs importados o nuevos compuestos)
+            const canDecompose = isGroup(actualItem) || isSymbolItem(actualItem) || (isCompoundPath(actualItem) && !actualItem.data?.decomposedLayer);
 
-        if (canDecompose) {
-            const result = decomposeByContainmentHierarchy(actualItem);
-            if (result && result.items && result.items.length > 0) {
-                if (isClipped && item.parent) item.remove();
-                allCreatedItems.push(...result.items);
+            if (canDecompose) {
+                const result = decomposeByContainmentHierarchy(actualItem);
+                if (result && result.items && result.items.length > 0) {
+                    if (isClipped && item.parent) item.remove();
+                    allCreatedItems.push(...result.items);
+                }
+            } else if (actualItem.data?.decomposedLayer) {
+                // Es una capa atómica independiente ya descompuesta: permanece intacta
+                allCreatedItems.push(actualItem);
             }
         }
     });
@@ -624,7 +642,7 @@ export function updateContextualMenu(item) {
                 if (btnUngroup) {
                     const canUngroup = window.selectedItems.some(it => {
                         const t = it.data?.clipGroup ? getContentItem(it) : it;
-                        return t && (isGroup(t) || isCompoundPath(t) || isSymbolItem(t));
+                        return t && (isGroup(t) || isSymbolItem(t) || (isCompoundPath(t) && !t.data?.decomposedLayer));
                     });
                     if (canUngroup) {
                         btnUngroup.classList.remove('hidden');
@@ -669,7 +687,9 @@ export function updateContextualMenu(item) {
 
             const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
             if (btnUngroup) {
-                const canUngroup = isGroup(target) || isCompoundPath(target) || isSymbolItem(target);
+                // Una capa atómica ya descompuesta (decomposedLayer: true) NO debe mostrar el botón Desagrupar,
+                // ya que sus huecos son resultado de sustracción CSG dinámica. Para editar su silueta se utiliza Editar Nodos.
+                const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
                 btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
             }
         }
