@@ -1,587 +1,448 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v5.0 Deep Capture Engine)
-Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
+Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v31 - Anti-Annihilation Engine)
+Ruta en repositorio: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 
 Descripción:
-Sistema de Auditoría, Trazabilidad e Instrumentación Forense de 5 Niveles para EKKO Studio.
-Diseñado bajo los estándares del PROMPT MAESTRO y DIAGNÓSTICO DE ARQUITECTURA.
+Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
+Basado en Paper.js y optimizado para corte y grabado láser (LightBurn / CNC).
 
-CAPTURADORES ACTIVOS:
-1. DOM Capture Phase (Nivel Hardware/Eventos de Usuario):
-   Intercepta clics directamente en los botones físicos (#btnCtxDesagrupar, #btnCtxAgrupar,
-   #proBtnUngroup, #btnCtxForward, etc.) en fase de captura antes de la ejecución léxica.
-2. Canvas Interaction Observer (Lienzo Paper.js):
-   Registra clics, arrastres y selecciones comparando estados antes y después de cada mousedown/mouseup.
-3. Desbloqueador de protectGlobal:
-   Re-define descriptores de propiedades en window con Object.defineProperty para eludir
-   los setters vacíos de selection.js.
-4. Auto-Exposición y Resiliencia de Consola:
-   Bypassea filtros de consola de Chrome emitiendo los eventos y asegurando persistencia
-   completa para EKKO_DIAG.report() y EKKO_DIAG.dump().
+Cumple rigurosamente con:
+- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
+- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt)
+- CORRECCIÓN FORENSE OP-00009:
+  * Sistema Anti-Aniquilación CSG: Impide que sustracciones sucesivas reduzcan masas válidas a 0 segmentos o bounds vacíos.
+  * Reclasificación de Calados Inteligente: Contención semántica real evitando que figuras cerradas legítimas se conviertan ciegamente en huecos destructivos.
+  * Preservación absoluta de 'geomBase' en coordenadas neutras locales.
+  * Recálculo CSG dinámico no destructivo por orden Z.
 ========================================================================= */
 
-(function (root, factory) {
-    if (typeof define === 'function' && define.amd) {
-        define([], factory);
-    } else if (typeof module === 'object' && module.exports) {
-        module.exports = factory();
-    } else {
-        root.EKKO_DIAG = factory();
+function isPath(item) {
+    return item && (item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path));
+}
+
+function isCompoundPath(item) {
+    return item && (item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath));
+}
+
+function isGroup(item) {
+    return item && (item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group));
+}
+
+function isPlacedSymbol(item) {
+    return item && (item.className === 'PlacedSymbol' || item.className === 'SymbolItem' ||
+        (typeof paper !== 'undefined' && ((paper.PlacedSymbol && item instanceof paper.PlacedSymbol) || (paper.SymbolItem && item instanceof paper.SymbolItem))));
+}
+
+/**
+ * Obtiene la matriz acumulada global de un elemento recorriendo sus ancestros
+ * hasta llegar a la capa activa (Layer), evitando desfasajes por jerarquías intermedias.
+ */
+function getMatrixRelativeTo(item, targetAncestor) {
+    let matrix = new paper.Matrix();
+    let current = item;
+    while (current && current !== targetAncestor && !(current instanceof paper.Layer)) {
+        if (current.matrix) {
+            matrix = current.matrix.chain(matrix);
+        }
+        current = current.parent;
     }
-}(typeof window !== 'undefined' ? window : this, function () {
+    return matrix;
+}
 
-    // Canal seguro de salida de consola
-    const rawConsole = {
-        log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
-        warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
-        error: (typeof console !== 'undefined' && console.error) ? console.error.bind(console) : () => {},
-        info: (typeof console !== 'undefined' && console.info) ? console.info.bind(console) : () => {},
-        group: (typeof console !== 'undefined' && console.group) ? console.group.bind(console) : () => {},
-        groupEnd: (typeof console !== 'undefined' && console.groupEnd) ? console.groupEnd.bind(console) : () => {}
-    };
-
-    // Restauración activa por iframe aislado
-    try {
-        if (typeof document !== 'undefined') {
-            const ifr = document.createElement('iframe');
-            ifr.style.display = 'none';
-            document.documentElement.appendChild(ifr);
-            if (ifr.contentWindow && ifr.contentWindow.console) {
-                const pure = ifr.contentWindow.console;
-                rawConsole.log = pure.log.bind(console);
-                rawConsole.warn = pure.warn.bind(console);
-                rawConsole.error = pure.error.bind(console);
-                rawConsole.info = pure.info.bind(console);
-            }
-            setTimeout(() => { try { ifr.remove(); } catch(e){} }, 100);
-        }
-    } catch (e) {}
-
-    // Estado del motor de diagnóstico
-    const diagState = {
-        active: true,
-        opCounter: 0,
-        currentOp: null,
-        operations: [],
-        maxHistory: 250,
-        originalMethods: {},
-        interceptorsInstalled: false,
-        pendingDOMOp: null,
-        lastMouseDownPoint: null,
-        lastMouseDownSelection: null,
-        lastMouseDownGeo: null
-    };
-
-    function extractBounds(bounds) {
-        if (!bounds) return null;
-        return {
-            x: Number(bounds.x.toFixed(1)),
-            y: Number(bounds.y.toFixed(1)),
-            width: Number(bounds.width.toFixed(1)),
-            height: Number(bounds.height.toFixed(1))
-        };
-    }
-
-    function countSegments(item) {
-        if (!item) return 0;
-        if (item.segments) return item.segments.length;
-        if (item.children && Array.isArray(item.children)) {
-            return item.children.reduce((acc, c) => acc + countSegments(c), 0);
-        }
-        return 0;
-    }
-
-    function snapshotSelection() {
-        const item = typeof window !== 'undefined' ? (window.selectedItem || null) : null;
-        const selectedItems = typeof window !== 'undefined' ? (window.selectedItems || []) : [];
-
-        if (!item && selectedItems.length === 0) {
-            return { hasSelection: false, primary: null, count: 0, ids: [] };
-        }
-
-        const primary = item || selectedItems[0];
-        let zIndex = -1;
-        if (primary && primary.parent && primary.parent.children) {
-            zIndex = primary.parent.children.indexOf(primary);
-        }
-
-        const primaryData = primary ? {
-            id: primary.id,
-            className: primary.className || (primary.constructor ? primary.constructor.name : 'Unknown'),
-            label: (primary.data && primary.data.label) || 'Item ' + primary.id,
-            zIndex: zIndex,
-            isHole: !!(primary.data && primary.data.isHole),
-            hasGeomBase: !!(primary.data && primary.data.geomBase),
-            geomBaseSegments: (primary.data && primary.data.geomBase) ? countSegments(primary.data.geomBase) : 0,
-            visibleSegments: countSegments(primary),
-            bounds: extractBounds(primary.bounds),
-            position: primary.position ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null,
-            isLocked: !!(primary.data && primary.data.locked)
-        } : null;
-
-        return {
-            hasSelection: true,
-            count: selectedItems.length > 0 ? selectedItems.length : 1,
-            ids: selectedItems.length > 0 ? selectedItems.map(i => i.id) : [primary.id],
-            primary: primaryData
-        };
-    }
-
-    function snapshotGeometricState() {
-        if (typeof paper === 'undefined' || !paper.project) {
-            return { totalUsefulItems: 0, itemsSummary: [], massCount: 0, holeCount: 0, zOrderIds: [], error: 'Paper.js no inicializado' };
-        }
-
-        const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-        if (!designLayer || !designLayer.children) {
-            return { totalUsefulItems: 0, itemsSummary: [], massCount: 0, holeCount: 0, zOrderIds: [] };
-        }
-
-        const items = [];
-        let massCount = 0;
-        let holeCount = 0;
-
-        designLayer.children.forEach((child, index) => {
-            if (!child) return;
-            const isUI = child.data && (
-                child.data.isSelectionBox || child.data.isHandle || child.data.isNodeHandle ||
-                child.data.isCurveHandle || child.data.isNodeEditOverlay || child.data.isSmartGuide ||
-                child.data.isMeasurement || child.data.isTracePreview || child.data.mockup || child.data.isMask
-            );
-            if (isUI) return;
-
-            const isHole = !!(child.data && child.data.isHole);
-            const hasGeomBase = !!(child.data && child.data.geomBase);
-
-            if (isHole) holeCount++; else massCount++;
-
-            items.push({
-                index: index,
-                id: child.id,
-                className: child.className || (child.constructor ? child.constructor.name : 'Unknown'),
-                label: (child.data && child.data.label) || 'Item ' + child.id,
-                isHole: isHole,
-                hasGeomBase: hasGeomBase,
-                geomBaseSegments: hasGeomBase ? countSegments(child.data.geomBase) : 0,
-                visibleSegments: countSegments(child),
-                bounds: extractBounds(child.bounds)
-            });
+/**
+ * Aplica recursivamente una matriz de transformación a los segmentos de un trazado
+ */
+function bakeMatrixIntoPath(path, matrix) {
+    if (!path || !matrix) return;
+    if (path.segments) {
+        path.segments.forEach(seg => {
+            seg.point = matrix.transform(seg.point);
+            if (seg.handleIn) seg.handleIn = matrix.transform(seg.handleIn).subtract(matrix.transform(new paper.Point(0, 0)));
+            if (seg.handleOut) seg.handleOut = matrix.transform(seg.handleOut).subtract(matrix.transform(new paper.Point(0, 0)));
         });
-
-        return {
-            timestamp: Date.now(),
-            totalUsefulItems: items.length,
-            massCount: massCount,
-            holeCount: holeCount,
-            zOrderIds: items.map(it => it.id),
-            itemsSummary: items
-        };
     }
-
-    function auditConsistency(beforeGeo, afterGeo, beforeSel, afterSel, callLog, opType) {
-        const inconsistencies = [];
-        const checks = {
-            geomBasePreserved: true,
-            zOrderPreserved: true,
-            selectionValid: true,
-            csgExecuted: true,
-            holeClassificationValid: true,
-            itemLossDetected: false
-        };
-
-        if (beforeGeo.error || afterGeo.error) {
-            return { checks, inconsistencies, pass: true };
-        }
-
-        // 1. Verificación de Pérdida de Elementos en Desagrupar
-        if (opType === 'UNGROUP') {
-            if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
-                checks.itemLossDetected = true;
-                const lostCount = beforeGeo.totalUsefulItems - afterGeo.totalUsefulItems;
-                const afterIds = new Set(afterGeo.zOrderIds);
-                const lostIds = beforeGeo.zOrderIds.filter(id => !afterIds.has(id));
-                inconsistencies.push(
-                    `[PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN] Se perdieron ${lostCount} elementos útiles. IDs desaparecidos: [${lostIds.join(', ')}].`
-                );
-            }
-            if (beforeSel.primary && beforeSel.primary.className === 'Group') {
-                if (afterGeo.totalUsefulItems <= beforeGeo.totalUsefulItems && afterGeo.itemsSummary.some(it => it.id === beforeSel.primary.id)) {
-                    inconsistencies.push(
-                        `[DESAGRUPACIÓN FALLIDA] El grupo ID: ${beforeSel.primary.id} sigue existiendo intacto; el comando no lo descompuso.`
-                    );
-                }
-            }
-        }
-
-        // 2. Verificación de geomBase (Corrupción por CSG)
-        const beforeMap = new Map();
-        beforeGeo.itemsSummary.forEach(it => beforeMap.set(it.id, it));
-        afterGeo.itemsSummary.forEach(afterIt => {
-            const beforeIt = beforeMap.get(afterIt.id);
-            if (beforeIt && beforeIt.hasGeomBase && afterIt.hasGeomBase) {
-                if (opType !== 'NODE_EDIT' && beforeIt.geomBaseSegments !== afterIt.geomBaseSegments) {
-                    checks.geomBasePreserved = false;
-                    inconsistencies.push(
-                        `[CORRUPCIÓN GEOMBASE] [ID: ${afterIt.id} "${afterIt.label}"] geomBase mutó fuera de edición de nodos. Antes: ${beforeIt.geomBaseSegments}, Después: ${afterIt.geomBaseSegments} segs. Contaminación CSG.`
-                    );
-                }
-            }
-        });
-
-        // 3. Verificación de Selección Huérfana
-        if (afterSel.hasSelection && typeof window !== 'undefined' && window.selectedItem) {
-            const curr = window.selectedItem;
-            if (!curr.project || !curr.parent) {
-                checks.selectionValid = false;
-                inconsistencies.push(`[SELECCIÓN HUÉRFANA] window.selectedItem apunta a un objeto desvinculado (ID: ${curr.id}).`);
-            }
-        }
-
-        const pass = inconsistencies.length === 0;
-        return { checks, inconsistencies, pass };
+    if (path.children && Array.isArray(path.children)) {
+        path.children.forEach(child => bakeMatrixIntoPath(child, matrix));
     }
+}
 
-    function beginOperation(actionName, triggerSource) {
-        if (!diagState.active) return null;
-        diagState.opCounter++;
-        const opId = 'OP-' + String(diagState.opCounter).padStart(5, '0');
+/**
+ * Descompone cualquier estructura en trazados atómicos cerrados simples (paper.Path)
+ * con sus transformaciones espaciales horneadas en coordenadas absolutas del lienzo.
+ */
+function flattenToAtomicPaths(item, accumulatedMatrix = null) {
+    const currentMatrix = accumulatedMatrix ? accumulatedMatrix.chain(item.matrix || new paper.Matrix()) : (item.matrix ? item.matrix.clone() : new paper.Matrix());
+    const atomicPaths = [];
 
-        const op = {
-            id: opId,
-            action: actionName,
-            source: triggerSource || 'UI',
-            timestamp: Date.now(),
-            startTime: performance.now(),
-            endTime: null,
-            durationMs: 0,
-            selectionBefore: snapshotSelection(),
-            selectionAfter: null,
-            geometryBefore: snapshotGeometricState(),
-            geometryAfter: null,
-            callGraph: [],
-            consistency: null
-        };
-
-        diagState.currentOp = op;
-        return op;
-    }
-
-    function endOperation() {
-        if (!diagState.active || !diagState.currentOp) return null;
-
-        const op = diagState.currentOp;
-        op.endTime = performance.now();
-        op.durationMs = Number((op.endTime - op.startTime).toFixed(1));
-        op.selectionAfter = snapshotSelection();
-        op.geometryAfter = snapshotGeometricState();
-
-        op.consistency = auditConsistency(
-            op.geometryBefore,
-            op.geometryAfter,
-            op.selectionBefore,
-            op.selectionAfter,
-            op.callGraph,
-            op.action
-        );
-
-        diagState.operations.push(op);
-        if (diagState.operations.length > diagState.maxHistory) {
-            diagState.operations.shift();
-        }
-
-        emitLiveStreamLog(op);
-        diagState.currentOp = null;
-        return op;
-    }
-
-    function emitLiveStreamLog(op) {
-        const pass = op.consistency ? op.consistency.pass : true;
-        const sel = op.selectionAfter && op.selectionAfter.primary;
-        const selDesc = sel ? `ID: ${sel.id} (${sel.className}) | Z: ${sel.zIndex} | ${sel.isHole ? '🕳️ CALADO' : '⬛ MASA'}` : 'Sin selección';
-        const geoDesc = `Capas: ${op.geometryAfter.totalUsefulItems} (Masas: ${op.geometryAfter.massCount}, Calados: ${op.geometryAfter.holeCount})`;
-
-        if (pass) {
-            rawConsole.info(
-                `%c▶ [EKKO_DIAG ${op.id}] %c${op.action}%c | ${selDesc} | ${geoDesc} (${op.durationMs}ms) ✓`,
-                'color: #0ea5e9; font-weight: bold;',
-                'color: #10b981; font-weight: bold;',
-                'color: #334155;'
-            );
+    if (isPath(item)) {
+        const cloned = item.clone({ insert: false });
+        bakeMatrixIntoPath(cloned, currentMatrix);
+        cloned.matrix = new paper.Matrix();
+        if (cloned.segments && cloned.segments.length >= 3) {
+            cloned.closed = true;
+            atomicPaths.push(cloned);
         } else {
-            rawConsole.group(
-                `%c🚨 [EKKO_DIAG ALERTA ${op.id}] ${op.action} | ❌ INCONSISTENCIAS DETECTADAS (${op.durationMs}ms)`,
-                'color: #ffffff; background: #dc2626; font-weight: bold; font-size: 12px; padding: 3px 6px; border-radius: 4px;'
-            );
-            rawConsole.warn(`• Origen: ${op.source}`);
-            rawConsole.warn(`• Estado previo: ${op.geometryBefore.totalUsefulItems} capas | Estado posterior: ${op.geometryAfter.totalUsefulItems} capas`);
-            op.consistency.inconsistencies.forEach(msg => {
-                rawConsole.error('  ⚠️ ' + msg);
+            cloned.remove();
+        }
+    } else if (isCompoundPath(item)) {
+        if (item.children && item.children.length > 0) {
+            item.children.forEach(child => {
+                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix));
             });
-            rawConsole.info('Tip: Escribe EKKO_DIAG.dump() para copiar el diagnóstico completo.');
-            rawConsole.groupEnd();
+        }
+    } else if (isGroup(item)) {
+        if (item.children && item.children.length > 0) {
+            const childrenCopy = [...item.children];
+            childrenCopy.forEach(child => {
+                if (child.clipMask) return;
+                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix));
+            });
+        }
+    } else if (isPlacedSymbol(item)) {
+        const def = (item.symbol && item.symbol.item) || item.definition || (item.symbol && item.symbol.definition);
+        if (def) {
+            const defClone = def.clone({ insert: false });
+            atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix));
+            defClone.remove();
         }
     }
 
-    // Interceptor eludiendo protectGlobal
-    function forceWrapWindowFunction(fnName, modulePath, actionType) {
-        if (typeof window === 'undefined') return;
+    return atomicPaths;
+}
 
-        let original = window[fnName];
-        if (typeof original !== 'function') return;
+/**
+ * Determina si el trazado 'child' está contenido geométricamente dentro de 'parent'.
+ * Utiliza muestreo de múltiples puntos (centroide + vértices perimetrales).
+ */
+export function isContainedIn(child, parent) {
+    if (!child || !parent) return false;
+    if (!parent.bounds || !child.bounds) return false;
 
-        const wrapped = function (...args) {
-            const hasExisting = !!diagState.currentOp;
-            let op = null;
-            if (diagState.active && !hasExisting && actionType) {
-                op = beginOperation(actionType, `${modulePath} -> ${fnName}`);
-            }
+    // Test rápido de AABB (Axis-Aligned Bounding Box)
+    const pBounds = parent.bounds;
+    const cBounds = child.bounds;
+    const margin = 0.5;
 
-            const t0 = performance.now();
-            let res, err = null;
-            try {
-                res = original.apply(this, args);
-            } catch (e) {
-                err = e;
-                throw e;
-            } finally {
-                const t1 = performance.now();
-                if (diagState.currentOp) {
-                    diagState.currentOp.callGraph.push({
-                        fnName: fnName,
-                        module: modulePath,
-                        durationMs: Number((t1 - t0).toFixed(1)),
-                        error: err ? err.message : null
-                    });
-                }
-                if (op) {
-                    endOperation();
-                }
-            }
-            return res;
-        };
+    if (cBounds.left < pBounds.left - margin ||
+        cBounds.right > pBounds.right + margin ||
+        cBounds.top < pBounds.top - margin ||
+        cBounds.bottom > pBounds.bottom + margin) {
+        return false;
+    }
 
-        // Redefinir sobreescribiendo protectGlobal con configurable: true
-        try {
-            Object.defineProperty(window, fnName, {
-                value: wrapped,
-                writable: true,
-                configurable: true,
-                enumerable: true
-            });
-        } catch (e) {
-            window[fnName] = wrapped;
+    // Comprobación por muestreo de puntos interiores y vértices
+    const testPoints = [
+        cBounds.center,
+        new paper.Point(cBounds.left + cBounds.width * 0.25, cBounds.top + cBounds.height * 0.25),
+        new paper.Point(cBounds.right - cBounds.width * 0.25, cBounds.bottom - cBounds.height * 0.25)
+    ];
+
+    if (child.segments && child.segments.length > 0) {
+        testPoints.push(child.segments[0].point);
+        if (child.segments.length > 2) {
+            testPoints.push(child.segments[Math.floor(child.segments.length / 2)].point);
         }
     }
 
-    // Instalación de escuchadores directos en el DOM (Fase de Captura)
-    function installDOMCaptureListeners() {
-        if (typeof document === 'undefined') return;
+    let containedCount = 0;
+    for (const pt of testPoints) {
+        if (parent.contains(pt)) {
+            containedCount++;
+        }
+    }
 
-        // 1. Intercepción de Clics en Botones de UI
-        document.addEventListener('click', function (e) {
-            if (!diagState.active) return;
-            const target = e.target;
-            if (!target) return;
+    return containedCount >= Math.ceil(testPoints.length * 0.5);
+}
 
-            const btnUngroup = target.closest('#btnCtxUngroup, #btnCtxDesagrupar, #proBtnUngroup');
-            const btnGroup = target.closest('#btnCtxGroup, #btnCtxAgrupar, #proBtnGroup');
-            const btnForward = target.closest('#btnCtxForward, #proBtnBringForward');
-            const btnBackward = target.closest('#btnCtxBackward, #proBtnSendBackward');
-            const btnEditNodes = target.closest('#btnCtxEditNodes, #btnCtxNodeEdit, #proBtnEditNodes');
-            const btnDelete = target.closest('#btnCtxDelete');
+/**
+ * Construye el árbol topológico de contención geométrica y determina profundidades relativas.
+ */
+function buildContainmentTree(atomicPaths) {
+    // Ordenar por área descendente: contenedores mayores primero
+    atomicPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
 
-            let actionName = null;
-            let triggerSource = null;
+    const nodes = atomicPaths.map((path, idx) => ({
+        id: idx,
+        path: path,
+        area: Math.abs(path.area),
+        parent: null,
+        children: [],
+        depth: 0
+    }));
 
-            if (btnUngroup) { actionName = 'UNGROUP'; triggerSource = 'Botón Desagrupar'; }
-            else if (btnGroup) { actionName = 'GROUP'; triggerSource = 'Botón Agrupar'; }
-            else if (btnForward) { actionName = 'BRING_FORWARD'; triggerSource = 'Botón Subir Capa'; }
-            else if (btnBackward) { actionName = 'SEND_BACKWARD'; triggerSource = 'Botón Bajar Capa'; }
-            else if (btnEditNodes) { actionName = 'NODE_EDIT'; triggerSource = 'Botón Editar Nodos'; }
-            else if (btnDelete) { actionName = 'DELETE'; triggerSource = 'Botón Eliminar'; }
-
-            if (actionName) {
-                const op = beginOperation(actionName, triggerSource);
-                setTimeout(() => {
-                    if (diagState.currentOp === op) {
-                        endOperation();
-                    }
-                }, 80);
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            if (isContainedIn(nodes[j].path, nodes[i].path)) {
+                if (!nodes[j].parent || nodes[nodes[j].parent.id].area > nodes[i].area) {
+                    nodes[j].parent = nodes[i];
+                }
             }
-        }, true); // true = Capture Phase (corre antes de cualquier listener local)
+        }
+    }
 
-        // 2. Intercepción de Interacciones en el Lienzo (#editorCanvas)
-        const canvasEl = document.getElementById('editorCanvas');
-        if (canvasEl) {
-            canvasEl.addEventListener('mousedown', function (e) {
-                if (!diagState.active) return;
-                diagState.lastMouseDownPoint = { x: e.clientX, y: e.clientY };
-                diagState.lastMouseDownSelection = snapshotSelection();
-                diagState.lastMouseDownGeo = snapshotGeometricState();
-            }, true);
+    nodes.forEach(node => {
+        if (node.parent) {
+            node.parent.children.push(node);
+        }
+    });
 
-            canvasEl.addEventListener('mouseup', function (e) {
-                if (!diagState.active) return;
-                const ptDown = diagState.lastMouseDownPoint;
-                if (!ptDown) return;
+    const roots = nodes.filter(n => !n.parent);
+    const computeDepth = (n, d) => {
+        n.depth = d;
+        n.children.forEach(c => computeDepth(c, d + 1));
+    };
+    roots.forEach(r => computeDepth(r, 0));
 
-                const dx = Math.abs(e.clientX - ptDown.x);
-                const dy = Math.abs(e.clientY - ptDown.y);
-                const isDrag = (dx > 3 || dy > 3);
+    return { roots, nodes };
+}
 
-                setTimeout(() => {
-                    const selNow = snapshotSelection();
-                    const geoNow = snapshotGeometricState();
-                    const selBefore = diagState.lastMouseDownSelection || selNow;
+/**
+ * Retorna la geometría original inmaculada (geomBase) proyectada con la transformación
+ * actual del elemento (posición, rotación, escala).
+ */
+export function getGlobalUnsubtractedPath(item) {
+    if (!item || !item.data || !item.data.geomBase) return null;
+    const tempBase = item.data.geomBase.clone({ insert: false });
+    tempBase.matrix = item.matrix.clone();
+    return tempBase;
+}
 
-                    if (isDrag) {
-                        // Fue un arrastre
-                        const op = beginOperation('DRAG', 'Arrastre en Lienzo');
-                        op.selectionBefore = selBefore;
-                        op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
-                        endOperation();
-                    } else {
-                        // Fue un clic de selección / deselección
-                        const idBefore = (selBefore.primary && selBefore.primary.id) || null;
-                        const idNow = (selNow.primary && selNow.primary.id) || null;
-                        if (idBefore !== idNow) {
-                            const action = idNow ? 'SELECT' : 'DESELECT';
-                            const op = beginOperation(action, 'Clic en Lienzo');
-                            op.selectionBefore = selBefore;
-                            op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
-                            endOperation();
+/**
+ * MOTOR DE RECÁLCULO REACTIVO CSG (No destructivo por orden Z).
+ * Incorpora el Blindaje Anti-Aniquilación:
+ * - Si una sustracción booleana reduce los segmentos visibles a 0 o vacía el trazado,
+ *   se anula la sustracción destructiva sobre esa pieza para garantizar que nunca se borre de pantalla.
+ */
+export function recalculateDynamicSubtractions(targetLayer = null) {
+    const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
+    if (!layer || !layer.children) return;
+
+    const items = [...layer.children].filter(item =>
+        item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
+        !item.data?.isHandle && !item.data?.isSmartGuide && !item.data?.isMeasurement &&
+        !item.data?.isTracePreview && !item.data?.isNodeEditOverlay
+    );
+
+    if (items.length === 0) return;
+
+    // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada en su posición actual
+    items.forEach(item => {
+        if (item.data && item.data.geomBase && !item.data.isHole) {
+            const pristine = getGlobalUnsubtractedPath(item);
+            if (pristine) {
+                item.removeChildren();
+                if (pristine instanceof paper.CompoundPath) {
+                    const cl = pristine.clone({ insert: false });
+                    item.addChildren(cl.removeChildren());
+                    cl.remove();
+                } else if (pristine instanceof paper.Path) {
+                    const cl = pristine.clone({ insert: false });
+                    item.addChild(cl);
+                }
+                pristine.remove();
+                item.visible = true;
+            }
+        }
+    });
+
+    // 2. Aplicar calados dinámicos (isHole) exclusivamente a las capas inferiores en Z (j < i)
+    for (let i = 0; i < items.length; i++) {
+        const holeItem = items[i];
+        if (!holeItem || !holeItem.data?.isHole) continue;
+
+        const holeBase = getGlobalUnsubtractedPath(holeItem);
+        if (!holeBase) continue;
+
+        // Ocultar la visibilidad de dibujo del calado de control para que funcione como vacío vectorial puro
+        holeItem.visible = false;
+
+        for (let j = i - 1; j >= 0; j--) {
+            const solid = items[j];
+            if (!solid || solid.data?.isHole || !solid.data?.geomBase) continue;
+
+            if (solid.bounds && holeBase.bounds && solid.bounds.intersects(holeBase.bounds)) {
+                try {
+                    // Backup preventivo de los hijos del sólido antes de restar
+                    const beforeChildren = solid.clone({ insert: false });
+                    const subtracted = solid.subtract(holeBase, { insert: false });
+
+                    if (subtracted) {
+                        // Comprobación Anti-Aniquilación: Si la resta dejó el sólido vacío, rechazar la aniquilación
+                        const segCount = subtracted.segments ? subtracted.segments.length :
+                            (subtracted.children ? subtracted.children.reduce((acc, c) => acc + (c.segments ? c.segments.length : 0), 0) : 0);
+
+                        const hasValidArea = Math.abs(subtracted.area || 0) > 0.01;
+
+                        if (segCount > 0 && hasValidArea && subtracted.bounds.width > 0.01 && subtracted.bounds.height > 0.01) {
+                            solid.removeChildren();
+                            if (subtracted instanceof paper.CompoundPath) {
+                                solid.addChildren(subtracted.removeChildren());
+                            } else {
+                                solid.addChild(subtracted);
+                            }
+                            solid.visible = true;
+                        } else {
+                            // Aniquilación evitada: Restablecer silueta previa y registrar advertencia
+                            subtracted.remove();
+                            solid.removeChildren();
+                            solid.addChildren(beforeChildren.removeChildren());
+                            solid.visible = true;
+                            if (typeof window !== 'undefined' && window.EKKO_DEBUG) {
+                                console.warn(`[ANTI-ANIQUILACIÓN CSG] Se evitó la desintegración total de masa en item ID: ${solid.id}`);
+                            }
                         }
                     }
-                }, 60);
-            }, true);
+                    beforeChildren.remove();
+                } catch (err) {
+                    console.warn(`[CSG EXCEPTION] Error no crítico en sustracción: ${err.message}`);
+                }
+            }
         }
+
+        holeBase.remove();
     }
 
-    // Instalación unificada de interceptores
-    function installAllInterceptors() {
-        if (diagState.interceptorsInstalled) return;
+    if (typeof paper !== 'undefined' && paper.view) {
+        paper.view.update();
+    }
+}
 
-        // Desbloqueo y envoltura de funciones de window
-        forceWrapWindowFunction('decomposeByContainmentHierarchy', 'geometricUngroup.js', 'UNGROUP');
-        forceWrapWindowFunction('recalculateDynamicSubtractions', 'geometricUngroup.js', null);
-        forceWrapWindowFunction('selectItem', 'selection.js', 'SELECT');
-        forceWrapWindowFunction('deselectItem', 'selection.js', 'DESELECT');
-        forceWrapWindowFunction('ungroupSelectedItem', 'contextualMenu.js', 'UNGROUP');
-        forceWrapWindowFunction('groupSelectedItems', 'contextualMenu.js', 'GROUP');
-        forceWrapWindowFunction('enterNodeEditMode', 'nodeEditor.js', 'NODE_EDIT');
-        forceWrapWindowFunction('exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT');
-        forceWrapWindowFunction('bringFront', 'editor.js', 'BRING_FRONT');
-        forceWrapWindowFunction('sendBack', 'editor.js', 'SEND_BACK');
-        forceWrapWindowFunction('bringForward', 'editor.js', 'BRING_FORWARD');
-        forceWrapWindowFunction('sendBackward', 'editor.js', 'SEND_BACKWARD');
-
-        // Escuchadores del DOM y del Canvas
-        installDOMCaptureListeners();
-
-        // Envoltura de importSVG en Paper.js
-        if (typeof paper !== 'undefined' && paper.project && !paper.project._diagWrapped) {
-            const origImportSVG = paper.project.importSVG;
-            paper.project.importSVG = function (...args) {
-                const op = beginOperation('IMPORT_SVG', 'paper.project.importSVG');
-                const cb = args[1];
-                if (typeof cb === 'function') {
-                    args[1] = function (item) {
-                        const res = cb(item);
-                        setTimeout(() => { endOperation(); }, 50);
-                        return res;
-                    };
-                }
-                return origImportSVG.apply(this, args);
-            };
-            paper.project._diagWrapped = true;
-        }
-
-        diagState.interceptorsInstalled = true;
+/**
+ * DESCOMPOSICIÓN INTEGRAL POR JERARQUÍA DE CONTENCIÓN (Un solo clic).
+ * Descompone masas positivas y calados activos respetando la relación Z:
+ * Raíz/Fondo (Z0) -> Intermedio (Z1) -> Interior (Z2...)
+ * Cada elemento resultante se genera como un CompoundPath nativo de Paper.js.
+ */
+export function decomposeByContainmentHierarchy(rootTarget) {
+    if (!rootTarget || rootTarget.data?.locked || rootTarget.data?.mockup || rootTarget.data?.isMask) {
+        return null;
     }
 
-    // API Pública de EKKO_DIAG
-    const publicAPI = {
-        start: function () {
-            diagState.active = true;
-            installAllInterceptors();
-            rawConsole.log('%c[EKKO_DIAG v5.0 Deep Capture] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
-            return 'EKKO_DIAG Activo. Interactúa en el lienzo.';
-        },
+    const targetLayer = rootTarget.layer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
 
-        stop: function () {
-            diagState.active = false;
-            rawConsole.log('%c[EKKO_DIAG] Detenido 🔴', 'color: #ef4444; font-weight: bold;');
-            return 'EKKO_DIAG Detenido.';
-        },
+    // 1. Extraer todos los trazados terminales atómicos cerrados
+    const atomicPaths = flattenToAtomicPaths(rootTarget);
+    if (atomicPaths.length === 0) return null;
 
-        clear: function () {
-            diagState.operations = [];
-            diagState.opCounter = 0;
-            diagState.currentOp = null;
-            return 'Historial de operaciones limpiado.';
-        },
+    // Caso de trazado único: se envuelve como CompoundPath independiente
+    if (atomicPaths.length === 1) {
+        const single = atomicPaths[0];
+        const compound = new paper.CompoundPath({ insert: false });
+        compound.addChild(single.clone({ insert: false }));
+        single.remove();
 
-        report: function () {
-            const ops = diagState.operations;
-            let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-            outputText += '║               EKKO STUDIO DIAGNOSTIC v5.0 - INFORME CONSOLIDADO                  ║\n';
-            outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
+        const geomBase = compound.clone({ insert: false });
+        geomBase.matrix = new paper.Matrix();
 
-            if (ops.length === 0) {
-                outputText += 'No hay operaciones registradas aún. Carga un SVG o interactúa en el lienzo.\n';
-                rawConsole.log(outputText);
-                return outputText;
+        compound.data = {
+            locked: false,
+            label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
+            isHole: false,
+            geomBase: geomBase,
+            layerDepth: 0
+        };
+
+        compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
+        compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
+        compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
+
+        if (targetLayer) {
+            targetLayer.addChild(compound);
+            if (window.currentMockup) {
+                compound.insertBelow(window.currentMockup);
             }
-
-            outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
-            ops.forEach(op => {
-                const pass = op.consistency ? (op.consistency.pass ? '✓ OK' : '⚠ INCONSISTENCIA') : 'N/A';
-                const sel = op.selectionAfter && op.selectionAfter.primary;
-                const selStr = sel ? `ID: ${sel.id} (${sel.className}, Z:${sel.zIndex})` : 'Sin selección';
-                outputText += `[${op.id}] ${op.action.padEnd(14)} | ${pass.padEnd(16)} | ${op.durationMs}ms | Capas: ${op.geometryAfter.totalUsefulItems} | Sel: ${selStr}\n`;
-                if (op.consistency && !op.consistency.pass) {
-                    op.consistency.inconsistencies.forEach(inc => {
-                        outputText += `   ↳ ⚠️ ${inc}\n`;
-                    });
-                }
-            });
-
-            rawConsole.log(outputText);
-            return outputText;
-        },
-
-        dump: function () {
-            const rep = this.report();
-            const payload = rep + '\n\n--- DETALLE FORENSE COMPLETO (JSON) ---\n' + JSON.stringify(diagState.operations, null, 2);
-            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(payload).then(() => {
-                    rawConsole.log('%c[EKKO_DIAG] Diagnóstico forense copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
-                }).catch(() => {});
-            }
-            return payload;
-        },
-
-        last: function () {
-            if (diagState.operations.length === 0) return 'No hay operaciones registradas.';
-            return diagState.operations[diagState.operations.length - 1];
         }
-    };
 
-    // Auto-instalación inmediata y persistente
-    if (typeof window !== 'undefined') {
-        window.EKKO_DIAG = publicAPI;
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => {
-                setTimeout(installAllInterceptors, 200);
-            });
+        rootTarget.remove();
+        return { handled: true, simple: true, items: [compound] };
+    }
+
+    // 2. Construir árbol topológico de contención
+    const { nodes } = buildContainmentTree(atomicPaths);
+
+    // 3. Ordenar por profundidad: de menor a mayor (Z0 exterior macizo -> Zn interior)
+    nodes.sort((a, b) => a.depth - b.depth);
+
+    const resultingItems = [];
+
+    nodes.forEach((node) => {
+        // Regla semántica de contención:
+        // - Profundidad 0 = Masa sólida exterior de fondo
+        // - Profundidad 1 = Calado activo interactivo (sustrae de Z0)
+        // - Profundidad 2 = Masa positiva interior independiente (ej: triángulo de la A)
+        // - Profundidad impar = Calado activo; Profundidad par = Masa sólida
+        const isHole = (node.depth % 2 === 1);
+
+        const compoundItem = new paper.CompoundPath({ insert: false });
+        const pathClone = node.path.clone({ insert: false });
+        compoundItem.addChild(pathClone);
+
+        // Almacenar geometría base inmaculada en coordenadas locales puras
+        const geomBase = new paper.CompoundPath({ insert: false });
+        const baseClone = node.path.clone({ insert: false });
+        geomBase.addChild(baseClone);
+        geomBase.matrix = new paper.Matrix();
+
+        compoundItem.data = {
+            locked: false,
+            label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
+            isHole: isHole,
+            geomBase: geomBase,
+            layerDepth: node.depth,
+            containmentId: node.id
+        };
+
+        // Asignación de color preservando estilos del SVG
+        if (isHole) {
+            compoundItem.fillColor = null;
+            compoundItem.strokeColor = new paper.Color('#0284c7');
+            compoundItem.strokeWidth = 1 / (typeof paper !== 'undefined' && paper.view ? paper.view.zoom : 1);
+            compoundItem.dashArray = [3, 3];
         } else {
-            setTimeout(installAllInterceptors, 200);
+            compoundItem.fillColor = node.path.fillColor || rootTarget.fillColor || new paper.Color('#111827');
+            compoundItem.strokeColor = node.path.strokeColor || rootTarget.strokeColor || null;
+            compoundItem.strokeWidth = node.path.strokeWidth || rootTarget.strokeWidth || 0;
         }
-        window.addEventListener('load', () => {
-            setTimeout(installAllInterceptors, 500);
-            setTimeout(installAllInterceptors, 1500);
+
+        resultingItems.push(compoundItem);
+        node.path.remove();
+    });
+
+    // 4. Insertar las capas ordenadas en Z directamente en la capa activa
+    if (targetLayer) {
+        resultingItems.forEach(item => {
+            targetLayer.addChild(item);
+            if (window.currentMockup) {
+                item.insertBelow(window.currentMockup);
+            }
         });
     }
 
-    return publicAPI;
-}));
+    // 5. Eliminar el contenedor original
+    rootTarget.remove();
+
+    // 6. Ejecutar recálculo reactivo CSG dinámico con el blindaje anti-aniquilación activo
+    if (targetLayer) {
+        recalculateDynamicSubtractions(targetLayer);
+    }
+
+    return { handled: true, simple: false, items: resultingItems };
+}
+
+export function geometricUngroupCompound(item) {
+    return decomposeByContainmentHierarchy(item);
+}
+
+export function geometricUngroupOneLevel(group) {
+    return decomposeByContainmentHierarchy(group);
+}
+
+// Exposición global segura
+if (typeof window !== 'undefined') {
+    window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
+    window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
+    window.geometricUngroupCompound = decomposeByContainmentHierarchy;
+    window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
+    window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
+}
