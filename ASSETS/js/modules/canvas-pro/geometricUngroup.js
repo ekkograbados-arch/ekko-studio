@@ -1,20 +1,24 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v32 - 1-Click Atomic & Reversible - Anti-Annihilation Engine)
+Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v35 - Semantic Classification & Z-Order Topological Engine)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/geometricUngroup.js
-
 Descripción:
 Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
 Basado en Paper.js y optimizado para corte y grabado láser (LightBurn / CNC).
 
 Cumple rigurosamente con:
-- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
+- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN Y CAPAS
 - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt)
-- CORRECCIÓN FORENSE OP-00009:
-  * Sistema Anti-Aniquilación CSG: Impide que sustracciones sucesivas reduzcan masas válidas a 0 segmentos o bounds vacíos.
-  * Reclasificación de Calados Inteligente: Contención semántica real evitando que figuras cerradas legítimas se conviertan ciegamente en huecos destructivos.
+- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt):
+  * Eliminación total de la paridad rígida de profundidad (depth % 2 === 1).
+  * Clasificador Semántico Vectorial: Distingue masas sólidas legítimas de calados reales
+    evaluando la estructura del CompoundPath original, reglas de bobinado (fillRule),
+    y contraste gráfico en grupos SVG.
+  * Desacoplamiento de Contención Topológica vs. Orden de Apilamiento Z:
+    El apilamiento Z respeta el orden documental del SVG y garantiza que los calados
+    únicamente perforen las masas ubicadas por debajo de ellos en Z.
+  * Sistema Anti-Aniquilación CSG: Impide que sustracciones sucesivas reduzcan masas a 0.
   * Preservación absoluta de 'geomBase' en coordenadas neutras locales.
-  * Recálculo CSG dinámico no destructivo por orden Z.
+  * Descomposición atómica completa en 1 solo clic.
 ========================================================================= */
 
 function isPath(item) {
@@ -51,10 +55,11 @@ function getMatrixRelativeTo(item, targetAncestor) {
 }
 
 /**
- * Aplica recursivamente una matriz de transformación a los segmentos de un trazado
+ * Aplica una matriz de transformación geométrica directamente sobre los segmentos y tiradores
+ * de un trazado (Baking de matriz), neutralizando su matriz local a identidad.
  */
 function bakeMatrixIntoPath(path, matrix) {
-    if (!path || !matrix) return;
+    if (!matrix || matrix.isIdentity()) return;
     if (path.segments) {
         path.segments.forEach(seg => {
             seg.point = matrix.transform(seg.point);
@@ -70,17 +75,32 @@ function bakeMatrixIntoPath(path, matrix) {
 /**
  * Descompone cualquier estructura en trazados atómicos cerrados simples (paper.Path)
  * con sus transformaciones espaciales horneadas en coordenadas absolutas del lienzo.
+ * Registra metadatos de origen (orden documental, fill original, pertenencia a compuesto).
  */
-function flattenToAtomicPaths(item, accumulatedMatrix = null) {
+let docOrderCounter = 0;
+
+function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
     const currentMatrix = accumulatedMatrix ? accumulatedMatrix.chain(item.matrix || new paper.Matrix()) : (item.matrix ? item.matrix.clone() : new paper.Matrix());
     const atomicPaths = [];
+
+    const isFromCompound = parentMeta.isFromCompound || isCompoundPath(item);
 
     if (isPath(item)) {
         const cloned = item.clone({ insert: false });
         bakeMatrixIntoPath(cloned, currentMatrix);
         cloned.matrix = new paper.Matrix();
+
         if (cloned.segments && cloned.segments.length >= 3) {
             cloned.closed = true;
+            cloned.data = {
+                ...(cloned.data || {}),
+                docOrder: docOrderCounter++,
+                originalFillColor: item.fillColor ? item.fillColor.clone() : null,
+                originalStrokeColor: item.strokeColor ? item.strokeColor.clone() : null,
+                originalStrokeWidth: item.strokeWidth || 0,
+                isFromCompound: isFromCompound,
+                originalClockwise: cloned.clockwise
+            };
             atomicPaths.push(cloned);
         } else {
             cloned.remove();
@@ -88,7 +108,7 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null) {
     } else if (isCompoundPath(item)) {
         if (item.children && item.children.length > 0) {
             item.children.forEach(child => {
-                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix));
+                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: true, compoundFill: item.fillColor }));
             });
         }
     } else if (isGroup(item)) {
@@ -96,19 +116,47 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null) {
             const childrenCopy = [...item.children];
             childrenCopy.forEach(child => {
                 if (child.clipMask) return;
-                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix));
+                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: false }));
             });
         }
     } else if (isPlacedSymbol(item)) {
         const def = (item.symbol && item.symbol.item) || item.definition || (item.symbol && item.symbol.definition);
         if (def) {
             const defClone = def.clone({ insert: false });
-            atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix));
+            atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix, { isFromCompound: false }));
             defClone.remove();
         }
     }
 
     return atomicPaths;
+}
+
+/**
+ * Obtiene un punto interior estricto y garantizado de un paper.Path.
+ * Si el centroide (bounds.center) cae fuera por concavidad, proyecta normales
+ * hacia el interior a lo largo de las curvas del trazado.
+ */
+function getInteriorTestPoint(path) {
+    if (!path || !path.bounds) return null;
+    const center = path.bounds.center;
+    if (path.contains(center)) return center;
+
+    if (path.curves && path.curves.length > 0) {
+        for (let i = 0; i < path.curves.length; i++) {
+            const curve = path.curves[i];
+            const pt = curve.getPointAtTime(0.5);
+            const normal = curve.getNormalAtTime(0.5);
+            if (!normal) continue;
+            const offsets = [0.5, 1.0, 2.0, 5.0, 10.0];
+            for (const offset of offsets) {
+                const testA = pt.add(normal.multiply(offset));
+                if (path.contains(testA)) return testA;
+                const testB = pt.subtract(normal.multiply(offset));
+                if (path.contains(testB)) return testB;
+            }
+        }
+    }
+    return center;
 }
 
 /**
@@ -119,35 +167,29 @@ export function isContainedIn(child, parent) {
     if (!child || !parent) return false;
     if (!parent.bounds || !child.bounds) return false;
 
-    // Test rápido de AABB (Axis-Aligned Bounding Box)
-    const pBounds = parent.bounds;
-    const cBounds = child.bounds;
-    const margin = 0.5;
-
-    if (cBounds.left < pBounds.left - margin ||
-        cBounds.right > pBounds.right + margin ||
-        cBounds.top < pBounds.top - margin ||
-        cBounds.bottom > pBounds.bottom + margin) {
+    // Descarte inicial rápido por caja envolvente
+    if (!parent.bounds.contains(child.bounds.center) && !parent.bounds.intersects(child.bounds)) {
         return false;
     }
 
-    // Comprobación por muestreo de puntos interiores y vértices
     const testPoints = [
-        cBounds.center,
-        new paper.Point(cBounds.left + cBounds.width * 0.25, cBounds.top + cBounds.height * 0.25),
-        new paper.Point(cBounds.right - cBounds.width * 0.25, cBounds.bottom - cBounds.height * 0.25)
+        child.bounds.center,
+        child.bounds.topLeft,
+        child.bounds.topRight,
+        child.bounds.bottomLeft,
+        child.bounds.bottomRight
     ];
 
     if (child.segments && child.segments.length > 0) {
-        testPoints.push(child.segments[0].point);
-        if (child.segments.length > 2) {
-            testPoints.push(child.segments[Math.floor(child.segments.length / 2)].point);
+        const step = Math.max(1, Math.floor(child.segments.length / 4));
+        for (let i = 0; i < child.segments.length; i += step) {
+            testPoints.push(child.segments[i].point);
         }
     }
 
     let containedCount = 0;
-    for (const pt of testPoints) {
-        if (parent.contains(pt)) {
+    for (let i = 0; i < testPoints.length; i++) {
+        if (parent.contains(testPoints[i])) {
             containedCount++;
         }
     }
@@ -156,7 +198,7 @@ export function isContainedIn(child, parent) {
 }
 
 /**
- * Construye el árbol topológico de contención geométrica y determina profundidades relativas.
+ * Construye el árbol topológico de contención geométrica y calcula profundidades relativas.
  */
 function buildContainmentTree(atomicPaths) {
     // Ordenar por área descendente: contenedores mayores primero
@@ -168,24 +210,21 @@ function buildContainmentTree(atomicPaths) {
         area: Math.abs(path.area),
         parent: null,
         children: [],
-        depth: 0
+        depth: 0,
+        docOrder: (path.data && path.data.docOrder !== undefined) ? path.data.docOrder : idx,
+        isHole: false
     }));
 
+    // Determinar paternidad topológica estricta (el contenedor más pequeño que envuelva al nodo)
     for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-            if (isContainedIn(nodes[j].path, nodes[i].path)) {
-                if (!nodes[j].parent || nodes[nodes[j].parent.id].area > nodes[i].area) {
-                    nodes[j].parent = nodes[i];
-                }
+        for (let j = i - 1; j >= 0; j--) {
+            if (isContainedIn(nodes[i].path, nodes[j].path)) {
+                nodes[i].parent = nodes[j];
+                nodes[j].children.push(nodes[i]);
+                break;
             }
         }
     }
-
-    nodes.forEach(node => {
-        if (node.parent) {
-            node.parent.children.push(node);
-        }
-    });
 
     const roots = nodes.filter(n => !n.parent);
     const computeDepth = (n, d) => {
@@ -195,6 +234,63 @@ function buildContainmentTree(atomicPaths) {
     roots.forEach(r => computeDepth(r, 0));
 
     return { roots, nodes };
+}
+
+/**
+ * CLASIFICADOR SEMÁNTICO VECTORIAL DE CAPAS (Reemplazo definitivo de depth % 2 === 1)
+ *
+ * Determina rigurosamente si un nodo es:
+ * - Masa Sólida (isHole: false): Geometría positiva independiente.
+ * - Calado Activo (isHole: true): Geometría negativa interactiva que perfora capas inferiores en Z.
+ */
+function resolveItemSemantics(node, rootTarget) {
+    const path = node.path;
+    const isFromCompound = !!(path.data && path.data.isFromCompound);
+
+    // CASO 1: Si proviene de un CompoundPath original (como Escudo AFA, 007 o siluetas tipográficas)
+    if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
+        const testPt = getInteriorTestPoint(path);
+        if (testPt) {
+            let isFilledInOriginal = false;
+            try {
+                isFilledInOriginal = rootTarget.contains(testPt);
+            } catch (err) {
+                isFilledInOriginal = false;
+            }
+
+            // Si el punto interior NO tenía relleno en el CompoundPath original, era un vacío/agujero real
+            if (!isFilledInOriginal) {
+                return true; // Calado Activo
+            } else {
+                return false; // Masa Sólida
+            }
+        }
+    }
+
+    // CASO 2: Relación de Isla Interior contenida dentro de un Calado Activo
+    // (Ejemplo fundamental del Prompt Maestro: el triángulo macizo de la letra A está dentro del calado de la A)
+    if (node.parent && node.parent.isHole) {
+        return false; // Masa sólida positiva (isla interior que debe permanecer visible)
+    }
+
+    // CASO 3: Trazo cerrado sin relleno (fill: none o transparente) dentro de un contenedor sólido
+    const originalFill = path.data?.originalFillColor;
+    if (node.parent && (!originalFill || originalFill.alpha === 0)) {
+        return true; // Calado Activo
+    }
+
+    // CASO 4: Alternancia topológica de CompoundPath reconstruido
+    // Si el nodo padre es una masa sólida y el sub-trazado representa una inversión de bobinado respecto a su padre
+    if (isFromCompound && node.parent && !node.parent.isHole) {
+        if (path.clockwise !== node.parent.path.clockwise) {
+            return true; // Orientación opuesta en CompoundPath = Calado
+        }
+    }
+
+    // REGLA DE ORO POR DEFECTO:
+    // Una figura cerrada con geometría válida y estilo es una MASA SÓLIDA.
+    // Jamás se forzará a hueco por mera paridad de profundidad.
+    return false;
 }
 
 /**
@@ -271,7 +367,6 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
                         // Comprobación Anti-Aniquilación: Si la resta dejó el sólido vacío, rechazar la aniquilación
                         const segCount = subtracted.segments ? subtracted.segments.length :
                             (subtracted.children ? subtracted.children.reduce((acc, c) => acc + (c.segments ? c.segments.length : 0), 0) : 0);
-
                         const hasValidArea = Math.abs(subtracted.area || 0) > 0.01;
 
                         if (segCount > 0 && hasValidArea && subtracted.bounds.width > 0.01 && subtracted.bounds.height > 0.01) {
@@ -299,7 +394,6 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
                 }
             }
         }
-
         holeBase.remove();
     }
 
@@ -309,9 +403,29 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
 }
 
 /**
- * DESCOMPOSICIÓN INTEGRAL POR JERARQUÍA DE CONTENCIÓN (Un solo clic).
+ * Función auxiliar para comprobar ancestría topológica en el árbol de contención
+ */
+function isAncestorOf(potentialAncestor, node) {
+    let curr = node.parent;
+    while (curr) {
+        if (curr === potentialAncestor) return true;
+        curr = curr.parent;
+    }
+    return false;
+}
+
+function getRootNode(node) {
+    let curr = node;
+    while (curr.parent) {
+        curr = curr.parent;
+    }
+    return curr;
+}
+
+/**
+ * DESCOMPOSICIÓN INTEGRAL POR JERARQUÍA DE CONTENCIÓN Y CAPAS (1 solo clic).
  * Descompone masas positivas y calados activos respetando la relación Z:
- * Raíz/Fondo (Z0) -> Intermedio (Z1) -> Interior (Z2...)
+ * Raíz/Fondo (Z0) -> Calado Intermedio (Z1) -> Masa Interior (Z2...)
  * Cada elemento resultante se genera como un CompoundPath nativo de Paper.js.
  */
 export function decomposeByContainmentHierarchy(rootTarget) {
@@ -319,13 +433,16 @@ export function decomposeByContainmentHierarchy(rootTarget) {
         return null;
     }
 
-    const targetLayer = rootTarget.layer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
+    const targetLayer = rootTarget.layer || paper.project.activeLayer;
+    docOrderCounter = 0;
 
-    // 1. Extraer todos los trazados terminales atómicos cerrados
+    // 1. Aplanar todo el contenido a trazados atómicos cerrados
     const atomicPaths = flattenToAtomicPaths(rootTarget);
-    if (atomicPaths.length === 0) return null;
+    if (!atomicPaths || atomicPaths.length === 0) {
+        return null;
+    }
 
-    // Caso de trazado único: se envuelve como CompoundPath independiente
+    // Si solo hay un único trazado, envolverlo limpiamente como capa atómica descompuesta
     if (atomicPaths.length === 1) {
         const single = atomicPaths[0];
         const compound = new paper.CompoundPath({ insert: false });
@@ -343,7 +460,6 @@ export function decomposeByContainmentHierarchy(rootTarget) {
             layerDepth: 0,
             decomposedLayer: true
         };
-
         compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
         compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
         compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
@@ -354,7 +470,6 @@ export function decomposeByContainmentHierarchy(rootTarget) {
                 compound.insertBelow(window.currentMockup);
             }
         }
-
         rootTarget.remove();
         return { handled: true, simple: true, items: [compound] };
     }
@@ -362,24 +477,44 @@ export function decomposeByContainmentHierarchy(rootTarget) {
     // 2. Construir árbol topológico de contención
     const { nodes } = buildContainmentTree(atomicPaths);
 
-    // 3. Ordenar por profundidad: de menor a mayor (Z0 exterior macizo -> Zn interior)
-    nodes.sort((a, b) => a.depth - b.depth);
+    // 3. Resolver Semántica de cada nodo (Masa Sólida vs Calado Activo)
+    // Se evalúa en orden de profundidad (padres antes que hijos)
+    const sortedByDepthAsc = [...nodes].sort((a, b) => a.depth - b.depth);
+    sortedByDepthAsc.forEach(node => {
+        node.isHole = resolveItemSemantics(node, rootTarget);
+    });
+
+    // 4. Ordenamiento Z Topológico Semántico (Desacoplado de depth % 2)
+    // Reglas de orden Z:
+    // a) Si 'a' contiene a 'b' (a es ancestro de b): 'a' va abajo (Z menor que b).
+    // b) Si 'b' contiene a 'a' (b es ancestro de a): 'b' va abajo (Z menor que a).
+    // c) Si 'a' y 'b' están en ramas independientes: se respeta el orden documental del SVG (docOrder).
+    nodes.sort((a, b) => {
+        if (isAncestorOf(a, b)) return -1;
+        if (isAncestorOf(b, a)) return 1;
+
+        const rootA = getRootNode(a);
+        const rootB = getRootNode(b);
+        if (rootA !== rootB) {
+            return rootA.docOrder - rootB.docOrder;
+        }
+
+        if (a.depth !== b.depth) {
+            return a.depth - b.depth;
+        }
+
+        return a.docOrder - b.docOrder;
+    });
 
     const resultingItems = [];
 
     nodes.forEach((node) => {
-        // Regla semántica de contención:
-        // - Profundidad 0 = Masa sólida exterior de fondo
-        // - Profundidad 1 = Calado activo interactivo (sustrae de Z0)
-        // - Profundidad 2 = Masa positiva interior independiente (ej: triángulo de la A)
-        // - Profundidad impar = Calado activo; Profundidad par = Masa sólida
-        const isHole = (node.depth % 2 === 1);
-
+        const isHole = node.isHole;
         const compoundItem = new paper.CompoundPath({ insert: false });
         const pathClone = node.path.clone({ insert: false });
         compoundItem.addChild(pathClone);
 
-        // Almacenar geometría base inmaculada en coordenadas locales puras
+        // Almacenar geometría base inmaculada en coordenadas locales puras neutras
         const geomBase = new paper.CompoundPath({ insert: false });
         const baseClone = node.path.clone({ insert: false });
         geomBase.addChild(baseClone);
@@ -411,7 +546,7 @@ export function decomposeByContainmentHierarchy(rootTarget) {
         node.path.remove();
     });
 
-    // 4. Insertar las capas ordenadas en Z directamente en la capa activa
+    // 5. Insertar las capas ordenadas en Z directamente en la capa activa
     if (targetLayer) {
         resultingItems.forEach(item => {
             targetLayer.addChild(item);
@@ -421,10 +556,10 @@ export function decomposeByContainmentHierarchy(rootTarget) {
         });
     }
 
-    // 5. Eliminar el contenedor original
+    // 6. Eliminar el contenedor original compuesto
     rootTarget.remove();
 
-    // 6. Ejecutar recálculo reactivo CSG dinámico con el blindaje anti-aniquilación activo
+    // 7. Ejecutar recálculo reactivo CSG dinámico con el blindaje anti-aniquilación activo
     if (targetLayer) {
         recalculateDynamicSubtractions(targetLayer);
     }
@@ -440,11 +575,12 @@ export function geometricUngroupOneLevel(group) {
     return decomposeByContainmentHierarchy(group);
 }
 
-// Exposición global segura
+// Exposición global defensiva
 if (typeof window !== 'undefined') {
     window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
     window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
     window.geometricUngroupCompound = decomposeByContainmentHierarchy;
     window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
     window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
+    window.isContainedIn = isContainedIn;
 }
