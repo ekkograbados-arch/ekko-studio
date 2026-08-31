@@ -323,6 +323,10 @@ export function groupSelectedItems() {
     const parent = selected[0].parent || paper.project.activeLayer;
     const lowestIndex = Math.min(...selected.map(it => parent.children.indexOf(it)));
 
+    // Determinar si alguna de las capas seleccionadas está recortada en producto
+    const shouldClip = selected.some(it => !!(it.data && it.data.clipGroup)) ||
+        (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
+
     const newGroup = new paper.Group();
     newGroup.data = {
         locked: false,
@@ -333,11 +337,31 @@ export function groupSelectedItems() {
 
     // Ordenar preservando la secuencia de apilamiento Z
     selected.sort((a, b) => parent.children.indexOf(a) - parent.children.indexOf(b));
-    selected.forEach(it => newGroup.addChild(it));
-    parent.insertChild(lowestIndex, newGroup);
+
+    selected.forEach(it => {
+        if (it.data && it.data.clipGroup) {
+            const content = getContentItem(it);
+            if (content) {
+                newGroup.addChild(content);
+            }
+            it.remove();
+        } else {
+            newGroup.addChild(it);
+        }
+    });
+
+    let finalGroup = newGroup;
+    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+        finalGroup = window.clipItem(newGroup);
+        if (window.currentMockup) {
+            finalGroup.insertBelow(window.currentMockup);
+        }
+    }
+
+    parent.insertChild(lowestIndex, finalGroup);
 
     if (typeof window.deselectItem === 'function') window.deselectItem();
-    if (typeof window.selectItem === 'function') window.selectItem(newGroup);
+    if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
 
     if (typeof recalculateDynamicSubtractions === 'function') {
         recalculateDynamicSubtractions();
@@ -385,13 +409,26 @@ export function ungroupSelectedItem() {
         );
 
         if (isLayerGroup) {
-            const groupParent = actualItem.parent || paper.project.activeLayer;
+            const groupParent = (isClipped && item.parent) ? item.parent : (actualItem.parent || paper.project.activeLayer);
             const groupChildren = [...actualItem.children];
+            
             groupChildren.forEach(child => {
-                if (groupParent) groupParent.addChild(child);
+                let releasedItem = child;
+                if (isClipped && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+                    releasedItem = window.clipItem(child);
+                    if (window.currentMockup) {
+                        releasedItem.insertBelow(window.currentMockup);
+                    }
+                }
+                if (groupParent) groupParent.addChild(releasedItem);
+                allCreatedItems.push(releasedItem);
             });
-            actualItem.remove();
-            allCreatedItems.push(...groupChildren);
+
+            if (isClipped) {
+                item.remove();
+            } else {
+                actualItem.remove();
+            }
         } else {
             // Descomposición por Jerarquía de Contención en 1 Clic (para SVGs importados o nuevos compuestos)
             const canDecompose = isGroup(actualItem) || isSymbolItem(actualItem) || (isCompoundPath(actualItem) && !actualItem.data?.decomposedLayer);
