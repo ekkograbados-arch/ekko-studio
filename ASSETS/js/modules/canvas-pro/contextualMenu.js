@@ -396,7 +396,7 @@ export function ungroupSelectedItem() {
             // Descomposición por Jerarquía de Contención en 1 Clic (para SVGs importados o nuevos compuestos)
             const canDecompose = isGroup(actualItem) || isSymbolItem(actualItem) || (isCompoundPath(actualItem) && !actualItem.data?.decomposedLayer);
             if (canDecompose) {
-                const result = decomposeByContainmentHierarchy(actualItem);
+                const result = decomposeByContainmentHierarchy(actualItem, isClipped);
                 if (result && result.items && result.items.length > 0) {
                     if (isClipped && item.parent) item.remove();
                     allCreatedItems.push(...result.items);
