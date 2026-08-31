@@ -1,13 +1,24 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v6.2.2 PRO Deep Capture & Surface Area Engine)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v6.2 PRO Deep Capture & Surface Area Engine)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
 Sistema de Auditoría, Trazabilidad e Instrumentación Forense de 5 Niveles para EKKO Studio.
 Diseñado específicamente para verificar la consistencia del motor de:
-1. DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN (1-Click Atomic Ungroup).
-2. PRESERVACIÓN INMACULADA DE GEOMETRÍA BASE (geomBasePreserved).
-3. GOBERNANZA ESTRICTA DEL ORDEN Z Y APILAMIENTO CSG (zOrderPreserved).
-4. MULTISELECCIÓN UNIFICADA Y SINCRONIZACIÓN DE MENÚ CONTEXTUAL.
+- Descomposición por Jerarquía de Contención y Capas SVG.
+- Orden Z no destructivo y Reactividad CSG en vivo.
+- Preservación de geomBase, masas sólidas y calados activos.
+- Detección activa de Colapso de Área Visible o Masas Aniquiladas (Rule 8).
+
+AUDITORÍAS INTEGRADAS:
+1. AUDITORÍA TOPOLÓGICA DE CAPAS (itemLossDetected):
+   - Verifica que al desagrupar no desaparezcan elementos útiles del lienzo.
+2. AUDITORÍA DE ARRASTRE REAL (dragDisplacementValid):
+   - Comprueba que tras una operación 'DRAG', el elemento primario haya mutado
+     físicamente su posición (evita falsos positivos de arrastres nulos).
+3. AUDITORÍA DE ENMASCARAMIENTO Y RECORTE (productClippingValid):
+   - Verifica que la máscara concéntrica del producto no sufra deformación o desplazamiento.
+4. AUDITORÍA DE PRESERVACIÓN DE GEOMETRÍA BASE (geomBasePreserved):
+   - Asegura que geomBase contenga siempre la cantidad de segmentos original prístina.
 5. DETECCIÓN ACTIVA DE COLAPSO DE ÁREA VISIBLE (massCollapseDetected):
    - Detecta si una masa sólida sufre aniquilación booleana (0 segmentos visibles o
      área colapsada a cero) cuando dos o más calados interactivos colisionan.
@@ -29,16 +40,19 @@ Diseñado específicamente para verificar la consistencia del motor de:
         log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
         warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
         error: (typeof console !== 'undefined' && console.error) ? console.error.bind(console) : () => {},
-        table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
+        table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {},
+        group: (typeof console !== 'undefined' && console.group) ? console.group.bind(console) : () => {},
+        groupEnd: (typeof console !== 'undefined' && console.groupEnd) ? console.groupEnd.bind(console) : () => {}
     };
 
+    // Restauración de consola pura mediante iframe efímero para depuración protegida
     try {
-        if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        if (typeof document !== 'undefined' && document.body) {
             const ifr = document.createElement('iframe');
             ifr.style.display = 'none';
             document.body.appendChild(ifr);
-            const pure = ifr.contentWindow.console;
-            if (pure) {
+            if (ifr.contentWindow && ifr.contentWindow.console) {
+                const pure = ifr.contentWindow.console;
                 rawConsole.log = pure.log.bind(console);
                 rawConsole.warn = pure.warn.bind(console);
                 rawConsole.error = pure.error.bind(console);
@@ -70,24 +84,6 @@ Diseñado específicamente para verificar la consistencia del motor de:
         return item;
     }
 
-    function calculateItemArea(item) {
-        if (!item) return 0;
-        if (typeof item.area === 'number') {
-            return Math.abs(item.area);
-        }
-        if (item.children && Array.isArray(item.children)) {
-            let total = 0;
-            item.children.forEach(c => {
-                total += calculateItemArea(c);
-            });
-            return total;
-        }
-        if (item.bounds) {
-            return item.bounds.width * item.bounds.height;
-        }
-        return 0;
-    }
-
     function isLockedItem(item) {
         return !!(item && item.data && item.data.locked === true);
     }
@@ -106,11 +102,9 @@ Diseñado específicamente para verificar la consistencia del motor de:
         if (!item) return 0;
         if (item.segments) return item.segments.length;
         if (item.children && Array.isArray(item.children)) {
-            let count = 0;
-            item.children.forEach(c => {
-                count += countSegments(c);
-            });
-            return count;
+            let total = 0;
+            item.children.forEach(c => { total += countSegments(c); });
+            return total;
         }
         return 0;
     }
@@ -131,42 +125,41 @@ Diseñado específicamente para verificar la consistencia del motor de:
 
     function snapshotSelection() {
         const item = typeof window !== 'undefined' ? (window.selectedItem || null) : null;
-        const selectedItems = typeof window !== 'undefined' ? (window.selectedItems || []) : [];
+        const items = typeof window !== 'undefined' && Array.isArray(window.selectedItems) ? window.selectedItems : (item ? [item] : []);
+        
+        let primaryData = null;
+        if (item) {
+            const actual = getContentItem(item);
+            const d = actual.data || {};
+            const pos = item.position ? { x: Number(item.position.x.toFixed(1)), y: Number(item.position.y.toFixed(1)) } : null;
+            const b = extractBounds(item.bounds);
+            const baseSegs = d.geomBase ? countSegments(d.geomBase) : 0;
+            const visSegs = countSegments(actual);
+            const visArea = actual.area !== undefined ? Number(Math.abs(actual.area).toFixed(1)) : (actual.bounds ? Number((actual.bounds.width * actual.bounds.height).toFixed(1)) : 0);
 
-        if (!item && selectedItems.length === 0) {
-            return { hasSelection: false, primary: null, count: 0, ids: [] };
+            primaryData = {
+                id: item.id,
+                contentId: actual.id,
+                className: actual.className,
+                label: d.label || item.name || 'Sin etiqueta',
+                zIndex: item.index !== undefined ? item.index : -1,
+                isHole: !!d.isHole,
+                isClipped: !!(item.data && item.data.clipGroup),
+                hasGeomBase: !!d.geomBase,
+                geomBaseSegments: baseSegs,
+                visibleSegments: visSegs,
+                visibleArea: visArea,
+                bounds: b,
+                position: pos,
+                isLocked: isLockedItem(item)
+            };
         }
 
-        const primary = item || selectedItems[0];
-        const target = getContentItem(primary);
-
-        const targetPos = target && target.position ? {
-            x: Number(target.position.x.toFixed(1)),
-            y: Number(target.position.y.toFixed(1))
-        } : null;
-
-        const primaryData = primary ? {
-            id: primary.id,
-            contentId: target ? target.id : primary.id,
-            className: target ? target.className : primary.className,
-            label: (target && target.data && target.data.label) || (primary.data && primary.data.label) || 'Objeto',
-            zIndex: typeof primary.index === 'number' ? primary.index : 0,
-            isHole: !!(target && target.data && target.data.isHole),
-            isClipped: !!(primary.data && primary.data.clipGroup),
-            hasGeomBase: !!(target && target.data && target.data.geomBase),
-            geomBaseSegments: countSegments(target && target.data && target.data.geomBase),
-            visibleSegments: countSegments(target || primary),
-            visibleArea: Number(calculateItemArea(target || primary).toFixed(1)),
-            bounds: target ? extractBounds(target.bounds) : extractBounds(primary.bounds),
-            position: targetPos,
-            isLocked: isLockedItem(primary)
-        } : null;
-
         return {
-            hasSelection: true,
-            count: selectedItems.length > 0 ? selectedItems.length : 1,
-            ids: selectedItems.length > 0 ? selectedItems.map(i => i.id) : [primary.id],
-            primary: primaryData
+            hasSelection: items.length > 0,
+            primary: primaryData,
+            count: items.length,
+            ids: items.map(it => it.id)
         };
     }
 
@@ -180,49 +173,55 @@ Diseñado específicamente para verificar la consistencia del motor de:
             return { totalUsefulItems: 0, itemsSummary: [], massCount: 0, holeCount: 0, zOrderIds: [] };
         }
 
-        const items = [];
-        let massCount = 0;
-        let holeCount = 0;
-
-        designLayer.children.forEach((child, idx) => {
+        const useful = [];
+        designLayer.children.forEach(child => {
             if (isMockupOrUI(child)) return;
+            useful.push(child);
+        });
 
-            const target = getContentItem(child);
-            if (!target) return;
+        let masses = 0;
+        let holes = 0;
+        const summaries = [];
+        const zIds = [];
 
-            const isHole = !!(target.data && target.data.isHole);
-            if (isHole) holeCount++; else massCount++;
+        useful.forEach((it, idx) => {
+            const actual = getContentItem(it);
+            const d = actual.data || {};
+            const isHole = !!d.isHole;
+            if (isHole) holes++; else masses++;
+            zIds.push(it.id);
 
-            const gBase = target.data && target.data.geomBase;
-            const vArea = calculateItemArea(target);
+            const baseSegs = d.geomBase ? countSegments(d.geomBase) : 0;
+            const visSegs = countSegments(actual);
+            const visArea = actual.area !== undefined ? Number(Math.abs(actual.area).toFixed(1)) : (actual.bounds ? Number((actual.bounds.width * actual.bounds.height).toFixed(1)) : 0);
 
-            items.push({
+            summaries.push({
                 index: idx,
-                id: child.id,
-                contentId: target.id,
-                className: target.className,
-                label: (target.data && target.data.label) || (child.data && child.data.label) || 'Objeto',
+                id: it.id,
+                contentId: actual.id,
+                className: actual.className,
+                label: d.label || it.name || 'Objeto',
                 isHole: isHole,
-                isClipped: !!(child.data && child.data.clipGroup),
-                hasGeomBase: !!gBase,
-                geomBaseSegments: countSegments(gBase),
-                visibleSegments: countSegments(target),
-                visibleArea: Number(vArea.toFixed(1)),
-                bounds: extractBounds(target.bounds)
+                isClipped: !!(it.data && it.data.clipGroup),
+                hasGeomBase: !!d.geomBase,
+                geomBaseSegments: baseSegs,
+                visibleSegments: visSegs,
+                visibleArea: visArea,
+                bounds: extractBounds(it.bounds)
             });
         });
 
         return {
             timestamp: Date.now(),
-            totalUsefulItems: items.length,
-            massCount: massCount,
-            holeCount: holeCount,
-            zOrderIds: items.map(it => it.id),
-            itemsSummary: items
+            totalUsefulItems: useful.length,
+            massCount: masses,
+            holeCount: holes,
+            zOrderIds: zIds,
+            itemsSummary: summaries
         };
     }
 
-    function auditConsistency(beforeGeo, afterGeo, beforeSel, afterSel, callLog, opType) {
+    function auditConsistency(beforeGeo, afterGeo, beforeSel, afterSel, callGraph, actionName) {
         const inconsistencies = [];
         const checks = {
             geomBasePreserved: true,
@@ -236,40 +235,51 @@ Diseñado específicamente para verificar la consistencia del motor de:
             massCollapseDetected: false
         };
 
-        if (!beforeGeo || !afterGeo) {
-            return { checks, inconsistencies, pass: true };
+        // 1. Verificación de Pérdida Inesperada de Capas (Excepto en DELETE o UNGROUP)
+        if (actionName !== 'DELETE' && actionName !== 'UNGROUP') {
+            if (afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
+                checks.itemLossDetected = true;
+                inconsistencies.push(`[PÉRDIDA DE CAPAS] Se redujo el conteo útil de ${beforeGeo.totalUsefulItems} a ${afterGeo.totalUsefulItems}.`);
+            }
         }
 
-        // 1. Verificación de Preservación de geomBase
-        afterGeo.itemsSummary.forEach(afterItem => {
-            if (afterItem.hasGeomBase) {
-                const prev = beforeGeo.itemsSummary.find(b => b.id === afterItem.id);
-                if (prev && prev.hasGeomBase) {
-                    if (prev.geomBaseSegments > 0 && afterItem.geomBaseSegments !== prev.geomBaseSegments) {
-                        checks.geomBasePreserved = false;
-                        inconsistencies.push(`[GEOM_BASE ALTERADA] Item ID: ${afterItem.id} mutó de ${prev.geomBaseSegments} a ${afterItem.geomBaseSegments} segmentos.`);
+        // 2. Detección de Desplazamiento Válido en ARRASTRE (DRAG)
+        if (actionName === 'DRAG') {
+            if (beforeSel.primary && afterSel.primary && beforeSel.primary.id === afterSel.primary.id) {
+                const p0 = beforeSel.primary.position;
+                const p1 = afterSel.primary.position;
+                if (p0 && p1) {
+                    const dist = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+                    if (dist < 0.01 && (beforeSel.primary.visibleArea === afterSel.primary.visibleArea)) {
+                        checks.dragDisplacementValid = false;
+                        inconsistencies.push(`[ARRASTRE ESTÁTICO] La operación DRAG no generó desplazamiento espacial (distancia: ${dist.toFixed(2)}px).`);
                     }
                 }
             }
-        });
+        }
 
-        // 2. Detección de Colapso de Masa Sólida
-        afterGeo.itemsSummary.forEach(afterItem => {
-            if (!afterItem.isHole && afterItem.hasGeomBase) {
-                if (afterItem.visibleSegments === 0 || afterItem.visibleArea <= 0) {
+        // 3. Verificación de Integridad de geomBase y Detección de Colapso de Masas
+        afterGeo.itemsSummary.forEach(itemAfter => {
+            const itemBefore = beforeGeo.itemsSummary.find(it => it.id === itemAfter.id);
+            if (itemBefore && itemBefore.hasGeomBase && itemAfter.hasGeomBase) {
+                if (itemBefore.geomBaseSegments !== itemAfter.geomBaseSegments) {
+                    checks.geomBasePreserved = false;
+                    inconsistencies.push(
+                        `[CORRUPCIÓN GEOMBASE] Objeto ID: ${itemAfter.id} mutó geomBase de ${itemBefore.geomBaseSegments} a ${itemAfter.geomBaseSegments} segmentos.`
+                    );
+                }
+            }
+
+            // Sensor Anti-Aniquilación / Colapso de Área (Rule 8)
+            if (!itemAfter.isHole && itemAfter.hasGeomBase) {
+                if (itemAfter.visibleSegments === 0 || itemAfter.visibleArea <= 0.05) {
                     checks.massCollapseDetected = true;
-                    inconsistencies.push(`[COLAPSO DE MASA] Masa sólida ID: ${afterItem.id} colapsó a 0 segmentos o área nula tras CSG.`);
+                    inconsistencies.push(
+                        `[COLAPSO DE MASA DETECTADO] Masa sólida ID: ${itemAfter.id} sufrió aniquilación por CSG (Segmentos: ${itemAfter.visibleSegments}, Área: ${itemAfter.visibleArea} px²).`
+                    );
                 }
             }
         });
-
-        // 3. Verificación de Pérdida Inesperada de Elementos
-        if (opType !== 'DELETE' && opType !== 'UNGROUP' && opType !== 'GROUP') {
-            if (afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
-                checks.itemLossDetected = true;
-                inconsistencies.push(`[PÉRDIDA DE ELEMENTOS] Se detectó reducción de capas de ${beforeGeo.totalUsefulItems} a ${afterGeo.totalUsefulItems} durante ${opType}.`);
-            }
-        }
 
         // 4. Verificación de Selección Huérfana
         if (afterSel.hasSelection && typeof window !== 'undefined' && window.selectedItem) {
@@ -280,6 +290,22 @@ Diseñado específicamente para verificar la consistencia del motor de:
             }
         }
 
+        // 5. Verificación de Enmascaramiento y Recorte en Producto (Mockup Containment)
+        if (typeof window !== 'undefined' && window.currentMockup && window.currentMockup.bounds) {
+            const mb = window.currentMockup.bounds;
+            afterGeo.itemsSummary.forEach(item => {
+                if (item.bounds) {
+                    const ib = item.bounds;
+                    const isOutside = (ib.x + ib.width < mb.x - 500) || (ib.x > mb.x + mb.width + 500) ||
+                                      (ib.y + ib.height < mb.y - 500) || (ib.y > mb.y + mb.height + 500);
+                    if (isOutside) {
+                        checks.productClippingValid = false;
+                        inconsistencies.push(`[FUGA DE ENTORNO] Objeto ID: ${item.id} se encuentra fuera de los límites de trabajo del mockup.`);
+                    }
+                }
+            });
+        }
+
         const pass = inconsistencies.length === 0;
         return { checks, inconsistencies, pass };
     }
@@ -288,7 +314,6 @@ Diseñado específicamente para verificar la consistencia del motor de:
         if (!diagState.active) return null;
         diagState.opCounter++;
         const opId = 'OP-' + String(diagState.opCounter).padStart(5, '0');
-
         const op = {
             id: opId,
             action: actionName,
@@ -304,20 +329,17 @@ Diseñado específicamente para verificar la consistencia del motor de:
             callGraph: [],
             consistency: null
         };
-
         diagState.currentOp = op;
         return op;
     }
 
     function endOperation() {
         if (!diagState.active || !diagState.currentOp) return null;
-
         const op = diagState.currentOp;
         op.endTime = performance.now();
         op.durationMs = Number((op.endTime - op.startTime).toFixed(1));
         op.selectionAfter = snapshotSelection();
         op.geometryAfter = snapshotGeometricState();
-
         op.consistency = auditConsistency(
             op.geometryBefore,
             op.geometryAfter,
@@ -338,16 +360,14 @@ Diseñado específicamente para verificar la consistencia del motor de:
     }
 
     function emitLiveStreamLog(op) {
-        if (!op) return;
-        const sel = op.selectionAfter;
-        let selDesc = "Sin selección";
-        if (sel && sel.hasSelection && sel.primary) {
-            selDesc = `ID: ${sel.primary.id} (${sel.primary.className}, Z:${sel.primary.zIndex})`;
-        }
+        const pass = op.consistency ? op.consistency.pass : true;
+        const sel = op.selectionAfter && op.selectionAfter.primary;
+        const selDesc = sel ? `ID: ${sel.id} (${sel.className}) | Z: ${sel.zIndex} | ${sel.isHole ? '🕳️ CALADO' : '⬛ MASA'}` : 'Sin selección';
+        const geoDesc = `Capas: ${op.geometryAfter.totalUsefulItems} (Masas: ${op.geometryAfter.massCount}, Calados: ${op.geometryAfter.holeCount})`;
 
-        if (op.consistency && op.consistency.pass) {
+        if (pass) {
             rawConsole.log(
-                `%c[${op.id}] ${op.action}%c | ✓ OK | ${op.durationMs}ms | Capas: ${op.geometryAfter ? op.geometryAfter.totalUsefulItems : 0} | Sel: ${selDesc}`,
+                `%c[${op.id}] ${op.action}%c | ✓ OK (${op.durationMs}ms) | ${selDesc} | ${geoDesc}`,
                 'color: #0284c7; font-weight: bold;',
                 'color: #10b981;'
             );
@@ -357,30 +377,29 @@ Diseñado específicamente para verificar la consistencia del motor de:
                 'color: #ea580c; font-weight: bold;',
                 'color: #ef4444;'
             );
-            if (op.consistency && op.consistency.inconsistencies) {
-                op.consistency.inconsistencies.forEach(inc => {
-                    rawConsole.error(`   ↳ ${inc}`);
-                });
-            }
+            op.consistency.inconsistencies.forEach(inc => {
+                rawConsole.error(`   ↳ ${inc}`);
+            });
         }
     }
 
+    // Interceptor eludiendo protectGlobal
     function forceWrapWindowFunction(fnName, modulePath, actionType) {
         if (typeof window === 'undefined') return;
-        let original = window[fnName];
-        if (typeof original !== 'function') return;
+        const originalFn = window[fnName];
+        if (typeof originalFn !== 'function') return;
 
         const wrapped = function (...args) {
-            const hasExisting = !!diagState.currentOp;
             let op = null;
-            if (diagState.active && !hasExisting && actionType) {
+            if (actionType && !diagState.currentOp) {
                 op = beginOperation(actionType, `${modulePath} -> ${fnName}`);
             }
 
             const t0 = performance.now();
-            let res, err = null;
+            let res;
+            let err = null;
             try {
-                res = original.apply(this, args);
+                res = originalFn.apply(this, args);
             } catch (e) {
                 err = e;
                 throw e;
@@ -413,9 +432,11 @@ Diseñado específicamente para verificar la consistencia del motor de:
         }
     }
 
+    // Instalación de escuchadores directos en el DOM (Fase de Captura)
     function installDOMCaptureListeners() {
         if (typeof document === 'undefined') return;
 
+        // 1. Intercepción de Clics en Botones de UI
         document.addEventListener('click', function (e) {
             if (!diagState.active) return;
             const target = e.target;
@@ -423,8 +444,8 @@ Diseñado específicamente para verificar la consistencia del motor de:
 
             const btnUngroup = target.closest('#btnCtxUngroup, #btnCtxDesagrupar, #proBtnUngroup');
             const btnGroup = target.closest('#btnCtxGroup, #btnCtxAgrupar, #proBtnGroup');
-            const btnForward = target.closest('#btnCtxForward, #proBtnBringForward');
-            const btnBackward = target.closest('#btnCtxBackward, #proBtnSendBackward');
+            const btnForward = target.closest('#btnCtxForward');
+            const btnBackward = target.closest('#btnCtxBackward');
             const btnEditNodes = target.closest('#btnCtxEditNodes, #btnCtxNodeEdit, #proBtnEditNodes');
             const btnDelete = target.closest('#btnCtxDelete');
 
@@ -435,7 +456,7 @@ Diseñado específicamente para verificar la consistencia del motor de:
             else if (btnGroup) { actionName = 'GROUP'; triggerSource = 'Botón Agrupar'; }
             else if (btnForward) { actionName = 'BRING_FORWARD'; triggerSource = 'Botón Subir Capa'; }
             else if (btnBackward) { actionName = 'SEND_BACKWARD'; triggerSource = 'Botón Bajar Capa'; }
-            else if (btnEditNodes) { actionName = 'NODE_EDIT'; triggerSource = 'Botón Editar Nodos'; }
+            else if (btnEditNodes) { actionName = 'TOGGLE_NODE_EDIT'; triggerSource = 'Botón Editar Nodos'; }
             else if (btnDelete) { actionName = 'DELETE'; triggerSource = 'Botón Eliminar'; }
 
             if (actionName) {
@@ -448,6 +469,7 @@ Diseñado específicamente para verificar la consistencia del motor de:
             }
         }, true);
 
+        // 2. Intercepción de Interacciones en el Lienzo (#editorCanvas)
         const canvasEl = document.getElementById('editorCanvas');
         if (canvasEl) {
             canvasEl.addEventListener('mousedown', function (e) {
@@ -464,34 +486,40 @@ Diseñado específicamente para verificar la consistencia del motor de:
 
                 const dx = Math.abs(e.clientX - ptDown.x);
                 const dy = Math.abs(e.clientY - ptDown.y);
-                const isDrag = (dx > 3 || dy > 3);
 
-                setTimeout(() => {
-                    const selNow = snapshotSelection();
-                    const geoNow = snapshotGeometricState();
-                    const selBefore = diagState.lastMouseDownSelection || selNow;
-
-                    if (isDrag) {
-                        const op = beginOperation('DRAG', 'Arrastre en Lienzo');
-                        op.selectionBefore = selBefore;
-                        op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
+                // Si hubo arrastre físico en pantalla (> 3 píxeles)
+                if (dx > 3 || dy > 3) {
+                    const op = beginOperation('DRAG', 'Arrastre en Lienzo');
+                    if (diagState.lastMouseDownSelection) op.selectionBefore = diagState.lastMouseDownSelection;
+                    if (diagState.lastMouseDownGeo) op.geometryBefore = diagState.lastMouseDownGeo;
+                    setTimeout(() => {
                         endOperation();
-                    } else {
-                        const idBefore = (selBefore.primary && selBefore.primary.id) || null;
-                        const idNow = (selNow.primary && selNow.primary.id) || null;
-                        if (idBefore !== idNow) {
-                            const action = idNow ? 'SELECT' : 'DESELECT';
-                            const op = beginOperation(action, 'Clic en Lienzo');
-                            op.selectionBefore = selBefore;
-                            op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
-                            endOperation();
+                    }, 50);
+                } else {
+                    // Clic estático de selección o deselección
+                    setTimeout(() => {
+                        const selBefore = diagState.lastMouseDownSelection;
+                        const selNow = snapshotSelection();
+                        const geoNow = snapshotGeometricState();
+
+                        if (selBefore) {
+                            const idBefore = (selBefore.primary && selBefore.primary.id) || null;
+                            const idNow = (selNow.primary && selNow.primary.id) || null;
+                            if (idBefore !== idNow) {
+                                const action = idNow ? 'SELECT' : 'DESELECT';
+                                const op = beginOperation(action, 'Clic en Lienzo');
+                                op.selectionBefore = selBefore;
+                                op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
+                                endOperation();
+                            }
                         }
-                    }
-                }, 60);
+                    }, 60);
+                }
             }, true);
         }
     }
 
+    // Instalación unificada de interceptores
     function installAllInterceptors() {
         if (diagState.interceptorsInstalled) return;
 
@@ -511,18 +539,14 @@ Diseñado específicamente para verificar la consistencia del motor de:
         installDOMCaptureListeners();
 
         if (typeof paper !== 'undefined' && paper.project && !paper.project._diagWrapped) {
-            const origImportSVG = paper.project.importSVG;
+            const origImportSVG = paper.project.importSVG.bind(paper.project);
             paper.project.importSVG = function (...args) {
                 const op = beginOperation('IMPORT_SVG', 'paper.project.importSVG');
-                const cb = args[1];
-                if (typeof cb === 'function') {
-                    args[1] = function (item) {
-                        const res = cb(item);
-                        setTimeout(() => { endOperation(); }, 50);
-                        return res;
-                    };
-                }
-                return origImportSVG.apply(this, args);
+                const res = origImportSVG(...args);
+                setTimeout(() => {
+                    endOperation();
+                }, 100);
+                return res;
             };
             paper.project._diagWrapped = true;
         }
@@ -530,6 +554,7 @@ Diseñado específicamente para verificar la consistencia del motor de:
         diagState.interceptorsInstalled = true;
     }
 
+    // API Pública de EKKO_DIAG
     const publicAPI = {
         start: function () {
             diagState.active = true;
@@ -542,49 +567,42 @@ Diseñado específicamente para verificar la consistencia del motor de:
             rawConsole.log('%c[EKKO_DIAG] Detenido 🔴', 'color: #ef4444; font-weight: bold;');
             return 'EKKO_DIAG Detenido.';
         },
+        clear: function () {
+            diagState.operations = [];
+            diagState.opCounter = 0;
+            diagState.currentOp = null;
+            return 'Historial de operaciones limpiado.';
+        },
         report: function () {
             const ops = diagState.operations;
-            const total = ops.length;
-            const passes = ops.filter(o => o.consistency && o.consistency.pass).length;
-            const fails = total - passes;
+            let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
+            outputText += '║               EKKO STUDIO DIAGNOSTIC v6.2 - INFORME CONSOLIDADO                  ║\n';
+            outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
+            outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
 
-            rawConsole.log('%c═══════════════════════════════════════════════════════════════════', 'color: #0284c7;');
-            rawConsole.log(`%cEKKO STUDIO DIAGNOSTIC v6.2 - RESUMEN EJECUTIVO: ${passes}/${total} OK`, 'color: #0284c7; font-weight: bold;');
-            rawConsole.log('%c═══════════════════════════════════════════════════════════════════', 'color: #0284c7;');
-
-            const tableData = ops.map(o => ({
-                ID: o.id,
-                Acción: o.action,
-                Fuente: o.source,
-                'Duración (ms)': o.durationMs,
-                'Capas Tras': o.geometryAfter ? o.geometryAfter.totalUsefulItems : 0,
-                Consistencia: (o.consistency && o.consistency.pass) ? '✓ OK' : '✗ ERROR'
-            }));
-            rawConsole.table(tableData);
-            return `Auditoría: ${passes} OK, ${fails} Inconsistencias registradas.`;
-        },
-        dump: function () {
-            const lines = [];
-            lines.push("╔══════════════════════════════════════════════════════════════════════════════════╗");
-            lines.push("║             EKKO STUDIO DIAGNOSTIC v6.2 - INFORME CONSOLIDADO                   ║");
-            lines.push("╚══════════════════════════════════════════════════════════════════════════════════╝\n");
-            lines.push(`Total Operaciones Auditadas: ${diagState.operations.length}\n`);
-
-            diagState.operations.forEach(op => {
-                const pass = op.consistency && op.consistency.pass ? "✓ OK" : "✗ ERROR";
-                const sel = op.selectionAfter && op.selectionAfter.primary
-                    ? `ID: ${op.selectionAfter.primary.id} (${op.selectionAfter.primary.className}, Z:${op.selectionAfter.primary.zIndex})`
-                    : "Sin selección";
-                const capas = op.geometryAfter ? op.geometryAfter.totalUsefulItems : 0;
-                lines.push(`[${op.id}] ${op.action} | ${pass} | ${op.durationMs}ms | Capas: ${capas} | Sel: ${sel}`);
+            ops.forEach(op => {
+                const status = (op.consistency && op.consistency.pass) ? '✓ OK' : '⚠️ INCONSISTENCIA';
+                const sel = op.selectionAfter && op.selectionAfter.primary;
+                const selLabel = sel ? `ID: ${sel.id} (${sel.className}, Z:${sel.zIndex})` : 'Sin selección';
+                const capCount = op.geometryAfter ? op.geometryAfter.totalUsefulItems : 0;
+                outputText += `[${op.id}] ${op.action.padEnd(14, ' ')} | ${status} | ${op.durationMs}ms | Capas: ${capCount} | Sel: ${selLabel}\n`;
+                if (op.consistency && !op.consistency.pass) {
+                    op.consistency.inconsistencies.forEach(inc => {
+                        outputText += `   ↳ ⚠️ ${inc}\n`;
+                    });
+                }
             });
 
-            lines.push("\n\n--- DETALLE FORENSE COMPLETO (JSON) ---");
-            lines.push(JSON.stringify(diagState.operations, null, 2));
-
-            const payload = lines.join("\n");
-            if (typeof navigator !== 'undefined' && navigator.clipboard) {
-                navigator.clipboard.writeText(payload).catch(() => {});
+            rawConsole.log(outputText);
+            return outputText;
+        },
+        dump: function () {
+            const rep = this.report();
+            const payload = rep + '\n\n--- DETALLE FORENSE COMPLETO (JSON) ---\n' + JSON.stringify(diagState.operations, null, 2);
+            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(payload).then(() => {
+                    rawConsole.log('%c[EKKO_DIAG] Diagnóstico forense copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
+                }).catch(() => {});
             }
             return payload;
         },
