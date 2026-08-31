@@ -406,11 +406,56 @@ function pasteSelected() {
 }
 window.pasteSelected = pasteSelected;
 
-// Gestion e Insercion de Z-Index con Recalculo Dinamico CSG
+// Gestion e Insercion de Z-Index Inteligente por Colision Espacial (LightBurn Style)
+function isMockupOrUIItem(item) {
+  let curr = item;
+  while (curr) {
+    const d = curr.data || {};
+    if (d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
+        d.isNodeHandle || d.isCurveHandle || d.isNodeEditOverlay || d.isSmartGuide ||
+        d.isMeasurement || d.isTracePreview) {
+      return true;
+    }
+    curr = curr.parent;
+  }
+  return false;
+}
+
+function itemsOverlapSpatial(itemA, itemB) {
+  if (!itemA || !itemB || itemA === itemB) return false;
+  const contentA = getContentItem(itemA);
+  const contentB = getContentItem(itemB);
+  if (!contentA || !contentB) return false;
+  if (!contentA.bounds || !contentB.bounds) return false;
+
+  if (!contentA.bounds.intersects(contentB.bounds)) {
+    return false;
+  }
+
+  try {
+    if (typeof contentA.intersects === 'function' && contentA.intersects(contentB)) {
+      return true;
+    }
+    if (typeof contentA.contains === 'function' && contentA.contains(contentB.bounds.center)) {
+      return true;
+    }
+    if (typeof contentB.contains === 'function' && contentB.contains(contentA.bounds.center)) {
+      return true;
+    }
+    return true;
+  } catch (e) {
+    return contentA.bounds.intersects(contentB.bounds);
+  }
+}
+
 function bringFront() {
   if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
   if (typeof saveHistory === 'function') saveHistory();
-  window.selectedItem.bringToFront();
+  if (window.currentMockup) {
+    window.selectedItem.insertBelow(window.currentMockup);
+  } else {
+    window.selectedItem.bringToFront();
+  }
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
@@ -427,9 +472,14 @@ window.bringFront = bringFront;
 function sendBack() {
   if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
   if (typeof saveHistory === 'function') saveHistory();
-  window.selectedItem.sendToBack();
+  const parent = window.selectedItem.parent || (paper.project && paper.project.activeLayer);
+  if (parent) {
+    parent.insertChild(0, window.selectedItem);
+  } else {
+    window.selectedItem.sendToBack();
+  }
   if (window.currentMockup) {
-    window.selectedItem.insertBelow(window.currentMockup);
+    window.currentMockup.bringToFront();
   }
   if (typeof recalculateDynamicSubtractions === 'function') {
     recalculateDynamicSubtractions();
@@ -444,14 +494,41 @@ window.sendBack = sendBack;
 function bringForward() {
   if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const next = window.selectedItem.nextSibling;
-  if (next && (!next.data || !next.data.mockup)) {
-    window.selectedItem.insertAbove(next);
-  } else if (window.currentMockup) {
-    window.selectedItem.insertBelow(window.currentMockup);
-  } else {
-    window.selectedItem.bringToFront();
+
+  const item = window.selectedItem;
+  const parent = item.parent || (paper.project && paper.project.activeLayer);
+  if (!parent || !parent.children) return;
+
+  const siblings = parent.children;
+  const myIndex = siblings.indexOf(item);
+  if (myIndex === -1) return;
+
+  // Buscar el primer hermano superior que colisione espacialmente con este elemento (LightBurn Style)
+  let targetSibling = null;
+  for (let i = myIndex + 1; i < siblings.length; i++) {
+    const candidate = siblings[i];
+    if (candidate.data && (candidate.data.mockup || candidate.data.isMask)) break;
+    if (isMockupOrUIItem(candidate)) continue;
+
+    if (itemsOverlapSpatial(item, candidate)) {
+      targetSibling = candidate;
+      break;
+    }
   }
+
+  if (targetSibling) {
+    item.insertAbove(targetSibling);
+  } else {
+    const next = item.nextSibling;
+    if (next && (!next.data || !next.data.mockup)) {
+      item.insertAbove(next);
+    } else if (window.currentMockup) {
+      item.insertBelow(window.currentMockup);
+    } else {
+      item.bringToFront();
+    }
+  }
+
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
@@ -468,11 +545,40 @@ window.bringForward = bringForward;
 function sendBackward() {
   if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const prev = window.selectedItem.previousSibling;
-  if (prev) {
-    window.selectedItem.insertBelow(prev);
+
+  const item = window.selectedItem;
+  const parent = item.parent || (paper.project && paper.project.activeLayer);
+  if (!parent || !parent.children) return;
+
+  const siblings = parent.children;
+  const myIndex = siblings.indexOf(item);
+  if (myIndex === -1) return;
+
+  // Buscar el primer hermano inferior que colisione espacialmente con este elemento (LightBurn Style)
+  let targetSibling = null;
+  for (let i = myIndex - 1; i >= 0; i--) {
+    const candidate = siblings[i];
+    if (isMockupOrUIItem(candidate)) continue;
+
+    if (itemsOverlapSpatial(item, candidate)) {
+      targetSibling = candidate;
+      break;
+    }
+  }
+
+  if (targetSibling) {
+    item.insertBelow(targetSibling);
   } else {
-    window.selectedItem.sendToBack();
+    const prev = item.previousSibling;
+    if (prev && !isMockupOrUIItem(prev)) {
+      item.insertBelow(prev);
+    } else {
+      item.sendToBack();
+    }
+  }
+
+  if (window.currentMockup) {
+    window.currentMockup.bringToFront();
   }
   if (typeof recalculateDynamicSubtractions === 'function') {
     recalculateDynamicSubtractions();
