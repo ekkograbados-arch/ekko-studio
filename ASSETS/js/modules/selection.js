@@ -1,16 +1,21 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/selection.js (v37.0 PRO Industrial - Fixed Product Mask Drag & Offset Contours)
+   Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
    Ruta en repositorio: ASSETS/js/modules/selection.js
    Descripción:
    Gestión integral de selección simple y múltiple, arrastre en bloque e individual,
    recuadro de selección por arrastre (marquee), redimensionamiento (8 tiradores) y rotación unificada.
    Sincronizado al 100% con el motor CSG reactivo de Descomposición por Jerarquía de Contención y Capas.
 
-   CORRECCIONES Y BLINDAJES ARQUITECTÓNICOS V37.0 PRO:
-   0. RESOLUCIÓN DEL CONTORNO DESFASADO DEL PRODUCTO AL ARRASTRAR SVG:
+   CORRECCIONES Y BLINDAJES ARQUITECTÓNICOS V38.0 PRO (selection-v5):
+   0. RESOLUCIÓN DEL DESPIECE / DUPLICACIÓN A LA DERECHA AL ARRASTRAR SVG DESAGRUPADO (OP-00011/OP-00012):
+      - Si hay multiselección (ej. 272 capas tras desagrupar Minnie Mouse / Escudo AFA) y el usuario
+        hace clic sobre una pieza para arrastrar, se PRESERVA la multiselección completa y se arrastran
+        todas las capas solidariamente en bloque, impidiendo que una pieza se desgarre o duplique a la derecha.
+      - Aislamiento de selección individual diferido a 'onMouseUp' exclusivamente si el usuario solo hizo clic
+        sin arrastrar (preserva selección colectiva al iniciar drag).
+   1. RESOLUCIÓN DEL CONTORNO DESFASADO DEL PRODUCTO AL ARRASTRAR SVG:
       - Erradicado el desplazamiento erróneo del contenedor 'clipGroup' en 'onMouseDrag'.
       - La máscara física de producto (clipMask) se mantiene estrictamente estática y concéntrica con el mockup.
-      - El diseño se desplaza libremente sobre la superficie del producto sin arrastrar el contorno de recorte.
    1. RESOLUCIÓN DEFINITIVA DEL BLOQUEO DE ARRASTRE EN GRUPOS CREADOS (OP-00020 y OP-00059):
       - Implementación de 'syncGeomBaseDeep': propagación recursiva del vector delta hacia
         todos los descendientes con 'geomBase' dentro de 'paper.Group' y 'clipGroup'.
@@ -793,6 +798,9 @@ const _initSelectionTool = function() {
     const isShift = !!(event.modifiers && event.modifiers.shift);
 
     if (directHitItem) {
+      window._mouseDragOccurred = false;
+      window._pendingIsolateItem = null;
+
       if (isShift) {
         // Modo multiselección con Shift
         const idx = window.selectedItems.indexOf(directHitItem);
@@ -805,9 +813,16 @@ const _initSelectionTool = function() {
         }
         window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
       } else {
-        // Clic simple sin Shift: Si el item no estaba seleccionado, o estaba en una multiselección amplia,
-        // lo aislamos inmediatamente como selección individual limpia.
-        if (!window.selectedItems.includes(directHitItem) || window.selectedItems.length > 1) {
+        // Clic simple sin Shift:
+        // Si el elemento clickeado YA forma parte de una selección múltiple existente (ej. 272 capas de Minnie),
+        // PRESERVAMOS la selección completa para permitir el arrastre en bloque del conjunto.
+        // Si el usuario solo hace clic sin arrastrar, se aislará en onMouseUp.
+        if (window.selectedItems && window.selectedItems.includes(directHitItem)) {
+          if (window.selectedItems.length > 1) {
+            window._pendingIsolateItem = directHitItem;
+          }
+        } else {
+          // El elemento no estaba seleccionado: limpiamos la selección previa y seleccionamos solo este
           window.selectedItems.forEach(it => { if (it) it.selected = false; });
           directHitItem.selected = true;
           window.selectedItem = directHitItem;
@@ -815,7 +830,7 @@ const _initSelectionTool = function() {
         }
       }
 
-      // Iniciar arrastre del/los elemento(s)
+      // Iniciar arrastre del conjunto completo actualmente seleccionado
       window.dragging = true;
       window.dragTargets = [];
       window.selectedItems.forEach(function(item) {
@@ -1021,6 +1036,7 @@ const _initSelectionTool = function() {
        físicamente en el lienzo durante el evento de arrastre.
        ========================================================================= */
     if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
+      window._mouseDragOccurred = true;
       window.dragTargets.forEach(function(dragInfo) {
         if (dragInfo.item.data && dragInfo.item.data.locked) return;
 
@@ -1100,6 +1116,21 @@ const _initSelectionTool = function() {
       paper.view.update();
       return;
     }
+
+    // Si el usuario hizo clic estático sin arrastrar sobre una pieza dentro de una multiselección,
+    // aislamos esa pieza individual de forma limpia al soltar el ratón (comportamiento estándar Canva/Figma).
+    if (!window._mouseDragOccurred && window._pendingIsolateItem && window.selectedItems.length > 1) {
+      const isolate = window._pendingIsolateItem;
+      window.selectedItems.forEach(it => { if (it) it.selected = false; });
+      isolate.selected = true;
+      window.selectedItem = isolate;
+      window.selectedItems = [isolate];
+      if (typeof window.updateContextualMenu === 'function') {
+        window.updateContextualMenu(window.selectedItem);
+      }
+    }
+    window._pendingIsolateItem = null;
+    window._mouseDragOccurred = false;
 
     if (window.resizeActive || window.dragging || window.rotationActive) {
       if (typeof window.saveHistory === 'function') window.saveHistory();
