@@ -310,6 +310,17 @@ export function getGlobalUnsubtractedPath(item) {
  * - Si una sustracción booleana reduce los segmentos visibles a 0 o vacía el trazado,
  *   se anula la sustracción destructiva sobre esa pieza para garantizar que nunca se borre de pantalla.
  */
+function getContentItem(item) {
+    if (!item) return null;
+    if (item.data && item.data.clipGroup) {
+        if (!item.children) return item;
+        const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+        if (content) return content;
+        return item.children[1] || item.children[0] || item;
+    }
+    return item;
+}
+
 export function recalculateDynamicSubtractions(targetLayer = null) {
     const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
     if (!layer || !layer.children) return;
@@ -323,8 +334,9 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
     if (items.length === 0) return;
 
     // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada en su posición actual
-    items.forEach(item => {
-        if (item.data && item.data.geomBase && !item.data.isHole) {
+    items.forEach(topItem => {
+        const item = getContentItem(topItem);
+        if (item && item.data && item.data.geomBase && !item.data.isHole) {
             const pristine = getGlobalUnsubtractedPath(item);
             if (pristine) {
                 item.removeChildren();
@@ -344,7 +356,8 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
 
     // 2. Aplicar calados dinámicos (isHole) exclusivamente a las capas inferiores en Z (j < i)
     for (let i = 0; i < items.length; i++) {
-        const holeItem = items[i];
+        const topHole = items[i];
+        const holeItem = getContentItem(topHole);
         if (!holeItem || !holeItem.data?.isHole) continue;
 
         const holeBase = getGlobalUnsubtractedPath(holeItem);
@@ -354,7 +367,8 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
         holeItem.visible = false;
 
         for (let j = i - 1; j >= 0; j--) {
-            const solid = items[j];
+            const topSolid = items[j];
+            const solid = getContentItem(topSolid);
             if (!solid || solid.data?.isHole || !solid.data?.geomBase) continue;
 
             if (solid.bounds && holeBase.bounds && solid.bounds.intersects(holeBase.bounds)) {
@@ -402,9 +416,6 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
     }
 }
 
-/**
- * Función auxiliar para comprobar ancestría topológica en el árbol de contención
- */
 function isAncestorOf(potentialAncestor, node) {
     let curr = node.parent;
     while (curr) {
@@ -428,13 +439,16 @@ function getRootNode(node) {
  * Raíz/Fondo (Z0) -> Calado Intermedio (Z1) -> Masa Interior (Z2...)
  * Cada elemento resultante se genera como un CompoundPath nativo de Paper.js.
  */
-export function decomposeByContainmentHierarchy(rootTarget) {
+export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     if (!rootTarget || rootTarget.data?.locked || rootTarget.data?.mockup || rootTarget.data?.isMask) {
         return null;
     }
 
     const targetLayer = rootTarget.layer || paper.project.activeLayer;
     docOrderCounter = 0;
+
+    // Garantía de Contención en Producto: Si el objeto original estaba enmascarado o hay un producto con máscara activo
+    const shouldClip = isClipped || (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
 
     // 1. Aplanar todo el contenido a trazados atómicos cerrados
     const atomicPaths = flattenToAtomicPaths(rootTarget);
@@ -464,14 +478,19 @@ export function decomposeByContainmentHierarchy(rootTarget) {
         compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
         compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
 
+        let finalItem = compound;
+        if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+            finalItem = window.clipItem(compound);
+        }
+
         if (targetLayer) {
-            targetLayer.addChild(compound);
+            targetLayer.addChild(finalItem);
             if (window.currentMockup) {
-                compound.insertBelow(window.currentMockup);
+                finalItem.insertBelow(window.currentMockup);
             }
         }
         rootTarget.remove();
-        return { handled: true, simple: true, items: [compound] };
+        return { handled: true, simple: true, items: [finalItem] };
     }
 
     // 2. Construir árbol topológico de contención
@@ -485,10 +504,6 @@ export function decomposeByContainmentHierarchy(rootTarget) {
     });
 
     // 4. Ordenamiento Z Topológico Semántico (Desacoplado de depth % 2)
-    // Reglas de orden Z:
-    // a) Si 'a' contiene a 'b' (a es ancestro de b): 'a' va abajo (Z menor que b).
-    // b) Si 'b' contiene a 'a' (b es ancestro de a): 'b' va abajo (Z menor que a).
-    // c) Si 'a' y 'b' están en ramas independientes: se respeta el orden documental del SVG (docOrder).
     nodes.sort((a, b) => {
         if (isAncestorOf(a, b)) return -1;
         if (isAncestorOf(b, a)) return 1;
@@ -547,12 +562,19 @@ export function decomposeByContainmentHierarchy(rootTarget) {
     });
 
     // 5. Insertar las capas ordenadas en Z directamente en la capa activa
+    // GARANTÍA DE ENMASCARAMIENTO DE PRODUCTO (Recorte estricto por fuera del producto)
+    const finalDeliveredItems = [];
     if (targetLayer) {
         resultingItems.forEach(item => {
-            targetLayer.addChild(item);
-            if (window.currentMockup) {
-                item.insertBelow(window.currentMockup);
+            let finalItem = item;
+            if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+                finalItem = window.clipItem(item);
             }
+            targetLayer.addChild(finalItem);
+            if (window.currentMockup) {
+                finalItem.insertBelow(window.currentMockup);
+            }
+            finalDeliveredItems.push(finalItem);
         });
     }
 
@@ -564,7 +586,7 @@ export function decomposeByContainmentHierarchy(rootTarget) {
         recalculateDynamicSubtractions(targetLayer);
     }
 
-    return { handled: true, simple: false, items: resultingItems };
+    return { handled: true, simple: false, items: finalDeliveredItems };
 }
 
 export function geometricUngroupCompound(item) {
