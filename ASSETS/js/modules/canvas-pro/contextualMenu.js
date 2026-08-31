@@ -28,6 +28,10 @@ function getContentItem(item) {
             return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
         });
         if (content) return content;
+        var fallback = item.children.find(function(c) {
+            return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
+        });
+        if (fallback) return fallback;
         return item.children[1] || item.children[0] || item;
     }
     return item;
@@ -110,13 +114,10 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
     styleEl.textContent = `
         .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
         .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; height: 100%; cursor: pointer; font-size: 13px; color: #333; }
-        .selected-font-trigger:hover { border-color: #999; }
-        .font-dropdown-list { position: absolute; top: calc(100% + 4px); left: 0; min-width: 260px; max-height: 280px; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); overflow-y: auto; z-index: 100000; padding: 6px 0; }
-        .font-dropdown-item { display: flex; flex-direction: column; padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.15s; }
+        .font-dropdown-list { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: white; border: 1px solid #ccc; border-top: none; border-radius: 0 0 6px 6px; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; border-bottom: 1px solid #f0f0f0; }
+        .font-dropdown-item:hover { background: #f5f5f5; }
         .font-dropdown-item:last-child { border-bottom: none; }
-        .font-dropdown-item:hover { background-color: #e6f7ff; }
-        .font-dropdown-item.active { background-color: #bae7ff; font-weight: bold; }
-        .font-item-name { font-size: 11px; color: #888; margin-bottom: 2px; }
         .hidden { display: none !important; }
     `;
     document.head.appendChild(styleEl);
@@ -174,36 +175,27 @@ function applyFontFamily(item, family) {
     if (!item) return;
     const target = item.data?.clipGroup ? getContentItem(item) : item;
     if (!target) return;
-
     if (isPointText(target)) {
         target.fontFamily = family;
     } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
         target.data.fontFamily = family;
-        if (target.children) {
-            target.children.forEach(child => {
-                if (isPointText(child)) child.fontFamily = family;
-            });
-        }
-    }
-    if (typeof window.updateSelectionBox === 'function') {
-        window.updateSelectionBox(item);
+        target.children.forEach(c => {
+            if (isPointText(c)) c.fontFamily = family;
+        });
     }
     paper.view.update();
 }
 
 function renderCustomFontItems(listContainer, fonts) {
-    listContainer.innerHTML = "";
+    listContainer.innerHTML = '';
     const sampleText = getSelectedTextString();
-    const currentFamily = getSelectedFontFamily();
-
     fonts.forEach(font => {
         const item = document.createElement('div');
-        item.className = `font-dropdown-item ${font.family === currentFamily ? 'active' : ''}`;
+        item.className = 'font-dropdown-item';
         item.innerHTML = `
-            <span class="font-item-name">${font.name}</span>
+            <span style="font-size: 11px; color: #888;">${font.name}</span>
             <span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>
         `;
-
         item.onmouseenter = () => {
             if (window.selectedItem) applyFontFamily(window.selectedItem, font.family);
         };
@@ -223,7 +215,6 @@ function renderCustomFontItems(listContainer, fonts) {
             const triggerText = document.querySelector('.selected-font-trigger span');
             if (triggerText) triggerText.textContent = font.name;
         };
-
         listContainer.appendChild(item);
     });
 }
@@ -242,7 +233,6 @@ async function populateFontDropdowns() {
     } catch (err) {
         console.error("Error al cargar tipografías en menú contextual:", err);
     }
-
     fontsCache = fonts;
     injectFontFaces(fonts);
 
@@ -256,7 +246,6 @@ async function populateFontDropdowns() {
     if (customDropdown) {
         const trigger = customDropdown.querySelector('.selected-font-trigger');
         const list = customDropdown.querySelector('.font-dropdown-list');
-
         if (trigger && list) {
             trigger.onclick = (e) => {
                 e.stopPropagation();
@@ -272,7 +261,6 @@ async function populateFontDropdowns() {
                     list.classList.add('hidden');
                 }
             };
-
             document.addEventListener('click', () => {
                 list.classList.add('hidden');
             });
@@ -408,7 +396,6 @@ export function ungroupSelectedItem() {
 
     selectedList.forEach(item => {
         if (!item || isMockupOrProductElement(item)) return;
-
         const isClipped = !!(item.data && item.data.clipGroup);
         const actualItem = isClipped ? getContentItem(item) : item;
         if (!actualItem) return;
@@ -424,7 +411,7 @@ export function ungroupSelectedItem() {
         if (isLayerGroup) {
             const groupParent = (isClipped && item.parent) ? item.parent : (actualItem.parent || paper.project.activeLayer);
             const groupChildren = [...actualItem.children];
-
+            
             groupChildren.forEach(child => {
                 let releasedItem = child;
                 if (isClipped && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
@@ -445,7 +432,6 @@ export function ungroupSelectedItem() {
         } else {
             // Descomposición por Jerarquía de Contención en 1 Clic (para SVGs importados o nuevos compuestos)
             const canDecompose = isGroup(actualItem) || isSymbolItem(actualItem) || (isCompoundPath(actualItem) && !actualItem.data?.decomposedLayer);
-
             if (canDecompose) {
                 const result = decomposeByContainmentHierarchy(actualItem, isClipped);
                 if (result && result.items && result.items.length > 0) {
@@ -464,6 +450,7 @@ export function ungroupSelectedItem() {
         if (typeof window.deselectItem === 'function') {
             window.deselectItem();
         }
+
         window.selectedItems = [...allCreatedItems];
         // Asignar el elemento primario como ancla, pero marcando a todos como seleccionados
         window.selectedItem = allCreatedItems[allCreatedItems.length - 1];
@@ -512,9 +499,17 @@ export function initContextualMenu() {
     document.addEventListener("keydown", (e) => {
         const key = e.key.toLowerCase();
         if (key === "escape") {
-            if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
+            if (window.nodeEditMode) {
+                if (typeof window.exitNodeEditMode === 'function') {
+                    window.exitNodeEditMode();
+                }
+                return;
+            }
+            if (window.insertTextMode) {
                 e.preventDefault();
-                window.exitNodeEditMode();
+                window.insertTextMode = false;
+                if (canvasEl) canvasEl.style.cursor = "default";
+                paper.view.update();
                 return;
             }
             const textEditor = document.getElementById("ekko-text-editor");
@@ -528,7 +523,6 @@ export function initContextualMenu() {
 
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
-
     if (toolbar.parentNode !== document.body) {
         document.body.appendChild(toolbar);
     }
@@ -614,7 +608,6 @@ export function initContextualMenu() {
 
     setClick('btnCtxGroup', () => groupSelectedItems());
     setClick('btnCtxAgrupar', () => groupSelectedItems());
-
     setClick('btnCtxUngroup', () => ungroupSelectedItem());
     setClick('btnCtxDesagrupar', () => ungroupSelectedItem());
 
@@ -640,10 +633,9 @@ export function initContextualMenu() {
 function getUnifiedScreenBounds(item) {
     const canvasEl = document.getElementById("editorCanvas");
     if (!canvasEl || typeof paper === 'undefined' || !paper.view) return null;
-
     const canvasRect = canvasEl.getBoundingClientRect();
-    let combinedBounds = null;
 
+    let combinedBounds = null;
     if (window.selectedItems && window.selectedItems.length > 0) {
         window.selectedItems.forEach(it => {
             const tgt = it.data?.clipGroup ? getContentItem(it) : it;
@@ -663,7 +655,6 @@ function getUnifiedScreenBounds(item) {
     if (!combinedBounds) return null;
 
     const screenTopCenter = paper.view.projectToView(combinedBounds.topCenter);
-
     return {
         x: canvasRect.left + screenTopCenter.x,
         y: canvasRect.top + screenTopCenter.y,
@@ -674,7 +665,6 @@ function getUnifiedScreenBounds(item) {
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
-
     removeOverlapTab();
 
     if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
@@ -710,7 +700,6 @@ export function updateContextualMenu(item) {
             const vecCtrl = document.getElementById('ctxVectorControls');
             if (vecCtrl) {
                 vecCtrl.classList.remove('hidden');
-
                 const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
                 if (btnEditNodes) btnEditNodes.style.display = 'none';
 
@@ -743,32 +732,26 @@ export function updateContextualMenu(item) {
         if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
             const txtCtrl = document.getElementById('ctxTextControls');
             if (txtCtrl) txtCtrl.classList.remove('hidden');
-
             const fontTrigger = document.querySelector('.selected-font-trigger span');
             if (fontTrigger) fontTrigger.textContent = target.fontFamily || "Arial";
-
         } else if (isRaster(target)) {
             const imgCtrl = document.getElementById('ctxImageControls');
             if (imgCtrl) imgCtrl.classList.remove('hidden');
             if (btnTrace) btnTrace.style.display = 'inline-block';
-
         } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target)) {
             const vecCtrl = document.getElementById('ctxVectorControls');
             if (vecCtrl) {
                 vecCtrl.classList.remove('hidden');
-
                 const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
                 if (btnEditNodes) {
                     const canEdit = !isGroup(target) && !isSymbolItem(target);
                     btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
                 }
-
                 const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
                 if (btnGroup) {
                     btnGroup.classList.add('hidden');
                     btnGroup.style.display = 'none';
                 }
-
                 const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
                 if (btnUngroup) {
                     const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
@@ -778,36 +761,21 @@ export function updateContextualMenu(item) {
         }
     }
 
-    // Posicionamiento de la barra contextual concéntrica respecto a los límites unificados
-    if (!toolbarDragged || lastSelectedItem !== item) {
+    // POSICIONAMIENTO UNIFICADO DEL TOOLBAR (Para selección simple y multiselección)
+    if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
+        toolbar.style.left = window.customToolbarLeft + 'px';
+        toolbar.style.top = window.customToolbarTop + 'px';
+    } else if (!toolbarDragged || lastSelectedItem !== item) {
         const screenPos = getUnifiedScreenBounds(item);
         if (screenPos) {
-            const tbWidth = toolbar.offsetWidth || 320;
-            const tbHeight = toolbar.offsetHeight || 44;
+            const toolbarW = toolbar.offsetWidth || 320;
+            const toolbarH = toolbar.offsetHeight || 44;
+            const x = screenPos.x - (toolbarW / 2);
+            const y = screenPos.y - toolbarH - 14;
 
-            let left = screenPos.x - (tbWidth / 2);
-            let top = screenPos.y - tbHeight - 14;
-
-            const margin = 12;
-            const maxLeft = window.innerWidth - tbWidth - margin;
-            const minLeft = margin;
-            const minTop = margin;
-
-            left = Math.max(minLeft, Math.min(maxLeft, left));
-            if (top < minTop) {
-                const canvasEl = document.getElementById("editorCanvas");
-                if (canvasEl && screenPos.combinedBounds) {
-                    const canvasRect = canvasEl.getBoundingClientRect();
-                    const screenBottomCenter = paper.view.projectToView(screenPos.combinedBounds.bottomCenter);
-                    top = canvasRect.top + screenBottomCenter.y + 14;
-                } else {
-                    top = minTop;
-                }
-            }
-
-            toolbar.style.left = left + 'px';
-            toolbar.style.top = top + 'px';
-            toolbarDragged = false;
+            toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarW - 10, x)) + 'px';
+            toolbar.style.top = Math.max(10, y) + 'px';
+            toolbar.style.zIndex = "2147483647";
         }
     }
 
@@ -834,3 +802,4 @@ if (typeof window !== 'undefined') {
     window.hideContextualMenu = hideContextualMenu;
     window.initContextualMenu = initContextualMenu;
 }
+
