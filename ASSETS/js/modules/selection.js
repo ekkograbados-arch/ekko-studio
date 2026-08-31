@@ -468,54 +468,72 @@ const _getHandlePoint = function(bounds, handleType) {
 /**
  * Busca candidatos seleccionables en el punto dado, incluyendo calados activos
  */
+/**
+ * Resuelve de forma estricta el objeto de mayor índice Z ubicado bajo el cursor.
+ * Prioridad absoluta:
+ * 1. Recorre de mayor Z a menor Z (Top-Down) sobre la capa de diseño.
+ * 2. Soporta tanto masas sólidas visibles como calados activos (isHole) o contenidos en clipGroup.
+ * 3. Garantiza que un clic individual aísle exclusivamente el elemento de primer plano.
+ */
 function findItemAtPoint(point) {
-  // 1. HitTest nativo de Paper.js
-  const hit = paper.project.hitTest(point, {
-    fill: true,
-    stroke: true,
-    segments: true,
-    tolerance: 8 / paper.view.zoom,
-    match: function(h) {
-      if (!h || !h.item) return false;
-      let curr = h.item;
-      while (curr) {
-        const d = curr.data || {};
-        if (d.isSelectionBox || d.isHandle || d.isNodeHandle || d.isCurveHandle ||
-            d.isNodeEditOverlay || d.isSmartGuide || d.isMeasurement || d.isTracePreview ||
-            d.mockup || d.isMask || d.wasClipMask) {
-          return false;
-        }
-        if (curr === window.currentMockup || curr === window.selectionBoxGroup || curr === window.nodeHandlesGroup) {
-          return false;
-        }
-        curr = curr.parent;
-      }
-      return true;
-    }
-  });
+  const layer = (paper.project && paper.project.layers)
+    ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
+    : null;
+  if (!layer || !layer.children || layer.children.length === 0) return null;
 
-  if (hit && hit.item) {
-    const candidate = window.getSelectableItem(hit.item);
-    if (candidate) return candidate;
-  }
+  const tol = 8 / (paper.view ? paper.view.zoom : 1);
 
-  // 2. Búsqueda directa sobre elementos de diseño (para captar calados activos con visible=false)
-  const layer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-  if (!layer || !layer.children) return null;
-
-  // Recorrer de mayor Z a menor Z (lo que está arriba tiene prioridad)
+  // Recorrido topológico estricto: De mayor Z a menor Z (el objeto visible superior tiene prioridad)
   for (let i = layer.children.length - 1; i >= 0; i--) {
     const child = layer.children[i];
     if (!child || isMockupOrUI(child)) continue;
-    
-    // Si es calado activo, verificar contra su geomBase
-    if (child.data && child.data.isHole && child.data.geomBase) {
-      const gBase = child.data.geomBase;
-      if (gBase.contains && gBase.contains(point)) {
-        return child;
+
+    const selectable = window.getSelectableItem(child);
+    if (!selectable) continue;
+
+    const target = getContentItem(selectable);
+    if (!target) continue;
+
+    // A) Si es calado activo (isHole: true)
+    if (target.data && target.data.isHole) {
+      const gBase = target.data.geomBase || target;
+      if (gBase) {
+        if (gBase.bounds && gBase.bounds.expand(tol).contains(point)) {
+          if (gBase.contains && gBase.contains(point)) return selectable;
+          if (gBase.hitTest && gBase.hitTest(point, { fill: true, stroke: true, tolerance: tol })) return selectable;
+        }
       }
-      if (gBase.hitTest && gBase.hitTest(point, { fill: true, stroke: true, tolerance: 8 / paper.view.zoom })) {
-        return child;
+    }
+
+    // B) Si es masa sólida (CompoundPath, Path, Group, PointText, etc.)
+    if (target.bounds && target.bounds.expand(tol).contains(point)) {
+      // 1. Verificación por hitTest de Paper.js sobre el contenido
+      const hit = target.hitTest(point, {
+        fill: true,
+        stroke: true,
+        segments: true,
+        tolerance: tol
+      });
+      if (hit) return selectable;
+
+      // 2. Verificación por contención geométrica interior
+      if (target.contains && target.contains(point)) {
+        return selectable;
+      }
+
+      // 3. Verificación de sub-trazados para CompoundPaths complejos
+      if (target.children && target.children.length > 0) {
+        for (let j = target.children.length - 1; j >= 0; j--) {
+          const sub = target.children[j];
+          if (sub && sub.bounds && sub.bounds.expand(tol).contains(point)) {
+            if (sub.hitTest && sub.hitTest(point, { fill: true, stroke: true, tolerance: tol })) {
+              return selectable;
+            }
+            if (sub.contains && sub.contains(point)) {
+              return selectable;
+            }
+          }
+        }
       }
     }
   }
