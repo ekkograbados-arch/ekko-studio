@@ -347,7 +347,19 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
   const subItems = extractSubtractiveItems(items);
   if (subItems.length === 0) return;
 
-  // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada en su posición actual
+  // Helper para contar segmentos totales de un Path o CompoundPath
+  function countSegments(item) {
+    if (!item) return 0;
+    if (item.segments) return item.segments.length;
+    if (item.children) {
+      let total = 0;
+      item.children.forEach(c => { total += countSegments(c); });
+      return total;
+    }
+    return 0;
+  }
+
+  // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada
   subItems.forEach(item => {
     if (item && item.data && item.data.geomBase && !item.data.isHole) {
       const pristine = getGlobalUnsubtractedPath(item);
@@ -364,7 +376,7 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
       }
       item.visible = true;
     } else if (item && item.data && item.data.isHole) {
-      // Los calados interactivos se mantienen transparentes y sin trazo cuando no están seleccionados
+      // Los calados interactivos se mantienen transparentes nativos sin trazos residuales
       item.visible = true;
       item.fillColor = new paper.Color(0, 0, 0, 0.0001);
       item.strokeColor = null;
@@ -372,50 +384,140 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
     }
   });
 
-  // 2. Ejecutar sustracciones dinámicas en cascada según el orden Z (capas superiores perforan a las inferiores)
-  for (let i = 0; i < subItems.length; i++) {
-    const holeItem = subItems[i];
-    if (!holeItem || !holeItem.data || !holeItem.data.isHole) continue;
+  // 2. Ejecutar sustracciones dinámicas protegidas contra colapso por solapamiento de calados
+  // Para cada masa sólida, recolectar todos los calados activos situados por encima en el orden Z
+  for (let j = 0; j < subItems.length; j++) {
+    const solid = subItems[j];
+    if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase) continue;
 
-    const holeBase = getGlobalUnsubtractedPath(holeItem);
-    if (!holeBase) continue;
+    // Obtener la geometría base prístina de esta masa sólida
+    const pristineBase = getGlobalUnsubtractedPath(solid);
+    if (!pristineBase) continue;
 
-    // Buscar todas las masas sólidas ubicadas por debajo en el orden de apilamiento Z
-    for (let j = 0; j < i; j++) {
-      const solid = subItems[j];
-      if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase) continue;
+    const pristineArea = Math.abs(pristineBase.area || 0);
+    const pristineBounds = pristineBase.bounds;
 
-      // Descarte rápido por bounding box si no se tocan
-      if (!solid.bounds.intersects(holeBase.bounds)) continue;
+    // Buscar todos los calados activos superiores (i > j) que intersecan a la masa
+    const intersectingHoles = [];
+    for (let i = j + 1; i < subItems.length; i++) {
+      const holeItem = subItems[i];
+      if (!holeItem || !holeItem.data || !holeItem.data.isHole) continue;
 
-      try {
-        const solidPath = (solid.children && solid.children.length === 1) ? solid.children[0] : solid;
-        const subtracted = solidPath.subtract(holeBase, { insert: false });
+      const holeBase = getGlobalUnsubtractedPath(holeItem);
+      if (!holeBase) continue;
 
-        if (subtracted) {
-          // Blindaje Anti-Aniquilación: Validar que la geometría resultante tenga área y segmentos reales
-          let segCount = 0;
-          if (subtracted.segments) segCount = subtracted.segments.length;
-          else if (subtracted.children) {
-            subtracted.children.forEach(c => { if (c.segments) segCount += c.segments.length; });
-          }
-
-          const hasValidArea = Math.abs(subtracted.area || 0) > 0.01;
-          if (segCount > 0 && hasValidArea && subtracted.bounds.width > 0.01 && subtracted.bounds.height > 0.01) {
-            solid.removeChildren();
-            if (subtracted instanceof paper.CompoundPath) {
-              solid.addChildren(subtracted.removeChildren());
-            } else {
-              solid.addChild(subtracted);
-            }
-          }
-          subtracted.remove();
-        }
-      } catch (err) {
-        // En caso de singularidad matemática CSG, preservamos la masa intacta
+      if (pristineBounds.intersects(holeBase.bounds)) {
+        intersectingHoles.push(holeBase);
+      } else {
+        holeBase.remove();
       }
     }
-    holeBase.remove();
+
+    if (intersectingHoles.length === 0) {
+      pristineBase.remove();
+      continue;
+    }
+
+    // BLINDAJE ANTI-ANIQUILACIÓN POR SOLAPAMIENTO DE CALADOS:
+    // Si dos o más huecos se solapan entre sí (ej. arrastrar 'A' hacia 'F'),
+    // unificamos primero sus geometrías para que Paper.js no colapse por aristas compartidas.
+    let mergedHole = null;
+    try {
+      for (let k = 0; k < intersectingHoles.length; k++) {
+        const curHole = intersectingHoles[k];
+        if (!mergedHole) {
+          mergedHole = curHole.clone({ insert: false });
+        } else {
+          if (mergedHole.bounds.intersects(curHole.bounds)) {
+            try {
+              const united = mergedHole.unite(curHole, { insert: false });
+              if (united && Math.abs(united.area || 0) > 0.01) {
+                mergedHole.remove();
+                mergedHole = united;
+                continue;
+              }
+            } catch (e) {}
+          }
+          // Si no se tocan o unite falla, los unimos en un CompoundPath
+          const cp = new paper.CompoundPath({ insert: false });
+          if (mergedHole instanceof paper.CompoundPath) {
+            cp.addChildren(mergedHole.removeChildren());
+            mergedHole.remove();
+          } else {
+            cp.addChild(mergedHole);
+          }
+          if (curHole instanceof paper.CompoundPath) {
+            cp.addChildren(curHole.removeChildren());
+          } else {
+            cp.addChild(curHole.clone({ insert: false }));
+          }
+          mergedHole = cp;
+        }
+      }
+    } catch (err) {
+      mergedHole = null;
+    }
+
+    let finalSubtracted = null;
+
+    // Intento 1: Sustracción unificada limpia desde la masa prístina
+    if (mergedHole) {
+      try {
+        const testSub = pristineBase.subtract(mergedHole, { insert: false });
+        if (testSub) {
+          const testArea = Math.abs(testSub.area || 0);
+          const testSegments = countSegments(testSub);
+          // Validar que no haya colapso degenerado de área (área >= 5% de la masa prístina)
+          const isValidArea = pristineArea > 1.0 ? (testArea >= 0.05 * pristineArea) : (testArea > 0.01);
+          if (testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1) {
+            finalSubtracted = testSub;
+          } else {
+            testSub.remove();
+          }
+        }
+      } catch (e) {}
+      mergedHole.remove();
+    }
+
+    // Intento 2 (Fallback progresivo): Si la sustracción en bloque falló o colapsó,
+    // aplicar calados uno a uno validando en cada paso que la masa no sea aniquilada.
+    if (!finalSubtracted) {
+      let currentProgress = pristineBase.clone({ insert: false });
+      for (let k = 0; k < intersectingHoles.length; k++) {
+        const singleHole = intersectingHoles[k];
+        try {
+          const stepSub = currentProgress.subtract(singleHole, { insert: false });
+          if (stepSub) {
+            const stepArea = Math.abs(stepSub.area || 0);
+            const stepSegments = countSegments(stepSub);
+            const isStepValid = pristineArea > 1.0 ? (stepArea >= 0.05 * pristineArea) : (stepArea > 0.01);
+            if (stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1) {
+              currentProgress.remove();
+              currentProgress = stepSub;
+            } else {
+              // Si este calado particular causa la aniquilación (colisión extrema), se ignora y se preserva el estado
+              stepSub.remove();
+            }
+          }
+        } catch (e) {}
+      }
+      finalSubtracted = currentProgress;
+    }
+
+    // Aplicar el resultado final a la masa sólida en el lienzo
+    if (finalSubtracted) {
+      solid.removeChildren();
+      if (finalSubtracted instanceof paper.CompoundPath) {
+        solid.addChildren(finalSubtracted.removeChildren());
+      } else {
+        solid.addChild(finalSubtracted);
+      }
+      solid.visible = true;
+    }
+
+    // Limpiar geometrías temporales de memoria
+    pristineBase.remove();
+    intersectingHoles.forEach(h => { try { h.remove(); } catch(e) {} });
   }
 
   if (typeof paper !== 'undefined' && paper.view) {
