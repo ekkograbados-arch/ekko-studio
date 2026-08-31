@@ -1,5 +1,5 @@
 /* =========================================================================
-Modulo: ASSETS/js/editor.js (v25.2 PRO - Stacking CSG & Reactive Z-Order Engine)
+Modulo: ASSETS/js/editor.js (v25.0 PRO - Stacking CSG & Reactive Z-Order Engine)
 Ruta de reemplazo: ASSETS/js/editor.js
 Descripcion: Nucleo de la aplicacion EKKO Studio basado en Paper.js.
 - Soluciona las condiciones de carrera (race conditions) asincronas
@@ -96,23 +96,26 @@ window.loadToken = 0;
 function saveHistory() {
     if (typeof paper !== "undefined" && paper.project) {
         undoStack.push(paper.project.exportJSON({ asString: true }));
-        if (undoStack.length > 50) undoStack.shift();
+        if (undoStack.length > 50) {
+            undoStack.shift();
+        }
         redoStack.length = 0;
     }
 }
 window.saveHistory = saveHistory;
 
-// Limpieza de artefactos de interfaz fantasma tras undo/redo
+// Limpiador defensivo de overlays e interfaz tras operaciones de Undo/Redo
 function cleanGhostInterfaceItems() {
-    if (typeof paper !== "undefined" && paper.project && paper.project.activeLayer) {
-        paper.project.activeLayer.getItems({
+    if (typeof paper !== "undefined" && paper.project) {
+        paper.project.getItems({
             match: function(item) {
-                return !!(item.data && (
+                return item.data && (
                     item.data.isSelectionBox ||
+                    item.data.isNodeEditOverlay ||
                     item.data.isHandle ||
                     item.data.isNodeHandle ||
                     item.data.isCurveHandle
-                ));
+                );
             }
         }).forEach(function(item) {
             item.remove();
@@ -128,7 +131,10 @@ function undo() {
     paper.project.importJSON(state);
     cleanGhostInterfaceItems();
     window.deselectItem();
-    if (typeof restoreMockupReferences === "function") restoreMockupReferences();
+    if (typeof restoreMockupReferences === "function") {
+        restoreMockupReferences();
+    }
+    // Reactividad CSG: Recalcular calados en el estado restaurado
     if (typeof recalculateDynamicSubtractions === "function") {
         recalculateDynamicSubtractions();
     } else if (typeof window.recalculateDynamicSubtractions === "function") {
@@ -146,7 +152,10 @@ function redo() {
     paper.project.importJSON(state);
     cleanGhostInterfaceItems();
     window.deselectItem();
-    if (typeof restoreMockupReferences === "function") restoreMockupReferences();
+    if (typeof restoreMockupReferences === "function") {
+        restoreMockupReferences();
+    }
+    // Reactividad CSG: Recalcular calados en el estado restaurado
     if (typeof recalculateDynamicSubtractions === "function") {
         recalculateDynamicSubtractions();
     } else if (typeof window.recalculateDynamicSubtractions === "function") {
@@ -171,10 +180,12 @@ function updateSelectionInfo() {
         if (objH) objH.value = "";
         return;
     }
+
     const displayItem = getContentItem(window.selectedItem);
     const selInfo = document.getElementById("selectionInfo");
     const objW = document.getElementById("objWidth");
     const objH = document.getElementById("objHeight");
+
     if (displayItem && selInfo) {
         selInfo.textContent = displayItem.data?.label || "Objeto";
         if (objW) objW.value = (displayItem.bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
@@ -198,6 +209,7 @@ window.selectItem = function(item, isMulti = false) {
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
     }
+
     let isMockup = false;
     let curr = item;
     while (curr) {
@@ -236,9 +248,11 @@ window.selectItem = function(item, isMulti = false) {
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(window.selectedItem);
     }
+
     if (typeof window.updateContextualMenu === 'function') {
         window.updateContextualMenu(window.selectedItem);
     }
+
     updateSelectionInfo();
     updateLockButton();
     paper.view.update();
@@ -248,6 +262,7 @@ window.deselectItem = function() {
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
     }
+
     if (window.selectedItems && window.selectedItems.length > 0) {
         window.selectedItems.forEach(it => { if (it) it.selected = false; });
     }
@@ -293,9 +308,11 @@ window.updateGlobalScaleFactor = function() {
     }
     const realDims = window.getRealProductDimensions(product);
     const bounds = window.currentMockup.bounds;
-    if (bounds.width > 0 && realDims.width > 0) {
-        window.paperUnitsPerMm = bounds.width / realDims.width;
-        window.mmPerPaperUnit = realDims.width / bounds.width;
+    if (bounds.width > 0 && bounds.height > 0) {
+        const scaleX = bounds.width / realDims.width;
+        const scaleY = bounds.height / realDims.height;
+        window.paperUnitsPerMm = (scaleX + scaleY) / 2.0;
+        window.mmPerPaperUnit = 1.0 / window.paperUnitsPerMm;
     }
 };
 
@@ -310,7 +327,6 @@ function saveCurrentScene() {
     const idx = toolState.currentSurface || 0;
     const surface = toolState.currentProduct.superficies[idx];
     if (!surface) return;
-
     const key = getSceneKey(toolState.currentProduct, surface);
     const prevSelected = window.selectedItem;
     window.deselectItem();
@@ -323,7 +339,6 @@ function saveCurrentScene() {
 function loadSurfaceScene(product, surface) {
     if (!product || !surface) return;
     const key = getSceneKey(product, surface);
-
     window.deselectItem();
     paper.view.zoom = 1.0;
     paper.view.center = new paper.Point(0, 0);
@@ -352,7 +367,6 @@ function loadSurfaceScene(product, surface) {
 
 // Clipboard de Trabajo
 let clipboardItem = null;
-
 function copySelected() {
     if (!window.selectedItem) return;
     if (isLockedItem(window.selectedItem)) return;
@@ -462,7 +476,6 @@ function addImageFromFile(file) {
             const size = Math.min(area.width, area.height) * 0.5;
             raster.scale(size / raster.width);
             raster.position = area.center;
-
             const objeto = window.clipItem(raster);
             if (window.currentMockup) {
                 objeto.insertBelow(window.currentMockup);
@@ -486,6 +499,7 @@ function addSVGFromFile(file) {
         } catch (err) {
             console.error("Error al sanear XML de SVG:", err);
         }
+
         paper.project.importSVG(svgText, (item) => {
             if (window.paper && paper.project) {
                 const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
@@ -500,7 +514,6 @@ function addSVGFromFile(file) {
                 item.scale(size / bounds.width);
             }
             item.position = area.center;
-
             const objeto = window.clipItem(item);
             if (window.currentMockup) {
                 objeto.insertBelow(window.currentMockup);
@@ -529,12 +542,14 @@ async function addQRToCanvas(text) {
     const tempDiv = document.createElement("div");
     tempDiv.style.display = "none";
     document.body.appendChild(tempDiv);
+
     new QRCode(tempDiv, {
         text: text,
         width: 512,
         height: 512,
         correctLevel: QRCode.CorrectLevel.H
     });
+
     setTimeout(() => {
         const qrCanvas = tempDiv.querySelector("canvas");
         const qrImg = tempDiv.querySelector("img");
@@ -546,12 +561,11 @@ async function addQRToCanvas(text) {
                     const dLayer = paper.project.layers.find(l => l.name === 'designLayer');
                     if (dLayer) dLayer.activate();
                 }
-                raster.data = { locked: false, label: "Código QR" };
+                raster.data = { locked: false, label: "Codigo QR" };
                 const area = paper.view.bounds;
-                const size = Math.min(area.width, area.height) * 0.4;
+                const size = Math.min(area.width, area.height) * 0.3;
                 raster.scale(size / raster.width);
                 raster.position = area.center;
-
                 const objeto = window.clipItem(raster);
                 if (window.currentMockup) {
                     objeto.insertBelow(window.currentMockup);
@@ -623,6 +637,7 @@ function renderProductsOnly(productos, activeProduct) {
     const prodTabs = document.getElementById("productTabs");
     if (!prodTabs) return;
     prodTabs.innerHTML = "";
+
     productos.forEach(product => {
         const btn = document.createElement("button");
         btn.className = "tab-btn" + (activeProduct && activeProduct.id === product.id ? " active" : "");
@@ -687,30 +702,22 @@ function createEditableText(point) {
         point: targetPoint,
         content: "Texto",
         fontSize: 42,
-        fontFamily: "Arial",
         fillColor: new paper.Color(0),
-        justification: "center"
+        justification: "center",
+        fontFamily: "Arial"
     });
 
-    txt.data = {
-        locked: false,
-        label: "Texto",
-        fontSize: 42,
-        fontFamily: "Arial"
-    };
-
-    const objeto = window.clipItem(txt);
+    txt.data = { locked: false, label: "Texto" };
+    paper.project.activeLayer.addChild(txt);
+    const clipped = window.clipItem(txt);
     if (window.currentMockup) {
-        objeto.insertBelow(window.currentMockup);
+        clipped.insertBelow(window.currentMockup);
     }
-    window.selectItem(objeto);
-    paper.view.update();
-
-    if (typeof window.startTextEditing === "function") {
-        window.startTextEditing(txt);
-    }
+    window.selectItem(clipped);
+    startTextEditing(txt);
 }
 
+// Guardas para eventos y listeners del taller
 const safeAddListener = (id, event, fn) => {
     const el = typeof id === "string" ? document.getElementById(id) : id;
     if (el) el.addEventListener(event, fn);
@@ -745,6 +752,9 @@ function resetCanvasView() {
     if (window.selectedItem && typeof window.updateSelectionBox === "function") {
         window.updateSelectionBox(window.selectedItem);
     }
+    if (typeof window.updateNodeHandlesScale === 'function') {
+        window.updateNodeHandlesScale();
+    }
 }
 
 /* =========================================================================
@@ -768,17 +778,25 @@ async function bootstrapEKKO() {
     }
 
     try {
-        // 1. Inicializar Paper.js sobre el elemento canvas físico
-        paper.setup(canvasEl);
+        // 1. Resolver medidas fisicas iniciales del visor
+        const initialWidth = containerEl.clientWidth || window.innerWidth;
+        const initialHeight = containerEl.clientHeight || window.innerHeight;
 
-        // 2. Establecer dimensiones reactivas
-        const initialWidth = containerEl.clientWidth || 800;
-        const initialHeight = containerEl.clientHeight || 600;
         canvasEl.width = initialWidth;
         canvasEl.height = initialHeight;
+
+        // 2. Inicializar Paper.js sobre el canvas fisico
+        paper.setup("editorCanvas");
         paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
 
-        // 3. Crear capa de diseno util independiente de interfaces
+        // 3. Crear Estructura de Capas Limpia (Background & Design)
+        let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
+        if (!backLayer) {
+            backLayer = new paper.Layer();
+            backLayer.name = 'backgroundLayer';
+            paper.project.insertLayer(0, backLayer);
+        }
+
         let designLayer = paper.project.layers.find(l => l.name === 'designLayer');
         if (!designLayer) {
             designLayer = new paper.Layer();
@@ -786,7 +804,27 @@ async function bootstrapEKKO() {
         }
         designLayer.activate();
 
-        // 4. Inicializar herramientas interactivas
+        // 4. Observar cambios de tamaño del lienzo estilo Canva/Figma (ResizeObserver)
+        if (typeof ResizeObserver !== "undefined") {
+            const observer = new ResizeObserver(entries => {
+                for (let entry of entries) {
+                    const w = Math.round(entry.contentRect.width || containerEl.clientWidth);
+                    const h = Math.round(entry.contentRect.height || containerEl.clientHeight);
+                    if (w > 0 && h > 0 && paper.view) {
+                        canvasEl.width = w;
+                        canvasEl.height = h;
+                        paper.view.viewSize = new paper.Size(w, h);
+                        paper.view.update();
+                        if (window.selectedItem && typeof window.updateSelectionBox === "function") {
+                            window.updateSelectionBox(window.selectedItem);
+                        }
+                    }
+                }
+            });
+            observer.observe(containerEl);
+        }
+
+        // 5. Inicializar herramientas de interaccion visual
         if (typeof window.initSelectionTool === "function") {
             try {
                 window.initSelectionTool();
@@ -795,7 +833,6 @@ async function bootstrapEKKO() {
             }
         }
 
-        // 5. Inicializar menu contextual flotante
         if (typeof initContextualMenu === "function") {
             try {
                 initContextualMenu();
@@ -871,9 +908,20 @@ async function bootstrapEKKO() {
             }
         });
 
-        // Responsive resize listener
+        // Evento mouse click nativo para activar modo texto inline
+        if (paper.view) {
+            paper.view.on("mousedown", (event) => {
+                if (window.insertTextMode) {
+                    createEditableText(event.point);
+                    window.insertTextMode = false;
+                    if (paper.view.element) paper.view.element.style.cursor = "default";
+                }
+            });
+        }
+
+        // Listener nativo del navegador como fallback de redibujado de la caja celeste
         window.addEventListener("resize", () => {
-            if (containerEl && canvasEl && paper.view) {
+            if (canvasEl && containerEl && paper.view) {
                 const w = containerEl.clientWidth || 800;
                 const h = containerEl.clientHeight || 600;
                 canvasEl.width = w;
@@ -888,6 +936,7 @@ async function bootstrapEKKO() {
 
         // 9. CARGA SECUENCIAL ASINCRONA DE ENDPOINTS (FUENTES Y PRODUCTOS)
         console.log("%c[EKKO BOOTSTRAP] Resolviendo catalogos de recursos y tipografias en segundo plano...", "color: #0369a1;");
+
         const fontsPromise = loadDynamicFonts()
             .then(loadedFonts => {
                 console.log("%c[EKKO BOOTSTRAP] Tipografias del backend sincronizadas en el editor.", "color: #10b981;");
@@ -895,6 +944,7 @@ async function bootstrapEKKO() {
             })
             .catch(err => {
                 console.warn("[EKKO BOOTSTRAP] Fallo no critico al sincronizar fuentes:", err);
+                return [];
             });
 
         const productsPromise = (async () => {
