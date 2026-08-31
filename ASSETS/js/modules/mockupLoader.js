@@ -2,78 +2,35 @@
 // Esto elimina por completo el spam de pre-cargas y cargas exitosas en F12.
 // Solo se mostrarán errores reales de programación (console.error) para depuración.
 
-
 /* =========================================================================
-Módulo: ASSETS/js/modules/mockupLoader.js (Soporte de Lienzo Infinito con Memoria Independiente - v6)
+Módulo: ASSETS/js/modules/mockupLoader.js (Soporte de Lienzo Infinito con Memoria Independiente - v7 PRO)
 Ruta de reemplazo: ASSETS/js/modules/mockupLoader.js
 Descripción: Módulo para la carga y renderizado de mockups SVG con soporte para
 Lienzo Infinito interactivo para Paper.js (estilo Canva y LightBurn).
-
 ⚡ CORRECCIÓN DE ESTADO INDEPENDIENTE: Evita que el diseño de un producto (imágenes, textos, QRs)
 se filtre o copie automáticamente sobre otro producto al cambiar de categoría.
+⚡ CORRECCIÓN DE MÁSCARA ESTÁTICA Y ANTI-DESFASE:
+Garantiza que 'window.clipItem' clone la máscara del producto perfectamente concéntrica
+con 'window.currentMockup', blindándola contra desplazamientos durante el arrastre.
 ========================================================================= */
 
 window.infiniteCanvasMode = false;
 
 function collectPaths(item, paths) {
-  if (!paths) paths = [];
+  paths = paths || [];
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
     paths.push(item);
-  } else if (item instanceof paper.Shape) {
-    var converted = item.toPath();
-    converted.visible = false;
-    paths.push(converted);
-  }
-  if (item.children) {
-    var children = item.children.slice();
-    children.forEach(function(child) {
+  } else if (item && item.children) {
+    item.children.forEach(function(child) {
       collectPaths(child, paths);
     });
   }
   return paths;
 }
 
-/**
-* Determina si el trazado más grande es una caja rectangular externa transparente
-* (típica de exportaciones de Illustrator) que deba ser ignorada.
-*/
-function shouldIgnoreLargestPath(paths, rootItem, svgPath) {
-  if (!paths || paths.length < 2) return false;
-  var firstPath = paths[0];
-  if (!firstPath) return false;
-  var fBounds = firstPath.bounds;
-  var rBounds = rootItem.bounds;
-  if (!fBounds || !rBounds || rBounds.width <= 0 || rBounds.height <= 0) return false;
-
-  var rectArea = fBounds.width * fBounds.height;
-  var pathArea = Math.abs(firstPath.area);
-  var areaDiff = Math.abs(pathArea - rectArea);
-
-  // Un trazado es probablemente el recuadro exterior de Illustrator si su área es casi idéntica a su bounding box
-  if (areaDiff < (rectArea * 0.01)) {
-    var pathLower = svgPath ? svgPath.toLowerCase() : "";
-    var filename = pathLower.split("/").pop() || "";
-    var esProductoRectangular = false;
-
-    if (pathLower !== "") {
-      var esMate = pathLower.indexOf("mate") !== -1;
-      var esVirolaSola = filename.startsWith("virola-") || filename.endsWith("-virola.svg");
-      var esPulsera = pathLower.indexOf("pulsera") !== -1;
-
-      // El cuerpo del mate es rectangular, así como las pulseras. La virola es un anillo circular.
-      esProductoRectangular = (esMate && !esVirolaSola) || esPulsera;
-    }
-
-    if (esProductoRectangular) {
-      return false; // No ignorar, es el área de trabajo rectangular legítima del producto (Mates, Pulseras)
-    }
-    return true; // Es la caja externa transparente de Illustrator, ignorarla para usar la silueta real del producto
-  }
-  return false;
-}
-
-function isPathRect(path) {
-  if (!path) return false;
+function shouldIgnoreLargestPath(allPaths, item, svgPath) {
+  if (allPaths.length < 2) return false;
+  var path = allPaths[0];
   var bounds = path.bounds;
   if (bounds.width <= 0 || bounds.height <= 0) return false;
   var rectArea = bounds.width * bounds.height;
@@ -95,11 +52,13 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
     if (ignoredPath && path === ignoredPath) return false;
     return true;
   });
+
   paths.sort(function(a, b) {
     return Math.abs(b.area) - Math.abs(a.area);
   });
 
   if (!paths.length) return null;
+
   var firstPath = paths[0];
   var mask = firstPath.clone();
   mask.applyMatrix = true;
@@ -114,6 +73,7 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
 
   var baseArea = Math.abs(mask.area);
   var remainingPaths = paths.slice(1);
+
   remainingPaths.forEach(function(path) {
     var hole = path.clone();
     hole.applyMatrix = true;
@@ -195,16 +155,9 @@ function findLargestPath(item) {
 }
 
 function convertAllShapesToPaths(item) {
-  if (!item) return null;
   if (item instanceof paper.Shape) {
     var path = item.toPath();
-    path.data = item.data;
-    path.name = item.name;
-    path.applyMatrix = true;
-    if (item.parent) {
-      item.parent.insertChild(item.index, path);
-      item.remove();
-    }
+    item.replaceWith(path);
     return path;
   }
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
@@ -258,12 +211,14 @@ export function loadMockup(svgPath) {
     var scaleX = (canvasBounds.width * 0.75) / bounds.width;
     var scaleY = (canvasBounds.height * 0.75) / bounds.height;
     var scale = Math.min(scaleX, scaleY);
+
     item.scale(scale);
     item.position = canvasBounds.center;
 
     var allPaths = collectPaths(item).filter(function(p) {
       return p && Math.abs(p.area) > 0;
     });
+
     allPaths.sort(function(a, b) {
       return Math.abs(b.area) - Math.abs(a.area);
     });
@@ -277,10 +232,12 @@ export function loadMockup(svgPath) {
     if (window.grabArea) {
       window.grabArea.data = { mockup: true, isMask: true };
     }
+
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.data = { mockup: true, isMask: true };
       window.clipMask.visible = false;
+      window.clipMask.position = item.position.clone();
     }
 
     makeMockupTransparent(item, ignoredPath);
@@ -324,6 +281,7 @@ export function loadMockup(svgPath) {
         paper.project.activeLayer.addChild(uItem);
         restored = uItem;
       }
+
       // Insertar por debajo del mockup
       if (window.currentMockup && restored) {
         restored.insertBelow(window.currentMockup);
@@ -338,14 +296,17 @@ export function restoreMockupReferences() {
   var mockupItem = paper.project.activeLayer.children.find(function(c) {
     return c.data && c.data.mockup;
   });
+
   if (mockupItem) {
     window.currentMockup = mockupItem;
     var allPaths = collectPaths(mockupItem).filter(function(p) {
       return p && Math.abs(p.area) > 0;
     });
+
     allPaths.sort(function(a, b) {
       return Math.abs(b.area) - Math.abs(a.area);
     });
+
     var ignoredPath = null;
     var svgPath = (mockupItem.data && mockupItem.data.svgPath) ? mockupItem.data.svgPath : "";
 
@@ -356,14 +317,19 @@ export function restoreMockupReferences() {
     if (shouldIgnoreLargestPath(allPaths, mockupItem, svgPath)) {
       ignoredPath = allPaths[0];
     }
+
     window.grabArea = buildCompoundMask(mockupItem, ignoredPath, svgPath);
     if (window.grabArea) {
       window.grabArea.data = { mockup: true, isMask: true };
     }
+
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
       window.clipMask.data = { mockup: true, isMask: true };
       window.clipMask.visible = false;
+      if (mockupItem.bounds) {
+        window.clipMask.position = mockupItem.bounds.center.clone();
+      }
     }
   } else {
     window.currentMockup = null;
@@ -376,10 +342,19 @@ window.clipItem = function(item) {
   if (window.infiniteCanvasMode || !window.clipMask) {
     return item;
   }
+
   var mask = window.clipMask.clone();
   mask.clipMask = true;
   mask.visible = true;
   mask.data = { mockup: true, isMask: true };
+
+  // Garantizar alineación absoluta con el mockup visible para evitar cualquier desfasaje
+  if (window.currentMockup && window.currentMockup.bounds) {
+    mask.position = window.currentMockup.bounds.center.clone();
+  } else if (window.clipMask && window.clipMask.position) {
+    mask.position = window.clipMask.position.clone();
+  }
+
   var group = new paper.Group();
   group.addChild(mask);
   group.addChild(item);
@@ -389,5 +364,6 @@ window.clipItem = function(item) {
     clipGroup: true,
     label: (item.data && item.data.label) ? item.data.label : "Objeto"
   };
+
   return group;
 };
