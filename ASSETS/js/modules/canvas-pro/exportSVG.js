@@ -1,18 +1,16 @@
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/exportSVG.js (Industrial Laser Edition - v35 PRO)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/exportSVG.js
-
 Descripción:
 Procesador y exportador de SVG optimizado para corte y grabado láser
 en LightBurn, CNC y maquinaria industrial.
-
 Cumple rigurosamente con:
 - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
 - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
 - DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt)
 - RESULTADO ESPERADO (Huecos físicos reales sin transparencias cosméticas,
-  purgado de controladores isHole para evitar dobles líneas de quemado,
-  vectorización recursiva tipográfica Fonts-to-Paths y limpieza de artefactos).
+purgado de controladores isHole para evitar dobles líneas de quemado,
+vectorización recursiva tipográfica Fonts-to-Paths y limpieza de artefactos).
 
 FASE DE OPERACIÓN:
 1. Selección y clonado defensivo de la capa de diseño (designLayer o activeLayer).
@@ -28,88 +26,17 @@ FASE DE OPERACIÓN:
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
-/**
- * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
- * @param {paper.Item} item
- * @returns {paper.Item|null}
- */
 function getContentItem(item) {
     if (!item) return null;
     if (item.data && item.data.clipGroup) {
         if (!item.children) return item;
         const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
         if (content) return content;
-        const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-        if (fallback) return fallback;
         return item.children[1] || item.children[0] || item;
-    }
-    return item;
-}
-
-/**
- * Aplica recursivamente una matriz a los segmentos de un trazado
- */
-function bakeMatrixIntoPath(path, matrix) {
-    if (!path || !matrix || matrix.isIdentity()) return;
-    if (path.segments) {
-        path.segments.forEach(seg => {
-            seg.point = matrix.transform(seg.point);
-            if (seg.handleIn) seg.handleIn = matrix.transform(seg.handleIn).subtract(matrix.transform(new paper.Point(0, 0)));
-            if (seg.handleOut) seg.handleOut = matrix.transform(seg.handleOut).subtract(matrix.transform(new paper.Point(0, 0)));
-        });
-    }
-    if (path.children && Array.isArray(path.children)) {
-        path.children.forEach(child => bakeMatrixIntoPath(child, matrix));
-    }
-}
-
-/**
- * Convierte un PointText o grupo tipográfico a un CompoundPath/Path vectorial horneado.
- * @param {paper.Item} textItem
- * @returns {paper.Item|null}
- */
-function vectorizeTextItem(textItem) {
-    if (!textItem) return null;
-    try {
-        if (typeof textItem.createPath === "function") {
-            const path = textItem.createPath({ insert: false });
-            if (path) {
-                path.fillColor = textItem.fillColor ? textItem.fillColor.clone() : new paper.Color("#000000");
-                path.strokeColor = textItem.strokeColor ? textItem.strokeColor.clone() : null;
-                path.strokeWidth = textItem.strokeWidth || 0;
-                path.matrix = textItem.matrix ? textItem.matrix.clone() : new paper.Matrix();
-                path.data = {
-                    ...(textItem.data || {}),
-                    label: (textItem.data?.label || "Texto") + " (Vectorizado)"
-                };
-                return path;
-            }
-        } else if (typeof textItem.toPath === "function") {
-            const path = textItem.toPath();
-            if (path) {
-                path.data = {
-                    ...(textItem.data || {}),
-                    label: (textItem.data?.label || "Texto") + " (Vectorizado)"
-                };
-                return path;
-            }
-        }
-    } catch (err) {
-        console.warn("[EKKO EXPORT WARNING] Falló la conversión de texto a trazado:", err);
     }
     return null;
 }
 
-/**
- * Prepara y exporta el diseño vectorial activo a un formato SVG estricto para corte/grabado láser.
- * Garantiza vacíos geométricos reales (sustracciones booleanas materializadas) y la purga
- * completa de controladores interactivos para evitar quemados dobles en LightBurn.
- *
- * @param {Object} [options] Opciones de exportación
- * @param {number} [options.precision=5] Precisión decimal para coordenadas vectoriales
- * @param {boolean} [options.asString=true] Retorna el SVG como string XML
- * @returns {string|SVGElement} Código XML SVG puro listo para manufactura o elemento SVG
- */
 export function prepareSVGForExport(options = {}) {
     if (typeof paper === "undefined" || !paper.project) {
         console.error("[EKKO EXPORT] Error crítico: Paper.js no está inicializado.");
@@ -126,12 +53,10 @@ export function prepareSVGForExport(options = {}) {
         return "";
     }
 
-    // Clonado aislado de la capa (insert: false para no contaminar el lienzo interactivo)
     const tempLayer = designLayer.clone({ insert: false });
 
     // 2. PURGADO INICIAL DE ARTEFACTOS AUXILIARES Y ELEMENTOS NO GRABABLES
-    // Elimina de inmediato mockups, fondos, guías inteligentes, cotas, reglas, marcas de agua y cajas de selección
-    const artifactsToRemove = [];
+    const itemsToRemove = [];
     tempLayer.getItems({
         match: function(item) {
             const data = item.data || {};
@@ -154,86 +79,64 @@ export function prepareSVGForExport(options = {}) {
                 (item instanceof paper.PointText && item.content === window.EKKO_CONFIG?.seguridad?.watermarkText)
             );
         }
-    }).forEach(it => artifactsToRemove.push(it));
+    }).forEach(it => itemsToRemove.push(it));
 
-    artifactsToRemove.forEach(it => {
+    itemsToRemove.forEach(it => {
         try { it.remove(); } catch (e) {}
     });
 
     // 3. DESEMPAQUETADO SEGURO DE GRUPOS DE RECORTE (clipGroup)
-    // Extrae el contenido útil al nivel raíz de tempLayer horneando matrices para evitar pérdidas por máscaras
     const clipGroups = [];
     tempLayer.getItems({
         match: function(item) {
-            return item.data && item.data.clipGroup === true;
+            return item instanceof paper.Group && item.data && item.data.clipGroup;
         }
     }).forEach(cg => clipGroups.push(cg));
 
     clipGroups.forEach(group => {
-        const groupParent = group.parent || tempLayer;
-        const groupIndex = group.index;
-        const groupMatrix = group.matrix ? group.matrix.clone() : new paper.Matrix();
-        
-        const usefulChildren = [];
-        if (group.children) {
-            [...group.children].forEach(child => {
-                if (child.clipMask || (child.data && (child.data.isMask || child.data.mockup || child.data.wasClipMask))) {
-                    child.remove();
-                } else {
-                    usefulChildren.push(child);
-                }
-            });
-        }
+        const parent = group.parent || tempLayer;
+        const groupIndex = parent.children.indexOf(group);
+        const childrenCopy = [...group.children];
 
-        usefulChildren.forEach(child => {
-            if (child.matrix && !groupMatrix.isIdentity()) {
-                child.matrix = groupMatrix.chain(child.matrix);
+        childrenCopy.forEach(child => {
+            if (child.clipMask || (child.data && (child.data.isMask || child.data.wasClipMask))) {
+                child.remove();
+                return;
             }
-            groupParent.insertChild(groupIndex, child);
+            if (group.matrix && !group.matrix.isIdentity()) {
+                child.transform(group.matrix);
+            }
+            parent.insertChild(groupIndex, child);
         });
-
         group.remove();
     });
 
-    // 4. VECTORIZACIÓN RECURSIVA DE TIPOGRAFÍAS (Fonts-to-Paths)
-    // Convierte todos los PointText y grupos de texto curvo a CompoundPaths cerrados horneados
-    // para independizar el archivo de las fuentes del sistema o de la máquina láser
+    // 4. VECTORIZACIÓN TIPOGRÁFICA RECURSIVA (FONTS-TO-PATHS)
     const textItems = [];
     tempLayer.getItems({
         match: function(item) {
-            return (
-                item instanceof paper.PointText ||
-                item.className === "PointText" ||
-                (item.data && (item.data.isCurvedGroup || item.data.isSpacedGroup))
-            );
+            return item instanceof paper.PointText;
         }
-    }).forEach(item => textItems.push(item));
+    }).forEach(t => textItems.push(t));
 
-    textItems.forEach(item => {
-        if (item.data && (item.data.isCurvedGroup || item.data.isSpacedGroup)) {
-            // Grupo de texto compuesto: vectorizar cada hijo PointText
-            if (item.children) {
-                const subTexts = [...item.children].filter(c => c instanceof paper.PointText);
-                subTexts.forEach(st => {
-                    const vec = vectorizeTextItem(st);
-                    if (vec) {
-                        item.insertChild(st.index, vec);
-                        st.remove();
-                    }
-                });
+    textItems.forEach(textItem => {
+        try {
+            const pathForm = textItem.createPath({ insert: false });
+            if (pathForm) {
+                pathForm.fillColor = textItem.fillColor || new paper.Color(0);
+                pathForm.strokeColor = textItem.strokeColor || null;
+                pathForm.strokeWidth = textItem.strokeWidth || 0;
+                pathForm.transform(textItem.matrix);
+                pathForm.data = { ...(textItem.data || {}), isVectorizedText: true };
+                textItem.parent.insertChild(textItem.index, pathForm);
+                textItem.remove();
             }
-        } else if (item instanceof paper.PointText) {
-            const vec = vectorizeTextItem(item);
-            if (vec) {
-                const parent = item.parent || tempLayer;
-                parent.insertChild(item.index, vec);
-                item.remove();
-            }
+        } catch (err) {
+            console.warn("[EKKO EXPORT] Error al vectorizar tipografía nativa:", err);
         }
     });
 
-    // 5. MATERIALIZACIÓN BOOLEANA CSG EN LA CAPA CLONADA
-    // Hornea las perforaciones físicas reales de los calados activos sobre las masas sólidas inferiores
+    // 5. MATERIALIZACIÓN FÍSICA DE SUSTRACCIONES BOOLEANAS CSG
     try {
         if (typeof recalculateDynamicSubtractions === "function") {
             recalculateDynamicSubtractions(tempLayer);
@@ -245,28 +148,23 @@ export function prepareSVGForExport(options = {}) {
     }
 
     // 6. PURGADO DE CALADOS ACTIVOS (isHole)
-    // Dado que el corte booleano ya fue materializado en la geometría de las masas sólidas inferiores,
-    // se eliminan todas las entidades de calado interactivo para no generar líneas de corte duplicadas en LightBurn
-    const holesToRemove = [];
+    const holeEntities = [];
     tempLayer.getItems({
         match: function(item) {
-            return item.data && (item.data.isHole === true || item.data.isHoleController === true);
+            return item.data && item.data.isHole === true;
         }
-    }).forEach(hole => holesToRemove.push(hole));
+    }).forEach(h => holeEntities.push(h));
 
-    holesToRemove.forEach(hole => {
-        try { hole.remove(); } catch (e) {}
+    holeEntities.forEach(h => {
+        try { h.remove(); } catch (e) {}
     });
 
-    // 7. SANITIZACIÓN VECTORIAL Y ASIGNACIÓN DE ESTILOS PARA CORTE/GRABADO LÁSER
-    // - Asigna fillRule "evenodd" en todos los CompoundPaths para renderizado de huecos estándar
-    // - Asegura colores visibles (negro para grabado / trazo fino) evitando paths invisibles ignorados por LightBurn
-    // - Descarta geometrías vacías o degeneradas (sin área ni segmentos)
+    // 7. SANITIZACIÓN INDUSTRIAL: fillRule evenodd y purga de degenerados
     const emptyItems = [];
     tempLayer.getItems({
         match: function(item) {
             if (item instanceof paper.PathItem) {
-                const segCount = item.segments ? item.segments.length : 
+                const segCount = item.segments ? item.segments.length :
                     (item.children ? item.children.reduce((acc, c) => acc + (c.segments ? c.segments.length : 0), 0) : 0);
                 const area = Math.abs(item.area || 0);
                 if (segCount < 2 || area < 1e-4) {
@@ -286,18 +184,12 @@ export function prepareSVGForExport(options = {}) {
             return item instanceof paper.PathItem;
         }
     }).forEach(item => {
-        // Regla de relleno estándar industrial
-        if (item instanceof paper.CompoundPath) {
-            item.fillRule = "evenodd";
-        }
-        // Asignación de estilo por defecto si carece de color
+        item.fillRule = "evenodd";
         if (!item.fillColor && !item.strokeColor) {
-            item.fillColor = new paper.Color("#000000");
+            item.fillColor = new paper.Color(0);
         }
-        // Garantizar trazo mínimo si es un path abierto de corte
-        if (!item.closed && (!item.strokeWidth || item.strokeWidth <= 0)) {
-            item.strokeWidth = 1.0;
-            if (!item.strokeColor) item.strokeColor = new paper.Color("#000000");
+        if (item.strokeColor && (!item.strokeWidth || item.strokeWidth <= 0)) {
+            item.strokeWidth = 0.1;
         }
     });
 
@@ -307,19 +199,17 @@ export function prepareSVGForExport(options = {}) {
         bounds: "content",
         precision: precision
     };
-
     let svgString = tempLayer.exportSVG(exportConfig);
 
-    // 9. INYECCIÓN DE DIMENSIONES FÍSICAS EN MILÍMETROS (Garantía de Escala 1:1 en LightBurn)
+    // 9. INYECCIÓN DE DIMENSIONES FÍSICAS EN MILÍMETROS
     if (typeof svgString === "string" && window.mmPerPaperUnit) {
         const bounds = tempLayer.bounds;
         if (bounds && bounds.width > 0 && bounds.height > 0) {
             const widthMm = (bounds.width * window.mmPerPaperUnit).toFixed(2);
             const heightMm = (bounds.height * window.mmPerPaperUnit).toFixed(2);
-            
-            // Reemplazar o inyectar width y height con sufijo "mm" en el tag raíz <svg>
+
             svgString = svgString.replace(
-                /<svg\b([^>]*)>/i,
+                /<svg([^>]*)>/i,
                 (match, attrs) => {
                     let newAttrs = attrs;
                     if (/\bwidth="[^"]*"/i.test(newAttrs)) {
@@ -338,7 +228,6 @@ export function prepareSVGForExport(options = {}) {
         }
     }
 
-    // 10. LIBERACIÓN DE MEMORIA DEL LIENZO TEMPORAL
     tempLayer.remove();
 
     if (window.EKKO_DEBUG) {
@@ -348,29 +237,24 @@ export function prepareSVGForExport(options = {}) {
     return asString ? svgString : new DOMParser().parseFromString(svgString, "image/svg+xml").documentElement;
 }
 
-/**
- * Dispara la descarga del SVG preparado directamente en el navegador del usuario.
- * @param {string} [filename="diseno-ekko.svg"] Nombre del archivo de salida
- */
 export function downloadExportedSVG(filename = "diseno-ekko.svg") {
-    const svgContent = prepareSVGForExport({ asString: true });
-    if (!svgContent || svgContent.trim() === "") {
-        alert("No hay elementos válidos para exportar en el lienzo.");
+    const svgCode = prepareSVGForExport({ asString: true, precision: 5 });
+    if (!svgCode || svgCode.trim() === "") {
+        alert("No se pudo generar el SVG para exportar.");
         return;
     }
 
-    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
+    const blob = new Blob([svgCode], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = filename.endsWith(".svg") ? filename : (filename + ".svg");
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
 }
 
-// Exposición global segura
 if (typeof window !== "undefined") {
     window.prepareSVGForExport = prepareSVGForExport;
     window.downloadExportedSVG = downloadExportedSVG;
