@@ -86,7 +86,6 @@ const toolState = {
     currentSurface: 0,
     zoom: 1
 };
-
 const sceneStates = {};
 const undoStack = [];
 const redoStack = [];
@@ -180,12 +179,10 @@ function updateSelectionInfo() {
         if (objH) objH.value = "";
         return;
     }
-
     const displayItem = getContentItem(window.selectedItem);
     const selInfo = document.getElementById("selectionInfo");
     const objW = document.getElementById("objWidth");
     const objH = document.getElementById("objHeight");
-
     if (displayItem && selInfo) {
         selInfo.textContent = displayItem.data?.label || "Objeto";
         if (objW) objW.value = (displayItem.bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
@@ -209,7 +206,6 @@ window.selectItem = function(item, isMulti = false) {
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
     }
-
     let isMockup = false;
     let curr = item;
     while (curr) {
@@ -248,11 +244,9 @@ window.selectItem = function(item, isMulti = false) {
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(window.selectedItem);
     }
-
     if (typeof window.updateContextualMenu === 'function') {
         window.updateContextualMenu(window.selectedItem);
     }
-
     updateSelectionInfo();
     updateLockButton();
     paper.view.update();
@@ -262,7 +256,6 @@ window.deselectItem = function() {
     if (window.nodeEditMode) {
         window.exitNodeEditMode();
     }
-
     if (window.selectedItems && window.selectedItems.length > 0) {
         window.selectedItems.forEach(it => { if (it) it.selected = false; });
     }
@@ -307,13 +300,18 @@ window.updateGlobalScaleFactor = function() {
         product = toolState.currentProduct;
     }
     const realDims = window.getRealProductDimensions(product);
-    const bounds = window.currentMockup.bounds;
-    if (bounds.width > 0 && bounds.height > 0) {
-        const scaleX = bounds.width / realDims.width;
-        const scaleY = bounds.height / realDims.height;
-        window.paperUnitsPerMm = (scaleX + scaleY) / 2.0;
-        window.mmPerPaperUnit = 1.0 / window.paperUnitsPerMm;
+    const mockupBounds = window.currentMockup.bounds;
+    let realW = realDims.width;
+    let realH = realDims.height;
+    const ratioReal = realW / realH;
+    const ratioMockup = mockupBounds.width / mockupBounds.height;
+    if ((ratioReal > 1 && ratioMockup < 1) || (ratioReal < 1 && ratioMockup > 1)) {
+        const temp = realW;
+        realW = realH;
+        realH = temp;
     }
+    window.paperUnitsPerMm = mockupBounds.width / realW;
+    window.mmPerPaperUnit = 1 / window.paperUnitsPerMm;
 };
 
 // Guardado de escenas del lienzo de Paper.js
@@ -499,7 +497,6 @@ function addSVGFromFile(file) {
         } catch (err) {
             console.error("Error al sanear XML de SVG:", err);
         }
-
         paper.project.importSVG(svgText, (item) => {
             if (window.paper && paper.project) {
                 const designLayer = paper.project.layers.find(l => l.name === 'designLayer');
@@ -542,14 +539,12 @@ async function addQRToCanvas(text) {
     const tempDiv = document.createElement("div");
     tempDiv.style.display = "none";
     document.body.appendChild(tempDiv);
-
     new QRCode(tempDiv, {
         text: text,
         width: 512,
         height: 512,
         correctLevel: QRCode.CorrectLevel.H
     });
-
     setTimeout(() => {
         const qrCanvas = tempDiv.querySelector("canvas");
         const qrImg = tempDiv.querySelector("img");
@@ -583,7 +578,6 @@ function renderCategories() {
     const catTabs = document.getElementById("categoryTabs");
     if (!catTabs) return;
     catTabs.innerHTML = "";
-
     window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
         const btn = document.createElement("button");
         btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
@@ -596,7 +590,6 @@ function renderCategories() {
         };
         catTabs.appendChild(btn);
     });
-
     if (window.EKKO_STUDIO_PRODUCTS.length > 0) {
         renderProducts(window.EKKO_STUDIO_PRODUCTS[toolState.currentCategory]);
     }
@@ -607,7 +600,6 @@ function renderProducts(group) {
     const prodTabs = document.getElementById("productTabs");
     if (!prodTabs) return;
     prodTabs.innerHTML = "";
-
     group.productos.forEach(product => {
         const btn = document.createElement("button");
         btn.className = "tab-btn" + (toolState.currentProduct && toolState.currentProduct.id === product.id ? " active" : "");
@@ -624,7 +616,6 @@ function renderProducts(group) {
         };
         prodTabs.appendChild(btn);
     });
-
     const selectedProd = group.productos[0];
     toolState.currentProduct = selectedProd;
     renderSurfaces(selectedProd);
@@ -637,7 +628,6 @@ function renderProductsOnly(productos, activeProduct) {
     const prodTabs = document.getElementById("productTabs");
     if (!prodTabs) return;
     prodTabs.innerHTML = "";
-
     productos.forEach(product => {
         const btn = document.createElement("button");
         btn.className = "tab-btn" + (activeProduct && activeProduct.id === product.id ? " active" : "");
@@ -661,7 +651,6 @@ function renderSurfacesOnly(product) {
     if (!surfTabs) return;
     surfTabs.innerHTML = "";
     if (!product || !product.superficies) return;
-
     product.superficies.forEach((surf, index) => {
         const btn = document.createElement("button");
         btn.className = "tab-btn" + (toolState.currentSurface === index ? " active" : "");
@@ -697,7 +686,6 @@ function createEditableText(point) {
             targetPoint = mockupBounds.center.clone();
         }
     }
-
     const txt = new paper.PointText({
         point: targetPoint,
         content: "Texto",
@@ -706,7 +694,6 @@ function createEditableText(point) {
         justification: "center",
         fontFamily: "Arial"
     });
-
     txt.data = { locked: false, label: "Texto" };
     paper.project.activeLayer.addChild(txt);
     const clipped = window.clipItem(txt);
@@ -781,7 +768,6 @@ async function bootstrapEKKO() {
         // 1. Resolver medidas fisicas iniciales del visor
         const initialWidth = containerEl.clientWidth || window.innerWidth;
         const initialHeight = containerEl.clientHeight || window.innerHeight;
-
         canvasEl.width = initialWidth;
         canvasEl.height = initialHeight;
 
@@ -832,7 +818,6 @@ async function bootstrapEKKO() {
                 console.error("[EKKO BOOTSTRAP] Error al inicializar herramienta de seleccion:", err);
             }
         }
-
         if (typeof initContextualMenu === "function") {
             try {
                 initContextualMenu();
@@ -936,7 +921,6 @@ async function bootstrapEKKO() {
 
         // 9. CARGA SECUENCIAL ASINCRONA DE ENDPOINTS (FUENTES Y PRODUCTOS)
         console.log("%c[EKKO BOOTSTRAP] Resolviendo catalogos de recursos y tipografias en segundo plano...", "color: #0369a1;");
-
         const fontsPromise = loadDynamicFonts()
             .then(loadedFonts => {
                 console.log("%c[EKKO BOOTSTRAP] Tipografias del backend sincronizadas en el editor.", "color: #10b981;");
