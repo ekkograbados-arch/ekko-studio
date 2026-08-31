@@ -1,18 +1,23 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v6.0 Deep Capture & Real Displacement Engine)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v6.1 Deep Capture, Real Displacement & Product Clipping Engine)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
 Sistema de Auditoría, Trazabilidad e Instrumentación Forense de 5 Niveles para EKKO Studio.
 Diseñado bajo los estándares del PROMPT MAESTRO y DIAGNÓSTICO DE ARQUITECTURA.
 
-MEJORAS v6.0:
-1. DETECCIÓN DE ARRASTRES CONGELADOS (Frozen Drag Detection):
-   - Audita si un evento DRAG produjo desplazamiento físico real en las coordenadas locales/globales.
+MEJORAS v6.1:
+1. CORRECCIÓN DE SINTAXIS (Zero SyntaxError):
+   - Eliminada la doble declaración de variables léxicas (const isHole).
+2. DETECCIÓN DE ARRASTRES CONGELADOS (Real Displacement Detection):
+   - Audita si un evento DRAG produjo desplazamiento físico real en las coordenadas del contenido útil.
    - Si la posición antes y después es idéntica tras un arrastre de mouse, marca inconsistencia explícita:
-     '[ARRASTRE FALLIDO / OBJETO BLOQUEADO]'.
-2. CONTROL DE CONSISTENCIA CSG EN MOVIMIENTO:
+     '[ARRASTRE BLOQUEADO]'.
+3. VERIFICACIÓN DE RECORTE OBLIGATORIO EN PRODUCTO (productClippingValid):
+   - Comprueba que en productos con mockup activo ningún elemento de diseño quede huérfano de máscara
+     de recorte (isClipped: true / clipGroup activo).
+4. CONTROL DE CONSISTENCIA CSG EN MOVIMIENTO Y GEOMBASE:
    - Valida que geomBase se desplace solidariamente con la posición visible.
-3. PRESERVACIÓN DE CONSISTENCIA Y EXPOSICIÓN GLOBAL (EKKO_DIAG).
+5. PRESERVACIÓN DE CONSISTENCIA Y EXPOSICIÓN GLOBAL (EKKO_DIAG).
 ========================================================================= */
 
 (function (root, factory) {
@@ -545,7 +550,7 @@ MEJORAS v6.0:
     start: function () {
       diagState.active = true;
       installAllInterceptors();
-      rawConsole.log('%c[EKKO_DIAG v6.0 Deep Capture] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
+      rawConsole.log('%c[EKKO_DIAG v6.1 Deep Capture] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
       return 'EKKO_DIAG Activo. Interactúa en el lienzo.';
     },
     stop: function () {
@@ -562,7 +567,7 @@ MEJORAS v6.0:
     report: function () {
       const ops = diagState.operations;
       let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-      outputText += '║               EKKO STUDIO DIAGNOSTIC v6.0 - INFORME CONSOLIDADO                  ║\n';
+      outputText += '║               EKKO STUDIO DIAGNOSTIC v6.1 - INFORME CONSOLIDADO                  ║\n';
       outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
       outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
 
