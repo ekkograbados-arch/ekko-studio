@@ -1126,3 +1126,4 @@ protectGlobal('deselectItem', _deselectItem);
 protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
+
