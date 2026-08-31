@@ -1,12 +1,16 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/selection.js (v36.0 PRO Industrial - Live CSG Reactive & Deep Group Safety)
+   Módulo: ASSETS/js/modules/selection.js (v37.0 PRO Industrial - Fixed Product Mask Drag & Offset Contours)
    Ruta en repositorio: ASSETS/js/modules/selection.js
    Descripción:
    Gestión integral de selección simple y múltiple, arrastre en bloque e individual,
    recuadro de selección por arrastre (marquee), redimensionamiento (8 tiradores) y rotación unificada.
    Sincronizado al 100% con el motor CSG reactivo de Descomposición por Jerarquía de Contención y Capas.
 
-   CORRECCIONES Y BLINDAJES ARQUITECTÓNICOS V36.0 PRO:
+   CORRECCIONES Y BLINDAJES ARQUITECTÓNICOS V37.0 PRO:
+   0. RESOLUCIÓN DEL CONTORNO DESFASADO DEL PRODUCTO AL ARRASTRAR SVG:
+      - Erradicado el desplazamiento erróneo del contenedor 'clipGroup' en 'onMouseDrag'.
+      - La máscara física de producto (clipMask) se mantiene estrictamente estática y concéntrica con el mockup.
+      - El diseño se desplaza libremente sobre la superficie del producto sin arrastrar el contorno de recorte.
    1. RESOLUCIÓN DEFINITIVA DEL BLOQUEO DE ARRASTRE EN GRUPOS CREADOS (OP-00020 y OP-00059):
       - Implementación de 'syncGeomBaseDeep': propagación recursiva del vector delta hacia
         todos los descendientes con 'geomBase' dentro de 'paper.Group' y 'clipGroup'.
@@ -1024,10 +1028,18 @@ const _initSelectionTool = function() {
         const delta = newPos.subtract(dragInfo.target.position);
         dragInfo.target.position = newPos;
 
-        // Si el elemento contenedor (clipGroup) es distinto del target interno,
-        // sincronizar su posición para que los bounds geométricos no se desfasen jamás
-        if (dragInfo.item !== dragInfo.target && dragInfo.item && dragInfo.item.position) {
-          dragInfo.item.position = dragInfo.item.position.add(delta);
+        // BLINDAJE DE CONTENCIÓN DE PRODUCTO:
+        // Si dragInfo.item es un clipGroup, la máscara de producto (clipMask) JAMÁS debe
+        // desplazarse de las coordenadas físicas del producto (window.currentMockup / window.clipMask).
+        if (dragInfo.item && dragInfo.item.data && dragInfo.item.data.clipGroup) {
+          const mask = dragInfo.item.children ? dragInfo.item.children.find(c => c.clipMask || (c.data && (c.data.isMask || c.data.mockup))) : null;
+          if (mask) {
+            if (window.clipMask && window.clipMask.position) {
+              mask.position = window.clipMask.position.clone();
+            } else if (window.currentMockup && window.currentMockup.bounds) {
+              mask.position = window.currentMockup.bounds.center.clone();
+            }
+          }
         }
 
         // Sincronización recursiva pura de geomBase (1x delta exacto mediante Set visited)
@@ -1176,4 +1188,3 @@ protectGlobal('deselectItem', _deselectItem);
 protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
-
