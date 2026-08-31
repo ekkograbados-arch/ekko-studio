@@ -428,3 +428,4 @@ if (typeof window !== 'undefined') {
     window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
     window.isContainedIn = isContainedIn;
 }
+
