@@ -1,21 +1,51 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (v17.0 PRO Sync - Mask Protected)
+   Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (v19.0 PRO Sync - Deep GeomBase & Mask Protected - v3)
    Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
-   Descripción: Integrador de Interfaz Profesional (Versión v17.0 PRO - Mask Protected).
+   Descripción: Integrador de Interfaz Profesional (Versión v19.0 PRO - Deep GeomBase & Mask Protected (Revisión v3)).
    Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
    e integra comandos de alineación (Canva-style) y distribución espacial para objetos
    seleccionados corrigiendo el soporte para grupos de máscara (clipGroup).
    SOPORTA SINCRONIZACIÓN ABSOLUTA EN EDICIÓN DE NODOS GLOBAL (window.nodeEditMode).
    
-   CORRECCIONES ARQUITECTÓNICAS V17.0:
-   1. PROTECCIÓN DE MÁSCARA EN ALINEACIONES:
-      - 'alignSelection' opera exclusivamente sobre 'displayItem' (el diseño útil) y NUNCA sobre
-        el 'clipGroup' contenedor, impidiendo que la máscara del producto se desplace físicamente.
-      - Sincroniza 'geomBase' y dispara 'recalculateDynamicSubtractions()' para preservar reactividad CSG.
-   ========================================================================= */
+   CORRECCIONES ARQUITECTÓNICAS V18.0:
+   1. PROTECCIÓN DE MÁSCARA EN ALINEACIONES Y CENTRADO:
+      - 'alignSelection', 'centerSelection' y 'distributeSpacing' operan exclusivamente sobre 'displayItem' (el diseño útil)
+        y NUNCA sobre el 'clipGroup' contenedor, impidiendo que la máscara del producto se desplace físicamente.
+   2. PROPAGACIÓN PROFUNDA DE geomBase (syncGeomBaseDeep):
+      - Sincroniza recursivamente todos los geomBase de grupos simples y anidados tras alinear o distribuir.
+   3. REACTIVIDAD CSG PRESERVADA:
+      - Dispara 'recalculateDynamicSubtractions()' para recalcular sustracciones sobre el producto.
+========================================================================= */
 
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
 import { setMeasurementsVisibility } from "./canvasMeasurements.js";
+
+// Sincronización recursiva profunda de geomBase para grupos simples y anidados
+function syncGeomBaseDeep(item, delta) {
+  if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
+  if (typeof window.syncGeomBaseDeep === 'function') {
+    window.syncGeomBaseDeep(item, delta);
+    return;
+  }
+  const visited = new Set();
+  function recurse(target) {
+    if (!target || visited.has(target.id)) return;
+    visited.add(target.id);
+    if (target.data && target.data.geomBase) {
+      target.data.geomBase.position = target.data.geomBase.position.add(delta);
+    }
+    if (target.data && target.data.clipGroup && target.children) {
+      target.children.forEach(c => {
+        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) recurse(c);
+      });
+    }
+    if (target instanceof paper.Group && target.children) {
+      target.children.forEach(recurse);
+    }
+  }
+  recurse(item);
+}
+
 
 // Estilos CSS modernos (estilo Canva y Figma) para la barra de alineaciones y zoom
 const proToolbarStylesId = "ekko-pro-toolbar-styles";
@@ -278,10 +308,8 @@ function bindClickHandlers() {
       }
       const delta = target.position.subtract(oldPos);
 
-      // Sincronizar geomBase si existe
-      if (target.data && target.data.geomBase) {
-        target.data.geomBase.position = target.data.geomBase.position.add(delta);
-      }
+      // Sincronización recursiva profunda de geomBase
+      syncGeomBaseDeep(target, delta);
     });
 
     if (typeof window.recalculateDynamicSubtractions === 'function') {
@@ -335,9 +363,7 @@ function bindClickHandlers() {
         const newX = currentX + halfWidth;
         const deltaX = newX - oldX;
         displayItem.position.x = newX;
-        if (displayItem.data && displayItem.data.geomBase) {
-          displayItem.data.geomBase.position.x += deltaX;
-        }
+        syncGeomBaseDeep(displayItem, new paper.Point(deltaX, 0));
         currentX += bounds.width + spacing;
       }
     } else {
@@ -363,9 +389,7 @@ function bindClickHandlers() {
         const newY = currentY + halfHeight;
         const deltaY = newY - oldY;
         displayItem.position.y = newY;
-        if (displayItem.data && displayItem.data.geomBase) {
-          displayItem.data.geomBase.position.y += deltaY;
-        }
+        syncGeomBaseDeep(displayItem, new paper.Point(0, deltaY));
         currentY += bounds.height + spacing;
       }
     }
@@ -541,9 +565,7 @@ const alignSelection = (type) => {
     }
 
     const delta = target.position.subtract(oldPos);
-    if (target.data && target.data.geomBase) {
-      target.data.geomBase.position = target.data.geomBase.position.add(delta);
-    }
+    syncGeomBaseDeep(target, delta);
   } else {
     const combinedBounds = getSelectionBounds(selected);
     if (!combinedBounds) return;
@@ -580,9 +602,7 @@ const alignSelection = (type) => {
       }
 
       const delta = target.position.subtract(oldPos);
-      if (target.data && target.data.geomBase) {
-        target.data.geomBase.position = target.data.geomBase.position.add(delta);
-      }
+      syncGeomBaseDeep(target, delta);
     });
   }
 
