@@ -570,7 +570,8 @@ function renderCategories() {
     if (!catTabs) return;
     catTabs.innerHTML = "";
 
-    window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
+    const catalog = Array.isArray(window.EKKO_STUDIO_PRODUCTS) ? window.EKKO_STUDIO_PRODUCTS : [];
+    catalog.forEach((group, index) => {
         const btn = document.createElement("button");
         btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
         btn.textContent = group.categoria;
@@ -897,15 +898,16 @@ async function bootstrapEKKO() {
                 console.warn("[EKKO BOOTSTRAP] Fallo no critico al sincronizar fuentes:", err);
             });
 
-        const productsPromise = loadDynamicProducts()
-            .then(loadedProducts => {
-                window.EKKO_STUDIO_PRODUCTS = loadedProducts;
-                renderCategories();
-            })
-            .catch(err => {
-                console.warn("[EKKO BOOTSTRAP] Usando catalogo local de resguardo (Fallback) para productos.");
-                renderCategories();
-            });
+        const productsPromise = (async () => {
+            try {
+                if (typeof loadDynamicProducts === "function") {
+                    await loadDynamicProducts();
+                }
+            } catch (e) {
+                console.warn("[EKKO BOOTSTRAP] Usando catalogo local de resguardo (Fallback) para productos:", e);
+            }
+            renderCategories();
+        })();
 
         await Promise.all([fontsPromise, productsPromise]);
 
