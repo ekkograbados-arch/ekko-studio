@@ -1,20 +1,21 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v30)
-   Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
-   
-   Descripción:
-   Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
-   para EKKO Studio basado en Paper.js.
-   
-   Cumple rigurosamente con:
-   - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
-   - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-   - DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt):
-     Resuelve de raíz el bug crítico donde 'activeNodeItem.clone({ insert: false })'
-     sobreescribía 'geomBase' con la geometría visible ya mutilada/perforada por CSG.
-   - Preservación inmaculada de 'geomBase' en coordenadas locales neutras.
-   - Sincronización reactiva del motor CSG durante el arrastre y salida de nodos.
-   ========================================================================= */
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v32 - CSG Reactive & Clean Stacking)
+Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
+Descripción:
+Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
+para EKKO Studio basado en Paper.js.
+
+Cumple rigurosamente con:
+- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
+- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt):
+  * Resuelve de raíz el bug crítico donde 'activeNodeItem.clone({ insert: false })'
+    sobreescribía 'geomBase' con la geometría visible ya mutilada/perforada por CSG.
+  * Preservación inmaculada de 'geomBase' en coordenadas locales neutras.
+  * Blindaje de edición de calados activos (isHole): visibilidad forzada y contorno interactivo en edición.
+  * Sincronización reactiva del motor CSG en vivo al arrastrar nodos de calados.
+  * Preservación de vértices prístinos al editar masas sólidas sin aniquilación por CSG intermedio.
+========================================================================= */
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
@@ -36,6 +37,10 @@ function getContentItem(item) {
   return item;
 }
 
+/**
+ * Obtiene la matriz acumulada global de un elemento recorriendo sus ancestros
+ * hasta llegar a la capa activa (Layer), evitando desfasajes por jerarquías intermedias.
+ */
 function getMatrixRelativeTo(item, targetAncestor) {
   let matrix = new paper.Matrix();
   let current = item;
@@ -61,6 +66,8 @@ let activeNodeItem = null;
 let nodeHandlesGroup = null;
 let selectedNodes = new Set();
 let isDraggingNode = false;
+let isDraggingHandle = false;
+let activeHandleData = null;
 let dragStartPoint = null;
 let marqueeRect = null;
 let nodeEditTool = null;
@@ -81,11 +88,11 @@ function getTargetPaths(item) {
     if (el instanceof paper.Path) {
       paths.push(el);
     } else if (el instanceof paper.CompoundPath) {
-      if (el.children) {
+      if (el.children && el.children.length > 0) {
         el.children.forEach(c => findPathsRecursive(c));
       }
     } else if (el instanceof paper.Group) {
-      if (el.children) {
+      if (el.children && el.children.length > 0) {
         el.children.forEach(c => findPathsRecursive(c));
       }
     }
@@ -95,14 +102,10 @@ function getTargetPaths(item) {
 }
 
 /**
- * Sincroniza la mutación de los segmentos directamente sobre 'geomBase'.
- * 
- * Corrección de Arquitectura Fundamental:
- * Jamás clona 'activeNodeItem' directamente para asignarlo a 'geomBase', porque el item
- * visible puede contener perforaciones booleanas activas causadas por capas superiores en Z.
- * En su lugar, transforma los trazados editados a su espacio local neutro invirtiendo
+ * SINCRONIZACIÓN IMPECABLE DE GEOMETRÍA BASE (ANTI-CORRUPCIÓN CSG)
+ * Transforma los trazados editados a su espacio local neutro invirtiendo
  * la matriz de transformación del elemento y reconstruye 'geomBase' inmaculada.
- * 
+ *
  * @param {paper.Item} item
  */
 function syncGeometryToGeomBase(item) {
@@ -124,9 +127,10 @@ function syncGeometryToGeomBase(item) {
   });
 
   newGeomBase.matrix = new paper.Matrix();
-
   if (item.data.geomBase) {
-    item.data.geomBase.remove();
+    try {
+      item.data.geomBase.remove();
+    } catch (e) {}
   }
   item.data.geomBase = newGeomBase;
 }
@@ -137,6 +141,7 @@ function syncGeometryToGeomBase(item) {
  */
 export function enterNodeEditMode(item) {
   if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
+
   const target = getContentItem(item);
   if (!target) return;
 
@@ -209,6 +214,8 @@ export function enterNodeEditMode(item) {
   window.nodeEditMode = true;
   window.nodeEditTarget = activeNodeItem;
   window.isDraggingNode = false;
+  isDraggingHandle = false;
+  activeHandleData = null;
 
   // Clic derecho en el canvas para salir del modo de edición de nodos
   const canvasEl = document.getElementById('editorCanvas');
@@ -231,7 +238,7 @@ export function enterNodeEditMode(item) {
     window.updateSelectionBox(null);
   }
 
-  // Si el elemento es un sólido afectado por CSG, mostramos temporalmente su masa base original
+  // 1. Si el elemento es un sólido afectado por CSG, mostramos temporalmente su masa base original
   if (activeNodeItem.data && activeNodeItem.data.geomBase && !activeNodeItem.data.isHole) {
     const pristine = activeNodeItem.data.geomBase.clone({ insert: false });
     pristine.matrix = activeNodeItem.matrix.clone();
@@ -244,6 +251,15 @@ export function enterNodeEditMode(item) {
       activeNodeItem.addChild(pristine.clone({ insert: false }));
     }
     pristine.remove();
+    activeNodeItem.visible = true;
+  } else if (activeNodeItem.data && activeNodeItem.data.isHole) {
+    // 2. Si el elemento es un calado activo (isHole), hacerlo visible para que el usuario vea la silueta que edita
+    activeNodeItem.visible = true;
+    if (!activeNodeItem.strokeColor) {
+      activeNodeItem.strokeColor = new paper.Color('#0284c7');
+      activeNodeItem.strokeWidth = 1.5 / paper.view.zoom;
+      activeNodeItem.dashArray = [4, 4];
+    }
   }
 
   drawNodeHandles();
@@ -253,10 +269,12 @@ export function enterNodeEditMode(item) {
   nodeEditTool = new paper.Tool();
 
   nodeEditTool.onMouseDown = (event) => {
+    // Agregar nodo en trazado
     if (isAddNodeActive) {
       const targetPaths = getTargetPaths(activeNodeItem);
       let nearestLoc = null;
       let minDistance = 8 / paper.view.zoom;
+
       for (const path of targetPaths) {
         const loc = path.getNearestLocation(event.point);
         if (loc) {
@@ -267,13 +285,15 @@ export function enterNodeEditMode(item) {
           }
         }
       }
+
       if (nearestLoc) {
         const path = nearestLoc.path;
         const newSegment = nearestLoc.curve.divideAt(nearestLoc);
         if (newSegment) {
           syncGeometryToGeomBase(activeNodeItem);
-          if (typeof recalculateDynamicSubtractions === 'function') {
+          if (activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
             recalculateDynamicSubtractions();
+            activeNodeItem.visible = true;
           }
           selectedNodes.clear();
           drawNodeHandles();
@@ -297,6 +317,22 @@ export function enterNodeEditMode(item) {
       }
     }
 
+    // 1. Hit test para tiradores Bézier de curvatura (handleIn / handleOut)
+    const bezierHit = paper.project.hitTest(event.point, {
+      fill: true,
+      stroke: true,
+      tolerance: 8 / paper.view.zoom,
+      match: (hit) => hit.item && hit.item.data?.isCurveHandle
+    });
+
+    if (bezierHit) {
+      isDraggingHandle = true;
+      activeHandleData = bezierHit.item.data;
+      paper.view.update();
+      return;
+    }
+
+    // 2. Hit test para nodos principales (puntos de anclaje)
     const hitResult = paper.project.hitTest(event.point, {
       fill: true,
       stroke: true,
@@ -307,8 +343,10 @@ export function enterNodeEditMode(item) {
     if (hitResult) {
       const handleItem = hitResult.item;
       const ptIdx = handleItem.data.globalIdx;
+
       isDraggingNode = true;
       window.isDraggingNode = true;
+
       if (event.modifiers.shift) {
         if (selectedNodes.has(ptIdx)) {
           selectedNodes.delete(ptIdx);
@@ -321,11 +359,13 @@ export function enterNodeEditMode(item) {
           selectedNodes.add(ptIdx);
         }
       }
+
       drawNodeHandles();
       paper.view.update();
       return;
     }
 
+    // 3. Clic en el vacío: Deselección o inicio de recuadro de selección Marquee
     dragStartPoint = event.point.clone();
     if (!event.modifiers.shift) {
       selectedNodes.clear();
@@ -335,10 +375,48 @@ export function enterNodeEditMode(item) {
   };
 
   nodeEditTool.onMouseDrag = (event) => {
+    // Arrastre de tirador Bézier (curvatura)
+    if (isDraggingHandle && activeHandleData) {
+      const targetPath = paper.project.getItem({ id: activeHandleData.pathId });
+      if (targetPath && targetPath.segments[activeHandleData.localIdx]) {
+        const seg = targetPath.segments[activeHandleData.localIdx];
+        const localMouse = targetPath.globalToLocal(event.point);
+        const tangentVector = localMouse.subtract(seg.point);
+
+        if (activeHandleData.handleType === 'in') {
+          seg.handleIn = tangentVector;
+          if (event.modifiers.alt) {
+            // Desvincular simetría con Alt
+          } else {
+            seg.handleOut = tangentVector.multiply(-1);
+          }
+        } else if (activeHandleData.handleType === 'out') {
+          seg.handleOut = tangentVector;
+          if (event.modifiers.alt) {
+            // Desvincular simetría con Alt
+          } else {
+            seg.handleIn = tangentVector.multiply(-1);
+          }
+        }
+
+        syncGeometryToGeomBase(activeNodeItem);
+        if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
+          if (typeof recalculateDynamicSubtractions === 'function') {
+            recalculateDynamicSubtractions();
+            activeNodeItem.visible = true;
+          }
+        }
+        drawNodeHandles();
+        paper.view.update();
+        return;
+      }
+    }
+
+    // Arrastre de vértices seleccionados
     if (isDraggingNode) {
       const delta = event.delta;
       selectedNodes.forEach(selIdx => {
-        const matchingHandle = nodeHandlesGroup.children.find(c => c.data?.globalIdx === selIdx);
+        const matchingHandle = nodeHandlesGroup.children.find(c => c.data?.globalIdx === selIdx && c.data?.isNodeHandle);
         if (matchingHandle) {
           const targetPath = paper.project.getItem({ id: matchingHandle.data.pathId });
           if (targetPath && targetPath.segments[matchingHandle.data.localIdx]) {
@@ -356,13 +434,16 @@ export function enterNodeEditMode(item) {
       if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
         if (typeof recalculateDynamicSubtractions === 'function') {
           recalculateDynamicSubtractions();
+          activeNodeItem.visible = true;
         }
       }
 
+      drawNodeHandles();
       paper.view.update();
       return;
     }
 
+    // Selección por ventana (Marquee)
     if (dragStartPoint) {
       if (marqueeRect) marqueeRect.remove();
       const rect = new paper.Rectangle(dragStartPoint, event.point);
@@ -373,6 +454,7 @@ export function enterNodeEditMode(item) {
         strokeWidth: 1.5 / paper.view.zoom,
         fillColor: new paper.Color(0, 157, 236, 0.15)
       });
+
       if (nodeHandlesGroup) {
         nodeHandlesGroup.children.forEach(handle => {
           if (handle.data?.isNodeHandle) {
@@ -384,12 +466,26 @@ export function enterNodeEditMode(item) {
           }
         });
       }
+
       drawNodeHandles();
       paper.view.update();
     }
   };
 
   nodeEditTool.onMouseUp = (event) => {
+    if (isDraggingHandle) {
+      isDraggingHandle = false;
+      activeHandleData = null;
+      if (typeof window.saveHistory === 'function') window.saveHistory();
+      syncGeometryToGeomBase(activeNodeItem);
+      if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
+        if (typeof recalculateDynamicSubtractions === 'function') {
+          recalculateDynamicSubtractions();
+          activeNodeItem.visible = true;
+        }
+      }
+    }
+
     if (isDraggingNode) {
       isDraggingNode = false;
       window.isDraggingNode = false;
@@ -397,15 +493,20 @@ export function enterNodeEditMode(item) {
         window.saveHistory();
       }
       syncGeometryToGeomBase(activeNodeItem);
-      if (typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
+      if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
+        if (typeof recalculateDynamicSubtractions === 'function') {
+          recalculateDynamicSubtractions();
+          activeNodeItem.visible = true;
+        }
       }
     }
+
     if (marqueeRect) {
       marqueeRect.remove();
       marqueeRect = null;
     }
     dragStartPoint = null;
+    drawNodeHandles();
     paper.view.update();
   };
 
@@ -419,11 +520,12 @@ export function enterNodeEditMode(item) {
       btnAddNode = document.createElement('button');
       btnAddNode.className = 'toolbar-btn';
       btnAddNode.id = 'btnCtxAddNode';
-      btnAddNode.title = 'Añadir Nodo sobre el contorno';
-      btnAddNode.style.cssText = 'color: #0284c7; background: #f0f9ff; border-color: #bae6fd; font-weight: bold; margin-right: 8px;';
-      btnAddNode.innerHTML = '<i class="fas fa-plus-circle"></i> Añadir Nodo';
+      btnAddNode.title = 'Añadir puntos de anclaje haciendo clic en el contorno';
+      btnAddNode.style.cssText = 'color: #0284c7; background: #f0f9ff; border-color: #e0f2fe; font-weight: bold; margin-right: 8px;';
+      btnAddNode.innerHTML = '<i class="fas fa-plus"></i> Añadir Nodo';
       parentControls.insertBefore(btnAddNode, parentControls.firstChild);
     }
+
     btnAddNode.onclick = () => {
       isAddNodeActive = !isAddNodeActive;
       if (isAddNodeActive) {
@@ -461,6 +563,7 @@ export function enterNodeEditMode(item) {
   }
 
   document.addEventListener('keydown', handleNodeKeydown);
+
   const nodeEl = document.getElementById('ctxNodeEditControls');
   if (nodeEl) nodeEl.classList.remove('hidden');
 
@@ -480,6 +583,7 @@ export function exitNodeEditMode(skipSelect = false) {
     marqueeRect.remove();
     marqueeRect = null;
   }
+
   document.removeEventListener('keydown', handleNodeKeydown);
 
   const itemToRestore = activeNodeItem;
@@ -505,9 +609,16 @@ export function exitNodeEditMode(skipSelect = false) {
     delete window._handleNodeContextMenu;
   }
 
+  // Si era un calado activo, restablecer su visibilidad para el modo CSG estándar
+  if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
+    activeNodeItem.visible = false;
+  }
+
   activeNodeItem = null;
   selectedNodes.clear();
   isDraggingNode = false;
+  isDraggingHandle = false;
+  activeHandleData = null;
   window.nodeEditMode = false;
   window.nodeEditTarget = null;
   isAddNodeActive = false;
@@ -576,25 +687,33 @@ export function updateNodeHandlesScale() {
   if (!nodeHandlesGroup || !window.paper) return;
   const zoom = paper.view.zoom;
   const handleSize = 5 / zoom;
+  const tangentSize = 3.5 / zoom;
+
   nodeHandlesGroup.children.forEach(handle => {
     if (handle.data?.isNodeHandle) {
       if (handle instanceof paper.Path.Circle) {
         handle.radius = handleSize;
-      } else {
-        handle.bounds.size = new paper.Size(handleSize * 2, handleSize * 2);
       }
       handle.strokeWidth = 1.5 / zoom;
+    } else if (handle.data?.isCurveHandle) {
+      if (handle instanceof paper.Path.Circle) {
+        handle.radius = tangentSize;
+      }
+      handle.strokeWidth = 1 / zoom;
+    } else if (handle.data?.isTangentLine) {
+      handle.strokeWidth = 1 / zoom;
     }
   });
 }
 
 /**
- * Dibuja los tiradores visuales de cada segmento sobre el lienzo.
+ * Dibuja los tiradores visuales de cada segmento y sus tiradores Bézier sobre el lienzo.
  */
 export function drawNodeHandles() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
   }
+
   nodeHandlesGroup = new paper.Group();
   nodeHandlesGroup.data = { isNodeEditOverlay: true, isNodeHandleContainer: true };
 
@@ -603,6 +722,7 @@ export function drawNodeHandles() {
   const paths = getTargetPaths(activeNodeItem);
   const zoom = paper.view.zoom;
   const handleSize = 5 / zoom;
+  const tangentSize = 3.5 / zoom;
   let globalPointIdx = 0;
 
   paths.forEach(path => {
@@ -611,6 +731,64 @@ export function drawNodeHandles() {
       const isSelected = selectedNodes.has(ptIdx);
       const globalPoint = path.localToGlobal(segment.point);
 
+      // Si el nodo está seleccionado, dibujar sus tiradores Bézier de tangente si existen
+      if (isSelected) {
+        // Tirador de entrada (handleIn)
+        if (segment.handleIn && !segment.handleIn.isZero()) {
+          const globalIn = path.localToGlobal(segment.point.add(segment.handleIn));
+          const lineIn = new paper.Path.Line(globalPoint, globalIn);
+          lineIn.strokeColor = new paper.Color('#0284c7');
+          lineIn.strokeWidth = 1 / zoom;
+          lineIn.data = { isTangentLine: true };
+          nodeHandlesGroup.addChild(lineIn);
+
+          const dotIn = new paper.Path.Circle({
+            center: globalIn,
+            radius: tangentSize,
+            strokeColor: '#0284c7',
+            fillColor: '#ffffff',
+            strokeWidth: 1 / zoom,
+            insert: false
+          });
+          dotIn.data = {
+            isCurveHandle: true,
+            handleType: 'in',
+            globalIdx: ptIdx,
+            localIdx: localIdx,
+            pathId: path.id
+          };
+          nodeHandlesGroup.addChild(dotIn);
+        }
+
+        // Tirador de salida (handleOut)
+        if (segment.handleOut && !segment.handleOut.isZero()) {
+          const globalOut = path.localToGlobal(segment.point.add(segment.handleOut));
+          const lineOut = new paper.Path.Line(globalPoint, globalOut);
+          lineOut.strokeColor = new paper.Color('#0284c7');
+          lineOut.strokeWidth = 1 / zoom;
+          lineOut.data = { isTangentLine: true };
+          nodeHandlesGroup.addChild(lineOut);
+
+          const dotOut = new paper.Path.Circle({
+            center: globalOut,
+            radius: tangentSize,
+            strokeColor: '#0284c7',
+            fillColor: '#ffffff',
+            strokeWidth: 1 / zoom,
+            insert: false
+          });
+          dotOut.data = {
+            isCurveHandle: true,
+            handleType: 'out',
+            globalIdx: ptIdx,
+            localIdx: localIdx,
+            pathId: path.id
+          };
+          nodeHandlesGroup.addChild(dotOut);
+        }
+      }
+
+      // Nodo principal de anclaje
       const handle = new paper.Path.Circle({
         center: globalPoint,
         radius: handleSize,
@@ -639,6 +817,7 @@ export function drawNodeHandles() {
  */
 export function deleteSelectedNodes() {
   if (selectedNodes.size === 0 || !activeNodeItem) return;
+
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const paths = getTargetPaths(activeNodeItem);
@@ -671,8 +850,9 @@ export function deleteSelectedNodes() {
   selectedNodes.clear();
   syncGeometryToGeomBase(activeNodeItem);
 
-  if (typeof recalculateDynamicSubtractions === 'function') {
+  if (activeNodeItem && activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
     recalculateDynamicSubtractions();
+    activeNodeItem.visible = true;
   }
 
   drawNodeHandles();
@@ -684,6 +864,7 @@ export function deleteSelectedNodes() {
  */
 export function detachSelectedSubpaths() {
   if (!activeNodeItem || selectedNodes.size === 0) return;
+
   const target = getContentItem(activeNodeItem);
   if (!target || !(target instanceof paper.CompoundPath)) {
     alert("Esta función solo es aplicable para desarmar sub-trazados de objetos combinados o compuestos.");
@@ -705,6 +886,7 @@ export function detachSelectedSubpaths() {
   const isClipped = !!activeNodeItem.data?.clipGroup;
   const pathRelMatrix = getMatrixRelativeTo(target, isClipped ? activeNodeItem : null);
   const pathAbsMatrix = getGlobalMatrix(target);
+
   const extractedItems = [];
 
   pathsToExtract.forEach(pathId => {
@@ -748,6 +930,7 @@ export function detachSelectedSubpaths() {
   }
 
   exitNodeEditMode();
+
   if (typeof window.deselectItem === 'function') window.deselectItem();
 
   if (typeof recalculateDynamicSubtractions === 'function') {
@@ -773,6 +956,7 @@ function handleNodeKeydown(e) {
     return;
   }
   if (selectedNodes.size === 0 || !activeNodeItem) return;
+
   if (e.key === 'Delete' || e.key === 'Backspace') {
     e.preventDefault();
     deleteSelectedNodes();
