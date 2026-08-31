@@ -3,16 +3,17 @@
 // Solo se mostrarán errores reales de programación (console.error) para depuración.
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/mockupLoader.js (Soporte de Lienzo Infinito con Memoria Independiente - v7 PRO)
+Módulo: ASSETS/js/modules/mockupLoader.js (Soporte de Lienzo Infinito con Memoria Independiente - v9 PRO - v3)
 Ruta de reemplazo: ASSETS/js/modules/mockupLoader.js
 Descripción: Módulo para la carga y renderizado de mockups SVG con soporte para
 Lienzo Infinito interactivo para Paper.js (estilo Canva y LightBurn).
 ⚡ CORRECCIÓN DE ESTADO INDEPENDIENTE: Evita que el diseño de un producto (imágenes, textos, QRs)
 se filtre o copie automáticamente sobre otro producto al cambiar de categoría.
-⚡ CORRECCIÓN DE MÁSCARA ESTÁTICA Y ANTI-DESFASE:
+⚡ CORRECCIÓN DE MÁSCARA ESTÁTICA Y ANTI-DESFASE V8 PRO:
 Garantiza que 'window.clipItem' clone la máscara del producto perfectamente concéntrica
-con 'window.currentMockup', blindándola contra desplazamientos durante el arrastre.
+con 'window.currentMockup', blindándola contra desplazamientos durante el arrastre y alineaciones.
 ========================================================================= */
+
 
 window.infiniteCanvasMode = false;
 
