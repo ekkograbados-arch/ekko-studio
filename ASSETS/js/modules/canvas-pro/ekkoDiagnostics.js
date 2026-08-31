@@ -94,18 +94,23 @@ MEJORAS v6.0:
       zIndex = primary.parent.children.indexOf(primary);
     }
 
+    const target = getContentItem(primary);
+    const targetPos = (target && target.position) ? { x: Number(target.position.x.toFixed(1)), y: Number(target.position.y.toFixed(1)) } : ((primary && primary.position) ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null);
+
     const primaryData = primary ? {
       id: primary.id,
+      contentId: target ? target.id : primary.id,
       className: primary.className || (primary.constructor ? primary.constructor.name : 'Unknown'),
-      label: (primary.data && primary.data.label) || 'Item ' + primary.id,
+      label: (target && target.data && target.data.label) || (primary.data && primary.data.label) || 'Item ' + primary.id,
       zIndex: zIndex,
-      isHole: !!(primary.data && primary.data.isHole),
-      hasGeomBase: !!(primary.data && primary.data.geomBase),
-      geomBaseSegments: (primary.data && primary.data.geomBase) ? countSegments(primary.data.geomBase) : 0,
-      visibleSegments: countSegments(primary),
-      bounds: extractBounds(primary.bounds),
-      position: primary.position ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null,
-      isLocked: !!(primary.data && primary.data.locked)
+      isHole: target && target.data ? !!target.data.isHole : false,
+      isClipped: !!(primary.data && primary.data.clipGroup),
+      hasGeomBase: !!(target && target.data && target.data.geomBase),
+      geomBaseSegments: countSegments(target && target.data && target.data.geomBase),
+      visibleSegments: countSegments(target || primary),
+      bounds: target ? extractBounds(target.bounds) : extractBounds(primary.bounds),
+      position: targetPos,
+      isLocked: isLockedItem(primary)
     } : null;
 
     return {
@@ -142,20 +147,28 @@ MEJORAS v6.0:
       const isHole = !!(child.data && child.data.isHole);
       const hasGeomBase = !!(child.data && child.data.geomBase);
 
-      if (isHole) holeCount++; else massCount++;
+      const target = getContentItem(child);
+        const isHole = !!(target && target.data && target.data.isHole);
+        const hasGeomBase = !!(target && target.data && target.data.geomBase);
+        const isClipped = !!(child.data && child.data.clipGroup);
 
-      items.push({
-        index: index,
-        id: child.id,
-        className: child.className || (child.constructor ? child.constructor.name : 'Unknown'),
-        label: (child.data && child.data.label) || 'Item ' + child.id,
-        isHole: isHole,
-        hasGeomBase: hasGeomBase,
-        geomBaseSegments: hasGeomBase ? countSegments(child.data.geomBase) : 0,
-        visibleSegments: countSegments(child),
-        bounds: extractBounds(child.bounds)
+        if (isHole) holeCount++;
+        else massCount++;
+
+        items.push({
+          index: index,
+          id: child.id,
+          contentId: target ? target.id : child.id,
+          className: child.className || (child.constructor ? child.constructor.name : 'Unknown'),
+          label: (target && target.data && target.data.label) || (child.data && child.data.label) || 'Item ' + child.id,
+          isHole: isHole,
+          isClipped: isClipped,
+          hasGeomBase: hasGeomBase,
+          geomBaseSegments: hasGeomBase ? countSegments(target.data.geomBase) : 0,
+          visibleSegments: countSegments(target || child),
+          bounds: target ? extractBounds(target.bounds) : extractBounds(child.bounds)
+        });
       });
-    });
 
     return {
       timestamp: Date.now(),
@@ -176,7 +189,8 @@ MEJORAS v6.0:
       csgExecuted: true,
       holeClassificationValid: true,
       itemLossDetected: false,
-      dragDisplacementValid: true
+      dragDisplacementValid: true,
+      productClippingValid: true
     };
 
     if (beforeGeo.error || afterGeo.error) {
@@ -243,6 +257,19 @@ MEJORAS v6.0:
       if (!curr.project || !curr.parent) {
         checks.selectionValid = false;
         inconsistencies.push(`[SELECCIÓN HUÉRFANA] window.selectedItem apunta a un objeto desvinculado (ID: ${curr.id}).`);
+      }
+    }
+
+    // 5. Verificación de Enmascaramiento y Recorte en Producto (Mockup Containment)
+    if (typeof window !== 'undefined' && window.currentMockup && !window.infiniteCanvasMode && window.clipMask) {
+      const unclipped = afterGeo.itemsSummary.filter(it => !it.isClipped);
+      if (unclipped.length > 0) {
+        checks.productClippingValid = false;
+        unclipped.forEach(it => {
+          inconsistencies.push(
+            `[RECORTE DE PRODUCTO AUSENTE] El objeto ID: ${it.id} (${it.label}) no posee máscara de recorte (isClipped: false); los elementos deben permanecer contenidos dentro de los límites del producto.`
+          );
+        });
       }
     }
 
