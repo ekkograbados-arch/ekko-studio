@@ -61,6 +61,23 @@ MEJORAS v6.0:
     lastMouseDownGeo: null
   };
 
+  function getContentItem(item) {
+    if (!item) return null;
+    if (item.data && item.data.clipGroup) {
+      if (!item.children) return item;
+      const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+      if (content) return content;
+      const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
+      if (fallback) return fallback;
+      return item.children[1] || item.children[0] || item;
+    }
+    return item;
+  }
+
+  function isLockedItem(item) {
+    return !!(item && item.data && item.data.locked === true);
+  }
+
   function extractBounds(bounds) {
     if (!bounds) return null;
     return {
@@ -144,13 +161,10 @@ MEJORAS v6.0:
       );
       if (isUI) return;
 
-      const isHole = !!(child.data && child.data.isHole);
-      const hasGeomBase = !!(child.data && child.data.geomBase);
-
       const target = getContentItem(child);
-        const isHole = !!(target && target.data && target.data.isHole);
-        const hasGeomBase = !!(target && target.data && target.data.geomBase);
-        const isClipped = !!(child.data && child.data.clipGroup);
+      const isHole = !!(target && target.data && target.data.isHole);
+      const hasGeomBase = !!(target && target.data && target.data.geomBase);
+      const isClipped = !!(child.data && child.data.clipGroup);
 
         if (isHole) holeCount++;
         else massCount++;
