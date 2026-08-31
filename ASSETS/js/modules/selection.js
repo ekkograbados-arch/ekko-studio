@@ -1005,7 +1005,8 @@ const _initSelectionTool = function() {
         window.recalculateDynamicSubtractions();
       }
 
-      window.updateSelectionBox(null);
+      // Actualizar la caja y el contorno ajustado para que escale interactivamente en vivo
+      window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
     }
@@ -1023,12 +1024,17 @@ const _initSelectionTool = function() {
         const delta = newPos.subtract(dragInfo.target.position);
         dragInfo.target.position = newPos;
 
-        // Sincronización recursiva unificada sobre el target arrastrado (evita doble traslación de geomBase)
+        // Si el elemento contenedor (clipGroup) es distinto del target interno,
+        // sincronizar su posición para que los bounds geométricos no se desfasen jamás
+        if (dragInfo.item !== dragInfo.target && dragInfo.item && dragInfo.item.position) {
+          dragInfo.item.position = dragInfo.item.position.add(delta);
+        }
+
+        // Sincronización recursiva pura de geomBase (1x delta exacto mediante Set visited)
         syncGeomBaseDeep(dragInfo.target, delta);
       });
 
       // Recálculo reactivo CSG en vivo al mover capas (perfora dinámicamente lo que queda abajo)
-      // Ahora todas las masas y calados del grupo arrastrado tienen sus geomBase en las coordenadas exactas.
       if (typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
       }
@@ -1037,6 +1043,7 @@ const _initSelectionTool = function() {
         calculateSmartGuides(window.selectedItem, event);
       }
 
+      // Sincronizar caja de selección y contorno ajustado de silueta en tiempo real
       window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
