@@ -570,8 +570,7 @@ function renderCategories() {
     if (!catTabs) return;
     catTabs.innerHTML = "";
 
-    const catalog = Array.isArray(window.EKKO_STUDIO_PRODUCTS) ? window.EKKO_STUDIO_PRODUCTS : [];
-    catalog.forEach((group, index) => {
+    window.EKKO_STUDIO_PRODUCTS.forEach((group, index) => {
         const btn = document.createElement("button");
         btn.className = "tab-btn" + (toolState.currentCategory === index ? " active" : "");
         btn.textContent = group.categoria;
@@ -899,15 +898,15 @@ async function bootstrapEKKO() {
             });
 
         const productsPromise = (async () => {
-            try {
-                if (typeof loadDynamicProducts === "function") {
-                    await loadDynamicProducts();
-                }
-            } catch (e) {
-                console.warn("[EKKO BOOTSTRAP] Usando catalogo local de resguardo (Fallback) para productos:", e);
+            if (typeof loadDynamicProducts === "function") {
+                await loadDynamicProducts();
             }
+            console.log("%c[EKKO BOOTSTRAP] Catalogo de productos dinamizado con exito.", "color: #10b981;");
             renderCategories();
-        })();
+        })().catch(err => {
+            console.error("[EKKO BOOTSTRAP] Fallo critico al resolver el catalogo dinamico:", err);
+            renderCategories();
+        });
 
         await Promise.all([fontsPromise, productsPromise]);
 
