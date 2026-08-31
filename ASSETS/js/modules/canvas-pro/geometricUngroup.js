@@ -1,75 +1,72 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v35 - Semantic Classification & Z-Order Topological Engine)
-Ruta en repositorio: ASSETS/js/modules/canvas-pro/geometricUngroup.js
-Descripción:
-Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
-Basado en Paper.js y optimizado para corte y grabado láser (LightBurn / CNC).
+   Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36 - Deep Recursive Extraction & Containment Hierarchy Engine)
+   Ruta en repositorio: ASSETS/js/modules/canvas-pro/geometricUngroup.js
+   Descripción:
+   Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
+   Basado en Paper.js y optimizado para corte y grabado láser (LightBurn / CNC).
 
-Cumple rigurosamente con:
-- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN Y CAPAS
-- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt):
-  * Eliminación total de la paridad rígida de profundidad (depth % 2 === 1).
-  * Clasificador Semántico Vectorial: Distingue masas sólidas legítimas de calados reales
-    evaluando la estructura del CompoundPath original, reglas de bobinado (fillRule),
-    y contraste gráfico en grupos SVG.
-  * Desacoplamiento de Contención Topológica vs. Orden de Apilamiento Z:
-    El apilamiento Z respeta el orden documental del SVG y garantiza que los calados
-    únicamente perforen las masas ubicadas por debajo de ellos en Z.
-  * Sistema Anti-Aniquilación CSG: Impide que sustracciones sucesivas reduzcan masas a 0.
-  * Preservación absoluta de 'geomBase' en coordenadas neutras locales.
-  * Descomposición atómica completa en 1 solo clic.
-========================================================================= */
+   Cumple rigurosamente con:
+   - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN Y CAPAS
+   - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+   - DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt & EKKO_DIAG v6.1):
+     * Eliminación total de la paridad rígida de profundidad (depth % 2 === 1).
+     * Distinción semántica estricta: Masa Sólida Positiva vs Calado Activo Negativo.
+     * Reactividad CSG no destructiva en tiempo real gobernada por orden Z.
+     * Preservación absoluta de 'geomBase' en coordenadas neutras locales.
+     * Descomposición atómica completa en 1 solo clic.
+     * Blindaje Anti-Aniquilación en sustracciones booleanas en vivo.
+     * EXTRACCIÓN RECURSIVA PROFUNDA (v36.0): Soporte para grupos anidados
+       multinivel sin pérdida de reactividad CSG.
+   ========================================================================= */
 
 function isPath(item) {
-    return item && (item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path));
+  return item && (item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path));
 }
 
 function isCompoundPath(item) {
-    return item && (item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath));
+  return item && (item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath));
 }
 
 function isGroup(item) {
-    return item && (item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group));
+  return item && (item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group));
 }
 
 function isPlacedSymbol(item) {
-    return item && (item.className === 'PlacedSymbol' || item.className === 'SymbolItem' ||
-        (typeof paper !== 'undefined' && ((paper.PlacedSymbol && item instanceof paper.PlacedSymbol) || (paper.SymbolItem && item instanceof paper.SymbolItem))));
+  return item && (item.className === 'PlacedSymbol' || item.className === 'SymbolItem' ||
+    (typeof paper !== 'undefined' && ((paper.PlacedSymbol && item instanceof paper.PlacedSymbol) || (paper.SymbolItem && item instanceof paper.SymbolItem))));
 }
 
 /**
  * Obtiene la matriz acumulada global de un elemento recorriendo sus ancestros
- * hasta llegar a la capa activa (Layer), evitando desfasajes por jerarquías intermedias.
+ * hasta llegar a la raíz especificada (o al nivel de la vista global si root es null).
  */
-function getMatrixRelativeTo(item, targetAncestor) {
-    let matrix = new paper.Matrix();
-    let current = item;
-    while (current && current !== targetAncestor && !(current instanceof paper.Layer)) {
-        if (current.matrix) {
-            matrix = current.matrix.chain(matrix);
-        }
-        current = current.parent;
+function getMatrixRelativeTo(item, root) {
+  let mat = item.matrix ? item.matrix.clone() : new paper.Matrix();
+  let curr = item.parent;
+  while (curr && curr !== root && curr !== paper.project) {
+    if (curr.matrix && !curr.matrix.isIdentity()) {
+      mat = curr.matrix.chain(mat);
     }
-    return matrix;
+    curr = curr.parent;
+  }
+  return mat;
 }
 
 /**
- * Aplica una matriz de transformación geométrica directamente sobre los segmentos y tiradores
- * de un trazado (Baking de matriz), neutralizando su matriz local a identidad.
+ * Aplica y hornea la matriz de transformación en los segmentos y curvas de un trazado
  */
 function bakeMatrixIntoPath(path, matrix) {
-    if (!matrix || matrix.isIdentity()) return;
-    if (path.segments) {
-        path.segments.forEach(seg => {
-            seg.point = matrix.transform(seg.point);
-            if (seg.handleIn) seg.handleIn = matrix.transform(seg.handleIn).subtract(matrix.transform(new paper.Point(0, 0)));
-            if (seg.handleOut) seg.handleOut = matrix.transform(seg.handleOut).subtract(matrix.transform(new paper.Point(0, 0)));
-        });
-    }
-    if (path.children && Array.isArray(path.children)) {
-        path.children.forEach(child => bakeMatrixIntoPath(child, matrix));
-    }
+  if (!path || !matrix || matrix.isIdentity()) return;
+  if (path.segments) {
+    path.segments.forEach(seg => {
+      seg.point = matrix.transform(seg.point);
+      if (seg.handleIn) seg.handleIn = matrix.transform(seg.handleIn.add(seg.point)).subtract(seg.point);
+      if (seg.handleOut) seg.handleOut = matrix.transform(seg.handleOut.add(seg.point)).subtract(seg.point);
+    });
+  }
+  if (path.children && Array.isArray(path.children)) {
+    path.children.forEach(child => bakeMatrixIntoPath(child, matrix));
+  }
 }
 
 /**
@@ -78,57 +75,53 @@ function bakeMatrixIntoPath(path, matrix) {
  * Registra metadatos de origen (orden documental, fill original, pertenencia a compuesto).
  */
 let docOrderCounter = 0;
-
 function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
-    const currentMatrix = accumulatedMatrix ? accumulatedMatrix.chain(item.matrix || new paper.Matrix()) : (item.matrix ? item.matrix.clone() : new paper.Matrix());
-    const atomicPaths = [];
+  const currentMatrix = accumulatedMatrix ? accumulatedMatrix.chain(item.matrix || new paper.Matrix()) : (item.matrix ? item.matrix.clone() : new paper.Matrix());
+  const atomicPaths = [];
+  const isFromCompound = parentMeta.isFromCompound || isCompoundPath(item);
 
-    const isFromCompound = parentMeta.isFromCompound || isCompoundPath(item);
-
-    if (isPath(item)) {
-        const cloned = item.clone({ insert: false });
-        bakeMatrixIntoPath(cloned, currentMatrix);
-        cloned.matrix = new paper.Matrix();
-
-        if (cloned.segments && cloned.segments.length >= 3) {
-            cloned.closed = true;
-            cloned.data = {
-                ...(cloned.data || {}),
-                docOrder: docOrderCounter++,
-                originalFillColor: item.fillColor ? item.fillColor.clone() : null,
-                originalStrokeColor: item.strokeColor ? item.strokeColor.clone() : null,
-                originalStrokeWidth: item.strokeWidth || 0,
-                isFromCompound: isFromCompound,
-                originalClockwise: cloned.clockwise
-            };
-            atomicPaths.push(cloned);
-        } else {
-            cloned.remove();
-        }
-    } else if (isCompoundPath(item)) {
-        if (item.children && item.children.length > 0) {
-            item.children.forEach(child => {
-                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: true, compoundFill: item.fillColor }));
-            });
-        }
-    } else if (isGroup(item)) {
-        if (item.children && item.children.length > 0) {
-            const childrenCopy = [...item.children];
-            childrenCopy.forEach(child => {
-                if (child.clipMask) return;
-                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: false }));
-            });
-        }
-    } else if (isPlacedSymbol(item)) {
-        const def = (item.symbol && item.symbol.item) || item.definition || (item.symbol && item.symbol.definition);
-        if (def) {
-            const defClone = def.clone({ insert: false });
-            atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix, { isFromCompound: false }));
-            defClone.remove();
-        }
+  if (isPath(item)) {
+    const cloned = item.clone({ insert: false });
+    bakeMatrixIntoPath(cloned, currentMatrix);
+    cloned.matrix = new paper.Matrix();
+    if (cloned.segments && cloned.segments.length >= 3) {
+      cloned.closed = true;
+      cloned.data = {
+        ...(cloned.data || {}),
+        docOrder: docOrderCounter++,
+        originalFillColor: item.fillColor ? item.fillColor.clone() : null,
+        originalStrokeColor: item.strokeColor ? item.strokeColor.clone() : null,
+        originalStrokeWidth: item.strokeWidth || 0,
+        isFromCompound: isFromCompound,
+        originalClockwise: cloned.clockwise
+      };
+      atomicPaths.push(cloned);
+    } else {
+      cloned.remove();
     }
-
-    return atomicPaths;
+  } else if (isCompoundPath(item)) {
+    if (item.children && item.children.length > 0) {
+      item.children.forEach(child => {
+        atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: true, compoundFill: item.fillColor }));
+      });
+    }
+  } else if (isGroup(item)) {
+    if (item.children && item.children.length > 0) {
+      const childrenCopy = [...item.children];
+      childrenCopy.forEach(child => {
+        if (child.clipMask) return;
+        atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: false }));
+      });
+    }
+  } else if (isPlacedSymbol(item)) {
+    const def = (item.symbol && item.symbol.item) || item.definition || (item.symbol && item.symbol.definition);
+    if (def) {
+      const defClone = def.clone({ insert: false });
+      atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix, { isFromCompound: false }));
+      defClone.remove();
+    }
+  }
+  return atomicPaths;
 }
 
 /**
@@ -137,160 +130,143 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
  * hacia el interior a lo largo de las curvas del trazado.
  */
 function getInteriorTestPoint(path) {
-    if (!path || !path.bounds) return null;
-    const center = path.bounds.center;
-    if (path.contains(center)) return center;
-
-    if (path.curves && path.curves.length > 0) {
-        for (let i = 0; i < path.curves.length; i++) {
-            const curve = path.curves[i];
-            const pt = curve.getPointAtTime(0.5);
-            const normal = curve.getNormalAtTime(0.5);
-            if (!normal) continue;
-            const offsets = [0.5, 1.0, 2.0, 5.0, 10.0];
-            for (const offset of offsets) {
-                const testA = pt.add(normal.multiply(offset));
-                if (path.contains(testA)) return testA;
-                const testB = pt.subtract(normal.multiply(offset));
-                if (path.contains(testB)) return testB;
-            }
-        }
+  if (!path || !path.bounds) return null;
+  const center = path.bounds.center;
+  if (path.contains(center)) return center;
+  if (path.curves && path.curves.length > 0) {
+    for (let c = 0; c < path.curves.length; c++) {
+      const curve = path.curves[c];
+      const pt = curve.getPointAtTime(0.5);
+      const normal = curve.getNormalAtTime(0.5).normalize(2);
+      const inward1 = pt.add(normal);
+      if (path.contains(inward1)) return inward1;
+      const inward2 = pt.subtract(normal);
+      if (path.contains(inward2)) return inward2;
     }
-    return center;
+  }
+  return center;
 }
 
 /**
- * Determina si el trazado 'child' está contenido geométricamente dentro de 'parent'.
- * Utiliza muestreo de múltiples puntos (centroide + vértices perimetrales).
+ * Determina si el trazado 'child' está topológicamente contenido dentro de 'parent'.
+ * Utiliza muestreo multipunto (centro, cuartiles y vértices) para robustez ante concavidades.
  */
-export function isContainedIn(child, parent) {
-    if (!child || !parent) return false;
-    if (!parent.bounds || !child.bounds) return false;
-
-    // Descarte inicial rápido por caja envolvente
-    if (!parent.bounds.contains(child.bounds.center) && !parent.bounds.intersects(child.bounds)) {
-        return false;
+function isContainedIn(child, parent) {
+  if (!child || !parent || child === parent) return false;
+  if (!parent.bounds.contains(child.bounds) && !parent.bounds.intersects(child.bounds)) {
+    return false;
+  }
+  const testPoints = [];
+  const interior = getInteriorTestPoint(child);
+  if (interior) testPoints.push(interior);
+  if (child.segments && child.segments.length > 0) {
+    const step = Math.max(1, Math.floor(child.segments.length / 6));
+    for (let i = 0; i < child.segments.length; i += step) {
+      testPoints.push(child.segments[i].point);
     }
-
-    const testPoints = [
-        child.bounds.center,
-        child.bounds.topLeft,
-        child.bounds.topRight,
-        child.bounds.bottomLeft,
-        child.bounds.bottomRight
-    ];
-
-    if (child.segments && child.segments.length > 0) {
-        const step = Math.max(1, Math.floor(child.segments.length / 4));
-        for (let i = 0; i < child.segments.length; i += step) {
-            testPoints.push(child.segments[i].point);
-        }
+  }
+  if (testPoints.length === 0) return false;
+  let containedCount = 0;
+  for (let i = 0; i < testPoints.length; i++) {
+    if (parent.contains(testPoints[i])) {
+      containedCount++;
     }
-
-    let containedCount = 0;
-    for (let i = 0; i < testPoints.length; i++) {
-        if (parent.contains(testPoints[i])) {
-            containedCount++;
-        }
-    }
-
-    return containedCount >= Math.ceil(testPoints.length * 0.5);
+  }
+  return containedCount >= Math.ceil(testPoints.length * 0.5);
 }
 
 /**
  * Construye el árbol topológico de contención geométrica y calcula profundidades relativas.
  */
 function buildContainmentTree(atomicPaths) {
-    // Ordenar por área descendente: contenedores mayores primero
-    atomicPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+  // Ordenar por área descendente: contenedores mayores primero
+  atomicPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+  const nodes = atomicPaths.map((path, idx) => ({
+    id: idx,
+    path: path,
+    area: Math.abs(path.area),
+    parent: null,
+    children: [],
+    depth: 0,
+    isHole: false,
+    docOrder: path.data?.docOrder || idx
+  }));
 
-    const nodes = atomicPaths.map((path, idx) => ({
-        id: idx,
-        path: path,
-        area: Math.abs(path.area),
-        parent: null,
-        children: [],
-        depth: 0,
-        docOrder: (path.data && path.data.docOrder !== undefined) ? path.data.docOrder : idx,
-        isHole: false
-    }));
-
-    // Determinar paternidad topológica estricta (el contenedor más pequeño que envuelva al nodo)
-    for (let i = 0; i < nodes.length; i++) {
-        for (let j = i - 1; j >= 0; j--) {
-            if (isContainedIn(nodes[i].path, nodes[j].path)) {
-                nodes[i].parent = nodes[j];
-                nodes[j].children.push(nodes[i]);
-                break;
-            }
+  // Asignar a cada nodo su contenedor directo más inmediato (el de menor área que lo contiene)
+  for (let i = 0; i < nodes.length; i++) {
+    const candidate = nodes[i];
+    let bestParent = null;
+    for (let j = 0; j < nodes.length; j++) {
+      if (i === j) continue;
+      const potentialParent = nodes[j];
+      if (potentialParent.area > candidate.area && isContainedIn(candidate.path, potentialParent.path)) {
+        if (!bestParent || potentialParent.area < bestParent.area) {
+          bestParent = potentialParent;
         }
+      }
     }
+    if (bestParent) {
+      candidate.parent = bestParent;
+      bestParent.children.push(candidate);
+    }
+  }
 
-    const roots = nodes.filter(n => !n.parent);
-    const computeDepth = (n, d) => {
-        n.depth = d;
-        n.children.forEach(c => computeDepth(c, d + 1));
-    };
-    roots.forEach(r => computeDepth(r, 0));
+  // Calcular profundidad de contención
+  function computeDepth(node, currentDepth) {
+    node.depth = currentDepth;
+    node.children.forEach(child => computeDepth(child, currentDepth + 1));
+  }
+  nodes.filter(n => n.parent === null).forEach(root => computeDepth(root, 0));
 
-    return { roots, nodes };
+  return { nodes };
 }
 
 /**
- * CLASIFICADOR SEMÁNTICO VECTORIAL DE CAPAS (Reemplazo definitivo de depth % 2 === 1)
- *
- * Determina rigurosamente si un nodo es:
+ * RESUELVE LA SEMÁNTICA VECTORIAL (Prompt Maestro - Regla 4):
  * - Masa Sólida (isHole: false): Geometría positiva independiente.
  * - Calado Activo (isHole: true): Geometría negativa interactiva que perfora capas inferiores en Z.
  */
 function resolveItemSemantics(node, rootTarget) {
-    const path = node.path;
-    const isFromCompound = !!(path.data && path.data.isFromCompound);
+  const path = node.path;
+  const isFromCompound = !!(path.data && path.data.isFromCompound);
 
-    // CASO 1: Si proviene de un CompoundPath original (como Escudo AFA, 007 o siluetas tipográficas)
-    if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
-        const testPt = getInteriorTestPoint(path);
-        if (testPt) {
-            let isFilledInOriginal = false;
-            try {
-                isFilledInOriginal = rootTarget.contains(testPt);
-            } catch (err) {
-                isFilledInOriginal = false;
-            }
+  // CASO 1: Si proviene de un CompoundPath original (como Escudo AFA, 007 o siluetas tipográficas)
+  if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
+    const testPt = getInteriorTestPoint(path);
+    if (testPt && rootTarget.contains(testPt)) {
+      // Si el centroide del camino cae DENTRO del CompoundPath original, es una MASA
+      return false;
+    } else {
+      // Si cae fuera del área compuesta rellena (perforación nativa de la A o escudo), es un CALADO
+      return true;
+    }
+  }
 
-            // Si el punto interior NO tenía relleno en el CompoundPath original, era un vacío/agujero real
-            if (!isFilledInOriginal) {
-                return true; // Calado Activo
-            } else {
-                return false; // Masa Sólida
-            }
+  // CASO 2: Clasificación Topológica por Jerarquía de Contención y Orientación (Winding)
+  if (node.parent) {
+    const parentPath = node.parent.path;
+    const isParentHole = node.parent.isHole;
+
+    // Si el contenedor padre es una Masa Sólida y este trazado está completamente contenido
+    if (!isParentHole) {
+      if (path.data && path.data.originalClockwise !== undefined && parentPath.data && parentPath.data.originalClockwise !== undefined) {
+        if (path.data.originalClockwise !== parentPath.data.originalClockwise) {
+          return true; // Orientación opuesta dentro de una masa = CALADO ACTIVO
         }
+      }
+      if (node.depth === 1) {
+        return true; // Nivel 1 inmediato dentro de masa = Calado de Nivel 1
+      }
+    } else {
+      // Si el contenedor inmediato es un hueco, el objeto interior es una MASA (ej. isla central o estrella)
+      return false;
     }
+  }
 
-    // CASO 2: Relación de Isla Interior contenida dentro de un Calado Activo
-    // (Ejemplo fundamental del Prompt Maestro: el triángulo macizo de la letra A está dentro del calado de la A)
-    if (node.parent && node.parent.isHole) {
-        return false; // Masa sólida positiva (isla interior que debe permanecer visible)
-    }
-
-    // CASO 3: Trazo cerrado sin relleno (fill: none o transparente) dentro de un contenedor sólido
-    const originalFill = path.data?.originalFillColor;
-    if (node.parent && (!originalFill || originalFill.alpha === 0)) {
-        return true; // Calado Activo
-    }
-
-    // CASO 4: Alternancia topológica de CompoundPath reconstruido
-    // Si el nodo padre es una masa sólida y el sub-trazado representa una inversión de bobinado respecto a su padre
-    if (isFromCompound && node.parent && !node.parent.isHole) {
-        if (path.clockwise !== node.parent.path.clockwise) {
-            return true; // Orientación opuesta en CompoundPath = Calado
-        }
-    }
-
-    // REGLA DE ORO POR DEFECTO:
-    // Una figura cerrada con geometría válida y estilo es una MASA SÓLIDA.
-    // Jamás se forzará a hueco por mera paridad de profundidad.
-    return false;
+  // REGLA DE ORO POR DEFECTO:
+  // Una figura cerrada con geometría válida y estilo es una MASA SÓLIDA.
+  // Jamás se forzará a hueco por mera paridad de profundidad.
+  return false;
 }
 
 /**
@@ -298,11 +274,56 @@ function resolveItemSemantics(node, rootTarget) {
  * actual del elemento (posición, rotación, escala).
  */
 export function getGlobalUnsubtractedPath(item) {
-    if (!item || !item.data || !item.data.geomBase) return null;
-    const tempBase = item.data.geomBase.clone({ insert: false });
-    const globalMat = getMatrixRelativeTo(item, null);
-    tempBase.matrix = globalMat.clone();
-    return tempBase;
+  if (!item || !item.data || !item.data.geomBase) return null;
+  const tempBase = item.data.geomBase.clone({ insert: false });
+  const globalMat = getMatrixRelativeTo(item, null);
+  tempBase.matrix = globalMat.clone();
+  return tempBase;
+}
+
+/**
+ * Resuelve el elemento de contenido real si el item está encapsulado en un clipGroup
+ */
+function getContentItem(item) {
+  if (!item) return null;
+  if (item.data && item.data.clipGroup) {
+    if (!item.children) return item;
+    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+    if (content) return content;
+    return item.children[1] || item.children[0] || item;
+  }
+  return item;
+}
+
+/**
+ * Extrae recursivamente todos los elementos sustractivos o masas con geomBase
+ * desde la lista de capas del lienzo, penetrando en cualquier nivel de anidamiento de grupos.
+ * (Blindaje Recursivo Profundo v36.0)
+ */
+function extractSubtractiveItems(topList) {
+  const result = [];
+  
+  function collectRecursive(item) {
+    if (!item) return;
+    const content = getContentItem(item);
+    if (!content) return;
+
+    if (isGroup(content) && content.children && content.children.length > 0) {
+      content.children.forEach(c => {
+        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
+          collectRecursive(c);
+        }
+      });
+    } else if (content.data && content.data.geomBase) {
+      result.push(content);
+    }
+  }
+
+  topList.forEach(topItem => {
+    collectRecursive(topItem);
+  });
+
+  return result;
 }
 
 /**
@@ -311,146 +332,109 @@ export function getGlobalUnsubtractedPath(item) {
  * - Si una sustracción booleana reduce los segmentos visibles a 0 o vacía el trazado,
  *   se anula la sustracción destructiva sobre esa pieza para garantizar que nunca se borre de pantalla.
  */
-function getContentItem(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup) {
-        if (!item.children) return item;
-        const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-        if (content) return content;
-        return item.children[1] || item.children[0] || item;
-    }
-    return item;
-}
-
-function extractSubtractiveItems(topList) {
-    const result = [];
-    topList.forEach(topItem => {
-        const content = getContentItem(topItem);
-        if (!content) return;
-        if (isGroup(content) && !content.data?.geomBase && content.children && content.children.length > 0) {
-            // Grupo de capas (ej. capas agrupadas por el usuario)
-            content.children.forEach(c => {
-                if (c && c.data && c.data.geomBase && !c.clipMask && !(c.data.wasClipMask || c.data.isMask)) {
-                    result.push(c);
-                }
-            });
-        } else if (content.data && content.data.geomBase) {
-            result.push(content);
-        }
-    });
-    return result;
-}
-
 export function recalculateDynamicSubtractions(targetLayer = null) {
-    const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
-    if (!layer || !layer.children) return;
+  const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
+  if (!layer || !layer.children) return;
 
-    const items = [...layer.children].filter(item =>
-        item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
-        !item.data?.isHandle && !item.data?.isSmartGuide && !item.data?.isMeasurement &&
-        !item.data?.isTracePreview && !item.data?.isNodeEditOverlay
-    );
+  const items = [...layer.children].filter(item =>
+    item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
+    !item.data?.isHandle && !item.data?.isSmartGuide && !item.data?.isMeasurement &&
+    !item.data?.isTracePreview && !item.data?.isNodeEditOverlay
+  );
 
-    if (items.length === 0) return;
+  if (items.length === 0) return;
 
-    const subItems = extractSubtractiveItems(items);
-    if (subItems.length === 0) return;
+  const subItems = extractSubtractiveItems(items);
+  if (subItems.length === 0) return;
 
-    // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada en su posición actual
-    subItems.forEach(item => {
-        if (item && item.data && item.data.geomBase && !item.data.isHole) {
-            const pristine = getGlobalUnsubtractedPath(item);
-            if (pristine) {
-                item.removeChildren();
-                if (pristine instanceof paper.CompoundPath) {
-                    const cl = pristine.clone({ insert: false });
-                    item.addChildren(cl.removeChildren());
-                    cl.remove();
-                } else if (pristine instanceof paper.Path) {
-                    const cl = pristine.clone({ insert: false });
-                    item.addChild(cl);
-                }
-                pristine.remove();
-                item.visible = true;
-            }
+  // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada en su posición actual
+  subItems.forEach(item => {
+    if (item && item.data && item.data.geomBase && !item.data.isHole) {
+      const pristine = getGlobalUnsubtractedPath(item);
+      if (pristine) {
+        item.removeChildren();
+        if (pristine instanceof paper.CompoundPath) {
+          const cl = pristine.clone({ insert: false });
+          item.addChildren(cl.removeChildren());
+          cl.remove();
+        } else if (pristine instanceof paper.Path) {
+          item.addChild(pristine.clone({ insert: false }));
         }
-    });
+        pristine.remove();
+      }
+      item.visible = true;
+    } else if (item && item.data && item.data.isHole) {
+      // Los calados interactivos se mantienen transparentes en pantalla durante edición
+      item.visible = true;
+    }
+  });
 
-    // 2. Aplicar calados dinámicos (isHole) exclusivamente a las capas inferiores en Z (j < i)
-    for (let i = 0; i < subItems.length; i++) {
-        const holeItem = subItems[i];
-        if (!holeItem || !holeItem.data?.isHole) continue;
+  // 2. Ejecutar sustracciones dinámicas en cascada según el orden Z (capas superiores perforan a las inferiores)
+  for (let i = 0; i < subItems.length; i++) {
+    const holeItem = subItems[i];
+    if (!holeItem || !holeItem.data || !holeItem.data.isHole) continue;
 
-        const holeBase = getGlobalUnsubtractedPath(holeItem);
-        if (!holeBase) continue;
+    const holeBase = getGlobalUnsubtractedPath(holeItem);
+    if (!holeBase) continue;
 
-        // Ocultar la visibilidad de dibujo del calado de control para que funcione como vacío vectorial puro
-        holeItem.visible = false;
+    // Buscar todas las masas sólidas ubicadas por debajo en el orden de apilamiento Z
+    for (let j = 0; j < i; j++) {
+      const solid = subItems[j];
+      if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase) continue;
 
-        for (let j = i - 1; j >= 0; j--) {
-            const solid = subItems[j];
-            if (!solid || solid.data?.isHole || !solid.data?.geomBase) continue;
+      // Descarte rápido por bounding box si no se tocan
+      if (!solid.bounds.intersects(holeBase.bounds)) continue;
 
-            if (solid.bounds && holeBase.bounds && solid.bounds.intersects(holeBase.bounds)) {
-                try {
-                    // Backup preventivo de los hijos del sólido antes de restar
-                    const beforeChildren = solid.clone({ insert: false });
-                    const subtracted = solid.subtract(holeBase, { insert: false });
+      try {
+        const solidPath = (solid.children && solid.children.length === 1) ? solid.children[0] : solid;
+        const subtracted = solidPath.subtract(holeBase, { insert: false });
 
-                    if (subtracted) {
-                        // Comprobación Anti-Aniquilación: Si la resta dejó el sólido vacío, rechazar la aniquilación
-                        const segCount = subtracted.segments ? subtracted.segments.length :
-                            (subtracted.children ? subtracted.children.reduce((acc, c) => acc + (c.segments ? c.segments.length : 0), 0) : 0);
-                        const hasValidArea = Math.abs(subtracted.area || 0) > 0.01;
+        if (subtracted) {
+          // Blindaje Anti-Aniquilación: Validar que la geometría resultante tenga área y segmentos reales
+          let segCount = 0;
+          if (subtracted.segments) segCount = subtracted.segments.length;
+          else if (subtracted.children) {
+            subtracted.children.forEach(c => { if (c.segments) segCount += c.segments.length; });
+          }
 
-                        if (segCount > 0 && hasValidArea && subtracted.bounds.width > 0.01 && subtracted.bounds.height > 0.01) {
-                            solid.removeChildren();
-                            if (subtracted instanceof paper.CompoundPath) {
-                                solid.addChildren(subtracted.removeChildren());
-                            } else {
-                                solid.addChild(subtracted);
-                            }
-                            solid.visible = true;
-                        } else {
-                            // Aniquilación evitada: Restablecer silueta previa y registrar advertencia
-                            subtracted.remove();
-                            solid.removeChildren();
-                            solid.addChildren(beforeChildren.removeChildren());
-                            solid.visible = true;
-                            if (typeof window !== 'undefined' && window.EKKO_DEBUG) {
-                                console.warn(`[ANTI-ANIQUILACIÓN CSG] Se evitó la desintegración total de masa en item ID: ${solid.id}`);
-                            }
-                        }
-                    }
-                    beforeChildren.remove();
-                } catch (err) {
-                    console.warn(`[CSG EXCEPTION] Error no crítico en sustracción: ${err.message}`);
-                }
+          const hasValidArea = Math.abs(subtracted.area || 0) > 0.01;
+          if (segCount > 0 && hasValidArea && subtracted.bounds.width > 0.01 && subtracted.bounds.height > 0.01) {
+            solid.removeChildren();
+            if (subtracted instanceof paper.CompoundPath) {
+              solid.addChildren(subtracted.removeChildren());
+            } else {
+              solid.addChild(subtracted);
             }
+          }
+          subtracted.remove();
         }
-        holeBase.remove();
+      } catch (err) {
+        // En caso de singularidad matemática CSG, preservamos la masa intacta
+      }
     }
+    holeBase.remove();
+  }
 
-    if (typeof paper !== 'undefined' && paper.view) {
-        paper.view.update();
-    }
+  if (typeof paper !== 'undefined' && paper.view) {
+    paper.view.update();
+  }
 }
 
 function isAncestorOf(potentialAncestor, node) {
-    let curr = node.parent;
-    while (curr) {
-        if (curr === potentialAncestor) return true;
-        curr = curr.parent;
-    }
-    return false;
+  let curr = node.parent;
+  while (curr) {
+    if (curr === potentialAncestor) return true;
+    curr = curr.parent;
+  }
+  return false;
 }
 
 function getRootNode(node) {
-    let curr = node;
-    while (curr.parent) {
-        curr = curr.parent;
-    }
-    return curr;
+  let curr = node;
+  while (curr.parent) {
+    curr = curr.parent;
+  }
+  return curr;
 }
 
 /**
@@ -460,169 +444,170 @@ function getRootNode(node) {
  * Cada elemento resultante se genera como un CompoundPath nativo de Paper.js.
  */
 export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
-    if (!rootTarget || rootTarget.data?.locked || rootTarget.data?.mockup || rootTarget.data?.isMask) {
-        return null;
+  if (!rootTarget || rootTarget.data?.locked || rootTarget.data?.mockup || rootTarget.data?.isMask) {
+    return null;
+  }
+
+  const targetLayer = rootTarget.layer || paper.project.activeLayer;
+  docOrderCounter = 0;
+
+  // Garantía de Contención en Producto: Si el objeto original estaba enmascarado o hay un producto con máscara activo
+  const shouldClip = isClipped || (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
+
+  // 1. Aplanar todo el contenido a trazados atómicos cerrados
+  const atomicPaths = flattenToAtomicPaths(rootTarget);
+  if (!atomicPaths || atomicPaths.length === 0) {
+    return null;
+  }
+
+  // Si solo hay un único trazado, envolverlo limpiamente como capa atómica descompuesta
+  if (atomicPaths.length === 1) {
+    const single = atomicPaths[0];
+    const compound = new paper.CompoundPath({ insert: false });
+    compound.addChild(single.clone({ insert: false }));
+    single.remove();
+
+    const geomBase = compound.clone({ insert: false });
+    geomBase.matrix = new paper.Matrix();
+
+    compound.data = {
+      locked: false,
+      label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
+      isHole: false,
+      geomBase: geomBase,
+      layerDepth: 0,
+      decomposedLayer: true
+    };
+
+    compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
+    compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
+    compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
+
+    let finalItem = compound;
+    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+      finalItem = window.clipItem(compound);
     }
-
-    const targetLayer = rootTarget.layer || paper.project.activeLayer;
-    docOrderCounter = 0;
-
-    // Garantía de Contención en Producto: Si el objeto original estaba enmascarado o hay un producto con máscara activo
-    const shouldClip = isClipped || (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
-
-    // 1. Aplanar todo el contenido a trazados atómicos cerrados
-    const atomicPaths = flattenToAtomicPaths(rootTarget);
-    if (!atomicPaths || atomicPaths.length === 0) {
-        return null;
-    }
-
-    // Si solo hay un único trazado, envolverlo limpiamente como capa atómica descompuesta
-    if (atomicPaths.length === 1) {
-        const single = atomicPaths[0];
-        const compound = new paper.CompoundPath({ insert: false });
-        compound.addChild(single.clone({ insert: false }));
-        single.remove();
-
-        const geomBase = compound.clone({ insert: false });
-        geomBase.matrix = new paper.Matrix();
-
-        compound.data = {
-            locked: false,
-            label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
-            isHole: false,
-            geomBase: geomBase,
-            layerDepth: 0,
-            decomposedLayer: true
-        };
-        compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
-        compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
-        compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
-
-        let finalItem = compound;
-        if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-            finalItem = window.clipItem(compound);
-        }
-
-        if (targetLayer) {
-            targetLayer.addChild(finalItem);
-            if (window.currentMockup) {
-                finalItem.insertBelow(window.currentMockup);
-            }
-        }
-        rootTarget.remove();
-        return { handled: true, simple: true, items: [finalItem] };
-    }
-
-    // 2. Construir árbol topológico de contención
-    const { nodes } = buildContainmentTree(atomicPaths);
-
-    // 3. Resolver Semántica de cada nodo (Masa Sólida vs Calado Activo)
-    // Se evalúa en orden de profundidad (padres antes que hijos)
-    const sortedByDepthAsc = [...nodes].sort((a, b) => a.depth - b.depth);
-    sortedByDepthAsc.forEach(node => {
-        node.isHole = resolveItemSemantics(node, rootTarget);
-    });
-
-    // 4. Ordenamiento Z Topológico Semántico (Desacoplado de depth % 2)
-    nodes.sort((a, b) => {
-        if (isAncestorOf(a, b)) return -1;
-        if (isAncestorOf(b, a)) return 1;
-
-        const rootA = getRootNode(a);
-        const rootB = getRootNode(b);
-        if (rootA !== rootB) {
-            return rootA.docOrder - rootB.docOrder;
-        }
-
-        if (a.depth !== b.depth) {
-            return a.depth - b.depth;
-        }
-
-        return a.docOrder - b.docOrder;
-    });
-
-    const resultingItems = [];
-
-    nodes.forEach((node) => {
-        const isHole = node.isHole;
-        const compoundItem = new paper.CompoundPath({ insert: false });
-        const pathClone = node.path.clone({ insert: false });
-        compoundItem.addChild(pathClone);
-
-        // Almacenar geometría base inmaculada en coordenadas locales puras neutras
-        const geomBase = new paper.CompoundPath({ insert: false });
-        const baseClone = node.path.clone({ insert: false });
-        geomBase.addChild(baseClone);
-        geomBase.matrix = new paper.Matrix();
-
-        compoundItem.data = {
-            locked: false,
-            label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
-            isHole: isHole,
-            geomBase: geomBase,
-            layerDepth: node.depth,
-            containmentId: node.id,
-            decomposedLayer: true
-        };
-
-        // Asignación de color preservando estilos del SVG
-        if (isHole) {
-            compoundItem.fillColor = null;
-            compoundItem.strokeColor = new paper.Color('#0284c7');
-            compoundItem.strokeWidth = 1 / (typeof paper !== 'undefined' && paper.view ? paper.view.zoom : 1);
-            compoundItem.dashArray = [3, 3];
-        } else {
-            compoundItem.fillColor = node.path.fillColor || rootTarget.fillColor || new paper.Color('#111827');
-            compoundItem.strokeColor = node.path.strokeColor || rootTarget.strokeColor || null;
-            compoundItem.strokeWidth = node.path.strokeWidth || rootTarget.strokeWidth || 0;
-        }
-
-        resultingItems.push(compoundItem);
-        node.path.remove();
-    });
-
-    // 5. Insertar las capas ordenadas en Z directamente en la capa activa
-    // GARANTÍA DE ENMASCARAMIENTO DE PRODUCTO (Recorte estricto por fuera del producto)
-    const finalDeliveredItems = [];
     if (targetLayer) {
-        resultingItems.forEach(item => {
-            let finalItem = item;
-            if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-                finalItem = window.clipItem(item);
-            }
-            targetLayer.addChild(finalItem);
-            if (window.currentMockup) {
-                finalItem.insertBelow(window.currentMockup);
-            }
-            finalDeliveredItems.push(finalItem);
-        });
+      targetLayer.addChild(finalItem);
+      if (window.currentMockup) {
+        finalItem.insertBelow(window.currentMockup);
+      }
     }
-
-    // 6. Eliminar el contenedor original compuesto
     rootTarget.remove();
+    return { handled: true, simple: true, items: [finalItem] };
+  }
 
-    // 7. Ejecutar recálculo reactivo CSG dinámico con el blindaje anti-aniquilación activo
-    if (targetLayer) {
-        recalculateDynamicSubtractions(targetLayer);
+  // 2. Construir árbol topológico de contención
+  const { nodes } = buildContainmentTree(atomicPaths);
+
+  // 3. Resolver Semántica de cada nodo (Masa Sólida vs Calado Activo)
+  // Se evalúa en orden de profundidad (padres antes que hijos)
+  const sortedByDepth = [...nodes].sort((a, b) => a.depth - b.depth);
+  sortedByDepth.forEach(node => {
+    node.isHole = resolveItemSemantics(node, rootTarget);
+  });
+
+  // 4. Asignación Topológica de Orden Z
+  // Z0 = Masa Externa Mayor -> Z1 = Calado Intermedio -> Z2 = Masa Interior...
+  nodes.sort((a, b) => {
+    const rootA = getRootNode(a);
+    const rootB = getRootNode(b);
+
+    // Si pertenecen a familias topológicas diferentes (ej. dos letras separadas o estrellas distintas)
+    if (rootA !== rootB) {
+      return rootB.area - rootA.area || a.docOrder - b.docOrder;
     }
 
-    return { handled: true, simple: false, items: finalDeliveredItems };
+    // Misma familia topológica: Orden estricto por profundidad de contención
+    if (isAncestorOf(a, b)) return -1;
+    if (isAncestorOf(b, a)) return 1;
+
+    if (a.depth !== b.depth) {
+      return a.depth - b.depth;
+    }
+    return a.docOrder - b.docOrder;
+  });
+
+  const resultingItems = [];
+
+  nodes.forEach((node) => {
+    const isHole = node.isHole;
+    const compoundItem = new paper.CompoundPath({ insert: false });
+    const pathClone = node.path.clone({ insert: false });
+    compoundItem.addChild(pathClone);
+
+    // Almacenar geometría base inmaculada en coordenadas locales puras neutras
+    const geomBase = new paper.CompoundPath({ insert: false });
+    const baseClone = node.path.clone({ insert: false });
+    geomBase.addChild(baseClone);
+    geomBase.matrix = new paper.Matrix();
+
+    compoundItem.data = {
+      locked: false,
+      label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
+      isHole: isHole,
+      geomBase: geomBase,
+      layerDepth: node.depth,
+      containmentId: node.id,
+      decomposedLayer: true
+    };
+
+    if (isHole) {
+      compoundItem.fillColor = new paper.Color(0, 0, 0, 0.0001);
+      compoundItem.strokeColor = new paper.Color('#0ea5e9');
+      compoundItem.strokeWidth = 1;
+      compoundItem.dashArray = [3, 3];
+    } else {
+      compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
+      compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
+      compoundItem.strokeWidth = node.path.data?.originalStrokeWidth || rootTarget.strokeWidth || 0;
+    }
+
+    resultingItems.push(compoundItem);
+    node.path.remove();
+  });
+
+  // 5. Inserción ordenada en la capa activa preservando la jerarquía Z
+  const finalDeliveredItems = [];
+  resultingItems.forEach(item => {
+    let finalItem = item;
+    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+      finalItem = window.clipItem(item);
+    }
+    if (targetLayer) {
+      targetLayer.addChild(finalItem);
+      if (window.currentMockup) {
+        finalItem.insertBelow(window.currentMockup);
+      }
+    }
+    finalDeliveredItems.push(finalItem);
+  });
+
+  // 6. Eliminar el objeto contenedor original
+  rootTarget.remove();
+
+  // 7. Ejecutar recálculo reactivo CSG dinámico con el blindaje anti-aniquilación activo
+  if (targetLayer) {
+    recalculateDynamicSubtractions(targetLayer);
+  }
+
+  return { handled: true, simple: false, items: finalDeliveredItems };
 }
 
 export function geometricUngroupCompound(item) {
-    return decomposeByContainmentHierarchy(item);
+  return decomposeByContainmentHierarchy(item);
 }
 
 export function geometricUngroupOneLevel(group) {
-    return decomposeByContainmentHierarchy(group);
+  return decomposeByContainmentHierarchy(group);
 }
 
 // Exposición global defensiva
 if (typeof window !== 'undefined') {
-    window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
-    window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
-    window.geometricUngroupCompound = decomposeByContainmentHierarchy;
-    window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
-    window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
-    window.isContainedIn = isContainedIn;
+  window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
+  window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
+  window.geometricUngroupCompound = decomposeByContainmentHierarchy;
+  window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
+  window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
+  window.isContainedIn = isContainedIn;
 }
