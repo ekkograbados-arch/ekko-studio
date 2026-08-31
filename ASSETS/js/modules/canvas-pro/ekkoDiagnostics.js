@@ -1,31 +1,17 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v6.2 PRO Deep Capture & Surface Area Engine)
-   Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-   Descripción:
-   Sistema de Auditoría, Trazabilidad e Instrumentación Forense de 5 Niveles para EKKO Studio.
-   Diseñado específicamente para verificar la consistencia del motor de:
-   - Descomposición por Jerarquía de Contención y Capas SVG.
-   - Orden Z no destructivo y Reactividad CSG en vivo.
-   - Preservación de geomBase, masas sólidas y calados activos.
-   - Detección activa de Colapso de Área Visible o Masas Aniquiladas (Rule 8).
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v8.0 Universal Dynamic Button Standard)
+Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
+Descripción:
+Sistema Universal de Diagnóstico, Auditoría Forense y Trazabilidad de 5 Niveles para EKKO Studio.
+Implementa el Estándar Universal de Contratos Funcionales para evaluar inconsistencias
+en cualquier botón existente o nuevo (Barra Emergente, Panel Superior Fijo, Cabecera o Lienzo).
 
-   AUDITORÍAS INTEGRADAS:
-   1. AUDITORÍA TOPOLÓGICA DE CAPAS (itemLossDetected):
-      - Verifica que al desagrupar no desaparezcan elementos útiles del lienzo.
-   2. AUDITORÍA DE ARRASTRE REAL (dragDisplacementValid):
-      - Comprueba que tras una operación 'DRAG', el elemento primario haya mutado
-        efectivamente sus coordenadas físicas en el lienzo (dx > 0.1 || dy > 0.1).
-   3. VERIFICACIÓN DE RECORTE OBLIGATORIO EN PRODUCTO (productClippingValid):
-      - Comprueba que en productos con mockup activo ningún elemento de diseño quede
-        huérfano de máscara de recorte (isClipped: true / clipGroup activo).
-   4. CONTROL DE CONSISTENCIA CSG EN MOVIMIENTO Y GEOMBASE (geomBasePreserved):
-      - Valida que geomBase se desplace solidariamente con la posición visible sin mutar
-        sus vértices prístinos fuera del editor de nodos.
-   5. DETECCIÓN ACTIVA DE COLAPSO DE ÁREA VISIBLE (massCollapseDetected):
-      - Detecta si una masa sólida sufre aniquilación booleana (0 segmentos visibles o
-        área colapsada a cero) cuando dos o más calados interactivos colisionan.
-   6. PRESERVACIÓN DE CONSISTENCIA Y EXPOSICIÓN GLOBAL (EKKO_DIAG).
-   ========================================================================= */
+Cumple estrictamente con:
+- PROMPT MAESTRO — EKKO UNIVERSAL DIAGNOSTIC & TOOL INTEGRATION SYSTEM
+- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+- Diagnostico_v2.txt (Protocolo Universal de 11 Fases y 20 Puntos)
+- nuevos comandos a crear.txt (Auditoría Forense de 5 Niveles con ID de Operación)
+========================================================================= */
 
 (function (root, factory) {
   if (typeof define === 'function' && define.amd) {
@@ -37,7 +23,7 @@
   }
 }(typeof window !== 'undefined' ? window : this, function () {
 
-  // Canal seguro de salida de consola (elude silenciamientos externos de loggers)
+  // Canal seguro de salida de consola
   const rawConsole = {
     log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
     warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
@@ -45,7 +31,6 @@
     table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
   };
 
-  // Restauración activa por iframe aislado si la consola global fue sobreescrita
   try {
     if (typeof document !== 'undefined') {
       const ifr = document.createElement('iframe');
@@ -62,6 +47,7 @@
     }
   } catch (e) {}
 
+  // Estado interno del motor de diagnóstico
   const diagState = {
     active: true,
     operations: [],
@@ -72,6 +58,368 @@
     lastMouseDownSelection: null,
     lastMouseDownGeo: null
   };
+
+  // =========================================================================
+  // ESTÁNDAR UNIVERSAL DE CONTRATOS FUNCIONALES DE BOTONES (REGISTRO CENTRAL)
+  // =========================================================================
+  const buttonContractsRegistry = new Map();
+
+  function registerContract(idOrSelector, contractDef) {
+    if (!idOrSelector || !contractDef) return;
+    const cleanKey = String(idOrSelector).trim().toLowerCase();
+    buttonContractsRegistry.set(cleanKey, Object.assign({
+      requiresSelection: true,
+      minSelectionCount: 1,
+      allowLocked: false,
+      expectedTopologyDelta: 'EQUAL', // 'INCREMENT', 'DECREMENT', 'EQUAL', 'DECREASE_OR_EQUAL', 'ANY'
+      expectedSelectionChange: 'PRESERVED', // 'NEW_ITEM', 'CLEARED', 'PRESERVED', 'ANY'
+      expectedTransformChange: 'ANY', // 'MOVED', 'SCALED', 'ROTATED', 'ANY'
+      verifyDisplacement: false,
+      preserveClipping: true,
+      customValidator: null
+    }, contractDef));
+  }
+
+  // Precarga estándar de botones existentes
+  // A) Barra Emergente / Menú Contextual (#contextual-toolbar)
+  registerContract('#btnctxduplicate', {
+    name: 'DUPLICATE',
+    label: 'Barra Emergente: Duplicar (#btnCtxDuplicate)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    allowLocked: false,
+    expectedTopologyDelta: 'INCREMENT',
+    expectedSelectionChange: 'NEW_ITEM',
+    verifyDisplacement: true,
+    preserveClipping: true
+  });
+
+  registerContract('#btnctxdelete', {
+    name: 'DELETE',
+    label: 'Barra Emergente: Eliminar (#btnCtxDelete)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    allowLocked: false,
+    expectedTopologyDelta: 'DECREMENT',
+    expectedSelectionChange: 'CLEARED',
+    preserveClipping: false
+  });
+
+  registerContract('#btnctxscaledown', {
+    name: 'SCALE_DOWN',
+    label: 'Barra Emergente: Achicar (#btnCtxScaleDown)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'SCALED'
+  });
+
+  registerContract('#btnctxscaleup', {
+    name: 'SCALE_UP',
+    label: 'Barra Emergente: Agrandar (#btnCtxScaleUp)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'SCALED'
+  });
+
+  registerContract('#btnctxforward', {
+    name: 'BRING_FORWARD',
+    label: 'Barra Emergente: Subir Capa (#btnCtxForward)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxbackward', {
+    name: 'SEND_BACKWARD',
+    label: 'Barra Emergente: Bajar Capa (#btnCtxBackward)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxgroup', {
+    name: 'GROUP',
+    label: 'Barra Emergente: Agrupar (#btnCtxGroup)',
+    requiresSelection: true,
+    minSelectionCount: 2,
+    expectedTopologyDelta: 'DECREASE_OR_EQUAL',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxungroup', {
+    name: 'UNGROUP',
+    label: 'Barra Emergente: Desagrupar (#btnCtxUngroup)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'ANY',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxnodeedit', {
+    name: 'NODE_EDIT',
+    label: 'Barra Emergente: Editar Nodos (#btnCtxNodeEdit)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxbold', {
+    name: 'BOLD',
+    label: 'Barra Emergente: Negrita (#btnCtxBold)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxitalic', {
+    name: 'ITALIC',
+    label: 'Barra Emergente: Cursiva (#btnCtxItalic)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxunderline', {
+    name: 'UNDERLINE',
+    label: 'Barra Emergente: Subrayado (#btnCtxUnderline)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxweld', {
+    name: 'WELD',
+    label: 'Barra Emergente: Soldar Texto (#btnCtxWeld)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnctxfliph', {
+    name: 'FLIP_H',
+    label: 'Barra Emergente: Espejo Horizontal (#btnCtxFlipH)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxflipv', {
+    name: 'FLIP_V',
+    label: 'Barra Emergente: Espejo Vertical (#btnCtxFlipV)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  // B) Panel Superior Fijo (#pro-layout-toolbar)
+  registerContract('#probtnalignleft', {
+    name: 'ALIGN_LEFT',
+    label: 'Panel Superior: Alinear Izquierda (#proBtnAlignLeft)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnaligncenterh', {
+    name: 'ALIGN_CENTER_H',
+    label: 'Panel Superior: Centrar Horizontal (#proBtnAlignCenterH)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnalignright', {
+    name: 'ALIGN_RIGHT',
+    label: 'Panel Superior: Alinear Derecha (#proBtnAlignRight)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnaligntop', {
+    name: 'ALIGN_TOP',
+    label: 'Panel Superior: Alinear Arriba (#proBtnAlignTop)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnaligncenterv', {
+    name: 'ALIGN_CENTER_V',
+    label: 'Panel Superior: Centrar Vertical (#proBtnAlignCenterV)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnalignbottom', {
+    name: 'ALIGN_BOTTOM',
+    label: 'Panel Superior: Alinear Abajo (#proBtnAlignBottom)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtncenterh', {
+    name: 'CENTER_MOCKUP_H',
+    label: 'Panel Superior: Centrar Mockup H (#proBtnCenterH)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtncenterv', {
+    name: 'CENTER_MOCKUP_V',
+    label: 'Panel Superior: Centrar Mockup V (#proBtnCenterV)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtncenterboth', {
+    name: 'CENTER_MOCKUP_BOTH',
+    label: 'Panel Superior: Centrar Mockup Total (#proBtnCenterBoth)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtndistributeh', {
+    name: 'DISTRIBUTE_H',
+    label: 'Panel Superior: Distribuir Horizontal (#proBtnDistributeH)',
+    requiresSelection: true,
+    minSelectionCount: 3,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#probtndistributev', {
+    name: 'DISTRIBUTE_V',
+    label: 'Panel Superior: Distribuir Vertical (#proBtnDistributeV)',
+    requiresSelection: true,
+    minSelectionCount: 3,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#probtngroup', {
+    name: 'GROUP',
+    label: 'Panel Superior: Agrupar (#proBtnGroup)',
+    requiresSelection: true,
+    minSelectionCount: 2,
+    expectedTopologyDelta: 'DECREASE_OR_EQUAL'
+  });
+
+  registerContract('#probtnungroup', {
+    name: 'UNGROUP',
+    label: 'Panel Superior: Desagrupar (#proBtnUngroup)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  // C) Barra de Cabecera (#topBar)
+  registerContract('#btnaddimage', {
+    name: 'ADD_IMAGE',
+    label: 'Cabecera: Cargar Imagen (#btnAddImage)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddtext', {
+    name: 'ADD_TEXT',
+    label: 'Cabecera: Agregar Texto (#btnAddText)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddsvg', {
+    name: 'ADD_SVG',
+    label: 'Cabecera: Cargar SVG (#btnAddSVG)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddqr', {
+    name: 'ADD_QR',
+    label: 'Cabecera: Cargar QR (#btnAddQR)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  // Resolución Dinámica Universal (para botones existentes o NUEVOS creados)
+  function resolveButtonContract(domElement) {
+    if (!domElement || !(domElement instanceof Element)) return null;
+
+    // 1. Búsqueda por ID directo
+    if (domElement.id) {
+      const byId = buttonContractsRegistry.get('#' + domElement.id.toLowerCase());
+      if (byId) return { contract: byId, matchedBy: '#' + domElement.id };
+    }
+
+    // 2. Búsqueda por atributo data-action o comando
+    const actionAttr = domElement.getAttribute('data-action') ||
+                       domElement.getAttribute('data-ekko-action') ||
+                       domElement.getAttribute('data-command');
+    if (actionAttr) {
+      const byAttr = buttonContractsRegistry.get(actionAttr.toLowerCase().trim());
+      if (byAttr) return { contract: byAttr, matchedBy: `[data-action="${actionAttr}"]` };
+    }
+
+    // 3. Búsqueda por selector registrado en padres
+    for (const [key, contract] of buttonContractsRegistry.entries()) {
+      if (key.startsWith('#') || key.startsWith('.') || key.startsWith('[')) {
+        try {
+          if (domElement.matches(key) || domElement.closest(key)) {
+            return { contract: contract, matchedBy: key };
+          }
+        } catch (e) {}
+      }
+    }
+
+    // 4. Inferencia Dinámica Universal para botones NUEVOS no registrados
+    const isContextual = !!domElement.closest('#contextual-toolbar, .contextual-toolbar');
+    const isProLayout = !!domElement.closest('#pro-layout-toolbar, .pro-layout-toolbar');
+    const isTopBar = !!domElement.closest('#topBar, .topBar, #mainNavbar');
+
+    if (isContextual || isProLayout || isTopBar) {
+      const containerName = isContextual ? 'Barra Emergente' : (isProLayout ? 'Panel Superior Fijo' : 'Barra de Cabecera');
+      const textLabel = domElement.textContent ? domElement.textContent.trim().substring(0, 25) : '';
+      const actionName = (actionAttr || domElement.id || textLabel || 'DYNAMIC_BUTTON')
+        .toUpperCase()
+        .replace(/[^A-Z0-9_]/g, '_');
+
+      return {
+        contract: {
+          name: actionName,
+          label: `${containerName}: Botón Dinámico '${textLabel || domElement.id || '<button>'}'`,
+          requiresSelection: isContextual || isProLayout,
+          minSelectionCount: 1,
+          allowLocked: false,
+          expectedTopologyDelta: 'ANY',
+          expectedSelectionChange: 'ANY',
+          expectedTransformChange: 'ANY',
+          verifyDisplacement: false,
+          preserveClipping: true,
+          isDynamicInferred: true
+        },
+        matchedBy: `${containerName} (Inferencia Dinámica Universal)`
+      };
+    }
+
+    return null;
+  }
+
+  // --- HELPERS DE EXTRACCIÓN Y SNAPSHOT ---
 
   function getContentItem(item) {
     if (!item) return null;
@@ -137,6 +485,7 @@
     return false;
   }
 
+  // Snapshot de Nivel 2: Selección y contexto del objeto
   function snapshotSelection() {
     const item = typeof window !== 'undefined' ? (window.selectedItem || null) : null;
     const selectedItems = typeof window !== 'undefined' ? (window.selectedItems || []) : [];
@@ -147,6 +496,7 @@
 
     const primary = item || selectedItems[0];
     const target = getContentItem(primary);
+
     const targetPos = target && target.position ? {
       x: Number(target.position.x.toFixed(1)),
       y: Number(target.position.y.toFixed(1))
@@ -166,7 +516,10 @@
       visibleArea: Number(calculateItemArea(target || primary).toFixed(1)),
       bounds: target ? extractBounds(target.bounds) : extractBounds(primary.bounds),
       position: targetPos,
-      isLocked: isLockedItem(primary)
+      isLocked: isLockedItem(primary),
+      fontSize: (target && target.fontSize) || (target && target.data && target.data.fontSize) || null,
+      fontWeight: (target && target.fontWeight) || (target && target.data && target.data.fontWeight) || null,
+      fontStyle: (target && target.fontStyle) || (target && target.data && target.data.fontStyle) || null
     } : null;
 
     return {
@@ -177,6 +530,7 @@
     };
   }
 
+  // Snapshot de Nivel 4: Estado Geométrico y Topología del Lienzo
   function snapshotGeometricState() {
     if (typeof paper === 'undefined' || !paper.project) {
       return { totalUsefulItems: 0, itemsSummary: [], massCount: 0, holeCount: 0, zOrderIds: [], error: 'Paper.js no inicializado' };
@@ -214,7 +568,8 @@
         geomBaseSegments: countSegments(gBase),
         visibleSegments: countSegments(target),
         visibleArea: Number(vArea.toFixed(1)),
-        bounds: extractBounds(target.bounds)
+        bounds: extractBounds(target.bounds),
+        position: target.position ? { x: Number(target.position.x.toFixed(1)), y: Number(target.position.y.toFixed(1)) } : null
       });
     });
 
@@ -228,25 +583,162 @@
     };
   }
 
-  function auditConsistency(beforeGeo, afterGeo, beforeSel, afterSel, callLog, opType) {
+  // =========================================================================
+  // NIVEL 5 — MOTOR DE CONSISTENCIA Y AUDITORÍA UNIVERSAL DE CONTRATOS
+  // =========================================================================
+  function auditConsistency(op) {
+    const beforeGeo = op.geometryBefore;
+    const afterGeo = op.geometryAfter;
+    const beforeSel = op.selectionBefore;
+    const afterSel = op.selectionAfter;
+    const callLog = op.callGraph || [];
+    const opType = op.action;
+    const opMeta = op.meta || {};
+    const contract = op.buttonContract || null;
+    const uiSource = op.source || 'UI';
+
     const inconsistencies = [];
     const checks = {
-      geomBasePreserved: true,
-      zOrderPreserved: true,
-      selectionValid: true,
-      csgExecuted: true,
-      holeClassificationValid: true,
+      actionExecuted: true,
+      buttonResponded: true,
+      selectionPreconditionValid: true,
       itemLossDetected: false,
       dragDisplacementValid: true,
+      geomBasePreserved: true,
+      selectionValid: true,
       productClippingValid: true,
-      massCollapseDetected: false
+      deadClickDetected: false,
+      zOrderConsistent: true
     };
 
     if (beforeGeo.error || afterGeo.error) {
       return { checks, inconsistencies, pass: true };
     }
 
-    // 1. Verificación de Pérdida de Elementos en Desagrupar
+    // --- REGLA 1: VALIDACIÓN DE CONTRATOS ESTÁNDAR (EXISTENTES O DINÁMICOS) ---
+    if (contract) {
+      // A) Precondición de selección
+      if (contract.requiresSelection) {
+        if (!beforeSel.hasSelection || beforeSel.count < (contract.minSelectionCount || 1)) {
+          checks.selectionPreconditionValid = false;
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: SELECCIÓN INSUFICIENTE] Se hizo clic en '${uiSource}', pero requiere al menos ${contract.minSelectionCount || 1} objeto(s) seleccionado(s) (Detectados: ${beforeSel.count}).`
+          );
+        }
+      }
+
+      // B) Objeto bloqueado
+      if (!contract.allowLocked && beforeSel.primary && beforeSel.primary.isLocked) {
+        checks.actionExecuted = false;
+        inconsistencies.push(
+          `[INCONSISTENCIA CLIC: OBJETO BLOQUEADO] Clic en '${uiSource}' sobre objeto bloqueado ID: ${beforeSel.primary.id} ('${beforeSel.primary.label}', locked: true). La acción fue rechazada.`
+        );
+      }
+
+      // C) Mutación topológica esperada (INCREMENT, DECREMENT, EQUAL, etc.)
+      const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
+      if (contract.expectedTopologyDelta === 'INCREMENT') {
+        if (deltaUseful <= 0) {
+          checks.actionExecuted = false;
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: NO SE DUPLICÓ/CREÓ] Se hizo clic en '${uiSource}' sobre '${beforeSel.primary ? beforeSel.primary.label : 'Objeto'}' (ID: ${beforeSel.primary ? beforeSel.primary.id : 'N/A'}), pero la cantidad de elementos en el lienzo no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}). Fallo de clonación o evento desvinculado.`
+          );
+        }
+      } else if (contract.expectedTopologyDelta === 'DECREMENT') {
+        if (deltaUseful >= 0) {
+          checks.actionExecuted = false;
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: NO SE ELIMINÓ] Se hizo clic en '${uiSource}', pero el elemento sigue existiendo en el lienzo (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+          );
+        }
+      } else if (contract.expectedTopologyDelta === 'EQUAL') {
+        if (deltaUseful !== 0) {
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: TOPOLOGÍA ALTERADA] La acción '${opType}' alteró inesperadamente la cantidad de capas (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+          );
+        }
+      } else if (contract.expectedTopologyDelta === 'DECREASE_OR_EQUAL') {
+        if (deltaUseful > 0) {
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: AGRUPACIÓN ANÓMALA] La acción '${opType}' incrementó capas en lugar de consolidarlas.`
+          );
+        }
+      }
+
+      // D) Cambio de Selección Esperado
+      if (contract.expectedSelectionChange === 'NEW_ITEM') {
+        if (afterSel.primary && beforeSel.primary && afterSel.primary.id === beforeSel.primary.id && beforeSel.count === 1) {
+          checks.selectionValid = false;
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: SELECCIÓN NO ACTUALIZADA] El objeto fue procesado/duplicado pero la selección permanece en el original (ID: ${beforeSel.primary.id}) en lugar de enfocarse en el nuevo clon.`
+          );
+        }
+      } else if (contract.expectedSelectionChange === 'CLEARED') {
+        if (afterSel.hasSelection && beforeSel.primary && afterSel.primary && afterSel.primary.id === beforeSel.primary.id) {
+          checks.selectionValid = false;
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: SELECCIÓN HUÉRFANA] El elemento ID: ${beforeSel.primary.id} fue eliminado pero window.selectedItem sigue apuntando a él.`
+          );
+        }
+      }
+
+      // E) Desplazamiento visual (caso Duplicar)
+      if (contract.verifyDisplacement && afterSel.primary && beforeSel.primary && afterSel.primary.position && beforeSel.primary.position) {
+        const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
+        const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
+        if (dx < 1 && dy < 1) {
+          inconsistencies.push(
+            `[INCONSISTENCIA CLIC: SIN DESPLAZAMIENTO] El objeto duplicado ID: ${afterSel.primary.id} fue insertado en las mismas coordenadas exactas del original (x:${afterSel.primary.position.x}, y:${afterSel.primary.position.y}) sin desfase visual.`
+          );
+        }
+      }
+
+      // F) Preservación de recorte de Mockup
+      if (contract.preserveClipping && beforeSel.primary && beforeSel.primary.isClipped && afterSel.primary && !afterSel.primary.isClipped) {
+        checks.productClippingValid = false;
+        inconsistencies.push(
+          `[INCONSISTENCIA CLIC: PÉRDIDA DE RECORTE] El original ID: ${beforeSel.primary.id} estaba contenido en producto (clipGroup: true), pero el resultado ID: ${afterSel.primary.id} quedó huérfano sin máscara.`
+        );
+      }
+
+      // G) Validador personalizado del contrato
+      if (typeof contract.customValidator === 'function') {
+        try {
+          const customRes = contract.customValidator(op, beforeGeo, afterGeo, beforeSel, afterSel);
+          if (customRes && customRes.inconsistency) {
+            inconsistencies.push(customRes.inconsistency);
+          }
+        } catch (e) {
+          inconsistencies.push(`[ERROR EN VALIDADOR DE CONTRATO] ${e.message}`);
+        }
+      }
+    }
+
+    // --- REGLA 2: DETECCIÓN UNIVERSAL DE CLIC FANTASMA / BOTÓN DESCONECTADO ---
+    const totalCalls = callLog.length;
+    let canvasMutated = false;
+
+    if (beforeGeo.totalUsefulItems !== afterGeo.totalUsefulItems ||
+        beforeGeo.massCount !== afterGeo.massCount ||
+        beforeGeo.holeCount !== afterGeo.holeCount) {
+      canvasMutated = true;
+    }
+
+    if (!canvasMutated && beforeSel.primary && afterSel.primary && beforeSel.primary.position && afterSel.primary.position) {
+      const dx = Math.abs(beforeSel.primary.position.x - afterSel.primary.position.x);
+      const dy = Math.abs(beforeSel.primary.position.y - afterSel.primary.position.y);
+      if (dx > 0.1 || dy > 0.1) canvasMutated = true;
+    }
+
+    if (opMeta.isButtonClick && totalCalls === 0 && !canvasMutated && !opType.includes('TOGGLE') && !opType.includes('MODAL')) {
+      checks.deadClickDetected = true;
+      checks.buttonResponded = false;
+      inconsistencies.push(
+        `[INCONSISTENCIA CLIC: BOTÓN DESCONECTADO / FANTASMA] Se hizo clic en '${uiSource}', pero ninguna función controladora fue ejecutada y no hubo mutación en el lienzo. Verifica el listener onclick o el selector DOM del botón.`
+      );
+    }
+
+    // --- REGLA 3: AUDITORÍA DE PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN ---
     if (opType === 'UNGROUP') {
       if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
         checks.itemLossDetected = true;
@@ -257,17 +749,9 @@
           `[PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN] Se perdieron ${lostCount} elementos útiles. IDs desaparecidos: [${lostIds.join(', ')}].`
         );
       }
-
-      if (beforeSel.primary && beforeSel.primary.className === 'Group') {
-        if (afterGeo.totalUsefulItems <= beforeGeo.totalUsefulItems && afterGeo.itemsSummary.some(it => it.id === beforeSel.primary.id)) {
-          inconsistencies.push(
-            `[DESAGRUPACIÓN FALLIDA] El grupo ID: ${beforeSel.primary.id} sigue existiendo intacto; el comando no lo descompuso.`
-          );
-        }
-      }
     }
 
-    // 2. Verificación de Arrastre Efectivo (DRAG)
+    // --- REGLA 4: ARRASTRE BLOQUEADO (DRAG) ---
     if (opType === 'DRAG') {
       if (beforeSel.primary && afterSel.primary && beforeSel.primary.id === afterSel.primary.id) {
         const p0 = beforeSel.primary.position;
@@ -278,92 +762,36 @@
           if (dx < 0.1 && dy < 0.1) {
             checks.dragDisplacementValid = false;
             inconsistencies.push(
-              `[ARRASTRE BLOQUEADO] El objeto ID: ${afterSel.primary.id} (${afterSel.primary.label}) no modificó su posición física durante el arrastre (Posición fija en x:${p1.x}, y:${p1.y}).`
+              `[ARRASTRE BLOQUEADO] El objeto ID: ${afterSel.primary.id} (${afterSel.primary.label}) no modificó su posición física durante el arrastre.`
             );
           }
         }
       }
-    }
-
-    // 3. Verificación de geomBase (Corrupción por CSG)
-    const beforeMap = new Map();
-    beforeGeo.itemsSummary.forEach(it => beforeMap.set(it.id, it));
-
-    afterGeo.itemsSummary.forEach(itAfter => {
-      if (beforeMap.has(itAfter.id)) {
-        const itBefore = beforeMap.get(itAfter.id);
-        if (itBefore.hasGeomBase && itAfter.hasGeomBase && itBefore.geomBaseSegments !== itAfter.geomBaseSegments && opType !== 'NODE_EDIT') {
-          checks.geomBasePreserved = false;
-          inconsistencies.push(
-            `[CORRUPCIÓN CSG EN geomBase] El elemento ID: ${itAfter.id} alteró sus segmentos base (${itBefore.geomBaseSegments} -> ${itAfter.geomBaseSegments}) fuera del editor de nodos.`
-          );
-        }
-      }
-    });
-
-    // 4. Verificación de Selección Huérfana
-    if (afterSel.hasSelection && typeof window !== 'undefined' && window.selectedItem) {
-      const curr = window.selectedItem;
-      if (!curr.project || !curr.parent) {
-        checks.selectionValid = false;
-        inconsistencies.push(`[SELECCIÓN HUÉRFANA] window.selectedItem apunta a un objeto desvinculado (ID: ${curr.id}).`);
-      }
-    }
-
-    // 5. Verificación de Enmascaramiento y Recorte en Producto (Mockup Containment)
-    if (typeof window !== 'undefined' && window.currentMockup && !window.infiniteCanvasMode && window.clipMask) {
-      const unclipped = afterGeo.itemsSummary.filter(it => !it.isClipped);
-      if (unclipped.length > 0) {
-        checks.productClippingValid = false;
-        unclipped.forEach(it => {
-          inconsistencies.push(
-            `[RECORTE DE PRODUCTO AUSENTE] El objeto ID: ${it.id} (${it.label}) no posee máscara de recorte (isClipped: false); los elementos deben permanecer contenidos dentro de los límites del producto.`
-          );
-        });
-      }
-    }
-
-    // 6. VERIFICACIÓN ACTIVA DE COLAPSO DE ÁREA VISIBLE / MASA ANIQUILADA (RULE 8 COMPLIANCE)
-    // Detecta si una masa sólida previa sufrió colapso geométrico a 0 segmentos o área nula (ej. colisión de calados solapados)
-    if (opType !== 'DELETE') {
-      afterGeo.itemsSummary.forEach(itAfter => {
-        if (!itAfter.isHole && beforeMap.has(itAfter.id)) {
-          const itBefore = beforeMap.get(itAfter.id);
-          const hadVisibleGeometry = (itBefore.visibleSegments > 0) || (itBefore.visibleArea > 1.0);
-          const isZeroSegments = (itAfter.visibleSegments === 0);
-          const isZeroBounds = (!itAfter.bounds || (itAfter.bounds.width <= 0 && itAfter.bounds.height <= 0));
-          const isAreaCollapsed = (itAfter.visibleArea <= 0.01);
-
-          if (hadVisibleGeometry && (isZeroSegments || isZeroBounds || isAreaCollapsed)) {
-            checks.massCollapseDetected = true;
-            inconsistencies.push(
-              `[COLAPSO DE ÁREA / MASA ANIQUILADA] La masa sólida ID: ${itAfter.id} (${itAfter.label}) colapsó a 0 segmentos visibles o área nula tras la operación ${opType}. Se requiere blindaje anti-aniquilación CSG.`
-            );
-          }
-        }
-      });
     }
 
     const pass = inconsistencies.length === 0;
     return { checks, inconsistencies, pass };
   }
 
-  function beginOperation(actionName, triggerSource) {
+  // Iniciar Operación Forense
+  function beginOperation(actionName, sourceDesc, meta) {
     if (!diagState.active) return null;
+
     diagState.opCounter++;
-    const opId = 'OP-' + String(diagState.opCounter).padStart(5, '0');
+    const padId = String(diagState.opCounter).padStart(5, '0');
+    const opId = `OP-${padId}`;
 
     const op = {
       id: opId,
       action: actionName,
-      source: triggerSource || 'UI',
-      timestamp: Date.now(),
+      source: sourceDesc || 'Sistema',
+      meta: meta || {},
+      buttonContract: (meta && meta.resolvedContract) ? meta.resolvedContract : null,
       startTime: performance.now(),
-      endTime: null,
       durationMs: 0,
       selectionBefore: snapshotSelection(),
-      selectionAfter: null,
       geometryBefore: snapshotGeometricState(),
+      selectionAfter: null,
       geometryAfter: null,
       callGraph: [],
       consistency: null
@@ -373,22 +801,16 @@
     return op;
   }
 
+  // Finalizar Operación Forense
   function endOperation() {
     if (!diagState.active || !diagState.currentOp) return null;
+
     const op = diagState.currentOp;
-    op.endTime = performance.now();
-    op.durationMs = Number((op.endTime - op.startTime).toFixed(1));
+    op.durationMs = Number((performance.now() - op.startTime).toFixed(1));
     op.selectionAfter = snapshotSelection();
     op.geometryAfter = snapshotGeometricState();
 
-    op.consistency = auditConsistency(
-      op.geometryBefore,
-      op.geometryAfter,
-      op.selectionBefore,
-      op.selectionAfter,
-      op.callGraph,
-      op.action
-    );
+    op.consistency = auditConsistency(op);
 
     diagState.operations.push(op);
     if (diagState.operations.length > 500) {
@@ -408,13 +830,13 @@
 
     if (pass) {
       rawConsole.log(
-        `%c[${op.id}] ${op.action}%c | ✓ OK (${op.durationMs}ms) | ${selDesc} | ${geoDesc}`,
+        `%c[${op.id}] ${op.action}%c | ✓ OK (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc} | ${geoDesc}`,
         'color: #0284c7; font-weight: bold;',
         'color: #10b981;'
       );
     } else {
       rawConsole.warn(
-        `%c[${op.id}] ${op.action}%c | ⚠️ INCONSISTENCIA DETECTADA (${op.durationMs}ms) | ${selDesc}`,
+        `%c[${op.id}] ${op.action}%c | ⚠️ INCONSISTENCIA DETECTADA (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc}`,
         'color: #ea580c; font-weight: bold;',
         'color: #ef4444;'
       );
@@ -424,7 +846,7 @@
     }
   }
 
-  // Interceptor eludiendo protectGlobal
+  // --- INTERCEPTORES DE FUNCIONES GLOBALES ---
   function forceWrapWindowFunction(fnName, modulePath, actionType) {
     if (typeof window === 'undefined') return;
     let original = window[fnName];
@@ -440,6 +862,7 @@
 
       const t0 = performance.now();
       let res, err = null;
+
       try {
         res = original.apply(this, args);
       } catch (e) {
@@ -474,44 +897,46 @@
     }
   }
 
-  // Instalación de escuchadores directos en el DOM (Fase de Captura)
+  // =========================================================================
+  // CAPTURA UNIVERSAL DE CLICS EN UI (ESTÁNDAR PARA CUALQUIER BOTÓN)
+  // =========================================================================
   function installDOMCaptureListeners() {
     if (typeof document === 'undefined') return;
 
-    // 1. Intercepción de Clics en Botones de UI
     document.addEventListener('click', function (e) {
       if (!diagState.active) return;
       const target = e.target;
       if (!target) return;
 
-      const btnUngroup = target.closest('#btnCtxUngroup, #btnCtxDesagrupar, #proBtnUngroup');
-      const btnGroup = target.closest('#btnCtxGroup, #btnCtxAgrupar, #proBtnGroup');
-      const btnForward = target.closest('#btnCtxForward, #proBtnBringForward');
-      const btnBackward = target.closest('#btnCtxBackward, #proBtnSendBackward');
-      const btnEditNodes = target.closest('#btnCtxEditNodes, #btnCtxNodeEdit, #proBtnEditNodes');
-      const btnDelete = target.closest('#btnCtxDelete');
+      // Buscar si el clic fue sobre un botón interactivo
+      const interactiveEl = target.closest('button, [role="button"], .ctx-btn, .pro-btn, [data-action], a.btn');
+      if (!interactiveEl) return;
 
-      let actionName = null;
-      let triggerSource = null;
+      // Resolver contrato funcional (registrado o inferido dinámicamente)
+      const resolved = resolveButtonContract(interactiveEl);
+      if (!resolved) return;
 
-      if (btnUngroup) { actionName = 'UNGROUP'; triggerSource = 'Botón Desagrupar'; }
-      else if (btnGroup) { actionName = 'GROUP'; triggerSource = 'Botón Agrupar'; }
-      else if (btnForward) { actionName = 'BRING_FORWARD'; triggerSource = 'Botón Subir Capa'; }
-      else if (btnBackward) { actionName = 'SEND_BACKWARD'; triggerSource = 'Botón Bajar Capa'; }
-      else if (btnEditNodes) { actionName = 'NODE_EDIT'; triggerSource = 'Botón Editar Nodos'; }
-      else if (btnDelete) { actionName = 'DELETE'; triggerSource = 'Botón Eliminar'; }
+      const contract = resolved.contract;
+      const actionName = contract.name || 'BUTTON_CLICK';
+      const triggerSource = contract.label || `Botón (${resolved.matchedBy})`;
 
-      if (actionName) {
-        const op = beginOperation(actionName, triggerSource);
-        setTimeout(() => {
-          if (diagState.currentOp === op) {
-            endOperation();
-          }
-        }, 80);
-      }
+      const op = beginOperation(actionName, triggerSource, {
+        isButtonClick: true,
+        domElementId: interactiveEl.id || null,
+        domClass: interactiveEl.className || null,
+        resolvedContract: contract,
+        matchedBy: resolved.matchedBy
+      });
+
+      // Ventana de captura asíncrona para registrar la propagación completa
+      setTimeout(() => {
+        if (diagState.currentOp === op) {
+          endOperation();
+        }
+      }, 120);
     }, true);
 
-    // 2. Intercepción de Interacciones en el Lienzo (#editorCanvas)
+    // Intercepción de interacciones en el lienzo (#editorCanvas)
     const canvasEl = document.getElementById('editorCanvas');
     if (canvasEl) {
       canvasEl.addEventListener('mousedown', function (e) {
@@ -536,7 +961,7 @@
           const selBefore = diagState.lastMouseDownSelection || selNow;
 
           if (isDrag) {
-            const op = beginOperation('DRAG', 'Arrastre en Lienzo');
+            const op = beginOperation('DRAG', 'Arrastre en Lienzo (#editorCanvas)');
             op.selectionBefore = selBefore;
             op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
             endOperation();
@@ -545,7 +970,7 @@
             const idNow = (selNow.primary && selNow.primary.id) || null;
             if (idBefore !== idNow) {
               const action = idNow ? 'SELECT' : 'DESELECT';
-              const op = beginOperation(action, 'Clic en Lienzo');
+              const op = beginOperation(action, 'Clic en Lienzo (#editorCanvas)');
               op.selectionBefore = selBefore;
               op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
               endOperation();
@@ -556,7 +981,7 @@
     }
   }
 
-  // Instalación unificada de interceptores
+  // Instalación de hooks en módulos del repositorio
   function installAllInterceptors() {
     if (diagState.interceptorsInstalled) return;
 
@@ -572,6 +997,17 @@
     forceWrapWindowFunction('sendBack', 'editor.js', 'SEND_BACK');
     forceWrapWindowFunction('bringForward', 'editor.js', 'BRING_FORWARD');
     forceWrapWindowFunction('sendBackward', 'editor.js', 'SEND_BACKWARD');
+    forceWrapWindowFunction('duplicateImage', 'imageToolbar.js', 'DUPLICATE');
+    forceWrapWindowFunction('copySelected', 'editor.js', 'COPY');
+    forceWrapWindowFunction('pasteSelected', 'editor.js', 'DUPLICATE');
+    forceWrapWindowFunction('deleteImage', 'imageToolbar.js', 'DELETE');
+    forceWrapWindowFunction('scaleImage', 'imageToolbar.js', 'SCALE');
+    forceWrapWindowFunction('toggleBold', 'textToolbar.js', 'BOLD');
+    forceWrapWindowFunction('toggleItalic', 'textToolbar.js', 'ITALIC');
+    forceWrapWindowFunction('toggleUnderline', 'textToolbar.js', 'UNDERLINE');
+    forceWrapWindowFunction('weldText', 'textToolbar.js', 'WELD');
+    forceWrapWindowFunction('createEditableText', 'editor.js', 'ADD_TEXT');
+    forceWrapWindowFunction('addQRToCanvas', 'editor.js', 'ADD_QR');
 
     installDOMCaptureListeners();
 
@@ -595,13 +1031,15 @@
     diagState.interceptorsInstalled = true;
   }
 
-  // API Pública de EKKO_DIAG
+  // =========================================================================
+  // API PÚBLICA EKKO_DIAG (CON REGISTRO UNIVERSAL DE CONTRATOS)
+  // =========================================================================
   const publicAPI = {
     start: function () {
       diagState.active = true;
       installAllInterceptors();
-      rawConsole.log('%c[EKKO_DIAG v6.2 Deep Capture] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
-      return 'EKKO_DIAG Activo. Interactúa en el lienzo.';
+      rawConsole.log('%c[EKKO_DIAG v8.0 Universal Dynamic Standard] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
+      return 'EKKO_DIAG Activo. Monitoreando automáticamente cualquier botón existente o nuevo.';
     },
 
     stop: function () {
@@ -617,10 +1055,17 @@
       return 'Historial de operaciones limpiado.';
     },
 
+    // Registro formal de nuevos botones para desarrolladores
+    registerButtonContract: function (idOrSelector, contractConfig) {
+      registerContract(idOrSelector, contractConfig);
+      rawConsole.log(`%c[EKKO_DIAG] Contrato registrado para '${idOrSelector}'`, 'color: #0284c7;');
+      return true;
+    },
+
     report: function () {
       const ops = diagState.operations;
       let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-      outputText += '║               EKKO STUDIO DIAGNOSTIC v6.2 - INFORME CONSOLIDADO                  ║\n';
+      outputText += '║      EKKO STUDIO DIAGNOSTIC v8.0 - ESTÁNDAR UNIVERSAL DE CONTRATOS FORENSES      ║\n';
       outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
       outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
 
@@ -628,7 +1073,7 @@
         const pass = op.consistency && op.consistency.pass ? '✓ OK' : '⚠ INCONSISTENCIA';
         const sel = op.selectionAfter && op.selectionAfter.primary;
         const selStr = sel ? `ID: ${sel.id} (${sel.className}, Z:${sel.zIndex})` : 'Sin selección';
-        outputText += `[${op.id}] ${op.action.padEnd(14)} | ${pass.padEnd(16)} | ${op.durationMs}ms | Capas: ${op.geometryAfter.totalUsefulItems} | Sel: ${selStr}\n`;
+        outputText += `[${op.id}] ${op.action.padEnd(16)} | ${pass.padEnd(16)} | ${op.durationMs}ms | Origen: ${op.source} | Capas: ${op.geometryAfter.totalUsefulItems} | Sel: ${selStr}\n`;
         if (op.consistency && !op.consistency.pass) {
           op.consistency.inconsistencies.forEach(inc => {
             outputText += `   ↳ ⚠️ ${inc}\n`;
@@ -643,13 +1088,11 @@
     dump: function () {
       const rep = this.report();
       const payload = rep + '\n\n--- DETALLE FORENSE COMPLETO (JSON) ---\n' + JSON.stringify(diagState.operations, null, 2);
-
       if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(payload).then(() => {
           rawConsole.log('%c[EKKO_DIAG] Diagnóstico forense copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
         }).catch(() => {});
       }
-
       return payload;
     },
 
