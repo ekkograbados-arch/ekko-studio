@@ -87,19 +87,36 @@ function getContentItem(item) {
  * contenidos en un elemento, grupo de capas o subgrupos anidados.
  */
 function syncGeomBaseDeep(item, delta) {
-  if (!item || !delta) return;
+  if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
+  const visited = new Set();
 
-  // 1. Sincronizar geomBase directo del item
-  if (item.data && item.data.geomBase) {
-    item.data.geomBase.position = item.data.geomBase.position.add(delta);
+  function recurse(target) {
+    if (!target || visited.has(target.id)) return;
+    visited.add(target.id);
+
+    // 1. Sincronizar geomBase directo del item
+    if (target.data && target.data.geomBase) {
+      target.data.geomBase.position = target.data.geomBase.position.add(delta);
+    }
+
+    // 2. Si es un clipGroup, descender a su contenido real
+    if (target.data && target.data.clipGroup && target.children) {
+      target.children.forEach(function(c) {
+        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
+          recurse(c);
+        }
+      });
+    }
+
+    // 3. Si es un Grupo, recorrer todos sus hijos de forma recursiva
+    if (target instanceof paper.Group && target.children && target.children.length > 0) {
+      target.children.forEach(function(child) {
+        recurse(child);
+      });
+    }
   }
 
-  // 2. Si es un Grupo, recorrer todos sus hijos de forma recursiva
-  if (item instanceof paper.Group && item.children && item.children.length > 0) {
-    item.children.forEach(function(child) {
-      syncGeomBaseDeep(child, delta);
-    });
-  }
+  recurse(item);
 }
 
 // Variables globales de estado del motor de selección
@@ -254,12 +271,27 @@ const _updateSelectionBox = function(item) {
     const displayItem = getContentItem(it);
     if (!displayItem) return;
 
-    // Obtener límites geométricos reales (incluso si está oculto por ser calado activo)
     let itemBounds = null;
-    if (it.data && it.data.geomBase) {
-      itemBounds = it.bounds && it.bounds.width > 0 ? it.bounds : it.data.geomBase.bounds;
-    } else {
-      itemBounds = displayItem.bounds;
+    const gBase = (displayItem.data && displayItem.data.geomBase) || (it.data && it.data.geomBase);
+    const isHole = !!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole));
+
+    // Si es calado activo, resolver coordenadas globales exactas mediante getGlobalUnsubtractedPath
+    if (isHole && typeof window.getGlobalUnsubtractedPath === 'function') {
+      const holeGeom = window.getGlobalUnsubtractedPath(displayItem);
+      if (holeGeom && holeGeom.bounds && holeGeom.bounds.width > 0 && holeGeom.bounds.height > 0) {
+        itemBounds = holeGeom.bounds.clone();
+        try { holeGeom.remove(); } catch(e) {}
+      }
+    }
+
+    if (!itemBounds) {
+      if (displayItem.bounds && displayItem.bounds.width > 0 && displayItem.bounds.height > 0) {
+        itemBounds = displayItem.bounds;
+      } else if (gBase && gBase.bounds && gBase.bounds.width > 0) {
+        itemBounds = gBase.bounds;
+      } else if (it.bounds && it.bounds.width > 0) {
+        itemBounds = it.bounds;
+      }
     }
 
     if (!itemBounds || itemBounds.width <= 0 || itemBounds.height <= 0) return;
@@ -276,6 +308,58 @@ const _updateSelectionBox = function(item) {
   window.selectionBoxGroup = new paper.Group();
   window.selectionBoxGroup.data = { isSelectionBox: true };
   const mainColor = '#007bff';
+
+  // CONTORNO AJUSTADO A LA FORMA EXACTA DEL CALADO (Hole Tight Contour / Magnetic Shell)
+  // Permite al usuario/cliente visualizar el perímetro exacto de letras caladas (ej. "F", "A")
+  // o bandas para alinear y ajustar con total precisión respecto a vértices o bordes.
+  selected.forEach(function(it) {
+    const displayItem = getContentItem(it);
+    if (!displayItem) return;
+
+    const isHole = !!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole));
+    const gBase = (displayItem.data && displayItem.data.geomBase) || (it.data && it.data.geomBase);
+
+    if (isHole) {
+      let tightOutline = null;
+      if (typeof window.getGlobalUnsubtractedPath === 'function') {
+        tightOutline = window.getGlobalUnsubtractedPath(displayItem);
+      }
+      if (!tightOutline && gBase) {
+        tightOutline = gBase.clone({ insert: false });
+      }
+      if (!tightOutline) {
+        tightOutline = displayItem.clone({ insert: false });
+      }
+
+      if (tightOutline) {
+        tightOutline.strokeColor = new paper.Color('#06b6d4'); // Cian técnico LightBurn
+        tightOutline.strokeWidth = 1.8 / paper.view.zoom;
+        tightOutline.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
+        tightOutline.fillColor = new paper.Color(6, 182, 212, 0.08); // Relleno cian sutil semitransparente
+        tightOutline.data = { isSelectionBox: true, isHoleTightOutline: true };
+        window.selectionBoxGroup.addChild(tightOutline);
+      }
+    } else if (displayItem instanceof paper.Group && displayItem.children) {
+      displayItem.children.forEach(function(child) {
+        if (child && child.data && child.data.isHole) {
+          let childOutline = null;
+          if (typeof window.getGlobalUnsubtractedPath === 'function') {
+            childOutline = window.getGlobalUnsubtractedPath(child);
+          } else if (child.data.geomBase) {
+            childOutline = child.data.geomBase.clone({ insert: false });
+          }
+          if (childOutline) {
+            childOutline.strokeColor = new paper.Color('#06b6d4');
+            childOutline.strokeWidth = 1.8 / paper.view.zoom;
+            childOutline.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
+            childOutline.fillColor = new paper.Color(6, 182, 212, 0.08);
+            childOutline.data = { isSelectionBox: true, isHoleTightOutline: true };
+            window.selectionBoxGroup.addChild(childOutline);
+          }
+        }
+      });
+    }
+  });
 
   // Delineado secundario punteado si hay selección múltiple
   if (selected.length > 1) {
@@ -939,13 +1023,8 @@ const _initSelectionTool = function() {
         const delta = newPos.subtract(dragInfo.target.position);
         dragInfo.target.position = newPos;
 
-        // 1. Sincronización recursiva profunda sobre el target arrastrado (cubriendo grupos e hijos)
+        // Sincronización recursiva unificada sobre el target arrastrado (evita doble traslación de geomBase)
         syncGeomBaseDeep(dragInfo.target, delta);
-
-        // 2. Sincronización sobre el item contenedor si es distinto del target
-        if (dragInfo.item !== dragInfo.target) {
-          syncGeomBaseDeep(dragInfo.item, delta);
-        }
       });
 
       // Recálculo reactivo CSG en vivo al mover capas (perfora dinámicamente lo que queda abajo)
