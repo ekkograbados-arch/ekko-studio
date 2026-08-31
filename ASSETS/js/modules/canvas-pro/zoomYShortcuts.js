@@ -1,216 +1,294 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js (v25.0 PRO - Unified & CSG Reactive)
+Modulo: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js (v26.0 PRO - Unified & CSG Reactive)
 Ruta de implementacion: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js
-Descripción: Logica integrada para zoom interactivo relativo al cursor del raton
+Descripcion: Logica integrada para zoom interactivo relativo al cursor del raton
 (LightBurn Style) elevando el limite al 10000%, con sistema unificado
 de atajos de teclado universales.
 - REACTIVIDAD CSG TOTAL: Al borrar capas negativas (isHole) o solidas con
-  Delete/Backspace, o restaurar historial con Ctrl+Z / Ctrl+Y, ejecuta
-  recalculateDynamicSubtractions() de forma inmediata para restaurar la
-  geometria continua de la masa base.
+Delete/Backspace, o restaurar historial con Ctrl+Z / Ctrl+Y, ejecuta
+recalculateDynamicSubtractions() de forma inmediata para restaurar la
+geometria continua de la masa base.
 - SANEADO DE ATAJOS (Rule 12): Centraliza de manera oficial los atajos
-  de teclado Ctrl+G (Agrupar) y Ctrl+U (Desagrupar) para todo el sistema,
-  removiendo escuchadores redundantes del resto de la aplicacion y
-  evitando el molesto bug de doble ejecucion.
+de teclado Ctrl+G (Agrupar) y Ctrl+U (Desagrupar) para todo el sistema,
+removiendo escuchadores redundantes del resto de la aplicacion y
+evitando el molesto bug de doble ejecucion.
+- COMPATIBILIDAD CON MODELO DE CAPAS Y ORDEN Z:
+Sincronizado con geometricUngroup.js, contextualMenu.js y nodeEditor.js.
 ========================================================================= */
 
+import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+
 export function initZoomControls(canvasEl) {
-  if (!canvasEl || !window.paper) return;
+    if (!canvasEl || !window.paper) return;
 
-  canvasEl.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    const canvasRect = canvasEl.getBoundingClientRect();
-    const mouseX = e.clientX - canvasRect.left;
-    const mouseY = e.clientY - canvasRect.top;
-    const mousePoint = paper.view.viewToProject(new paper.Point(mouseX, mouseY));
-    const oldZoom = paper.view.zoom;
-    let newZoom = oldZoom * factor;
-    newZoom = Math.max(0.15, Math.min(100.0, newZoom)); // Limite de zoom robusto del 10000%
-    const beta = oldZoom / newZoom;
-    const pc = paper.view.center;
-    const offset = mousePoint.subtract(pc);
-    paper.view.center = mousePoint.subtract(offset.multiply(beta));
-    paper.view.zoom = newZoom;
+    // Zoom interactivo relativo al cursor (LightBurn Style)
+    canvasEl.addEventListener("wheel", (e) => {
+        if (!paper.view) return;
+        e.preventDefault();
 
-    if (window.selectedItem && typeof window.updateSelectionBox === 'function') {
-      window.updateSelectionBox(window.selectedItem);
-    }
-    if (typeof window.updateNodeHandlesScale === 'function') {
-      window.updateNodeHandlesScale();
-    }
-    paper.view.update();
-  }, { passive: false });
+        const oldZoom = paper.view.zoom;
+        const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+        let newZoom = oldZoom * zoomFactor;
+
+        // Limites profesionales: 10% hasta 10000%
+        newZoom = Math.max(0.1, Math.min(100.0, newZoom));
+
+        const mousePosition = new paper.Point(e.offsetX, e.offsetY);
+        const viewPosition = paper.view.viewToProject(mousePosition);
+
+        paper.view.zoom = newZoom;
+
+        const newViewPosition = paper.view.viewToProject(mousePosition);
+        paper.view.center = paper.view.center.add(viewPosition.subtract(newViewPosition));
+
+        // Actualizar indicador de zoom en barra superior
+        const zoomReadout = document.getElementById("pro-zoom-text");
+        if (zoomReadout) {
+            zoomReadout.textContent = `${Math.round(newZoom * 100)}%`;
+        }
+
+        // Sincronizar caja de transformacion
+        if (typeof window.updateSelectionBox === "function" && window.selectedItem) {
+            window.updateSelectionBox(window.selectedItem);
+        }
+
+        // Sincronizar escala de tiradores de nodos
+        if (typeof window.updateNodeHandlesScale === "function") {
+            window.updateNodeHandlesScale();
+        }
+
+        paper.view.update();
+    }, { passive: false });
 }
 
 export function initGlobalKeyboardShortcuts() {
-  // Si ya fueron registrados previamente, cancelamos para evitar duplicidades
-  if (window.ekkoShortcutsBound) return;
-  window.ekkoShortcutsBound = true;
+    if (window._ekkoKeyboardShortcutsInstalled) return;
+    window._ekkoKeyboardShortcutsInstalled = true;
 
-  document.addEventListener('keydown', (e) => {
-    const activeEl = document.activeElement;
-    // Evitamos disparar atajos si el usuario escribe en un campo de texto
-    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.id === 'ekko-text-editor')) {
-      return;
-    }
+    window.addEventListener("keydown", (e) => {
+        // Ignorar atajos si el usuario esta escribiendo en un input, textarea o editor de texto
+        const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
+        const isInput = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
+        const isTextEditor = document.activeElement && (
+            document.activeElement.id === "ekko-text-editor" || 
+            document.activeElement.classList.contains("ekko-inline-editor")
+        );
 
-    const isCtrl = e.ctrlKey || e.metaKey;
-    const key = e.key.toLowerCase();
+        if (isInput || isTextEditor) return;
 
-    // 1. ATAJOS DENTRO DEL EDITOR DE NODOS (MODO DE EDICIÓN DIRECTA)
-    if (window.nodeEditMode) {
-      if (key === 'delete' || key === 'backspace') {
-        e.preventDefault();
-        if (typeof window.deleteSelectedNodes === 'function') {
-          window.deleteSelectedNodes();
-        }
-      }
-      if (key === 'escape') {
-        e.preventDefault();
-        if (typeof window.exitNodeEditMode === 'function') {
-          window.exitNodeEditMode();
-        }
-      }
-      return;
-    }
+        const isCtrl = e.ctrlKey || e.metaKey;
+        const key = e.key.toLowerCase();
 
-    // 2. ATAJOS GENERALES DEL LIENZO
-
-    // Copiar (Ctrl+C)
-    if (isCtrl && key === 'c') {
-      e.preventDefault();
-      if (typeof window.copySelected === 'function') {
-        window.copySelected();
-      } else if (window.selectedItem) {
-        window.clipboardItem = window.selectedItem.clone({ insert: false });
-        console.log("[EKKO SHORTCUTS] Elemento copiado al portapapeles");
-      }
-    }
-
-    // Pegar (Ctrl+V)
-    if (isCtrl && key === 'v') {
-      e.preventDefault();
-      if (typeof window.pasteSelected === 'function') {
-        window.pasteSelected();
-      } else if (window.clipboardItem) {
-        if (typeof window.saveHistory === 'function') window.saveHistory();
-        const clone = window.clipboardItem.clone();
-        clone.position = clone.position.add(new paper.Point(15, 15));
-        clone.data = { ...(clone.data || {}), locked: false };
-        paper.project.activeLayer.addChild(clone);
-        window.selectItem(clone);
-        if (typeof window.recalculateDynamicSubtractions === 'function') {
-          window.recalculateDynamicSubtractions();
-        }
-        paper.view.update();
-      }
-    }
-
-    // Deshacer (Ctrl+Z)
-    if (isCtrl && key === 'z' && !e.shiftKey) {
-      e.preventDefault();
-      if (typeof window.undo === 'function') {
-        window.undo();
-      } else if (typeof window.undoStack !== 'undefined' && window.undoStack.length > 0) {
-        if (typeof window.saveHistory === 'function') {
-          window.redoStack.push(paper.project.exportJSON({ asString: true }));
-        }
-        const state = window.undoStack.pop();
-        paper.project.clear();
-        paper.project.importJSON(state);
-        window.deselectItem();
-        if (typeof window.recalculateDynamicSubtractions === 'function') {
-          window.recalculateDynamicSubtractions();
-        }
-        paper.view.update();
-      }
-    }
-
-    // Rehacer (Ctrl+Y o Ctrl+Shift+Z)
-    if ((isCtrl && key === 'y') || (isCtrl && e.shiftKey && key === 'z')) {
-      e.preventDefault();
-      if (typeof window.redo === 'function') {
-        window.redo();
-      } else if (typeof window.redoStack !== 'undefined' && window.redoStack.length > 0) {
-        if (typeof window.saveHistory === 'function') {
-          window.undoStack.push(paper.project.exportJSON({ asString: true }));
-        }
-        const state = window.redoStack.pop();
-        paper.project.clear();
-        paper.project.importJSON(state);
-        window.deselectItem();
-        if (typeof window.recalculateDynamicSubtractions === 'function') {
-          window.recalculateDynamicSubtractions();
-        }
-        paper.view.update();
-      }
-    }
-
-    // Seleccionar Todo (Ctrl+A)
-    if (isCtrl && key === 'a') {
-      e.preventDefault();
-      const itemsToSelect = [];
-      paper.project.activeLayer.children.forEach(item => {
-        if (item.data && (item.data.mockup || item.data.isMask || item.data.isSelectionBox || item.data.isHandle || item.data.isSmartGuide)) {
-          return;
-        }
-        itemsToSelect.push(item);
-      });
-      if (itemsToSelect.length > 0) {
-        window.deselectItem();
-        window.selectedItems = [...itemsToSelect];
-        window.selectedItem = itemsToSelect[itemsToSelect.length - 1];
-        itemsToSelect.forEach(it => it.selected = true);
-        window.updateSelectionBox(window.selectedItem);
-      }
-    }
-
-    // Agrupar (Ctrl+G) - UNIFICADO Y SEGURO
-    if (isCtrl && key === 'g') {
-      e.preventDefault();
-      if (typeof window.groupSelectedItems === 'function') {
-        window.groupSelectedItems();
-      }
-    }
-
-    // Desagrupar (Ctrl+U) - UNIFICADO Y SEGURO (Descomposicion por Jerarquia de Contencion)
-    if (isCtrl && key === 'u') {
-      e.preventDefault();
-      if (typeof window.ungroupSelectedItem === 'function') {
-        window.ungroupSelectedItem();
-      }
-    }
-
-    // Eliminar elementos seleccionados (Delete o Backspace) con reactividad CSG
-    if (key === 'delete' || key === 'backspace') {
-      e.preventDefault();
-      const selected = (window.selectedItems && window.selectedItems.length > 0)
-        ? [...window.selectedItems]
-        : (window.selectedItem ? [window.selectedItem] : []);
-
-      if (selected.length > 0) {
-        if (typeof window.saveHistory === 'function') window.saveHistory();
-        let hadHoles = false;
-
-        selected.forEach(it => {
-          if (it && !it.data?.locked) {
-            if (it.data?.isHole) {
-              hadHoles = true;
+        // 1. ESCAPE: Salir del modo edicion de nodos o deseleccionar
+        if (key === "escape") {
+            if (window.nodeEditMode && typeof window.exitNodeEditMode === "function") {
+                e.preventDefault();
+                window.exitNodeEditMode();
+                return;
             }
-            it.remove();
-          }
-        });
-
-        window.deselectItem();
-
-        // Si se elimino un hueco activo (o cualquier elemento), recalculamos las sustracciones dinamicas
-        if (typeof window.recalculateDynamicSubtractions === 'function') {
-          window.recalculateDynamicSubtractions();
+            if (typeof window.deselectItem === "function") {
+                window.deselectItem();
+                return;
+            }
         }
 
-        paper.view.update();
-      }
-    }
-  });
+        // 2. ENTER: Confirmar y salir de edicion de nodos
+        if (key === "enter" && window.nodeEditMode) {
+            e.preventDefault();
+            if (typeof window.exitNodeEditMode === "function") {
+                window.exitNodeEditMode();
+            }
+            return;
+        }
+
+        // 3. COPIAR (Ctrl+C)
+        if (isCtrl && key === "c") {
+            e.preventDefault();
+            if (typeof window.copySelected === "function") {
+                window.copySelected();
+            } else if (window.selectedItem) {
+                window.clipboardItem = window.selectedItem.clone({ insert: false });
+                if (typeof window.EKKO_DEBUG !== "undefined" && window.EKKO_DEBUG) {
+                    console.log("[EKKO SHORTCUTS] Elemento copiado al portapapeles");
+                }
+            }
+            return;
+        }
+
+        // 4. PEGAR (Ctrl+V)
+        if (isCtrl && key === "v") {
+            e.preventDefault();
+            if (typeof window.pasteSelected === "function") {
+                window.pasteSelected();
+            } else if (window.clipboardItem) {
+                if (typeof window.saveHistory === "function") window.saveHistory();
+                const clone = window.clipboardItem.clone();
+                clone.position = clone.position.add(new paper.Point(15, 15));
+                clone.data = { ...(clone.data || {}), locked: false };
+                paper.project.activeLayer.addChild(clone);
+                
+                if (window.currentMockup) {
+                    clone.insertBelow(window.currentMockup);
+                }
+                
+                if (typeof window.selectItem === "function") {
+                    window.selectItem(clone);
+                }
+                
+                if (typeof recalculateDynamicSubtractions === "function") {
+                    recalculateDynamicSubtractions();
+                } else if (typeof window.recalculateDynamicSubtractions === "function") {
+                    window.recalculateDynamicSubtractions();
+                }
+                paper.view.update();
+            }
+            return;
+        }
+
+        // 5. DESHACER (Ctrl+Z)
+        if (isCtrl && key === "z" && !e.shiftKey) {
+            e.preventDefault();
+            if (typeof window.undo === "function") {
+                window.undo();
+            } else if (typeof window.undoStack !== "undefined" && window.undoStack.length > 0) {
+                if (typeof window.saveHistory === "function") {
+                    window.redoStack.push(paper.project.exportJSON({ asString: true }));
+                }
+                const state = window.undoStack.pop();
+                paper.project.clear();
+                paper.project.importJSON(state);
+                if (typeof window.deselectItem === "function") window.deselectItem();
+                if (typeof recalculateDynamicSubtractions === "function") {
+                    recalculateDynamicSubtractions();
+                } else if (typeof window.recalculateDynamicSubtractions === "function") {
+                    window.recalculateDynamicSubtractions();
+                }
+                paper.view.update();
+            }
+            return;
+        }
+
+        // 6. REHACER (Ctrl+Y o Ctrl+Shift+Z)
+        if ((isCtrl && key === "y") || (isCtrl && e.shiftKey && key === "z")) {
+            e.preventDefault();
+            if (typeof window.redo === "function") {
+                window.redo();
+            } else if (typeof window.redoStack !== "undefined" && window.redoStack.length > 0) {
+                if (typeof window.saveHistory === "function") {
+                    window.undoStack.push(paper.project.exportJSON({ asString: true }));
+                }
+                const state = window.redoStack.pop();
+                paper.project.clear();
+                paper.project.importJSON(state);
+                if (typeof window.deselectItem === "function") window.deselectItem();
+                if (typeof recalculateDynamicSubtractions === "function") {
+                    recalculateDynamicSubtractions();
+                } else if (typeof window.recalculateDynamicSubtractions === "function") {
+                    window.recalculateDynamicSubtractions();
+                }
+                paper.view.update();
+            }
+            return;
+        }
+
+        // 7. SELECCIONAR TODO (Ctrl+A)
+        if (isCtrl && key === "a") {
+            e.preventDefault();
+            const itemsToSelect = [];
+            const designLayer = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
+            if (!designLayer) return;
+
+            designLayer.children.forEach(item => {
+                if (!item) return;
+                const d = item.data || {};
+                if (d.mockup || d.isMask || d.isSelectionBox || d.isHandle || d.isSmartGuide || d.isMeasurement || d.isNodeHandle || d.isNodeEditOverlay) {
+                    return;
+                }
+                itemsToSelect.push(item);
+            });
+
+            if (itemsToSelect.length > 0) {
+                if (typeof window.deselectItem === "function") window.deselectItem();
+                window.selectedItems = [...itemsToSelect];
+                window.selectedItem = itemsToSelect[itemsToSelect.length - 1];
+                itemsToSelect.forEach(it => { if (it) it.selected = true; });
+                if (typeof window.updateSelectionBox === "function") {
+                    window.updateSelectionBox(window.selectedItem);
+                }
+                if (typeof window.updateContextualMenu === "function") {
+                    window.updateContextualMenu(window.selectedItem);
+                }
+                paper.view.update();
+            }
+            return;
+        }
+
+        // 8. AGRUPAR (Ctrl+G) - UNIFICADO, COMPATIBLE Y SIMETRICO
+        if (isCtrl && key === "g") {
+            e.preventDefault();
+            if (typeof window.groupSelectedItems === "function") {
+                window.groupSelectedItems();
+            }
+            return;
+        }
+
+        // 9. DESAGRUPAR (Ctrl+U) - UNIFICADO Y EN 1 CLIC
+        if (isCtrl && key === "u") {
+            e.preventDefault();
+            if (typeof window.ungroupSelectedItem === "function") {
+                window.ungroupSelectedItem();
+            }
+            return;
+        }
+
+        // 10. ELIMINAR ELEMENTOS O NODOS (Delete o Backspace)
+        if (key === "delete" || key === "backspace") {
+            e.preventDefault();
+
+            // Si estamos en modo edicion de nodos, eliminar los vertices seleccionados
+            if (window.nodeEditMode) {
+                if (typeof window.deleteSelectedNodes === "function") {
+                    window.deleteSelectedNodes();
+                }
+                return;
+            }
+
+            // Eliminacion de objetos seleccionados en lienzo
+            const selected = (window.selectedItems && window.selectedItems.length > 0)
+                ? [...window.selectedItems]
+                : (window.selectedItem ? [window.selectedItem] : []);
+
+            if (selected.length > 0) {
+                if (typeof window.saveHistory === "function") window.saveHistory();
+                
+                selected.forEach(it => {
+                    if (it && !it.data?.locked) {
+                        it.remove();
+                    }
+                });
+
+                if (typeof window.deselectItem === "function") {
+                    window.deselectItem();
+                }
+
+                // REACTIVIDAD CSG: Si se elimino un calado activo (isHole) o una masa solida,
+                // recalculamos las sustracciones dinamicas inmediatamente para restaurar
+                // las masas afectadas por debajo.
+                if (typeof recalculateDynamicSubtractions === "function") {
+                    recalculateDynamicSubtractions();
+                } else if (typeof window.recalculateDynamicSubtractions === "function") {
+                    window.recalculateDynamicSubtractions();
+                }
+
+                paper.view.update();
+            }
+            return;
+        }
+    }, false);
+}
+
+// Auto-inicializacion segura en entorno de navegador
+if (typeof window !== "undefined") {
+    window.initZoomControls = initZoomControls;
+    window.initGlobalKeyboardShortcuts = initGlobalKeyboardShortcuts;
 }
