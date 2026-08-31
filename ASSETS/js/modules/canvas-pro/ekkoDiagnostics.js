@@ -1,24 +1,31 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v6.1 Deep Capture, Real Displacement & Product Clipping Engine)
-Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-Descripción:
-Sistema de Auditoría, Trazabilidad e Instrumentación Forense de 5 Niveles para EKKO Studio.
-Diseñado bajo los estándares del PROMPT MAESTRO y DIAGNÓSTICO DE ARQUITECTURA.
+   Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v6.2 PRO Deep Capture & Surface Area Engine)
+   Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
+   Descripción:
+   Sistema de Auditoría, Trazabilidad e Instrumentación Forense de 5 Niveles para EKKO Studio.
+   Diseñado específicamente para verificar la consistencia del motor de:
+   - Descomposición por Jerarquía de Contención y Capas SVG.
+   - Orden Z no destructivo y Reactividad CSG en vivo.
+   - Preservación de geomBase, masas sólidas y calados activos.
+   - Detección activa de Colapso de Área Visible o Masas Aniquiladas (Rule 8).
 
-MEJORAS v6.1:
-1. CORRECCIÓN DE SINTAXIS (Zero SyntaxError):
-   - Eliminada la doble declaración de variables léxicas (const isHole).
-2. DETECCIÓN DE ARRASTRES CONGELADOS (Real Displacement Detection):
-   - Audita si un evento DRAG produjo desplazamiento físico real en las coordenadas del contenido útil.
-   - Si la posición antes y después es idéntica tras un arrastre de mouse, marca inconsistencia explícita:
-     '[ARRASTRE BLOQUEADO]'.
-3. VERIFICACIÓN DE RECORTE OBLIGATORIO EN PRODUCTO (productClippingValid):
-   - Comprueba que en productos con mockup activo ningún elemento de diseño quede huérfano de máscara
-     de recorte (isClipped: true / clipGroup activo).
-4. CONTROL DE CONSISTENCIA CSG EN MOVIMIENTO Y GEOMBASE:
-   - Valida que geomBase se desplace solidariamente con la posición visible.
-5. PRESERVACIÓN DE CONSISTENCIA Y EXPOSICIÓN GLOBAL (EKKO_DIAG).
-========================================================================= */
+   AUDITORÍAS INTEGRADAS:
+   1. AUDITORÍA TOPOLÓGICA DE CAPAS (itemLossDetected):
+      - Verifica que al desagrupar no desaparezcan elementos útiles del lienzo.
+   2. AUDITORÍA DE ARRASTRE REAL (dragDisplacementValid):
+      - Comprueba que tras una operación 'DRAG', el elemento primario haya mutado
+        efectivamente sus coordenadas físicas en el lienzo (dx > 0.1 || dy > 0.1).
+   3. VERIFICACIÓN DE RECORTE OBLIGATORIO EN PRODUCTO (productClippingValid):
+      - Comprueba que en productos con mockup activo ningún elemento de diseño quede
+        huérfano de máscara de recorte (isClipped: true / clipGroup activo).
+   4. CONTROL DE CONSISTENCIA CSG EN MOVIMIENTO Y GEOMBASE (geomBasePreserved):
+      - Valida que geomBase se desplace solidariamente con la posición visible sin mutar
+        sus vértices prístinos fuera del editor de nodos.
+   5. DETECCIÓN ACTIVA DE COLAPSO DE ÁREA VISIBLE (massCollapseDetected):
+      - Detecta si una masa sólida sufre aniquilación booleana (0 segmentos visibles o
+        área colapsada a cero) cuando dos o más calados interactivos colisionan.
+   6. PRESERVACIÓN DE CONSISTENCIA Y EXPOSICIÓN GLOBAL (EKKO_DIAG).
+   ========================================================================= */
 
 (function (root, factory) {
   if (typeof define === 'function' && define.amd) {
@@ -30,7 +37,7 @@ MEJORAS v6.1:
   }
 }(typeof window !== 'undefined' ? window : this, function () {
 
-  // Canal seguro de salida de consola
+  // Canal seguro de salida de consola (elude silenciamientos externos de loggers)
   const rawConsole = {
     log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
     warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
@@ -38,7 +45,7 @@ MEJORAS v6.1:
     table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
   };
 
-  // Restauración activa por iframe aislado
+  // Restauración activa por iframe aislado si la consola global fue sobreescrita
   try {
     if (typeof document !== 'undefined') {
       const ifr = document.createElement('iframe');
@@ -102,6 +109,34 @@ MEJORAS v6.1:
     return 0;
   }
 
+  function calculateItemArea(item) {
+    if (!item) return 0;
+    if (typeof item.area === 'number' && !isNaN(item.area)) {
+      return Math.abs(item.area);
+    }
+    if (item.children && Array.isArray(item.children)) {
+      return item.children.reduce((acc, c) => acc + calculateItemArea(c), 0);
+    }
+    if (item.bounds && item.bounds.width > 0 && item.bounds.height > 0) {
+      return item.bounds.width * item.bounds.height;
+    }
+    return 0;
+  }
+
+  function isMockupOrUI(item) {
+    let curr = item;
+    while (curr) {
+      const d = curr.data || {};
+      if (d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
+          d.isNodeHandle || d.isCurveHandle || d.isNodeEditOverlay || d.isSmartGuide ||
+          d.isMeasurement || d.isTracePreview) {
+        return true;
+      }
+      curr = curr.parent;
+    }
+    return false;
+  }
+
   function snapshotSelection() {
     const item = typeof window !== 'undefined' ? (window.selectedItem || null) : null;
     const selectedItems = typeof window !== 'undefined' ? (window.selectedItems || []) : [];
@@ -111,25 +146,24 @@ MEJORAS v6.1:
     }
 
     const primary = item || selectedItems[0];
-    let zIndex = -1;
-    if (primary && primary.parent && primary.parent.children) {
-      zIndex = primary.parent.children.indexOf(primary);
-    }
-
     const target = getContentItem(primary);
-    const targetPos = (target && target.position) ? { x: Number(target.position.x.toFixed(1)), y: Number(target.position.y.toFixed(1)) } : ((primary && primary.position) ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null);
+    const targetPos = target && target.position ? {
+      x: Number(target.position.x.toFixed(1)),
+      y: Number(target.position.y.toFixed(1))
+    } : null;
 
     const primaryData = primary ? {
       id: primary.id,
       contentId: target ? target.id : primary.id,
-      className: primary.className || (primary.constructor ? primary.constructor.name : 'Unknown'),
-      label: (target && target.data && target.data.label) || (primary.data && primary.data.label) || 'Item ' + primary.id,
-      zIndex: zIndex,
-      isHole: target && target.data ? !!target.data.isHole : false,
+      className: target ? target.className : primary.className,
+      label: (target && target.data && target.data.label) || (primary.data && primary.data.label) || 'Objeto',
+      zIndex: typeof primary.index === 'number' ? primary.index : 0,
+      isHole: !!(target && target.data && target.data.isHole),
       isClipped: !!(primary.data && primary.data.clipGroup),
       hasGeomBase: !!(target && target.data && target.data.geomBase),
       geomBaseSegments: countSegments(target && target.data && target.data.geomBase),
       visibleSegments: countSegments(target || primary),
+      visibleArea: Number(calculateItemArea(target || primary).toFixed(1)),
       bounds: target ? extractBounds(target.bounds) : extractBounds(primary.bounds),
       position: targetPos,
       isLocked: isLockedItem(primary)
@@ -158,36 +192,31 @@ MEJORAS v6.1:
     let holeCount = 0;
 
     designLayer.children.forEach((child, index) => {
-      if (!child) return;
-      const isUI = child.data && (
-        child.data.isSelectionBox || child.data.isHandle || child.data.isNodeHandle ||
-        child.data.isCurveHandle || child.data.isNodeEditOverlay || child.data.isSmartGuide ||
-        child.data.isMeasurement || child.data.isTracePreview || child.data.mockup || child.data.isMask
-      );
-      if (isUI) return;
-
+      if (isMockupOrUI(child)) return;
       const target = getContentItem(child);
-      const isHole = !!(target && target.data && target.data.isHole);
-      const hasGeomBase = !!(target && target.data && target.data.geomBase);
-      const isClipped = !!(child.data && child.data.clipGroup);
+      if (!target) return;
 
-        if (isHole) holeCount++;
-        else massCount++;
+      const isHole = !!(target.data && target.data.isHole);
+      if (isHole) holeCount++; else massCount++;
 
-        items.push({
-          index: index,
-          id: child.id,
-          contentId: target ? target.id : child.id,
-          className: child.className || (child.constructor ? child.constructor.name : 'Unknown'),
-          label: (target && target.data && target.data.label) || (child.data && child.data.label) || 'Item ' + child.id,
-          isHole: isHole,
-          isClipped: isClipped,
-          hasGeomBase: hasGeomBase,
-          geomBaseSegments: hasGeomBase ? countSegments(target.data.geomBase) : 0,
-          visibleSegments: countSegments(target || child),
-          bounds: target ? extractBounds(target.bounds) : extractBounds(child.bounds)
-        });
+      const gBase = target.data && target.data.geomBase;
+      const vArea = calculateItemArea(target);
+
+      items.push({
+        index: index,
+        id: child.id,
+        contentId: target.id,
+        className: target.className,
+        label: (target.data && target.data.label) || (child.data && child.data.label) || 'Objeto',
+        isHole: isHole,
+        isClipped: !!(child.data && child.data.clipGroup),
+        hasGeomBase: !!gBase,
+        geomBaseSegments: countSegments(gBase),
+        visibleSegments: countSegments(target),
+        visibleArea: Number(vArea.toFixed(1)),
+        bounds: extractBounds(target.bounds)
       });
+    });
 
     return {
       timestamp: Date.now(),
@@ -209,7 +238,8 @@ MEJORAS v6.1:
       holeClassificationValid: true,
       itemLossDetected: false,
       dragDisplacementValid: true,
-      productClippingValid: true
+      productClippingValid: true,
+      massCollapseDetected: false
     };
 
     if (beforeGeo.error || afterGeo.error) {
@@ -227,6 +257,7 @@ MEJORAS v6.1:
           `[PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN] Se perdieron ${lostCount} elementos útiles. IDs desaparecidos: [${lostIds.join(', ')}].`
         );
       }
+
       if (beforeSel.primary && beforeSel.primary.className === 'Group') {
         if (afterGeo.totalUsefulItems <= beforeGeo.totalUsefulItems && afterGeo.itemsSummary.some(it => it.id === beforeSel.primary.id)) {
           inconsistencies.push(
@@ -292,13 +323,33 @@ MEJORAS v6.1:
       }
     }
 
+    // 6. VERIFICACIÓN ACTIVA DE COLAPSO DE ÁREA VISIBLE / MASA ANIQUILADA (RULE 8 COMPLIANCE)
+    // Detecta si una masa sólida previa sufrió colapso geométrico a 0 segmentos o área nula (ej. colisión de calados solapados)
+    if (opType !== 'DELETE') {
+      afterGeo.itemsSummary.forEach(itAfter => {
+        if (!itAfter.isHole && beforeMap.has(itAfter.id)) {
+          const itBefore = beforeMap.get(itAfter.id);
+          const hadVisibleGeometry = (itBefore.visibleSegments > 0) || (itBefore.visibleArea > 1.0);
+          const isZeroSegments = (itAfter.visibleSegments === 0);
+          const isZeroBounds = (!itAfter.bounds || (itAfter.bounds.width <= 0 && itAfter.bounds.height <= 0));
+          const isAreaCollapsed = (itAfter.visibleArea <= 0.01);
+
+          if (hadVisibleGeometry && (isZeroSegments || isZeroBounds || isAreaCollapsed)) {
+            checks.massCollapseDetected = true;
+            inconsistencies.push(
+              `[COLAPSO DE ÁREA / MASA ANIQUILADA] La masa sólida ID: ${itAfter.id} (${itAfter.label}) colapsó a 0 segmentos visibles o área nula tras la operación ${opType}. Se requiere blindaje anti-aniquilación CSG.`
+            );
+          }
+        }
+      });
+    }
+
     const pass = inconsistencies.length === 0;
     return { checks, inconsistencies, pass };
   }
 
   function beginOperation(actionName, triggerSource) {
     if (!diagState.active) return null;
-
     diagState.opCounter++;
     const opId = 'OP-' + String(diagState.opCounter).padStart(5, '0');
 
@@ -324,7 +375,6 @@ MEJORAS v6.1:
 
   function endOperation() {
     if (!diagState.active || !diagState.currentOp) return null;
-
     const op = diagState.currentOp;
     op.endTime = performance.now();
     op.durationMs = Number((op.endTime - op.startTime).toFixed(1));
@@ -550,24 +600,27 @@ MEJORAS v6.1:
     start: function () {
       diagState.active = true;
       installAllInterceptors();
-      rawConsole.log('%c[EKKO_DIAG v6.1 Deep Capture] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
+      rawConsole.log('%c[EKKO_DIAG v6.2 Deep Capture] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
       return 'EKKO_DIAG Activo. Interactúa en el lienzo.';
     },
+
     stop: function () {
       diagState.active = false;
       rawConsole.log('%c[EKKO_DIAG] Detenido 🔴', 'color: #ef4444; font-weight: bold;');
       return 'EKKO_DIAG Detenido.';
     },
+
     clear: function () {
       diagState.operations = [];
       diagState.opCounter = 0;
       diagState.currentOp = null;
       return 'Historial de operaciones limpiado.';
     },
+
     report: function () {
       const ops = diagState.operations;
       let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-      outputText += '║               EKKO STUDIO DIAGNOSTIC v6.1 - INFORME CONSOLIDADO                  ║\n';
+      outputText += '║               EKKO STUDIO DIAGNOSTIC v6.2 - INFORME CONSOLIDADO                  ║\n';
       outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
       outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
 
@@ -586,16 +639,20 @@ MEJORAS v6.1:
       rawConsole.log(outputText);
       return outputText;
     },
+
     dump: function () {
       const rep = this.report();
       const payload = rep + '\n\n--- DETALLE FORENSE COMPLETO (JSON) ---\n' + JSON.stringify(diagState.operations, null, 2);
+
       if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(payload).then(() => {
           rawConsole.log('%c[EKKO_DIAG] Diagnóstico forense copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
         }).catch(() => {});
       }
+
       return payload;
     },
+
     last: function () {
       if (diagState.operations.length === 0) return 'No hay operaciones registradas.';
       return diagState.operations[diagState.operations.length - 1];
