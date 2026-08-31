@@ -275,9 +275,9 @@ function resolveItemSemantics(node, rootTarget) {
  */
 export function getGlobalUnsubtractedPath(item) {
   if (!item || !item.data || !item.data.geomBase) return null;
+  // geomBase se mantiene en coordenadas de mundo por sincronización en tiempo real (drag, rotate, scale).
+  // Se clona de forma pura sin re-aplicar transformaciones matriciales redundantes que desfasen la silueta.
   const tempBase = item.data.geomBase.clone({ insert: false });
-  const globalMat = getMatrixRelativeTo(item, null);
-  tempBase.matrix = globalMat.clone();
   return tempBase;
 }
 
@@ -364,8 +364,11 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
       }
       item.visible = true;
     } else if (item && item.data && item.data.isHole) {
-      // Los calados interactivos se mantienen transparentes en pantalla durante edición
+      // Los calados interactivos se mantienen transparentes y sin trazo cuando no están seleccionados
       item.visible = true;
+      item.fillColor = new paper.Color(0, 0, 0, 0.0001);
+      item.strokeColor = null;
+      item.strokeWidth = 0;
     }
   });
 
@@ -553,10 +556,11 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     };
 
     if (isHole) {
+      // Los calados activos son transparentes y limpios cuando no están seleccionados.
+      // Su contorno visible (Hole Tight Contour) se proyecta exclusivamente al estar seleccionados desde selection.js.
       compoundItem.fillColor = new paper.Color(0, 0, 0, 0.0001);
-      compoundItem.strokeColor = new paper.Color('#0ea5e9');
-      compoundItem.strokeWidth = 1;
-      compoundItem.dashArray = [3, 3];
+      compoundItem.strokeColor = null;
+      compoundItem.strokeWidth = 0;
     } else {
       compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
       compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
