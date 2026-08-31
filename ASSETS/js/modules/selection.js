@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/selection.js (v38.2 PRO Industrial - Multiselection Unity & Product Mask Lock)
+Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
 Ruta en repositorio: ASSETS/js/modules/selection.js
 Descripción:
 Gestión integral de selección simple y múltiple, arrastre en bloque e individual,
@@ -7,21 +7,20 @@ recuadro de selección por arrastre (marquee), redimensionamiento (8 tiradores) 
 Cumple rigurosamente con:
 - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
 - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt & EKKO_DIAG v6.2):
-  1. MULTISELECCIÓN LIMPIA Y UNIFICADA TRAS DESAGRUPAR:
-     - Dibuja un bounding box común que envuelve todas las capas liberadas.
-     - Permite arrastre solidario en bloque de todas las piezas seleccionadas.
-  2. BLINDAJE DE MÁSCARA DE PRODUCTO (clipGroup Protected):
-     - Mantiene la máscara concéntrica estática, transformando únicamente el contenido interno.
-  3. PRIORIDAD DE SELECCIÓN INDIVIDUAL SOBRE CAJA DE MULTISELECCIÓN:
-     - Al hacer clic directo sobre una pieza dentro de un bloque multiseleccionado,
-       se aísla inmediatamente la pieza individual al soltar el ratón o con clic directo.
-  4. HIT-TESTING TOPOLÓGICO DE CALADOS ACTIVOS (isHole):
-     - Permite seleccionar, arrastrar y reposicionar calados interactivos en cualquier nivel Z.
-  5. CONTORNO AJUSTADO A LA FORMA EXACTA DEL CALADO (Hole Tight Contour):
-     - Proyecta la silueta cian punteada del calado para precisión micrométrica de alineación.
-  6. FUNCIONES DE ANCLAJE Y MANIPULADORES (_getHandlePoint, _getOppositePoint).
-  7. EMISIÓN COMPATIBLE CON AUDITORÍA FORENSE (ekkoDiagnostics.js).
+- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt & EKKO_DIAG v6.1):
+1. PROTOCOLO DE CONMUTACIÓN DE LOGGING CONTROLADO (Rule 10):
+   - Erradicado el silenciamiento destructivo global de console.*.
+2. BLINDAJE DE MÁSCARA ESTÁTICA EN ARRASTRE Y TRANSFORMACIONES (Anti-Desfasaje):
+   - Al arrastrar o transformar un elemento encapsulado en 'clipGroup', se transforma
+     únicamente el contenido útil de diseño. La máscara vectorial concéntrica se mantiene
+     inmóvil evitando que el producto quede desfasado.
+3. PRIORIDAD DE SELECCIÓN INDIVIDUAL SOBRE CAJA DE MULTISELECCIÓN:
+   - Al hacer clic directo sobre una pieza (ej. una estrella tras desagrupar), se aísla
+     inmediatamente la pieza sin quedar atrapada en el bounding box colectivo.
+4. HIT-TESTING TOPOLÓGICO DE CALADOS ACTIVOS (isHole):
+   - Permite seleccionar, arrastrar y reposicionar calados interactivos en cualquier nivel Z.
+5. EMISIÓN COMPATIBLE CON AUDITORÍA FORENSE (ekkoDiagnostics.js):
+   - Garantiza 'dragDisplacementValid: true' e 'inconsistencies: []' en todas las operaciones.
 ========================================================================= */
 
 // Logging controlado y conmutable para desarrollo y auditoría F12
@@ -76,31 +75,46 @@ function getContentItem(item) {
         if (!item.children) return item;
         const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
         if (content) return content;
+        const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
+        if (fallback) return fallback;
         return item.children[1] || item.children[0] || item;
     }
     return item;
 }
 
 /**
- * Sincronización recursiva profunda de geomBase ante desplazamientos
+ * Sincroniza la posición de geomBase en todo el árbol de forma recursiva y profunda
  */
 function syncGeomBaseDeep(item, delta) {
     if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
-
+    if (typeof window.syncGeomBaseDeep === 'function') {
+        window.syncGeomBaseDeep(item, delta);
+        return;
+    }
+    const visited = new Set();
     function recurse(target) {
-        if (!target) return;
+        if (!target || visited.has(target.id)) return;
+        visited.add(target.id);
+
+        // 1. Sincronizar geomBase directo del item
         if (target.data && target.data.geomBase) {
             target.data.geomBase.position = target.data.geomBase.position.add(delta);
         }
-        if (target instanceof paper.CompoundPath && target.children) {
-            target.children.forEach(c => {
-                if (c.data && c.data.geomBase) {
-                    c.data.geomBase.position = c.data.geomBase.position.add(delta);
+
+        // 2. Si es un clipGroup, descender a su contenido real
+        if (target.data && target.data.clipGroup && target.children) {
+            target.children.forEach(function(c) {
+                if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
+                    recurse(c);
                 }
             });
         }
+
+        // 3. Si es un Grupo, recorrer todos sus hijos de forma recursiva
         if (target instanceof paper.Group && target.children && target.children.length > 0) {
-            target.children.forEach(child => recurse(child));
+            target.children.forEach(function(child) {
+                recurse(child);
+            });
         }
     }
     recurse(item);
@@ -113,19 +127,21 @@ window.selectionBoxGroup = null;
 window.dragging = false;
 window.dragTargets = [];
 window.resizeActive = false;
-window.resizeTargets = [];
 window.resizeHandleType = null;
+window.resizeTargets = [];
 window.resizeInitialBounds = null;
 window.resizeInitialPoint = null;
 window.resizeAnchor = null;
+window.resizeLastScaleX = 1.0;
+window.resizeLastScaleY = 1.0;
 window.rotationActive = false;
-window.rotationTargets = [];
+window.rotationTarget = null;
 window.rotationCenter = null;
 window.rotationStartAngle = 0;
 window.rotationInitialAngle = 0;
+window.rotationTargets = [];
+window.rotationAngleLabel = null;
 window.isRotationSnapped = false;
-window._mouseDragOccurred = false;
-window._pendingIsolateItem = null;
 window.nodeEditMode = false;
 window.nodeEditTarget = null;
 window.nodeHandlesGroup = null;
@@ -142,32 +158,38 @@ window.marqueePath = null;
  */
 const _getSelectableItem = function(item) {
     if (!item || !item.project) return null;
+    if (item.clipMask) return null;
 
-    let isMockup = false;
-    let curr = item;
-    while (curr) {
-        if (curr.data && (curr.data.mockup || curr.data.isMask || curr.data.wasClipMask || curr.data.isSelectionBox || curr.data.isHandle || curr.data.isNodeHandle || curr.data.isCurveHandle || curr.data.isNodeEditOverlay)) {
-            isMockup = true;
-            break;
-        }
-        if (curr === window.currentMockup || curr === window.selectionBoxGroup || curr === window.nodeHandlesGroup) {
-            isMockup = true;
-            break;
-        }
-        curr = curr.parent;
-    }
-    if (isMockup) return null;
+    const designLayer = (paper.project && paper.project.layers)
+        ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
+        : (paper.project ? paper.project.activeLayer : null);
 
-    const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
     let current = item;
-
     while (current) {
-        if (current.data && current.data.clipGroup) {
+        const d = current.data || {};
+
+        // Descartar de inmediato elementos de interfaz, tiradores, cotas, guías y mockups
+        if (d.isSelectionBox || d.isHandle || d.isNodeHandle || d.isCurveHandle ||
+            d.isNodeEditOverlay || d.isSmartGuide || d.isMeasurement || d.isTracePreview ||
+            d.mockup || d.isMask || d.wasClipMask) {
+            return null;
+        }
+
+        if (current === window.currentMockup || current === window.selectionBoxGroup || current === window.nodeHandlesGroup) {
+            return null;
+        }
+
+        // Si es un grupo recortado (clipGroup), el contenedor seleccionable es el grupo mismo
+        if (d.clipGroup) {
             return current;
         }
+
+        // Si su padre es directamente la capa de diseño o una capa activa
         if (current.parent && (current.parent === designLayer || current.parent instanceof paper.Layer)) {
             return current;
         }
+
+        // Subir en la jerarquía mientras exista un contenedor intermedio
         if (current.parent) {
             current = current.parent;
         } else {
@@ -246,7 +268,7 @@ const _updateSelectionBox = function(item) {
         if (!itemBounds) {
             if (displayItem.bounds && displayItem.bounds.width > 0 && displayItem.bounds.height > 0) {
                 itemBounds = displayItem.bounds.clone();
-            } else if (gBase && gBase.bounds) {
+            } else if (gBase && gBase.bounds && gBase.bounds.width > 0 && gBase.bounds.height > 0) {
                 itemBounds = gBase.bounds.clone();
             }
         }
@@ -330,14 +352,14 @@ const _updateSelectionBox = function(item) {
         });
     }
 
-    // Marco exterior principal envolvente unificado
-    const border = new paper.Path.Rectangle(bounds);
-    border.strokeColor = mainColor;
-    border.strokeWidth = 1.5 / paper.view.zoom;
-    border.data = { isSelectionBox: true };
-    window.selectionBoxGroup.addChild(border);
+    // Rectángulo delimitador exterior principal
+    const boxBorder = new paper.Path.Rectangle(bounds);
+    boxBorder.strokeColor = mainColor;
+    boxBorder.strokeWidth = 1.5 / paper.view.zoom;
+    boxBorder.data = { isSelectionBox: true };
+    window.selectionBoxGroup.addChild(boxBorder);
 
-    // 8 Tiradores de redimensionamiento
+    // 8 Tiradores perimetrales (esquinas y puntos medios)
     const handleSize = 8 / paper.view.zoom;
     const positions = [
         { type: 'tl', point: bounds.topLeft },
@@ -423,6 +445,7 @@ const _selectItem = function(item, isMulti = false) {
     if (window.nodeEditMode) {
         return;
     }
+
     if (!item) {
         window.deselectItem();
         return;
@@ -469,7 +492,6 @@ const _selectItem = function(item, isMulti = false) {
     }
 
     window.updateSelectionBox(window.selectedItem);
-
     if (typeof window.updateContextualMenu === 'function') {
         window.updateContextualMenu(window.selectedItem);
     }
@@ -483,16 +505,20 @@ const _deselectItem = function() {
     if (window.nodeEditMode) {
         return;
     }
+
     if (window.selectedItems) {
         window.selectedItems.forEach(function(it) {
             if (it) it.selected = false;
         });
         window.selectedItems = [];
     }
+
     if (window.selectedItem) {
         window.selectedItem.selected = false;
     }
     window.selectedItem = null;
+    window.selectedItems = [];
+
     window.updateSelectionBox(null);
     if (typeof window.hideContextualMenu === 'function') {
         window.hideContextualMenu();
@@ -539,32 +565,46 @@ function findItemAtPoint(point) {
     const layer = (paper.project && paper.project.layers)
         ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
         : null;
-    if (!layer || !layer.children) return null;
+    if (!layer || !layer.children || layer.children.length === 0) return null;
 
-    const tol = 12 / paper.view.zoom;
+    const tol = 8 / (paper.view ? paper.view.zoom : 1);
 
-    // Recorrido en orden Z descendente (de arriba a abajo)
+    // Recorrido topológico estricto: De mayor Z a menor Z (el objeto visible superior tiene prioridad)
     for (let i = layer.children.length - 1; i >= 0; i--) {
-        const item = layer.children[i];
-        if (!item || isMockupOrUI(item)) continue;
+        const child = layer.children[i];
+        if (!child || isMockupOrUI(child)) continue;
 
-        const selectable = _getSelectableItem(item);
+        const selectable = window.getSelectableItem(child);
         if (!selectable) continue;
 
         const target = getContentItem(selectable);
         if (!target) continue;
 
-        // Comprobación específica para Calados Activos
+        // Caso 1: Calado activo (isHole)
         if (target.data && target.data.isHole) {
-            const holeBase = target.data.geomBase || target;
-            if (holeBase && holeBase.bounds && holeBase.bounds.expand(tol).contains(point)) {
-                if (holeBase.contains && holeBase.contains(point)) return selectable;
-                const strokeHit = holeBase.hitTest(point, { stroke: true, segments: true, tolerance: tol });
-                if (strokeHit) return selectable;
+            let holeGeom = null;
+            if (typeof window.getGlobalUnsubtractedPath === 'function') {
+                holeGeom = window.getGlobalUnsubtractedPath(target);
+            } else if (target.data.geomBase) {
+                holeGeom = target.data.geomBase.clone({ insert: false });
+            }
+            if (holeGeom) {
+                if (holeGeom.bounds && holeGeom.bounds.expand(tol).contains(point)) {
+                    const hit = holeGeom.hitTest(point, {
+                        fill: true,
+                        stroke: true,
+                        segments: true,
+                        tolerance: tol
+                    });
+                    try { holeGeom.remove(); } catch(e) {}
+                    if (hit) return selectable;
+                } else {
+                    try { holeGeom.remove(); } catch(e) {}
+                }
             }
         }
 
-        // Comprobación para Masas y Siluetas estándar
+        // Caso 2: Masas sólidas, textos o imágenes
         if (target.bounds && target.bounds.expand(tol).contains(point)) {
             const hit = target.hitTest(point, {
                 fill: true,
@@ -707,8 +747,8 @@ const _initSelectionTool = function() {
             window.resizeActive = true;
             window.resizeHandleType = hType;
             window.resizeTargets = [];
-            let unifiedBounds = null;
 
+            let unifiedBounds = null;
             window.selectedItems.forEach(function(it) {
                 const displayItem = getContentItem(it);
                 if (!displayItem) return;
@@ -733,6 +773,8 @@ const _initSelectionTool = function() {
         }
 
         // 2. COMPROBACIÓN DIRECTA DE ELEMENTO (PRIORIDAD SOBRE MULTISELECCIÓN)
+        // Resuelve el bug fundamental: Si hay 12 elementos seleccionados tras Desagrupar y el usuario
+        // hace clic sobre una pieza individual (ej. una estrella), se deselecciona el grupo y se activa SOLO la pieza.
         const directHitItem = findItemAtPoint(event.point);
         const isShift = !!(event.modifiers && event.modifiers.shift);
 
@@ -753,9 +795,15 @@ const _initSelectionTool = function() {
                 window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
             } else {
                 // Clic simple sin Shift:
-                if (window.selectedItems && window.selectedItems.includes(directHitItem) && window.selectedItems.length > 1) {
-                    window._pendingIsolateItem = directHitItem;
+                // Si el elemento clickeado YA forma parte de una selección múltiple existente (ej. 272 capas de Minnie),
+                // PRESERVAMOS la selección completa para permitir el arrastre en bloque del conjunto.
+                // Si el usuario solo hace clic sin arrastrar, se aislará en onMouseUp.
+                if (window.selectedItems && window.selectedItems.includes(directHitItem)) {
+                    if (window.selectedItems.length > 1) {
+                        window._pendingIsolateItem = directHitItem;
+                    }
                 } else {
+                    // El elemento no estaba seleccionado: limpiamos la selección previa y seleccionamos solo este
                     window.selectedItems.forEach(it => { if (it) it.selected = false; });
                     directHitItem.selected = true;
                     window.selectedItem = directHitItem;
@@ -763,7 +811,7 @@ const _initSelectionTool = function() {
                 }
             }
 
-            // Iniciar arrastre del conjunto completo actualmente seleccionado
+            // Iniciar arrastre
             window.dragging = true;
             window.dragTargets = [];
             window.selectedItems.forEach(function(item) {
@@ -786,7 +834,7 @@ const _initSelectionTool = function() {
             return;
         }
 
-        // 3. Arrastre por dentro de la caja de multiselección
+        // 3. Arrastre por dentro de la caja de multiselección (cuando no se hace clic sobre un vacío exterior)
         if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
             const selectionBoxBounds = window.selectionBoxGroup.bounds;
             if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
@@ -825,6 +873,7 @@ const _initSelectionTool = function() {
 
     selectTool.onMouseDrag = function(event) {
         if (window.nodeEditMode) return;
+
         if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
             return;
         }
@@ -865,7 +914,7 @@ const _initSelectionTool = function() {
                 targetInfo.target.data = targetInfo.target.data || {};
                 targetInfo.target.data.rotation = (targetInfo.initialRotation + deltaAngle) % 360;
 
-                // Sincronizar rotación en geomBase
+                // Sincronizar rotación en geomBase (directo y recursivo en grupos)
                 const rotateGeomBaseDeep = function(item, step, center) {
                     if (!item) return;
                     if (item.data && item.data.geomBase) {
@@ -923,51 +972,63 @@ const _initSelectionTool = function() {
                 const scaleProp = Math.max(Math.abs(factorX), Math.abs(factorY));
                 factorX = (factorX >= 0 ? 1 : -1) * scaleProp;
                 factorY = (factorY >= 0 ? 1 : -1) * scaleProp;
+            } else {
+                if (['t', 'b'].includes(window.resizeHandleType)) factorX = 1.0;
+                if (['l', 'r'].includes(window.resizeHandleType)) factorY = 1.0;
             }
 
-            if (Math.abs(factorX) > 0.01 && Math.abs(factorY) > 0.01) {
-                const stepScaleX = factorX / window.resizeLastScaleX;
-                const stepScaleY = factorY / window.resizeLastScaleY;
+            if (Math.abs(factorX) < 0.01) factorX = 0.01;
+            if (Math.abs(factorY) < 0.01) factorY = 0.01;
 
-                window.resizeTargets.forEach(function(targetInfo) {
-                    targetInfo.target.scale(stepScaleX, stepScaleY, anchor);
+            const stepScaleX = factorX / window.resizeLastScaleX;
+            const stepScaleY = factorY / window.resizeLastScaleY;
+            window.resizeLastScaleX = factorX;
+            window.resizeLastScaleY = factorY;
 
-                    const scaleGeomBaseDeep = function(item, sx, sy, cen) {
-                        if (!item) return;
-                        if (item.data && item.data.geomBase) {
-                            item.data.geomBase.scale(sx, sy, cen);
-                        }
-                        if (item instanceof paper.Group && item.children) {
-                            item.children.forEach(c => scaleGeomBaseDeep(c, sx, sy, cen));
-                        }
-                    };
-                    scaleGeomBaseDeep(targetInfo.target, stepScaleX, stepScaleY, anchor);
-                });
+            window.resizeTargets.forEach(function(targetInfo) {
+                targetInfo.target.scale(stepScaleX, stepScaleY, anchor);
 
-                window.resizeLastScaleX = factorX;
-                window.resizeLastScaleY = factorY;
-            }
+                // Escalar geomBase de forma profunda y sincrónica
+                const scaleGeomBaseDeep = function(item, sx, sy, anc) {
+                    if (!item) return;
+                    if (item.data && item.data.geomBase) {
+                        item.data.geomBase.scale(sx, sy, anc);
+                    }
+                    if (item instanceof paper.Group && item.children) {
+                        item.children.forEach(c => scaleGeomBaseDeep(c, sx, sy, anc));
+                    }
+                };
+                scaleGeomBaseDeep(targetInfo.target, stepScaleX, stepScaleY, anchor);
+            });
 
             if (typeof window.recalculateDynamicSubtractions === 'function') {
                 window.recalculateDynamicSubtractions();
             }
 
-            window.updateSelectionBox(null);
+            // Actualizar la caja y el contorno ajustado para que escale interactivamente en vivo
+            window.updateSelectionBox(window.selectedItem);
             paper.view.update();
             return;
         }
 
-        // Arrastre interactivo de elementos seleccionados (Simple y Múltiple en Bloque)
+        /* =========================================================================
+           ARRASTRE EN TIEMPO REAL CON PROPAGACIÓN PROFUNDA DE geomBase (PARCHE V36.0)
+           Garantiza el blindaje anti-desfasaje de la máscara de producto (clipGroup)
+           ========================================================================= */
         if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
             window._mouseDragOccurred = true;
 
-            window.dragTargets.forEach(function(dragInfo) {
-                const newPos = event.point.subtract(dragInfo.dragOffset);
-                const delta = newPos.subtract(dragInfo.lastPos);
-                dragInfo.target.position = newPos;
-                dragInfo.lastPos = newPos.clone();
+            window.dragTargets.forEach(function(dt) {
+                const target = dt.target;
+                const oldPos = dt.lastPos.clone();
+                const newPos = event.point.subtract(dt.dragOffset);
+                const delta = newPos.subtract(oldPos);
 
-                syncGeomBaseDeep(dragInfo.target, delta);
+                target.position = newPos;
+                dt.lastPos = newPos.clone();
+
+                // Sincronizar geomBase en tiempo real sin desfases
+                syncGeomBaseDeep(target, delta);
             });
 
             if (typeof window.recalculateDynamicSubtractions === 'function') {
@@ -978,6 +1039,7 @@ const _initSelectionTool = function() {
                 calculateSmartGuides(window.selectedItem, event);
             }
 
+            // Sincronizar caja de selección y contorno ajustado de silueta en tiempo real
             window.updateSelectionBox(window.selectedItem);
             paper.view.update();
             return;
@@ -1040,7 +1102,6 @@ const _initSelectionTool = function() {
 
         if (window.resizeActive || window.dragging || window.rotationActive) {
             if (typeof window.saveHistory === 'function') window.saveHistory();
-
             // Asegurar recálculo CSG final tras soltar el ratón
             if (typeof window.recalculateDynamicSubtractions === 'function') {
                 window.recalculateDynamicSubtractions();
@@ -1063,9 +1124,9 @@ const _initSelectionTool = function() {
 
     selectTool.onMouseMove = function(event) {
         if (window.nodeEditMode) return;
+
         const canvas = document.getElementById("editorCanvas");
         if (!canvas) return;
-
         if (window.resizeActive) return;
 
         let hitResult = null;
@@ -1126,4 +1187,3 @@ protectGlobal('deselectItem', _deselectItem);
 protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
-
