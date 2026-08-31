@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v33 - Symmetrical Group & Layer Safety - Full Unified Multi-Selection)
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v33.2 - Symmetrical Group & Layer Safety - Full Unified Multi-Selection)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripción:
 Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
@@ -7,10 +7,10 @@ y barra de acciones para EKKO Studio.
 Cumple rigurosamente con:
 - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
 - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt):
+- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt & EKKO_DIAG v6.2):
   * Desagrupación completa en 1 clic con SELECCIÓN UNIFICADA LIMPIA DE TODAS LAS CAPAS LIBERADAS.
   * Eliminada la selección arbitraria obligatoria del objeto más profundo (layerDepth máximo).
-  * Posicionamiento preciso del menú contextual en selecciones simples y múltiples sobre bounding box unificado.
+  * Posicionamiento preciso del menú contextual en selecciones simples y múltiples sobre bounding box unificado (getUnifiedScreenBounds).
   * Agrupación simétrica y 100% reversible preservando masas, calados (isHole), geomBase y orden Z.
   * Salida limpia del modo edición de nodos antes de descomponer.
 ========================================================================= */
@@ -114,10 +114,10 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
     styleEl.textContent = `
         .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
         .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; height: 100%; cursor: pointer; font-size: 13px; color: #333; }
-        .font-dropdown-list { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: white; border: 1px solid #ccc; border-top: none; border-radius: 0 0 6px 6px; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; border-bottom: 1px solid #f0f0f0; }
-        .font-dropdown-item:hover { background: #f5f5f5; }
-        .font-dropdown-item:last-child { border-bottom: none; }
+        .selected-font-trigger:hover { border-color: #999; }
+        .font-dropdown-list { position: absolute; top: 100%; left: 0; right: 0; max-height: 250px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); z-index: 10000; margin-top: 4px; }
+        .font-item-preview { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #f0f0f0; display: flex; flex-direction: column; gap: 2px; }
+        .font-item-preview:hover { background-color: #e6f7ff; }
         .hidden { display: none !important; }
     `;
     document.head.appendChild(styleEl);
@@ -177,46 +177,14 @@ function applyFontFamily(item, family) {
     if (!target) return;
     if (isPointText(target)) {
         target.fontFamily = family;
-    } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+    } else if (target.data?.isCurvedGroup) {
         target.data.fontFamily = family;
-        target.children.forEach(c => {
-            if (isPointText(c)) c.fontFamily = family;
-        });
+        applyTextCurve(target, target.data.curvature);
+    } else if (target.data?.isSpacedGroup) {
+        target.data.fontFamily = family;
+        applyTextSpacing(target, target.data.hspace);
     }
     paper.view.update();
-}
-
-function renderCustomFontItems(listContainer, fonts) {
-    listContainer.innerHTML = '';
-    const sampleText = getSelectedTextString();
-    fonts.forEach(font => {
-        const item = document.createElement('div');
-        item.className = 'font-dropdown-item';
-        item.innerHTML = `
-            <span style="font-size: 11px; color: #888;">${font.name}</span>
-            <span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>
-        `;
-        item.onmouseenter = () => {
-            if (window.selectedItem) applyFontFamily(window.selectedItem, font.family);
-        };
-        item.onmouseleave = () => {
-            if (window.selectedItem && window.originalFontBackup) {
-                applyFontFamily(window.selectedItem, window.originalFontBackup);
-            }
-        };
-        item.onclick = (e) => {
-            e.stopPropagation();
-            window.originalFontBackup = font.family;
-            if (window.selectedItem) {
-                applyFontFamily(window.selectedItem, font.family);
-                if (typeof window.saveHistory === 'function') window.saveHistory();
-            }
-            listContainer.classList.add('hidden');
-            const triggerText = document.querySelector('.selected-font-trigger span');
-            if (triggerText) triggerText.textContent = font.name;
-        };
-        listContainer.appendChild(item);
-    });
 }
 
 async function populateFontDropdowns() {
@@ -233,6 +201,7 @@ async function populateFontDropdowns() {
     } catch (err) {
         console.error("Error al cargar tipografías en menú contextual:", err);
     }
+
     fontsCache = fonts;
     injectFontFaces(fonts);
 
@@ -249,13 +218,8 @@ async function populateFontDropdowns() {
         if (trigger && list) {
             trigger.onclick = (e) => {
                 e.stopPropagation();
-                document.querySelectorAll('.font-dropdown-list').forEach(el => {
-                    if (el !== list) el.classList.add('hidden');
-                });
-                const isOpen = !list.classList.contains('hidden');
-                if (!isOpen) {
-                    window.originalFontBackup = getSelectedFontFamily();
-                    renderCustomFontItems(list, fontsCache);
+                const isHidden = list.classList.contains('hidden');
+                if (isHidden) {
                     list.classList.remove('hidden');
                 } else {
                     list.classList.add('hidden');
@@ -271,6 +235,7 @@ async function populateFontDropdowns() {
 function makeToolbarDraggable() {
     const toolbar = document.getElementById('contextual-toolbar');
     if (!toolbar) return;
+
     let isDraggingToolbar = false;
     let startX = 0;
     let startY = 0;
@@ -313,30 +278,22 @@ export function groupSelectedItems() {
         ? [...window.selectedItems]
         : (window.selectedItem ? [window.selectedItem] : []);
 
-    if (selected.length < 2) {
-        alert("Selecciona al menos 2 elementos para poder agruparlos.");
-        return;
-    }
+    if (selected.length <= 1) return;
 
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
-    const parent = selected[0].parent || paper.project.activeLayer;
-    const lowestIndex = Math.min(...selected.map(it => parent.children.indexOf(it)));
+    const shouldClip = selected.some(it => it.data && it.data.clipGroup);
+    const parentLayer = selected[0].layer || (paper.project ? paper.project.activeLayer : null);
 
-    // Determinar si alguna de las capas seleccionadas está recortada en producto
-    const shouldClip = selected.some(it => !!(it.data && it.data.clipGroup)) ||
-        (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
+    // Ordenar elementos en orden de apilamiento Z real
+    selected.sort((a, b) => a.index - b.index);
 
     const newGroup = new paper.Group();
     newGroup.data = {
         locked: false,
-        isCompoundGroup: true,
-        geometricHierarchy: "compoundGroup",
-        label: "Grupo de Capas (" + selected.length + ")"
+        label: "Grupo",
+        isGroupedLayer: true
     };
-
-    // Ordenar preservando la secuencia de apilamiento Z
-    selected.sort((a, b) => parent.children.indexOf(a) - parent.children.indexOf(b));
 
     selected.forEach(it => {
         if (it.data && it.data.clipGroup) {
@@ -356,22 +313,30 @@ export function groupSelectedItems() {
         if (window.currentMockup) {
             finalGroup.insertBelow(window.currentMockup);
         }
+    } else if (parentLayer) {
+        parentLayer.addChild(finalGroup);
     }
 
-    parent.insertChild(lowestIndex, finalGroup);
-
     if (typeof window.deselectItem === 'function') window.deselectItem();
-    if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
+    window.selectedItem = finalGroup;
+    window.selectedItems = [finalGroup];
+    finalGroup.selected = true;
+
+    if (typeof window.updateSelectionBox === 'function') {
+        window.updateSelectionBox(finalGroup);
+    }
+    if (typeof updateContextualMenu === 'function') {
+        updateContextualMenu(finalGroup);
+    }
 
     if (typeof recalculateDynamicSubtractions === 'function') {
         recalculateDynamicSubtractions();
     }
-
     paper.view.update();
 }
 
 /**
- * DESAGRUPAR: Descomposición completa en 1 clic con selección unificada limpia.
+ * DESAGRUPAR: Descomposición atómica completa en 1 solo clic.
  * Cumple rigurosamente con:
  * - Descomposición atómica de todos los niveles en un único clic.
  * - Reversibilidad simétrica: disuelve grupos de capas conservando identidad, geomBase, isHole y orden Z.
@@ -396,63 +361,36 @@ export function ungroupSelectedItem() {
 
     selectedList.forEach(item => {
         if (!item || isMockupOrProductElement(item)) return;
+
         const isClipped = !!(item.data && item.data.clipGroup);
-        const actualItem = isClipped ? getContentItem(item) : item;
-        if (!actualItem) return;
+        const target = isClipped ? getContentItem(item) : item;
+        if (!target) return;
 
-        // Verificación de simetría Reversible:
-        // Si el elemento es un Grupo que contiene capas ya descompuestas (agrupadas previamente con Agrupar / Ctrl+G),
-        // disolvemos el grupo directamente conservando intacta la identidad de cada capa, su geomBase, isHole y orden Z.
-        const isLayerGroup = isGroup(actualItem) && (
-            actualItem.data?.geometricHierarchy === "compoundGroup" ||
-            actualItem.data?.isCompoundGroup === true
-        );
-
-        if (isLayerGroup) {
-            const groupParent = (isClipped && item.parent) ? item.parent : (actualItem.parent || paper.project.activeLayer);
-            const groupChildren = [...actualItem.children];
-            
-            groupChildren.forEach(child => {
-                let releasedItem = child;
-                if (isClipped && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-                    releasedItem = window.clipItem(child);
-                    if (window.currentMockup) {
-                        releasedItem.insertBelow(window.currentMockup);
-                    }
+        // Si es un grupo previamente formado por groupSelectedItems (simetría inversa)
+        if (target instanceof paper.Group && target.data?.isGroupedLayer) {
+            const children = [...target.children];
+            children.forEach(child => {
+                let finalItem = child;
+                if (isClipped && typeof window.clipItem === 'function') {
+                    finalItem = window.clipItem(child);
+                } else if (item.layer) {
+                    item.layer.addChild(finalItem);
                 }
-                if (groupParent) groupParent.addChild(releasedItem);
-                allCreatedItems.push(releasedItem);
+                allCreatedItems.push(finalItem);
             });
-
-            if (isClipped) {
-                item.remove();
-            } else {
-                actualItem.remove();
-            }
+            item.remove();
         } else {
-            // Descomposición por Jerarquía de Contención en 1 Clic (para SVGs importados o nuevos compuestos)
-            const canDecompose = isGroup(actualItem) || isSymbolItem(actualItem) || (isCompoundPath(actualItem) && !actualItem.data?.decomposedLayer);
-            if (canDecompose) {
-                const result = decomposeByContainmentHierarchy(actualItem, isClipped);
-                if (result && result.items && result.items.length > 0) {
-                    if (isClipped && item.parent) item.remove();
-                    allCreatedItems.push(...result.items);
-                }
-            } else if (actualItem.data?.decomposedLayer) {
-                // Es una capa atómica independiente ya descompuesta: permanece intacta
-                allCreatedItems.push(actualItem);
+            // Descomposición atómica estándar por Jerarquía de Contención
+            const result = decomposeByContainmentHierarchy(item, isClipped);
+            if (result && result.handled && result.items) {
+                result.items.forEach(it => allCreatedItems.push(it));
             }
         }
     });
 
-    // SELECCIÓN UNIFICADA LIMPIA DE TODAS LAS CAPAS LIBERADAS
     if (allCreatedItems.length > 0) {
-        if (typeof window.deselectItem === 'function') {
-            window.deselectItem();
-        }
-
+        if (typeof window.deselectItem === 'function') window.deselectItem();
         window.selectedItems = [...allCreatedItems];
-        // Asignar el elemento primario como ancla, pero marcando a todos como seleccionados
         window.selectedItem = allCreatedItems[allCreatedItems.length - 1];
         allCreatedItems.forEach(it => { if (it) it.selected = true; });
 
@@ -467,8 +405,43 @@ export function ungroupSelectedItem() {
     if (typeof recalculateDynamicSubtractions === 'function') {
         recalculateDynamicSubtractions();
     }
-
     paper.view.update();
+}
+
+/**
+ * Calcula los límites unificados (bounding box de pantalla) para ubicar la barra contextual.
+ */
+function getUnifiedScreenBounds(item) {
+    const canvasEl = document.getElementById("editorCanvas");
+    if (!canvasEl || typeof paper === 'undefined' || !paper.view) return null;
+
+    const canvasRect = canvasEl.getBoundingClientRect();
+    let combinedBounds = null;
+
+    if (window.selectedItems && window.selectedItems.length > 0) {
+        window.selectedItems.forEach(it => {
+            const tgt = it.data?.clipGroup ? getContentItem(it) : it;
+            if (tgt && tgt.bounds && tgt.visible !== false) {
+                combinedBounds = combinedBounds ? combinedBounds.unite(tgt.bounds) : tgt.bounds.clone();
+            }
+        });
+    }
+
+    if (!combinedBounds && item) {
+        const tgt = item.data?.clipGroup ? getContentItem(item) : item;
+        if (tgt && tgt.bounds) {
+            combinedBounds = tgt.bounds.clone();
+        }
+    }
+
+    if (!combinedBounds) return null;
+
+    const screenTopCenter = paper.view.projectToView(combinedBounds.topCenter);
+    return {
+        x: canvasRect.left + screenTopCenter.x,
+        y: canvasRect.top + screenTopCenter.y,
+        combinedBounds: combinedBounds
+    };
 }
 
 export function initContextualMenu() {
@@ -523,6 +496,7 @@ export function initContextualMenu() {
 
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
+
     if (toolbar.parentNode !== document.body) {
         document.body.appendChild(toolbar);
     }
@@ -616,7 +590,6 @@ export function initContextualMenu() {
             enterNodeEditMode(window.selectedItem);
         }
     });
-
     setClick('btnCtxNodeEdit', () => {
         if (window.selectedItem && typeof enterNodeEditMode === 'function') {
             enterNodeEditMode(window.selectedItem);
@@ -627,44 +600,10 @@ export function initContextualMenu() {
     window.ungroupSelectedItem = ungroupSelectedItem;
 }
 
-/**
- * Calcula los límites unificados (bounding box de pantalla) para ubicar la barra contextual.
- */
-function getUnifiedScreenBounds(item) {
-    const canvasEl = document.getElementById("editorCanvas");
-    if (!canvasEl || typeof paper === 'undefined' || !paper.view) return null;
-    const canvasRect = canvasEl.getBoundingClientRect();
-
-    let combinedBounds = null;
-    if (window.selectedItems && window.selectedItems.length > 0) {
-        window.selectedItems.forEach(it => {
-            const tgt = it.data?.clipGroup ? getContentItem(it) : it;
-            if (tgt && tgt.bounds && tgt.visible !== false) {
-                combinedBounds = combinedBounds ? combinedBounds.unite(tgt.bounds) : tgt.bounds.clone();
-            }
-        });
-    }
-
-    if (!combinedBounds && item) {
-        const tgt = item.data?.clipGroup ? getContentItem(item) : item;
-        if (tgt && tgt.bounds) {
-            combinedBounds = tgt.bounds.clone();
-        }
-    }
-
-    if (!combinedBounds) return null;
-
-    const screenTopCenter = paper.view.projectToView(combinedBounds.topCenter);
-    return {
-        x: canvasRect.left + screenTopCenter.x,
-        y: canvasRect.top + screenTopCenter.y,
-        combinedBounds: combinedBounds
-    };
-}
-
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
+
     removeOverlapTab();
 
     if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
@@ -761,11 +700,8 @@ export function updateContextualMenu(item) {
         }
     }
 
-    // POSICIONAMIENTO UNIFICADO DEL TOOLBAR (Para selección simple y multiselección)
-    if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
-        toolbar.style.left = window.customToolbarLeft + 'px';
-        toolbar.style.top = window.customToolbarTop + 'px';
-    } else if (!toolbarDragged || lastSelectedItem !== item) {
+    // Posicionamiento de pantalla sobre el Bounding Box unificado
+    if (!toolbarDragged) {
         const screenPos = getUnifiedScreenBounds(item);
         if (screenPos) {
             const toolbarW = toolbar.offsetWidth || 320;
@@ -786,18 +722,11 @@ export function hideContextualMenu() {
     const toolbar = document.getElementById("contextual-toolbar");
     if (toolbar) {
         toolbar.classList.remove('active');
+        toolbarDragged = false;
     }
-    const list = document.querySelector('.font-dropdown-list');
-    if (list) {
-        list.classList.add('hidden');
-    }
-    toolbarDragged = false;
-    lastSelectedItem = null;
 }
 
 if (typeof window !== 'undefined') {
-    window.groupSelectedItems = groupSelectedItems;
-    window.ungroupSelectedItem = ungroupSelectedItem;
     window.updateContextualMenu = updateContextualMenu;
     window.hideContextualMenu = hideContextualMenu;
     window.initContextualMenu = initContextualMenu;
