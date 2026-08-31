@@ -300,7 +300,8 @@ function resolveItemSemantics(node, rootTarget) {
 export function getGlobalUnsubtractedPath(item) {
     if (!item || !item.data || !item.data.geomBase) return null;
     const tempBase = item.data.geomBase.clone({ insert: false });
-    tempBase.matrix = item.matrix.clone();
+    const globalMat = getMatrixRelativeTo(item, null);
+    tempBase.matrix = globalMat.clone();
     return tempBase;
 }
 
@@ -321,6 +322,25 @@ function getContentItem(item) {
     return item;
 }
 
+function extractSubtractiveItems(topList) {
+    const result = [];
+    topList.forEach(topItem => {
+        const content = getContentItem(topItem);
+        if (!content) return;
+        if (isGroup(content) && !content.data?.geomBase && content.children && content.children.length > 0) {
+            // Grupo de capas (ej. capas agrupadas por el usuario)
+            content.children.forEach(c => {
+                if (c && c.data && c.data.geomBase && !c.clipMask && !(c.data.wasClipMask || c.data.isMask)) {
+                    result.push(c);
+                }
+            });
+        } else if (content.data && content.data.geomBase) {
+            result.push(content);
+        }
+    });
+    return result;
+}
+
 export function recalculateDynamicSubtractions(targetLayer = null) {
     const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
     if (!layer || !layer.children) return;
@@ -333,9 +353,11 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
 
     if (items.length === 0) return;
 
+    const subItems = extractSubtractiveItems(items);
+    if (subItems.length === 0) return;
+
     // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada en su posición actual
-    items.forEach(topItem => {
-        const item = getContentItem(topItem);
+    subItems.forEach(item => {
         if (item && item.data && item.data.geomBase && !item.data.isHole) {
             const pristine = getGlobalUnsubtractedPath(item);
             if (pristine) {
@@ -355,9 +377,8 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
     });
 
     // 2. Aplicar calados dinámicos (isHole) exclusivamente a las capas inferiores en Z (j < i)
-    for (let i = 0; i < items.length; i++) {
-        const topHole = items[i];
-        const holeItem = getContentItem(topHole);
+    for (let i = 0; i < subItems.length; i++) {
+        const holeItem = subItems[i];
         if (!holeItem || !holeItem.data?.isHole) continue;
 
         const holeBase = getGlobalUnsubtractedPath(holeItem);
@@ -367,8 +388,7 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
         holeItem.visible = false;
 
         for (let j = i - 1; j >= 0; j--) {
-            const topSolid = items[j];
-            const solid = getContentItem(topSolid);
+            const solid = subItems[j];
             if (!solid || solid.data?.isHole || !solid.data?.geomBase) continue;
 
             if (solid.bounds && holeBase.bounds && solid.bounds.intersects(holeBase.bounds)) {
