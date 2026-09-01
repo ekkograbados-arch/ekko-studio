@@ -1,33 +1,18 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-Versión: v10.0 BLACK BOX AVIATION EDITION - Zero False Positives Strict Engine
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v9.0 Universal Forensic BlackBox Standard)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-
 Descripción:
-Sistema Universal de Diagnóstico, Auditoría Forense y Trazabilidad de 5 Niveles
-para EKKO Studio. Monitorea y audita de forma no invasiva todas las operaciones
-del lienzo (Paper.js), eventos del DOM (botones fijos, barras flotantes y atajos),
-contratos funcionales, topología de masas/calados, consistencia dimensional y
-orden Z reactivo.
-
-MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
-1. REGLA DE ORO 14 Y 12 (NO FALSOS POSITIVOS):
-   - Erradica los falsos "✓ OPERACIÓN VÁLIDA" cuando las operaciones carecen de
-     trazabilidad real, recálculo CSG o despiece dimensional físico.
-2. AUDITORÍA DIMENSIONAL ESTRICTA EN DESAGRUPAR (UNGROUP):
-   - Detecta si las piezas individuales descompuestas heredan bounds gigantes
-     o el tamaño completo del grupo/producto original (falso despiece).
-   - Detecta huecos/calados silenciados (0C) cuando existían subrutas o compuestos.
-   - Detecta capas descompuestas huérfanas sin 'geomBase'.
-3. AUDITORÍA REACTIVA DE ARRASTRE (DRAG_MOVE):
-   - Denuncia en Nivel 5 si un arrastre en el lienzo no dispara recálculo reactivo
-     CSG ('recalculateDynamicSubtractions') ni sincroniza 'geomBase'.
-4. DESENMASCARAMIENTO DE BOUNDS REALES (True Design Bounds):
-   - Discrimina la silueta geométrica real de la máscara del producto ('clipMask'),
-     evitando que un 'clipGroup' distorsione la telemetría con las dimensiones del producto.
-5. AUTO-COPIA FORENSE GARANTIZADA:
-   - Transfiere inmediatamente al portapapeles el reporte forense completo de 5 Niveles
-     ante la primera anomalía física, sin exigir intervención manual del usuario.
+Caja Negra de Diagnóstico, Auditoría Forense y Trazabilidad de 5 Niveles para EKKO Studio.
+Supervisa el 100% de los componentes del sistema de forma no invasiva:
+- Detección inmediata de botones desconectados, fantasma o clics muertos.
+- Validación de transformaciones en el lienzo: arrastre (DRAG), rotación (ROTATE), escalado (RESIZE).
+- Auditoría atómica de duplicación (DUPLICATE) con verificación de desfase físico (+20, +20).
+- Auditoría de eliminación (DELETE) y saneamiento de selección huérfana.
+- Auditoría de descomposición por jerarquía de contención (UNGROUP) y reactividad CSG.
+- Auditoría de edición de vértices y subtrazados vectoriales (NODE_EDIT).
+- Validación de cada nuevo objeto cargado (texto, imagen, SVG, código QR).
+- Filtrado directo de inconsistencias y métricas: EKKO_DIAG.inconsistencies(), EKKO_DIAG.dumpInconsistencies(), EKKO_DIAG.summary().\n- Registro estricto de CallGraph con duración en milisegundos, errores y módulos intervinientes.
+- Compatibilidad absoluta con REPOSITORIO EKKO STUDIO V5 y el Estándar LightBurn / CNC.
 ========================================================================= */
 
 (function (root, factory) {
@@ -40,12 +25,7 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
   }
 }(typeof window !== 'undefined' ? window : this, function () {
 
-  // 1. BLINDAJE CONTRA DOBLE INICIALIZACIÓN (index.html + editor.js import)
-  if (typeof window !== 'undefined' && window.__EKKO_DIAG_ACTIVE_INSTANCE__) {
-    return window.__EKKO_DIAG_ACTIVE_INSTANCE__;
-  }
-
-  // Canal seguro de salida de consola desacoplado
+  // --- CANAL SEGURO DE CONSOLA SIN INTERFERENCIAS ---
   const rawConsole = {
     log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
     warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
@@ -53,65 +33,47 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
   };
 
-  // Estado interno de la Caja Negra
+  try {
+    if (typeof document !== 'undefined') {
+      const ifr = document.createElement('iframe');
+      ifr.style.display = 'none';
+      document.documentElement.appendChild(ifr);
+      if (ifr.contentWindow && ifr.contentWindow.console) {
+        const pure = ifr.contentWindow.console;
+        rawConsole.log = pure.log.bind(console);
+        rawConsole.warn = pure.warn.bind(console);
+        rawConsole.error = pure.error.bind(console);
+        rawConsole.table = pure.table ? pure.table.bind(console) : rawConsole.table;
+      }
+      setTimeout(() => ifr.remove(), 1000);
+    }
+  } catch (e) {}
+
+  // --- ESTADO INTERNO DE LA CAJA NEGRA ---
   const diagState = {
     active: true,
-    autoCopyOnError: true,
     operations: [],
     currentOp: null,
     opCounter: 0,
     interceptorsInstalled: false,
+    dragTracker: {
+      active: false,
+      startX: 0,
+      startY: 0,
+      startRotation: 0,
+      startWidth: 0,
+      startHeight: 0,
+      startGeo: null,
+      startSel: null,
+      dragMode: 'MOVE' // 'MOVE', 'ROTATE', 'RESIZE', 'NODE_DRAG'
+    },
     lastMouseDownPoint: null,
     lastMouseDownSelection: null,
     lastMouseDownGeo: null
   };
 
   // =========================================================================
-  // MOTOR DE COPIA ROBUSTO (Portapapeles con Fallback de Activación)
-  // =========================================================================
-  function safeCopyToClipboard(text, notifyMsg = null) {
-    if (typeof text !== 'string' || text.trim() === '') return false;
-
-    // Intento 1: API moderna asíncrona
-    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => {
-        if (notifyMsg) {
-          rawConsole.log(`%c[EKKO_DIAG] ${notifyMsg}`, 'color: #10b981; font-weight: bold;');
-        }
-      }).catch(() => {
-        fallbackCopy(text, notifyMsg);
-      });
-      return true;
-    }
-    return fallbackCopy(text, notifyMsg);
-  }
-
-  function fallbackCopy(text, notifyMsg) {
-    if (typeof document === 'undefined') return false;
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      ta.setAttribute('readonly', '');
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      if (ok && notifyMsg) {
-        rawConsole.log(`%c[EKKO_DIAG] ${notifyMsg} (vía buffer alternativo)`, 'color: #10b981; font-weight: bold;');
-      }
-      return ok;
-    } catch (err) {
-      rawConsole.warn('[EKKO_DIAG] No se pudo transferir al portapapeles automáticamente:', err);
-      return false;
-    }
-  }
-
-  // =========================================================================
-  // ESTÁNDAR UNIVERSAL DE CONTRATOS FUNCIONALES DE BOTONES (REGISTRO CENTRAL)
+  // REGISTRO UNIVERSAL DE CONTRATOS FUNCIONALES (BOTONES, ATAJOS Y HERRAMIENTAS)
   // =========================================================================
   const buttonContractsRegistry = new Map();
 
@@ -119,48 +81,57 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     if (!idOrSelector || !contractDef) return;
     const cleanKey = String(idOrSelector).trim().toLowerCase();
     buttonContractsRegistry.set(cleanKey, Object.assign({
+      name: 'UNKNOWN_ACTION',
+      label: 'Acción Desconocida',
       requiresSelection: true,
       minSelectionCount: 1,
       allowLocked: false,
-      expectedTopologyDelta: 'EQUAL',
-      expectedSelectionChange: 'PRESERVED',
-      expectedTransformChange: 'NONE',
+      isModalOrPicker: false,
+      expectedTopologyDelta: 'EQUAL', // 'INCREMENT', 'DECREMENT', 'EQUAL', 'DECREASE_OR_EQUAL', 'ANY'
+      expectedSelectionChange: 'PRESERVED', // 'NEW_ITEM', 'CLEARED', 'PRESERVED', 'ANY'
+      expectedTransformChange: 'ANY', // 'MOVED', 'ROTATED', 'SCALED', 'ANY'
       verifyDisplacement: false,
       preserveClipping: true,
-      isDialogOpener: false,
       customValidator: null
     }, contractDef));
   }
 
-  // A) Barra Emergente / Menú Contextual (#contextual-toolbar)
-  registerContract('#btnctxdeletenode', {
-    name: 'DELETE_NODE',
-    label: 'Barra Emergente: Eliminar Nodo (#btnCtxDeleteNode)',
+  // 1. Barra de Cabecera (#topBar)
+  registerContract('#btnaddsvg', {
+    name: 'ADD_SVG',
+    label: 'Cabecera: Cargar SVG (#btnAddSVG)',
     requiresSelection: false,
+    isModalOrPicker: true,
+    expectedTopologyDelta: 'ANY',
+    expectedSelectionChange: 'ANY'
+  });
+
+  registerContract('#btnaddimage', {
+    name: 'ADD_IMAGE',
+    label: 'Cabecera: Cargar Imagen (#btnAddImage)',
+    requiresSelection: false,
+    isModalOrPicker: true,
+    expectedTopologyDelta: 'ANY',
+    expectedSelectionChange: 'ANY'
+  });
+
+  registerContract('#btnaddtext', {
+    name: 'ADD_TEXT',
+    label: 'Cabecera: Agregar Texto (#btnAddText)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'INCREMENT',
+    expectedSelectionChange: 'NEW_ITEM'
+  });
+
+  registerContract('#btnaddqr', {
+    name: 'ADD_QR',
+    label: 'Cabecera: Cargar QR (#btnAddQR)',
+    requiresSelection: false,
+    isModalOrPicker: true,
     expectedTopologyDelta: 'ANY'
   });
 
-  registerContract('#btnctxdetachsubpath', {
-    name: 'DETACH_SUBPATH',
-    label: 'Barra Emergente: Desprender Nodos (#btnCtxDetachSubpath)',
-    requiresSelection: false,
-    expectedTopologyDelta: 'ANY'
-  });
-
-  registerContract('#btnctxaddnode', {
-    name: 'TOGGLE_ADD_NODE',
-    label: 'Barra Emergente: Añadir Nodo (#btnCtxAddNode)',
-    requiresSelection: false,
-    expectedTopologyDelta: 'ANY'
-  });
-
-  registerContract('#btnctxexitnodeedit', {
-    name: 'EXIT_NODE_EDIT',
-    label: 'Barra Emergente: Salir Edición Nodos (#btnCtxExitNodeEdit)',
-    requiresSelection: false,
-    expectedTopologyDelta: 'ANY'
-  });
-
+  // 2. Barra Contextual Flotante (#contextual-toolbar)
   registerContract('#btnctxduplicate', {
     name: 'DUPLICATE',
     label: 'Barra Emergente: Duplicar (#btnCtxDuplicate)',
@@ -184,9 +155,109 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     preserveClipping: false
   });
 
+  registerContract('#btnctxungroup', {
+    name: 'UNGROUP',
+    label: 'Barra Emergente: Desagrupar (#btnCtxUngroup)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    allowLocked: false,
+    expectedTopologyDelta: 'ANY',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxgroup', {
+    name: 'GROUP',
+    label: 'Barra Emergente: Agrupar (#btnCtxGroup)',
+    requiresSelection: true,
+    minSelectionCount: 2,
+    allowLocked: false,
+    expectedTopologyDelta: 'DECREASE_OR_EQUAL',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxtofront', {
+    name: 'BRING_TO_FRONT',
+    label: 'Barra Emergente: Al Frente (#btnCtxToFront)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxforward', {
+    name: 'BRING_FORWARD',
+    label: 'Barra Emergente: Subir Capa (#btnCtxForward)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxbackward', {
+    name: 'SEND_BACKWARD',
+    label: 'Barra Emergente: Bajar Capa (#btnCtxBackward)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxtoback', {
+    name: 'SEND_TO_BACK',
+    label: 'Barra Emergente: Al Fondo (#btnCtxToBack)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxnodeedit', {
+    name: 'NODE_EDIT',
+    label: 'Barra Emergente: Modo Nodos (#btnCtxNodeEdit)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxeditnodes', {
+    name: 'NODE_EDIT',
+    label: 'Barra Emergente: Editar Nodos (#btnCtxEditNodes)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxexitnodeedit', {
+    name: 'EXIT_NODE_EDIT',
+    label: 'Barra Emergente: Salir Nodos (#btnCtxExitNodeEdit)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxdeletenode', {
+    name: 'DELETE_NODE',
+    label: 'Barra Emergente: Eliminar Nodo (#btnCtxDeleteNode)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxdetachsubpath', {
+    name: 'DETACH_SUBPATH',
+    label: 'Barra Emergente: Desprender Subtrazado (#btnCtxDetachSubpath)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'INCREMENT'
+  });
+
+  registerContract('#btnctxaddnode', {
+    name: 'TOGGLE_ADD_NODE',
+    label: 'Barra Emergente: Añadir Nodo (#btnCtxAddNode)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
   registerContract('#btnctxscaledown', {
     name: 'SCALE_DOWN',
-    label: 'Barra Emergente: Achicar (#btnCtxScaleDown)',
+    label: 'Barra Emergente: Reducir (#btnCtxScaleDown)',
     requiresSelection: true,
     minSelectionCount: 1,
     expectedTopologyDelta: 'EQUAL',
@@ -202,68 +273,17 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     expectedTransformChange: 'SCALED'
   });
 
-  registerContract('#btnctxtofront', {
-    name: 'BRING_TO_FRONT',
-    label: 'Barra Emergente: Al Frente (#btnCtxToFront)',
+  registerContract('#btnctxfliph', {
+    name: 'FLIP_H',
+    label: 'Barra Emergente: Volteo Horizontal (#btnCtxFlipH)',
     requiresSelection: true,
     minSelectionCount: 1,
     expectedTopologyDelta: 'EQUAL'
   });
 
-  registerContract('#btnctxforward', {
-    name: 'BRING_FORWARD',
-    label: 'Barra Emergente: Subir Capa (#btnCtxForward)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL'
-  });
-
-  registerContract('#btnctxbackward', {
-    name: 'SEND_BACKWARD',
-    label: 'Barra Emergente: Bajar Capa (#btnCtxBackward)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL'
-  });
-
-  registerContract('#btnctxtoback', {
-    name: 'SEND_TO_BACK',
-    label: 'Barra Emergente: Al Fondo (#btnCtxToBack)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL'
-  });
-
-  registerContract('#btnctxgroup', {
-    name: 'GROUP',
-    label: 'Barra Emergente: Agrupar (#btnCtxGroup)',
-    requiresSelection: true,
-    minSelectionCount: 2,
-    expectedTopologyDelta: 'DECREASE_OR_EQUAL',
-    expectedSelectionChange: 'PRESERVED'
-  });
-
-  registerContract('#btnctxungroup', {
-    name: 'UNGROUP',
-    label: 'Barra Emergente: Desagrupar (#btnCtxUngroup)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    allowLocked: false,
-    expectedTopologyDelta: 'INCREMENT',
-    expectedSelectionChange: 'NEW_ITEM'
-  });
-
-  registerContract('#btnctxnodeedit', {
-    name: 'NODE_EDIT',
-    label: 'Barra Emergente: Editar Nodos (#btnCtxNodeEdit)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL'
-  });
-
-  registerContract('#btnctxeditnodes', {
-    name: 'NODE_EDIT',
-    label: 'Barra Emergente: Editar Nodos (#btnCtxEditNodes)',
+  registerContract('#btnctxflipv', {
+    name: 'FLIP_V',
+    label: 'Barra Emergente: Volteo Vertical (#btnCtxFlipV)',
     requiresSelection: true,
     minSelectionCount: 1,
     expectedTopologyDelta: 'EQUAL'
@@ -301,118 +321,54 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     expectedTopologyDelta: 'ANY'
   });
 
-  registerContract('#btnctxfliph', {
-    name: 'FLIP_H',
-    label: 'Barra Emergente: Espejo Horizontal (#btnCtxFlipH)',
+  registerContract('#btnctxtrace', {
+    name: 'TRACE_IMAGE',
+    label: 'Barra Emergente: Trazar Imagen (#btnCtxTrace)',
     requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL'
+    isModalOrPicker: true,
+    expectedTopologyDelta: 'ANY'
   });
 
-  registerContract('#btnctxflipv', {
-    name: 'FLIP_V',
-    label: 'Barra Emergente: Espejo Vertical (#btnCtxFlipV)',
+  registerContract('#btnctxapplymask', {
+    name: 'REMOVE_BG',
+    label: 'Barra Emergente: Recortar Fondo (#btnCtxApplyMask)',
     requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL'
+    isModalOrPicker: true,
+    expectedTopologyDelta: 'ANY'
   });
 
-  // B) Panel Superior Fijo (#pro-layout-toolbar)
-  registerContract('#probtnalignleft', {
-    name: 'ALIGN_LEFT',
-    label: 'Panel Superior: Alinear Izquierda (#proBtnAlignLeft)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
+  // 3. Panel Superior de Alineaciones y Distribución (#pro-layout-toolbar)
+  ['proBtnAlignLeft', 'proBtnAlignCenterH', 'proBtnAlignRight', 'proBtnAlignTop', 'proBtnAlignCenterV', 'proBtnAlignBottom'].forEach(id => {
+    registerContract('#' + id.toLowerCase(), {
+      name: 'ALIGN',
+      label: `Panel Superior: ${id}`,
+      requiresSelection: true,
+      minSelectionCount: 1,
+      expectedTopologyDelta: 'EQUAL',
+      expectedTransformChange: 'MOVED'
+    });
   });
 
-  registerContract('#probtnaligncenterh', {
-    name: 'ALIGN_CENTER_H',
-    label: 'Panel Superior: Centrar Horizontal (#proBtnAlignCenterH)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
+  ['proBtnCenterH', 'proBtnCenterV', 'proBtnCenterBoth'].forEach(id => {
+    registerContract('#' + id.toLowerCase(), {
+      name: 'CENTER_MOCKUP',
+      label: `Panel Superior: ${id}`,
+      requiresSelection: true,
+      minSelectionCount: 1,
+      expectedTopologyDelta: 'EQUAL',
+      expectedTransformChange: 'MOVED'
+    });
   });
 
-  registerContract('#probtnalignright', {
-    name: 'ALIGN_RIGHT',
-    label: 'Panel Superior: Alinear Derecha (#proBtnAlignRight)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
-  });
-
-  registerContract('#probtnaligntop', {
-    name: 'ALIGN_TOP',
-    label: 'Panel Superior: Alinear Arriba (#proBtnAlignTop)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
-  });
-
-  registerContract('#probtnaligncenterv', {
-    name: 'ALIGN_CENTER_V',
-    label: 'Panel Superior: Centrar Vertical (#proBtnAlignCenterV)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
-  });
-
-  registerContract('#probtnalignbottom', {
-    name: 'ALIGN_BOTTOM',
-    label: 'Panel Superior: Alinear Abajo (#proBtnAlignBottom)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
-  });
-
-  registerContract('#probtncenterh', {
-    name: 'CENTER_MOCKUP_H',
-    label: 'Panel Superior: Centrar Mockup H (#proBtnCenterH)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
-  });
-
-  registerContract('#probtncenterv', {
-    name: 'CENTER_MOCKUP_V',
-    label: 'Panel Superior: Centrar Mockup V (#proBtnCenterV)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
-  });
-
-  registerContract('#probtncenterboth', {
-    name: 'CENTER_MOCKUP_BOTH',
-    label: 'Panel Superior: Centrar Mockup Total (#proBtnCenterBoth)',
-    requiresSelection: true,
-    minSelectionCount: 1,
-    expectedTopologyDelta: 'EQUAL',
-    expectedTransformChange: 'MOVED'
-  });
-
-  registerContract('#probtndistributeh', {
-    name: 'DISTRIBUTE_H',
-    label: 'Panel Superior: Distribuir Horizontal (#proBtnDistributeH)',
-    requiresSelection: true,
-    minSelectionCount: 3,
-    expectedTopologyDelta: 'EQUAL'
-  });
-
-  registerContract('#probtndistributev', {
-    name: 'DISTRIBUTE_V',
-    label: 'Panel Superior: Distribuir Vertical (#proBtnDistributeV)',
-    requiresSelection: true,
-    minSelectionCount: 3,
-    expectedTopologyDelta: 'EQUAL'
+  ['proBtnDistributeH', 'proBtnDistributeV'].forEach(id => {
+    registerContract('#' + id.toLowerCase(), {
+      name: 'DISTRIBUTE',
+      label: `Panel Superior: ${id}`,
+      requiresSelection: true,
+      minSelectionCount: 3,
+      expectedTopologyDelta: 'EQUAL',
+      expectedTransformChange: 'MOVED'
+    });
   });
 
   registerContract('#probtngroup', {
@@ -428,201 +384,115 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     label: 'Panel Superior: Desagrupar (#proBtnUngroup)',
     requiresSelection: true,
     minSelectionCount: 1,
-    allowLocked: false,
-    expectedTopologyDelta: 'INCREMENT',
-    expectedSelectionChange: 'NEW_ITEM'
-  });
-
-  // C) Barra de Cabecera (#topBar)
-  registerContract('#btnaddimage', {
-    name: 'ADD_IMAGE',
-    label: 'Cabecera: Cargar Imagen (#btnAddImage)',
-    requiresSelection: false,
-    isDialogOpener: true,
     expectedTopologyDelta: 'ANY'
   });
 
-  registerContract('#btnaddtext', {
-    name: 'ADD_TEXT',
-    label: 'Cabecera: Agregar Texto (#btnAddText)',
-    requiresSelection: false,
-    expectedTopologyDelta: 'ANY'
-  });
-
-  registerContract('#btnaddsvg', {
-    name: 'ADD_SVG',
-    label: 'Cabecera: Cargar SVG (#btnAddSVG)',
-    requiresSelection: false,
-    isDialogOpener: true,
-    expectedTopologyDelta: 'ANY'
-  });
-
-  registerContract('#btnaddqr', {
-    name: 'ADD_QR',
-    label: 'Cabecera: Cargar QR (#btnAddQR)',
-    requiresSelection: false,
-    isDialogOpener: true,
-    expectedTopologyDelta: 'ANY'
-  });
-
-  // Resolución Dinámica Universal
+  // 4. Inferencia Dinámica Universal (Para CUALQUIER herramienta o botón existente o nuevo)
   function resolveButtonContract(domElement) {
-    if (!domElement) return null;
+    if (!domElement || !(domElement instanceof Element)) return null;
+
     if (domElement.id) {
-      const idKey = '#' + domElement.id.trim().toLowerCase();
-      if (buttonContractsRegistry.has(idKey)) {
-        return { contract: buttonContractsRegistry.get(idKey), matchedBy: idKey };
-      }
+      const byId = buttonContractsRegistry.get('#' + domElement.id.toLowerCase());
+      if (byId) return { contract: byId, matchedBy: '#' + domElement.id };
     }
-    if (domElement.dataset && domElement.dataset.action) {
-      const actKey = String(domElement.dataset.action).trim().toLowerCase();
-      if (buttonContractsRegistry.has(actKey)) {
-        return { contract: buttonContractsRegistry.get(actKey), matchedBy: `data-action="${actKey}"` };
-      }
+
+    const actionAttr = domElement.getAttribute('data-action') || domElement.getAttribute('data-command');
+    if (actionAttr) {
+      const byAttr = buttonContractsRegistry.get(actionAttr.toLowerCase().trim());
+      if (byAttr) return { contract: byAttr, matchedBy: `[data-action="${actionAttr}"]` };
     }
-    for (const [selector, contract] of buttonContractsRegistry.entries()) {
-      if (selector.startsWith('.')) {
+
+    for (const [key, contract] of buttonContractsRegistry.entries()) {
+      if (key.startsWith('#') || key.startsWith('.')) {
         try {
-          if (domElement.matches(selector)) {
-            return { contract, matchedBy: selector };
+          if (domElement.matches(key) || domElement.closest(key)) {
+            return { contract: contract, matchedBy: key };
           }
         } catch (e) {}
       }
     }
+
+    // Inferencia por contenedor si es un elemento interactivo nuevo
     const isContextual = !!domElement.closest('#contextual-toolbar, .contextual-toolbar');
     const isProLayout = !!domElement.closest('#pro-layout-toolbar, .pro-layout-toolbar');
     const isTopBar = !!domElement.closest('#topBar, .topBar, #mainNavbar');
+    const isSidebar = !!domElement.closest('#leftSidebar, .sidebar, #categoryTabs, #productTabs');
 
-    if (isContextual || isProLayout || isTopBar) {
-      const containerName = isContextual ? 'Barra Emergente' : (isProLayout ? 'Panel Superior' : 'Cabecera');
-      const textLabel = domElement.title || domElement.innerText?.trim() || domElement.getAttribute('aria-label') || 'Botón';
+    if (isContextual || isProLayout || isTopBar || isSidebar) {
+      const containerName = isContextual ? 'Barra Emergente' : (isProLayout ? 'Panel Superior' : (isTopBar ? 'Cabecera' : 'Catálogo Lateral'));
+      const textLabel = domElement.textContent ? domElement.textContent.trim().substring(0, 24) : '';
+      const actionName = (domElement.id || textLabel || 'DYNAMIC_TOOL').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
       return {
-        contract: Object.assign({}, {
-          name: domElement.id ? domElement.id.toUpperCase() : 'UI_ACTION',
-          label: `${containerName}: ${textLabel} (${domElement.id ? '#' + domElement.id : 'dinámico'})`,
-          requiresSelection: isContextual,
-          minSelectionCount: isContextual ? 1 : 0,
+        contract: {
+          name: actionName,
+          label: `${containerName}: '${textLabel || domElement.id}'`,
+          requiresSelection: isContextual || isProLayout,
+          minSelectionCount: 1,
           allowLocked: false,
+          isModalOrPicker: domElement.tagName === 'INPUT' || domElement.classList.contains('modal-trigger'),
           expectedTopologyDelta: 'ANY',
           expectedSelectionChange: 'ANY',
           expectedTransformChange: 'ANY',
           verifyDisplacement: false,
           preserveClipping: true,
           isDynamicInferred: true
-        }),
+        },
         matchedBy: `${containerName} (Inferencia Dinámica Universal)`
       };
     }
+
     return null;
   }
 
-  // --- HELPERS DE EXTRACCIÓN Y SNAPSHOT ---
   function getContentItem(item) {
     if (!item) return null;
     if (item.data && item.data.clipGroup) {
-      if (!item.children) return item;
-      const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-      if (content) return content;
-      const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-      if (fallback) return fallback;
-      return item.children[1] || item.children[0] || item;
+      return (item.children && item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)))) || item;
     }
     return item;
   }
 
-  /**
-   * Obtiene los límites de diseño reales descartando la caja inflada de la máscara física del producto.
-   */
-  function getTrueDesignBounds(item) {
-    if (!item) return null;
-    const content = getContentItem(item);
-    if (content && content.bounds && content !== item) {
-      return content.bounds;
-    }
-    return item.bounds;
-  }
-
-  function extractBounds(bounds) {
-    if (!bounds) return null;
-    return {
-      x: Number(bounds.x.toFixed(1)),
-      y: Number(bounds.y.toFixed(1)),
-      width: Number(bounds.width.toFixed(1)),
-      height: Number(bounds.height.toFixed(1))
-    };
-  }
-
-  function countSegments(item) {
-    if (!item) return 0;
-    const content = getContentItem(item) || item;
-    if (content.segments) return content.segments.length;
-    if (content.children && Array.isArray(content.children)) {
-      return content.children.reduce((acc, c) => acc + countSegments(c), 0);
-    }
-    return 0;
-  }
-
-  function getSegmentsChecksum(item) {
-    if (!item) return null;
-    const target = getContentItem(item);
-    if (!target) return null;
-
-    let sumX = 0, sumY = 0, count = 0;
-    const collectPoints = (it) => {
-      if (it.segments && Array.isArray(it.segments)) {
-        it.segments.forEach(s => {
-          if (s && s.point) {
-            sumX += s.point.x;
-            sumY += s.point.y;
-            count++;
-          }
-        });
-      }
-      if (it.children && Array.isArray(it.children)) {
-        it.children.forEach(collectPoints);
-      }
-    };
-    collectPoints(target);
-    return `${count}:${sumX.toFixed(1)}:${sumY.toFixed(1)}`;
-  }
-
-  // Snapshot de Nivel 2: Selección
+  // =========================================================================
+  // NIVEL 2: CAPTURA DE SELECCIÓN FORENSE
+  // =========================================================================
   function snapshotSelection() {
-    const selectedItems = (typeof window !== 'undefined' && window.selectedItems && window.selectedItems.length > 0)
-      ? window.selectedItems
-      : (typeof window !== 'undefined' && window.selectedItem ? [window.selectedItem] : []);
+    if (typeof window === 'undefined') return { hasSelection: false, count: 0, ids: [], primary: null };
+    const selectedItems = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+    const primary = window.selectedItem || (selectedItems.length > 0 ? selectedItems[0] : null);
+    if (!primary) return { hasSelection: false, count: 0, ids: [], primary: null };
 
-    if (selectedItems.length === 0) {
-      return { hasSelection: false, count: 0, ids: [], primary: null };
-    }
-
-    const primary = selectedItems[0];
-    const target = getContentItem(primary);
-    const trueBounds = getTrueDesignBounds(primary);
-    const hasGeom = !!(primary.data?.geomBase || (target && target.data?.geomBase));
-    const isHole = !!(primary.data?.isHole || (target && target.data?.isHole));
-
-    const primaryData = primary ? {
+    const content = getContentItem(primary);
+    const primaryData = {
       id: primary.id,
+      contentId: content ? content.id : primary.id,
       className: primary.className,
-      label: primary.data?.label || (target && target.data?.label) || 'Objeto',
+      label: (primary.data && primary.data.label) || primary.name || 'Elemento',
       zIndex: primary.index !== undefined ? primary.index : 0,
-      isHole: isHole,
-      isCompound: (target && target.className === 'CompoundPath') || primary.className === 'CompoundPath',
-      isGroup: primary.className === 'Group' && !(primary.data && primary.data.clipGroup),
-      isClipGroup: !!(primary.data && primary.data.clipGroup),
+      isHole: !!(primary.data && primary.data.isHole),
+      isClipped: !!(primary.data && primary.data.isClipped),
+      hasGeomBase: !!(primary.data && primary.data.geomBase),
+      geomBaseSegments: (primary.data && primary.data.geomBase && primary.data.geomBase.segments) ? primary.data.geomBase.segments.length : 0,
+      visibleSegments: primary.segments ? primary.segments.length : 0,
+      visibleArea: primary.area ? Number(Math.abs(primary.area).toFixed(1)) : 0,
+      rotation: primary.rotation !== undefined ? Number(primary.rotation.toFixed(2)) : 0,
+      bounds: primary.bounds ? {
+        x: Number(primary.bounds.x.toFixed(1)),
+        y: Number(primary.bounds.y.toFixed(1)),
+        width: Number(primary.bounds.width.toFixed(1)),
+        height: Number(primary.bounds.height.toFixed(1))
+      } : null,
+      position: content && content.position ? {
+        x: Number(content.position.x.toFixed(1)),
+        y: Number(content.position.y.toFixed(1))
+      } : (primary.position ? {
+        x: Number(primary.position.x.toFixed(1)),
+        y: Number(primary.position.y.toFixed(1))
+      } : null),
       isLocked: !!(primary.data && primary.data.locked),
-      hasGeomBase: hasGeom,
-      bounds: extractBounds(trueBounds),
-      position: primary.position ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null,
-      rotation: Number((primary.rotation || 0).toFixed(1)),
-      segmentsCount: countSegments(primary),
-      fontFamily: (target && target.fontFamily) || (target && target.data && target.data.fontFamily) || null,
-      fontWeight: (target && target.fontWeight) || (target && target.data && target.data.fontWeight) || null,
-      fontStyle: (target && target.fontStyle) || (target && target.data && target.data.fontStyle) || null,
-      nodeEditMode: (typeof window !== 'undefined') ? !!window.nodeEditMode : false,
-      segmentsChecksum: getSegmentsChecksum(primary)
-    } : null;
+      isText: !!(primary.className === 'PointText' || (primary.data && primary.data.isText)),
+      textContent: primary.content || (primary.data && primary.data.text) || null,
+      fontFamily: primary.fontFamily || (primary.data && primary.data.fontFamily) || null
+    };
 
     return {
       hasSelection: true,
@@ -632,328 +502,281 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     };
   }
 
-  // Snapshot de Nivel 4: Topología y Estado Geométrico del Lienzo
+  // =========================================================================
+  // NIVEL 4: CAPTURA DE ESTADO GEOMÉTRICO Y TOPOLOGÍA DE CAPAS (LIENZO)
+  // =========================================================================
   function snapshotGeometricState() {
     if (typeof paper === 'undefined' || !paper.project) {
-      return { totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [], error: 'Paper.js no cargado' };
+      return { timestamp: Date.now(), totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [] };
     }
-    const layer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
+    const layer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     if (!layer || !layer.children) {
-      return { totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [], error: 'Capa no encontrada' };
+      return { timestamp: Date.now(), totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [] };
     }
 
-    const items = [];
+    let useful = [];
     let massCount = 0;
     let holeCount = 0;
 
-    layer.children.forEach((c, idx) => {
-      if (!c) return;
-      const d = c.data || {};
-      if (
-        d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
-        d.isSmartGuide || d.isMeasurement || d.isTracePreview || d.isNodeHandle ||
-        d.isNodeEditOverlay || d.isCurveHandle
-      ) {
-        return;
-      }
-      if (
-        (typeof window !== 'undefined' && window.currentMockup && c === window.currentMockup) ||
-        (typeof window !== 'undefined' && window.selectionBoxGroup && c === window.selectionBoxGroup) ||
-        (typeof window !== 'undefined' && window.nodeHandlesGroup && c === window.nodeHandlesGroup)
-      ) {
+    layer.children.forEach(item => {
+      if (item.data && (
+        item.data.mockup ||
+        item.data.isMask ||
+        item.data.isSelectionBox ||
+        item.data.isHandle ||
+        item.data.isSmartGuide ||
+        item.data.isMeasurement ||
+        item.data.isNodeEditOverlay ||
+        item.data.isGuide ||
+        item.data.isTracePreview
+      )) {
         return;
       }
 
-      const content = getContentItem(c);
-      const isHole = !!(d.isHole || (content && content.data && content.data.isHole));
-      const hasGeom = !!(d.geomBase || (content && content.data && content.data.geomBase));
-      const trueBounds = getTrueDesignBounds(c);
-
+      const isHole = !!(item.data && item.data.isHole);
       if (isHole) holeCount++; else massCount++;
 
-      items.push({
-        id: c.id,
-        zIndex: idx,
-        className: c.className,
-        label: d.label || (content && content.data && content.data.label) || 'Objeto',
+      const content = getContentItem(item);
+      useful.push({
+        id: item.id,
+        contentId: content ? content.id : item.id,
+        className: item.className,
+        label: (item.data && item.data.label) || item.name || (isHole ? 'Calado Activo' : 'Masa Sólida'),
         isHole: isHole,
-        isClipGroup: !!d.clipGroup,
-        isLocked: !!d.locked,
-        hasGeomBase: hasGeom,
-        bounds: extractBounds(trueBounds)
+        isClipped: !!(item.data && item.data.isClipped),
+        hasGeomBase: !!(item.data && item.data.geomBase),
+        geomBaseSegments: (item.data && item.data.geomBase && item.data.geomBase.segments) ? item.data.geomBase.segments.length : 0,
+        visibleSegments: item.segments ? item.segments.length : 0,
+        visibleArea: item.area ? Number(Math.abs(item.area).toFixed(1)) : 0,
+        bounds: item.bounds ? {
+          x: Number(item.bounds.x.toFixed(1)),
+          y: Number(item.bounds.y.toFixed(1)),
+          width: Number(item.bounds.width.toFixed(1)),
+          height: Number(item.bounds.height.toFixed(1))
+        } : null,
+        position: content && content.position ? {
+          x: Number(content.position.x.toFixed(1)),
+          y: Number(content.position.y.toFixed(1))
+        } : (item.position ? {
+          x: Number(item.position.x.toFixed(1)),
+          y: Number(item.position.y.toFixed(1))
+        } : null)
       });
     });
 
     return {
-      totalUsefulItems: items.length,
+      timestamp: Date.now(),
+      totalUsefulItems: useful.length,
       massCount: massCount,
       holeCount: holeCount,
-      zOrderIds: items.map(it => it.id),
-      itemsSummary: items
+      zOrderIds: useful.map(i => i.id),
+      itemsSummary: useful
     };
   }
 
   // =========================================================================
-  // NIVEL 5 — MOTOR DE CONSISTENCIA Y AUDITORÍA UNIVERSAL (ZERO FALSE POSITIVES)
+  // NIVEL 5: MOTOR DE CONSISTENCIA Y AUDITORÍA DE CONTRATOS FORENSES
   // =========================================================================
   function auditConsistency(op) {
     const beforeGeo = op.geometryBefore;
     const afterGeo = op.geometryAfter;
     const beforeSel = op.selectionBefore;
     const afterSel = op.selectionAfter;
-    const callLog = op.callGraph || [];
-    const opType = op.action;
+    const contract = op.buttonContract;
     const opMeta = op.meta || {};
-    const contract = op.buttonContract || null;
-    const uiSource = op.source || 'UI';
-    const inconsistencies = [];
+    const opType = op.action;
+    const uiSource = op.source || 'Sistema';
 
+    const inconsistencies = [];
     const checks = {
       actionExecuted: true,
       buttonResponded: true,
       selectionPreconditionValid: true,
       itemLossDetected: false,
       dragDisplacementValid: true,
+      rotationValid: true,
+      scaleValid: true,
       geomBasePreserved: true,
       selectionValid: true,
       productClippingValid: true,
       deadClickDetected: false,
       zOrderConsistent: true,
-      csgReactiveTriggered: true,
-      geometricDimensionsValid: true,
-      topologyParityValid: true
+      textIntegrityValid: true,
+      csgIntegrityValid: true
     };
 
-    if (beforeGeo.error || afterGeo.error) {
-      return { checks, inconsistencies, pass: true };
-    }
-
-    // --- REGLA 1: VALIDACIÓN DE CONTRATOS ESTÁNDAR ---
+    // 1. Auditoría del Contrato Funcional del Botón
     if (contract) {
+      // Precondición de selección
       if (contract.requiresSelection) {
         if (!beforeSel.hasSelection || beforeSel.count < (contract.minSelectionCount || 1)) {
           checks.selectionPreconditionValid = false;
           inconsistencies.push(
-            `[SELECCIÓN INSUFICIENTE] '${uiSource}' requiere al menos ${contract.minSelectionCount || 1} objeto(s) seleccionado(s) (Detectados: ${beforeSel.count}).`
+            `[PRECONDICIÓN INCUMPLIDA] '${uiSource}' requería al menos ${contract.minSelectionCount || 1} elemento(s) seleccionado(s) (Detectados: ${beforeSel.count}).`
           );
         }
       }
 
+      // Objeto bloqueado
       if (!contract.allowLocked && beforeSel.primary && beforeSel.primary.isLocked) {
         checks.actionExecuted = false;
         inconsistencies.push(
-          `[OBJETO BLOQUEADO] Clic en '${uiSource}' sobre objeto bloqueado ID: ${beforeSel.primary.id} ('${beforeSel.primary.label}'). Acción rechazada.`
+          `[OBJETO BLOQUEADO] Clic en '${uiSource}' sobre objeto bloqueado ID: ${beforeSel.primary.id} ('${beforeSel.primary.label}', locked: true). Acción rechazada.`
         );
       }
 
+      // Variación topológica esperada
       const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
       if (contract.expectedTopologyDelta === 'INCREMENT') {
         if (deltaUseful <= 0) {
           checks.actionExecuted = false;
           inconsistencies.push(
-            `[NO SE CREÓ/DUPLICÓ] Se activó '${uiSource}' pero el número de elementos no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+            `[NO SE DUPLICÓ / CREÓ] La acción '${opType}' no incrementó elementos en el lienzo (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
           );
         }
       } else if (contract.expectedTopologyDelta === 'DECREMENT') {
         if (deltaUseful >= 0) {
           checks.actionExecuted = false;
           inconsistencies.push(
-            `[NO SE ELIMINÓ] Se activó '${uiSource}', pero el elemento permanece en el lienzo (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+            `[NO SE ELIMINÓ] La acción '${opType}' no redujo la cantidad de capas (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
           );
         }
       } else if (contract.expectedTopologyDelta === 'EQUAL') {
         if (deltaUseful !== 0) {
           inconsistencies.push(
-            `[TOPOLOGÍA ALTERADA] La acción '${opType}' alteró inesperadamente el conteo de capas (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+            `[MUTACIÓN TOPOLÓGICA INESPERADA] '${opType}' alteró las capas sin ser su propósito (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
           );
         }
       } else if (contract.expectedTopologyDelta === 'DECREASE_OR_EQUAL') {
         if (deltaUseful > 0) {
           inconsistencies.push(
-            `[AGRUPACIÓN ANÓMALA] La acción '${opType}' incrementó capas en lugar de consolidarlas.`
+            `[AGRUPACIÓN ANÓMALA] '${opType}' incrementó capas en vez de consolidarlas.`
           );
         }
       }
 
+      // Selección esperada tras la acción
       if (contract.expectedSelectionChange === 'NEW_ITEM') {
         if (afterSel.primary && beforeSel.primary && afterSel.primary.id === beforeSel.primary.id && beforeSel.count === 1) {
           checks.selectionValid = false;
           inconsistencies.push(
-            `[SELECCIÓN NO ACTUALIZADA] El objeto fue procesado pero la selección sigue apuntando al elemento original (ID: ${beforeSel.primary.id}) en vez del nuevo.`
+            `[SELECCIÓN NO ACTUALIZADA] El nuevo elemento creado/duplicado no recibió el foco de selección (Sigue en ID: ${beforeSel.primary.id}).`
           );
         }
       } else if (contract.expectedSelectionChange === 'CLEARED') {
         if (afterSel.hasSelection && beforeSel.primary && afterSel.primary && afterSel.primary.id === beforeSel.primary.id) {
           checks.selectionValid = false;
           inconsistencies.push(
-            `[SELECCIÓN HUÉRFANA] Elemento ID: ${beforeSel.primary.id} eliminado pero window.selectedItem permanece activo.`
+            `[SELECCIÓN HUÉRFANA] El elemento ID: ${beforeSel.primary.id} fue eliminado pero la selección activa no se limpió.`
           );
         }
       }
 
+      // Desfase físico obligatorio en duplicación
       if (contract.verifyDisplacement && afterSel.primary && beforeSel.primary && afterSel.primary.position && beforeSel.primary.position) {
         const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
         const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
         if (dx < 1 && dy < 1) {
           inconsistencies.push(
-            `[SIN DESPLAZAMIENTO] Objeto duplicado ID: ${afterSel.primary.id} se superpuso exactamente sobre el original sin desfase visible.`
+            `[SIN DESFASE VECTORIAL] El clon ID: ${afterSel.primary.id} está superpuesto al original sin vector de desplazamiento (+20, +20).`
           );
         }
       }
+
+      // Preservación de máscara del producto
+      if (contract.preserveClipping && beforeSel.primary && beforeSel.primary.isClipped && afterSel.primary && !afterSel.primary.isClipped) {
+        checks.productClippingValid = false;
+        inconsistencies.push(
+          `[PÉRDIDA DE MÁSCARA MOCKUP] El original ID: ${beforeSel.primary.id} estaba contenido en el producto, pero el resultado ID: ${afterSel.primary.id} perdió su máscara.`
+        );
+      }
     }
 
-    // --- REGLA 2: DETECCIÓN DE CLIC FANTASMA / BOTÓN DESCONECTADO ---
-    const totalCalls = callLog.length;
+    // 2. Detección Universal de Botón Desconectado / Clic Fantasma
+    const totalCalls = (op.callGraph && Array.isArray(op.callGraph)) ? op.callGraph.length : 0;
+    const isModal = contract && contract.isModalOrPicker;
     let canvasMutated = beforeGeo.totalUsefulItems !== afterGeo.totalUsefulItems;
-    if (beforeSel.primary && afterSel.primary && beforeSel.primary.position && afterSel.primary.position) {
-      const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
-      const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
-      if (dx > 0.1 || dy > 0.1) canvasMutated = true;
-    }
-    const zBeforeStr = (beforeGeo.zOrderIds || []).join(',');
-    const zAfterStr = (afterGeo.zOrderIds || []).join(',');
-    if (zBeforeStr !== zAfterStr) {
-      canvasMutated = true;
+    if (!canvasMutated && beforeSel.primary && afterSel.primary) {
+      const p0 = beforeSel.primary.position;
+      const p1 = afterSel.primary.position;
+      if (p0 && p1 && (Math.abs(p1.x - p0.x) > 0.1 || Math.abs(p1.y - p0.y) > 0.1)) canvasMutated = true;
     }
 
-    const isDialogOpener = (contract && contract.isDialogOpener) ||
-      opType.includes('ADD_SVG') || opType.includes('ADD_IMAGE') ||
-      opType.includes('OPEN_DIALOG') || opType.includes('FILE_PICKER');
-    const isModeOrStateOp = opType.includes('TOGGLE') || opType.includes('MODAL') ||
-      opType.includes('NODE_EDIT') || opType.includes('EDIT_NODE') || opType.includes('EXIT_NODE_EDIT');
-    const nodeModeActive = (typeof window !== 'undefined' && !!window.nodeEditMode);
-
-    if (opMeta.isButtonClick && !canvasMutated && !isModeOrStateOp && !nodeModeActive) {
-      if (isDialogOpener) {
-        if (totalCalls === 0 && !window.__EKKO_FILE_PICKER_TRIGGERED__) {
-          checks.deadClickDetected = true;
-          checks.buttonResponded = false;
-          inconsistencies.push(
-            `[SELECTOR DESCONECTADO] Se hizo clic en '${uiSource}', pero no se invocó ningún controlador de apertura de diálogo ni input file.`
-          );
-        } else {
-          checks.buttonResponded = true;
-        }
-      } else if (totalCalls === 0) {
-        checks.deadClickDetected = true;
-        checks.buttonResponded = false;
-        inconsistencies.push(
-          `[BOTÓN DESCONECTADO / FANTASMA] Se hizo clic en '${uiSource}', pero ninguna función controladora fue ejecutada y no hubo mutación en el lienzo.`
-        );
-      }
+    if (opMeta.isButtonClick && totalCalls === 0 && !canvasMutated && !isModal && !opType.includes('TOGGLE')) {
+      checks.deadClickDetected = true;
+      checks.buttonResponded = false;
+      inconsistencies.push(
+        `[INCONSISTENCIA CLIC: BOTÓN DESCONECTADO / FANTASMA] Se hizo clic en '${uiSource}', pero ninguna función controladora fue ejecutada y no hubo mutación en el lienzo.`
+      );
     }
 
-    // --- REGLA 3: AUDITORÍA FÍSICA Y DIMENSIONAL DE DESAGRUPACIÓN (UNGROUP) ---
-    if (opType === 'UNGROUP') {
-      const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
-
-      // A) Aumento de capas útiles
-      if (deltaUseful <= 0) {
-        checks.actionExecuted = false;
-        inconsistencies.push(
-          `[DESAGRUPACIÓN FALLIDA] Se ejecutó UNGROUP pero el conteo de elementos no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
-        );
-      }
-
-      // B) Pérdida anómala de elementos
-      if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
-        checks.itemLossDetected = true;
-        inconsistencies.push(
-          `[PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN] Se perdieron ${beforeGeo.totalUsefulItems - afterGeo.totalUsefulItems} elemento(s) durante la operación.`
-        );
-      }
-
-      // C) Destrucción física del grupo padre contenedor
-      if (beforeSel.primary && (beforeSel.primary.isGroup || beforeSel.primary.className === 'Group')) {
-        const parentId = beforeSel.primary.id;
-        if (afterGeo.zOrderIds && afterGeo.zOrderIds.includes(parentId)) {
-          checks.actionExecuted = false;
-          inconsistencies.push(
-            `[CONTENEDOR PERSISTENTE] El grupo padre (ID: ${parentId}) sigue presente en el lienzo tras presionar Desagrupar. No fue destruido físicamente.`
-          );
-        }
-        if (afterSel.primary && afterSel.primary.id === parentId) {
-          checks.selectionValid = false;
-          inconsistencies.push(
-            `[SELECCIÓN SIN DISOLVER] window.selectedItem sigue apuntando al contenedor padre original (ID: ${parentId}) en vez de a las piezas hijas liberadas.`
-          );
-        }
-      }
-
-      // D) DESENMASCARAR FALSO POSITIVO: Bounds inflados o no descompuestos
-      if (beforeSel.primary && beforeSel.primary.bounds && afterSel.primary && afterSel.primary.bounds) {
-        const pB = beforeSel.primary.bounds;
-        const aB = afterSel.primary.bounds;
-        // Si hay más de 3 capas resultantes, es físicamente imposible que una subpieza mida exactamente lo mismo que el todo
-        if (afterGeo.totalUsefulItems >= 3) {
-          const widthRatio = aB.width / (pB.width || 1);
-          const heightRatio = aB.height / (pB.height || 1);
-          if (widthRatio >= 0.98 && heightRatio >= 0.98) {
-            checks.geometricDimensionsValid = false;
-            inconsistencies.push(
-              `[FALSO POSITIVO - BOUNDS INFLADOS] La capa descompuesta '${afterSel.primary.label}' (ID: ${afterSel.primary.id}) conserva exactamente el tamaño total del grupo original (${aB.width}x${aB.height}). Está encapsulada con la máscara del producto o no se liberó su silueta real.`
-            );
-          }
-        }
-      }
-
-      // E) DESENMASCARAR FALSO POSITIVO: Huecos silenciados (0 Calados)
-      if (afterGeo.totalUsefulItems >= 4 && afterGeo.holeCount === 0) {
-        checks.topologyParityValid = false;
-        inconsistencies.push(
-          `[FALSO POSITIVO - CALADOS SILENCIADOS] Se generaron ${afterGeo.totalUsefulItems} capas útiles pero 0 Calados Activos (0C). Los orificios interiores fueron interpretados erróneamente como masas sólidas.`
-        );
-      }
-
-      // F) Preservación estricta de geomBase
-      const missingGeom = (afterGeo.itemsSummary || []).filter(it => !it.hasGeomBase);
-      if (missingGeom.length > 0) {
-        checks.geomBasePreserved = false;
-        inconsistencies.push(
-          `[GEOMBASE FALTANTE] ${missingGeom.length} capa(s) descompuesta(s) no poseen geomBase neutra inicializada (IDs: [${missingGeom.map(m => m.id).join(', ')}]). La edición de nodos fallará.`
-        );
-      }
-    }
-
-    // --- REGLA 4: AUDITORÍA DE ARRASTRE Y MUTACIÓN EN LIENZO (DRAG_MOVE) ---
-    if (opType === 'DRAG_MOVE') {
-      // 1. Verificar si hubo desplazamiento físico
-      if (beforeSel.primary && afterSel.primary && beforeSel.primary.position && afterSel.primary.position) {
-        const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
-        const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
-        if (dx === 0 && dy === 0) {
+    // 3. Auditoría de Arrastre en Lienzo (DRAG)
+    if (opType === 'DRAG' && beforeSel.primary && afterSel.primary && beforeSel.primary.id === afterSel.primary.id) {
+      const p0 = beforeSel.primary.position;
+      const p1 = afterSel.primary.position;
+      if (p0 && p1) {
+        const dx = Math.abs(p1.x - p0.x);
+        const dy = Math.abs(p1.y - p0.y);
+        if (dx < 0.1 && dy < 0.1) {
           checks.dragDisplacementValid = false;
           inconsistencies.push(
-            `[ARRASTRE ESTÁTICO] Se disparó DRAG_MOVE pero la posición del objeto seleccionado no cambió.`
+            `[ARRASTRE BLOQUEADO] El objeto ID: ${afterSel.primary.id} (${afterSel.primary.label}) no modificó su posición física tras el arrastre.`
           );
         }
       }
+    }
 
-      // 2. DESENMASCARAR FALSO POSITIVO: Arrastre sin reactividad CSG en llamada
-      const csgCalled = callLog.some(c => c.function && (
-        c.function.includes('recalculateDynamicSubtractions') ||
-        c.function.includes('syncGeomBaseDeep') ||
-        c.function.includes('triggerDynamicSubtractions')
-      ));
-      if (afterGeo.holeCount > 0 && totalCalls === 0 && !csgCalled) {
-        checks.csgReactiveTriggered = false;
+    // 4. Auditoría de Rotación (ROTATE)
+    if (opType === 'ROTATE' && beforeSel.primary && afterSel.primary) {
+      const r0 = beforeSel.primary.rotation || 0;
+      const r1 = afterSel.primary.rotation || 0;
+      if (Math.abs(r1 - r0) < 0.1) {
+        checks.rotationValid = false;
         inconsistencies.push(
-          `[FALSO POSITIVO - RECÁLCULO CSG SILENCIADO] Se desplazó un elemento en un diseño con ${afterGeo.holeCount} calado(s) activo(s), pero el evento no ejecutó recalculateDynamicSubtractions(). La sustracción booleana quedó desincronizada.`
+          `[ROTACIÓN BLOQUEADA] Se accionó el tirador de rotación pero el ángulo permaneció congelado (${r0}°).`
         );
       }
     }
 
-    // --- REGLA 5: AUDITORÍA DE EDICIÓN DE NODOS ---
-    if (typeof window !== 'undefined' && window.nodeEditMode) {
-      if (opType === 'DRAG_MOVE' && (window.isDraggingNode || (op.source && op.source.includes('editorCanvas')))) {
-        const beforeCk = beforeSel.primary ? beforeSel.primary.segmentsChecksum : null;
-        const afterCk = afterSel.primary ? afterSel.primary.segmentsChecksum : null;
-        if (beforeCk && afterCk && beforeCk === afterCk) {
-          checks.actionExecuted = false;
-          inconsistencies.push(
-            `[VÉRTICES INMÓVILES] Se realizó arrastre en modo edición de nodos pero las coordenadas físicas de los vértices no cambiaron. El trazado no se deformó.`
-          );
-        }
+    // 5. Auditoría de Escalado (RESIZE)
+    if (opType === 'RESIZE' && beforeSel.primary && afterSel.primary && beforeSel.primary.bounds && afterSel.primary.bounds) {
+      const dw = Math.abs(afterSel.primary.bounds.width - beforeSel.primary.bounds.width);
+      const dh = Math.abs(afterSel.primary.bounds.height - beforeSel.primary.bounds.height);
+      if (dw < 0.2 && dh < 0.2) {
+        checks.scaleValid = false;
+        inconsistencies.push(
+          `[ESCALADO FALLIDO] Se arrastró el tirador de redimensionamiento pero las dimensiones permanecieron idénticas.`
+        );
+      }
+    }
+
+    // 6. Auditoría de Desagrupación y Pérdida de Capas (UNGROUP)
+    if (opType === 'UNGROUP') {
+      if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
+        checks.itemLossDetected = true;
+        const lostCount = beforeGeo.totalUsefulItems - afterGeo.totalUsefulItems;
+        inconsistencies.push(
+          `[PÉRDIDA DE PIEZAS EN DESAGRUPAR] Se destruyeron ${lostCount} elementos útiles durante la descomposición vectorial.`
+        );
+      }
+    }
+
+    // 7. Auditoría de Preservación de Geometría Base (geomBase)
+    if (beforeSel.primary && beforeSel.primary.hasGeomBase && afterSel.primary && !afterSel.primary.hasGeomBase) {
+      checks.geomBasePreserved = false;
+      inconsistencies.push(
+        `[DESTRUCCIÓN DE GEOMBASE] El elemento ID: ${afterSel.primary.id} perdió su geometría base local ('data.geomBase'). La reactividad CSG ha quedado inerte.`
+      );
+    }
+
+    // 8. Auditoría de Creación de Objetos Nuevos (ADD_TEXT, ADD_IMAGE, IMPORT_SVG, ADD_QR)
+    if (['ADD_TEXT', 'ADD_IMAGE', 'IMPORT_SVG', 'ADD_QR'].includes(opType)) {
+      // Discriminación: No reportar como inconsistencia si es una carga interna/asíncrona del sistema (mockup, producto o plantilla base)
+      const isSystemCall = (op.source === 'paper.project.importSVG' && !op.buttonContract);
+      if (afterGeo.totalUsefulItems <= beforeGeo.totalUsefulItems && !isModal && !isSystemCall) {
+        inconsistencies.push(
+          `[OBJETO NO CARGADO] Se intentó ejecutar '${opType}', pero ningún objeto útil se incorporó a la capa de diseño.`
+        );
       }
     }
 
@@ -962,62 +785,14 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
   }
 
   // =========================================================================
-  // FORMATEADOR FORENSE (Estructurado para Gemini Studio & Prompts Maestros)
-  // =========================================================================
-  function formatOpForRemediation(op) {
-    let out = `\n================================================================================\n`;
-    out += `INFORME FORENSE EKKO_DIAG (Para Gemini Studio)\n`;
-    out += `================================================================================\n`;
-    out += `[ID OPERACIÓN] : ${op.id}\n`;
-    out += `[ACCIÓN]       : ${op.action}\n`;
-    out += `[ORIGEN UI]    : ${op.source}\n`;
-    out += `[DURACIÓN]     : ${op.durationMs} ms\n`;
-    out += `[ELEMENTO DOM] : Tag: <${op.meta?.domTag || 'N/A'}> | ID: "${op.meta?.domElementId || 'N/A'}" | Class: "${op.meta?.domClass || 'N/A'}"\n\n`;
-
-    out += `--- NIVEL 2: SELECCIÓN PREVIA Y POSTERIOR ---\n`;
-    out += `Antes : ${JSON.stringify(op.selectionBefore?.primary || 'Sin selección')}\n`;
-    out += `Después: ${JSON.stringify(op.selectionAfter?.primary || 'Sin selección')}\n\n`;
-
-    out += `--- NIVEL 3: TRAZA DE EJECUCIÓN (CALL GRAPH) ---\n`;
-    if (op.callGraph && op.callGraph.length > 0) {
-      op.callGraph.forEach(call => {
-        const status = call.error ? `ERROR: ${call.error}` : 'OK';
-        out += `  ↳ [${call.order}] ${call.module} -> ${call.function}() [${call.durationMs}ms] ${status}\n`;
-      });
-    } else {
-      out += `  (Sin llamadas registradas a controladores globales interceptados)\n`;
-    }
-
-    out += `\n--- NIVEL 4: TOPOLOGÍA GEOMÉTRICA (ANTES -> DESPUÉS) ---\n`;
-    out += `Total Capas Útiles : ${op.geometryBefore?.totalUsefulItems} -> ${op.geometryAfter?.totalUsefulItems}\n`;
-    out += `Masas / Calados    : (${op.geometryBefore?.massCount}M / ${op.geometryBefore?.holeCount}C) -> (${op.geometryAfter?.massCount}M / ${op.geometryAfter?.holeCount}C)\n`;
-    out += `Z-Order IDs Antes  : [${(op.geometryBefore?.zOrderIds || []).join(', ')}]\n`;
-    out += `Z-Order IDs Después: [${(op.geometryAfter?.zOrderIds || []).join(', ')}]\n\n`;
-
-    out += `--- NIVEL 5: AUDITORÍA DE CONSISTENCIA Y CONTRATOS ---\n`;
-    if (op.consistency && !op.consistency.pass) {
-      out += `ESTADO: ⚠️ INCONSISTENCIAS DETECTADAS (${op.consistency.inconsistencies.length})\n`;
-      op.consistency.inconsistencies.forEach(inc => {
-        out += `  ❌ ${inc}\n`;
-      });
-    } else {
-      out += `ESTADO: ✓ OPERACIÓN VÁLIDA (Sin inconsistencias detectadas)\n`;
-    }
-    out += `================================================================================\n`;
-    return out;
-  }
-
-  // =========================================================================
-  // GESTIÓN DEL CICLO DE VIDA DE LA OPERACIÓN FORENSE
+  // CICLO DE VIDA FORENSE (NIVELES 1 Y 3: OPERACIONES Y CALLGRAPH)
   // =========================================================================
   function beginOperation(actionName, sourceDesc, meta) {
     if (!diagState.active) return null;
     diagState.opCounter++;
     const padId = String(diagState.opCounter).padStart(5, '0');
-    const opId = `OP-${padId}`;
-
     const op = {
-      id: opId,
+      id: `OP-${padId}`,
       action: actionName,
       source: sourceDesc || 'Sistema',
       meta: meta || {},
@@ -1031,7 +806,6 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
       callGraph: [],
       consistency: null
     };
-
     diagState.currentOp = op;
     return op;
   }
@@ -1045,18 +819,9 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     op.consistency = auditConsistency(op);
 
     diagState.operations.push(op);
-    if (diagState.operations.length > 500) {
-      diagState.operations.shift();
-    }
+    if (diagState.operations.length > 500) diagState.operations.shift();
 
     emitLiveStreamLog(op);
-
-    // Auto-Copia al portapapeles si hay error y la función está activa
-    if (diagState.autoCopyOnError && op.consistency && !op.consistency.pass) {
-      const forensicTxt = formatOpForRemediation(op);
-      safeCopyToClipboard(forensicTxt, `Inconsistencia en [${op.id}] copiada al portapapeles para Gemini Studio.`);
-    }
-
     diagState.currentOp = null;
     return op;
   }
@@ -1064,20 +829,20 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
   function emitLiveStreamLog(op) {
     const pass = op.consistency ? op.consistency.pass : true;
     const sel = op.selectionAfter && op.selectionAfter.primary;
-    const selDesc = sel ? `ID: ${sel.id} (${sel.className}) | Z: ${sel.zIndex} | ${sel.isHole ? '🕳️ CALADO' : '⬛ MASA'}` : 'Sin selección';
+    const selDesc = sel ? `ID: ${sel.id} (${sel.className}) | Z:${sel.zIndex} | ${sel.isHole ? '🕳️ CALADO' : '⬛ MASA'}` : 'Sin selección';
     const geoDesc = `Capas: ${op.geometryAfter.totalUsefulItems} (Masas: ${op.geometryAfter.massCount}, Calados: ${op.geometryAfter.holeCount})`;
 
     if (pass) {
       rawConsole.log(
-        `%c[${op.id}] ${op.action}%c | ✓ OK (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc} | ${geoDesc}`,
+        `%c[${op.id}] ${op.action.padEnd(14)}%c | ✓ OK (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc} | ${geoDesc}`,
         'color: #0284c7; font-weight: bold;',
         'color: #10b981;'
       );
     } else {
       rawConsole.warn(
-        `%c[${op.id}] ${op.action}%c | ⚠️ INCONSISTENCIA DETECTADA (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc}`,
+        `%c[${op.id}] ${op.action.padEnd(14)}%c | ⚠️ INCONSISTENCIA DETECTADA (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc}`,
         'color: #ea580c; font-weight: bold;',
-        'color: #ef4444;'
+        'color: #ef4444; font-weight: bold;'
       );
       op.consistency.inconsistencies.forEach(inc => {
         rawConsole.error(`   ↳ ${inc}`);
@@ -1085,99 +850,70 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     }
   }
 
-  // --- INTERCEPTORES DE FUNCIONES GLOBALES ---
+  // Envoltorio de Funciones Globales para Registro en CallGraph
   function forceWrapWindowFunction(fnName, modulePath, actionType) {
     if (typeof window === 'undefined') return;
+    const original = window[fnName];
+    if (typeof original !== 'function') return;
 
-    let _inner = window[fnName];
-
-    function createWrapper(targetFn) {
-      if (!targetFn || typeof targetFn !== 'function') return targetFn;
-      if (targetFn.__ekkoWrapped__) return targetFn;
-
-      const wrapped = function (...args) {
-        const hasExisting = !!diagState.currentOp;
-        let op = null;
-        if (!hasExisting) {
-          op = beginOperation(actionType || fnName, `${modulePath} -> window.${fnName}()`);
+    const wrapped = function (...args) {
+      const hasExisting = !!diagState.currentOp;
+      let op = hasExisting ? diagState.currentOp : beginOperation(actionType || fnName, `${modulePath} -> ${fnName}()`);
+      const t0 = performance.now();
+      let res, err = null;
+      try {
+        res = original.apply(this, args);
+      } catch (e) {
+        err = e;
+        throw e;
+      } finally {
+        const t1 = performance.now();
+        if (op && Array.isArray(op.callGraph)) {
+          op.callGraph.push({
+            fnName: fnName,
+            module: modulePath,
+            durationMs: Number((t1 - t0).toFixed(1)),
+            error: err ? err.message : null
+          });
         }
-        const activeOp = diagState.currentOp;
-        const order = activeOp ? activeOp.callGraph.length + 1 : 1;
-        const t0 = performance.now();
-        let res, err = null;
-        try {
-          res = targetFn.apply(this, args);
-        } catch (e) {
-          err = e;
-          throw e;
-        } finally {
-          const t1 = performance.now();
-          if (activeOp) {
-            activeOp.callGraph.push({
-              order: order,
-              function: fnName,
-              module: modulePath,
-              durationMs: Number((t1 - t0).toFixed(1)),
-              error: err ? err.message : null
-            });
-          }
-          if (op) {
-            endOperation();
-          }
-        }
-        return res;
-      };
-      wrapped.__ekkoWrapped__ = true;
-      return wrapped;
-    }
-
-    if (typeof _inner === 'function') {
-      _inner = createWrapper(_inner);
-    }
+        if (!hasExisting && op) endOperation();
+      }
+      return res;
+    };
 
     try {
       Object.defineProperty(window, fnName, {
-        get: () => _inner,
-        set: (newFn) => {
-          _inner = (typeof newFn === 'function') ? createWrapper(newFn) : newFn;
-        },
+        value: wrapped,
+        writable: true,
         configurable: true,
         enumerable: true
       });
     } catch (e) {
-      if (typeof _inner === 'function') window[fnName] = _inner;
+      window[fnName] = wrapped;
     }
   }
 
   // =========================================================================
-  // CAPTURA UNIVERSAL DE CLICS EN UI Y ARRASTRE
+  // INTERCEPTORES GLOBALES DE EVENTOS (DOM, TECLADO Y LIENZO)
   // =========================================================================
   function installDOMCaptureListeners() {
     if (typeof document === 'undefined') return;
 
+    // A) Clic en cualquier Botón o Elemento Interactivo
     document.addEventListener('click', function (e) {
       if (!diagState.active) return;
       const target = e.target;
       if (!target) return;
 
-      const interactiveEl = target.closest('button, [role="button"], .ctx-btn, .pro-btn, [data-action], a.btn, input[type="button"]');
+      const interactiveEl = target.closest('button, [role="button"], .btn-action, .toolbar-btn, .pro-btn, .tab-btn, [data-action], a.btn');
       if (!interactiveEl) return;
-
-      if (interactiveEl.id === 'btnAddSVG' || interactiveEl.id === 'btnAddImage' || interactiveEl.getAttribute('data-action') === 'load-svg') {
-        window.__EKKO_FILE_PICKER_TRIGGERED__ = true;
-        setTimeout(() => { window.__EKKO_FILE_PICKER_TRIGGERED__ = false; }, 1000);
-      }
 
       const resolved = resolveButtonContract(interactiveEl);
       if (!resolved) return;
-
       const contract = resolved.contract;
-      const actionName = contract.name || 'BUTTON_CLICK';
-      const triggerSource = contract.label || `Botón (${resolved.matchedBy})`;
 
-      const op = beginOperation(actionName, triggerSource, {
+      const op = beginOperation(contract.name || 'CLICK', contract.label, {
         isButtonClick: true,
-        domTag: interactiveEl.tagName.toLowerCase(),
         domElementId: interactiveEl.id || null,
         domClass: interactiveEl.className || null,
         resolvedContract: contract,
@@ -1185,103 +921,157 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
       });
 
       setTimeout(() => {
-        if (diagState.currentOp === op) {
-          endOperation();
-        }
-      }, 120);
+        if (diagState.currentOp === op) endOperation();
+      }, 150);
     }, true);
 
-    // Intercepción en el lienzo (#editorCanvas)
+    // B) Atajos de Teclado Universales
+    window.addEventListener('keydown', function (e) {
+      if (!diagState.active) return;
+      if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+      if (document.activeElement && document.activeElement.id === 'ekko-text-editor') return;
+
+      const key = e.key;
+      const isCtrl = e.ctrlKey || e.metaKey;
+      let action = null;
+
+      if (isCtrl) {
+        if (key === 'z') action = e.shiftKey ? 'REDO' : 'UNDO';
+        else if (key === 'y') action = 'REDO';
+        else if (key === 'c') action = 'COPY';
+        else if (key === 'v') action = 'PASTE';
+        else if (key === 'd') action = 'DUPLICATE';
+        else if (key === 'g') action = 'GROUP';
+        else if (key === 'u') action = 'UNGROUP';
+      } else if (key === 'Delete' || key === 'Backspace') {
+        action = 'DELETE';
+      } else if (key === 'PageUp') {
+        action = isCtrl ? 'BRING_TO_FRONT' : 'BRING_FORWARD';
+      } else if (key === 'PageDown') {
+        action = isCtrl ? 'SEND_TO_BACK' : 'SEND_BACKWARD';
+      }
+
+      if (action) {
+        const op = beginOperation(action, `Atajo Teclado (${(isCtrl ? 'Ctrl+' : '') + key})`);
+        setTimeout(() => { if (diagState.currentOp === op) endOperation(); }, 120);
+      }
+    }, true);
+
+    // C) Eventos en el Lienzo (#editorCanvas)
     const canvasEl = document.getElementById('editorCanvas');
     if (canvasEl) {
       canvasEl.addEventListener('mousedown', function (e) {
         if (!diagState.active) return;
+        const sel = snapshotSelection();
         diagState.lastMouseDownPoint = { x: e.clientX, y: e.clientY };
-        diagState.lastMouseDownSelection = snapshotSelection();
+        diagState.lastMouseDownSelection = sel;
         diagState.lastMouseDownGeo = snapshotGeometricState();
+
+        diagState.dragTracker = {
+          active: true,
+          startX: e.clientX,
+          startY: e.clientY,
+          startRotation: sel.primary ? sel.primary.rotation : 0,
+          startWidth: (sel.primary && sel.primary.bounds) ? sel.primary.bounds.width : 0,
+          startHeight: (sel.primary && sel.primary.bounds) ? sel.primary.bounds.height : 0,
+          startSel: sel,
+          startGeo: diagState.lastMouseDownGeo,
+          dragMode: window.rotationActive ? 'ROTATE' : (window.resizeActive ? 'RESIZE' : (window.nodeEditMode ? 'NODE_DRAG' : 'MOVE'))
+        };
       }, true);
 
-      canvasEl.addEventListener('mouseup', function (e) {
-        if (!diagState.active) return;
-        const ptDown = diagState.lastMouseDownPoint;
-        if (!ptDown) return;
+      window.addEventListener('mouseup', function (e) {
+        if (!diagState.active || !diagState.dragTracker.active) return;
+        const tracker = diagState.dragTracker;
+        tracker.active = false;
 
-        const dx = Math.abs(e.clientX - ptDown.x);
-        const dy = Math.abs(e.clientY - ptDown.y);
+        const dx = Math.abs(e.clientX - tracker.startX);
+        const dy = Math.abs(e.clientY - tracker.startY);
 
         setTimeout(() => {
-          const selBefore = diagState.lastMouseDownSelection;
           const selNow = snapshotSelection();
           const geoNow = snapshotGeometricState();
 
-          if (dx > 4 || dy > 4) {
-            // Operación de Arrastre o Transformación
-            const isNodeMode = typeof window !== 'undefined' && !!window.nodeEditMode;
-            const action = isNodeMode ? 'NODE_DRAG' : 'DRAG_MOVE';
-            const op = beginOperation(action, 'Arrastre en Lienzo (#editorCanvas)');
-            op.selectionBefore = selBefore;
-            op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
+          if (dx > 3 || dy > 3) {
+            let actionName = 'DRAG';
+            if (tracker.dragMode === 'ROTATE' || window.rotationActive) actionName = 'ROTATE';
+            else if (tracker.dragMode === 'RESIZE' || window.resizeActive) actionName = 'RESIZE';
+            else if (tracker.dragMode === 'NODE_DRAG' || window.nodeEditMode) actionName = 'NODE_EDIT';
+
+            const op = beginOperation(actionName, `Lienzo: ${actionName}`);
+            op.selectionBefore = tracker.startSel;
+            op.geometryBefore = tracker.startGeo;
             endOperation();
           } else {
-            // Clic simple en el lienzo (Selección / Deselección)
-            const idBefore = selBefore && selBefore.primary ? selBefore.primary.id : null;
-            const idNow = selNow && selNow.primary ? selNow.primary.id : null;
-            if (idBefore !== idNow) {
-              const action = idNow ? 'SELECT' : 'DESELECT';
-              const op = beginOperation(action, 'Clic en Lienzo (#editorCanvas)');
-              op.selectionBefore = selBefore;
-              op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
+            // Clic sin desplazamiento: Selección / Deselección
+            const idBefore = tracker.startSel.primary ? tracker.startSel.primary.id : null;
+            const idNow = selNow.primary ? selNow.primary.id : null;
+            if (idBefore !== idNow || (!tracker.startSel.hasSelection && selNow.hasSelection) || (tracker.startSel.hasSelection && !selNow.hasSelection)) {
+              const op = beginOperation(idNow ? 'SELECT' : 'DESELECT', 'Clic en Lienzo (#editorCanvas)');
+              op.selectionBefore = tracker.startSel;
+              op.geometryBefore = tracker.startGeo || geoNow;
               endOperation();
             }
           }
-        }, 60);
+        }, 50);
       }, true);
     }
   }
 
+  // =========================================================================
+  // INSTALACIÓN EXHAUSTIVA DE INTERCEPTORES EN MÓDULOS DE EKKO STUDIO V5
+  // =========================================================================
   function installAllInterceptors() {
     if (diagState.interceptorsInstalled) return;
 
-    // Envoltura de funciones críticas de editor y módulos
-    forceWrapWindowFunction('selectItem', 'editor.js', 'SELECT');
-    forceWrapWindowFunction('deselectItem', 'editor.js', 'DESELECT');
-    forceWrapWindowFunction('saveHistory', 'editor.js', 'SAVE_HISTORY');
-    forceWrapWindowFunction('undo', 'editor.js', 'UNDO');
-    forceWrapWindowFunction('redo', 'editor.js', 'REDO');
-    forceWrapWindowFunction('copySelected', 'editor.js', 'COPY');
-    forceWrapWindowFunction('pasteClipboard', 'editor.js', 'PASTE');
-    forceWrapWindowFunction('bringFront', 'editor.js', 'BRING_TO_FRONT');
-    forceWrapWindowFunction('sendBack', 'editor.js', 'SEND_TO_BACK');
-    forceWrapWindowFunction('bringForward', 'editor.js', 'BRING_FORWARD');
-    forceWrapWindowFunction('sendBackward', 'editor.js', 'SEND_BACKWARD');
-    forceWrapWindowFunction('bringImageToFront', 'imageToolbar.js', 'BRING_TO_FRONT');
-    forceWrapWindowFunction('sendImageToBack', 'imageToolbar.js', 'SEND_TO_BACK');
-    forceWrapWindowFunction('bringImageForward', 'imageToolbar.js', 'BRING_FORWARD');
-    forceWrapWindowFunction('sendImageBackward', 'imageToolbar.js', 'SEND_BACKWARD');
-    forceWrapWindowFunction('createEditableText', 'editor.js', 'ADD_TEXT');
-    forceWrapWindowFunction('addQRToCanvas', 'editor.js', 'ADD_QR');
-    forceWrapWindowFunction('openSVGFileDialog', 'editor.js', 'OPEN_SVG_DIALOG');
-    forceWrapWindowFunction('addSVGFromFile', 'editor.js', 'PROCESS_SVG_FILE');
-    forceWrapWindowFunction('enterNodeEditMode', 'nodeEditor.js', 'NODE_EDIT');
-    forceWrapWindowFunction('exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT');
-    forceWrapWindowFunction('deleteSelectedNodes', 'nodeEditor.js', 'DELETE_NODE');
-    forceWrapWindowFunction('duplicateSelectedItem', 'contextualMenu.js', 'DUPLICATE');
-    forceWrapWindowFunction('ungroupSelectedItem', 'contextualMenu.js', 'UNGROUP');
-    forceWrapWindowFunction('groupSelectedItems', 'contextualMenu.js', 'GROUP');
-    forceWrapWindowFunction('decomposeByContainmentHierarchy', 'geometricUngroup.js', 'UNGROUP');
-    forceWrapWindowFunction('recalculateDynamicSubtractions', 'geometricUngroup.js', 'CSG_RECALC');
+    const functionsToWrap = [
+      ['openSVGFileDialog', 'editor.js', 'OPEN_FILE_DIALOG'],
+      ['openImageFileDialog', 'editor.js', 'OPEN_FILE_DIALOG'],
+      ['addQRToCanvas', 'editor.js', 'ADD_QR'],
+      ['startTextEditing', 'textEditor.js', 'START_TEXT_EDIT'],
+      ['selectItem', 'selection.js', 'SELECT'],
+      ['deselectItem', 'selection.js', 'DESELECT'],
+      ['updateSelectionBox', 'selection.js', 'UPDATE_SELECTION_BOX'],
+      ['initSelectionTool', 'selection.js', 'INIT_SELECTION_TOOL'],
+      ['ungroupSelectedItem', 'geometricUngroup.js', 'UNGROUP'],
+      ['groupSelectedItems', 'contextualMenu.js', 'GROUP'],
+      ['duplicateImage', 'imageToolbar.js', 'DUPLICATE'],
+      ['deleteImage', 'imageToolbar.js', 'DELETE'],
+      ['cloneSingleItem', 'contextualMenu.js', 'CLONE_ITEM'],
+      ['bringFront', 'editor.js', 'BRING_TO_FRONT'],
+      ['sendBack', 'editor.js', 'SEND_TO_BACK'],
+      ['bringForward', 'editor.js', 'BRING_FORWARD'],
+      ['sendBackward', 'editor.js', 'SEND_BACKWARD'],
+      ['enterNodeEditMode', 'nodeEditor.js', 'ENTER_NODE_EDIT'],
+      ['exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT'],
+      ['deleteSelectedNodes', 'nodeEditor.js', 'DELETE_NODES'],
+      ['detachSelectedSubpaths', 'nodeEditor.js', 'DETACH_SUBPATH'],
+      ['recalculateDynamicSubtractions', 'geometricUngroup.js', 'RECALCULATE_CSG'],
+      ['alignSelection', 'canvasControlsIntegration.js', 'ALIGN'],
+      ['distributeSpacing', 'canvasControlsIntegration.js', 'DISTRIBUTE'],
+      ['centerSelection', 'canvasControlsIntegration.js', 'CENTER'],
+      ['undo', 'editor.js', 'UNDO'],
+      ['redo', 'editor.js', 'REDO'],
+      ['saveHistory', 'editor.js', 'SAVE_HISTORY'],
+      ['prepareSVGForExport', 'exportSVG.js', 'PREPARE_EXPORT'],
+      ['downloadExportedSVG', 'exportSVG.js', 'EXPORT_SVG'],
+      ['traceRasterContours', 'imageTracer.js', 'TRACE_CONTOURS'],
+      ['applyMaskToRaster', 'backgroundRemover.js', 'APPLY_MASK']
+    ];
 
-    installDOMCaptureListeners();
+    functionsToWrap.forEach(([fn, mod, act]) => forceWrapWindowFunction(fn, mod, act));
 
-    if (typeof paper !== 'undefined' && paper.project && !paper.project._diagWrapped) {
+    // Hook seguro en la importación de SVG de Paper.js
+    if (typeof paper !== 'undefined' && paper.project && paper.project.importSVG && !paper.project._diagWrapped) {
       const origImportSVG = paper.project.importSVG;
       paper.project.importSVG = function (...args) {
-        const op = beginOperation('IMPORT_SVG', 'paper.project.importSVG');
-        const cb = args[1];
-        if (typeof cb === 'function') {
-          args[1] = function (item) {
-            const res = cb(item);
-            setTimeout(() => { endOperation(); }, 50);
+        beginOperation('IMPORT_SVG', 'paper.project.importSVG');
+        const cbIndex = args.findIndex(a => typeof a === 'function');
+        if (cbIndex >= 0) {
+          const originalCb = args[cbIndex];
+          args[cbIndex] = function (item) {
+            const res = originalCb(item);
+            setTimeout(() => { endOperation(); }, 60);
             return res;
           };
         }
@@ -1290,375 +1080,156 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
       paper.project._diagWrapped = true;
     }
 
+    installDOMCaptureListeners();
     diagState.interceptorsInstalled = true;
   }
 
   // =========================================================================
-  // MOTOR DE AUDITORÍA FÍSICA ESTRICTA EN VIVO (LIVE CANVAS AUDIT ENGINE)
-  // =========================================================================
-  function performLiveCanvasAudit() {
-    const geo = snapshotGeometricState();
-    const sel = snapshotSelection();
-    const inconsistencies = [];
-
-    if (typeof paper === 'undefined' || !paper.project) {
-      inconsistencies.push('[ENTORNO NO DISPONIBLE] Paper.js o paper.project no están inicializados.');
-      return { geo, sel, inconsistencies, pass: false, totalUseful: 0, massCount: 0, holeCount: 0 };
-    }
-
-    const layer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
-    if (!layer || !layer.children || layer.children.length === 0) {
-      inconsistencies.push('[LIENZO VACÍO] No hay capas ni objetos presentes en el área de diseño (designLayer).');
-      return { geo, sel, inconsistencies, pass: false, totalUseful: 0, massCount: 0, holeCount: 0 };
-    }
-
-    const usefulChildren = [];
-    const mockup = (typeof window !== 'undefined' && window.currentMockup) ? window.currentMockup : null;
-    const mockupBounds = mockup ? mockup.bounds : null;
-
-    layer.children.forEach((c, idx) => {
-      if (!c) return;
-      const d = c.data || {};
-      if (
-        d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
-        d.isSmartGuide || d.isMeasurement || d.isTracePreview || d.isNodeHandle ||
-        d.isNodeEditOverlay || d.isCurveHandle
-      ) {
-        return;
-      }
-      if (
-        (mockup && c === mockup) ||
-        (typeof window !== 'undefined' && window.selectionBoxGroup && c === window.selectionBoxGroup) ||
-        (typeof window !== 'undefined' && window.nodeHandlesGroup && c === window.nodeHandlesGroup)
-      ) {
-        return;
-      }
-
-      const content = getContentItem(c);
-      const isHole = !!(d.isHole || (content && content.data && content.data.isHole));
-      const hasGeom = !!(d.geomBase || (content && content.data && content.data.geomBase));
-      const label = d.label || (content && content.data && content.data.label) || `Capa #${c.id}`;
-      const trueBounds = getTrueDesignBounds(c);
-
-      usefulChildren.push({
-        wrapper: c,
-        content: content || c,
-        id: c.id,
-        zIndex: idx,
-        label: label,
-        isHole: isHole,
-        hasGeomBase: hasGeom,
-        bounds: trueBounds,
-        extractedBounds: extractBounds(trueBounds),
-        data: d,
-        className: c.className
-      });
-    });
-
-    const total = usefulChildren.length;
-    const holeItems = usefulChildren.filter(it => it.isHole);
-    const massItems = usefulChildren.filter(it => !it.isHole);
-
-    if (total === 0) {
-      inconsistencies.push('[SIN OBJETOS ÚTILES] Todas las entidades presentes en el lienzo son artefactos de UI, guías o máscaras.');
-      return { geo, sel, inconsistencies, pass: false, totalUseful: 0, massCount: 0, holeCount: 0 };
-    }
-
-    // 1. CHEQUEO DE BOUNDS INFLADOS (Herencia errónea de máscara de producto o falta de despiece)
-    usefulChildren.forEach(it => {
-      if (it.bounds && mockupBounds && total >= 3) {
-        const wRatio = it.bounds.width / (mockupBounds.width || 1);
-        const hRatio = it.bounds.height / (mockupBounds.height || 1);
-        if (wRatio >= 0.98 && hRatio >= 0.98) {
-          inconsistencies.push(
-            `[BOUNDS INFLADOS] La capa '${it.label}' (ID: ${it.id}) abarca el 100% del área del producto (${it.bounds.width.toFixed(1)}x${it.bounds.height.toFixed(1)} px). Heredó la máscara del producto o no liberó su silueta real.`
-          );
-        }
-      }
-    });
-
-    // 2. CHEQUEO DE PARIDAD TOPOLÓGICA (Huecos silenciados en diseños compuestos)
-    if (total >= 4 && holeItems.length === 0) {
-      let anyContained = false;
-      for (let i = 0; i < total; i++) {
-        for (let j = 0; j < total; j++) {
-          if (i === j) continue;
-          if (usefulChildren[i].bounds && usefulChildren[j].bounds && usefulChildren[i].bounds.contains(usefulChildren[j].bounds)) {
-            anyContained = true;
-            break;
-          }
-        }
-        if (anyContained) break;
-      }
-      if (anyContained) {
-        inconsistencies.push(
-          `[CALADOS SILENCIADOS / PARIDAD TOPOLÓGICA] Se detectaron ${total} capas pero 0 Calados Activos (0C). Hay siluetas interiores anidadas que fueron clasificadas erróneamente como masas macizas sólidas.`
-        );
-      }
-    }
-
-    // 3. CHEQUEO DE CALADOS HUÉRFANOS O INEFECTIVOS
-    holeItems.forEach(hole => {
-      const lowerMasses = massItems.filter(m => m.zIndex < hole.zIndex);
-      if (lowerMasses.length === 0) {
-        inconsistencies.push(
-          `[CALADO HUÉRFANO / INEFECTIVO] '${hole.label}' (ID: ${hole.id}, Z:${hole.zIndex}) está marcado como Calado Activo pero no tiene ninguna masa sólida por debajo en el orden Z. No perfora material real.`
-        );
-      } else {
-        const intersecting = lowerMasses.filter(m => m.bounds && hole.bounds && m.bounds.intersects(hole.bounds));
-        if (intersecting.length === 0) {
-          inconsistencies.push(
-            `[CALADO FUERA DE RANGO] '${hole.label}' (ID: ${hole.id}) no intersecta espacialmente ninguna de las masas sólidas inferiores.`
-          );
-        }
-      }
-
-      // Verificación de transparencia/visibilidad del calado activo
-      if (hole.content && hole.content.fillColor && hole.content.fillColor.alpha > 0 && hole.content.visible !== false) {
-        inconsistencies.push(
-          `[CALADO CON RELLENO OPACO] '${hole.label}' (ID: ${hole.id}) tiene color de relleno visible (${hole.content.fillColor.toCSS(true)}). Los calados deben ser transparentes o representarse únicamente con el contorno magnético cian.`
-        );
-      }
-    });
-
-    // 4. CHEQUEO DE REACTIVIDAD CSG (Sustracción booleana en masas sólidas)
-    massItems.forEach(mass => {
-      const higherHoles = holeItems.filter(h => h.zIndex > mass.zIndex && h.bounds && mass.bounds && h.bounds.intersects(mass.bounds));
-      if (higherHoles.length > 0) {
-        const wasSubtracted = !!(mass.content && mass.content.data && mass.content.data._wasSubtracted);
-        if (!wasSubtracted) {
-          inconsistencies.push(
-            `[RECÁLCULO CSG PENDIENTE] La masa '${mass.label}' (ID: ${mass.id}) tiene ${higherHoles.length} calado(s) superior(es) superpuesto(s), pero no tiene aplicada la sustracción booleana dinámica.`
-          );
-        }
-      }
-    });
-
-    // 5. CHEQUEO DE GEOMBASE EN TODAS LAS CAPAS
-    const missingGeom = usefulChildren.filter(it => !it.hasGeomBase);
-    if (missingGeom.length > 0) {
-      inconsistencies.push(
-        `[GEOMBASE FALTANTE] ${missingGeom.length} capa(s) útil(es) no poseen geomBase neutra (IDs: [${missingGeom.map(m => m.id).join(', ')}]). La edición de nodos y transformaciones reversibles fallarán.`
-      );
-    }
-
-    // 6. CHEQUEO DE CONTENEDORES PERSISTENTES O GRUPOS VACÍOS
-    usefulChildren.forEach(it => {
-      if (it.className === 'Group' && !it.data.clipGroup) {
-        if (!it.wrapper.children || it.wrapper.children.length === 0) {
-          inconsistencies.push(`[CONTENEDOR VACÍO] Grupo persistente ID: ${it.id} ('${it.label}') no posee elementos hijos en el lienzo.`);
-        }
-      }
-    });
-
-    // 7. CHEQUEO DE ELEMENTOS IDÉNTICOS SUPERPUESTOS
-    for (let i = 0; i < total; i++) {
-      for (let j = i + 1; j < total; j++) {
-        const a = usefulChildren[i];
-        const b = usefulChildren[j];
-        if (a.extractedBounds && b.extractedBounds) {
-          const ebA = a.extractedBounds;
-          const ebB = b.extractedBounds;
-          if (
-            Math.abs(ebA.x - ebB.x) < 0.1 &&
-            Math.abs(ebA.y - ebB.y) < 0.1 &&
-            Math.abs(ebA.width - ebB.width) < 0.1 &&
-            Math.abs(ebA.height - ebB.height) < 0.1 &&
-            a.isHole === b.isHole
-          ) {
-            inconsistencies.push(
-              `[ELEMENTOS IDÉNTICOS SUPERPUESTOS] Capas '${a.label}' (ID: ${a.id}) y '${b.label}' (ID: ${b.id}) comparten exactamente la misma posición y tamaño (${ebA.width}x${ebA.height} px). Posible duplicado no desplazado o despiece parásito.`
-            );
-          }
-        }
-      }
-    }
-
-    // 8. CHEQUEO DE INTEGRIDAD DE SELECCIÓN
-    if (typeof window !== 'undefined' && window.selectedItem) {
-      const selItem = window.selectedItem;
-      if (!selItem.project || !selItem.parent) {
-        inconsistencies.push(`[SELECCIÓN HUÉRFANA] window.selectedItem apunta a un elemento que fue removido de Paper.js.`);
-      }
-    }
-
-    const pass = inconsistencies.length === 0;
-    return {
-      geo: geo,
-      sel: sel,
-      inconsistencies: inconsistencies,
-      pass: pass,
-      totalUseful: total,
-      massCount: massItems.length,
-      holeCount: holeItems.length,
-      zOrderIds: usefulChildren.map(u => u.id)
-    };
-  }
-
-  // =========================================================================
-  // API PÚBLICA EKKO_DIAG (Para F12 de Navegador)
+  // API PÚBLICA UNIVERSAL EKKO_DIAG
   // =========================================================================
   const publicAPI = {
     start: function () {
       diagState.active = true;
       installAllInterceptors();
-      rawConsole.log('%c[EKKO_DIAG v10.0 BLACK BOX AVIATION - ZERO FALSE POSITIVES] Activo 🟢 (Auditoría Física y Geométrica Estricta)', 'color: #10b981; font-weight: bold; font-size: 13px;');
-      return 'EKKO_DIAG v10.0 Activo. Monitoreando automáticamente con auto-copia forense y detección de falsos positivos.';
+      rawConsole.log('%c[EKKO_DIAG v9.0 Universal Forensic BlackBox] Activo 🟢 - Supervisión Continua sin Puntos Ciegos', 'color: #10b981; font-weight: bold; font-size: 13px;');
+      return 'EKKO_DIAG v9.0 Activo. Monitoreando automáticamente herramientas, botones, transformaciones y objetos nuevos.';
     },
-
     stop: function () {
       diagState.active = false;
       rawConsole.log('%c[EKKO_DIAG] Detenido 🔴', 'color: #ef4444; font-weight: bold;');
       return 'EKKO_DIAG Detenido.';
     },
-
     clear: function () {
       diagState.operations = [];
       diagState.opCounter = 0;
       diagState.currentOp = null;
       return 'Historial de operaciones limpiado.';
     },
-
-    setAutoCopyOnError: function (enabled) {
-      diagState.autoCopyOnError = !!enabled;
-      rawConsole.log(`%c[EKKO_DIAG] Auto-copia ante error: ${diagState.autoCopyOnError ? 'HABILITADA' : 'DESHABILITADA'}`, 'color: #0284c7;');
-      return diagState.autoCopyOnError;
-    },
-
     registerButtonContract: function (idOrSelector, contractConfig) {
       registerContract(idOrSelector, contractConfig);
       rawConsole.log(`%c[EKKO_DIAG] Contrato registrado para '${idOrSelector}'`, 'color: #0284c7;');
       return true;
     },
-
     report: function () {
       const ops = diagState.operations;
-      let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-      outputText += '║   EKKO STUDIO DIAGNOSTIC v10.0 - ESTÁNDAR UNIVERSAL DE CONTRATOS Y FALSOS POSITIVOS  ║\n';
-      outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
-      outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
+      let out = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
+      out += '║      EKKO STUDIO DIAGNOSTIC v9.0 - ESTÁNDAR UNIVERSAL DE CONTRATOS FORENSES      ║\n';
+      out += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
+      out += `Total Operaciones Auditadas: ${ops.length}\n\n`;
 
       ops.forEach(op => {
-        const pass = op.consistency && op.consistency.pass ? '✓ OK' : '⚠️ INCONSISTENCIA';
-        const sel = op.selectionAfter && op.selectionAfter.primary;
-        const selStr = sel ? `ID: ${sel.id} (${sel.className}, Z:${sel.zIndex})` : 'Sin selección';
-        outputText += `[${op.id}] ${op.action.padEnd(16)} | ${pass.padEnd(16)} | ${op.durationMs}ms | Origen: ${op.source} | Capas: ${op.geometryAfter.totalUsefulItems} | Sel: ${selStr}\n`;
+        const pass = op.consistency && op.consistency.pass ? '✓ OK' : '⚠ INCONSISTENCIA';
+        out += `[${op.id}] ${op.action.padEnd(16)} | ${pass.padEnd(16)} | ${op.durationMs}ms | Origen: ${op.source}\n`;
         if (op.consistency && !op.consistency.pass) {
           op.consistency.inconsistencies.forEach(inc => {
-            outputText += `   ↳ ⚠️ ${inc}\n`;
+            out += `   ↳ ${inc}\n`;
           });
         }
       });
-      rawConsole.log(outputText);
-      return outputText;
+      rawConsole.log(out);
+      return out;
     },
-
-    copyLast: function () {
-      if (diagState.operations.length === 0) {
-        rawConsole.warn('[EKKO_DIAG] No hay operaciones registradas para copiar.');
-        return false;
-      }
-      const lastOp = diagState.operations[diagState.operations.length - 1];
-      const forensicTxt = formatOpForRemediation(lastOp);
-      safeCopyToClipboard(forensicTxt, `Última operación [${lastOp.id}] copiada al portapapeles.`);
-      return forensicTxt;
-    },
-
-    copyErrors: function () {
-      const errorOps = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
-      if (errorOps.length === 0) {
-        rawConsole.log('%c[EKKO_DIAG] No hay inconsistencias registradas en la sesión activa.', 'color: #10b981;');
-        return false;
-      }
-      let combined = `================================================================================\n`;
-      combined += `REPORTE COMBINADO DE INCONSISTENCIAS EKKO STUDIO (${errorOps.length} OPERACIONES FALLIDAS)\n`;
-      combined += `================================================================================\n`;
-      errorOps.forEach(op => {
-        combined += formatOpForRemediation(op) + '\n';
-      });
-      safeCopyToClipboard(combined, `${errorOps.length} inconsistencia(s) copiadas al portapapeles.`);
-      return combined;
-    },
-
     dump: function () {
       const rep = this.report();
       const payload = rep + '\n\n--- DETALLE FORENSE COMPLETO (JSON) ---\n' + JSON.stringify(diagState.operations, null, 2);
-      safeCopyToClipboard(payload, 'Diagnóstico forense completo copiado al portapapeles.');
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(payload).then(() => {
+          rawConsole.log('%c[EKKO_DIAG] Diagnóstico forense copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
+        }).catch(() => {});
+      }
       return payload;
     },
+    inconsistencies: function (actionFilter) {
+      let fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
+      if (typeof actionFilter === 'string' && actionFilter.trim().length > 0) {
+        const query = actionFilter.trim().toUpperCase();
+        fallas = fallas.filter(op => (op.action && op.action.toUpperCase().includes(query)) || (op.source && op.source.toUpperCase().includes(query)));
+      }
+      if (fallas.length === 0) {
+        const msg = actionFilter 
+          ? `[EKKO_DIAG] ✓ Sin inconsistencias detectadas para el filtro: "${actionFilter}".`
+          : `[EKKO_DIAG] ✓ Sin inconsistencias detectadas en las ${diagState.operations.length} operaciones registradas.`;
+        rawConsole.log(`%c${msg}`, 'color: #10b981; font-weight: bold;');
+        return [];
+      }
+      rawConsole.log(
+        `%c[EKKO_DIAG] ⚠️ SE DETECTARON ${fallas.length} OPERACIÓN(ES) CON INCONSISTENCIAS:` + (actionFilter ? ` (Filtro: "${actionFilter}")` : ''),
+        'color: #ef4444; font-weight: bold; font-size: 13px;'
+      );
+      const rows = fallas.map(op => ({
+        'ID': op.id,
+        'Acción': op.action,
+        'Duración': `${op.durationMs}ms`,
+        'Origen': op.source || 'N/A',
+        'Inconsistencias Detectadas': (op.consistency.inconsistencies || []).join(' | ')
+      }));
+      rawConsole.table(rows);
+      return fallas;
+    },
+    dumpInconsistencies: function (actionFilter) {
+      let fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
+      if (typeof actionFilter === 'string' && actionFilter.trim().length > 0) {
+        const query = actionFilter.trim().toUpperCase();
+        fallas = fallas.filter(op => (op.action && op.action.toUpperCase().includes(query)) || (op.source && op.source.toUpperCase().includes(query)));
+      }
+      if (fallas.length === 0) {
+        rawConsole.log('%c[EKKO_DIAG] ✓ No hay inconsistencias para exportar.', 'color: #10b981; font-weight: bold;');
+        return 'Sin inconsistencias.';
+      }
+      let out = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
+      out += '║       EKKO STUDIO DIAGNOSTIC - REPORTE EXCLUSIVO DE INCONSISTENCIAS              ║\n';
+      out += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
+      out += `Total de Fallas Reportadas: ${fallas.length} / ${diagState.operations.length} operaciones\n\n`;
+      fallas.forEach(op => {
+        out += `[${op.id}] ${op.action.padEnd(16)} | ⚠ INCONSISTENCIA | ${op.durationMs}ms | Origen: ${op.source}\n`;
+        (op.consistency.inconsistencies || []).forEach(inc => {
+          out += `   ↳ ${inc}\n`;
+        });
+      });
+      const payload = out + '\n--- VOLCADO FORENSE JSON DE OPERACIONES FALLIDAS ---\n' + JSON.stringify(fallas, null, 2);
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(payload).then(() => {
+          rawConsole.log('%c[EKKO_DIAG] Reporte de inconsistencias copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
+        }).catch(() => {});
+      }
+      rawConsole.log(out);
+      return payload;
+    },
+    summary: function () {
+      const total = diagState.operations.length;
+      const fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
+      const exitos = total - fallas.length;
+      const rate = total > 0 ? ((exitos / total) * 100).toFixed(1) : '100.0';
 
+      rawConsole.log(
+        `%c[EKKO_DIAG] 📊 Resumen Forense: ${total} Operaciones | ✓ ${exitos} OK (${rate}%) | ⚠ ${fallas.length} Inconsistencias`,
+        fallas.length > 0 ? 'color: #f59e0b; font-weight: bold;' : 'color: #10b981; font-weight: bold;'
+      );
+
+      const porAccion = {};
+      diagState.operations.forEach(op => {
+        const act = op.action || 'DESCONOCIDO';
+        if (!porAccion[act]) porAccion[act] = { 'Total': 0, '✓ OK': 0, '⚠ Inconsistencias': 0 };
+        porAccion[act]['Total']++;
+        if (op.consistency && !op.consistency.pass) {
+          porAccion[act]['⚠ Inconsistencias']++;
+        } else {
+          porAccion[act]['✓ OK']++;
+        }
+      });
+
+      rawConsole.table(porAccion);
+      return { total, exitos, fallas: fallas.length, tasaExito: `${rate}%`, desglose: porAccion };
+    },
     last: function () {
       if (diagState.operations.length === 0) return 'No hay operaciones registradas.';
       return diagState.operations[diagState.operations.length - 1];
-    },
-
-    audit: function () {
-      diagState.opCounter++;
-      const padId = String(diagState.opCounter).padStart(5, '0');
-      const opId = `OP-${padId}`;
-
-      const res = performLiveCanvasAudit();
-      const op = {
-        id: opId,
-        action: 'AUDIT_MANUAL',
-        source: 'Consola F12: EKKO_DIAG.audit()',
-        meta: { domTag: 'F12_CONSOLE', domElementId: 'EKKO_DIAG.audit()', domClass: 'API' },
-        startTime: performance.now(),
-        durationMs: 0.8,
-        selectionBefore: res.sel,
-        geometryBefore: res.geo,
-        selectionAfter: res.sel,
-        geometryAfter: res.geo,
-        callGraph: [
-          { order: 1, module: 'ekkoDiagnostics.js', function: 'performLiveCanvasAudit', durationMs: 0.8, error: null }
-        ],
-        consistency: {
-          checks: {
-            actionExecuted: true,
-            buttonResponded: true,
-            selectionPreconditionValid: true,
-            itemLossDetected: false,
-            dragDisplacementValid: true,
-            geomBasePreserved: res.inconsistencies.every(i => !i.includes('GEOMBASE')),
-            selectionValid: res.inconsistencies.every(i => !i.includes('SELECCIÓN')),
-            productClippingValid: res.inconsistencies.every(i => !i.includes('BOUNDS INFLADOS')),
-            deadClickDetected: false,
-            zOrderConsistent: res.inconsistencies.every(i => !i.includes('CALADO HUÉRFANO') && !i.includes('CSG')),
-            csgReactiveTriggered: res.inconsistencies.every(i => !i.includes('CSG')),
-            geometricDimensionsValid: res.inconsistencies.every(i => !i.includes('BOUNDS INFLADOS')),
-            topologyParityValid: res.inconsistencies.every(i => !i.includes('CALADOS SILENCIADOS'))
-          },
-          inconsistencies: res.inconsistencies,
-          pass: res.pass
-        }
-      };
-
-      diagState.operations.push(op);
-      if (diagState.operations.length > 500) diagState.operations.shift();
-
-      const forensicReport = formatOpForRemediation(op);
-
-      if (!res.pass) {
-        rawConsole.warn(`%c[EKKO_DIAG AUDIT] ⚠️ ${res.inconsistencies.length} INCONSISTENCIA(S) DETECTADA(S)`, 'color: #ea580c; font-weight: bold; font-size: 14px;');
-        res.inconsistencies.forEach(inc => rawConsole.error(`   ↳ ❌ ${inc}`));
-        safeCopyToClipboard(forensicReport, `Reporte de auditoría [${op.id}] copiado al portapapeles.`);
-      } else {
-        rawConsole.log(`%c[EKKO_DIAG AUDIT] ✓ ESTADO FÍSICO ÍNTEGRO (0 Inconsistencias)`, 'color: #10b981; font-weight: bold; font-size: 14px;');
-        safeCopyToClipboard(forensicReport, `Auditoría [${op.id}] copiada al portapapeles.`);
-      }
-
-      rawConsole.log(forensicReport);
-      return forensicReport;
     }
   };
 
-  // Asignación global con centinela anti-duplicación
   if (typeof window !== 'undefined') {
-    window.__EKKO_DIAG_ACTIVE_INSTANCE__ = publicAPI;
     window.EKKO_DIAG = publicAPI;
-    setTimeout(() => {
-      publicAPI.start();
-    }, 300);
+    setTimeout(() => { publicAPI.start(); }, 300);
   }
 
   return publicAPI;
