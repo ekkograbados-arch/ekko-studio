@@ -251,6 +251,14 @@
     expectedTopologyDelta: 'EQUAL'
   });
 
+  registerContract('#btnctxeditnodes', {
+    name: 'NODE_EDIT',
+    label: 'Barra Emergente: Editar Nodos (#btnCtxEditNodes)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
   registerContract('#btnctxbold', {
     name: 'BOLD',
     label: 'Barra Emergente: Negrita (#btnCtxBold)',
