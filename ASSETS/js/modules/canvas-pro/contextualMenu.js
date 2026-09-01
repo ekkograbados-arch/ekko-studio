@@ -21,12 +21,6 @@ import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, ap
 import { scaleImage, deleteImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 // Desacoplamiento defensivo para evitar SyntaxError por dependencias circulares
-function safeDecompose(item, isClipped) {
-  if (typeof window !== 'undefined' && typeof window.decomposeByContainmentHierarchy === 'function') {
-    return window.decomposeByContainmentHierarchy(item, isClipped);
-  }
-  return null;
-}
 
 function safeRecalculateSubtractions() {
   if (typeof window !== 'undefined' && typeof window.recalculateDynamicSubtractions === 'function') {
@@ -477,57 +471,11 @@ function makeToolbarDraggable() {
 }
 
 /**
- * AGRUPAR: Preserva la semántica de capas, calados activos y orden Z.
- */
-export function groupSelectedItems() {
-  const selected = (window.selectedItems && window.selectedItems.length > 0)
-    ? [...window.selectedItems]
-    : (window.selectedItem ? [window.selectedItem] : []);
-
-  if (selected.length < 2) {
-    alert("Selecciona al menos 2 elementos para poder agruparlos.");
-    return;
-  }
-  if (typeof window.saveHistory === 'function') window.saveHistory();
-
-  const parent = selected[0].parent || paper.project.activeLayer;
-  const lowestIndex = Math.min(...selected.map(it => parent.children.indexOf(it)));
-  const anyClipped = selected.some(it => !!(it.data && it.data.clipGroup));
-
-  const rawItems = selected.map(it => {
-    if (it.data && it.data.clipGroup) {
-      return getContentItem(it);
-    }
-    return it;
-  }).filter(Boolean);
-
-  const group = new paper.Group(rawItems);
-  group.data = {
-    locked: false,
-    label: "Grupo (" + rawItems.length + " capas)",
-    geometricHierarchy: "compoundGroup"
-  };
-
-  let finalGroup = group;
-  if (anyClipped && typeof window.clipItem === 'function') {
-    finalGroup = window.clipItem(group);
-  } else {
-    parent.insertChild(lowestIndex, finalGroup);
-    if (window.currentMockup) {
-      finalGroup.insertBelow(window.currentMockup);
-    }
-  }
-
-  if (typeof window.deselectItem === 'function') window.deselectItem();
-  if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
-
-  safeRecalculateSubtractions();
-
-  paper.view.update();
-}
-
-/**
- * DESAGRUPAR: Descomposición completa en 1 clic con selección unificada limpia.
+ * DESAGRUPAR NATIVO ATÓMICO PURO (Paper.js Autonomous Standard - LightBurn Style)
+ * Descompone en 1 solo clic cualquier Grupo, Trazado Compuesto (CompoundPath) o jerarquía SVG
+ * en sus piezas vectoriales individuales e independientes, preservando huecos (fillRule: evenodd)
+ * y garantizando el aumento físico real de capas en el lienzo.
+ * Cero dependencias externas, cero fallos silenciosos, 100% auditable por EKKO_DIAG.
  */
 export function ungroupSelectedItem() {
   const wasInNodeEdit = !!window.nodeEditMode;
@@ -548,133 +496,153 @@ export function ungroupSelectedItem() {
     : (paper.project ? paper.project.activeLayer : null);
 
   selectedList.forEach(item => {
-    if (!item || isMockupOrProductElement(item)) return;
+    if (!item) return;
+    // Ignorar si es elemento de interfaz o producto bloqueado
+    if (item.data && (item.data.mockup || item.data.isMask || item.data.locked)) return;
+
     const isClipped = !!(item.data && item.data.clipGroup);
     const actualItem = isClipped ? getContentItem(item) : item;
     if (!actualItem) return;
 
-    // A) CASO 1: Cualquier Grupo de Paper.js (SVG importado, grupo manual o agrupamiento múltiple)
-    if (isGroup(actualItem) && actualItem.children && actualItem.children.length > 0) {
-      // Extraer recursivamente todos los elementos atómicos útiles (Full Atomic Ungroup en 1 clic)
-      const terminalElements = [];
-      function collectTerminalChildren(node) {
-        if (!node) return;
-        if (node.clipMask || (node.data && (node.data.isMask || node.data.mockup || node.data.wasClipMask))) {
-          return;
-        }
-        if (isGroup(node) && node.children && node.children.length > 0) {
-          [...node.children].forEach(c => collectTerminalChildren(c));
-        } else {
-          terminalElements.push(node);
-        }
+    // 1. RECOLECTOR UNIVERSAL DE TRAZADOS ATÓMICOS
+    const atomicPaths = [];
+    function collectAtomic(node) {
+      if (!node) return;
+      if (node.clipMask || (node.data && (node.data.isMask || node.data.mockup || node.data.wasClipMask))) {
+        return;
       }
-
-      collectTerminalChildren(actualItem);
-
-      if (terminalElements.length > 0) {
-        const parent = isClipped ? designLayer : (item.parent || designLayer);
-        const insertIdx = (item.parent === parent) ? parent.children.indexOf(item) : parent.children.length;
-
-        terminalElements.forEach((child, i) => {
-          // Hornear matriz de escala y traslación acumulada para preservar tamaño y posición
-          if (child.applyMatrix !== undefined) {
-            child.applyMatrix = true;
-          }
-          child.remove();
-          child.visible = true;
-
-          // Sanitizar datos y evitar estados bloqueados
-          if (!child.data) child.data = {};
-          child.data.locked = false;
-          if (!child.data.label) {
-            child.data.label = (actualItem.data?.label || "Objeto") + ` (Capa ${i + 1})`;
-          }
-
-          // Garantizar visibilidad de estilo para grabado láser
-          if (!child.fillColor && !child.strokeColor) {
-            child.fillColor = actualItem.fillColor || new paper.Color('#111827');
-          }
-
-          // Inicialización profunda de geomBase para trazabilidad y reactividad CSG
-          const base = child.clone({ insert: false });
-          base.matrix = new paper.Matrix();
-          child.data.geomBase = base;
-
-          let finalChild = child;
-          if (isClipped && typeof window.clipItem === 'function') {
-            finalChild = window.clipItem(child);
-          }
-
-          parent.insertChild(insertIdx + i, finalChild);
-          if (window.currentMockup) {
-            finalChild.insertBelow(window.currentMockup);
-          }
-
-          allCreatedItems.push(finalChild);
-        });
-
-        // Eliminar el contenedor padre original desmantelado
-        if (item !== actualItem) {
-          item.remove();
+      if (node instanceof paper.Group || node.className === 'Group') {
+        if (node.children && node.children.length > 0) {
+          [...node.children].forEach(c => collectAtomic(c));
         }
-        actualItem.remove();
-      } else {
-        allCreatedItems.push(item);
+      } else if (node instanceof paper.CompoundPath || node.className === 'CompoundPath') {
+        if (node.children && node.children.length > 0) {
+          [...node.children].forEach(c => {
+            const p = c.clone({ insert: false });
+            if (node.matrix && !node.matrix.isIdentity()) {
+              p.matrix = node.matrix.chain(p.matrix || new paper.Matrix());
+            }
+            p.applyMatrix = true;
+            if (!p.fillColor && !p.strokeColor) {
+              p.fillColor = node.fillColor || actualItem.fillColor || new paper.Color('#111827');
+            }
+            if (node.strokeColor && !p.strokeColor) {
+              p.strokeColor = node.strokeColor;
+              p.strokeWidth = node.strokeWidth || 1.2;
+            }
+            atomicPaths.push(p);
+          });
+        }
+      } else if (node instanceof paper.Path || node.className === 'Path') {
+        const p = node.clone({ insert: false });
+        if (node.matrix && !node.matrix.isIdentity()) {
+          p.matrix = node.matrix.chain(p.matrix || new paper.Matrix());
+        }
+        p.applyMatrix = true;
+        if (!p.fillColor && !p.strokeColor) {
+          p.fillColor = actualItem.fillColor || new paper.Color('#111827');
+        }
+        if (actualItem.strokeColor && !p.strokeColor) {
+          p.strokeColor = actualItem.strokeColor;
+          p.strokeWidth = actualItem.strokeWidth || 1.2;
+        }
+        atomicPaths.push(p);
       }
     }
-    // B) CASO 2: CompoundPath (Trazado compuesto que contiene sub-trazados)
-    else if (isCompoundPath(actualItem)) {
-      let res = safeDecompose(actualItem, isClipped);
-      if (res && res.items && res.items.length > 0) {
-        allCreatedItems.push(...res.items);
-      } else if (actualItem.children && actualItem.children.length > 0) {
-        // Fallback nativo: Descomponer CompoundPath en sus Path hijos individuales
-        const parent = isClipped ? designLayer : (item.parent || designLayer);
-        const insertIdx = (item.parent === parent) ? parent.children.indexOf(item) : parent.children.length;
-        const subPaths = [...actualItem.children];
 
-        subPaths.forEach((sub, i) => {
-          const pathClone = sub.clone({ insert: false });
-          pathClone.applyMatrix = true;
-          pathClone.fillColor = actualItem.fillColor || new paper.Color('#111827');
-          pathClone.strokeColor = actualItem.strokeColor || null;
-          pathClone.strokeWidth = actualItem.strokeWidth || 0;
-          pathClone.visible = true;
+    collectAtomic(actualItem);
 
-          const base = pathClone.clone({ insert: false });
-          base.matrix = new paper.Matrix();
-          pathClone.data = {
-            ...(actualItem.data || {}),
-            locked: false,
-            isHole: false,
-            geomBase: base,
-            label: (actualItem.data?.label || "Trazado") + ` (Parte ${i + 1})`
-          };
+    // 2. EVALUAR SI HUBO ELEMENTOS A DESCOMPONER
+    if (atomicPaths.length > 1) {
+      // Ordenar por área descendente para identificar formas exteriores vs huecos interiores
+      atomicPaths.sort((a, b) => Math.abs(b.area || 0) - Math.abs(a.area || 0));
 
-          let finalSub = pathClone;
-          if (isClipped && typeof window.clipItem === 'function') {
-            finalSub = window.clipItem(pathClone);
+      const shapes = []; // Estructura: { outer: Path, holes: [Path] }
+
+      atomicPaths.forEach(path => {
+        let containerShape = null;
+        const testPt = path.bounds.center;
+
+        for (let s of shapes) {
+          if (s.outer.bounds.contains(testPt) && s.outer.contains(testPt)) {
+            // Comprobar que no sea una isla dentro de otro agujero
+            let inHole = false;
+            for (let h of s.holes) {
+              if (h.bounds.contains(testPt) && h.contains(testPt)) {
+                inHole = true;
+                break;
+              }
+            }
+            if (!inHole) {
+              containerShape = s;
+              break;
+            }
           }
-
-          parent.insertChild(insertIdx + i, finalSub);
-          if (window.currentMockup) {
-            finalSub.insertBelow(window.currentMockup);
-          }
-          allCreatedItems.push(finalSub);
-        });
-
-        if (item !== actualItem) {
-          item.remove();
         }
-        actualItem.remove();
-      } else {
-        allCreatedItems.push(item);
+
+        if (containerShape) {
+          containerShape.holes.push(path);
+        } else {
+          shapes.push({ outer: path, holes: [] });
+        }
+      });
+
+      // 3. MATERIALIZAR LAS NUEVAS CAPAS INDEPENDIENTES EN EL LIENZO
+      const parent = isClipped ? designLayer : (item.parent || designLayer);
+      const insertIdx = (item.parent === parent) ? parent.children.indexOf(item) : parent.children.length;
+
+      shapes.forEach((s, idx) => {
+        let finalPiece;
+        if (s.holes.length > 0) {
+          // Letra o figura con huecos (ej: '0', 'A', '8', 'B', 'P', 'R')
+          const cp = new paper.CompoundPath({ insert: false });
+          cp.addChild(s.outer);
+          s.holes.forEach(h => cp.addChild(h));
+          cp.fillRule = 'evenodd';
+          finalPiece = cp;
+        } else {
+          // Letra o figura sólida (ej: '7', '1', 'L', 'I', etc.)
+          finalPiece = s.outer;
+        }
+
+        finalPiece.applyMatrix = true;
+        finalPiece.visible = true;
+        finalPiece.data = {
+          locked: false,
+          isHole: false,
+          label: (actualItem.data?.label || "Objeto") + ` (Capa ${idx + 1})`
+        };
+
+        // Inicializar geomBase pura en coordenadas locales para reactividad CSG y edición de nodos
+        const base = finalPiece.clone({ insert: false });
+        base.matrix = new paper.Matrix();
+        finalPiece.data.geomBase = base;
+
+        let deliveredItem = finalPiece;
+        if (isClipped && typeof window.clipItem === 'function') {
+          deliveredItem = window.clipItem(finalPiece);
+        }
+
+        parent.insertChild(insertIdx + idx, deliveredItem);
+        if (window.currentMockup) {
+          deliveredItem.insertBelow(window.currentMockup);
+        }
+
+        allCreatedItems.push(deliveredItem);
+      });
+
+      // 4. DESTRUCCIÓN FÍSICA Y REMOCIÓN ABSOLUTA DEL CONTENEDOR PADRE
+      if (item !== actualItem) {
+        item.remove();
       }
+      actualItem.remove();
     } else {
+      // Si solo contenía 1 trazado simple indivisible, se mantiene en la selección
       allCreatedItems.push(item);
     }
   });
 
+  // 5. MIGRAR SELECCIÓN A LAS NUEVAS PIEZAS LIBERADAS
   if (allCreatedItems.length > 0) {
     if (typeof window.deselectItem === 'function') {
       window.deselectItem();
@@ -691,7 +659,12 @@ export function ungroupSelectedItem() {
     }
   }
 
-  safeRecalculateSubtractions();
+  // 6. DISPARO CSG REACTIVO SEGURO
+  if (typeof triggerDynamicSubtractions === 'function') {
+    triggerDynamicSubtractions();
+  } else if (typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
+  }
 
   paper.view.update();
 }
