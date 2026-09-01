@@ -1,29 +1,28 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v35 - Object Target & Node Mode Safe Duplication)
-Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
-Descripción:
-Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
-y barra de acciones para EKKO Studio.
-Cumple rigurosamente con:
-- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
-- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-- LIGHTBURN ARRANGE & STACKING (Move Up, Move Down, Move to Top, Move to Bottom)
-- SEPARACIÓN CONCEPTUAL RIGUROSA:
-  1. Los botones generales '#btnCtxDuplicate' y '#btnCtxDelete' de la barra emergente
-     operan SIEMPRE sobre el OBJETO COMPLETO del lienzo, independientemente de si la
-     herramienta de editar nodos está o no activa.
-  2. Si está en modo edición de nodos (window.nodeEditMode), sincroniza la geometría,
-     sale del modo de nodos y duplica/elimina el objeto completo sin dejar tiradores huérfanos.
-  3. Los nodos individuales se manipulan exclusivamente mediante las herramientas
-     específicas: '#btnCtxAddNode', '#btnCtxDeleteNode' y '#btnCtxDetachSubpath'.
-  4. Orden Z Inteligente: Al subir o bajar capa, salta directamente sobre elementos en colisión real.
-========================================================================= */
+   Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v36.0 - Robust Visual Duplication & Node Safe)
+   Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
+   Descripción:
+   Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
+   y barra de acciones para EKKO Studio.
+   
+   Cumple rigurosamente con:
+   - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
+   - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+   - LIGHTBURN ARRANGE & STACKING (Move Up, Move Down, Move to Top, Move to Bottom)
+   - DUPLICACIÓN VISUAL CON DESFASE ESTÁNDAR (+20px, +20px / LightBurn Style)
+   - SINCRONIZACIÓN PROFUNDA DE GEOMBASE Y CSG REACTIVO
+   - SEPARACIÓN CONCEPTUAL RIGUROSA:
+     1. '#btnCtxDuplicate' y '#btnCtxDelete' operan SIEMPRE sobre el OBJETO COMPLETO.
+     2. Si está en modo edición de nodos (nodeEditMode), sincroniza y sale limpiamente.
+     3. Migra la selección al nuevo clon y sincroniza la caja de transformación.
+   ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
-import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack, applyBrightnessContrast } from "./imageToolbar.js";
+import { scaleImage, deleteImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 import { decomposeByContainmentHierarchy, recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
+// Helper universal de resolución de contenido dentro o fuera de clipGroup
 function getContentItem(item) {
   if (!item) return null;
   if (item.data && item.data.clipGroup) {
@@ -105,6 +104,155 @@ function isShape(item) {
   return item.className === 'Shape' || (typeof paper !== 'undefined' && paper.Shape && item instanceof paper.Shape);
 }
 
+// Sincronización recursiva profunda de geomBase ante desplazamientos
+function syncGeomBaseDeep(item, delta) {
+  if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
+  if (typeof window.syncGeomBaseDeep === 'function') {
+    window.syncGeomBaseDeep(item, delta);
+    return;
+  }
+  const visited = new Set();
+  function recurse(target) {
+    if (!target || visited.has(target.id)) return;
+    visited.add(target.id);
+    if (target.data && target.data.geomBase) {
+      try {
+        target.data.geomBase.position = target.data.geomBase.position.add(delta);
+      } catch (e) {}
+    }
+    if (target.data && target.data.clipGroup && target.children) {
+      target.children.forEach(c => {
+        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) recurse(c);
+      });
+    }
+    if (target instanceof paper.Group && target.children) {
+      target.children.forEach(recurse);
+    }
+  }
+  recurse(item);
+}
+
+// =========================================================================
+// MOTOR INDUSTRIAL DE DUPLICACIÓN CON DESFASE VISUAL (LIGHTBURN STYLE)
+// =========================================================================
+export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)) {
+  if (!targetItem || isMockupOrProductElement(targetItem)) return null;
+  if (targetItem.data && targetItem.data.locked) return null;
+
+  const isClipped = !!(targetItem.data && targetItem.data.clipGroup);
+  const content = isClipped ? getContentItem(targetItem) : targetItem;
+  if (!content) return null;
+
+  // 1. Clonar el contenido útil de diseño
+  const contentClone = content.clone({ insert: false });
+
+  // 2. Aplicar traslación física con desfase visible in-situ (+20px, +20px)
+  contentClone.position = contentClone.position.add(offset);
+
+  // 3. Sincronizar y clonar geomBase independientemente para evitar enlaces cruzados
+  const recurseCloneGeomBase = (src, dest) => {
+    if (!src || !dest) return;
+    if (src.data && src.data.geomBase) {
+      dest.data = dest.data || {};
+      dest.data.geomBase = src.data.geomBase.clone({ insert: false });
+      dest.data.geomBase.position = dest.data.geomBase.position.add(offset);
+      dest.data.isHole = !!src.data.isHole;
+      dest.data.layerDepth = src.data.layerDepth;
+    }
+    if (src.children && dest.children && src.children.length === dest.children.length) {
+      for (let i = 0; i < src.children.length; i++) {
+        recurseCloneGeomBase(src.children[i], dest.children[i]);
+      }
+    }
+  };
+  recurseCloneGeomBase(content, contentClone);
+
+  contentClone.data = {
+    ...(contentClone.data || {}),
+    locked: false,
+    label: (content.data?.label || "Objeto") + " (Copia)"
+  };
+
+  // 4. Integrar en la capa de diseño respetando enmascaramiento si correspondía
+  let duplicatedObject = null;
+  const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
+
+  if (isClipped && typeof window.clipItem === 'function') {
+    duplicatedObject = window.clipItem(contentClone);
+    if (designLayer) designLayer.addChild(duplicatedObject);
+  } else {
+    if (designLayer) {
+      designLayer.addChild(contentClone);
+    } else {
+      paper.project.activeLayer.addChild(contentClone);
+    }
+    duplicatedObject = contentClone;
+  }
+
+  // 5. Orden Z: Insertar ordenadamente justo encima del original pero debajo del mockup
+  if (duplicatedObject) {
+    duplicatedObject.insertAbove(targetItem);
+    if (window.currentMockup) {
+      window.currentMockup.bringToFront();
+    }
+  }
+
+  return duplicatedObject;
+}
+
+export function duplicateSelectedItem() {
+  // A) Si el usuario está en modo de edición de nodos, confirmar y salir primero
+  if (window.nodeEditMode && typeof exitNodeEditMode === 'function') {
+    exitNodeEditMode(false);
+  }
+
+  // B) Recolectar lista de elementos a duplicar (soporta 1 elemento o multiselección)
+  const itemsToDuplicate = (window.selectedItems && window.selectedItems.length > 0)
+    ? [...window.selectedItems]
+    : (window.selectedItem ? [window.selectedItem] : []);
+
+  if (itemsToDuplicate.length === 0) return;
+
+  if (typeof window.saveHistory === 'function') window.saveHistory();
+
+  const duplicatedList = [];
+  const offset = new paper.Point(20, 20);
+
+  itemsToDuplicate.forEach(item => {
+    const clone = duplicateSingleItem(item, offset);
+    if (clone) duplicatedList.push(clone);
+  });
+
+  if (duplicatedList.length > 0) {
+    // C) Migración limpia de selección: Deseleccionar los originales y enfocar los nuevos clones
+    if (typeof window.deselectItem === 'function') window.deselectItem();
+
+    window.selectedItems = [...duplicatedList];
+    window.selectedItem = duplicatedList[duplicatedList.length - 1];
+    duplicatedList.forEach(cl => { cl.selected = true; });
+
+    // D) Sincronizar recálculo CSG dinámico sobre las nuevas capas
+    if (typeof recalculateDynamicSubtractions === 'function') {
+      recalculateDynamicSubtractions();
+    } else if (typeof window.recalculateDynamicSubtractions === 'function') {
+      window.recalculateDynamicSubtractions();
+    }
+
+    // E) Actualizar UI contextual y caja celeste de selección
+    if (typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+    if (typeof updateContextualMenu === 'function') {
+      updateContextualMenu(window.selectedItem);
+    }
+  }
+
+  paper.view.update();
+  return duplicatedList;
+}
+window.duplicateSelectedItem = duplicateSelectedItem;
+
+// Variables de estado del menú contextual
 window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
@@ -180,11 +328,8 @@ function applyFontFamily(item, family) {
   if (!item || item.data?.locked) return;
   const target = item.data?.clipGroup ? getContentItem(item) : item;
   if (!target) return;
-
   if (isPointText(target)) {
     target.fontFamily = family;
-    target.data = target.data || {};
-    target.data.fontFamily = family;
   } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
     target.data.fontFamily = family;
     if (target.children) {
@@ -199,7 +344,6 @@ function applyFontFamily(item, family) {
 function renderFontList(fonts, listContainer) {
   listContainer.innerHTML = "";
   const sampleText = getSelectedTextString();
-
   fonts.forEach(font => {
     const item = document.createElement('div');
     item.className = 'font-dropdown-item';
@@ -207,17 +351,14 @@ function renderFontList(fonts, listContainer) {
       <span class="font-name-label">${font.name}</span>
       <span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>
     `;
-
     item.onmouseenter = () => {
       if (window.selectedItem) applyFontFamily(window.selectedItem, font.family);
     };
-
     item.onmouseleave = () => {
       if (window.selectedItem && window.originalFontBackup) {
         applyFontFamily(window.selectedItem, window.originalFontBackup);
       }
     };
-
     item.onclick = (e) => {
       e.stopPropagation();
       window.originalFontBackup = font.family;
@@ -229,7 +370,6 @@ function renderFontList(fonts, listContainer) {
       const triggerText = document.querySelector('.selected-font-trigger span');
       if (triggerText) triggerText.textContent = font.name;
     };
-
     listContainer.appendChild(item);
   });
 }
@@ -248,7 +388,6 @@ async function populateFontDropdowns() {
   } catch (err) {
     console.error("Error al cargar tipografías en menú contextual:", err);
   }
-
   fontsCache = fonts;
   injectFontFaces(fonts);
 
@@ -262,7 +401,6 @@ async function populateFontDropdowns() {
   if (customDropdown) {
     const trigger = customDropdown.querySelector('.selected-font-trigger');
     const list = customDropdown.querySelector('.font-dropdown-list');
-
     if (trigger && list) {
       trigger.onclick = (e) => {
         e.stopPropagation();
@@ -275,7 +413,6 @@ async function populateFontDropdowns() {
           list.classList.remove('hidden');
         }
       };
-
       document.addEventListener('click', () => {
         list.classList.add('hidden');
       });
@@ -286,7 +423,6 @@ async function populateFontDropdowns() {
 function makeToolbarDraggable() {
   const toolbar = document.getElementById('contextual-toolbar');
   if (!toolbar) return;
-
   let isDraggingToolbar = false;
   let startX = 0;
   let startY = 0;
@@ -332,13 +468,12 @@ export function groupSelectedItems() {
     alert("Selecciona al menos 2 elementos para poder agruparlos.");
     return;
   }
-
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const parent = selected[0].parent || paper.project.activeLayer;
   const lowestIndex = Math.min(...selected.map(it => parent.children.indexOf(it)));
-
   const anyClipped = selected.some(it => !!(it.data && it.data.clipGroup));
+
   const rawItems = selected.map(it => {
     if (it.data && it.data.clipGroup) {
       return getContentItem(it);
@@ -390,6 +525,7 @@ export function ungroupSelectedItem() {
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const allCreatedItems = [];
+
   selectedList.forEach(item => {
     if (!item || isMockupOrProductElement(item)) return;
     const isClipped = !!(item.data && item.data.clipGroup);
@@ -440,6 +576,7 @@ export function ungroupSelectedItem() {
   if (typeof recalculateDynamicSubtractions === 'function') {
     recalculateDynamicSubtractions();
   }
+
   paper.view.update();
 }
 
@@ -511,7 +648,6 @@ export function initContextualMenu() {
 
   // --- BOTÓN ELIMINAR OBJETO COMPLETO (#btnCtxDelete) ---
   setClick('btnCtxDelete', () => {
-    // Si el usuario está en modo edición de nodos, salir primero limpiando overlays y tiradores
     if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
       window.exitNodeEditMode(true);
     }
@@ -525,22 +661,9 @@ export function initContextualMenu() {
     }
   });
 
-  // --- BOTÓN DUPLICAR OBJETO COMPLETO (#btnCtxDuplicate) ---
+  // --- BOTÓN DUPLICAR OBJETO COMPLETO CON DESFASE VISUAL (#btnCtxDuplicate) ---
   setClick('btnCtxDuplicate', () => {
-    // Si el usuario está en modo edición de nodos:
-    // 1. Resolver el objeto completo en edición
-    // 2. Salir limpiamente de edición de nodos restaurando geometrías
-    // 3. Duplicar el objeto completo con su desfase in-situ (+20, +20)
-    let target = window.nodeEditTarget || window.selectedItem;
-    if (window.nodeEditMode) {
-      if (typeof window.exitNodeEditMode === 'function') {
-        window.exitNodeEditMode(false);
-      }
-      target = window.selectedItem || target;
-    }
-    if (target) {
-      duplicateImage(target);
-    }
+    duplicateSelectedItem();
   });
 
   // --- BOTONES DE APILAMIENTO Z (LIGHTBURN STYLE) ---
@@ -620,25 +743,13 @@ export function initContextualMenu() {
     if (window.selectedItem) weldText(window.selectedItem);
   });
 
-  const curveSlider = document.getElementById('ctxTextCurve');
-  if (curveSlider) {
-    curveSlider.oninput = () => {
-      if (window.selectedItem) {
-        const val = parseFloat(curveSlider.value);
-        applyTextCurve(window.selectedItem, val);
-      }
-    };
-  }
+  setClick('btnCtxScaleDown', () => {
+    if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
+  });
 
-  const hspaceSlider = document.getElementById('ctxTextHSpace');
-  if (hspaceSlider) {
-    hspaceSlider.oninput = () => {
-      if (window.selectedItem) {
-        const val = parseFloat(hspaceSlider.value);
-        applyTextSpacing(window.selectedItem, val);
-      }
-    };
-  }
+  setClick('btnCtxScaleUp', () => {
+    if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
+  });
 
   setClick('btnCtxGroup', () => groupSelectedItems());
   setClick('btnCtxAgrupar', () => groupSelectedItems());
@@ -661,7 +772,6 @@ export function initContextualMenu() {
 function getUnifiedScreenBounds(item) {
   const canvasEl = document.getElementById("editorCanvas");
   if (!canvasEl || typeof paper === 'undefined' || !paper.view) return null;
-
   const canvasRect = canvasEl.getBoundingClientRect();
   let combinedBounds = null;
 
@@ -756,39 +866,31 @@ export function updateContextualMenu(item) {
     if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
       const txtCtrl = document.getElementById('ctxTextControls');
       if (txtCtrl) txtCtrl.classList.remove('hidden');
-
       const fontTrigger = document.querySelector('.selected-font-trigger span');
       if (fontTrigger) fontTrigger.textContent = getSelectedFontFamily();
-
       const fontSizeInput = document.getElementById('ctxFontSize');
       if (fontSizeInput) fontSizeInput.value = Math.round(target.fontSize || 42);
-
     } else if (isRaster(target)) {
       const imgCtrl = document.getElementById('ctxImageControls');
       if (imgCtrl) imgCtrl.classList.remove('hidden');
-
       if (btnTrace) {
         btnTrace.classList.remove('hidden');
         btnTrace.style.display = 'inline-flex';
       }
-
     } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target) || isShape(target)) {
       const vecCtrl = document.getElementById('ctxVectorControls');
       if (vecCtrl) {
         vecCtrl.classList.remove('hidden');
-
         const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
         if (btnEditNodes) {
           const canEdit = !isGroup(target) && !isSymbolItem(target);
           btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
         }
-
         const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
         if (btnGroup) {
           btnGroup.classList.add('hidden');
           btnGroup.style.display = 'none';
         }
-
         const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
         if (btnUngroup) {
           const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
@@ -811,10 +913,8 @@ export function updateContextualMenu(item) {
       const y = screenPos.y - toolbarH - 14;
       toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarW - 10, x)) + 'px';
       toolbar.style.top = Math.max(10, y) + 'px';
-      toolbar.style.zIndex = "2147483647";
     }
   }
-
   lastSelectedItem = item;
 }
 
@@ -823,11 +923,10 @@ export function hideContextualMenu() {
   if (toolbar) {
     toolbar.classList.remove('active');
     toolbarDragged = false;
+    lastSelectedItem = null;
   }
 }
 
-if (typeof window !== 'undefined') {
-  window.updateContextualMenu = updateContextualMenu;
-  window.hideContextualMenu = hideContextualMenu;
-  window.initContextualMenu = initContextualMenu;
-}
+window.updateContextualMenu = updateContextualMenu;
+window.hideContextualMenu = hideContextualMenu;
+window.initContextualMenu = initContextualMenu;
