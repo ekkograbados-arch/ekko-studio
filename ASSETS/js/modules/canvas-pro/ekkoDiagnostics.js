@@ -579,7 +579,8 @@
       segmentsCount: countSegments(target),
       fontFamily: (target && target.fontFamily) || (target && target.data && target.data.fontFamily) || null,
       fontWeight: (target && target.fontWeight) || (target && target.data && target.data.fontWeight) || null,
-      fontStyle: (target && target.fontStyle) || (target && target.data && target.data.fontStyle) || null
+      fontStyle: (target && target.fontStyle) || (target && target.data && target.data.fontStyle) || null,
+      nodeEditMode: (typeof window !== 'undefined') ? !!window.nodeEditMode : false
     } : null;
 
     return {
@@ -782,7 +783,15 @@
                            opType.includes('OPEN_DIALOG') ||
                            opType.includes('FILE_PICKER');
 
-    if (opMeta.isButtonClick && !canvasMutated && !opType.includes('TOGGLE') && !opType.includes('MODAL')) {
+    const isModeOrStateOp = opType.includes('TOGGLE') || 
+                            opType.includes('MODAL') || 
+                            opType.includes('NODE_EDIT') || 
+                            opType.includes('EDIT_NODE') ||
+                            opType.includes('EXIT_NODE_EDIT');
+
+    const nodeModeActive = (typeof window !== 'undefined' && !!window.nodeEditMode);
+
+    if (opMeta.isButtonClick && !canvasMutated && !isModeOrStateOp && !nodeModeActive) {
       if (isDialogOpener) {
         // En botones que disparan selectores de archivos o modales externos nativos,
         // el usuario tarda segundos en elegir el archivo en el sistema operativo.
@@ -948,54 +957,66 @@
   // --- INTERCEPTORES DE FUNCIONES GLOBALES ---
   function forceWrapWindowFunction(fnName, modulePath, actionType) {
     if (typeof window === 'undefined') return;
-    let original = window[fnName];
-    if (typeof original !== 'function') return;
+    let _inner = window[fnName];
 
-    const wrapped = function (...args) {
-      const hasExisting = !!diagState.currentOp;
-      let op = null;
+    function createWrapper(targetFn) {
+      if (!targetFn || typeof targetFn !== 'function') return targetFn;
+      if (targetFn.__ekkoWrapped__) return targetFn;
 
-      if (!hasExisting) {
-        op = beginOperation(actionType || fnName, `${modulePath} -> window.${fnName}()`);
-      }
+      const wrapped = function (...args) {
+        const hasExisting = !!diagState.currentOp;
+        let op = null;
 
-      const activeOp = diagState.currentOp;
-      const order = activeOp ? activeOp.callGraph.length + 1 : 1;
-      const t0 = performance.now();
-      let res, err = null;
-
-      try {
-        res = original.apply(this, args);
-      } catch (e) {
-        err = e;
-        throw e;
-      } finally {
-        const t1 = performance.now();
-        if (activeOp) {
-          activeOp.callGraph.push({
-            order: order,
-            function: fnName,
-            module: modulePath,
-            durationMs: Number((t1 - t0).toFixed(1)),
-            error: err ? err.message : null
-          });
+        if (!hasExisting) {
+          op = beginOperation(actionType || fnName, `${modulePath} -> window.${fnName}()`);
         }
-        if (op) {
-          endOperation();
+
+        const activeOp = diagState.currentOp;
+        const order = activeOp ? activeOp.callGraph.length + 1 : 1;
+        const t0 = performance.now();
+        let res, err = null;
+
+        try {
+          res = targetFn.apply(this, args);
+        } catch (e) {
+          err = e;
+          throw e;
+        } finally {
+          const t1 = performance.now();
+          if (activeOp) {
+            activeOp.callGraph.push({
+              order: order,
+              function: fnName,
+              module: modulePath,
+              durationMs: Number((t1 - t0).toFixed(1)),
+              error: err ? err.message : null
+            });
+          }
+          if (op) {
+            endOperation();
+          }
         }
-      }
-      return res;
-    };
+        return res;
+      };
+      wrapped.__ekkoWrapped__ = true;
+      return wrapped;
+    }
+
+    if (typeof _inner === 'function') {
+      _inner = createWrapper(_inner);
+    }
 
     try {
       Object.defineProperty(window, fnName, {
-        value: wrapped,
-        writable: true,
+        get: () => _inner,
+        set: (newFn) => {
+          _inner = (typeof newFn === 'function') ? createWrapper(newFn) : newFn;
+        },
         configurable: true,
         enumerable: true
       });
     } catch (e) {
-      window[fnName] = wrapped;
+      if (typeof _inner === 'function') window[fnName] = _inner;
     }
   }
 
@@ -1114,6 +1135,10 @@
     forceWrapWindowFunction('exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT');
     forceWrapWindowFunction('deleteSelectedNodes', 'nodeEditor.js', 'DELETE_NODE');
     forceWrapWindowFunction('duplicateSelectedItem', 'contextualMenu.js', 'DUPLICATE');
+    forceWrapWindowFunction('ungroupSelectedItem', 'contextualMenu.js', 'UNGROUP');
+    forceWrapWindowFunction('groupSelectedItems', 'contextualMenu.js', 'GROUP');
+    forceWrapWindowFunction('decomposeByContainmentHierarchy', 'geometricUngroup.js', 'UNGROUP');
+    forceWrapWindowFunction('recalculateDynamicSubtractions', 'geometricUngroup.js', 'CSG_RECALC');
 
     installDOMCaptureListeners();
 
