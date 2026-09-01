@@ -1,720 +1,1272 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36 - Deep Recursive Extraction & Containment Hierarchy Engine)
-   Ruta en repositorio: ASSETS/js/modules/canvas-pro/geometricUngroup.js
+   Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
+   Versión: v9.1 PRO Universal Diagnostic, Forensic Audit & Zero-False-Positive Engine
+   Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
+   
    Descripción:
-   Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
-   Basado en Paper.js y optimizado para corte y grabado láser (LightBurn / CNC).
-
-   Cumple rigurosamente con:
-   - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN Y CAPAS
-   - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-   - DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt & EKKO_DIAG v6.1):
-     * Eliminación total de la paridad rígida de profundidad (depth % 2 === 1).
-     * Distinción semántica estricta: Masa Sólida Positiva vs Calado Activo Negativo.
-     * Reactividad CSG no destructiva en tiempo real gobernada por orden Z.
-     * Preservación absoluta de 'geomBase' en coordenadas neutras locales.
-     * Descomposición atómica completa en 1 solo clic.
-     * Blindaje Anti-Aniquilación en sustracciones booleanas en vivo.
-     * EXTRACCIÓN RECURSIVA PROFUNDA (v36.0): Soporte para grupos anidados
-       multinivel sin pérdida de reactividad CSG.
+   Sistema Universal de Diagnóstico, Auditoría Forense y Trazabilidad de 5 Niveles
+   para EKKO Studio. Monitorea y audita de forma no invasiva todas las operaciones
+   del lienzo (Paper.js), eventos del DOM (botones fijos, barras flotantes y atajos),
+   contratos funcionales, topología de masas/calados y consistencia Z-order.
+   
+   Mejoras v9.1 PRO:
+   1. Soporte de Diálogos Asíncronos (isDialogOpener) para erradicar falsos positivos en apertura de selectores de archivo (SVG, Imagen, etc.).
+   2. Intercepción global de openSVGFileDialog, addSVGFromFile y selectores modales en Call Graph.
+   3. Blindaje Anti-Doble Importación (evita duplicación si se carga en index.html y editor.js).
+   2. Auto-Copia al Portapapeles (navigator.clipboard con fallback execCommand) ante cualquier
+      inconsistencia geométrica o de contrato detectada.
+   3. Formateador forense estructurado para ingesta directa por Gemini Studio.
+   4. Métodos de consola interactivos: EKKO_DIAG.copyLast(), EKKO_DIAG.copyErrors(), EKKO_DIAG.dump().
+   5. Preservación absoluta de la geometría y estado (100% observador y pasivo).
    ========================================================================= */
 
-function isPath(item) {
-  return item && (item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path));
-}
-
-function isCompoundPath(item) {
-  return item && (item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath));
-}
-
-function isGroup(item) {
-  return item && (item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group));
-}
-
-function isPlacedSymbol(item) {
-  return item && (item.className === 'PlacedSymbol' || item.className === 'SymbolItem' ||
-    (typeof paper !== 'undefined' && ((paper.PlacedSymbol && item instanceof paper.PlacedSymbol) || (paper.SymbolItem && item instanceof paper.SymbolItem))));
-}
-
-/**
- * Obtiene la matriz acumulada global de un elemento recorriendo sus ancestros
- * hasta llegar a la raíz especificada (o al nivel de la vista global si root es null).
- */
-function getMatrixRelativeTo(item, root) {
-  let mat = item.matrix ? item.matrix.clone() : new paper.Matrix();
-  let curr = item.parent;
-  while (curr && curr !== root && curr !== paper.project) {
-    if (curr.matrix && !curr.matrix.isIdentity()) {
-      mat = curr.matrix.chain(mat);
-    }
-    curr = curr.parent;
+(function (root, factory) {
+  if (typeof define === 'function' && define.amd) {
+    define([], factory);
+  } else if (typeof module === 'object' && module.exports) {
+    module.exports = factory();
+  } else {
+    root.EKKO_DIAG = factory();
   }
-  return mat;
-}
+}(typeof window !== 'undefined' ? window : this, function () {
 
-/**
- * Aplica y hornea la matriz de transformación en los segmentos y curvas de un trazado
- */
-function bakeMatrixIntoPath(path, matrix) {
-  if (!path || !matrix || matrix.isIdentity()) return;
-  if (path.segments) {
-    path.segments.forEach(seg => {
-      seg.point = matrix.transform(seg.point);
-      if (seg.handleIn) seg.handleIn = matrix.transform(seg.handleIn.add(seg.point)).subtract(seg.point);
-      if (seg.handleOut) seg.handleOut = matrix.transform(seg.handleOut.add(seg.point)).subtract(seg.point);
-    });
+  // 1. BLINDAJE CONTRA DOBLE INICIALIZACIÓN (index.html + editor.js import)
+  if (typeof window !== 'undefined' && window.__EKKO_DIAG_ACTIVE_INSTANCE__) {
+    return window.__EKKO_DIAG_ACTIVE_INSTANCE__;
   }
-  if (path.children && Array.isArray(path.children)) {
-    path.children.forEach(child => bakeMatrixIntoPath(child, matrix));
-  }
-}
 
-/**
- * Descompone cualquier estructura en trazados atómicos cerrados simples (paper.Path)
- * con sus transformaciones espaciales horneadas en coordenadas absolutas del lienzo.
- * Registra metadatos de origen (orden documental, fill original, pertenencia a compuesto).
- */
-let docOrderCounter = 0;
-function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
-  const currentMatrix = accumulatedMatrix ? accumulatedMatrix.chain(item.matrix || new paper.Matrix()) : (item.matrix ? item.matrix.clone() : new paper.Matrix());
-  const atomicPaths = [];
-  const isFromCompound = parentMeta.isFromCompound || isCompoundPath(item);
+  // Canal seguro de salida de consola desacoplado
+  const rawConsole = {
+    log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
+    warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
+    error: (typeof console !== 'undefined' && console.error) ? console.error.bind(console) : () => {},
+    table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
+  };
 
-  if (isPath(item)) {
-    const cloned = item.clone({ insert: false });
-    bakeMatrixIntoPath(cloned, currentMatrix);
-    cloned.matrix = new paper.Matrix();
-    if (cloned.segments && cloned.segments.length >= 3) {
-      cloned.closed = true;
-      cloned.data = {
-        ...(cloned.data || {}),
-        docOrder: docOrderCounter++,
-        originalFillColor: item.fillColor ? item.fillColor.clone() : null,
-        originalStrokeColor: item.strokeColor ? item.strokeColor.clone() : null,
-        originalStrokeWidth: item.strokeWidth || 0,
-        isFromCompound: isFromCompound,
-        originalClockwise: cloned.clockwise
-      };
-      atomicPaths.push(cloned);
-    } else {
-      cloned.remove();
-    }
-  } else if (isCompoundPath(item)) {
-    if (item.children && item.children.length > 0) {
-      item.children.forEach(child => {
-        atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: true, compoundFill: item.fillColor }));
-      });
-    }
-  } else if (isGroup(item)) {
-    if (item.children && item.children.length > 0) {
-      const childrenCopy = [...item.children];
-      childrenCopy.forEach(child => {
-        if (child.clipMask) return;
-        atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: false }));
-      });
-    }
-  } else if (isPlacedSymbol(item)) {
-    const def = (item.symbol && item.symbol.item) || item.definition || (item.symbol && item.symbol.definition);
-    if (def) {
-      const defClone = def.clone({ insert: false });
-      atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix, { isFromCompound: false }));
-      defClone.remove();
-    }
-  }
-  return atomicPaths;
-}
+  // Estado interno del motor de diagnóstico
+  const diagState = {
+    active: true,
+    autoCopyOnError: true,
+    operations: [],
+    currentOp: null,
+    opCounter: 0,
+    interceptorsInstalled: false,
+    lastMouseDownPoint: null,
+    lastMouseDownSelection: null,
+    lastMouseDownGeo: null
+  };
 
-/**
- * Obtiene un punto interior estricto y garantizado de un paper.Path.
- * Si el centroide (bounds.center) cae fuera por concavidad, proyecta normales
- * hacia el interior a lo largo de las curvas del trazado.
- */
-function getInteriorTestPoint(path) {
-  if (!path || !path.bounds) return null;
-  const center = path.bounds.center;
-  if (path.contains(center)) return center;
-  if (path.curves && path.curves.length > 0) {
-    for (let c = 0; c < path.curves.length; c++) {
-      const curve = path.curves[c];
-      const pt = curve.getPointAtTime(0.5);
-      const normal = curve.getNormalAtTime(0.5).normalize(2);
-      const inward1 = pt.add(normal);
-      if (path.contains(inward1)) return inward1;
-      const inward2 = pt.subtract(normal);
-      if (path.contains(inward2)) return inward2;
-    }
-  }
-  return center;
-}
+  // =========================================================================
+  // MOTOR DE COPIA ROBUSTO (Portapapeles con Fallback de Activación)
+  // =========================================================================
+  function safeCopyToClipboard(text, notifyMsg = null) {
+    if (typeof text !== 'string' || text.trim() === '') return false;
 
-/**
- * Determina si el trazado 'child' está topológicamente contenido dentro de 'parent'.
- * Utiliza muestreo multipunto (centro, cuartiles y vértices) para robustez ante concavidades.
- */
-function isContainedIn(child, parent) {
-  if (!child || !parent || child === parent) return false;
-  if (!parent.bounds.contains(child.bounds) && !parent.bounds.intersects(child.bounds)) {
-    return false;
-  }
-  const testPoints = [];
-  const interior = getInteriorTestPoint(child);
-  if (interior) testPoints.push(interior);
-  if (child.segments && child.segments.length > 0) {
-    const step = Math.max(1, Math.floor(child.segments.length / 6));
-    for (let i = 0; i < child.segments.length; i += step) {
-      testPoints.push(child.segments[i].point);
-    }
-  }
-  if (testPoints.length === 0) return false;
-  let containedCount = 0;
-  for (let i = 0; i < testPoints.length; i++) {
-    if (parent.contains(testPoints[i])) {
-      containedCount++;
-    }
-  }
-  return containedCount >= Math.ceil(testPoints.length * 0.5);
-}
-
-/**
- * Construye el árbol topológico de contención geométrica y calcula profundidades relativas.
- */
-function buildContainmentTree(atomicPaths) {
-  // Ordenar por área descendente: contenedores mayores primero
-  atomicPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
-  const nodes = atomicPaths.map((path, idx) => ({
-    id: idx,
-    path: path,
-    area: Math.abs(path.area),
-    parent: null,
-    children: [],
-    depth: 0,
-    isHole: false,
-    docOrder: path.data?.docOrder || idx
-  }));
-
-  // Asignar a cada nodo su contenedor directo más inmediato (el de menor área que lo contiene)
-  for (let i = 0; i < nodes.length; i++) {
-    const candidate = nodes[i];
-    let bestParent = null;
-    for (let j = 0; j < nodes.length; j++) {
-      if (i === j) continue;
-      const potentialParent = nodes[j];
-      if (potentialParent.area > candidate.area && isContainedIn(candidate.path, potentialParent.path)) {
-        if (!bestParent || potentialParent.area < bestParent.area) {
-          bestParent = potentialParent;
+    // Intento 1: API moderna asíncrona
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        if (notifyMsg) {
+          rawConsole.log(`%c[EKKO_DIAG] ${notifyMsg}`, 'color: #10b981; font-weight: bold;');
         }
-      }
-    }
-    if (bestParent) {
-      candidate.parent = bestParent;
-      bestParent.children.push(candidate);
-    }
-  }
-
-  // Calcular profundidad de contención
-  function computeDepth(node, currentDepth) {
-    node.depth = currentDepth;
-    node.children.forEach(child => computeDepth(child, currentDepth + 1));
-  }
-  nodes.filter(n => n.parent === null).forEach(root => computeDepth(root, 0));
-
-  return { nodes };
-}
-
-/**
- * RESUELVE LA SEMÁNTICA VECTORIAL (Prompt Maestro - Regla 4):
- * - Masa Sólida (isHole: false): Geometría positiva independiente.
- * - Calado Activo (isHole: true): Geometría negativa interactiva que perfora capas inferiores en Z.
- */
-function resolveItemSemantics(node, rootTarget) {
-  const path = node.path;
-  const isFromCompound = !!(path.data && path.data.isFromCompound);
-
-  // CASO 1: Si proviene de un CompoundPath original (como Escudo AFA, 007 o siluetas tipográficas)
-  if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
-    const testPt = getInteriorTestPoint(path);
-    if (testPt && rootTarget.contains(testPt)) {
-      // Si el centroide del camino cae DENTRO del CompoundPath original, es una MASA
-      return false;
-    } else {
-      // Si cae fuera del área compuesta rellena (perforación nativa de la A o escudo), es un CALADO
+      }).catch(() => {
+        fallbackCopy(text, notifyMsg);
+      });
       return true;
     }
+
+    return fallbackCopy(text, notifyMsg);
   }
 
-  // CASO 2: Clasificación Topológica por Jerarquía de Contención y Orientación (Winding)
-  if (node.parent) {
-    const parentPath = node.parent.path;
-    const isParentHole = node.parent.isHole;
-
-    // Si el contenedor padre es una Masa Sólida y este trazado está completamente contenido
-    if (!isParentHole) {
-      if (path.data && path.data.originalClockwise !== undefined && parentPath.data && parentPath.data.originalClockwise !== undefined) {
-        if (path.data.originalClockwise !== parentPath.data.originalClockwise) {
-          return true; // Orientación opuesta dentro de una masa = CALADO ACTIVO
-        }
+  function fallbackCopy(text, notifyMsg) {
+    if (typeof document === 'undefined') return false;
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.left = '-9999px';
+      ta.style.top = '0';
+      ta.setAttribute('readonly', '');
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      if (ok && notifyMsg) {
+        rawConsole.log(`%c[EKKO_DIAG] ${notifyMsg} (vía buffer alternativo)`, 'color: #10b981; font-weight: bold;');
       }
-      if (node.depth === 1) {
-        return true; // Nivel 1 inmediato dentro de masa = Calado de Nivel 1
-      }
-    } else {
-      // Si el contenedor inmediato es un hueco, el objeto interior es una MASA (ej. isla central o estrella)
+      return ok;
+    } catch (err) {
+      rawConsole.warn('[EKKO_DIAG] No se pudo transferir al portapapeles automáticamente:', err);
       return false;
     }
   }
 
-  // REGLA DE ORO POR DEFECTO:
-  // Una figura cerrada con geometría válida y estilo es una MASA SÓLIDA.
-  // Jamás se forzará a hueco por mera paridad de profundidad.
-  return false;
-}
+  // =========================================================================
+  // ESTÁNDAR UNIVERSAL DE CONTRATOS FUNCIONALES DE BOTONES (REGISTRO CENTRAL)
+  // =========================================================================
+  const buttonContractsRegistry = new Map();
 
-/**
- * Retorna la geometría original inmaculada (geomBase) proyectada con la transformación
- * actual del elemento (posición, rotación, escala).
- */
-export function getGlobalUnsubtractedPath(item) {
-  if (!item || !item.data || !item.data.geomBase) return null;
-  // geomBase se mantiene en coordenadas de mundo por sincronización en tiempo real (drag, rotate, scale).
-  // Se clona de forma pura sin re-aplicar transformaciones matriciales redundantes que desfasen la silueta.
-  const tempBase = item.data.geomBase.clone({ insert: false });
-  return tempBase;
-}
-
-/**
- * Resuelve el elemento de contenido real si el item está encapsulado en un clipGroup
- */
-function getContentItem(item) {
-  if (!item) return null;
-  if (item.data && item.data.clipGroup) {
-    if (!item.children) return item;
-    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    if (content) return content;
-    return item.children[1] || item.children[0] || item;
-  }
-  return item;
-}
-
-/**
- * Extrae recursivamente todos los elementos sustractivos o masas con geomBase
- * desde la lista de capas del lienzo, penetrando en cualquier nivel de anidamiento de grupos.
- * (Blindaje Recursivo Profundo v36.0)
- */
-function extractSubtractiveItems(topList) {
-  const result = [];
-  
-  function collectRecursive(item) {
-    if (!item) return;
-    const content = getContentItem(item);
-    if (!content) return;
-
-    if (isGroup(content) && content.children && content.children.length > 0) {
-      content.children.forEach(c => {
-        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
-          collectRecursive(c);
-        }
-      });
-    } else if (content.data && content.data.geomBase) {
-      result.push(content);
-    }
+  function registerContract(idOrSelector, contractDef) {
+    if (!idOrSelector || !contractDef) return;
+    const cleanKey = String(idOrSelector).trim().toLowerCase();
+    buttonContractsRegistry.set(cleanKey, Object.assign({
+      requiresSelection: true,
+      minSelectionCount: 1,
+      allowLocked: false,
+      expectedTopologyDelta: 'EQUAL',
+      expectedSelectionChange: 'PRESERVED',
+      expectedTransformChange: 'NONE',
+      verifyDisplacement: false,
+      preserveClipping: true,
+      isDialogOpener: false,
+      customValidator: null
+    }, contractDef));
   }
 
-  topList.forEach(topItem => {
-    collectRecursive(topItem);
+  // A) Barra Emergente / Menú Contextual (#contextual-toolbar)
+  registerContract('#btnctxdeletenode', {
+    name: 'DELETE_NODE',
+    label: 'Barra Emergente: Eliminar Nodo (#btnCtxDeleteNode)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
   });
 
-  return result;
-}
+  registerContract('#btnctxdetachsubpath', {
+    name: 'DETACH_SUBPATH',
+    label: 'Barra Emergente: Desprender Nodos (#btnCtxDetachSubpath)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
 
-/**
- * MOTOR DE RECÁLCULO REACTIVO CSG (No destructivo por orden Z).
- * Incorpora el Blindaje Anti-Aniquilación:
- * - Si una sustracción booleana reduce los segmentos visibles a 0 o vacía el trazado,
- *   se anula la sustracción destructiva sobre esa pieza para garantizar que nunca se borre de pantalla.
- */
-export function recalculateDynamicSubtractions(targetLayer = null) {
-  const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
-  if (!layer || !layer.children) return;
+  registerContract('#btnctxaddnode', {
+    name: 'TOGGLE_ADD_NODE',
+    label: 'Barra Emergente: Añadir Nodo (#btnCtxAddNode)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
 
-  const items = [...layer.children].filter(item =>
-    item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
-    !item.data?.isHandle && !item.data?.isSmartGuide && !item.data?.isMeasurement &&
-    !item.data?.isTracePreview && !item.data?.isNodeEditOverlay
-  );
+  registerContract('#btnctxexitnodeedit', {
+    name: 'EXIT_NODE_EDIT',
+    label: 'Barra Emergente: Salir Edición Nodos (#btnCtxExitNodeEdit)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
 
-  if (items.length === 0) return;
+  registerContract('#btnctxduplicate', {
+    name: 'DUPLICATE',
+    label: 'Barra Emergente: Duplicar (#btnCtxDuplicate)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    allowLocked: false,
+    expectedTopologyDelta: 'INCREMENT',
+    expectedSelectionChange: 'NEW_ITEM',
+    verifyDisplacement: true,
+    preserveClipping: true
+  });
 
-  const subItems = extractSubtractiveItems(items);
-  if (subItems.length === 0) return;
+  registerContract('#btnctxdelete', {
+    name: 'DELETE',
+    label: 'Barra Emergente: Eliminar (#btnCtxDelete)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    allowLocked: false,
+    expectedTopologyDelta: 'DECREMENT',
+    expectedSelectionChange: 'CLEARED',
+    preserveClipping: false
+  });
 
-  // Helper para contar segmentos totales de un Path o CompoundPath
+  registerContract('#btnctxscaledown', {
+    name: 'SCALE_DOWN',
+    label: 'Barra Emergente: Achicar (#btnCtxScaleDown)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'SCALED'
+  });
+
+  registerContract('#btnctxscaleup', {
+    name: 'SCALE_UP',
+    label: 'Barra Emergente: Agrandar (#btnCtxScaleUp)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'SCALED'
+  });
+
+  registerContract('#btnctxtofront', {
+    name: 'BRING_TO_FRONT',
+    label: 'Barra Emergente: Al Frente (#btnCtxToFront)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxforward', {
+    name: 'BRING_FORWARD',
+    label: 'Barra Emergente: Subir Capa (#btnCtxForward)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxbackward', {
+    name: 'SEND_BACKWARD',
+    label: 'Barra Emergente: Bajar Capa (#btnCtxBackward)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxtoback', {
+    name: 'SEND_TO_BACK',
+    label: 'Barra Emergente: Al Fondo (#btnCtxToBack)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxgroup', {
+    name: 'GROUP',
+    label: 'Barra Emergente: Agrupar (#btnCtxGroup)',
+    requiresSelection: true,
+    minSelectionCount: 2,
+    expectedTopologyDelta: 'DECREASE_OR_EQUAL',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxungroup', {
+    name: 'UNGROUP',
+    label: 'Barra Emergente: Desagrupar (#btnCtxUngroup)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'ANY',
+    expectedSelectionChange: 'PRESERVED'
+  });
+
+  registerContract('#btnctxnodeedit', {
+    name: 'NODE_EDIT',
+    label: 'Barra Emergente: Editar Nodos (#btnCtxNodeEdit)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxeditnodes', {
+    name: 'NODE_EDIT',
+    label: 'Barra Emergente: Editar Nodos (#btnCtxEditNodes)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxbold', {
+    name: 'BOLD',
+    label: 'Barra Emergente: Negrita (#btnCtxBold)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxitalic', {
+    name: 'ITALIC',
+    label: 'Barra Emergente: Cursiva (#btnCtxItalic)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxunderline', {
+    name: 'UNDERLINE',
+    label: 'Barra Emergente: Subrayado (#btnCtxUnderline)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxweld', {
+    name: 'WELD',
+    label: 'Barra Emergente: Soldar Texto (#btnCtxWeld)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnctxfliph', {
+    name: 'FLIP_H',
+    label: 'Barra Emergente: Espejo Horizontal (#btnCtxFlipH)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxflipv', {
+    name: 'FLIP_V',
+    label: 'Barra Emergente: Espejo Vertical (#btnCtxFlipV)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  // B) Panel Superior Fijo (#pro-layout-toolbar)
+  registerContract('#probtnalignleft', {
+    name: 'ALIGN_LEFT',
+    label: 'Panel Superior: Alinear Izquierda (#proBtnAlignLeft)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnaligncenterh', {
+    name: 'ALIGN_CENTER_H',
+    label: 'Panel Superior: Centrar Horizontal (#proBtnAlignCenterH)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnalignright', {
+    name: 'ALIGN_RIGHT',
+    label: 'Panel Superior: Alinear Derecha (#proBtnAlignRight)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnaligntop', {
+    name: 'ALIGN_TOP',
+    label: 'Panel Superior: Alinear Arriba (#proBtnAlignTop)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnaligncenterv', {
+    name: 'ALIGN_CENTER_V',
+    label: 'Panel Superior: Centrar Vertical (#proBtnAlignCenterV)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtnalignbottom', {
+    name: 'ALIGN_BOTTOM',
+    label: 'Panel Superior: Alinear Abajo (#proBtnAlignBottom)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtncenterh', {
+    name: 'CENTER_MOCKUP_H',
+    label: 'Panel Superior: Centrar Mockup H (#proBtnCenterH)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtncenterv', {
+    name: 'CENTER_MOCKUP_V',
+    label: 'Panel Superior: Centrar Mockup V (#proBtnCenterV)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtncenterboth', {
+    name: 'CENTER_MOCKUP_BOTH',
+    label: 'Panel Superior: Centrar Mockup Total (#proBtnCenterBoth)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL',
+    expectedTransformChange: 'MOVED'
+  });
+
+  registerContract('#probtndistributeh', {
+    name: 'DISTRIBUTE_H',
+    label: 'Panel Superior: Distribuir Horizontal (#proBtnDistributeH)',
+    requiresSelection: true,
+    minSelectionCount: 3,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#probtndistributev', {
+    name: 'DISTRIBUTE_V',
+    label: 'Panel Superior: Distribuir Vertical (#proBtnDistributeV)',
+    requiresSelection: true,
+    minSelectionCount: 3,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#probtngroup', {
+    name: 'GROUP',
+    label: 'Panel Superior: Agrupar (#proBtnGroup)',
+    requiresSelection: true,
+    minSelectionCount: 2,
+    expectedTopologyDelta: 'DECREASE_OR_EQUAL'
+  });
+
+  registerContract('#probtnungroup', {
+    name: 'UNGROUP',
+    label: 'Panel Superior: Desagrupar (#proBtnUngroup)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  // C) Barra de Cabecera (#topBar)
+  registerContract('#btnaddimage', {
+    name: 'ADD_IMAGE',
+    label: 'Cabecera: Cargar Imagen (#btnAddImage)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddtext', {
+    name: 'ADD_TEXT',
+    label: 'Cabecera: Agregar Texto (#btnAddText)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddsvg', {
+    name: 'ADD_SVG',
+    label: 'Cabecera: Cargar SVG (#btnAddSVG)',
+    requiresSelection: false,
+    isDialogOpener: true,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddimage', {
+    name: 'ADD_IMAGE',
+    label: 'Cabecera: Cargar Imagen (#btnAddImage)',
+    requiresSelection: false,
+    isDialogOpener: true,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddqr', {
+    name: 'ADD_QR',
+    label: 'Cabecera: Cargar QR (#btnAddQR)',
+    requiresSelection: false,
+    isDialogOpener: true,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  // Resolución Dinámica Universal
+  function resolveButtonContract(domElement) {
+    if (!domElement) return null;
+
+    if (domElement.id) {
+      const idKey = '#' + domElement.id.trim().toLowerCase();
+      if (buttonContractsRegistry.has(idKey)) {
+        return { contract: buttonContractsRegistry.get(idKey), matchedBy: idKey };
+      }
+    }
+
+    if (domElement.dataset && domElement.dataset.action) {
+      const actKey = String(domElement.dataset.action).trim().toLowerCase();
+      if (buttonContractsRegistry.has(actKey)) {
+        return { contract: buttonContractsRegistry.get(actKey), matchedBy: `data-action="${actKey}"` };
+      }
+    }
+
+    for (const [selector, contract] of buttonContractsRegistry.entries()) {
+      if (selector.startsWith('.')) {
+        try {
+          if (domElement.matches(selector)) {
+            return { contract, matchedBy: selector };
+          }
+        } catch (e) {}
+      }
+    }
+
+    // Inferencia Universal para botones no registrados previamente
+    const isContextual = !!domElement.closest('#contextual-toolbar, .contextual-toolbar');
+    const isProLayout = !!domElement.closest('#pro-layout-toolbar, .pro-layout-toolbar');
+    const isTopBar = !!domElement.closest('#topBar, .topBar, #mainNavbar');
+
+    if (isContextual || isProLayout || isTopBar) {
+      const containerName = isContextual ? 'Barra Emergente' : (isProLayout ? 'Panel Superior Fijo' : 'Barra de Cabecera');
+      const textLabel = (domElement.textContent || domElement.title || domElement.id || 'Botón').trim();
+      const inferredName = (domElement.id || textLabel).replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
+
+      return {
+        contract: {
+          name: inferredName,
+          label: `${containerName}: ${textLabel} (${domElement.id ? '#' + domElement.id : 'dinámico'})`,
+          requiresSelection: isContextual,
+          minSelectionCount: isContextual ? 1 : 0,
+          allowLocked: false,
+          expectedTopologyDelta: 'ANY',
+          expectedSelectionChange: 'ANY',
+          expectedTransformChange: 'ANY',
+          verifyDisplacement: false,
+          preserveClipping: true,
+          isDynamicInferred: true
+        },
+        matchedBy: `${containerName} (Inferencia Dinámica Universal)`
+      };
+    }
+
+    return null;
+  }
+
+  // --- HELPERS DE EXTRACCIÓN Y SNAPSHOT ---
+  function getContentItem(item) {
+    if (!item) return null;
+    if (item.data && item.data.clipGroup) {
+      if (!item.children) return item;
+      const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+      if (content) return content;
+    }
+    return item;
+  }
+
+  function extractBounds(bounds) {
+    if (!bounds) return null;
+    return {
+      x: Number(bounds.x.toFixed(1)),
+      y: Number(bounds.y.toFixed(1)),
+      width: Number(bounds.width.toFixed(1)),
+      height: Number(bounds.height.toFixed(1))
+    };
+  }
+
   function countSegments(item) {
     if (!item) return 0;
     if (item.segments) return item.segments.length;
-    if (item.children) {
-      let total = 0;
-      item.children.forEach(c => { total += countSegments(c); });
-      return total;
+    if (item.children && Array.isArray(item.children)) {
+      return item.children.reduce((acc, c) => acc + countSegments(c), 0);
     }
     return 0;
   }
 
-  // 1. Restaurar todas las masas sólidas a su silueta geomBase inmaculada
-  subItems.forEach(item => {
-    if (item && item.data && item.data.geomBase && !item.data.isHole) {
-      const pristine = getGlobalUnsubtractedPath(item);
-      if (pristine) {
-        item.removeChildren();
-        if (pristine instanceof paper.CompoundPath) {
-          const cl = pristine.clone({ insert: false });
-          item.addChildren(cl.removeChildren());
-          cl.remove();
-        } else if (pristine instanceof paper.Path) {
-          item.addChild(pristine.clone({ insert: false }));
-        }
-        pristine.remove();
+  // Snapshot de Nivel 2: Selección
+  function snapshotSelection() {
+    const selectedItems = (typeof window !== 'undefined' && window.selectedItems && window.selectedItems.length > 0)
+      ? window.selectedItems
+      : (typeof window !== 'undefined' && window.selectedItem ? [window.selectedItem] : []);
+
+    if (selectedItems.length === 0) {
+      return { hasSelection: false, count: 0, ids: [], primary: null };
+    }
+
+    const primary = selectedItems[0];
+    const target = getContentItem(primary);
+
+    const primaryData = primary ? {
+      id: primary.id,
+      className: primary.className,
+      label: (primary.data && primary.data.label) || 'Objeto',
+      zIndex: (primary.parent && primary.parent.children) ? primary.parent.children.indexOf(primary) : -1,
+      isHole: !!(primary.data && primary.data.isHole),
+      isCompound: primary.className === 'CompoundPath',
+      isGroup: primary.className === 'Group' && !(primary.data && primary.data.clipGroup),
+      isClipGroup: !!(primary.data && primary.data.clipGroup),
+      isLocked: !!(primary.data && primary.data.locked),
+      hasGeomBase: !!(primary.data && primary.data.geomBase),
+      bounds: extractBounds(primary.bounds),
+      position: primary.position ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null,
+      rotation: Number((primary.rotation || 0).toFixed(1)),
+      segmentsCount: countSegments(target),
+      fontFamily: (target && target.fontFamily) || (target && target.data && target.data.fontFamily) || null,
+      fontWeight: (target && target.fontWeight) || (target && target.data && target.data.fontWeight) || null,
+      fontStyle: (target && target.fontStyle) || (target && target.data && target.data.fontStyle) || null,
+      nodeEditMode: (typeof window !== 'undefined') ? !!window.nodeEditMode : false
+    } : null;
+
+    return {
+      hasSelection: true,
+      count: selectedItems.length > 0 ? selectedItems.length : 1,
+      ids: selectedItems.length > 0 ? selectedItems.map(i => i.id) : [primary.id],
+      primary: primaryData
+    };
+  }
+
+  // Snapshot de Nivel 4: Topología y Estado Geométrico del Lienzo
+  function snapshotGeometricState() {
+    if (typeof paper === 'undefined' || !paper.project) {
+      return { totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [], error: 'Paper.js no cargado' };
+    }
+
+    const layer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
+    if (!layer || !layer.children) {
+      return { totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [], error: 'Capa no encontrada' };
+    }
+
+    const items = [];
+    let massCount = 0;
+    let holeCount = 0;
+
+    layer.children.forEach((c, idx) => {
+      if (!c) return;
+      const d = c.data || {};
+      if (d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
+          d.isSmartGuide || d.isMeasurement || d.isTracePreview || d.isNodeHandle ||
+          d.isNodeEditOverlay || d.isCurveHandle) {
+        return;
       }
-      item.visible = true;
-    } else if (item && item.data && item.data.isHole) {
-      // Los calados interactivos se mantienen transparentes nativos sin trazos residuales
-      item.visible = true;
-      item.fillColor = new paper.Color(0, 0, 0, 0.0001);
-      item.strokeColor = null;
-      item.strokeWidth = 0;
+
+      const isHole = !!d.isHole;
+      if (isHole) holeCount++; else massCount++;
+
+      items.push({
+        id: c.id,
+        zIndex: idx,
+        className: c.className,
+        label: d.label || 'Objeto',
+        isHole: isHole,
+        isClipGroup: !!d.clipGroup,
+        isLocked: !!d.locked,
+        hasGeomBase: !!d.geomBase,
+        bounds: extractBounds(c.bounds)
+      });
+    });
+
+    return {
+      totalUsefulItems: items.length,
+      massCount: massCount,
+      holeCount: holeCount,
+      zOrderIds: items.map(it => it.id),
+      itemsSummary: items
+    };
+  }
+
+  // =========================================================================
+  // NIVEL 5 — MOTOR DE CONSISTENCIA Y AUDITORÍA UNIVERSAL DE CONTRATOS
+  // =========================================================================
+  function auditConsistency(op) {
+    const beforeGeo = op.geometryBefore;
+    const afterGeo = op.geometryAfter;
+    const beforeSel = op.selectionBefore;
+    const afterSel = op.selectionAfter;
+    const callLog = op.callGraph || [];
+    const opType = op.action;
+    const opMeta = op.meta || {};
+    const contract = op.buttonContract || null;
+    const uiSource = op.source || 'UI';
+
+    const inconsistencies = [];
+    const checks = {
+      actionExecuted: true,
+      buttonResponded: true,
+      selectionPreconditionValid: true,
+      itemLossDetected: false,
+      dragDisplacementValid: true,
+      geomBasePreserved: true,
+      selectionValid: true,
+      productClippingValid: true,
+      deadClickDetected: false,
+      zOrderConsistent: true
+    };
+
+    if (beforeGeo.error || afterGeo.error) {
+      return { checks, inconsistencies, pass: true };
     }
-  });
 
-  // 2. Ejecutar sustracciones dinámicas protegidas contra colapso por solapamiento de calados
-  // Para cada masa sólida, recolectar todos los calados activos situados por encima en el orden Z
-  for (let j = 0; j < subItems.length; j++) {
-    const solid = subItems[j];
-    if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase) continue;
-
-    // Obtener la geometría base prístina de esta masa sólida
-    const pristineBase = getGlobalUnsubtractedPath(solid);
-    if (!pristineBase) continue;
-
-    const pristineArea = Math.abs(pristineBase.area || 0);
-    const pristineBounds = pristineBase.bounds;
-
-    // Buscar todos los calados activos superiores (i > j) que intersecan a la masa
-    const intersectingHoles = [];
-    for (let i = j + 1; i < subItems.length; i++) {
-      const holeItem = subItems[i];
-      if (!holeItem || !holeItem.data || !holeItem.data.isHole) continue;
-
-      const holeBase = getGlobalUnsubtractedPath(holeItem);
-      if (!holeBase) continue;
-
-      if (pristineBounds.intersects(holeBase.bounds)) {
-        intersectingHoles.push(holeBase);
-      } else {
-        holeBase.remove();
-      }
-    }
-
-    if (intersectingHoles.length === 0) {
-      pristineBase.remove();
-      continue;
-    }
-
-    // BLINDAJE ANTI-ANIQUILACIÓN POR SOLAPAMIENTO DE CALADOS:
-    // Si dos o más huecos se solapan entre sí (ej. arrastrar 'A' hacia 'F'),
-    // unificamos primero sus geometrías para que Paper.js no colapse por aristas compartidas.
-    let mergedHole = null;
-    try {
-      for (let k = 0; k < intersectingHoles.length; k++) {
-        const curHole = intersectingHoles[k];
-        if (!mergedHole) {
-          mergedHole = curHole.clone({ insert: false });
-        } else {
-          if (mergedHole.bounds.intersects(curHole.bounds)) {
-            try {
-              const united = mergedHole.unite(curHole, { insert: false });
-              if (united && Math.abs(united.area || 0) > 0.01) {
-                mergedHole.remove();
-                mergedHole = united;
-                continue;
-              }
-            } catch (e) {}
-          }
-          // Si no se tocan o unite falla, los unimos en un CompoundPath
-          const cp = new paper.CompoundPath({ insert: false });
-          if (mergedHole instanceof paper.CompoundPath) {
-            cp.addChildren(mergedHole.removeChildren());
-            mergedHole.remove();
-          } else {
-            cp.addChild(mergedHole);
-          }
-          if (curHole instanceof paper.CompoundPath) {
-            cp.addChildren(curHole.removeChildren());
-          } else {
-            cp.addChild(curHole.clone({ insert: false }));
-          }
-          mergedHole = cp;
+    // --- REGLA 1: VALIDACIÓN DE CONTRATOS ESTÁNDAR ---
+    if (contract) {
+      // A) Precondición de selección
+      if (contract.requiresSelection) {
+        if (!beforeSel.hasSelection || beforeSel.count < (contract.minSelectionCount || 1)) {
+          checks.selectionPreconditionValid = false;
+          inconsistencies.push(
+            `[SELECCIÓN INSUFICIENTE] '${uiSource}' requiere al menos ${contract.minSelectionCount || 1} objeto(s) seleccionado(s) (Detectados: ${beforeSel.count}).`
+          );
         }
       }
-    } catch (err) {
-      mergedHole = null;
-    }
 
-    let finalSubtracted = null;
+      // B) Objeto bloqueado
+      if (!contract.allowLocked && beforeSel.primary && beforeSel.primary.isLocked) {
+        checks.actionExecuted = false;
+        inconsistencies.push(
+          `[OBJETO BLOQUEADO] Clic en '${uiSource}' sobre objeto bloqueado ID: ${beforeSel.primary.id} ('${beforeSel.primary.label}'). Acción rechazada.`
+        );
+      }
 
-    // Intento 1: Sustracción unificada limpia desde la masa prístina
-    if (mergedHole) {
-      try {
-        const testSub = pristineBase.subtract(mergedHole, { insert: false });
-        if (testSub) {
-          const testArea = Math.abs(testSub.area || 0);
-          const testSegments = countSegments(testSub);
-          // Validar que no haya colapso degenerado de área (área >= 5% de la masa prístina)
-          const isValidArea = pristineArea > 1.0 ? (testArea >= 0.05 * pristineArea) : (testArea > 0.01);
-          if (testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1) {
-            finalSubtracted = testSub;
-          } else {
-            testSub.remove();
-          }
+      // C) Mutación topológica esperada
+      const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
+      if (contract.expectedTopologyDelta === 'INCREMENT') {
+        if (deltaUseful <= 0) {
+          checks.actionExecuted = false;
+          inconsistencies.push(
+            `[NO SE CREÓ/DUPLICÓ] Se activó '${uiSource}' pero el número de elementos no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+          );
         }
-      } catch (e) {}
-      mergedHole.remove();
-    }
+      } else if (contract.expectedTopologyDelta === 'DECREMENT') {
+        if (deltaUseful >= 0) {
+          checks.actionExecuted = false;
+          inconsistencies.push(
+            `[NO SE ELIMINÓ] Se activó '${uiSource}', pero el elemento permanece en el lienzo (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+          );
+        }
+      } else if (contract.expectedTopologyDelta === 'EQUAL') {
+        if (deltaUseful !== 0) {
+          inconsistencies.push(
+            `[TOPOLOGÍA ALTERADA] La acción '${opType}' alteró inesperadamente el conteo de capas (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
+          );
+        }
+      } else if (contract.expectedTopologyDelta === 'DECREASE_OR_EQUAL') {
+        if (deltaUseful > 0) {
+          inconsistencies.push(
+            `[AGRUPACIÓN ANÓMALA] La acción '${opType}' incrementó capas en lugar de consolidarlas.`
+          );
+        }
+      }
 
-    // Intento 2 (Fallback progresivo): Si la sustracción en bloque falló o colapsó,
-    // aplicar calados uno a uno validando en cada paso que la masa no sea aniquilada.
-    if (!finalSubtracted) {
-      let currentProgress = pristineBase.clone({ insert: false });
-      for (let k = 0; k < intersectingHoles.length; k++) {
-        const singleHole = intersectingHoles[k];
+      // D) Cambio de selección esperado
+      if (contract.expectedSelectionChange === 'NEW_ITEM') {
+        if (afterSel.primary && beforeSel.primary && afterSel.primary.id === beforeSel.primary.id && beforeSel.count === 1) {
+          checks.selectionValid = false;
+          inconsistencies.push(
+            `[SELECCIÓN NO ACTUALIZADA] El objeto fue procesado pero la selección sigue apuntando al elemento original (ID: ${beforeSel.primary.id}) en vez del nuevo.`
+          );
+        }
+      } else if (contract.expectedSelectionChange === 'CLEARED') {
+        if (afterSel.hasSelection && beforeSel.primary && afterSel.primary && afterSel.primary.id === beforeSel.primary.id) {
+          checks.selectionValid = false;
+          inconsistencies.push(
+            `[SELECCIÓN HUÉRFANA] Elemento ID: ${beforeSel.primary.id} eliminado pero window.selectedItem permanece activo.`
+          );
+        }
+      }
+
+      // E) Desplazamiento visual (caso Duplicar)
+      if (contract.verifyDisplacement && afterSel.primary && beforeSel.primary && afterSel.primary.position && beforeSel.primary.position) {
+        const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
+        const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
+        if (dx < 1 && dy < 1) {
+          inconsistencies.push(
+            `[SIN DESPLAZAMIENTO] Objeto duplicado ID: ${afterSel.primary.id} se superpuso exactamente sobre el original sin desfase visible.`
+          );
+        }
+      }
+
+      // F) Validador personalizado del contrato
+      if (typeof contract.customValidator === 'function') {
         try {
-          const stepSub = currentProgress.subtract(singleHole, { insert: false });
-          if (stepSub) {
-            const stepArea = Math.abs(stepSub.area || 0);
-            const stepSegments = countSegments(stepSub);
-            const isStepValid = pristineArea > 1.0 ? (stepArea >= 0.05 * pristineArea) : (stepArea > 0.01);
-            if (stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1) {
-              currentProgress.remove();
-              currentProgress = stepSub;
-            } else {
-              // Si este calado particular causa la aniquilación (colisión extrema), se ignora y se preserva el estado
-              stepSub.remove();
+          const customRes = contract.customValidator(op, beforeGeo, afterGeo, beforeSel, afterSel);
+          if (customRes && customRes.inconsistency) {
+            inconsistencies.push(customRes.inconsistency);
+          }
+        } catch (e) {
+          inconsistencies.push(`[ERROR EN VALIDADOR DE CONTRATO] ${e.message}`);
+        }
+      }
+    }
+
+    // --- REGLA 2: DETECCIÓN DE CLIC FANTASMA / BOTÓN DESCONECTADO ---
+    const totalCalls = callLog.length;
+    let canvasMutated = beforeGeo.totalUsefulItems !== afterGeo.totalUsefulItems;
+    if (beforeSel.primary && afterSel.primary && beforeSel.primary.position && afterSel.primary.position) {
+      const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
+      const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
+      if (dx > 0.1 || dy > 0.1) canvasMutated = true;
+    }
+    const zBeforeStr = (beforeGeo.zOrderIds || []).join(',');
+    const zAfterStr = (afterGeo.zOrderIds || []).join(',');
+    if (zBeforeStr !== zAfterStr) {
+      canvasMutated = true;
+    }
+
+    const isDialogOpener = (contract && contract.isDialogOpener) || 
+                           opType.includes('ADD_SVG') || 
+                           opType.includes('ADD_IMAGE') || 
+                           opType.includes('OPEN_DIALOG') ||
+                           opType.includes('FILE_PICKER');
+
+    const isModeOrStateOp = opType.includes('TOGGLE') || 
+                            opType.includes('MODAL') || 
+                            opType.includes('NODE_EDIT') || 
+                            opType.includes('EDIT_NODE') ||
+                            opType.includes('EXIT_NODE_EDIT');
+
+    const nodeModeActive = (typeof window !== 'undefined' && !!window.nodeEditMode);
+
+    if (opMeta.isButtonClick && !canvasMutated && !isModeOrStateOp && !nodeModeActive) {
+      if (isDialogOpener) {
+        // En botones que disparan selectores de archivos o modales externos nativos,
+        // el usuario tarda segundos en elegir el archivo en el sistema operativo.
+        // La validación exige que la función controladora de apertura haya respondido.
+        if (totalCalls === 0 && !window.__EKKO_FILE_PICKER_TRIGGERED__) {
+          checks.deadClickDetected = true;
+          checks.buttonResponded = false;
+          inconsistencies.push(
+            `[SELECTOR DESCONECTADO] Se hizo clic en '${uiSource}', pero no se invocó ningún controlador de apertura de diálogo ni input file.`
+          );
+        } else {
+          // El diálogo fue lanzado con éxito hacia el sistema operativo. La mutación se audita al cargar el archivo.
+          checks.buttonResponded = true;
+        }
+      } else if (totalCalls === 0) {
+        checks.deadClickDetected = true;
+        checks.buttonResponded = false;
+        inconsistencies.push(
+          `[BOTÓN DESCONECTADO / FANTASMA] Se hizo clic en '${uiSource}', pero ninguna función controladora fue ejecutada y no hubo mutación en el lienzo.`
+        );
+      }
+    }
+
+    // --- REGLA 3: AUDITORÍA DE PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN ---
+    if (opType === 'UNGROUP') {
+      if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
+        checks.itemLossDetected = true;
+        inconsistencies.push(
+          `[PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN] Se perdieron ${beforeGeo.totalUsefulItems - afterGeo.totalUsefulItems} elemento(s) durante la operación.`
+        );
+      }
+    }
+
+    const pass = inconsistencies.length === 0;
+    return { checks, inconsistencies, pass };
+  }
+
+  // =========================================================================
+  // FORMATEADOR FORENSE (Estructurado para Gemini Studio & Prompts Maestros)
+  // =========================================================================
+  function formatOpForRemediation(op) {
+    let out = `\n================================================================================\n`;
+    out += `INFORME FORENSE EKKO_DIAG (Para Gemini Studio)\n`;
+    out += `================================================================================\n`;
+    out += `[ID OPERACIÓN] : ${op.id}\n`;
+    out += `[ACCIÓN]       : ${op.action}\n`;
+    out += `[ORIGEN UI]    : ${op.source}\n`;
+    out += `[DURACIÓN]     : ${op.durationMs} ms\n`;
+    out += `[ELEMENTO DOM] : Tag: <${op.meta?.domTag || 'N/A'}> | ID: "${op.meta?.domElementId || 'N/A'}" | Class: "${op.meta?.domClass || 'N/A'}"\n\n`;
+
+    out += `--- NIVEL 2: SELECCIÓN PREVIA Y POSTERIOR ---\n`;
+    out += `Antes : ${op.selectionBefore?.hasSelection ? JSON.stringify(op.selectionBefore.primary) : 'Sin selección'}\n`;
+    out += `Después: ${op.selectionAfter?.hasSelection ? JSON.stringify(op.selectionAfter.primary) : 'Sin selección'}\n\n`;
+
+    out += `--- NIVEL 3: TRAZA DE EJECUCIÓN (CALL GRAPH) ---\n`;
+    if (op.callGraph && op.callGraph.length > 0) {
+      op.callGraph.forEach(c => {
+        out += `  ↳ [${c.order}] ${c.module} -> ${c.function}() [${c.durationMs}ms] ${c.error ? 'ERROR: ' + c.error : 'OK'}\n`;
+      });
+    } else {
+      out += `  (Sin llamadas registradas a controladores globales interceptados)\n`;
+    }
+
+    out += `\n--- NIVEL 4: TOPOLOGÍA GEOMÉTRICA (ANTES -> DESPUÉS) ---\n`;
+    out += `Total Capas Útiles : ${op.geometryBefore?.totalUsefulItems} -> ${op.geometryAfter?.totalUsefulItems}\n`;
+    out += `Masas / Calados    : (${op.geometryBefore?.massCount}M / ${op.geometryBefore?.holeCount}C) -> (${op.geometryAfter?.massCount}M / ${op.geometryAfter?.holeCount}C)\n`;
+    out += `Z-Order IDs Antes  : [${(op.geometryBefore?.zOrderIds || []).join(', ')}]\n`;
+    out += `Z-Order IDs Después: [${(op.geometryAfter?.zOrderIds || []).join(', ')}]\n\n`;
+
+    out += `--- NIVEL 5: AUDITORÍA DE CONSISTENCIA Y CONTRATOS ---\n`;
+    if (op.consistency && !op.consistency.pass) {
+      out += `ESTADO: ⚠️ INCONSISTENCIAS DETECTADAS (${op.consistency.inconsistencies.length})\n`;
+      op.consistency.inconsistencies.forEach(inc => {
+        out += `  ❌ ${inc}\n`;
+      });
+    } else {
+      out += `ESTADO: ✓ OPERACIÓN VÁLIDA (Sin inconsistencias detectadas)\n`;
+    }
+    out += `================================================================================\n`;
+    return out;
+  }
+
+  // =========================================================================
+  // GESTIÓN DEL CICLO DE VIDA DE LA OPERACIÓN FORENSE
+  // =========================================================================
+  function beginOperation(actionName, sourceDesc, meta) {
+    if (!diagState.active) return null;
+
+    diagState.opCounter++;
+    const padId = String(diagState.opCounter).padStart(5, '0');
+    const opId = `OP-${padId}`;
+
+    const op = {
+      id: opId,
+      action: actionName,
+      source: sourceDesc || 'Sistema',
+      meta: meta || {},
+      buttonContract: (meta && meta.resolvedContract) ? meta.resolvedContract : null,
+      startTime: performance.now(),
+      durationMs: 0,
+      selectionBefore: snapshotSelection(),
+      geometryBefore: snapshotGeometricState(),
+      selectionAfter: null,
+      geometryAfter: null,
+      callGraph: [],
+      consistency: null
+    };
+
+    diagState.currentOp = op;
+    return op;
+  }
+
+  function endOperation() {
+    if (!diagState.active || !diagState.currentOp) return null;
+
+    const op = diagState.currentOp;
+    op.durationMs = Number((performance.now() - op.startTime).toFixed(1));
+    op.selectionAfter = snapshotSelection();
+    op.geometryAfter = snapshotGeometricState();
+    op.consistency = auditConsistency(op);
+
+    diagState.operations.push(op);
+    if (diagState.operations.length > 500) {
+      diagState.operations.shift();
+    }
+
+    emitLiveStreamLog(op);
+
+    // Auto-Copia al portapapeles si hay error y la función está activa
+    if (diagState.autoCopyOnError && op.consistency && !op.consistency.pass) {
+      const forensicTxt = formatOpForRemediation(op);
+      safeCopyToClipboard(forensicTxt, `Inconsistencia en [${op.id}] copiada al portapapeles para Gemini Studio.`);
+    }
+
+    diagState.currentOp = null;
+    return op;
+  }
+
+  function emitLiveStreamLog(op) {
+    const pass = op.consistency ? op.consistency.pass : true;
+    const sel = op.selectionAfter && op.selectionAfter.primary;
+    const selDesc = sel ? `ID: ${sel.id} (${sel.className}) | Z: ${sel.zIndex} | ${sel.isHole ? '🕳️ CALADO' : '⬛ MASA'}` : 'Sin selección';
+    const geoDesc = `Capas: ${op.geometryAfter.totalUsefulItems} (Masas: ${op.geometryAfter.massCount}, Calados: ${op.geometryAfter.holeCount})`;
+
+    if (pass) {
+      rawConsole.log(
+        `%c[${op.id}] ${op.action}%c | ✓ OK (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc} | ${geoDesc}`,
+        'color: #0284c7; font-weight: bold;',
+        'color: #10b981;'
+      );
+    } else {
+      rawConsole.warn(
+        `%c[${op.id}] ${op.action}%c | ⚠️ INCONSISTENCIA DETECTADA (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc}`,
+        'color: #ea580c; font-weight: bold;',
+        'color: #ef4444;'
+      );
+      op.consistency.inconsistencies.forEach(inc => {
+        rawConsole.error(`   ↳ ${inc}`);
+      });
+    }
+  }
+
+  // --- INTERCEPTORES DE FUNCIONES GLOBALES ---
+  function forceWrapWindowFunction(fnName, modulePath, actionType) {
+    if (typeof window === 'undefined') return;
+    let _inner = window[fnName];
+
+    function createWrapper(targetFn) {
+      if (!targetFn || typeof targetFn !== 'function') return targetFn;
+      if (targetFn.__ekkoWrapped__) return targetFn;
+
+      const wrapped = function (...args) {
+        const hasExisting = !!diagState.currentOp;
+        let op = null;
+
+        if (!hasExisting) {
+          op = beginOperation(actionType || fnName, `${modulePath} -> window.${fnName}()`);
+        }
+
+        const activeOp = diagState.currentOp;
+        const order = activeOp ? activeOp.callGraph.length + 1 : 1;
+        const t0 = performance.now();
+        let res, err = null;
+
+        try {
+          res = targetFn.apply(this, args);
+        } catch (e) {
+          err = e;
+          throw e;
+        } finally {
+          const t1 = performance.now();
+          if (activeOp) {
+            activeOp.callGraph.push({
+              order: order,
+              function: fnName,
+              module: modulePath,
+              durationMs: Number((t1 - t0).toFixed(1)),
+              error: err ? err.message : null
+            });
+          }
+          if (op) {
+            endOperation();
+          }
+        }
+        return res;
+      };
+      wrapped.__ekkoWrapped__ = true;
+      return wrapped;
+    }
+
+    if (typeof _inner === 'function') {
+      _inner = createWrapper(_inner);
+    }
+
+    try {
+      Object.defineProperty(window, fnName, {
+        get: () => _inner,
+        set: (newFn) => {
+          _inner = (typeof newFn === 'function') ? createWrapper(newFn) : newFn;
+        },
+        configurable: true,
+        enumerable: true
+      });
+    } catch (e) {
+      if (typeof _inner === 'function') window[fnName] = _inner;
+    }
+  }
+
+  // =========================================================================
+  // CAPTURA UNIVERSAL DE CLICS EN UI
+  // =========================================================================
+  function installDOMCaptureListeners() {
+    if (typeof document === 'undefined') return;
+
+    document.addEventListener('click', function (e) {
+      if (!diagState.active) return;
+      const target = e.target;
+      if (!target) return;
+
+      const interactiveEl = target.closest('button, [role="button"], .ctx-btn, .pro-btn, [data-action], a.btn, input[type="button"]');
+      if (!interactiveEl) return;
+
+      // Monitoreo de disparadores de input de archivos
+      if (interactiveEl.id === 'btnAddSVG' || interactiveEl.id === 'btnAddImage' || interactiveEl.getAttribute('data-action') === 'load-svg') {
+        window.__EKKO_FILE_PICKER_TRIGGERED__ = true;
+        setTimeout(() => { window.__EKKO_FILE_PICKER_TRIGGERED__ = false; }, 1000);
+      }
+
+      const resolved = resolveButtonContract(interactiveEl);
+      if (!resolved) return;
+
+      const contract = resolved.contract;
+      const actionName = contract.name || 'BUTTON_CLICK';
+      const triggerSource = contract.label || `Botón (${resolved.matchedBy})`;
+
+      const op = beginOperation(actionName, triggerSource, {
+        isButtonClick: true,
+        domTag: interactiveEl.tagName.toLowerCase(),
+        domElementId: interactiveEl.id || null,
+        domClass: interactiveEl.className || null,
+        resolvedContract: contract,
+        matchedBy: resolved.matchedBy
+      });
+
+      setTimeout(() => {
+        if (diagState.currentOp === op) {
+          endOperation();
+        }
+      }, 120);
+    }, true);
+
+    // Intercepción en el lienzo (#editorCanvas)
+    const canvasEl = document.getElementById('editorCanvas');
+    if (canvasEl) {
+      canvasEl.addEventListener('mousedown', function (e) {
+        if (!diagState.active) return;
+        diagState.lastMouseDownPoint = { x: e.clientX, y: e.clientY };
+        diagState.lastMouseDownSelection = snapshotSelection();
+        diagState.lastMouseDownGeo = snapshotGeometricState();
+      }, true);
+
+      canvasEl.addEventListener('mouseup', function (e) {
+        if (!diagState.active) return;
+        const ptDown = diagState.lastMouseDownPoint;
+        if (!ptDown) return;
+
+        const dx = Math.abs(e.clientX - ptDown.x);
+        const dy = Math.abs(e.clientY - ptDown.y);
+
+        setTimeout(() => {
+          const selBefore = diagState.lastMouseDownSelection;
+          const selNow = snapshotSelection();
+          const geoNow = snapshotGeometricState();
+
+          if (dx > 4 || dy > 4) {
+            const op = beginOperation('DRAG_MOVE', 'Arrastre en Lienzo (#editorCanvas)');
+            op.selectionBefore = selBefore;
+            op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
+            endOperation();
+          } else {
+            const idBefore = (selBefore && selBefore.primary) ? selBefore.primary.id : null;
+            const idNow = (selNow && selNow.primary) ? selNow.primary.id : null;
+
+            if (idBefore !== idNow) {
+              const action = idNow ? 'SELECT' : 'DESELECT';
+              const op = beginOperation(action, 'Clic en Lienzo (#editorCanvas)');
+              op.selectionBefore = selBefore;
+              op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
+              endOperation();
             }
           }
-        } catch (e) {}
+        }, 60);
+      }, true);
+    }
+  }
+
+  function installAllInterceptors() {
+    if (diagState.interceptorsInstalled) return;
+
+    // Envoltura de funciones críticas de editor y módulos
+    forceWrapWindowFunction('selectItem', 'editor.js', 'SELECT');
+    forceWrapWindowFunction('deselectItem', 'editor.js', 'DESELECT');
+    forceWrapWindowFunction('saveHistory', 'editor.js', 'SAVE_HISTORY');
+    forceWrapWindowFunction('undo', 'editor.js', 'UNDO');
+    forceWrapWindowFunction('redo', 'editor.js', 'REDO');
+    forceWrapWindowFunction('copySelected', 'editor.js', 'COPY');
+    forceWrapWindowFunction('pasteClipboard', 'editor.js', 'PASTE');
+    forceWrapWindowFunction('bringFront', 'editor.js', 'BRING_TO_FRONT');
+    forceWrapWindowFunction('sendBack', 'editor.js', 'SEND_TO_BACK');
+    forceWrapWindowFunction('bringForward', 'editor.js', 'BRING_FORWARD');
+    forceWrapWindowFunction('sendBackward', 'editor.js', 'SEND_BACKWARD');
+    forceWrapWindowFunction('bringImageToFront', 'imageToolbar.js', 'BRING_TO_FRONT');
+    forceWrapWindowFunction('sendImageToBack', 'imageToolbar.js', 'SEND_TO_BACK');
+    forceWrapWindowFunction('bringImageForward', 'imageToolbar.js', 'BRING_FORWARD');
+    forceWrapWindowFunction('sendImageBackward', 'imageToolbar.js', 'SEND_BACKWARD');
+    forceWrapWindowFunction('createEditableText', 'editor.js', 'ADD_TEXT');
+    forceWrapWindowFunction('addQRToCanvas', 'editor.js', 'ADD_QR');
+    forceWrapWindowFunction('openSVGFileDialog', 'editor.js', 'OPEN_SVG_DIALOG');
+    forceWrapWindowFunction('addSVGFromFile', 'editor.js', 'PROCESS_SVG_FILE');
+    forceWrapWindowFunction('enterNodeEditMode', 'nodeEditor.js', 'NODE_EDIT');
+    forceWrapWindowFunction('exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT');
+    forceWrapWindowFunction('deleteSelectedNodes', 'nodeEditor.js', 'DELETE_NODE');
+    forceWrapWindowFunction('duplicateSelectedItem', 'contextualMenu.js', 'DUPLICATE');
+
+    installDOMCaptureListeners();
+
+    if (typeof paper !== 'undefined' && paper.project && !paper.project._diagWrapped) {
+      const origImportSVG = paper.project.importSVG;
+      paper.project.importSVG = function (...args) {
+        const op = beginOperation('IMPORT_SVG', 'paper.project.importSVG');
+        const cb = args[1];
+        if (typeof cb === 'function') {
+          args[1] = function (item) {
+            const res = cb(item);
+            setTimeout(() => { endOperation(); }, 50);
+            return res;
+          };
+        }
+        return origImportSVG.apply(this, args);
+      };
+      paper.project._diagWrapped = true;
+    }
+
+    diagState.interceptorsInstalled = true;
+  }
+
+  // =========================================================================
+  // API PÚBLICA EKKO_DIAG
+  // =========================================================================
+  const publicAPI = {
+    start: function () {
+      diagState.active = true;
+      installAllInterceptors();
+      rawConsole.log('%c[EKKO_DIAG v9.0 Universal Standard] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
+      return 'EKKO_DIAG Activo. Monitoreando automáticamente con auto-copia forense habilitada.';
+    },
+
+    stop: function () {
+      diagState.active = false;
+      rawConsole.log('%c[EKKO_DIAG] Detenido 🔴', 'color: #ef4444; font-weight: bold;');
+      return 'EKKO_DIAG Detenido.';
+    },
+
+    clear: function () {
+      diagState.operations = [];
+      diagState.opCounter = 0;
+      diagState.currentOp = null;
+      return 'Historial de operaciones limpiado.';
+    },
+
+    setAutoCopyOnError: function (enabled) {
+      diagState.autoCopyOnError = !!enabled;
+      rawConsole.log(`%c[EKKO_DIAG] Auto-copia ante error: ${diagState.autoCopyOnError ? 'HABILITADA' : 'DESHABILITADA'}`, 'color: #0284c7;');
+      return diagState.autoCopyOnError;
+    },
+
+    registerButtonContract: function (idOrSelector, contractConfig) {
+      registerContract(idOrSelector, contractConfig);
+      rawConsole.log(`%c[EKKO_DIAG] Contrato registrado para '${idOrSelector}'`, 'color: #0284c7;');
+      return true;
+    },
+
+    report: function () {
+      const ops = diagState.operations;
+      let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
+      outputText += '║      EKKO STUDIO DIAGNOSTIC v9.0 - ESTÁNDAR UNIVERSAL DE CONTRATOS FORENSES      ║\n';
+      outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
+      outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
+
+      ops.forEach(op => {
+        const pass = op.consistency && op.consistency.pass ? '✓ OK' : '⚠️ INCONSISTENCIA';
+        const sel = op.selectionAfter && op.selectionAfter.primary;
+        const selStr = sel ? `ID: ${sel.id} (${sel.className}, Z:${sel.zIndex})` : 'Sin selección';
+        outputText += `[${op.id}] ${op.action.padEnd(16)} | ${pass.padEnd(16)} | ${op.durationMs}ms | Origen: ${op.source} | Capas: ${op.geometryAfter.totalUsefulItems} | Sel: ${selStr}\n`;
+        if (op.consistency && !op.consistency.pass) {
+          op.consistency.inconsistencies.forEach(inc => {
+            outputText += `   ↳ ⚠️ ${inc}\n`;
+          });
+        }
+      });
+
+      rawConsole.log(outputText);
+      return outputText;
+    },
+
+    copyLast: function () {
+      if (diagState.operations.length === 0) {
+        rawConsole.warn('[EKKO_DIAG] No hay operaciones registradas para copiar.');
+        return false;
       }
-      finalSubtracted = currentProgress;
-    }
+      const lastOp = diagState.operations[diagState.operations.length - 1];
+      const forensicTxt = formatOpForRemediation(lastOp);
+      safeCopyToClipboard(forensicTxt, `Última operación [${lastOp.id}] copiada al portapapeles.`);
+      return forensicTxt;
+    },
 
-    // Aplicar el resultado final a la masa sólida en el lienzo
-    if (finalSubtracted) {
-      solid.removeChildren();
-      if (finalSubtracted instanceof paper.CompoundPath) {
-        solid.addChildren(finalSubtracted.removeChildren());
-      } else {
-        solid.addChild(finalSubtracted);
+    copyErrors: function () {
+      const errorOps = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
+      if (errorOps.length === 0) {
+        rawConsole.log('%c[EKKO_DIAG] No hay inconsistencias registradas en la sesión activa.', 'color: #10b981;');
+        return false;
       }
-      solid.visible = true;
-    }
 
-    // Limpiar geometrías temporales de memoria
-    pristineBase.remove();
-    intersectingHoles.forEach(h => { try { h.remove(); } catch(e) {} });
+      let combined = `================================================================================\n`;
+      combined += `REPORTE COMBINADO DE INCONSISTENCIAS EKKO STUDIO (${errorOps.length} OPERACIONES FALLIDAS)\n`;
+      combined += `================================================================================\n`;
+      errorOps.forEach(op => {
+        combined += formatOpForRemediation(op) + '\n';
+      });
+
+      safeCopyToClipboard(combined, `${errorOps.length} inconsistencia(s) copiadas al portapapeles.`);
+      return combined;
+    },
+
+    dump: function () {
+      const rep = this.report();
+      const payload = rep + '\n\n--- DETALLE FORENSE COMPLETO (JSON) ---\n' + JSON.stringify(diagState.operations, null, 2);
+      safeCopyToClipboard(payload, 'Diagnóstico forense completo copiado al portapapeles.');
+      return payload;
+    },
+
+    last: function () {
+      if (diagState.operations.length === 0) return 'No hay operaciones registradas.';
+      return diagState.operations[diagState.operations.length - 1];
+    }
+  };
+
+  // Asignación global con centinela anti-duplicación
+  if (typeof window !== 'undefined') {
+    window.__EKKO_DIAG_ACTIVE_INSTANCE__ = publicAPI;
+    window.EKKO_DIAG = publicAPI;
+    setTimeout(() => {
+      publicAPI.start();
+    }, 300);
   }
 
-  if (typeof paper !== 'undefined' && paper.view) {
-    paper.view.update();
-  }
-}
-
-function isAncestorOf(potentialAncestor, node) {
-  let curr = node.parent;
-  while (curr) {
-    if (curr === potentialAncestor) return true;
-    curr = curr.parent;
-  }
-  return false;
-}
-
-function getRootNode(node) {
-  let curr = node;
-  while (curr.parent) {
-    curr = curr.parent;
-  }
-  return curr;
-}
-
-/**
- * DESCOMPOSICIÓN INTEGRAL POR JERARQUÍA DE CONTENCIÓN Y CAPAS (1 solo clic).
- * Descompone masas positivas y calados activos respetando la relación Z:
- * Raíz/Fondo (Z0) -> Calado Intermedio (Z1) -> Masa Interior (Z2...)
- * Cada elemento resultante se genera como un CompoundPath nativo de Paper.js.
- */
-export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
-  if (!rootTarget || rootTarget.data?.locked || rootTarget.data?.mockup || rootTarget.data?.isMask) {
-    return null;
-  }
-
-  const targetLayer = rootTarget.layer || paper.project.activeLayer;
-  docOrderCounter = 0;
-
-  // Garantía de Contención en Producto: Si el objeto original estaba enmascarado o hay un producto con máscara activo
-  const shouldClip = isClipped || (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
-
-  // 1. Aplanar todo el contenido a trazados atómicos cerrados
-  const atomicPaths = flattenToAtomicPaths(rootTarget);
-  if (!atomicPaths || atomicPaths.length === 0) {
-    return null;
-  }
-
-  // Si solo hay un único trazado, envolverlo limpiamente como capa atómica descompuesta
-  if (atomicPaths.length === 1) {
-    const single = atomicPaths[0];
-    const compound = new paper.CompoundPath({ insert: false });
-    compound.addChild(single.clone({ insert: false }));
-    single.remove();
-
-    const geomBase = compound.clone({ insert: false });
-    geomBase.matrix = new paper.Matrix();
-
-    compound.data = {
-      locked: false,
-      label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
-      isHole: false,
-      geomBase: geomBase,
-      layerDepth: 0,
-      decomposedLayer: true
-    };
-
-    compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
-    compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
-    compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
-
-    let finalItem = compound;
-    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-      finalItem = window.clipItem(compound);
-    }
-    if (targetLayer) {
-      targetLayer.addChild(finalItem);
-      if (window.currentMockup) {
-        finalItem.insertBelow(window.currentMockup);
-      }
-    }
-    rootTarget.remove();
-    return { handled: true, simple: true, items: [finalItem] };
-  }
-
-  // 2. Construir árbol topológico de contención
-  const { nodes } = buildContainmentTree(atomicPaths);
-
-  // 3. Resolver Semántica de cada nodo (Masa Sólida vs Calado Activo)
-  // Se evalúa en orden de profundidad (padres antes que hijos)
-  const sortedByDepth = [...nodes].sort((a, b) => a.depth - b.depth);
-  sortedByDepth.forEach(node => {
-    node.isHole = resolveItemSemantics(node, rootTarget);
-  });
-
-  // 4. Asignación Topológica de Orden Z
-  // Z0 = Masa Externa Mayor -> Z1 = Calado Intermedio -> Z2 = Masa Interior...
-  nodes.sort((a, b) => {
-    const rootA = getRootNode(a);
-    const rootB = getRootNode(b);
-
-    // Si pertenecen a familias topológicas diferentes (ej. dos letras separadas o estrellas distintas)
-    if (rootA !== rootB) {
-      return rootB.area - rootA.area || a.docOrder - b.docOrder;
-    }
-
-    // Misma familia topológica: Orden estricto por profundidad de contención
-    if (isAncestorOf(a, b)) return -1;
-    if (isAncestorOf(b, a)) return 1;
-
-    if (a.depth !== b.depth) {
-      return a.depth - b.depth;
-    }
-    return a.docOrder - b.docOrder;
-  });
-
-  const resultingItems = [];
-
-  nodes.forEach((node) => {
-    const isHole = node.isHole;
-    const compoundItem = new paper.CompoundPath({ insert: false });
-    const pathClone = node.path.clone({ insert: false });
-    compoundItem.addChild(pathClone);
-
-    // Almacenar geometría base inmaculada en coordenadas locales puras neutras
-    const geomBase = new paper.CompoundPath({ insert: false });
-    const baseClone = node.path.clone({ insert: false });
-    geomBase.addChild(baseClone);
-    geomBase.matrix = new paper.Matrix();
-
-    compoundItem.data = {
-      locked: false,
-      label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
-      isHole: isHole,
-      geomBase: geomBase,
-      layerDepth: node.depth,
-      containmentId: node.id,
-      decomposedLayer: true
-    };
-
-    if (isHole) {
-      // Los calados activos son transparentes y limpios cuando no están seleccionados.
-      // Su contorno visible (Hole Tight Contour) se proyecta exclusivamente al estar seleccionados desde selection.js.
-      compoundItem.fillColor = new paper.Color(0, 0, 0, 0.0001);
-      compoundItem.strokeColor = null;
-      compoundItem.strokeWidth = 0;
-    } else {
-      compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
-      compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
-      compoundItem.strokeWidth = node.path.data?.originalStrokeWidth || rootTarget.strokeWidth || 0;
-    }
-
-    resultingItems.push(compoundItem);
-    node.path.remove();
-  });
-
-  // 5. Inserción ordenada en la capa activa preservando la jerarquía Z
-  const finalDeliveredItems = [];
-  resultingItems.forEach(item => {
-    let finalItem = item;
-    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-      finalItem = window.clipItem(item);
-    }
-    if (targetLayer) {
-      targetLayer.addChild(finalItem);
-      if (window.currentMockup) {
-        finalItem.insertBelow(window.currentMockup);
-      }
-    }
-    finalDeliveredItems.push(finalItem);
-  });
-
-  // 6. Eliminar el objeto contenedor original
-  rootTarget.remove();
-
-  // 7. Ejecutar recálculo reactivo CSG dinámico con el blindaje anti-aniquilación activo
-  if (targetLayer) {
-    recalculateDynamicSubtractions(targetLayer);
-  }
-
-  return { handled: true, simple: false, items: finalDeliveredItems };
-}
-
-export function geometricUngroupCompound(item) {
-  return decomposeByContainmentHierarchy(item);
-}
-
-export function geometricUngroupOneLevel(group) {
-  return decomposeByContainmentHierarchy(group);
-}
-
-// Exposición global defensiva
-if (typeof window !== 'undefined') {
-  window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
-  window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
-  window.geometricUngroupCompound = decomposeByContainmentHierarchy;
-  window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
-  window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
-  window.isContainedIn = isContainedIn;
-}
-
+  return publicAPI;
+}));
