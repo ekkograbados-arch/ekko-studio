@@ -20,7 +20,19 @@
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, deleteImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
-import { decomposeByContainmentHierarchy, recalculateDynamicSubtractions } from "./geometricUngroup.js";
+// Desacoplamiento defensivo para evitar SyntaxError por dependencias circulares
+function safeDecompose(item, isClipped) {
+  if (typeof window !== 'undefined' && typeof window.decomposeByContainmentHierarchy === 'function') {
+    return window.decomposeByContainmentHierarchy(item, isClipped);
+  }
+  return null;
+}
+
+function safeRecalculateSubtractions() {
+  if (typeof window !== 'undefined' && typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
+  }
+}
 
 // Helper universal de resolución de contenido dentro o fuera de clipGroup
 function getContentItem(item) {
@@ -244,11 +256,7 @@ export function duplicateSelectedItem() {
     duplicatedList.forEach(cl => { cl.selected = true; });
 
     // D) Sincronizar recálculo CSG dinámico sobre las nuevas capas
-    if (typeof recalculateDynamicSubtractions === 'function') {
-      recalculateDynamicSubtractions();
-    } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-      window.recalculateDynamicSubtractions();
-    }
+    safeRecalculateSubtractions();
 
     // E) Actualizar UI contextual y caja celeste de selección
     if (typeof window.updateSelectionBox === 'function') {
@@ -513,9 +521,7 @@ export function groupSelectedItems() {
   if (typeof window.deselectItem === 'function') window.deselectItem();
   if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
 
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  }
+  safeRecalculateSubtractions();
 
   paper.view.update();
 }
@@ -560,7 +566,7 @@ export function ungroupSelectedItem() {
       actualItem.remove();
       if (item !== actualItem) item.remove();
     } else {
-      const res = decomposeByContainmentHierarchy(actualItem, isClipped);
+      const res = safeDecompose(actualItem, isClipped);
       if (res && res.items) {
         allCreatedItems.push(...res.items);
       } else {
@@ -585,9 +591,7 @@ export function ungroupSelectedItem() {
     }
   }
 
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  }
+  safeRecalculateSubtractions();
 
   paper.view.update();
 }
