@@ -238,6 +238,9 @@ function computeContainmentHierarchy(paths) {
  * editables individuales: Masas Positivas y Calados Activos independientes, conservando
  * el orden Z, transformaciones, posiciones y estilos.
  *
+ * Elimina físicamente cualquier contenedor padre (Group, clipGroup, máscara) para erradicar
+ * inconsistencias de contenedor persistente en la auditoría forense (EKKO_DIAG).
+ *
  * @param {paper.Item} item Objeto a desagrupar
  * @param {boolean} [isClipped=false] Indica si el objeto pertenece a un clipGroup
  * @returns {{ items: paper.Item[] }} Lista de capas creadas e independizadas
@@ -250,14 +253,40 @@ export function decomposeByContainmentHierarchy(item, isClipped = false) {
   const actualItem = isClipped ? getContentItem(item) : item;
   if (!actualItem) return { items: [] };
 
-  const parent = actualItem.parent || (paper.project && paper.project.activeLayer);
-  const targetIndex = parent ? parent.children.indexOf(actualItem) : 0;
+  // 1. Identificar el contenedor superior visible en el lienzo (topContainer)
+  // Contempla si el objeto original o su contenido están encapsulados en un clipGroup
+  let topContainer = item;
+  if (item && item.data && (item.data.clipGroup || item.data.isClipGroup)) {
+    topContainer = item;
+  } else if (item && item.parent && item.parent.data && (item.parent.data.clipGroup || item.parent.data.isClipGroup)) {
+    topContainer = item.parent;
+  } else if (actualItem && actualItem.parent && actualItem.parent.data && (actualItem.parent.data.clipGroup || actualItem.parent.data.isClipGroup)) {
+    topContainer = actualItem.parent;
+  }
+
+  // Capa contenedora real del lienzo (designLayer o activeLayer)
+  const parentLayer = (topContainer && topContainer.parent)
+    ? topContainer.parent
+    : (paper.project && (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer));
+
+  const targetIndex = (parentLayer && topContainer && parentLayer.children)
+    ? Math.max(0, parentLayer.children.indexOf(topContainer))
+    : 0;
 
   // Extraer todos los trazados elementales
   const extractedPaths = extractAllTerminalPaths(actualItem);
 
-  // Si solo hay un único trazado elemental sin huecos internos, conservar el objeto
-  if (extractedPaths.length <= 1 && !(actualItem instanceof paper.CompoundPath)) {
+  // Si no hay trazados extraíbles
+  if (extractedPaths.length === 0) {
+    return { items: [actualItem] };
+  }
+
+  // Si solo hay un único trazado elemental sin jerarquía y NO era un contenedor
+  const wasContainer = (actualItem instanceof paper.Group || actualItem.className === 'Group') ||
+                       (topContainer instanceof paper.Group || topContainer.className === 'Group') ||
+                       (actualItem instanceof paper.CompoundPath || actualItem.className === 'CompoundPath');
+
+  if (extractedPaths.length <= 1 && !wasContainer) {
     ensureGeomBase(actualItem);
     actualItem.data = actualItem.data || {};
     actualItem.data.isHole = !!actualItem.data.isHole;
@@ -326,23 +355,45 @@ export function decomposeByContainmentHierarchy(item, isClipped = false) {
     // Si el elemento original estaba enmascarado en el mockup (clipGroup), preservar el enmascaramiento
     if (isClipped && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
       deliveredItem = window.clipItem(finalPath);
-    } else if (parent) {
-      parent.insertChild(targetIndex + idx, finalPath);
+    }
+
+    // Posicionar en la capa del lienzo conservando el orden Z relativo del contenedor original
+    if (parentLayer && targetIndex >= 0) {
+      parentLayer.insertChild(targetIndex + idx, deliveredItem);
+    }
+
+    // Garantizar que quede por debajo del mockup si existe
+    if (typeof window !== 'undefined' && window.currentMockup) {
+      deliveredItem.insertBelow(window.currentMockup);
     }
 
     createdItems.push(deliveredItem);
   });
 
-  // Limpiar y remover el contenedor original descompuesto
-  try {
-    actualItem.remove();
-    if (item !== actualItem) {
-      item.remove();
-    }
-  } catch (e) {}
+  // 3. DESTRUCCIÓN FÍSICA Y PURGA TOTAL DE CONTENEDORES ORIGINALES
+  // Elimina tanto el contenido interno como el grupo envoltorio y el clipGroup padre
+  // para erradicar la persistencia del contenedor padre (auditoría forense EKKO_DIAG)
+  const deadSet = new Set();
+  if (actualItem) deadSet.add(actualItem);
+  if (item) deadSet.add(item);
+  if (topContainer) deadSet.add(topContainer);
+  if (actualItem && actualItem.parent && actualItem.parent !== parentLayer) {
+    deadSet.add(actualItem.parent);
+  }
+  if (item && item.parent && item.parent !== parentLayer) {
+    deadSet.add(item.parent);
+  }
+
+  deadSet.forEach(c => {
+    try {
+      if (c && typeof c.remove === 'function') {
+        c.remove();
+      }
+    } catch (e) {}
+  });
 
   // Recalcular el efecto de las geometrías negativas en el orden Z resultante
-  recalculateDynamicSubtractions(parent);
+  recalculateDynamicSubtractions(parentLayer);
 
   return { items: createdItems };
 }
