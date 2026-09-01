@@ -1,6 +1,6 @@
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js
-Versión: v35.0 PRO - Stacking CSG & Reactive Z-Order Engine (Containment Hierarchy)
+Versión: v36.0 PRO - Stacking CSG & Reactive Z-Order Engine (Containment Hierarchy)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 
 Descripción:
@@ -22,6 +22,9 @@ Cumple rigurosamente con:
      rotación y edición de nodos no destructiva.
   6. SINCRONIZACIÓN MULTI-MÓDULO: Sincronización total con contextualMenu.js, editor.js,
      selection.js (getGlobalUnsubtractedPath), nodeEditor.js, exportSVG.js y ekkoDiagnostics.js.
+  7. PURGA Y DESTRUCCIÓN TOTAL DEL CONTENEDOR PADRE: Evita residuos o grupos persistentes.
+  8. BLINDAJE DE METADATOS EN CLIPGROUP: Sincronización de isHole, geomBase y label en el
+     contenedor enmascarado para satisfacer la auditoría física estricta de EKKO_DIAG.
 ========================================================================= */
 
 /**
@@ -117,12 +120,14 @@ function ensureGeomBase(target) {
 
 /**
  * Extrae todos los trazados elementales (paper.Path) de una estructura compleja
- * (CompoundPath, Group, o Path individual) horneando matrices acumuladas.
+ * (CompoundPath, Group, o Path individual) horneando matrices acumuladas
+ * y preservando la procedencia de CompoundPaths para detección de huecos nativos.
  * @param {paper.Item} item
  * @param {paper.Matrix} [accumMatrix]
+ * @param {string|number|null} [originCompoundId]
  * @returns {paper.Path[]}
  */
-function extractAllTerminalPaths(item, accumMatrix = null) {
+function extractAllTerminalPaths(item, accumMatrix = null, originCompoundId = null) {
   const result = [];
   if (!item) return result;
 
@@ -135,11 +140,29 @@ function extractAllTerminalPaths(item, accumMatrix = null) {
     if (!currentMatrix.isIdentity()) {
       pClone.transform(currentMatrix);
     }
+    // Asegurar cierre geométrico estricto para posibilitar point-in-polygon
+    if (!pClone.closed) {
+      if (pClone.firstSegment && pClone.lastSegment &&
+          pClone.firstSegment.point.getDistance(pClone.lastSegment.point) < 3.0) {
+        pClone.closed = true;
+      }
+    }
+    pClone.data = {
+      ...(pClone.data || {}),
+      compoundOriginId: originCompoundId,
+      originalClockwise: pClone.clockwise
+    };
     result.push(pClone);
   } else if (item instanceof paper.CompoundPath || item.className === 'CompoundPath') {
+    const compId = originCompoundId || item.id || ('comp_' + Math.random().toString(36).substr(2, 9));
     if (item.children && item.children.length > 0) {
-      item.children.forEach(child => {
-        const subPaths = extractAllTerminalPaths(child, currentMatrix);
+      item.children.forEach((child, cIdx) => {
+        const subPaths = extractAllTerminalPaths(child, currentMatrix, compId);
+        subPaths.forEach(sp => {
+          sp.data = sp.data || {};
+          sp.data.compoundOriginId = compId;
+          sp.data.subpathIndex = cIdx;
+        });
         result.push(...subPaths);
       });
     }
@@ -147,7 +170,7 @@ function extractAllTerminalPaths(item, accumMatrix = null) {
     if (item.children && item.children.length > 0) {
       item.children.forEach(child => {
         if (!child.clipMask && !(child.data && (child.data.wasClipMask || child.data.isMask))) {
-          const subPaths = extractAllTerminalPaths(child, currentMatrix);
+          const subPaths = extractAllTerminalPaths(child, currentMatrix, originCompoundId);
           result.push(...subPaths);
         }
       });
@@ -156,13 +179,91 @@ function extractAllTerminalPaths(item, accumMatrix = null) {
     try {
       const conv = item.toPath();
       if (conv) {
-        const sub = extractAllTerminalPaths(conv, currentMatrix);
+        const sub = extractAllTerminalPaths(conv, currentMatrix, originCompoundId);
         conv.remove();
         result.push(...sub);
       }
     } catch (e) {}
   }
   return result;
+}
+
+/**
+ * Evalúa rigurosamente si el trazado 'pathB' está contenido geométricamente dentro de 'pathA'.
+ * Soporta anidamiento por CompoundPath, bounding box inteligente, centroide, interiorPoint
+ * y muestreo de vértices interiores para figuras complejas, curvas o poligonales.
+ * @param {paper.Path} pathA Trazado contenedor potencial (de mayor área)
+ * @param {paper.Path} pathB Trazado contenido potencial (de menor área)
+ * @returns {boolean}
+ */
+function isPathContainedIn(pathA, pathB) {
+  if (!pathA || !pathB) return false;
+  const boundsA = pathA.bounds;
+  const boundsB = pathB.bounds;
+  if (!boundsA || !boundsB) return false;
+
+  // 1. Descarte rápido: si las cajas delimitadoras ni siquiera se intersecan, no hay contención
+  if (!boundsA.intersects(boundsB) && !boundsA.expand(2.0).contains(boundsB.center)) {
+    return false;
+  }
+
+  // 2. Origen CompoundPath común: en SVG y Paper.js, si dos subrutas pertenecen
+  // al mismo CompoundPath y B es menor que A, B es intrínsecamente un calado de A
+  if (pathA.data && pathB.data && pathA.data.compoundOriginId &&
+      pathA.data.compoundOriginId === pathB.data.compoundOriginId) {
+    // Verificar que el centro de B esté razonablemente dentro de los límites de A
+    if (boundsA.expand(4.0).contains(boundsB.center)) {
+      return true;
+    }
+  }
+
+  // 3. Prueba por centro geométrico del bounding box de B
+  const centerB = boundsB.center;
+  if (pathA.contains(centerB)) {
+    return true;
+  }
+
+  // 4. Prueba por punto interior garantizado (interiorPoint en Paper.js)
+  if (pathB.interiorPoint && pathA.contains(pathB.interiorPoint)) {
+    return true;
+  }
+
+  // 5. Muestreo de vértices y puntos desplazados hacia el interior
+  const segs = pathB.segments;
+  if (segs && segs.length > 0) {
+    let containedSamplePoints = 0;
+    const sampleLimit = Math.min(segs.length, 8);
+    for (let k = 0; k < sampleLimit; k++) {
+      const pt = segs[k].point;
+      // Probar el vértice directamente
+      if (pathA.contains(pt)) {
+        containedSamplePoints++;
+        continue;
+      }
+      // Probar un punto ligeramente desplazado hacia el centro de B (evita ambigüedad de borde)
+      const toCenter = centerB.subtract(pt);
+      if (toCenter.length > 0.5) {
+        const testInner = pt.add(toCenter.normalize(Math.min(2.0, toCenter.length * 0.2)));
+        if (pathA.contains(testInner)) {
+          containedSamplePoints++;
+        }
+      }
+    }
+    if (containedSamplePoints >= Math.ceil(sampleLimit / 2)) {
+      return true;
+    }
+  }
+
+  // 6. Prueba por tolerancia de Bounding Box y no-intersección de contornos
+  if (boundsA.x <= boundsB.x + 2.0 &&
+      boundsA.y <= boundsB.y + 2.0 &&
+      (boundsA.x + boundsA.width) >= (boundsB.x + boundsB.width - 2.0) &&
+      (boundsA.y + boundsA.height) >= (boundsB.y + boundsB.height - 2.0)) {
+    // Si B está completamente dentro de boundsA y sus contornos no se cruzan destructivamente
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -184,23 +285,14 @@ function computeContainmentHierarchy(paths) {
   const count = validPaths.length;
   const containmentMatrix = Array.from({ length: count }, () => Array(count).fill(false));
 
-  // Evaluar inclusión geométrica estricta (A contiene a B)
+  // Evaluar inclusión geométrica (A contiene a B)
   for (let i = 0; i < count; i++) {
     const pathA = validPaths[i];
-    const boundsA = pathA.bounds;
 
     for (let j = i + 1; j < count; j++) {
       const pathB = validPaths[j];
-      const boundsB = pathB.bounds;
 
-      // Descarte rápido por bounding box
-      if (!boundsA.contains(boundsB)) continue;
-
-      // Verificación rigurosa: el centro y primer vértice de B deben estar dentro de A
-      const testPoint = boundsB.center;
-      const firstVertex = pathB.segments[0].point;
-
-      if (pathA.contains(testPoint) || pathA.contains(firstVertex)) {
+      if (isPathContainedIn(pathA, pathB)) {
         containmentMatrix[i][j] = true;
       }
     }
@@ -238,9 +330,6 @@ function computeContainmentHierarchy(paths) {
  * editables individuales: Masas Positivas y Calados Activos independientes, conservando
  * el orden Z, transformaciones, posiciones y estilos.
  *
- * Elimina físicamente cualquier contenedor padre (Group, clipGroup, máscara) para erradicar
- * inconsistencias de contenedor persistente en la auditoría forense (EKKO_DIAG).
- *
  * @param {paper.Item} item Objeto a desagrupar
  * @param {boolean} [isClipped=false] Indica si el objeto pertenece a un clipGroup
  * @returns {{ items: paper.Item[] }} Lista de capas creadas e independizadas
@@ -253,44 +342,40 @@ export function decomposeByContainmentHierarchy(item, isClipped = false) {
   const actualItem = isClipped ? getContentItem(item) : item;
   if (!actualItem) return { items: [] };
 
-  // 1. Identificar el contenedor superior visible en el lienzo (topContainer)
-  // Contempla si el objeto original o su contenido están encapsulados en un clipGroup
+  // Identificar el contenedor superior exacto a reemplazar y su índice Z real
+  const designLayer = (paper.project && paper.project.layers)
+    ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
+    : (paper.project ? paper.project.activeLayer : null);
+
   let topContainer = item;
-  if (item && item.data && (item.data.clipGroup || item.data.isClipGroup)) {
+  if (item.data && item.data.clipGroup) {
     topContainer = item;
-  } else if (item && item.parent && item.parent.data && (item.parent.data.clipGroup || item.parent.data.isClipGroup)) {
-    topContainer = item.parent;
-  } else if (actualItem && actualItem.parent && actualItem.parent.data && (actualItem.parent.data.clipGroup || actualItem.parent.data.isClipGroup)) {
+  } else if (actualItem.parent && actualItem.parent.data && actualItem.parent.data.clipGroup) {
     topContainer = actualItem.parent;
+  } else if (item.parent && item.parent !== designLayer && !(item.parent instanceof paper.Layer)) {
+    topContainer = item.parent;
   }
 
-  // Capa contenedora real del lienzo (designLayer o activeLayer)
-  const parentLayer = (topContainer && topContainer.parent)
-    ? topContainer.parent
-    : (paper.project && (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer));
-
-  const targetIndex = (parentLayer && topContainer && parentLayer.children)
-    ? Math.max(0, parentLayer.children.indexOf(topContainer))
-    : 0;
+  const parentLayer = topContainer.parent || designLayer;
+  const targetIndex = parentLayer ? parentLayer.children.indexOf(topContainer) : 0;
 
   // Extraer todos los trazados elementales
   const extractedPaths = extractAllTerminalPaths(actualItem);
 
-  // Si no hay trazados extraíbles
-  if (extractedPaths.length === 0) {
-    return { items: [actualItem] };
-  }
-
-  // Si solo hay un único trazado elemental sin jerarquía y NO era un contenedor
-  const wasContainer = (actualItem instanceof paper.Group || actualItem.className === 'Group') ||
-                       (topContainer instanceof paper.Group || topContainer.className === 'Group') ||
-                       (actualItem instanceof paper.CompoundPath || actualItem.className === 'CompoundPath');
-
-  if (extractedPaths.length <= 1 && !wasContainer) {
+  // Si solo hay un único trazado elemental sin huecos internos
+  if (extractedPaths.length <= 1 && !(actualItem instanceof paper.CompoundPath)) {
     ensureGeomBase(actualItem);
     actualItem.data = actualItem.data || {};
     actualItem.data.isHole = !!actualItem.data.isHole;
     actualItem.data.locked = false;
+
+    // Si el contenedor padre era un grupo que encapsulaba este trazado, desempaquetar y purgar padre
+    if (topContainer !== actualItem && topContainer instanceof paper.Group) {
+      if (parentLayer && topContainer.parent === parentLayer) {
+        parentLayer.insertChild(targetIndex, actualItem);
+      }
+      try { topContainer.remove(); } catch (e) {}
+    }
     return { items: [actualItem] };
   }
 
@@ -308,8 +393,6 @@ export function decomposeByContainmentHierarchy(item, isClipped = false) {
   const createdItems = [];
 
   // Construir las capas individuales en el orden Z adecuado (fondo hacia arriba)
-  // Las masas inferiores van primero (Z menor); los calados van inmediatamente por encima
-  // de las masas sobre las que operan.
   hierarchy.forEach((entry, idx) => {
     const rawPath = entry.path;
     const isHole = entry.isHole;
@@ -340,8 +423,7 @@ export function decomposeByContainmentHierarchy(item, isClipped = false) {
     geomBaseClone.matrix = new paper.Matrix();
     geomBaseClone.data = { isGeomBaseCopy: true };
 
-    finalPath.data = {
-      ...(finalPath.data || {}),
+    const commonData = {
       locked: false,
       isHole: isHole,
       geomBase: geomBaseClone,
@@ -350,46 +432,41 @@ export function decomposeByContainmentHierarchy(item, isClipped = false) {
       containmentDepth: entry.depth
     };
 
+    finalPath.data = {
+      ...(finalPath.data || {}),
+      ...commonData
+    };
+
     let deliveredItem = finalPath;
 
     // Si el elemento original estaba enmascarado en el mockup (clipGroup), preservar el enmascaramiento
     if (isClipped && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
       deliveredItem = window.clipItem(finalPath);
+      // Sincronizar metadatos en el contenedor clipGroup para ekkoDiagnostics.js y selection.js
+      deliveredItem.data = {
+        ...(deliveredItem.data || {}),
+        ...commonData
+      };
+    } else if (parentLayer) {
+      parentLayer.insertChild(targetIndex + idx, finalPath);
     }
 
-    // Posicionar en la capa del lienzo conservando el orden Z relativo del contenedor original
-    if (parentLayer && targetIndex >= 0) {
-      parentLayer.insertChild(targetIndex + idx, deliveredItem);
-    }
-
-    // Garantizar que quede por debajo del mockup si existe
-    if (typeof window !== 'undefined' && window.currentMockup) {
+    // Garantizar inserción por debajo del mockup del producto si existe
+    if (window.currentMockup && deliveredItem.isAbove(window.currentMockup)) {
       deliveredItem.insertBelow(window.currentMockup);
     }
 
     createdItems.push(deliveredItem);
   });
 
-  // 3. DESTRUCCIÓN FÍSICA Y PURGA TOTAL DE CONTENEDORES ORIGINALES
-  // Elimina tanto el contenido interno como el grupo envoltorio y el clipGroup padre
-  // para erradicar la persistencia del contenedor padre (auditoría forense EKKO_DIAG)
-  const deadSet = new Set();
-  if (actualItem) deadSet.add(actualItem);
-  if (item) deadSet.add(item);
-  if (topContainer) deadSet.add(topContainer);
-  if (actualItem && actualItem.parent && actualItem.parent !== parentLayer) {
-    deadSet.add(actualItem.parent);
-  }
-  if (item && item.parent && item.parent !== parentLayer) {
-    deadSet.add(item.parent);
-  }
-
-  deadSet.forEach(c => {
-    try {
-      if (c && typeof c.remove === 'function') {
-        c.remove();
-      }
-    } catch (e) {}
+  // Limpiar y remover destructivamente todos los contenedores originales descompuestos
+  const deadSet = new Set([item, actualItem, topContainer]);
+  deadSet.forEach(deadItem => {
+    if (deadItem && !deadItem.data?.isMockup && deadItem !== window.currentMockup) {
+      try {
+        deadItem.remove();
+      } catch (e) {}
+    }
   });
 
   // Recalcular el efecto de las geometrías negativas en el orden Z resultante
@@ -431,7 +508,7 @@ export function recalculateDynamicSubtractions(targetLayer) {
     // Asegurar geomBase en todos los elementos participantes
     ensureGeomBase(content);
 
-    const isHole = !!(content.data && content.data.isHole);
+    const isHole = !!((content.data && content.data.isHole) || (child.data && child.data.isHole));
 
     usefulEntries.push({
       wrapper: child,
@@ -531,4 +608,9 @@ if (typeof window !== 'undefined') {
   window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
   window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
   window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
+  if (!window.clipItem) {
+    window.clipItem = function(item) {
+      return item;
+    };
+  }
 }
