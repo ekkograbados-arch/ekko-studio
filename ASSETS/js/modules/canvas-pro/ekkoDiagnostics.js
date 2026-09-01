@@ -82,6 +82,34 @@ Cumple estrictamente con:
 
   // Precarga estándar de botones existentes
   // A) Barra Emergente / Menú Contextual (#contextual-toolbar)
+    registerContract('#btnctxdeletenode', {
+    name: 'DELETE_NODE',
+    label: 'Barra Emergente: Eliminar Nodo (#btnCtxDeleteNode)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnctxdetachsubpath', {
+    name: 'DETACH_SUBPATH',
+    label: 'Barra Emergente: Desprender Nodos (#btnCtxDetachSubpath)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnctxaddnode', {
+    name: 'TOGGLE_ADD_NODE',
+    label: 'Barra Emergente: Añadir Nodo (#btnCtxAddNode)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnctxexitnodeedit', {
+    name: 'EXIT_NODE_EDIT',
+    label: 'Barra Emergente: Salir Edición Nodos (#btnCtxExitNodeEdit)',
+    requiresSelection: false,
+    expectedTopologyDelta: 'ANY'
+  });
+
   registerContract('#btnctxduplicate', {
     name: 'DUPLICATE',
     label: 'Barra Emergente: Duplicar (#btnCtxDuplicate)',
@@ -961,6 +989,13 @@ Cumple estrictamente con:
           const selBefore = diagState.lastMouseDownSelection || selNow;
 
           if (isDrag) {
+            if (window.nodeEditMode) {
+              const op = beginOperation('NODE_DRAG', 'Arrastre de Nodos (#editorCanvas)');
+              op.selectionBefore = selBefore;
+              op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
+              endOperation();
+              return;
+            }
             const op = beginOperation('DRAG', 'Arrastre en Lienzo (#editorCanvas)');
             op.selectionBefore = selBefore;
             op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
