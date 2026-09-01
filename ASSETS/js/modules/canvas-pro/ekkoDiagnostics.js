@@ -1,6 +1,6 @@
 /* =========================================================================
    Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-   Versión: v9.1 PRO Universal Diagnostic, Forensic Audit & Zero-False-Positive Engine
+   Versión: v9.5 BLACK BOX AVIATION EDITION - Uncompromising Physical Audit Engine
    Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
    
    Descripción:
@@ -239,8 +239,9 @@
     label: 'Barra Emergente: Desagrupar (#btnCtxUngroup)',
     requiresSelection: true,
     minSelectionCount: 1,
-    expectedTopologyDelta: 'ANY',
-    expectedSelectionChange: 'PRESERVED'
+    allowLocked: false,
+    expectedTopologyDelta: 'INCREMENT',
+    expectedSelectionChange: 'NEW_ITEM'
   });
 
   registerContract('#btnctxnodeedit', {
@@ -418,7 +419,9 @@
     label: 'Panel Superior: Desagrupar (#proBtnUngroup)',
     requiresSelection: true,
     minSelectionCount: 1,
-    expectedTopologyDelta: 'ANY'
+    allowLocked: false,
+    expectedTopologyDelta: 'INCREMENT',
+    expectedSelectionChange: 'NEW_ITEM'
   });
 
   // C) Barra de Cabecera (#topBar)
@@ -549,6 +552,32 @@
     return 0;
   }
 
+  function getSegmentsChecksum(item) {
+    if (!item) return null;
+    const target = getContentItem(item);
+    if (!target) return null;
+    let sumX = 0, sumY = 0, count = 0;
+    function recurse(node) {
+      if (!node) return;
+      if (node.segments && Array.isArray(node.segments)) {
+        for (let i = 0; i < node.segments.length; i++) {
+          const seg = node.segments[i];
+          if (seg && seg.point) {
+            sumX += seg.point.x;
+            sumY += seg.point.y;
+            count++;
+          }
+        }
+      }
+      if (node.children && Array.isArray(node.children)) {
+        node.children.forEach(recurse);
+      }
+    }
+    recurse(target);
+    if (count === 0) return null;
+    return `${count}:${sumX.toFixed(1)}:${sumY.toFixed(1)}`;
+  }
+
   // Snapshot de Nivel 2: Selección
   function snapshotSelection() {
     const selectedItems = (typeof window !== 'undefined' && window.selectedItems && window.selectedItems.length > 0)
@@ -580,7 +609,8 @@
       fontFamily: (target && target.fontFamily) || (target && target.data && target.data.fontFamily) || null,
       fontWeight: (target && target.fontWeight) || (target && target.data && target.data.fontWeight) || null,
       fontStyle: (target && target.fontStyle) || (target && target.data && target.data.fontStyle) || null,
-      nodeEditMode: (typeof window !== 'undefined') ? !!window.nodeEditMode : false
+      nodeEditMode: (typeof window !== 'undefined') ? !!window.nodeEditMode : false,
+      segmentsChecksum: getSegmentsChecksum(primary)
     } : null;
 
     return {
@@ -815,13 +845,55 @@
       }
     }
 
-    // --- REGLA 3: AUDITORÍA DE PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN ---
+    // --- REGLA 3: AUDITORÍA FÍSICA ESTRICTA DE DESAGRUPACIÓN (CAJA NEGRA) ---
     if (opType === 'UNGROUP') {
+      const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
+      
+      // 1. El conteo físico de elementos útiles en el lienzo DEBE aumentar
+      if (deltaUseful <= 0) {
+        checks.actionExecuted = false;
+        inconsistencies.push(
+          `[DESAGRUPACIÓN FALLIDA] Se ejecutó UNGROUP pero el conteo de elementos no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}). El grupo no se descompuso en capas independientes.`
+        );
+      }
+
+      // 2. Pérdida anómala de elementos
       if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
         checks.itemLossDetected = true;
         inconsistencies.push(
           `[PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN] Se perdieron ${beforeGeo.totalUsefulItems - afterGeo.totalUsefulItems} elemento(s) durante la operación.`
         );
+      }
+
+      // 3. Destrucción física del grupo padre contenedor y desvinculación de selección
+      if (beforeSel.primary && (beforeSel.primary.isGroup || beforeSel.primary.className === 'Group')) {
+        const parentId = beforeSel.primary.id;
+        if (afterGeo.zOrderIds && afterGeo.zOrderIds.includes(parentId)) {
+          checks.actionExecuted = false;
+          inconsistencies.push(
+            `[CONTENEDOR PERSISTENTE] El grupo padre (ID: ${parentId}) sigue presente en el lienzo tras presionar Desagrupar. No fue destruido físicamente.`
+          );
+        }
+        if (afterSel.primary && afterSel.primary.id === parentId) {
+          checks.selectionValid = false;
+          inconsistencies.push(
+            `[SELECCIÓN SIN DISOLVER] window.selectedItem sigue apuntando al contenedor padre original (ID: ${parentId}) en vez de a las piezas hijas liberadas.`
+          );
+        }
+      }
+    }
+
+    // --- REGLA 4: AUDITORÍA DE DEFORMACIÓN FÍSICA DE VÉRTICES (MODO NODOS) ---
+    if (typeof window !== 'undefined' && window.nodeEditMode) {
+      if (opType === 'DRAG_MOVE' && (window.isDraggingNode || (op.source && op.source.includes('editorCanvas')))) {
+        const beforeCk = beforeSel.primary ? beforeSel.primary.segmentsChecksum : null;
+        const afterCk = afterSel.primary ? afterSel.primary.segmentsChecksum : null;
+        if (beforeCk && afterCk && beforeCk === afterCk) {
+          checks.actionExecuted = false;
+          inconsistencies.push(
+            `[VÉRTICES INMÓVILES] Se realizó arrastre en modo de edición de nodos pero las coordenadas físicas de los vértices (seg.point) no cambiaron. El trazado no se deformó.`
+          );
+        }
       }
     }
 
@@ -1169,7 +1241,7 @@
     start: function () {
       diagState.active = true;
       installAllInterceptors();
-      rawConsole.log('%c[EKKO_DIAG v9.0 Universal Standard] Activo 🟢', 'color: #10b981; font-weight: bold; font-size: 13px;');
+      rawConsole.log('%c[EKKO_DIAG v9.5 BLACK BOX AVIATION EDITION] Activo 🟢 (Auditoría Física Estricta)', 'color: #10b981; font-weight: bold; font-size: 13px;');
       return 'EKKO_DIAG Activo. Monitoreando automáticamente con auto-copia forense habilitada.';
     },
 
