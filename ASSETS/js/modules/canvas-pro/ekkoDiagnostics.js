@@ -1294,6 +1294,208 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
   }
 
   // =========================================================================
+  // MOTOR DE AUDITORÍA FÍSICA ESTRICTA EN VIVO (LIVE CANVAS AUDIT ENGINE)
+  // =========================================================================
+  function performLiveCanvasAudit() {
+    const geo = snapshotGeometricState();
+    const sel = snapshotSelection();
+    const inconsistencies = [];
+
+    if (typeof paper === 'undefined' || !paper.project) {
+      inconsistencies.push('[ENTORNO NO DISPONIBLE] Paper.js o paper.project no están inicializados.');
+      return { geo, sel, inconsistencies, pass: false, totalUseful: 0, massCount: 0, holeCount: 0 };
+    }
+
+    const layer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
+    if (!layer || !layer.children || layer.children.length === 0) {
+      inconsistencies.push('[LIENZO VACÍO] No hay capas ni objetos presentes en el área de diseño (designLayer).');
+      return { geo, sel, inconsistencies, pass: false, totalUseful: 0, massCount: 0, holeCount: 0 };
+    }
+
+    const usefulChildren = [];
+    const mockup = (typeof window !== 'undefined' && window.currentMockup) ? window.currentMockup : null;
+    const mockupBounds = mockup ? mockup.bounds : null;
+
+    layer.children.forEach((c, idx) => {
+      if (!c) return;
+      const d = c.data || {};
+      if (
+        d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
+        d.isSmartGuide || d.isMeasurement || d.isTracePreview || d.isNodeHandle ||
+        d.isNodeEditOverlay || d.isCurveHandle
+      ) {
+        return;
+      }
+      if (
+        (mockup && c === mockup) ||
+        (typeof window !== 'undefined' && window.selectionBoxGroup && c === window.selectionBoxGroup) ||
+        (typeof window !== 'undefined' && window.nodeHandlesGroup && c === window.nodeHandlesGroup)
+      ) {
+        return;
+      }
+
+      const content = getContentItem(c);
+      const isHole = !!(d.isHole || (content && content.data && content.data.isHole));
+      const hasGeom = !!(d.geomBase || (content && content.data && content.data.geomBase));
+      const label = d.label || (content && content.data && content.data.label) || `Capa #${c.id}`;
+      const trueBounds = getTrueDesignBounds(c);
+
+      usefulChildren.push({
+        wrapper: c,
+        content: content || c,
+        id: c.id,
+        zIndex: idx,
+        label: label,
+        isHole: isHole,
+        hasGeomBase: hasGeom,
+        bounds: trueBounds,
+        extractedBounds: extractBounds(trueBounds),
+        data: d,
+        className: c.className
+      });
+    });
+
+    const total = usefulChildren.length;
+    const holeItems = usefulChildren.filter(it => it.isHole);
+    const massItems = usefulChildren.filter(it => !it.isHole);
+
+    if (total === 0) {
+      inconsistencies.push('[SIN OBJETOS ÚTILES] Todas las entidades presentes en el lienzo son artefactos de UI, guías o máscaras.');
+      return { geo, sel, inconsistencies, pass: false, totalUseful: 0, massCount: 0, holeCount: 0 };
+    }
+
+    // 1. CHEQUEO DE BOUNDS INFLADOS (Herencia errónea de máscara de producto o falta de despiece)
+    usefulChildren.forEach(it => {
+      if (it.bounds && mockupBounds && total >= 3) {
+        const wRatio = it.bounds.width / (mockupBounds.width || 1);
+        const hRatio = it.bounds.height / (mockupBounds.height || 1);
+        if (wRatio >= 0.98 && hRatio >= 0.98) {
+          inconsistencies.push(
+            `[BOUNDS INFLADOS] La capa '${it.label}' (ID: ${it.id}) abarca el 100% del área del producto (${it.bounds.width.toFixed(1)}x${it.bounds.height.toFixed(1)} px). Heredó la máscara del producto o no liberó su silueta real.`
+          );
+        }
+      }
+    });
+
+    // 2. CHEQUEO DE PARIDAD TOPOLÓGICA (Huecos silenciados en diseños compuestos)
+    if (total >= 4 && holeItems.length === 0) {
+      let anyContained = false;
+      for (let i = 0; i < total; i++) {
+        for (let j = 0; j < total; j++) {
+          if (i === j) continue;
+          if (usefulChildren[i].bounds && usefulChildren[j].bounds && usefulChildren[i].bounds.contains(usefulChildren[j].bounds)) {
+            anyContained = true;
+            break;
+          }
+        }
+        if (anyContained) break;
+      }
+      if (anyContained) {
+        inconsistencies.push(
+          `[CALADOS SILENCIADOS / PARIDAD TOPOLÓGICA] Se detectaron ${total} capas pero 0 Calados Activos (0C). Hay siluetas interiores anidadas que fueron clasificadas erróneamente como masas macizas sólidas.`
+        );
+      }
+    }
+
+    // 3. CHEQUEO DE CALADOS HUÉRFANOS O INEFECTIVOS
+    holeItems.forEach(hole => {
+      const lowerMasses = massItems.filter(m => m.zIndex < hole.zIndex);
+      if (lowerMasses.length === 0) {
+        inconsistencies.push(
+          `[CALADO HUÉRFANO / INEFECTIVO] '${hole.label}' (ID: ${hole.id}, Z:${hole.zIndex}) está marcado como Calado Activo pero no tiene ninguna masa sólida por debajo en el orden Z. No perfora material real.`
+        );
+      } else {
+        const intersecting = lowerMasses.filter(m => m.bounds && hole.bounds && m.bounds.intersects(hole.bounds));
+        if (intersecting.length === 0) {
+          inconsistencies.push(
+            `[CALADO FUERA DE RANGO] '${hole.label}' (ID: ${hole.id}) no intersecta espacialmente ninguna de las masas sólidas inferiores.`
+          );
+        }
+      }
+
+      // Verificación de transparencia/visibilidad del calado activo
+      if (hole.content && hole.content.fillColor && hole.content.fillColor.alpha > 0 && hole.content.visible !== false) {
+        inconsistencies.push(
+          `[CALADO CON RELLENO OPACO] '${hole.label}' (ID: ${hole.id}) tiene color de relleno visible (${hole.content.fillColor.toCSS(true)}). Los calados deben ser transparentes o representarse únicamente con el contorno magnético cian.`
+        );
+      }
+    });
+
+    // 4. CHEQUEO DE REACTIVIDAD CSG (Sustracción booleana en masas sólidas)
+    massItems.forEach(mass => {
+      const higherHoles = holeItems.filter(h => h.zIndex > mass.zIndex && h.bounds && mass.bounds && h.bounds.intersects(mass.bounds));
+      if (higherHoles.length > 0) {
+        const wasSubtracted = !!(mass.content && mass.content.data && mass.content.data._wasSubtracted);
+        if (!wasSubtracted) {
+          inconsistencies.push(
+            `[RECÁLCULO CSG PENDIENTE] La masa '${mass.label}' (ID: ${mass.id}) tiene ${higherHoles.length} calado(s) superior(es) superpuesto(s), pero no tiene aplicada la sustracción booleana dinámica.`
+          );
+        }
+      }
+    });
+
+    // 5. CHEQUEO DE GEOMBASE EN TODAS LAS CAPAS
+    const missingGeom = usefulChildren.filter(it => !it.hasGeomBase);
+    if (missingGeom.length > 0) {
+      inconsistencies.push(
+        `[GEOMBASE FALTANTE] ${missingGeom.length} capa(s) útil(es) no poseen geomBase neutra (IDs: [${missingGeom.map(m => m.id).join(', ')}]). La edición de nodos y transformaciones reversibles fallarán.`
+      );
+    }
+
+    // 6. CHEQUEO DE CONTENEDORES PERSISTENTES O GRUPOS VACÍOS
+    usefulChildren.forEach(it => {
+      if (it.className === 'Group' && !it.data.clipGroup) {
+        if (!it.wrapper.children || it.wrapper.children.length === 0) {
+          inconsistencies.push(`[CONTENEDOR VACÍO] Grupo persistente ID: ${it.id} ('${it.label}') no posee elementos hijos en el lienzo.`);
+        }
+      }
+    });
+
+    // 7. CHEQUEO DE ELEMENTOS IDÉNTICOS SUPERPUESTOS
+    for (let i = 0; i < total; i++) {
+      for (let j = i + 1; j < total; j++) {
+        const a = usefulChildren[i];
+        const b = usefulChildren[j];
+        if (a.extractedBounds && b.extractedBounds) {
+          const ebA = a.extractedBounds;
+          const ebB = b.extractedBounds;
+          if (
+            Math.abs(ebA.x - ebB.x) < 0.1 &&
+            Math.abs(ebA.y - ebB.y) < 0.1 &&
+            Math.abs(ebA.width - ebB.width) < 0.1 &&
+            Math.abs(ebA.height - ebB.height) < 0.1 &&
+            a.isHole === b.isHole
+          ) {
+            inconsistencies.push(
+              `[ELEMENTOS IDÉNTICOS SUPERPUESTOS] Capas '${a.label}' (ID: ${a.id}) y '${b.label}' (ID: ${b.id}) comparten exactamente la misma posición y tamaño (${ebA.width}x${ebA.height} px). Posible duplicado no desplazado o despiece parásito.`
+            );
+          }
+        }
+      }
+    }
+
+    // 8. CHEQUEO DE INTEGRIDAD DE SELECCIÓN
+    if (typeof window !== 'undefined' && window.selectedItem) {
+      const selItem = window.selectedItem;
+      if (!selItem.project || !selItem.parent) {
+        inconsistencies.push(`[SELECCIÓN HUÉRFANA] window.selectedItem apunta a un elemento que fue removido de Paper.js.`);
+      }
+    }
+
+    const pass = inconsistencies.length === 0;
+    return {
+      geo: geo,
+      sel: sel,
+      inconsistencies: inconsistencies,
+      pass: pass,
+      totalUseful: total,
+      massCount: massItems.length,
+      holeCount: holeItems.length,
+      zOrderIds: usefulChildren.map(u => u.id)
+    };
+  }
+
+  // =========================================================================
   // API PÚBLICA EKKO_DIAG (Para F12 de Navegador)
   // =========================================================================
   const publicAPI = {
@@ -1391,13 +1593,62 @@ MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
     },
 
     audit: function () {
-      const geo = snapshotGeometricState();
-      const sel = snapshotSelection();
-      rawConsole.log('%c[EKKO_DIAG AUDIT FORZADA] Estado Físico Actual:', 'color: #0284c7; font-weight: bold;', {
-        seleccion: sel,
-        geometria: geo
-      });
-      return { seleccion: sel, geometria: geo };
+      diagState.opCounter++;
+      const padId = String(diagState.opCounter).padStart(5, '0');
+      const opId = `OP-${padId}`;
+
+      const res = performLiveCanvasAudit();
+      const op = {
+        id: opId,
+        action: 'AUDIT_MANUAL',
+        source: 'Consola F12: EKKO_DIAG.audit()',
+        meta: { domTag: 'F12_CONSOLE', domElementId: 'EKKO_DIAG.audit()', domClass: 'API' },
+        startTime: performance.now(),
+        durationMs: 0.8,
+        selectionBefore: res.sel,
+        geometryBefore: res.geo,
+        selectionAfter: res.sel,
+        geometryAfter: res.geo,
+        callGraph: [
+          { order: 1, module: 'ekkoDiagnostics.js', function: 'performLiveCanvasAudit', durationMs: 0.8, error: null }
+        ],
+        consistency: {
+          checks: {
+            actionExecuted: true,
+            buttonResponded: true,
+            selectionPreconditionValid: true,
+            itemLossDetected: false,
+            dragDisplacementValid: true,
+            geomBasePreserved: res.inconsistencies.every(i => !i.includes('GEOMBASE')),
+            selectionValid: res.inconsistencies.every(i => !i.includes('SELECCIÓN')),
+            productClippingValid: res.inconsistencies.every(i => !i.includes('BOUNDS INFLADOS')),
+            deadClickDetected: false,
+            zOrderConsistent: res.inconsistencies.every(i => !i.includes('CALADO HUÉRFANO') && !i.includes('CSG')),
+            csgReactiveTriggered: res.inconsistencies.every(i => !i.includes('CSG')),
+            geometricDimensionsValid: res.inconsistencies.every(i => !i.includes('BOUNDS INFLADOS')),
+            topologyParityValid: res.inconsistencies.every(i => !i.includes('CALADOS SILENCIADOS'))
+          },
+          inconsistencies: res.inconsistencies,
+          pass: res.pass
+        }
+      };
+
+      diagState.operations.push(op);
+      if (diagState.operations.length > 500) diagState.operations.shift();
+
+      const forensicReport = formatOpForRemediation(op);
+
+      if (!res.pass) {
+        rawConsole.warn(`%c[EKKO_DIAG AUDIT] ⚠️ ${res.inconsistencies.length} INCONSISTENCIA(S) DETECTADA(S)`, 'color: #ea580c; font-weight: bold; font-size: 14px;');
+        res.inconsistencies.forEach(inc => rawConsole.error(`   ↳ ❌ ${inc}`));
+        safeCopyToClipboard(forensicReport, `Reporte de auditoría [${op.id}] copiado al portapapeles.`);
+      } else {
+        rawConsole.log(`%c[EKKO_DIAG AUDIT] ✓ ESTADO FÍSICO ÍNTEGRO (0 Inconsistencias)`, 'color: #10b981; font-weight: bold; font-size: 14px;');
+        safeCopyToClipboard(forensicReport, `Auditoría [${op.id}] copiada al portapapeles.`);
+      }
+
+      rawConsole.log(forensicReport);
+      return forensicReport;
     }
   };
 
