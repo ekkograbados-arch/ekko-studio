@@ -949,22 +949,9 @@ export function bindNodeEditorUIListeners() {
     }
   };
 
-  // Botones de activación de modo de edición
-  safeBind('btnCtxEditNodes', () => {
-    if (window.nodeEditMode) {
-      window.exitNodeEditMode();
-    } else if (window.selectedItem) {
-      window.enterNodeEditMode(window.selectedItem);
-    }
-  });
-
-  safeBind('btnCtxNodeEdit', () => {
-    if (window.nodeEditMode) {
-      window.exitNodeEditMode();
-    } else if (window.selectedItem) {
-      window.enterNodeEditMode(window.selectedItem);
-    }
-  });
+  // Los botones de activación de modo de edición (#btnCtxEditNodes y #btnCtxNodeEdit)
+  // son administrados de forma exclusiva y canónica por contextualMenu.js para evitar colisiones
+  // de doble disparo (toggle instantáneo). Aquí únicamente se gestionan los controles internos del modo.
 
   // Botones de control dentro del panel de nodos
   safeBind('btnCtxDeleteNode', () => {
