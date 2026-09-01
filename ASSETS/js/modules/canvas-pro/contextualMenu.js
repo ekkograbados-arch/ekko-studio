@@ -179,6 +179,18 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
 
   if (isClipped && typeof window.clipItem === 'function') {
     duplicatedObject = window.clipItem(contentClone);
+    if (duplicatedObject) {
+      // Garantía de desplazamiento visual estricto para objetos enmascarados:
+      // Si window.clipItem re-centró el clipGroup sobre la máscara del producto,
+      // forzamos el desfase físico sobre el contenedor completo y sus componentes.
+      if (targetItem.position && duplicatedObject.position) {
+        const dx = Math.abs(duplicatedObject.position.x - targetItem.position.x);
+        const dy = Math.abs(duplicatedObject.position.y - targetItem.position.y);
+        if (dx < 10 && dy < 10) {
+          duplicatedObject.position = duplicatedObject.position.add(offset);
+        }
+      }
+    }
     if (designLayer) designLayer.addChild(duplicatedObject);
   } else {
     if (designLayer) {
@@ -766,13 +778,21 @@ export function initContextualMenu() {
 
   setClick('btnCtxEditNodes', () => {
     if (window.selectedItem) {
-      enterNodeEditMode(window.selectedItem);
+      if (typeof window.enterNodeEditMode === 'function') {
+        window.enterNodeEditMode(window.selectedItem);
+      } else {
+        enterNodeEditMode(window.selectedItem);
+      }
     }
   });
 
   setClick('btnCtxNodeEdit', () => {
     if (window.selectedItem) {
-      enterNodeEditMode(window.selectedItem);
+      if (typeof window.enterNodeEditMode === 'function') {
+        window.enterNodeEditMode(window.selectedItem);
+      } else {
+        enterNodeEditMode(window.selectedItem);
+      }
     }
   });
 }
