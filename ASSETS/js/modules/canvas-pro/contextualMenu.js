@@ -509,8 +509,9 @@ export function initContextualMenu() {
   };
 
   setClick('btnCtxDelete', () => {
-    if (window.selectedItem) {
-      deleteImage(window.selectedItem);
+    const targetObj = window.nodeEditTarget || window.selectedItem;
+    if (targetObj) {
+      deleteImage(targetObj);
       hideContextualMenu();
       if (typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
@@ -519,8 +520,9 @@ export function initContextualMenu() {
   });
 
   setClick('btnCtxDuplicate', () => {
-    if (window.selectedItem) {
-      duplicateImage(window.selectedItem);
+    const targetObj = window.nodeEditTarget || window.selectedItem;
+    if (targetObj) {
+      duplicateImage(targetObj);
     }
   });
 
