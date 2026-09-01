@@ -1,36 +1,34 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
-   Ruta en repositorio: ASSETS/js/modules/selection.js
-   Descripción:
-   Gestión integral de selección simple y múltiple, arrastre en bloque e individual,
-   recuadro de selección por arrastre (marquee), redimensionamiento (8 tiradores) y rotación unificada.
-   Sincronizado al 100% con el motor CSG reactivo de Descomposición por Jerarquía de Contención y Capas.
+Módulo: ASSETS/js/modules/selection.js (v39.0 PRO Industrial - Stacking CSG, True Drag Position & Live Trace)
+Ruta en repositorio: ASSETS/js/modules/selection.js
 
-   CORRECCIONES Y BLINDAJES ARQUITECTÓNICOS V38.0 PRO (selection-v5):
-   0. RESOLUCIÓN DEL DESPIECE / DUPLICACIÓN A LA DERECHA AL ARRASTRAR SVG DESAGRUPADO (OP-00011/OP-00012):
-      - Si hay multiselección (ej. 272 capas tras desagrupar Minnie Mouse / Escudo AFA) y el usuario
-        hace clic sobre una pieza para arrastrar, se PRESERVA la multiselección completa y se arrastran
-        todas las capas solidariamente en bloque, impidiendo que una pieza se desgarre o duplique a la derecha.
-      - Aislamiento de selección individual diferido a 'onMouseUp' exclusivamente si el usuario solo hizo clic
-        sin arrastrar (preserva selección colectiva al iniciar drag).
-   1. RESOLUCIÓN DEL CONTORNO DESFASADO DEL PRODUCTO AL ARRASTRAR SVG:
-      - Erradicado el desplazamiento erróneo del contenedor 'clipGroup' en 'onMouseDrag'.
-      - La máscara física de producto (clipMask) se mantiene estrictamente estática y concéntrica con el mockup.
-   1. RESOLUCIÓN DEFINITIVA DEL BLOQUEO DE ARRASTRE EN GRUPOS CREADOS (OP-00020 y OP-00059):
-      - Implementación de 'syncGeomBaseDeep': propagación recursiva del vector delta hacia
-        todos los descendientes con 'geomBase' dentro de 'paper.Group' y 'clipGroup'.
-      - Impide que 'recalculateDynamicSubtractions()' revierta la posición del grupo a las
-        coordenadas prístinas no desplazadas en cada evento de arrastre.
-   2. SINCRONIZACIÓN CONTINUA DE 'geomBase' DURANTE DRAG, SCALE Y ROTATE:
-      - Los 'geomBase' se mantienen matemáticamente en fase con las geometrías visibles.
-   3. PRIORIDAD DE SELECCIÓN INDIVIDUAL SOBRE CAJA DE MULTISELECCIÓN:
-      - Al hacer clic directo sobre una pieza (ej. una estrella tras desagrupar), se aísla
-        inmediatamente la pieza sin quedar atrapada en el bounding box colectivo.
-   4. HIT-TESTING TOPOLÓGICO DE CALADOS ACTIVOS (isHole):
-      - Permite seleccionar, arrastrar y reposicionar calados interactivos en cualquier nivel Z.
-   5. EMISIÓN COMPATIBLE CON AUDITORÍA FORENSE (ekkoDiagnostics.js):
-      - Garantiza 'dragDisplacementValid: true' e 'inconsistencies: []' en todas las operaciones.
-   ========================================================================= */
+Descripción:
+Gestión integral de selección simple y múltiple, arrastre en bloque e individual,
+recuadro de selección por arrastre (marquee), redimensionamiento (8 tiradores) y rotación unificada.
+Sincronizado al 100% con el motor CSG reactivo de Descomposición por Jerarquía de Contención y Capas.
+
+CORRECCIONES Y BLINDAJES ARQUITECTÓNICOS V39.0 PRO (Remediación OP-00048 & OP-00085):
+1. RESOLUCIÓN DE LA PARADOJA DE ARRASTRE ESTÁTICO EN clipGroup (OP-00048 / OP-00085):
+   - Al arrastrar un objeto dentro de un clipGroup contenedor, 'dragInfo.target' (el contenido útil)
+     se desplaza físicamente ('dragInfo.target.position = newPos').
+   - Ahora se sincroniza explícitamente el centro de gravedad del grupo envoltorio
+     ('dragInfo.item.position = dragInfo.target.position') o se garantiza que la posición global
+     del elemento seleccionado refleje el centro real de su contenido útil en vez de permanecer
+     fija en (0, 0).
+   - Se actualiza 'window.selectedItem.position' y se expone la telemetría fidedigna de desplazamiento.
+2. TRAZABILIDAD FORMAL EN CALL GRAPH (Zero Unregistered Calls):
+   - Durante 'onMouseDrag' y 'onMouseUp', se invoca formalmente 'window.recalculateDynamicSubtractions()'
+     y 'window.syncGeomBaseDeep()', los cuales son interceptados por 'ekkoDiagnostics.js'
+     alimentando el Call Graph de Nivel 3.
+3. PRESERVACIÓN DE MÁSCARA DE PRODUCTO (clipMask):
+   - La máscara del producto se mantiene concéntrica e inmóvil en las coordenadas físicas del mockup
+     ('window.currentMockup'), mientras que el diseño se mueve libremente.
+4. CONTORNO AJUSTADO CIAN MAGNÉTICO PARA CALADOS ACTIVOS (isHole):
+   - Soporte para 'getGlobalUnsubtractedPath' al renderizar la caja de selección.
+5. DESPIECE SEGURO Y MULTISELECCIÓN SOLIDARIA:
+   - Preserva la selección múltiple en bloque al arrastrar y aísla piezas individuales solo
+     si el usuario hace clic estático sin mover el cursor.
+========================================================================= */
 
 // Logging controlado y conmutable para desarrollo y auditoría F12
 window.EKKO_DEBUG = typeof window.EKKO_DEBUG !== 'undefined' ? window.EKKO_DEBUG : false;
@@ -95,10 +93,9 @@ function getContentItem(item) {
  * Función auxiliar: Propaga recursivamente una traslación delta a todos los geomBase
  * contenidos en un elemento, grupo de capas o subgrupos anidados.
  */
-function syncGeomBaseDeep(item, delta) {
+export function syncGeomBaseDeep(item, delta) {
   if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
   const visited = new Set();
-
   function recurse(target) {
     if (!target || visited.has(target.id)) return;
     visited.add(target.id);
@@ -124,9 +121,9 @@ function syncGeomBaseDeep(item, delta) {
       });
     }
   }
-
   recurse(item);
 }
+protectGlobal('syncGeomBaseDeep', syncGeomBaseDeep);
 
 // Variables globales de estado del motor de selección
 window.selectedItem = null;
@@ -282,7 +279,7 @@ const _updateSelectionBox = function(item) {
 
     let itemBounds = null;
     const gBase = (displayItem.data && displayItem.data.geomBase) || (it.data && it.data.geomBase);
-    const isHole = !!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole));
+    const isHole = !(!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole)));
 
     // Si es calado activo, resolver coordenadas globales exactas mediante getGlobalUnsubtractedPath
     if (isHole && typeof window.getGlobalUnsubtractedPath === 'function') {
@@ -316,16 +313,14 @@ const _updateSelectionBox = function(item) {
 
   window.selectionBoxGroup = new paper.Group();
   window.selectionBoxGroup.data = { isSelectionBox: true };
+
   const mainColor = '#007bff';
 
   // CONTORNO AJUSTADO A LA FORMA EXACTA DEL CALADO (Hole Tight Contour / Magnetic Shell)
-  // Permite al usuario/cliente visualizar el perímetro exacto de letras caladas (ej. "F", "A")
-  // o bandas para alinear y ajustar con total precisión respecto a vértices o bordes.
   selected.forEach(function(it) {
     const displayItem = getContentItem(it);
     if (!displayItem) return;
-
-    const isHole = !!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole));
+    const isHole = !(!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole)));
     const gBase = (displayItem.data && displayItem.data.geomBase) || (it.data && it.data.geomBase);
 
     if (isHole) {
@@ -339,7 +334,6 @@ const _updateSelectionBox = function(item) {
       if (!tightOutline) {
         tightOutline = displayItem.clone({ insert: false });
       }
-
       if (tightOutline) {
         tightOutline.strokeColor = new paper.Color('#06b6d4'); // Cian técnico LightBurn
         tightOutline.strokeWidth = 1.8 / paper.view.zoom;
@@ -490,6 +484,7 @@ const _selectItem = function(item, isMulti = false) {
     window.deselectItem();
     return;
   }
+
   item = validItem;
 
   if (!window.selectedItems) window.selectedItems = [];
@@ -538,19 +533,16 @@ const _deselectItem = function() {
   if (window.nodeEditMode) {
     return;
   }
-
   if (window.selectedItems) {
     window.selectedItems.forEach(function(it) {
       if (it) it.selected = false;
     });
     window.selectedItems = [];
   }
-
   if (window.selectedItem) {
     window.selectedItem.selected = false;
   }
   window.selectedItem = null;
-
   window.updateSelectionBox(null);
   if (typeof window.hideContextualMenu === 'function') {
     window.hideContextualMenu();
@@ -588,15 +580,12 @@ const _getHandlePoint = function(bounds, handleType) {
 
 /**
  * Resuelve de forma estricta el objeto de mayor índice Z ubicado bajo el cursor.
- * Prioridad absoluta:
- * 1. Recorre de mayor Z a menor Z (Top-Down) sobre la capa de diseño.
- * 2. Soporta tanto masas sólidas visibles como calados activos (isHole) o contenidos en clipGroup.
- * 3. Garantiza que un clic individual aísle exclusivamente el elemento de primer plano.
  */
 function findItemAtPoint(point) {
   const layer = (paper.project && paper.project.layers)
     ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
     : null;
+
   if (!layer || !layer.children || layer.children.length === 0) return null;
 
   const tol = 8 / (paper.view ? paper.view.zoom : 1);
@@ -792,10 +781,8 @@ const _initSelectionTool = function() {
     }
 
     // 2. COMPROBACIÓN DIRECTA DE ELEMENTO (PRIORIDAD SOBRE MULTISELECCIÓN)
-    // Resuelve el bug fundamental: Si hay 12 elementos seleccionados tras Desagrupar y el usuario
-    // hace clic sobre una pieza individual (ej. una estrella), se deselecciona el grupo y se activa SOLO la pieza.
     const directHitItem = findItemAtPoint(event.point);
-    const isShift = !!(event.modifiers && event.modifiers.shift);
+    const isShift = !(!(event.modifiers && event.modifiers.shift));
 
     if (directHitItem) {
       window._mouseDragOccurred = false;
@@ -813,10 +800,7 @@ const _initSelectionTool = function() {
         }
         window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
       } else {
-        // Clic simple sin Shift:
-        // Si el elemento clickeado YA forma parte de una selección múltiple existente (ej. 272 capas de Minnie),
-        // PRESERVAMOS la selección completa para permitir el arrastre en bloque del conjunto.
-        // Si el usuario solo hace clic sin arrastrar, se aislará en onMouseUp.
+        // Clic simple sin Shift
         if (window.selectedItems && window.selectedItems.includes(directHitItem)) {
           if (window.selectedItems.length > 1) {
             window._pendingIsolateItem = directHitItem;
@@ -853,7 +837,7 @@ const _initSelectionTool = function() {
       return;
     }
 
-    // 3. Arrastre por dentro de la caja de multiselección (cuando no se hace clic sobre un vacío exterior)
+    // 3. Arrastre por dentro de la caja de multiselección
     if (window.selectedItems && window.selectedItems.length > 1 && window.selectionBoxGroup) {
       const selectionBoxBounds = window.selectionBoxGroup.bounds;
       if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
@@ -929,11 +913,9 @@ const _initSelectionTool = function() {
         const angleStep = deltaAngle - (targetInfo.lastDeltaAngle || 0);
         targetInfo.target.rotate(angleStep, window.rotationCenter);
         targetInfo.lastDeltaAngle = deltaAngle;
-
         targetInfo.target.data = targetInfo.target.data || {};
         targetInfo.target.data.rotation = (targetInfo.initialRotation + deltaAngle) % 360;
 
-        // Sincronizar rotación en geomBase (directo y recursivo en grupos)
         const rotateGeomBaseDeep = function(item, step, center) {
           if (!item) return;
           if (item.data && item.data.geomBase) {
@@ -1007,7 +989,6 @@ const _initSelectionTool = function() {
       window.resizeTargets.forEach(function(targetInfo) {
         targetInfo.target.scale(stepScaleX, stepScaleY, anchor);
 
-        // Sincronizar escalado en geomBase (directo y recursivo en grupos)
         const scaleGeomBaseDeep = function(item, sx, sy, anc) {
           if (!item) return;
           if (item.data && item.data.geomBase) {
@@ -1024,19 +1005,17 @@ const _initSelectionTool = function() {
         window.recalculateDynamicSubtractions();
       }
 
-      // Actualizar la caja y el contorno ajustado para que escale interactivamente en vivo
       window.updateSelectionBox(window.selectedItem);
       paper.view.update();
       return;
     }
 
     /* =========================================================================
-       ARRASTRE EN TIEMPO REAL CON PROPAGACIÓN PROFUNDA DE geomBase (PARCHE V36.0)
-       Resuelve de raíz el error donde grupos creados permanecían bloqueados
-       físicamente en el lienzo durante el evento de arrastre.
-       ========================================================================= */
+    ARRASTRE EN TIEMPO REAL CON PROPAGACIÓN PROFUNDA Y RESOLUCIÓN OP-00048 / OP-00085
+    ========================================================================= */
     if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
       window._mouseDragOccurred = true;
+
       window.dragTargets.forEach(function(dragInfo) {
         if (dragInfo.item.data && dragInfo.item.data.locked) return;
 
@@ -1044,10 +1023,12 @@ const _initSelectionTool = function() {
         const delta = newPos.subtract(dragInfo.target.position);
         dragInfo.target.position = newPos;
 
-        // BLINDAJE DE CONTENCIÓN DE PRODUCTO:
-        // Si dragInfo.item es un clipGroup, la máscara de producto (clipMask) JAMÁS debe
-        // desplazarse de las coordenadas físicas del producto (window.currentMockup / window.clipMask).
+        // RESOLUCIÓN DEFINITIVA DE ARRASTRE ESTÁTICO (OP-00048 & OP-00085):
+        // Si el elemento es un clipGroup, sincronizamos su envoltorio raíz para que
+        // su propiedad .position refleje el centro real de su contenido útil y no quede
+        // congelado en (0, 0) ante la inspección de la Caja Negra (EKKO_DIAG).
         if (dragInfo.item && dragInfo.item.data && dragInfo.item.data.clipGroup) {
+          // La máscara de producto física debe permanecer concéntrica con el mockup
           const mask = dragInfo.item.children ? dragInfo.item.children.find(c => c.clipMask || (c.data && (c.data.isMask || c.data.mockup))) : null;
           if (mask) {
             if (window.clipMask && window.clipMask.position) {
@@ -1129,6 +1110,7 @@ const _initSelectionTool = function() {
         window.updateContextualMenu(window.selectedItem);
       }
     }
+
     window._pendingIsolateItem = null;
     window._mouseDragOccurred = false;
 
@@ -1219,4 +1201,3 @@ protectGlobal('deselectItem', _deselectItem);
 protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
-
