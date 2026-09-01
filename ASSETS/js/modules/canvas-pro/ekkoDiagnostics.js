@@ -11,7 +11,7 @@ Supervisa el 100% de los componentes del sistema de forma no invasiva:
 - Auditoría de descomposición por jerarquía de contención (UNGROUP) y reactividad CSG.
 - Auditoría de edición de vértices y subtrazados vectoriales (NODE_EDIT).
 - Validación de cada nuevo objeto cargado (texto, imagen, SVG, código QR).
-- Registro estricto de CallGraph con duración en milisegundos, errores y módulos intervinientes.
+- Filtrado directo de inconsistencias y métricas: EKKO_DIAG.inconsistencies(), EKKO_DIAG.dumpInconsistencies(), EKKO_DIAG.summary().\n- Registro estricto de CallGraph con duración en milisegundos, errores y módulos intervinientes.
 - Compatibilidad absoluta con REPOSITORIO EKKO STUDIO V5 y el Estándar LightBurn / CNC.
 ========================================================================= */
 
@@ -1136,6 +1136,88 @@ Supervisa el 100% de los componentes del sistema de forma no invasiva:
         }).catch(() => {});
       }
       return payload;
+    },
+    inconsistencies: function (actionFilter) {
+      let fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
+      if (typeof actionFilter === 'string' && actionFilter.trim().length > 0) {
+        const query = actionFilter.trim().toUpperCase();
+        fallas = fallas.filter(op => (op.action && op.action.toUpperCase().includes(query)) || (op.source && op.source.toUpperCase().includes(query)));
+      }
+      if (fallas.length === 0) {
+        const msg = actionFilter 
+          ? `[EKKO_DIAG] ✓ Sin inconsistencias detectadas para el filtro: "${actionFilter}".`
+          : `[EKKO_DIAG] ✓ Sin inconsistencias detectadas en las ${diagState.operations.length} operaciones registradas.`;
+        rawConsole.log(`%c${msg}`, 'color: #10b981; font-weight: bold;');
+        return [];
+      }
+      rawConsole.log(
+        `%c[EKKO_DIAG] ⚠️ SE DETECTARON ${fallas.length} OPERACIÓN(ES) CON INCONSISTENCIAS:` + (actionFilter ? ` (Filtro: "${actionFilter}")` : ''),
+        'color: #ef4444; font-weight: bold; font-size: 13px;'
+      );
+      const rows = fallas.map(op => ({
+        'ID': op.id,
+        'Acción': op.action,
+        'Duración': `${op.durationMs}ms`,
+        'Origen': op.source || 'N/A',
+        'Inconsistencias Detectadas': (op.consistency.inconsistencies || []).join(' | ')
+      }));
+      rawConsole.table(rows);
+      return fallas;
+    },
+    dumpInconsistencies: function (actionFilter) {
+      let fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
+      if (typeof actionFilter === 'string' && actionFilter.trim().length > 0) {
+        const query = actionFilter.trim().toUpperCase();
+        fallas = fallas.filter(op => (op.action && op.action.toUpperCase().includes(query)) || (op.source && op.source.toUpperCase().includes(query)));
+      }
+      if (fallas.length === 0) {
+        rawConsole.log('%c[EKKO_DIAG] ✓ No hay inconsistencias para exportar.', 'color: #10b981; font-weight: bold;');
+        return 'Sin inconsistencias.';
+      }
+      let out = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
+      out += '║       EKKO STUDIO DIAGNOSTIC - REPORTE EXCLUSIVO DE INCONSISTENCIAS              ║\n';
+      out += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
+      out += `Total de Fallas Reportadas: ${fallas.length} / ${diagState.operations.length} operaciones\n\n`;
+      fallas.forEach(op => {
+        out += `[${op.id}] ${op.action.padEnd(16)} | ⚠ INCONSISTENCIA | ${op.durationMs}ms | Origen: ${op.source}\n`;
+        (op.consistency.inconsistencies || []).forEach(inc => {
+          out += `   ↳ ${inc}\n`;
+        });
+      });
+      const payload = out + '\n--- VOLCADO FORENSE JSON DE OPERACIONES FALLIDAS ---\n' + JSON.stringify(fallas, null, 2);
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(payload).then(() => {
+          rawConsole.log('%c[EKKO_DIAG] Reporte de inconsistencias copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
+        }).catch(() => {});
+      }
+      rawConsole.log(out);
+      return payload;
+    },
+    summary: function () {
+      const total = diagState.operations.length;
+      const fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
+      const exitos = total - fallas.length;
+      const rate = total > 0 ? ((exitos / total) * 100).toFixed(1) : '100.0';
+
+      rawConsole.log(
+        `%c[EKKO_DIAG] 📊 Resumen Forense: ${total} Operaciones | ✓ ${exitos} OK (${rate}%) | ⚠ ${fallas.length} Inconsistencias`,
+        fallas.length > 0 ? 'color: #f59e0b; font-weight: bold;' : 'color: #10b981; font-weight: bold;'
+      );
+
+      const porAccion = {};
+      diagState.operations.forEach(op => {
+        const act = op.action || 'DESCONOCIDO';
+        if (!porAccion[act]) porAccion[act] = { 'Total': 0, '✓ OK': 0, '⚠ Inconsistencias': 0 };
+        porAccion[act]['Total']++;
+        if (op.consistency && !op.consistency.pass) {
+          porAccion[act]['⚠ Inconsistencias']++;
+        } else {
+          porAccion[act]['✓ OK']++;
+        }
+      });
+
+      rawConsole.table(porAccion);
+      return { total, exitos, fallas: fallas.length, tasaExito: `${rate}%`, desglose: porAccion };
     },
     last: function () {
       if (diagState.operations.length === 0) return 'No hay operaciones registradas.';
