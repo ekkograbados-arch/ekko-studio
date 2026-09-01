@@ -771,7 +771,9 @@ Supervisa el 100% de los componentes del sistema de forma no invasiva:
 
     // 8. Auditoría de Creación de Objetos Nuevos (ADD_TEXT, ADD_IMAGE, IMPORT_SVG, ADD_QR)
     if (['ADD_TEXT', 'ADD_IMAGE', 'IMPORT_SVG', 'ADD_QR'].includes(opType)) {
-      if (afterGeo.totalUsefulItems <= beforeGeo.totalUsefulItems && !isModal) {
+      // Discriminación: No reportar como inconsistencia si es una carga interna/asíncrona del sistema (mockup, producto o plantilla base)
+      const isSystemCall = (op.source === 'paper.project.importSVG' && !op.buttonContract);
+      if (afterGeo.totalUsefulItems <= beforeGeo.totalUsefulItems && !isModal && !isSystemCall) {
         inconsistencies.push(
           `[OBJETO NO CARGADO] Se intentó ejecutar '${opType}', pero ningún objeto útil se incorporó a la capa de diseño.`
         );
