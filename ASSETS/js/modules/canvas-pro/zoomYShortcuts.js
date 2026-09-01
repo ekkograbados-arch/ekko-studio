@@ -1,17 +1,27 @@
 /* =========================================================================
-   Modulo: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js (v27.1 PRO - Unified, CSG Reactive & LightBurn Stacking)
-   Ruta de implementacion: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js
-   Descripcion: Logica integrada para zoom interactivo relativo al cursor del raton
-   (LightBurn Style) elevando el limite al 10000%, con sistema unificado
-   de atajos de teclado universales.
-   ========================================================================= */
+Modulo: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js (v27.0 PRO - Unified, CSG Reactive & LightBurn Stacking)
+Ruta de implementacion: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js
+Descripcion: Logica integrada para zoom interactivo relativo al cursor del raton
+(LightBurn Style) elevando el limite al 10000%, con sistema unificado
+de atajos de teclado universales.
+- REACTIVIDAD CSG TOTAL: Al borrar capas negativas (isHole) o solidas con
+Delete/Backspace, o restaurar historial con Ctrl+Z / Ctrl+Y, ejecuta
+recalculateDynamicSubtractions() de forma inmediata para restaurar la
+geometria continua de la masa base.
+- SANEADO DE ATAJOS (Rule 12): Centraliza de manera oficial los atajos
+de teclado Ctrl+G (Agrupar) y Ctrl+U (Desagrupar) para todo el sistema,
+removiendo escuchadores redundantes del resto de la aplicacion y
+evitando el molesto bug de doble ejecucion.
+- ATAJOS DE ORDEN Z ESTILO LIGHTBURN (LightBurn Arrange / Order Shortcuts):
+  * PageUp: Push forward in draw order (Subir Capa inteligente)
+  * PageDown: Push backward in draw order (Bajar Capa inteligente)
+  * Ctrl + PageUp: Push to front (Al Frente de todo)
+  * Ctrl + PageDown: Push to back (Al Fondo de todo)
+- COMPATIBILIDAD CON MODELO DE CAPAS Y ORDEN Z:
+Sincronizado con geometricUngroup.js, contextualMenu.js y nodeEditor.js.
+========================================================================= */
 
-// Desacoplamiento defensivo para evitar SyntaxError por dependencias circulares en ES Modules
-function triggerDynamicSubtractions() {
-  if (typeof window !== 'undefined' && typeof window.recalculateDynamicSubtractions === 'function') {
-    window.recalculateDynamicSubtractions();
-  }
-}
+import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
 export function initZoomControls(canvasEl) {
   if (!canvasEl || !window.paper) return;
@@ -19,8 +29,8 @@ export function initZoomControls(canvasEl) {
   // Zoom interactivo relativo al cursor (LightBurn Style)
   canvasEl.addEventListener("wheel", (e) => {
     if (!paper.view) return;
-    e.preventDefault();
 
+    e.preventDefault();
     const oldZoom = paper.view.zoom;
     const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
     let newZoom = oldZoom * zoomFactor;
@@ -60,45 +70,63 @@ export function initGlobalKeyboardShortcuts() {
   if (window._ekkoKeyboardShortcutsInstalled) return;
   window._ekkoKeyboardShortcutsInstalled = true;
 
-  document.addEventListener("keydown", (e) => {
-    // No interceptar si el usuario esta escribiendo en inputs o textareas
+  window.addEventListener("keydown", (e) => {
+    // Ignorar atajos si el usuario esta escribiendo en un input, textarea o editor de texto
     const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
-    if (activeTag === "input" || activeTag === "textarea") return;
+    const isInput = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
+    const isTextEditor = document.activeElement && (
+      document.activeElement.id === "ekko-text-editor" ||
+      document.activeElement.classList.contains("ekko-inline-editor")
+    );
+    if (isInput || isTextEditor) return;
 
     const isCtrl = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
 
-    // 1. COPIAR (Ctrl+C)
+    // 1. ESCAPE: Salir del modo edicion de nodos o deseleccionar
+    if (key === "escape") {
+      if (window.nodeEditMode && typeof window.exitNodeEditMode === "function") {
+        e.preventDefault();
+        window.exitNodeEditMode();
+        return;
+      }
+      if (typeof window.deselectItem === "function") {
+        window.deselectItem();
+        return;
+      }
+    }
+
+    // 2. ENTER: Confirmar y salir de edicion de nodos
+    if (key === "enter" && window.nodeEditMode) {
+      e.preventDefault();
+      if (typeof window.exitNodeEditMode === "function") {
+        window.exitNodeEditMode();
+      }
+      return;
+    }
+
+    // 3. COPIAR (Ctrl+C)
     if (isCtrl && key === "c") {
+      e.preventDefault();
       if (typeof window.copySelected === "function") {
         window.copySelected();
+      } else if (window.selectedItem) {
+        window.clipboardItem = window.selectedItem.clone({ insert: false });
+        if (typeof window.EKKO_DEBUG !== "undefined" && window.EKKO_DEBUG) {
+          console.log("[EKKO SHORTCUTS] Elemento copiado al portapapeles");
+        }
       }
       return;
     }
 
-    // 2. PEGAR (Ctrl+V)
+    // 4. PEGAR (Ctrl+V)
     if (isCtrl && key === "v") {
+      e.preventDefault();
       if (typeof window.pasteSelected === "function") {
         window.pasteSelected();
-      }
-      return;
-    }
-
-    // 3. DUPLICAR (Ctrl+D)
-    if (isCtrl && key === "d") {
-      e.preventDefault();
-      if (typeof window.duplicateSelectedItem === "function") {
-        window.duplicateSelectedItem();
-      }
-      return;
-    }
-
-    // 4. CLONAR IN-SITU (Alt + Drag / Shift + D)
-    if (e.altKey && key === "d") {
-      e.preventDefault();
-      if (window.selectedItem) {
+      } else if (window.clipboardItem) {
         if (typeof window.saveHistory === "function") window.saveHistory();
-        const clone = window.selectedItem.clone();
+        const clone = window.clipboardItem.clone();
         clone.position = clone.position.add(new paper.Point(15, 15));
         clone.data = { ...(clone.data || {}), locked: false };
         paper.project.activeLayer.addChild(clone);
@@ -108,7 +136,11 @@ export function initGlobalKeyboardShortcuts() {
         if (typeof window.selectItem === "function") {
           window.selectItem(clone);
         }
-        triggerDynamicSubtractions();
+        if (typeof recalculateDynamicSubtractions === "function") {
+          recalculateDynamicSubtractions();
+        } else if (typeof window.recalculateDynamicSubtractions === "function") {
+          window.recalculateDynamicSubtractions();
+        }
         paper.view.update();
       }
       return;
@@ -127,7 +159,11 @@ export function initGlobalKeyboardShortcuts() {
         paper.project.clear();
         paper.project.importJSON(state);
         if (typeof window.deselectItem === "function") window.deselectItem();
-        triggerDynamicSubtractions();
+        if (typeof recalculateDynamicSubtractions === "function") {
+          recalculateDynamicSubtractions();
+        } else if (typeof window.recalculateDynamicSubtractions === "function") {
+          window.recalculateDynamicSubtractions();
+        }
         paper.view.update();
       }
       return;
@@ -146,7 +182,11 @@ export function initGlobalKeyboardShortcuts() {
         paper.project.clear();
         paper.project.importJSON(state);
         if (typeof window.deselectItem === "function") window.deselectItem();
-        triggerDynamicSubtractions();
+        if (typeof recalculateDynamicSubtractions === "function") {
+          recalculateDynamicSubtractions();
+        } else if (typeof window.recalculateDynamicSubtractions === "function") {
+          window.recalculateDynamicSubtractions();
+        }
         paper.view.update();
       }
       return;
@@ -220,7 +260,11 @@ export function initGlobalKeyboardShortcuts() {
         if (typeof window.deselectItem === "function") {
           window.deselectItem();
         }
-        triggerDynamicSubtractions();
+        if (typeof recalculateDynamicSubtractions === "function") {
+          recalculateDynamicSubtractions();
+        } else if (typeof window.recalculateDynamicSubtractions === "function") {
+          window.recalculateDynamicSubtractions();
+        }
         paper.view.update();
       }
       return;
@@ -230,8 +274,10 @@ export function initGlobalKeyboardShortcuts() {
     if (key === "pageup") {
       e.preventDefault();
       if (isCtrl) {
+        // Push to front (Al Frente de todo)
         if (typeof window.bringFront === "function") window.bringFront();
       } else {
+        // Push forward in draw order (Subir Capa inteligente)
         if (typeof window.bringForward === "function") window.bringForward();
       }
       return;
@@ -240,12 +286,15 @@ export function initGlobalKeyboardShortcuts() {
     if (key === "pagedown") {
       e.preventDefault();
       if (isCtrl) {
+        // Push to back (Al Fondo de todo)
         if (typeof window.sendBack === "function") window.sendBack();
       } else {
+        // Push backward in draw order (Bajar Capa inteligente)
         if (typeof window.sendBackward === "function") window.sendBackward();
       }
       return;
     }
+
   }, false);
 }
 
