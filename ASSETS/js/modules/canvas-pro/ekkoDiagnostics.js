@@ -193,6 +193,14 @@
     expectedTransformChange: 'SCALED'
   });
 
+  registerContract('#btnctxtofront', {
+    name: 'BRING_TO_FRONT',
+    label: 'Barra Emergente: Al Frente (#btnCtxToFront)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
   registerContract('#btnctxforward', {
     name: 'BRING_FORWARD',
     label: 'Barra Emergente: Subir Capa (#btnCtxForward)',
@@ -204,6 +212,14 @@
   registerContract('#btnctxbackward', {
     name: 'SEND_BACKWARD',
     label: 'Barra Emergente: Bajar Capa (#btnCtxBackward)',
+    requiresSelection: true,
+    minSelectionCount: 1,
+    expectedTopologyDelta: 'EQUAL'
+  });
+
+  registerContract('#btnctxtoback', {
+    name: 'SEND_TO_BACK',
+    label: 'Barra Emergente: Al Fondo (#btnCtxToBack)',
     requiresSelection: true,
     minSelectionCount: 1,
     expectedTopologyDelta: 'EQUAL'
@@ -746,6 +762,11 @@
       const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
       if (dx > 0.1 || dy > 0.1) canvasMutated = true;
     }
+    const zBeforeStr = (beforeGeo.zOrderIds || []).join(',');
+    const zAfterStr = (afterGeo.zOrderIds || []).join(',');
+    if (zBeforeStr !== zAfterStr) {
+      canvasMutated = true;
+    }
 
     const isDialogOpener = (contract && contract.isDialogOpener) || 
                            opType.includes('ADD_SVG') || 
@@ -1069,10 +1090,14 @@
     forceWrapWindowFunction('redo', 'editor.js', 'REDO');
     forceWrapWindowFunction('copySelected', 'editor.js', 'COPY');
     forceWrapWindowFunction('pasteClipboard', 'editor.js', 'PASTE');
-    forceWrapWindowFunction('bringFront', 'editor.js', 'BRING_FRONT');
-    forceWrapWindowFunction('sendBack', 'editor.js', 'SEND_BACK');
+    forceWrapWindowFunction('bringFront', 'editor.js', 'BRING_TO_FRONT');
+    forceWrapWindowFunction('sendBack', 'editor.js', 'SEND_TO_BACK');
     forceWrapWindowFunction('bringForward', 'editor.js', 'BRING_FORWARD');
     forceWrapWindowFunction('sendBackward', 'editor.js', 'SEND_BACKWARD');
+    forceWrapWindowFunction('bringImageToFront', 'imageToolbar.js', 'BRING_TO_FRONT');
+    forceWrapWindowFunction('sendImageToBack', 'imageToolbar.js', 'SEND_TO_BACK');
+    forceWrapWindowFunction('bringImageForward', 'imageToolbar.js', 'BRING_FORWARD');
+    forceWrapWindowFunction('sendImageBackward', 'imageToolbar.js', 'SEND_BACKWARD');
     forceWrapWindowFunction('createEditableText', 'editor.js', 'ADD_TEXT');
     forceWrapWindowFunction('addQRToCanvas', 'editor.js', 'ADD_QR');
     forceWrapWindowFunction('openSVGFileDialog', 'editor.js', 'OPEN_SVG_DIALOG');
