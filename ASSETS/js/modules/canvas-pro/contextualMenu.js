@@ -962,3 +962,5 @@ export function hideContextualMenu() {
 window.updateContextualMenu = updateContextualMenu;
 window.hideContextualMenu = hideContextualMenu;
 window.initContextualMenu = initContextualMenu;
+window.groupSelectedItems = groupSelectedItems;
+window.ungroupSelectedItem = ungroupSelectedItem;
