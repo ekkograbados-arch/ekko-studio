@@ -1,272 +1,106 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v36.0 - Robust Visual Duplication & Node Safe)
-   Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
-   Descripción:
-   Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
-   y barra de acciones para EKKO Studio.
-   
-   Cumple rigurosamente con:
-   - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
-   - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-   - LIGHTBURN ARRANGE & STACKING (Move Up, Move Down, Move to Top, Move to Bottom)
-   - DUPLICACIÓN VISUAL CON DESFASE ESTÁNDAR (+20px, +20px / LightBurn Style)
-   - SINCRONIZACIÓN PROFUNDA DE GEOMBASE Y CSG REACTIVO
-   - SEPARACIÓN CONCEPTUAL RIGUROSA:
-     1. '#btnCtxDuplicate' y '#btnCtxDelete' operan SIEMPRE sobre el OBJETO COMPLETO.
-     2. Si está en modo edición de nodos (nodeEditMode), sincroniza y sale limpiamente.
-     3. Migra la selección al nuevo clon y sincroniza la caja de transformación.
-   ========================================================================= */
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Edition v33 - Symmetrical Group & Layer Safety - Full Unified Multi-Selection)
+Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
+Descripción:
+Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
+y barra de acciones para EKKO Studio.
+Cumple rigurosamente con:
+- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
+- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt):
+  * Desagrupación completa en 1 clic con SELECCIÓN UNIFICADA LIMPIA DE TODAS LAS CAPAS LIBERADAS.
+  * Eliminada la selección arbitraria obligatoria del objeto más profundo (layerDepth máximo).
+  * Posicionamiento preciso del menú contextual en selecciones simples y múltiples sobre bounding box unificado.
+  * Agrupación simétrica y 100% reversible preservando masas, calados (isHole), geomBase y orden Z.
+  * Salida limpia del modo edición de nodos antes de descomponer.
+========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
-import { scaleImage, deleteImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack, applyBrightnessContrast } from "./imageToolbar.js";
+import { scaleImage, duplicateImage, deleteImage, bringImageForward, sendImageBackward, applyBrightnessContrast } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
-// Desacoplamiento defensivo para evitar SyntaxError por dependencias circulares
+import { decomposeByContainmentHierarchy, recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
-function safeRecalculateSubtractions() {
-  if (typeof window !== 'undefined' && typeof window.recalculateDynamicSubtractions === 'function') {
-    window.recalculateDynamicSubtractions();
-  }
-}
-
-// Helper universal de resolución de contenido dentro o fuera de clipGroup
 function getContentItem(item) {
-  if (!item) return null;
-  if (item.data && item.data.clipGroup) {
-    if (!item.children) return item;
-    var content = item.children.find(function(c) {
-      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
-    });
-    if (content) return content;
-    var fallback = item.children.find(function(c) {
-      return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
-    });
-    if (fallback) return fallback;
-    return item.children[1] || item.children[0] || item;
-  }
-  return item;
+    if (!item) return null;
+    if (item.data && item.data.clipGroup) {
+        if (!item.children) return item;
+        var content = item.children.find(function(c) {
+            return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
+        });
+        if (content) return content;
+        var fallback = item.children.find(function(c) {
+            return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
+        });
+        if (fallback) return fallback;
+        return item.children[1] || item.children[0] || item;
+    }
+    return item;
 }
 
 function isPath(item) {
-  if (!item) return false;
-  return item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path);
+    if (!item) return false;
+    return item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path);
 }
 
 function isCompoundPath(item) {
-  if (!item) return false;
-  return item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath);
+    if (!item) return false;
+    return item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath);
 }
 
 function isGroup(item) {
-  if (!item) return false;
-  return item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group);
+    if (!item) return false;
+    return item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group);
 }
 
 function isRaster(item) {
-  if (!item) return false;
-  return item.className === 'Raster' || (typeof paper !== 'undefined' && paper.Raster && item instanceof paper.Raster);
+    if (!item) return false;
+    return item.className === 'Raster' || (typeof paper !== 'undefined' && paper.Raster && item instanceof paper.Raster);
 }
 
 function isPointText(item) {
-  if (!item) return false;
-  return item.className === 'PointText' || (typeof paper !== 'undefined' && paper.PointText && item instanceof paper.PointText);
+    if (!item) return false;
+    return item.className === 'PointText' || (typeof paper !== 'undefined' && paper.PointText && item instanceof paper.PointText);
 }
 
 function isSymbolItem(item) {
-  if (!item) return false;
-  return item.className === 'SymbolItem' || item.className === 'PlacedSymbol' ||
-    (typeof paper !== 'undefined' && (
-      (paper.SymbolItem && item instanceof paper.SymbolItem) ||
-      (paper.PlacedSymbol && item instanceof paper.PlacedSymbol)
-    ));
+    if (!item) return false;
+    return item.className === 'SymbolItem' || item.className === 'PlacedSymbol' ||
+        (typeof paper !== 'undefined' && (
+            (paper.SymbolItem && item instanceof paper.SymbolItem) ||
+            (paper.PlacedSymbol && item instanceof paper.PlacedSymbol)
+        ));
 }
 
 function isMockupOrProductElement(item) {
-  let curr = item;
-  while (curr) {
-    if (curr.data && (
-      curr.data.mockup ||
-      curr.data.isMask ||
-      curr.data.locked ||
-      curr.data.isSelectionBox ||
-      curr.data.isHandle ||
-      curr.data.isSmartGuide ||
-      curr.data.isMeasurement ||
-      curr.data.isTracePreview
-    )) {
-      return true;
+    let curr = item;
+    while (curr) {
+        if (curr.data && (
+            curr.data.mockup ||
+            curr.data.isMask ||
+            curr.data.locked ||
+            curr.data.isSelectionBox ||
+            curr.data.isHandle ||
+            curr.data.isSmartGuide ||
+            curr.data.isMeasurement ||
+            curr.data.isTracePreview
+        )) {
+            return true;
+        }
+        curr = curr.parent;
     }
-    curr = curr.parent;
-  }
-  return false;
+    return false;
 }
 
 function isLayer(item) {
-  if (!item) return false;
-  return item.className === 'Layer' || (typeof paper !== 'undefined' && paper.Layer && item instanceof paper.Layer);
+    if (!item) return false;
+    return item.className === 'Layer' || (typeof paper !== 'undefined' && paper.Layer && item instanceof paper.Layer);
 }
 
 function isShape(item) {
-  if (!item) return false;
-  return item.className === 'Shape' || (typeof paper !== 'undefined' && paper.Shape && item instanceof paper.Shape);
+    if (!item) return false;
+    return item.className === 'Shape' || (typeof paper !== 'undefined' && paper.Shape && item instanceof paper.Shape);
 }
 
-// Sincronización recursiva profunda de geomBase ante desplazamientos
-function syncGeomBaseDeep(item, delta) {
-  if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
-  if (typeof window.syncGeomBaseDeep === 'function') {
-    window.syncGeomBaseDeep(item, delta);
-    return;
-  }
-  const visited = new Set();
-  function recurse(target) {
-    if (!target || visited.has(target.id)) return;
-    visited.add(target.id);
-    if (target.data && target.data.geomBase) {
-      try {
-        target.data.geomBase.position = target.data.geomBase.position.add(delta);
-      } catch (e) {}
-    }
-    if (target.data && target.data.clipGroup && target.children) {
-      target.children.forEach(c => {
-        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) recurse(c);
-      });
-    }
-    if (target instanceof paper.Group && target.children) {
-      target.children.forEach(recurse);
-    }
-  }
-  recurse(item);
-}
-
-// =========================================================================
-// MOTOR INDUSTRIAL DE DUPLICACIÓN CON DESFASE VISUAL (LIGHTBURN STYLE)
-// =========================================================================
-export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)) {
-  if (!targetItem || isMockupOrProductElement(targetItem)) return null;
-  if (targetItem.data && targetItem.data.locked) return null;
-
-  const isClipped = !!(targetItem.data && targetItem.data.clipGroup);
-  const content = isClipped ? getContentItem(targetItem) : targetItem;
-  if (!content) return null;
-
-  // 1. Clonar el contenido útil de diseño
-  const contentClone = content.clone({ insert: false });
-
-  // 2. Aplicar traslación física con desfase visible in-situ (+20px, +20px)
-  contentClone.position = contentClone.position.add(offset);
-
-  // 3. Sincronizar y clonar geomBase independientemente para evitar enlaces cruzados
-  const recurseCloneGeomBase = (src, dest) => {
-    if (!src || !dest) return;
-    if (src.data && src.data.geomBase) {
-      dest.data = dest.data || {};
-      dest.data.geomBase = src.data.geomBase.clone({ insert: false });
-      dest.data.geomBase.position = dest.data.geomBase.position.add(offset);
-      dest.data.isHole = !!src.data.isHole;
-      dest.data.layerDepth = src.data.layerDepth;
-    }
-    if (src.children && dest.children && src.children.length === dest.children.length) {
-      for (let i = 0; i < src.children.length; i++) {
-        recurseCloneGeomBase(src.children[i], dest.children[i]);
-      }
-    }
-  };
-  recurseCloneGeomBase(content, contentClone);
-
-  contentClone.data = {
-    ...(contentClone.data || {}),
-    locked: false,
-    label: (content.data?.label || "Objeto") + " (Copia)"
-  };
-
-  // 4. Integrar en la capa de diseño respetando enmascaramiento si correspondía
-  let duplicatedObject = null;
-  const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
-
-  if (isClipped && typeof window.clipItem === 'function') {
-    duplicatedObject = window.clipItem(contentClone);
-    if (duplicatedObject) {
-      // Garantía de desplazamiento visual estricto para objetos enmascarados:
-      // Si window.clipItem re-centró el clipGroup sobre la máscara del producto,
-      // forzamos el desfase físico sobre el contenedor completo y sus componentes.
-      if (targetItem.position && duplicatedObject.position) {
-        const dx = Math.abs(duplicatedObject.position.x - targetItem.position.x);
-        const dy = Math.abs(duplicatedObject.position.y - targetItem.position.y);
-        if (dx < 10 && dy < 10) {
-          duplicatedObject.position = duplicatedObject.position.add(offset);
-        }
-      }
-    }
-    if (designLayer) designLayer.addChild(duplicatedObject);
-  } else {
-    if (designLayer) {
-      designLayer.addChild(contentClone);
-    } else {
-      paper.project.activeLayer.addChild(contentClone);
-    }
-    duplicatedObject = contentClone;
-  }
-
-  // 5. Orden Z: Insertar ordenadamente justo encima del original pero debajo del mockup
-  if (duplicatedObject) {
-    duplicatedObject.insertAbove(targetItem);
-    if (window.currentMockup) {
-      window.currentMockup.bringToFront();
-    }
-  }
-
-  return duplicatedObject;
-}
-
-export function duplicateSelectedItem() {
-  // A) Si el usuario está en modo de edición de nodos, confirmar y salir primero
-  if (window.nodeEditMode && typeof exitNodeEditMode === 'function') {
-    exitNodeEditMode(false);
-  }
-
-  // B) Recolectar lista de elementos a duplicar (soporta 1 elemento o multiselección)
-  const itemsToDuplicate = (window.selectedItems && window.selectedItems.length > 0)
-    ? [...window.selectedItems]
-    : (window.selectedItem ? [window.selectedItem] : []);
-
-  if (itemsToDuplicate.length === 0) return;
-
-  if (typeof window.saveHistory === 'function') window.saveHistory();
-
-  const duplicatedList = [];
-  const offset = new paper.Point(20, 20);
-
-  itemsToDuplicate.forEach(item => {
-    const clone = duplicateSingleItem(item, offset);
-    if (clone) duplicatedList.push(clone);
-  });
-
-  if (duplicatedList.length > 0) {
-    // C) Migración limpia de selección: Deseleccionar los originales y enfocar los nuevos clones
-    if (typeof window.deselectItem === 'function') window.deselectItem();
-
-    window.selectedItems = [...duplicatedList];
-    window.selectedItem = duplicatedList[duplicatedList.length - 1];
-    duplicatedList.forEach(cl => { cl.selected = true; });
-
-    // D) Sincronizar recálculo CSG dinámico sobre las nuevas capas
-    safeRecalculateSubtractions();
-
-    // E) Actualizar UI contextual y caja celeste de selección
-    if (typeof window.updateSelectionBox === 'function') {
-      window.updateSelectionBox(window.selectedItem);
-    }
-    if (typeof updateContextualMenu === 'function') {
-      updateContextualMenu(window.selectedItem);
-    }
-  }
-
-  paper.view.update();
-  return duplicatedList;
-}
-window.duplicateSelectedItem = duplicateSelectedItem;
-
-// Variables de estado del menú contextual
 window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
@@ -275,789 +109,696 @@ let lastSelectedItem = null;
 // Estilos CSS para el menú de fuentes
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
-  const styleEl = document.createElement('style');
-  styleEl.id = dropdownStylesId;
-  styleEl.textContent = `
-    .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
-    .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; height: 100%; cursor: pointer; font-size: 13px; color: #333; }
-    .selected-font-trigger:hover { background: #f9f9f9; }
-    .font-dropdown-list { position: absolute; top: 100%; left: 0; right: 0; max-height: 250px; overflow-y: auto; background: white; border: 1px solid #ccc; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10000; margin-top: 4px; }
-    .font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid #f0f0f0; }
-    .font-dropdown-item:hover { background: #e6f7ff; }
-    .font-name-label { font-size: 11px; color: #888; text-transform: uppercase; }
-    .hidden { display: none !important; }
-  `;
-  document.head.appendChild(styleEl);
+    const styleEl = document.createElement('style');
+    styleEl.id = dropdownStylesId;
+    styleEl.textContent = `
+        .custom-font-dropdown { position: relative; min-width: 180px; height: 34px; background: white; border: 1px solid #ccc; border-radius: 6px; user-select: none; display: inline-block; vertical-align: middle; }
+        .selected-font-trigger { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; height: 100%; cursor: pointer; font-size: 13px; color: #333; }
+        .font-dropdown-list { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: white; border: 1px solid #ccc; border-top: none; border-radius: 0 0 6px 6px; z-index: 1000; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; border-bottom: 1px solid #f0f0f0; }
+        .font-dropdown-item:hover { background: #f5f5f5; }
+        .font-dropdown-item:last-child { border-bottom: none; }
+        .hidden { display: none !important; }
+    `;
+    document.head.appendChild(styleEl);
 }
 
 function removeOverlapTab() {
-  const btnSubtract = document.getElementById('btnCtxSubtract');
-  if (btnSubtract) {
-    btnSubtract.style.display = 'none';
-    btnSubtract.remove();
-  }
+    const btnSubtract = document.getElementById('btnCtxSubtract');
+    if (btnSubtract) {
+        btnSubtract.style.display = 'none';
+        btnSubtract.remove();
+    }
 }
 
 function injectFontFaces(fonts) {
-  let styleEl = document.getElementById('ekko-dynamic-font-faces');
-  if (!styleEl) {
-    styleEl = document.createElement('style');
-    styleEl.id = 'ekko-dynamic-font-faces';
-    document.head.appendChild(styleEl);
-  }
-  let css = "";
-  fonts.forEach(font => {
-    css += `@font-face { font-family: "${font.family}"; src: url("${font.file}") format("woff2"); font-display: swap; }\n`;
-  });
-  styleEl.textContent = css;
+    let styleEl = document.getElementById('ekko-dynamic-font-faces');
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'ekko-dynamic-font-faces';
+        document.head.appendChild(styleEl);
+    }
+    let css = "";
+    fonts.forEach(font => {
+        css += `@font-face { font-family: "${font.family}"; src: url("${font.file}") format("woff2"); font-display: swap; }\n`;
+    });
+    styleEl.textContent = css;
 }
 
 function getSelectedTextString() {
-  if (!window.selectedItem) return "EKKO Studio";
-  const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
-  if (!target) return "EKKO Studio";
-  if (isPointText(target)) {
-    return target.content || "EKKO Studio";
-  }
-  if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-    return target.data.textString || "EKKO Studio";
-  }
-  return "EKKO Studio";
+    if (!window.selectedItem) return "EKKO Studio";
+    const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
+    if (!target) return "EKKO Studio";
+    if (isPointText(target)) {
+        return target.content || "EKKO Studio";
+    }
+    if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+        return target.data.textString || "EKKO Studio";
+    }
+    return "EKKO Studio";
 }
 
 function getSelectedFontFamily() {
-  if (!window.selectedItem) return "Arial";
-  const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
-  if (!target) return "Arial";
-  if (isPointText(target)) {
-    return target.fontFamily || "Arial";
-  }
-  if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-    return target.data.fontFamily || "Arial";
-  }
-  return "Arial";
+    if (!window.selectedItem) return "Arial";
+    const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
+    if (!target) return "Arial";
+    if (isPointText(target)) {
+        return target.fontFamily || "Arial";
+    }
+    if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+        return target.data.fontFamily || "Arial";
+    }
+    return "Arial";
 }
 
 function applyFontFamily(item, family) {
-  if (!item || item.data?.locked) return;
-  const target = item.data?.clipGroup ? getContentItem(item) : item;
-  if (!target) return;
-  if (isPointText(target)) {
-    target.fontFamily = family;
-  } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-    target.data.fontFamily = family;
-    if (target.children) {
-      target.children.forEach(child => {
-        if (isPointText(child)) child.fontFamily = family;
-      });
+    if (!item) return;
+    const target = item.data?.clipGroup ? getContentItem(item) : item;
+    if (!target) return;
+    if (isPointText(target)) {
+        target.fontFamily = family;
+    } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+        target.data.fontFamily = family;
+        target.children.forEach(c => {
+            if (isPointText(c)) c.fontFamily = family;
+        });
     }
-  }
-  paper.view.update();
+    paper.view.update();
 }
 
-function renderFontList(fonts, listContainer) {
-  listContainer.innerHTML = "";
-  const sampleText = getSelectedTextString();
-  fonts.forEach(font => {
-    const item = document.createElement('div');
-    item.className = 'font-dropdown-item';
-    item.innerHTML = `
-      <span class="font-name-label">${font.name}</span>
-      <span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>
-    `;
-    item.onmouseenter = () => {
-      if (window.selectedItem) applyFontFamily(window.selectedItem, font.family);
-    };
-    item.onmouseleave = () => {
-      if (window.selectedItem && window.originalFontBackup) {
-        applyFontFamily(window.selectedItem, window.originalFontBackup);
-      }
-    };
-    item.onclick = (e) => {
-      e.stopPropagation();
-      window.originalFontBackup = font.family;
-      if (window.selectedItem) {
-        applyFontFamily(window.selectedItem, font.family);
-        if (typeof window.saveHistory === 'function') window.saveHistory();
-      }
-      listContainer.classList.add('hidden');
-      const triggerText = document.querySelector('.selected-font-trigger span');
-      if (triggerText) triggerText.textContent = font.name;
-    };
-    listContainer.appendChild(item);
-  });
+function renderCustomFontItems(listContainer, fonts) {
+    listContainer.innerHTML = '';
+    const sampleText = getSelectedTextString();
+    fonts.forEach(font => {
+        const item = document.createElement('div');
+        item.className = 'font-dropdown-item';
+        item.innerHTML = `
+            <span style="font-size: 11px; color: #888;">${font.name}</span>
+            <span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>
+        `;
+        item.onmouseenter = () => {
+            if (window.selectedItem) applyFontFamily(window.selectedItem, font.family);
+        };
+        item.onmouseleave = () => {
+            if (window.selectedItem && window.originalFontBackup) {
+                applyFontFamily(window.selectedItem, window.originalFontBackup);
+            }
+        };
+        item.onclick = (e) => {
+            e.stopPropagation();
+            window.originalFontBackup = font.family;
+            if (window.selectedItem) {
+                applyFontFamily(window.selectedItem, font.family);
+                if (typeof window.saveHistory === 'function') window.saveHistory();
+            }
+            listContainer.classList.add('hidden');
+            const triggerText = document.querySelector('.selected-font-trigger span');
+            if (triggerText) triggerText.textContent = font.name;
+        };
+        listContainer.appendChild(item);
+    });
 }
 
 async function populateFontDropdowns() {
-  let fonts = [];
-  try {
-    if (typeof loadDynamicFonts === 'function') {
-      fonts = await loadDynamicFonts();
-    } else {
-      const response = await fetch('/api/fonts');
-      if (response.ok) {
-        fonts = await response.json();
-      }
-    }
-  } catch (err) {
-    console.error("Error al cargar tipografías en menú contextual:", err);
-  }
-  fontsCache = fonts;
-  injectFontFaces(fonts);
-
-  const nativeSelect = document.getElementById('ctxFontSelector');
-  if (nativeSelect) {
-    nativeSelect.style.display = 'none';
-    nativeSelect.classList.add('hidden');
-  }
-
-  let customDropdown = document.querySelector('.custom-font-dropdown');
-  if (customDropdown) {
-    const trigger = customDropdown.querySelector('.selected-font-trigger');
-    const list = customDropdown.querySelector('.font-dropdown-list');
-    if (trigger && list) {
-      trigger.onclick = (e) => {
-        e.stopPropagation();
-        const isOpen = !list.classList.contains('hidden');
-        if (isOpen) {
-          list.classList.add('hidden');
+    let fonts = [];
+    try {
+        if (typeof loadDynamicFonts === 'function') {
+            fonts = await loadDynamicFonts();
         } else {
-          window.originalFontBackup = getSelectedFontFamily();
-          renderFontList(fontsCache, list);
-          list.classList.remove('hidden');
+            const response = await fetch('/api/fonts');
+            if (response.ok) {
+                fonts = await response.json();
+            }
         }
-      };
-      document.addEventListener('click', () => {
-        list.classList.add('hidden');
-      });
+    } catch (err) {
+        console.error("Error al cargar tipografías en menú contextual:", err);
     }
-  }
+    fontsCache = fonts;
+    injectFontFaces(fonts);
+
+    const nativeSelect = document.getElementById('ctxFontSelector');
+    if (nativeSelect) {
+        nativeSelect.style.display = 'none';
+        nativeSelect.classList.add('hidden');
+    }
+
+    let customDropdown = document.querySelector('.custom-font-dropdown');
+    if (customDropdown) {
+        const trigger = customDropdown.querySelector('.selected-font-trigger');
+        const list = customDropdown.querySelector('.font-dropdown-list');
+        if (trigger && list) {
+            trigger.onclick = (e) => {
+                e.stopPropagation();
+                document.querySelectorAll('.font-dropdown-list').forEach(el => {
+                    if (el !== list) el.classList.add('hidden');
+                });
+                const isOpen = !list.classList.contains('hidden');
+                if (!isOpen) {
+                    window.originalFontBackup = getSelectedFontFamily();
+                    renderCustomFontItems(list, fontsCache);
+                    list.classList.remove('hidden');
+                } else {
+                    list.classList.add('hidden');
+                }
+            };
+            document.addEventListener('click', () => {
+                list.classList.add('hidden');
+            });
+        }
+    }
 }
 
 function makeToolbarDraggable() {
-  const toolbar = document.getElementById('contextual-toolbar');
-  if (!toolbar) return;
-  let isDraggingToolbar = false;
-  let startX = 0;
-  let startY = 0;
+    const toolbar = document.getElementById('contextual-toolbar');
+    if (!toolbar) return;
+    let isDraggingToolbar = false;
+    let startX = 0;
+    let startY = 0;
 
-  toolbar.addEventListener('mouseover', (e) => {
-    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
-      toolbar.style.cursor = 'default';
-    } else {
-      toolbar.style.cursor = 'move';
-    }
-  });
+    toolbar.addEventListener('mouseover', (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
+            toolbar.style.cursor = 'default';
+        } else {
+            toolbar.style.cursor = 'move';
+        }
+    });
 
-  toolbar.addEventListener('mousedown', (e) => {
-    if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
-      return;
-    }
-    isDraggingToolbar = true;
-    startX = e.clientX - toolbar.offsetLeft;
-    startY = e.clientY - toolbar.offsetTop;
-  });
+    toolbar.addEventListener('mousedown', (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
+            return;
+        }
+        isDraggingToolbar = true;
+        startX = e.clientX - toolbar.offsetLeft;
+        startY = e.clientY - toolbar.offsetTop;
+    });
 
-  document.addEventListener('mousemove', (e) => {
-    if (!isDraggingToolbar) return;
-    toolbar.style.left = (e.clientX - startX) + 'px';
-    toolbar.style.top = (e.clientY - startY) + 'px';
-    toolbarDragged = true;
-  });
+    document.addEventListener('mousemove', (e) => {
+        if (!isDraggingToolbar) return;
+        toolbar.style.left = (e.clientX - startX) + 'px';
+        toolbar.style.top = (e.clientY - startY) + 'px';
+        toolbarDragged = true;
+    });
 
-  document.addEventListener('mouseup', () => {
-    isDraggingToolbar = false;
-  });
+    document.addEventListener('mouseup', () => {
+        isDraggingToolbar = false;
+    });
 }
 
 /**
- * DESAGRUPAR NATIVO ATÓMICO PURO (Paper.js Autonomous Standard - LightBurn Style)
- * Descompone en 1 solo clic cualquier Grupo, Trazado Compuesto (CompoundPath) o jerarquía SVG
- * en sus piezas vectoriales individuales e independientes, preservando huecos (fillRule: evenodd)
- * y garantizando el aumento físico real de capas en el lienzo.
- * Cero dependencias externas, cero fallos silenciosos, 100% auditable por EKKO_DIAG.
+ * AGRUPAR: Preserva la semántica de capas, calados activos y orden Z.
+ * Sincronizado para 100% de reversibilidad simétrica (Rule 7).
+ */
+export function groupSelectedItems() {
+    const selected = (window.selectedItems && window.selectedItems.length > 0)
+        ? [...window.selectedItems]
+        : (window.selectedItem ? [window.selectedItem] : []);
+
+    if (selected.length < 2) {
+        alert("Selecciona al menos 2 elementos para poder agruparlos.");
+        return;
+    }
+
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+
+    const parent = selected[0].parent || paper.project.activeLayer;
+    const lowestIndex = Math.min(...selected.map(it => parent.children.indexOf(it)));
+
+    // Determinar si alguna de las capas seleccionadas está recortada en producto
+    const shouldClip = selected.some(it => !!(it.data && it.data.clipGroup)) ||
+        (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
+
+    const newGroup = new paper.Group();
+    newGroup.data = {
+        locked: false,
+        isCompoundGroup: true,
+        geometricHierarchy: "compoundGroup",
+        label: "Grupo de Capas (" + selected.length + ")"
+    };
+
+    // Ordenar preservando la secuencia de apilamiento Z
+    selected.sort((a, b) => parent.children.indexOf(a) - parent.children.indexOf(b));
+
+    selected.forEach(it => {
+        if (it.data && it.data.clipGroup) {
+            const content = getContentItem(it);
+            if (content) {
+                newGroup.addChild(content);
+            }
+            it.remove();
+        } else {
+            newGroup.addChild(it);
+        }
+    });
+
+    let finalGroup = newGroup;
+    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+        finalGroup = window.clipItem(newGroup);
+        if (window.currentMockup) {
+            finalGroup.insertBelow(window.currentMockup);
+        }
+    }
+
+    parent.insertChild(lowestIndex, finalGroup);
+
+    if (typeof window.deselectItem === 'function') window.deselectItem();
+    if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
+
+    if (typeof recalculateDynamicSubtractions === 'function') {
+        recalculateDynamicSubtractions();
+    }
+
+    paper.view.update();
+}
+
+/**
+ * DESAGRUPAR: Descomposición completa en 1 clic con selección unificada limpia.
+ * Cumple rigurosamente con:
+ * - Descomposición atómica de todos los niveles en un único clic.
+ * - Reversibilidad simétrica: disuelve grupos de capas conservando identidad, geomBase, isHole y orden Z.
+ * - Selección unificada en bloque de todas las capas liberadas.
+ * - Posicionamiento de la barra contextual y cotas envolviendo la multiselección completa.
  */
 export function ungroupSelectedItem() {
-  const wasInNodeEdit = !!window.nodeEditMode;
-  if (wasInNodeEdit && typeof exitNodeEditMode === 'function') {
-    exitNodeEditMode(true);
-  }
-
-  const selectedList = (window.selectedItems && window.selectedItems.length > 0)
-    ? [...window.selectedItems]
-    : (window.selectedItem ? [window.selectedItem] : []);
-
-  if (selectedList.length === 0) return;
-  if (typeof window.saveHistory === 'function') window.saveHistory();
-
-  const allCreatedItems = [];
-  const designLayer = (paper.project && paper.project.layers)
-    ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
-    : (paper.project ? paper.project.activeLayer : null);
-
-  selectedList.forEach(item => {
-    if (!item) return;
-    // Ignorar si es elemento de interfaz o producto bloqueado
-    if (item.data && (item.data.mockup || item.data.isMask || item.data.locked)) return;
-
-    const isClipped = !!(item.data && item.data.clipGroup);
-    const actualItem = isClipped ? getContentItem(item) : item;
-    if (!actualItem) return;
-
-    // 1. RECOLECTOR UNIVERSAL DE TRAZADOS ATÓMICOS
-    const atomicPaths = [];
-    function collectAtomic(node) {
-      if (!node) return;
-      if (node.clipMask || (node.data && (node.data.isMask || node.data.mockup || node.data.wasClipMask))) {
-        return;
-      }
-      if (node instanceof paper.Group || node.className === 'Group') {
-        if (node.children && node.children.length > 0) {
-          [...node.children].forEach(c => collectAtomic(c));
-        }
-      } else if (node instanceof paper.CompoundPath || node.className === 'CompoundPath') {
-        if (node.children && node.children.length > 0) {
-          [...node.children].forEach(c => {
-            const p = c.clone({ insert: false });
-            if (node.matrix && !node.matrix.isIdentity()) {
-              p.matrix = node.matrix.chain(p.matrix || new paper.Matrix());
-            }
-            p.applyMatrix = true;
-            if (!p.fillColor && !p.strokeColor) {
-              p.fillColor = node.fillColor || actualItem.fillColor || new paper.Color('#111827');
-            }
-            if (node.strokeColor && !p.strokeColor) {
-              p.strokeColor = node.strokeColor;
-              p.strokeWidth = node.strokeWidth || 1.2;
-            }
-            atomicPaths.push(p);
-          });
-        }
-      } else if (node instanceof paper.Path || node.className === 'Path') {
-        const p = node.clone({ insert: false });
-        if (node.matrix && !node.matrix.isIdentity()) {
-          p.matrix = node.matrix.chain(p.matrix || new paper.Matrix());
-        }
-        p.applyMatrix = true;
-        if (!p.fillColor && !p.strokeColor) {
-          p.fillColor = actualItem.fillColor || new paper.Color('#111827');
-        }
-        if (actualItem.strokeColor && !p.strokeColor) {
-          p.strokeColor = actualItem.strokeColor;
-          p.strokeWidth = actualItem.strokeWidth || 1.2;
-        }
-        atomicPaths.push(p);
-      }
+    const wasInNodeEdit = !!window.nodeEditMode;
+    if (wasInNodeEdit && typeof exitNodeEditMode === 'function') {
+        exitNodeEditMode(true);
     }
 
-    collectAtomic(actualItem);
+    const selectedList = (window.selectedItems && window.selectedItems.length > 0)
+        ? [...window.selectedItems]
+        : (window.selectedItem ? [window.selectedItem] : []);
 
-    // 2. EVALUAR SI HUBO ELEMENTOS A DESCOMPONER
-    if (atomicPaths.length > 1) {
-      // Ordenar por área descendente para identificar formas exteriores vs huecos interiores
-      atomicPaths.sort((a, b) => Math.abs(b.area || 0) - Math.abs(a.area || 0));
+    if (selectedList.length === 0) return;
 
-      const shapes = []; // Estructura: { outer: Path, holes: [Path] }
+    if (typeof window.saveHistory === 'function') window.saveHistory();
 
-      atomicPaths.forEach(path => {
-        let containerShape = null;
-        const testPt = path.bounds.center;
+    const allCreatedItems = [];
 
-        for (let s of shapes) {
-          if (s.outer.bounds.contains(testPt) && s.outer.contains(testPt)) {
-            // Comprobar que no sea una isla dentro de otro agujero
-            let inHole = false;
-            for (let h of s.holes) {
-              if (h.bounds.contains(testPt) && h.contains(testPt)) {
-                inHole = true;
-                break;
-              }
+    selectedList.forEach(item => {
+        if (!item || isMockupOrProductElement(item)) return;
+        const isClipped = !!(item.data && item.data.clipGroup);
+        const actualItem = isClipped ? getContentItem(item) : item;
+        if (!actualItem) return;
+
+        // Verificación de simetría Reversible:
+        // Si el elemento es un Grupo que contiene capas ya descompuestas (agrupadas previamente con Agrupar / Ctrl+G),
+        // disolvemos el grupo directamente conservando intacta la identidad de cada capa, su geomBase, isHole y orden Z.
+        const isLayerGroup = isGroup(actualItem) && (
+            actualItem.data?.geometricHierarchy === "compoundGroup" ||
+            actualItem.data?.isCompoundGroup === true
+        );
+
+        if (isLayerGroup) {
+            const groupParent = (isClipped && item.parent) ? item.parent : (actualItem.parent || paper.project.activeLayer);
+            const groupChildren = [...actualItem.children];
+            
+            groupChildren.forEach(child => {
+                let releasedItem = child;
+                if (isClipped && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+                    releasedItem = window.clipItem(child);
+                    if (window.currentMockup) {
+                        releasedItem.insertBelow(window.currentMockup);
+                    }
+                }
+                if (groupParent) groupParent.addChild(releasedItem);
+                allCreatedItems.push(releasedItem);
+            });
+
+            if (isClipped) {
+                item.remove();
+            } else {
+                actualItem.remove();
             }
-            if (!inHole) {
-              containerShape = s;
-              break;
-            }
-          }
-        }
-
-        if (containerShape) {
-          containerShape.holes.push(path);
         } else {
-          shapes.push({ outer: path, holes: [] });
+            // Descomposición por Jerarquía de Contención en 1 Clic (para SVGs importados o nuevos compuestos)
+            const canDecompose = isGroup(actualItem) || isSymbolItem(actualItem) || (isCompoundPath(actualItem) && !actualItem.data?.decomposedLayer);
+            if (canDecompose) {
+                const result = decomposeByContainmentHierarchy(actualItem, isClipped);
+                if (result && result.items && result.items.length > 0) {
+                    if (isClipped && item.parent) item.remove();
+                    allCreatedItems.push(...result.items);
+                }
+            } else if (actualItem.data?.decomposedLayer) {
+                // Es una capa atómica independiente ya descompuesta: permanece intacta
+                allCreatedItems.push(actualItem);
+            }
         }
-      });
+    });
 
-      // 3. MATERIALIZAR LAS NUEVAS CAPAS INDEPENDIENTES EN EL LIENZO
-      const parent = isClipped ? designLayer : (item.parent || designLayer);
-      const insertIdx = (item.parent === parent) ? parent.children.indexOf(item) : parent.children.length;
-
-      shapes.forEach((s, idx) => {
-        let finalPiece;
-        if (s.holes.length > 0) {
-          // Letra o figura con huecos (ej: '0', 'A', '8', 'B', 'P', 'R')
-          const cp = new paper.CompoundPath({ insert: false });
-          cp.addChild(s.outer);
-          s.holes.forEach(h => cp.addChild(h));
-          cp.fillRule = 'evenodd';
-          finalPiece = cp;
-        } else {
-          // Letra o figura sólida (ej: '7', '1', 'L', 'I', etc.)
-          finalPiece = s.outer;
-        }
-
-        finalPiece.applyMatrix = true;
-        finalPiece.visible = true;
-        finalPiece.data = {
-          locked: false,
-          isHole: false,
-          label: (actualItem.data?.label || "Objeto") + ` (Capa ${idx + 1})`
-        };
-
-        // Inicializar geomBase pura en coordenadas locales para reactividad CSG y edición de nodos
-        const base = finalPiece.clone({ insert: false });
-        base.matrix = new paper.Matrix();
-        finalPiece.data.geomBase = base;
-
-        let deliveredItem = finalPiece;
-        if (isClipped && typeof window.clipItem === 'function') {
-          deliveredItem = window.clipItem(finalPiece);
+    // SELECCIÓN UNIFICADA LIMPIA DE TODAS LAS CAPAS LIBERADAS
+    if (allCreatedItems.length > 0) {
+        if (typeof window.deselectItem === 'function') {
+            window.deselectItem();
         }
 
-        parent.insertChild(insertIdx + idx, deliveredItem);
-        if (window.currentMockup) {
-          deliveredItem.insertBelow(window.currentMockup);
+        window.selectedItems = [...allCreatedItems];
+        // Asignar el elemento primario como ancla, pero marcando a todos como seleccionados
+        window.selectedItem = allCreatedItems[allCreatedItems.length - 1];
+        allCreatedItems.forEach(it => { if (it) it.selected = true; });
+
+        if (typeof window.updateSelectionBox === 'function') {
+            window.updateSelectionBox(window.selectedItem);
         }
-
-        allCreatedItems.push(deliveredItem);
-      });
-
-      // 4. DESTRUCCIÓN FÍSICA Y REMOCIÓN ABSOLUTA DEL CONTENEDOR PADRE
-      if (item !== actualItem) {
-        item.remove();
-      }
-      actualItem.remove();
-    } else {
-      // Si solo contenía 1 trazado simple indivisible, se mantiene en la selección
-      allCreatedItems.push(item);
+        if (typeof updateContextualMenu === 'function') {
+            updateContextualMenu(window.selectedItem);
+        }
     }
-  });
 
-  // 5. MIGRAR SELECCIÓN A LAS NUEVAS PIEZAS LIBERADAS
-  if (allCreatedItems.length > 0) {
-    if (typeof window.deselectItem === 'function') {
-      window.deselectItem();
+    if (typeof recalculateDynamicSubtractions === 'function') {
+        recalculateDynamicSubtractions();
     }
-    window.selectedItems = [...allCreatedItems];
-    window.selectedItem = allCreatedItems[allCreatedItems.length - 1];
-    allCreatedItems.forEach(it => { if (it) it.selected = true; });
 
-    if (typeof window.updateSelectionBox === 'function') {
-      window.updateSelectionBox(window.selectedItem);
-    }
-    if (typeof updateContextualMenu === 'function') {
-      updateContextualMenu(window.selectedItem);
-    }
-  }
-
-  // 6. DISPARO CSG REACTIVO SEGURO
-  if (typeof triggerDynamicSubtractions === 'function') {
-    triggerDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === 'function') {
-    window.recalculateDynamicSubtractions();
-  }
-
-  paper.view.update();
+    paper.view.update();
 }
 
 export function initContextualMenu() {
-  const canvasEl = document.getElementById("editorCanvas");
-  if (canvasEl) {
-    canvasEl.addEventListener("contextmenu", (e) => {
-      if (window.nodeEditMode) {
-        e.preventDefault();
-        if (typeof window.exitNodeEditMode === 'function') {
-          window.exitNodeEditMode();
+    const canvasEl = document.getElementById("editorCanvas");
+    if (canvasEl) {
+        canvasEl.addEventListener("contextmenu", (e) => {
+            if (window.nodeEditMode) {
+                e.preventDefault();
+                if (typeof window.exitNodeEditMode === 'function') {
+                    window.exitNodeEditMode();
+                }
+                return;
+            }
+            if (window.insertTextMode) {
+                e.preventDefault();
+                window.insertTextMode = false;
+                canvasEl.style.cursor = "default";
+                paper.view.update();
+                return;
+            }
+            const textEditor = document.getElementById("ekko-text-editor");
+            if (textEditor && document.activeElement === textEditor) {
+                return;
+            }
+        }, { capture: true });
+    }
+
+    document.addEventListener("keydown", (e) => {
+        const key = e.key.toLowerCase();
+        if (key === "escape") {
+            if (window.nodeEditMode) {
+                if (typeof window.exitNodeEditMode === 'function') {
+                    window.exitNodeEditMode();
+                }
+                return;
+            }
+            if (window.insertTextMode) {
+                e.preventDefault();
+                window.insertTextMode = false;
+                if (canvasEl) canvasEl.style.cursor = "default";
+                paper.view.update();
+                return;
+            }
+            const textEditor = document.getElementById("ekko-text-editor");
+            if (textEditor && document.activeElement === textEditor) {
+                e.preventDefault();
+                textEditor.blur();
+                return;
+            }
         }
-        return;
-      }
-      if (window.insertTextMode) {
-        e.preventDefault();
-        window.insertTextMode = false;
-        canvasEl.style.cursor = "default";
-        paper.view.update();
-        return;
-      }
-      const textEditor = document.getElementById("ekko-text-editor");
-      if (textEditor && document.activeElement === textEditor) {
-        return;
-      }
     }, { capture: true });
-  }
 
-  document.addEventListener("keydown", (e) => {
-    const key = e.key.toLowerCase();
-    if (key === "escape") {
-      if (window.nodeEditMode) {
-        if (typeof window.exitNodeEditMode === 'function') {
-          window.exitNodeEditMode();
+    const toolbar = document.getElementById("contextual-toolbar");
+    if (!toolbar) return;
+    if (toolbar.parentNode !== document.body) {
+        document.body.appendChild(toolbar);
+    }
+
+    removeOverlapTab();
+    populateFontDropdowns();
+    makeToolbarDraggable();
+
+    const setClick = (id, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.onclick = fn;
+    };
+
+    setClick('btnCtxDelete', () => {
+        if (window.selectedItem) {
+            deleteImage(window.selectedItem);
+            hideContextualMenu();
+            if (typeof window.recalculateDynamicSubtractions === 'function') {
+                window.recalculateDynamicSubtractions();
+            }
         }
-        return;
-      }
-      if (window.insertTextMode) {
-        e.preventDefault();
-        window.insertTextMode = false;
-        if (canvasEl) canvasEl.style.cursor = "default";
-        paper.view.update();
-        return;
-      }
-      const textEditor = document.getElementById("ekko-text-editor");
-      if (textEditor && document.activeElement === textEditor) {
-        e.preventDefault();
-        textEditor.blur();
-        return;
-      }
-    }
-  }, { capture: true });
+    });
 
-  const toolbar = document.getElementById("contextual-toolbar");
-  if (!toolbar) return;
+    setClick('btnCtxDuplicate', () => {
+        if (window.selectedItem) {
+            duplicateImage(window.selectedItem);
+        }
+    });
 
-  if (toolbar.parentNode !== document.body) {
-    document.body.appendChild(toolbar);
-  }
+    setClick('btnCtxForward', () => {
+        if (window.selectedItem) {
+            bringImageForward(window.selectedItem);
+        }
+        if (typeof window.recalculateDynamicSubtractions === 'function') {
+            window.recalculateDynamicSubtractions();
+        }
+    });
 
-  removeOverlapTab();
-  populateFontDropdowns();
-  makeToolbarDraggable();
+    setClick('btnCtxBackward', () => {
+        if (window.selectedItem) {
+            sendImageBackward(window.selectedItem);
+        }
+        if (typeof window.recalculateDynamicSubtractions === 'function') {
+            window.recalculateDynamicSubtractions();
+        }
+    });
 
-  const setClick = (id, fn) => {
-    const el = document.getElementById(id);
-    if (el) el.onclick = fn;
-  };
+    setClick('btnCtxBold', () => {
+        if (window.selectedItem) toggleBold(window.selectedItem);
+    });
 
-  // --- BOTÓN ELIMINAR OBJETO COMPLETO (#btnCtxDelete) ---
-  setClick('btnCtxDelete', () => {
-    if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
-      window.exitNodeEditMode(true);
-    }
-    const target = window.nodeEditTarget || window.selectedItem;
-    if (target) {
-      deleteImage(target);
-      hideContextualMenu();
-      if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-      }
-    }
-  });
+    setClick('btnCtxItalic', () => {
+        if (window.selectedItem) toggleItalic(window.selectedItem);
+    });
 
-  // --- BOTÓN DUPLICAR OBJETO COMPLETO CON DESFASE VISUAL (#btnCtxDuplicate) ---
-  setClick('btnCtxDuplicate', () => {
-    duplicateSelectedItem();
-  });
+    setClick('btnCtxUnderline', () => {
+        if (window.selectedItem) toggleUnderline(window.selectedItem);
+    });
 
-  // --- BOTONES DE APILAMIENTO Z (LIGHTBURN STYLE) ---
-  setClick('btnCtxToFront', () => {
-    if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
-      window.exitNodeEditMode(false);
-    }
-    const target = window.nodeEditTarget || window.selectedItem;
-    if (target) {
-      if (typeof window.bringFront === 'function') {
-        window.bringFront();
-      } else if (typeof bringImageToFront === 'function') {
-        bringImageToFront(target);
-      }
-    }
-    if (typeof window.recalculateDynamicSubtractions === 'function') {
-      window.recalculateDynamicSubtractions();
-    }
-  });
+    setClick('btnCtxWeld', () => {
+        if (window.selectedItem) weldText(window.selectedItem);
+    });
 
-  setClick('btnCtxForward', () => {
-    if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
-      window.exitNodeEditMode(false);
+    const curveSlider = document.getElementById('ctxTextCurve');
+    if (curveSlider) {
+        curveSlider.oninput = () => {
+            if (window.selectedItem) {
+                const val = parseFloat(curveSlider.value);
+                applyTextCurve(window.selectedItem, val);
+            }
+        };
     }
-    const target = window.nodeEditTarget || window.selectedItem;
-    if (target) {
-      if (typeof window.bringForward === 'function') {
-        window.bringForward();
-      } else if (typeof bringImageForward === 'function') {
-        bringImageForward(target);
-      }
-    }
-    if (typeof window.recalculateDynamicSubtractions === 'function') {
-      window.recalculateDynamicSubtractions();
-    }
-  });
 
-  setClick('btnCtxBackward', () => {
-    if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
-      window.exitNodeEditMode(false);
+    const hspaceSlider = document.getElementById('ctxTextHSpace');
+    if (hspaceSlider) {
+        hspaceSlider.oninput = () => {
+            if (window.selectedItem) {
+                const val = parseFloat(hspaceSlider.value);
+                applyTextSpacing(window.selectedItem, val);
+            }
+        };
     }
-    const target = window.nodeEditTarget || window.selectedItem;
-    if (target) {
-      if (typeof window.sendBackward === 'function') {
-        window.sendBackward();
-      } else if (typeof sendImageBackward === 'function') {
-        sendImageBackward(target);
-      }
-    }
-    if (typeof window.recalculateDynamicSubtractions === 'function') {
-      window.recalculateDynamicSubtractions();
-    }
-  });
 
-  setClick('btnCtxToBack', () => {
-    if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
-      window.exitNodeEditMode(false);
-    }
-    const target = window.nodeEditTarget || window.selectedItem;
-    if (target) {
-      if (typeof window.sendBack === 'function') {
-        window.sendBack();
-      } else if (typeof sendImageToBack === 'function') {
-        sendImageToBack(target);
-      }
-    }
-    if (typeof window.recalculateDynamicSubtractions === 'function') {
-      window.recalculateDynamicSubtractions();
-    }
-  });
+    setClick('btnCtxGroup', () => groupSelectedItems());
+    setClick('btnCtxAgrupar', () => groupSelectedItems());
+    setClick('btnCtxUngroup', () => ungroupSelectedItem());
+    setClick('btnCtxDesagrupar', () => ungroupSelectedItem());
 
-  setClick('btnCtxBold', () => {
-    if (window.selectedItem) toggleBold(window.selectedItem);
-  });
+    setClick('btnCtxEditNodes', () => {
+        if (window.selectedItem && typeof enterNodeEditMode === 'function') {
+            enterNodeEditMode(window.selectedItem);
+        }
+    });
 
-  setClick('btnCtxItalic', () => {
-    if (window.selectedItem) toggleItalic(window.selectedItem);
-  });
+    setClick('btnCtxNodeEdit', () => {
+        if (window.selectedItem && typeof enterNodeEditMode === 'function') {
+            enterNodeEditMode(window.selectedItem);
+        }
+    });
 
-  setClick('btnCtxUnderline', () => {
-    if (window.selectedItem) toggleUnderline(window.selectedItem);
-  });
-
-  setClick('btnCtxWeld', () => {
-    if (window.selectedItem) weldText(window.selectedItem);
-  });
-
-  setClick('btnCtxScaleDown', () => {
-    if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
-  });
-
-  setClick('btnCtxScaleUp', () => {
-    if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
-  });
-
-  setClick('btnCtxGroup', () => {
-    if (typeof window.groupSelectedItems === 'function') {
-      window.groupSelectedItems();
-    } else {
-      groupSelectedItems();
-    }
-  });
-  setClick('btnCtxAgrupar', () => {
-    if (typeof window.groupSelectedItems === 'function') {
-      window.groupSelectedItems();
-    } else {
-      groupSelectedItems();
-    }
-  });
-  setClick('btnCtxUngroup', () => {
-    if (typeof window.ungroupSelectedItem === 'function') {
-      window.ungroupSelectedItem();
-    } else {
-      ungroupSelectedItem();
-    }
-  });
-  setClick('btnCtxDesagrupar', () => {
-    if (typeof window.ungroupSelectedItem === 'function') {
-      window.ungroupSelectedItem();
-    } else {
-      ungroupSelectedItem();
-    }
-  });
-
-  setClick('btnCtxEditNodes', () => {
-    if (window.selectedItem) {
-      if (typeof window.enterNodeEditMode === 'function') {
-        window.enterNodeEditMode(window.selectedItem);
-      } else {
-        enterNodeEditMode(window.selectedItem);
-      }
-    }
-  });
-
-  setClick('btnCtxNodeEdit', () => {
-    if (window.selectedItem) {
-      if (typeof window.enterNodeEditMode === 'function') {
-        window.enterNodeEditMode(window.selectedItem);
-      } else {
-        enterNodeEditMode(window.selectedItem);
-      }
-    }
-  });
+    window.groupSelectedItems = groupSelectedItems;
+    window.ungroupSelectedItem = ungroupSelectedItem;
 }
 
+/**
+ * Calcula los límites unificados (bounding box de pantalla) para ubicar la barra contextual.
+ */
 function getUnifiedScreenBounds(item) {
-  const canvasEl = document.getElementById("editorCanvas");
-  if (!canvasEl || typeof paper === 'undefined' || !paper.view) return null;
-  const canvasRect = canvasEl.getBoundingClientRect();
-  let combinedBounds = null;
+    const canvasEl = document.getElementById("editorCanvas");
+    if (!canvasEl || typeof paper === 'undefined' || !paper.view) return null;
+    const canvasRect = canvasEl.getBoundingClientRect();
 
-  if (window.selectedItems && window.selectedItems.length > 0) {
-    window.selectedItems.forEach(it => {
-      const tgt = it.data?.clipGroup ? getContentItem(it) : it;
-      if (tgt && tgt.bounds && tgt.visible !== false) {
-        if (!combinedBounds) {
-          combinedBounds = tgt.bounds.clone();
-        } else {
-          combinedBounds = combinedBounds.unite(tgt.bounds);
-        }
-      }
-    });
-  }
-
-  if (!combinedBounds && item) {
-    const tgt = item.data?.clipGroup ? getContentItem(item) : item;
-    if (tgt && tgt.bounds && tgt.visible !== false) {
-      combinedBounds = tgt.bounds.clone();
+    let combinedBounds = null;
+    if (window.selectedItems && window.selectedItems.length > 0) {
+        window.selectedItems.forEach(it => {
+            const tgt = it.data?.clipGroup ? getContentItem(it) : it;
+            if (tgt && tgt.bounds && tgt.visible !== false) {
+                combinedBounds = combinedBounds ? combinedBounds.unite(tgt.bounds) : tgt.bounds.clone();
+            }
+        });
     }
-  }
 
-  if (!combinedBounds) return null;
+    if (!combinedBounds && item) {
+        const tgt = item.data?.clipGroup ? getContentItem(item) : item;
+        if (tgt && tgt.bounds) {
+            combinedBounds = tgt.bounds.clone();
+        }
+    }
 
-  const screenTopCenter = paper.view.projectToView(combinedBounds.topCenter);
-  return {
-    x: canvasRect.left + screenTopCenter.x,
-    y: canvasRect.top + screenTopCenter.y,
-    combinedBounds: combinedBounds
-  };
+    if (!combinedBounds) return null;
+
+    const screenTopCenter = paper.view.projectToView(combinedBounds.topCenter);
+    return {
+        x: canvasRect.left + screenTopCenter.x,
+        y: canvasRect.top + screenTopCenter.y,
+        combinedBounds: combinedBounds
+    };
 }
 
 export function updateContextualMenu(item) {
-  const toolbar = document.getElementById("contextual-toolbar");
-  if (!toolbar) return;
+    const toolbar = document.getElementById("contextual-toolbar");
+    if (!toolbar) return;
+    removeOverlapTab();
 
-  removeOverlapTab();
-
-  if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
-    toolbar.classList.remove('active');
-    toolbarDragged = false;
-    lastSelectedItem = null;
-    return;
-  }
-
-  toolbar.classList.add('active');
-
-  const hideSubgroup = (id) => {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('hidden');
-  };
-
-  hideSubgroup('ctxTextControls');
-  hideSubgroup('ctxImageControls');
-  hideSubgroup('ctxVectorControls');
-
-  const btnTrace = document.getElementById('btnCtxTrace');
-  if (btnTrace) btnTrace.style.display = 'none';
-
-  const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
-
-  if (selectedCount > 1) {
-    const allVectors = window.selectedItems.every(it => {
-      const tgt = it.data?.clipGroup ? getContentItem(it) : it;
-      return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isShape(tgt));
-    });
-
-    if (allVectors) {
-      const vecCtrl = document.getElementById('ctxVectorControls');
-      if (vecCtrl) {
-        vecCtrl.classList.remove('hidden');
-        const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
-        if (btnEditNodes) btnEditNodes.style.display = 'none';
-
-        const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
-        if (btnGroup) {
-          btnGroup.classList.remove('hidden');
-          btnGroup.style.display = '';
-        }
-
-        const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
-        if (btnUngroup) {
-          btnUngroup.style.display = 'none';
-        }
-      }
+    if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
+        toolbar.classList.remove('active');
+        toolbarDragged = false;
+        lastSelectedItem = null;
+        return;
     }
-  } else {
-    const target = item.data?.clipGroup ? getContentItem(item) : item;
-    if (!target) return;
 
-    if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-      const txtCtrl = document.getElementById('ctxTextControls');
-      if (txtCtrl) txtCtrl.classList.remove('hidden');
-      const fontTrigger = document.querySelector('.selected-font-trigger span');
-      if (fontTrigger) fontTrigger.textContent = getSelectedFontFamily();
-      const fontSizeInput = document.getElementById('ctxFontSize');
-      if (fontSizeInput) fontSizeInput.value = Math.round(target.fontSize || 42);
-    } else if (isRaster(target)) {
-      const imgCtrl = document.getElementById('ctxImageControls');
-      if (imgCtrl) imgCtrl.classList.remove('hidden');
-      if (btnTrace) {
-        btnTrace.classList.remove('hidden');
-        btnTrace.style.display = 'inline-flex';
-      }
-    } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target) || isShape(target)) {
-      const vecCtrl = document.getElementById('ctxVectorControls');
-      if (vecCtrl) {
-        vecCtrl.classList.remove('hidden');
-        const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
-        if (btnEditNodes) {
-          const canEdit = !isGroup(target) && !isSymbolItem(target);
-          btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
-        }
-        const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
-        if (btnGroup) {
-          btnGroup.classList.add('hidden');
-          btnGroup.style.display = 'none';
-        }
-        const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
-        if (btnUngroup) {
-          const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
-          btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
-        }
-      }
-    }
-  }
+    toolbar.classList.add('active');
 
-  // Posicionamiento de la barra flotante
-  if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
-    toolbar.style.left = window.customToolbarLeft + 'px';
-    toolbar.style.top = window.customToolbarTop + 'px';
-  } else if (!toolbarDragged || lastSelectedItem !== item) {
-    const screenPos = getUnifiedScreenBounds(item);
-    if (screenPos) {
-      const toolbarW = toolbar.offsetWidth || 320;
-      const toolbarH = toolbar.offsetHeight || 44;
-      const x = screenPos.x - (toolbarW / 2);
-      const y = screenPos.y - toolbarH - 14;
-      toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarW - 10, x)) + 'px';
-      toolbar.style.top = Math.max(10, y) + 'px';
+    const hideSubgroup = (id) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add('hidden');
+    };
+
+    hideSubgroup('ctxTextControls');
+    hideSubgroup('ctxImageControls');
+    hideSubgroup('ctxVectorControls');
+
+    const btnTrace = document.getElementById('btnCtxTrace');
+    if (btnTrace) btnTrace.style.display = 'none';
+
+    const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
+
+    if (selectedCount > 1) {
+        const allVectors = window.selectedItems.every(it => {
+            const tgt = it.data?.clipGroup ? getContentItem(it) : it;
+            return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isShape(tgt));
+        });
+
+        if (allVectors) {
+            const vecCtrl = document.getElementById('ctxVectorControls');
+            if (vecCtrl) {
+                vecCtrl.classList.remove('hidden');
+                const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
+                if (btnEditNodes) btnEditNodes.style.display = 'none';
+
+                const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
+                if (btnGroup) {
+                    btnGroup.classList.remove('hidden');
+                    btnGroup.style.display = '';
+                }
+
+                const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
+                if (btnUngroup) {
+                    const canUngroup = window.selectedItems.some(it => {
+                        const t = it.data?.clipGroup ? getContentItem(it) : it;
+                        return t && (isGroup(t) || isSymbolItem(t) || (isCompoundPath(t) && !t.data?.decomposedLayer));
+                    });
+                    if (canUngroup) {
+                        btnUngroup.classList.remove('hidden');
+                        btnUngroup.style.display = '';
+                    } else {
+                        btnUngroup.classList.add('hidden');
+                        btnUngroup.style.display = 'none';
+                    }
+                }
+            }
+        }
+    } else {
+        const target = item.data?.clipGroup ? getContentItem(item) : item;
+        if (!target) return;
+
+        if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+            const txtCtrl = document.getElementById('ctxTextControls');
+            if (txtCtrl) txtCtrl.classList.remove('hidden');
+            const fontTrigger = document.querySelector('.selected-font-trigger span');
+            if (fontTrigger) fontTrigger.textContent = target.fontFamily || "Arial";
+        } else if (isRaster(target)) {
+            const imgCtrl = document.getElementById('ctxImageControls');
+            if (imgCtrl) imgCtrl.classList.remove('hidden');
+            if (btnTrace) btnTrace.style.display = 'inline-block';
+        } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target)) {
+            const vecCtrl = document.getElementById('ctxVectorControls');
+            if (vecCtrl) {
+                vecCtrl.classList.remove('hidden');
+                const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
+                if (btnEditNodes) {
+                    const canEdit = !isGroup(target) && !isSymbolItem(target);
+                    btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
+                }
+                const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
+                if (btnGroup) {
+                    btnGroup.classList.add('hidden');
+                    btnGroup.style.display = 'none';
+                }
+                const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
+                if (btnUngroup) {
+                    const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
+                    btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
+                }
+            }
+        }
     }
-  }
-  lastSelectedItem = item;
+
+    // POSICIONAMIENTO UNIFICADO DEL TOOLBAR (Para selección simple y multiselección)
+    if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
+        toolbar.style.left = window.customToolbarLeft + 'px';
+        toolbar.style.top = window.customToolbarTop + 'px';
+    } else if (!toolbarDragged || lastSelectedItem !== item) {
+        const screenPos = getUnifiedScreenBounds(item);
+        if (screenPos) {
+            const toolbarW = toolbar.offsetWidth || 320;
+            const toolbarH = toolbar.offsetHeight || 44;
+            const x = screenPos.x - (toolbarW / 2);
+            const y = screenPos.y - toolbarH - 14;
+
+            toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarW - 10, x)) + 'px';
+            toolbar.style.top = Math.max(10, y) + 'px';
+            toolbar.style.zIndex = "2147483647";
+        }
+    }
+
+    lastSelectedItem = item;
 }
 
 export function hideContextualMenu() {
-  const toolbar = document.getElementById("contextual-toolbar");
-  if (toolbar) {
-    toolbar.classList.remove('active');
+    const toolbar = document.getElementById("contextual-toolbar");
+    if (toolbar) {
+        toolbar.classList.remove('active');
+    }
+    const list = document.querySelector('.font-dropdown-list');
+    if (list) {
+        list.classList.add('hidden');
+    }
     toolbarDragged = false;
     lastSelectedItem = null;
-  }
 }
 
-window.updateContextualMenu = updateContextualMenu;
-window.hideContextualMenu = hideContextualMenu;
-window.initContextualMenu = initContextualMenu;
-window.groupSelectedItems = groupSelectedItems;
-window.ungroupSelectedItem = ungroupSelectedItem;
+if (typeof window !== 'undefined') {
+    window.groupSelectedItems = groupSelectedItems;
+    window.ungroupSelectedItem = ungroupSelectedItem;
+    window.updateContextualMenu = updateContextualMenu;
+    window.hideContextualMenu = hideContextualMenu;
+    window.initContextualMenu = initContextualMenu;
+}
