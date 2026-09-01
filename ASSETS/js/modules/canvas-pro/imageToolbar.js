@@ -95,30 +95,21 @@ export function scaleImage(item, factor) {
   }
 }
 
-// Duplicar el elemento seleccionado de forma inteligente manteniendo la máscara estática
-export function duplicateImage(item) {
-  if (!item || item.data?.locked) return;
-  if (typeof window.saveHistory === 'function') window.saveHistory();
+// Helper para clonar un único objeto preservando máscara o clon plano
+function cloneSingleItem(targetItem) {
+  if (!targetItem || targetItem.data?.locked) return null;
+  let duplicatedObject = null;
 
-  let duplicatedObject;
+  if (targetItem.data && targetItem.data.clipGroup) {
+    const content = targetItem.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+    if (!content) return null;
 
-  // Si es un grupo recortado (clipGroup), duplicamos solo el contenido y re-enmascaramos
-  if (item.data && item.data.clipGroup) {
-    const content = item.children.find(c => !c.clipMask);
-    if (!content) return;
-
-    // 1. Clonar únicamente el contenido interno real (imagen, texto, svg, qr)
     const contentClone = content.clone();
-
-    // 2. Desplazar únicamente el contenido levemente para visibilidad
     contentClone.position = contentClone.position.add(new paper.Point(20, 20));
     contentClone.data = { ...(contentClone.data || {}), locked: false };
-
-    // 3. Crear una nueva máscara perfectamente alineada con el mockup original
     duplicatedObject = window.clipItem(contentClone);
   } else {
-    // Objeto normal sin máscara
-    const clone = item.clone();
+    const clone = targetItem.clone();
     clone.position = clone.position.add(new paper.Point(20, 20));
     clone.data = { ...(clone.data || {}), locked: false };
     duplicatedObject = clone;
@@ -129,21 +120,80 @@ export function duplicateImage(item) {
     if (window.currentMockup) {
       duplicatedObject.insertBelow(window.currentMockup);
     }
-    if (typeof window.selectItem === 'function') {
-      window.selectItem(duplicatedObject);
+  }
+  return duplicatedObject;
+}
+
+// Duplicar el objeto seleccionado de forma inteligente (soporta 1 objeto, multiselección y salida segura de nodeEditMode)
+export function duplicateImage(item) {
+  // 1. Si está en modo edición de nodos, confirmar y salir para duplicar el objeto completo
+  if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
+    const targetObj = window.nodeEditTarget || item || window.selectedItem;
+    window.exitNodeEditMode(true);
+    item = targetObj;
+  }
+
+  // 2. Determinar la lista de objetos a duplicar (multiselección o selección simple)
+  const itemsToDuplicate = (window.selectedItems && window.selectedItems.length > 0)
+    ? [...window.selectedItems]
+    : (item ? [item] : (window.selectedItem ? [window.selectedItem] : []));
+
+  if (itemsToDuplicate.length === 0) return;
+  if (typeof window.saveHistory === 'function') window.saveHistory();
+
+  const duplicatedList = [];
+  itemsToDuplicate.forEach(it => {
+    const cloned = cloneSingleItem(it);
+    if (cloned) duplicatedList.push(cloned);
+  });
+
+  if (duplicatedList.length > 0) {
+    if (typeof window.deselectItem === 'function') window.deselectItem();
+    window.selectedItems = [...duplicatedList];
+    window.selectedItem = duplicatedList[duplicatedList.length - 1];
+    duplicatedList.forEach(cl => { cl.selected = true; });
+
+    if (typeof window.updateSelectionBox === 'function') {
+      window.updateSelectionBox(window.selectedItem);
+    }
+    if (typeof window.updateContextualMenu === 'function') {
+      window.updateContextualMenu(window.selectedItem);
+    }
+    if (typeof window.recalculateDynamicSubtractions === 'function') {
+      window.recalculateDynamicSubtractions();
     }
   }
   paper.view.update();
 }
 
-// Eliminar el elemento de forma segura
+// Eliminar el objeto u objetos seleccionados de forma segura (soporta salida de nodeEditMode y multiselección)
 export function deleteImage(item) {
-  if (!item || item.data?.locked) return;
+  // 1. Si está en modo edición de nodos, salir primero limpiando tiradores de pantalla
+  if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
+    const targetObj = window.nodeEditTarget || item || window.selectedItem;
+    window.exitNodeEditMode(true);
+    item = targetObj;
+  }
+
+  // 2. Determinar la lista de objetos a eliminar
+  const itemsToDelete = (window.selectedItems && window.selectedItems.length > 0)
+    ? [...window.selectedItems]
+    : (item ? [item] : (window.selectedItem ? [window.selectedItem] : []));
+
+  if (itemsToDelete.length === 0) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
-  item.remove();
+  itemsToDelete.forEach(it => {
+    if (it && !it.data?.locked) {
+      it.remove();
+    }
+  });
+
   if (typeof window.deselectItem === 'function') {
     window.deselectItem();
+  }
+  if (typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
   }
   paper.view.update();
 }
