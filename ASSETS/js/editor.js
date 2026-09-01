@@ -671,14 +671,11 @@ export function addSVGFromFile(file) {
         return;
       }
 
-      // Inicializar metadatos de capa
+      // 1. Inicializar metadatos de capa
       const cleanLabel = file.name ? file.name.replace(/\.svg$/i, "") : "SVG Importado";
       item.data = { ...(item.data || {}), locked: false, label: cleanLabel };
 
-      // Inicializacion profunda de geomBase para trazabilidad y edicion
-      initGeomBaseRecursive(item);
-
-      // Posicionamiento y escalado proporcional respecto al mockup o lienzo
+      // 2. Posicionamiento y escalado proporcional respecto al mockup o lienzo
       const targetArea = (window.currentMockup && window.currentMockup.bounds && window.currentMockup.bounds.width > 0)
         ? window.currentMockup.bounds
         : paper.view.bounds;
@@ -693,10 +690,39 @@ export function addSVGFromFile(file) {
         }
       }
 
-      // Centrado absoluto sobre el producto
+      // 3. Centrado absoluto sobre el producto
       item.position = targetArea.center.clone();
 
-      // Enmascaramiento segun el modo de contencion de producto
+      // 4. Sanitizacion visual y preparacion de trazados
+      // Evita trazos microscopicos invisibles tras el escalado y asegura visibilidad
+      function sanitizeAndBakeVectors(node) {
+        if (!node) return;
+        if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+          node.visible = true;
+          node.opacity = 1.0;
+          if (node.strokeColor) {
+            node.strokeScaling = false;
+            if (!node.strokeWidth || node.strokeWidth < 1.0) {
+              node.strokeWidth = 1.2;
+            }
+          } else if (!node.fillColor) {
+            node.fillColor = new paper.Color('#111827');
+          }
+        }
+        if (node.children && node.children.length > 0) {
+          node.children.forEach(sanitizeAndBakeVectors);
+        }
+      }
+      sanitizeAndBakeVectors(item);
+
+      // 5. Hornear transformaciones en coordenadas reales de cada nodo
+      item.applyMatrix = true;
+
+      // 6. AHORA que el objeto esta escalado, centrado y horneado, inicializar geomBase
+      // Garantiza que al desagrupar, cada pieza conserve exactamente este tamano y forma
+      initGeomBaseRecursive(item);
+
+      // 7. Enmascaramiento segun el modo de contencion de producto
       let finalItem = item;
       if (typeof window.clipItem === 'function' && !window.infiniteCanvasMode && window.clipMask) {
         finalItem = window.clipItem(item);
@@ -706,24 +732,24 @@ export function addSVGFromFile(file) {
         }
       }
 
-      // Orden Z: El diseño siempre se posiciona inmediatamente debajo del mockup visible
+      // 8. Orden Z: El diseño siempre se posiciona inmediatamente debajo del mockup visible
       if (window.currentMockup && finalItem) {
         finalItem.insertBelow(window.currentMockup);
       }
 
-      // Reactividad CSG de calados si coexistieran
+      // 9. Reactividad CSG de calados si coexistieran
       if (typeof recalculateDynamicSubtractions === 'function') {
         recalculateDynamicSubtractions();
       }
 
-      // Guardado formal de historial post-insercion exitosa
+      // 10. Guardado formal de historial post-insercion exitosa
       saveHistory();
 
-      // Sincronizacion de seleccion e interfaz
+      // 11. Sincronizacion de seleccion e interfaz
       window.selectItem(finalItem);
       paper.view.update();
 
-      console.log(`%c[EKKO SVG IMPORT] SVG '${cleanLabel}' importado y dinamizado con exito.`, 'color: #10b981; font-weight: bold;');
+      console.log(`%c[EKKO SVG IMPORT] SVG '${cleanLabel}' importado, escalado y dinamizado con exito.`, 'color: #10b981; font-weight: bold;');
     });
   };
 
