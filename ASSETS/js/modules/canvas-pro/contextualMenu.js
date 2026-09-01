@@ -673,10 +673,10 @@ export function initContextualMenu() {
     }
     const target = window.nodeEditTarget || window.selectedItem;
     if (target) {
-      if (typeof bringImageToFront === 'function') {
-        bringImageToFront(target);
-      } else if (typeof window.bringFront === 'function') {
+      if (typeof window.bringFront === 'function') {
         window.bringFront();
+      } else if (typeof bringImageToFront === 'function') {
+        bringImageToFront(target);
       }
     }
     if (typeof window.recalculateDynamicSubtractions === 'function') {
@@ -690,7 +690,11 @@ export function initContextualMenu() {
     }
     const target = window.nodeEditTarget || window.selectedItem;
     if (target) {
-      bringImageForward(target);
+      if (typeof window.bringForward === 'function') {
+        window.bringForward();
+      } else if (typeof bringImageForward === 'function') {
+        bringImageForward(target);
+      }
     }
     if (typeof window.recalculateDynamicSubtractions === 'function') {
       window.recalculateDynamicSubtractions();
@@ -703,7 +707,11 @@ export function initContextualMenu() {
     }
     const target = window.nodeEditTarget || window.selectedItem;
     if (target) {
-      sendImageBackward(target);
+      if (typeof window.sendBackward === 'function') {
+        window.sendBackward();
+      } else if (typeof sendImageBackward === 'function') {
+        sendImageBackward(target);
+      }
     }
     if (typeof window.recalculateDynamicSubtractions === 'function') {
       window.recalculateDynamicSubtractions();
@@ -716,10 +724,10 @@ export function initContextualMenu() {
     }
     const target = window.nodeEditTarget || window.selectedItem;
     if (target) {
-      if (typeof sendImageToBack === 'function') {
-        sendImageToBack(target);
-      } else if (typeof window.sendBack === 'function') {
+      if (typeof window.sendBack === 'function') {
         window.sendBack();
+      } else if (typeof sendImageToBack === 'function') {
+        sendImageToBack(target);
       }
     }
     if (typeof window.recalculateDynamicSubtractions === 'function') {
