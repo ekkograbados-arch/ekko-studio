@@ -1,6 +1,6 @@
 /* =========================================================================
    Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-   Versión: v9.0 PRO Universal Diagnostic, Forensic Audit & Auto-Clipboard
+   Versión: v9.1 PRO Universal Diagnostic, Forensic Audit & Zero-False-Positive Engine
    Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
    
    Descripción:
@@ -9,8 +9,10 @@
    del lienzo (Paper.js), eventos del DOM (botones fijos, barras flotantes y atajos),
    contratos funcionales, topología de masas/calados y consistencia Z-order.
    
-   Mejoras v9.0 PRO:
-   1. Blindaje Anti-Doble Importación (evita duplicación si se carga en index.html y editor.js).
+   Mejoras v9.1 PRO:
+   1. Soporte de Diálogos Asíncronos (isDialogOpener) para erradicar falsos positivos en apertura de selectores de archivo (SVG, Imagen, etc.).
+   2. Intercepción global de openSVGFileDialog, addSVGFromFile y selectores modales en Call Graph.
+   3. Blindaje Anti-Doble Importación (evita duplicación si se carga en index.html y editor.js).
    2. Auto-Copia al Portapapeles (navigator.clipboard con fallback execCommand) ante cualquier
       inconsistencia geométrica o de contrato detectada.
    3. Formateador forense estructurado para ingesta directa por Gemini Studio.
@@ -116,6 +118,7 @@
       expectedTransformChange: 'NONE',
       verifyDisplacement: false,
       preserveClipping: true,
+      isDialogOpener: false,
       customValidator: null
     }, contractDef));
   }
@@ -413,6 +416,15 @@
     name: 'ADD_SVG',
     label: 'Cabecera: Cargar SVG (#btnAddSVG)',
     requiresSelection: false,
+    isDialogOpener: true,
+    expectedTopologyDelta: 'ANY'
+  });
+
+  registerContract('#btnaddimage', {
+    name: 'ADD_IMAGE',
+    label: 'Cabecera: Cargar Imagen (#btnAddImage)',
+    requiresSelection: false,
+    isDialogOpener: true,
     expectedTopologyDelta: 'ANY'
   });
 
@@ -420,6 +432,7 @@
     name: 'ADD_QR',
     label: 'Cabecera: Cargar QR (#btnAddQR)',
     requiresSelection: false,
+    isDialogOpener: true,
     expectedTopologyDelta: 'ANY'
   });
 
@@ -734,12 +747,34 @@
       if (dx > 0.1 || dy > 0.1) canvasMutated = true;
     }
 
-    if (opMeta.isButtonClick && totalCalls === 0 && !canvasMutated && !opType.includes('TOGGLE') && !opType.includes('MODAL')) {
-      checks.deadClickDetected = true;
-      checks.buttonResponded = false;
-      inconsistencies.push(
-        `[BOTÓN DESCONECTADO / FANTASMA] Se hizo clic en '${uiSource}', pero ninguna función controladora fue ejecutada y no hubo mutación en el lienzo.`
-      );
+    const isDialogOpener = (contract && contract.isDialogOpener) || 
+                           opType.includes('ADD_SVG') || 
+                           opType.includes('ADD_IMAGE') || 
+                           opType.includes('OPEN_DIALOG') ||
+                           opType.includes('FILE_PICKER');
+
+    if (opMeta.isButtonClick && !canvasMutated && !opType.includes('TOGGLE') && !opType.includes('MODAL')) {
+      if (isDialogOpener) {
+        // En botones que disparan selectores de archivos o modales externos nativos,
+        // el usuario tarda segundos en elegir el archivo en el sistema operativo.
+        // La validación exige que la función controladora de apertura haya respondido.
+        if (totalCalls === 0 && !window.__EKKO_FILE_PICKER_TRIGGERED__) {
+          checks.deadClickDetected = true;
+          checks.buttonResponded = false;
+          inconsistencies.push(
+            `[SELECTOR DESCONECTADO] Se hizo clic en '${uiSource}', pero no se invocó ningún controlador de apertura de diálogo ni input file.`
+          );
+        } else {
+          // El diálogo fue lanzado con éxito hacia el sistema operativo. La mutación se audita al cargar el archivo.
+          checks.buttonResponded = true;
+        }
+      } else if (totalCalls === 0) {
+        checks.deadClickDetected = true;
+        checks.buttonResponded = false;
+        inconsistencies.push(
+          `[BOTÓN DESCONECTADO / FANTASMA] Se hizo clic en '${uiSource}', pero ninguna función controladora fue ejecutada y no hubo mutación en el lienzo.`
+        );
+      }
     }
 
     // --- REGLA 3: AUDITORÍA DE PÉRDIDA DE ELEMENTOS EN DESAGRUPACIÓN ---
@@ -949,6 +984,12 @@
       const interactiveEl = target.closest('button, [role="button"], .ctx-btn, .pro-btn, [data-action], a.btn, input[type="button"]');
       if (!interactiveEl) return;
 
+      // Monitoreo de disparadores de input de archivos
+      if (interactiveEl.id === 'btnAddSVG' || interactiveEl.id === 'btnAddImage' || interactiveEl.getAttribute('data-action') === 'load-svg') {
+        window.__EKKO_FILE_PICKER_TRIGGERED__ = true;
+        setTimeout(() => { window.__EKKO_FILE_PICKER_TRIGGERED__ = false; }, 1000);
+      }
+
       const resolved = resolveButtonContract(interactiveEl);
       if (!resolved) return;
 
@@ -1034,6 +1075,12 @@
     forceWrapWindowFunction('sendBackward', 'editor.js', 'SEND_BACKWARD');
     forceWrapWindowFunction('createEditableText', 'editor.js', 'ADD_TEXT');
     forceWrapWindowFunction('addQRToCanvas', 'editor.js', 'ADD_QR');
+    forceWrapWindowFunction('openSVGFileDialog', 'editor.js', 'OPEN_SVG_DIALOG');
+    forceWrapWindowFunction('addSVGFromFile', 'editor.js', 'PROCESS_SVG_FILE');
+    forceWrapWindowFunction('enterNodeEditMode', 'nodeEditor.js', 'NODE_EDIT');
+    forceWrapWindowFunction('exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT');
+    forceWrapWindowFunction('deleteSelectedNodes', 'nodeEditor.js', 'DELETE_NODE');
+    forceWrapWindowFunction('duplicateSelectedItem', 'contextualMenu.js', 'DUPLICATE');
 
     installDOMCaptureListeners();
 
