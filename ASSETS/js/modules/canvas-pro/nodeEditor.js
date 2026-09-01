@@ -1,30 +1,33 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v36 - Universal LightBurn & Group Safe)
-   Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v38 - Universal LightBurn & Reactive CSG)
+Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
+Descripción:
+Motor industrial de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
+para EKKO Studio basado en Paper.js.
 
-   Descripción:
-   Motor industrial de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
-   para EKKO Studio basado en Paper.js.
-   
-   Cumple rigurosamente con:
-   - Manual de Instrucciones de LightBurn (Sección 4.5: Edición de Nodos, atajos D, S, L, C, I, M, B).
-   - PROMPT MAESTRO — EKKO UNIVERSAL DIAGNOSTIC & TOOL INTEGRATION SYSTEM (Reglas 1 a 20).
-   - Diagnostico_v2.txt (Protocolo de 11 Fases y Formato de 20 Puntos).
-   - nuevos comandos a crear.txt (Auditoría Forense de 5 Niveles y Call Graph trazable).
-   
-   Mejoras v36 PRO:
-   1. Resolución Universal de Grupos y Compuestos: Permite editar nodos en trazados simples,
-      compuestos (CompoundPath) o agrupaciones (Group) sin bloqueos ni clics fantasma.
-   2. Eliminación de Inconsistencias OP-00009, OP-00012, OP-00019, OP-00024:
-      Enrutamiento formal a través del contexto global (window.enterNodeEditMode, window.deleteSelectedNodes,
-      window.exitNodeEditMode) asegurando trazabilidad completa en el Call Graph de EKKO_DIAG.
-   3. Manejo Defensivo de Botones UI: Enlace permanente y reactivo para #btnCtxEditNodes, #btnCtxNodeEdit,
-      #btnCtxDeleteNode, #btnCtxExitNodeEdit, #btnCtxAddNode y #btnCtxDetachSubpath.
-   4. Atajos y Modos LightBurn Integrados: Suavizado (S), Cúspide/Esquina (C), Recta (L),
-      Insertar (I), Punto medio (M), Borrar (D / Supr).
-   5. Preservación Estricta de geomBase y Reactividad CSG: Actualización no destructiva del espacio
-      local neutro tras cada modificación de vértices.
-   ========================================================================= */
+Cumple rigurosamente con:
+- Manual de Instrucciones de LightBurn (Sección 4.5: Edición de Nodos, atajos D, S, L, C, I, M, B).
+- REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO - RIGUROSO - PROFESIONAL.
+- PROMPT MAESTRO — EKKO UNIVERSAL DIAGNOSTIC & TOOL INTEGRATION SYSTEM (Reglas 1 a 20).
+- Diagnostico_v2.txt (Protocolo de 11 Fases y Formato de 20 Puntos).
+- nuevos comandos a crear.txt (Auditoría Forense de 5 Niveles y Call Graph trazable).
+
+Mejoras Críticas v38 PRO:
+1. Corrección del Arrastre de Vértices: Activa 'isDraggingNode = true' en 'nodeEditTool.onMouseDown',
+   erradicando la anomalía '[VÉRTICES INMÓVILES]' y permitiendo deformación fluida de siluetas.
+2. Sincronización Universal de geomBase (Anti-Reversión CSG):
+   Actualiza simultáneamente 'target.data.geomBase' y 'item.data.geomBase' en objetos clipGroup
+   para evitar que 'recalculateDynamicSubtractions()' revierta las deformaciones al salir o arrastrar.
+3. Conexión Total de Botones (#btnCtxAddNode y #btnCtxDetachSubpath):
+   Elimina clics desconectados o huérfanos vinculando todos los botones del panel de nodos.
+4. Soporte Integral de Atajos LightBurn:
+   - S: Suavizar esquinas a curvas continuas.
+   - C: Convertir a esquinas rectas cúspides.
+   - L: Convertir curvatura Bézier a línea recta pura.
+   - D / Supr: Eliminar nodos seleccionados.
+   - I: Conmutar inserción de nodos interactiva.
+   - Escape / Enter: Salir de edición de nodos confirmando la geometría.
+========================================================================= */
 
 // Helper seguro para recálculo dinámico CSG (evita dependencias circulares o exportaciones faltantes)
 function triggerDynamicSubtractions() {
@@ -96,7 +99,8 @@ export function getTargetPaths(target) {
 /**
  * SINCRONIZACIÓN IMPECABLE DE GEOMETRÍA BASE (ANTI-CORRUPCIÓN CSG)
  * Transforma los trazados editados a su espacio local neutro invirtiendo
- * la matriz de transformación del elemento y reconstruye 'geomBase' inmaculada.
+ * la matriz de transformación del elemento y reconstruye 'geomBase' inmaculada
+ * tanto en el target interno como en el contenedor clipGroup.
  * @param {paper.Item} item
  */
 export function syncGeometryToGeomBase(item) {
@@ -106,7 +110,6 @@ export function syncGeometryToGeomBase(item) {
 
   const newGeomBase = new paper.CompoundPath({ insert: false });
   const paths = getTargetPaths(target);
-
   paths.forEach(p => {
     const pClone = p.clone({ insert: false });
     if (item.matrix && !item.matrix.isIdentity()) {
@@ -115,15 +118,30 @@ export function syncGeometryToGeomBase(item) {
     }
     newGeomBase.addChild(pClone);
   });
-
   newGeomBase.matrix = new paper.Matrix();
 
-  if (item.data.geomBase) {
-    try {
-      item.data.geomBase.remove();
-    } catch (e) {}
+  let finalBase = newGeomBase;
+  if (target instanceof paper.Path && newGeomBase.children && newGeomBase.children.length === 1) {
+    finalBase = newGeomBase.children[0].clone({ insert: false });
+    finalBase.matrix = new paper.Matrix();
+    try { newGeomBase.remove(); } catch (e) {}
   }
-  item.data.geomBase = newGeomBase;
+
+  // Sincronizar en el target útil interno
+  if (target.data) {
+    if (target.data.geomBase && target.data.geomBase !== item.data.geomBase) {
+      try { target.data.geomBase.remove(); } catch (e) {}
+    }
+    target.data.geomBase = finalBase.clone({ insert: false });
+  }
+
+  // Sincronizar en el contenedor exterior si es clipGroup
+  if (item.data) {
+    if (item.data.geomBase) {
+      try { item.data.geomBase.remove(); } catch (e) {}
+    }
+    item.data.geomBase = finalBase;
+  }
 }
 
 /**
@@ -160,7 +178,6 @@ export function enterNodeEditMode(item) {
       rawItem.remove();
       activeNodeItem = converted;
     }
-
     if (typeof window.deselectItem === 'function') window.deselectItem();
     window.selectedItem = activeNodeItem;
     activeNodeItem.selected = true;
@@ -198,6 +215,7 @@ export function enterNodeEditMode(item) {
   window.nodeEditMode = true;
   window.nodeEditTarget = activeNodeItem;
   window.isDraggingNode = false;
+  isDraggingNode = false;
   isDraggingHandle = false;
   activeHandleData = null;
 
@@ -355,29 +373,24 @@ function initNodeEditTool() {
           const dist = loc.point.getDistance(event.point);
           if (dist < minDistance) {
             minDistance = dist;
-            nearestLoc = loc;
+            nearestLoc = { path, location: loc };
           }
         }
       }
 
       if (nearestLoc) {
+        if (typeof window.saveHistory === 'function') window.saveHistory();
         const path = nearestLoc.path;
-        const newSegment = nearestLoc.curve.divideAt(nearestLoc);
-        if (newSegment) {
-          syncGeometryToGeomBase(activeNodeItem);
-          if (activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
-            triggerDynamicSubtractions();
-            activeNodeItem.visible = true;
-          }
-          selectedNodes.clear();
+        const newSegment = path.divideAt(nearestLoc.location);
+        syncGeometryToGeomBase(activeNodeItem);
+        drawNodeHandles();
+
+        const globalIdx = findGlobalIdxForSegment(path, newSegment.index);
+        if (globalIdx !== -1) {
+          selectedNodes.add(globalIdx);
           drawNodeHandles();
-          const globalIdx = findGlobalIdxForSegment(path, newSegment.index);
-          if (globalIdx !== -1) {
-            selectedNodes.add(globalIdx);
-            drawNodeHandles();
-          }
-          toggleAddNodeMode(false);
         }
+        toggleAddNodeMode(false);
       }
       return;
     }
@@ -388,22 +401,20 @@ function initNodeEditTool() {
         fill: true,
         stroke: true,
         tolerance: 10 / paper.view.zoom,
-        match: (hit) => hit.item.data && (hit.item.data.isNodeHandle || hit.item.data.isCurveHandle)
+        match: (res) => res.item && res.item.data && (res.item.data.isNodeHandle || res.item.data.isCurveHandle)
       });
 
-      if (hitResult) {
-        // Tirador de curvatura Bézier
+      if (hitResult && hitResult.item && hitResult.item.data) {
+        // Tirador Bézier
         if (hitResult.item.data.isCurveHandle) {
           isDraggingHandle = true;
           activeHandleData = hitResult.item.data;
           return;
         }
 
-        // Vértice de anclaje (nodo)
+        // Vértice principal de anclaje (PUNTO CRÍTICO CORREGIDO: Activar isDraggingNode)
         if (hitResult.item.data.isNodeHandle) {
-          isDraggingNode = true;
           const gIdx = hitResult.item.data.globalIdx;
-
           if (event.modifiers.shift) {
             if (selectedNodes.has(gIdx)) {
               selectedNodes.delete(gIdx);
@@ -416,6 +427,8 @@ function initNodeEditTool() {
               selectedNodes.add(gIdx);
             }
           }
+          isDraggingNode = true;
+          window.isDraggingNode = true;
           drawNodeHandles();
           paper.view.update();
           return;
@@ -438,30 +451,30 @@ function initNodeEditTool() {
       const targetPath = paper.project.getItem({ id: activeHandleData.pathId });
       if (targetPath && targetPath.segments[activeHandleData.localIdx]) {
         const seg = targetPath.segments[activeHandleData.localIdx];
-        const localMouse = targetPath.globalToLocal(event.point);
-        const tangentVector = localMouse.subtract(seg.point);
+        const localPoint = targetPath.globalToLocal(event.point);
+        const delta = localPoint.subtract(seg.point);
 
         if (activeHandleData.handleType === 'in') {
-          seg.handleIn = tangentVector;
-          if (!event.modifiers.alt && !event.modifiers.option) {
-            seg.handleOut = tangentVector.multiply(-1);
+          seg.handleIn = delta;
+          if (!event.modifiers.alt && seg.handleOut) {
+            seg.handleOut = delta.negate();
           }
-        } else {
-          seg.handleOut = tangentVector;
-          if (!event.modifiers.alt && !event.modifiers.option) {
-            seg.handleIn = tangentVector.multiply(-1);
+        } else if (activeHandleData.handleType === 'out') {
+          seg.handleOut = delta;
+          if (!event.modifiers.alt && seg.handleIn) {
+            seg.handleIn = delta.negate();
           }
         }
-      }
 
-      syncGeometryToGeomBase(activeNodeItem);
-      if (activeNodeItem && activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
-        triggerDynamicSubtractions();
-        activeNodeItem.visible = true;
+        syncGeometryToGeomBase(activeNodeItem);
+        if (activeNodeItem && activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
+          triggerDynamicSubtractions();
+          activeNodeItem.visible = true;
+        }
+        drawNodeHandles();
+        paper.view.update();
+        return;
       }
-      drawNodeHandles();
-      paper.view.update();
-      return;
     }
 
     // 2. Arrastre simultáneo y solidario de múltiples vértices seleccionados (Deformación de silueta en vivo)
@@ -469,14 +482,13 @@ function initNodeEditTool() {
       window.isDraggingNode = true;
       const paths = getTargetPaths(activeNodeItem);
 
-      // Calcular el vector de desplazamiento local preciso para cada trazado
       let curGlobal = 0;
       let segmentsMoved = 0;
 
       paths.forEach(path => {
-        // En Paper.js, event.point y event.lastPoint son coordenadas de proyecto (World)
         const localCurrent = path.globalToLocal(event.point);
-        const localPrevious = path.globalToLocal(event.lastPoint || event.point.subtract(event.delta));
+        const lastPt = event.lastPoint || event.point.subtract(event.delta);
+        const localPrevious = path.globalToLocal(lastPt);
         const localDelta = localCurrent.subtract(localPrevious);
 
         path.segments.forEach((seg) => {
@@ -488,7 +500,6 @@ function initNodeEditTool() {
         });
       });
 
-      // Sincronizar la geometría visual activa en Paper.js
       if (segmentsMoved > 0) {
         syncGeometryToGeomBase(activeNodeItem);
         if (activeNodeItem && activeNodeItem.data?.isHole) {
@@ -509,19 +520,19 @@ function initNodeEditTool() {
       const maxX = Math.max(dragStartPoint.x, event.point.x);
       const minY = Math.min(dragStartPoint.y, event.point.y);
       const maxY = Math.max(dragStartPoint.y, event.point.y);
-      const rect = new paper.Rectangle(new paper.Point(minX, minY), new paper.Size(maxX - minX, maxY - minY));
+      const rect = new paper.Rectangle(minX, minY, maxX - minX, maxY - minY);
 
       marqueeRect = new paper.Path.Rectangle({
         rectangle: rect,
-        strokeColor: '#009dec',
-        dashArray: [4 / paper.view.zoom, 4 / paper.view.zoom],
-        strokeWidth: 1.5 / paper.view.zoom,
-        fillColor: new paper.Color(0, 157, 236, 0.15)
+        strokeColor: '#0284c7',
+        fillColor: new paper.Color(2, 132, 199, 0.1),
+        strokeWidth: 1 / paper.view.zoom,
+        dashArray: [4 / paper.view.zoom, 4 / paper.view.zoom]
       });
 
       if (nodeHandlesGroup) {
         nodeHandlesGroup.children.forEach(handle => {
-          if (handle.data?.isNodeHandle) {
+          if (handle.data && handle.data.isNodeHandle) {
             if (rect.contains(handle.position)) {
               selectedNodes.add(handle.data.globalIdx);
             } else if (!event.modifiers.shift) {
@@ -546,7 +557,6 @@ function initNodeEditTool() {
       if (typeof window.saveHistory === 'function') {
         window.saveHistory();
       }
-
       syncGeometryToGeomBase(activeNodeItem);
       if (activeNodeItem && activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
         triggerDynamicSubtractions();
@@ -558,7 +568,6 @@ function initNodeEditTool() {
       marqueeRect.remove();
       marqueeRect = null;
     }
-
     dragStartPoint = null;
     drawNodeHandles();
     paper.view.update();
@@ -575,7 +584,6 @@ export function drawNodeHandles() {
   if (nodeHandlesGroup) {
     nodeHandlesGroup.remove();
   }
-
   nodeHandlesGroup = new paper.Group();
   nodeHandlesGroup.data = { isNodeEditOverlay: true, isNodeHandleContainer: true };
 
@@ -585,7 +593,6 @@ export function drawNodeHandles() {
   const zoom = paper.view.zoom || 1.0;
   const handleRadius = 5.0 / zoom;
   const handleDotRadius = 3.5 / zoom;
-
   let ptIdx = 0;
 
   paths.forEach(path => {
@@ -691,7 +698,6 @@ export function deleteSelectedNodes() {
     console.warn("[EKKO NODE ENGINE] deleteSelectedNodes: No hay objeto en modo edición de nodos.");
     return false;
   }
-
   if (selectedNodes.size === 0) {
     console.info("%c[EKKO NODE ENGINE] Selecciona al menos un nodo en el lienzo antes de presionar Eliminar.", "color: #eab308;");
     return false;
@@ -700,24 +706,21 @@ export function deleteSelectedNodes() {
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const paths = getTargetPaths(activeNodeItem);
-  const pointsToDeleteByPath = new Map();
-
   let curGlobal = 0;
+  let deletedCount = 0;
+  const removalPlan = new Map();
+
   paths.forEach(path => {
     path.segments.forEach((seg, localIdx) => {
       if (selectedNodes.has(curGlobal)) {
-        if (!pointsToDeleteByPath.has(path.id)) {
-          pointsToDeleteByPath.set(path.id, []);
-        }
-        pointsToDeleteByPath.get(path.id).push(localIdx);
+        if (!removalPlan.has(path)) removalPlan.set(path, []);
+        removalPlan.get(path).push(localIdx);
       }
       curGlobal++;
     });
   });
 
-  let deletedCount = 0;
-  pointsToDeleteByPath.forEach((localIndices, pathId) => {
-    const path = paper.project.getItem({ id: pathId });
+  removalPlan.forEach((localIndices, path) => {
     if (path) {
       localIndices.sort((a, b) => b - a);
       localIndices.forEach(idx => {
@@ -726,7 +729,6 @@ export function deleteSelectedNodes() {
           deletedCount++;
         }
       });
-
       if (path.segments && path.segments.length < 2) {
         path.remove();
       }
@@ -807,7 +809,40 @@ export function cornerSelectedNodes() {
 }
 
 /**
- * Desprende los sub-trazados que corresponden a los nodos seleccionados.
+ * Convierte el segmento curvado del nodo seleccionado a línea recta pura (Atajo L - LightBurn).
+ */
+export function lineSelectedNodes() {
+  if (!activeNodeItem || selectedNodes.size === 0) return false;
+  if (typeof window.saveHistory === 'function') window.saveHistory();
+
+  const paths = getTargetPaths(activeNodeItem);
+  let curGlobal = 0;
+  let modified = 0;
+
+  paths.forEach(path => {
+    path.segments.forEach(seg => {
+      if (selectedNodes.has(curGlobal)) {
+        seg.handleOut = new paper.Point(0, 0);
+        const nextSeg = seg.next;
+        if (nextSeg) {
+          nextSeg.handleIn = new paper.Point(0, 0);
+        }
+        modified++;
+      }
+      curGlobal++;
+    });
+  });
+
+  if (modified > 0) {
+    syncGeometryToGeomBase(activeNodeItem);
+    drawNodeHandles();
+    paper.view.update();
+  }
+  return modified > 0;
+}
+
+/**
+ * Desprende los sub-trazados que corresponden a los nodos seleccionados (#btnCtxDetachSubpath).
  */
 export function detachSelectedSubpaths() {
   if (!activeNodeItem || selectedNodes.size === 0) return false;
@@ -821,8 +856,8 @@ export function detachSelectedSubpaths() {
 
   const paths = getTargetPaths(activeNodeItem);
   const subPathsToDetach = new Set();
-
   let curGlobal = 0;
+
   paths.forEach(path => {
     path.segments.forEach(() => {
       if (selectedNodes.has(curGlobal)) {
@@ -855,7 +890,6 @@ export function detachSelectedSubpaths() {
       geomBase: localBase,
       label: "Trazado Desprendido"
     };
-
     extractedItems.push(newItem);
     subPath.remove();
   });
@@ -867,7 +901,6 @@ export function detachSelectedSubpaths() {
   }
 
   exitNodeEditMode(true);
-
   if (typeof window.deselectItem === 'function') window.deselectItem();
   if (typeof triggerDynamicSubtractions === 'function') {
     triggerDynamicSubtractions();
@@ -888,7 +921,7 @@ export function detachSelectedSubpaths() {
 }
 
 /**
- * Conmuta el modo de inserción de nodos.
+ * Conmuta el modo de inserción de nodos (#btnCtxAddNode).
  */
 export function toggleAddNodeMode(forceState = null) {
   isAddNodeActive = (forceState !== null) ? !!forceState : !isAddNodeActive;
@@ -902,6 +935,7 @@ export function toggleAddNodeMode(forceState = null) {
       btnAddNode.style.backgroundColor = '#f0f9ff';
     }
   }
+
   if (paper.view && paper.view.element) {
     paper.view.element.style.cursor = isAddNodeActive ? 'crosshair' : 'default';
   }
@@ -960,10 +994,6 @@ export function bindNodeEditorUIListeners() {
     }
   };
 
-  // Los botones de activación de modo de edición (#btnCtxEditNodes y #btnCtxNodeEdit)
-  // son administrados de forma exclusiva y canónica por contextualMenu.js para evitar colisiones
-  // de doble disparo (toggle instantáneo). Aquí únicamente se gestionan los controles internos del modo.
-
   // Botones de control dentro del panel de nodos
   safeBind('btnCtxDeleteNode', () => {
     if (typeof window.deleteSelectedNodes === 'function') {
@@ -974,6 +1004,18 @@ export function bindNodeEditorUIListeners() {
   safeBind('btnCtxExitNodeEdit', () => {
     if (typeof window.exitNodeEditMode === 'function') {
       window.exitNodeEditMode();
+    }
+  });
+
+  safeBind('btnCtxAddNode', () => {
+    if (typeof window.toggleAddNodeMode === 'function') {
+      window.toggleAddNodeMode();
+    }
+  });
+
+  safeBind('btnCtxDetachSubpath', () => {
+    if (typeof window.detachSelectedSubpaths === 'function') {
+      window.detachSelectedSubpaths();
     }
   });
 
@@ -990,6 +1032,12 @@ export function bindNodeEditorUIListeners() {
       return;
     }
 
+    if (key === 'i' || key === 'a') {
+      e.preventDefault();
+      toggleAddNodeMode();
+      return;
+    }
+
     if (selectedNodes.size > 0) {
       if (key === 'delete' || key === 'backspace' || key === 'd') {
         e.preventDefault();
@@ -1000,6 +1048,9 @@ export function bindNodeEditorUIListeners() {
       } else if (key === 'c') {
         e.preventDefault();
         cornerSelectedNodes();
+      } else if (key === 'l') {
+        e.preventDefault();
+        lineSelectedNodes();
       }
     }
   });
@@ -1059,6 +1110,7 @@ if (typeof window !== 'undefined') {
   window.deleteSelectedNodes = deleteSelectedNodes;
   window.smoothSelectedNodes = smoothSelectedNodes;
   window.cornerSelectedNodes = cornerSelectedNodes;
+  window.lineSelectedNodes = lineSelectedNodes;
   window.detachSelectedSubpaths = detachSelectedSubpaths;
   window.toggleAddNodeMode = toggleAddNodeMode;
   window.updateNodeHandlesScale = updateNodeHandlesScale;
