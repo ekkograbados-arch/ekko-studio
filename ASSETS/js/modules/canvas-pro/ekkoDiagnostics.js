@@ -1,24 +1,34 @@
 /* =========================================================================
-   Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-   Versión: v9.5 BLACK BOX AVIATION EDITION - Uncompromising Physical Audit Engine
-   Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
-   
-   Descripción:
-   Sistema Universal de Diagnóstico, Auditoría Forense y Trazabilidad de 5 Niveles
-   para EKKO Studio. Monitorea y audita de forma no invasiva todas las operaciones
-   del lienzo (Paper.js), eventos del DOM (botones fijos, barras flotantes y atajos),
-   contratos funcionales, topología de masas/calados y consistencia Z-order.
-   
-   Mejoras v9.1 PRO:
-   1. Soporte de Diálogos Asíncronos (isDialogOpener) para erradicar falsos positivos en apertura de selectores de archivo (SVG, Imagen, etc.).
-   2. Intercepción global de openSVGFileDialog, addSVGFromFile y selectores modales en Call Graph.
-   3. Blindaje Anti-Doble Importación (evita duplicación si se carga en index.html y editor.js).
-   2. Auto-Copia al Portapapeles (navigator.clipboard con fallback execCommand) ante cualquier
-      inconsistencia geométrica o de contrato detectada.
-   3. Formateador forense estructurado para ingesta directa por Gemini Studio.
-   4. Métodos de consola interactivos: EKKO_DIAG.copyLast(), EKKO_DIAG.copyErrors(), EKKO_DIAG.dump().
-   5. Preservación absoluta de la geometría y estado (100% observador y pasivo).
-   ========================================================================= */
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
+Versión: v10.0 BLACK BOX AVIATION EDITION - Zero False Positives Strict Engine
+Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
+
+Descripción:
+Sistema Universal de Diagnóstico, Auditoría Forense y Trazabilidad de 5 Niveles
+para EKKO Studio. Monitorea y audita de forma no invasiva todas las operaciones
+del lienzo (Paper.js), eventos del DOM (botones fijos, barras flotantes y atajos),
+contratos funcionales, topología de masas/calados, consistencia dimensional y
+orden Z reactivo.
+
+MEJORAS V10.0 BLACK BOX AVIATION (DESENMASCARAMIENTO DE FALSOS POSITIVOS):
+1. REGLA DE ORO 14 Y 12 (NO FALSOS POSITIVOS):
+   - Erradica los falsos "✓ OPERACIÓN VÁLIDA" cuando las operaciones carecen de
+     trazabilidad real, recálculo CSG o despiece dimensional físico.
+2. AUDITORÍA DIMENSIONAL ESTRICTA EN DESAGRUPAR (UNGROUP):
+   - Detecta si las piezas individuales descompuestas heredan bounds gigantes
+     o el tamaño completo del grupo/producto original (falso despiece).
+   - Detecta huecos/calados silenciados (0C) cuando existían subrutas o compuestos.
+   - Detecta capas descompuestas huérfanas sin 'geomBase'.
+3. AUDITORÍA REACTIVA DE ARRASTRE (DRAG_MOVE):
+   - Denuncia en Nivel 5 si un arrastre en el lienzo no dispara recálculo reactivo
+     CSG ('recalculateDynamicSubtractions') ni sincroniza 'geomBase'.
+4. DESENMASCARAMIENTO DE BOUNDS REALES (True Design Bounds):
+   - Discrimina la silueta geométrica real de la máscara del producto ('clipMask'),
+     evitando que un 'clipGroup' distorsione la telemetría con las dimensiones del producto.
+5. AUTO-COPIA FORENSE GARANTIZADA:
+   - Transfiere inmediatamente al portapapeles el reporte forense completo de 5 Niveles
+     ante la primera anomalía física, sin exigir intervención manual del usuario.
+========================================================================= */
 
 (function (root, factory) {
   if (typeof define === 'function' && define.amd) {
@@ -43,7 +53,7 @@
     table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
   };
 
-  // Estado interno del motor de diagnóstico
+  // Estado interno de la Caja Negra
   const diagState = {
     active: true,
     autoCopyOnError: true,
@@ -73,7 +83,6 @@
       });
       return true;
     }
-
     return fallbackCopy(text, notifyMsg);
   }
 
@@ -429,6 +438,7 @@
     name: 'ADD_IMAGE',
     label: 'Cabecera: Cargar Imagen (#btnAddImage)',
     requiresSelection: false,
+    isDialogOpener: true,
     expectedTopologyDelta: 'ANY'
   });
 
@@ -447,14 +457,6 @@
     expectedTopologyDelta: 'ANY'
   });
 
-  registerContract('#btnaddimage', {
-    name: 'ADD_IMAGE',
-    label: 'Cabecera: Cargar Imagen (#btnAddImage)',
-    requiresSelection: false,
-    isDialogOpener: true,
-    expectedTopologyDelta: 'ANY'
-  });
-
   registerContract('#btnaddqr', {
     name: 'ADD_QR',
     label: 'Cabecera: Cargar QR (#btnAddQR)',
@@ -466,21 +468,18 @@
   // Resolución Dinámica Universal
   function resolveButtonContract(domElement) {
     if (!domElement) return null;
-
     if (domElement.id) {
       const idKey = '#' + domElement.id.trim().toLowerCase();
       if (buttonContractsRegistry.has(idKey)) {
         return { contract: buttonContractsRegistry.get(idKey), matchedBy: idKey };
       }
     }
-
     if (domElement.dataset && domElement.dataset.action) {
       const actKey = String(domElement.dataset.action).trim().toLowerCase();
       if (buttonContractsRegistry.has(actKey)) {
         return { contract: buttonContractsRegistry.get(actKey), matchedBy: `data-action="${actKey}"` };
       }
     }
-
     for (const [selector, contract] of buttonContractsRegistry.entries()) {
       if (selector.startsWith('.')) {
         try {
@@ -490,20 +489,16 @@
         } catch (e) {}
       }
     }
-
-    // Inferencia Universal para botones no registrados previamente
     const isContextual = !!domElement.closest('#contextual-toolbar, .contextual-toolbar');
     const isProLayout = !!domElement.closest('#pro-layout-toolbar, .pro-layout-toolbar');
     const isTopBar = !!domElement.closest('#topBar, .topBar, #mainNavbar');
 
     if (isContextual || isProLayout || isTopBar) {
-      const containerName = isContextual ? 'Barra Emergente' : (isProLayout ? 'Panel Superior Fijo' : 'Barra de Cabecera');
-      const textLabel = (domElement.textContent || domElement.title || domElement.id || 'Botón').trim();
-      const inferredName = (domElement.id || textLabel).replace(/[^a-zA-Z0-9_]/g, '_').toUpperCase();
-
+      const containerName = isContextual ? 'Barra Emergente' : (isProLayout ? 'Panel Superior' : 'Cabecera');
+      const textLabel = domElement.title || domElement.innerText?.trim() || domElement.getAttribute('aria-label') || 'Botón';
       return {
-        contract: {
-          name: inferredName,
+        contract: Object.assign({}, {
+          name: domElement.id ? domElement.id.toUpperCase() : 'UI_ACTION',
           label: `${containerName}: ${textLabel} (${domElement.id ? '#' + domElement.id : 'dinámico'})`,
           requiresSelection: isContextual,
           minSelectionCount: isContextual ? 1 : 0,
@@ -514,11 +509,10 @@
           verifyDisplacement: false,
           preserveClipping: true,
           isDynamicInferred: true
-        },
+        }),
         matchedBy: `${containerName} (Inferencia Dinámica Universal)`
       };
     }
-
     return null;
   }
 
@@ -529,8 +523,23 @@
       if (!item.children) return item;
       const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
       if (content) return content;
+      const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
+      if (fallback) return fallback;
+      return item.children[1] || item.children[0] || item;
     }
     return item;
+  }
+
+  /**
+   * Obtiene los límites de diseño reales descartando la caja inflada de la máscara física del producto.
+   */
+  function getTrueDesignBounds(item) {
+    if (!item) return null;
+    const content = getContentItem(item);
+    if (content && content.bounds && content !== item) {
+      return content.bounds;
+    }
+    return item.bounds;
   }
 
   function extractBounds(bounds) {
@@ -545,9 +554,10 @@
 
   function countSegments(item) {
     if (!item) return 0;
-    if (item.segments) return item.segments.length;
-    if (item.children && Array.isArray(item.children)) {
-      return item.children.reduce((acc, c) => acc + countSegments(c), 0);
+    const content = getContentItem(item) || item;
+    if (content.segments) return content.segments.length;
+    if (content.children && Array.isArray(content.children)) {
+      return content.children.reduce((acc, c) => acc + countSegments(c), 0);
     }
     return 0;
   }
@@ -556,25 +566,23 @@
     if (!item) return null;
     const target = getContentItem(item);
     if (!target) return null;
+
     let sumX = 0, sumY = 0, count = 0;
-    function recurse(node) {
-      if (!node) return;
-      if (node.segments && Array.isArray(node.segments)) {
-        for (let i = 0; i < node.segments.length; i++) {
-          const seg = node.segments[i];
-          if (seg && seg.point) {
-            sumX += seg.point.x;
-            sumY += seg.point.y;
+    const collectPoints = (it) => {
+      if (it.segments && Array.isArray(it.segments)) {
+        it.segments.forEach(s => {
+          if (s && s.point) {
+            sumX += s.point.x;
+            sumY += s.point.y;
             count++;
           }
-        }
+        });
       }
-      if (node.children && Array.isArray(node.children)) {
-        node.children.forEach(recurse);
+      if (it.children && Array.isArray(it.children)) {
+        it.children.forEach(collectPoints);
       }
-    }
-    recurse(target);
-    if (count === 0) return null;
+    };
+    collectPoints(target);
     return `${count}:${sumX.toFixed(1)}:${sumY.toFixed(1)}`;
   }
 
@@ -590,22 +598,25 @@
 
     const primary = selectedItems[0];
     const target = getContentItem(primary);
+    const trueBounds = getTrueDesignBounds(primary);
+    const hasGeom = !!(primary.data?.geomBase || (target && target.data?.geomBase));
+    const isHole = !!(primary.data?.isHole || (target && target.data?.isHole));
 
     const primaryData = primary ? {
       id: primary.id,
       className: primary.className,
-      label: (primary.data && primary.data.label) || 'Objeto',
-      zIndex: (primary.parent && primary.parent.children) ? primary.parent.children.indexOf(primary) : -1,
-      isHole: !!(primary.data && primary.data.isHole),
-      isCompound: primary.className === 'CompoundPath',
+      label: primary.data?.label || (target && target.data?.label) || 'Objeto',
+      zIndex: primary.index !== undefined ? primary.index : 0,
+      isHole: isHole,
+      isCompound: (target && target.className === 'CompoundPath') || primary.className === 'CompoundPath',
       isGroup: primary.className === 'Group' && !(primary.data && primary.data.clipGroup),
       isClipGroup: !!(primary.data && primary.data.clipGroup),
       isLocked: !!(primary.data && primary.data.locked),
-      hasGeomBase: !!(primary.data && primary.data.geomBase),
-      bounds: extractBounds(primary.bounds),
+      hasGeomBase: hasGeom,
+      bounds: extractBounds(trueBounds),
       position: primary.position ? { x: Number(primary.position.x.toFixed(1)), y: Number(primary.position.y.toFixed(1)) } : null,
       rotation: Number((primary.rotation || 0).toFixed(1)),
-      segmentsCount: countSegments(target),
+      segmentsCount: countSegments(primary),
       fontFamily: (target && target.fontFamily) || (target && target.data && target.data.fontFamily) || null,
       fontWeight: (target && target.fontWeight) || (target && target.data && target.data.fontWeight) || null,
       fontStyle: (target && target.fontStyle) || (target && target.data && target.data.fontStyle) || null,
@@ -626,7 +637,6 @@
     if (typeof paper === 'undefined' || !paper.project) {
       return { totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [], error: 'Paper.js no cargado' };
     }
-
     const layer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
     if (!layer || !layer.children) {
       return { totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [], error: 'Capa no encontrada' };
@@ -639,25 +649,38 @@
     layer.children.forEach((c, idx) => {
       if (!c) return;
       const d = c.data || {};
-      if (d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
-          d.isSmartGuide || d.isMeasurement || d.isTracePreview || d.isNodeHandle ||
-          d.isNodeEditOverlay || d.isCurveHandle) {
+      if (
+        d.mockup || d.isMask || d.wasClipMask || d.isSelectionBox || d.isHandle ||
+        d.isSmartGuide || d.isMeasurement || d.isTracePreview || d.isNodeHandle ||
+        d.isNodeEditOverlay || d.isCurveHandle
+      ) {
+        return;
+      }
+      if (
+        (typeof window !== 'undefined' && window.currentMockup && c === window.currentMockup) ||
+        (typeof window !== 'undefined' && window.selectionBoxGroup && c === window.selectionBoxGroup) ||
+        (typeof window !== 'undefined' && window.nodeHandlesGroup && c === window.nodeHandlesGroup)
+      ) {
         return;
       }
 
-      const isHole = !!d.isHole;
+      const content = getContentItem(c);
+      const isHole = !!(d.isHole || (content && content.data && content.data.isHole));
+      const hasGeom = !!(d.geomBase || (content && content.data && content.data.geomBase));
+      const trueBounds = getTrueDesignBounds(c);
+
       if (isHole) holeCount++; else massCount++;
 
       items.push({
         id: c.id,
         zIndex: idx,
         className: c.className,
-        label: d.label || 'Objeto',
+        label: d.label || (content && content.data && content.data.label) || 'Objeto',
         isHole: isHole,
         isClipGroup: !!d.clipGroup,
         isLocked: !!d.locked,
-        hasGeomBase: !!d.geomBase,
-        bounds: extractBounds(c.bounds)
+        hasGeomBase: hasGeom,
+        bounds: extractBounds(trueBounds)
       });
     });
 
@@ -671,7 +694,7 @@
   }
 
   // =========================================================================
-  // NIVEL 5 — MOTOR DE CONSISTENCIA Y AUDITORÍA UNIVERSAL DE CONTRATOS
+  // NIVEL 5 — MOTOR DE CONSISTENCIA Y AUDITORÍA UNIVERSAL (ZERO FALSE POSITIVES)
   // =========================================================================
   function auditConsistency(op) {
     const beforeGeo = op.geometryBefore;
@@ -683,8 +706,8 @@
     const opMeta = op.meta || {};
     const contract = op.buttonContract || null;
     const uiSource = op.source || 'UI';
-
     const inconsistencies = [];
+
     const checks = {
       actionExecuted: true,
       buttonResponded: true,
@@ -695,7 +718,10 @@
       selectionValid: true,
       productClippingValid: true,
       deadClickDetected: false,
-      zOrderConsistent: true
+      zOrderConsistent: true,
+      csgReactiveTriggered: true,
+      geometricDimensionsValid: true,
+      topologyParityValid: true
     };
 
     if (beforeGeo.error || afterGeo.error) {
@@ -704,7 +730,6 @@
 
     // --- REGLA 1: VALIDACIÓN DE CONTRATOS ESTÁNDAR ---
     if (contract) {
-      // A) Precondición de selección
       if (contract.requiresSelection) {
         if (!beforeSel.hasSelection || beforeSel.count < (contract.minSelectionCount || 1)) {
           checks.selectionPreconditionValid = false;
@@ -714,7 +739,6 @@
         }
       }
 
-      // B) Objeto bloqueado
       if (!contract.allowLocked && beforeSel.primary && beforeSel.primary.isLocked) {
         checks.actionExecuted = false;
         inconsistencies.push(
@@ -722,7 +746,6 @@
         );
       }
 
-      // C) Mutación topológica esperada
       const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
       if (contract.expectedTopologyDelta === 'INCREMENT') {
         if (deltaUseful <= 0) {
@@ -752,7 +775,6 @@
         }
       }
 
-      // D) Cambio de selección esperado
       if (contract.expectedSelectionChange === 'NEW_ITEM') {
         if (afterSel.primary && beforeSel.primary && afterSel.primary.id === beforeSel.primary.id && beforeSel.count === 1) {
           checks.selectionValid = false;
@@ -769,7 +791,6 @@
         }
       }
 
-      // E) Desplazamiento visual (caso Duplicar)
       if (contract.verifyDisplacement && afterSel.primary && beforeSel.primary && afterSel.primary.position && beforeSel.primary.position) {
         const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
         const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
@@ -777,18 +798,6 @@
           inconsistencies.push(
             `[SIN DESPLAZAMIENTO] Objeto duplicado ID: ${afterSel.primary.id} se superpuso exactamente sobre el original sin desfase visible.`
           );
-        }
-      }
-
-      // F) Validador personalizado del contrato
-      if (typeof contract.customValidator === 'function') {
-        try {
-          const customRes = contract.customValidator(op, beforeGeo, afterGeo, beforeSel, afterSel);
-          if (customRes && customRes.inconsistency) {
-            inconsistencies.push(customRes.inconsistency);
-          }
-        } catch (e) {
-          inconsistencies.push(`[ERROR EN VALIDADOR DE CONTRATO] ${e.message}`);
         }
       }
     }
@@ -807,25 +816,15 @@
       canvasMutated = true;
     }
 
-    const isDialogOpener = (contract && contract.isDialogOpener) || 
-                           opType.includes('ADD_SVG') || 
-                           opType.includes('ADD_IMAGE') || 
-                           opType.includes('OPEN_DIALOG') ||
-                           opType.includes('FILE_PICKER');
-
-    const isModeOrStateOp = opType.includes('TOGGLE') || 
-                            opType.includes('MODAL') || 
-                            opType.includes('NODE_EDIT') || 
-                            opType.includes('EDIT_NODE') ||
-                            opType.includes('EXIT_NODE_EDIT');
-
+    const isDialogOpener = (contract && contract.isDialogOpener) ||
+      opType.includes('ADD_SVG') || opType.includes('ADD_IMAGE') ||
+      opType.includes('OPEN_DIALOG') || opType.includes('FILE_PICKER');
+    const isModeOrStateOp = opType.includes('TOGGLE') || opType.includes('MODAL') ||
+      opType.includes('NODE_EDIT') || opType.includes('EDIT_NODE') || opType.includes('EXIT_NODE_EDIT');
     const nodeModeActive = (typeof window !== 'undefined' && !!window.nodeEditMode);
 
     if (opMeta.isButtonClick && !canvasMutated && !isModeOrStateOp && !nodeModeActive) {
       if (isDialogOpener) {
-        // En botones que disparan selectores de archivos o modales externos nativos,
-        // el usuario tarda segundos en elegir el archivo en el sistema operativo.
-        // La validación exige que la función controladora de apertura haya respondido.
         if (totalCalls === 0 && !window.__EKKO_FILE_PICKER_TRIGGERED__) {
           checks.deadClickDetected = true;
           checks.buttonResponded = false;
@@ -833,7 +832,6 @@
             `[SELECTOR DESCONECTADO] Se hizo clic en '${uiSource}', pero no se invocó ningún controlador de apertura de diálogo ni input file.`
           );
         } else {
-          // El diálogo fue lanzado con éxito hacia el sistema operativo. La mutación se audita al cargar el archivo.
           checks.buttonResponded = true;
         }
       } else if (totalCalls === 0) {
@@ -845,19 +843,19 @@
       }
     }
 
-    // --- REGLA 3: AUDITORÍA FÍSICA ESTRICTA DE DESAGRUPACIÓN (CAJA NEGRA) ---
+    // --- REGLA 3: AUDITORÍA FÍSICA Y DIMENSIONAL DE DESAGRUPACIÓN (UNGROUP) ---
     if (opType === 'UNGROUP') {
       const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
-      
-      // 1. El conteo físico de elementos útiles en el lienzo DEBE aumentar
+
+      // A) Aumento de capas útiles
       if (deltaUseful <= 0) {
         checks.actionExecuted = false;
         inconsistencies.push(
-          `[DESAGRUPACIÓN FALLIDA] Se ejecutó UNGROUP pero el conteo de elementos no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}). El grupo no se descompuso en capas independientes.`
+          `[DESAGRUPACIÓN FALLIDA] Se ejecutó UNGROUP pero el conteo de elementos no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
         );
       }
 
-      // 2. Pérdida anómala de elementos
+      // B) Pérdida anómala de elementos
       if (beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
         checks.itemLossDetected = true;
         inconsistencies.push(
@@ -865,7 +863,7 @@
         );
       }
 
-      // 3. Destrucción física del grupo padre contenedor y desvinculación de selección
+      // C) Destrucción física del grupo padre contenedor
       if (beforeSel.primary && (beforeSel.primary.isGroup || beforeSel.primary.className === 'Group')) {
         const parentId = beforeSel.primary.id;
         if (afterGeo.zOrderIds && afterGeo.zOrderIds.includes(parentId)) {
@@ -881,9 +879,71 @@
           );
         }
       }
+
+      // D) DESENMASCARAR FALSO POSITIVO: Bounds inflados o no descompuestos
+      if (beforeSel.primary && beforeSel.primary.bounds && afterSel.primary && afterSel.primary.bounds) {
+        const pB = beforeSel.primary.bounds;
+        const aB = afterSel.primary.bounds;
+        // Si hay más de 3 capas resultantes, es físicamente imposible que una subpieza mida exactamente lo mismo que el todo
+        if (afterGeo.totalUsefulItems >= 3) {
+          const widthRatio = aB.width / (pB.width || 1);
+          const heightRatio = aB.height / (pB.height || 1);
+          if (widthRatio >= 0.98 && heightRatio >= 0.98) {
+            checks.geometricDimensionsValid = false;
+            inconsistencies.push(
+              `[FALSO POSITIVO - BOUNDS INFLADOS] La capa descompuesta '${afterSel.primary.label}' (ID: ${afterSel.primary.id}) conserva exactamente el tamaño total del grupo original (${aB.width}x${aB.height}). Está encapsulada con la máscara del producto o no se liberó su silueta real.`
+            );
+          }
+        }
+      }
+
+      // E) DESENMASCARAR FALSO POSITIVO: Huecos silenciados (0 Calados)
+      if (afterGeo.totalUsefulItems >= 4 && afterGeo.holeCount === 0) {
+        checks.topologyParityValid = false;
+        inconsistencies.push(
+          `[FALSO POSITIVO - CALADOS SILENCIADOS] Se generaron ${afterGeo.totalUsefulItems} capas útiles pero 0 Calados Activos (0C). Los orificios interiores fueron interpretados erróneamente como masas sólidas.`
+        );
+      }
+
+      // F) Preservación estricta de geomBase
+      const missingGeom = (afterGeo.itemsSummary || []).filter(it => !it.hasGeomBase);
+      if (missingGeom.length > 0) {
+        checks.geomBasePreserved = false;
+        inconsistencies.push(
+          `[GEOMBASE FALTANTE] ${missingGeom.length} capa(s) descompuesta(s) no poseen geomBase neutra inicializada (IDs: [${missingGeom.map(m => m.id).join(', ')}]). La edición de nodos fallará.`
+        );
+      }
     }
 
-    // --- REGLA 4: AUDITORÍA DE DEFORMACIÓN FÍSICA DE VÉRTICES (MODO NODOS) ---
+    // --- REGLA 4: AUDITORÍA DE ARRASTRE Y MUTACIÓN EN LIENZO (DRAG_MOVE) ---
+    if (opType === 'DRAG_MOVE') {
+      // 1. Verificar si hubo desplazamiento físico
+      if (beforeSel.primary && afterSel.primary && beforeSel.primary.position && afterSel.primary.position) {
+        const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
+        const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
+        if (dx === 0 && dy === 0) {
+          checks.dragDisplacementValid = false;
+          inconsistencies.push(
+            `[ARRASTRE ESTÁTICO] Se disparó DRAG_MOVE pero la posición del objeto seleccionado no cambió.`
+          );
+        }
+      }
+
+      // 2. DESENMASCARAR FALSO POSITIVO: Arrastre sin reactividad CSG en llamada
+      const csgCalled = callLog.some(c => c.function && (
+        c.function.includes('recalculateDynamicSubtractions') ||
+        c.function.includes('syncGeomBaseDeep') ||
+        c.function.includes('triggerDynamicSubtractions')
+      ));
+      if (afterGeo.holeCount > 0 && totalCalls === 0 && !csgCalled) {
+        checks.csgReactiveTriggered = false;
+        inconsistencies.push(
+          `[FALSO POSITIVO - RECÁLCULO CSG SILENCIADO] Se desplazó un elemento en un diseño con ${afterGeo.holeCount} calado(s) activo(s), pero el evento no ejecutó recalculateDynamicSubtractions(). La sustracción booleana quedó desincronizada.`
+        );
+      }
+    }
+
+    // --- REGLA 5: AUDITORÍA DE EDICIÓN DE NODOS ---
     if (typeof window !== 'undefined' && window.nodeEditMode) {
       if (opType === 'DRAG_MOVE' && (window.isDraggingNode || (op.source && op.source.includes('editorCanvas')))) {
         const beforeCk = beforeSel.primary ? beforeSel.primary.segmentsChecksum : null;
@@ -891,7 +951,7 @@
         if (beforeCk && afterCk && beforeCk === afterCk) {
           checks.actionExecuted = false;
           inconsistencies.push(
-            `[VÉRTICES INMÓVILES] Se realizó arrastre en modo de edición de nodos pero las coordenadas físicas de los vértices (seg.point) no cambiaron. El trazado no se deformó.`
+            `[VÉRTICES INMÓVILES] Se realizó arrastre en modo edición de nodos pero las coordenadas físicas de los vértices no cambiaron. El trazado no se deformó.`
           );
         }
       }
@@ -915,13 +975,14 @@
     out += `[ELEMENTO DOM] : Tag: <${op.meta?.domTag || 'N/A'}> | ID: "${op.meta?.domElementId || 'N/A'}" | Class: "${op.meta?.domClass || 'N/A'}"\n\n`;
 
     out += `--- NIVEL 2: SELECCIÓN PREVIA Y POSTERIOR ---\n`;
-    out += `Antes : ${op.selectionBefore?.hasSelection ? JSON.stringify(op.selectionBefore.primary) : 'Sin selección'}\n`;
-    out += `Después: ${op.selectionAfter?.hasSelection ? JSON.stringify(op.selectionAfter.primary) : 'Sin selección'}\n\n`;
+    out += `Antes : ${JSON.stringify(op.selectionBefore?.primary || 'Sin selección')}\n`;
+    out += `Después: ${JSON.stringify(op.selectionAfter?.primary || 'Sin selección')}\n\n`;
 
     out += `--- NIVEL 3: TRAZA DE EJECUCIÓN (CALL GRAPH) ---\n`;
     if (op.callGraph && op.callGraph.length > 0) {
-      op.callGraph.forEach(c => {
-        out += `  ↳ [${c.order}] ${c.module} -> ${c.function}() [${c.durationMs}ms] ${c.error ? 'ERROR: ' + c.error : 'OK'}\n`;
+      op.callGraph.forEach(call => {
+        const status = call.error ? `ERROR: ${call.error}` : 'OK';
+        out += `  ↳ [${call.order}] ${call.module} -> ${call.function}() [${call.durationMs}ms] ${status}\n`;
       });
     } else {
       out += `  (Sin llamadas registradas a controladores globales interceptados)\n`;
@@ -951,7 +1012,6 @@
   // =========================================================================
   function beginOperation(actionName, sourceDesc, meta) {
     if (!diagState.active) return null;
-
     diagState.opCounter++;
     const padId = String(diagState.opCounter).padStart(5, '0');
     const opId = `OP-${padId}`;
@@ -978,7 +1038,6 @@
 
   function endOperation() {
     if (!diagState.active || !diagState.currentOp) return null;
-
     const op = diagState.currentOp;
     op.durationMs = Number((performance.now() - op.startTime).toFixed(1));
     op.selectionAfter = snapshotSelection();
@@ -1029,6 +1088,7 @@
   // --- INTERCEPTORES DE FUNCIONES GLOBALES ---
   function forceWrapWindowFunction(fnName, modulePath, actionType) {
     if (typeof window === 'undefined') return;
+
     let _inner = window[fnName];
 
     function createWrapper(targetFn) {
@@ -1038,16 +1098,13 @@
       const wrapped = function (...args) {
         const hasExisting = !!diagState.currentOp;
         let op = null;
-
         if (!hasExisting) {
           op = beginOperation(actionType || fnName, `${modulePath} -> window.${fnName}()`);
         }
-
         const activeOp = diagState.currentOp;
         const order = activeOp ? activeOp.callGraph.length + 1 : 1;
         const t0 = performance.now();
         let res, err = null;
-
         try {
           res = targetFn.apply(this, args);
         } catch (e) {
@@ -1093,7 +1150,7 @@
   }
 
   // =========================================================================
-  // CAPTURA UNIVERSAL DE CLICS EN UI
+  // CAPTURA UNIVERSAL DE CLICS EN UI Y ARRASTRE
   // =========================================================================
   function installDOMCaptureListeners() {
     if (typeof document === 'undefined') return;
@@ -1106,7 +1163,6 @@
       const interactiveEl = target.closest('button, [role="button"], .ctx-btn, .pro-btn, [data-action], a.btn, input[type="button"]');
       if (!interactiveEl) return;
 
-      // Monitoreo de disparadores de input de archivos
       if (interactiveEl.id === 'btnAddSVG' || interactiveEl.id === 'btnAddImage' || interactiveEl.getAttribute('data-action') === 'load-svg') {
         window.__EKKO_FILE_PICKER_TRIGGERED__ = true;
         setTimeout(() => { window.__EKKO_FILE_PICKER_TRIGGERED__ = false; }, 1000);
@@ -1159,14 +1215,17 @@
           const geoNow = snapshotGeometricState();
 
           if (dx > 4 || dy > 4) {
-            const op = beginOperation('DRAG_MOVE', 'Arrastre en Lienzo (#editorCanvas)');
+            // Operación de Arrastre o Transformación
+            const isNodeMode = typeof window !== 'undefined' && !!window.nodeEditMode;
+            const action = isNodeMode ? 'NODE_DRAG' : 'DRAG_MOVE';
+            const op = beginOperation(action, 'Arrastre en Lienzo (#editorCanvas)');
             op.selectionBefore = selBefore;
             op.geometryBefore = diagState.lastMouseDownGeo || geoNow;
             endOperation();
           } else {
-            const idBefore = (selBefore && selBefore.primary) ? selBefore.primary.id : null;
-            const idNow = (selNow && selNow.primary) ? selNow.primary.id : null;
-
+            // Clic simple en el lienzo (Selección / Deselección)
+            const idBefore = selBefore && selBefore.primary ? selBefore.primary.id : null;
+            const idNow = selNow && selNow.primary ? selNow.primary.id : null;
             if (idBefore !== idNow) {
               const action = idNow ? 'SELECT' : 'DESELECT';
               const op = beginOperation(action, 'Clic en Lienzo (#editorCanvas)');
@@ -1235,14 +1294,14 @@
   }
 
   // =========================================================================
-  // API PÚBLICA EKKO_DIAG
+  // API PÚBLICA EKKO_DIAG (Para F12 de Navegador)
   // =========================================================================
   const publicAPI = {
     start: function () {
       diagState.active = true;
       installAllInterceptors();
-      rawConsole.log('%c[EKKO_DIAG v9.5 BLACK BOX AVIATION EDITION] Activo 🟢 (Auditoría Física Estricta)', 'color: #10b981; font-weight: bold; font-size: 13px;');
-      return 'EKKO_DIAG Activo. Monitoreando automáticamente con auto-copia forense habilitada.';
+      rawConsole.log('%c[EKKO_DIAG v10.0 BLACK BOX AVIATION - ZERO FALSE POSITIVES] Activo 🟢 (Auditoría Física y Geométrica Estricta)', 'color: #10b981; font-weight: bold; font-size: 13px;');
+      return 'EKKO_DIAG v10.0 Activo. Monitoreando automáticamente con auto-copia forense y detección de falsos positivos.';
     },
 
     stop: function () {
@@ -1273,7 +1332,7 @@
     report: function () {
       const ops = diagState.operations;
       let outputText = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-      outputText += '║      EKKO STUDIO DIAGNOSTIC v9.0 - ESTÁNDAR UNIVERSAL DE CONTRATOS FORENSES      ║\n';
+      outputText += '║   EKKO STUDIO DIAGNOSTIC v10.0 - ESTÁNDAR UNIVERSAL DE CONTRATOS Y FALSOS POSITIVOS  ║\n';
       outputText += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
       outputText += `Total Operaciones Auditadas: ${ops.length}\n\n`;
 
@@ -1288,7 +1347,6 @@
           });
         }
       });
-
       rawConsole.log(outputText);
       return outputText;
     },
@@ -1310,14 +1368,12 @@
         rawConsole.log('%c[EKKO_DIAG] No hay inconsistencias registradas en la sesión activa.', 'color: #10b981;');
         return false;
       }
-
       let combined = `================================================================================\n`;
       combined += `REPORTE COMBINADO DE INCONSISTENCIAS EKKO STUDIO (${errorOps.length} OPERACIONES FALLIDAS)\n`;
       combined += `================================================================================\n`;
       errorOps.forEach(op => {
         combined += formatOpForRemediation(op) + '\n';
       });
-
       safeCopyToClipboard(combined, `${errorOps.length} inconsistencia(s) copiadas al portapapeles.`);
       return combined;
     },
@@ -1332,6 +1388,16 @@
     last: function () {
       if (diagState.operations.length === 0) return 'No hay operaciones registradas.';
       return diagState.operations[diagState.operations.length - 1];
+    },
+
+    audit: function () {
+      const geo = snapshotGeometricState();
+      const sel = snapshotSelection();
+      rawConsole.log('%c[EKKO_DIAG AUDIT FORZADA] Estado Físico Actual:', 'color: #0284c7; font-weight: bold;', {
+        seleccion: sel,
+        geometria: geo
+      });
+      return { seleccion: sel, geometria: geo };
     }
   };
 
