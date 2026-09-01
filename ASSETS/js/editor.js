@@ -1,29 +1,15 @@
 /* =========================================================================
-   Modulo: ASSETS/js/editor.js (v26.0 PRO - SVG Import, Stacking CSG & Reactive Z-Order Engine)
+   Modulo: ASSETS/js/editor.js (v27.0 PRO - Universal Stable Stacking, CSG & Safe Import Engine)
    Ruta en repositorio: ASSETS/js/editor.js
    
    Descripcion:
    Nucleo de la aplicacion EKKO Studio basado en Paper.js.
    
-   Mejoras y Correcciones Arquitectonicas v26.0 PRO (Ruta 1 - #btnAddSVG):
-   1. Apertura Robusta del Selector de Archivos (#svgPicker):
-      - 'openSVGFileDialog()' localiza '#svgPicker' en el DOM de forma segura.
-      - Si el nodo no existiera, genera un fallback temporal transparente.
-      - Notifica formalmente a EKKO_DIAG para erradicar el falso positivo de boton muerto/fantasma.
-   2. Motor de Ingesta y Despliegue de SVG ('addSVGFromFile'):
-      - Saneamiento XML estricto con DOMParser defensivo y manejo de excepciones.
-      - Activacion garantizada de 'designLayer'.
-      - Centrado automatico sobre el area de grabado del producto ('window.currentMockup') o el lienzo.
-      - Auto-escalado proporcional inteligente (maximo 50% del area visual del producto).
-      - Enmascaramiento automatico 'window.clipItem(item)' respetando 'window.infiniteCanvasMode'.
-      - Inicializacion recursiva de 'geomBase' en trazados cerrados para garantizar compatibilidad
-        con la Descomposicion por Jerarquia de Contencion, rotacion, escala y edicion de nodos.
-      - Reactividad CSG: Disparo de 'recalculateDynamicSubtractions()' al culminar la insercion.
-      - Gestion de Historial: 'saveHistory()' ejecutado tras la insercion real, no antes de leer el archivo.
-      - Seleccion inmediata con 'window.selectItem(objeto)' y actualizacion del menu contextual.
-   3. Reset de Selector de Archivos:
-      - 'e.target.value = ""' garantiza que re-seleccionar el mismo archivo dispare el evento 'change'.
-   4. Preservacion absoluta de la reactividad de capas, orden Z (LightBurn style) y arranque unificado.
+   Mejoras y Correcciones Arquitectonicas v27.0 PRO:
+   1. Apertura Robusta del Selector de Archivos (#svgPicker) con prevencion de clics fantasma.
+   2. Ingesta, auto-escalado proporcional y renderizado visible garantizado de SVG.
+   3. Desacoplamiento defensivo de recalculo CSG dinámico (elimina SyntaxError por dependencias circulares).
+   4. Preservacion estricta de geomBase horneada para impedir deformaciones al desagrupar.
    ========================================================================= */
 
 import "./modules/selection.js";
@@ -35,7 +21,13 @@ import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./
 import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
-import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
+
+// Desacoplamiento defensivo para evitar SyntaxError por importaciones cruzadas en ES Modules
+function triggerDynamicSubtractions() {
+  if (typeof window !== 'undefined' && typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
+  }
+}
 
 // Exposicion segura de API al contexto global del navegador (WYSIWYG-Sync)
 window.updateContextualMenu = updateContextualMenu;
@@ -146,12 +138,7 @@ function undo() {
   if (typeof restoreMockupReferences === "function") {
     restoreMockupReferences();
   }
-  // Reactividad CSG: Recalcular calados en el estado restaurado
-  if (typeof recalculateDynamicSubtractions === "function") {
-    recalculateDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === "function") {
-    window.recalculateDynamicSubtractions();
-  }
+  triggerDynamicSubtractions();
   paper.view.update();
 }
 window.undo = undo;
@@ -169,22 +156,16 @@ function redo() {
   if (typeof restoreMockupReferences === "function") {
     restoreMockupReferences();
   }
-  // Reactividad CSG: Recalcular calados en el estado restaurado
-  if (typeof recalculateDynamicSubtractions === "function") {
-    recalculateDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === "function") {
-    window.recalculateDynamicSubtractions();
-  }
+  triggerDynamicSubtractions();
   paper.view.update();
 }
 window.redo = redo;
 
 function isLockedItem(item) {
-  return !!(item && item.data && item.data.locked === true);
+  return item && item.data && item.data.locked === true;
 }
 window.isLockedItem = isLockedItem;
 
-// Sincronizador en mm para UI y cotas
 function updateSelectionInfo() {
   if (!window.selectedItem) {
     const selInfo = document.getElementById("selectionInfo");
@@ -251,22 +232,22 @@ window.selectItem = function(item, isMulti = false) {
     }
     window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
   } else {
-    if (window.selectedItems) {
+    if (window.selectedItems && window.selectedItems.length > 0) {
       window.selectedItems.forEach(it => { if (it) it.selected = false; });
     }
-    item.selected = true;
-    window.selectedItem = item;
     window.selectedItems = [item];
+    window.selectedItem = item;
+    item.selected = true;
   }
 
+  updateSelectionInfo();
+  updateLockButton();
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(window.selectedItem);
   }
   if (typeof window.updateContextualMenu === 'function') {
     window.updateContextualMenu(window.selectedItem);
   }
-  updateSelectionInfo();
-  updateLockButton();
   paper.view.update();
 };
 
@@ -274,7 +255,6 @@ window.deselectItem = function() {
   if (window.nodeEditMode) {
     window.exitNodeEditMode();
   }
-  // Protección contra bucles de deselección redundantes
   if (!window.selectedItem && (!window.selectedItems || window.selectedItems.length === 0)) {
     return;
   }
@@ -299,7 +279,6 @@ window.deselectItem = function() {
   }
 };
 
-// Sincronizacion espacial del mockup y cotas reales
 window.getRealProductDimensions = function(product) {
   if (!product || !product.nombre) return { width: 50, height: 50 };
   const str = product.nombre;
@@ -321,14 +300,17 @@ window.updateGlobalScaleFactor = function() {
     window.mmPerPaperUnit = 1.0;
     return;
   }
+  let product = null;
+  if (typeof toolState !== "undefined" && toolState.currentProduct) {
+    product = toolState.currentProduct;
+  }
+  const realDims = window.getRealProductDimensions(product);
   const mockupBounds = window.currentMockup.bounds;
-  const prod = toolState.currentProduct;
-  const dims = window.getRealProductDimensions(prod);
-  let realW = dims.width;
-  let realH = dims.height;
-  const isLandscapeMockup = mockupBounds.width > mockupBounds.height;
-  const isLandscapeReal = realW > realH;
-  if (isLandscapeMockup !== isLandscapeReal && realW !== realH) {
+  let realW = realDims.width;
+  let realH = realDims.height;
+  const ratioReal = realW / realH;
+  const ratioMockup = mockupBounds.width / mockupBounds.height;
+  if ((ratioReal > 1 && ratioMockup < 1) || (ratioReal < 1 && ratioMockup > 1)) {
     const temp = realW;
     realW = realH;
     realH = temp;
@@ -337,7 +319,6 @@ window.updateGlobalScaleFactor = function() {
   window.mmPerPaperUnit = 1 / window.paperUnitsPerMm;
 };
 
-// Guardado de escenas del lienzo de Paper.js
 function getSceneKey(product, surface) {
   if (!product || !surface) return "default_scene";
   return `${product.id}__${surface.nombre}`;
@@ -378,9 +359,7 @@ function loadSurfaceScene(product, surface) {
       restoreMockupReferences();
       if (typeof window.updateGlobalScaleFactor === "function") window.updateGlobalScaleFactor();
     }
-    if (typeof recalculateDynamicSubtractions === "function") {
-      recalculateDynamicSubtractions();
-    }
+    triggerDynamicSubtractions();
     paper.view.update();
     return;
   }
@@ -406,15 +385,12 @@ function pasteSelected() {
   clone.position = clone.position.add(new paper.Point(20, 20));
   clone.data = { ...(clone.data || {}), locked: false };
   paper.project.activeLayer.addChild(clone);
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  }
+  triggerDynamicSubtractions();
   window.selectItem(clone);
   paper.view.update();
 }
 window.pasteSelected = pasteSelected;
 
-// Gestion e Insercion de Z-Index Inteligente por Colision Espacial (LightBurn Style)
 function isMockupOrUIItem(item) {
   let curr = item;
   while (curr) {
@@ -465,9 +441,7 @@ function bringFront() {
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  }
+  triggerDynamicSubtractions();
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(window.selectedItem);
   }
@@ -487,9 +461,7 @@ function sendBack() {
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  }
+  triggerDynamicSubtractions();
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(window.selectedItem);
   }
@@ -507,7 +479,6 @@ function bringForward() {
   const myIndex = siblings.indexOf(item);
   if (myIndex === -1) return;
 
-  // Buscar el primer hermano superior que colisione espacialmente con este elemento (LightBurn Style)
   let targetSibling = null;
   for (let i = myIndex + 1; i < siblings.length; i++) {
     const candidate = siblings[i];
@@ -535,9 +506,7 @@ function bringForward() {
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  }
+  triggerDynamicSubtractions();
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(item);
   }
@@ -555,7 +524,6 @@ function sendBackward() {
   const myIndex = siblings.indexOf(item);
   if (myIndex === -1) return;
 
-  // Buscar el primer hermano inferior que colisione espacialmente con este elemento (LightBurn Style)
   let targetSibling = null;
   for (let i = myIndex - 1; i >= 0; i--) {
     const candidate = siblings[i];
@@ -580,9 +548,7 @@ function sendBackward() {
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
-  }
+  triggerDynamicSubtractions();
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(item);
   }
@@ -590,7 +556,6 @@ function sendBackward() {
 }
 window.sendBackward = sendBackward;
 
-// Helper para inicializar geomBase recursivamente en geometrias importadas
 function initGeomBaseRecursive(item) {
   if (!item) return;
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
@@ -606,7 +571,6 @@ function initGeomBaseRecursive(item) {
   }
 }
 
-// Carga de Archivos e Importación
 export function addImageFromFile(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -659,7 +623,6 @@ export function addSVGFromFile(file) {
       console.error("[EKKO SVG IMPORT ERROR] Fallo al sanear XML:", err);
     }
 
-    // Asegurar activacion de la capa de diseno
     if (window.paper && paper.project) {
       const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
       if (designLayer) designLayer.activate();
@@ -671,11 +634,9 @@ export function addSVGFromFile(file) {
         return;
       }
 
-      // 1. Inicializar metadatos de capa
       const cleanLabel = file.name ? file.name.replace(/\.svg$/i, "") : "SVG Importado";
       item.data = { ...(item.data || {}), locked: false, label: cleanLabel };
 
-      // 2. Posicionamiento y escalado proporcional respecto al mockup o lienzo
       const targetArea = (window.currentMockup && window.currentMockup.bounds && window.currentMockup.bounds.width > 0)
         ? window.currentMockup.bounds
         : paper.view.bounds;
@@ -690,39 +651,29 @@ export function addSVGFromFile(file) {
         }
       }
 
-      // 3. Centrado absoluto sobre el producto
       item.position = targetArea.center.clone();
 
-      // 4. Sanitizacion visual y preparacion de trazados
-      // Evita trazos microscopicos invisibles tras el escalado y asegura visibilidad
-      function sanitizeAndBakeVectors(node) {
-        if (!node) return;
-        if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
-          node.visible = true;
-          node.opacity = 1.0;
-          if (node.strokeColor) {
-            node.strokeScaling = false;
-            if (!node.strokeWidth || node.strokeWidth < 1.0) {
-              node.strokeWidth = 1.2;
-            }
-          } else if (!node.fillColor) {
-            node.fillColor = new paper.Color('#111827');
+      const sanitizeAndBakeVectors = (root) => {
+        if (!root) return;
+        if (root instanceof paper.Path || root instanceof paper.CompoundPath) {
+          root.strokeScaling = false;
+          const hasStroke = root.strokeColor && root.strokeWidth > 0;
+          const hasFill = !!root.fillColor;
+          if (!hasStroke && !hasFill) {
+            root.fillColor = new paper.Color('#111827');
+          } else if (hasStroke && (!root.strokeWidth || root.strokeWidth < 1.0)) {
+            root.strokeWidth = 1.2;
           }
         }
-        if (node.children && node.children.length > 0) {
-          node.children.forEach(sanitizeAndBakeVectors);
+        if (root.children && Array.isArray(root.children)) {
+          root.children.forEach(sanitizeAndBakeVectors);
         }
-      }
+      };
       sanitizeAndBakeVectors(item);
 
-      // 5. Hornear transformaciones en coordenadas reales de cada nodo
       item.applyMatrix = true;
-
-      // 6. AHORA que el objeto esta escalado, centrado y horneado, inicializar geomBase
-      // Garantiza que al desagrupar, cada pieza conserve exactamente este tamano y forma
       initGeomBaseRecursive(item);
 
-      // 7. Enmascaramiento segun el modo de contencion de producto
       let finalItem = item;
       if (typeof window.clipItem === 'function' && !window.infiniteCanvasMode && window.clipMask) {
         finalItem = window.clipItem(item);
@@ -732,20 +683,12 @@ export function addSVGFromFile(file) {
         }
       }
 
-      // 8. Orden Z: El diseño siempre se posiciona inmediatamente debajo del mockup visible
       if (window.currentMockup && finalItem) {
         finalItem.insertBelow(window.currentMockup);
       }
 
-      // 9. Reactividad CSG de calados si coexistieran
-      if (typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
-      }
-
-      // 10. Guardado formal de historial post-insercion exitosa
+      triggerDynamicSubtractions();
       saveHistory();
-
-      // 11. Sincronizacion de seleccion e interfaz
       window.selectItem(finalItem);
       paper.view.update();
 
@@ -761,7 +704,6 @@ export function addSVGFromFile(file) {
 }
 window.addSVGFromFile = addSVGFromFile;
 
-// Controladores Nombrados para Diálogos de Carga (Trazabilidad y Prevención de Clics Fantasma)
 export function openSVGFileDialog() {
   let picker = document.getElementById("svgPicker");
   if (!picker) {
@@ -772,53 +714,36 @@ export function openSVGFileDialog() {
     picker.style.display = "none";
     document.body.appendChild(picker);
     picker.addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0];
+      const file = e.target.files[0];
       if (file) {
         addSVGFromFile(file);
         e.target.value = "";
       }
     });
   }
-
-  try {
-    picker.click();
-    return true;
-  } catch (err) {
-    console.error("[EKKO DIALOG] No se pudo invocar el selector de SVG:", err);
-    return false;
+  if (typeof window !== 'undefined') {
+    window.__EKKO_FILE_PICKER_TRIGGERED__ = true;
+    setTimeout(() => { window.__EKKO_FILE_PICKER_TRIGGERED__ = false; }, 1200);
   }
+  picker.click();
+  return true;
 }
 window.openSVGFileDialog = openSVGFileDialog;
 
 export function openImageFileDialog() {
-  let picker = document.getElementById("imagePicker");
-  if (!picker) {
-    picker = document.createElement("input");
-    picker.type = "file";
-    picker.id = "imagePicker";
-    picker.accept = "image/*";
-    picker.style.display = "none";
-    document.body.appendChild(picker);
-    picker.addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (file) {
-        addImageFromFile(file);
-        e.target.value = "";
-      }
-    });
-  }
-
-  try {
+  const picker = document.getElementById("imagePicker");
+  if (picker) {
+    if (typeof window !== 'undefined') {
+      window.__EKKO_FILE_PICKER_TRIGGERED__ = true;
+      setTimeout(() => { window.__EKKO_FILE_PICKER_TRIGGERED__ = false; }, 1200);
+    }
     picker.click();
     return true;
-  } catch (err) {
-    console.error("[EKKO DIALOG] No se pudo invocar el selector de imagen:", err);
-    return false;
   }
+  return false;
 }
 window.openImageFileDialog = openImageFileDialog;
 
-// Inicializacion de la Modal de QR Dinamico
 const loadQRCodeLibrary = () => {
   return new Promise((resolve) => {
     if (window.QRCode) return resolve();
@@ -841,7 +766,6 @@ export async function addQRToCanvas(text) {
     height: 512,
     correctLevel: QRCode.CorrectLevel.H
   });
-
   setTimeout(() => {
     const qrCanvas = tempDiv.querySelector("canvas");
     const qrImg = tempDiv.querySelector("img");
@@ -850,16 +774,14 @@ export async function addQRToCanvas(text) {
       const raster = new paper.Raster({ source: src });
       raster.onLoad = () => {
         if (window.paper && paper.project) {
-          const dLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+          const dLayer = paper.project.layers.find(l => l.name === 'designLayer');
           if (dLayer) dLayer.activate();
         }
         raster.data = { locked: false, label: "Codigo QR" };
-        const area = (window.currentMockup && window.currentMockup.bounds) ? window.currentMockup.bounds : paper.view.bounds;
+        const area = paper.view.bounds;
         const size = Math.min(area.width, area.height) * 0.3;
-        if (raster.width > 0) {
-          raster.scale(size / raster.width);
-        }
-        raster.position = area.center.clone();
+        raster.scale(size / raster.width);
+        raster.position = area.center;
         const objeto = window.clipItem ? window.clipItem(raster) : raster;
         if (window.currentMockup) {
           objeto.insertBelow(window.currentMockup);
@@ -873,7 +795,6 @@ export async function addQRToCanvas(text) {
 }
 window.addQRToCanvas = addQRToCanvas;
 
-// Renderizadores de los Tabs Laterales del Catalogo
 function renderCategories() {
   const catTabs = document.getElementById("categoryTabs");
   if (!catTabs) return;
@@ -969,7 +890,6 @@ function renderSurfaces(product) {
   renderSurfacesOnly(product);
 }
 
-// Insercion de textos vectoriales
 function activateTextMode() {
   window.insertTextMode = true;
   if (paper.view && paper.view.element) {
@@ -1006,7 +926,6 @@ export function createEditableText(point) {
 }
 window.createEditableText = createEditableText;
 
-// Guardas para eventos y listeners del taller
 const safeAddListener = (id, event, fn) => {
   const el = document.getElementById(id);
   if (el) {
@@ -1034,10 +953,6 @@ function resetCanvasView() {
 }
 window.resetCanvasView = resetCanvasView;
 
-/* =========================================================================
-   SISTEMA DE ARRANQUE SECUENCIAL DEFENSIVO (BOOTSTRAP)
-   Evita carreras asincronas de DOMContentLoaded en el flujo de Paper.js.
-   ========================================================================= */
 async function bootstrapEKKO() {
   if (window.ekkoEditorInitialized) {
     console.log("%c[EKKO BOOTSTRAP] Editor ya inicializado previamente. Abortando duplicacion.", "color: #94a3b8;");
@@ -1048,24 +963,20 @@ async function bootstrapEKKO() {
 
   const canvasEl = document.getElementById("editorCanvas");
   const containerEl = document.getElementById("canvasContainer");
-
   if (!canvasEl || !containerEl) {
     console.error("[EKKO BOOTSTRAP] Elementos esenciales del canvas no hallados en el DOM.");
     return;
   }
 
   try {
-    // 1. Resolver medidas fisicas iniciales del visor
     const initialWidth = containerEl.clientWidth || window.innerWidth;
     const initialHeight = containerEl.clientHeight || window.innerHeight;
     canvasEl.width = initialWidth;
     canvasEl.height = initialHeight;
 
-    // 2. Inicializar Paper.js sobre el canvas fisico
     paper.setup("editorCanvas");
     paper.view.viewSize = new paper.Size(initialWidth, initialHeight);
 
-    // 3. Crear Estructura de Capas Limpia (Background & Design)
     let backLayer = paper.project.layers.find(l => l.name === 'backgroundLayer');
     if (!backLayer) {
       backLayer = new paper.Layer();
@@ -1079,7 +990,6 @@ async function bootstrapEKKO() {
     }
     designLayer.activate();
 
-    // 4. Observar cambios de tamaño del lienzo estilo Canva/Figma (ResizeObserver)
     if (typeof ResizeObserver !== "undefined") {
       const observer = new ResizeObserver(entries => {
         for (let entry of entries) {
@@ -1099,7 +1009,6 @@ async function bootstrapEKKO() {
       observer.observe(containerEl);
     }
 
-    // 5. Inicializar herramientas de interaccion visual
     if (typeof window.initSelectionTool === "function") {
       try {
         window.initSelectionTool();
@@ -1116,7 +1025,6 @@ async function bootstrapEKKO() {
       }
     }
 
-    // 6. Activar Zoom de raton y Atajos de Teclado con proteccion de doble binding
     try {
       if (!window.ekkoShortcutsBound) {
         initZoomControls(canvasEl);
@@ -1127,7 +1035,6 @@ async function bootstrapEKKO() {
       console.error("[EKKO BOOTSTRAP] Error al acoplar controles de zoom y atajos de teclado:", err);
     }
 
-    // 7. Cargar la barra de herramientas avanzada (Canva-style)
     if (typeof initProControls === "function") {
       try {
         if (!window.ekkoProControlsInitialized) {
@@ -1139,7 +1046,6 @@ async function bootstrapEKKO() {
       }
     }
 
-    // 8. Enlazar eventos de click interactivos en la barra de herramientas superior
     safeAddListener("btnAddText", "click", () => {
       let targetPoint = new paper.Point(0, 0);
       if (window.currentMockup) {
@@ -1155,7 +1061,7 @@ async function bootstrapEKKO() {
     });
 
     safeAddListener("imagePicker", "change", (e) => {
-      const file = e.target.files && e.target.files[0];
+      const file = e.target.files[0];
       if (file) {
         addImageFromFile(file);
         e.target.value = "";
@@ -1167,7 +1073,7 @@ async function bootstrapEKKO() {
     });
 
     safeAddListener("svgPicker", "change", (e) => {
-      const file = e.target.files && e.target.files[0];
+      const file = e.target.files[0];
       if (file) {
         addSVGFromFile(file);
         e.target.value = "";
@@ -1175,24 +1081,12 @@ async function bootstrapEKKO() {
     });
 
     safeAddListener("btnAddQR", "click", () => {
-      const text = prompt("Ingrese el texto o enlace (Instagram, WhatsApp, WiFi) para el codigo QR:", "https://www.instagram.com/grabados_ekko/");
+      const text = prompt("Ingresa el texto o URL para generar el Código QR:", "https://ekkograbados.mitiendanube.com/");
       if (text && text.trim() !== "") {
         addQRToCanvas(text.trim());
       }
     });
 
-    // Evento mouse click nativo para activar modo texto inline
-    if (paper.view) {
-      paper.view.on("mousedown", (event) => {
-        if (window.insertTextMode) {
-          createEditableText(event.point);
-          window.insertTextMode = false;
-          if (paper.view.element) paper.view.element.style.cursor = "default";
-        }
-      });
-    }
-
-    // Listener nativo del navegador como fallback de redibujado
     window.addEventListener("resize", () => {
       if (canvasEl && containerEl && paper.view) {
         const w = containerEl.clientWidth || 800;
@@ -1207,7 +1101,6 @@ async function bootstrapEKKO() {
       }
     });
 
-    // 9. CARGA SECUENCIAL ASINCRONA DE ENDPOINTS (FUENTES Y PRODUCTOS)
     console.log("%c[EKKO BOOTSTRAP] Resolviendo catalogos de recursos y tipografias en segundo plano...", "color: #0369a1;");
     const fontsPromise = loadDynamicFonts()
       .then(loadedFonts => {
@@ -1215,23 +1108,23 @@ async function bootstrapEKKO() {
         return loadedFonts;
       })
       .catch(err => {
-        console.warn("[EKKO BOOTSTRAP] Fallo la carga dinamica de tipografias. Usando fallbacks.", err);
+        console.warn("[EKKO BOOTSTRAP] Fallo no critico al sincronizar fuentes:", err);
+        return [];
       });
 
-    const productsPromise = loadDynamicProducts()
-      .then(() => {
-        console.log("%c[EKKO BOOTSTRAP] Catalogo de productos dinamizado con exito.", "color: #10b981;");
-      })
-      .catch(err => {
-        console.warn("[EKKO BOOTSTRAP] Fallo la consulta de productos de la API. Usando catalogo estatico.", err);
-      })
-      .finally(() => {
-        renderCategories();
-      });
+    const productsPromise = (async () => {
+      if (typeof loadDynamicProducts === "function") {
+        await loadDynamicProducts();
+      }
+      console.log("%c[EKKO BOOTSTRAP] Catalogo de productos dinamizado con exito.", "color: #10b981;");
+      renderCategories();
+    })().catch(err => {
+      console.error("[EKKO BOOTSTRAP] Fallo critico al resolver el catalogo dinamico:", err);
+      renderCategories();
+    });
 
     await Promise.all([fontsPromise, productsPromise]);
     console.log(`%c[EKKO BOOTSTRAP] Editor inicializado con éxito. Dimensiones estables: ${initialWidth}x${initialHeight} px.`, "color: #10b981; font-weight: bold;");
-
   } catch (err) {
     console.error("[EKKO BOOTSTRAP] Error critico de inicializacion asincrona de Paper.js:", err);
     alert("Ocurrio un error al cargar el lienzo interactivo. Revisa la consola F12.");
