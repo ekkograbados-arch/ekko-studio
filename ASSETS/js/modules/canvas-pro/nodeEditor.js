@@ -26,7 +26,12 @@
       local neutro tras cada modificación de vértices.
    ========================================================================= */
 
-import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+// Helper seguro para recálculo dinámico CSG (evita dependencias circulares o exportaciones faltantes)
+function triggerDynamicSubtractions() {
+  if (typeof window !== 'undefined' && typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
+  }
+}
 
 /**
  * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
@@ -201,29 +206,26 @@ export function enterNodeEditMode(item) {
     window.updateSelectionBox(null);
   }
 
-  // 6. Si el elemento es un sólido afectado por CSG, mostrar temporalmente su masa base original
-  if (activeNodeItem.data && activeNodeItem.data.geomBase && !activeNodeItem.data.isHole) {
-    const pristine = activeNodeItem.data.geomBase.clone({ insert: false });
-    pristine.matrix = activeNodeItem.matrix.clone();
-    activeNodeItem.removeChildren();
-    if (pristine instanceof paper.CompoundPath) {
-      const cl = pristine.clone({ insert: false });
-      activeNodeItem.addChildren(cl.removeChildren());
-      cl.remove();
-    } else if (pristine instanceof paper.Path) {
-      activeNodeItem.addChild(pristine.clone({ insert: false }));
+  // 6. Asegurar visibilidad de trazados para edición interactiva
+  activeNodeItem.visible = true;
+  const targetPathsForStyle = getTargetPaths(activeNodeItem);
+  targetPathsForStyle.forEach(p => {
+    p.visible = true;
+    // Si es un calado, trazo cian punteado para que sea editable
+    if (activeNodeItem.data && activeNodeItem.data.isHole) {
+      if (!p.strokeColor) {
+        p.strokeColor = new paper.Color('#0284c7');
+        p.strokeWidth = 1.5 / (paper.view ? paper.view.zoom : 1);
+        p.dashArray = [4, 4];
+      }
+    } else {
+      // Asegurar que las curvas tengan trazo o relleno visible mientras se editan
+      if (!p.strokeColor && !p.fillColor) {
+        p.strokeColor = new paper.Color('#111827');
+        p.strokeWidth = 1.2 / (paper.view ? paper.view.zoom : 1);
+      }
     }
-    pristine.remove();
-    activeNodeItem.visible = true;
-  } else if (activeNodeItem.data && activeNodeItem.data.isHole) {
-    // Si es un calado activo, hacerlo visible con trazo cian punteado para edición precisa
-    activeNodeItem.visible = true;
-    if (!activeNodeItem.strokeColor) {
-      activeNodeItem.strokeColor = new paper.Color('#0284c7');
-      activeNodeItem.strokeWidth = 1.5 / (paper.view ? paper.view.zoom : 1);
-      activeNodeItem.dashArray = [4, 4];
-    }
-  }
+  });
 
   // 7. Configuración de la herramienta de Paper.js para edición de nodos
   initNodeEditTool();
@@ -302,8 +304,8 @@ export function exitNodeEditMode(skipSelect = false) {
   }
 
   // 6. Reactividad CSG: Recalcular calados en vivo
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
+  if (typeof triggerDynamicSubtractions === 'function') {
+    triggerDynamicSubtractions();
   } else if (typeof window.recalculateDynamicSubtractions === 'function') {
     window.recalculateDynamicSubtractions();
   }
@@ -363,8 +365,8 @@ function initNodeEditTool() {
         const newSegment = nearestLoc.curve.divideAt(nearestLoc);
         if (newSegment) {
           syncGeometryToGeomBase(activeNodeItem);
-          if (activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
-            recalculateDynamicSubtractions();
+          if (activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
+            triggerDynamicSubtractions();
             activeNodeItem.visible = true;
           }
           selectedNodes.clear();
@@ -453,8 +455,8 @@ function initNodeEditTool() {
       }
 
       syncGeometryToGeomBase(activeNodeItem);
-      if (activeNodeItem && activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
+      if (activeNodeItem && activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
+        triggerDynamicSubtractions();
         activeNodeItem.visible = true;
       }
       drawNodeHandles();
@@ -462,30 +464,39 @@ function initNodeEditTool() {
       return;
     }
 
-    // 2. Arrastre simultáneo y solidario de múltiples vértices seleccionados
+    // 2. Arrastre simultáneo y solidario de múltiples vértices seleccionados (Deformación de silueta en vivo)
     if (isDraggingNode && selectedNodes.size > 0) {
       window.isDraggingNode = true;
       const paths = getTargetPaths(activeNodeItem);
 
+      // Calcular el vector de desplazamiento local preciso para cada trazado
       let curGlobal = 0;
+      let segmentsMoved = 0;
+
       paths.forEach(path => {
-        const p0 = path.globalToLocal(new paper.Point(0, 0));
-        const p1 = path.globalToLocal(event.delta);
-        const localDelta = p1.subtract(p0);
+        // En Paper.js, event.point y event.lastPoint son coordenadas de proyecto (World)
+        const localCurrent = path.globalToLocal(event.point);
+        const localPrevious = path.globalToLocal(event.lastPoint || event.point.subtract(event.delta));
+        const localDelta = localCurrent.subtract(localPrevious);
 
         path.segments.forEach((seg) => {
           if (selectedNodes.has(curGlobal)) {
             seg.point = seg.point.add(localDelta);
+            segmentsMoved++;
           }
           curGlobal++;
         });
       });
 
-      syncGeometryToGeomBase(activeNodeItem);
-      if (activeNodeItem && activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
-        activeNodeItem.visible = true;
+      // Sincronizar la geometría visual activa en Paper.js
+      if (segmentsMoved > 0) {
+        syncGeometryToGeomBase(activeNodeItem);
+        if (activeNodeItem && activeNodeItem.data?.isHole) {
+          triggerDynamicSubtractions();
+          activeNodeItem.visible = true;
+        }
       }
+
       drawNodeHandles();
       paper.view.update();
       return;
@@ -537,8 +548,8 @@ function initNodeEditTool() {
       }
 
       syncGeometryToGeomBase(activeNodeItem);
-      if (activeNodeItem && activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
+      if (activeNodeItem && activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
+        triggerDynamicSubtractions();
         activeNodeItem.visible = true;
       }
     }
@@ -725,8 +736,8 @@ export function deleteSelectedNodes() {
   selectedNodes.clear();
   syncGeometryToGeomBase(activeNodeItem);
 
-  if (activeNodeItem && activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
+  if (activeNodeItem && activeNodeItem.data?.isHole && typeof triggerDynamicSubtractions === 'function') {
+    triggerDynamicSubtractions();
     activeNodeItem.visible = true;
   }
 
@@ -858,8 +869,8 @@ export function detachSelectedSubpaths() {
   exitNodeEditMode(true);
 
   if (typeof window.deselectItem === 'function') window.deselectItem();
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
+  if (typeof triggerDynamicSubtractions === 'function') {
+    triggerDynamicSubtractions();
   }
 
   setTimeout(() => {
