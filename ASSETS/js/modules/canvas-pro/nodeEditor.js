@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v37.0 - Unified CallGraph & Double-Scope GeomBase Precision)
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v38.0 - Unified CallGraph & Double-Scope GeomBase Precision)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripción:
     Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
@@ -71,9 +71,12 @@ function getTargetPaths(target) {
     const paths = [];
     const findPathsRecursive = (item) => {
         if (!item) return;
-        if (item instanceof paper.Path) {
+        const isP = item.className === 'Path' || (typeof paper !== 'undefined' && paper.Path && item instanceof paper.Path);
+        const isCP = item.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && item instanceof paper.CompoundPath);
+        const isG = item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group);
+        if (isP) {
             paths.push(item);
-        } else if (item instanceof paper.CompoundPath || item instanceof paper.Group) {
+        } else if (isCP || isG) {
             if (item.children && Array.isArray(item.children)) {
                 item.children.forEach(findPathsRecursive);
             }
@@ -134,7 +137,8 @@ export function enterNodeEditMode(item) {
     if (!target) return;
 
     // Conversión automática de texto a curvas si se intenta editar nodos de un PointText
-    if (target instanceof paper.PointText) {
+    const isText = target.className === 'PointText' || (typeof paper !== 'undefined' && paper.PointText && target instanceof paper.PointText);
+    if (isText) {
         if (confirm("Para editar los nodos de este texto, primero debes convertirlo a curvas. ¿Deseas continuar?")) {
             const converted = convertTextToPath(target);
             if (converted) {
@@ -623,8 +627,10 @@ export function drawNodeHandles() {
     if (nodeHandlesGroup) {
         nodeHandlesGroup.remove();
     }
+    const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     nodeHandlesGroup = new paper.Group();
     nodeHandlesGroup.data = { isNodeEditOverlay: true, isNodeHandleContainer: true };
+    designLayer.addChild(nodeHandlesGroup);
 
     if (!activeNodeItem || !paper.view) return;
     const paths = getTargetPaths(activeNodeItem);
@@ -782,7 +788,8 @@ export function deleteSelectedNodes() {
 export function detachSelectedSubpaths() {
     if (!activeNodeItem || selectedNodes.size === 0) return;
     const target = getContentItem(activeNodeItem);
-    if (!target || !(target instanceof paper.CompoundPath)) {
+    const isCP = target && (target.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && target instanceof paper.CompoundPath));
+    if (!target || !isCP) {
         alert("Esta operación requiere que el objeto sea un trazado compuesto (CompoundPath).");
         return;
     }
