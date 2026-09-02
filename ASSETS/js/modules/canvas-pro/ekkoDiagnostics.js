@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v15.0 EagleEye Ultra-Precision)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v16.0 EagleEye Ultra-Precision)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
     Caja Negra Forense "Ojos de Águila" con Auditoría en Caliente de "Clics Inertes".
@@ -306,8 +306,8 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             label: it.data?.label || 'Sin etiqueta',
             visible: it.visible,
             opacity: it.opacity,
-            position: it.position ? { x: it.position.x, y: it.position.y } : null,
-            bounds: it.bounds ? { x: it.bounds.x, y: it.bounds.y, w: it.bounds.width, h: it.bounds.height } : null,
+            position: target && target.position ? { x: target.position.x, y: target.position.y } : null,
+            bounds: target && target.bounds ? { x: target.bounds.x, y: target.bounds.y, w: target.bounds.width, h: target.bounds.height } : null,
             geomBaseExists: !!(target && target.data && target.data.geomBase)
         };
     }
@@ -381,7 +381,8 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                     const toolModeChanged = stateBeforeClick.toolMode !== stateAfterClick.toolMode;
                     const overlayChanged = JSON.stringify(stateBeforeClick.overlay) !== JSON.stringify(stateAfterClick.overlay);
 
-                    const nothingHappened = !selectionChanged && !sceneChanged && !toolModeChanged && !overlayChanged && !functionsCalledSinceClick;
+                    const isModalOrFilePicker = selector.includes('addsvg') || selector.includes('addimage') || selector.includes('trace') || selector.includes('applymask') || selector.includes('removemask');
+                    const nothingHappened = !selectionChanged && !sceneChanged && !toolModeChanged && !overlayChanged && !functionsCalledSinceClick && !isModalOrFilePicker;
 
                     if (nothingHappened && diagState.active) {
                         const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
@@ -475,13 +476,13 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             diagState.operations = [];
             diagState.consoleErrors = [];
             diagState.opCounter = 0;
-            rawConsole.log("[EKKO_DIAG v15.0 EagleEye BlackBox] Activo 🟢 - Monitoreando automáticamente...");
+            rawConsole.log("[EKKO_DIAG v16.0 EagleEye BlackBox] Activo 🟢 - Monitoreando automáticamente...");
             return true;
         },
 
         stop: function () {
             diagState.active = false;
-            rawConsole.log("[EKKO_DIAG v15.0 EagleEye BlackBox] Suspendido 🔴.");
+            rawConsole.log("[EKKO_DIAG v16.0 EagleEye BlackBox] Suspendido 🔴.");
             return true;
         },
 
