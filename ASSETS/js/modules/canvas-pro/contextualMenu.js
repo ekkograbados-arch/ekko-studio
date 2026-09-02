@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v39.0 - Unified Stacking & Double-Scope Clone Precision)
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v43.0 - Active Node Edit Button Connectivity & Multi-Level Ungroup)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripción:
     Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
@@ -789,6 +789,19 @@ export function initContextualMenu() {
             } else if (typeof enterNodeEditMode === 'function') {
                 enterNodeEditMode(window.selectedItem);
             }
+        }
+    });
+
+    // --- CONECTIVIDAD DE BOTONES DE CONTROL DE NODOS (EXIT & DELETE SEGMENT) ---
+    setClick('btnCtxExitNodeEdit', () => {
+        if (typeof window.exitNodeEditMode === 'function') {
+            window.exitNodeEditMode();
+        }
+    });
+
+    setClick('btnCtxDeleteNode', () => {
+        if (typeof window.deleteSelectedNodes === 'function') {
+            window.deleteSelectedNodes();
         }
     });
 }
