@@ -957,4 +957,6 @@ if (typeof window !== 'undefined') {
     window.deleteImage = deleteImage;
     window.duplicateSingleItem = duplicateSingleItem;
     window.duplicateSelectedItem = duplicateSelectedItem;
+    window.groupSelectedItems = groupSelectedItems;
+    window.ungroupSelectedItem = ungroupSelectedItem;
 }
