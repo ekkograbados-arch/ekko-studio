@@ -1,7 +1,7 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (v20.0 PRO Sync - Deep GeomBase & Mask Protected)
+Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (v21.0 PRO - Top-Level Scope Stability)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
-Descripción: Integrador de Interfaz Profesional (Versión v20.0 PRO - Deep GeomBase & Mask Protected).
+Descripción: Integrador de Interfaz Profesional (Versión v21.0 PRO - Top-Level Scope Stability).
 
 Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
 e integra comandos de alineación (Canva-style) y distribución espacial para objetos
@@ -9,15 +9,18 @@ seleccionados corrigiendo el soporte para grupos de máscara (clipGroup).
 
 SOPORTA SINCRONIZACIÓN ABSOLUTA EN EDICIÓN DE NODOS GLOBAL (window.nodeEditMode).
 
-CORRECCIONES ARQUITECTÓNICAS V20.0:
-1. PROTECCIÓN DE MÁSCARA EN ALINEACIONES Y CENTRADO:
+CORRECCIONES ARQUITECTÓNICAS V21.0:
+1. ARREGLO DE ÁMBITO GLOBAL (SCOPE RESOLUTION):
+   - Se extraen 'centerSelection' y 'distributeSpacing' al ámbito superior (file-level scope) para que
+     la asignación global a 'window' no arroje ReferenceError durante el arranque de EKKO Studio.
+2. PROTECCIÓN DE MÁSCARA EN ALINEACIONES Y CENTRADO:
    - 'alignSelection', 'centerSelection' y 'distributeSpacing' operan exclusivamente sobre 'displayItem' (el diseño útil)
      y NUNCA sobre el 'clipGroup' contenedor, impidiendo que la máscara del producto se desplace físicamente.
-2. PROPAGACIÓN PROFUNDA DE geomBase (syncGeomBaseDeep):
+3. PROPAGACIÓN PROFUNDA DE geomBase (syncGeomBaseDeep):
    - Sincroniza recursivamente todos los geomBase de grupos simples y anidados tras alinear o distribuir.
-3. REACTIVIDAD CSG PRESERVADA:
+4. REACTIVIDAD CSG PRESERVADA:
    - Dispara 'recalculateDynamicSubtractions()' para recalcular sustracciones sobre el producto.
-4. EXPOSICIÓN GLOBAL COMPLETA:
+5. EXPOSICIÓN GLOBAL COMPLETA:
    - Expone alignSelection, centerSelection, distributeSpacing e initProControls en window para permitir
      el correcto monitoreo por parte de ekkoDiagnostics.js.
 
@@ -256,217 +259,123 @@ function getSelectionBounds(items) {
     return rect;
 }
 
-// Vincula las acciones de alineación, distribución, vista y organización a los botones
-function bindClickHandlers() {
-    // Vincular botones de visibilidad
-    const setupToggle = (btnId, toggleFn) => {
-        const btn = document.getElementById(btnId);
-        let state = true;
-        if (btn) {
-            btn.onclick = () => {
-                state = !state;
-                if (state) {
-                    btn.classList.add("active");
-                } else {
-                    btn.classList.remove("active");
-                }
-                toggleFn(state);
-            };
+// =========================================================================
+// FUNCIONES DE CONTROL EN ÁMBITO SUPERIOR (TOP-LEVEL SCOPE)
+// Evita ReferenceError en asignaciones a window.
+// =========================================================================
+
+// Centrados rápidos respecto al producto (mockup)
+export const centerSelection = (axis) => {
+    const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+    if (selected.length === 0 || !window.paper || !window.currentMockup) return;
+    if (typeof window.saveHistory === "function") window.saveHistory();
+    const mockupCenter = window.currentMockup.bounds.center;
+
+    selected.forEach(item => {
+        if (item.data && item.data.locked) return;
+        const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+        if (!target) return;
+        const oldPos = target.position.clone();
+        if (axis === "h" || axis === "both") {
+            target.position.x = mockupCenter.x;
         }
+        if (axis === "v" || axis === "both") {
+            target.position.y = mockupCenter.y;
+        }
+        const delta = target.position.subtract(oldPos);
+        // Sincronización recursiva profunda de geomBase
+        syncGeomBaseDeep(target, delta);
+    });
+
+    if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
+    }
+    if (typeof window.updateSelectionBox === "function") {
+        window.updateSelectionBox(window.selectedItem);
+    }
+    paper.view.update();
+};
+
+// Distribución de espacio inteligente ( mm / Paper.js ) de OBJETOS SELECCIONADOS
+export const distributeSpacing = (axis) => {
+    const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+    if (selected.length < 3) {
+        alert("Selecciona al menos 3 elementos para distribuir su espacio.");
+        return;
+    }
+    if (typeof window.saveHistory === "function") window.saveHistory();
+    let spacing = 0;
+    const getActualBounds = (it) => {
+        const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
+        return displayItem ? displayItem.bounds : it.bounds;
     };
 
-    setupToggle("proBtnToggleRulers", (state) => setRulersVisibility(state));
-    setupToggle("proBtnToggleGuides", (state) => setGuidesVisibility(state));
-    setupToggle("proBtnToggleMeasurements", (state) => setMeasurementsVisibility(state));
+    if (axis === "h") {
+        selected.sort((a, b) => getActualBounds(a).left - getActualBounds(b).left);
+        const leftmost = selected[0];
+        const rightmost = selected[selected.length - 1];
+        const leftmostBounds = getActualBounds(leftmost);
+        const rightmostBounds = getActualBounds(rightmost);
+        const totalSpan = rightmostBounds.right - leftmostBounds.left;
+        const sumWidths = selected.reduce((sum, it) => sum + getActualBounds(it).width, 0);
+        const remainingSpace = totalSpan - sumWidths;
+        spacing = remainingSpace / (selected.length - 1);
+        let currentX = leftmostBounds.left;
 
-    // Resetear zoom al 100% al hacer clic en el indicador numérico
-    const zoomReadoutBtn = document.getElementById("pro-zoom-reset");
-    if (zoomReadoutBtn) {
-        zoomReadoutBtn.onclick = () => {
-            if (window.paper && paper.view) {
-                paper.view.zoom = 1.0;
-                if (window.currentMockup) {
-                    paper.view.center = window.currentMockup.bounds.center;
-                } else {
-                    paper.view.center = new paper.Point(paper.view.viewSize.width / 2, paper.view.viewSize.height / 2);
-                }
-                paper.view.update();
-                updateZoomReadout();
-                if (typeof window.updateSelectionBox === "function") {
-                    window.updateSelectionBox(window.selectedItem);
-                }
-            }
-        };
+        for (let i = 0; i < selected.length; i++) {
+            const item = selected[i];
+            if (item.data && item.data.locked) continue;
+            const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+            if (!displayItem) continue;
+            const bounds = displayItem.bounds;
+            const halfWidth = bounds.width / 2;
+            const oldX = displayItem.position.x;
+            const newX = currentX + halfWidth;
+            const deltaX = newX - oldX;
+            displayItem.position.x = newX;
+            syncGeomBaseDeep(displayItem, new paper.Point(deltaX, 0));
+            currentX += bounds.width + spacing;
+        }
+    } else {
+        selected.sort((a, b) => getActualBounds(a).top - getActualBounds(b).top);
+        const topmost = selected[0];
+        const bottommost = selected[selected.length - 1];
+        const topmostBounds = getActualBounds(topmost);
+        const bottommostBounds = getActualBounds(bottommost);
+        const totalSpan = bottommostBounds.bottom - topmostBounds.top;
+        const sumHeights = selected.reduce((sum, it) => sum + getActualBounds(it).height, 0);
+        const remainingSpace = totalSpan - sumHeights;
+        spacing = remainingSpace / (selected.length - 1);
+        let currentY = topmostBounds.top;
+
+        for (let i = 0; i < selected.length; i++) {
+            const item = selected[i];
+            if (item.data && item.data.locked) continue;
+            const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+            if (!displayItem) continue;
+            const bounds = displayItem.bounds;
+            const halfHeight = bounds.height / 2;
+            const oldY = displayItem.position.y;
+            const newY = currentY + halfHeight;
+            const deltaY = newY - oldY;
+            displayItem.position.y = newY;
+            syncGeomBaseDeep(displayItem, new paper.Point(0, deltaY));
+            currentY += bounds.height + spacing;
+        }
     }
 
-    // Vincular clics de alineación básicos
-    const bindBtn = (id, actionFn) => {
-        const el = document.getElementById(id);
-        if (el) el.onclick = actionFn;
-    };
-
-    bindBtn("proBtnAlignLeft", () => alignSelection("left"));
-    bindBtn("proBtnAlignCenterH", () => alignSelection("centerX"));
-    bindBtn("proBtnAlignRight", () => alignSelection("right"));
-    bindBtn("proBtnAlignTop", () => alignSelection("top"));
-    bindBtn("proBtnAlignCenterV", () => alignSelection("centerY"));
-    bindBtn("proBtnAlignBottom", () => alignSelection("bottom"));
-
-    // Centrados rápidos respecto al producto (mockup)
-    const centerSelection = (axis) => {
-        const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
-        if (selected.length === 0 || !window.paper || !window.currentMockup) return;
-        if (typeof window.saveHistory === "function") window.saveHistory();
-        const mockupCenter = window.currentMockup.bounds.center;
-
-        selected.forEach(item => {
-            if (item.data && item.data.locked) return;
-            const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-            if (!target) return;
-            const oldPos = target.position.clone();
-            if (axis === "h" || axis === "both") {
-                target.position.x = mockupCenter.x;
-            }
-            if (axis === "v" || axis === "both") {
-                target.position.y = mockupCenter.y;
-            }
-            const delta = target.position.subtract(oldPos);
-            // Sincronización recursiva profunda de geomBase
-            syncGeomBaseDeep(target, delta);
-        });
-
-        if (typeof window.recalculateDynamicSubtractions === 'function') {
-            window.recalculateDynamicSubtractions();
-        }
-        if (typeof window.updateSelectionBox === "function") {
-            window.updateSelectionBox(window.selectedItem);
-        }
-        paper.view.update();
-    };
-
-    bindBtn("proBtnCenterH", () => centerSelection("h"));
-    bindBtn("proBtnCenterV", () => centerSelection("v"));
-    bindBtn("proBtnCenterBoth", () => centerSelection("both"));
-
-    // Distribución de espacio inteligente ( mm / Paper.js ) de OBJETOS SELECCIONADOS
-    const distributeSpacing = (axis) => {
-        const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
-        if (selected.length < 3) {
-            alert("Selecciona al menos 3 elementos para distribuir su espacio.");
-            return;
-        }
-        if (typeof window.saveHistory === "function") window.saveHistory();
-        let spacing = 0;
-        const getActualBounds = (it) => {
-            const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
-            return displayItem ? displayItem.bounds : it.bounds;
-        };
-
-        if (axis === "h") {
-            selected.sort((a, b) => getActualBounds(a).left - getActualBounds(b).left);
-            const leftmost = selected[0];
-            const rightmost = selected[selected.length - 1];
-            const leftmostBounds = getActualBounds(leftmost);
-            const rightmostBounds = getActualBounds(rightmost);
-            const totalSpan = rightmostBounds.right - leftmostBounds.left;
-            const sumWidths = selected.reduce((sum, it) => sum + getActualBounds(it).width, 0);
-            const remainingSpace = totalSpan - sumWidths;
-            spacing = remainingSpace / (selected.length - 1);
-            let currentX = leftmostBounds.left;
-
-            for (let i = 0; i < selected.length; i++) {
-                const item = selected[i];
-                if (item.data && item.data.locked) continue;
-                const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-                if (!displayItem) continue;
-                const bounds = displayItem.bounds;
-                const halfWidth = bounds.width / 2;
-                const oldX = displayItem.position.x;
-                const newX = currentX + halfWidth;
-                const deltaX = newX - oldX;
-                displayItem.position.x = newX;
-                syncGeomBaseDeep(displayItem, new paper.Point(deltaX, 0));
-                currentX += bounds.width + spacing;
-            }
-        } else {
-            selected.sort((a, b) => getActualBounds(a).top - getActualBounds(b).top);
-            const topmost = selected[0];
-            const bottommost = selected[selected.length - 1];
-            const topmostBounds = getActualBounds(topmost);
-            const bottommostBounds = getActualBounds(bottommost);
-            const totalSpan = bottommostBounds.bottom - topmostBounds.top;
-            const sumHeights = selected.reduce((sum, it) => sum + getActualBounds(it).height, 0);
-            const remainingSpace = totalSpan - sumHeights;
-            spacing = remainingSpace / (selected.length - 1);
-            let currentY = topmostBounds.top;
-
-            for (let i = 0; i < selected.length; i++) {
-                const item = selected[i];
-                if (item.data && item.data.locked) continue;
-                const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
-                if (!displayItem) continue;
-                const bounds = displayItem.bounds;
-                const halfHeight = bounds.height / 2;
-                const oldY = displayItem.position.y;
-                const newY = currentY + halfHeight;
-                const deltaY = newY - oldY;
-                displayItem.position.y = newY;
-                syncGeomBaseDeep(displayItem, new paper.Point(0, deltaY));
-                currentY += bounds.height + spacing;
-            }
-        }
-
-        drawDistributionGuides(selected, axis, spacing);
-        if (typeof window.recalculateDynamicSubtractions === 'function') {
-            window.recalculateDynamicSubtractions();
-        }
-        if (typeof window.updateSelectionBox === "function") {
-            window.updateSelectionBox(window.selectedItem);
-        }
-        paper.view.update();
-    };
-
-    bindBtn("proBtnDistributeH", () => distributeSpacing("h"));
-    bindBtn("proBtnDistributeV", () => distributeSpacing("v"));
-
-    // Vincular acciones de organización (Agrupar / Desagrupar)
-    bindBtn("proBtnGroup", () => {
-        if (typeof window.groupSelectedItems === "function") {
-            window.groupSelectedItems();
-        } else {
-            console.warn("La función window.groupSelectedItems no está disponible.");
-        }
-    });
-
-    bindBtn("proBtnUngroup", () => {
-        if (typeof window.ungroupSelectedItem === "function") {
-            window.ungroupSelectedItem();
-        } else {
-            console.warn("La función window.ungroupSelectedItem no está disponible.");
-        }
-    });
-
-    // Vincular Modo de Edición Directa de Nodos (Illustrator Style)
-    bindBtn("proBtnEditNodes", () => {
-        const btn = document.getElementById("proBtnEditNodes");
-        if (!window.nodeEditMode) {
-            if (window.selectedItem) {
-                if (typeof window.enterNodeEditMode === "function") {
-                    window.enterNodeEditMode(window.selectedItem);
-                }
-            } else {
-                alert("Por favor, selecciona un objeto vectorial para editar sus nodos.");
-            }
-        } else {
-            if (typeof window.exitNodeEditMode === "function") {
-                window.exitNodeEditMode();
-            }
-        }
-    });
-}
+    drawDistributionGuides(selected, axis, spacing);
+    if (typeof window.recalculateDynamicSubtractions === 'function') {
+        window.recalculateDynamicSubtractions();
+    }
+    if (typeof window.updateSelectionBox === "function") {
+        window.updateSelectionBox(window.selectedItem);
+    }
+    paper.view.update();
+};
 
 // Dibuja guías de distribución en Paper.js con la separación en milímetros reales (Estilo Canva)
-const drawDistributionGuides = (selected, axis, spacing) => {
+export const drawDistributionGuides = (selected, axis, spacing) => {
     if (!window.paper || !paper.view) return;
     if (window.distributionGuidesGroup) {
         window.distributionGuidesGroup.remove();
@@ -543,7 +452,7 @@ const drawDistributionGuides = (selected, axis, spacing) => {
 };
 
 // Funciones profesionales de alineación de objetos
-const alignSelection = (type) => {
+export const alignSelection = (type) => {
     const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
     if (selected.length === 0 || !window.paper) {
         alert("Selecciona al menos un objeto para alinear.");
@@ -629,6 +538,105 @@ const alignSelection = (type) => {
     }
     paper.view.update();
 };
+
+// Vincula las acciones de alineación, distribución, vista y organización a los botones
+function bindClickHandlers() {
+    // Vincular botones de visibilidad
+    const setupToggle = (btnId, toggleFn) => {
+        const btn = document.getElementById(btnId);
+        let state = true;
+        if (btn) {
+            btn.onclick = () => {
+                state = !state;
+                if (state) {
+                    btn.classList.add("active");
+                } else {
+                    btn.classList.remove("active");
+                }
+                toggleFn(state);
+            };
+        }
+    };
+
+    setupToggle("proBtnToggleRulers", (state) => setRulersVisibility(state));
+    setupToggle("proBtnToggleGuides", (state) => setGuidesVisibility(state));
+    setupToggle("proBtnToggleMeasurements", (state) => setMeasurementsVisibility(state));
+
+    // Resetear zoom al 100% al hacer clic en el indicador numérico
+    const zoomReadoutBtn = document.getElementById("pro-zoom-reset");
+    if (zoomReadoutBtn) {
+        zoomReadoutBtn.onclick = () => {
+            if (window.paper && paper.view) {
+                paper.view.zoom = 1.0;
+                if (window.currentMockup) {
+                    paper.view.center = window.currentMockup.bounds.center;
+                } else {
+                    paper.view.center = new paper.Point(paper.view.viewSize.width / 2, paper.view.viewSize.height / 2);
+                }
+                paper.view.update();
+                updateZoomReadout();
+                if (typeof window.updateSelectionBox === "function") {
+                    window.updateSelectionBox(window.selectedItem);
+                }
+            }
+        };
+    }
+
+    // Vincular clics de alineación básicos
+    const bindBtn = (id, actionFn) => {
+        const el = document.getElementById(id);
+        if (el) el.onclick = actionFn;
+    };
+
+    bindBtn("proBtnAlignLeft", () => alignSelection("left"));
+    bindBtn("proBtnAlignCenterH", () => alignSelection("centerX"));
+    bindBtn("proBtnAlignRight", () => alignSelection("right"));
+    bindBtn("proBtnAlignTop", () => alignSelection("top"));
+    bindBtn("proBtnAlignCenterV", () => alignSelection("centerY"));
+    bindBtn("proBtnAlignBottom", () => alignSelection("bottom"));
+
+    bindBtn("proBtnCenterH", () => centerSelection("h"));
+    bindBtn("proBtnCenterV", () => centerSelection("v"));
+    bindBtn("proBtnCenterBoth", () => centerSelection("both"));
+
+    bindBtn("proBtnDistributeH", () => distributeSpacing("h"));
+    bindBtn("proBtnDistributeV", () => distributeSpacing("v"));
+
+    // Vincular acciones de organización (Agrupar / Desagrupar)
+    bindBtn("proBtnGroup", () => {
+        if (typeof window.groupSelectedItems === "function") {
+            window.groupSelectedItems();
+        } else {
+            console.warn("La función window.groupSelectedItems no está disponible.");
+        }
+    });
+
+    bindBtn("proBtnUngroup", () => {
+        if (typeof window.ungroupSelectedItem === "function") {
+            window.ungroupSelectedItem();
+        } else {
+            console.warn("La función window.ungroupSelectedItem no está disponible.");
+        }
+    });
+
+    // Vincular Modo de Edición Directa de Nodos (Illustrator Style)
+    bindBtn("proBtnEditNodes", () => {
+        const btn = document.getElementById("proBtnEditNodes");
+        if (!window.nodeEditMode) {
+            if (window.selectedItem) {
+                if (typeof window.enterNodeEditMode === "function") {
+                    window.enterNodeEditMode(window.selectedItem);
+                }
+            } else {
+                alert("Por favor, selecciona un objeto vectorial para editar sus nodos.");
+            }
+        } else {
+            if (typeof window.exitNodeEditMode === "function") {
+                window.exitNodeEditMode();
+            }
+        }
+    });
+}
 
 // Sincronizar autoinicialización limpia evitando duplicados de Listeners si ya inicializó
 if (typeof window !== "undefined") {
