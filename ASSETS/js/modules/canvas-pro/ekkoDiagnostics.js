@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v11.0 Canonical Forensic BlackBox)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v12.0 Canonical Forensic BlackBox)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
     Caja Negra de Diagnóstico, Observabilidad Integral, Auditoría Forense y
