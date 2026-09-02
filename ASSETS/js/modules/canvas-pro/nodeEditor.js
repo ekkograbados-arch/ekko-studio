@@ -78,16 +78,18 @@ function getTargetPaths(target) {
                 paths.push(item);
             }
         } else if (cName === 'CompoundPath') {
-            // Un CompoundPath contiene sub-trazados (Path) como hijos.
-            // Debemos editar los nodos de sus trazados hijos individuales, que son los que poseen .segments
-            if (item.children && Array.isArray(item.children)) {
-                item.children.forEach(findPathsRecursive);
+            if (item.children && item.children.length > 0) {
+                for (let i = 0; i < item.children.length; i++) {
+                    findPathsRecursive(item.children[i]);
+                }
             } else {
                 paths.push(item);
             }
         } else if (cName === 'Group' || item.children) {
-            if (item.children && Array.isArray(item.children)) {
-                item.children.forEach(findPathsRecursive);
+            if (item.children && item.children.length > 0) {
+                for (let i = 0; i < item.children.length; i++) {
+                    findPathsRecursive(item.children[i]);
+                }
             }
         }
     };
