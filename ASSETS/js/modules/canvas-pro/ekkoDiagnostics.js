@@ -1,16 +1,16 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v13.0 EagleEye Forensic BlackBox)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v15.0 EagleEye Ultra-Precision)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
-    Caja Negra Forense de Última Generación "Ojos de Águila" con Monitoreo de
-    Conectividad DOM, Intercepción de EventListeners y Auditoría Visual 3D/2D
-    de Lienzo para EKKO Studio.
+    Caja Negra Forense "Ojos de Águila" con Auditoría en Caliente de "Clics Inertes".
+    Detecta en tiempo real cuando haces clic en un botón y "no sucede nada" en pantalla,
+    generando una alerta roja descriptiva lista para copiar y pegar en el chat.
     
     Implementa:
-    1. Intercepción del Prototipo de EventTarget para registrar listeners reales (Fin de "Botones Muertos").
-    2. Setters Reactivos dinámicos en 'window' para auto-envolver funciones asíncronas de carga diferida.
-    3. Inspección geométrica activa de Viewport y visibilidad física de nodos (Paper.js).
-    4. Comando interactivo 'EKKO_DIAG.inspect()' para auditorías en caliente.
+    1. Auditor Dinámico de Clics Inertes (Doble Snapshot con retraso de 150ms).
+    2. Interceptor de addEventListener para verificar conexión de callbacks en el DOM.
+    3. Envoltura reactiva dinámica en 'window' mediante descriptores de propiedad.
+    4. Comando 'EKKO_DIAG.inspect()' y formateador estructurado de reportes.
 
 AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 ========================================================================= */
@@ -25,9 +25,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
     }
 }(typeof window !== 'undefined' ? window : this, function () {
 
-    // =========================================================================
-    // NIVELES 1 Y 2: CANAL SEGURO DE CONSOLA E INTERCEPCIÓN DE EXCEPCIONES
-    // =========================================================================
     const rawConsole = {
         log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
         warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
@@ -35,43 +32,22 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
     };
 
-    try {
-        if (typeof document !== 'undefined') {
-            const ifr = document.createElement('iframe');
-            ifr.style.display = 'none';
-            document.documentElement.appendChild(ifr);
-            if (ifr.contentWindow && ifr.contentWindow.console) {
-                const pure = ifr.contentWindow.console;
-                rawConsole.log = pure.log.bind(console);
-                rawConsole.warn = pure.warn.bind(console);
-                rawConsole.error = pure.error.bind(console);
-                rawConsole.table = pure.table ? pure.table.bind(console) : rawConsole.table;
-            }
-            setTimeout(() => ifr.remove(), 1000);
-        }
-    } catch (e) {}
-
-    // --- ESTADO CENTRAL DEL RECOLECTOR DE LA CAJA NEGRA ---
+    // --- ESTADO CENTRAL DE LA CAJA NEGRA ---
     const diagState = {
         active: true,
         operations: [],
         currentOp: null,
         opCounter: 0,
         consoleErrors: [],
-        eventRegistry: new Map(), // Element -> Set of events bound
+        eventRegistry: new Map(), // Selector -> Set of events bound
+        lastCriticalFunctionCallTime: 0, // Timestamp de la última función envuelta ejecutada
         lastMouseDownPoint: null,
         lastMouseDownSelection: null,
-        lastMouseDownGeo: null,
-        dragTracker: {
-            active: false,
-            startX: 0,
-            startY: 0,
-            dragMode: 'MOVE'
-        }
+        lastMouseDownGeo: null
     };
 
     // =========================================================================
-    // MEJORAS INDISPENSABLES V13: INTERCEPCIÓN AGRESIVA DE EVENT LISTENERS (ANTI-BOTÓN MUERTO)
+    // 1. INTERCEPCIÓN NATIVA DE EVENT LISTENERS (DETECCIÓN DE BOTONES DESCONECTADOS)
     // =========================================================================
     try {
         if (typeof EventTarget !== 'undefined' && EventTarget.prototype) {
@@ -122,7 +98,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         return selector;
     }
 
-    // Escuchar excepciones globales
+    // Escuchar excepciones runtime de JS
     if (typeof window !== 'undefined') {
         const origConsoleError = console.error;
         console.error = function (...args) {
@@ -159,7 +135,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
     }
 
     // =========================================================================
-    // NIVEL 3: INTERCEPTOR DEL CALLGRAPH DINÁMICO (SISTEMA DE PROPIEDADES REACTIVAS)
+    // 2. INTERCEPTOR DEL CALLGRAPH DINÁMICO (PROPIEDADES REACTIVAS DE WINDOW)
     // =========================================================================
     const criticalFunctions = [
         'enterNodeEditMode',
@@ -185,6 +161,8 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 
         const wrapper = function (...args) {
             if (!diagState.active) return originalFn.apply(this, args);
+
+            diagState.lastCriticalFunctionCallTime = Date.now(); // Registrar marca de tiempo
 
             const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
             const op = {
@@ -240,7 +218,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         return wrapper;
     }
 
-    // Inyección de Getters y Setters reactivos en window para evitar pérdidas de wrapper asíncronos
     if (typeof window !== 'undefined') {
         criticalFunctions.forEach(funcName => {
             let currentValue = window[funcName];
@@ -270,7 +247,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
     }
 
     // =========================================================================
-    // NIVEL 4: AUDITORÍA DE INVARIANTES Y CONSISTENCIA GEOMÉTRICA (MATH LABS)
+    // 3. CAPTURA DE SNAPSHOTS GEOMÉTRICOS DEL LIENZO
     // =========================================================================
     function captureGeometricStateSnapshot() {
         if (typeof paper === 'undefined' || !paper.project) return null;
@@ -297,7 +274,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             });
         }
 
-        // Snapshot de Overlay de Nodos Activos
         let overlaySnapshot = null;
         const nodeOverlay = paper.project.activeLayer.children ? paper.project.activeLayer.children.find(c => c.data && c.data.isNodeEditOverlay) : null;
         if (nodeOverlay && nodeOverlay.children) {
@@ -305,13 +281,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                 id: nodeOverlay.id,
                 visible: nodeOverlay.visible,
                 opacity: nodeOverlay.opacity,
-                childCount: nodeOverlay.children.length,
-                nodes: nodeOverlay.children.map(ch => ({
-                    id: ch.id,
-                    type: ch.data?.isNodeHandle ? 'node' : (ch.data?.isCurveHandle ? 'handle' : 'tangent'),
-                    position: ch.position ? { x: ch.position.x, y: ch.position.y } : null,
-                    visible: ch.visible
-                }))
+                childCount: nodeOverlay.children.length
             };
         }
 
@@ -320,6 +290,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             selection: selectionSnapshot,
             scene: sceneSnapshot,
             overlay: overlaySnapshot,
+            toolMode: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
             zOrderIds: targetLayer && targetLayer.children ? targetLayer.children.map(c => c.id) : []
         };
     }
@@ -332,14 +303,12 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         return {
             id: it.id,
             className: it.className,
-            name: it.name || '',
             label: it.data?.label || 'Sin etiqueta',
             visible: it.visible,
             opacity: it.opacity,
             position: it.position ? { x: it.position.x, y: it.position.y } : null,
             bounds: it.bounds ? { x: it.bounds.x, y: it.bounds.y, w: it.bounds.width, h: it.bounds.height } : null,
-            geomBaseExists: !!(target && target.data && target.data.geomBase),
-            segmentCount: (target && target.segments) ? target.segments.length : ((target && target.children) ? 'group' : 0)
+            geomBaseExists: !!(target && target.data && target.data.geomBase)
         };
     }
 
@@ -348,7 +317,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         const after = op.afterState;
         if (!before || !after) return;
 
-        // A) Validar Preservación de geomBase (Anti-Corrupción)
         after.scene.forEach(aftItem => {
             const befItem = before.scene.find(b => b.id === aftItem.id);
             if (befItem && befItem.geomBaseExists && !aftItem.geomBaseExists) {
@@ -356,53 +324,94 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             }
         });
 
-        // B) Validar Sincronización Geométrica de Nodos (NODE_TO_GEOMETRY_SYNC)
         if (op.type === 'drawNodeHandles' && window.nodeEditMode) {
             if (!after.overlay || after.overlay.childCount === 0) {
                 op.inconsistencies.push(`[CONTRATO VIOLADO: NODE_RENDER_FAIL] Se solicitó redibujar tiradores, pero el overlay de nodos está vacío o ausente en la capa activa.`);
             }
         }
-
-        // C) Validar Apilamiento Z (Z_ORDER_STATE_SYNC)
-        if (['selectItem', 'deselectItem'].includes(op.type)) {
-            const zBefore = JSON.stringify(before.zOrderIds);
-            const zAfter = JSON.stringify(after.zOrderIds);
-            if (zBefore !== zAfter) {
-                op.inconsistencies.push(`[DESINCRONIZACIÓN Z_ORDER] El orden de apilamiento mutó de forma inesperada durante la selección.`);
-            }
-        }
     }
 
     // =========================================================================
-    // MEJORAS INDISPENSABLES V13: AUDITORÍA DE CLIC FANTASMA Y DRAGS MUERTOS
+    // 4. EL MOTOR "OJOS DE ÁGUILA": DETECTOR EN VIVO DE CLICS SIN EFECTO (INERTES)
     // =========================================================================
     if (typeof window !== 'undefined') {
+        
+        // Listener de Mousedown para registrar el estado previo al clic
         window.addEventListener('mousedown', function (e) {
             diagState.lastMouseDownPoint = { x: e.clientX, y: e.clientY };
             diagState.lastMouseDownSelection = window.selectedItem ? captureSingleItemSnapshot(window.selectedItem) : null;
-            
-            // Si hay click en un botón interactivo, verificar conexión
-            const button = e.target.closest('button, .toolbar-btn, [id^="btnCtx"]');
+
+            const button = e.target.closest('button, .toolbar-btn, [id^="btnCtx"], [class*="btn"]');
             if (button) {
                 const selector = getFriendlySelector(button);
                 const isDead = !diagState.eventRegistry.has(selector) && !button.onclick;
+                
+                // A) Si el botón no tiene listener de JavaScript asociado (Botón Muerto)
                 if (isDead) {
                     const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
                     const op = {
                         id: opId,
                         type: 'CLICK_INTERRUPT',
                         timestamp: Date.now(),
-                        status: 'WARNING',
+                        status: 'FAILED',
                         source: selector,
                         args: [`text: "${button.textContent.trim()}"`],
                         beforeState: captureGeometricStateSnapshot(),
                         afterState: null,
-                        inconsistencies: [`[⚠️ BOTÓN MUERTO] Se hizo clic en '${selector}' pero no tiene ningún callback de JavaScript conectado en el registro DOM.`],
+                        inconsistencies: [`[⚠️ BOTÓN MUERTO] Se hizo clic en '${selector}' pero no tiene ningún callback de JavaScript conectado. (La interfaz lo ignora por completo)`],
                         duration: 0
                     };
                     diagState.operations.push(op);
-                    rawConsole.warn(`[EKKO_DIAG] ${op.inconsistencies[0]}`);
+                    rawConsole.error(`%c❌ [BOTÓN MUERTO] Clic en '${selector}' sin callback de JS conectado. ¡La interfaz no hace nada!`, "color: #ef4444; font-weight: bold; font-size: 13px;");
+                    return;
                 }
+
+                // B) Si tiene listener, capturar estado previo detallado para auditar inercia funcional
+                const stateBeforeClick = captureGeometricStateSnapshot();
+                const clickTime = Date.now();
+
+                // Esperar 150ms a que termine el bucle de eventos asíncronos de Paper.js y DOM
+                setTimeout(() => {
+                    const stateAfterClick = captureGeometricStateSnapshot();
+                    const functionsCalledSinceClick = diagState.lastCriticalFunctionCallTime >= clickTime;
+
+                    // Comparar si el sistema cambió en algo significativo
+                    const selectionChanged = JSON.stringify(stateBeforeClick.selection) !== JSON.stringify(stateAfterClick.selection);
+                    const sceneChanged = JSON.stringify(stateBeforeClick.scene) !== JSON.stringify(stateAfterClick.scene);
+                    const toolModeChanged = stateBeforeClick.toolMode !== stateAfterClick.toolMode;
+                    const overlayChanged = JSON.stringify(stateBeforeClick.overlay) !== JSON.stringify(stateAfterClick.overlay);
+
+                    const nothingHappened = !selectionChanged && !sceneChanged && !toolModeChanged && !overlayChanged && !functionsCalledSinceClick;
+
+                    if (nothingHappened && diagState.active) {
+                        const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
+                        const op = {
+                            id: opId,
+                            type: 'ACTION_WITHOUT_EFFECT',
+                            timestamp: clickTime,
+                            status: 'WARNING',
+                            source: selector,
+                            args: [`text: "${button.textContent.trim()}"`],
+                            beforeState: stateBeforeClick,
+                            afterState: stateAfterClick,
+                            inconsistencies: [`[⚠️ ACCION SIN EFECTO] Se hizo clic en '${selector}' ('${button.textContent.trim() || 'Sin texto'}'), pero el lienzo no sufrió mutación, cambio de selección ni alternó de herramienta.`],
+                            duration: 150
+                        };
+                        diagState.operations.push(op);
+
+                        // Imprimir alerta de aviación ultra-descriptiva lista para copiar y pegar en el chat
+                        rawConsole.warn(
+                            `%c⚠️ [CONTRATO COMPORTAMIENTO: CLIC SIN EFECTO REAL]%c\n` +
+                            `Se detectó un clic interactivo pero el sistema quedó 100% idéntico.\n` +
+                            `* Botón presionado: ${selector} ("${button.textContent.trim() || 'icono/imagen'}")\n` +
+                            `* Contenedor Padre: ${button.parentNode?.id || button.parentNode?.className || 'N/A'}\n` +
+                            `* Estado: No hubo mutación de geometría, no cambió el foco de selección, no se activó ninguna herramienta y no se arrojaron excepciones.\n` +
+                            `➔ [SÍNTOMA VISIBLE]: El usuario hace clic y la pantalla se queda congelada sin respuesta alguna.`,
+                            "color: #eab308; font-weight: bold; font-size: 13px;",
+                            "color: #333; font-weight: normal;"
+                        );
+                    }
+                }, 150);
             }
 
             if (window.selectedItem) {
@@ -414,6 +423,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             }
         }, { capture: true });
 
+        // Evento Mouseup para auditar arrastres (DRAG FRUSTRADO)
         window.addEventListener('mouseup', function (e) {
             if (!diagState.lastMouseDownPoint) return;
             const dx = e.clientX - diagState.lastMouseDownPoint.x;
@@ -421,7 +431,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             const distance = Math.sqrt(dx * dx + dy * dy);
 
             if (distance > 3) {
-                // Se intentó un arrastre
                 const beforeSel = diagState.lastMouseDownSelection;
                 const afterSel = window.selectedItem ? captureSingleItemSnapshot(window.selectedItem) : null;
 
@@ -444,7 +453,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                             duration: 0
                         };
                         diagState.operations.push(op);
-                        rawConsole.warn(`[EKKO_DIAG] ${op.inconsistencies[0]}`);
+                        rawConsole.error(`%c❌ [ARRASTRE SIN EFECTO] Se desplazó el cursor ${distance.toFixed(0)}px sobre '${afterSel.label}', pero la geometría del objeto no mutó.`, "color: #f97316; font-weight: bold;");
                     }
                 }
             }
@@ -458,7 +467,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
     }
 
     // =========================================================================
-    // API PÚBLICA DE CONTROL FORENSE
+    // 5. API PÚBLICA DE CONTROL FORENSE
     // =========================================================================
     const publicAPI = {
         start: function () {
@@ -466,13 +475,13 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             diagState.operations = [];
             diagState.consoleErrors = [];
             diagState.opCounter = 0;
-            rawConsole.log("[EKKO_DIAG v13.0 EagleEye BlackBox] Activo 🟢 - Monitoreando automáticamente...");
+            rawConsole.log("[EKKO_DIAG v15.0 EagleEye BlackBox] Activo 🟢 - Monitoreando automáticamente...");
             return true;
         },
 
         stop: function () {
             diagState.active = false;
-            rawConsole.log("[EKKO_DIAG v13.0 EagleEye BlackBox] Suspendido 🔴.");
+            rawConsole.log("[EKKO_DIAG v15.0 EagleEye BlackBox] Suspendido 🔴.");
             return true;
         },
 
@@ -480,7 +489,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             diagState.operations = [];
             diagState.consoleErrors = [];
             diagState.opCounter = 0;
-            rawConsole.log("[EKKO_DIAG v13.0] Buffer de vuelo vaciado.");
+            rawConsole.log("[EKKO_DIAG v15.0] Buffer de vuelo vaciado.");
             return true;
         },
 
@@ -493,9 +502,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             };
         },
 
-        // =========================================================================
-        // NUEVA FUNCIÓN INDISPENSABLE V13: INSPECTOR ESTÁTICO DE LIENZO EN CALIENTE
-        // =========================================================================
+        // INSPECTOR ESTÁTICO DE LIENZO EN CALIENTE
         inspect: function () {
             rawConsole.log("=================== EKKO EYE VIEWPORT INSPECT ===================");
             
@@ -508,7 +515,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 
             // 1. Auditoría de Botones Muertos del DOM
             if (typeof document !== 'undefined') {
-                const buttons = document.querySelectorAll('button, .toolbar-btn, [id^="btnCtx"]');
+                const buttons = document.querySelectorAll('button, .toolbar-btn, [id^="btnCtx"], [class*="btn"]');
                 buttons.forEach(btn => {
                     const selector = getFriendlySelector(btn);
                     const isDead = !diagState.eventRegistry.has(selector) && !btn.onclick;
@@ -543,7 +550,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                     } else if (nodeOverlay.opacity === 0) {
                         results.invisibleNodes.push(`EL OVERLAY DE NODOS TIENE OPACIDAD ZERO (INVISIBLE).`);
                     } else {
-                        // Verificar si están proyectados fuera del Viewport
                         const nodeHandles = nodeOverlay.children.filter(c => c.data && c.data.isNodeHandle);
                         if (nodeHandles.length === 0) {
                             results.invisibleNodes.push("EL OVERLAY ESTÁ VACÍO, NO TIENE CÍRCULOS DE NODOS DIBUJADOS.");
@@ -583,7 +589,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                 }
             }
 
-            // Imprimir resultados estéticamente en consola
+            // Imprimir en consola estéticamente
             rawConsole.warn("⚡ REPORTE DE AUDITORÍA ESTÁTICA EN CALIENTE (EKKO_DIAG) ⚡");
             rawConsole.log(`INFORMACIÓN DEL LIENZO: Zoom: ${results.viewportInfo.zoom} | Centro: ${results.viewportInfo.center} | Bounds: ${results.viewportInfo.bounds}`);
             
@@ -612,9 +618,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             return results;
         },
 
-        // =========================================================================
-        // SECCIÓN 25: FORMATEADOR DE REPORTES DE CONFORMIDAD DEL 3ER MANDAMIENTO
-        // =========================================================================
         report: function () {
             let out = `==================== EKKO DIAG FORENSIC REPORT ====================\n`;
             out += `ESTADO DE INTEGRIDAD DE CONTRATOS FUNCIONALES Y EVENTOS\n\n`;
@@ -662,7 +665,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                 errors.forEach((err, idx) => {
                     out += `  [ERR-${String(idx + 1).padStart(3, '0')}] ${err.message}\n`;
                     out += `     ➔ Hora: ${new Date(err.timestamp).toLocaleTimeString()} | Herramienta: ${err.activeTool} | ID Objeto: ${err.activeObject || 'Ninguno'}\n`;
-                    if (err.stack) out += `     ➔ Stack: ${err.stack.split('\n').slice(0, 3).join(' | ')}\n`;
                 });
             }
             out += `\n`;
@@ -721,7 +723,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                 out += `  ⚠️ LA CADENA DE FALLAS SE INICIÓ EN LA OPERACIÓN: ${firstInconsistency.opId} [${firstInconsistency.type}]\n`;
                 out += `  Mensaje: ${firstInconsistency.msg}\n`;
                 out += `  Hora de ocurrencia: ${new Date(firstInconsistency.timestamp).toLocaleTimeString()}\n`;
-                out += `  SOLUCIÓN RECOMENDADA: Investigue el archivo y los callbacks de la operación anterior que dejaron al sistema en un estado inconsistente antes de esta acción.\n`;
             } else {
                 out += `  ✓ Excelente. No se han detectado inconsistencias temporales en el buffer.\n`;
             }
@@ -729,14 +730,14 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 
             out += `### PROBABLE ROOT CAUSES\n`;
             if (firstInconsistency) {
-                if (firstInconsistency.type === 'enterNodeEditMode' || firstInconsistency.type === 'CLICK_INTERRUPT') {
-                    out += `  ➔ [Módulo: nodeEditor.js] El evento de clic de edición de nodos se pierde o el botón del DOM no tiene conectado un EventListener debido a una carrera asíncrona de carga.\n`;
+                if (firstInconsistency.type === 'ACTION_WITHOUT_EFFECT') {
+                    out += `  ➔ [Módulo: DOM Callbacks / UI Core] El botón seleccionado tiene un callback conectado, pero la lógica interna del callback está vacía, no se ejecuta, o sus precondiciones fallaron de forma asíncrona.\n`;
+                } else if (firstInconsistency.type === 'CLICK_INTERRUPT') {
+                    out += `  ➔ [Módulo: DOM Event Binding] El botón o elemento HTML no tiene ningún EventListener de JavaScript registrado. El evento se pierde en la interfaz física.\n`;
                 } else if (firstInconsistency.type === 'DRAG_FRUSTRADO') {
-                    out += `  ➔ [Módulo: selection.js / interaction.js] El evento del ratón arrastró el recuadro visual pero Paper.js omitió aplicar la traslación sobre el contenido geométrico interno, posiblemente bloqueado por máscara.\n`;
-                } else if (firstInconsistency.type === 'duplicateSelectedItem') {
-                    out += `  ➔ [Módulo: contextualMenu.js] Fallo de desvinculación o pérdida de geomBase al clonar el objeto completo.\n`;
+                    out += `  ➔ [Módulo: selection.js / interaction.js] El evento del ratón arrastró el recuadro visual pero Paper.js omitió aplicar la traslación sobre el contenido geométrico interno.\n`;
                 } else {
-                    out += `  ➔ Revise si el archivo comprometido en la operación '${firstInconsistency.type}' respeta los contratos de precondición.\n`;
+                    out += `  ➔ Revise si el archivo comprometido en la operación '${firstInconsistency.type}' respecteta los contratos de precondición.\n`;
                 }
             } else {
                 out += `  ✓ Sistema operando dentro de los parámetros de integridad funcional aprobados.\n`;
@@ -748,7 +749,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         }
     };
 
-    // Exposición dinámica
     if (typeof window !== 'undefined') {
         window.EKKO_DIAG = publicAPI;
     }
