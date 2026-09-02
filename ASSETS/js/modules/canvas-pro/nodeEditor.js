@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v40.0 - Unified CallGraph & Double-Scope GeomBase Precision)
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v41.0 - Unified CallGraph & Double-Scope GeomBase Precision)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripción:
     Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
@@ -78,7 +78,13 @@ function getTargetPaths(target) {
                 paths.push(item);
             }
         } else if (cName === 'CompoundPath') {
-            paths.push(item);
+            // Un CompoundPath contiene sub-trazados (Path) como hijos.
+            // Debemos editar los nodos de sus trazados hijos individuales, que son los que poseen .segments
+            if (item.children && Array.isArray(item.children)) {
+                item.children.forEach(findPathsRecursive);
+            } else {
+                paths.push(item);
+            }
         } else if (cName === 'Group' || item.children) {
             if (item.children && Array.isArray(item.children)) {
                 item.children.forEach(findPathsRecursive);
