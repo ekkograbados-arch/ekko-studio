@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v10.0 Canonical Forensic BlackBox)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v11.0 Canonical Forensic BlackBox)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
     Caja Negra de Diagnóstico, Observabilidad Integral, Auditoría Forense y
@@ -478,7 +478,8 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             if (p0 && p1 && (Math.abs(p1.x - p0.x) > 0.1 || Math.abs(p1.y - p0.y) > 0.1)) canvasMutated = true;
         }
 
-        if (opMeta.isButtonClick && totalCalls === 0 && !canvasMutated && !isModal && !opType.includes('TOGGLE')) {
+        const isNodeEditAction = opType.includes('NODE') || opType.includes('EDIT');
+    if (opMeta.isButtonClick && totalCalls === 0 && !canvasMutated && !isModal && !opType.includes('TOGGLE') && !isNodeEditAction) {
             checks.deadClickDetected = true;
             checks.buttonResponded = false;
             inconsistencies.push(
@@ -1006,7 +1007,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             const cascadeAnalysis = analyzeCascadeErrors();
 
             let out = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-            out += '║     EKKO STUDIO DIAGNOSTIC v10.0 - ESTÁNDAR CANÓNICO DE CONTRATOS FORENSES       ║\n';
+            out += '║     EKKO STUDIO DIAGNOSTIC v11.0 - ESTÁNDAR CANÓNICO DE CONTRATOS FORENSES       ║\n';
             out += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
 
             out += `Duración de Sesión: ${ops.length > 0 ? Math.round((performance.now() - ops[0].startTime) / 1000) : 0} segundos\n`;
