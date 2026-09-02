@@ -16,7 +16,7 @@ Descripción:
       2. Si está en modo edición de nodos (nodeEditMode), sincroniza y sale limpiamente.
       3. Migra la selección al nuevo clon y sincroniza la caja de transformación.
 
-    CORRECCIONES ARQUITECTÓNICAS V38.0 (EKKO-ISSUE-0001):
+    CORRECCIONES ARQUITECTÓNICAS V42.0 (EKKO-ISSUE-0001):
     1. UNIFICACIÓN ABSOLUTA DE DUPLICACIÓN Y COPIADO (Ctrl+D & duplicateImage/duplicateSingleItem):
        Todas las rutas de duplicación convergen en una única lógica matemática unificada. Exponemos
        'duplicateImage' y 'deleteImage' globalmente vinculándolas directamente a los flujos de la caja negra.
@@ -29,6 +29,8 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
+import { scaleImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack } from "./imageToolbar.js";
+import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 
 // Importación de funciones CSG
 function safeRecalculateSubtractions() {
