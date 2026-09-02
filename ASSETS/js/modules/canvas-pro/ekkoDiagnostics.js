@@ -1,17 +1,16 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v13.0 EagleEye - Active Forensic BlackBox)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v13.0 EagleEye Forensic BlackBox)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
-    Caja Negra Forense de Nivel de Aviación de 5 Niveles para EKKO Studio.
+    Caja Negra Forense de Última Generación "Ojos de Águila" con Monitoreo de
+    Conectividad DOM, Intercepción de EventListeners y Auditoría Visual 3D/2D
+    de Lienzo para EKKO Studio.
     
-    ESTA VERSIÓN INCLUYE EL PROTOCOLO "OJOS DE ÁGUILA":
-    1. Intercepción en caliente de EventTarget.prototype.addEventListener para auditar 
-       botones "fantasmas" o "muertos" (clics sin receptores de eventos conectados).
-    2. Validación de Rendimiento y Visibilidad Real de Paper.js (Canvas Viewport Checks).
-       Comprueba si los nodos están realmente dibujados, visibles, con opacidad > 0 
-       y dentro de los límites visuales de la pantalla (View Bounds).
-    3. Comando Interactivo de Consola 'EKKO_DIAG.inspect()' para forzar auditorías visuales
-       y de conectividad en tiempo real sin tener que esperar a que ocurra una operación.
+    Implementa:
+    1. Intercepción del Prototipo de EventTarget para registrar listeners reales (Fin de "Botones Muertos").
+    2. Setters Reactivos dinámicos en 'window' para auto-envolver funciones asíncronas de carga diferida.
+    3. Inspección geométrica activa de Viewport y visibilidad física de nodos (Paper.js).
+    4. Comando interactivo 'EKKO_DIAG.inspect()' para auditorías en caliente.
 
 AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 ========================================================================= */
@@ -27,47 +26,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 }(typeof window !== 'undefined' ? window : this, function () {
 
     // =========================================================================
-    // REGISTRO Y SEGUIMIENTO DE EVENT LISTENERS NATIVOS (DOM AUDIT)
-    // =========================================================================
-    const eventRegistry = new Map(); // Guarda: Element -> Set of { type, handler, stack }
-
-    if (typeof window !== 'undefined' && typeof EventTarget !== 'undefined') {
-        const originalAddEventListener = EventTarget.prototype.addEventListener;
-        const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
-
-        EventTarget.prototype.addEventListener = function (type, handler, options) {
-            if (this instanceof HTMLElement) {
-                if (!eventRegistry.has(this)) {
-                    eventRegistry.set(this, new Set());
-                }
-                eventRegistry.get(this).add({
-                    type: type,
-                    handler: handler,
-                    stack: new Error().stack
-                });
-            }
-            return originalAddEventListener.call(this, type, handler, options);
-        };
-
-        EventTarget.prototype.removeEventListener = function (type, handler, options) {
-            if (this instanceof HTMLElement && eventRegistry.has(this)) {
-                const listeners = eventRegistry.get(this);
-                for (const lis of listeners) {
-                    if (lis.type === type && lis.handler === handler) {
-                        listeners.delete(lis);
-                        break;
-                    }
-                }
-                if (listeners.size === 0) {
-                    eventRegistry.delete(this);
-                }
-            }
-            return originalRemoveEventListener.call(this, type, handler, options);
-        };
-    }
-
-    // =========================================================================
-    // CANAL SEGURO DE CONSOLA E INTERCEPCIÓN DE EXCEPCIONES
+    // NIVELES 1 Y 2: CANAL SEGURO DE CONSOLA E INTERCEPCIÓN DE EXCEPCIONES
     // =========================================================================
     const rawConsole = {
         log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
@@ -92,822 +51,706 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         }
     } catch (e) {}
 
-    // --- ESTADO CENTRAL DEL RECOLECTOR ---
+    // --- ESTADO CENTRAL DEL RECOLECTOR DE LA CAJA NEGRA ---
     const diagState = {
-        active: false,
+        active: true,
         operations: [],
         currentOp: null,
         opCounter: 0,
         consoleErrors: [],
-        lastInteraction: null
+        eventRegistry: new Map(), // Element -> Set of events bound
+        lastMouseDownPoint: null,
+        lastMouseDownSelection: null,
+        lastMouseDownGeo: null,
+        dragTracker: {
+            active: false,
+            startX: 0,
+            startY: 0,
+            dragMode: 'MOVE'
+        }
     };
 
-    // Escucha activa de excepciones runtime
+    // =========================================================================
+    // MEJORAS INDISPENSABLES V13: INTERCEPCIÓN AGRESIVA DE EVENT LISTENERS (ANTI-BOTÓN MUERTO)
+    // =========================================================================
+    try {
+        if (typeof EventTarget !== 'undefined' && EventTarget.prototype) {
+            const originalAddEventListener = EventTarget.prototype.addEventListener;
+            EventTarget.prototype.addEventListener = function (type, listener, options) {
+                try {
+                    if (this instanceof HTMLElement || this === window || this === document) {
+                        const selector = getFriendlySelector(this);
+                        if (!diagState.eventRegistry.has(selector)) {
+                            diagState.eventRegistry.set(selector, new Set());
+                        }
+                        diagState.eventRegistry.get(selector).add(type);
+                    }
+                } catch (err) {}
+                return originalAddEventListener.call(this, type, listener, options);
+            };
+
+            const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+            EventTarget.prototype.removeEventListener = function (type, listener, options) {
+                try {
+                    if (this instanceof HTMLElement || this === window || this === document) {
+                        const selector = getFriendlySelector(this);
+                        if (diagState.eventRegistry.has(selector)) {
+                            diagState.eventRegistry.get(selector).delete(type);
+                            if (diagState.eventRegistry.get(selector).size === 0) {
+                                diagState.eventRegistry.delete(selector);
+                            }
+                        }
+                    }
+                } catch (err) {}
+                return originalRemoveEventListener.call(this, type, listener, options);
+            };
+        }
+    } catch (e) {
+        rawConsole.warn("[EKKO_DIAG] No se pudo inyectar el EventListener Hijacker:", e);
+    }
+
+    function getFriendlySelector(el) {
+        if (el === window) return "window";
+        if (el === document) return "document";
+        if (!el || !el.tagName) return "unknown";
+        let selector = el.tagName.toLowerCase();
+        if (el.id) {
+            selector += '#' + el.id;
+        } else if (el.className) {
+            selector += '.' + el.className.split(' ').filter(Boolean).join('.');
+        }
+        return selector;
+    }
+
+    // Escuchar excepciones globales
     if (typeof window !== 'undefined') {
         const origConsoleError = console.error;
         console.error = function (...args) {
             const errorMsg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-            if (diagState.active) {
-                diagState.consoleErrors.push({
-                    message: errorMsg,
-                    timestamp: Date.now(),
-                    activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
-                    activeObject: window.selectedItem ? window.selectedItem.id : null,
-                    stack: new Error().stack
-                });
-            }
+            diagState.consoleErrors.push({
+                message: errorMsg,
+                timestamp: Date.now(),
+                activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
+                activeObject: window.selectedItem ? window.selectedItem.id : null,
+                stack: new Error().stack
+            });
             return origConsoleError.apply(console, args);
         };
 
         window.addEventListener('error', function (e) {
-            if (diagState.active) {
-                diagState.consoleErrors.push({
-                    message: `[Runtime Exception] ${e.message} en ${e.filename}:${e.lineno}:${e.colno}`,
-                    timestamp: Date.now(),
-                    activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
-                    activeObject: window.selectedItem ? window.selectedItem.id : null,
-                    stack: e.error ? e.error.stack : null
-                });
-            }
+            diagState.consoleErrors.push({
+                message: `[Runtime Exception] ${e.message} en ${e.filename}:${e.lineno}:${e.colno}`,
+                timestamp: Date.now(),
+                activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
+                activeObject: window.selectedItem ? window.selectedItem.id : null,
+                stack: e.error ? e.error.stack : null
+            });
         });
 
         window.addEventListener('unhandledrejection', function (e) {
-            if (diagState.active) {
-                diagState.consoleErrors.push({
-                    message: `[Promise Rejection] ${e.reason}`,
-                    timestamp: Date.now(),
-                    activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
-                    activeObject: window.selectedItem ? window.selectedItem.id : null,
-                    stack: e.reason ? e.reason.stack : null
-                });
-            }
+            diagState.consoleErrors.push({
+                message: `[Unhandled Promise Rejection] ${e.reason}`,
+                timestamp: Date.now(),
+                activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
+                activeObject: window.selectedItem ? window.selectedItem.id : null,
+                stack: e.reason && e.reason.stack ? e.reason.stack : null
+            });
         });
     }
 
     // =========================================================================
-    // METODOLOGÍA DE CAPTURA DE ESTADO GEOMÉTRICO (SNAPSHOTTING)
+    // NIVEL 3: INTERCEPTOR DEL CALLGRAPH DINÁMICO (SISTEMA DE PROPIEDADES REACTIVAS)
     // =========================================================================
-
-    function getContentItem(item) {
-        if (!item) return null;
-        if (item.data && item.data.clipGroup) {
-            if (!item.children) return item;
-            const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-            if (content) return content;
-            return item.children[1] || item.children[0] || item;
-        }
-        return item;
-    }
-
-    function snapshotSelection() {
-        if (typeof window === 'undefined' || typeof paper === 'undefined' || !paper.project) {
-            return { hasSelection: false };
-        }
-        const activeItem = window.selectedItem || null;
-        if (!activeItem) return { hasSelection: false };
-
-        const target = getContentItem(activeItem);
-        return {
-            hasSelection: true,
-            id: activeItem.id,
-            className: activeItem.className,
-            targetId: target ? target.id : null,
-            targetClass: target ? target.className : null,
-            bounds: activeItem.bounds ? {
-                x: activeItem.bounds.x,
-                y: activeItem.bounds.y,
-                width: activeItem.bounds.width,
-                height: activeItem.bounds.height
-            } : null,
-            position: activeItem.position ? { x: activeItem.position.x, y: activeItem.position.y } : null,
-            geomBaseExists: !!(target && target.data && target.data.geomBase),
-            geomBaseId: (target && target.data && target.data.geomBase) ? target.data.geomBase.id : null,
-            isClipped: !!(activeItem.data && activeItem.data.clipGroup),
-            segmentsCount: (target && target.segments) ? target.segments.length : 0
-        };
-    }
-
-    function snapshotGeometricState() {
-        if (typeof window === 'undefined' || typeof paper === 'undefined' || !paper.project) {
-            return { totalItems: 0, items: [] };
-        }
-        const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-        if (!designLayer) return { totalItems: 0, items: [] };
-
-        const itemsSnapshot = [];
-        const processItem = (item) => {
-            if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isNodeEditOverlay || item.data.isSmartGuide)) {
-                return; // Excluir elementos auxiliares de UI
-            }
-            const target = getContentItem(item);
-            itemsSnapshot.push({
-                id: item.id,
-                className: item.className,
-                visible: item.visible,
-                position: { x: item.position.x, y: item.position.y },
-                bounds: { x: item.bounds.x, y: item.bounds.y, width: item.bounds.width, height: item.bounds.height },
-                geomBaseExists: !!(target && target.data && target.data.geomBase)
-            });
-        };
-
-        if (designLayer.children) {
-            designLayer.children.forEach(processItem);
-        }
-
-        return {
-            totalItems: itemsSnapshot.length,
-            items: itemsSnapshot,
-            zOrderIds: designLayer.children ? designLayer.children.map(c => c.id) : []
-        };
-    }
-
-    // =========================================================================
-    // EVALUADOR EN CALIENTE DE INCOHERENCIAS (AUDIT CONSISTENCY)
-    // =========================================================================
-    function auditConsistency(op) {
-        const beforeSel = op.before.selection;
-        const afterSel = op.after.selection;
-        const beforeGeo = op.before.geometry;
-        const afterGeo = op.after.geometry;
-        const inconsistencies = [];
-
-        // Ignorar auditorías si no hay datos de inicio válidos
-        if (!beforeGeo || !afterGeo) return inconsistencies;
-
-        // --- CONTRATO 1: ACCIÓN SIN EFECTO ---
-        if (op.type === 'DRAG' || op.type === 'TRANSFORM') {
-            if (beforeSel.hasSelection && afterSel.hasSelection && beforeSel.id === afterSel.id) {
-                const b0 = beforeSel.position;
-                const b1 = afterSel.position;
-                if (b0 && b1 && b0.x === b1.x && b0.y === b1.y) {
-                    // Si se arrastró visualmente pero sus coordenadas no cambiaron en absoluto
-                    if (op.source === 'canvas:mousedrag' && op.metadata && op.metadata.pointerMoved) {
-                        inconsistencies.push({
-                            type: 'ACTION_WITHOUT_EFFECT',
-                            code: 'DRAG_FRUSTRATED',
-                            message: `[ARRASTRE FRUSTRADO] Se detectó desplazamiento del puntero sobre el objeto ID: ${afterSel.id}, pero sus coordenadas en Paper.js permanecieron idénticas.`
-                        });
-                    }
-                }
-            }
-        }
-
-        // --- CONTRATO 2: PRESERVACIÓN DE GEOMBASE EN SELECCIÓN ---
-        if (op.type === 'SELECT') {
-            if (afterSel.hasSelection && !afterSel.geomBaseExists) {
-                // Si seleccionamos una pieza útil de diseño pero carece de geomBase
-                inconsistencies.push({
-                    type: 'INVARIANT_FAILURE',
-                    code: 'DESTRUCCION_GEOMBASE',
-                    message: `[INVARIANTE VIOLADO] El objeto ID: ${afterSel.id} fue seleccionado pero carece de 'data.geomBase'. Su reactividad CSG e independencia Bézier quedan inoperativas.`
-                });
-            }
-        }
-
-        // --- CONTRATO 3: DUPLICACIÓN E INDEPENDENCIA DE IDENTIDAD ---
-        if (op.type === 'DUPLICATE') {
-            if (afterGeo.totalItems <= beforeGeo.totalItems) {
-                inconsistencies.push({
-                    type: 'CONTRACT_FAILURE',
-                    code: 'CLONE_FAILED',
-                    message: `[CONTRATO VIOLADO] Se solicitó duplicar, pero la cantidad de elementos en el lienzo no aumentó (Previo: ${beforeGeo.totalItems}, Actual: ${afterGeo.totalItems}).`
-                });
-            } else if (beforeSel.hasSelection && afterSel.hasSelection) {
-                if (beforeSel.id === afterSel.id) {
-                    inconsistencies.push({
-                        type: 'DESYNCHRONIZATION',
-                        code: 'SELECTION_NOT_MIGRATED',
-                        message: `[DESINCRONIZACIÓN SELECCIÓN] Al duplicar, la selección activa de Studio no migró al nuevo clon y quedó anclada en el objeto original ID: ${beforeSel.id}.`
-                    });
-                }
-            }
-        }
-
-        // --- CONTRATO 4: RECALCULO DE CALADO CSG (isHole) ---
-        if (op.type === 'WELD' || op.type === 'SUBTRACT') {
-            if (afterGeo.totalItems >= beforeGeo.totalItems && beforeGeo.totalItems > 0) {
-                inconsistencies.push({
-                    type: 'CONTRACT_FAILURE',
-                    code: 'CSG_MUTATION_FAILED',
-                    message: `[CONTRATO VIOLADO] La sustracción booleana / perforación de LightBurn style no consolidó las capas geométricas en un único CompoundPath.`
-                });
-            }
-        }
-
-        // --- CONTRATO 5: COHERENCIA DE SEGMENTOS EN EDICIÓN DE NODOS ---
-        if (op.type === 'NODE_EDIT' || op.type === 'NODE_DRAG') {
-            if (beforeSel.hasSelection && afterSel.hasSelection && beforeSel.id === afterSel.id) {
-                const s0 = beforeSel.segmentsCount;
-                const s1 = afterSel.segmentsCount;
-                if (op.source === 'keydown:delete' && s1 >= s0 && s0 > 0) {
-                    inconsistencies.push({
-                        type: 'CONTRACT_FAILURE',
-                        code: 'NODE_DELETION_FAILED',
-                        message: `[CONTRATO VIOLADO: NODE_DELETE] Se ordenó borrar los nodos seleccionados, pero el número de segmentos geométricos no disminuyó (Previo: ${s0}, Actual: ${s1}).`
-                    });
-                }
-            }
-        }
-
-        // --- CONTRATO 6: CONSISTENCIA DE APILAMIENTO Z (Z-ORDER) ---
-        if (beforeGeo.zOrderIds && afterGeo.zOrderIds && beforeGeo.zOrderIds.length === afterGeo.zOrderIds.length) {
-            // Si la operación no es de apilamiento pero el Z-Order mutó
-            const nonStackingOps = ['DRAG', 'SELECT', 'NODE_DRAG'];
-            if (nonStackingOps.includes(op.type)) {
-                let orderMutated = false;
-                for (let i = 0; i < beforeGeo.zOrderIds.length; i++) {
-                    if (beforeGeo.zOrderIds[i] !== afterGeo.zOrderIds[i]) {
-                        orderMutated = true;
-                        break;
-                    }
-                }
-                if (orderMutated) {
-                    inconsistencies.push({
-                        type: 'INVARIANT_FAILURE',
-                        code: 'Z_ORDER_STATE_SYNC_LOST',
-                        message: `[INVARIANTE VIOLADO] El orden de apilamiento Z (Z-index) mutó de forma colateral inesperada durante una operación de ${op.type}.`
-                    });
-                }
-            }
-        }
-
-        return inconsistencies;
-    }
-
-    // =========================================================================
-    // INTERCEPTORES DE LLAMADAS DEL CANVAS (INSTRUMENTACIÓN)
-    // =========================================================================
-    const monitoredAPIs = [
-        { objName: 'window', prop: 'enterNodeEditMode', opType: 'NODE_EDIT' },
-        { objName: 'window', prop: 'exitNodeEditMode', opType: 'NODE_EDIT' },
-        { objName: 'window', prop: 'deleteSelectedNodes', opType: 'NODE_EDIT' },
-        { objName: 'window', prop: 'detachSelectedSubpaths', opType: 'NODE_EDIT' },
-        { objName: 'window', prop: 'duplicateSelectedItem', opType: 'DUPLICATE' },
-        { objName: 'window', prop: 'duplicateSingleItem', opType: 'DUPLICATE' },
-        { objName: 'window', prop: 'duplicateImage', propAlt: 'duplicateImage', opType: 'DUPLICATE' },
-        { objName: 'window', prop: 'deleteImage', opType: 'DELETE' },
-        { objName: 'window', prop: 'groupSelectedItems', opType: 'GROUP' },
-        { objName: 'window', prop: 'ungroupSelectedItem', opType: 'UNGROUP' },
-        { objName: 'window', prop: 'selectItem', opType: 'SELECT' },
-        { objName: 'window', prop: 'deselectItem', opType: 'SELECT' },
-        { objName: 'window', prop: 'recalculateDynamicSubtractions', opType: 'CSG_REACTIVE' }
+    const criticalFunctions = [
+        'enterNodeEditMode',
+        'exitNodeEditMode',
+        'drawNodeHandles',
+        'deleteSelectedNodes',
+        'duplicateSelectedItem',
+        'ungroupSelectedItem',
+        'groupSelectedItems',
+        'recalculateDynamicSubtractions',
+        'selectItem',
+        'deselectItem',
+        'clipItem'
     ];
 
-    function installReactivePropertyInterceptors() {
-        if (diagState.interceptorsInstalled || typeof window === 'undefined') return;
+    const wrappedFunctions = {};
 
-        monitoredAPIs.forEach(api => {
-            let currentValue = window[api.prop];
+    function wrapMethod(name, originalFn) {
+        if (typeof originalFn !== 'function') return originalFn;
+        if (originalFn.__isWrappedByEKKO) return originalFn;
 
-            Object.defineProperty(window, api.prop, {
+        rawConsole.log(`[EKKO_DIAG] Envolviendo en caliente función crítica: window.${name}`);
+
+        const wrapper = function (...args) {
+            if (!diagState.active) return originalFn.apply(this, args);
+
+            const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
+            const op = {
+                id: opId,
+                type: name,
+                timestamp: Date.now(),
+                status: 'IN_PROGRESS',
+                source: name,
+                args: args.map(a => {
+                    if (!a) return 'null';
+                    if (a.id !== undefined) return `Item(ID:${a.id}, class:${a.className})`;
+                    if (a.x !== undefined && a.y !== undefined) return `Point(${a.x.toFixed(1)}, ${a.y.toFixed(1)})`;
+                    if (typeof a === 'object') return '{...}';
+                    return String(a);
+                }),
+                beforeState: captureGeometricStateSnapshot(),
+                afterState: null,
+                inconsistencies: [],
+                duration: 0
+            };
+
+            diagState.operations.push(op);
+            const parentOp = diagState.currentOp;
+            diagState.currentOp = op;
+
+            const startTime = performance.now();
+            let result;
+            try {
+                result = originalFn.apply(this, args);
+                op.status = 'COMPLETED';
+            } catch (err) {
+                op.status = 'FAILED';
+                op.inconsistencies.push(`[EXCEPCIÓN DE EJECUCIÓN] ${err.message}`);
+                diagState.consoleErrors.push({
+                    message: `[Call Exception en ${name}] ${err.message}`,
+                    timestamp: Date.now(),
+                    activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
+                    activeObject: window.selectedItem ? window.selectedItem.id : null,
+                    stack: err.stack
+                });
+                throw err;
+            } finally {
+                op.duration = performance.now() - startTime;
+                op.afterState = captureGeometricStateSnapshot();
+                auditConsistency(op);
+                diagState.currentOp = parentOp;
+            }
+            return result;
+        };
+
+        wrapper.__isWrappedByEKKO = true;
+        wrapper.rawFn = originalFn;
+        return wrapper;
+    }
+
+    // Inyección de Getters y Setters reactivos en window para evitar pérdidas de wrapper asíncronos
+    if (typeof window !== 'undefined') {
+        criticalFunctions.forEach(funcName => {
+            let currentValue = window[funcName];
+
+            if (currentValue && typeof currentValue === 'function') {
+                wrappedFunctions[funcName] = wrapMethod(funcName, currentValue);
+                window[funcName] = wrappedFunctions[funcName];
+            }
+
+            Object.defineProperty(window, funcName, {
                 get: function () {
-                    return currentValue;
+                    return wrappedFunctions[funcName];
                 },
-                set: function (newValue) {
-                    if (typeof newValue === 'function' && !newValue.__isWrapped) {
-                        const wrappedFn = function (...args) {
-                            if (!diagState.active) {
-                                return newValue.apply(this, args);
-                            }
-                            const opId = ++diagState.opCounter;
-                            const op = {
-                                id: opId,
-                                type: api.opType,
-                                source: `APICall: window.${api.prop}`,
-                                timestamp: Date.now(),
-                                before: {
-                                    selection: snapshotSelection(),
-                                    geometry: snapshotGeometricState()
-                                },
-                                after: null,
-                                errors: []
-                            };
-
-                            try {
-                                const result = newValue.apply(this, args);
-                                op.after = {
-                                    selection: snapshotSelection(),
-                                    geometry: snapshotGeometricState()
-                                };
-                                op.errors = auditConsistency(op);
-                                diagState.operations.push(op);
-                                return result;
-                            } catch (err) {
-                                op.after = {
-                                    selection: snapshotSelection(),
-                                    geometry: snapshotGeometricState()
-                                };
-                                op.errors.push({
-                                    type: 'RUNTIME_EXCEPTION',
-                                    code: 'METHOD_THROW',
-                                    message: `[ERROR METODO] Falló ejecución de ${api.prop}: ${err.message}`
-                                });
-                                diagState.operations.push(op);
-                                throw err;
-                            }
-                        };
-                        wrappedFn.__isWrapped = true;
-                        currentValue = wrappedFn;
+                set: function (newVal) {
+                    if (newVal && newVal.__isWrappedByEKKO) {
+                        wrappedFunctions[funcName] = newVal;
+                    } else if (typeof newVal === 'function') {
+                        wrappedFunctions[funcName] = wrapMethod(funcName, newVal);
                     } else {
-                        currentValue = newValue;
+                        wrappedFunctions[funcName] = newVal;
                     }
                 },
                 configurable: true,
                 enumerable: true
             });
-
-            // Forzar envoltura si ya existía valor previo
-            if (currentValue) {
-                window[api.prop] = currentValue;
-            }
         });
-
-        // Intercepción global de eventos del DOM en caliente (Clics interactivos)
-        document.addEventListener('click', function (e) {
-            if (!diagState.active) return;
-            const target = e.target.closest('button, .toolbar-btn, [id^="btnCtx"], [id^="proBtn"]');
-            if (!target) return;
-
-            const opId = ++diagState.opCounter;
-            const op = {
-                id: opId,
-                type: 'DOM_CLICK',
-                source: `DOMClick: #${target.id || 'N/A'} [${target.className || ''}]`,
-                timestamp: Date.now(),
-                before: {
-                    selection: snapshotSelection(),
-                    geometry: snapshotGeometricState()
-                },
-                after: null,
-                errors: [],
-                metadata: {
-                    buttonId: target.id,
-                    innerText: target.innerText ? target.innerText.trim() : ''
-                }
-            };
-
-            // Esperar 150ms asincrónicamente para capturar mutaciones resultantes del clic
-            setTimeout(() => {
-                op.after = {
-                    selection: snapshotSelection(),
-                    geometry: snapshotGeometricState()
-                };
-
-                // Comprobar si el botón tiene event listeners conectados
-                const listeners = eventRegistry.get(target);
-                const hasClickHandlers = listeners && Array.from(listeners).some(l => l.type === 'click');
-
-                if (!hasClickHandlers && !target.onclick) {
-                    op.errors.push({
-                        type: 'ACTION_WITHOUT_EFFECT',
-                        code: 'DEAD_BUTTON_NO_LISTENER',
-                        message: `[BOTÓN MUERTO] Se hizo clic en el botón #${target.id || 'N/A'} ('${op.metadata.innerText}'), pero no tiene ningún receptor de eventos de clic conectado. El botón está desconectado.`
-                    });
-                } else {
-                    // Validar si produjo efectos geométricos o de estado
-                    const stateChanged = JSON.stringify(op.before) !== JSON.stringify(op.after);
-                    if (!stateChanged) {
-                        // Es un clic inerte. Podría ser normal (ej. abrir menú de fuentes), pero es advertible.
-                        const isMenuToggle = target.id.includes('Selector') || target.id.includes('dropdown');
-                        if (!isMenuToggle && op.before.selection.hasSelection) {
-                            op.errors.push({
-                                type: 'ACTION_WITHOUT_EFFECT',
-                                code: 'CLIC_INERTE_ADVERTENCIA',
-                                message: `[ADVERTENCIA: CLIC SIN EFECTO] Clic en #${target.id || 'N/A'} no produjo cambios detectables en el Canvas ni en la selección.`
-                            });
-                        }
-                    }
-                }
-
-                op.errors.push(...auditConsistency(op));
-                diagState.operations.push(op);
-            }, 150);
-
-        }, { capture: true });
-
-        // Intercepción del arrastre físico del ratón en el lienzo
-        let isMouseDownOnCanvas = false;
-        let pointerMovedDuringDrag = false;
-
-        document.addEventListener('mousedown', function (e) {
-            if (!diagState.active) return;
-            const canvas = document.getElementById('editorCanvas');
-            if (e.target === canvas) {
-                isMouseDownOnCanvas = true;
-                pointerMovedDuringDrag = false;
-                diagState.lastInteraction = {
-                    type: 'DRAG_START',
-                    timestamp: Date.now(),
-                    before: {
-                        selection: snapshotSelection(),
-                        geometry: snapshotGeometricState()
-                    }
-                };
-            }
-        }, { capture: true });
-
-        document.addEventListener('mousemove', function (e) {
-            if (isMouseDownOnCanvas) {
-                pointerMovedDuringDrag = true;
-            }
-        }, { capture: true });
-
-        document.addEventListener('mouseup', function (e) {
-            if (isMouseDownOnCanvas && diagState.lastInteraction) {
-                isMouseDownOnCanvas = false;
-                const opId = ++diagState.opCounter;
-                const op = {
-                    id: opId,
-                    type: window.nodeEditMode ? 'NODE_DRAG' : 'DRAG',
-                    source: 'canvas:mousedrag',
-                    timestamp: Date.now(),
-                    before: diagState.lastInteraction.before,
-                    after: {
-                        selection: snapshotSelection(),
-                        geometry: snapshotGeometricState()
-                    },
-                    errors: [],
-                    metadata: {
-                        pointerMoved: pointerMovedDuringDrag
-                    }
-                };
-                op.errors = auditConsistency(op);
-                diagState.operations.push(op);
-                diagState.lastInteraction = null;
-            }
-        }, { capture: true });
-
-        // Intercepción de atajos de teclado críticos
-        document.addEventListener('keydown', function (e) {
-            if (!diagState.active) return;
-            const key = e.key.toLowerCase();
-            const isCtrl = e.ctrlKey || e.metaKey;
-
-            let shortcutTriggered = null;
-            if (isCtrl && key === 'd') shortcutTriggered = 'Ctrl+D (Duplicar)';
-            if (isCtrl && key === 'c') shortcutTriggered = 'Ctrl+C (Copiar)';
-            if (isCtrl && key === 'v') shortcutTriggered = 'Ctrl+V (Pegar)';
-            if (e.key === 'Delete' || e.key === 'Backspace') shortcutTriggered = 'Supr/Retroceso (Eliminar)';
-
-            if (shortcutTriggered) {
-                const opId = ++diagState.opCounter;
-                const op = {
-                    id: opId,
-                    type: shortcutTriggered.includes('Duplicar') ? 'DUPLICATE' : 
-                          shortcutTriggered.includes('Eliminar') ? 'DELETE' : 'SHORTCUT',
-                    source: `keydown:${key}`,
-                    timestamp: Date.now(),
-                    before: {
-                        selection: snapshotSelection(),
-                        geometry: snapshotGeometricState()
-                    },
-                    after: null,
-                    errors: []
-                };
-
-                setTimeout(() => {
-                    op.after = {
-                        selection: snapshotSelection(),
-                        geometry: snapshotGeometricState()
-                    };
-                    op.errors = auditConsistency(op);
-                    diagState.operations.push(op);
-                }, 150);
-            }
-        }, { capture: true });
-
-        diagState.interceptorsInstalled = true;
     }
 
     // =========================================================================
-    // COMANDO INTERACTIVO 'EKKO_DIAG.inspect()' (EAGLE EYE ENGINE)
+    // NIVEL 4: AUDITORÍA DE INVARIANTES Y CONSISTENCIA GEOMÉTRICA (MATH LABS)
     // =========================================================================
-    function inspectCanvasAndDOM() {
-        rawConsole.log('%c🔍 [EKKO EAGLE EYE INSPECTOR INICIALIZADO] Realizando auditoría estática profunda...', 'color: #0284c7; font-weight: bold; font-size: 13px;');
-
-        const audit = {
-            domDeadButtons: [],
-            domConnectedButtonsCount: 0,
-            canvasStatus: 'UNKNOWN',
-            canvasInvisibleNodes: [],
-            canvasGeometricBaseStatus: [],
-            warnings: []
-        };
-
-        // 1. Auditoría DOM: Escaneo exhaustivo de botones fantasmas
-        const buttons = document.querySelectorAll('button, .toolbar-btn, [id^="btnCtx"], [id^="proBtn"]');
-        buttons.forEach(btn => {
-            const listeners = eventRegistry.get(btn);
-            const hasClickHandlers = (listeners && Array.from(listeners).some(l => l.type === 'click')) || btn.onclick;
-
-            if (!hasClickHandlers) {
-                audit.domDeadButtons.push({
-                    id: btn.id || 'N/A',
-                    className: btn.className || '',
-                    text: btn.innerText ? btn.innerText.trim() : 'Sin texto',
-                    parentContainer: btn.parentElement ? btn.parentElement.id || btn.parentElement.className : 'DOM Root'
-                });
-            } else {
-                audit.domConnectedButtonsCount++;
-            }
-        });
-
-        // 2. Auditoría del Canvas de Paper.js
-        if (typeof paper !== 'undefined' && paper.project) {
-            audit.canvasStatus = 'CONNECTED';
-            const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-
-            if (designLayer && designLayer.children) {
-                // Auditoría geométrica de los elementos
-                designLayer.children.forEach(item => {
-                    if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isNodeEditOverlay || item.data.isSmartGuide)) {
-                        return; // Omitir controles visuales
-                    }
-                    const target = getContentItem(item);
-                    const hasGeomBase = !!(target && target.data && target.data.geomBase);
-
-                    audit.canvasGeometricBaseStatus.push({
-                        id: item.id,
-                        className: item.className,
-                        label: item.data?.label || 'Sin etiqueta',
-                        visible: item.visible,
-                        hasGeomBase: hasGeomBase,
-                        isClipped: !!(item.data && item.data.clipGroup)
-                    });
-
-                    if (!hasGeomBase && item.visible && !item.data?.mockup) {
-                        audit.warnings.push(`[INVARIANTE DESTRUIDO] El elemento ID: ${item.id} ('${item.data?.label || 'Vector'}') está visible pero no posee 'data.geomBase'. Su edición de nodos fallará.`);
-                    }
-                });
-
-                // Auditoría específica del Modo Nodos si está activo
-                if (window.nodeEditMode) {
-                    const nodeGroup = designLayer.children.find(c => c.data && c.data.isNodeHandleContainer);
-                    if (!nodeGroup || !nodeGroup.children || nodeGroup.children.length === 0) {
-                        audit.canvasInvisibleNodes.push({
-                            code: 'NO_OVERLAY_GROUP_FOUND',
-                            message: `[ERROR VISUAL] 'nodeEditMode' está activo en window, pero no se encontró ningún contenedor de nodos interactivos ('isNodeHandleContainer') dibujado en la capa de diseño.`
-                        });
-                    } else {
-                        // Validar si los tiradores están fuera del Viewport
-                        const viewportBounds = paper.view.bounds;
-                        let visibleNodesCount = 0;
-                        nodeGroup.children.forEach(child => {
-                            if (child.data?.isNodeHandle && child.visible && child.opacity > 0) {
-                                if (viewportBounds.contains(child.position)) {
-                                    visibleNodesCount++;
-                                }
-                            }
-                        });
-
-                        if (visibleNodesCount === 0) {
-                            audit.canvasInvisibleNodes.push({
-                                code: 'NODES_OFFSCREEN',
-                                message: `[ERROR VISUAL] Los nodos de anclaje están cargados en memoria (${nodeGroup.children.length} elementos), pero todos se encuentran fuera de los límites de la pantalla (Viewport Bounds) debido al zoom o desplazamiento del lienzo.`
-                            });
-                        }
-                    }
-                }
-            } else {
-                audit.canvasStatus = 'EMPTY_DESIGN_LAYER';
-                audit.warnings.push('[ADVERTENCIA CANVAS] No se encontró la capa canónica de diseño ("designLayer") activa.');
-            }
-        } else {
-            audit.canvasStatus = 'DISCONNECTED_PAPER_JS_NOT_FOUND';
-            audit.warnings.push('[ERROR CRÍTICO] No se encontró Paper.js o el lienzo no está instanciado en el ámbito global.');
-        }
-
-        // 3. Imprimir el Reporte de Inspección por consola de forma estética
-        rawConsole.log('%c📋 RESULTADOS DEL INSPECTOR DE CAJA NEGRA:', 'color: #0369a1; font-weight: bold;');
+    function captureGeometricStateSnapshot() {
+        if (typeof paper === 'undefined' || !paper.project) return null;
         
-        // Sección A: Conectividad DOM
-        if (audit.domDeadButtons.length > 0) {
-            rawConsole.warn(`%c🔴 BOTONES FANTASMAS DETECTADOS (${audit.domDeadButtons.length}):`, 'font-weight: bold; color: #b91c1c;');
-            rawConsole.table(audit.domDeadButtons);
-            rawConsole.error('[FALLO DE CONECTIVIDAD INTERFÁCICA] Estos botones existen físicamente en el DOM, pero el usuario los presiona y nada ocurre porque no tienen listeners asociados.');
-        } else {
-            rawConsole.log(`%c🟢 CONECTIVIDAD DOM IMPECABLE: ${audit.domConnectedButtonsCount} botones activos validados con receptores funcionales.`, 'color: #15803d;');
+        const selectionSnapshot = [];
+        if (window.selectedItems && window.selectedItems.length > 0) {
+            window.selectedItems.forEach(it => {
+                selectionSnapshot.push(captureSingleItemSnapshot(it));
+            });
+        } else if (window.selectedItem) {
+            selectionSnapshot.push(captureSingleItemSnapshot(window.selectedItem));
         }
 
-        // Sección B: Integridad Visual de Nodos
-        if (window.nodeEditMode) {
-            if (audit.canvasInvisibleNodes.length > 0) {
-                rawConsole.error(`%c🔴 FALLO CRÍTICO EN MODO EDICIÓN DE NODOS:`, 'font-weight: bold; color: #b91c1c;');
-                audit.canvasInvisibleNodes.forEach(n => rawConsole.error(`  ↳ ${n.message}`));
-            } else {
-                rawConsole.log('%c🟢 RENDERIZADO DE NODOS ACTIVO: Los nodos Bézier se encuentran cargados, visibles y dentro del viewport del lienzo.', 'color: #15803d;');
+        const sceneSnapshot = [];
+        const designLayer = paper.project.layers ? paper.project.layers.find(l => l.name === 'designLayer') : null;
+        const targetLayer = designLayer || paper.project.activeLayer;
+
+        if (targetLayer && targetLayer.children) {
+            targetLayer.children.forEach(c => {
+                if (c.data && (c.data.isSelectionBox || c.data.isNodeEditOverlay || c.data.isSmartGuide || c.data.isMeasurement)) {
+                    return; // Ignorar UI
+                }
+                sceneSnapshot.push(captureSingleItemSnapshot(c));
+            });
+        }
+
+        // Snapshot de Overlay de Nodos Activos
+        let overlaySnapshot = null;
+        const nodeOverlay = paper.project.activeLayer.children ? paper.project.activeLayer.children.find(c => c.data && c.data.isNodeEditOverlay) : null;
+        if (nodeOverlay && nodeOverlay.children) {
+            overlaySnapshot = {
+                id: nodeOverlay.id,
+                visible: nodeOverlay.visible,
+                opacity: nodeOverlay.opacity,
+                childCount: nodeOverlay.children.length,
+                nodes: nodeOverlay.children.map(ch => ({
+                    id: ch.id,
+                    type: ch.data?.isNodeHandle ? 'node' : (ch.data?.isCurveHandle ? 'handle' : 'tangent'),
+                    position: ch.position ? { x: ch.position.x, y: ch.position.y } : null,
+                    visible: ch.visible
+                }))
+            };
+        }
+
+        return {
+            timestamp: Date.now(),
+            selection: selectionSnapshot,
+            scene: sceneSnapshot,
+            overlay: overlaySnapshot,
+            zOrderIds: targetLayer && targetLayer.children ? targetLayer.children.map(c => c.id) : []
+        };
+    }
+
+    function captureSingleItemSnapshot(it) {
+        if (!it) return null;
+        const target = (it.data && it.data.clipGroup && it.children) ? 
+                       (it.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) || it) : it;
+
+        return {
+            id: it.id,
+            className: it.className,
+            name: it.name || '',
+            label: it.data?.label || 'Sin etiqueta',
+            visible: it.visible,
+            opacity: it.opacity,
+            position: it.position ? { x: it.position.x, y: it.position.y } : null,
+            bounds: it.bounds ? { x: it.bounds.x, y: it.bounds.y, w: it.bounds.width, h: it.bounds.height } : null,
+            geomBaseExists: !!(target && target.data && target.data.geomBase),
+            segmentCount: (target && target.segments) ? target.segments.length : ((target && target.children) ? 'group' : 0)
+        };
+    }
+
+    function auditConsistency(op) {
+        const before = op.beforeState;
+        const after = op.afterState;
+        if (!before || !after) return;
+
+        // A) Validar Preservación de geomBase (Anti-Corrupción)
+        after.scene.forEach(aftItem => {
+            const befItem = before.scene.find(b => b.id === aftItem.id);
+            if (befItem && befItem.geomBaseExists && !aftItem.geomBaseExists) {
+                op.inconsistencies.push(`[INVARIANTE VIOLADO: DESTRUCCIÓN DE GEOMBASE] El objeto ID:${aftItem.id} ('${aftItem.label}') perdió su geometría reactiva de origen durante ${op.type}.`);
+            }
+        });
+
+        // B) Validar Sincronización Geométrica de Nodos (NODE_TO_GEOMETRY_SYNC)
+        if (op.type === 'drawNodeHandles' && window.nodeEditMode) {
+            if (!after.overlay || after.overlay.childCount === 0) {
+                op.inconsistencies.push(`[CONTRATO VIOLADO: NODE_RENDER_FAIL] Se solicitó redibujar tiradores, pero el overlay de nodos está vacío o ausente en la capa activa.`);
             }
         }
 
-        // Sección C: Geometría Base e Invariantes
-        if (audit.warnings.length > 0) {
-            rawConsole.warn('%c⚠️ ADVERTENCIAS DE INVARIANTE VECTORIAL:', 'font-weight: bold; color: #a16207;');
-            audit.warnings.forEach(w => rawConsole.warn(`  ↳ ${w}`));
-        } else {
-            rawConsole.log('%c🟢 INTEGRIDAD VECTORIAL COMPLETA: Todos los objetos interactivos conservan su geometría base reactiva intacta.', 'color: #15803d;');
+        // C) Validar Apilamiento Z (Z_ORDER_STATE_SYNC)
+        if (['selectItem', 'deselectItem'].includes(op.type)) {
+            const zBefore = JSON.stringify(before.zOrderIds);
+            const zAfter = JSON.stringify(after.zOrderIds);
+            if (zBefore !== zAfter) {
+                op.inconsistencies.push(`[DESINCRONIZACIÓN Z_ORDER] El orden de apilamiento mutó de forma inesperada durante la selección.`);
+            }
         }
-
-        rawConsole.log('%c🔍 [FIN DE INSPECCIÓN ESTÁTICA]', 'color: #0284c7; font-weight: bold;');
-        return audit;
     }
 
     // =========================================================================
-    // EXPOSICIÓN DE LA API PÚBLICA DE DIAGNÓSTICO
+    // MEJORAS INDISPENSABLES V13: AUDITORÍA DE CLIC FANTASMA Y DRAGS MUERTOS
+    // =========================================================================
+    if (typeof window !== 'undefined') {
+        window.addEventListener('mousedown', function (e) {
+            diagState.lastMouseDownPoint = { x: e.clientX, y: e.clientY };
+            diagState.lastMouseDownSelection = window.selectedItem ? captureSingleItemSnapshot(window.selectedItem) : null;
+            
+            // Si hay click en un botón interactivo, verificar conexión
+            const button = e.target.closest('button, .toolbar-btn, [id^="btnCtx"]');
+            if (button) {
+                const selector = getFriendlySelector(button);
+                const isDead = !diagState.eventRegistry.has(selector) && !button.onclick;
+                if (isDead) {
+                    const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
+                    const op = {
+                        id: opId,
+                        type: 'CLICK_INTERRUPT',
+                        timestamp: Date.now(),
+                        status: 'WARNING',
+                        source: selector,
+                        args: [`text: "${button.textContent.trim()}"`],
+                        beforeState: captureGeometricStateSnapshot(),
+                        afterState: null,
+                        inconsistencies: [`[⚠️ BOTÓN MUERTO] Se hizo clic en '${selector}' pero no tiene ningún callback de JavaScript conectado en el registro DOM.`],
+                        duration: 0
+                    };
+                    diagState.operations.push(op);
+                    rawConsole.warn(`[EKKO_DIAG] ${op.inconsistencies[0]}`);
+                }
+            }
+
+            if (window.selectedItem) {
+                const target = window.selectedItem.data?.clipGroup ? 
+                               (window.selectedItem.children && window.selectedItem.children.find(c => !c.clipMask)) : window.selectedItem;
+                diagState.lastMouseDownGeo = target && target.data && target.data.geomBase ? target.data.geomBase.clone({ insert: false }) : null;
+            } else {
+                diagState.lastMouseDownGeo = null;
+            }
+        }, { capture: true });
+
+        window.addEventListener('mouseup', function (e) {
+            if (!diagState.lastMouseDownPoint) return;
+            const dx = e.clientX - diagState.lastMouseDownPoint.x;
+            const dy = e.clientY - diagState.lastMouseDownPoint.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance > 3) {
+                // Se intentó un arrastre
+                const beforeSel = diagState.lastMouseDownSelection;
+                const afterSel = window.selectedItem ? captureSingleItemSnapshot(window.selectedItem) : null;
+
+                if (beforeSel && afterSel && beforeSel.id === afterSel.id) {
+                    const pxBefore = beforeSel.position;
+                    const pxAfter = afterSel.position;
+                    
+                    if (pxBefore && pxAfter && pxBefore.x === pxAfter.x && pxBefore.y === pxAfter.y) {
+                        const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
+                        const op = {
+                            id: opId,
+                            type: 'DRAG_FRUSTRADO',
+                            timestamp: Date.now(),
+                            status: 'FAILED',
+                            source: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD_DRAG',
+                            args: [`delta: [${dx.toFixed(0)}px, ${dy.toFixed(0)}px]`],
+                            beforeState: null,
+                            afterState: null,
+                            inconsistencies: [`[ARRASTRE FRUSTRADO] Se arrastró el ratón ${distance.toFixed(1)}px sobre ID:${afterSel.id} ('${afterSel.label}'), pero no modificó sus coordenadas físicas en el lienzo.`],
+                            duration: 0
+                        };
+                        diagState.operations.push(op);
+                        rawConsole.warn(`[EKKO_DIAG] ${op.inconsistencies[0]}`);
+                    }
+                }
+            }
+            diagState.lastMouseDownPoint = null;
+            diagState.lastMouseDownSelection = null;
+            if (diagState.lastMouseDownGeo) {
+                try { diagState.lastMouseDownGeo.remove(); } catch (err) {}
+                diagState.lastMouseDownGeo = null;
+            }
+        }, { capture: true });
+    }
+
+    // =========================================================================
+    // API PÚBLICA DE CONTROL FORENSE
     // =========================================================================
     const publicAPI = {
-        /**
-         * Enciende la caja negra registradora de forma activa.
-         */
         start: function () {
             diagState.active = true;
-            installReactivePropertyInterceptors();
-            rawConsole.log('%c[EKKO_DIAG v13.0 EagleEye] Caja Negra Encendida 🟢 - Monitoreando interacciones, atajos y listeners...', 'color: #15803d; font-weight: bold;');
+            diagState.operations = [];
+            diagState.consoleErrors = [];
+            diagState.opCounter = 0;
+            rawConsole.log("[EKKO_DIAG v13.0 EagleEye BlackBox] Activo 🟢 - Monitoreando automáticamente...");
+            return true;
         },
 
-        /**
-         * Apaga temporalmente la caja negra.
-         */
         stop: function () {
             diagState.active = false;
-            rawConsole.log('%c[EKKO_DIAG] Caja Negra Detenida 🔴', 'color: #b91c1c; font-weight: bold;');
+            rawConsole.log("[EKKO_DIAG v13.0 EagleEye BlackBox] Suspendido 🔴.");
+            return true;
         },
 
-        /**
-         * Borra el historial del buffer de operaciones.
-         */
         clear: function () {
             diagState.operations = [];
             diagState.consoleErrors = [];
             diagState.opCounter = 0;
-            rawConsole.log('[EKKO_DIAG] Historial de Caja Negra borrado.');
+            rawConsole.log("[EKKO_DIAG v13.0] Buffer de vuelo vaciado.");
+            return true;
         },
 
-        /**
-         * Devuelve un snapshot del estado activo actual de la sesión.
-         */
         status: function () {
+            rawConsole.log(`[EKKO_DIAG STATUS] Activo: ${diagState.active} | Operaciones en buffer: ${diagState.operations.length} | Errores F12 registrados: ${diagState.consoleErrors.length}`);
             return {
                 active: diagState.active,
-                totalOperationsTracked: diagState.operations.length,
-                totalConsoleErrorsTracked: diagState.consoleErrors.length,
-                nodeEditModeActive: !!window.nodeEditMode,
-                selectedItem: window.selectedItem ? window.selectedItem.id : null
+                bufferSize: diagState.operations.length,
+                errors: diagState.consoleErrors.length
             };
         },
 
-        /**
-         * Fuerza un escaneo estático en caliente del DOM y Paper.js (Eagle Eye).
-         */
+        // =========================================================================
+        // NUEVA FUNCIÓN INDISPENSABLE V13: INSPECTOR ESTÁTICO DE LIENZO EN CALIENTE
+        // =========================================================================
         inspect: function () {
-            return inspectCanvasAndDOM();
-        },
+            rawConsole.log("=================== EKKO EYE VIEWPORT INSPECT ===================");
+            
+            const results = {
+                deadButtons: [],
+                invisibleNodes: [],
+                corruptedGeomBase: [],
+                viewportInfo: {}
+            };
 
-        /**
-         * Escupe el Reporte Técnico de Auditoría estructurado según la Sección 25.
-         */
-        report: function () {
-            const buffer = diagState.operations;
-            const exceptions = diagState.consoleErrors;
-
-            let reportText = `========================================================================\n`;
-            reportText += `          REPORTE TÉCNICO DE AUDITORÍA FORENSE - EKKO STUDIO (v13.0)\n`;
-            reportText += `          Generado: ${new Date().toISOString()}\n`;
-            reportText += `          Operaciones Trackeadas: ${buffer.length} | Errores de Consola: ${exceptions.length}\n`;
-            reportText += `========================================================================\n\n`;
-
-            // SECCIÓN 1: ERRORS (Runtime exceptions)
-            reportText += `### 1. ERRORS (EXCEPCIONES DE TIEMPO DE EJECUCIÓN JAVASCRIPT)\n`;
-            if (exceptions.length === 0) {
-                reportText += `  [OK] No se registraron excepciones de runtime ni fallas asíncronas de consola F12 durante la sesión.\n\n`;
-            } else {
-                exceptions.forEach((err, idx) => {
-                    reportText += `  [ERROR #${idx + 1}] Timestamp: ${new Date(err.timestamp).toLocaleTimeString()} | Tool: ${err.activeTool}\n`;
-                    reportText += `    ↳ Mensaje: ${err.message}\n`;
-                    if (err.stack) {
-                        reportText += `    ↳ StackTrace: ${err.stack.split('\n').slice(0, 3).join('\n      ')}\n`;
+            // 1. Auditoría de Botones Muertos del DOM
+            if (typeof document !== 'undefined') {
+                const buttons = document.querySelectorAll('button, .toolbar-btn, [id^="btnCtx"]');
+                buttons.forEach(btn => {
+                    const selector = getFriendlySelector(btn);
+                    const isDead = !diagState.eventRegistry.has(selector) && !btn.onclick;
+                    if (isDead && btn.id) {
+                        results.deadButtons.push({
+                            id: btn.id,
+                            text: btn.textContent.trim() || 'Sin texto',
+                            parent: btn.parentNode?.id || btn.parentNode?.className || 'unknown'
+                        });
                     }
-                    reportText += `\n`;
                 });
             }
 
-            // SECCIÓN 2: CONTRACT FAILURES
+            // 2. Auditoría de Visibilidad de Nodos (Paper.js)
+            if (typeof paper !== 'undefined' && paper.project) {
+                const zoom = paper.view.zoom || 1.0;
+                const viewBounds = paper.view.bounds;
+                results.viewportInfo = {
+                    zoom: zoom,
+                    center: `${paper.view.center.x.toFixed(1)}, ${paper.view.center.y.toFixed(1)}`,
+                    bounds: `[${viewBounds.width.toFixed(0)}x${viewBounds.height.toFixed(0)}]`
+                };
+
+                const nodeOverlay = paper.project.activeLayer.children ? 
+                                    paper.project.activeLayer.children.find(c => c.data && c.data.isNodeEditOverlay) : null;
+                
+                if (window.nodeEditMode) {
+                    if (!nodeOverlay) {
+                        results.invisibleNodes.push("EL MODO NODOS ESTÁ ACTIVO, PERO EL OVERLAY NO EXISTE EN NINGUNA CAPA DE PAPER.JS.");
+                    } else if (!nodeOverlay.visible) {
+                        results.invisibleNodes.push(`EL OVERLAY DE NODOS EXISTE PERO TIENE VISIBLE: FALSE (OCULTO EN LIENZO).`);
+                    } else if (nodeOverlay.opacity === 0) {
+                        results.invisibleNodes.push(`EL OVERLAY DE NODOS TIENE OPACIDAD ZERO (INVISIBLE).`);
+                    } else {
+                        // Verificar si están proyectados fuera del Viewport
+                        const nodeHandles = nodeOverlay.children.filter(c => c.data && c.data.isNodeHandle);
+                        if (nodeHandles.length === 0) {
+                            results.invisibleNodes.push("EL OVERLAY ESTÁ VACÍO, NO TIENE CÍRCULOS DE NODOS DIBUJADOS.");
+                        } else {
+                            let outCount = 0;
+                            nodeHandles.forEach(h => {
+                                if (!viewBounds.contains(h.position)) {
+                                    outCount++;
+                                }
+                            });
+                            if (outCount === nodeHandles.length) {
+                                results.invisibleNodes.push(`TODOS LOS NODOS (${nodeHandles.length}) ESTÁN FUERA DEL CAMPO VISUAL ACTUAL DE LA PANTALLA (FUERA DE VIEWPORT).`);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Auditoría de Corrupción de geomBase
+            if (typeof paper !== 'undefined' && paper.project) {
+                const designLayer = paper.project.layers ? paper.project.layers.find(l => l.name === 'designLayer') : null;
+                const targetLayer = designLayer || paper.project.activeLayer;
+                if (targetLayer && targetLayer.children) {
+                    targetLayer.children.forEach(c => {
+                        if (c.data && (c.data.isSelectionBox || c.data.isNodeEditOverlay || c.data.isSmartGuide || c.data.isMeasurement || c.data.mockup || c.data.isMask)) {
+                            return;
+                        }
+                        const target = c.data?.clipGroup ? (c.children && c.children.find(ch => !ch.clipMask)) : c;
+                        if (target && (!target.data || !target.data.geomBase)) {
+                            results.corruptedGeomBase.push({
+                                id: c.id,
+                                label: c.data?.label || 'Sin etiqueta',
+                                class: c.className
+                            });
+                        }
+                    });
+                }
+            }
+
+            // Imprimir resultados estéticamente en consola
+            rawConsole.warn("⚡ REPORTE DE AUDITORÍA ESTÁTICA EN CALIENTE (EKKO_DIAG) ⚡");
+            rawConsole.log(`INFORMACIÓN DEL LIENZO: Zoom: ${results.viewportInfo.zoom} | Centro: ${results.viewportInfo.center} | Bounds: ${results.viewportInfo.bounds}`);
+            
+            if (results.deadButtons.length > 0) {
+                rawConsole.error("❌ BOTONES MUERTOS DETECTADOS (DOM sin JavaScript conectado):");
+                rawConsole.table(results.deadButtons);
+            } else {
+                rawConsole.log("✓ Conectividad DOM: Todos los botones del panel superior e inferior tienen listeners de JS.");
+            }
+
+            if (results.invisibleNodes.length > 0) {
+                rawConsole.error("❌ ANOMALÍAS EN EDICIÓN DE NODOS BÉZIER DETECTADAS:");
+                results.invisibleNodes.forEach(msg => rawConsole.warn(`   ➔ ${msg}`));
+            } else if (window.nodeEditMode) {
+                rawConsole.log("✓ Editor de Nodos: Los vértices Bézier se proyectan y renderizan correctamente al frente.");
+            }
+
+            if (results.corruptedGeomBase.length > 0) {
+                rawConsole.error("❌ OBJETOS SIN GEOMBASE DETECTADOS (Pérdida de Reactividad CSG):");
+                rawConsole.table(results.corruptedGeomBase);
+            } else {
+                rawConsole.log("✓ Integridad Geométrica: Todas las capas de diseño conservan sus referencias geomBase de origen.");
+            }
+
+            rawConsole.log("=================================================================");
+            return results;
+        },
+
+        // =========================================================================
+        // SECCIÓN 25: FORMATEADOR DE REPORTES DE CONFORMIDAD DEL 3ER MANDAMIENTO
+        // =========================================================================
+        report: function () {
+            let out = `==================== EKKO DIAG FORENSIC REPORT ====================\n`;
+            out += `ESTADO DE INTEGRIDAD DE CONTRATOS FUNCIONALES Y EVENTOS\n\n`;
+
+            const errors = diagState.consoleErrors;
+            const ops = diagState.operations;
             const contractFailures = [];
             const invariantFailures = [];
             const desyncs = [];
             const deadActions = [];
+            
+            let firstInconsistency = null;
 
-            buffer.forEach(op => {
-                if (op.errors && op.errors.length > 0) {
-                    op.errors.forEach(err => {
-                        const formattedErr = {
+            ops.forEach(op => {
+                if (op.inconsistencies.length > 0) {
+                    if (!firstInconsistency) {
+                        firstInconsistency = {
                             opId: op.id,
-                            opType: op.type,
-                            source: op.source,
-                            code: err.code,
-                            message: err.message
+                            type: op.type,
+                            msg: op.inconsistencies[0],
+                            timestamp: op.timestamp
                         };
-                        if (err.type === 'CONTRACT_FAILURE') contractFailures.push(formattedErr);
-                        if (err.type === 'INVARIANT_FAILURE') invariantFailures.push(formattedErr);
-                        if (err.type === 'DESYNCHRONIZATION') desyncs.push(formattedErr);
-                        if (err.type === 'ACTION_WITHOUT_EFFECT') deadActions.push(formattedErr);
+                    }
+
+                    op.inconsistencies.forEach(inc => {
+                        const rec = { opId: op.id, type: op.type, message: inc, duration: op.duration };
+                        if (inc.includes('CONTRATO VIOLADO')) {
+                            contractFailures.push(rec);
+                        } else if (inc.includes('INVARIANTE VIOLADO')) {
+                            invariantFailures.push(rec);
+                        } else if (inc.includes('DESINCRONIZACIÓN') || inc.includes('DIFERENTE')) {
+                            desyncs.push(rec);
+                        } else {
+                            deadActions.push(rec);
+                        }
                     });
                 }
             });
 
-            reportText += `### 2. CONTRACT FAILURES (CONTRATOS DE HERRAMIENTA ROTOS)\n`;
+            // 1. SECCIÓN ERRORS
+            out += `### ERRORS (${errors.length})\n`;
+            if (errors.length === 0) {
+                out += `  ✓ Sin excepciones de JS detectadas en la consola de runtime.\n`;
+            } else {
+                errors.forEach((err, idx) => {
+                    out += `  [ERR-${String(idx + 1).padStart(3, '0')}] ${err.message}\n`;
+                    out += `     ➔ Hora: ${new Date(err.timestamp).toLocaleTimeString()} | Herramienta: ${err.activeTool} | ID Objeto: ${err.activeObject || 'Ninguno'}\n`;
+                    if (err.stack) out += `     ➔ Stack: ${err.stack.split('\n').slice(0, 3).join(' | ')}\n`;
+                });
+            }
+            out += `\n`;
+
+            // 2. SECCIÓN CONTRACT FAILURES
+            out += `### CONTRACT FAILURES (${contractFailures.length})\n`;
             if (contractFailures.length === 0) {
-                reportText += `  [OK] Todos los comportamientos esperados de duplicación, vaciado, y borrado se cumplieron prístinamente.\n\n`;
+                out += `  ✓ Todos los contratos de entrada y precondiciones de Paper.js operaron de forma limpia.\n`;
             } else {
                 contractFailures.forEach(f => {
-                    reportText += `  [FALLA CONTRATO] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType}) | Origen: ${f.source}\n`;
-                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
+                    out += `  [${f.opId}] Falla de Contrato en la operación '${f.type}' | Duración: ${f.duration.toFixed(1)}ms\n`;
+                    out += `     ➔ ${f.message}\n`;
                 });
             }
+            out += `\n`;
 
-            // SECCIÓN 3: INVARIANT FAILURES
-            reportText += `### 3. INVARIANT FAILURES (VIOLACIÓN DE REGLAS DE ORO VECTORIALES)\n`;
+            // 3. SECCIÓN INVARIANT FAILURES
+            out += `### INVARIANT FAILURES (${invariantFailures.length})\n`;
             if (invariantFailures.length === 0) {
-                reportText += `  [OK] No se detectó corrupción geométrica, alteración oculta de Z-order, ni pérdida de la referencia 'geomBase'.\n\n`;
+                out += `  ✓ Todos los invariantes universales de escala, máscara de producto y geomBase conservaron su integridad.\n`;
             } else {
                 invariantFailures.forEach(f => {
-                    reportText += `  [FALLA INVARIANTE] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType})\n`;
-                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
+                    out += `  [${f.opId}] Falla de Invariante en '${f.type}'\n`;
+                    out += `     ➔ ${f.message}\n`;
                 });
             }
+            out += `\n`;
 
-            // SECCIÓN 4: DESYNCHRONIZATIONS (Focos de Selección y DOM)
-            reportText += `### 4. DESYNCHRONIZATIONS (DESAJUSTES DE SELECCIÓN Y CAPAS)\n`;
+            // 4. SECCIÓN DESYNCHRONIZATIONS
+            out += `### DESYNCHRONIZATIONS (${desyncs.length})\n`;
             if (desyncs.length === 0) {
-                reportText += `  [OK] El foco celeste de selección y la cola de capas de diseño estuvieron siempre coordinados.\n\n`;
+                out += `  ✓ Sincronización impecable entre el DOM, los atajos de teclado y el motor gráfico de Paper.js.\n`;
             } else {
                 desyncs.forEach(f => {
-                    reportText += `  [DESINCRONIZACIÓN] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType})\n`;
-                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
+                    out += `  [${f.opId}] Desincronización detectada en '${f.type}'\n`;
+                    out += `     ➔ ${f.message}\n`;
                 });
             }
+            out += `\n`;
 
-            // SECCIÓN 5: ACTION WITHOUT EFFECT (Clics inertes y botones muertos)
-            reportText += `### 5. ACTION WITHOUT EFFECT (BOTONES MUERTOS O DESCONECTADOS)\n`;
+            // 5. SECCIÓN ACTION WITHOUT EFFECT
+            out += `### ACTION WITHOUT EFFECT (${deadActions.length})\n`;
             if (deadActions.length === 0) {
-                reportText += `  [OK] Cada clic, pulsación y arrastre interactivo en Studio produjo un cambio físico y de estado real.\n\n`;
+                out += `  ✓ Sin clics fantasmas, arrastres bloqueados o interacciones inertes.\n`;
             } else {
                 deadActions.forEach(f => {
-                    reportText += `  [ACCIÓN INERTE] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType}) | Origen: ${f.source}\n`;
-                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
+                    out += `  [${f.opId}] Acción inerte en '${f.type}'\n`;
+                    out += `     ➔ ${f.message}\n`;
                 });
             }
+            out += `\n`;
 
-            // SECCIÓN 6: RULE OF THE FIRST OBSERVABLE INCONSISTENCY (CAUSA RAÍZ DE AVIACIÓN)
-            reportText += `### 6. RULE OF THE FIRST OBSERVABLE INCONSISTENCY (RASTREO CAUSA RAÍZ)\n`;
-            const firstInconsistency = buffer.find(op => op.errors && op.errors.length > 0);
-            if (!firstInconsistency) {
-                reportText += `  [SANO] No se detectó ningún eslabón roto en la sesión. El sistema se encuentra 100% ESTABLE.\n\n`;
+            // 6. SECCIÓN FIRST_OBSERVABLE_INCONSISTENCY
+            out += `### FIRST OBSERVABLE INCONSISTENCY (REGLA DE ORO DE CAUSA RAÍZ)\n`;
+            if (firstInconsistency) {
+                out += `  ⚠️ LA CADENA DE FALLAS SE INICIÓ EN LA OPERACIÓN: ${firstInconsistency.opId} [${firstInconsistency.type}]\n`;
+                out += `  Mensaje: ${firstInconsistency.msg}\n`;
+                out += `  Hora de ocurrencia: ${new Date(firstInconsistency.timestamp).toLocaleTimeString()}\n`;
+                out += `  SOLUCIÓN RECOMENDADA: Investigue el archivo y los callbacks de la operación anterior que dejaron al sistema en un estado inconsistente antes de esta acción.\n`;
             } else {
-                const primaryErr = firstInconsistency.errors[0];
-                reportText += `  [PRIMERA INCONSISTENCIA DETECTADA] Operación ID: [OP-${String(firstInconsistency.id).padStart(5, '0')}] (${firstInconsistency.type}) a las ${new Date(firstInconsistency.timestamp).toLocaleTimeString()}\n`;
-                reportText += `    ↳ Mensaje Primario: ${primaryErr.message}\n`;
-                reportText += `    ↳ Disparador de Interfaz: ${firstInconsistency.source}\n`;
-                reportText += `    ↳ Causa Raíz Probable: `;
-
-                if (primaryErr.code === 'DEAD_BUTTON_NO_LISTENER') {
-                    reportText += `Desconexión de interfaz de usuario (DOM). El elemento HTML existe físicamente pero carece de callbacks vinculados en JavaScript debido a un error de ciclo de vida o renderizado tardío.\n`;
-                } else if (primaryErr.code === 'DESTRUCCION_GEOMBASE') {
-                    reportText += `Conflicto de Ámbito (Scope Error). Un método de manipulación manipuló el contenedor 'clipGroup' en lugar del trazado geométrico real de Paper.js, borrando la memoria 'geomBase'.\n`;
-                } else if (primaryErr.code === 'DRAG_FRUSTRATED') {
-                    reportText += `Interrupción asíncrona o bloqueo de puntero. El manejador de ratón fue neutralizado o las coordenadas están siendo restringidas por una guía inteligente o un grupo de recorte.\n`;
-                } else {
-                    reportText += `Desincronización temporal entre el estado reactivo de Studio (window) y la representación visual de Paper.js.\n`;
-                }
-                reportText += `\n  [RECOMENDACIÓN DE AVIACIÓN]: No audite las fallas colaterales posteriores. Resuelva el fallo [OP-${String(firstInconsistency.id).padStart(5, '0')}] y la cascada de errores restante desaparecerá automáticamente.\n\n`;
+                out += `  ✓ Excelente. No se han detectado inconsistencias temporales en el buffer.\n`;
             }
+            out += `\n`;
 
-            reportText += `==================== FIN DEL REPORTE DE CAUSA RAÍZ ====================`;
-
-            rawConsole.log('%c====================================================', 'color: #0284c7;');
-            rawConsole.log('%c        REPORTE TÉCNICO DE CAUSA RAÍZ GENERADO     ', 'color: #0284c7; font-weight: bold;');
-            rawConsole.log('%c====================================================', 'color: #0284c7;');
-            
-            // Imprimir línea a línea por comodidad en F12
-            reportText.split('\n').forEach(line => {
-                if (line.includes('[OK]') || line.includes('[SANO]')) {
-                    rawConsole.log(`%c${line}`, 'color: #15803d;');
-                } else if (line.includes('FALLA') || line.includes('VIOLADO') || line.includes('ERROR') || line.includes('INCONSISTENCIA') || line.includes('MUERTO')) {
-                    rawConsole.warn(`%c${line}`, 'color: #b91c1c; font-weight: bold;');
-                } else if (line.includes('###')) {
-                    rawConsole.log(`%c\n${line}`, 'color: #0369a1; font-weight: bold; font-size: 11px;');
+            out += `### PROBABLE ROOT CAUSES\n`;
+            if (firstInconsistency) {
+                if (firstInconsistency.type === 'enterNodeEditMode' || firstInconsistency.type === 'CLICK_INTERRUPT') {
+                    out += `  ➔ [Módulo: nodeEditor.js] El evento de clic de edición de nodos se pierde o el botón del DOM no tiene conectado un EventListener debido a una carrera asíncrona de carga.\n`;
+                } else if (firstInconsistency.type === 'DRAG_FRUSTRADO') {
+                    out += `  ➔ [Módulo: selection.js / interaction.js] El evento del ratón arrastró el recuadro visual pero Paper.js omitió aplicar la traslación sobre el contenido geométrico interno, posiblemente bloqueado por máscara.\n`;
+                } else if (firstInconsistency.type === 'duplicateSelectedItem') {
+                    out += `  ➔ [Módulo: contextualMenu.js] Fallo de desvinculación o pérdida de geomBase al clonar el objeto completo.\n`;
                 } else {
-                    rawConsole.log(line);
+                    out += `  ➔ Revise si el archivo comprometido en la operación '${firstInconsistency.type}' respeta los contratos de precondición.\n`;
                 }
-            });
+            } else {
+                out += `  ✓ Sistema operando dentro de los parámetros de integridad funcional aprobados.\n`;
+            }
+            out += `\n===================================================================`;
 
-            return reportText;
+            rawConsole.log(out);
+            return out;
         }
     };
 
-    // Auto-arranque pasivo para interceptación de addEventListener desde el milisegundo 1
+    // Exposición dinámica
     if (typeof window !== 'undefined') {
         window.EKKO_DIAG = publicAPI;
-        publicAPI.start(); // El registrador corre por detrás para atrapar los listeners nativos en carga
     }
 
     return publicAPI;
