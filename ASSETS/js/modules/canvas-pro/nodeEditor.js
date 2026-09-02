@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v39.0 - Unified CallGraph & Double-Scope GeomBase Precision)
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v40.0 - Unified CallGraph & Double-Scope GeomBase Precision)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripción:
     Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
