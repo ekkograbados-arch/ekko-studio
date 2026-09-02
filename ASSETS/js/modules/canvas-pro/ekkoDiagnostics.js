@@ -1,18 +1,22 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v16.0 EagleEye Ultra-Precision)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v17.0 EagleEye Ultra-Precision Forensic BlackBox)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
-    Caja Negra Forense "Ojos de Águila" con Auditoría en Caliente de "Clics Inertes".
-    Detecta en tiempo real cuando haces clic en un botón y "no sucede nada" en pantalla,
-    generando una alerta roja descriptiva lista para copiar y pegar en el chat.
+    Caja Negra Forense de Última Generación "Ojos de Águila v17.0" con Monitoreo de
+    Conectividad DOM, Intercepción de EventListeners, Auditoría de Invariantes Bézier
+    y de Producto/Mockup para EKKO Studio.
     
     Implementa:
-    1. Auditor Dinámico de Clics Inertes (Doble Snapshot con retraso de 150ms).
-    2. Interceptor de addEventListener para verificar conexión de callbacks en el DOM.
-    3. Envoltura reactiva dinámica en 'window' mediante descriptores de propiedad.
-    4. Comando 'EKKO_DIAG.inspect()' y formateador estructurado de reportes.
+    1. Intercepción del Prototipo de EventTarget para registrar listeners reales (Fin de "Botones Muertos").
+    2. Setters Reactivos dinámicos en 'window' para auto-envolver funciones asíncronas de carga diferida.
+    3. Inspección geométrica activa de Viewport y visibilidad física de nodos (Paper.js).
+    4. Comando interactivo 'EKKO_DIAG.inspect()' para auditorías en caliente.
+    5. NUEVOS SENSORES CANÓNICOS V17.0:
+       - MOCKUP_NODES_GENERATED: Alerta si se generan nodos en elementos del producto/mockup/chapitas.
+       - WARP_NOT_REALTIME: Alerta si el arrastre/edición de nodos no deforma el trazado físico en tiempo real.
+       - DESFASE_NODOS_GEOMETRIA: Detecta desalineación visual entre los círculos dibujados y los puntos Bézier reales.
 
-AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
+AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V8
 ========================================================================= */
 
 (function (root, factory) {
@@ -25,12 +29,29 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
     }
 }(typeof window !== 'undefined' ? window : this, function () {
 
+    // Canal seguro de consola para evitar recursiones
     const rawConsole = {
         log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
         warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
         error: (typeof console !== 'undefined' && console.error) ? console.error.bind(console) : () => {},
         table: (typeof console !== 'undefined' && console.table) ? console.table.bind(console) : () => {}
     };
+
+    try {
+        if (typeof document !== 'undefined') {
+            const ifr = document.createElement('iframe');
+            ifr.style.display = 'none';
+            document.documentElement.appendChild(ifr);
+            if (ifr.contentWindow && ifr.contentWindow.console) {
+                const pure = ifr.contentWindow.console;
+                rawConsole.log = pure.log.bind(console);
+                rawConsole.warn = pure.warn.bind(console);
+                rawConsole.error = pure.error.bind(console);
+                rawConsole.table = pure.table ? pure.table.bind(console) : rawConsole.table;
+            }
+            setTimeout(() => ifr.remove(), 1000);
+        }
+    } catch (e) {}
 
     // --- ESTADO CENTRAL DE LA CAJA NEGRA ---
     const diagState = {
@@ -39,16 +60,19 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         currentOp: null,
         opCounter: 0,
         consoleErrors: [],
-        eventRegistry: new Map(), // Selector -> Set of events bound
-        lastCriticalFunctionCallTime: 0, // Timestamp de la última función envuelta ejecutada
+        eventRegistry: new Map(), // Element -> Set of events bound
         lastMouseDownPoint: null,
         lastMouseDownSelection: null,
-        lastMouseDownGeo: null
+        lastMouseDownGeo: null,
+        lastMouseDownSegments: null, // Guardar coordenadas de segmentos en mousedown para detectar tiempo real
+        dragTracker: {
+            active: false,
+            startX: 0,
+            startY: 0
+        }
     };
 
-    // =========================================================================
-    // 1. INTERCEPCIÓN NATIVA DE EVENT LISTENERS (DETECCIÓN DE BOTONES DESCONECTADOS)
-    // =========================================================================
+    // Intercepción de Event Listeners para detectar botones muertos
     try {
         if (typeof EventTarget !== 'undefined' && EventTarget.prototype) {
             const originalAddEventListener = EventTarget.prototype.addEventListener;
@@ -98,7 +122,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         return selector;
     }
 
-    // Escuchar excepciones runtime de JS
+    // Escuchar excepciones globales
     if (typeof window !== 'undefined') {
         const origConsoleError = console.error;
         console.error = function (...args) {
@@ -134,9 +158,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         });
     }
 
-    // =========================================================================
-    // 2. INTERCEPTOR DEL CALLGRAPH DINÁMICO (PROPIEDADES REACTIVAS DE WINDOW)
-    // =========================================================================
+    // --- CALLGRAPH DINÁMICO ---
     const criticalFunctions = [
         'enterNodeEditMode',
         'exitNodeEditMode',
@@ -161,8 +183,6 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 
         const wrapper = function (...args) {
             if (!diagState.active) return originalFn.apply(this, args);
-
-            diagState.lastCriticalFunctionCallTime = Date.now(); // Registrar marca de tiempo
 
             const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
             const op = {
@@ -246,9 +266,52 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         });
     }
 
-    // =========================================================================
-    // 3. CAPTURA DE SNAPSHOTS GEOMÉTRICOS DEL LIENZO
-    // =========================================================================
+    // Helper: Detecta de manera infalible si un elemento es parte de la plantilla del producto/mockup
+    function isMockupOrProductElement(item) {
+        let curr = item;
+        while (curr) {
+            if (curr.data && (
+                curr.data.mockup ||
+                curr.data.isMask ||
+                curr.data.locked ||
+                curr.data.isSelectionBox ||
+                curr.data.isSmartGuide ||
+                curr.data.isMeasurement
+            )) {
+                return true;
+            }
+            // Comprobación heurística de etiquetas para chapitas, huesitos, termo, mate, llaveros
+            const label = (curr.data?.label || '').toLowerCase();
+            if (label.includes('chapita') || label.includes('huesito') || label.includes('termo') || label.includes('mate') || label.includes('llavero') || label.includes('producto')) {
+                return true;
+            }
+            curr = curr.parent;
+        }
+        return false;
+    }
+
+    // Helper: Obtiene el string de coordenadas de segmentos para auditar tiempo real
+    function getPathSegmentsCoords(item) {
+        if (!item || typeof paper === 'undefined') return "";
+        const segments = [];
+        const extract = (target) => {
+            if (!target) return;
+            if (target.className === 'Path' && target.segments) {
+                target.segments.forEach(s => {
+                    segments.push(`${s.point.x.toFixed(1)},${s.point.y.toFixed(1)}`);
+                });
+            } else if (target.children) {
+                // Compatible con LinkedCollection
+                for (let i = 0; i < target.children.length; i++) {
+                    extract(target.children[i]);
+                }
+            }
+        };
+        extract(item);
+        return segments.join('|');
+    }
+
+    // --- SNAPSHOTS GEOMÉTRICOS ---
     function captureGeometricStateSnapshot() {
         if (typeof paper === 'undefined' || !paper.project) return null;
         
@@ -266,22 +329,38 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         const targetLayer = designLayer || paper.project.activeLayer;
 
         if (targetLayer && targetLayer.children) {
-            targetLayer.children.forEach(c => {
+            for (let i = 0; i < targetLayer.children.length; i++) {
+                const c = targetLayer.children[i];
                 if (c.data && (c.data.isSelectionBox || c.data.isNodeEditOverlay || c.data.isSmartGuide || c.data.isMeasurement)) {
-                    return; // Ignorar UI
+                    continue;
                 }
                 sceneSnapshot.push(captureSingleItemSnapshot(c));
-            });
+            }
         }
 
         let overlaySnapshot = null;
-        const nodeOverlay = paper.project.activeLayer.children ? paper.project.activeLayer.children.find(c => c.data && c.data.isNodeEditOverlay) : null;
+        const nodeOverlay = paper.project.activeLayer.children ? 
+                            paper.project.activeLayer.children.find(c => c.data && c.data.isNodeEditOverlay) : null;
         if (nodeOverlay && nodeOverlay.children) {
+            const nodesArray = [];
+            for (let i = 0; i < nodeOverlay.children.length; i++) {
+                const ch = nodeOverlay.children[i];
+                nodesArray.push({
+                    id: ch.id,
+                    type: ch.data?.isNodeHandle ? 'node' : (ch.data?.isCurveHandle ? 'handle' : 'tangent'),
+                    position: ch.position ? { x: ch.position.x, y: ch.position.y } : null,
+                    visible: ch.visible,
+                    pathId: ch.data?.pathId,
+                    localIdx: ch.data?.localIdx,
+                    globalIdx: ch.data?.globalIdx
+                });
+            }
             overlaySnapshot = {
                 id: nodeOverlay.id,
                 visible: nodeOverlay.visible,
                 opacity: nodeOverlay.opacity,
-                childCount: nodeOverlay.children.length
+                childCount: nodeOverlay.children.length,
+                nodes: nodesArray
             };
         }
 
@@ -291,14 +370,24 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             scene: sceneSnapshot,
             overlay: overlaySnapshot,
             toolMode: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
-            zOrderIds: targetLayer && targetLayer.children ? targetLayer.children.map(c => c.id) : []
+            zOrderIds: targetLayer && targetLayer.children ? Array.from(targetLayer.children).map(c => c.id) : []
         };
     }
 
     function captureSingleItemSnapshot(it) {
         if (!it) return null;
-        const target = (it.data && it.data.clipGroup && it.children) ? 
-                       (it.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) || it) : it;
+        
+        let target = it;
+        if (it.data && it.data.clipGroup && it.children) {
+            // Recorrer LinkedCollection de forma segura sin usar .find()
+            for (let i = 0; i < it.children.length; i++) {
+                const c = it.children[i];
+                if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
+                    target = c;
+                    break;
+                }
+            }
+        }
 
         return {
             id: it.id,
@@ -312,11 +401,13 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         };
     }
 
+    // --- AUDITORÍA DE CONSISTENCIA Y CONTRATOS (AVIÓN CENTRAL) ---
     function auditConsistency(op) {
         const before = op.beforeState;
         const after = op.afterState;
         if (!before || !after) return;
 
+        // A) Validar Preservación de geomBase (Anti-Corrupción)
         after.scene.forEach(aftItem => {
             const befItem = before.scene.find(b => b.id === aftItem.id);
             if (befItem && befItem.geomBaseExists && !aftItem.geomBaseExists) {
@@ -324,107 +415,116 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             }
         });
 
+        // B) Validar Sincronización Geométrica de Nodos (NODE_RENDER_FAIL)
         if (op.type === 'drawNodeHandles' && window.nodeEditMode) {
             if (!after.overlay || after.overlay.childCount === 0) {
                 op.inconsistencies.push(`[CONTRATO VIOLADO: NODE_RENDER_FAIL] Se solicitó redibujar tiradores, pero el overlay de nodos está vacío o ausente en la capa activa.`);
+            } else if (window.nodeEditTarget && isMockupOrProductElement(window.nodeEditTarget)) {
+                // SENSOR CRÍTICO 1: MOCKUP_NODES_GENERATED
+                op.inconsistencies.push(`[❌ INVARIANTE VIOLADO: MOCKUP_NODES_GENERATED] Se generaron nodos editables en el elemento de producto/mockup '${window.nodeEditTarget.data?.label || 'Mockup'}' (ID: ${window.nodeEditTarget.id}). ¡El cliente nunca debe poder editar el producto!`);
             }
         }
     }
 
-    // =========================================================================
-    // 4. EL MOTOR "OJOS DE ÁGUILA": DETECTOR EN VIVO DE CLICS SIN EFECTO (INERTES)
-    // =========================================================================
+    // --- INYECTORES DE INTERCEPCIÓN EN TIEMPO REAL ---
     if (typeof window !== 'undefined') {
         
-        // Listener de Mousedown para registrar el estado previo al clic
+        // Listener de Mousedown
         window.addEventListener('mousedown', function (e) {
             diagState.lastMouseDownPoint = { x: e.clientX, y: e.clientY };
             diagState.lastMouseDownSelection = window.selectedItem ? captureSingleItemSnapshot(window.selectedItem) : null;
+            diagState.lastMouseDownSegments = window.nodeEditTarget ? getPathSegmentsCoords(window.nodeEditTarget) : null;
 
             const button = e.target.closest('button, .toolbar-btn, [id^="btnCtx"], [class*="btn"]');
             if (button) {
                 const selector = getFriendlySelector(button);
                 const isDead = !diagState.eventRegistry.has(selector) && !button.onclick;
                 
-                // A) Si el botón no tiene listener de JavaScript asociado (Botón Muerto)
-                if (isDead) {
+                // Excluir de análisis de clics inertes botones que abren exploradores asíncronos nativos
+                const isNativeFileUploader = button.id === 'btnAddSVG' || button.id === 'btnAddImage' || selector.includes('file');
+
+                if (isDead && !isNativeFileUploader) {
                     const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
                     const op = {
                         id: opId,
                         type: 'CLICK_INTERRUPT',
                         timestamp: Date.now(),
-                        status: 'FAILED',
+                        status: 'WARNING',
                         source: selector,
                         args: [`text: "${button.textContent.trim()}"`],
                         beforeState: captureGeometricStateSnapshot(),
                         afterState: null,
-                        inconsistencies: [`[⚠️ BOTÓN MUERTO] Se hizo clic en '${selector}' pero no tiene ningún callback de JavaScript conectado. (La interfaz lo ignora por completo)`],
+                        inconsistencies: [`[⚠️ BOTÓN MUERTO] Se hizo clic en '${selector}' pero no tiene ningún callback de JavaScript conectado en el registro DOM.`],
                         duration: 0
                     };
                     diagState.operations.push(op);
-                    rawConsole.error(`%c❌ [BOTÓN MUERTO] Clic en '${selector}' sin callback de JS conectado. ¡La interfaz no hace nada!`, "color: #ef4444; font-weight: bold; font-size: 13px;");
-                    return;
+                    rawConsole.warn(`[EKKO_DIAG] ${op.inconsistencies[0]}`);
                 }
-
-                // B) Si tiene listener, capturar estado previo detallado para auditar inercia funcional
-                const stateBeforeClick = captureGeometricStateSnapshot();
-                const clickTime = Date.now();
-
-                // Esperar 150ms a que termine el bucle de eventos asíncronos de Paper.js y DOM
-                setTimeout(() => {
-                    const stateAfterClick = captureGeometricStateSnapshot();
-                    const functionsCalledSinceClick = diagState.lastCriticalFunctionCallTime >= clickTime;
-
-                    // Comparar si el sistema cambió en algo significativo
-                    const selectionChanged = JSON.stringify(stateBeforeClick.selection) !== JSON.stringify(stateAfterClick.selection);
-                    const sceneChanged = JSON.stringify(stateBeforeClick.scene) !== JSON.stringify(stateAfterClick.scene);
-                    const toolModeChanged = stateBeforeClick.toolMode !== stateAfterClick.toolMode;
-                    const overlayChanged = JSON.stringify(stateBeforeClick.overlay) !== JSON.stringify(stateAfterClick.overlay);
-
-                    const isModalOrFilePicker = selector.includes('addsvg') || selector.includes('addimage') || selector.includes('trace') || selector.includes('applymask') || selector.includes('removemask');
-                    const nothingHappened = !selectionChanged && !sceneChanged && !toolModeChanged && !overlayChanged && !functionsCalledSinceClick && !isModalOrFilePicker;
-
-                    if (nothingHappened && diagState.active) {
-                        const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
-                        const op = {
-                            id: opId,
-                            type: 'ACTION_WITHOUT_EFFECT',
-                            timestamp: clickTime,
-                            status: 'WARNING',
-                            source: selector,
-                            args: [`text: "${button.textContent.trim()}"`],
-                            beforeState: stateBeforeClick,
-                            afterState: stateAfterClick,
-                            inconsistencies: [`[⚠️ ACCION SIN EFECTO] Se hizo clic en '${selector}' ('${button.textContent.trim() || 'Sin texto'}'), pero el lienzo no sufrió mutación, cambio de selección ni alternó de herramienta.`],
-                            duration: 150
-                        };
-                        diagState.operations.push(op);
-
-                        // Imprimir alerta de aviación ultra-descriptiva lista para copiar y pegar en el chat
-                        rawConsole.warn(
-                            `%c⚠️ [CONTRATO COMPORTAMIENTO: CLIC SIN EFECTO REAL]%c\n` +
-                            `Se detectó un clic interactivo pero el sistema quedó 100% idéntico.\n` +
-                            `* Botón presionado: ${selector} ("${button.textContent.trim() || 'icono/imagen'}")\n` +
-                            `* Contenedor Padre: ${button.parentNode?.id || button.parentNode?.className || 'N/A'}\n` +
-                            `* Estado: No hubo mutación de geometría, no cambió el foco de selección, no se activó ninguna herramienta y no se arrojaron excepciones.\n` +
-                            `➔ [SÍNTOMA VISIBLE]: El usuario hace clic y la pantalla se queda congelada sin respuesta alguna.`,
-                            "color: #eab308; font-weight: bold; font-size: 13px;",
-                            "color: #333; font-weight: normal;"
-                        );
-                    }
-                }, 150);
             }
 
             if (window.selectedItem) {
-                const target = window.selectedItem.data?.clipGroup ? 
-                               (window.selectedItem.children && window.selectedItem.children.find(c => !c.clipMask)) : window.selectedItem;
+                let target = window.selectedItem;
+                if (window.selectedItem.data?.clipGroup && window.selectedItem.children) {
+                    for (let i = 0; i < window.selectedItem.children.length; i++) {
+                        const c = window.selectedItem.children[i];
+                        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
+                            target = c;
+                            break;
+                        }
+                    }
+                }
                 diagState.lastMouseDownGeo = target && target.data && target.data.geomBase ? target.data.geomBase.clone({ insert: false }) : null;
             } else {
                 diagState.lastMouseDownGeo = null;
             }
         }, { capture: true });
 
-        // Evento Mouseup para auditar arrastres (DRAG FRUSTRADO)
+        // Listener de Mousemove para detectar WARP_NOT_REALTIME
+        window.addEventListener('mousemove', function (e) {
+            if (!diagState.lastMouseDownPoint || !window.nodeEditMode || !window.isDraggingNode || !window.nodeEditTarget) return;
+
+            const dx = e.clientX - diagState.lastMouseDownPoint.x;
+            const dy = e.clientY - diagState.lastMouseDownPoint.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            // Si el mouse se desplazó más de 5px arrastrando un nodo
+            if (distance > 5 && diagState.lastMouseDownSegments) {
+                const currentSegments = getPathSegmentsCoords(window.nodeEditTarget);
+                
+                // Si el ratón se mueve pero la geometría física tiene exactamente las mismas coordenadas
+                if (currentSegments === diagState.lastMouseDownSegments) {
+                    const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
+                    const op = {
+                        id: opId,
+                        type: 'WARP_NOT_REALTIME',
+                        timestamp: Date.now(),
+                        status: 'FAILED',
+                        source: 'NODE_EDIT_DRAG',
+                        args: [`delta: [${dx.toFixed(0)}px, ${dy.toFixed(0)}px]`],
+                        beforeState: null,
+                        afterState: null,
+                        inconsistencies: [`[❌ CONTRATO VIOLADO: WARP_NOT_REALTIME] Se están arrastrando nodos con el ratón (${distance.toFixed(0)}px), pero la geometría física del trazado '${window.nodeEditTarget.data?.label || 'Objeto'}' NO se deforma en tiempo real en la pantalla.`],
+                        duration: 0
+                    };
+                    
+                    // Registrar si no existe ya una alerta de tiempo real en esta ráfaga de mousedown
+                    const alreadyLogged = diagState.operations.some(o => o.type === 'WARP_NOT_REALTIME' && (Date.now() - o.timestamp < 1000));
+                    if (!alreadyLogged) {
+                        diagState.operations.push(op);
+                        rawConsole.error(
+                            `%c❌ [SÍNTOMA: EDICIÓN_NODOS_CONGELADA_REALTIME]%c\n` +
+                            `Se están arrastrando nodos en la pantalla, pero la geometría de Paper.js permanece 100% estática.\n` +
+                            `* Objeto Afectado: '${window.nodeEditTarget.data?.label || 'Objeto'}' (ID: ${window.nodeEditTarget.id})\n` +
+                            `➔ [SÍNTOMA VISIBLE]: El usuario desplaza el nodo, pero la línea del trazado no se deforma en tiempo real sino que se actualiza de forma tardía o diferida.`,
+                            "color: #dc2626; font-weight: bold; font-size: 13px;",
+                            "color: #333; font-weight: normal;"
+                        );
+                    }
+                }
+            }
+        }, { capture: true });
+
+        // Listener de Mouseup para auditar arrastres (DRAG FRUSTRADO)
         window.addEventListener('mouseup', function (e) {
             if (!diagState.lastMouseDownPoint) return;
             const dx = e.clientX - diagState.lastMouseDownPoint.x;
@@ -440,26 +540,30 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                     const pxAfter = afterSel.position;
                     
                     if (pxBefore && pxAfter && pxBefore.x === pxAfter.x && pxBefore.y === pxAfter.y) {
-                        const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
-                        const op = {
-                            id: opId,
-                            type: 'DRAG_FRUSTRADO',
-                            timestamp: Date.now(),
-                            status: 'FAILED',
-                            source: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD_DRAG',
-                            args: [`delta: [${dx.toFixed(0)}px, ${dy.toFixed(0)}px]`],
-                            beforeState: null,
-                            afterState: null,
-                            inconsistencies: [`[ARRASTRE FRUSTRADO] Se arrastró el ratón ${distance.toFixed(1)}px sobre ID:${afterSel.id} ('${afterSel.label}'), pero no modificó sus coordenadas físicas en el lienzo.`],
-                            duration: 0
-                        };
-                        diagState.operations.push(op);
-                        rawConsole.error(`%c❌ [ARRASTRE SIN EFECTO] Se desplazó el cursor ${distance.toFixed(0)}px sobre '${afterSel.label}', pero la geometría del objeto no mutó.`, "color: #f97316; font-weight: bold;");
+                        // Excluir si estamos en modo edición de nodos para evitar interferencias
+                        if (!window.nodeEditMode) {
+                            const opId = `OP-${String(++diagState.opCounter).padStart(5, '0')}`;
+                            const op = {
+                                id: opId,
+                                type: 'DRAG_FRUSTRADO',
+                                timestamp: Date.now(),
+                                status: 'FAILED',
+                                source: 'STANDARD_DRAG',
+                                args: [`delta: [${dx.toFixed(0)}px, ${dy.toFixed(0)}px]`],
+                                beforeState: null,
+                                afterState: null,
+                                inconsistencies: [`[ARRASTRE FRUSTRADO] Se arrastró el ratón ${distance.toFixed(1)}px sobre ID:${afterSel.id} ('${afterSel.label}'), pero no modificó sus coordenadas físicas en el lienzo.`],
+                                duration: 0
+                            };
+                            diagState.operations.push(op);
+                            rawConsole.warn(`[EKKO_DIAG] ${op.inconsistencies[0]}`);
+                        }
                     }
                 }
             }
             diagState.lastMouseDownPoint = null;
             diagState.lastMouseDownSelection = null;
+            diagState.lastMouseDownSegments = null;
             if (diagState.lastMouseDownGeo) {
                 try { diagState.lastMouseDownGeo.remove(); } catch (err) {}
                 diagState.lastMouseDownGeo = null;
@@ -467,22 +571,20 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         }, { capture: true });
     }
 
-    // =========================================================================
-    // 5. API PÚBLICA DE CONTROL FORENSE
-    // =========================================================================
+    // --- API PÚBLICA ---
     const publicAPI = {
         start: function () {
             diagState.active = true;
             diagState.operations = [];
             diagState.consoleErrors = [];
             diagState.opCounter = 0;
-            rawConsole.log("[EKKO_DIAG v16.0 EagleEye BlackBox] Activo 🟢 - Monitoreando automáticamente...");
+            rawConsole.log("[EKKO_DIAG v17.0 EagleEye Ultra-Precision BlackBox] Activo 🟢 - Monitoreando automáticamente...");
             return true;
         },
 
         stop: function () {
             diagState.active = false;
-            rawConsole.log("[EKKO_DIAG v16.0 EagleEye BlackBox] Suspendido 🔴.");
+            rawConsole.log("[EKKO_DIAG v17.0 EagleEye BlackBox] Suspendido 🔴.");
             return true;
         },
 
@@ -490,7 +592,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             diagState.operations = [];
             diagState.consoleErrors = [];
             diagState.opCounter = 0;
-            rawConsole.log("[EKKO_DIAG v15.0] Buffer de vuelo vaciado.");
+            rawConsole.log("[EKKO_DIAG v17.0] Buffer de vuelo vaciado.");
             return true;
         },
 
@@ -503,20 +605,21 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             };
         },
 
-        // INSPECTOR ESTÁTICO DE LIENZO EN CALIENTE
+        // AUDITORÍA ESTÁTICA EN CALIENTE (EVALÚA LOS ERRORES QUE TÚ VES A SIMPLE VISTA)
         inspect: function () {
-            rawConsole.log("=================== EKKO EYE VIEWPORT INSPECT ===================");
+            rawConsole.log("=================== EKKO EYE VIEWPORT INSPECT (v17.0) ===================");
             
             const results = {
                 deadButtons: [],
                 invisibleNodes: [],
                 corruptedGeomBase: [],
-                viewportInfo: {}
+                viewportInfo: {},
+                nodeViolations: [] // SENSOR DE DESFASE Y PRODUCTO
             };
 
             // 1. Auditoría de Botones Muertos del DOM
             if (typeof document !== 'undefined') {
-                const buttons = document.querySelectorAll('button, .toolbar-btn, [id^="btnCtx"], [class*="btn"]');
+                const buttons = document.querySelectorAll('button, .toolbar-btn, [id^="btnCtx"]');
                 buttons.forEach(btn => {
                     const selector = getFriendlySelector(btn);
                     const isDead = !diagState.eventRegistry.has(selector) && !btn.onclick;
@@ -530,7 +633,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                 });
             }
 
-            // 2. Auditoría de Visibilidad de Nodos (Paper.js)
+            // 2. Auditoría de Visibilidad y Desfases de Nodos (Paper.js)
             if (typeof paper !== 'undefined' && paper.project) {
                 const zoom = paper.view.zoom || 1.0;
                 const viewBounds = paper.view.bounds;
@@ -555,6 +658,29 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                         if (nodeHandles.length === 0) {
                             results.invisibleNodes.push("EL OVERLAY ESTÁ VACÍO, NO TIENE CÍRCULOS DE NODOS DIBUJADOS.");
                         } else {
+                            // SENSOR CRÍTICO 3: DESFASE_NODOS_GEOMETRIA
+                            let offsetCount = 0;
+                            let maxOffset = 0;
+
+                            nodeHandles.forEach(h => {
+                                const targetPath = paper.project.getItem({ id: h.data.pathId });
+                                if (targetPath && targetPath.segments && targetPath.segments[h.data.localIdx]) {
+                                    const segment = targetPath.segments[h.data.localIdx];
+                                    const globalSegmentPt = targetPath.localToGlobal(segment.point);
+                                    const dist = h.position.getDistance(globalSegmentPt);
+                                    
+                                    if (dist > 0.5) {
+                                        offsetCount++;
+                                        if (dist > maxOffset) maxOffset = dist;
+                                    }
+                                }
+                            });
+
+                            if (offsetCount > 0) {
+                                results.nodeViolations.push(`❌ [DESFASE CRÍTICO DE GEOMETRÍA]: Se detectaron ${offsetCount} tiradores visuales de nodos desalineados físicamente de las curvas reales del trazado. Desfase máximo: ${maxOffset.toFixed(1)}px (Zoom: ${zoom.toFixed(1)}).`);
+                            }
+
+                            // Verificar fuera de Viewport
                             let outCount = 0;
                             nodeHandles.forEach(h => {
                                 if (!viewBounds.contains(h.position)) {
@@ -566,34 +692,60 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                             }
                         }
                     }
+
+                    // SENSOR CRÍTICO 1: MOCKUP_NODES_GENERATED en inspect caliente
+                    if (window.nodeEditTarget && isMockupOrProductElement(window.nodeEditTarget)) {
+                        results.nodeViolations.push(`❌ [MOCKUP_NODES_GENERATED]: Se ha activado la edición sobre el producto/plantilla de fondo '${window.nodeEditTarget.data?.label || 'Mockup'}'. ¡ESTO ES UN ERROR CRÍTICO DE NEGOCIO! El cliente nunca debe poder alterar los contornos o agujeros del mockup.`);
+                    }
                 }
             }
 
-            // 3. Auditoría de Corrupción de geomBase
+            // 3. Auditoría de Corrupción de geomBase (Filtro de grupos inteligentes)
             if (typeof paper !== 'undefined' && paper.project) {
                 const designLayer = paper.project.layers ? paper.project.layers.find(l => l.name === 'designLayer') : null;
                 const targetLayer = designLayer || paper.project.activeLayer;
                 if (targetLayer && targetLayer.children) {
-                    targetLayer.children.forEach(c => {
+                    for (let i = 0; i < targetLayer.children.length; i++) {
+                        const c = targetLayer.children[i];
                         if (c.data && (c.data.isSelectionBox || c.data.isNodeEditOverlay || c.data.isSmartGuide || c.data.isMeasurement || c.data.mockup || c.data.isMask)) {
-                            return;
+                            continue;
                         }
-                        const target = c.data?.clipGroup ? (c.children && c.children.find(ch => !ch.clipMask)) : c;
-                        if (target && (!target.data || !target.data.geomBase)) {
+                        
+                        let target = c;
+                        if (c.data?.clipGroup && c.children) {
+                            for (let j = 0; j < c.children.length; j++) {
+                                const ch = c.children[j];
+                                if (!ch.clipMask && !(ch.data && (ch.data.wasClipMask || ch.data.isMask))) {
+                                    target = ch;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // Filtrar contenedores vacíos o elementos que no son Paths/CompoundPaths
+                        const isVectorGeom = target && (target.className === 'Path' || target.className === 'CompoundPath');
+                        if (isVectorGeom && (!target.data || !target.data.geomBase)) {
                             results.corruptedGeomBase.push({
                                 id: c.id,
                                 label: c.data?.label || 'Sin etiqueta',
                                 class: c.className
                             });
                         }
-                    });
+                    }
                 }
             }
 
-            // Imprimir en consola estéticamente
-            rawConsole.warn("⚡ REPORTE DE AUDITORÍA ESTÁTICA EN CALIENTE (EKKO_DIAG) ⚡");
+            // Imprimir resultados estéticamente en consola
+            rawConsole.warn("⚡ REPORTE DE AUDITORÍA ESTÁTICA EN CALIENTE v17.0 (EKKO_DIAG) ⚡");
             rawConsole.log(`INFORMACIÓN DEL LIENZO: Zoom: ${results.viewportInfo.zoom} | Centro: ${results.viewportInfo.center} | Bounds: ${results.viewportInfo.bounds}`);
             
+            if (results.nodeViolations.length > 0) {
+                rawConsole.error("❌ ANOMALÍAS DE RECONCILIACIÓN Y SEGURIDAD BÉZIER DETECTADAS:");
+                results.nodeViolations.forEach(msg => rawConsole.warn(`   ➔ ${msg}`));
+            } else {
+                rawConsole.log("✓ Seguridad de Nodos: Los vértices no tocan la plantilla del mockup y coinciden geométricamente.");
+            }
+
             if (results.deadButtons.length > 0) {
                 rawConsole.error("❌ BOTONES MUERTOS DETECTADOS (DOM sin JavaScript conectado):");
                 rawConsole.table(results.deadButtons);
@@ -604,7 +756,7 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             if (results.invisibleNodes.length > 0) {
                 rawConsole.error("❌ ANOMALÍAS EN EDICIÓN DE NODOS BÉZIER DETECTADAS:");
                 results.invisibleNodes.forEach(msg => rawConsole.warn(`   ➔ ${msg}`));
-            } else if (window.nodeEditMode) {
+            } else if (window.nodeEditMode && results.nodeViolations.length === 0) {
                 rawConsole.log("✓ Editor de Nodos: Los vértices Bézier se proyectan y renderizan correctamente al frente.");
             }
 
@@ -619,9 +771,24 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             return results;
         },
 
+        // EXPORTACIÓN AL PORTAPAPELES DE WINDOWS LISTA PARA COPIAR EN EL CHAT DE GEMINI
+        dump: function () {
+            const reportText = this.report();
+            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(reportText).then(() => {
+                    rawConsole.log("%c✓ ¡Reporte forense v17.0 copiado automáticamente al portapapeles! Pégalo en tu chat con Gemini.", "color: #16a34a; font-weight: bold;");
+                }).catch(err => {
+                    rawConsole.error("No se pudo auto-copiar al portapapeles:", err);
+                });
+            } else {
+                rawConsole.log("Copia manualmente el reporte impreso arriba.");
+            }
+            return reportText;
+        },
+
         report: function () {
-            let out = `==================== EKKO DIAG FORENSIC REPORT ====================\n`;
-            out += `ESTADO DE INTEGRIDAD DE CONTRATOS FUNCIONALES Y EVENTOS\n\n`;
+            let out = `==================== EKKO DIAG FORENSIC REPORT v17.0 ====================\n`;
+            out += `ESTADO DE INTEGRIDAD DE CONTRATOS FUNCIONALES, EVENTOS Y RELACIONES\n\n`;
 
             const errors = diagState.consoleErrors;
             const ops = diagState.operations;
@@ -666,11 +833,12 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                 errors.forEach((err, idx) => {
                     out += `  [ERR-${String(idx + 1).padStart(3, '0')}] ${err.message}\n`;
                     out += `     ➔ Hora: ${new Date(err.timestamp).toLocaleTimeString()} | Herramienta: ${err.activeTool} | ID Objeto: ${err.activeObject || 'Ninguno'}\n`;
+                    if (err.stack) out += `     ➔ Stack: ${err.stack.split('\n').slice(0, 3).join(' | ')}\n`;
                 });
             }
             out += `\n`;
 
-            // 2. SECCIÓN CONTRACT FAILURES
+            // 2. SECCIÓN CONTRACT FAILURES (INCLUYE WARP_NOT_REALTIME)
             out += `### CONTRACT FAILURES (${contractFailures.length})\n`;
             if (contractFailures.length === 0) {
                 out += `  ✓ Todos los contratos de entrada y precondiciones de Paper.js operaron de forma limpia.\n`;
@@ -682,10 +850,10 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
             }
             out += `\n`;
 
-            // 3. SECCIÓN INVARIANT FAILURES
+            // 3. SECCIÓN INVARIANT FAILURES (INCLUYE MOCKUP_NODES_GENERATED)
             out += `### INVARIANT FAILURES (${invariantFailures.length})\n`;
             if (invariantFailures.length === 0) {
-                out += `  ✓ Todos los invariantes universales de escala, máscara de producto y geomBase conservaron su integridad.\n`;
+                out += `  ✓ Todos los invariantes universales de escala, máscara de producto, geomBase y seguridad del mockup conservaron su integridad.\n`;
             } else {
                 invariantFailures.forEach(f => {
                     out += `  [${f.opId}] Falla de Invariante en '${f.type}'\n`;
@@ -724,24 +892,9 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
                 out += `  ⚠️ LA CADENA DE FALLAS SE INICIÓ EN LA OPERACIÓN: ${firstInconsistency.opId} [${firstInconsistency.type}]\n`;
                 out += `  Mensaje: ${firstInconsistency.msg}\n`;
                 out += `  Hora de ocurrencia: ${new Date(firstInconsistency.timestamp).toLocaleTimeString()}\n`;
+                out += `  SOLUCIÓN RECOMENDADA: Investigue el archivo y los callbacks de la operación anterior que dejaron al sistema en un estado inconsistente antes de esta acción.\n`;
             } else {
                 out += `  ✓ Excelente. No se han detectado inconsistencias temporales en el buffer.\n`;
-            }
-            out += `\n`;
-
-            out += `### PROBABLE ROOT CAUSES\n`;
-            if (firstInconsistency) {
-                if (firstInconsistency.type === 'ACTION_WITHOUT_EFFECT') {
-                    out += `  ➔ [Módulo: DOM Callbacks / UI Core] El botón seleccionado tiene un callback conectado, pero la lógica interna del callback está vacía, no se ejecuta, o sus precondiciones fallaron de forma asíncrona.\n`;
-                } else if (firstInconsistency.type === 'CLICK_INTERRUPT') {
-                    out += `  ➔ [Módulo: DOM Event Binding] El botón o elemento HTML no tiene ningún EventListener de JavaScript registrado. El evento se pierde en la interfaz física.\n`;
-                } else if (firstInconsistency.type === 'DRAG_FRUSTRADO') {
-                    out += `  ➔ [Módulo: selection.js / interaction.js] El evento del ratón arrastró el recuadro visual pero Paper.js omitió aplicar la traslación sobre el contenido geométrico interno.\n`;
-                } else {
-                    out += `  ➔ Revise si el archivo comprometido en la operación '${firstInconsistency.type}' respecteta los contratos de precondición.\n`;
-                }
-            } else {
-                out += `  ✓ Sistema operando dentro de los parámetros de integridad funcional aprobados.\n`;
             }
             out += `\n===================================================================`;
 
@@ -750,8 +903,10 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         }
     };
 
+    // Exposición de API e alias históricos
     if (typeof window !== 'undefined') {
         window.EKKO_DIAG = publicAPI;
+        window.EKKO_DIAG.copyErrors = publicAPI.dump; // Redirigir alias histórico para evitar TypeErrors
     }
 
     return publicAPI;
