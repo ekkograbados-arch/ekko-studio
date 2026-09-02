@@ -1,13 +1,17 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v12.0 Canonical Forensic BlackBox)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js (v13.0 EagleEye - Active Forensic BlackBox)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js
 Descripción:
-    Caja Negra de Diagnóstico, Observabilidad Integral, Auditoría Forense y
-    Control de Regresiones de 5 Niveles para EKKO Studio.
+    Caja Negra Forense de Nivel de Aviación de 5 Niveles para EKKO Studio.
     
-    Implementa el Estándar Técnico de la Biblia de EKKO Studio, el 1er Mandamiento (Protocolo Maestro), 
-    el 3er Mandamiento (Estándar de Diagnóstico), el 4to Mandamiento (Contratos Funcionales)
-    y la Regla de Oro de la Primera Inconsistencia Observable.
+    ESTA VERSIÓN INCLUYE EL PROTOCOLO "OJOS DE ÁGUILA":
+    1. Intercepción en caliente de EventTarget.prototype.addEventListener para auditar 
+       botones "fantasmas" o "muertos" (clics sin receptores de eventos conectados).
+    2. Validación de Rendimiento y Visibilidad Real de Paper.js (Canvas Viewport Checks).
+       Comprueba si los nodos están realmente dibujados, visibles, con opacidad > 0 
+       y dentro de los límites visuales de la pantalla (View Bounds).
+    3. Comando Interactivo de Consola 'EKKO_DIAG.inspect()' para forzar auditorías visuales
+       y de conectividad en tiempo real sin tener que esperar a que ocurra una operación.
 
 AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 ========================================================================= */
@@ -23,7 +27,47 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 }(typeof window !== 'undefined' ? window : this, function () {
 
     // =========================================================================
-    // NIVELES 1 Y 2: CANAL SEGURO DE CONSOLA E INTERCEPCIÓN DE EXCEPCIONES
+    // REGISTRO Y SEGUIMIENTO DE EVENT LISTENERS NATIVOS (DOM AUDIT)
+    // =========================================================================
+    const eventRegistry = new Map(); // Guarda: Element -> Set of { type, handler, stack }
+
+    if (typeof window !== 'undefined' && typeof EventTarget !== 'undefined') {
+        const originalAddEventListener = EventTarget.prototype.addEventListener;
+        const originalRemoveEventListener = EventTarget.prototype.removeEventListener;
+
+        EventTarget.prototype.addEventListener = function (type, handler, options) {
+            if (this instanceof HTMLElement) {
+                if (!eventRegistry.has(this)) {
+                    eventRegistry.set(this, new Set());
+                }
+                eventRegistry.get(this).add({
+                    type: type,
+                    handler: handler,
+                    stack: new Error().stack
+                });
+            }
+            return originalAddEventListener.call(this, type, handler, options);
+        };
+
+        EventTarget.prototype.removeEventListener = function (type, handler, options) {
+            if (this instanceof HTMLElement && eventRegistry.has(this)) {
+                const listeners = eventRegistry.get(this);
+                for (const lis of listeners) {
+                    if (lis.type === type && lis.handler === handler) {
+                        listeners.delete(lis);
+                        break;
+                    }
+                }
+                if (listeners.size === 0) {
+                    eventRegistry.delete(this);
+                }
+            }
+            return originalRemoveEventListener.call(this, type, handler, options);
+        };
+    }
+
+    // =========================================================================
+    // CANAL SEGURO DE CONSOLA E INTERCEPCIÓN DE EXCEPCIONES
     // =========================================================================
     const rawConsole = {
         log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
@@ -48,1292 +92,822 @@ AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
         }
     } catch (e) {}
 
-    // --- ESTADO CENTRAL DEL RECOLECTOR DE LA CAJA NEGRA ---
+    // --- ESTADO CENTRAL DEL RECOLECTOR ---
     const diagState = {
-        active: true,
+        active: false,
         operations: [],
         currentOp: null,
         opCounter: 0,
-        interceptorsInstalled: false,
         consoleErrors: [],
-        dragTracker: {
-            active: false,
-            startX: 0,
-            startY: 0,
-            startRotation: 0,
-            startWidth: 0,
-            startHeight: 0,
-            startGeo: null,
-            startSel: null,
-            dragMode: 'MOVE' // 'MOVE', 'ROTATE', 'RESIZE', 'NODE_DRAG'
-        },
-        lastMouseDownPoint: null,
-        lastMouseDownSelection: null,
-        lastMouseDownGeo: null
+        lastInteraction: null
     };
 
-    // Escuchar excepciones de JavaScript globales en tiempo de ejecución
+    // Escucha activa de excepciones runtime
     if (typeof window !== 'undefined') {
         const origConsoleError = console.error;
         console.error = function (...args) {
             const errorMsg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-            diagState.consoleErrors.push({
-                message: errorMsg,
-                timestamp: Date.now(),
-                activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
-                activeObject: window.selectedItem ? window.selectedItem.id : null,
-                stack: new Error().stack
-            });
+            if (diagState.active) {
+                diagState.consoleErrors.push({
+                    message: errorMsg,
+                    timestamp: Date.now(),
+                    activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
+                    activeObject: window.selectedItem ? window.selectedItem.id : null,
+                    stack: new Error().stack
+                });
+            }
             return origConsoleError.apply(console, args);
         };
 
         window.addEventListener('error', function (e) {
-            diagState.consoleErrors.push({
-                message: `[Runtime Exception] ${e.message} en ${e.filename}:${e.lineno}:${e.colno}`,
-                timestamp: Date.now(),
-                activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
-                activeObject: window.selectedItem ? window.selectedItem.id : null,
-                stack: e.error ? e.error.stack : null
-            });
+            if (diagState.active) {
+                diagState.consoleErrors.push({
+                    message: `[Runtime Exception] ${e.message} en ${e.filename}:${e.lineno}:${e.colno}`,
+                    timestamp: Date.now(),
+                    activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
+                    activeObject: window.selectedItem ? window.selectedItem.id : null,
+                    stack: e.error ? e.error.stack : null
+                });
+            }
         });
 
         window.addEventListener('unhandledrejection', function (e) {
-            diagState.consoleErrors.push({
-                message: `[Unhandled Promise Rejection] ${e.reason ? (e.reason.message || e.reason) : 'Desconocido'}`,
-                timestamp: Date.now(),
-                activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
-                activeObject: window.selectedItem ? window.selectedItem.id : null
-            });
+            if (diagState.active) {
+                diagState.consoleErrors.push({
+                    message: `[Promise Rejection] ${e.reason}`,
+                    timestamp: Date.now(),
+                    activeTool: window.nodeEditMode ? 'NODE_EDIT' : 'STANDARD',
+                    activeObject: window.selectedItem ? window.selectedItem.id : null,
+                    stack: e.reason ? e.reason.stack : null
+                });
+            }
         });
     }
 
     // =========================================================================
-    // REGISTRO DE CONTRATOS FUNCIONALES (BOTONES, TECLAS Y ATAJOS)
+    // METODOLOGÍA DE CAPTURA DE ESTADO GEOMÉTRICO (SNAPSHOTTING)
     // =========================================================================
-    const buttonContractsRegistry = new Map();
-
-    function registerContract(idOrSelector, contractDef) {
-        if (!idOrSelector || !contractDef) return;
-        const cleanKey = String(idOrSelector).trim().toLowerCase();
-        buttonContractsRegistry.set(cleanKey, Object.assign({
-            name: 'UNKNOWN_ACTION',
-            label: 'Acción Desconocida',
-            requiresSelection: true,
-            minSelectionCount: 1,
-            allowLocked: false,
-            isModalOrPicker: false,
-            expectedTopologyDelta: 'EQUAL', // 'INCREMENT', 'DECREMENT', 'EQUAL', 'DECREASE_OR_EQUAL', 'ANY'
-            expectedSelectionChange: 'PRESERVED', // 'NEW_ITEM', 'CLEARED', 'PRESERVED', 'ANY'
-            expectedTransformChange: 'ANY', // 'MOVED', 'ROTATED', 'SCALED', 'ANY'
-            verifyDisplacement: false,
-            preserveClipping: true,
-            customValidator: null
-        }, contractDef));
-    }
-
-    // 1. Barra de Cabecera (#topBar)
-    registerContract('#btnaddsvg', { name: 'ADD_SVG', label: 'Cabecera: Cargar SVG (#btnAddSVG)', requiresSelection: false, isModalOrPicker: true, expectedTopologyDelta: 'ANY', expectedSelectionChange: 'ANY' });
-    registerContract('#btnaddimage', { name: 'ADD_IMAGE', label: 'Cabecera: Cargar Imagen (#btnAddImage)', requiresSelection: false, isModalOrPicker: true, expectedTopologyDelta: 'ANY', expectedSelectionChange: 'ANY' });
-    registerContract('#btnaddtext', { name: 'ADD_TEXT', label: 'Cabecera: Agregar Texto (#btnAddText)', requiresSelection: false, expectedTopologyDelta: 'INCREMENT', expectedSelectionChange: 'NEW_ITEM' });
-    registerContract('#btnaddqr', { name: 'ADD_QR', label: 'Cabecera: Cargar QR (#btnAddQR)', requiresSelection: false, isModalOrPicker: true, expectedTopologyDelta: 'ANY' });
-
-    // 2. Barra Contextual Flotante (#contextual-toolbar)
-    registerContract('#btnctxduplicate', { name: 'DUPLICATE', label: 'Barra Emergente: Duplicar (#btnCtxDuplicate)', requiresSelection: true, minSelectionCount: 1, allowLocked: false, expectedTopologyDelta: 'INCREMENT', expectedSelectionChange: 'NEW_ITEM', verifyDisplacement: true, preserveClipping: true });
-    registerContract('#btnctxdelete', { name: 'DELETE', label: 'Barra Emergente: Eliminar (#btnCtxDelete)', requiresSelection: true, minSelectionCount: 1, allowLocked: false, expectedTopologyDelta: 'DECREMENT', expectedSelectionChange: 'CLEARED', preserveClipping: false });
-    registerContract('#btnctxungroup', { name: 'UNGROUP', label: 'Barra Emergente: Desagrupar (#btnCtxUngroup)', requiresSelection: true, minSelectionCount: 1, allowLocked: false, expectedTopologyDelta: 'ANY', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxdesagrupar', { name: 'UNGROUP', label: 'Barra Emergente: Desagrupar (#btnCtxDesagrupar)', requiresSelection: true, minSelectionCount: 1, allowLocked: false, expectedTopologyDelta: 'ANY', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxgroup', { name: 'GROUP', label: 'Barra Emergente: Agrupar (#btnCtxGroup)', requiresSelection: true, minSelectionCount: 2, allowLocked: false, expectedTopologyDelta: 'DECREASE_OR_EQUAL', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxagrupar', { name: 'GROUP', label: 'Barra Emergente: Agrupar (#btnCtxAgrupar)', requiresSelection: true, minSelectionCount: 2, allowLocked: false, expectedTopologyDelta: 'DECREASE_OR_EQUAL', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxtofront', { name: 'BRING_TO_FRONT', label: 'Barra Emergente: Al Frente (#btnCtxToFront)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxforward', { name: 'BRING_FORWARD', label: 'Barra Emergente: Subir Capa (#btnCtxForward)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxbackward', { name: 'SEND_BACKWARD', label: 'Barra Emergente: Bajar Capa (#btnCtxBackward)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxtoback', { name: 'SEND_TO_BACK', label: 'Barra Emergente: Al Fondo (#btnCtxToBack)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedSelectionChange: 'PRESERVED' });
-    registerContract('#btnctxnodeedit', { name: 'ENTER_NODE_EDIT', label: 'Barra Emergente: Modo Nodos (#btnCtxNodeEdit)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxeditnodes', { name: 'ENTER_NODE_EDIT', label: 'Barra Emergente: Editar Nodos (#btnCtxEditNodes)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxexitnodeedit', { name: 'EXIT_NODE_EDIT', label: 'Barra Emergente: Salir Nodos (#btnCtxExitNodeEdit)', requiresSelection: false, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxdeletenode', { name: 'DELETE_NODE', label: 'Barra Emergente: Eliminar Nodo (#btnCtxDeleteNode)', requiresSelection: false, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxdetachsubpath', { name: 'DETACH_SUBPATH', label: 'Barra Emergente: Desprender Subtrazado (#btnCtxDetachSubpath)', requiresSelection: false, expectedTopologyDelta: 'INCREMENT' });
-    registerContract('#btnctxaddnode', { name: 'TOGGLE_ADD_NODE', label: 'Barra Emergente: Añadir Nodo (#btnCtxAddNode)', requiresSelection: false, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxscaledown', { name: 'SCALE_DOWN', label: 'Barra Emergente: Reducir (#btnCtxScaleDown)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedTransformChange: 'SCALED' });
-    registerContract('#btnctxscaleup', { name: 'SCALE_UP', label: 'Barra Emergente: Agrandar (#btnCtxScaleUp)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedTransformChange: 'SCALED' });
-    registerContract('#btnctxfliph', { name: 'FLIP_H', label: 'Barra Emergente: Volteo Horizontal (#btnCtxFlipH)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxflipv', { name: 'FLIP_V', label: 'Barra Emergente: Volteo Vertical (#btnCtxFlipV)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxbold', { name: 'BOLD', label: 'Barra Emergente: Negrita (#btnCtxBold)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxitalic', { name: 'ITALIC', label: 'Barra Emergente: Cursiva (#btnCtxItalic)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxunderline', { name: 'UNDERLINE', label: 'Barra Emergente: Subrayado (#btnCtxUnderline)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-    registerContract('#btnctxweld', { name: 'WELD', label: 'Barra Emergente: Soldar Texto (#btnCtxWeld)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'ANY' });
-    registerContract('#btnctxtrace', { name: 'TRACE_IMAGE', label: 'Barra Emergente: Trazar Imagen (#btnCtxTrace)', requiresSelection: true, isModalOrPicker: true, expectedTopologyDelta: 'ANY' });
-    registerContract('#btnctxapplymask', { name: 'REMOVE_BG', label: 'Barra Emergente: Recortar Fondo (#btnCtxApplyMask)', requiresSelection: true, isModalOrPicker: true, expectedTopologyDelta: 'ANY' });
-
-    // 3. Panel Superior de Alineaciones y Distribución (#pro-layout-toolbar)
-    ['proBtnAlignLeft', 'proBtnAlignCenterH', 'proBtnAlignRight', 'proBtnAlignTop', 'proBtnAlignCenterV', 'proBtnAlignBottom'].forEach(id => {
-        registerContract('#' + id.toLowerCase(), { name: 'ALIGN', label: `Panel Superior: ${id}`, requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedTransformChange: 'MOVED' });
-    });
-    ['proBtnCenterH', 'proBtnCenterV', 'proBtnCenterBoth'].forEach(id => {
-        registerContract('#' + id.toLowerCase(), { name: 'CENTER_MOCKUP', label: `Panel Superior: ${id}`, requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL', expectedTransformChange: 'MOVED' });
-    });
-    ['proBtnDistributeH', 'proBtnDistributeV'].forEach(id => {
-        registerContract('#' + id.toLowerCase(), { name: 'DISTRIBUTE', label: `Panel Superior: ${id}`, requiresSelection: true, minSelectionCount: 3, expectedTopologyDelta: 'EQUAL', expectedTransformChange: 'MOVED' });
-    });
-    registerContract('#probtngroup', { name: 'GROUP', label: 'Panel Superior: Agrupar (#proBtnGroup)', requiresSelection: true, minSelectionCount: 2, expectedTopologyDelta: 'DECREASE_OR_EQUAL' });
-    registerContract('#probtnungroup', { name: 'UNGROUP', label: 'Panel Superior: Desagrupar (#proBtnUngroup)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'ANY' });
-    registerContract('#probtneditnodes', { name: 'ENTER_NODE_EDIT', label: 'Panel Superior: Editar Nodos (#proBtnEditNodes)', requiresSelection: true, minSelectionCount: 1, expectedTopologyDelta: 'EQUAL' });
-
-    // Inferencia de contratos para elementos interactivos dinámicos o futuros
-    function resolveButtonContract(domElement) {
-        if (!domElement || !(domElement instanceof Element)) return null;
-        if (domElement.id) {
-            const byId = buttonContractsRegistry.get('#' + domElement.id.toLowerCase());
-            if (byId) return { contract: byId, matchedBy: '#' + domElement.id };
-        }
-        const actionAttr = domElement.getAttribute('data-action') || domElement.getAttribute('data-command');
-        if (actionAttr) {
-            const byAttr = buttonContractsRegistry.get(actionAttr.toLowerCase().trim());
-            if (byAttr) return { contract: byAttr, matchedBy: `[data-action="${actionAttr}"]` };
-        }
-        for (const [key, contract] of buttonContractsRegistry.entries()) {
-            if (key.startsWith('#') || key.startsWith('.')) {
-                try {
-                    if (domElement.matches(key) || domElement.closest(key)) {
-                        return { contract: contract, matchedBy: key };
-                    }
-                } catch (e) {}
-            }
-        }
-        const isContextual = !!domElement.closest('#contextual-toolbar, .contextual-toolbar');
-        const isProLayout = !!domElement.closest('#pro-layout-toolbar, .pro-layout-toolbar');
-        const isTopBar = !!domElement.closest('#topBar, .topBar, #mainNavbar');
-        const isSidebar = !!domElement.closest('#leftSidebar, .sidebar, #categoryTabs, #productTabs');
-        
-        if (isContextual || isProLayout || isTopBar || isSidebar) {
-            const containerName = isContextual ? 'Barra Emergente' : (isProLayout ? 'Panel Superior' : (isTopBar ? 'Cabecera' : 'Catálogo Lateral'));
-            const textLabel = domElement.textContent ? domElement.textContent.trim().substring(0, 24) : '';
-            const actionName = (domElement.id || textLabel || 'DYNAMIC_TOOL').toUpperCase().replace(/[^A-Z0-9_]/g, '_');
-            return {
-                contract: {
-                    name: actionName,
-                    label: `${containerName}: '${textLabel || domElement.id}'`,
-                    requiresSelection: isContextual || isProLayout,
-                    minSelectionCount: 1,
-                    allowLocked: false,
-                    isModalOrPicker: domElement.tagName === 'INPUT' || domElement.classList.contains('modal-trigger'),
-                    expectedTopologyDelta: 'ANY',
-                    expectedSelectionChange: 'ANY',
-                    expectedTransformChange: 'ANY',
-                    verifyDisplacement: false,
-                    preserveClipping: true,
-                    isDynamicInferred: true
-                },
-                matchedBy: `${containerName} (Inferencia Dinámica Universal)`
-            };
-        }
-        return null;
-    }
 
     function getContentItem(item) {
         if (!item) return null;
         if (item.data && item.data.clipGroup) {
-            return (item.children && item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)))) || item;
+            if (!item.children) return item;
+            const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+            if (content) return content;
+            return item.children[1] || item.children[0] || item;
         }
         return item;
     }
 
-    // =========================================================================
-    // NIVEL 3: CAPTURA DE SELECCIÓN FORENSE
-    // =========================================================================
     function snapshotSelection() {
-        if (typeof window === 'undefined') return { hasSelection: false, count: 0, ids: [], primary: null };
-        const selectedItems = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
-        const primary = window.selectedItem || (selectedItems.length > 0 ? selectedItems[0] : null);
-        if (!primary) return { hasSelection: false, count: 0, ids: [], primary: null };
-        const content = getContentItem(primary);
-        
-        const primaryData = {
-            id: primary.id,
-            contentId: content ? content.id : primary.id,
-            className: primary.className,
-            label: (primary.data && primary.data.label) || primary.name || 'Elemento',
-            zIndex: primary.index !== undefined ? primary.index : 0,
-            isHole: !!(primary.data && primary.data.isHole),
-            isClipped: !!(primary.data && primary.data.isClipped),
-            hasGeomBase: !!(primary.data && primary.data.geomBase),
-            geomBaseSegments: (primary.data && primary.data.geomBase && primary.data.geomBase.segments) ? primary.data.geomBase.segments.length : 0,
-            visibleSegments: primary.segments ? primary.segments.length : (content && content.segments ? content.segments.length : 0),
-            visibleArea: primary.area ? Number(Math.abs(primary.area).toFixed(1)) : 0,
-            rotation: primary.rotation !== undefined ? Number(primary.rotation.toFixed(2)) : (primary.data?.rotation || 0),
-            bounds: primary.bounds ? {
-                x: Number(primary.bounds.x.toFixed(1)),
-                y: Number(primary.bounds.y.toFixed(1)),
-                width: Number(primary.bounds.width.toFixed(1)),
-                height: Number(primary.bounds.height.toFixed(1))
-            } : null,
-            position: content && content.position ? {
-                x: Number(content.position.x.toFixed(1)),
-                y: Number(content.position.y.toFixed(1))
-            } : (primary.position ? {
-                x: Number(primary.position.x.toFixed(1)),
-                y: Number(primary.position.y.toFixed(1))
-            } : null),
-            isLocked: !!(primary.data && primary.data.locked),
-            isText: !!(primary.className === 'PointText' || (primary.data && primary.data.isText)),
-            textContent: primary.content || (primary.data && primary.data.text) || null,
-            fontFamily: primary.fontFamily || (primary.data && primary.data.fontFamily) || null
-        };
+        if (typeof window === 'undefined' || typeof paper === 'undefined' || !paper.project) {
+            return { hasSelection: false };
+        }
+        const activeItem = window.selectedItem || null;
+        if (!activeItem) return { hasSelection: false };
 
+        const target = getContentItem(activeItem);
         return {
             hasSelection: true,
-            count: selectedItems.length > 0 ? selectedItems.length : 1,
-            ids: selectedItems.length > 0 ? selectedItems.map(i => i.id) : [primary.id],
-            primary: primaryData
+            id: activeItem.id,
+            className: activeItem.className,
+            targetId: target ? target.id : null,
+            targetClass: target ? target.className : null,
+            bounds: activeItem.bounds ? {
+                x: activeItem.bounds.x,
+                y: activeItem.bounds.y,
+                width: activeItem.bounds.width,
+                height: activeItem.bounds.height
+            } : null,
+            position: activeItem.position ? { x: activeItem.position.x, y: activeItem.position.y } : null,
+            geomBaseExists: !!(target && target.data && target.data.geomBase),
+            geomBaseId: (target && target.data && target.data.geomBase) ? target.data.geomBase.id : null,
+            isClipped: !!(activeItem.data && activeItem.data.clipGroup),
+            segmentsCount: (target && target.segments) ? target.segments.length : 0
         };
     }
 
-    // =========================================================================
-    // NIVEL 4: CAPTURA DE ESTADO GEOMÉTRICO Y TOPOLOGÍA DEL LIENZO
-    // =========================================================================
     function snapshotGeometricState() {
-        if (typeof paper === 'undefined' || !paper.project) {
-            return { timestamp: Date.now(), totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [] };
+        if (typeof window === 'undefined' || typeof paper === 'undefined' || !paper.project) {
+            return { totalItems: 0, items: [] };
         }
-        const layer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-        if (!layer || !layer.children) {
-            return { timestamp: Date.now(), totalUsefulItems: 0, massCount: 0, holeCount: 0, zOrderIds: [], itemsSummary: [] };
-        }
-        let useful = [];
-        let massCount = 0;
-        let holeCount = 0;
-        
-        layer.children.forEach(item => {
-            if (item.data && (
-                item.data.mockup ||
-                item.data.isMask ||
-                item.data.isSelectionBox ||
-                item.data.isHandle ||
-                item.data.isSmartGuide ||
-                item.data.isMeasurement ||
-                item.data.isNodeEditOverlay ||
-                item.data.isGuide ||
-                item.data.isTracePreview
-            )) {
-                return;
+        const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+        if (!designLayer) return { totalItems: 0, items: [] };
+
+        const itemsSnapshot = [];
+        const processItem = (item) => {
+            if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isNodeEditOverlay || item.data.isSmartGuide)) {
+                return; // Excluir elementos auxiliares de UI
             }
-            const isHole = !!(item.data && item.data.isHole);
-            if (isHole) holeCount++; else massCount++;
-            const content = getContentItem(item);
-            useful.push({
+            const target = getContentItem(item);
+            itemsSnapshot.push({
                 id: item.id,
-                contentId: content ? content.id : item.id,
                 className: item.className,
-                label: (item.data && item.data.label) || item.name || (isHole ? 'Calado Activo' : 'Masa Sólida'),
-                isHole: isHole,
-                isClipped: !!(item.data && item.data.isClipped),
-                hasGeomBase: !!(item.data && item.data.geomBase),
-                geomBaseSegments: (item.data && item.data.geomBase && item.data.geomBase.segments) ? item.data.geomBase.segments.length : 0,
-                visibleSegments: item.segments ? item.segments.length : (content && content.segments ? content.segments.length : 0),
-                visibleArea: item.area ? Number(Math.abs(item.area).toFixed(1)) : 0,
-                bounds: item.bounds ? {
-                    x: Number(item.bounds.x.toFixed(1)),
-                    y: Number(item.bounds.y.toFixed(1)),
-                    width: Number(item.bounds.width.toFixed(1)),
-                    height: Number(item.bounds.height.toFixed(1))
-                } : null,
-                position: content && content.position ? {
-                    x: Number(content.position.x.toFixed(1)),
-                    y: Number(content.position.y.toFixed(1))
-                } : (item.position ? {
-                    x: Number(item.position.x.toFixed(1)),
-                    y: Number(item.position.y.toFixed(1))
-                } : null)
+                visible: item.visible,
+                position: { x: item.position.x, y: item.position.y },
+                bounds: { x: item.bounds.x, y: item.bounds.y, width: item.bounds.width, height: item.bounds.height },
+                geomBaseExists: !!(target && target.data && target.data.geomBase)
             });
-        });
+        };
+
+        if (designLayer.children) {
+            designLayer.children.forEach(processItem);
+        }
 
         return {
-            timestamp: Date.now(),
-            totalUsefulItems: useful.length,
-            massCount: massCount,
-            holeCount: holeCount,
-            zOrderIds: useful.map(i => i.id),
-            itemsSummary: useful
+            totalItems: itemsSnapshot.length,
+            items: itemsSnapshot,
+            zOrderIds: designLayer.children ? designLayer.children.map(c => c.id) : []
         };
     }
 
     // =========================================================================
-    // NIVEL 5: MOTOR DE CONSISTENCIA Y VALIDACIÓN DE CONTRATOS (FORENSIC AUDIT)
+    // EVALUADOR EN CALIENTE DE INCOHERENCIAS (AUDIT CONSISTENCY)
     // =========================================================================
     function auditConsistency(op) {
-        const beforeGeo = op.geometryBefore;
-        const afterGeo = op.geometryAfter;
-        const beforeSel = op.selectionBefore;
-        const afterSel = op.selectionAfter;
-        const contract = op.buttonContract;
-        const opMeta = op.meta || {};
-        const opType = op.action;
-        const uiSource = op.source || 'Sistema';
+        const beforeSel = op.before.selection;
+        const afterSel = op.after.selection;
+        const beforeGeo = op.before.geometry;
+        const afterGeo = op.after.geometry;
         const inconsistencies = [];
 
-        const checks = {
-            actionExecuted: true,
-            buttonResponded: true,
-            selectionPreconditionValid: true,
-            itemLossDetected: false,
-            dragDisplacementValid: true,
-            rotationValid: true,
-            scaleValid: true,
-            geomBasePreserved: true,
-            selectionValid: true,
-            productClippingValid: true,
-            deadClickDetected: false,
-            zOrderConsistent: true,
-            textIntegrityValid: true,
-            csgIntegrityValid: true,
-            nodeIntegrityValid: true
-        };
+        // Ignorar auditorías si no hay datos de inicio válidos
+        if (!beforeGeo || !afterGeo) return inconsistencies;
 
-        // 1. Auditoría del Contrato Funcional Declarado
-        if (contract) {
-            // Precondición de selección
-            if (contract.requiresSelection) {
-                if (!beforeSel.hasSelection || beforeSel.count < (contract.minSelectionCount || 1)) {
-                    checks.selectionPreconditionValid = false;
-                    inconsistencies.push(
-                        `[CONTRATO VIOLADO: PRECONDICIÓN] '${uiSource}' requería al menos ${contract.minSelectionCount || 1} elementos seleccionados (Se detectaron: ${beforeSel.count}).`
-                    );
-                }
-            }
-
-            // Bloqueo de escritura
-            if (!contract.allowLocked && beforeSel.primary && beforeSel.primary.isLocked) {
-                checks.actionExecuted = false;
-                inconsistencies.push(
-                    `[CONTRATO VIOLADO: ACCIÓN EN OBJETO BLOQUEADO] Se solicitó '${opType}' sobre el objeto bloqueado ID: ${beforeSel.primary.id} ('${beforeSel.primary.label}', locked: true).`
-                );
-            }
-
-            // Delta topológico esperado
-            const deltaUseful = afterGeo.totalUsefulItems - beforeGeo.totalUsefulItems;
-            if (contract.expectedTopologyDelta === 'INCREMENT' && deltaUseful <= 0) {
-                checks.actionExecuted = false;
-                inconsistencies.push(
-                    `[CONTRATO VIOLADO: GEOMETRÍA NO CREADA] Se esperaba la creación de una capa por '${opType}', pero la cantidad de elementos útiles no aumentó (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
-                );
-            } else if (contract.expectedTopologyDelta === 'DECREMENT' && deltaUseful >= 0) {
-                checks.actionExecuted = false;
-                inconsistencies.push(
-                    `[CONTRATO VIOLADO: GEOMETRÍA NO ELIMINADA] Se esperaba la eliminación de una capa por '${opType}', pero la cantidad de elementos útiles no se redujo (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
-                );
-            } else if (contract.expectedTopologyDelta === 'EQUAL' && deltaUseful !== 0) {
-                inconsistencies.push(
-                    `[INVARIANTE VIOLADO: MUTACIÓN TOPOLÓGICA] La acción '${opType}' alteró inesperadamente el conteo total de capas en el lienzo (${beforeGeo.totalUsefulItems} -> ${afterGeo.totalUsefulItems}).`
-                );
-            } else if (contract.expectedTopologyDelta === 'DECREASE_OR_EQUAL' && deltaUseful > 0) {
-                inconsistencies.push(
-                    `[CONTRATO VIOLADO: CAPA EXCEDENTE EN AGRUPACIÓN] Se agrupó con '${opType}' pero se añadieron capas extra en lugar de consolidarse.`
-                );
-            }
-
-            // Enfoque de selección esperado
-            if (contract.expectedSelectionChange === 'NEW_ITEM') {
-                if (afterSel.primary && beforeSel.primary && afterSel.primary.id === beforeSel.primary.id && beforeSel.count === 1) {
-                    checks.selectionValid = false;
-                    inconsistencies.push(
-                        `[CONTRATO VIOLADO: SELECCIÓN NO TRANSMITIDA] El clon/elemento nuevo creado por '${opType}' no recibió el foco de selección activa.`
-                    );
-                }
-            } else if (contract.expectedSelectionChange === 'CLEARED') {
-                if (afterSel.hasSelection && beforeSel.primary && afterSel.primary && afterSel.primary.id === beforeSel.primary.id) {
-                    checks.selectionValid = false;
-                    inconsistencies.push(
-                        `[CONTRATO VIOLADO: SELECCIÓN HUÉRFANA] El objeto ID: ${beforeSel.primary.id} fue removido por '${opType}' pero sigue figurando como selección activa.`
-                    );
-                }
-            }
-
-            // Desfase obligatorio de duplicados (CNC/LightBurn anti-superposición)
-            if (contract.verifyDisplacement && afterSel.primary && beforeSel.primary && afterSel.primary.position && beforeSel.primary.position) {
-                const dx = Math.abs(afterSel.primary.position.x - beforeSel.primary.position.x);
-                const dy = Math.abs(afterSel.primary.position.y - beforeSel.primary.position.y);
-                if (dx < 1.0 && dy < 1.0) {
-                    inconsistencies.push(
-                        `[CONTRATO VIOLADO: CLON SUPERPUESTO] Duplicado exitoso ID: ${afterSel.primary.id}, pero se insertó concéntrico al original (sin vector de offset +20px, +20px).`
-                    );
-                }
-            }
-
-            // Preservación de máscara de corte en productos
-            if (contract.preserveClipping && beforeSel.primary && beforeSel.primary.isClipped && afterSel.primary && !afterSel.primary.isClipped) {
-                checks.productClippingValid = false;
-                inconsistencies.push(
-                    `[INVARIANTE VIOLADO: PÉRDIDA DE MÁSCARA] El objeto ID: ${afterSel.primary.id} perdió su clipGroup / máscara de contención del mockup al ejecutar '${opType}'.`
-                );
-            }
-        }
-
-        // 2. Detección Universal de Clic Muerto / Botón Desconectado
-        const totalCalls = (op.callGraph && Array.isArray(op.callGraph)) ? op.callGraph.length : 0;
-        const isModal = contract && contract.isModalOrPicker;
-        let canvasMutated = beforeGeo.totalUsefulItems !== afterGeo.totalUsefulItems;
-        if (!canvasMutated && beforeSel.primary && afterSel.primary) {
-            const p0 = beforeSel.primary.position;
-            const p1 = afterSel.primary.position;
-            if (p0 && p1 && (Math.abs(p1.x - p0.x) > 0.1 || Math.abs(p1.y - p0.y) > 0.1)) canvasMutated = true;
-        }
-
-        const isNodeEditAction = opType.includes('NODE') || opType.includes('EDIT');
-    if (opMeta.isButtonClick && totalCalls === 0 && !canvasMutated && !isModal && !opType.includes('TOGGLE') && !isNodeEditAction) {
-            checks.deadClickDetected = true;
-            checks.buttonResponded = false;
-            inconsistencies.push(
-                `[INCONSISTENCIA CLIC: BOTÓN FANTASMA] Se pulsó el elemento '${uiSource}' pero ningún callback se enlazó a la acción y el canvas quedó inerte.`
-            );
-        }
-
-        // 3. Auditoría de Arrastre Interactiva (DRAG)
-        if (opType === 'DRAG' && beforeSel.primary && afterSel.primary && beforeSel.primary.id === afterSel.primary.id) {
-            const p0 = beforeSel.primary.position;
-            const p1 = afterSel.primary.position;
-            if (p0 && p1) {
-                const dx = Math.abs(p1.x - p0.x);
-                const dy = Math.abs(p1.y - p0.y);
-                if (dx < 0.1 && dy < 0.1) {
-                    checks.dragDisplacementValid = false;
-                    inconsistencies.push(
-                        `[ARRASTRE FRUSTRADO] Se arrastró visualmente el objeto ID: ${afterSel.primary.id} ('${afterSel.primary.label}'), pero no modificó sus coordenadas físicas.`
-                    );
+        // --- CONTRATO 1: ACCIÓN SIN EFECTO ---
+        if (op.type === 'DRAG' || op.type === 'TRANSFORM') {
+            if (beforeSel.hasSelection && afterSel.hasSelection && beforeSel.id === afterSel.id) {
+                const b0 = beforeSel.position;
+                const b1 = afterSel.position;
+                if (b0 && b1 && b0.x === b1.x && b0.y === b1.y) {
+                    // Si se arrastró visualmente pero sus coordenadas no cambiaron en absoluto
+                    if (op.source === 'canvas:mousedrag' && op.metadata && op.metadata.pointerMoved) {
+                        inconsistencies.push({
+                            type: 'ACTION_WITHOUT_EFFECT',
+                            code: 'DRAG_FRUSTRATED',
+                            message: `[ARRASTRE FRUSTRADO] Se detectó desplazamiento del puntero sobre el objeto ID: ${afterSel.id}, pero sus coordenadas en Paper.js permanecieron idénticas.`
+                        });
+                    }
                 }
             }
         }
 
-        // 4. Auditoría de Rotación Interactiva (ROTATE)
-        if (opType === 'ROTATE' && beforeSel.primary && afterSel.primary) {
-            const r0 = beforeSel.primary.rotation || 0;
-            const r1 = afterSel.primary.rotation || 0;
-            if (Math.abs(r1 - r0) < 0.1) {
-                checks.rotationValid = false;
-                inconsistencies.push(
-                    `[ROTACIÓN FRUSTRADA] Se accionó el tirador rotativo pero el ángulo del objeto quedó congelado en ${r0}°.`
-                );
+        // --- CONTRATO 2: PRESERVACIÓN DE GEOMBASE EN SELECCIÓN ---
+        if (op.type === 'SELECT') {
+            if (afterSel.hasSelection && !afterSel.geomBaseExists) {
+                // Si seleccionamos una pieza útil de diseño pero carece de geomBase
+                inconsistencies.push({
+                    type: 'INVARIANT_FAILURE',
+                    code: 'DESTRUCCION_GEOMBASE',
+                    message: `[INVARIANTE VIOLADO] El objeto ID: ${afterSel.id} fue seleccionado pero carece de 'data.geomBase'. Su reactividad CSG e independencia Bézier quedan inoperativas.`
+                });
             }
         }
 
-        // 5. Auditoría de Redimensionamiento (RESIZE)
-        if (opType === 'RESIZE' && beforeSel.primary && afterSel.primary && beforeSel.primary.bounds && afterSel.primary.bounds) {
-            const dw = Math.abs(afterSel.primary.bounds.width - beforeSel.primary.bounds.width);
-            const dh = Math.abs(afterSel.primary.bounds.height - beforeSel.primary.bounds.height);
-            if (dw < 0.2 && dh < 0.2) {
-                checks.scaleValid = false;
-                inconsistencies.push(
-                    `[ESCALADO FRUSTRADO] Se arrastró un tirador de tamaño pero las dimensiones del objeto quedaron estáticas.`
-                );
-            }
-        }
-
-        // 6. Auditoría de Pérdida Geométrica en Desagrupado (UNGROUP)
-        if (opType === 'UNGROUP' && beforeGeo.totalUsefulItems > 0 && afterGeo.totalUsefulItems < beforeGeo.totalUsefulItems) {
-            checks.itemLossDetected = true;
-            const lost = beforeGeo.totalUsefulItems - afterGeo.totalUsefulItems;
-            inconsistencies.push(
-                `[CONTRATO VIOLADO: ANIQUILACIÓN EN DESAGRUPAR] Se perdieron/destruyeron ${lost} elementos vectoriales en la fragmentación.`
-            );
-        }
-
-        // 7. Auditoría de Conservación de Silueta Inmaculada (geomBase)
-        if (beforeSel.primary && beforeSel.primary.hasGeomBase && afterSel.primary && !afterSel.primary.hasGeomBase) {
-            checks.geomBasePreserved = false;
-            inconsistencies.push(
-                `[INVARIANTE VIOLADO: DESTRUCCIÓN DE GEOMBASE] El objeto ID: ${afterSel.primary.id} perdió 'data.geomBase'. Su reactividad de sustracciones CSG ha quedado inoperativa.`
-            );
-        }
-
-        // 8. Auditoría de Creación de Texto, SVG, Imagen y QR (Efecto Real)
-        if (['ADD_TEXT', 'ADD_IMAGE', 'IMPORT_SVG', 'ADD_QR'].includes(opType)) {
-            const isSystemCall = (op.source === 'paper.project.importSVG' && !op.buttonContract);
-            if (afterGeo.totalUsefulItems <= beforeGeo.totalUsefulItems && !isModal && !isSystemCall) {
-                inconsistencies.push(
-                    `[CONTRATO VIOLADO: CREACIÓN FALLIDA] Se invocó '${opType}' pero ningún elemento físico ingresó al lienzo.`
-                );
-            }
-        }
-
-        // =========================================================================
-        // ADICIÓN REQUERIDA POR EL 3ER Y 4TO MANDAMIENTO: COMPROBACIONES GEOMÉTRICAS PROFUNDAS
-        // =========================================================================
-
-        // A) Sincronización Interactiva de Nodos y Vértices (NODE_EDIT y NODE_DRAG)
-        if (opType === 'NODE_EDIT' && beforeSel.primary && afterSel.primary) {
-            const b0 = beforeSel.primary.bounds;
-            const b1 = afterSel.primary.bounds;
-            
-            // Caso 1: Se arrastró un nodo visual, pero las coordenadas o dimensiones de la geometría del objeto padre no variaron en absoluto
-            if (b0 && b1 && b0.x === b1.x && b0.y === b1.y && b0.width === b1.width && b0.height === b1.height) {
-                checks.nodeIntegrityValid = false;
-                inconsistencies.push(
-                    `[CONTRATO VIOLADO: NODE_TO_GEOMETRY_SYNC] El nodo se desplazó visualmente, pero la geometría del objeto padre ID: ${afterSel.primary.id} (bounds: [${b1.width}x${b1.height}]) quedó inalterada.`
-                );
-            }
-
-            // Caso 2: Se eliminaron nodos, pero el conteo total de segmentos en el objeto padre no se redujo
-            if (op.source.includes('deleteSelectedNodes') || op.source.includes('DELETE_NODE')) {
-                if (afterSel.primary.visibleSegments >= beforeSel.primary.visibleSegments) {
-                    checks.nodeIntegrityValid = false;
-                    inconsistencies.push(
-                        `[CONTRATO VIOLADO: NODE_DELETION_FAILED] Se ordenó borrar vértices seleccionados, pero el conteo de segmentos del trazado persistió idéntico (${beforeSel.primary.visibleSegments} segmentos).`
-                    );
-                }
-            }
-        }
-
-        // B) Invariante de Apilamiento Z (Z_ORDER_STATE_SYNC)
-        const zOrderAlterableActions = ['BRING_TO_FRONT', 'SEND_TO_BACK', 'BRING_FORWARD', 'SEND_BACKWARD', 'UNGROUP', 'GROUP', 'DELETE', 'DUPLICATE', 'SELECT', 'DESELECT', 'IMPORT_SVG', 'ADD_TEXT', 'ADD_IMAGE', 'ADD_QR'];
-        if (!zOrderAlterableActions.includes(opType)) {
-            const beforeZ = beforeGeo.zOrderIds || [];
-            const afterZ = afterGeo.zOrderIds || [];
-            if (beforeZ.length === afterZ.length) {
-                const zShiftIdx = beforeZ.findIndex((id, idx) => id !== afterZ[idx]);
-                if (zShiftIdx !== -1) {
-                    checks.zOrderConsistent = false;
-                    inconsistencies.push(
-                        `[INVARIANTE VIOLADO: Z_ORDER_STATE_SYNC] La acción de transformación '${opType}' alteró colateralmente el orden de apilamiento Z en el lienzo (Desvío detectado en índice Z: ${zShiftIdx}).`
-                    );
-                }
-            }
-        }
-
-        const pass = inconsistencies.length === 0;
-        return { checks, inconsistencies, pass };
-    }
-
-    // =========================================================================
-    // CICLO DE VIDA OPERACIONAL DE LA CAJA NEGRA (BEGIN, END Y LIVE-LOG)
-    // =========================================================================
-    function beginOperation(actionName, sourceDesc, meta) {
-        if (!diagState.active) return null;
-        diagState.opCounter++;
-        const padId = String(diagState.opCounter).padStart(5, '0');
-        const op = {
-            id: `OP-${padId}`,
-            action: actionName,
-            source: sourceDesc || 'Sistema',
-            meta: meta || {},
-            buttonContract: (meta && meta.resolvedContract) ? meta.resolvedContract : null,
-            startTime: performance.now(),
-            durationMs: 0,
-            selectionBefore: snapshotSelection(),
-            geometryBefore: snapshotGeometricState(),
-            selectionAfter: null,
-            geometryAfter: null,
-            callGraph: [],
-            consistency: null
-        };
-        diagState.currentOp = op;
-        return op;
-    }
-
-    function endOperation() {
-        if (!diagState.active || !diagState.currentOp) return null;
-        const op = diagState.currentOp;
-        op.durationMs = Number((performance.now() - op.startTime).toFixed(1));
-        op.selectionAfter = snapshotSelection();
-        op.geometryAfter = snapshotGeometricState();
-        op.consistency = auditConsistency(op);
-        
-        diagState.operations.push(op);
-        if (diagState.operations.length > 500) {
-            diagState.operations.shift();
-        }
-        
-        emitLiveStreamLog(op);
-        diagState.currentOp = null;
-        return op;
-    }
-
-    function emitLiveStreamLog(op) {
-        const pass = op.consistency ? op.consistency.pass : true;
-        const sel = op.selectionAfter && op.selectionAfter.primary;
-        const selDesc = sel ? `ID: ${sel.id} (${sel.className}) | Z:${sel.zIndex} | ${sel.isHole ? '🕳️ CALADO' : '⬛ MASA'}` : 'Sin selección';
-        const geoDesc = `Capas: ${op.geometryAfter.totalUsefulItems} (Masas: ${op.geometryAfter.massCount}, Calados: ${op.geometryAfter.holeCount})`;
-
-        if (pass) {
-            rawConsole.log(
-                `%c[${op.id}] ${op.action.padEnd(16)}%c | ✓ OK (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc} | ${geoDesc}`,
-                'color: #0284c7; font-weight: bold;',
-                'color: #10b981;'
-            );
-        } else {
-            rawConsole.warn(
-                `%c[${op.id}] ${op.action.padEnd(16)}%c | ⚠️ INCONSISTENCIA DETECTADA (${op.durationMs}ms) | Origen: ${op.source} | ${selDesc}`,
-                'color: #ea580c; font-weight: bold;',
-                'color: #ef4444; font-weight: bold;'
-            );
-            op.consistency.inconsistencies.forEach(inc => {
-                rawConsole.error(`   ↳ ${inc}`);
-            });
-        }
-    }
-
-    // =========================================================================
-    // ENVOLTORIO SISTÉMICO Y SEGURO DE FUNCIONES (CALLGRAPH TRACING)
-    // =========================================================================
-    function forceWrapWindowFunction(fnName, modulePath, actionType) {
-        if (typeof window === 'undefined') return;
-        const original = window[fnName];
-        if (typeof original !== 'function') return;
-
-        const wrapped = function (...args) {
-            const hasExisting = !!diagState.currentOp;
-            let op = hasExisting ? diagState.currentOp : beginOperation(actionType || fnName, `${modulePath} -> ${fnName}()`);
-            const t0 = performance.now();
-            let res, err = null;
-
-            try {
-                res = original.apply(this, args);
-            } catch (e) {
-                err = e;
-                throw e;
-            } finally {
-                const t1 = performance.now();
-                if (op && Array.isArray(op.callGraph)) {
-                    op.callGraph.push({
-                        fnName: fnName,
-                        module: modulePath,
-                        durationMs: Number((t1 - t0).toFixed(1)),
-                        error: err ? err.message : null
+        // --- CONTRATO 3: DUPLICACIÓN E INDEPENDENCIA DE IDENTIDAD ---
+        if (op.type === 'DUPLICATE') {
+            if (afterGeo.totalItems <= beforeGeo.totalItems) {
+                inconsistencies.push({
+                    type: 'CONTRACT_FAILURE',
+                    code: 'CLONE_FAILED',
+                    message: `[CONTRATO VIOLADO] Se solicitó duplicar, pero la cantidad de elementos en el lienzo no aumentó (Previo: ${beforeGeo.totalItems}, Actual: ${afterGeo.totalItems}).`
+                });
+            } else if (beforeSel.hasSelection && afterSel.hasSelection) {
+                if (beforeSel.id === afterSel.id) {
+                    inconsistencies.push({
+                        type: 'DESYNCHRONIZATION',
+                        code: 'SELECTION_NOT_MIGRATED',
+                        message: `[DESINCRONIZACIÓN SELECCIÓN] Al duplicar, la selección activa de Studio no migró al nuevo clon y quedó anclada en el objeto original ID: ${beforeSel.id}.`
                     });
                 }
-                if (!hasExisting && op) {
-                    endOperation();
+            }
+        }
+
+        // --- CONTRATO 4: RECALCULO DE CALADO CSG (isHole) ---
+        if (op.type === 'WELD' || op.type === 'SUBTRACT') {
+            if (afterGeo.totalItems >= beforeGeo.totalItems && beforeGeo.totalItems > 0) {
+                inconsistencies.push({
+                    type: 'CONTRACT_FAILURE',
+                    code: 'CSG_MUTATION_FAILED',
+                    message: `[CONTRATO VIOLADO] La sustracción booleana / perforación de LightBurn style no consolidó las capas geométricas en un único CompoundPath.`
+                });
+            }
+        }
+
+        // --- CONTRATO 5: COHERENCIA DE SEGMENTOS EN EDICIÓN DE NODOS ---
+        if (op.type === 'NODE_EDIT' || op.type === 'NODE_DRAG') {
+            if (beforeSel.hasSelection && afterSel.hasSelection && beforeSel.id === afterSel.id) {
+                const s0 = beforeSel.segmentsCount;
+                const s1 = afterSel.segmentsCount;
+                if (op.source === 'keydown:delete' && s1 >= s0 && s0 > 0) {
+                    inconsistencies.push({
+                        type: 'CONTRACT_FAILURE',
+                        code: 'NODE_DELETION_FAILED',
+                        message: `[CONTRATO VIOLADO: NODE_DELETE] Se ordenó borrar los nodos seleccionados, pero el número de segmentos geométricos no disminuyó (Previo: ${s0}, Actual: ${s1}).`
+                    });
                 }
             }
-            return res;
-        };
+        }
 
-        try {
-            Object.defineProperty(window, fnName, {
-                value: wrapped,
-                writable: true,
+        // --- CONTRATO 6: CONSISTENCIA DE APILAMIENTO Z (Z-ORDER) ---
+        if (beforeGeo.zOrderIds && afterGeo.zOrderIds && beforeGeo.zOrderIds.length === afterGeo.zOrderIds.length) {
+            // Si la operación no es de apilamiento pero el Z-Order mutó
+            const nonStackingOps = ['DRAG', 'SELECT', 'NODE_DRAG'];
+            if (nonStackingOps.includes(op.type)) {
+                let orderMutated = false;
+                for (let i = 0; i < beforeGeo.zOrderIds.length; i++) {
+                    if (beforeGeo.zOrderIds[i] !== afterGeo.zOrderIds[i]) {
+                        orderMutated = true;
+                        break;
+                    }
+                }
+                if (orderMutated) {
+                    inconsistencies.push({
+                        type: 'INVARIANT_FAILURE',
+                        code: 'Z_ORDER_STATE_SYNC_LOST',
+                        message: `[INVARIANTE VIOLADO] El orden de apilamiento Z (Z-index) mutó de forma colateral inesperada durante una operación de ${op.type}.`
+                    });
+                }
+            }
+        }
+
+        return inconsistencies;
+    }
+
+    // =========================================================================
+    // INTERCEPTORES DE LLAMADAS DEL CANVAS (INSTRUMENTACIÓN)
+    // =========================================================================
+    const monitoredAPIs = [
+        { objName: 'window', prop: 'enterNodeEditMode', opType: 'NODE_EDIT' },
+        { objName: 'window', prop: 'exitNodeEditMode', opType: 'NODE_EDIT' },
+        { objName: 'window', prop: 'deleteSelectedNodes', opType: 'NODE_EDIT' },
+        { objName: 'window', prop: 'detachSelectedSubpaths', opType: 'NODE_EDIT' },
+        { objName: 'window', prop: 'duplicateSelectedItem', opType: 'DUPLICATE' },
+        { objName: 'window', prop: 'duplicateSingleItem', opType: 'DUPLICATE' },
+        { objName: 'window', prop: 'duplicateImage', propAlt: 'duplicateImage', opType: 'DUPLICATE' },
+        { objName: 'window', prop: 'deleteImage', opType: 'DELETE' },
+        { objName: 'window', prop: 'groupSelectedItems', opType: 'GROUP' },
+        { objName: 'window', prop: 'ungroupSelectedItem', opType: 'UNGROUP' },
+        { objName: 'window', prop: 'selectItem', opType: 'SELECT' },
+        { objName: 'window', prop: 'deselectItem', opType: 'SELECT' },
+        { objName: 'window', prop: 'recalculateDynamicSubtractions', opType: 'CSG_REACTIVE' }
+    ];
+
+    function installReactivePropertyInterceptors() {
+        if (diagState.interceptorsInstalled || typeof window === 'undefined') return;
+
+        monitoredAPIs.forEach(api => {
+            let currentValue = window[api.prop];
+
+            Object.defineProperty(window, api.prop, {
+                get: function () {
+                    return currentValue;
+                },
+                set: function (newValue) {
+                    if (typeof newValue === 'function' && !newValue.__isWrapped) {
+                        const wrappedFn = function (...args) {
+                            if (!diagState.active) {
+                                return newValue.apply(this, args);
+                            }
+                            const opId = ++diagState.opCounter;
+                            const op = {
+                                id: opId,
+                                type: api.opType,
+                                source: `APICall: window.${api.prop}`,
+                                timestamp: Date.now(),
+                                before: {
+                                    selection: snapshotSelection(),
+                                    geometry: snapshotGeometricState()
+                                },
+                                after: null,
+                                errors: []
+                            };
+
+                            try {
+                                const result = newValue.apply(this, args);
+                                op.after = {
+                                    selection: snapshotSelection(),
+                                    geometry: snapshotGeometricState()
+                                };
+                                op.errors = auditConsistency(op);
+                                diagState.operations.push(op);
+                                return result;
+                            } catch (err) {
+                                op.after = {
+                                    selection: snapshotSelection(),
+                                    geometry: snapshotGeometricState()
+                                };
+                                op.errors.push({
+                                    type: 'RUNTIME_EXCEPTION',
+                                    code: 'METHOD_THROW',
+                                    message: `[ERROR METODO] Falló ejecución de ${api.prop}: ${err.message}`
+                                });
+                                diagState.operations.push(op);
+                                throw err;
+                            }
+                        };
+                        wrappedFn.__isWrapped = true;
+                        currentValue = wrappedFn;
+                    } else {
+                        currentValue = newValue;
+                    }
+                },
                 configurable: true,
                 enumerable: true
             });
-        } catch (e) {
-            window[fnName] = wrapped;
-        }
-    }
 
-    // =========================================================================
-    // INTERCEPTORES DE EVENTOS (DOM, TECLADO Y LIENZO)
-    // =========================================================================
-    function installDOMCaptureListeners() {
-        if (typeof document === 'undefined') return;
-
-        // A) Eventos Click en Botones e interactivos del DOM
-        document.addEventListener('click', function (e) {
-            if (!diagState.active) return;
-            const target = e.target;
-            if (!target) return;
-            const interactiveEl = target.closest('button, [role="button"], .btn-action, .toolbar-btn, .pro-btn, .tab-btn, [data-action], a.btn');
-            if (!interactiveEl) return;
-
-            const resolved = resolveButtonContract(interactiveEl);
-            if (!resolved) return;
-            const contract = resolved.contract;
-
-            const op = beginOperation(contract.name || 'CLICK', contract.label, {
-                isButtonClick: true,
-                domElementId: interactiveEl.id || null,
-                domClass: interactiveEl.className || null,
-                resolvedContract: contract,
-                matchedBy: resolved.matchedBy
-            });
-
-            setTimeout(() => {
-                if (diagState.currentOp === op) endOperation();
-            }, 150);
-        }, true);
-
-        // B) Atajos de Teclado Universales
-        window.addEventListener('keydown', function (e) {
-            if (!diagState.active) return;
-            const activeTag = document.activeElement ? document.activeElement.tagName.toUpperCase() : '';
-            if (['INPUT', 'TEXTAREA'].includes(activeTag)) return;
-            if (document.activeElement && document.activeElement.id === 'ekko-text-editor') return;
-
-            const key = e.key.toLowerCase();
-            const isCtrl = e.ctrlKey || e.metaKey;
-            let action = null;
-
-            if (isCtrl) {
-                if (key === 'z') action = e.shiftKey ? 'REDO' : 'UNDO';
-                else if (key === 'y') action = 'REDO';
-                else if (key === 'c') action = 'COPY';
-                else if (key === 'v') action = 'PASTE';
-                else if (key === 'd') action = 'DUPLICATE';
-                else if (key === 'g') action = 'GROUP';
-                else if (key === 'u') action = 'UNGROUP';
-            } else if (key === 'delete' || key === 'backspace') {
-                action = 'DELETE';
-            } else if (e.key === 'PageUp') {
-                action = isCtrl ? 'BRING_TO_FRONT' : 'BRING_FORWARD';
-            } else if (e.key === 'PageDown') {
-                action = isCtrl ? 'SEND_TO_BACK' : 'SEND_BACKWARD';
+            // Forzar envoltura si ya existía valor previo
+            if (currentValue) {
+                window[api.prop] = currentValue;
             }
-
-            if (action) {
-                const op = beginOperation(action, `Atajo Teclado (${(isCtrl ? 'Ctrl+' : '') + e.key})`);
-                setTimeout(() => {
-                    if (diagState.currentOp === op) endOperation();
-                }, 120);
-            }
-        }, true);
-
-        // C) Ciclo de Vida del Canvas de Paper.js (#editorCanvas)
-        const canvasEl = document.getElementById('editorCanvas');
-        if (canvasEl) {
-            canvasEl.addEventListener('mousedown', function (e) {
-                if (!diagState.active) return;
-                const sel = snapshotSelection();
-                diagState.lastMouseDownPoint = { x: e.clientX, y: e.clientY };
-                diagState.lastMouseDownSelection = sel;
-                diagState.lastMouseDownGeo = snapshotGeometricState();
-
-                diagState.dragTracker = {
-                    active: true,
-                    startX: e.clientX,
-                    startY: e.clientY,
-                    startRotation: sel.primary ? sel.primary.rotation : 0,
-                    startWidth: (sel.primary && sel.primary.bounds) ? sel.primary.bounds.width : 0,
-                    startHeight: (sel.primary && sel.primary.bounds) ? sel.primary.bounds.height : 0,
-                    startSel: sel,
-                    startGeo: diagState.lastMouseDownGeo,
-                    dragMode: window.rotationActive ? 'ROTATE' : (window.resizeActive ? 'RESIZE' : (window.nodeEditMode ? 'NODE_DRAG' : 'MOVE'))
-                };
-            }, true);
-
-            window.addEventListener('mouseup', function (e) {
-                if (!diagState.active || !diagState.dragTracker.active) return;
-                const tracker = diagState.dragTracker;
-                tracker.active = false;
-                const dx = Math.abs(e.clientX - tracker.startX);
-                const dy = Math.abs(e.clientY - tracker.startY);
-
-                setTimeout(() => {
-                    const selNow = snapshotSelection();
-                    const geoNow = snapshotGeometricState();
-
-                    if (dx > 3 || dy > 3) {
-                        let actionName = 'DRAG';
-                        if (tracker.dragMode === 'ROTATE' || window.rotationActive) actionName = 'ROTATE';
-                        else if (tracker.dragMode === 'RESIZE' || window.resizeActive) actionName = 'RESIZE';
-                        else if (tracker.dragMode === 'NODE_DRAG' || window.nodeEditMode) actionName = 'NODE_EDIT';
-
-                        const op = beginOperation(actionName, `Lienzo: ${actionName}`);
-                        op.selectionBefore = tracker.startSel;
-                        op.geometryBefore = tracker.startGeo;
-                        endOperation();
-                    } else {
-                        // Click simple sin desplazamiento: Detección de Selección/Deselección
-                        const idBefore = tracker.startSel.primary ? tracker.startSel.primary.id : null;
-                        const idNow = selNow.primary ? selNow.primary.id : null;
-                        if (idBefore !== idNow || (!tracker.startSel.hasSelection && selNow.hasSelection) || (tracker.startSel.hasSelection && !selNow.hasSelection)) {
-                            const op = beginOperation(idNow ? 'SELECT' : 'DESELECT', 'Clic en Lienzo (#editorCanvas)');
-                            op.selectionBefore = tracker.startSel;
-                            op.geometryBefore = tracker.startGeo || geoNow;
-                            endOperation();
-                        }
-                    }
-                }, 50);
-            }, true);
-        }
-    }
-
-    function installAllInterceptors() {
-        if (diagState.interceptorsInstalled) return;
-
-        const functionsToWrap = [
-            ['openSVGFileDialog', 'editor.js', 'OPEN_FILE_DIALOG'],
-            ['openImageFileDialog', 'editor.js', 'OPEN_FILE_DIALOG'],
-            ['addQRToCanvas', 'editor.js', 'ADD_QR'],
-            ['startTextEditing', 'textEditor.js', 'START_TEXT_EDIT'],
-            ['selectItem', 'selection.js', 'SELECT'],
-            ['deselectItem', 'selection.js', 'DESELECT'],
-            ['updateSelectionBox', 'selection.js', 'UPDATE_SELECTION_BOX'],
-            ['initSelectionTool', 'selection.js', 'INIT_SELECTION_TOOL'],
-            ['ungroupSelectedItem', 'geometricUngroup.js', 'UNGROUP'],
-            ['groupSelectedItems', 'contextualMenu.js', 'GROUP'],
-            ['duplicateImage', 'imageToolbar.js', 'DUPLICATE'],
-            ['deleteImage', 'imageToolbar.js', 'DELETE'],
-            ['cloneSingleItem', 'contextualMenu.js', 'CLONE_ITEM'],
-            ['bringFront', 'editor.js', 'BRING_TO_FRONT'],
-            ['sendBack', 'editor.js', 'SEND_TO_BACK'],
-            ['bringForward', 'editor.js', 'BRING_FORWARD'],
-            ['sendBackward', 'editor.js', 'SEND_BACKWARD'],
-            ['enterNodeEditMode', 'nodeEditor.js', 'ENTER_NODE_EDIT'],
-            ['exitNodeEditMode', 'nodeEditor.js', 'EXIT_NODE_EDIT'],
-            ['deleteSelectedNodes', 'nodeEditor.js', 'DELETE_NODES'],
-            ['detachSelectedSubpaths', 'nodeEditor.js', 'DETACH_SUBPATH'],
-            ['recalculateDynamicSubtractions', 'geometricUngroup.js', 'RECALCULATE_CSG'],
-            ['alignSelection', 'canvasControlsIntegration.js', 'ALIGN'],
-            ['distributeSpacing', 'canvasControlsIntegration.js', 'DISTRIBUTE'],
-            ['duplicateSelectedItem', 'contextualMenu.js', 'DUPLICATE'],
-            ['copySelected', 'editor.js', 'COPY'],
-            ['pasteSelected', 'editor.js', 'PASTE']
-        ];
-
-        functionsToWrap.forEach(item => {
-            forceWrapWindowFunction(item[0], item[1], item[2]);
         });
 
-        // Gancho seguro en la importación asíncrona de SVG nativa de Paper.js
-        if (typeof paper !== 'undefined' && paper.project && paper.project.importSVG && !paper.project._diagWrapped) {
-            const origImportSVG = paper.project.importSVG;
-            paper.project.importSVG = function (...args) {
-                beginOperation('IMPORT_SVG', 'paper.project.importSVG');
-                const cbIndex = args.findIndex(a => typeof a === 'function');
-                if (cbIndex >= 0) {
-                    const originalCb = args[cbIndex];
-                    args[cbIndex] = function (item) {
-                        const res = originalCb(item);
-                        setTimeout(() => { endOperation(); }, 60);
-                        return res;
-                    };
-                }
-                return origImportSVG.apply(this, args);
-            };
-            paper.project._diagWrapped = true;
-        }
+        // Intercepción global de eventos del DOM en caliente (Clics interactivos)
+        document.addEventListener('click', function (e) {
+            if (!diagState.active) return;
+            const target = e.target.closest('button, .toolbar-btn, [id^="btnCtx"], [id^="proBtn"]');
+            if (!target) return;
 
-        installDOMCaptureListeners();
+            const opId = ++diagState.opCounter;
+            const op = {
+                id: opId,
+                type: 'DOM_CLICK',
+                source: `DOMClick: #${target.id || 'N/A'} [${target.className || ''}]`,
+                timestamp: Date.now(),
+                before: {
+                    selection: snapshotSelection(),
+                    geometry: snapshotGeometricState()
+                },
+                after: null,
+                errors: [],
+                metadata: {
+                    buttonId: target.id,
+                    innerText: target.innerText ? target.innerText.trim() : ''
+                }
+            };
+
+            // Esperar 150ms asincrónicamente para capturar mutaciones resultantes del clic
+            setTimeout(() => {
+                op.after = {
+                    selection: snapshotSelection(),
+                    geometry: snapshotGeometricState()
+                };
+
+                // Comprobar si el botón tiene event listeners conectados
+                const listeners = eventRegistry.get(target);
+                const hasClickHandlers = listeners && Array.from(listeners).some(l => l.type === 'click');
+
+                if (!hasClickHandlers && !target.onclick) {
+                    op.errors.push({
+                        type: 'ACTION_WITHOUT_EFFECT',
+                        code: 'DEAD_BUTTON_NO_LISTENER',
+                        message: `[BOTÓN MUERTO] Se hizo clic en el botón #${target.id || 'N/A'} ('${op.metadata.innerText}'), pero no tiene ningún receptor de eventos de clic conectado. El botón está desconectado.`
+                    });
+                } else {
+                    // Validar si produjo efectos geométricos o de estado
+                    const stateChanged = JSON.stringify(op.before) !== JSON.stringify(op.after);
+                    if (!stateChanged) {
+                        // Es un clic inerte. Podría ser normal (ej. abrir menú de fuentes), pero es advertible.
+                        const isMenuToggle = target.id.includes('Selector') || target.id.includes('dropdown');
+                        if (!isMenuToggle && op.before.selection.hasSelection) {
+                            op.errors.push({
+                                type: 'ACTION_WITHOUT_EFFECT',
+                                code: 'CLIC_INERTE_ADVERTENCIA',
+                                message: `[ADVERTENCIA: CLIC SIN EFECTO] Clic en #${target.id || 'N/A'} no produjo cambios detectables en el Canvas ni en la selección.`
+                            });
+                        }
+                    }
+                }
+
+                op.errors.push(...auditConsistency(op));
+                diagState.operations.push(op);
+            }, 150);
+
+        }, { capture: true });
+
+        // Intercepción del arrastre físico del ratón en el lienzo
+        let isMouseDownOnCanvas = false;
+        let pointerMovedDuringDrag = false;
+
+        document.addEventListener('mousedown', function (e) {
+            if (!diagState.active) return;
+            const canvas = document.getElementById('editorCanvas');
+            if (e.target === canvas) {
+                isMouseDownOnCanvas = true;
+                pointerMovedDuringDrag = false;
+                diagState.lastInteraction = {
+                    type: 'DRAG_START',
+                    timestamp: Date.now(),
+                    before: {
+                        selection: snapshotSelection(),
+                        geometry: snapshotGeometricState()
+                    }
+                };
+            }
+        }, { capture: true });
+
+        document.addEventListener('mousemove', function (e) {
+            if (isMouseDownOnCanvas) {
+                pointerMovedDuringDrag = true;
+            }
+        }, { capture: true });
+
+        document.addEventListener('mouseup', function (e) {
+            if (isMouseDownOnCanvas && diagState.lastInteraction) {
+                isMouseDownOnCanvas = false;
+                const opId = ++diagState.opCounter;
+                const op = {
+                    id: opId,
+                    type: window.nodeEditMode ? 'NODE_DRAG' : 'DRAG',
+                    source: 'canvas:mousedrag',
+                    timestamp: Date.now(),
+                    before: diagState.lastInteraction.before,
+                    after: {
+                        selection: snapshotSelection(),
+                        geometry: snapshotGeometricState()
+                    },
+                    errors: [],
+                    metadata: {
+                        pointerMoved: pointerMovedDuringDrag
+                    }
+                };
+                op.errors = auditConsistency(op);
+                diagState.operations.push(op);
+                diagState.lastInteraction = null;
+            }
+        }, { capture: true });
+
+        // Intercepción de atajos de teclado críticos
+        document.addEventListener('keydown', function (e) {
+            if (!diagState.active) return;
+            const key = e.key.toLowerCase();
+            const isCtrl = e.ctrlKey || e.metaKey;
+
+            let shortcutTriggered = null;
+            if (isCtrl && key === 'd') shortcutTriggered = 'Ctrl+D (Duplicar)';
+            if (isCtrl && key === 'c') shortcutTriggered = 'Ctrl+C (Copiar)';
+            if (isCtrl && key === 'v') shortcutTriggered = 'Ctrl+V (Pegar)';
+            if (e.key === 'Delete' || e.key === 'Backspace') shortcutTriggered = 'Supr/Retroceso (Eliminar)';
+
+            if (shortcutTriggered) {
+                const opId = ++diagState.opCounter;
+                const op = {
+                    id: opId,
+                    type: shortcutTriggered.includes('Duplicar') ? 'DUPLICATE' : 
+                          shortcutTriggered.includes('Eliminar') ? 'DELETE' : 'SHORTCUT',
+                    source: `keydown:${key}`,
+                    timestamp: Date.now(),
+                    before: {
+                        selection: snapshotSelection(),
+                        geometry: snapshotGeometricState()
+                    },
+                    after: null,
+                    errors: []
+                };
+
+                setTimeout(() => {
+                    op.after = {
+                        selection: snapshotSelection(),
+                        geometry: snapshotGeometricState()
+                    };
+                    op.errors = auditConsistency(op);
+                    diagState.operations.push(op);
+                }, 150);
+            }
+        }, { capture: true });
+
         diagState.interceptorsInstalled = true;
     }
 
     // =========================================================================
-    // SISTEMA DE CORRELACIÓN Y ANÁLISIS DE CASCADA (MANDAMIENTOS DE INTEGRIDAD)
+    // COMANDO INTERACTIVO 'EKKO_DIAG.inspect()' (EAGLE EYE ENGINE)
     // =========================================================================
-    function analyzeCascadeErrors() {
-        const ops = diagState.operations;
-        const failedOps = ops.filter(op => op.consistency && !op.consistency.pass);
-        if (failedOps.length === 0) return null;
+    function inspectCanvasAndDOM() {
+        rawConsole.log('%c🔍 [EKKO EAGLE EYE INSPECTOR INICIALIZADO] Realizando auditoría estática profunda...', 'color: #0284c7; font-weight: bold; font-size: 13px;');
 
-        // La regla de la primera inconsistencia observable:
-        const firstFailure = failedOps[0];
-        const chain = [];
-        
-        // Unificar fallas que dependan temporalmente de la primera ruptura
-        for (let i = ops.indexOf(firstFailure); i < ops.length; i++) {
-            const current = ops[i];
-            if (current.consistency && !current.consistency.pass) {
-                chain.push({
-                    id: current.id,
-                    action: current.action,
-                    source: current.source,
-                    failures: current.consistency.inconsistencies
+        const audit = {
+            domDeadButtons: [],
+            domConnectedButtonsCount: 0,
+            canvasStatus: 'UNKNOWN',
+            canvasInvisibleNodes: [],
+            canvasGeometricBaseStatus: [],
+            warnings: []
+        };
+
+        // 1. Auditoría DOM: Escaneo exhaustivo de botones fantasmas
+        const buttons = document.querySelectorAll('button, .toolbar-btn, [id^="btnCtx"], [id^="proBtn"]');
+        buttons.forEach(btn => {
+            const listeners = eventRegistry.get(btn);
+            const hasClickHandlers = (listeners && Array.from(listeners).some(l => l.type === 'click')) || btn.onclick;
+
+            if (!hasClickHandlers) {
+                audit.domDeadButtons.push({
+                    id: btn.id || 'N/A',
+                    className: btn.className || '',
+                    text: btn.innerText ? btn.innerText.trim() : 'Sin texto',
+                    parentContainer: btn.parentElement ? btn.parentElement.id || btn.parentElement.className : 'DOM Root'
                 });
+            } else {
+                audit.domConnectedButtonsCount++;
+            }
+        });
+
+        // 2. Auditoría del Canvas de Paper.js
+        if (typeof paper !== 'undefined' && paper.project) {
+            audit.canvasStatus = 'CONNECTED';
+            const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+
+            if (designLayer && designLayer.children) {
+                // Auditoría geométrica de los elementos
+                designLayer.children.forEach(item => {
+                    if (item.data && (item.data.isSelectionBox || item.data.isHandle || item.data.isNodeEditOverlay || item.data.isSmartGuide)) {
+                        return; // Omitir controles visuales
+                    }
+                    const target = getContentItem(item);
+                    const hasGeomBase = !!(target && target.data && target.data.geomBase);
+
+                    audit.canvasGeometricBaseStatus.push({
+                        id: item.id,
+                        className: item.className,
+                        label: item.data?.label || 'Sin etiqueta',
+                        visible: item.visible,
+                        hasGeomBase: hasGeomBase,
+                        isClipped: !!(item.data && item.data.clipGroup)
+                    });
+
+                    if (!hasGeomBase && item.visible && !item.data?.mockup) {
+                        audit.warnings.push(`[INVARIANTE DESTRUIDO] El elemento ID: ${item.id} ('${item.data?.label || 'Vector'}') está visible pero no posee 'data.geomBase'. Su edición de nodos fallará.`);
+                    }
+                });
+
+                // Auditoría específica del Modo Nodos si está activo
+                if (window.nodeEditMode) {
+                    const nodeGroup = designLayer.children.find(c => c.data && c.data.isNodeHandleContainer);
+                    if (!nodeGroup || !nodeGroup.children || nodeGroup.children.length === 0) {
+                        audit.canvasInvisibleNodes.push({
+                            code: 'NO_OVERLAY_GROUP_FOUND',
+                            message: `[ERROR VISUAL] 'nodeEditMode' está activo en window, pero no se encontró ningún contenedor de nodos interactivos ('isNodeHandleContainer') dibujado en la capa de diseño.`
+                        });
+                    } else {
+                        // Validar si los tiradores están fuera del Viewport
+                        const viewportBounds = paper.view.bounds;
+                        let visibleNodesCount = 0;
+                        nodeGroup.children.forEach(child => {
+                            if (child.data?.isNodeHandle && child.visible && child.opacity > 0) {
+                                if (viewportBounds.contains(child.position)) {
+                                    visibleNodesCount++;
+                                }
+                            }
+                        });
+
+                        if (visibleNodesCount === 0) {
+                            audit.canvasInvisibleNodes.push({
+                                code: 'NODES_OFFSCREEN',
+                                message: `[ERROR VISUAL] Los nodos de anclaje están cargados en memoria (${nodeGroup.children.length} elementos), pero todos se encuentran fuera de los límites de la pantalla (Viewport Bounds) debido al zoom o desplazamiento del lienzo.`
+                            });
+                        }
+                    }
+                }
+            } else {
+                audit.canvasStatus = 'EMPTY_DESIGN_LAYER';
+                audit.warnings.push('[ADVERTENCIA CANVAS] No se encontró la capa canónica de diseño ("designLayer") activa.');
+            }
+        } else {
+            audit.canvasStatus = 'DISCONNECTED_PAPER_JS_NOT_FOUND';
+            audit.warnings.push('[ERROR CRÍTICO] No se encontró Paper.js o el lienzo no está instanciado en el ámbito global.');
+        }
+
+        // 3. Imprimir el Reporte de Inspección por consola de forma estética
+        rawConsole.log('%c📋 RESULTADOS DEL INSPECTOR DE CAJA NEGRA:', 'color: #0369a1; font-weight: bold;');
+        
+        // Sección A: Conectividad DOM
+        if (audit.domDeadButtons.length > 0) {
+            rawConsole.warn(`%c🔴 BOTONES FANTASMAS DETECTADOS (${audit.domDeadButtons.length}):`, 'font-weight: bold; color: #b91c1c;');
+            rawConsole.table(audit.domDeadButtons);
+            rawConsole.error('[FALLO DE CONECTIVIDAD INTERFÁCICA] Estos botones existen físicamente en el DOM, pero el usuario los presiona y nada ocurre porque no tienen listeners asociados.');
+        } else {
+            rawConsole.log(`%c🟢 CONECTIVIDAD DOM IMPECABLE: ${audit.domConnectedButtonsCount} botones activos validados con receptores funcionales.`, 'color: #15803d;');
+        }
+
+        // Sección B: Integridad Visual de Nodos
+        if (window.nodeEditMode) {
+            if (audit.canvasInvisibleNodes.length > 0) {
+                rawConsole.error(`%c🔴 FALLO CRÍTICO EN MODO EDICIÓN DE NODOS:`, 'font-weight: bold; color: #b91c1c;');
+                audit.canvasInvisibleNodes.forEach(n => rawConsole.error(`  ↳ ${n.message}`));
+            } else {
+                rawConsole.log('%c🟢 RENDERIZADO DE NODOS ACTIVO: Los nodos Bézier se encuentran cargados, visibles y dentro del viewport del lienzo.', 'color: #15803d;');
             }
         }
 
-        // Deducir causa raíz probabilística y sistemas involucrados
-        let probableRoot = "No se puede confirmar causa raíz de forma automatizada.";
-        let relatedSystems = ["N/A"];
-
-        if (firstFailure.action === 'NODE_EDIT' || firstFailure.action === 'NODE_DRAG') {
-            probableRoot = "La edición de vértices actualiza la posición del tirador visual de Paper.js, pero la mutación no se propaga a la geometría base 'data.geomBase' ni se recalculan los bounds del trazado real.";
-            relatedSystems = ["nodeEditor.js", "geometricUngroup.js -> recalculateDynamicSubtractions()"];
-        } else if (firstFailure.action === 'DUPLICATE') {
-            probableRoot = "La duplicación de objetos clona las entidades del lienzo pero asocia los handles visuales o referencias del editor de nodos al objeto de origen anterior (Ownership desincronizado).";
-            relatedSystems = ["contextualMenu.js -> duplicateSelectedItem()", "nodeEditor.js"];
-        } else if (firstFailure.action === 'UNGROUP') {
-            probableRoot = "El despiece booleano por jerarquía de contención aniquila capas cerradas debido a intersecciones asimétricas o desecha subcapas inactivas durante el aplanamiento de CompoundPaths.";
-            relatedSystems = ["geometricUngroup.js -> decomposeByContainmentHierarchy()", "exportSVG.js"];
-        } else if (firstFailure.consistency.checks.deadClickDetected) {
-            probableRoot = "Se asignó un elemento interactivo en el DOM (ID o clase de acción) pero carece de un addEventListener activo en editor.js o canvasControlsIntegration.js (Clic Muerto).";
-            relatedSystems = ["editor.js -> bootstrapEKKO()", "index.html"];
+        // Sección C: Geometría Base e Invariantes
+        if (audit.warnings.length > 0) {
+            rawConsole.warn('%c⚠️ ADVERTENCIAS DE INVARIANTE VECTORIAL:', 'font-weight: bold; color: #a16207;');
+            audit.warnings.forEach(w => rawConsole.warn(`  ↳ ${w}`));
+        } else {
+            rawConsole.log('%c🟢 INTEGRIDAD VECTORIAL COMPLETA: Todos los objetos interactivos conservan su geometría base reactiva intacta.', 'color: #15803d;');
         }
 
-        return {
-            firstFailure,
-            chain,
-            probableRoot,
-            relatedSystems
-        };
+        rawConsole.log('%c🔍 [FIN DE INSPECCIÓN ESTÁTICA]', 'color: #0284c7; font-weight: bold;');
+        return audit;
     }
 
     // =========================================================================
-    // API PÚBLICA UNIVERSAL EKKO_DIAG
+    // EXPOSICIÓN DE LA API PÚBLICA DE DIAGNÓSTICO
     // =========================================================================
     const publicAPI = {
+        /**
+         * Enciende la caja negra registradora de forma activa.
+         */
         start: function () {
             diagState.active = true;
-            installAllInterceptors();
-            rawConsole.log('%c[EKKO_DIAG v10.0 Canonical Forensic BlackBox] Activo 🟢 - Supervisión del 100% sin Puntos Ciegos', 'color: #10b981; font-weight: bold; font-size: 13px;');
-            return 'EKKO_DIAG v10.0 Activo. Monitoreando automáticamente herramientas, botones, transformaciones, clics y excepciones.';
-        },
-        
-        stop: function () {
-            diagState.active = false;
-            rawConsole.log('%c[EKKO_DIAG] Detenido 🔴', 'color: #ef4444; font-weight: bold;');
-            return 'EKKO_DIAG Detenido.';
-        },
-        
-        clear: function () {
-            diagState.operations = [];
-            diagState.opCounter = 0;
-            diagState.currentOp = null;
-            diagState.consoleErrors = [];
-            return 'Caja negra vaciada. Historial de sesión e inconsistencias limpio.';
-        },
-        
-        registerButtonContract: function (idOrSelector, contractConfig) {
-            registerContract(idOrSelector, contractConfig);
-            rawConsole.log(`%c[EKKO_DIAG] Contrato funcional registrado para '${idOrSelector}'`, 'color: #0284c7;');
-            return true;
+            installReactivePropertyInterceptors();
+            rawConsole.log('%c[EKKO_DIAG v13.0 EagleEye] Caja Negra Encendida 🟢 - Monitoreando interacciones, atajos y listeners...', 'color: #15803d; font-weight: bold;');
         },
 
+        /**
+         * Apaga temporalmente la caja negra.
+         */
+        stop: function () {
+            diagState.active = false;
+            rawConsole.log('%c[EKKO_DIAG] Caja Negra Detenida 🔴', 'color: #b91c1c; font-weight: bold;');
+        },
+
+        /**
+         * Borra el historial del buffer de operaciones.
+         */
+        clear: function () {
+            diagState.operations = [];
+            diagState.consoleErrors = [];
+            diagState.opCounter = 0;
+            rawConsole.log('[EKKO_DIAG] Historial de Caja Negra borrado.');
+        },
+
+        /**
+         * Devuelve un snapshot del estado activo actual de la sesión.
+         */
         status: function () {
             return {
-                activo: diagState.active,
-                totalOperaciones: diagState.operations.length,
-                conteoExcepciones: diagState.consoleErrors.length,
-                interceptoresAcoplados: diagState.interceptorsInstalled
+                active: diagState.active,
+                totalOperationsTracked: diagState.operations.length,
+                totalConsoleErrorsTracked: diagState.consoleErrors.length,
+                nodeEditModeActive: !!window.nodeEditMode,
+                selectedItem: window.selectedItem ? window.selectedItem.id : null
             };
         },
 
-        snapshot: function (label) {
-            const op = beginOperation('MANUAL_SNAPSHOT', `F12 -> snapshot('${label || 'Manual'}')`);
-            setTimeout(() => endOperation(), 10);
-            return 'Snapshot manual registrado en la cola operacional.';
+        /**
+         * Fuerza un escaneo estático en caliente del DOM y Paper.js (Eagle Eye).
+         */
+        inspect: function () {
+            return inspectCanvasAndDOM();
         },
 
+        /**
+         * Escupe el Reporte Técnico de Auditoría estructurado según la Sección 25.
+         */
         report: function () {
-            const ops = diagState.operations;
+            const buffer = diagState.operations;
             const exceptions = diagState.consoleErrors;
-            const cascadeAnalysis = analyzeCascadeErrors();
 
-            let out = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-            out += '║     EKKO STUDIO DIAGNOSTIC v11.0 - ESTÁNDAR CANÓNICO DE CONTRATOS FORENSES       ║\n';
-            out += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
+            let reportText = `========================================================================\n`;
+            reportText += `          REPORTE TÉCNICO DE AUDITORÍA FORENSE - EKKO STUDIO (v13.0)\n`;
+            reportText += `          Generado: ${new Date().toISOString()}\n`;
+            reportText += `          Operaciones Trackeadas: ${buffer.length} | Errores de Consola: ${exceptions.length}\n`;
+            reportText += `========================================================================\n\n`;
 
-            out += `Duración de Sesión: ${ops.length > 0 ? Math.round((performance.now() - ops[0].startTime) / 1000) : 0} segundos\n`;
-            out += `Operaciones Auditadas: ${ops.length}\n`;
-            out += `Excepciones de JavaScript en F12: ${exceptions.length}\n\n`;
-
-            // SECCIÓN: FIRST OBSERVABLE INCONSISTENCY (REGLA DE ORO DE LA INTEGRIDAD)
-            if (cascadeAnalysis) {
-                const first = cascadeAnalysis.firstFailure;
-                out += '================================================================================\n';
-                out += '🔴 FIRST OBSERVABLE INCONSISTENCY DETECTED (PUNTO DE RUPTURA PRIMARIO)          \n';
-                out += '================================================================================\n';
-                out += `Operación Crítica: ${first.id} | Acción: ${first.action} | Origen: ${first.source}\n`;
-                out += `Inconsistencias de la primera ruptura:\n`;
-                first.consistency.inconsistencies.forEach(inc => {
-                    out += `   ↳ ${inc}\n`;
-                });
-                out += `\nProbable Causa Raíz:\n   👉 ${cascadeAnalysis.probableRoot}\n`;
-                out += `\nMódulos y Archivos Comprometidos:\n`;
-                cascadeAnalysis.relatedSystems.forEach(sys => {
-                    out += `   📁 ${sys}\n`;
-                });
-                out += '================================================================================\n\n';
-            } else {
-                out += '💚 [SIN RUPTURAS] No se han detectado desincronizaciones de contratos vectoriales en esta sesión.\n\n';
-            }
-
-            // SECCIÓN: #### ERRORS
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### ERRORS\n';
-            out += '--------------------------------------------------------------------------------\n';
+            // SECCIÓN 1: ERRORS (Runtime exceptions)
+            reportText += `### 1. ERRORS (EXCEPCIONES DE TIEMPO DE EJECUCIÓN JAVASCRIPT)\n`;
             if (exceptions.length === 0) {
-                out += ' (Ningún error o excepción de JavaScript fue registrado en la consola de F12)\n';
+                reportText += `  [OK] No se registraron excepciones de runtime ni fallas asíncronas de consola F12 durante la sesión.\n\n`;
             } else {
                 exceptions.forEach((err, idx) => {
-                    out += `[ERR-${String(idx + 1).padStart(3, '0')}] ${err.message}\n`;
+                    reportText += `  [ERROR #${idx + 1}] Timestamp: ${new Date(err.timestamp).toLocaleTimeString()} | Tool: ${err.activeTool}\n`;
+                    reportText += `    ↳ Mensaje: ${err.message}\n`;
                     if (err.stack) {
-                        out += `   ↳ Traceback: ${err.stack.split('\n')[1] || ''}\n`;
+                        reportText += `    ↳ StackTrace: ${err.stack.split('\n').slice(0, 3).join('\n      ')}\n`;
                     }
+                    reportText += `\n`;
                 });
             }
-            out += '\n';
 
-            // SECCIÓN: #### CONTRACT FAILURES
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### CONTRACT FAILURES\n';
-            out += '--------------------------------------------------------------------------------\n';
-            let contractFails = ops.filter(op => op.consistency && (!op.consistency.checks.selectionPreconditionValid || !op.consistency.checks.actionExecuted || op.consistency.inconsistencies.some(i => i.includes('PRECONDICIÓN') || i.includes('BLOQUEADO'))));
-            if (contractFails.length === 0) {
-                out += ' (Ninguna violación de precondiciones de selección o restricciones de bloqueo fue detectada)\n';
-            } else {
-                contractFails.forEach(op => {
-                    out += `[${op.id}] ${op.action} | Origen: ${op.source}\n`;
-                    op.consistency.inconsistencies.filter(i => i.includes('PRECONDICIÓN') || i.includes('BLOQUEADO')).forEach(inc => {
-                        out += `   ↳ ${inc}\n`;
+            // SECCIÓN 2: CONTRACT FAILURES
+            const contractFailures = [];
+            const invariantFailures = [];
+            const desyncs = [];
+            const deadActions = [];
+
+            buffer.forEach(op => {
+                if (op.errors && op.errors.length > 0) {
+                    op.errors.forEach(err => {
+                        const formattedErr = {
+                            opId: op.id,
+                            opType: op.type,
+                            source: op.source,
+                            code: err.code,
+                            message: err.message
+                        };
+                        if (err.type === 'CONTRACT_FAILURE') contractFailures.push(formattedErr);
+                        if (err.type === 'INVARIANT_FAILURE') invariantFailures.push(formattedErr);
+                        if (err.type === 'DESYNCHRONIZATION') desyncs.push(formattedErr);
+                        if (err.type === 'ACTION_WITHOUT_EFFECT') deadActions.push(formattedErr);
                     });
-                });
-            }
-            out += '\n';
+                }
+            });
 
-            // SECCIÓN: #### INVARIANT FAILURES
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### INVARIANT FAILURES\n';
-            out += '--------------------------------------------------------------------------------\n';
-            let invariantFails = ops.filter(op => op.consistency && (!op.consistency.checks.geomBasePreserved || !op.consistency.checks.productClippingValid || !op.consistency.checks.zOrderConsistent || !op.consistency.checks.nodeIntegrityValid));
-            if (invariantFails.length === 0) {
-                out += ' (Todos los invariantes de geomBase, máscara de producto, Z-order y nodos Bézier se mantuvieron coherentes)\n';
+            reportText += `### 2. CONTRACT FAILURES (CONTRATOS DE HERRAMIENTA ROTOS)\n`;
+            if (contractFailures.length === 0) {
+                reportText += `  [OK] Todos los comportamientos esperados de duplicación, vaciado, y borrado se cumplieron prístinamente.\n\n`;
             } else {
-                invariantFails.forEach(op => {
-                    out += `[${op.id}] ${op.action} | Origen: ${op.source}\n`;
-                    op.consistency.inconsistencies.filter(i => i.includes('INVARIANTE') || i.includes('DESTRUCCIÓN') || i.includes('MÁSCARA') || i.includes('Z_ORDER') || i.includes('NODE_TO_GEOMETRY') || i.includes('NODE_DELETION')).forEach(inc => {
-                        out += `   ↳ ${inc}\n`;
-                    });
+                contractFailures.forEach(f => {
+                    reportText += `  [FALLA CONTRATO] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType}) | Origen: ${f.source}\n`;
+                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
                 });
             }
-            out += '\n';
 
-            // SECCIÓN: #### DESYNCHRONIZATIONS
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### DESYNCHRONIZATIONS\n';
-            out += '--------------------------------------------------------------------------------\n';
-            let desyncs = ops.filter(op => op.consistency && (!op.consistency.checks.selectionValid || op.consistency.inconsistencies.some(i => i.includes('SELECCIÓN') || i.includes('DESINCRONIZACIÓN') || i.includes('CLON'))));
+            // SECCIÓN 3: INVARIANT FAILURES
+            reportText += `### 3. INVARIANT FAILURES (VIOLACIÓN DE REGLAS DE ORO VECTORIALES)\n`;
+            if (invariantFailures.length === 0) {
+                reportText += `  [OK] No se detectó corrupción geométrica, alteración oculta de Z-order, ni pérdida de la referencia 'geomBase'.\n\n`;
+            } else {
+                invariantFailures.forEach(f => {
+                    reportText += `  [FALLA INVARIANTE] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType})\n`;
+                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
+                });
+            }
+
+            // SECCIÓN 4: DESYNCHRONIZATIONS (Focos de Selección y DOM)
+            reportText += `### 4. DESYNCHRONIZATIONS (DESAJUSTES DE SELECCIÓN Y CAPAS)\n`;
             if (desyncs.length === 0) {
-                out += ' (Los focos de selección, tiradores interactivos y duplicaciones permanecieron sincronizados)\n';
+                reportText += `  [OK] El foco celeste de selección y la cola de capas de diseño estuvieron siempre coordinados.\n\n`;
             } else {
-                desyncs.forEach(op => {
-                    out += `[${op.id}] ${op.action} | Origen: ${op.source}\n`;
-                    op.consistency.inconsistencies.filter(i => i.includes('SELECCIÓN') || i.includes('DESINCRONIZACIÓN') || i.includes('CLON')).forEach(inc => {
-                        out += `   ↳ ${inc}\n`;
-                    });
+                desyncs.forEach(f => {
+                    reportText += `  [DESINCRONIZACIÓN] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType})\n`;
+                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
                 });
             }
-            out += '\n';
 
-            // SECCIÓN: #### ACTION WITHOUT EFFECT
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### ACTION WITHOUT EFFECT\n';
-            out += '--------------------------------------------------------------------------------\n';
-            let deadActions = ops.filter(op => op.consistency && (op.consistency.checks.deadClickDetected || !op.consistency.checks.dragDisplacementValid || !op.consistency.checks.rotationValid || !op.consistency.checks.scaleValid || op.consistency.inconsistencies.some(i => i.includes('FANTASMA') || i.includes('FRUSTRADO'))));
+            // SECCIÓN 5: ACTION WITHOUT EFFECT (Clics inertes y botones muertos)
+            reportText += `### 5. ACTION WITHOUT EFFECT (BOTONES MUERTOS O DESCONECTADOS)\n`;
             if (deadActions.length === 0) {
-                out += ' (Cada clic e interacción del lienzo produjo transformaciones geométricas reales y efectos observables)\n';
+                reportText += `  [OK] Cada clic, pulsación y arrastre interactivo en Studio produjo un cambio físico y de estado real.\n\n`;
             } else {
-                deadActions.forEach(op => {
-                    out += `[${op.id}] ${op.action} | Origen: ${op.source}\n`;
-                    op.consistency.inconsistencies.filter(i => i.includes('FANTASMA') || i.includes('FRUSTRADO') || i.includes('BLOQUEADO') || i.includes('FALLIDO')).forEach(inc => {
-                        out += `   ↳ ${inc}\n`;
-                    });
+                deadActions.forEach(f => {
+                    reportText += `  [ACCIÓN INERTE] Operación ID: [OP-${String(f.opId).padStart(5, '0')}] (${f.opType}) | Origen: ${f.source}\n`;
+                    reportText += `    ↳ Alarma: ${f.message}\n\n`;
                 });
             }
-            out += '\n';
 
-            // SECCIÓN: #### STATE TRANSITIONS
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### STATE TRANSITIONS\n';
-            out += '--------------------------------------------------------------------------------\n';
-            if (ops.length === 0) {
-                out += ' (No hay operaciones registradas en el buffer de la sesión actual)\n';
+            // SECCIÓN 6: RULE OF THE FIRST OBSERVABLE INCONSISTENCY (CAUSA RAÍZ DE AVIACIÓN)
+            reportText += `### 6. RULE OF THE FIRST OBSERVABLE INCONSISTENCY (RASTREO CAUSA RAÍZ)\n`;
+            const firstInconsistency = buffer.find(op => op.errors && op.errors.length > 0);
+            if (!firstInconsistency) {
+                reportText += `  [SANO] No se detectó ningún eslabón roto en la sesión. El sistema se encuentra 100% ESTABLE.\n\n`;
             } else {
-                const tailOps = ops.slice(-12); // Últimas 12 operaciones para no colapsar la consola
-                tailOps.forEach(op => {
-                    const status = op.consistency && op.consistency.pass ? '✓ OK' : '⚠️ FALLA';
-                    const detail = op.selectionAfter && op.selectionAfter.primary 
-                        ? `ID: ${op.selectionAfter.primary.id} (${op.selectionAfter.primary.label})` 
-                        : 'Sin selección';
-                    out += `[${op.id}] ${op.action.padEnd(14)} | ${status.padEnd(8)} | Duración: ${op.durationMs}ms | ${detail}\n`;
-                });
-                if (ops.length > 12) {
-                    out += ` ... (Se omitieron ${ops.length - 12} operaciones anteriores de la línea de tiempo)\n`;
-                }
-            }
-            out += '\n';
+                const primaryErr = firstInconsistency.errors[0];
+                reportText += `  [PRIMERA INCONSISTENCIA DETECTADA] Operación ID: [OP-${String(firstInconsistency.id).padStart(5, '0')}] (${firstInconsistency.type}) a las ${new Date(firstInconsistency.timestamp).toLocaleTimeString()}\n`;
+                reportText += `    ↳ Mensaje Primario: ${primaryErr.message}\n`;
+                reportText += `    ↳ Disparador de Interfaz: ${firstInconsistency.source}\n`;
+                reportText += `    ↳ Causa Raíz Probable: `;
 
-            // SECCIÓN: #### CORRELATED FAILURE CHAINS
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### CORRELATED FAILURE CHAINS\n';
-            out += '--------------------------------------------------------------------------------\n';
-            if (cascadeAnalysis && cascadeAnalysis.chain.length > 1) {
-                out += `Cadena de fallas en cascada originadas por el Punto de Ruptura Primario (${cascadeAnalysis.firstFailure.id}):\n\n`;
-                cascadeAnalysis.chain.forEach((link, idx) => {
-                    const indent = ' '.repeat(idx * 3);
-                    out += `${indent}⚡ [${link.id}] ${link.action} (Origen: ${link.source})\n`;
-                    link.failures.forEach(fail => {
-                        out += `${indent}   ↳ Error: ${fail}\n`;
-                    });
-                });
-            } else {
-                out += ' (No se detectaron secuencias de fallas en cascada correlacionadas en esta sesión)\n';
-            }
-            out += '\n';
-
-            // SECCIÓN: #### PROBABLE ROOT CAUSES
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### PROBABLE ROOT CAUSES\n';
-            out += '--------------------------------------------------------------------------------\n';
-            if (cascadeAnalysis) {
-                out += `1. ANÁLISIS DE LA CAUSA RAÍZ PRIMARIA (Forense):\n`;
-                out += `   👉 ${cascadeAnalysis.probableRoot}\n\n`;
-                out += `2. DIAGNÓSTICO DEL CALLGRAPH INTERNO:\n`;
-                const cg = cascadeAnalysis.firstFailure.callGraph || [];
-                if (cg.length === 0) {
-                    out += `   (El flujo se interrumpió de forma asíncrona antes de invocar funciones controladoras wrapped en CallGraph)\n`;
+                if (primaryErr.code === 'DEAD_BUTTON_NO_LISTENER') {
+                    reportText += `Desconexión de interfaz de usuario (DOM). El elemento HTML existe físicamente pero carece de callbacks vinculados en JavaScript debido a un error de ciclo de vida o renderizado tardío.\n`;
+                } else if (primaryErr.code === 'DESTRUCCION_GEOMBASE') {
+                    reportText += `Conflicto de Ámbito (Scope Error). Un método de manipulación manipuló el contenedor 'clipGroup' en lugar del trazado geométrico real de Paper.js, borrando la memoria 'geomBase'.\n`;
+                } else if (primaryErr.code === 'DRAG_FRUSTRATED') {
+                    reportText += `Interrupción asíncrona o bloqueo de puntero. El manejador de ratón fue neutralizado o las coordenadas están siendo restringidas por una guía inteligente o un grupo de recorte.\n`;
                 } else {
-                    cg.forEach(call => {
-                        const errText = call.error ? ` [❌ FALLÓ: "${call.error}"]` : ' [✓ COMPILADO OK]';
-                        out += `   🌐 Función: window.${call.fnName}() en Módulo: '${call.module}' en ${call.durationMs}ms${errText}\n`;
-                    });
+                    reportText += `Desincronización temporal entre el estado reactivo de Studio (window) y la representación visual de Paper.js.\n`;
                 }
-            } else {
-                out += ' (Sin inconsistencias activas, el CallGraph se encuentra al 100% de salud)\n';
-            }
-            out += '\n';
-
-            // SECCIÓN: #### RELATED SYSTEMS
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### RELATED SYSTEMS\n';
-            out += '--------------------------------------------------------------------------------\n';
-            if (cascadeAnalysis) {
-                out += `Los archivos de Studio que contienen las funciones comprometidas que rompen el contrato son:\n`;
-                cascadeAnalysis.relatedSystems.forEach(sys => {
-                    out += `   📁 ekko-studio/ASSETS/js/modules/canvas-pro/${sys}\n`;
-                });
-                out += `\n👉 Se sugiere auditar el flujo de sincronización de Paper.js en estos archivos utilizando el Protocolo Maestro.\n`;
-            } else {
-                out += ' (Todos los sistemas e integraciones se encuentran estables y validados)\n';
-            }
-            out += '\n';
-
-            // SECCIÓN: #### EVIDENCE
-            out += '--------------------------------------------------------------------------------\n';
-            out += '#### EVIDENCE\n';
-            out += '--------------------------------------------------------------------------------\n';
-            if (cascadeAnalysis) {
-                const first = cascadeAnalysis.firstFailure;
-                out += `Evidencia técnica detallada de la primera inconsistencia detectada:\n`;
-                out += `   - ID de Operación: ${first.id}\n`;
-                out += `   - Acción de Interfaz: ${first.action}\n`;
-                out += `   - Duración física de ejecución: ${first.durationMs} milisegundos\n`;
-                out += `   - Selección de Capas - Conteo previo: ${first.selectionBefore.count} | Conteo posterior: ${first.selectionAfter.count}\n`;
-                out += `   - Topología de Diseño - Capas previas: ${first.geometryBefore.totalUsefulItems} | Capas posteriores: ${first.geometryAfter.totalUsefulItems}\n`;
-                if (first.selectionBefore.primary && first.selectionAfter.primary) {
-                    out += `   - Geometría de Letras / SVG antes: bounds: [${first.selectionBefore.primary.bounds?.width}x${first.selectionBefore.primary.bounds?.height}] | pos: [X:${first.selectionBefore.primary.position?.x}, Y:${first.selectionBefore.primary.position?.y}]\n`;
-                    out += `   - Geometría de Letras / SVG después: bounds: [${first.selectionAfter.primary.bounds?.width}x${first.selectionAfter.primary.bounds?.height}] | pos: [X:${first.selectionAfter.primary.position?.x}, Y:${first.selectionAfter.primary.position?.y}]\n`;
-                }
-            } else {
-                out += `   - Operaciones registradas en cola de vuelo: ${ops.length} ejecuciones exitosas.\n`;
-                out += `   - Todas las precondiciones, bounds e invariantes de Paper.js devolvieron PASS.\n`;
-            }
-            out += '================================================================================\n';
-
-            rawConsole.log(out);
-            return out;
-        },
-
-        dump: function () {
-            const rep = this.report();
-            const payload = rep + '\n\n--- VOLCADO COMPLETO DETALLADO DE CAJA NEGRA (JSON) ---\n' + JSON.stringify(diagState, null, 2);
-            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(payload).then(() => {
-                    rawConsole.log('%c[EKKO_DIAG] Copia completa de caja negra (v10.0) volcada en portapapeles.', 'color: #10b981; font-weight: bold;');
-                }).catch(() => {});
-            }
-            return payload;
-        },
-
-        inconsistencies: function (actionFilter) {
-            let fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
-            if (typeof actionFilter === 'string' && actionFilter.trim().length > 0) {
-                const query = actionFilter.trim().toUpperCase();
-                fallas = fallas.filter(op => (op.action && op.action.toUpperCase().includes(query)) || (op.source && op.source.toUpperCase().includes(query)));
+                reportText += `\n  [RECOMENDACIÓN DE AVIACIÓN]: No audite las fallas colaterales posteriores. Resuelva el fallo [OP-${String(firstInconsistency.id).padStart(5, '0')}] y la cascada de errores restante desaparecerá automáticamente.\n\n`;
             }
 
-            if (fallas.length === 0) {
-                const msg = actionFilter
-                    ? `[EKKO_DIAG v10.0] ✓ Sin inconsistencias detectadas para el filtro: "${actionFilter}".`
-                    : `[EKKO_DIAG v10.0] ✓ Sin inconsistencias de contratos vectoriales detectadas en las ${diagState.operations.length} operaciones registradas.`;
-                rawConsole.log(`%c${msg}`, 'color: #10b981; font-weight: bold;');
-                return [];
-            }
+            reportText += `==================== FIN DEL REPORTE DE CAUSA RAÍZ ====================`;
 
-            rawConsole.log(
-                `%c[EKKO_DIAG] ⚠️ SE DETECTARON ${fallas.length} OPERACIÓN(ES) CON INCONSISTENCIAS DE CONTRATO:` + (actionFilter ? ` (Filtro: "${actionFilter}")` : ''),
-                'color: #ef4444; font-weight: bold; font-size: 13px;'
-            );
-
-            const rows = fallas.map(op => ({
-                'ID': op.id,
-                'Acción': op.action,
-                'Duración': `${op.durationMs}ms`,
-                'Origen': op.source || 'N/A',
-                'Fallas Registradas': (op.consistency.inconsistencies || []).join(' | ')
-            }));
-
-            rawConsole.table(rows);
-            return fallas;
-        },
-
-        dumpInconsistencies: function (actionFilter) {
-            let fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
-            if (typeof actionFilter === 'string' && actionFilter.trim().length > 0) {
-                const query = actionFilter.trim().toUpperCase();
-                fallas = fallas.filter(op => (op.action && op.action.toUpperCase().includes(query)) || (op.source && op.source.toUpperCase().includes(query)));
-            }
-
-            if (fallas.length === 0) {
-                rawConsole.log('%c[EKKO_DIAG v10.0] ✓ No hay inconsistencias registradas en caliente para exportar.', 'color: #10b981; font-weight: bold;');
-                return 'Sin inconsistencias.';
-            }
-
-            let out = '╔══════════════════════════════════════════════════════════════════════════════════╗\n';
-            out += '║       EKKO STUDIO DIAGNOSTIC - REPORTE EXCLUSIVO DE INCONSISTENCIAS              ║\n';
-            out += '╚══════════════════════════════════════════════════════════════════════════════════╝\n\n';
-            out += `Total de Fallas Reportadas: ${fallas.length} / ${diagState.operations.length} operaciones\n\n`;
-
-            fallas.forEach(op => {
-                out += `[${op.id}] ${op.action.padEnd(16)} | ⚠️ INCONSISTENCIA | ${op.durationMs}ms | Origen: ${op.source}\n`;
-                (op.consistency.inconsistencies || []).forEach(inc => {
-                    out += `   ↳ ${inc}\n`;
-                });
-            });
-
-            const payload = out + '\n--- VOLCADO COMPLETO DETALLADO DE INCONSISTENCIAS DE CONTRATO (JSON) ---\n' + JSON.stringify(fallas, null, 2);
-            if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(payload).then(() => {
-                    rawConsole.log('%c[EKKO_DIAG] Reporte de inconsistencias forense copiado al portapapeles con éxito.', 'color: #10b981; font-weight: bold;');
-                }).catch(() => {});
-            }
-            rawConsole.log(out);
-            return payload;
-        },
-
-        summary: function () {
-            const total = diagState.operations.length;
-            const fallas = diagState.operations.filter(op => op.consistency && !op.consistency.pass);
-            const exitos = total - fallas.length;
-            const rate = total > 0 ? ((exitos / total) * 100).toFixed(1) : '100.0';
-
-            rawConsole.log(
-                `%c[EKKO_DIAG] 📊 Resumen Forense: ${total} Operaciones | ✓ ${exitos} OK (${rate}%) | ⚠️ ${fallas.length} Inconsistencias`,
-                fallas.length > 0 ? 'color: #f59e0b; font-weight: bold;' : 'color: #10b981; font-weight: bold;'
-            );
-
-            const porAccion = {};
-            diagState.operations.forEach(op => {
-                const act = op.action || 'DESCONOCIDO';
-                if (!porAccion[act]) porAccion[act] = { 'Total': 0, '✓ OK': 0, '⚠️ Inconsistencias': 0 };
-                porAccion[act]['Total']++;
-                if (op.consistency && !op.consistency.pass) {
-                    porAccion[act]['⚠️ Inconsistencias']++;
+            rawConsole.log('%c====================================================', 'color: #0284c7;');
+            rawConsole.log('%c        REPORTE TÉCNICO DE CAUSA RAÍZ GENERADO     ', 'color: #0284c7; font-weight: bold;');
+            rawConsole.log('%c====================================================', 'color: #0284c7;');
+            
+            // Imprimir línea a línea por comodidad en F12
+            reportText.split('\n').forEach(line => {
+                if (line.includes('[OK]') || line.includes('[SANO]')) {
+                    rawConsole.log(`%c${line}`, 'color: #15803d;');
+                } else if (line.includes('FALLA') || line.includes('VIOLADO') || line.includes('ERROR') || line.includes('INCONSISTENCIA') || line.includes('MUERTO')) {
+                    rawConsole.warn(`%c${line}`, 'color: #b91c1c; font-weight: bold;');
+                } else if (line.includes('###')) {
+                    rawConsole.log(`%c\n${line}`, 'color: #0369a1; font-weight: bold; font-size: 11px;');
                 } else {
-                    porAccion[act]['✓ OK']++;
+                    rawConsole.log(line);
                 }
             });
 
-            rawConsole.table(porAccion);
-            return { total, exitos, fallas: fallas.length, tasaExito: `${rate}%`, desglose: porAccion };
-        },
-
-        last: function () {
-            if (diagState.operations.length === 0) return 'No hay operaciones registradas en el buffer todavía.';
-            return diagState.operations[diagState.operations.length - 1];
+            return reportText;
         }
     };
 
+    // Auto-arranque pasivo para interceptación de addEventListener desde el milisegundo 1
     if (typeof window !== 'undefined') {
         window.EKKO_DIAG = publicAPI;
-        setTimeout(() => { publicAPI.start(); }, 300);
+        publicAPI.start(); // El registrador corre por detrás para atrapar los listeners nativos en carga
     }
 
     return publicAPI;
