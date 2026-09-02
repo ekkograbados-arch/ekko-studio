@@ -582,35 +582,21 @@ export function ungroupSelectedItem() {
         const actualItem = isClipped ? getContentItem(item) : item;
         if (!actualItem) return;
 
-        // EJECUTAR DESCOMPOSICIÓN ATÓMICA COMPLETA DE 1 SOLO CLIC
-        if (typeof window.decomposeByContainmentHierarchy === 'function') {
-            const res = window.decomposeByContainmentHierarchy(item, isClipped);
-            if (res && res.items) {
-                allCreatedItems.push(...res.items);
+        // DESCOMPOSICIÓN ATÓMICA DE JERARQUÍA PROFUNDA EN 1 CLIC (Biblia de EKKO Studio):
+        // Delegar directamente al motor de contención para aplanar recursivamente cualquier nivel de anidamiento
+        // de Groups, CompoundPaths o PlacedSymbols y devolver piezas atómicas independientes y CSG reactivas.
+        const cName = actualItem.className;
+        if (cName === 'Group' || cName === 'CompoundPath' || cName === 'SymbolItem' || cName === 'PlacedSymbol') {
+            const decomp = typeof window.decomposeByContainmentHierarchy === 'function'
+                ? window.decomposeByContainmentHierarchy(item, isClipped)
+                : null;
+            if (decomp && decomp.items) {
+                allCreatedItems.push(...decomp.items);
             } else {
                 allCreatedItems.push(item);
             }
         } else {
-            // Fallback un nivel si no está cargado el módulo de descomposición geométrica
-            if (actualItem.children) {
-                const children = [...actualItem.children].filter(c => !c.clipMask);
-                const parent = item.parent || paper.project.activeLayer;
-                const idx = parent.children.indexOf(item);
-                children.forEach((child, cIdx) => {
-                    let finalChild = child;
-                    if (isClipped && typeof window.clipItem === 'function') {
-                        finalChild = window.clipItem(child);
-                    }
-                    parent.insertChild(idx + cIdx, finalChild);
-                    if (window.currentMockup) {
-                        finalChild.insertBelow(window.currentMockup);
-                    }
-                    allCreatedItems.push(finalChild);
-                });
-                item.remove();
-            } else {
-                allCreatedItems.push(item);
-            }
+            allCreatedItems.push(item);
         }
     });
 
@@ -853,6 +839,7 @@ export function updateContextualMenu(item) {
     }
 
     toolbar.classList.add('active');
+    toolbar.style.zIndex = "10100";
 
     const hideSubgroup = (id) => {
         const el = document.getElementById(id);
