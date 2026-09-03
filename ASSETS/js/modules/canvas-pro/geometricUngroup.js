@@ -6,7 +6,7 @@ DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/selection.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36.1 - Deep Recursive Extraction & Containment Hierarchy Engine)
+Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36.2 - Deep Recursive Extraction & Containment Hierarchy Engine)
 Descripción:
     Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
     Optimizado para corte y grabado láser.
@@ -123,12 +123,13 @@ function getInteriorTestPoint(path) {
     if (path.contains(center)) return center;
     if (path.curves && path.curves.length > 0) {
         for (let c = 0; c < path.curves.length; c++) {
-            const pt = path.curves[c].pointAt(0.5);
-            const normal = path.curves[c].normalAt(0.5).multiply(0.5);
-            const inPt = pt.add(normal);
-            if (path.contains(inPt)) return inPt;
-            const outPt = pt.subtract(normal);
-            if (path.contains(outPt)) return outPt;
+            const curve = path.curves[c];
+            const pt = curve.getPointAtTime(0.5);
+            const normal = curve.getNormalAtTime(0.5).normalize(2);
+            const inward1 = pt.add(normal);
+            if (path.contains(inward1)) return inward1;
+            const inward2 = pt.subtract(normal);
+            if (path.contains(inward2)) return inward2;
         }
     }
     return center;
