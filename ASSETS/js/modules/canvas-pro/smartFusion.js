@@ -6,11 +6,12 @@ DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.0)
+Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.2 - Safe Coordinates & Mockup Lock)
 Descripción:
     Núcleo matemático de la Fusión Inteligente y Anclaje Magnético para EKKO Studio.
-    Gestiona el enmascaramiento directo e inverso (calado físico real) de imágenes 
-    con vectores, la interactividad de imán visual, y la reversibilidad no destructiva.
+    Soluciona de forma definitiva los desbordes del producto y la inversión de máscaras
+    al aislar y bäkear coordenadas en absoluto, alineándolas con la cuna jerárquica
+    de la máscara del mockup (clipGroup) y aplicando protección de Mockup Lock.
 ========================================================================= */
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
@@ -18,6 +19,53 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 // Grupo global para almacenar halos de snapping temporales
 let snappingHalosGroup = null;
 let activeSnappedVector = null;
+
+/**
+ * Detecta si un elemento es parte del mockup del producto base o una de sus máscaras.
+ * @param {paper.Item} item
+ * @returns {boolean} True si es elemento protegido del producto.
+ */
+function isMockupOrProductElement(item) {
+    let curr = item;
+    while (curr) {
+        if (curr.clipMask || (curr.data && (
+            curr.data.mockup ||
+            curr.data.isMask ||
+            curr.data.locked ||
+            curr.data.isSelectionBox ||
+            curr.data.isSmartGuide ||
+            curr.data.isMeasurement
+        ))) {
+            return true;
+        }
+        const label = (curr.data?.label || '').toLowerCase();
+        if (label.includes('chapita') || label.includes('huesito') || label.includes('termo') || label.includes('mate') || label.includes('llavero') || label.includes('producto') || label.includes('plantilla')) {
+            return true;
+        }
+        curr = curr.parent;
+    }
+    return false;
+}
+
+/**
+ * Obtiene un clon de un elemento de Paper.js con su sistema de coordenadas
+ * aplanado y bakeado en espacio absoluto (coordenadas del proyecto).
+ * @param {paper.Item} item - Elemento a aplanar.
+ * @returns {paper.Item} El clon aplanado en absoluto.
+ */
+function getAbsoluteClone(item) {
+    if (!item) return null;
+    const clone = item.clone({ insert: false });
+    // Aplicamos la matriz global acumulativa de transformaciones
+    clone.matrix = item.globalMatrix.clone();
+    // Insertamos temporalmente en el lienzo raíz para asegurar su contexto
+    paper.project.activeLayer.addChild(clone);
+    // Si es un trazado vectorial, \"bakeamos\" físicamente la geometría (reseteando matriz a identidad)
+    if (clone.className === 'Path' || clone.className === 'CompoundPath') {
+        clone.applyMatrix = true;
+    }
+    return clone;
+}
 
 /**
  * Aplica la Fusión Inteligente entre un vector de corte y una imagen (Raster).
@@ -29,42 +77,59 @@ let activeSnappedVector = null;
 export function applySmartFusion(vector, raster, mode = 'calar') {
     if (!vector || !raster || !paper) return null;
 
+    // BLINDAJE ABSOLUTO (MOCKUP LOCK): Prohibido usar elementos de mockup o máscaras de contención
+    if (isMockupOrProductElement(vector) || vector.clipMask) {
+        console.error("❌ [MOCKUP_LOCK]: Intento de usar el contorno o máscara de producto como vector de corte. Operación cancelada.");
+        return null;
+    }
+    if (isMockupOrProductElement(raster) || raster.clipMask) {
+        console.error("❌ [MOCKUP_LOCK]: Intento de usar el producto base como imagen para fusionar. Operación cancelada.");
+        return null;
+    }
+
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
+    // Preservar la cuna jerárquica del producto (el clipGroup o grupo contenedor de diseño)
     const parent = raster.parent || paper.project.activeLayer;
 
-    // Crear copias de seguridad de los elementos originales en el data para reversibilidad
-    const originalVectorGeom = vector.clone({ insert: false });
-    const originalRasterGeom = raster.clone({ insert: false });
+    // 1. Obtener copias con geometría aplanada a espacio absoluto de coordenadas
+    const absoluteVector = getAbsoluteClone(vector);
+    const absoluteRaster = getAbsoluteClone(raster);
 
-    // Limpiar matrices de transformación para el enmascarado concéntrico
-    originalVectorGeom.matrix = new paper.Matrix();
-    originalRasterGeom.matrix = new paper.Matrix();
+    // 2. Crear respaldos para reversibilidad y edición asíncrona
+    const originalVectorGeom = absoluteVector.clone({ insert: false });
+    const originalRasterGeom = absoluteRaster.clone({ insert: false });
 
     let maskItem = null;
     let fusionGroup = new paper.Group();
 
     if (mode === 'intersecar') {
         // MODO INTERSECCIÓN: La imagen existe solo dentro del vector
-        maskItem = vector.clone();
+        maskItem = absoluteVector.clone();
         maskItem.clipMask = true;
         
-        // Agregar al grupo: Primero la máscara, luego la imagen de fondo
+        // Agregar al grupo en absoluto
         fusionGroup.addChild(maskItem);
-        fusionGroup.addChild(raster.clone());
+        fusionGroup.addChild(absoluteRaster.clone());
     } else {
-        // MODO CALAR: El vector actúa como sacabocados (HUECO REAL) que perfora la imagen
-        // Creamos un rectángulo con las dimensiones de la imagen y le restamos el vector
-        const outerRect = new paper.Path.Rectangle(raster.bounds);
-        const inverseMask = outerRect.subtract(vector);
-        outerRect.remove(); // Liberar temporales
+        // MODO CALAR: El vector perfora la imagen como un \"sacabocados\" real (HUECO REAL)
+        const outerRect = new paper.Path.Rectangle(absoluteRaster.bounds);
+        
+        // Operación booleana limpia
+        const inverseMask = outerRect.subtract(absoluteVector);
+        outerRect.remove(); // Limpiar el rectángulo temporal
+
+        // PURGA ABSOLUTA DE ESTILOS: Evita que la máscara herede rellenos negros o contornos en pantalla
+        inverseMask.fillColor = null;
+        inverseMask.strokeColor = null;
+        inverseMask.strokeWidth = 0;
 
         inverseMask.clipMask = true;
         maskItem = inverseMask;
 
-        // Agregar al grupo: Primero la máscara inversa, luego la imagen intacta
+        // Agregar al grupo en absoluto
         fusionGroup.addChild(maskItem);
-        fusionGroup.addChild(raster.clone());
+        fusionGroup.addChild(absoluteRaster.clone());
     }
 
     // Configurar propiedades de Contenedor Inteligente de Fusión
@@ -79,8 +144,18 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
         label: "Fusión Inteligente"
     };
 
-    // Reemplazar los objetos originales en la escena
+    // Insertar el grupo en el parent original de la imagen (manteniendo el clipping del producto mockup)
     parent.addChild(fusionGroup);
+
+    // AJUSTE DE COORDENADAS RECOLECTADAS: Si el parent original tenía transformaciones (Z-offset, escala),
+    // aplicamos la matriz inversa para que coincida exactamente en el viewport interactivo.
+    if (parent && parent.globalMatrix && !parent.globalMatrix.isIdentity()) {
+        fusionGroup.matrix = parent.globalMatrix.inverted();
+    }
+
+    // Liberar los elementos originales y los clones absolutos intermedios
+    absoluteVector.remove();
+    absoluteRaster.remove();
     vector.remove();
     raster.remove();
 
@@ -91,6 +166,12 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
 
     if (typeof recalculateDynamicSubtractions === 'function') {
         recalculateDynamicSubtractions();
+    }
+
+    // ACTUALIZAR SELECCIÓN INMEDIATA (Soluciona arrastre fijo/trabado)
+    if (typeof window.deselectItem === 'function') window.deselectItem();
+    if (typeof window.selectItem === 'function') {
+        window.selectItem(fusionGroup);
     }
 
     paper.view.update();
@@ -123,7 +204,7 @@ export function checkMagneticSnapping(rasterItem) {
     
     designLayer.accept({
         visit: function(item) {
-            if (item.data && item.data.isHole && item.className === 'Path') {
+            if (item.data && item.data.isHole && item.className === 'Path' && !isMockupOrProductElement(item)) {
                 const dist = rasterItem.position.getDistance(item.bounds.center);
                 if (dist < minDistance) {
                     minDistance = dist;
@@ -191,9 +272,15 @@ export function recalculateSmartFusion(fusionGroup) {
         // Si el vector que cala se deforma, regeneramos la máscara inversa en tiempo real
         const currentVector = fusionGroup.data.originalVectorData; 
         if (currentVector) {
+            // El vector ya está en espacio absoluto, así que la sustracción es inmediata
             const outerRect = new paper.Path.Rectangle(rasterItem.bounds);
             const newInverseMask = outerRect.subtract(currentVector);
             outerRect.remove();
+
+            // Purgar de forma estricta los estilos visuales de la máscara interna
+            newInverseMask.fillColor = null;
+            newInverseMask.strokeColor = null;
+            newInverseMask.strokeWidth = 0;
 
             // Reemplazar la máscara vieja por la nueva sin perder el clipping
             newInverseMask.clipMask = true;
@@ -213,19 +300,27 @@ export function releaseSmartFusion(fusionGroup) {
 
     const parent = fusionGroup.parent || paper.project.activeLayer;
 
-    // Recuperar respaldos de memoria originales
+    // Recuperar respaldos de memoria originales (que ya están en coordenadas absolutas)
     const restoredVector = fusionGroup.data.originalVectorData.clone();
     const restoredRaster = fusionGroup.data.originalRasterData.clone();
 
-    // Restituir posición espacial
+    // Restituyen la posición absoluta exacta del grupo
     restoredVector.position = fusionGroup.position.clone();
     restoredRaster.position = fusionGroup.position.clone();
 
     restoredVector.data = { isHole: true, label: "Trazado Calado" };
     restoredRaster.data = { label: "Imagen" };
 
+    // Insertar de vuelta en el parent original (para que no pierda la máscara del producto)
     parent.addChild(restoredVector);
     parent.addChild(restoredRaster);
+
+    // Ajustar matriz relativa al parent
+    if (parent && parent.globalMatrix && !parent.globalMatrix.isIdentity()) {
+        const inv = parent.globalMatrix.inverted();
+        restoredVector.matrix = inv;
+        restoredRaster.matrix = inv;
+    }
 
     // Remover el grupo fusionado de la escena
     fusionGroup.remove();
@@ -251,5 +346,5 @@ export function initSmartFusionListeners() {
         window.recalculateSmartFusion = recalculateSmartFusion;
         window.releaseSmartFusion = releaseSmartFusion;
     }
-    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito.", "color: #0284c7; font-weight: bold;");
+    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.2).", "color: #0284c7; font-weight: bold;");
 }
