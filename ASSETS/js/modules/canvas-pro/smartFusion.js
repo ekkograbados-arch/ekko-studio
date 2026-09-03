@@ -6,7 +6,7 @@ DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.2 - Safe Coordinates & Mockup Lock)
+Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.3 - Even-Odd Clipping Rule & Wrapper Sanitization)
 Descripción:
     Núcleo matemático de la Fusión Inteligente y Anclaje Magnético para EKKO Studio.
     Soluciona de forma definitiva los desbordes del producto y la inversión de máscaras
@@ -112,12 +112,14 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
         fusionGroup.addChild(maskItem);
         fusionGroup.addChild(absoluteRaster.clone());
     } else {
-        // MODO CALAR: El vector perfora la imagen como un \"sacabocados\" real (HUECO REAL)
+        // MODO CALAR: EVEN-ODD METHOD FOR 100% RELIABILITY AND NO INVERSION BUGS (v45.3)
         const outerRect = new paper.Path.Rectangle(absoluteRaster.bounds);
         
-        // Operación booleana limpia
-        const inverseMask = outerRect.subtract(absoluteVector);
-        outerRect.remove(); // Limpiar el rectángulo temporal
+        // Creamos un CompoundPath de recorte con regla de relleno Even-Odd
+        const inverseMask = new paper.CompoundPath({ insert: false });
+        inverseMask.fillRule = 'evenodd';
+        inverseMask.addChild(outerRect);
+        inverseMask.addChild(absoluteVector.clone());
 
         // PURGA ABSOLUTA DE ESTILOS: Evita que la máscara herede rellenos negros o contornos en pantalla
         inverseMask.fillColor = null;
@@ -269,13 +271,15 @@ export function recalculateSmartFusion(fusionGroup) {
     const rasterItem = fusionGroup.children[1]; // La imagen es el segundo hijo
 
     if (mode === 'calar' && maskItem && rasterItem) {
-        // Si el vector que cala se deforma, regeneramos la máscara inversa en tiempo real
+        // Si el vector que cala se deforma, regeneramos la máscara inversa en tiempo real (Even-Odd method v45.3)
         const currentVector = fusionGroup.data.originalVectorData; 
         if (currentVector) {
-            // El vector ya está en espacio absoluto, así que la sustracción es inmediata
             const outerRect = new paper.Path.Rectangle(rasterItem.bounds);
-            const newInverseMask = outerRect.subtract(currentVector);
-            outerRect.remove();
+            
+            const newInverseMask = new paper.CompoundPath({ insert: false });
+            newInverseMask.fillRule = 'evenodd';
+            newInverseMask.addChild(outerRect);
+            newInverseMask.addChild(currentVector.clone());
 
             // Purgar de forma estricta los estilos visuales de la máscara interna
             newInverseMask.fillColor = null;
@@ -346,5 +350,5 @@ export function initSmartFusionListeners() {
         window.recalculateSmartFusion = recalculateSmartFusion;
         window.releaseSmartFusion = releaseSmartFusion;
     }
-    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.2).", "color: #0284c7; font-weight: bold;");
+    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.3).", "color: #0284c7; font-weight: bold;");
 }
