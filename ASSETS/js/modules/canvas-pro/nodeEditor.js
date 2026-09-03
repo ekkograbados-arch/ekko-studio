@@ -1,5 +1,5 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v43.0 - Canon-Ready)
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v45.0 - Ultimate Curves)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripción:
     Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
@@ -207,7 +207,10 @@ export function enterNodeEditMode(item) {
                 if (typeof window.saveHistory === 'function') window.saveHistory();
                 const path = nearestLoc.path;
                 const index = nearestLoc.index;
-                path.insert(index + 1, nearestLoc.point);
+                const insertedSeg = path.insert(index + 1, nearestLoc.point);
+                if (insertedSeg && typeof insertedSeg.smooth === 'function') {
+                    insertedSeg.smooth(); // Automatically smooth newly added nodes so they have antenitas!
+                }
                 
                 syncGeometryToGeomBase(activeNodeItem);
                 safeRecalculateSubtractions();
@@ -260,6 +263,19 @@ export function enterNodeEditMode(item) {
                             selectedNodes.add(hitData.globalIdx);
                         }
                     }
+                    
+                    // Automatically smooth the selected node if it currently has no handles (corner), revealing its antenitas!
+                    const targetPath = paper.project.getItem({ id: hitData.pathId });
+                    if (targetPath && targetPath.segments && targetPath.segments[hitData.localIdx]) {
+                        const seg = targetPath.segments[hitData.localIdx];
+                        if (seg.handleIn.isZero() && seg.handleOut.isZero()) {
+                            if (typeof window.saveHistory === 'function') window.saveHistory();
+                            seg.smooth();
+                            syncGeometryToGeomBase(activeNodeItem);
+                            safeRecalculateSubtractions();
+                        }
+                    }
+                    
                     drawNodeHandles();
                 }
                 paper.view.update();
@@ -320,15 +336,31 @@ export function enterNodeEditMode(item) {
             });
 
             if (nodeHandlesGroup) {
+                let hasAutoSmooth = false;
                 nodeHandlesGroup.children.forEach(handle => {
                     if (handle.data?.isNodeHandle) {
                         if (rect.contains(handle.position)) {
-                            selectedNodes.add(handle.data.globalIdx);
+                            if (!selectedNodes.has(handle.data.globalIdx)) {
+                                selectedNodes.add(handle.data.globalIdx);
+                                // Automatically smooth on marquee select to reveal antenitas
+                                const targetPath = paper.project.getItem({ id: handle.data.pathId });
+                                if (targetPath && targetPath.segments && targetPath.segments[handle.data.localIdx]) {
+                                    const seg = targetPath.segments[handle.data.localIdx];
+                                    if (seg.handleIn.isZero() && seg.handleOut.isZero()) {
+                                        seg.smooth();
+                                        hasAutoSmooth = true;
+                                    }
+                                }
+                            }
                         } else if (!event.modifiers.shift) {
                             selectedNodes.delete(handle.data.globalIdx);
                         }
                     }
                 });
+                if (hasAutoSmooth) {
+                    syncGeometryToGeomBase(activeNodeItem);
+                    safeRecalculateSubtractions();
+                }
             }
             drawNodeHandles();
             paper.view.update();
@@ -396,6 +428,34 @@ export function enterNodeEditMode(item) {
                 detachSelectedSubpaths();
             };
             parentControls.insertBefore(btnDetach, parentControls.firstChild.nextSibling);
+        }
+
+        let btnSmooth = document.getElementById('btnCtxSmooth');
+        if (!btnSmooth) {
+            btnSmooth = document.createElement('button');
+            btnSmooth.className = 'toolbar-btn';
+            btnSmooth.id = 'btnCtxSmooth';
+            btnSmooth.title = 'Suavizar los nodos seleccionados para convertirlos en curvas (S)';
+            btnSmooth.style.cssText = 'color: #16a34a; background: #f0fdf4; border-color: #bbf7d0; font-weight: bold; margin-right: 8px;';
+            btnSmooth.innerHTML = '<i class="fas fa-wave-square"></i> Suavizar (S)';
+            btnSmooth.onclick = () => {
+                makeSelectedNodesSmooth();
+            };
+            parentControls.insertBefore(btnSmooth, parentControls.firstChild.nextSibling);
+        }
+
+        let btnCorner = document.getElementById('btnCtxCorner');
+        if (!btnCorner) {
+            btnCorner = document.createElement('button');
+            btnCorner.className = 'toolbar-btn';
+            btnCorner.id = 'btnCtxCorner';
+            btnCorner.title = 'Hacer esquina viva en los nodos seleccionados (C)';
+            btnCorner.style.cssText = 'color: #dc2626; background: #fef2f2; border-color: #fecaca; font-weight: bold; margin-right: 8px;';
+            btnCorner.innerHTML = '<i class="fas fa-angle-right"></i> Esquina (C)';
+            btnCorner.onclick = () => {
+                makeSelectedNodesCorner();
+            };
+            parentControls.insertBefore(btnCorner, parentControls.firstChild.nextSibling.nextSibling);
         }
     }
 
@@ -505,6 +565,9 @@ export function exitNodeEditMode(skipSelect = false) {
         btnAddNode.classList.remove('active');
         btnAddNode.style.backgroundColor = '';
     }
+
+    const btnSmooth = document.getElementById('btnCtxSmooth');
+    const btnCorner = document.getElementById('btnCtxCorner');
 
     if (paper.view && paper.view.element) {
         paper.view.element.style.cursor = 'default';
@@ -778,6 +841,45 @@ export function detachSelectedSubpaths() {
     }
 }
 
+export function makeSelectedNodesSmooth() {
+    if (selectedNodes.size === 0 || !activeNodeItem) return;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+    const paths = getTargetPaths(activeNodeItem);
+    let curGlobal = 0;
+    paths.forEach(path => {
+        path.segments.forEach(seg => {
+            if (selectedNodes.has(curGlobal)) {
+                seg.smooth();
+            }
+            curGlobal++;
+        });
+    });
+    syncGeometryToGeomBase(activeNodeItem);
+    safeRecalculateSubtractions();
+    drawNodeHandles();
+    if (window.paper && paper.view) paper.view.update();
+}
+
+export function makeSelectedNodesCorner() {
+    if (selectedNodes.size === 0 || !activeNodeItem) return;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+    const paths = getTargetPaths(activeNodeItem);
+    let curGlobal = 0;
+    paths.forEach(path => {
+        path.segments.forEach(seg => {
+            if (selectedNodes.has(curGlobal)) {
+                seg.handleIn = new paper.Point(0, 0);
+                seg.handleOut = new paper.Point(0, 0);
+            }
+            curGlobal++;
+        });
+    });
+    syncGeometryToGeomBase(activeNodeItem);
+    safeRecalculateSubtractions();
+    drawNodeHandles();
+    if (window.paper && paper.view) paper.view.update();
+}
+
 function handleNodeKeydown(e) {
     if (e.key === 'Enter' || e.key === 'Escape') {
         e.preventDefault();
@@ -785,9 +887,52 @@ function handleNodeKeydown(e) {
         return;
     }
     if (selectedNodes.size === 0 || !activeNodeItem) return;
-    if (e.key === 'Delete' || e.key === 'Backspace' || e.key.toLowerCase() === 'd') {
+
+    const key = e.key.toLowerCase();
+
+    // 1. ELIMINAR NODOS (Delete / Backspace / D)
+    if (e.key === 'Delete' || e.key === 'Backspace' || key === 'd') {
         e.preventDefault();
         deleteSelectedNodes();
+        return;
+    }
+
+    // 2. SUAVE / SMOOTH (Tecla S - LightBurn Style) -> Genera antenas y redondea curvas
+    if (key === 's') {
+        e.preventDefault();
+        makeSelectedNodesSmooth();
+        return;
+    }
+
+    // 3. ESQUINA / CORNER (Tecla C - LightBurn Style) -> Quita antenas y hace esquinas vivas
+    if (key === 'c') {
+        e.preventDefault();
+        makeSelectedNodesCorner();
+        return;
+    }
+
+    // 4. LÍNEA / LINE (Tecla L - LightBurn Style) -> Quita antenas y endereza el segmento con sus vecinos
+    if (key === 'l') {
+        e.preventDefault();
+        if (typeof window.saveHistory === 'function') window.saveHistory();
+        const paths = getTargetPaths(activeNodeItem);
+        let curGlobal = 0;
+        paths.forEach(path => {
+            path.segments.forEach(seg => {
+                if (selectedNodes.has(curGlobal)) {
+                    seg.handleIn = new paper.Point(0, 0);
+                    seg.handleOut = new paper.Point(0, 0);
+                    if (seg.previous) seg.previous.handleOut = new paper.Point(0, 0);
+                    if (seg.next) seg.next.handleIn = new paper.Point(0, 0);
+                }
+                curGlobal++;
+            });
+        });
+        syncGeometryToGeomBase(activeNodeItem);
+        safeRecalculateSubtractions();
+        drawNodeHandles();
+        if (window.paper && paper.view) paper.view.update();
+        return;
     }
 }
 
@@ -796,6 +941,8 @@ if (typeof window !== 'undefined') {
     window.exitNodeEditMode = exitNodeEditMode;
     window.updateNodeHandlesScale = updateNodeHandlesScale;
     window.drawNodeHandles = drawNodeHandles;
+    window.makeSelectedNodesSmooth = makeSelectedNodesSmooth;
+    window.makeSelectedNodesCorner = makeSelectedNodesCorner;
     window.detachSelectedSubpaths = detachSelectedSubpaths;
     window.deleteSelectedNodes = deleteSelectedNodes;
     window.moveSelectedNodesByDelta = moveSelectedNodesByDelta;
