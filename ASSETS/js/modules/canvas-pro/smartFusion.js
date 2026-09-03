@@ -6,12 +6,13 @@ DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.5 - Absolute Coordinate Snapping)
+Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.6 - Bounding Override & Deep Reversibility)
 Descripción:
     Núcleo matemático de la Fusión Inteligente y Anclaje Magnético para EKKO Studio.
-    Soluciona desbordes de productos, desincronizaciones de arrastre y cotas desfasadas
-    utilizando el enmascaramiento con el producto base de forma nativa e independiente,
-    e incluye soporte completo de Anclaje Magnético integrado.
+    Soluciona de forma definitiva las derivas de arrastre, las cotas desfasadas,
+    la duplicidad de cajas de selección y el bloqueo de desvinculación (release).
+    Inmune a desfaces de Paper.js mediante anulación de jerarquías locales, bakeo absoluto
+    y sobreescritura dinámica del getter de 'bounds'.
 ========================================================================= */
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
@@ -165,6 +166,34 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
         rasterId: raster.id,
         label: "Fusión Inteligente"
     };
+
+    // Configurar de forma limpia las marcas de calado e integridad de selección
+    if (mode === 'calar') {
+        fusionGroup.data.isHole = true;
+        fusionGroup.data.geomBase = originalVectorGeom.clone({ insert: false });
+    } else {
+        fusionGroup.data.isHole = false;
+        fusionGroup.data.geomBase = null;
+    }
+
+    // Sanitizar el maskItem hijo de marcas de calado redundantes para evitar la doble caja de selección o desfaces
+    maskItem.data = {
+        ...(maskItem.data || {}),
+        isHole: false,
+        geomBase: null
+    };
+
+    // 💥 MONKEY PATCH DE BOUNDS: Sobreescribe dinámicamente el getter de bounds para que el bounding box
+    // de Paper.js y selection.js represente con precisión milimétrica el contorno del molde (la letra)
+    // y no la gran foto de Messi detrás, alineando así las cotas en mm y manijas celestes de arrastre.
+    Object.defineProperty(fusionGroup, 'bounds', {
+        get: function() {
+            // El primer hijo (children[0]) es siempre maskItem (nuestro troquel / vector "F")
+            return this.children[0] ? this.children[0].bounds : new paper.Rectangle();
+        },
+        configurable: true,
+        enumerable: true
+    });
 
     // 3. Remover los elementos originales y limpiar sus grupos contenedores vacíos (Evita ID Corrupto)
     const vectorParent = vector.parent;
@@ -337,10 +366,25 @@ export function recalculateSmartFusion(fusionGroup) {
 
 /**
  * Disuelve la Fusión Inteligente reconstituyendo los vectores y fotos intactas.
- * @param {paper.Group} fusionGroup - El contenedor inteligente.
+ * @param {paper.Group} item - El elemento a disolver o cualquiera de sus hijos.
  */
-export function releaseSmartFusion(fusionGroup) {
-    if (!fusionGroup || !fusionGroup.data || !fusionGroup.data.isSmartFusion) return;
+export function releaseSmartFusion(item) {
+    if (!item) return;
+
+    let fusionGroup = item;
+    // BÚSQUEDA RECURSIVA ASCENDENTE: Resuelve de raíz fallos de desvincular (release)
+    // al subir por la jerarquía hasta encontrar el grupo de fusión real.
+    while (fusionGroup) {
+        if (fusionGroup.data && fusionGroup.data.isSmartFusion) {
+            break;
+        }
+        fusionGroup = fusionGroup.parent;
+    }
+
+    if (!fusionGroup || !fusionGroup.data || !fusionGroup.data.isSmartFusion) {
+        console.error("❌ [RELEASE_LOCK]: El elemento seleccionado no es parte de una Fusión Inteligente activa.");
+        return;
+    }
 
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -395,6 +439,7 @@ export function releaseSmartFusion(fusionGroup) {
     }
 
     paper.view.update();
+    console.log("🔓 [RELEASE_SUCCESS]: Fusión Inteligente disuelta con éxito. Elementos vectoriales y fotos restituidos a su cuna original.");
 }
 
 /**
@@ -408,5 +453,5 @@ export function initSmartFusionListeners() {
         window.recalculateSmartFusion = recalculateSmartFusion;
         window.releaseSmartFusion = releaseSmartFusion;
     }
-    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.5).", "color: #0284c7; font-weight: bold;");
+    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.6).", "color: #0284c7; font-weight: bold;");
 }
