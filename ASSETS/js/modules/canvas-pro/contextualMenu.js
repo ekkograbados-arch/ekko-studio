@@ -1,13 +1,31 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v44.0 - Active Node Edit Button Connectivity & Multi-Level Ungroup)
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v43.0 - Active Node Edit Button Connectivity & Multi-Level Ungroup)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripción:
     Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
     y barra de acciones para EKKO Studio.
 
-    CORRECCIÓN MATEMÁTICA DE DUPLICADO CON OFFSET UNIFICADO EN NODO RAÍZ.
+    Cumple rigurosamente con:
+    - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
+    - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
+    - LIGHTBURN ARRANGE & STACKING (Move Up, Move Down, Move to Top, Move to Bottom)
+    - DUPLICACIÓN VISUAL CON DESFASE ESTÁNDAR (+20px, +20px / LightBurn Style)
+    - SINCRONIZACIÓN PROFUNDA DE GEOMBASE Y CSG REACTIVO
+    - SEPARACIÓN CONCEPTUAL RIGUROSA:
+      1. '#btnCtxDuplicate' y '#btnCtxDelete' operan SIEMPRE sobre el OBJETO COMPLETO.
+      2. Si está en modo edición de nodos (nodeEditMode), sincroniza y sale limpiamente.
+      3. Migra la selección al nuevo clon y sincroniza la caja de transformación.
 
-AUTORIDAD: REPOSITORIO CANÓNICO V8 / CO-DISEÑO DE PRECISIÓN
+    CORRECCIONES ARQUITECTÓNICAS V42.0 (EKKO-ISSUE-0001):
+    1. UNIFICACIÓN ABSOLUTA DE DUPLICACIÓN Y COPIADO (Ctrl+D & duplicateImage/duplicateSingleItem):
+       Todas las rutas de duplicación convergen en una única lógica matemática unificada. Exponemos
+       'duplicateImage' y 'deleteImage' globalmente vinculándolas directamente a los flujos de la caja negra.
+    2. CLONACIÓN GEOMÉTRICA INDEPENDIENTE CON DOBLE ÁMBITO:
+       Al duplicar, se clona recursivamente el geomBase y se desfasa. Se escribe tanto en el 'target' interno
+       como en el contenedor 'clipGroup', rompiendo por completo los enlaces residuales con el original.
+       Esto evita el desastroso bug: [DUPLICATE ↓ EDIT NODE ↓ MODIFIES ORIGINAL].
+
+AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -26,12 +44,11 @@ function getContentItem(item) {
     if (!item) return null;
     if (item.data && item.data.clipGroup) {
         if (!item.children) return item;
-        var childrenArr = Array.from(item.children);
-        var content = childrenArr.find(function(c) {
+        var content = item.children.find(function(c) {
             return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask));
         });
         if (content) return content;
-        var fallback = childrenArr.find(function(c) {
+        var fallback = item.children.find(function(c) {
             return !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup));
         });
         if (fallback) return fallback;
@@ -112,14 +129,12 @@ function syncGeomBaseDeep(item, delta) {
             } catch (e) {}
         }
         if (target.data && target.data.clipGroup && target.children) {
-            const childrenArr = Array.from(target.children);
-            childrenArr.forEach(c => {
+            target.children.forEach(c => {
                 if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) recurse(c);
             });
         }
-        if (target.className === 'Group' && target.children) {
-            const childrenArr = Array.from(target.children);
-            childrenArr.forEach(recurse);
+        if (target instanceof paper.Group && target.children) {
+            target.children.forEach(recurse);
         }
     }
     recurse(item);
@@ -130,7 +145,8 @@ function syncGeomBaseDeep(item, delta) {
 // =========================================================================
 
 /**
- * Duplica un único objeto vectorial o raster, preservando independencias geométricas.
+ * Duplica un único objeto vectorial o raster, preservando independencias geométricas,
+ * enmascaramientos (clipGroups), alineación, doble-ámbito Bézier e historial de sesión.
  * @param {paper.Item} targetItem El elemento original a duplicar
  * @param {paper.Point} offset Vector de desfase acumulativo (LightBurn Style)
  * @returns {paper.Item|null} El nuevo objeto duplicado e independiente
@@ -140,22 +156,75 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
     if (targetItem.data && targetItem.data.locked) return null;
 
     const isClipped = !!(targetItem.data && targetItem.data.clipGroup);
-    
-    // Clonación del objeto completo para mantener congruencia geométrica absoluta y concéntrica de máscaras
-    const duplicatedObject = targetItem.clone();
-    
-    // Desvincular de raíz las referencias del objeto .data en clones
-    duplicatedObject.data = { ...(duplicatedObject.data || {}), locked: false };
-    
-    // Desplazar físicamente el objeto clonado completo (Una única vez en nodo raíz)
-    duplicatedObject.position = duplicatedObject.position.add(offset);
+    const content = isClipped ? getContentItem(targetItem) : targetItem;
+    if (!content) return null;
 
-    // Propagar desplazamiento exacto a toda la jerarquía de geometrías base internas de forma simultánea
-    syncGeomBaseDeep(duplicatedObject, offset);
+    // 1. Clonar profundamente el contenido geométrico interactivo real
+    const contentClone = content.clone();
 
+    // 2. Desvincular de raíz las referencias del objeto .data en clones para garantizar independencia absoluta
+    contentClone.data = { ...(contentClone.data || {}), locked: false };
+    
+    // Desplazar físicamente el contenido clonado
+    contentClone.position = contentClone.position.add(offset);
+
+    // 3. Clonación recursiva profunda e independiente del geomBase para evitar desincronizaciones de edición de nodos y CSG
+    const recurseCloneGeomBase = (src, dest) => {
+        if (!src || !dest) return;
+        if (src.data && src.data.geomBase) {
+            dest.data = dest.data || {};
+            // Clonar inmaculadamente la geometría base desfasada
+            dest.data.geomBase = src.data.geomBase.clone({ insert: false });
+            dest.data.geomBase.position = dest.data.geomBase.position.add(offset);
+            dest.data.isHole = !!src.data.isHole;
+            dest.data.layerDepth = src.data.layerDepth;
+        }
+        if (src.children && dest.children && src.children.length === dest.children.length) {
+            for (let i = 0; i < src.children.length; i++) {
+                recurseCloneGeomBase(src.children[i], dest.children[i]);
+            }
+        }
+    };
+    recurseCloneGeomBase(content, contentClone);
+
+    contentClone.data.label = (content.data?.label || "Objeto") + " (Copia)";
+
+    // 4. Integrar en la capa de diseño respetando enmascaramiento si correspondía
+    let duplicatedObject = null;
     const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
-    if (designLayer) designLayer.addChild(duplicatedObject);
 
+    if (isClipped && typeof window.clipItem === 'function') {
+        // Generar un nuevo clipGroup contenedor para el clon
+        duplicatedObject = window.clipItem(contentClone);
+        if (duplicatedObject) {
+            // Sincronizar posición del contenedor completo para forzar desfase físico estricto
+            if (targetItem.position && duplicatedObject.position) {
+                const dx = Math.abs(duplicatedObject.position.x - targetItem.position.x);
+                const dy = Math.abs(duplicatedObject.position.y - targetItem.position.y);
+                if (dx < 10 && dy < 10) {
+                    duplicatedObject.position = duplicatedObject.position.add(offset);
+                }
+            }
+        }
+        if (designLayer) designLayer.addChild(duplicatedObject);
+    } else {
+        if (designLayer) {
+            designLayer.addChild(contentClone);
+        } else {
+            paper.project.activeLayer.addChild(contentClone);
+        }
+        duplicatedObject = contentClone;
+    }
+
+    // 5. Salvaguarda de doble ámbito: Escribir geomBase también en el contenedor si aplica
+    if (duplicatedObject && duplicatedObject !== contentClone) {
+        duplicatedObject.data = duplicatedObject.data || {};
+        if (contentClone.data && contentClone.data.geomBase) {
+            duplicatedObject.data.geomBase = contentClone.data.geomBase.clone({ insert: false });
+        }
+    }
+
+    // 6. Orden Z: Insertar ordenadamente justo encima del original pero debajo del mockup
     if (duplicatedObject) {
         if (targetItem.nextSibling) {
             duplicatedObject.insertAbove(targetItem);
@@ -171,30 +240,43 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
 
 /**
  * Duplica la selección activa de Studio (simple o múltiple) unificando atajos y DOM.
+ * @returns {paper.Item[]} Lista de nuevos clones creados
  */
 export function duplicateSelectedItem() {
-    const selectedList = (window.selectedItems && window.selectedItems.length > 0)
+    // A) Salida segura si estamos en modo edición de nodos
+    if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
+        const activeTarget = window.nodeEditTarget || window.selectedItem;
+        window.exitNodeEditMode(true); // Salir forzadamente antes de duplicar el objeto completo
+        window.selectedItem = activeTarget;
+    }
+
+    // B) Determinar la lista de objetos a duplicar
+    const itemsToDuplicate = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (window.selectedItem ? [window.selectedItem] : []);
 
-    if (selectedList.length === 0) return null;
+    if (itemsToDuplicate.length === 0) return [];
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
     const duplicatedList = [];
     const offset = new paper.Point(20, 20);
 
-    selectedList.forEach(item => {
-        const cl = duplicateSingleItem(item, offset);
-        if (cl) duplicatedList.push(cl);
+    itemsToDuplicate.forEach(item => {
+        const clone = duplicateSingleItem(item, offset);
+        if (clone) duplicatedList.push(clone);
     });
 
     if (duplicatedList.length > 0) {
+        // C) Migración limpia de selección: Deseleccionar los originales y enfocar los nuevos clones
         if (typeof window.deselectItem === 'function') window.deselectItem();
         window.selectedItems = [...duplicatedList];
         window.selectedItem = duplicatedList[duplicatedList.length - 1];
         duplicatedList.forEach(cl => { cl.selected = true; });
+
+        // D) Sincronizar recálculo CSG dinámico sobre las nuevas capas
         safeRecalculateSubtractions();
 
+        // E) Actualizar UI contextual y caja celeste de selección
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(window.selectedItem);
         }
@@ -209,6 +291,10 @@ export function duplicateSelectedItem() {
 
 window.duplicateSelectedItem = duplicateSelectedItem;
 
+// =========================================================================
+// INTERFAZ UNIFICADA GLOBAL (MIGRACIÓN / ALIAS CANÓNICOS)
+// =========================================================================
+
 export function duplicateImage(item) {
     return duplicateSelectedItem();
 }
@@ -219,11 +305,9 @@ export function deleteImage(item) {
         window.exitNodeEditMode(true);
         item = targetObj;
     }
-
     const itemsToDelete = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (item ? [item] : (window.selectedItem ? [window.selectedItem] : []));
-
     if (itemsToDelete.length === 0) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -236,7 +320,6 @@ export function deleteImage(item) {
     if (typeof window.deselectItem === 'function') {
         window.deselectItem();
     }
-
     safeRecalculateSubtractions();
     paper.view.update();
 }
@@ -288,18 +371,48 @@ function injectFontFaces(fonts) {
     styleEl.textContent = css;
 }
 
+function getSelectedTextString() {
+    if (!window.selectedItem) return "EKKO Studio";
+    const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
+    if (!target) return "EKKO Studio";
+    if (isPointText(target)) {
+        return target.content || "EKKO Studio";
+    }
+    return "EKKO Studio";
+}
+
 function getSelectedFontFamily() {
     if (!window.selectedItem) return "Arial";
     const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
     if (!target) return "Arial";
-    return target.fontFamily || "Arial";
+    if (isPointText(target)) {
+        return target.fontFamily || "Arial";
+    } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+        return target.data.fontFamily || "Arial";
+    }
+    return "Arial";
+}
+
+function applyFontFamily(item, family) {
+    if (!item || item.data?.locked) return;
+    const target = item.data?.clipGroup ? getContentItem(item) : item;
+    if (!target) return;
+    if (isPointText(target)) {
+        target.fontFamily = family;
+    } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+        target.data.fontFamily = family;
+        if (target.children) {
+            target.children.forEach(child => {
+                if (isPointText(child)) child.fontFamily = family;
+            });
+        }
+    }
+    paper.view.update();
 }
 
 function renderFontList(fonts, listContainer) {
-    if (!listContainer) return;
     listContainer.innerHTML = "";
     const sampleText = getSelectedTextString();
-
     fonts.forEach(font => {
         const item = document.createElement('div');
         item.className = 'font-dropdown-item';
@@ -307,7 +420,6 @@ function renderFontList(fonts, listContainer) {
             <span class="font-name-label">${font.name}</span>
             <span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>
         `;
-
         item.onmouseenter = () => {
             if (window.selectedItem) applyFontFamily(window.selectedItem, font.family);
         };
@@ -331,27 +443,6 @@ function renderFontList(fonts, listContainer) {
     });
 }
 
-function applyFontFamily(item, family) {
-    const target = item.data?.clipGroup ? getContentItem(item) : item;
-    if (target && isPointText(target)) {
-        target.fontFamily = family;
-        paper.view.update();
-        if (typeof window.updateSelectionBox === 'function') {
-            window.updateSelectionBox(item);
-        }
-    }
-}
-
-function getSelectedTextString() {
-    if (!window.selectedItem) return "EKKO Studio";
-    const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
-    if (!target) return "EKKO Studio";
-    if (isPointText(target)) {
-        return target.content || "EKKO Studio";
-    }
-    return "EKKO Studio";
-}
-
 async function populateFontDropdowns() {
     let fonts = [];
     try {
@@ -368,13 +459,11 @@ async function populateFontDropdowns() {
     }
     fontsCache = fonts;
     injectFontFaces(fonts);
-
     const nativeSelect = document.getElementById('ctxFontSelector');
     if (nativeSelect) {
         nativeSelect.style.display = 'none';
         nativeSelect.classList.add('hidden');
     }
-
     let customDropdown = document.querySelector('.custom-font-dropdown');
     if (customDropdown) {
         const trigger = customDropdown.querySelector('.selected-font-trigger');
@@ -404,7 +493,6 @@ function makeToolbarDraggable() {
     let isDraggingToolbar = false;
     let startX = 0;
     let startY = 0;
-
     toolbar.addEventListener('mouseover', (e) => {
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
             toolbar.style.cursor = 'default';
@@ -412,7 +500,6 @@ function makeToolbarDraggable() {
             toolbar.style.cursor = 'move';
         }
     });
-
     toolbar.addEventListener('mousedown', (e) => {
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
             return;
@@ -421,39 +508,33 @@ function makeToolbarDraggable() {
         startX = e.clientX - toolbar.offsetLeft;
         startY = e.clientY - toolbar.offsetTop;
     });
-
     document.addEventListener('mousemove', (e) => {
         if (!isDraggingToolbar) return;
         toolbar.style.left = (e.clientX - startX) + 'px';
         toolbar.style.top = (e.clientY - startY) + 'px';
         toolbarDragged = true;
     });
-
     document.addEventListener('mouseup', () => {
         isDraggingToolbar = false;
     });
 }
 
+/**
+ * AGRUPAR: Preserva la semántica de capas, calados activos y orden Z.
+ */
 export function groupSelectedItems() {
     const selected = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (window.selectedItem ? [window.selectedItem] : []);
-
-    if (selected.length < 2) return;
+    if (selected.length < 2) {
+        alert("Selecciona al menos 2 elementos para poder agruparlos.");
+        return;
+    }
     if (typeof window.saveHistory === 'function') window.saveHistory();
-
     const parent = selected[0].parent || paper.project.activeLayer;
-    let lowestIndex = parent.children.length;
-    let anyClipped = false;
-
-    selected.forEach(it => {
-        const idx = parent.children.indexOf(it);
-        if (idx > -1 && idx < lowestIndex) lowestIndex = idx;
-        if (it.data && it.data.clipGroup) anyClipped = true;
-    });
-
+    const lowestIndex = Math.min(...selected.map(it => parent.children.indexOf(it)));
+    const anyClipped = selected.some(it => !!(it.data && it.data.clipGroup));
     const rawItems = selected.map(it => {
-        it.selected = false;
         if (it.data && it.data.clipGroup) {
             return getContentItem(it);
         }
@@ -476,23 +557,23 @@ export function groupSelectedItems() {
             finalGroup.insertBelow(window.currentMockup);
         }
     }
-
     if (typeof window.deselectItem === 'function') window.deselectItem();
     if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
     safeRecalculateSubtractions();
     paper.view.update();
 }
 
+/**
+ * DESAGRUPAR: Descomposición completa en 1 clic con selección unificada limpia.
+ */
 export function ungroupSelectedItem() {
     const wasInNodeEdit = !!window.nodeEditMode;
     if (wasInNodeEdit && typeof exitNodeEditMode === 'function') {
         exitNodeEditMode(true);
     }
-
     const selectedList = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (window.selectedItem ? [window.selectedItem] : []);
-
     if (selectedList.length === 0) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -503,6 +584,9 @@ export function ungroupSelectedItem() {
         const actualItem = isClipped ? getContentItem(item) : item;
         if (!actualItem) return;
 
+        // DESCOMPOSICIÓN ATÓMICA DE JERARQUÍA PROFUNDA EN 1 CLIC (Biblia de EKKO Studio):
+        // Delegar directamente al motor de contención para aplanar recursivamente cualquier nivel de anidamiento
+        // de Groups, CompoundPaths o PlacedSymbols y devolver piezas atómicas independientes y CSG reactivas.
         const cName = actualItem.className;
         if (cName === 'Group' || cName === 'CompoundPath' || cName === 'SymbolItem' || cName === 'PlacedSymbol') {
             const decomp = typeof window.decomposeByContainmentHierarchy === 'function'
@@ -533,7 +617,6 @@ export function ungroupSelectedItem() {
             updateContextualMenu(window.selectedItem);
         }
     }
-
     safeRecalculateSubtractions();
     paper.view.update();
 }
@@ -589,6 +672,7 @@ export function initContextualMenu() {
         if (el) el.onclick = fn;
     };
 
+    // --- BOTÓN ELIMINAR OBJETO COMPLETO (#btnCtxDelete) ---
     setClick('btnCtxDelete', () => {
         const target = window.nodeEditTarget || window.selectedItem;
         if (target) {
@@ -597,10 +681,12 @@ export function initContextualMenu() {
         }
     });
 
+    // --- BOTÓN DUPLICAR OBJETO COMPLETO (#btnCtxDuplicate) ---
     setClick('btnCtxDuplicate', () => {
         duplicateSelectedItem();
     });
 
+    // --- BOTONES DE APILAMIENTO Z (LIGHTBURN STYLE) ---
     setClick('btnCtxToFront', () => {
         if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
             window.exitNodeEditMode(false);
@@ -730,9 +816,20 @@ function getUnifiedScreenBounds(item) {
         window.selectedItems.forEach(it => {
             const tgt = it.data?.clipGroup ? getContentItem(it) : it;
             if (tgt && tgt.bounds && tgt.visible !== false) {
-                combinedBounds = !combinedBounds ? tgt.bounds.clone() : combinedBounds.unite(tgt.bounds);
+                if (!combinedBounds) {
+                    combinedBounds = tgt.bounds.clone();
+                } else {
+                    combinedBounds = combinedBounds.unite(tgt.bounds);
+                }
             }
         });
+    }
+
+    if (!combinedBounds && item) {
+        const tgt = item.data?.clipGroup ? getContentItem(item) : item;
+        if (tgt && tgt.bounds && tgt.visible !== false) {
+            combinedBounds = tgt.bounds.clone();
+        }
     }
 
     if (!combinedBounds) return null;
@@ -772,10 +869,11 @@ export function updateContextualMenu(item) {
     if (btnTrace) btnTrace.style.display = 'none';
 
     const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
+
     if (selectedCount > 1) {
         const allVectors = window.selectedItems.every(it => {
             const tgt = it.data?.clipGroup ? getContentItem(it) : it;
-            return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || (typeof isShape === 'function' && isShape(tgt)));
+            return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isShape(tgt));
         });
 
         if (allVectors) {
@@ -813,7 +911,7 @@ export function updateContextualMenu(item) {
                 btnTrace.classList.remove('hidden');
                 btnTrace.style.display = 'inline-flex';
             }
-        } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target) || (typeof isShape === 'function' && isShape(target))) {
+        } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target) || isShape(target)) {
             const vecCtrl = document.getElementById('ctxVectorControls');
             if (vecCtrl) {
                 vecCtrl.classList.remove('hidden');
@@ -836,6 +934,7 @@ export function updateContextualMenu(item) {
         }
     }
 
+    // Posicionamiento de la barra flotante
     if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
         toolbar.style.left = window.customToolbarLeft + 'px';
         toolbar.style.top = window.customToolbarTop + 'px';
@@ -846,6 +945,7 @@ export function updateContextualMenu(item) {
             const toolbarH = toolbar.offsetHeight || 44;
             const x = screenPos.x - (toolbarW / 2);
             const y = screenPos.y - toolbarH - 14;
+
             toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarW - 10, x)) + 'px';
             toolbar.style.top = Math.max(10, y) + 'px';
         }
@@ -866,6 +966,7 @@ window.updateContextualMenu = updateContextualMenu;
 window.hideContextualMenu = hideContextualMenu;
 window.initContextualMenu = initContextualMenu;
 
+// Exponer de forma unificada las funciones clave en window
 if (typeof window !== 'undefined') {
     window.duplicateImage = duplicateImage;
     window.deleteImage = deleteImage;
