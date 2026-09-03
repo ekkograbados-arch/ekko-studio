@@ -75,13 +75,48 @@ function isMockupOrProductElement(item) {
 /**
  * Obtiene un clon de un elemento con su sistema de coordenadas aplanado en absoluto (coordenadas de mundo).
  */
+/**
+ * Aplica y hornea una matriz de transformación de forma recursiva y ultra-precisa
+ * en los segmentos y curvas de un trazado (Path o CompoundPath), evitando fallos de Paper.js.
+ */
+function bakeMatrixIntoPath(path, matrix) {
+    if (!path || !matrix || matrix.isIdentity()) return;
+    if (path.segments && path.segments.length > 0) {
+        path.segments.forEach(seg => {
+            seg.point = matrix.transform(seg.point);
+            if (seg.handleIn) {
+                const hInGlobal = matrix.transform(seg.point.add(seg.handleIn));
+                seg.handleIn = hInGlobal.subtract(seg.point);
+            }
+            if (seg.handleOut) {
+                const hOutGlobal = matrix.transform(seg.point.add(seg.handleOut));
+                seg.handleOut = hOutGlobal.subtract(seg.point);
+            }
+        });
+    }
+    if (path.children && path.children.length > 0) {
+        const childrenArr = Array.from(path.children);
+        childrenArr.forEach(child => bakeMatrixIntoPath(child, matrix));
+    }
+}
+
+/**
+ * Obtiene un clon de un elemento con su sistema de coordenadas aplanado en absoluto (coordenadas de mundo).
+ */
 function getAbsoluteClone(item) {
     if (!item) return null;
     const clone = item.clone({ insert: false });
-    clone.matrix = item.globalMatrix.clone();
+    const globalMat = item.globalMatrix.clone();
+    
+    // Insertamos temporalmente en la capa activa para asegurar contexto
     paper.project.activeLayer.addChild(clone);
+    
     if (clone.className === 'Path' || clone.className === 'CompoundPath') {
-        clone.applyMatrix = true;
+        // Horneamos físicamente la matriz global usando nuestro motor ultra-preciso
+        bakeMatrixIntoPath(clone, globalMat);
+        clone.matrix = new paper.Matrix(); // Reseteamos a identidad
+    } else {
+        clone.matrix = globalMat;
     }
     return clone;
 }
@@ -105,17 +140,22 @@ function findSmartFusionContainer(item) {
         return item;
     }
 
-    // 2. Buscar hacia abajo en los hijos (para grupos de recorte wrappers)
+    // 2. Buscar hacia abajo en los hijos de forma recursiva y segura
     if (item.children && item.children.length > 0) {
         let found = null;
-        item.accept({
-            visit: function(child) {
-                if (child.data && child.data.isSmartFusion) {
-                    found = child;
-                    return false; // detener accept
+        function traverse(node) {
+            if (node.data && node.data.isSmartFusion) {
+                found = node;
+                return;
+            }
+            if (node.children) {
+                for (let i = 0; i < node.children.length; i++) {
+                    traverse(node.children[i]);
+                    if (found) return;
                 }
             }
-        });
+        }
+        traverse(item);
         if (found) return found;
     }
 
