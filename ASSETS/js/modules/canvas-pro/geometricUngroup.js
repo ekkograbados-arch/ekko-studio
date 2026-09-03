@@ -6,7 +6,7 @@ DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/selection.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36.2 - Deep Recursive Extraction & Containment Hierarchy Engine)
+Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36.3 - Deep Recursive Extraction & Wrapper Group Sanitization) - Deep Recursive Extraction & Containment Hierarchy Engine)
 Descripción:
     Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
     Optimizado para corte y grabado láser.
@@ -579,11 +579,12 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             }
         }
         
-        // CORRECCIÓN FORENSE: Asegurar inicialización de geomBase en el nodo raíz (clipGroup)
-        // para erradicar el error de corruptedGeomBase en inspect()
+        // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
         if (finalItem !== item) {
             if (!finalItem.data) finalItem.data = {};
-            finalItem.data.geomBase = item.data.geomBase.clone({ insert: false });
+            finalItem.data.isHole = false;
+            finalItem.data.geomBase = null;
+            finalItem.data.clipGroup = true;
         }
 
         finalDeliveredItems.push(finalItem);
