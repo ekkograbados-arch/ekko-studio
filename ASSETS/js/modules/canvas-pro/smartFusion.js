@@ -93,6 +93,68 @@ function getAbsoluteClone(item) {
  * @param {string} mode - 'intersecar' (Messi dentro del vector) o 'calar' (vector perfora a Messi).
  * @returns {paper.Group} El contenedor inteligente resultante.
  */
+/**
+ * Busca el contenedor inteligente de fusión (isSmartFusion) explorando el elemento mismo,
+ * sus padres (hacia arriba) o sus hijos (hacia abajo, para wrappers de clipGroup).
+ */
+function findSmartFusionContainer(item) {
+    if (!item) return null;
+
+    // 1. Buscar en el elemento mismo
+    if (item.data && item.data.isSmartFusion) {
+        return item;
+    }
+
+    // 2. Buscar hacia abajo en los hijos (para grupos de recorte wrappers)
+    if (item.children && item.children.length > 0) {
+        let found = null;
+        item.accept({
+            visit: function(child) {
+                if (child.data && child.data.isSmartFusion) {
+                    found = child;
+                    return false; // detener accept
+                }
+            }
+        });
+        if (found) return found;
+    }
+
+    // 3. Buscar hacia arriba en los padres
+    let curr = item.parent;
+    while (curr && curr !== paper.project) {
+        if (curr.data && curr.data.isSmartFusion) {
+            return curr;
+        }
+        curr = curr.parent;
+    }
+
+    return null;
+}
+
+/**
+ * Sobreescribe recursivamente el getter y setter de 'selected' en todos los hijos
+ * de un grupo de fusión para evitar que Paper.js o selection.js dibujen cajas
+ * de selección o contornos punteados desfasados para la imagen de fondo o la máscara.
+ */
+function overrideChildrenSelection(group) {
+    if (!group || !group.children) return;
+    group.children.forEach(child => {
+        try {
+            Object.defineProperty(child, 'selected', {
+                get: function() { return false; },
+                set: function(val) { /* ignorar silenciosamente */ },
+                configurable: true,
+                enumerable: true
+            });
+        } catch (e) {
+            console.warn("No se pudo sobreescribir 'selected' para el hijo:", child.id, e);
+        }
+        if (child.children && child.children.length > 0) {
+            overrideChildrenSelection(child);
+        }
+    });
+}
+
 export function applySmartFusion(vector, raster, mode = 'calar') {
     if (!vector || !raster || !paper) return null;
 
@@ -182,6 +244,9 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
         isHole: false,
         geomBase: null
     };
+
+    // Forzar deselección absoluta en los sub-elementos para que no haya cajas desalineadas en pantalla
+    overrideChildrenSelection(fusionGroup);
 
     // 💥 MONKEY PATCH DE BOUNDS: Sobreescribe dinámicamente el getter de bounds para que el bounding box
     // de Paper.js y selection.js represente con precisión milimétrica el contorno del molde (la letra)
@@ -357,6 +422,20 @@ export function recalculateSmartFusion(fusionGroup) {
             newInverseMask.strokeColor = null;
             newInverseMask.strokeWidth = 0;
 
+            newInverseMask.data = {
+                ...(newInverseMask.data || {}),
+                isHole: false,
+                geomBase: null
+            };
+            try {
+                Object.defineProperty(newInverseMask, 'selected', {
+                    get: function() { return false; },
+                    set: function(val) { /* ignorar */ },
+                    configurable: true,
+                    enumerable: true
+                });
+            } catch(e) {}
+
             // Reemplazar la máscara vieja por la nueva sin perder el clipping
             newInverseMask.clipMask = true;
             maskItem.replaceWith(newInverseMask);
@@ -371,15 +450,7 @@ export function recalculateSmartFusion(fusionGroup) {
 export function releaseSmartFusion(item) {
     if (!item) return;
 
-    let fusionGroup = item;
-    // BÚSQUEDA RECURSIVA ASCENDENTE: Resuelve de raíz fallos de desvincular (release)
-    // al subir por la jerarquía hasta encontrar el grupo de fusión real.
-    while (fusionGroup) {
-        if (fusionGroup.data && fusionGroup.data.isSmartFusion) {
-            break;
-        }
-        fusionGroup = fusionGroup.parent;
-    }
+    const fusionGroup = findSmartFusionContainer(item);
 
     if (!fusionGroup || !fusionGroup.data || !fusionGroup.data.isSmartFusion) {
         console.error("❌ [RELEASE_LOCK]: El elemento seleccionado no es parte de una Fusión Inteligente activa.");
