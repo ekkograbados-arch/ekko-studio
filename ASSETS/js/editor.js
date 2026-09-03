@@ -36,6 +36,7 @@ import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
+import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
 
 // Exposicion segura de API al contexto global del navegador (WYSIWYG-Sync)
 window.updateContextualMenu = updateContextualMenu;
@@ -1230,7 +1231,8 @@ async function bootstrapEKKO() {
       });
 
     await Promise.all([fontsPromise, productsPromise]);
-    console.log(`%c[EKKO BOOTSTRAP] Editor inicializado con éxito. Dimensiones estables: ${initialWidth}x${initialHeight} px.`, "color: #10b981; font-weight: bold;");
+      initSmartFusionListeners(); 
+     console.log(`%c[EKKO BOOTSTRAP] Editor inicializado con éxito. Dimensiones estables: ${initialWidth}x${initialHeight} px.`, "color: #10b981; font-weight: bold;");
 
   } catch (err) {
     console.error("[EKKO BOOTSTRAP] Error critico de inicializacion asincrona de Paper.js:", err);
