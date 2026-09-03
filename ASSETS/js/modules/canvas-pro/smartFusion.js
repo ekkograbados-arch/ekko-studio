@@ -6,7 +6,7 @@ DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.3 - Even-Odd Clipping Rule & Wrapper Sanitization)
+Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.4 - Even-Odd Clipping Rule & Ghost Parent Cleanup)
 Descripción:
     Núcleo matemático de la Fusión Inteligente y Anclaje Magnético para EKKO Studio.
     Soluciona de forma definitiva los desbordes del producto y la inversión de máscaras
@@ -28,14 +28,7 @@ let activeSnappedVector = null;
 function isMockupOrProductElement(item) {
     let curr = item;
     while (curr) {
-        if (curr.clipMask || (curr.data && (
-            curr.data.mockup ||
-            curr.data.isMask ||
-            curr.data.locked ||
-            curr.data.isSelectionBox ||
-            curr.data.isSmartGuide ||
-            curr.data.isMeasurement
-        ))) {
+        if (curr.clipMask || (curr.data && (\n            curr.data.mockup ||\n            curr.data.isMask ||\n            curr.data.locked ||\n            curr.data.isSelectionBox ||\n            curr.data.isSmartGuide ||\n            curr.data.isMeasurement\n        ))) {
             return true;
         }
         const label = (curr.data?.label || '').toLowerCase();
@@ -60,7 +53,7 @@ function getAbsoluteClone(item) {
     clone.matrix = item.globalMatrix.clone();
     // Insertamos temporalmente en el lienzo raíz para asegurar su contexto
     paper.project.activeLayer.addChild(clone);
-    // Si es un trazado vectorial, \"bakeamos\" físicamente la geometría (reseteando matriz a identidad)
+    // Si es un trazado vectorial, "bakeamos" físicamente la geometría (reseteando matriz a identidad)
     if (clone.className === 'Path' || clone.className === 'CompoundPath') {
         clone.applyMatrix = true;
     }
@@ -158,8 +151,26 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
     // Liberar los elementos originales y los clones absolutos intermedios
     absoluteVector.remove();
     absoluteRaster.remove();
+    
+    // Saneamiento de Grupos Fantasma (Ghost Group Cleanup)
+    // Si el vector o imagen estaban en un grupo contenedor que ahora queda vacío o sin contenido real (solo máscaras), lo eliminamos
+    const vectorParent = vector.parent;
     vector.remove();
+    if (vectorParent && vectorParent.className === 'Group') {
+        const content = vectorParent.children.filter(c => !c.clipMask);
+        if (content.length === 0) {
+            vectorParent.remove();
+        }
+    }
+    
+    const rasterParent = raster.parent;
     raster.remove();
+    if (rasterParent && rasterParent.className === 'Group') {
+        const content = rasterParent.children.filter(c => !c.clipMask);
+        if (content.length === 0) {
+            rasterParent.remove();
+        }
+    }
 
     // Sincronizar el geomBase del nuevo contenedor inteligente para reactividad CSG
     if (typeof window.syncGeometryToGeomBase === 'function') {
@@ -350,5 +361,5 @@ export function initSmartFusionListeners() {
         window.recalculateSmartFusion = recalculateSmartFusion;
         window.releaseSmartFusion = releaseSmartFusion;
     }
-    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.3).", "color: #0284c7; font-weight: bold;");
+    console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.4).", "color: #0284c7; font-weight: bold;");
 }
