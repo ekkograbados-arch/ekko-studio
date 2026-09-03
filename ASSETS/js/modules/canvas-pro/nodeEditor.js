@@ -1,26 +1,13 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v41.0 - Unified CallGraph & Double-Scope GeomBase Precision)
+Módulo: ASSETS/js/modules/canvas-pro/nodeEditor.js (PRO Node Engine v43.0 - Unified CallGraph & Double-Scope GeomBase Precision)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/nodeEditor.js
 Descripción:
     Motor de edición interactiva de nodos vectoriales (vértices y tiradores Bézier)
     para EKKO Studio basado en Paper.js.
 
-    Cumple rigurosamente con:
-    - Manual de Instrucciones de LightBurn (Sección 4.5: Edición de Nodos, atajos D, S, L, I, M y selección).
-    - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
-    - REGLAS DE ORO - PROMPT MAESTRO - GUÍA PARA CREAR EKKO STUDIO
-    - Diagnostico_v2.txt y EKKO Studio Diagnostic v10.0:
+    SOPORTA RECALCULO REACTIVO EN TIEMPO REAL CSG Y PROTECCIÓN DE ANCESTROS DEL MOCKUP.
 
-    CORRECCIONES ARQUITECTÓNICAS V37.0:
-    1. PARCHE DE DOBLE ÁMBITO PARA GEOMBASE (EKKO-ISSUE-0001):
-       'syncGeometryToGeomBase' ahora actualiza recursivamente 'geomBase' tanto en el 'target' 
-       geométrico interno (Path/CompoundPath) como en el contenedor 'clipGroup' principal. Esto 
-       satisface de forma simultánea el contrato de selección de selection.js y evita que 
-       recalculateDynamicSubtractions() restaure geometrías desincronizadas en caliente.
-    2. BLINDAJE DE EDICIÓN DE NODOS EN CALADO ACTIVO (isHole):
-       Asegura la visibilidad del trazado editado y el recálculo asíncrono seguro de las sustracciones booleanas.
-
-AUTORIDAD: STUDIO ACTUAL / REPOSITORIO CANÓNICO V7
+AUTORIDAD: REPOSITORIO CANÓNICO V8 / CO-DISEÑO DE PRECISIÓN
 ========================================================================= */
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
@@ -34,11 +21,38 @@ function getContentItem(item) {
     if (!item) return null;
     if (item.data && item.data.clipGroup) {
         if (!item.children) return item;
-        const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+        const childrenArr = Array.from(item.children);
+        const content = childrenArr.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
         if (content) return content;
         return item.children[1] || item.children[0] || item;
     }
     return item;
+}
+
+// Detecta de forma infalible si un elemento pertenece de forma implícita o explícita al mockup del producto
+function isMockupOrProductElement(item) {
+    let curr = item;
+    while (curr) {
+        if (curr.data && (
+            curr.data.mockup ||
+            curr.data.isMask ||
+            curr.data.locked ||
+            curr.data.isSelectionBox ||
+            curr.data.isHandle ||
+            curr.data.isSmartGuide ||
+            curr.data.isMeasurement ||
+            curr.data.isTracePreview
+        )) {
+            return true;
+        }
+        // Comprobación heurística de etiquetas para chapitas, huesitos, termo, mate, llaveros
+        const label = (curr.data?.label || '').toLowerCase();
+        if (label.includes('chapita') || label.includes('huesito') || label.includes('termo') || label.includes('mate') || label.includes('llavero') || label.includes('producto') || label.includes('plantilla')) {
+            return true;
+        }
+        curr = curr.parent;
+    }
+    return false;
 }
 
 // Variables de Estado de la Herramienta de Edición de Nodos
@@ -70,7 +84,7 @@ if (typeof window !== 'undefined') {
 function getTargetPaths(target) {
     const paths = [];
     const findPathsRecursive = (item) => {
-        if (!item) return;
+        if (!item || isMockupOrProductElement(item)) return;
         const cName = item.className;
         if (cName === 'Path') {
             // Ignorar la máscara de recorte del producto para no editar sus nodos por error
@@ -99,9 +113,6 @@ function getTargetPaths(target) {
 
 /**
  * SINCRONIZACIÓN IMPECABLE DE GEOMETRÍA BASE (ANTI-CORRUPCIÓN CSG)
- * Sincroniza la geometría editada con 'geomBase' manteniendo coherencia matemática
- * tanto en el elemento geométrico interno como en su contenedor clipGroup para
- * que selection.js y el motor CSG operen con referencias válidas unificadas.
  * @param {paper.Item} item
  */
 export function syncGeometryToGeomBase(item) {
@@ -109,24 +120,19 @@ export function syncGeometryToGeomBase(item) {
     const target = getContentItem(item);
     if (!target) return;
 
-    // Asegurar estructura de datos en contenido geométrico
     if (!target.data) target.data = {};
 
-    // Clonar la geometría visible actual en coordenadas locales de dibujo (reseteando matriz)
     const newGeomBase = target.clone({ insert: false });
     newGeomBase.matrix = new paper.Matrix();
 
-    // 1. Limpiar geometría base obsoleta en el target para evitar fugas de memoria GDI/Paper
     if (target.data.geomBase) {
         try {
             target.data.geomBase.remove();
         } catch (e) {}
     }
 
-    // 2. Escribir la nueva geometría en el target interno (Verdad Canónica Esperada por selection.js)
     target.data.geomBase = newGeomBase;
 
-    // 3. Salvaguarda de doble ámbito: Escribir también en el contenedor si son distintos (clipGroup)
     if (item !== target) {
         if (!item.data) item.data = {};
         if (item.data.geomBase) {
@@ -143,11 +149,11 @@ export function syncGeometryToGeomBase(item) {
  * @param {paper.Item} item
  */
 export function enterNodeEditMode(item) {
-    if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask) return;
+    if (!item || item.data?.locked || item.data?.mockup || item.data?.isMask || isMockupOrProductElement(item)) return;
     const target = getContentItem(item);
-    if (!target) return;
+    if (!target || isMockupOrProductElement(target)) return;
 
-    // Conversión automática de texto a curvas si se intenta editar nodos de un PointText
+    // Conversión automática de texto a curvas
     const isText = target.className === 'PointText' || (typeof paper !== 'undefined' && paper.PointText && target.className === 'PointText');
     if (isText) {
         if (confirm("Para editar los nodos de este texto, primero debes convertirlo a curvas. ¿Deseas continuar?")) {
@@ -166,7 +172,6 @@ export function enterNodeEditMode(item) {
         }
     }
 
-    // Salir de cualquier sesión previa de edición
     if (window.nodeEditMode) {
         exitNodeEditMode(true);
     }
@@ -175,7 +180,6 @@ export function enterNodeEditMode(item) {
     window.nodeEditMode = true;
     window.nodeEditTarget = item;
 
-    // Desactivar temporalmente máscara para permitir manipulación libre sin recortes visuales
     function disableClipGroup(g) {
         if (!g || !g.data || !g.data.clipGroup) return;
         if (g.clipped) {
@@ -194,7 +198,6 @@ export function enterNodeEditMode(item) {
         disableClipGroup(item);
     }
 
-    // Ocultar la caja celeste de selección global
     if (typeof window.updateSelectionBox === 'function') {
         window.updateSelectionBox(null);
     }
@@ -202,12 +205,10 @@ export function enterNodeEditMode(item) {
     selectedNodes.clear();
     drawNodeHandles();
 
-    // Inicializar herramienta interactiva de edición de nodos
     previousTool = paper.tool;
     nodeEditTool = new paper.Tool();
 
     nodeEditTool.onMouseDown = (event) => {
-        // Agregar nodo en trazado
         if (isAddNodeActive) {
             const targetPaths = getTargetPaths(activeNodeItem);
             let nearestLoc = null;
@@ -229,10 +230,11 @@ export function enterNodeEditMode(item) {
                 const newSegment = nearestLoc.curve.divideAt(nearestLoc);
                 if (newSegment) {
                     syncGeometryToGeomBase(activeNodeItem);
-                    if (activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
+                    
+                    if (typeof recalculateDynamicSubtractions === 'function') {
                         recalculateDynamicSubtractions();
-                        activeNodeItem.visible = true;
                     }
+
                     selectedNodes.clear();
                     drawNodeHandles();
                     const globalIdx = findGlobalIdxForSegment(path, newSegment.index);
@@ -254,7 +256,6 @@ export function enterNodeEditMode(item) {
             return;
         }
 
-        // Hit-test sobre tiradores de nodos o manijas Bézier
         if (nodeHandlesGroup) {
             const hitResult = nodeHandlesGroup.hitTest(event.point, {
                 fill: true,
@@ -266,7 +267,6 @@ export function enterNodeEditMode(item) {
             if (hitResult) {
                 const hitData = hitResult.item.data;
 
-                // A) Manija Bézier (tirador de curva)
                 if (hitData.isCurveHandle) {
                     isDraggingHandle = true;
                     activeHandleData = {
@@ -278,7 +278,6 @@ export function enterNodeEditMode(item) {
                     return;
                 }
 
-                // B) Vértice principal (nodo de anclaje)
                 if (hitData.isNodeHandle) {
                     isDraggingNode = true;
                     window.isDraggingNode = true;
@@ -303,7 +302,6 @@ export function enterNodeEditMode(item) {
             }
         }
 
-        // Clic en el fondo: Iniciar marquesina de selección múltiple (Marquee)
         dragStartPoint = event.point.clone();
         if (!event.modifiers.shift) {
             selectedNodes.clear();
@@ -313,7 +311,6 @@ export function enterNodeEditMode(item) {
     };
 
     nodeEditTool.onMouseDrag = (event) => {
-        // 1. Arrastre de tirador Bézier (curvatura individual)
         if (isDraggingHandle && activeHandleData) {
             const targetPath = paper.project.getItem({ id: activeHandleData.pathId });
             if (targetPath && targetPath.segments && targetPath.segments[activeHandleData.localIdx]) {
@@ -334,18 +331,16 @@ export function enterNodeEditMode(item) {
                 }
             }
             syncGeometryToGeomBase(activeNodeItem);
-            if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
-                if (typeof recalculateDynamicSubtractions === 'function') {
-                    recalculateDynamicSubtractions();
-                    activeNodeItem.visible = true;
-                }
+            
+            if (typeof recalculateDynamicSubtractions === 'function') {
+                recalculateDynamicSubtractions();
             }
+
             drawNodeHandles();
             paper.view.update();
             return;
         }
 
-        // 2. Arrastre en bloque de todos los nodos seleccionados (Multi-Node Drag)
         if (isDraggingNode && selectedNodes.size > 0 && activeNodeItem) {
             moveSelectedNodesByDelta(event.delta);
             drawNodeHandles();
@@ -353,7 +348,6 @@ export function enterNodeEditMode(item) {
             return;
         }
 
-        // 3. Marquesina de selección múltiple (Marquee)
         if (dragStartPoint) {
             if (marqueeRect) {
                 marqueeRect.remove();
@@ -395,11 +389,9 @@ export function enterNodeEditMode(item) {
             }
 
             syncGeometryToGeomBase(activeNodeItem);
-            if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
-                if (typeof recalculateDynamicSubtractions === 'function') {
-                    recalculateDynamicSubtractions();
-                    activeNodeItem.visible = true;
-                }
+            
+            if (typeof recalculateDynamicSubtractions === 'function') {
+                recalculateDynamicSubtractions();
             }
         }
 
@@ -414,7 +406,6 @@ export function enterNodeEditMode(item) {
 
     nodeEditTool.activate();
 
-    // Inyectar controles de nodos contextuales
     const parentControls = document.getElementById('ctxNodeEditControls');
     if (parentControls) {
         let btnAddNode = document.getElementById('btnCtxAddNode');
@@ -483,7 +474,6 @@ export function enterNodeEditMode(item) {
 
 /**
  * Función atómica instrumentada para desplazar nodos seleccionados en bloque.
- * Permite trazabilidad en EKKO_DIAG y preservación estricta de geomBase.
  * @param {paper.Point} delta
  */
 export function moveSelectedNodesByDelta(delta) {
@@ -505,11 +495,9 @@ export function moveSelectedNodesByDelta(delta) {
     });
 
     syncGeometryToGeomBase(activeNodeItem);
-    if (activeNodeItem && activeNodeItem.data && activeNodeItem.data.isHole) {
-        if (typeof recalculateDynamicSubtractions === 'function') {
-            recalculateDynamicSubtractions();
-            activeNodeItem.visible = true;
-        }
+    
+    if (typeof recalculateDynamicSubtractions === 'function') {
+        recalculateDynamicSubtractions();
     }
 }
 
@@ -527,7 +515,6 @@ export function exitNodeEditMode(skipSelect = false) {
         marqueeRect = null;
     }
 
-    // Restaurar grupos de recorte desactivados
     disabledClipGroups.forEach(g => {
         if (g) {
             g.clipped = true;
@@ -577,19 +564,16 @@ export function exitNodeEditMode(skipSelect = false) {
     if (nodeEl) nodeEl.classList.add('hidden');
     document.removeEventListener('keydown', handleNodeKeydown);
 
-    // Restaurar herramienta de interacción anterior
     if (previousTool && previousTool !== nodeEditTool) {
         previousTool.activate();
     } else if (typeof window.initSelectionTool === 'function') {
         window.initSelectionTool();
     }
 
-    // Ejecutar recálculo reactivo CSG final
     if (typeof recalculateDynamicSubtractions === 'function') {
         recalculateDynamicSubtractions(null, true);
     }
 
-    // Restaurar selección sobre el objeto completo
     if (!skipSelect && finishedItem && typeof window.selectItem === 'function') {
         setTimeout(() => {
             window.selectItem(finishedItem);
@@ -605,7 +589,6 @@ function convertTextToPath(pointText) {
     compound.strokeColor = pointText.strokeColor;
     compound.strokeWidth = pointText.strokeWidth;
     compound.data = { label: "Texto Convertido" };
-    // Inicializar su geomBase de doble ámbito de inmediato
     syncGeometryToGeomBase(compound);
     return compound;
 }
@@ -622,18 +605,12 @@ function findGlobalIdxForSegment(path, localIdx) {
     return -1;
 }
 
-/**
- * Sincroniza la escala visual de los tiradores ante operaciones de zoom.
- */
 export function updateNodeHandlesScale() {
     if (!window.nodeEditMode || !activeNodeItem) return;
     drawNodeHandles();
     if (window.paper && paper.view) paper.view.update();
 }
 
-/**
- * Dibuja los tiradores visuales de cada segmento y sus tiradores Bézier sobre el lienzo.
- */
 export function drawNodeHandles() {
     if (nodeHandlesGroup) {
         nodeHandlesGroup.remove();
@@ -647,7 +624,6 @@ export function drawNodeHandles() {
     const paths = getTargetPaths(activeNodeItem);
     const zoom = paper.view.zoom || 1.0;
 
-    // Dimensiones estáticas constantes de 5px fijos en pantalla (LightBurn style)
     const handleRadius = 5 / zoom;
     const handleDotRadius = 3.5 / zoom;
 
@@ -657,7 +633,6 @@ export function drawNodeHandles() {
             const isSelected = selectedNodes.has(ptIdx);
             const globalPoint = path.localToGlobal(segment.point);
 
-            // Tiradores Bézier (manijas) para curvas fluidas
             if (isSelected) {
                 if (segment.handleIn && !segment.handleIn.isZero()) {
                     const globalIn = path.localToGlobal(segment.point.add(segment.handleIn));
@@ -720,7 +695,6 @@ export function drawNodeHandles() {
                 }
             }
 
-            // Vértice principal de anclaje
             const handle = new paper.Path.Circle({
                 center: globalPoint,
                 radius: handleRadius,
@@ -743,9 +717,6 @@ export function drawNodeHandles() {
     nodeHandlesGroup.bringToFront();
 }
 
-/**
- * Elimina los nodos seleccionados de la geometría activa (LightBurn Style - atajo D o Supr).
- */
 export function deleteSelectedNodes() {
     if (!activeNodeItem || selectedNodes.size === 0) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -784,18 +755,14 @@ export function deleteSelectedNodes() {
     selectedNodes.clear();
     syncGeometryToGeomBase(activeNodeItem);
 
-    if (activeNodeItem && activeNodeItem.data?.isHole && typeof recalculateDynamicSubtractions === 'function') {
+    if (typeof recalculateDynamicSubtractions === 'function') {
         recalculateDynamicSubtractions();
-        activeNodeItem.visible = true;
     }
 
     drawNodeHandles();
     paper.view.update();
 }
 
-/**
- * Desprende los sub-trazados que corresponden a los nodos seleccionados.
- */
 export function detachSelectedSubpaths() {
     if (!activeNodeItem || selectedNodes.size === 0) return;
     const target = getContentItem(activeNodeItem);
@@ -840,7 +807,6 @@ export function detachSelectedSubpaths() {
             parent.addChild(newItem);
         }
 
-        // Registrar geomBase para reactividad e independencia
         syncGeometryToGeomBase(newItem);
         newItem.data = {
             ...(newItem.data || {}),
