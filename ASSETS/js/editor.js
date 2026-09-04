@@ -28,6 +28,7 @@
 
 import "./modules/selection.js";
 import "./modules/canvas-pro/ekkoDiagnostics.js";
+import "./modules/canvas-pro/ekkoSynapse.js";
 import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
 import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
