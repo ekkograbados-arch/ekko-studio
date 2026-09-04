@@ -610,6 +610,9 @@ export function initSmartFusionListeners() {
         window.handleMagneticDrop = handleMagneticDrop;
         window.recalculateSmartFusion = recalculateSmartFusion;
         window.releaseSmartFusion = releaseSmartFusion;
+        
+        // SOLDADURA CLAVE: Exponer el inicializador de red neuronal
+        window.initSmartFusionListeners = initSmartFusionListeners; 
     }
     console.log("%c[EKKO SMART FUSION] Escuchadores asíncronos de Fusión y Snapping cargados con éxito (v45.6).", "color: #0284c7; font-weight: bold;");
 }
