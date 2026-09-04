@@ -6,7 +6,7 @@ DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.6 - Bounding Override & Deep Reversibility)
+Módulo: ASSETS/js/modules/canvas-pro/smartFusion.js (Smart Fusion & Magnetic Snapping Engine v45.9 - Absolute Coordinate Snapping & Selection Lock)
 Descripción:
     Núcleo matemático de la Fusión Inteligente y Anclaje Magnético para EKKO Studio.
     Soluciona de forma definitiva las derivas de arrastre, las cotas desfasadas,
@@ -288,6 +288,22 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
     // Forzar deselección absoluta en los sub-elementos para que no haya cajas desalineadas en pantalla
     overrideChildrenSelection(fusionGroup);
 
+    // 💥 SOBREESCRITURA DE SELECCIÓN EN EL CONTENEDOR (v45.9):
+    // Evita que Paper.js propague recursivamente la selección a los hijos (la máscara y la foto)
+    // lo cual generaba el error de doble caja de selección desfasada y tirones de arrastre.
+    Object.defineProperty(fusionGroup, 'selected', {
+        get: function() {
+            return this._selected;
+        },
+        set: function(val) {
+            this._selected = val;
+            // No propagamos a los hijos! Esto mantiene a la máscara y a la foto con selected = false,
+            // garantizando que paper.project.selectedItems solo contenga al grupo de fusión.
+        },
+        configurable: true,
+        enumerable: true
+    });
+
     // 💥 MONKEY PATCH DE BOUNDS: Sobreescribe dinámicamente el getter de bounds para que el bounding box
     // de Paper.js y selection.js represente con precisión milimétrica el contorno del molde (la letra)
     // y no la gran foto de Messi detrás, alineando así las cotas en mm y manijas celestes de arrastre.
@@ -318,6 +334,24 @@ export function applySmartFusion(vector, raster, mode = 'calar') {
     let finalItem = fusionGroup;
     if (typeof window.clipItem === 'function' && !window.infiniteCanvasMode && window.clipMask) {
         finalItem = window.clipItem(fusionGroup);
+    }
+
+    // 💥 SOBREESCRITURA DE SELECCIÓN EN EL PADRE WRAPPER (clipGroup):
+    // Si se creó un grupo de recorte para el mockup base, bloqueamos la propagación a la máscara de producto.
+    if (finalItem !== fusionGroup) {
+        Object.defineProperty(finalItem, 'selected', {
+            get: function() {
+                return this._selected;
+            },
+            set: function(val) {
+                this._selected = val;
+                if (fusionGroup) {
+                    fusionGroup.selected = val;
+                }
+            },
+            configurable: true,
+            enumerable: true
+        });
     }
 
     // Insertar en la capa de diseño principal
@@ -490,7 +524,20 @@ export function recalculateSmartFusion(fusionGroup) {
 export function releaseSmartFusion(item) {
     if (!item) return;
 
-    const fusionGroup = findSmartFusionContainer(item);
+    // 💥 SOPORTE PARA ENTRADAS MÚLTIPLES O ARREGLOS DE SELECCIÓN (v45.9):
+    // Si se pasa paper.project.selectedItems como un arreglo, extraemos el contenedor de fusión real.
+    let targetItem = item;
+    if (Array.isArray(item)) {
+        for (let i = 0; i < item.length; i++) {
+            const found = findSmartFusionContainer(item[i]);
+            if (found) {
+                targetItem = found;
+                break;
+            }
+        }
+    }
+
+    const fusionGroup = findSmartFusionContainer(targetItem);
 
     if (!fusionGroup || !fusionGroup.data || !fusionGroup.data.isSmartFusion) {
         console.error("❌ [RELEASE_LOCK]: El elemento seleccionado no es parte de una Fusión Inteligente activa.");
