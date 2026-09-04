@@ -1,12 +1,12 @@
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/ekkoSynapse.js
 ACCIÓN: REEMPLAZAR ARCHIVO EXISTENTE E INICIALIZAR DESDE EL GRAFO DE IMPORTACIONES EN editor.js
-ESTADO: ENTREGADO - VERSIÓN NEURONAL UNIVERSAL CONTEXTUAL v8.0 (UNIVERSAL SMOKE DETECTOR)
+ESTADO: ENTREGADO - VERSIÓN NEURONAL UNIVERSAL CONTEXTUAL v9.0 (UNIVERSAL SMOKE DETECTOR)
 DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js, api/synapse.js, editor.js
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoSynapse.js (v8.0 - Universal Contextual Core)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoSynapse.js (v9.0 - Universal Contextual Core)
 Descripción:
     El Detector de Humo Universal de EKKO Studio.
     Audita en tiempo de ejecución las 5 dimensiones sensoriales del Studio:
@@ -32,7 +32,10 @@ Descripción:
 }(typeof window !== 'undefined' ? window : this, function (EKKO_DIAG) {
 
     const rawConsole = {
-        log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},\n        warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},\n        error: (typeof console !== 'undefined' && console.error) ? console.error.bind(console) : () => {}\n    };
+        log: (typeof console !== 'undefined' && console.log) ? console.log.bind(console) : () => {},
+        warn: (typeof console !== 'undefined' && console.warn) ? console.warn.bind(console) : () => {},
+        error: (typeof console !== 'undefined' && console.error) ? console.error.bind(console) : () => {}
+    };
 
     function cleanRelativePath(path) {
         if (!path) return '';
@@ -43,7 +46,7 @@ Descripción:
     async function scanCompleteRepository() {
         const synapseResult = {
             timestamp: Date.now(),
-            engine: "EKKO Synapse Engine v8.0 (Universal Contextual Core)",
+            engine: "EKKO Synapse Engine v9.0 (Universal Contextual Core)",
             status: "HEALTHY",
             counters: {
                 totalScannedNodes: 0,
@@ -82,8 +85,12 @@ Descripción:
                 if (apiData.success && Array.isArray(apiData.files)) {
                     diskFiles = apiData.files;
                     hasBackend = true;
-                    rawConsole.log(`[EKKO_SYNAPSE] Sincronización asíncrona v8.0 activa. Detectados ${diskFiles.length} archivos reales.`);\n                }\n            }
-        } catch (err) {\n            rawConsole.warn("[EKKO_SYNAPSE] Endpoint /api/synapse inaccesible. Modo de escaneo restringido al DOM.");\n        }
+                    rawConsole.log(`[EKKO_SYNAPSE] Sincronización asíncrona v9.0 activa. Detectados ${diskFiles.length} archivos reales.`);
+                }
+            }
+        } catch (err) {
+            rawConsole.warn("[EKKO_SYNAPSE] Endpoint /api/synapse inaccesible. Modo de escaneo restringido al DOM.");
+        }
 
         // 2. ESCANEO DEL DOM PARA IDENTIFICAR RECURSOS DECLARADOS
         const declaredDOMResources = [];
@@ -115,7 +122,8 @@ Descripción:
                 const fileName = file.path.substring(file.path.lastIndexOf('/') + 1);
                 if (fileName) {
                     if (!fileNamesMap.has(fileName)) {
-                        fileNamesMap.set(fileName, []);\n                    }
+                        fileNamesMap.set(fileName, []);
+                    }
                     fileNamesMap.get(fileName).push(file.path);
                 }
 
@@ -206,7 +214,8 @@ Descripción:
                 synapseResult.neurons.collisions.push({
                     fileName: name,
                     paths: paths,
-                    type: "AMBIGUOUS_ROUTE_COLLISION",\n                    detail: `Se detectó el archivo '${name}' duplicado en múltiples rutas físicas de tu disco: [${paths.join(', ')}].`
+                    type: "AMBIGUOUS_ROUTE_COLLISION",
+                    detail: `Se detectó el archivo '${name}' duplicado en múltiples rutas físicas de tu disco: [${paths.join(', ')}].`
                 });
                 synapseResult.status = "DEGRADED";
             }
@@ -384,7 +393,18 @@ Descripción:
         // =========================================================================
         if (typeof window.initSmartFusionListeners === 'function') {
             const funcStr = window.initSmartFusionListeners.toString();
-            const memVerMatch = funcStr.match(/v\\d+\\.\\\d+/);\n            const memVer = memVerMatch ? memVerMatch[0] : 'v45.6';\n            const expectedVer = 'v45.11';\n            if (memVer !== expectedVer) {\n                synapseResult.neurons.missing.push({\n                    file: \"smartFusion.js\",\n                    type: \"CACHE_DESYNC\",\n                    detail: `Diferencia de caché detectada. Chrome está ejecutando la versión '${memVer}' en memoria, pero el disco espera la versión '${expectedVer}'.`\n                });\n                synapseResult.status = \"DEGRADED\";\n            }\n        }
+            const memVerMatch = funcStr.match(/v\d+\.\d+/);
+            const memVer = memVerMatch ? memVerMatch[0] : 'v45.6';
+            const expectedVer = 'v45.11';
+            if (memVer !== expectedVer) {
+                synapseResult.neurons.missing.push({
+                    file: "smartFusion.js",
+                    type: "CACHE_DESYNC",
+                    detail: `Diferencia de caché detectada. Chrome está ejecutando la versión '${memVer}' en memoria, pero el editor físico de disco espera la versión '${expectedVer}'.`
+                });
+                synapseResult.status = "DEGRADED";
+            }
+        }
 
         return synapseResult;
     }
@@ -410,7 +430,16 @@ Descripción:
                 if (!hasClipGroup) info.isLatent = true;
             }
         } else if (route.endsWith('selection.js')) {
-            info.isLoaded = typeof window.selectItem === 'function';\n        } else if (route.endsWith('contextualMenu.js')) {\n            info.isLoaded = typeof window.updateContextualMenu === 'function' || typeof window.renderContextualMenu === 'function';\n        } else if (route.endsWith('ekkoDiagnostics.js')) {\n            info.isLoaded = typeof window.EKKO_DIAG === 'object';\n        } else if (route.endsWith('ekkoSynapse.js')) {\n            info.isLoaded = true;\n        } else {\n            info.isLoaded = true;\n        }
+            info.isLoaded = typeof window.selectItem === 'function';
+        } else if (route.endsWith('contextualMenu.js')) {
+            info.isLoaded = typeof window.updateContextualMenu === 'function' || typeof window.renderContextualMenu === 'function';
+        } else if (route.endsWith('ekkoDiagnostics.js')) {
+            info.isLoaded = typeof window.EKKO_DIAG === 'object';
+        } else if (route.endsWith('ekkoSynapse.js')) {
+            info.isLoaded = true;
+        } else {
+            info.isLoaded = true;
+        }
 
         return info;
     }
@@ -423,7 +452,11 @@ Descripción:
         window.EKKO_SYNAPSE = synapseAPI;
         if (window.EKKO_DIAG && typeof window.EKKO_DIAG.integrateSynapse === 'function') {
             window.EKKO_DIAG.integrateSynapse(synapseAPI);
-            rawConsole.log("[EKKO_SYNAPSE v8.0] Conexión establecida con el Computador de Vuelo EKKO_DIAG 🟢");\n        } else {\n            rawConsole.log("[EKKO_SYNAPSE v8.0] Registrado en memoria global. Esperando acoplamiento... 🟡");\n        }\n    }
+            rawConsole.log("[EKKO_SYNAPSE v9.0] Conexión establecida con el Computador de Vuelo EKKO_DIAG 🟢");
+        } else {
+            rawConsole.log("[EKKO_SYNAPSE v9.0] Registrado en memoria global. Esperando acoplamiento... 🟡");
+        }
+    }
 
     return synapseAPI;
 }));
