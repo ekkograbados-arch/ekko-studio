@@ -14,6 +14,9 @@
     },
     "api/fonts.js": {
       "includeFiles": "ASSETS/fonts/**"
+    },
+    "api/synapse.js": {
+      "includeFiles": "ASSETS/**"
     }
   }
 }
