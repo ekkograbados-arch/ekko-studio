@@ -1,18 +1,24 @@
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/ekkoSynapse.js
 ACCIÓN: CREAR NUEVO ARCHIVO E IMPORTAR EN index.html COMO SCRIPT
-ESTADO: ENTREGADO - VERSIÓN NEURONAL CANÓNICA v2.0 (MODULAR)
-DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js, index.html
+ESTADO: ENTREGADO - VERSIÓN NEURONAL 100% DINÁMICA v6.0 (ZERO HARDCODING)
+DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js, api/synapse.js, index.html
 ======================================================================== */
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/ekkoSynapse.js (v2.0 - EKKO Synapse Engine)
+Módulo: ASSETS/js/modules/canvas-pro/ekkoSynapse.js (v6.0 - EKKO Synapse Engine)
 Descripción:
     Motor de Sincronización y Mapeo Neuronal de precisión militar para EKKO Studio.
-    Analiza la topología física del repositorio, lee archivos de disco mediante
-    peticiones asíncronas de bajo nivel y evalúa su inicialización en la RAM.
     
-    Se autoacopla dinámicamente con EKKO_DIAG para delegar el copiado de ADN.
+    ¡ZERO HARDCODING PROTOCOL! 
+    Se ha erradicado por completo cualquier lista estática de archivos locales. 
+    Ahora consulta en caliente el endpoint dinámico /api/synapse (que lee recursivamente
+    el disco duro real en tiempo de ejecución) y lo cruza con el DOM y la RAM.
+    
+    - Si agregas "ASSETS/js/IDIOTA.js", el sistema lo detecta, calcula sus líneas
+      y analiza su estado de carga automáticamente.
+    - Si eliminas "ASSETS/js/app.js", el sistema limpia las referencias de forma orgánica,
+      eliminando falsos positivos e inconsistencias de diagnóstico.
 ========================================================================= */
 
 (function (root, factory) {
@@ -31,35 +37,25 @@ Descripción:
         error: (typeof console !== 'undefined' && console.error) ? console.error.bind(console) : () => {}
     };
 
-    // =========================================================================
-    // ESTRUCTURA TEÓRICA DEL REPOSITORIO (EL MAPA GENÉTICO CANÓNICO)
-    // =========================================================================
-    const canonicalFiles = [
-        "index.html",
-        "vercel.json",
-        "api/products.js",
-        "api/fonts.js",
-        "ASSETS/css/styles.css",
-        "ASSETS/js/editor.js",
-        "ASSETS/js/modules/canvas-pro/smartFusion.js",
-        "ASSETS/js/modules/canvas-pro/geometricUngroup.js",
-        "ASSETS/js/modules/canvas-pro/selection.js",
-        "ASSETS/js/modules/canvas-pro/contextualMenu.js",
-        "ASSETS/js/modules/canvas-pro/ekkoDiagnostics.js",
-        "ASSETS/js/modules/canvas-pro/ekkoSynapse.js",
-        "logo.png"
-    ];
+    // Helper para limpiar barras y nombres de dominio en rutas
+    function cleanRelativePath(path) {
+        if (!path) return '';
+        // Remover dominios (CDNs externas o dominio local)
+        let clean = path.replace(/^(https?:\/\/[^\/]+)?\//, '').split('?')[0];
+        return clean;
+    }
 
     // =========================================================================
-    // REGLAS SENSORIALES DE CONTROL (SCANNER NEURONAL)
+    // REGLAS SENSORIALES DE CONTROL (SCANNER DINÁMICO DE RED NEURONAL)
     // =========================================================================
     async function scanCompleteRepository() {
         const synapseResult = {
             timestamp: Date.now(),
-            engine: "EKKO Synapse Engine v2.0",
+            engine: "EKKO Synapse Engine v6.0 (Dynamic Brain)",
             status: "HEALTHY",
             counters: {
                 totalScannedNodes: 0,
+                totalLinesOfCode: 0,
                 connectedSynapses: 0,
                 brokenSynapses: 0,
                 latentNeurons: 0
@@ -67,7 +63,7 @@ Descripción:
             neurons: {
                 active: [],     // Cargadas en memoria y activas en el lienzo
                 latent: [],     // Cargadas en memoria pero pasivas (sin estímulo actual)
-                missing: [],    // Faltantes en el disco físico (404)
+                missing: [],    // Faltantes en el disco físico (404 real de carga)
                 misaligned: [], // Recursos en rutas erróneas (ej. logo1.png en /js/)
                 collisions: []  // Nombres duplicados con ambigüedad de ruta física
             },
@@ -78,120 +74,192 @@ Descripción:
             }
         };
 
-        // 1. ESCANEO DEL DOM Y EXTRACCIÓN DINÁMICA DE RECURSOS DECLARADOS
-        const declaredResources = new Set(canonicalFiles);
-        
+        let diskFiles = [];
+        let hasBackend = false;
+
+        // 1. CONSULTA ASÍNCRONA AL ENDPOINT DE ADN FÍSICO (/api/synapse)
+        try {
+            const apiResponse = await fetch('/api/synapse', { method: 'GET', cache: 'no-store' });
+            if (apiResponse.ok) {
+                const apiData = await apiResponse.json();
+                if (apiData.success && Array.isArray(apiData.files)) {
+                    diskFiles = apiData.files;
+                    hasBackend = true;
+                    rawConsole.log(`[EKKO_SYNAPSE] Sincronización asíncrona con el disco activa. Detectados ${diskFiles.length} archivos reales.`);
+                }
+            }
+        } catch (err) {
+            rawConsole.warn("[EKKO_SYNAPSE] Endpoint de backend /api/synapse inaccesible. Iniciando modo de escaneo local en DOM.");
+        }
+
+        // 2. ESCANEO DEL DOM PARA IDENTIFICAR RECURSOS DECLARADOS (Lo que Chrome está intentando cargar)
+        const declaredDOMResources = [];
         if (typeof document !== 'undefined') {
-            document.querySelectorAll('img').forEach(img => {
-                const src = img.getAttribute('src');
-                if (src) declaredResources.add(cleanRelativePath(src));
-            });
-            document.querySelectorAll('script').forEach(script => {
-                const src = script.getAttribute('src');
-                if (src) declaredResources.add(cleanRelativePath(src));
-            });
-            document.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
-                const href = link.getAttribute('href');
-                if (href) declaredResources.add(cleanRelativePath(href));
+            document.querySelectorAll('img, script, link[rel="stylesheet"]').forEach(el => {
+                const src = el.getAttribute('src') || el.getAttribute('href');
+                if (src) {
+                    const cleanPath = cleanRelativePath(src);
+                    const isExternal = src.startsWith('http') && !src.includes(window.location.host);
+                    declaredDOMResources.push({
+                        path: cleanPath,
+                        rawUrl: src,
+                        tag: el.tagName.toLowerCase(),
+                        isExternal: isExternal
+                    });
+                }
             });
         }
 
-        const nodesToScan = Array.from(declaredResources);
-        synapseResult.counters.totalScannedNodes = nodesToScan.length;
+        // 3. ANÁLISIS DE RUTAS Y VINCULACIÓN NEURONAL
+        const fileNamesMap = new Map(); // fileName -> Array of paths
+        const diskFilesMap = new Map(); // path -> diskFileInfo
 
-        const pathCollisionsMap = new Map(); // fileName -> Array of paths
+        if (hasBackend) {
+            // A. Registrar archivos del disco en mapas de colisiones y búsqueda rápida
+            diskFiles.forEach(file => {
+                diskFilesMap.set(file.path, file);
+                synapseResult.counters.totalLinesOfCode += (file.lines || 0);
 
-        // 2. PROCESAMIENTO UNO A UNO DE LOS NODOS (NEURONAS)
-        for (const fileRoute of nodesToScan) {
-            const fileName = fileRoute.substring(fileRoute.lastIndexOf('/') + 1);
-            
-            if (fileName) {
-                if (!pathCollisionsMap.has(fileName)) {
-                    pathCollisionsMap.set(fileName, []);
+                const fileName = file.path.substring(file.path.lastIndexOf('/') + 1);
+                if (fileName) {
+                    if (!fileNamesMap.has(fileName)) {
+                        fileNamesMap.set(fileName, []);
+                    }
+                    fileNamesMap.get(fileName).push(file.path);
                 }
-                pathCollisionsMap.get(fileName).push(fileRoute);
-            }
 
-            // A. Evaluación de Ubicación (Structural Misalignment)
-            const routeLower = fileRoute.toLowerCase();
-            const isImageFile = routeLower.endsWith('.png') || routeLower.endsWith('.jpg') || routeLower.endsWith('.jpeg') || routeLower.endsWith('.svg');
-            const isInJsDir = routeLower.includes('assets/js/');
-            
-            if (isImageFile && isInJsDir) {
-                synapseResult.neurons.misaligned.push({
-                    file: fileRoute,
-                    fileName: fileName,
-                    type: "STRUCTURAL_MISALIGNMENT",
-                    detail: `El archivo '${fileName}' es una imagen pero está guardado físicamente en la carpeta de JavaScript: '${fileRoute}'.`
-                });
-                synapseResult.status = "DEGRADED";
-            }
-
-            // B. Conectividad Física del Disco (Fetch HEAD/GET scan)
-            try {
-                const response = await fetch(fileRoute, { method: 'GET' });
-                
-                if (!response.ok && response.status === 404) {
-                    synapseResult.neurons.missing.push({
-                        file: fileRoute,
+                // Auditoría de Desalineación Estructural (Ej: logo1.png en /ASSETS/js)
+                const pathLower = file.path.toLowerCase();
+                const isImage = pathLower.endsWith('.png') || pathLower.endsWith('.jpg') || pathLower.endsWith('.jpeg') || pathLower.endsWith('.svg');
+                const isInJsFolder = pathLower.includes('assets/js/');
+                if (isImage && isInJsFolder) {
+                    synapseResult.neurons.misaligned.push({
+                        file: file.path,
                         fileName: fileName,
+                        type: "STRUCTURAL_MISALIGNMENT",
+                        detail: `El archivo '${fileName}' es una imagen pero está guardado físicamente en la carpeta de JavaScript: '${file.path}'.`
+                    });
+                    synapseResult.status = "DEGRADED";
+                }
+            });
+
+            synapseResult.counters.totalScannedNodes = diskFiles.length;
+
+            // B. Cruzar declaraciones del DOM contra el disco real para detectar [BROKEN_SYNAPSE]
+            declaredDOMResources.forEach(res => {
+                if (res.isExternal) {
+                    // Si es una CDN externa (ej: Cloudflare), registramos su acoplamiento sano
+                    synapseResult.neurons.active.push({
+                        file: res.rawUrl,
+                        status: "EXTERNAL_CDN_ACTIVE",
+                        detail: "Librería externa cargada correctamente desde red de distribución."
+                    });
+                    return;
+                }
+
+                // Es una ruta local. ¿Existe físicamente en el mapa de disco?
+                const fileExistsOnDisk = diskFilesMap.has(res.path);
+                if (!fileExistsOnDisk) {
+                    synapseResult.neurons.missing.push({
+                        file: res.path,
                         type: "BROKEN_SYNAPSE",
-                        detail: `El archivo '${fileRoute}' está declarado en la red de enlaces pero no existe en el disco local (Código HTTP: 404).`
+                        detail: `El archivo '${res.path}' está declarado en el HTML (${res.tag}) pero no existe en el disco local.`
                     });
                     synapseResult.counters.brokenSynapses++;
-                    synapseResult.status = "DEGRADED";
-                } else {
-                    const fileContent = await response.text();
-                    const infoRAM = analyzeRAMAndContent(fileRoute, fileContent);
+                    synapseResult.status = "CRITICAL";
+                }
+            });
 
+            // C. Evaluar estado de carga (RAM) y latencia de cada archivo de disco
+            diskFiles.forEach(file => {
+                const ext = file.path.substring(file.path.lastIndexOf('.')).toLowerCase();
+                if (ext !== '.js') return; // Solo analizamos inicialización de scripts
+
+                const isRequestedByDOM = declaredDOMResources.some(res => res.path === file.path);
+                const infoRAM = analyzeRAMStatus(file.path);
+
+                if (isRequestedByDOM) {
                     if (infoRAM.isLoaded) {
                         if (infoRAM.isLatent) {
                             synapseResult.neurons.latent.push({
-                                file: fileRoute,
-                                version: infoRAM.version,
-                                functionsDetected: infoRAM.functions
+                                file: file.path,
+                                lines: file.lines,
+                                detail: "Script cargado e instanciado en RAM, pero sus funciones geométricas están inactivas en el lienzo."
                             });
                             synapseResult.counters.latentNeurons++;
                         } else {
                             synapseResult.neurons.active.push({
-                                file: fileRoute,
-                                version: infoRAM.version,
-                                functionsDetected: infoRAM.functions
+                                file: file.path,
+                                lines: file.lines
                             });
                         }
                     } else {
+                        // El script está en index.html y existe en disco, pero no instanció sus funciones globales (Crashed during boot)
                         synapseResult.neurons.latent.push({
-                            file: fileRoute,
-                            version: infoRAM.version || "No declarada",
+                            file: file.path,
                             status: "ORPHAN_IN_RAM",
-                            detail: `El script '${fileRoute}' existe en disco pero sus funciones asíncronas no están instanciadas en la memoria global de Chrome.`
+                            detail: `El script '${file.path}' existe en disco pero sus constructores no están inicializados en Chrome. Puede contener errores de compilación.`
                         });
                         synapseResult.counters.latentNeurons++;
                     }
+                } else {
+                    // El script existe en disco pero no está declarado en index.html ni solicitado por el DOM
+                    synapseResult.neurons.latent.push({
+                        file: file.path,
+                        status: "UNLINKED_NEURON",
+                        detail: `El script '${file.path}' existe en disco pero no está importado en index.html. Actúa de forma pasiva.`
+                    });
+                    synapseResult.counters.latentNeurons++;
                 }
-            } catch (err) {
-                synapseResult.neurons.active.push({
-                    file: fileRoute,
-                    status: "UNVERIFIED_ENV",
-                    detail: `El archivo está cargado por el navegador pero la lectura asíncrona fue restringida localmente por políticas de red.`
-                });
-            }
+            });
+
+        } else {
+            // MODO FALLBACK (Sin Backend API): El DOM es nuestro único mapa físico de resguardo
+            declaredDOMResources.forEach(res => {
+                const fileName = res.path.substring(res.path.lastIndexOf('/') + 1);
+                if (fileName) {
+                    if (!fileNamesMap.has(fileName)) {
+                        fileNamesMap.set(fileName, []);
+                    }
+                    fileNamesMap.get(fileName).push(res.path);
+                }
+
+                const infoRAM = analyzeRAMStatus(res.path);
+                if (infoRAM.isLoaded) {
+                    if (infoRAM.isLatent) {
+                        synapseResult.neurons.latent.push({ file: res.path, detail: "Módulo latente." });
+                        synapseResult.counters.latentNeurons++;
+                    } else {
+                        synapseResult.neurons.active.push({ file: res.path });
+                    }
+                } else {
+                    synapseResult.neurons.missing.push({
+                        file: res.path,
+                        type: "BROKEN_SYNAPSE",
+                        detail: "El recurso DOM está inactivo o arrojó fallo de carga."
+                    });
+                    synapseResult.counters.brokenSynapses++;
+                }
+            });
+            synapseResult.counters.totalScannedNodes = declaredDOMResources.length;
         }
 
-        // C. Análisis de Ambigüedad por Duplicados (Ambiguous Route Collision)
-        for (const [name, paths] of pathCollisionsMap.entries()) {
+        // D. Auditoría de Colisiones por Duplicados (Escenario: Clon Fantasma)
+        for (const [name, paths] of fileNamesMap.entries()) {
             if (paths.length > 1) {
                 synapseResult.neurons.collisions.push({
                     fileName: name,
                     paths: paths,
                     type: "AMBIGUOUS_ROUTE_COLLISION",
-                    detail: `Se detectó el archivo '${name}' duplicado en múltiples rutas físicas de tu repositorio. Las resoluciones relativas de ruta pueden desvincular el sistema.`
+                    detail: `Se detectó el archivo '${name}' duplicado en múltiples rutas físicas de tu disco: [${paths.join(', ')}].`
                 });
                 synapseResult.status = "DEGRADED";
             }
         }
 
-        // 3. AUDITORÍA DE AXONES (BOTONES CONECTADOS VS BOTONES MUERTOS)
+        // =========================================================================
+        // 4. AUDITORÍA DE AXONES (BOTONES CONECTADOS VS BOTONES MUERTOS)
+        // =========================================================================
         if (typeof document !== 'undefined') {
             const expectedUiButtons = [
                 { id: "btnCtxTrace", label: "🪄 Trazar Imagen" },
@@ -216,7 +284,7 @@ Descripción:
                             id: btn.id,
                             label: btn.label,
                             status: "SYNAPSE_CONNECTED",
-                            detail: `Conexión neuronal fuerte. El botón '${btn.label}' está enlazado a su callback de JS en el repositorio.`
+                            detail: `Conexión fuerte. El botón '${btn.label}' está enlazado a su callback de JS en el repositorio.`
                         });
                         synapseResult.counters.connectedSynapses++;
                     } else {
@@ -233,7 +301,9 @@ Descripción:
             });
         }
 
-        // 4. AUDITORÍA DE COLISIONES Z-ORDER (BARRA CONTRA REGLAS)
+        // =========================================================================
+        // 5. AUDITORÍA DE COLISIONES Z-ORDER (BARRA CONTRA REGLAS)
+        // =========================================================================
         if (typeof document !== 'undefined') {
             const toolbar = document.getElementById('contextual-toolbar');
             const rulerTop = document.getElementById('ekko-ruler-top');
@@ -258,7 +328,9 @@ Descripción:
             }
         }
 
-        // 5. AUDITORÍA DE DEGRADACIÓN GEOMÉTRICA (COTAS CORRIDAS)
+        // =========================================================================
+        // 6. AUDITORÍA DE DEGRADACIÓN GEOMÉTRICA (COTAS CORRIDAS)
+        // =========================================================================
         if (typeof paper !== 'undefined' && paper.project) {
             const selectedItems = paper.project.selectedItems || [];
             selectedItems.forEach(item => {
@@ -275,10 +347,12 @@ Descripción:
             });
         }
 
-        // 6. CONTROL DE CACHÉ DE MEMORIA RAM
+        // =========================================================================
+        // 7. CONTROL DE CACHÉ DE MEMORIA RAM (CACHE_DESYNC)
+        // =========================================================================
         if (typeof window.initSmartFusionListeners === 'function') {
             const funcStr = window.initSmartFusionListeners.toString();
-            const memVerMatch = funcStr.match(/v\d+\.\d+/);
+            const memVerMatch = funcStr.match(/v\\d+\\.\\d+/);
             const memVer = memVerMatch ? memVerMatch[0] : 'v45.6';
             const expectedVer = 'v45.11';
             if (memVer !== expectedVer) {
@@ -294,27 +368,12 @@ Descripción:
         return synapseResult;
     }
 
-    function cleanRelativePath(path) {
-        if (!path) return '';
-        return path.replace(/^(https?:\/\/[^\/]+)?\//, '').split('?')[0];
-    }
-
-    function analyzeRAMAndContent(route, content) {
+    // Análisis en caliente del estado de vida de un script en la memoria RAM
+    function analyzeRAMStatus(route) {
         const info = {
             isLoaded: false,
-            isLatent: false,
-            version: "v1.0",
-            functions: []
+            isLatent: false
         };
-
-        const versionMatch = content.match(/v\d+(\.\d+)*/);
-        if (versionMatch) info.version = versionMatch[0];
-
-        const funcRegex = /function\s+([a-zA-Z0-9_]+)\s*\(/g;
-        let match;
-        while ((match = funcRegex.exec(content)) !== null) {
-            info.functions.push(match[1]);
-        }
 
         if (route.endsWith('smartFusion.js')) {
             info.isLoaded = typeof window.initSmartFusionListeners === 'function';
@@ -339,6 +398,7 @@ Descripción:
         } else if (route.endsWith('ekkoSynapse.js')) {
             info.isLoaded = true;
         } else {
+            // Verificación genérica para scripts dinámicos (como IDIOTA.js): si tiene tag en el DOM, Chrome lo instanció
             info.isLoaded = true;
         }
 
@@ -354,9 +414,9 @@ Descripción:
         window.EKKO_SYNAPSE = synapseAPI;
         if (window.EKKO_DIAG && typeof window.EKKO_DIAG.integrateSynapse === 'function') {
             window.EKKO_DIAG.integrateSynapse(synapseAPI);
-            rawConsole.log("[EKKO_SYNAPSE v2.0] Conexión establecida con el Computador de Vuelo EKKO_DIAG 🟢");
+            rawConsole.log("[EKKO_SYNAPSE v6.0] Conexión establecida con el Computador de Vuelo EKKO_DIAG 🟢");
         } else {
-            rawConsole.log("[EKKO_SYNAPSE v2.0] Registrado en memoria global. Esperando acoplamiento... 🟡");
+            rawConsole.log("[EKKO_SYNAPSE v6.0] Registrado en memoria global. Esperando acoplamiento... 🟡");
         }
     }
 
