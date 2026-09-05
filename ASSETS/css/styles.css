@@ -1,3 +1,8 @@
+/* ========================================================================
+RUTA DESTINO EN TU DISCO LOCAL: ASSETS/css/styles.css
+ACCIÓN: REEMPLAZAR COMPLETAMENTE TU ARCHIVO "ASSETS/css/styles.css"
+ESTADO: VERSIÓN DEFINTIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATIVOS INTEGRADOS
+======================================================================== */
 
 @font-face {
     font-family: "ekko_billie";
@@ -84,74 +89,74 @@
 }
 
 body {
-  margin: 0;
-  font-family: Arial, sans-serif;
-  background: #f4f4f4;
-  color: #222;
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: var(--ekko-bg-workspace);
+    color: #222;
 }
 
 .topbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 20px;
-  padding: 16px 20px;
-  background: #111;
-  color: white;
-  flex-wrap: wrap;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    padding: 16px 20px;
+    background: #111;
+    color: white;
+    flex-wrap: wrap;
 }
 
 .brand {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
 }
 
 .brand-logo {
-  width: 72px;
-  height: 72px;
-  object-fit: contain;
-  display: block;
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    display: block;
 }
 
 .brand h1 {
-  margin: 0;
-  font-size: 28px;
+    margin: 0;
+    font-size: 28px;
 }
 
 .brand p {
-  margin: 4px 0 0;
-  opacity: 0.8;
+    margin: 4px 0 0;
+    opacity: 0.8;
 }
 
 .top-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
 .top-btn,
 .action-btn,
 .link-btn {
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 14px;
-  background: #2a2a2a;
-  color: white;
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-block;
+    border: 0;
+    border-radius: 10px;
+    padding: 10px 14px;
+    background: #2a2a2a;
+    color: white;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
 }
 
 .top-btn.active {
-  background: #007bff;
+    background: #007bff;
 }
 
 .layout {
-  display: grid;
-  grid-template-columns: 310px 1fr;
-  gap: 16px;
-  padding: 16px;
+    display: grid;
+    grid-template-columns: 310px 1fr;
+    gap: 16px;
+    padding: 16px;
 }
 
 .sidebar,
@@ -160,264 +165,304 @@ body {
 .editor-header,
 .editor-area,
 .footer-ekko {
-  background: white;
-  border-radius: 16px;
+    background: white;
+    border-radius: 16px;
 }
 
 .sidebar {
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
 }
 
 .panel,
 .prop-box {
-  padding: 14px;
-  border: 1px solid #e6e6e6;
-  border-radius: 14px;
+    padding: 14px;
+    border: 1px solid #e6e6e6;
+    border-radius: 14px;
 }
 
 .tab-group {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 
 .tab-group.vertical {
-  flex-direction: column;
+    flex-direction: column;
 }
 
 .tab-btn {
-  border: 1px solid #ddd;
-  background: #fafafa;
-  padding: 10px 12px;
-  border-radius: 10px;
-  cursor: pointer;
-  text-align: left;
+    border: 1px solid #ddd;
+    background: #fafafa;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
 }
 
 .tab-btn.active {
-  background: #007bff;
-  color: white;
-  border-color: #007bff;
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
 }
 
 .workspace {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
 .editor-header {
-  padding: 12px;
-  border: 1px solid #e6e6e6;
+    padding: 12px;
+    border: 1px solid #e6e6e6;
 }
 
 .editor-area {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 12px;
-  min-height: 760px;
+    display: grid;
+    grid-template-columns: 1fr 280px;
+    gap: 12px;
+    min-height: 760px;
 }
 
 .canvas-wrap {
-  min-width: 0;
-  padding: 12px;
+    min-width: 0;
+    padding: 12px;
 }
 
 #editorCanvas {
-  width: 100%;
-  height: 720px;
-  border: 2px solid #d9d9d9;
-  border-radius: 14px;
-  background: white;
+    width: 100%;
+    height: 720px;
+    border: 2px solid #d9d9d9;
+    border-radius: 14px;
+    background: white;
 }
 
 .properties {
-  padding: 12px;
-  border: 1px solid #e6e6e6;
+    padding: 12px;
+    border: 1px solid #e6e6e6;
 }
 
 .tool-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
 }
 
 .templates-box {
-  margin-top: 10px;
-  min-height: 120px;
-  border: 1px dashed #ccc;
-  border-radius: 12px;
-  padding: 10px;
+    margin-top: 10px;
+    min-height: 120px;
+    border: 1px dashed #ccc;
+    border-radius: 12px;
+    padding: 10px;
 }
 
 .hidden {
-  display: none;
+    display: none;
 }
 
 .footer-ekko {
-  margin: 16px;
-  padding: 24px;
-  text-align: center;
+    margin: 16px;
+    padding: 24px;
+    text-align: center;
 }
 
 .footer-logo {
-  width: 100px;
-  height: auto;
+    width: 100px;
+    height: auto;
 }
 
 .footer-social {
-  display: flex;
-  justify-content: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 12px;
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
 }
 
 .footer-social img {
-  width: 42px;
-  height: 42px;
-  object-fit: contain;
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
 }
 
 .copyright {
-  opacity: 0.75;
-  margin-top: 12px;
+    opacity: 0.75;
+    margin-top: 12px;
 }
 
 @media (max-width: 1100px) {
-  .layout {
-    grid-template-columns: 1fr;
-  }
-
-  .editor-area {
-    grid-template-columns: 1fr;
-  }
-  .pedido-aclaracion{
-  margin-top:10px;
-  font-size:13px;
-  color:#666;
-  line-height:1.4;
+    .layout {
+        grid-template-columns: 1fr;
+    }
+    .editor-area {
+        grid-template-columns: 1fr;
+    }
+    .pedido-aclaracion {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #666;
+        line-height: 1.4;
+    }
+    #precioEstimado {
+        font-size: 20px;
+        font-weight: bold;
+        color: #007bff;
+    }
 }
 
-#precioEstimado{
-  font-size:20px;
-  font-weight:bold;
-  color:#007bff;
-}
-}
-
-
-.font-gallery{
-  margin-top:10px;
-  border:1px solid #ddd;
-  padding:10px;
-  border-radius:8px;
-  background:#fff;
-  max-height:300px;
-  overflow-y:auto;
+.font-gallery {
+    margin-top: 10px;
+    border: 1px solid #ddd;
+    padding: 10px;
+    border-radius: 8px;
+    background: #fff;
+    max-height: 300px;
+    overflow-y: auto;
 }
 
-.font-item{
-  padding:8px;
-  margin-bottom:6px;
-  border:1px solid #ddd;
-  border-radius:6px;
-  cursor:pointer;
+.font-item {
+    padding: 8px;
+    margin-bottom: 6px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
 }
 
-.font-item:hover{
-  background:#f5f5f5;
+.font-item:hover {
+    background: #f5f5f5;
 }
 
-.font-preview{
-  font-size:24px;
-  color:#000;
+.font-preview {
+    font-size: 24px;
+    color: #000;
 }
 
-.font-name{
-  font-size:12px;
-  color:#666;
+.font-name {
+    font-size: 12px;
+    color: #666;
 }
 
-.floating-toolbar{
-
-position:absolute;
-
-display:flex;
-
-gap:10px;
-
-padding:10px;
-
-background:white;
-
-border-radius:12px;
-
-box-shadow:0 8px 18px rgba(0,0,0,.18);
-
-z-index:9999;
-
+.floating-toolbar {
+    position: absolute;
+    display: flex;
+    gap: 10px;
+    padding: 10px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 8px 18px rgba(0,0,0,.18);
+    z-index: 9999;
 }
 
-.hidden{
-
-display:none;
-
+.hidden {
+    display: none;
 }
 
-.toolbar-panel{
-
-display:flex;
-
-align-items:center;
-
-gap:8px;
-
+.toolbar-panel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-.toolbar-panel button{
-
-padding:6px 10px;
-
-cursor:pointer;
-
+.toolbar-panel button {
+    padding: 6px 10px;
+    cursor: pointer;
 }
 
-.toolbar-panel select{
-
-min-width:180px;
-
+.toolbar-panel select {
+    min-width: 180px;
 }
-
 
 /* =========================================================================
-   OVERRIDE DE PRECISIÓN: FIRMA VISUAL "TITANIUM PRECISION & ANODIZED PETROL"
-   Ruta canónica en Studio: ASSETS/css/styles.css
+   GUÍA CANÓNICA DE COLORES Y ESTILOS DE INTERFAZ (EKKO STUDIO PRO)
    ========================================================================= */
 
+/* 
+   -------------------------------------------------------------------------
+   [ SECCIÓN A ] EL PANEL DE CONTROL DE INTERFAZ (styles.css)
+   -------------------------------------------------------------------------
+   Esta sección define las variables CSS de toda la interfaz del Studio.
+   Modifica los códigos hexadecimales aquí para cambiar colores de forma masiva
+   en segundos, garantizando un look serio, cómodo y profesional.
+*/
 :root {
-    /* --- Paleta de Interfaz Profesional EKKO: Titanium Precision --- */
-    --ekko-bg-workspace: #f1f3f7;    /* Platino Atenuado (Entorno gris suave detrás del lienzo) */
-    --ekko-bg-panel: #ffffff;        /* Blanco Puro (Paneles de herramientas y Cabecera limpia) */
-    --ekko-border-color: #cbd5e1;    /* Gris Seda (Líneas divisorias y bordes de precisión) */
-    
-    /* --- Configuración del Neural HUD (Barra Contextual Emergente) --- */
-    --ekko-hud-bg: rgba(255, 255, 255, 0.96); /* HUD Blanco Satinado Translúcido */
-    --ekko-hud-border: #4a6163;      /* Petróleo Anodizado (Acento industrial de alta gama) */
-    --ekko-hud-shadow: 0 4px 24px rgba(148, 163, 184, 0.15); /* Sombra suave de flotación */
-    
-    /* --- Tipografías y Lectura Confortable --- */
-    --ekko-text-muted: #64748b;      /* Gris Acero para etiquetas secundarias */
-    --ekko-text-dark: #1e293b;       /* Gris Carbón profundo para lectura cómoda */
+    /* 1. EL ENTORNO DE TRABAJO (El fondo gris detrás del lienzo blanco de diseño) */
+    --ekko-bg-workspace: #f1f3f7;    /* Platino Atenuado: Cómodo para la vista, previene el cansancio */
 
-    /* --- Re-mapeo del núcleo nativo de index.html --- */
+    /* 2. LOS PANELES Y CABECERAS (El fondo de toda la barra de herramientas y menús fijos) */
+    --ekko-bg-panel: #ffffff;        /* Blanco Puro: Limpio, ordenado, de precisión médica */
+
+    /* 3. BORDES Y SEPARADORES (Líneas divisorias ultra-finas que delimitan las herramientas) */
+    --ekko-border-color: #cbd5e1;    /* Gris Seda: Sutil y elegante */
+
+    /* 4. LA BARRA EMERGENTE (El fondo translúcido Satin White con desenfoque de la barra flotante) */
+    --ekko-hud-bg: rgba(255, 255, 255, 0.96); /* Blanco Satinado con opacidad de hardware */
+    --ekko-hud-shadow: 0 4px 24px rgba(148, 163, 184, 0.15); /* Sombra suave para dar volumen */
+
+    /* 5. BORDE PROTECTOR DEL NEURAL HUD (Verde Petróleo Anodizado, color de maquinaria industrial) */
+    --ekko-hud-border: #4a6163;      /* Único de interfaz, NO colisiona con el lienzo, cotas ni guías */
+
+    /* 6. TIPOGRAFÍA Y TEXTOS DE LA INTERFAZ */
+    --ekko-text-muted: #64748b;      /* Gris Acero: Para categorías, títulos secundarios y subtítulos */
+    --ekko-text-dark: #1e293b;       /* Gris Carbón: Para textos principales de botones y opciones */
+
+    /* --- Re-mapeo automático para compatibilidad con código antiguo --- */
     --border-color: var(--ekko-border-color) !important;
     --bg-canvas: var(--ekko-bg-workspace) !important;
 }
+
+/* 
+   -------------------------------------------------------------------------
+   [ SECCIÓN B ] GUÍA DE REGLAS Y GUÍAS INTELIGENTES (canvasGuidesAndRulers.js)
+   -------------------------------------------------------------------------
+   NOTA: Estos colores se configuran en el archivo JS debido a que se pintan con HTML5 Canvas.
+   Para editarlos, abre: "ASSETS/js/modules/canvas-pro/canvasGuidesAndRulers.js"
+   
+   - LÍNEAS DE GRADUACIÓN Y NÚMEROS DE LOS MM (Reglas superior e izquierda):
+     Búscalos en las líneas ~154 y ~155 de ese archivo:
+     ctxTop.fillStyle = "#475569";    -> Color de los números
+     ctxTop.strokeStyle = "#94a3b8";  -> Color de las marcas divisorias
+     
+   - LÍNEAS DE GUÍAS INTELIGENTES (Canva Snapping):
+     Búscalas en la línea ~161 de ese archivo:
+     path.strokeColor = "#db2777";    -> Rosa Canva oficial (Cero colisiones con la interfaz)
+*/
+
+/* 
+   -------------------------------------------------------------------------
+   [ SECCIÓN C ] GUÍA DE COTAS DINÁMICAS (canvasMeasurements.js)
+   -------------------------------------------------------------------------
+   NOTA: Estos colores se configuran en el archivo JS debido a que se pintan con Paper.js.
+   Para editarlos, abre: "ASSETS/js/modules/canvas-pro/canvasMeasurements.js"
+   
+   - COLOR DE LAS COTAS DINÁMICAS EN MILÍMETROS DE LOS OBJETOS SELECCIONADOS:
+     Búscalo en la línea ~164 de ese archivo (variable `objColor`):
+     const objColor = "#007bff";      -> Azul técnico de alta visibilidad para tus vectores
+*/
+
+/* 
+   -------------------------------------------------------------------------
+   [ SECCIÓN D ] GUÍA DE HERRAMIENTAS ACTIVAS EN EL BORRADOR (backgroundRemover.js)
+   -------------------------------------------------------------------------
+   NOTA: Estos colores se configuran en el CSS de ese módulo o en sus clases JS.
+   Para editarlos, abre: "ASSETS/js/modules/backgroundRemover.js" o las clases:
+   
+   - BOTÓN BORRAR DE IA (Borrador activo):
+     #btnToolErase.active { background-color: #dc3545; }   -> Rojo de advertencia/borrado
+     
+   - BOTÓN RESTAURAR DE IA (Pincel corrector activo):
+     #btnToolRestore.active { background-color: #28a745; } -> Verde de restauración segura
+     
+   - BOTÓN VARITA MÁGICA (Borrador mágico de fondo por contraste activo):
+     #btnToolMagic.active { background-color: #00d2ff; }   -> Turquesa tecnológico
+*/
+
+
+/* =========================================================================
+   REGLAS CSS PARA APLICAR LA FIRMA VISUAL "TITANIUM PRECISION" A LA INTERFAZ
+   ========================================================================= */
 
 /* 1. Fondo del Entorno de Trabajo (Detrás del lienzo de diseño) */
 #canvasContainer {
