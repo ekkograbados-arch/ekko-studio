@@ -1,9 +1,8 @@
-/* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/canvasMeasurements.js
-Descripción: Sistema de Acotaciones (Cotas de Tamaño Real en mm) para el Mockup
-             y el elemento de diseño seleccionado. Visibles únicamente durante
-             el arrastre o redimensionamiento para evitar la saturación visual.
-========================================================================= */
+/* ========================================================================
+RUTA DESTINO EN TU DISCO LOCAL: ASSETS/js/modules/canvas-pro/canvasMeasurements.js
+ACCIÓN: REEMPLAZAR COMPLETAMENTE TU ARCHIVO "ASSETS/js/modules/canvas-pro/canvasMeasurements.js"
+ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATIVOS INTEGRADOS
+======================================================================== */
 
 let measurementsGroup = null;
 let showMeasurements = true;
@@ -57,38 +56,46 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
     dimLine.strokeWidth = 1 / zoom;
     measurementsGroup.addChild(dimLine);
 
-    // 3. Dibujar puntas de flecha en los extremos (apuntando hacia los vértices)
-    const lineVector = dp2.subtract(dp1).normalize();
-    const normalVector = new paper.Point(-lineVector.y, lineVector.x).normalize();
+    // 3. Flechas de cota
+    const lineVector = dp2.subtract(dp1);
+    const lineNormal = lineVector.normalize();
 
-    // Flecha extremo 1 (dp1)
-    const arrow1 = new paper.Path();
-    arrow1.add(dp1.add(lineVector.multiply(arrowSize)).add(normalVector.multiply(arrowSize * 0.4)));
-    arrow1.add(dp1);
-    arrow1.add(dp1.add(lineVector.multiply(arrowSize)).subtract(normalVector.multiply(arrowSize * 0.4)));
-    arrow1.strokeColor = color;
-    arrow1.strokeWidth = 1 / zoom;
+    // Flecha 1 (inicio)
+    const arrow1 = new paper.Path({
+        segments: [
+            dp1.add(lineNormal.rotate(30).multiply(arrowSize)),
+            dp1,
+            dp1.add(lineNormal.rotate(-30).multiply(arrowSize))
+        ],
+        strokeColor: color,
+        strokeWidth: 1 / zoom
+    });
     measurementsGroup.addChild(arrow1);
 
-    // Flecha extremo 2 (dp2)
-    const arrow2 = new paper.Path();
-    arrow2.add(dp2.subtract(lineVector.multiply(arrowSize)).add(normalVector.multiply(arrowSize * 0.4)));
-    arrow2.add(dp2);
-    arrow2.add(dp2.subtract(lineVector.multiply(arrowSize)).subtract(normalVector.multiply(arrowSize * 0.4)));
-    arrow2.strokeColor = color;
-    arrow2.strokeWidth = 1 / zoom;
+    // Flecha 2 (fin)
+    const arrow2 = new paper.Path({
+        segments: [
+            dp2.subtract(lineNormal.rotate(30).multiply(arrowSize)),
+            dp2,
+            dp2.subtract(lineNormal.rotate(-30).multiply(arrowSize))
+        ],
+        strokeColor: color,
+        strokeWidth: 1 / zoom
+    });
     measurementsGroup.addChild(arrow2);
 
-    // 4. Dibujar texto con la dimensión física real (mm)
-    const midPoint = dp1.add(dp2).divide(2);
-    
-    // Crear fondo blanco sutil detrás del texto para máxima legibilidad
+    // 4. Texto de dimensión en milímetros reales
+    const mmVal = typeof textValue === 'number' ? textValue * (window.mmPerPaperUnit || 1.0) : textValue;
+    const textStr = typeof mmVal === 'number' ? `${mmVal.toFixed(1)} mm` : mmVal;
+
+    const midPoint = dp1.add(dp2).multiply(0.5);
+    const textOffset = offsetVector.normalize(8 / zoom);
+
     const textEl = new paper.PointText({
-        point: midPoint.add(normalVector.multiply(-4 / zoom)), // Desplazar ligeramente encima de la línea
-        content: `${(parseFloat(textValue) * (window.mmPerPaperUnit || 1.0)).toFixed(1)} mm`,
+        point: midPoint.add(textOffset),
+        content: textStr,
         fillColor: color,
         fontSize: 10 / zoom,
-        fontWeight: "bold",
         fontFamily: "sans-serif",
         justification: "center"
     });
@@ -100,7 +107,6 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
     } else if (Math.abs(angle) >= 135) {
         textEl.rotate(angle + 180, textEl.point);
     }
-
     measurementsGroup.addChild(textEl);
 }
 
@@ -110,7 +116,6 @@ export function drawMeasurements() {
     if (!showMeasurements || !window.paper || !paper.project) return;
 
     clearMeasurements();
-
     measurementsGroup = new paper.Group();
     measurementsGroup.data = { isSelectionBox: true, isMeasurement: true };
 
@@ -143,35 +148,39 @@ export function drawMeasurements() {
         }
     }
 
-    // === 2. DIBUJAR COTAS DEL OBJETO SELECCIONADO (en color Azul de Diseño) ===
-    if (window.selectedItem) {
-        // Encontrar el elemento útil de diseño (ignorando máscaras)
-        const target = window.selectedItem.data && window.selectedItem.data.clipGroup
-            ? window.selectedItem.children.find(c => !c.clipMask)
-            : window.selectedItem;
+    /* 
+       -------------------------------------------------------------------------
+       [ SECCIÓN C ] COTAS DE DISEÑO DEL OBJETO SELECCIONADO (canvasMeasurements.js)
+       -------------------------------------------------------------------------
+       Modifica el valor de la variable `objColor` abajo para alterar el color 
+       de las cotas de medición métricas (mm) en tu lienzo. El valor predeterminado 
+       es `#007bff` (Azul de Diseño), que contrasta de forma excelente con el
+       mockup y los trazos vectoriales negros de grabado.
+    */
+    if (window.selectedItem && !window.selectedItem.data?.mockup) {
+        const displayItem = typeof window.getContentItem === 'function' ? window.getContentItem(window.selectedItem) : window.selectedItem;
+        if (!displayItem || !displayItem.bounds || displayItem.bounds.width <= 1 || displayItem.bounds.height <= 1) return;
 
-        if (target && target.bounds && target.bounds.width > 0 && target.bounds.height > 0) {
-            const bounds = target.bounds;
-            const objColor = "#007bff"; // Azul brillante de marca para el diseño
+        const bounds = displayItem.bounds;
+        const objColor = "#007bff"; // <- COLOR DE SECCIÓN C (Azul técnico para diseño útil)
 
-            // Cota inferior (Ancho del Diseño)
-            drawDimensionLine(
-                new paper.Point(bounds.left, bounds.bottom),
-                new paper.Point(bounds.right, bounds.bottom),
-                new paper.Point(0, offsetMm),
-                bounds.width,
-                objColor
-            );
+        // Cota inferior (Ancho del Diseño)
+        drawDimensionLine(
+            new paper.Point(bounds.left, bounds.bottom),
+            new paper.Point(bounds.right, bounds.bottom),
+            new paper.Point(0, offsetMm),
+            bounds.width,
+            objColor
+        );
 
-            // Cota derecha (Alto del Diseño)
-            drawDimensionLine(
-                new paper.Point(bounds.right, bounds.bottom),
-                new paper.Point(bounds.right, bounds.top),
-                new paper.Point(offsetMm, 0),
-                bounds.height,
-                objColor
-            );
-        }
+        // Cota derecha (Alto del Diseño)
+        drawDimensionLine(
+            new paper.Point(bounds.right, bounds.bottom),
+            new paper.Point(bounds.right, bounds.top),
+            new paper.Point(offsetMm, 0),
+            bounds.height,
+            objColor
+        );
     }
 
     // Asegurarse de que el grupo de cotas no tape los tiradores interactivos
@@ -179,13 +188,12 @@ export function drawMeasurements() {
     if (window.selectionBoxGroup) {
         window.selectionBoxGroup.bringToFront();
     }
-
     paper.view.update();
 }
 
 // Hook de integración automática para escuchar eventos de transformación
 export function installMeasurementsHook() {
-    if (!window.paper || !paper.tools || paper.tools.length === 0) {
+    if (!window.paper || !paper.project || !paper.tools || paper.tools.length === 0) {
         setTimeout(installMeasurementsHook, 100);
         return;
     }
@@ -216,11 +224,7 @@ export function installMeasurementsHook() {
     console.log("🚀 Sistema de cotas dinámicas (mm) acoplado perfectamente al motor de Paper.js.");
 }
 
-// Iniciar gancho de forma automática
-window.addEventListener("DOMContentLoaded", () => {
-    setTimeout(installMeasurementsHook, 450);
-});
-// Iniciar gancho de forma automática
+// SANEADO CRÍTICO: ÚNICA inicialización automática al cargar el DOM, libre de bucles repetitivos
 window.addEventListener("DOMContentLoaded", () => {
     setTimeout(installMeasurementsHook, 450);
 });
