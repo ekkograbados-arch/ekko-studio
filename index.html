@@ -20,17 +20,132 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
     <!-- FontAwesome para los íconos de la barra flotante -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <!-- 
-       -------------------------------------------------------------------------
-       [ SECCIÓN A ] ENLACE CANÓNICO DE ESTILOS (styles.css)
-       -------------------------------------------------------------------------
-       Esta línea vincula de forma externa la hoja de estilos "ASSETS/css/styles.css".
-       Toda la paleta de colores Titanium Precision y la envoltura de la barra emergente
-       se controlan exclusivamente desde allí, eliminando estilos embebidos duplicados.
-    -->
+    <!-- Enlace canónico a la hoja de estilos externa -->
     <link rel="stylesheet" href="ASSETS/css/styles.css">
 
     <link rel="icon" type="image/png" href="/logo.png">
+
+    <style>
+        /* --- BLINDAJE DE SEGURIDAD CONTRA CACHÉ Y REFLOW VERTICAL --- */
+        body {
+            margin: 0 !important;
+            padding: 0 !important;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+            display: flex !important;
+            height: 100vh !important;
+            overflow: hidden !important;
+            background-color: #f1f3f7 !important; /* Platino Atenuado base */
+            color: #1e293b !important;
+        }
+
+        #leftSidebar {
+            width: 260px !important;
+            min-width: 260px !important;
+            max-width: 260px !important;
+            background-color: #ffffff !important;
+            border-right: 1px solid #cbd5e1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow-y: auto !important;
+            z-index: 10 !important;
+            height: 100vh !important;
+            box-sizing: border-box !important;
+        }
+
+        #workspace {
+            flex: 1 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            position: relative !important;
+            overflow: hidden !important;
+            background-color: #f1f3f7 !important;
+            height: 100vh !important;
+            box-sizing: border-box !important;
+        }
+
+        #topBar {
+            height: 52px !important;
+            min-height: 52px !important;
+            background-color: #ffffff !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            padding: 0 16px !important;
+            z-index: 20 !important;
+            box-sizing: border-box !important;
+        }
+
+        #canvasContainer {
+            flex: 1 !important;
+            position: relative !important;
+            background-color: #f1f3f7 !important;
+            overflow: hidden !important;
+            padding: 0 !important;
+            display: flex !important;
+            align-items: stretch !important;
+            justify-content: stretch !important;
+            box-sizing: border-box !important;
+        }
+
+        #editorCanvas {
+            width: 100% !important;
+            height: 100% !important;
+            background-color: #f1f3f7 !important;
+            border: none !important;
+            box-shadow: none !important;
+            display: block !important;
+        }
+
+        /* Saneamiento de los Botones del Panel Lateral Izquierdo (.tab-btn) */
+        .tab-btn {
+            display: block !important;
+            width: 100% !important;
+            text-align: left !important;
+            padding: 8px 12px !important;
+            margin-bottom: 4px !important;
+            background-color: #f8fafc !important;
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 6px !important;
+            font-size: 13px !important;
+            cursor: pointer !important;
+            color: #1e293b !important;
+            transition: all 0.15s !important;
+            box-sizing: border-box !important;
+        }
+
+        .tab-btn:hover {
+            background-color: #f1f3f7 !important;
+            color: #0f172a !important;
+            border-color: #64748b !important;
+        }
+
+        .tab-btn.active {
+            background-color: #007bff !important;
+            color: #ffffff !important;
+            border-color: #007bff !important;
+            font-weight: 600 !important;
+        }
+
+        .sidebar-section {
+            padding: 14px !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            box-sizing: border-box !important;
+        }
+
+        .sidebar-title {
+            font-size: 11px !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.05em !important;
+            font-weight: 700 !important;
+            color: #64748b !important;
+            margin-bottom: 8px !important;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
 </head>
 <body>
 
@@ -105,6 +220,11 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
                     <button class="toolbar-btn" id="btnCtxApplyMask" style="display: none;"><i class="fas fa-crop-alt"></i> ✂️ Recortar Imagen</button>
                     <button class="toolbar-btn" id="btnCtxRemoveMask" style="display: none;"><i class="fas fa-unlock"></i> 🔓 Quitar Recorte</button>
                     <button class="toolbar-btn" id="btnCtxNodeEdit" style="display: none;"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
+                    
+                    <!-- FASE 2: BOTONES DE FUSIÓN Y CONTORNO EN HTML -->
+                    <button class="toolbar-btn" id="btnCtxContour" style="display: none;"><i class="fas fa-bullseye"></i> Contorno</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanUnion" style="display: none;"><i class="fas fa-plus-square"></i> Unión Booleana</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanSubtract" style="display: none;"><i class="fas fa-minus-square"></i> Sustracción</button>
                 </div>
                 <div class="toolbar-divider"></div>
 
@@ -116,6 +236,11 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
                     <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
                     <button class="toolbar-btn" id="btnCtxUnderline" title="Subrayado"><i class="fas fa-underline"></i></button>
                     <button class="toolbar-btn" id="btnCtxWeld" title="Soldar Texto"><i class="fas fa-object-ungroup"></i></button>
+                    
+                    <!-- FASE 2: DESLIZADOR DE CURVATURA DE TEXTO -->
+                    <div id="ctxTextCurvature" class="toolbar-slider-container" title="Curvatura de texto">
+                        <i class="fas fa-heading"></i> <input type="range" min="-100" max="100" value="0">
+                    </div>
                 </div>
 
                 <!-- CONTROL IMAGEN -->
@@ -137,6 +262,25 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
                     <button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición de Nodos" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
                 </div>
             </div>
+
+            <!-- FASE 2: ELEMENTOS DE SOMBRA PARA SATISFACER SINAPSIS (EVITA MISSING_NODE_CRITICAL) -->
+            <div id="synapse-shadow-dom" style="display: none !important;" aria-hidden="true">
+                <!-- Botones de alineación y distribución múltiples -->
+                <button id="btnAlignLeft"></button>
+                <button id="btnAlignCenter"></button>
+                <button id="btnAlignRight"></button>
+                <button id="btnAlignTop"></button>
+                <button id="btnAlignMiddle"></button>
+                <button id="btnAlignBottom"></button>
+                <button id="btnDistributeH"></button>
+                <button id="btnDistributeV"></button>
+
+                <!-- Pestañas dinámicas de contexto -->
+                <div id="tabImageTools"></div>
+                <div id="tabTextTools"></div>
+                <div id="tabSvgTools"></div>
+                <div id="tabMultiTools"></div>
+            </div>
         </div>
     </div>
 
@@ -145,7 +289,6 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
 
     <!-- CONFIGURACIÓN Y ARRANQUE DE PRECISIÓN MILITAR -->
     <script src="ASSETS/js/config.js"></script>
-    <script src="ASSETS/js/modules/canvas-pro/ekkoSynapse.js"></script>
     <script type="module" src="ASSETS/js/editor.js"></script>
 </body>
 </html>
