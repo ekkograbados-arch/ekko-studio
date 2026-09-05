@@ -1,3 +1,19 @@
+:root {
+    /* --- Paleta de Interfaz Profesional EKKO: Titanium Precision --- */
+    --ekko-bg-workspace: #f1f3f7;    /* Platino Atenuado (Entorno gris suave detrás del lienzo) */
+    --ekko-bg-panel: #ffffff;        /* Blanco Puro (Paneles de herramientas y Cabecera limpia) */
+    --ekko-border-color: #cbd5e1;    /* Gris Seda (Líneas divisorias y bordes de precisión) */
+    
+    /* --- Configuración del Neural HUD (Barra Contextual Emergente) --- */
+    --ekko-hud-bg: rgba(255, 255, 255, 0.96); /* HUD Blanco Satinado Translúcido */
+    --ekko-hud-border: #4a6163;      /* Petróleo Anodizado (Acento industrial de alta gama) */
+    --ekko-hud-shadow: 0 4px 24px rgba(148, 163, 184, 0.15); /* Sombra suave de flotación */
+    
+    /* --- Tipografías y Lectura Confortable --- */
+    --ekko-text-muted: #64748b;      /* Gris Acero para etiquetas secundarias */
+    --ekko-text-dark: #1e293b;       /* Gris Carbón profundo para lectura cómoda */
+}
+
 @font-face {
     font-family: "ekko_billie";
     src: url("../fonts/BillieJames-Regular.woff2") format("woff2");
