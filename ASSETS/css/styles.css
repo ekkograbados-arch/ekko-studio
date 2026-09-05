@@ -1,18 +1,3 @@
-:root {
-    /* --- Paleta de Interfaz Profesional EKKO: Titanium Precision --- */
-    --ekko-bg-workspace: #f1f3f7;    /* Platino Atenuado (Entorno gris suave detrás del lienzo) */
-    --ekko-bg-panel: #ffffff;        /* Blanco Puro (Paneles de herramientas y Cabecera limpia) */
-    --ekko-border-color: #cbd5e1;    /* Gris Seda (Líneas divisorias y bordes de precisión) */
-    
-    /* --- Configuración del Neural HUD (Barra Contextual Emergente) --- */
-    --ekko-hud-bg: rgba(255, 255, 255, 0.96); /* HUD Blanco Satinado Translúcido */
-    --ekko-hud-border: #4a6163;      /* Petróleo Anodizado (Acento industrial de alta gama) */
-    --ekko-hud-shadow: 0 4px 24px rgba(148, 163, 184, 0.15); /* Sombra suave de flotación */
-    
-    /* --- Tipografías y Lectura Confortable --- */
-    --ekko-text-muted: #64748b;      /* Gris Acero para etiquetas secundarias */
-    --ekko-text-dark: #1e293b;       /* Gris Carbón profundo para lectura cómoda */
-}
 
 @font-face {
     font-family: "ekko_billie";
@@ -406,4 +391,99 @@ cursor:pointer;
 
 min-width:180px;
 
+}
+
+
+/* =========================================================================
+   OVERRIDE DE PRECISIÓN: FIRMA VISUAL "TITANIUM PRECISION & ANODIZED PETROL"
+   Ruta canónica en Studio: ASSETS/css/styles.css
+   ========================================================================= */
+
+:root {
+    /* --- Paleta de Interfaz Profesional EKKO: Titanium Precision --- */
+    --ekko-bg-workspace: #f1f3f7;    /* Platino Atenuado (Entorno gris suave detrás del lienzo) */
+    --ekko-bg-panel: #ffffff;        /* Blanco Puro (Paneles de herramientas y Cabecera limpia) */
+    --ekko-border-color: #cbd5e1;    /* Gris Seda (Líneas divisorias y bordes de precisión) */
+    
+    /* --- Configuración del Neural HUD (Barra Contextual Emergente) --- */
+    --ekko-hud-bg: rgba(255, 255, 255, 0.96); /* HUD Blanco Satinado Translúcido */
+    --ekko-hud-border: #4a6163;      /* Petróleo Anodizado (Acento industrial de alta gama) */
+    --ekko-hud-shadow: 0 4px 24px rgba(148, 163, 184, 0.15); /* Sombra suave de flotación */
+    
+    /* --- Tipografías y Lectura Confortable --- */
+    --ekko-text-muted: #64748b;      /* Gris Acero para etiquetas secundarias */
+    --ekko-text-dark: #1e293b;       /* Gris Carbón profundo para lectura cómoda */
+
+    /* --- Re-mapeo del núcleo nativo de index.html --- */
+    --border-color: var(--ekko-border-color) !important;
+    --bg-canvas: var(--ekko-bg-workspace) !important;
+}
+
+/* 1. Fondo del Entorno de Trabajo (Detrás del lienzo de diseño) */
+#canvasContainer {
+    background-color: var(--ekko-bg-workspace) !important;
+}
+
+/* 2. Saneamiento del Lienzo Infinito en Paper.js */
+#editorCanvas {
+    background-color: var(--ekko-bg-workspace) !important;
+}
+
+/* 3. Panel Izquierdo (Sidebar) y Cabecera Superior Fija (topBar) */
+#leftSidebar, 
+#topBar {
+    background-color: var(--ekko-bg-panel) !important;
+    border-color: var(--ekko-border-color) !important;
+}
+
+/* 4. Separadores de secciones de la barra lateral */
+.sidebar-section {
+    border-bottom: 1px solid var(--ekko-border-color) !important;
+}
+
+/* 5. Etiquetas de sección secundarias (Categorías, Productos, etc.) */
+.sidebar-title {
+    color: var(--ekko-text-muted) !important;
+}
+
+/* 6. Botones y controles de carga superior (Cargar Imagen, Agregar Texto, etc.) */
+.btn-action,
+.tab-btn {
+    background-color: var(--ekko-bg-panel) !important;
+    border-color: var(--ekko-border-color) !important;
+    color: var(--ekko-text-dark) !important;
+}
+
+.btn-action:hover,
+.tab-btn:hover {
+    background-color: var(--ekko-bg-workspace) !important;
+    border-color: var(--ekko-text-muted) !important;
+}
+
+/* 7. LA BARRA EMERGENTE FLOTANTE (El nuevo contorno del Neural HUD) */
+#contextual-toolbar {
+    background: var(--ekko-hud-bg) !important;
+    border: 1.5px solid var(--ekko-hud-border) !important;
+    box-shadow: var(--ekko-hud-shadow) !important;
+    border-radius: 10px !important;
+    
+    /* Efecto Esmerilado de Alta Gama */
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+}
+
+/* 8. Botones internos de la barra flotante */
+.toolbar-btn {
+    background-color: #f8fafc !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    color: var(--ekko-text-dark) !important;
+}
+
+.toolbar-btn:hover {
+    background-color: #f1f5f9 !important;
+    border-color: var(--ekko-text-muted) !important;
+}
+
+.toolbar-divider {
+    background-color: var(--ekko-border-color) !important;
 }
