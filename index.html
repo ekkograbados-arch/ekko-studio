@@ -1,355 +1,151 @@
+<!-- ========================================================================
+RUTA DESTINO EN TU DISCO LOCAL: index.html
+ACCIÓN: REEMPLAZAR COMPLETAMENTE TU ARCHIVO "index.html"
+ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATIVOS INTEGRADOS
+======================================================================== -->
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EKKO Studio - PRO Edition</title>
-<!-- Paper.js -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
-<!-- Cargamos tus productos de forma global -->
-<script src="ASSETS/js/productos.js"></script>
-<!-- FontAwesome para los íconos de la barra flotante -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link rel="stylesheet" href="ASSETS/css/styles.css">
-<style>
-:root {
---primary: #007bff;
---primary-hover: #0056b3;
---border-color: #e2e8f0;
---bg-canvas: #cbd5e1; /* Fondo gris pizarra para hacer resaltar el tablero */
---lightburn-pink: #db2777; /* Rosa-Violeta oficial de LightBurn para Trazado */
---lightburn-pink-hover: #be185d;
-}
-body {
-margin: 0;
-padding: 0;
-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-display: flex;
-height: 100vh;
-overflow: hidden;
-background-color: #f1f5f9;
-}
-/* Panel Izquierdo de Categorías y Productos */
-#leftSidebar {
-width: 260px;
-background: #ffffff;
-border-right: 1px solid var(--border-color);
-display: flex;
-flex-direction: column;
-overflow-y: auto;
-z-index: 10;
-}
-.sidebar-section {
-padding: 14px;
-border-bottom: 1px solid var(--border-color);
-}
-.sidebar-title {
-font-size: 11px;
-text-transform: uppercase;
-letter-spacing: 0.05em;
-font-weight: 700;
-color: #64748b;
-margin-bottom: 8px;
-}
-.tab-btn {
-display: block;
-width: 100%;
-text-align: left;
-padding: 8px 12px;
-margin-bottom: 4px;
-background: #f8fafc;
-border: 1px solid #e2e8f0;
-border-radius: 6px;
-font-size: 13px;
-cursor: pointer;
-color: #334155;
-transition: all 0.15s;
-}
-.tab-btn:hover {
-background: #e2e8f0;
-color: #0f172a;
-}
-.tab-btn.active {
-background: var(--primary);
-color: #ffffff;
-border-color: var(--primary);
-font-weight: 600;
-}
-/* Área de Trabajo */
-#workspace {
-flex: 1;
-display: flex;
-flex-direction: column;
-position: relative;
-overflow: hidden;
-}
-/* Barra Superior */
-#topBar {
-height: 52px;
-background: #ffffff;
-border-bottom: 1px solid var(--border-color);
-display: flex;
-align-items: center;
-justify-content: space-between;
-padding: 0 16px;
-z-index: 20;
-}
-.top-group {
-display: flex;
-align-items: center;
-gap: 8px;
-}
-.btn-action {
-display: inline-flex;
-align-items: center;
-gap: 6px;
-padding: 7px 14px;
-background: #f8fafc;
-border: 1px solid #cbd5e1;
-border-radius: 6px;
-font-size: 13px;
-font-weight: 500;
-color: #334155;
-cursor: pointer;
-transition: all 0.15s;
-}
-.btn-action:hover {
-background: #e2e8f0;
-border-color: #94a3b8;
-}
-#selectionInfo {
-font-size: 12px;
-color: #64748b;
-font-weight: 500;
-}
-/* Contenedor del Lienzo */
-#canvasContainer {
-flex: 1;
-position: relative;
-background-color: var(--bg-canvas);
-overflow: hidden !important;
-padding: 0 !important;
-}
-#editorCanvas {
-width: 100% !important;
-height: 100% !important;
-background-color: #e2e8f0 !important;
-border: none !important;
-box-shadow: none !important;
-}
-/* Barra Contextual Flotante (Canva & LightBurn Style) */
-#contextual-toolbar {
-position: absolute;
-display: none;
-background: #ffffff;
-border: 1px solid #cbd5e1;
-border-radius: 8px;
-box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-padding: 8px 14px;
-z-index: 100;
-align-items: center;
-gap: 12px;
-pointer-events: auto;
-user-select: none;
-transition: opacity 0.15s ease-out;
-flex-wrap: wrap;
-max-width: 720px;
-}
-#contextual-toolbar.active {
-display: flex;
-}
-.toolbar-group {
-display: flex;
-align-items: center;
-gap: 6px;
-}
-.toolbar-divider {
-width: 1px;
-height: 24px;
-background-color: #cbd5e1;
-margin: 0 4px;
-}
-.toolbar-btn {
-background: #f1f5f9;
-border: 1px solid #cbd5e1;
-border-radius: 6px;
-padding: 6px 10px;
-display: inline-flex;
-align-items: center;
-justify-content: center;
-gap: 6px;
-cursor: pointer;
-color: #334155;
-font-size: 13px;
-font-weight: 500;
-transition: all 0.15s;
-}
-.toolbar-btn:hover {
-background-color: #e2e8f0;
-color: #0f172a;
-border-color: #94a3b8;
-}
-.toolbar-subgroup {
-display: flex;
-align-items: center;
-gap: 6px;
-}
-.toolbar-subgroup.hidden {
-display: none !important;
-}
-.toolbar-select {
-padding: 5px 8px;
-border-radius: 6px;
-border: 1px solid #cbd5e1;
-font-size: 13px;
-color: #334155;
-background: white;
-outline: none;
-cursor: pointer;
-min-width: 160px;
-}
-.toolbar-input-number {
-width: 55px;
-padding: 5px 6px;
-border: 1px solid #cbd5e1;
-border-radius: 6px;
-font-size: 13px;
-text-align: center;
-outline: none;
-}
-.toolbar-slider-container {
-display: flex;
-align-items: center;
-gap: 6px;
-font-size: 12px;
-color: #475569;
-background: #f8fafc;
-padding: 3px 8px;
-border-radius: 6px;
-border: 1px solid #e2e8f0;
-}
-.toolbar-slider-container input[type="range"] {
-width: 80px;
-cursor: pointer;
-}
-.hidden-picker {
-display: none;
-}
-</style>
-<link rel="icon" type="image/png" href="/logo.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EKKO Studio - PRO Edition</title>
+
+    <!-- Paper.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
+
+    <!-- Cargamos tus productos de forma global -->
+    <script src="ASSETS/js/productos.js"></script>
+
+    <!-- FontAwesome para los íconos de la barra flotante -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- 
+       -------------------------------------------------------------------------
+       [ SECCIÓN A ] ENLACE CANÓNICO DE ESTILOS (styles.css)
+       -------------------------------------------------------------------------
+       Esta línea vincula de forma externa la hoja de estilos "ASSETS/css/styles.css".
+       Toda la paleta de colores Titanium Precision y la envoltura de la barra emergente
+       se controlan exclusivamente desde allí, eliminando estilos embebidos duplicados.
+    -->
+    <link rel="stylesheet" href="ASSETS/css/styles.css">
+
+    <link rel="icon" type="image/png" href="/logo.png">
 </head>
 <body>
 
-<!-- 1. PANEL IZQUIERDO DE PRODUCTOS -->
-<div id="leftSidebar">
-<div class="sidebar-section">
-<div class="sidebar-title">Categorías</div>
-<div id="categoryTabs"></div>
-</div>
-<div class="sidebar-section">
-<div class="sidebar-title">Productos</div>
-<div id="productTabs"></div>
-</div>
-<div class="sidebar-section">
-<div class="sidebar-title">Vistas</div>
-<div id="surfaceTabs"></div>
-</div>
-</div>
+    <!-- 1. PANEL IZQUIERDO DE PRODUCTOS -->
+    <div id="leftSidebar">
+        <div class="sidebar-section">
+            <div class="sidebar-title">Categorías</div>
+            <div id="categoryTabs"></div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Productos</div>
+            <div id="productTabs"></div>
+        </div>
+        <div class="sidebar-section">
+            <div class="sidebar-title">Vistas</div>
+            <div id="surfaceTabs"></div>
+        </div>
+    </div>
 
-<!-- 2. ÁREA DE TRABAJO -->
-<div id="workspace">
-<div id="topBar">
-<div class="top-group">
-<button class="btn-action" id="btnAddImage">
-<i class="fas fa-image"></i> Cargar Imagen
-</button>
-<button class="btn-action" id="btnAddText">
-<i class="fas fa-font"></i> Agregar Texto
-</button>
-<button class="btn-action" id="btnAddSVG">
-<i class="fas fa-file-image"></i> Cargar SVG
-</button>
-<button class="btn-action" id="btnAddQR">
-<i class="fas fa-qrcode"></i> QR
-</button>
-</div>
-<div id="selectionInfo">Selecciona un producto para comenzar</div>
-<div class="top-group">
-</div>
-</div>
+    <!-- 2. ÁREA DE TRABAJO -->
+    <div id="workspace">
+        <div id="topBar">
+            <div class="top-group">
+                <button class="btn-action" id="btnAddImage">
+                    <i class="fas fa-image"></i> Cargar Imagen
+                </button>
+                <button class="btn-action" id="btnAddText">
+                    <i class="fas fa-font"></i> Agregar Texto
+                </button>
+                <button class="btn-action" id="btnAddSVG">
+                    <i class="fas fa-file-image"></i> Cargar SVG
+                </button>
+                <button class="btn-action" id="btnAddQR">
+                    <i class="fas fa-qrcode"></i> QR
+                </button>
+            </div>
+            <div id="selectionInfo">Selecciona un producto para comenzar</div>
+            <div class="top-group"></div>
+        </div>
 
-<div id="canvasContainer">
-<canvas id="editorCanvas"></canvas>
+        <div id="canvasContainer">
+            <canvas id="editorCanvas"></canvas>
 
-<!-- 3. BARRA CONTEXTUAL FLOTANTE (CON ORDEN Z INTELIGENTE Y FRENTE/FONDO LIGHTBURN) -->
-<div id="contextual-toolbar">
-<!-- ACCIONES BASE DE CANVA Y LIGHTBURN -->
-<div class="toolbar-group">
-<button class="toolbar-btn" id="btnCtxDelete" title="Eliminar (Supr)"><i class="fas fa-trash"></i> Eliminar</button>
-<button class="toolbar-btn" id="btnCtxDuplicate" title="Duplicar (Ctrl+D)"><i class="fas fa-copy"></i> Duplicar</button>
-<button class="toolbar-btn" id="btnCtxScaleDown" title="Achicar"><i class="fas fa-minus"></i></button>
-<button class="toolbar-btn" id="btnCtxScaleUp" title="Agrandar"><i class="fas fa-plus"></i></button>
+            <!-- 
+               -------------------------------------------------------------------------
+               [ NEURAL HUD ] BARRA CONTEXTUAL FLOTANTE (Con Borde de Petróleo Anodizado)
+               -------------------------------------------------------------------------
+               Su diseño y apariencia visual están gobernados por la clase #contextual-toolbar 
+               en el archivo "ASSETS/css/styles.css". Su comportamiento asíncrono responde 
+               a la lógica de selección modular en Chrome.
+            -->
+            <div id="contextual-toolbar">
+                <!-- ACCIONES BASE DE CANVA Y LIGHTBURN -->
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="btnCtxDelete" title="Eliminar (Supr)"><i class="fas fa-trash"></i> Eliminar</button>
+                    <button class="toolbar-btn" id="btnCtxDuplicate" title="Duplicar (Ctrl+D)"><i class="fas fa-copy"></i> Duplicar</button>
+                    <button class="toolbar-btn" id="btnCtxScaleDown" title="Achicar"><i class="fas fa-minus"></i></button>
+                    <button class="toolbar-btn" id="btnCtxScaleUp" title="Agrandar"><i class="fas fa-plus"></i></button>
+                    <div class="toolbar-divider"></div>
 
-<div class="toolbar-divider"></div>
+                    <!-- CONTROLES DE APILAMIENTO Z (LIGHTBURN STYLE) -->
+                    <button class="toolbar-btn" id="btnCtxToFront" title="Al Frente (Ctrl+PgUp)"><i class="fas fa-angle-double-up"></i></button>
+                    <button class="toolbar-btn" id="btnCtxForward" title="Subir Capa (PgUp)"><i class="fas fa-layer-group"></i> +</button>
+                    <button class="toolbar-btn" id="btnCtxBackward" title="Bajar Capa (PgDown)"><i class="fas fa-layer-group"></i> -</button>
+                    <button class="toolbar-btn" id="btnCtxToBack" title="Al Fondo (Ctrl+PgDn)"><i class="fas fa-angle-double-down"></i></button>
+                </div>
+                <div class="toolbar-divider"></div>
 
-<!-- CONTROLES DE APILAMIENTO Z (LIGHTBURN STYLE) -->
-<button class="toolbar-btn" id="btnCtxToFront" title="Al Frente (Ctrl+PgUp)"><i class="fas fa-angle-double-up"></i></button>
-<button class="toolbar-btn" id="btnCtxForward" title="Subir Capa (PgUp)"><i class="fas fa-layer-group"></i> +</button>
-<button class="toolbar-btn" id="btnCtxBackward" title="Bajar Capa (PgDown)"><i class="fas fa-layer-group"></i> -</button>
-<button class="toolbar-btn" id="btnCtxToBack" title="Al Fondo (Ctrl+PgDn)"><i class="fas fa-angle-double-down"></i></button>
-</div>
+                <!-- GRUPO DE ACCIONES ESPECIALES -->
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="btnCtxTrace" style="display: none;"><i class="fas fa-magic"></i> 🪄 Trazar Imagen</button>
+                    <button class="toolbar-btn" id="btnCtxApplyMask" style="display: none;"><i class="fas fa-crop-alt"></i> ✂️ Recortar Imagen</button>
+                    <button class="toolbar-btn" id="btnCtxRemoveMask" style="display: none;"><i class="fas fa-unlock"></i> 🔓 Quitar Recorte</button>
+                    <button class="toolbar-btn" id="btnCtxNodeEdit" style="display: none;"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
+                </div>
+                <div class="toolbar-divider"></div>
 
-<div class="toolbar-divider"></div>
+                <!-- CONTROL TEXTO -->
+                <div id="ctxTextControls" class="toolbar-subgroup hidden">
+                    <select id="ctxFontSelector" class="toolbar-select"></select>
+                    <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
+                    <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
+                    <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
+                    <button class="toolbar-btn" id="btnCtxUnderline" title="Subrayado"><i class="fas fa-underline"></i></button>
+                    <button class="toolbar-btn" id="btnCtxWeld" title="Soldar Texto"><i class="fas fa-object-ungroup"></i></button>
+                </div>
 
-<!-- GRUPO DE ACCIONES ESPECIALES -->
-<div class="toolbar-group">
-<button class="toolbar-btn" id="btnCtxTrace" style="display: none;"><i class="fas fa-magic"></i> 🪄 Trazar Imagen</button>
-<button class="toolbar-btn" id="btnCtxApplyMask" style="display: none;"><i class="fas fa-crop-alt"></i> ✂️ Recortar Imagen</button>
-<button class="toolbar-btn" id="btnCtxRemoveMask" style="display: none;"><i class="fas fa-unlock"></i> 🔓 Quitar Recorte</button>
-<button class="toolbar-btn" id="btnCtxNodeEdit" style="display: none;"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
-</div>
+                <!-- CONTROL IMAGEN -->
+                <div id="ctxImageControls" class="toolbar-subgroup hidden">
+                    <button class="toolbar-btn" id="btnCtxFlipH" title="Espejo Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
+                    <button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
+                </div>
 
-<div class="toolbar-divider"></div>
+                <!-- CONTROL VECTOR -->
+                <div id="ctxVectorControls" class="toolbar-subgroup hidden">
+                    <button class="toolbar-btn" id="btnCtxGroup" title="Agrupar Vectores (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
+                    <button class="toolbar-btn" id="btnCtxUngroup" title="Desagrupar Vectores (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+                    <button class="toolbar-btn" id="btnCtxEditNodes" title="Editar Nodos"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
+                </div>
 
-<!-- CONTROL TEXTO -->
-<div id="ctxTextControls" class="toolbar-subgroup hidden">
-<select id="ctxFontSelector" class="toolbar-select"></select>
-<input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
-<button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
-<button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
-<button class="toolbar-btn" id="btnCtxUnderline" title="Subrayado"><i class="fas fa-underline"></i></button>
-<button class="toolbar-btn" id="btnCtxWeld" title="Soldar Texto"><i class="fas fa-object-ungroup"></i></button>
-</div>
+                <!-- PANEL EDICIÓN DE NODOS -->
+                <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
+                    <button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo Seleccionado" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
+                    <button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición de Nodos" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-<!-- CONTROL IMAGEN -->
-<div id="ctxImageControls" class="toolbar-subgroup hidden">
-<button class="toolbar-btn" id="btnCtxFlipH" title="Espejo Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
-<button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
-</div>
+    <input type="file" id="imagePicker" class="hidden-picker" accept="image/*">
+    <input type="file" id="svgPicker" class="hidden-picker" accept=".svg">
 
-<!-- CONTROL VECTOR -->
-<div id="ctxVectorControls" class="toolbar-subgroup hidden">
-<button class="toolbar-btn" id="btnCtxGroup" title="Agrupar Vectores (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
-<button class="toolbar-btn" id="btnCtxUngroup" title="Desagrupar Vectores (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
-<button class="toolbar-btn" id="btnCtxEditNodes" title="Editar Nodos"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
-</div>
-
-<!-- PANEL EDICIÓN DE NODOS -->
-<div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
-<button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo Seleccionado" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
-<button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición de Nodos" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
-</div>
-
-</div>
-</div>
-</div>
-
-<input type="file" id="imagePicker" class="hidden-picker" accept="image/*">
-<input type="file" id="svgPicker" class="hidden-picker" accept=".svg">
-
-<!-- Carga de la Configuración Global de Grabados EKKO -->
-<script src="ASSETS/js/config.js"></script>
-
-<script type="module" src="ASSETS/js/editor.js"></script>
+    <!-- CONFIGURACIÓN Y ARRANQUE DE PRECISIÓN MILITAR -->
+    <script src="ASSETS/js/config.js"></script>
+    <script src="ASSETS/js/modules/canvas-pro/ekkoSynapse.js"></script>
+    <script type="module" src="ASSETS/js/editor.js"></script>
 </body>
 </html>
