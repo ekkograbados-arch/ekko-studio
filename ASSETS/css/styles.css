@@ -88,12 +88,7 @@ ESTADO: VERSIÓN DEFINTIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATIV
     font-display: swap;
 }
 
-body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: var(--ekko-bg-workspace);
-    color: #222;
-}
+body { margin: 0; font-family: Arial, sans-serif; }
 
 .topbar {
     display: flex;
@@ -531,4 +526,157 @@ body {
 
 .toolbar-divider {
     background-color: var(--ekko-border-color) !important;
+}
+
+
+/* =========================================================================
+   SANEAMIENTO CRÍTICO DE LAYOUT: PRESERVACIÓN DEL PANEL LATERAL IZQUIERDO
+   ========================================================================= */
+
+/* 1. Saneamiento del body para activar Flexbox y evitar reflow vertical */
+body {
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    display: flex !important;
+    height: 100vh !important;
+    overflow: hidden !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    color: #222 !important;
+}
+
+/* 2. Saneamiento del Panel Lateral Izquierdo (Mapeo de dimensiones reales) */
+#leftSidebar {
+    width: 260px !important;
+    background-color: var(--ekko-bg-panel) !important;
+    border-right: 1px solid var(--ekko-border-color) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    z-index: 10 !important;
+    height: 100vh !important;
+    box-sizing: border-box !important;
+}
+
+/* 3. Saneamiento del Área de Trabajo Principal (workspace) */
+#workspace {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
+    overflow: hidden !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    height: 100vh !important;
+    box-sizing: border-box !important;
+}
+
+/* 4. Saneamiento de la Barra Superior (topBar) */
+#topBar {
+    height: 52px !important;
+    background-color: var(--ekko-bg-panel) !important;
+    border-bottom: 1px solid var(--ekko-border-color) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0 16px !important;
+    z-index: 20 !important;
+    box-sizing: border-box !important;
+}
+
+/* 5. Contenedor del lienzo de Paper.js (canvasContainer) */
+#canvasContainer {
+    flex: 1 !important;
+    position: relative !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    box-sizing: border-box !important;
+}
+
+/* 6. Canvas Físico (editorCanvas) */
+#editorCanvas {
+    width: 100% !important;
+    height: 100% !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: block !important;
+}
+
+/* 7. Saneamiento de los Botones del Panel Lateral Izquierdo (.tab-btn) */
+.tab-btn {
+    display: block !important;
+    width: 100% !important;
+    text-align: left !important;
+    padding: 8px 12px !important;
+    margin-bottom: 4px !important;
+    background-color: #f8fafc !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
+    cursor: pointer !important;
+    color: var(--ekko-text-dark) !important;
+    transition: all 0.15s !important;
+    box-sizing: border-box !important;
+}
+
+.tab-btn:hover {
+    background-color: var(--ekko-bg-workspace) !important;
+    color: #0f172a !important;
+    border-color: var(--ekko-text-muted) !important;
+}
+
+.tab-btn.active {
+    background-color: #007bff !important;
+    color: #ffffff !important;
+    border-color: #007bff !important;
+    font-weight: 600 !important;
+}
+
+/* 8. Saneamiento de las Secciones y Títulos de la Sidebar */
+.sidebar-section {
+    padding: 14px !important;
+    border-bottom: 1px solid var(--ekko-border-color) !important;
+    box-sizing: border-box !important;
+}
+
+.sidebar-title {
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    font-weight: 700 !important;
+    color: var(--ekko-text-muted) !important;
+    margin-bottom: 8px !important;
+}
+
+/* 9. Saneamiento de la Información de Selección */
+#selectionInfo {
+    font-size: 12px !important;
+    color: var(--ekko-text-muted) !important;
+    font-weight: 500 !important;
+}
+
+/* 10. Saneamiento de Botones de Acción de la Cabecera Superior */
+.btn-action {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 7px 14px !important;
+    background-color: var(--ekko-bg-panel) !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: var(--ekko-text-dark) !important;
+    cursor: pointer !important;
+    transition: all 0.15s !important;
+    box-sizing: border-box !important;
+}
+
+.btn-action:hover {
+    background-color: var(--ekko-bg-workspace) !important;
+    border-color: var(--ekko-text-muted) !important;
 }
