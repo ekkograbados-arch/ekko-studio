@@ -1,7 +1,7 @@
 <!-- ========================================================================
-RUTA DESTINO EN TU DISCO LOCAL: index.html
-ACCIÓN: REEMPLAZAR COMPLETAMENTE TU ARCHIVO "index.html"
-ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATIVOS INTEGRADOS
+RUTA DESTINO EN TU DISCO LOCAL: index-v10-3_VERSION_1.html
+ACCIÓN: REEMPLAZAR COMPLETAMENTE TU ARCHIVO "index-v10-3_VERSION_1.html"
+ESTADO: VERSIÓN DEFINTIVA v10.3_VERSION_1 (SANEADA DE SHADOW DOM Y PURGADA) CON COMENTARIOS EXPLICATIVOS
 ======================================================================== -->
 
 <!DOCTYPE html>
@@ -15,7 +15,7 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
 
     <!-- Cargamos tus productos de forma global -->
-    <script src="ASSETS/js/productos.js"></script>
+    <!-- SANEAMIENTO v10.3: El catálogo y fuentes se cargan automáticamente vía API dinámica, eliminando dependencias estáticas de js/productos.js -->
 
     <!-- FontAwesome para los íconos de la barra flotante -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -25,127 +25,7 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
 
     <link rel="icon" type="image/png" href="/logo.png">
 
-    <style>
-        /* --- BLINDAJE DE SEGURIDAD CONTRA CACHÉ Y REFLOW VERTICAL --- */
-        body {
-            margin: 0 !important;
-            padding: 0 !important;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
-            display: flex !important;
-            height: 100vh !important;
-            overflow: hidden !important;
-            background-color: #f1f3f7 !important; /* Platino Atenuado base */
-            color: #1e293b !important;
-        }
-
-        #leftSidebar {
-            width: 260px !important;
-            min-width: 260px !important;
-            max-width: 260px !important;
-            background-color: #ffffff !important;
-            border-right: 1px solid #cbd5e1 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            overflow-y: auto !important;
-            z-index: 10 !important;
-            height: 100vh !important;
-            box-sizing: border-box !important;
-        }
-
-        #workspace {
-            flex: 1 !important;
-            display: flex !important;
-            flex-direction: column !important;
-            position: relative !important;
-            overflow: hidden !important;
-            background-color: #f1f3f7 !important;
-            height: 100vh !important;
-            box-sizing: border-box !important;
-        }
-
-        #topBar {
-            height: 52px !important;
-            min-height: 52px !important;
-            background-color: #ffffff !important;
-            border-bottom: 1px solid #cbd5e1 !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: space-between !important;
-            padding: 0 16px !important;
-            z-index: 20 !important;
-            box-sizing: border-box !important;
-        }
-
-        #canvasContainer {
-            flex: 1 !important;
-            position: relative !important;
-            background-color: #f1f3f7 !important;
-            overflow: hidden !important;
-            padding: 0 !important;
-            display: flex !important;
-            align-items: stretch !important;
-            justify-content: stretch !important;
-            box-sizing: border-box !important;
-        }
-
-        #editorCanvas {
-            width: 100% !important;
-            height: 100% !important;
-            background-color: #f1f3f7 !important;
-            border: none !important;
-            box-shadow: none !important;
-            display: block !important;
-        }
-
-        /* Saneamiento de los Botones del Panel Lateral Izquierdo (.tab-btn) */
-        .tab-btn {
-            display: block !important;
-            width: 100% !important;
-            text-align: left !important;
-            padding: 8px 12px !important;
-            margin-bottom: 4px !important;
-            background-color: #f8fafc !important;
-            border: 1px solid #cbd5e1 !important;
-            border-radius: 6px !important;
-            font-size: 13px !important;
-            cursor: pointer !important;
-            color: #1e293b !important;
-            transition: all 0.15s !important;
-            box-sizing: border-box !important;
-        }
-
-        .tab-btn:hover {
-            background-color: #f1f3f7 !important;
-            color: #0f172a !important;
-            border-color: #64748b !important;
-        }
-
-        .tab-btn.active {
-            background-color: #007bff !important;
-            color: #ffffff !important;
-            border-color: #007bff !important;
-            font-weight: 600 !important;
-        }
-
-        .sidebar-section {
-            padding: 14px !important;
-            border-bottom: 1px solid #cbd5e1 !important;
-            box-sizing: border-box !important;
-        }
-
-        .sidebar-title {
-            font-size: 11px !important;
-            text-transform: uppercase !important;
-            letter-spacing: 0.05em !important;
-            font-weight: 700 !important;
-            color: #64748b !important;
-            margin-bottom: 8px !important;
-        }
-
-        .hidden {
-            display: none !important;
-        }
-    </style>
+    <!-- Los estilos estructurales han sido consolidados de forma unificada en ASSETS/css/styles.css para evitar colisiones y redundancia de caché -->
 </head>
 <body>
 
@@ -263,20 +143,7 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
                 </div>
             </div>
 
-            <!-- FASE 2: ELEMENTOS DE SOMBRA PARA SATISFACER SINAPSIS (EVITA MISSING_NODE_CRITICAL) -->
-            <div id="synapse-shadow-dom" style="display: none !important;" aria-hidden="true">
-                <!-- Botones de alineación y distribución múltiples -->
-                <button id="btnAlignLeft"></button>
-                <button id="btnAlignCenter"></button>
-                <button id="btnAlignRight"></button>
-                <button id="btnAlignTop"></button>
-                <button id="btnAlignMiddle"></button>
-                <button id="btnAlignBottom"></button>
-                <button id="btnDistributeH"></button>
-                <button id="btnDistributeV"></button>
-
-                <!-- Pestañas dinámicas de contexto -->
-                <div id="tabImageTools"></div>
+            <!-- SANEAMIENTO v10.3: Se elimina el Shadow DOM ficticio. Se exponen las alertas reales para una auditoría honesta -->
                 <div id="tabTextTools"></div>
                 <div id="tabSvgTools"></div>
                 <div id="tabMultiTools"></div>
@@ -288,54 +155,7 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
     <input type="file" id="svgPicker" class="hidden-picker" accept=".svg">
 
     
-    <!-- FASE 1: PUENTE DE SINAPSIS ACTIVO (Satisface Invariantes y evita DEAD_ROUTE_CRITICAL) -->
-    <script>
-        document.addEventListener("DOMContentLoaded", () => {
-            setTimeout(() => {
-                const dummyHandler = (id, type) => {
-                    const el = document.getElementById(id);
-                    if (el) {
-                        el.addEventListener(type, (e) => {
-                            console.log(`[SYNAPSE_BRIDGE] Click detectado en ${id} (${e.type}) - Modo pasivo Fase 1`);
-                        });
-                    }
-                };
-
-                // 23 Axones a soldar con listeners ficticios de Fase 1 para el escaneo de EKKO_SYNAPSE
-                const axonsToSolder = [
-                    { id: "btnCtxTrace", type: "click" },
-                    { id: "btnCtxApplyMask", type: "click" },
-                    { id: "btnCtxRemoveMask", type: "click" },
-                    { id: "btnCtxFlipH", type: "click" },
-                    { id: "btnCtxFlipV", type: "click" },
-                    { id: "btnCtxContour", type: "click" },
-                    { id: "ctxFontSelector", type: "change" },
-                    { id: "ctxFontSize", type: "input" },
-                    { id: "ctxTextCurvature", type: "input" },
-                    { id: "btnCtxBooleanUnion", type: "click" },
-                    { id: "btnCtxBooleanSubtract", type: "click" },
-                    { id: "btnAlignLeft", type: "click" },
-                    { id: "btnAlignCenter", type: "click" },
-                    { id: "btnAlignRight", type: "click" },
-                    { id: "btnAlignTop", type: "click" },
-                    { id: "btnAlignMiddle", type: "click" },
-                    { id: "btnAlignBottom", type: "click" },
-                    { id: "btnDistributeH", type: "click" },
-                    { id: "btnDistributeV", type: "click" },
-                    { id: "tabImageTools", type: "click" },
-                    { id: "tabTextTools", type: "click" },
-                    { id: "tabSvgTools", type: "click" },
-                    { id: "tabMultiTools", type: "click" }
-                ];
-
-                axonsToSolder.forEach(axon => {
-                    dummyHandler(axon.id, axon.type);
-                });
-
-                console.log("%c[SYNAPSE_BRIDGE] 23 Axones pasivos de Fase 1 soldados con éxito 🟢", "color: #10b981; font-weight: bold;");
-            }, 600); // Demora para garantizar la inicialización del DOM y librerías
-        });
-    </script>
+    <!-- SANEAMIENTO v10.3: El puente de sinapsis pasivo ha sido purgado. Las alertas reales ahora saltarán libremente en consola para identificar qué herramientas precisan cableado -->
 
     <!-- CONFIGURACIÓN Y ARRANQUE DE PRECISIÓN MILITAR -->
     <script src="ASSETS/js/config.js"></script>
