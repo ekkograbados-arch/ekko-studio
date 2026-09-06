@@ -1,17 +1,13 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v44.0 - Clean Clone Precision)
+Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v10.3 - Saneado y Unificado)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripción:
-    Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
-    y barra de acciones para EKKO Studio.
-    
-    Asegura la preservación absoluta de las funciones de apilamiento Z (LightBurn style),
-    alineación Canva-style, conversión de texto a curvas, soldadura y despiece.
-    
-    Reprogramado conforme a las Reglas de Oro para erradicar el bug de doble desfase 
-    y el borrado accidental del objeto original por referencias de datos compartidas.
-
-AUTORIDAD: REPOSITORIO CANÓNICO V9 / PACTO DE ESTABILIDAD
+Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
+y barra de acciones para EKKO Studio.
+Asegura la preservación absoluta de las funciones de apilamiento Z (LightBurn style),
+alineación Canva-style, conversión de texto a curvas, soldadura y despiece.
+Saneado conforme a la Ley del Efecto Rebote para desactivar dobles bindings en español
+y unificar IDs interactivos en inglés Figma/Canva Style.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
@@ -108,58 +104,21 @@ function syncGeomBaseDeep(item, delta) {
         return;
     }
     const visited = new Set();
-    function recurse(target) {
-        if (!target || visited.has(target.id)) return;
-        visited.add(target.id);
-        if (target.data && target.data.geomBase) {
-            target.data.geomBase.position = target.data.geomBase.position.add(delta);
+    const recurse = (it) => {
+        if (!it || visited.has(it.id)) return;
+        visited.add(it.id);
+        if (it.data && it.data.geomBase) {
+            it.data.geomBase.position = it.data.geomBase.position.add(delta);
         }
-        if (target.data && target.data.clipGroup && target.children) {
-            Array.from(target.children).forEach(c => {
-                if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
-                    recurse(c);
-                }
-            });
+        if (it.children) {
+            it.children.forEach(recurse);
         }
-        if (target instanceof paper.Group && target.children) {
-            Array.from(target.children).forEach(recurse);
-        }
-    }
+    };
     recurse(item);
 }
 
-// Saneador de datos y clonación profunda de geomBase para evitar referencias cruzadas
-function sanitizeCloneDataAndGeomBase(src, dest, offset) {
-    if (!src || !dest) return;
-    
-    // Clonar diccionario data para romper referencias de memoria compartidas
-    dest.data = { ...(src.data || {}), locked: false };
-    
-    // Si posee geomBase, clonar de forma pura e independiente y desplazar
-    if (src.data && src.data.geomBase) {
-        try {
-            dest.data.geomBase = src.data.geomBase.clone({ insert: false });
-            dest.data.geomBase.position = dest.data.geomBase.position.add(offset);
-        } catch (e) {
-            console.warn("[EKKO CLONE] Error al clonar geomBase de forma independiente:", e);
-        }
-    }
-    
-    // Recorrer hijos en paralelo de forma estricta
-    if (src.children && dest.children && src.children.length === dest.children.length) {
-        for (let i = 0; i < src.children.length; i++) {
-            sanitizeCloneDataAndGeomBase(src.children[i], dest.children[i], offset);
-        }
-    }
-}
-
-// =========================================================================
-// MOTOR INDUSTRIAL DE DUPLICACIÓN CON DESFASE VISUAL (LIGHTBURN STYLE)
-// =========================================================================
-
 /**
- * Duplica un único objeto vectorial o raster, preservando independencias geométricas,
- * enmascaramientos (clipGroups), alineación, doble-ámbito Bézier e historial de sesión.
+ * Duplica un solo objeto de diseño de manera independiente (coherencia de matrices)
  * @param {paper.Item} targetItem El elemento original a duplicar
  * @param {paper.Point} offset Vector de desfase acumulativo (LightBurn Style)
  * @returns {paper.Item|null} El nuevo objeto duplicado e independiente
@@ -169,16 +128,22 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
     if (targetItem.data && targetItem.data.locked) return null;
 
     // Clonación del objeto completo en el nodo raíz para conservar máscaras y transformaciones concéntricas
-    const duplicatedObject = targetItem.clone();
-    
-    // Desvincular de raíz las referencias del objeto .data y clonar geomBase de forma independiente
-    sanitizeCloneDataAndGeomBase(targetItem, duplicatedObject, offset);
-    
-    // Desplazar físicamente el objeto clonado completo (Una única vez en nodo raíz)
-    duplicatedObject.position = duplicatedObject.position.add(offset);
+    let duplicatedObject = null;
+    if (targetItem.data && targetItem.data.clipGroup) {
+        const content = targetItem.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+        if (!content) return null;
+        const contentClone = content.clone();
+        contentClone.position = contentClone.position.add(offset);
+        contentClone.data = { ...(contentClone.data || {}), locked: false };
+        duplicatedObject = window.clipItem(contentClone);
+    } else {
+        const clone = targetItem.clone();
+        clone.position = clone.position.add(offset);
+        clone.data = { ...(clone.data || {}), locked: false };
+        duplicatedObject = clone;
+    }
 
-    // Añadir formalmente a la capa de diseño
-    const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
+    const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === "designLayer")) || paper.project.activeLayer;
     if (designLayer) designLayer.addChild(duplicatedObject);
 
     // Ajustar Orden Z: Insertar ordenadamente justo encima del original pero debajo del mockup
@@ -191,7 +156,6 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
             duplicatedObject.bringToFront();
         }
     }
-
     return duplicatedObject;
 }
 
@@ -205,7 +169,6 @@ export function duplicateSelectedItem() {
         window.exitNodeEditMode(true); // Salir forzadamente antes de duplicar el objeto completo
         window.selectedItem = activeTarget;
     }
-
     const itemsToDuplicate = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (window.selectedItem ? [window.selectedItem] : []);
@@ -215,7 +178,6 @@ export function duplicateSelectedItem() {
 
     const duplicatedList = [];
     const offset = new paper.Point(20, 20);
-
     itemsToDuplicate.forEach(item => {
         const clone = duplicateSingleItem(item, offset);
         if (clone) duplicatedList.push(clone);
@@ -254,7 +216,6 @@ export function deleteImage(item) {
         window.exitNodeEditMode(true);
         item = targetObj;
     }
-
     const itemsToDelete = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (item ? [item] : (window.selectedItem ? [window.selectedItem] : []));
@@ -287,13 +248,7 @@ const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
     const styleEl = document.createElement('style');
     styleEl.id = dropdownStylesId;
-    styleEl.textContent = `
-        #contextual-toolbar { position: absolute; z-index: 10100 !important; }
-        .font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid #f1f5f9; }
-        .font-dropdown-item:hover { background: #f0f9ff; }
-        .font-name-label { font-size: 11px; color: #64748b; font-weight: 600; }
-        .hidden { display: none !important; }
-    `;
+    styleEl.textContent = `\n#contextual-toolbar { position: absolute; z-index: 10100 !important; }\n.font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid #f1f5f9; }\n.font-dropdown-item:hover { background: #f0f9ff; }\n.font-name-label { font-size: 11px; color: #64748b; font-weight: 600; }\n.hidden { display: none !important; }\n`;
     document.head.appendChild(styleEl);
 }
 
@@ -343,10 +298,8 @@ function renderFontList(fonts, container) {
     fonts.forEach(font => {
         const item = document.createElement('div');
         item.className = 'font-dropdown-item';
-        item.innerHTML = `
-            <span class="font-name-label">${font.name}</span>
-            <span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>
-        `;
+        item.innerHTML = `\n<span class="font-name-label">${font.name}</span>\n<span style="font-family: '${font.family}', sans-serif; font-size: 16px; color: #111;">${sampleText}</span>\n`;
+        
         item.onmouseenter = () => {
             if (window.selectedItem) applyFontFamily(window.selectedItem, font.family);
         };
@@ -394,11 +347,13 @@ async function populateFontDropdowns() {
     }
     fontsCache = fonts;
     injectFontFaces(fonts);
+
     const nativeSelect = document.getElementById('ctxFontSelector');
     if (nativeSelect) {
         nativeSelect.style.display = 'none';
         nativeSelect.classList.add('hidden');
     }
+
     let customDropdown = document.querySelector('.custom-font-dropdown');
     if (customDropdown) {
         const trigger = customDropdown.querySelector('.selected-font-trigger');
@@ -427,6 +382,7 @@ function makeToolbarDraggable() {
     if (!toolbar) return;
     let isDraggingToolbar = false;
     let startX = 0, startY = 0;
+
     toolbar.addEventListener('mouseover', (e) => {
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) {
             toolbar.style.cursor = 'default';
@@ -434,18 +390,21 @@ function makeToolbarDraggable() {
             toolbar.style.cursor = 'move';
         }
     });
+
     toolbar.addEventListener('mousedown', (e) => {
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) return;
         isDraggingToolbar = true;
         startX = e.clientX - toolbar.offsetLeft;
         startY = e.clientY - toolbar.offsetTop;
     });
+
     document.addEventListener('mousemove', (e) => {
         if (!isDraggingToolbar) return;
         toolbar.style.left = (e.clientX - startX) + 'px';
         toolbar.style.top = (e.clientY - startY) + 'px';
         toolbarDragged = true;
     });
+
     document.addEventListener('mouseup', () => {
         isDraggingToolbar = false;
     });
@@ -458,10 +417,9 @@ export function groupSelectedItems() {
     const selected = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (window.selectedItem ? [window.selectedItem] : []);
-
     if (selected.length < 2) return;
-    if (typeof window.saveHistory === 'function') window.saveHistory();
 
+    if (typeof window.saveHistory === 'function') window.saveHistory();
     const finalGroup = new paper.Group(selected);
     finalGroup.data = { locked: false, label: "Grupo" };
 
@@ -472,6 +430,7 @@ export function groupSelectedItems() {
             finalGroup.insertBelow(window.currentMockup);
         }
     }
+
     if (typeof window.deselectItem === 'function') window.deselectItem();
     if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
     safeRecalculateSubtractions();
@@ -489,11 +448,11 @@ export function ungroupSelectedItem() {
     const selectedList = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
         : (window.selectedItem ? [window.selectedItem] : []);
-
     if (selectedList.length === 0) return;
-    if (typeof window.saveHistory === 'function') window.saveHistory();
 
+    if (typeof window.saveHistory === 'function') window.saveHistory();
     const allCreatedItems = [];
+
     selectedList.forEach(item => {
         if (!item || isMockupOrProductElement(item)) return;
         const isClipped = !!(item.data && item.data.clipGroup);
@@ -522,6 +481,7 @@ export function ungroupSelectedItem() {
         window.selectedItems = [...allCreatedItems];
         window.selectedItem = allCreatedItems[allCreatedItems.length - 1];
         allCreatedItems.forEach(it => { if (it) it.selected = true; });
+
         if (typeof window.updateSelectionBox === 'function') {
             window.updateSelectionBox(window.selectedItem);
         }
@@ -574,6 +534,7 @@ export function initContextualMenu() {
     if (toolbar.parentNode !== document.body) {
         document.body.appendChild(toolbar);
     }
+
     removeOverlapTab();
     populateFontDropdowns();
     makeToolbarDraggable();
@@ -675,10 +636,9 @@ export function initContextualMenu() {
         if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
     });
 
+    // UNIFICACIÓN CANÓNICA 10.3: Se descartan los clicks hacia IDs alternativos obsoletos en español.
     setClick('btnCtxGroup', () => groupSelectedItems());
-    setClick('btnCtxAgrupar', () => groupSelectedItems());
     setClick('btnCtxUngroup', () => ungroupSelectedItem());
-    setClick('btnCtxDesagrupar', () => ungroupSelectedItem());
 
     setClick('btnCtxEditNodes', () => {
         if (window.selectedItem) {
@@ -718,6 +678,7 @@ function getUnifiedScreenBounds(item) {
     if (!canvasEl || typeof paper === 'undefined' || !paper.view) return null;
     const canvasRect = canvasEl.getBoundingClientRect();
     let combinedBounds = null;
+
     if (window.selectedItems && window.selectedItems.length > 0) {
         window.selectedItems.forEach(it => {
             const tgt = it.data?.clipGroup ? getContentItem(it) : it;
@@ -726,18 +687,15 @@ function getUnifiedScreenBounds(item) {
                 else combinedBounds = combinedBounds.unite(tgt.bounds);
             }
         });
-    } else if (item) {
-        const tgt = item.data?.clipGroup ? getContentItem(item) : item;
-        if (tgt && tgt.bounds && tgt.visible !== false) {
-            combinedBounds = tgt.bounds.clone();
-        }
     }
-    if (!combinedBounds) return null;
-    const screenTopCenter = paper.view.projectToView(combinedBounds.topCenter);
+
+    const bounds = combinedBounds || (item ? item.bounds : null);
+    if (!bounds) return null;
+
+    const centerGlobal = paper.view.projectToView(bounds.center);
     return {
-        x: canvasRect.left + screenTopCenter.x,
-        y: canvasRect.top + screenTopCenter.y,
-        combinedBounds: combinedBounds
+        x: centerGlobal.x + canvasRect.left,
+        y: paper.view.projectToView(bounds.topLeft).y + canvasRect.top
     };
 }
 
@@ -745,21 +703,26 @@ export function updateContextualMenu(item) {
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
     removeOverlapTab();
+
     if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
         toolbar.classList.remove('active');
         toolbarDragged = false;
         lastSelectedItem = null;
         return;
     }
+
     toolbar.classList.add('active');
     toolbar.style.zIndex = "10100";
+
     const hideSubgroup = (id) => {
         const el = document.getElementById(id);
         if (el) el.classList.add('hidden');
     };
+
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
+
     const btnTrace = document.getElementById('btnCtxTrace');
     if (btnTrace) btnTrace.style.display = 'none';
 
@@ -769,26 +732,31 @@ export function updateContextualMenu(item) {
             const tgt = it.data?.clipGroup ? getContentItem(it) : it;
             return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isShape(tgt));
         });
+
         if (allVectors) {
             const vecCtrl = document.getElementById('ctxVectorControls');
             if (vecCtrl) {
                 vecCtrl.classList.remove('hidden');
                 const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
                 if (btnEditNodes) btnEditNodes.style.display = 'none';
-                const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
-                if (btnGroup) {
-                    btnGroup.classList.remove('hidden');
-                    btnGroup.style.display = 'inline-block';
-                }
-                const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
-                if (btnUngroup) {
-                    btnUngroup.style.display = 'none';
-                }
+            }
+
+            // UNIFICACIÓN CANÓNICA 10.3: Se usa estrictamente el ID unificado en inglés, sin alias obsoletos en español.
+            const btnGroup = document.getElementById('btnCtxGroup');
+            if (btnGroup) {
+                btnGroup.classList.remove('hidden');
+                btnGroup.style.display = 'inline-block';
+            }
+
+            const btnUngroup = document.getElementById('btnCtxUngroup');
+            if (btnUngroup) {
+                btnUngroup.style.display = 'none';
             }
         }
     } else {
         const target = item.data?.clipGroup ? getContentItem(item) : item;
         if (!target) return;
+
         if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
             const txtCtrl = document.getElementById('ctxTextControls');
             if (txtCtrl) txtCtrl.classList.remove('hidden');
@@ -812,16 +780,19 @@ export function updateContextualMenu(item) {
                     const canEdit = !isGroup(target) && !isSymbolItem(target);
                     btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
                 }
-                const btnGroup = document.getElementById('btnCtxGroup') || document.getElementById('btnCtxAgrupar');
-                if (btnGroup) {
-                    btnGroup.classList.add('hidden');
-                    btnGroup.style.display = 'none';
-                }
-                const btnUngroup = document.getElementById('btnCtxUngroup') || document.getElementById('btnCtxDesagrupar');
-                if (btnUngroup) {
-                    const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
-                    btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
-                }
+            }
+
+            // UNIFICACIÓN CANÓNICA 10.3: Se usan estrictamente los IDs unificados en inglés, sin alias obsoletos en español.
+            const btnGroup = document.getElementById('btnCtxGroup');
+            if (btnGroup) {
+                btnGroup.classList.add('hidden');
+                btnGroup.style.display = 'none';
+            }
+
+            const btnUngroup = document.getElementById('btnCtxUngroup');
+            if (btnUngroup) {
+                const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
+                btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
             }
         }
     }
