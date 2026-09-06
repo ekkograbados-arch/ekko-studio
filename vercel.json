@@ -17,6 +17,12 @@
     },
     "api/synapse.js": {
       "includeFiles": "ASSETS/**"
+    },
+    "api/repo-scanner.js": {
+      "includeFiles": "ASSETS/**"
+    },
+    "api/payload-scanner.js": {
+      "includeFiles": "ASSETS/**"
     }
   }
 }
