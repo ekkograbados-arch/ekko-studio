@@ -427,43 +427,35 @@
                 rawConsole.log(`
 %cESTADO GENERAL DEL SISTEMA: ${hasCriticals ? "🔴 UNHEALTHY (Inconsistencias Críticas)" : "🟢 HEALTHY"}`, `color: ${hasCriticals ? "#ef4444" : "#10b981"}; font-weight: bold; font-size: 12px;`);
                 
-                rawConsole.log("
-%c🟢 [ACTIVA_EN_CONEXIÓN] (Neuronas Estables)", "color: #10b981; font-weight: bold;");
+                rawConsole.log("\n%c🟢 [ACTIVA_EN_CONEXIÓN] (Neuronas Estables)", "color: #10b981; font-weight: bold;");
                 if (active.length > 0) active.forEach(line => rawConsole.log(line));
                 else rawConsole.log("  (Ninguna activa)");
 
-                rawConsole.log("
-%c🔵 [LATENTE] (Sectores en Reserva - Seguros en Disco)", "color: #3b82f6; font-weight: bold;");
+                rawConsole.log("\n%c🔵 [LATENTE] (Sectores en Reserva - Seguros en Disco)", "color: #3b82f6; font-weight: bold;");
                 if (latent.length > 0) latent.forEach(line => rawConsole.log(line));
                 else rawConsole.log("  (Ninguna latente)");
 
-                rawConsole.log("
-%c🟡 [PASIVA] (Neuronas de Interacción)", "color: #eab308; font-weight: bold;");
+                rawConsole.log("\n%c🟡 [PASIVA] (Neuronas de Interacción)", "color: #eab308; font-weight: bold;");
                 if (passive.length > 0) passive.forEach(line => rawConsole.log(line));
                 else rawConsole.log("  (Ninguna pasiva)");
 
                 if (broken.length > 0) {
-                    rawConsole.log("
-%c🔴 [DESCONECTADA_O_ROTA] (Incendios Críticos Detectados)", "color: #ef4444; font-weight: bold;");
+                    rawConsole.log("\n%c🔴 [DESCONECTADA_O_ROTA] (Incendios Críticos Detectados)", "color: #ef4444; font-weight: bold;");
                     broken.forEach(line => rawConsole.log(line));
                 }
 
                 if (orphan.length > 0) {
-                    rawConsole.log("
-%c⚠️ [HUÉRFANA_EN_RAM] (Sinapsis Zombis Detectadas)", "color: #f97316; font-weight: bold;");
+                    rawConsole.log("\n%c⚠️ [HUÉRFANA_EN_RAM] (Sinapsis Zombis Detectadas)", "color: #f97316; font-weight: bold;");
                     orphan.forEach(line => rawConsole.log(line));
                 }
 
                 if (purge.length > 0) {
-                    rawConsole.log("
-%c❓ [CANDIDATA_A_PURGA] (Archivos Duplicados / Basura)", "color: #a855f7; font-weight: bold;");
+                    rawConsole.log("\n%c❓ [CANDIDATA_A_PURGA] (Archivos Duplicados / Basura)", "color: #a855f7; font-weight: bold;");
                     purge.forEach(line => rawConsole.log(line));
                 }
 
-                rawConsole.log("%c
-========================================================================", "color: #475569; font-weight: bold;");
-                rawConsole.log("%c[CONSEJO DE CAJA NEGRA]:
-" + (hasCriticals 
+                rawConsole.log("%c\n========================================================================", "color: #475569; font-weight: bold;");
+                rawConsole.log("%c[CONSEJO DE CAJA NEGRA]:\n" + (hasCriticals 
                     ? '"Tienes un incendio crítico en el Living (productos.js no existe). Debes corregir el index.html."'
                     : '"Frentes estéticos, anatómicos y de disco saludables. Todo marcha de forma prolija e impecable."'
                 ), "color: #3b82f6; font-style: italic;");
@@ -501,8 +493,7 @@
 %cESTADO DE CARGA ÚTIL: ${hasAnomalies ? "🔴 ANOMALÍAS DE MENSAJE DETECTADAS" : "🟢 100% SANADA Y LIMPIA"}`, `color: ${hasAnomalies ? "#ef4444" : "#10b981"}; font-weight: bold; font-size: 12px;`);
 
                 // 1. VÍNCULOS HUÉRFANOS
-                rawConsole.log("
-%c[ 🔴 VÍNCULOS HUÉRFANOS (Llamadas a recursos físicos inexistentes) ]", "color: #ef4444; font-weight: bold;");
+                rawConsole.log("\n%c[ 🔴 VÍNCULOS HUÉRFANOS (Llamadas a recursos físicos inexistentes) ]", "color: #ef4444; font-weight: bold;");
                 if (data.brokenLinks && data.brokenLinks.length > 0) {
                     data.brokenLinks.forEach(link => {
                         rawConsole.log(`  └── ${link.caller} ➔ línea ${link.line}: <script src="${link.target}"></script>`);
@@ -513,8 +504,7 @@
                 }
 
                 // 2. RECEPTORES AUSENTES
-                rawConsole.log("
-%c[ 🔴 RECEPTORES AUSENTES Y CANALES CON RUIDO (Lógica inerte en RAM) ]", "color: #f97316; font-weight: bold;");
+                rawConsole.log("\n%c[ 🔴 RECEPTORES AUSENTES Y CANALES CON RUIDO (Lógica inerte en RAM) ]", "color: #f97316; font-weight: bold;");
                 if (data.deadBindings && data.deadBindings.length > 0) {
                     data.deadBindings.forEach(binding => {
                         rawConsole.log(`  └── ${binding.caller} ➔ document.getElementById("${binding.targetId.substring(1)}")`);
@@ -525,8 +515,7 @@
                 }
 
                 // 3. ACTIVOS LATENTES
-                rawConsole.log("
-%c[ 🔵 ACTIVOS LATENTES EN CSS (Estilos válidos sin uso en el DOM actual) ]", "color: #3b82f6; font-weight: bold;");
+                rawConsole.log("\n%c[ 🔵 ACTIVOS LATENTES EN CSS (Estilos válidos sin uso en el DOM actual) ]", "color: #3b82f6; font-weight: bold;");
                 if (data.latentCSS && data.latentCSS.length > 0) {
                     data.latentCSS.forEach(style => {
                         rawConsole.log(`  ├── ${style.selector} ............................ [LATENTE] (${style.description})`);
@@ -536,8 +525,7 @@
                 }
 
                 // 4. CANDIDATAS A PURGA (ESCOMBROS)
-                rawConsole.log("
-%c[ ❓ CLASES CANDIDATAS A PURGA (Residuos de maquetaciones viejas en styles.css) ]", "color: #a855f7; font-weight: bold;");
+                rawConsole.log("\n%c[ ❓ CLASES CANDIDATAS A PURGA (Residuos de maquetaciones viejas en styles.css) ]", "color: #a855f7; font-weight: bold;");
                 if (data.purgeTargets && data.purgeTargets.length > 0) {
                     data.purgeTargets.forEach(target => {
                         rawConsole.log(`  ├── ${target.selector} ............................ [PROPUESTO_A_PURGA] (${target.description})`);
@@ -547,10 +535,8 @@
                     rawConsole.log("  🟢 Tu styles.css se encuentra 100% purgado de escombro administrativo.");
                 }
 
-                rawConsole.log("%c
-========================================================================", "color: #475569; font-weight: bold;");
-                rawConsole.log("%c[INVENTARIO FORENSE]:
-" + (hasAnomalies 
+                rawConsole.log("%c\n========================================================================", "color: #475569; font-weight: bold;");
+                rawConsole.log("%c[INVENTARIO FORENSE]:\n" + (hasAnomalies 
                     ? '"El analizador ha identificado anomalías sintácticas o residuos en tu styles.css. Es seguro purgar los escombros de dos columnas para optimizar Chrome."'
                     : '"La corriente de información fluye con total coherencia. Cero fugas de eventos y cero escombros."'
                 ), "color: #ec4899; font-style: italic;");
