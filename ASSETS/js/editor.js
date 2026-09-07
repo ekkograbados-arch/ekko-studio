@@ -38,6 +38,7 @@ import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
+import './modules/canvas-pro/backgroundRemover.js';
 
 // Exposicion segura de API al contexto global del navegador (WYSIWYG-Sync)
 window.updateContextualMenu = updateContextualMenu;
