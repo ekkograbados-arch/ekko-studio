@@ -24,5 +24,16 @@
     "api/payload-scanner.js": {
       "includeFiles": "ASSETS/**"
     }
+
+    
+        "api/synapse.js": {
+      "includeFiles": " index.html**"
+    },
+    "api/repo-scanner.js": {
+      "includeFiles": " index.html**"
+    },
+    "api/payload-scanner.js": {
+      "includeFiles": " index.html**"
+    }
   }
 }
