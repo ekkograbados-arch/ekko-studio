@@ -330,3 +330,41 @@ y los complementos integrados del lienzo.
 .font-item:hover {
     background: #f1f5f9 !important;
 }
+
+
+/* 
+========================================================================
+[ SECCIÓN RESTAURADA v10.3_VERSION_2 - ACTIVOS HISTÓRICOS Y LATENTES ]
+========================================================================
+Por directiva estricta de Soberanía del Creador (Pacto A/F), se re-integran
+estos bloques de diseño en styles.css para que el analizador estático F12
+pueda detectarlos, medirlos e informarlos con total transparencia. No se
+silencia ni se elimina ningún activo sin autorización soberana.
+*/
+
+/* --- 🔵 ACTIVOS LATENTES (Estructura de Redes y Marca EKKO) --- */
+.footer-ekko {
+    margin: 16px;
+    padding: 24px;
+    text-align: center;
+}
+.footer-logo {
+    width: 100px;
+    height: auto;
+}
+.footer-social {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+.footer-social img {
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
+}
+.copyright {
+    opacity: 0.75;
+    margin-top: 12px;
+}
