@@ -15,6 +15,18 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
     <!-- Enlace canónico a la hoja de estilos externa -->
     <link rel="stylesheet" href="ASSETS/css/styles.css">
     <link rel="icon" type="image/png" href="/logo.png">
+    <style>
+    /* ⏸️ [DESACTIVADO TEMPORALMENTE] Botones Quitar Fondo */
+    /* PARA REACTIVAR: Eliminar este bloque */
+    #btnCtxRemoveBg.toolbar-btn,
+    #btnCtxEditCutout.toolbar-btn,
+    #panel-editar-recorte {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
+</style>
 </head>
 <body>
     <!-- 1. PANEL IZQUIERDO DE PRODUCTOS -->
