@@ -1,11 +1,10 @@
 // ============================================================
-// RUTA: ASSETS/js/modules/canvas-pro/smartFusion.js
-// VERSIÓN: v10.5 — FILTROS ESTRICTOS + DIAGNÓSTICO EN CONSOLA
-// SOLUCIÓN: Evita llamadas a .getCurves() sobre elementos que NO son Path
+// VERSIÓN: v10.6 — RECONOCE COMPOUNDPath + SIN SOBRECARGA
+// SOLUCIÓN: Las letras son CompoundPath, NO Path simple
 // ============================================================
 
 export const SMART_FUSION = {
-  MAGNETIC_THRESHOLD: 20,
+  MAGNETIC_THRESHOLD: 25, // Un poquito más amplio para facilitar
 
   COLORS: {
     ANCLADO: '#00FFFF',
@@ -19,19 +18,19 @@ export const SMART_FUSION = {
     nearHole: null,
     isAttached: false,
     mouseOffset: null,
-    activeHole: null
+    activeHole: null,
+    lastScanTime: 0
   },
 
   init() {
     this.attachDragListeners();
-    console.log('[SMART FUSION v10.5] ✅ SISTEMA CARGADO — FILTROS ACTIVOS');
+    console.log('[SMART FUSION v10.6] ✅ COMPOUNDPath RECONOCIDO + OPTIMIZADO');
   },
 
   attachDragListeners() {
     const self = this;
 
     paper.tools.forEach(tool => {
-      // AL PRESIONAR CLIC
       if (tool.onMouseDown) {
         const originalDown = tool.onMouseDown.bind(tool);
         tool.onMouseDown = function(e) {
@@ -39,32 +38,33 @@ export const SMART_FUSION = {
             const hit = paper.project.hitTest(e.point);
             if (hit && hit.item) {
               const item = hit.item;
-              // ✅ FILTRO: SOLO imágenes del cliente (Raster)
               if (item.className === 'Raster' || item.data?.isClientImage === true) {
                 self.state.draggedItem = item;
                 self.state.scanning = true;
                 self.state.isAttached = false;
                 self.state.mouseOffset = null;
                 self.scanNearbyHoles(e.point);
-                console.log('🖱️ Imagen detectada y lista para arrastre');
-              } else {
-                console.log('ℹ️ Elemento ignorado (no es imagen del cliente):', item.className);
+                console.log('🖱️ Imagen lista para arrastre');
               }
             }
           } catch (err) {
-            console.error('❌ Error en onMouseDown:', err.message);
+            console.error('❌ onMouseDown:', err.message);
           }
           return originalDown(e);
         };
       }
 
-      // DURANTE ARRASTRE
       if (tool.onMouseDrag) {
         tool.onMouseDrag = function(e) {
           try {
             if (!self.state.scanning || !self.state.draggedItem) return;
 
-            self.scanNearbyHoles(e.point);
+            // ✅ LIMITAR ESCANEO: 1 vez cada 20ms → NO 144x por cada píxel
+            const ahora = Date.now();
+            if (ahora - self.state.lastScanTime > 20) {
+              self.state.lastScanTime = ahora;
+              self.scanNearbyHoles(e.point);
+            }
 
             if (self.state.nearHole) {
               const hueco = self.state.nearHole;
@@ -76,25 +76,24 @@ export const SMART_FUSION = {
                 self.state.mouseOffset = e.point.subtract(centroHueco);
                 self.aplicarBrillo(hueco, self.COLORS.ANCLADO);
                 self.state.draggedItem.opacity = 0.75;
-                console.log('🧲 ANCLADO a hueco válido ✨');
+                console.log('🧲 ANCLADO → CIAN ✨');
               }
               self.state.draggedItem.position = centroHueco.subtract(self.state.mouseOffset);
               return;
             } else {
               if (self.state.isAttached) {
-                console.log('🔓 Desanclado — vuelve a libre');
+                console.log('🔓 DESANCLADO → libre');
                 self.restaurarBrillo(self.state.activeHole);
                 if (self.state.draggedItem) self.state.draggedItem.opacity = 1.0;
                 self.resetState();
               }
             }
           } catch (err) {
-            console.error('❌ Error en arrastre:', err.message);
+            console.error('❌ onMouseDrag:', err.message);
           }
         };
       }
 
-      // AL SOLTAR → FUSIÓN
       if (tool.onMouseUp) {
         const originalUp = tool.onMouseUp.bind(tool);
         tool.onMouseUp = function(e) {
@@ -103,9 +102,8 @@ export const SMART_FUSION = {
               const foto = self.state.draggedItem;
               const hueco = self.state.activeHole;
 
-              // ✅ VERIFICACIÓN DE SEGURIDAD ANTES DE FUSIONAR
-              if (!self.esPathValido(hueco)) {
-                console.error('🚫 Hueco NO válido como Path — fusión cancelada');
+              if (!self.esFormaValida(hueco)) {
+                console.error('🚫 Forma no válida → cancelado');
                 self.restaurarBrillo(hueco);
                 self.resetState();
                 return originalUp(e);
@@ -113,12 +111,12 @@ export const SMART_FUSION = {
 
               self.fusionarSinModificarOriginal(foto, hueco);
               self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
-              console.log('✅ FUSIÓN EXITOSA 💜 — SVG DEL PRODUCTO INTACTO');
+              console.log('✅ FUSIÓN 💜 — LETRA INTACTA');
             } else {
               if (self.state.draggedItem) self.state.draggedItem.opacity = 1.0;
             }
           } catch (err) {
-            console.error('❌ Error en fusión:', err.message);
+            console.error('❌ FUSIÓN ERROR:', err.message);
           }
 
           self.resetState();
@@ -128,47 +126,34 @@ export const SMART_FUSION = {
     });
   },
 
-  // ✅ VERIFICACIÓN CRÍTICA: ¿Es un Path real con curvas?
-  esPathValido(item) {
+  // ✅ AHORA ACEPTA Path Y CompoundPath → TUS LETRAS
+  esFormaValida(item) {
     if (!item) return false;
-    if (item.className !== 'Path') return false;
-    if (typeof item.getCurves !== 'function') return false;
+    const tipo = item.className;
+    if (tipo !== 'Path' && tipo !== 'CompoundPath') return false;
     if (!item.bounds || item.bounds.isEmpty) return false;
     return true;
   },
 
-  // FUSIÓN SEGURA
   fusionarSinModificarOriginal(foto, huecoOriginal) {
-    // ✅ Solo proceder si el hueco es un Path válido
-    if (!this.esPathValido(huecoOriginal)) {
-      throw new Error('El hueco no es un Path válido');
-    }
-
-    // Clonar SOLO la forma, sin referencias cruzadas
+    // Clonar SOLO la forma para máscara → original INTACTO
     const mascara = huecoOriginal.clone();
     mascara.position = huecoOriginal.position;
-    mascara.data = {};
-    mascara.data.isMaskCopy = true;
+    mascara.data = { isMaskCopy: true };
 
-    // Ajustar foto
     foto.bounds = huecoOriginal.bounds.clone();
     foto.opacity = 1.0;
     foto.data.isClientImage = true;
 
-    // Crear grupo
     const grupo = new paper.Group([mascara, foto]);
     grupo.clipped = true;
     grupo.data = { isFusionResult: true };
-
-    // Colocar detrás del original
     grupo.insertBelow(huecoOriginal);
-
-    console.log('📦 Grupo fusionado creado sin afectar el original');
   },
 
   aplicarBrillo(item, color) {
     if (!item || !item.bounds) return;
-    if (!this.esPathValido(item)) return;
+    if (!this.esFormaValida(item)) return;
 
     if (!item.data._strokeOrig) {
       item.data._strokeOrig = item.strokeColor ? item.strokeColor.toCSS() : null;
@@ -190,32 +175,23 @@ export const SMART_FUSION = {
     delete item.data._widthOrig;
   },
 
-  // 🔍 ESCANEAR HUECOS CON FILTRO ESTRICTO
   scanNearbyHoles(mousePoint) {
     const todos = this.descomponerGrupos(paper.project.activeLayer.children);
     let nearestHole = null;
     let nearestDistance = Infinity;
 
-    console.log(`🔍 Escaneando ${todos.length} elementos...`);
-
     for (const item of todos) {
-      // ✅ FILTRO 1: ¿Tiene límites válidos?
       if (!item.bounds || item.bounds.isEmpty) continue;
 
-      // ✅ FILTRO 2: ¿Es un hueco/calado?
+      // Ignorar grupos, máscaras y resultados fusionados
+      if (item.className === 'Group') continue;
+      if (item.data?.isMaskCopy || item.data?.isFusionResult) continue;
+
+      // ✅ AHORA DETECTA CompoundPath = TUS LETRAS
       if (!this.esCalado(item)) continue;
 
-      // ✅ FILTRO 3: Ignorar máscaras clonadas y grupos
-      if (item.data?.isMaskCopy || item.data?.isFusionResult) continue;
-      if (item.className === 'Group') continue;
+      if (!this.esFormaValida(item)) continue;
 
-      // ✅ FILTRO 4: ¿Es un Path real con curvas? ← ESTO SOLUCIONA EL ERROR
-      if (!this.esPathValido(item)) {
-        console.log('⚠️ Elemento NO es Path válido → ignorado:', item.className);
-        continue;
-      }
-
-      // ✅ Si llega acá → es un hueco REAL del producto
       const distance = this.distanceToBounds(mousePoint, item.bounds);
       if (distance < this.MAGNETIC_THRESHOLD && distance < nearestDistance) {
         nearestDistance = distance;
@@ -224,20 +200,14 @@ export const SMART_FUSION = {
     }
 
     this.state.nearHole = nearestHole;
-    if (nearestHole) {
-      console.log(`🎯 Hueco válido encontrado a ${Math.round(nearestDistance)}px`);
-    }
   },
 
   descomponerGrupos(elementos) {
     const resultado = [];
     const recorrer = (lista) => {
       for (const el of lista) {
-        if (el.children && el.children.length > 0) {
-          recorrer(el.children);
-        } else {
-          resultado.push(el);
-        }
+        if (el.children && el.children.length > 0) recorrer(el.children);
+        else resultado.push(el);
       }
     };
     recorrer(elementos);
@@ -246,7 +216,8 @@ export const SMART_FUSION = {
 
   esCalado(item) {
     if (item.data?.isHole === true) return true;
-    if (item.className === 'Path') {
+    const tipo = item.className;
+    if (tipo === 'Path' || tipo === 'CompoundPath') {
       if (!item.fillColor || item.fillColor.alpha === 0) return true;
     }
     if (item.clipMask === true || item.blendMode === 'subtract') return true;
