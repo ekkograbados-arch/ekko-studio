@@ -255,6 +255,8 @@
 
     })();
 
-    EKKO.BackgroundRemover.inicializar();
+  // EKKO.BackgroundRemover.inicializar();
+// ⏸️ [DESACTIVADO TEMPORALMENTE] — Quitar fondo con IA
+// PARA REACTIVAR: Quitar las dos barras "//" de arriba
 
 })(window.EKKO = window.EKKO || {});
