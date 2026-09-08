@@ -1,31 +1,34 @@
 // ============================================================
 // RUTA: ASSETS/js/modules/canvas-pro/smartFusion.js
 // ACCIÓN: REEMPLAZAR todo el contenido por este
-// VERSIÓN: v10.3 — ETAPA 2: ADHERENCIA MAGNÉTICA
-// COMPORTAMIENTO: Al acercar → se pega y centra sola
+// VERSIÓN: v10.3 — ETAPA 3: FUSIÓN REAL + COLORES DE ESTADO
+// COLORES: CIAN = ANCLADO | FUCSIA = FUSIONADO | AZUL = DESANCLADO
 // ============================================================
 
 export const SMART_FUSION = {
-  // Umbral de influencia magnética en píxeles
   MAGNETIC_THRESHOLD: 20,
 
-  // Estado del sistema
+  // 🎨 PALETA DE COLORES DE ESTADO
+  COLORS: {
+    ANCLADO: '#00FFFF',    // ✨ Cian neón — pendiente
+    FUSIONADO: '#FF00FF',  // 💜 Fucsia neón — confirmado
+    LIBRE: '#4488FF'       // 💙 Azul suave — desanclando
+  },
+
   state: {
     scanning: false,
     draggedItem: null,
     nearHole: null,
     isAttached: false,
-    originalOffset: null,
-    mouseOffset: null
+    mouseOffset: null,
+    activeHole: null
   },
 
-  // Inicializar escuchadores
   init() {
     this.attachDragListeners();
-    console.log('[SMART FUSION v10.3] ✅ ANCLAJE + ADHERENCIA ACTIVA');
+    console.log('[SMART FUSION v10.3] ✅ FUSIÓN + COLORES DE ESTADO ACTIVOS');
   },
 
-  // Conectar al evento de arrastre del lienzo
   attachDragListeners() {
     const self = this;
 
@@ -39,57 +42,74 @@ export const SMART_FUSION = {
             self.state.draggedItem = hit.item;
             self.state.scanning = true;
             self.state.isAttached = false;
-            self.state.originalOffset = null;
+            self.state.mouseOffset = null;
             self.scanNearbyHoles(e.point);
           }
           return originalDown(e);
         };
       }
 
-      // Durante el arrastre → ¡AQUÍ OCURRE EL IMÁN!
+      // Durante arrastre → ANCLAJE + BRILLO CIAN
       if (tool.onMouseDrag) {
         tool.onMouseDrag = function(e) {
           if (self.state.scanning && self.state.draggedItem) {
             self.scanNearbyHoles(e.point);
 
             if (self.state.nearHole) {
-              // ✅ HAY HUECO CERCANO → ACTIVAR ANCLAJE
               const hueco = self.state.nearHole;
               const centroHueco = hueco.bounds.center;
 
-              // Guardar desplazamiento inicial SOLO UNA VEZ al adherir
               if (!self.state.isAttached) {
                 self.state.isAttached = true;
-                // Distancia entre el ratón y el centro del hueco en el momento de adherir
+                self.state.activeHole = hueco;
                 self.state.mouseOffset = e.point.subtract(centroHueco);
-                console.log(`🧲 ANCLADO a: "${hueco.name || 'letra'}" → SE CENTRA`);
+
+                // ✨ BRILLO CIAN NEÓN — PENDIENTE DE FUSIÓN
+                self.aplicarBrillo(hueco, self.COLORS.ANCLADO);
+                // 🪟 IMAGEN TRANSLÚCIDA MIENTRAS AJUSTA
+                self.state.draggedItem.opacity = 0.75;
+
+                console.log(`🧲 ANCLADO → BRILLO CIAN ✨ — listo para fusionar`);
               }
 
-              // ✅ MANTENER LA IMAGEN FIJA EN EL CENTRO DEL HUECO
+              // MANTENER CENTRADO
               self.state.draggedItem.position = centroHueco.subtract(self.state.mouseOffset);
-
-              // ⛔ NO dejes que el arrastre normal mueva la foto
               return;
             }
             else {
-              // ✅ SE ALEJÓ → DESANCLAR SUAVEMENTE
+              // SE ALEJÓ → DESANCLAR CON BRILLO AZUL
               if (self.state.isAttached) {
-                console.log(`🧲 DESANCLADO → vuelve a arrastre libre`);
-                self.state.isAttached = false;
-                self.state.mouseOffset = null;
+                console.log(`🔓 DESANCLADO → BRILLO AZUL 💙 — libre`);
+                self.restaurarBrillo(self.state.activeHole, self.COLORS.LIBRE);
+                self.state.draggedItem.opacity = 1.0;
+                self.resetState();
               }
             }
           }
         };
       }
 
-      // Al soltar → desactivar todo
+      // AL SOLTAR → FUSIÓN REAL + BRILLO FUCSIA
       if (tool.onMouseUp) {
         const originalUp = tool.onMouseUp.bind(tool);
         tool.onMouseUp = function(e) {
-          if (self.state.isAttached && self.state.nearHole) {
-            console.log(`✅ FUSIÓN PENDIENTE → Foto encajada en: "${self.state.nearHole.name || 'letra'}"`);
+          if (self.state.isAttached && self.state.activeHole) {
+            const foto = self.state.draggedItem;
+            const hueco = self.state.activeHole;
+
+            // ✅ APLICAR MÁSCARA → FUSIÓN REAL
+            self.fusionar(foto, hueco);
+
+            // 💜 BRILLO FUCSIA NEÓN → FUSIÓN CONFIRMADA
+            self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
+
+            console.log(`✅ FUSIÓN CONFIRMADA → BRILLO FUCSIA 💜 — foto recortada dentro de la letra`);
           }
+          else {
+            // Restaurar si se soltó libre
+            if (self.state.draggedItem) self.state.draggedItem.opacity = 1.0;
+          }
+
           self.resetState();
           return originalUp(e);
         };
@@ -97,7 +117,66 @@ export const SMART_FUSION = {
     });
   },
 
-  // Buscar huecos/calados cercanos al punto del ratón
+  // 🔗 FUSIÓN REAL — Aplica máscara y agrupa
+  fusionar(foto, hueco) {
+    // Ocultar brillo de contorno
+    this.limpiarBrillo(hueco);
+
+    // Alinear foto al tamaño exacto del hueco
+    foto.bounds = hueco.bounds.clone();
+
+    // Crear grupo con máscara: hueco encima, foto debajo
+    const grupo = new paper.Group([hueco, foto]);
+    grupo.clipped = true; // ✅ EL HUECO RECORTA LA FOTO
+    grupo.data = grupo.data || {};
+    grupo.data.isFusion = true; // Marcar como fusionado
+    grupo.data.maskSource = hueco;
+    grupo.data.photoSource = foto;
+
+    // Restaurar opacidad
+    foto.opacity = 1.0;
+
+    // Guardar referencia para "Quitar Fusión"
+    hueco.data.fusionGroup = grupo;
+    foto.data.fusionGroup = grupo;
+  },
+
+  // ✨ Aplicar brillo de contorno
+  aplicarBrillo(item, color) {
+    this.limpiarBrillo(item);
+    item.data.strokeBackup = item.strokeColor;
+    item.data.strokeWidthBackup = item.strokeWidth;
+    item.data.opacityBackup = item.opacity;
+
+    item.strokeColor = new paper.Color(color);
+    item.strokeWidth = 4;
+    item.opacity = 0.95;
+  },
+
+  // 💙 Transición al desanclar
+  restaurarBrillo(item, color) {
+    if (!item) return;
+    item.strokeColor = new paper.Color(color);
+    item.strokeWidth = 2;
+    // Se desvanece en 500ms
+    paper.view.onFrame = () => {
+      if (item.strokeWidth > 0.1) {
+        item.strokeWidth *= 0.92;
+      } else {
+        this.limpiarBrillo(item);
+        paper.view.onFrame = null;
+      }
+    };
+  },
+
+  // 🧹 Quitar todo brillo
+  limpiarBrillo(item) {
+    if (!item || !item.data) return;
+    if (item.data.strokeBackup !== undefined) item.strokeColor = item.data.strokeBackup;
+    if (item.data.strokeWidthBackup !== undefined) item.strokeWidth = item.data.strokeWidthBackup;
+    if (item.data.opacityBackup !== undefined) item.opacity = item.data.opacityBackup;
+  },
+
   scanNearbyHoles(mousePoint) {
     const todos = this.descomponerGrupos(paper.project.activeLayer.children);
     let nearestHole = null;
@@ -113,11 +192,9 @@ export const SMART_FUSION = {
         nearestHole = item;
       }
     }
-
     this.state.nearHole = nearestHole;
   },
 
-  // Descomponer grupos
   descomponerGrupos(elementos) {
     const resultado = [];
     const recorrer = (lista) => {
@@ -130,7 +207,6 @@ export const SMART_FUSION = {
     return resultado;
   },
 
-  // Reconocer calado
   esCalado(item) {
     if (item.data?.isHole === true) return true;
     if (item.className === 'Path' && (!item.fillColor || item.fillColor.alpha === 0)) return true;
@@ -138,24 +214,22 @@ export const SMART_FUSION = {
     return false;
   },
 
-  // Distancia al borde
   distanceToBounds(point, bounds) {
     const dx = Math.max(bounds.left - point.x, point.x - bounds.right, 0);
     const dy = Math.max(bounds.top - point.y, point.y - bounds.bottom, 0);
     return Math.sqrt(dx * dx + dy * dy);
   },
 
-  // Restablecer estado
   resetState() {
     this.state.scanning = false;
     this.state.draggedItem = null;
     this.state.nearHole = null;
     this.state.isAttached = false;
+    this.state.activeHole = null;
     this.state.mouseOffset = null;
   }
 };
 
-// ✅ Exportación requerida
 export function initSmartFusionListeners() {
   SMART_FUSION.init();
 }
