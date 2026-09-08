@@ -1,10 +1,10 @@
 // ============================================================
 // RUTA: ASSETS/js/modules/canvas-pro/smartFusion.js
-// ACCIÓN: REEMPLAZAR todo el contenido actual por este
-// VERSIÓN: v10.3 — ANCLAJE MAGNÉTICO — ETAPA 1
+// ACCIÓN: REEMPLAZAR todo el contenido por este
+// VERSIÓN: v10.3 — ANCLAJE MAGNÉTICO — ETAPA 1 (CORREGIDA)
 // ============================================================
 
-const SMART_FUSION = {
+export const SMART_FUSION = {
   // Umbral de influencia magnética en píxeles
   MAGNETIC_THRESHOLD: 20,
 
@@ -32,7 +32,7 @@ const SMART_FUSION = {
         const originalDown = tool.onMouseDown.bind(tool);
         tool.onMouseDown = function(e) {
           const hit = paper.project.hitTest(e.point);
-          if (hit && hit.item && hit.item instanceof paper.Raster) {
+          if (hit && hit.item && hit.item.className === 'Raster') {
             self.state.draggedItem = hit.item;
             self.state.scanning = true;
             self.scanNearbyHoles(e.point);
@@ -102,6 +102,11 @@ const SMART_FUSION = {
   }
 };
 
-// Auto-inicializar al cargar
+// ✅ EXPORTACIÓN QUE ESPERA editor.js
+export function initSmartFusionListeners() {
+  SMART_FUSION.init();
+}
+
+// Exponer globalmente por compatibilidad
 window.SMART_FUSION = SMART_FUSION;
-paper.project && SMART_FUSION.init();
+window.initSmartFusionListeners = initSmartFusionListeners;
