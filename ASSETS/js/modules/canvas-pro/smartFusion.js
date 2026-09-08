@@ -1,7 +1,8 @@
 // ============================================================
 // RUTA: ASSETS/js/modules/canvas-pro/smartFusion.js
 // ACCIÓN: REEMPLAZAR todo el contenido por este
-// VERSIÓN: v10.3 — ANCLAJE MAGNÉTICO — BUSCA DENTRO DE GRUPOS
+// VERSIÓN: v10.3 — ETAPA 2: ADHERENCIA MAGNÉTICA
+// COMPORTAMIENTO: Al acercar → se pega y centra sola
 // ============================================================
 
 export const SMART_FUSION = {
@@ -13,21 +14,23 @@ export const SMART_FUSION = {
     scanning: false,
     draggedItem: null,
     nearHole: null,
-    originalPosition: null
+    isAttached: false,
+    originalOffset: null,
+    mouseOffset: null
   },
 
   // Inicializar escuchadores
   init() {
     this.attachDragListeners();
-    console.log('[SMART FUSION v10.3] Anclaje magnético inicializado ✅');
+    console.log('[SMART FUSION v10.3] ✅ ANCLAJE + ADHERENCIA ACTIVA');
   },
 
   // Conectar al evento de arrastre del lienzo
   attachDragListeners() {
     const self = this;
 
-    // Al iniciar arrastre → guardar referencia y activar escáner
     paper.tools.forEach(tool => {
+      // Al iniciar arrastre
       if (tool.onMouseDown) {
         const originalDown = tool.onMouseDown.bind(tool);
         tool.onMouseDown = function(e) {
@@ -35,27 +38,58 @@ export const SMART_FUSION = {
           if (hit && hit.item && hit.item.className === 'Raster') {
             self.state.draggedItem = hit.item;
             self.state.scanning = true;
+            self.state.isAttached = false;
+            self.state.originalOffset = null;
             self.scanNearbyHoles(e.point);
           }
           return originalDown(e);
         };
       }
 
-      // Durante el arrastre → escanear en tiempo real
+      // Durante el arrastre → ¡AQUÍ OCURRE EL IMÁN!
       if (tool.onMouseDrag) {
-        const originalDrag = tool.onMouseDrag.bind(tool);
         tool.onMouseDrag = function(e) {
           if (self.state.scanning && self.state.draggedItem) {
             self.scanNearbyHoles(e.point);
+
+            if (self.state.nearHole) {
+              // ✅ HAY HUECO CERCANO → ACTIVAR ANCLAJE
+              const hueco = self.state.nearHole;
+              const centroHueco = hueco.bounds.center;
+
+              // Guardar desplazamiento inicial SOLO UNA VEZ al adherir
+              if (!self.state.isAttached) {
+                self.state.isAttached = true;
+                // Distancia entre el ratón y el centro del hueco en el momento de adherir
+                self.state.mouseOffset = e.point.subtract(centroHueco);
+                console.log(`🧲 ANCLADO a: "${hueco.name || 'letra'}" → SE CENTRA`);
+              }
+
+              // ✅ MANTENER LA IMAGEN FIJA EN EL CENTRO DEL HUECO
+              self.state.draggedItem.position = centroHueco.subtract(self.state.mouseOffset);
+
+              // ⛔ NO dejes que el arrastre normal mueva la foto
+              return;
+            }
+            else {
+              // ✅ SE ALEJÓ → DESANCLAR SUAVEMENTE
+              if (self.state.isAttached) {
+                console.log(`🧲 DESANCLADO → vuelve a arrastre libre`);
+                self.state.isAttached = false;
+                self.state.mouseOffset = null;
+              }
+            }
           }
-          return originalDrag(e);
         };
       }
 
-      // Al soltar → desactivar escáner
+      // Al soltar → desactivar todo
       if (tool.onMouseUp) {
         const originalUp = tool.onMouseUp.bind(tool);
         tool.onMouseUp = function(e) {
+          if (self.state.isAttached && self.state.nearHole) {
+            console.log(`✅ FUSIÓN PENDIENTE → Foto encajada en: "${self.state.nearHole.name || 'letra'}"`);
+          }
           self.resetState();
           return originalUp(e);
         };
@@ -65,19 +99,13 @@ export const SMART_FUSION = {
 
   // Buscar huecos/calados cercanos al punto del ratón
   scanNearbyHoles(mousePoint) {
-    const allItems = paper.project.activeLayer.children;
+    const todos = this.descomponerGrupos(paper.project.activeLayer.children);
     let nearestHole = null;
     let nearestDistance = Infinity;
 
-    // Recorrer TODO incluyendo lo que está DENTRO DE GRUPOS
-    const todosLosElementos = this.descomponerGrupos(allItems);
-
-    for (const item of todosLosElementos) {
+    for (const item of todos) {
       if (!item.bounds) continue;
-
-      // ✅ RECONOCER CALADO: por marca isHole O por nombre/tipo
-      const esCalado = this.esCalado(item);
-      if (!esCalado) continue;
+      if (!this.esCalado(item)) continue;
 
       const distance = this.distanceToBounds(mousePoint, item.bounds);
       if (distance < this.MAGNETIC_THRESHOLD && distance < nearestDistance) {
@@ -86,47 +114,31 @@ export const SMART_FUSION = {
       }
     }
 
-    // Actualizar estado
     this.state.nearHole = nearestHole;
-    if (nearestHole) {
-      console.log(`🧲 ANCLAJE DETECTADO: a ${Math.round(nearestDistance)}px de "${nearestHole.name || 'letra/calado'}"`);
-    }
   },
 
-  // 🧩 DESCOMPONER GRUPOS: saca todos los elementos internos
+  // Descomponer grupos
   descomponerGrupos(elementos) {
     const resultado = [];
     const recorrer = (lista) => {
       for (const el of lista) {
-        if (el.children && el.children.length > 0) {
-          recorrer(el.children);
-        } else {
-          resultado.push(el);
-        }
+        if (el.children && el.children.length > 0) recorrer(el.children);
+        else resultado.push(el);
       }
     };
     recorrer(elementos);
     return resultado;
   },
 
-  // 🔍 RECONOCER SI ES UN CALADO
+  // Reconocer calado
   esCalado(item) {
-    // 1. Si tiene la marca explícita
     if (item.data?.isHole === true) return true;
-    
-    // 2. Si es un trazado con relleno nulo o hueco
     if (item.className === 'Path' && (!item.fillColor || item.fillColor.alpha === 0)) return true;
-    
-    // 3. Si tiene nombre de letra o calado (A, F, letra-A, etc.)
-    if (item.name && /^[AF]$|letra|calado|hueco/i.test(item.name)) return true;
-
-    // 4. Si es Path y tiene operación de sustracción
     if (item.clipMask === true || item.blendMode === 'subtract') return true;
-
     return false;
   },
 
-  // Calcular distancia desde punto al borde del objeto
+  // Distancia al borde
   distanceToBounds(point, bounds) {
     const dx = Math.max(bounds.left - point.x, point.x - bounds.right, 0);
     const dy = Math.max(bounds.top - point.y, point.y - bounds.bottom, 0);
@@ -138,14 +150,15 @@ export const SMART_FUSION = {
     this.state.scanning = false;
     this.state.draggedItem = null;
     this.state.nearHole = null;
+    this.state.isAttached = false;
+    this.state.mouseOffset = null;
   }
 };
 
-// ✅ EXPORTACIÓN QUE ESPERA editor.js
+// ✅ Exportación requerida
 export function initSmartFusionListeners() {
   SMART_FUSION.init();
 }
 
-// Exponer globalmente por compatibilidad
 window.SMART_FUSION = SMART_FUSION;
 window.initSmartFusionListeners = initSmartFusionListeners;
