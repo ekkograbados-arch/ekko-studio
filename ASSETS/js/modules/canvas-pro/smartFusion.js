@@ -1,53 +1,32 @@
 // ============================================================
-// VERSIÓN: v10.1 — POSICIÓN REAL SUMANDO GRUPO PADRE
+// VERSIÓN: v10.DIAG — COMANDO DE INSPECCIÓN EN TIEMPO REAL
 // ============================================================
 
 export const SMART_FUSION = {
   MAGNETIC_THRESHOLD: 40,
-
-  COLORS: {
-    ANCLADO: '#00FFFF',
-    FUSIONADO: '#FF00FF',
-    LIBRE: '#4488FF'
-  },
-
-  state: {
-    draggingItem: null,
-    activeHole: null,
-    isSnapped: false,
-    mouseOffset: null,
-    lastScanTime: 0
-  },
+  state: { draggingItem: null, lastLogTime: 0 },
 
   init() {
     this.enhanceDragBehavior();
-    console.log('[SMART FUSION v10.1] ✅ POSICIÓN REAL DESDE GRUPO PADRE');
-  },
-
-  // 🔑 OBTENER POSICIÓN ABSOLUTA EN EL LIENZO
-  obtenerPosicionReal(item) {
-    let x = 0, y = 0;
-    let actual = item;
-    while (actual) {
-      try {
-        const pos = actual.position;
-        if (pos && !isNaN(pos.x) && !isNaN(pos.y)) {
-          x += pos.x;
-          y += pos.y;
-        }
-        actual = actual.parent;
-      } catch { break; }
-    }
-    return new paper.Point(x, y);
+    console.log('✅ SMART_FUSION CARGADO — COMANDO DISPONIBLE:');
+    console.log('   EKKO_DIAG.INSPECT()          → Estado completo de la imagen');
+    console.log('   EKKO_DIAG.POSICION()         → Solo coordenadas');
+    console.log('   EKKO_DIAG.REINICIAR()        → Liberar imagen');
   },
 
   enhanceDragBehavior() {
     const self = this;
 
+    // EXPOSER COMANDOS EN CONSOLA
+    window.EKKO_DIAG = {
+      INSPECT: () => self.inspeccionCompleta(),
+      POSICION: () => self.mostrarPosicion(),
+      REINICIAR: () => { self.state.draggingItem = null; console.log('✅ Imagen liberada'); }
+    };
+
     paper.tools.forEach(tool => {
       const originalOnMouseDown = tool.onMouseDown;
       const originalOnMouseDrag = tool.onMouseDrag;
-      const originalOnMouseUp = tool.onMouseUp;
 
       tool.onMouseDown = function(e) {
         if (originalOnMouseDown) originalOnMouseDown.call(this, e);
@@ -57,147 +36,65 @@ export const SMART_FUSION = {
             const item = hit.item;
             if (item.className === 'Raster' || item.data?.isClientImage === true) {
               self.state.draggingItem = item;
-              console.log('🖱️ IMAGEN SELECCIONADA');
+              console.log('\n🖱️ IMAGEN SELECCIONADA — Comando: EKKO_DIAG.INSPECT()');
             }
           }
         }, 0);
       };
 
+      // 🔴 EN TIEMPO REAL: LO QUE LE SUCEDE AL ARRASTRAR
       tool.onMouseDrag = function(e) {
         if (originalOnMouseDrag) originalOnMouseDrag.call(this, e);
         if (!self.state.draggingItem) return;
 
         const ahora = Date.now();
-        if (ahora - self.state.lastScanTime < 30) return;
-        self.state.lastScanTime = ahora;
+        if (ahora - self.state.lastLogTime < 150) return;
+        self.state.lastLogTime = ahora;
 
-        const huecoCercano = self.encontrarHuecoMasCercano(e.point);
-
-        if (huecoCercano) {
-          const centroReal = self.obtenerPosicionReal(huecoCercano);
-
-          if (!self.state.isSnapped || self.state.activeHole !== huecoCercano) {
-            self.state.isSnapped = true;
-            self.state.activeHole = huecoCercano;
-            self.state.mouseOffset = e.point.subtract(centroReal);
-            self.aplicarBrillo(huecoCercano, self.COLORS.ANCLADO);
-            self.state.draggingItem.opacity = 0.75;
-            console.log('🧲 IMÁN →', huecoCercano.className, 'en', Math.round(centroReal.x) + ',' + Math.round(centroReal.y));
-          }
-
-          self.state.draggingItem.position = centroReal.subtract(self.state.mouseOffset);
-        }
-        else if (self.state.isSnapped) {
-          console.log('🔓 Liberado');
-          self.restaurarBrillo(self.state.activeHole);
-          if (self.state.draggingItem) self.state.draggingItem.opacity = 1.0;
-          self.resetState();
-        }
-      };
-
-      tool.onMouseUp = function(e) {
-        if (originalOnMouseUp) originalOnMouseUp.call(this, e);
-
-        if (self.state.isSnapped && self.state.activeHole && self.state.draggingItem) {
-          const foto = self.state.draggingItem;
-          const hueco = self.state.activeHole;
-          const centroReal = self.obtenerPosicionReal(hueco);
-
-          self.fusionarEnPosicion(foto, hueco, centroReal);
-          self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
-          console.log('✅ FUSIÓN 💜 en posición', Math.round(centroReal.x) + ',' + Math.round(centroReal.y));
-        }
-
-        if (self.state.draggingItem) self.state.draggingItem.opacity = 1.0;
-        self.resetState();
+        const img = self.state.draggingItem;
+        console.log('🔵 ARRASTRE → Ratón:', Math.round(e.point.x)+','+Math.round(e.point.y), 
+                    '| Imagen:', Math.round(img.position.x)+','+Math.round(img.position.y),
+                    '| Diferencia:', Math.round(e.point.x-img.position.x)+','+Math.round(e.point.y-img.position.y));
       };
     });
   },
 
-  encontrarHuecoMasCercano(punto) {
-    const todos = this.descomponerGrupos(paper.project.activeLayer.children);
-    let masCercano = null;
-    let menorDist = Infinity;
+  inspeccionCompleta() {
+    const img = this.state.draggingItem;
+    if (!img) return console.log('❌ Ninguna imagen seleccionada — haz clic primero en la imagen');
 
-    for (const item of todos) {
-      if (item.className === 'Group') continue;
-      if (item.data?.isMaskCopy || item.data?.isFusionResult) continue;
-      if (!this.esCalado(item)) continue;
+    console.log('\n🔍 =================================================');
+    console.log('🔍 INSPECCIÓN COMPLETA DE LA IMAGEN');
+    console.log('🔍 =================================================');
+    console.log('📦 Tipo:', img.className);
+    console.log('📍 Posición absoluta:', Math.round(img.position.x) + ', ' + Math.round(img.position.y));
+    console.log('📏 Tamaño / Bounds:', img.bounds ? 
+      `${Math.round(img.bounds.width)}x${Math.round(img.bounds.height)} @ ${Math.round(img.bounds.x)},${Math.round(img.bounds.y)}` 
+      : 'SIN BOUNDS');
+    console.log('🔗 Opacidad:', img.opacity);
+    console.log('🔄 Rotación:', Math.round(img.rotation || 0) + '°');
+    console.log('📊 Escala:', img.scaling ? `${Math.round(img.scaling.x*100)}%` : '100%');
+    console.log('👶 Padre directo:', img.parent ? img.parent.className : 'Ninguno (raíz)');
+    console.log('🏠 Camino completo:', this.obtenerCamino(img));
+    console.log('🔒 Bloqueada:', img.locked ? 'SÍ' : 'NO');
+    console.log('👁️ Visible:', img.visible ? 'SÍ' : 'NO');
+    console.log('🔍 =================================================\n');
+  },
 
-      const centroReal = this.obtenerPosicionReal(item);
-      const dist = Math.sqrt(Math.pow(punto.x - centroReal.x, 2) + Math.pow(punto.y - centroReal.y, 2));
+  mostrarPosicion() {
+    const img = this.state.draggingItem;
+    if (!img) return console.log('❌ Ninguna imagen seleccionada');
+    console.log('📍 Imagen:', Math.round(img.position.x)+','+Math.round(img.position.y));
+  },
 
-      if (dist < this.MAGNETIC_THRESHOLD && dist < menorDist) {
-        menorDist = dist;
-        masCercano = item;
-      }
+  obtenerCamino(item) {
+    const camino = [];
+    let actual = item;
+    while (actual) {
+      camino.unshift(actual.className + (actual.name ? `("${actual.name}")` : ''));
+      actual = actual.parent;
     }
-    return masCercano;
-  },
-
-  esCalado(item) {
-    if (item.data?.isHole === true) return true;
-    const tipo = item.className;
-    if (tipo === 'Path' || tipo === 'CompoundPath' || tipo === 'Shape') {
-      if (!item.fillColor || item.fillColor.alpha === 0) return true;
-    }
-    if (item.clipMask === true) return true;
-    if (item.blendMode === 'subtract') return true;
-    return false;
-  },
-
-  fusionarEnPosicion(foto, huecoOriginal, centroReal) {
-    const mascara = huecoOriginal.clone();
-    mascara.position = centroReal;
-    mascara.data = { isMaskCopy: true };
-
-    if (huecoOriginal.bounds && !huecoOriginal.bounds.isEmpty) {
-      foto.bounds = huecoOriginal.bounds.clone();
-    } else {
-      foto.position = centroReal;
-    }
-    foto.opacity = 1.0;
-    foto.data.isClientImage = true;
-
-    const grupo = new paper.Group([mascara, foto]);
-    grupo.clipped = true;
-    grupo.data = { isFusionResult: true };
-    grupo.insertBelow(huecoOriginal);
-  },
-
-  aplicarBrillo(item, color) {
-    if (!item.data._strokeOrig) {
-      item.data._strokeOrig = item.strokeColor ? item.strokeColor.toCSS() : null;
-      item.data._widthOrig = item.strokeWidth || 0;
-    }
-    item.strokeColor = new paper.Color(color);
-    item.strokeWidth = 4;
-  },
-
-  restaurarBrillo(item) {
-    if (!item.data) return;
-    item.strokeColor = item.data._strokeOrig ? new paper.Color(item.data._strokeOrig) : null;
-    item.strokeWidth = item.data._widthOrig || 0;
-    delete item.data._strokeOrig;
-    delete item.data._widthOrig;
-  },
-
-  descomponerGrupos(elementos) {
-    const resultado = [];
-    const recorrer = (lista) => {
-      for (const el of lista) {
-        if (el.children && el.children.length > 0) recorrer(el.children);
-        else resultado.push(el);
-      }
-    };
-    recorrer(elementos);
-    return resultado;
-  },
-
-  resetState() {
-    this.state.isSnapped = false;
-    this.state.activeHole = null;
-    this.state.mouseOffset = null;
+    return camino.join(' → ');
   }
 };
 
