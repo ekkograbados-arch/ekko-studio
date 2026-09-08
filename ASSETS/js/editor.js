@@ -38,7 +38,9 @@ import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
-import './modules/canvas-pro/backgroundRemover.js';
+// import './modules/canvas-pro/backgroundRemover.js';
+// ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
+// PARA REACTIVAR: Quitar las dos barras "//" de arriba
 
 // Exposicion segura de API al contexto global del navegador (WYSIWYG-Sync)
 window.updateContextualMenu = updateContextualMenu;
