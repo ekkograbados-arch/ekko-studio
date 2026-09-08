@@ -1,8 +1,8 @@
 // ================================================================
 // EKKO STUDIO — ELIMINADOR DE FONDO CON IA LOCAL (BRIA RMBG)
-// ✅ Modelo compatible cargado
-// ✅ Resolución reducida 512x512 = más rápido, sin saturar gráfica
-// ✅ Formato de tensor corregido
+// ✅ Modelo exige 1024×1024 → se respeta ese tamaño
+// ✅ Usa WASM = estable, no pierde contexto
+// ✅ Formato de tensor correcto [1,3,1024,1024]
 // ✅ La foto NO viaja afuera, sin costo, sin límites
 // ================================================================
 
@@ -41,7 +41,7 @@
                 ESTADO.sesion = await ort.InferenceSession.create(
                     'https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx',
                     { 
-                        executionProviders: ['wasm'], // ✅ Usamos WASM = más estable, no se pierde contexto
+                        executionProviders: ['wasm'], // WASM = estable, no pierde contexto
                         graphOptimizationLevel: 'all'
                     }
                 );
@@ -57,7 +57,7 @@
         }
 
         // ============================================================
-        // ELIMINAR FONDO CON IA — VERSIÓN CORREGIDA
+        // ELIMINAR FONDO CON IA — TAMAÑO EXACTO QUE EXIGE EL MODELO
         // ============================================================
         async function eliminarFondoInteligente(imagenPaper) {
             if (!imagenPaper) {
@@ -93,8 +93,8 @@
             lienzo.height = alto;
             ctx.drawImage(imagenPaper.getElement(), 0, 0, ancho, alto);
 
-            // ✅ USAMOS 512x512 = MÁS RÁPIDO, MENOS MEMORIA, CALIDAD EXCELENTE
-            const tamañoModelo = 512;
+            // ✅ EL MODELO EXIGE EXACTAMENTE 1024×1024
+            const tamañoModelo = 1024;
             const lienzoRedim = document.createElement('canvas');
             lienzoRedim.width = tamañoModelo;
             lienzoRedim.height = tamañoModelo;
@@ -103,26 +103,29 @@
 
             const datosImg = ctxRedim.getImageData(0, 0, tamañoModelo, tamañoModelo).data;
 
-            // ✅ FORMATO CORREGIDO: [1, 3, 512, 512] = coincide con lo que espera el modelo
-            const datosEntrada = new Float32Array(3 * tamañoModelo * tamañoModelo);
+            // ✅ FORMATO EXACTO QUE ESPERA EL MODELO: [1, 3, 1024, 1024]
+            const pixelesPorCanal = tamañoModelo * tamañoModelo;
+            const datosEntrada = new Float32Array(3 * pixelesPorCanal);
+
             for (let i = 0; i < datosImg.length; i += 4) {
                 const idx = i / 4;
-                datosEntrada[idx] = (datosImg[i] / 255.0 - 0.5) / 1.0;                     // R
-                datosEntrada[idx + tamañoModelo * tamañoModelo] = (datosImg[i + 1] / 255.0 - 0.5) / 1.0; // G
-                datosEntrada[idx + 2 * tamañoModelo * tamañoModelo] = (datosImg[i + 2] / 255.0 - 0.5) / 1.0; // B
+                datosEntrada[idx] = (datosImg[i] / 255.0 - 0.5) / 1.0;                 // R
+                datosEntrada[idx + pixelesPorCanal] = (datosImg[i + 1] / 255.0 - 0.5) / 1.0; // G
+                datosEntrada[idx + 2 * pixelesPorCanal] = (datosImg[i + 2] / 255.0 - 0.5) / 1.0; // B
             }
 
-            // ✅ Ejecutar IA con forma correcta
+            // ✅ Ejecutar IA con dimensiones correctas
             const entrada = new ort.Tensor('float32', datosEntrada, [1, 3, tamañoModelo, tamañoModelo]);
             const resultado = await ESTADO.sesion.run({ input: entrada });
             const mascara = resultado[ESTADO.sesion.outputNames[0]];
 
-            // ✅ Aplicar máscara redimensionada al tamaño original
+            // ✅ Aplicar máscara escalada al tamaño original de la imagen
             const datosSalida = ctx.getImageData(0, 0, ancho, alto);
             const arrMascara = mascara.data;
 
             for (let y = 0; y < alto; y++) {
                 for (let x = 0; x < ancho; x++) {
+                    // Coordenadas escaladas al tamaño del modelo
                     const escalaX = (x + 0.5) / ancho;
                     const escalaY = (y + 0.5) / alto;
                     const mx = Math.max(0, Math.min(tamañoModelo - 1, Math.floor(escalaX * tamañoModelo)));
@@ -136,7 +139,7 @@
 
             ctx.putImageData(datosSalida, 0, 0);
 
-            // ✅ Crear imagen conservando TODO igual
+            // ✅ Crear imagen conservando TODAS las propiedades originales
             const imagenProcesada = new paper.Raster(lienzo.toDataURL('image/png'));
             imagenProcesada.position = posOriginal;
             imagenProcesada.size = tamOriginal;
@@ -230,16 +233,15 @@
                     });
                 }
 
-                console.log('[EKKO BackgroundRemover ✅] IA Local BRIA cargada (versión final)');
+                console.log('[EKKO BackgroundRemover ✅] IA Local BRIA cargada — Dimensiones exactas 1024×1024');
             });
         }
 
         function inicializar() {
             ESTADO.activo = true;
-            console.log('[EKKO BackgroundRemover v5.2 ✅] INTELIGENCIA ARTIFICIAL — Versión Final');
-            console.log('  › Resolución 512x512 = más rápido y estable');
-            console.log('  › Usa WASM en lugar de WebGL = no se pierde contexto');
-            console.log('  › Formato de tensor corregido');
+            console.log('[EKKO BackgroundRemover v5.3 ✅] INTELIGENCIA ARTIFICIAL — Dimensiones Exactas');
+            console.log('  › Tamaño de entrada: 1024×1024 (exige el modelo)');
+            console.log('  › Usa WASM = estable, no pierde contexto');
             console.log('  › Sin costo, sin cuentas, sin límites');
             conectarBotonesInterfaz();
         }
