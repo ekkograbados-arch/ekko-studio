@@ -1,10 +1,10 @@
 // ============================================================
-// VERSIÓN: v10.7 — NO BLOQUEA EVENTOS DEL SISTEMA
-// REGLA: Paper.js gestiona el arrastre normal → nosotros SOLO ayudamos con el imán
+// VERSIÓN: v10.8 — DIAGNÓSTICO TOTAL 🔍
+// OBJETIVO: Ver EXACTAMENTE qué hay en el SVG y por qué no se detectan huecos
 // ============================================================
 
 export const SMART_FUSION = {
-  MAGNETIC_THRESHOLD: 25,
+  MAGNETIC_THRESHOLD: 30, // Un poquito más amplio para pruebas
 
   COLORS: {
     ANCLADO: '#00FFFF',
@@ -18,82 +18,79 @@ export const SMART_FUSION = {
     isSnapped: false,
     mouseOffset: null,
     lastScanTime: 0,
-    originalDragHandler: null
+    inventarioHecho: false
   },
 
   init() {
     this.enhanceDragBehavior();
-    console.log('[SMART FUSION v10.7] ✅ IMÁN ASISTENTE — NO BLOQUEA MOVIMIENTO NI ESCALA');
+    console.log('=============================================');
+    console.log('[SMART FUSION v10.8] 🔍 MODO DIAGNÓSTICO ACTIVO');
+    console.log('=============================================');
   },
 
   enhanceDragBehavior() {
     const self = this;
 
-    // Interceptamos el movimiento PERO sin anular el comportamiento original
     paper.tools.forEach(tool => {
-      // Guardamos los manejadores ORIGINALES para llamarlos SIEMPRE
       const originalOnMouseDown = tool.onMouseDown;
       const originalOnMouseDrag = tool.onMouseDrag;
       const originalOnMouseUp = tool.onMouseUp;
 
-      // 🖱️ AL PRESIONAR: detectar si es imagen del cliente
       tool.onMouseDown = function(e) {
-        // Llamar SIEMPRE al comportamiento original PRIMERO
         if (originalOnMouseDown) originalOnMouseDown.call(this, e);
 
         setTimeout(() => {
+          // 📋 LA PRIMERA VEZ QUE SELECCIONAS ALGO → ESCANEA TODO EL SVG
+          if (!self.state.inventarioHecho) {
+            self.escanearTodoElSVG();
+            self.state.inventarioHecho = true;
+          }
+
           const hit = paper.project.hitTest(e.point);
           if (hit && hit.item) {
             const item = hit.item;
             if (item.className === 'Raster' || item.data?.isClientImage === true) {
               self.state.draggingItem = item;
-              console.log('🖱️ Imagen seleccionada — arrastre libre habilitado');
+              console.log('🖱️ IMAGEN SELECCIONADA → arrastre libre habilitado');
+            } else {
+              console.log('📍 CLIC EN:', item.className, '| nombre:', item.name || '(sin nombre)');
             }
           }
         }, 0);
       };
 
-      // 🖱️ AL ARRASTRAR: SOLO corregir posición si está cerca del hueco
       tool.onMouseDrag = function(e) {
-        // Llamar SIEMPRE al arrastre original → permite mover y escalar
         if (originalOnMouseDrag) originalOnMouseDrag.call(this, e);
-
-        // Solo aplicar imán si tenemos una imagen seleccionada
         if (!self.state.draggingItem) return;
 
         const ahora = Date.now();
-        if (ahora - self.state.lastScanTime < 20) return;
+        if (ahora - self.state.lastScanTime < 30) return;
         self.state.lastScanTime = ahora;
 
-        // Buscar hueco cercano
         const huecoCercano = self.encontrarHuecoMasCercano(e.point);
 
         if (huecoCercano) {
           const centro = huecoCercano.bounds.center;
 
           if (!self.state.isSnapped || self.state.activeHole !== huecoCercano) {
-            // ✅ ENCENDIMOS IMÁN + BRILLO CIAN
             self.state.isSnapped = true;
             self.state.activeHole = huecoCercano;
             self.state.mouseOffset = e.point.subtract(centro);
             self.aplicarBrillo(huecoCercano, self.COLORS.ANCLADO);
             self.state.draggingItem.opacity = 0.75;
-            console.log('🧲 IMÁN ACTIVO → alineando...');
+            console.log('🧲 IMÁN ACTIVO ENCONTRADO →', huecoCercano.className, huecoCercano.name || '');
           }
 
-          // 🧲 CORREGIR POSICIÓN: centrar la imagen
           self.state.draggingItem.position = centro.subtract(self.state.mouseOffset);
         }
         else if (self.state.isSnapped) {
-          // 🔓 SE ALEJÓ → DESCONECTAR IMÁN
-          console.log('🔓 Imán liberado — arrastre libre');
+          console.log('🔓 SE ALEJÓ → imán liberado');
           self.restaurarBrillo(self.state.activeHole);
           if (self.state.draggingItem) self.state.draggingItem.opacity = 1.0;
           self.resetState();
         }
       };
 
-      // ✅ AL SOLTAR: si está pegado → fusionar
       tool.onMouseUp = function(e) {
         if (originalOnMouseUp) originalOnMouseUp.call(this, e);
 
@@ -104,7 +101,9 @@ export const SMART_FUSION = {
           if (self.esFormaValida(hueco)) {
             self.fusionarSinModificarOriginal(foto, hueco);
             self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
-            console.log('✅ FUSIÓN 💜 — foto recortada, letra intacta');
+            console.log('✅ ✅ FUSIÓN EXITOSA 💜');
+          } else {
+            console.log('⚠️ Hueco NO válido para fusión');
           }
         }
 
@@ -112,6 +111,51 @@ export const SMART_FUSION = {
         self.resetState();
       };
     });
+  },
+
+  // 📋 ESCANEA TODO EL SVG Y LO MUESTRA EN CONSOLA
+  escanearTodoElSVG() {
+    console.log('\n📋 === INVENTARIO COMPLETO DEL SVG DEL PRODUCTO ===');
+    const todos = this.descomponerGrupos(paper.project.activeLayer.children);
+    console.log(`Total elementos encontrados: ${todos.length}`);
+
+    let contadorCalados = 0;
+
+    todos.forEach((item, indice) => {
+      const tipo = item.className;
+      const nombre = item.name || '(sin nombre)';
+      const tieneRelleno = item.fillColor ? `SÍ (alfa=${item.fillColor.alpha})` : 'NO';
+      const tieneTrazo = item.strokeColor ? 'SÍ' : 'NO';
+      const esGrupo = tipo === 'Group';
+      const boundsOk = item.bounds && !item.bounds.isEmpty;
+
+      let esCalado = false;
+      let razonCalado = '';
+
+      if (item.data?.isHole === true) { esCalado = true; razonCalado = 'data.isHole=true'; }
+      else if ((tipo === 'Path' || tipo === 'CompoundPath') && (!item.fillColor || item.fillColor.alpha === 0)) {
+        esCalado = true; razonCalado = 'sin relleno';
+      }
+      else if (item.clipMask === true) { esCalado = true; razonCalado = 'clipMask'; }
+      else if (item.blendMode === 'subtract') { esCalado = true; razonCalado = 'subtract'; }
+
+      if (esCalado) contadorCalados++;
+
+      // Mostrar SOLO los que pueden ser calados + resumen al final
+      if (esCalado || indice < 5) {
+        console.log(`[${indice}] ${tipo.padEnd(14)} | ${nombre.padEnd(25)} | relleno: ${tieneRelleno} | calado: ${esCalado ? '✅ SÍ → ' + razonCalado : '❌ NO'} | bounds: ${boundsOk ? '✅' : '❌'}`);
+      }
+    });
+
+    console.log(`\n🎯 TOTAL CALADOS DETECTADOS: ${contadorCalados}`);
+    if (contadorCalados === 0) {
+      console.log('⚠️ ⚠️ ⚠️ NO SE DETECTÓ NINGÚN CALADO → AQUÍ ESTÁ EL PROBLEMA');
+      console.log('💡 Posibles causas:');
+      console.log('   1. Los huecos TIENEN relleno (aunque parezcan transparentes)');
+      console.log('   2. Están todos dentro de un Grupo sin desagrupar');
+      console.log('   3. Usan otra propiedad para marcar calados');
+    }
+    console.log('===============================================\n');
   },
 
   encontrarHuecoMasCercano(punto) {
@@ -147,7 +191,8 @@ export const SMART_FUSION = {
     if (tipo === 'Path' || tipo === 'CompoundPath') {
       if (!item.fillColor || item.fillColor.alpha === 0) return true;
     }
-    if (item.clipMask === true || item.blendMode === 'subtract') return true;
+    if (item.clipMask === true) return true;
+    if (item.blendMode === 'subtract') return true;
     return false;
   },
 
