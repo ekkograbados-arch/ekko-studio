@@ -1,9 +1,9 @@
 // ============================================================
-// VERSIÓN: v10.9 — IGNORA BOUNDS VACÍOS Y DETECTA POR POSICIÓN
+// VERSIÓN: v10.1 — POSICIÓN REAL SUMANDO GRUPO PADRE
 // ============================================================
 
 export const SMART_FUSION = {
-  MAGNETIC_THRESHOLD: 35, // Un poco más amplio
+  MAGNETIC_THRESHOLD: 40,
 
   COLORS: {
     ANCLADO: '#00FFFF',
@@ -21,7 +21,24 @@ export const SMART_FUSION = {
 
   init() {
     this.enhanceDragBehavior();
-    console.log('[SMART FUSION v10.9] ✅ IGNORA BOUNDS VACÍOS — DETECCIÓN MEJORADA');
+    console.log('[SMART FUSION v10.1] ✅ POSICIÓN REAL DESDE GRUPO PADRE');
+  },
+
+  // 🔑 OBTENER POSICIÓN ABSOLUTA EN EL LIENZO
+  obtenerPosicionReal(item) {
+    let x = 0, y = 0;
+    let actual = item;
+    while (actual) {
+      try {
+        const pos = actual.position;
+        if (pos && !isNaN(pos.x) && !isNaN(pos.y)) {
+          x += pos.x;
+          y += pos.y;
+        }
+        actual = actual.parent;
+      } catch { break; }
+    }
+    return new paper.Point(x, y);
   },
 
   enhanceDragBehavior() {
@@ -34,7 +51,6 @@ export const SMART_FUSION = {
 
       tool.onMouseDown = function(e) {
         if (originalOnMouseDown) originalOnMouseDown.call(this, e);
-
         setTimeout(() => {
           const hit = paper.project.hitTest(e.point);
           if (hit && hit.item) {
@@ -58,32 +74,18 @@ export const SMART_FUSION = {
         const huecoCercano = self.encontrarHuecoMasCercano(e.point);
 
         if (huecoCercano) {
-          // ✅ OBTENER CENTRO — aunque bounds esté vacío
-          let centro;
-          try {
-            centro = huecoCercano.position;
-            if (!centro || isNaN(centro.x) || isNaN(centro.y)) {
-              centro = huecoCercano.bounds ? huecoCercano.bounds.center : null;
-            }
-          } catch {
-            centro = null;
-          }
-
-          if (!centro) {
-            console.log('⚠️ Hueco sin posición → ignorado');
-            return;
-          }
+          const centroReal = self.obtenerPosicionReal(huecoCercano);
 
           if (!self.state.isSnapped || self.state.activeHole !== huecoCercano) {
             self.state.isSnapped = true;
             self.state.activeHole = huecoCercano;
-            self.state.mouseOffset = e.point.subtract(centro);
+            self.state.mouseOffset = e.point.subtract(centroReal);
             self.aplicarBrillo(huecoCercano, self.COLORS.ANCLADO);
             self.state.draggingItem.opacity = 0.75;
-            console.log('🧲 IMÁN ACTIVO en', huecoCercano.className, '@', Math.round(centro.x) + ',' + Math.round(centro.y));
+            console.log('🧲 IMÁN →', huecoCercano.className, 'en', Math.round(centroReal.x) + ',' + Math.round(centroReal.y));
           }
 
-          self.state.draggingItem.position = centro.subtract(self.state.mouseOffset);
+          self.state.draggingItem.position = centroReal.subtract(self.state.mouseOffset);
         }
         else if (self.state.isSnapped) {
           console.log('🔓 Liberado');
@@ -99,10 +101,11 @@ export const SMART_FUSION = {
         if (self.state.isSnapped && self.state.activeHole && self.state.draggingItem) {
           const foto = self.state.draggingItem;
           const hueco = self.state.activeHole;
+          const centroReal = self.obtenerPosicionReal(hueco);
 
-          self.fusionarSinModificarOriginal(foto, hueco);
+          self.fusionarEnPosicion(foto, hueco, centroReal);
           self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
-          console.log('✅ FUSIÓN 💜 EXITOSA');
+          console.log('✅ FUSIÓN 💜 en posición', Math.round(centroReal.x) + ',' + Math.round(centroReal.y));
         }
 
         if (self.state.draggingItem) self.state.draggingItem.opacity = 1.0;
@@ -117,29 +120,12 @@ export const SMART_FUSION = {
     let menorDist = Infinity;
 
     for (const item of todos) {
-      // Ignorar grupos y resultados anteriores
       if (item.className === 'Group') continue;
       if (item.data?.isMaskCopy || item.data?.isFusionResult) continue;
-
-      // ✅ ES CALADO? → sin relleno
       if (!this.esCalado(item)) continue;
 
-      // ✅ OBTENER POSICIÓN DE CUALQUIER FORMA
-      let pos;
-      try {
-        pos = item.position;
-        if (!pos || isNaN(pos.x) || isNaN(pos.y)) {
-          if (item.bounds && !item.bounds.isEmpty) {
-            pos = item.bounds.center;
-          }
-        }
-      } catch {
-        continue;
-      }
-      if (!pos || isNaN(pos.x) || isNaN(pos.y)) continue;
-
-      // ✅ CALCULAR DISTANCIA
-      const dist = Math.sqrt(Math.pow(punto.x - pos.x, 2) + Math.pow(punto.y - pos.y, 2));
+      const centroReal = this.obtenerPosicionReal(item);
+      const dist = Math.sqrt(Math.pow(punto.x - centroReal.x, 2) + Math.pow(punto.y - centroReal.y, 2));
 
       if (dist < this.MAGNETIC_THRESHOLD && dist < menorDist) {
         menorDist = dist;
@@ -160,24 +146,15 @@ export const SMART_FUSION = {
     return false;
   },
 
-  fusionarSinModificarOriginal(foto, huecoOriginal) {
-    let centro;
-    try {
-      centro = huecoOriginal.position;
-      if (!centro || isNaN(centro.x)) centro = huecoOriginal.bounds.center;
-    } catch {
-      return;
-    }
-
+  fusionarEnPosicion(foto, huecoOriginal, centroReal) {
     const mascara = huecoOriginal.clone();
-    mascara.position = centro;
+    mascara.position = centroReal;
     mascara.data = { isMaskCopy: true };
 
-    // Usar bounds si existen, sino mantener tamaño original
     if (huecoOriginal.bounds && !huecoOriginal.bounds.isEmpty) {
       foto.bounds = huecoOriginal.bounds.clone();
     } else {
-      foto.position = centro;
+      foto.position = centroReal;
     }
     foto.opacity = 1.0;
     foto.data.isClientImage = true;
