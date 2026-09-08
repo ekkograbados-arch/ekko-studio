@@ -1,10 +1,10 @@
 // ============================================================
-// VERSIÓN: v10.6 — RECONOCE COMPOUNDPath + SIN SOBRECARGA
-// SOLUCIÓN: Las letras son CompoundPath, NO Path simple
+// VERSIÓN: v10.7 — NO BLOQUEA EVENTOS DEL SISTEMA
+// REGLA: Paper.js gestiona el arrastre normal → nosotros SOLO ayudamos con el imán
 // ============================================================
 
 export const SMART_FUSION = {
-  MAGNETIC_THRESHOLD: 25, // Un poquito más amplio para facilitar
+  MAGNETIC_THRESHOLD: 25,
 
   COLORS: {
     ANCLADO: '#00FFFF',
@@ -13,130 +13,151 @@ export const SMART_FUSION = {
   },
 
   state: {
-    scanning: false,
-    draggedItem: null,
-    nearHole: null,
-    isAttached: false,
-    mouseOffset: null,
+    draggingItem: null,
     activeHole: null,
-    lastScanTime: 0
+    isSnapped: false,
+    mouseOffset: null,
+    lastScanTime: 0,
+    originalDragHandler: null
   },
 
   init() {
-    this.attachDragListeners();
-    console.log('[SMART FUSION v10.6] ✅ COMPOUNDPath RECONOCIDO + OPTIMIZADO');
+    this.enhanceDragBehavior();
+    console.log('[SMART FUSION v10.7] ✅ IMÁN ASISTENTE — NO BLOQUEA MOVIMIENTO NI ESCALA');
   },
 
-  attachDragListeners() {
+  enhanceDragBehavior() {
     const self = this;
 
+    // Interceptamos el movimiento PERO sin anular el comportamiento original
     paper.tools.forEach(tool => {
-      if (tool.onMouseDown) {
-        const originalDown = tool.onMouseDown.bind(tool);
-        tool.onMouseDown = function(e) {
-          try {
-            const hit = paper.project.hitTest(e.point);
-            if (hit && hit.item) {
-              const item = hit.item;
-              if (item.className === 'Raster' || item.data?.isClientImage === true) {
-                self.state.draggedItem = item;
-                self.state.scanning = true;
-                self.state.isAttached = false;
-                self.state.mouseOffset = null;
-                self.scanNearbyHoles(e.point);
-                console.log('🖱️ Imagen lista para arrastre');
-              }
+      // Guardamos los manejadores ORIGINALES para llamarlos SIEMPRE
+      const originalOnMouseDown = tool.onMouseDown;
+      const originalOnMouseDrag = tool.onMouseDrag;
+      const originalOnMouseUp = tool.onMouseUp;
+
+      // 🖱️ AL PRESIONAR: detectar si es imagen del cliente
+      tool.onMouseDown = function(e) {
+        // Llamar SIEMPRE al comportamiento original PRIMERO
+        if (originalOnMouseDown) originalOnMouseDown.call(this, e);
+
+        setTimeout(() => {
+          const hit = paper.project.hitTest(e.point);
+          if (hit && hit.item) {
+            const item = hit.item;
+            if (item.className === 'Raster' || item.data?.isClientImage === true) {
+              self.state.draggingItem = item;
+              console.log('🖱️ Imagen seleccionada — arrastre libre habilitado');
             }
-          } catch (err) {
-            console.error('❌ onMouseDown:', err.message);
           }
-          return originalDown(e);
-        };
-      }
+        }, 0);
+      };
 
-      if (tool.onMouseDrag) {
-        tool.onMouseDrag = function(e) {
-          try {
-            if (!self.state.scanning || !self.state.draggedItem) return;
+      // 🖱️ AL ARRASTRAR: SOLO corregir posición si está cerca del hueco
+      tool.onMouseDrag = function(e) {
+        // Llamar SIEMPRE al arrastre original → permite mover y escalar
+        if (originalOnMouseDrag) originalOnMouseDrag.call(this, e);
 
-            // ✅ LIMITAR ESCANEO: 1 vez cada 20ms → NO 144x por cada píxel
-            const ahora = Date.now();
-            if (ahora - self.state.lastScanTime > 20) {
-              self.state.lastScanTime = ahora;
-              self.scanNearbyHoles(e.point);
-            }
+        // Solo aplicar imán si tenemos una imagen seleccionada
+        if (!self.state.draggingItem) return;
 
-            if (self.state.nearHole) {
-              const hueco = self.state.nearHole;
-              const centroHueco = hueco.bounds.center;
+        const ahora = Date.now();
+        if (ahora - self.state.lastScanTime < 20) return;
+        self.state.lastScanTime = ahora;
 
-              if (!self.state.isAttached) {
-                self.state.isAttached = true;
-                self.state.activeHole = hueco;
-                self.state.mouseOffset = e.point.subtract(centroHueco);
-                self.aplicarBrillo(hueco, self.COLORS.ANCLADO);
-                self.state.draggedItem.opacity = 0.75;
-                console.log('🧲 ANCLADO → CIAN ✨');
-              }
-              self.state.draggedItem.position = centroHueco.subtract(self.state.mouseOffset);
-              return;
-            } else {
-              if (self.state.isAttached) {
-                console.log('🔓 DESANCLADO → libre');
-                self.restaurarBrillo(self.state.activeHole);
-                if (self.state.draggedItem) self.state.draggedItem.opacity = 1.0;
-                self.resetState();
-              }
-            }
-          } catch (err) {
-            console.error('❌ onMouseDrag:', err.message);
-          }
-        };
-      }
+        // Buscar hueco cercano
+        const huecoCercano = self.encontrarHuecoMasCercano(e.point);
 
-      if (tool.onMouseUp) {
-        const originalUp = tool.onMouseUp.bind(tool);
-        tool.onMouseUp = function(e) {
-          try {
-            if (self.state.isAttached && self.state.activeHole) {
-              const foto = self.state.draggedItem;
-              const hueco = self.state.activeHole;
+        if (huecoCercano) {
+          const centro = huecoCercano.bounds.center;
 
-              if (!self.esFormaValida(hueco)) {
-                console.error('🚫 Forma no válida → cancelado');
-                self.restaurarBrillo(hueco);
-                self.resetState();
-                return originalUp(e);
-              }
-
-              self.fusionarSinModificarOriginal(foto, hueco);
-              self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
-              console.log('✅ FUSIÓN 💜 — LETRA INTACTA');
-            } else {
-              if (self.state.draggedItem) self.state.draggedItem.opacity = 1.0;
-            }
-          } catch (err) {
-            console.error('❌ FUSIÓN ERROR:', err.message);
+          if (!self.state.isSnapped || self.state.activeHole !== huecoCercano) {
+            // ✅ ENCENDIMOS IMÁN + BRILLO CIAN
+            self.state.isSnapped = true;
+            self.state.activeHole = huecoCercano;
+            self.state.mouseOffset = e.point.subtract(centro);
+            self.aplicarBrillo(huecoCercano, self.COLORS.ANCLADO);
+            self.state.draggingItem.opacity = 0.75;
+            console.log('🧲 IMÁN ACTIVO → alineando...');
           }
 
+          // 🧲 CORREGIR POSICIÓN: centrar la imagen
+          self.state.draggingItem.position = centro.subtract(self.state.mouseOffset);
+        }
+        else if (self.state.isSnapped) {
+          // 🔓 SE ALEJÓ → DESCONECTAR IMÁN
+          console.log('🔓 Imán liberado — arrastre libre');
+          self.restaurarBrillo(self.state.activeHole);
+          if (self.state.draggingItem) self.state.draggingItem.opacity = 1.0;
           self.resetState();
-          return originalUp(e);
-        };
-      }
+        }
+      };
+
+      // ✅ AL SOLTAR: si está pegado → fusionar
+      tool.onMouseUp = function(e) {
+        if (originalOnMouseUp) originalOnMouseUp.call(this, e);
+
+        if (self.state.isSnapped && self.state.activeHole && self.state.draggingItem) {
+          const foto = self.state.draggingItem;
+          const hueco = self.state.activeHole;
+
+          if (self.esFormaValida(hueco)) {
+            self.fusionarSinModificarOriginal(foto, hueco);
+            self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
+            console.log('✅ FUSIÓN 💜 — foto recortada, letra intacta');
+          }
+        }
+
+        if (self.state.draggingItem) self.state.draggingItem.opacity = 1.0;
+        self.resetState();
+      };
     });
   },
 
-  // ✅ AHORA ACEPTA Path Y CompoundPath → TUS LETRAS
+  encontrarHuecoMasCercano(punto) {
+    const todos = this.descomponerGrupos(paper.project.activeLayer.children);
+    let masCercano = null;
+    let menorDist = Infinity;
+
+    for (const item of todos) {
+      if (!item.bounds || item.bounds.isEmpty) continue;
+      if (item.className === 'Group') continue;
+      if (item.data?.isMaskCopy || item.data?.isFusionResult) continue;
+      if (!this.esCalado(item)) continue;
+      if (!this.esFormaValida(item)) continue;
+
+      const dist = this.distanciaHastaBorde(punto, item.bounds);
+      if (dist < this.MAGNETIC_THRESHOLD && dist < menorDist) {
+        menorDist = dist;
+        masCercano = item;
+      }
+    }
+    return masCercano;
+  },
+
   esFormaValida(item) {
     if (!item) return false;
     const tipo = item.className;
-    if (tipo !== 'Path' && tipo !== 'CompoundPath') return false;
-    if (!item.bounds || item.bounds.isEmpty) return false;
-    return true;
+    return (tipo === 'Path' || tipo === 'CompoundPath') && item.bounds && !item.bounds.isEmpty;
+  },
+
+  esCalado(item) {
+    if (item.data?.isHole === true) return true;
+    const tipo = item.className;
+    if (tipo === 'Path' || tipo === 'CompoundPath') {
+      if (!item.fillColor || item.fillColor.alpha === 0) return true;
+    }
+    if (item.clipMask === true || item.blendMode === 'subtract') return true;
+    return false;
+  },
+
+  distanciaHastaBorde(punto, bounds) {
+    const dx = Math.max(bounds.left - punto.x, punto.x - bounds.right, 0);
+    const dy = Math.max(bounds.top - punto.y, punto.y - bounds.bottom, 0);
+    return Math.sqrt(dx * dx + dy * dy);
   },
 
   fusionarSinModificarOriginal(foto, huecoOriginal) {
-    // Clonar SOLO la forma para máscara → original INTACTO
     const mascara = huecoOriginal.clone();
     mascara.position = huecoOriginal.position;
     mascara.data = { isMaskCopy: true };
@@ -153,8 +174,6 @@ export const SMART_FUSION = {
 
   aplicarBrillo(item, color) {
     if (!item || !item.bounds) return;
-    if (!this.esFormaValida(item)) return;
-
     if (!item.data._strokeOrig) {
       item.data._strokeOrig = item.strokeColor ? item.strokeColor.toCSS() : null;
       item.data._widthOrig = item.strokeWidth || 0;
@@ -165,41 +184,10 @@ export const SMART_FUSION = {
 
   restaurarBrillo(item) {
     if (!item || !item.data) return;
-    if (item.data._strokeOrig) {
-      item.strokeColor = new paper.Color(item.data._strokeOrig);
-    } else {
-      item.strokeColor = null;
-    }
+    item.strokeColor = item.data._strokeOrig ? new paper.Color(item.data._strokeOrig) : null;
     item.strokeWidth = item.data._widthOrig || 0;
     delete item.data._strokeOrig;
     delete item.data._widthOrig;
-  },
-
-  scanNearbyHoles(mousePoint) {
-    const todos = this.descomponerGrupos(paper.project.activeLayer.children);
-    let nearestHole = null;
-    let nearestDistance = Infinity;
-
-    for (const item of todos) {
-      if (!item.bounds || item.bounds.isEmpty) continue;
-
-      // Ignorar grupos, máscaras y resultados fusionados
-      if (item.className === 'Group') continue;
-      if (item.data?.isMaskCopy || item.data?.isFusionResult) continue;
-
-      // ✅ AHORA DETECTA CompoundPath = TUS LETRAS
-      if (!this.esCalado(item)) continue;
-
-      if (!this.esFormaValida(item)) continue;
-
-      const distance = this.distanceToBounds(mousePoint, item.bounds);
-      if (distance < this.MAGNETIC_THRESHOLD && distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestHole = item;
-      }
-    }
-
-    this.state.nearHole = nearestHole;
   },
 
   descomponerGrupos(elementos) {
@@ -214,27 +202,8 @@ export const SMART_FUSION = {
     return resultado;
   },
 
-  esCalado(item) {
-    if (item.data?.isHole === true) return true;
-    const tipo = item.className;
-    if (tipo === 'Path' || tipo === 'CompoundPath') {
-      if (!item.fillColor || item.fillColor.alpha === 0) return true;
-    }
-    if (item.clipMask === true || item.blendMode === 'subtract') return true;
-    return false;
-  },
-
-  distanceToBounds(point, bounds) {
-    const dx = Math.max(bounds.left - point.x, point.x - bounds.right, 0);
-    const dy = Math.max(bounds.top - point.y, point.y - bounds.bottom, 0);
-    return Math.sqrt(dx * dx + dy * dy);
-  },
-
   resetState() {
-    this.state.scanning = false;
-    this.state.draggedItem = null;
-    this.state.nearHole = null;
-    this.state.isAttached = false;
+    this.state.isSnapped = false;
     this.state.activeHole = null;
     this.state.mouseOffset = null;
   }
