@@ -1,7 +1,7 @@
 // ============================================================
 // RUTA: ASSETS/js/modules/canvas-pro/smartFusion.js
 // ACCIÓN: REEMPLAZAR todo el contenido por este
-// VERSIÓN: v10.3 — ANCLAJE MAGNÉTICO — ETAPA 1 (CORREGIDA)
+// VERSIÓN: v10.3 — ANCLAJE MAGNÉTICO — BUSCA DENTRO DE GRUPOS
 // ============================================================
 
 export const SMART_FUSION = {
@@ -69,22 +69,61 @@ export const SMART_FUSION = {
     let nearestHole = null;
     let nearestDistance = Infinity;
 
-    for (const item of allItems) {
-      // Solo considerar calados activos
-      if (item.data && item.data.isHole === true && item.bounds) {
-        const distance = this.distanceToBounds(mousePoint, item.bounds);
-        if (distance < this.MAGNETIC_THRESHOLD && distance < nearestDistance) {
-          nearestDistance = distance;
-          nearestHole = item;
-        }
+    // Recorrer TODO incluyendo lo que está DENTRO DE GRUPOS
+    const todosLosElementos = this.descomponerGrupos(allItems);
+
+    for (const item of todosLosElementos) {
+      if (!item.bounds) continue;
+
+      // ✅ RECONOCER CALADO: por marca isHole O por nombre/tipo
+      const esCalado = this.esCalado(item);
+      if (!esCalado) continue;
+
+      const distance = this.distanceToBounds(mousePoint, item.bounds);
+      if (distance < this.MAGNETIC_THRESHOLD && distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestHole = item;
       }
     }
 
     // Actualizar estado
     this.state.nearHole = nearestHole;
     if (nearestHole) {
-      console.log(`🧲 ANCLAJE DETECTADO: a ${Math.round(nearestDistance)}px de ${nearestHole.name || 'hueco'}`);
+      console.log(`🧲 ANCLAJE DETECTADO: a ${Math.round(nearestDistance)}px de "${nearestHole.name || 'letra/calado'}"`);
     }
+  },
+
+  // 🧩 DESCOMPONER GRUPOS: saca todos los elementos internos
+  descomponerGrupos(elementos) {
+    const resultado = [];
+    const recorrer = (lista) => {
+      for (const el of lista) {
+        if (el.children && el.children.length > 0) {
+          recorrer(el.children);
+        } else {
+          resultado.push(el);
+        }
+      }
+    };
+    recorrer(elementos);
+    return resultado;
+  },
+
+  // 🔍 RECONOCER SI ES UN CALADO
+  esCalado(item) {
+    // 1. Si tiene la marca explícita
+    if (item.data?.isHole === true) return true;
+    
+    // 2. Si es un trazado con relleno nulo o hueco
+    if (item.className === 'Path' && (!item.fillColor || item.fillColor.alpha === 0)) return true;
+    
+    // 3. Si tiene nombre de letra o calado (A, F, letra-A, etc.)
+    if (item.name && /^[AF]$|letra|calado|hueco/i.test(item.name)) return true;
+
+    // 4. Si es Path y tiene operación de sustracción
+    if (item.clipMask === true || item.blendMode === 'subtract') return true;
+
+    return false;
   },
 
   // Calcular distancia desde punto al borde del objeto
