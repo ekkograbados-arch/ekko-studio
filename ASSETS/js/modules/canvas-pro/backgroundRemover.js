@@ -18,7 +18,7 @@
             contexto: null,
             modoPincel: null,
             tamanoPincel: 25,
-            toleranciaBordes: 30,
+            toleranciaBordes: 8,
             historial: [],
             posicionInicial: { x: 0, y: 0 },
             arrastrando: false
@@ -181,6 +181,12 @@
                 const btnDeshacer = document.getElementById('btn-deshacer-fondo');
                 const btnAceptar = document.getElementById('btn-aceptar-fondo');
 
+
+                // ✅ FORZAR ESTADO INICIAL CORRECTO
+                if (btnQuitarFondo) btnQuitarFondo.style.display = 'inline-block';
+                if (btnEditarRecorte) btnEditarRecorte.style.display = 'none';
+                if (panelEditarRecorte) panelEditarRecorte.style.display = 'none';
+                
                 let imagenOriginalReferencia = null;
 
                 if (btnQuitarFondo) {
