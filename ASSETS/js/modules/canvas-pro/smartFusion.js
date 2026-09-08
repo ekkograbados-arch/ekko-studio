@@ -1,75 +1,105 @@
 // ============================================================
-// VERSIÓN: v10.FUSION_DIRECTA — Objetivo principal
+// VERSIÓN: v10.VERIFICACION_TOTAL — F12 lo dice TODO
 // ============================================================
 
 export const SMART_FUSION = {
   MAGNETIC_THRESHOLD: 45,
 
-  state: { imagenSeleccionada: null, huecoCercano: null },
+  state: {
+    imagenSeleccionada: null,
+    ultimoHuecoId: null
+  },
 
   init() {
     this.enhanceDragBehavior();
-    console.log('✅ SMART_FUSION — ARRASTRE → DETECCIÓN → IMÁN → FUSIÓN');
+    console.log('========================================================');
+    console.log('✅ SMART_FUSION v10.VERIFICACION — TODOS LOS DATOS EN F12');
+    console.log('📋 Observa la consola mientras arrastras y sueltas');
+    console.log('========================================================');
   },
 
   // ======================================
-  // OBTENER POSICIÓN REAL EN PANTALLA
+  // ✅ OBTENER POSICIÓN ABSOLUTA REAL EN LIENZO
   // ======================================
-  posicionReal(item) {
-    let x = 0, y = 0;
-    let actual = item;
-    while (actual) {
-      try {
-        if (actual.position && !isNaN(actual.position.x)) {
-          x += actual.position.x;
-          y += actual.position.y;
-        }
-        actual = actual.parent;
-      } catch { break; }
+  posicionAbsoluta(item) {
+    // Usamos la función oficial de Paper.js que ya convierte a coordenadas de lienzo
+    const puntoCentro = item.position.clone();
+    const puntoAbsoluto = item.layerToGlobal(puntoCentro); // ← CLAVE: convierte a coordenadas reales de pantalla
+
+    return {
+      x: Math.round(puntoAbsoluto.x),
+      y: Math.round(puntoAbsoluto.y),
+      punto: puntoAbsoluto,
+      relativaX: Math.round(item.position.x),
+      relativaY: Math.round(item.position.y)
+    };
+  },
+
+  // ======================================
+  // ✅ DETECTAR SI ES UN HUECO (Y NO ES PARTE DEL SVG DEL PRODUCTO)
+  // ======================================
+  esHuecoValido(item) {
+    // ❌ IGNORAR TODO LO QUE PERTENEZCA AL PRODUCTO ORIGINAL
+    if (item.data?.esPlantillaProducto === true || item.data?.origenProducto === true) {
+      return false;
     }
-    return { x: Math.round(x), y: Math.round(y), punto: new paper.Point(x, y) };
-  },
 
-  // ======================================
-  // DETECTAR SI ES UN HUECO/FORMA VACÍA
-  // ======================================
-  esHueco(item) {
+    const tipo = item.className;
+    if (tipo === 'Group') return false;
+
+    // ✅ Detectar hueco por definición visual
     if (item.data?.isHole === true) return true;
-    const t = item.className;
-    if ((t === 'Path' || t === 'CompoundPath' || t === 'Shape')) {
+    if (tipo === 'Path' || tipo === 'CompoundPath' || tipo === 'Shape') {
       if (!item.fillColor || item.fillColor.alpha === 0) return true;
     }
     if (item.clipMask === true) return true;
     if (item.blendMode === 'subtract') return true;
+
     return false;
   },
 
   // ======================================
-  // ENCONTRAR HUECO MÁS CERCANO A UN PUNTO
+  // ✅ BUSCAR HUECO MÁS CERCANO — COORDENADAS REALES
   // ======================================
-  buscarHuecoCerca(punto) {
-    const todos = this.desagrupar(paper.project.activeLayer.children);
+  buscarHuecoCercano(puntoDelRaton) {
+    const todos = this.desagruparTodo(paper.project.activeLayer.children);
     let masCercano = null;
-    let menorDist = this.MAGNETIC_THRESHOLD;
+    let menorDistancia = this.MAGNETIC_THRESHOLD;
+    let informe = [];
 
     for (const item of todos) {
-      if (item.className === 'Group') continue;
-      if (item.data?.isMaskCopy || item.data?.isResultadoFusion) continue;
-      if (!this.esHueco(item)) continue;
+      if (!this.esHuecoValido(item)) continue;
 
-      const real = this.posicionReal(item);
-      const dist = Math.hypot(punto.x - real.x, punto.y - real.y);
+      const pos = this.posicionAbsoluta(item);
+      const distancia = Math.hypot(puntoDelRaton.x - pos.x, puntoDelRaton.y - pos.y);
 
-      if (dist < menorDist) {
-        menorDist = dist;
-        masCercano = { item, posicion: real };
+      informe.push({
+        id: item.id || item._id || 'sin_id',
+        tipo: item.className,
+        relativa: `${pos.relativaX},${pos.relativaY}`,
+        absoluta: `${pos.x},${pos.y}`,
+        distancia: Math.round(distancia)
+      });
+
+      if (distancia < menorDistancia) {
+        menorDistancia = distancia;
+        masCercano = { item, posicion: pos };
       }
     }
+
+    // 📋 IMPRIMIR INFORME COMPLETO EN CONSOLA
+    if (informe.length > 0) {
+      console.log('📋 HUECOS DETECTADOS CERCA:');
+      informe.forEach(h => {
+        console.log(`   ├─ ${h.tipo} | Rel:${h.relativa} → Abs:${h.absoluta} | Dist:${h.distancia}px`);
+      });
+    }
+
     return masCercano;
   },
 
   // ======================================
-  // LÓGICA PRINCIPAL
+  // ✅ LÓGICA PRINCIPAL
   // ======================================
   enhanceDragBehavior() {
     const self = this;
@@ -78,7 +108,7 @@ export const SMART_FUSION = {
       const onDrag = tool.onMouseDrag;
       const onUp   = tool.onMouseUp;
 
-      // 🖱️ AL PRESIONAR → Identificar qué se está moviendo
+      // 🖱️ AL HACER CLIC
       tool.onMouseDown = function(e) {
         if (onDown) onDown.call(this, e);
         setTimeout(() => {
@@ -86,121 +116,147 @@ export const SMART_FUSION = {
           if (!golpe || !golpe.item) return;
 
           const item = golpe.item;
-          const tipo = item.className;
-          const esImagen = (tipo === 'Raster' || item.data?.esImagen === true);
+          const esImagen = (item.className === 'Raster' || item.data?.esImagen === true);
+          const pos = self.posicionAbsoluta(item);
 
-          console.log('\n🖱️ SELECCIONADO:', esImagen ? '📸 IMAGEN' : tipo);
-          console.log('   Posición en pantalla:', Math.round(item.position.x) + ',' + Math.round(item.position.y));
+          console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log(`🖱️ CLIC EN: ${esImagen ? '📸 IMAGEN' : item.className}`);
+          console.log(`   Coordenadas RELATIVAS (dentro de su grupo): ${pos.relativaX}, ${pos.relativaY}`);
+          console.log(`   Coordenadas REALES EN PANTALLA: ${pos.x}, ${pos.y}`);
+          console.log(`   Punto del ratón: ${Math.round(e.point.x)}, ${Math.round(e.point.y)}`);
 
           if (esImagen) {
             self.state.imagenSeleccionada = item;
-            console.log('✅ → Imagen lista para fusionar');
+            console.log('   ✅ → Imagen lista para arrastrar y fusionar');
           } else {
+            console.log('   ⚠️ → No es imagen — SOLO se arrastran imágenes');
             self.state.imagenSeleccionada = null;
           }
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
         }, 10);
       };
 
-      // 🖱️ AL ARRASTRAR → Solo DETECTAR hueco cercano, NO mover la imagen
+      // 🖱️ AL ARRASTRAR
       tool.onMouseDrag = function(e) {
         if (onDrag) onDrag.call(this, e);
         if (!self.state.imagenSeleccionada) return;
 
-        const hueco = self.buscarHuecoCerca(e.point);
-        const anterior = self.state.huecoCercano;
+        const posImagen = self.posicionAbsoluta(self.state.imagenSeleccionada);
+        const hueco = self.buscarHuecoCercano(e.point);
 
-        // Si cambió de hueco cercano
-        if ((hueco?.item) !== (anterior?.item)) {
-          // Restaurar anterior
-          if (anterior?.item) {
-            self.restaurarResaltado(anterior.item);
+        // 📊 REGISTRO EN TIEMPO REAL
+        console.log(`🖱️ RATÓN: ${Math.round(e.point.x)},${Math.round(e.point.y)}` +
+                    ` | 📸 IMAGEN: ${posImagen.x},${posImagen.y}` +
+                    (hueco ? ` | 🧲 HUECO REAL: ${hueco.posicion.x},${hueco.posicion.y}` : ' | 🔓 Sin hueco cercano'));
+
+        // ✅ RESALTAR VISUALMENTE EL HUECO SELECCIONADO
+        const huecoId = hueco ? (hueco.item.id || hueco.item._id) : null;
+        if (huecoId !== self.state.ultimoHuecoId) {
+          // Quitar resaltado anterior
+          if (self.state.ultimoHueco && self.state.ultimoHueco.item) {
+            self.restaurarResaltado(self.state.ultimoHueco.item);
           }
           // Resaltar nuevo
-          self.state.huecoCercano = hueco;
+          self.state.ultimoHueco = hueco;
+          self.state.ultimoHuecoId = huecoId;
           if (hueco) {
             self.resaltar(hueco.item, '#00FFFF');
-            console.log('🧲 HUECO DETECTADO en:', hueco.posicion.x + ',' + hueco.posicion.y);
-          } else {
-            console.log('🔓 Lejos de todo');
+            console.log('✨ HUECO RESALTADO EN PANTALLA — borde CIAN');
           }
         }
       };
 
-      // ✅ AL SOLTAR → Si está cerca → PEGAR Y FUSIONAR
+      // ✅ AL SOLTAR → FUSIONAR
       tool.onMouseUp = function(e) {
         if (onUp) onUp.call(this, e);
 
-        const hueco = self.state.huecoCercano;
+        const hueco = self.state.ultimoHueco;
         const imagen = self.state.imagenSeleccionada;
 
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         if (hueco && imagen) {
           const dist = Math.hypot(e.point.x - hueco.posicion.x, e.point.y - hueco.posicion.y);
+          console.log(`📍 SOLTADO A: ${Math.round(e.point.x)},${Math.round(e.point.y)}`);
+          console.log(`🧲 Hueco más cercano REAL: ${hueco.posicion.x},${hueco.posicion.y}`);
+          console.log(`📏 Distancia: ${Math.round(dist)}px (límite: ${self.MAGNETIC_THRESHOLD}px)`);
 
           if (dist < self.MAGNETIC_THRESHOLD) {
-            // ✅ PEGAR AL CENTRO
+            // ✅ PEGAR EN COORDENADAS REALES
             imagen.position = hueco.posicion.punto;
             self.resaltar(hueco.item, '#FF00FF');
-
-            // ✅ FUSIONAR → Crear máscara recortada
             self.crearFusion(imagen, hueco.item, hueco.posicion.punto);
 
-            console.log('✅ FUSIÓN COMPLETA 💜 en:', hueco.posicion.x + ',' + hueco.posicion.y);
+            console.log('✅ ✅ ✅ FUSIÓN EXITOSA 💜');
+            console.log(`   Imagen alineada en: ${hueco.posicion.x},${hueco.posicion.y}`);
+            console.log('   El hueco queda en MAGENTA = FUSIONADO');
+          } else {
+            console.log('🔓 Demasiado lejos — NO se fusiona');
+            self.restaurarResaltado(hueco.item);
           }
+        } else {
+          console.log('ℹ️ Sin hueco cerca al soltar');
         }
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
         // Limpiar
-        if (hueco?.item) self.restaurarResaltado(hueco.item);
         self.state.imagenSeleccionada = null;
-        self.state.huecoCercano = null;
+        self.state.ultimoHueco = null;
+        self.state.ultimoHuecoId = null;
       };
     });
   },
 
   // ======================================
-  // CREAR LA FUSIÓN (máscara + imagen)
+  // ✅ CREAR FUSIÓN SIN TOCAR EL ORIGINAL
   // ======================================
-  crearFusion(imagen, hueco, centro) {
+  crearFusion(imagen, hueco, centroReal) {
+    // Clonar el hueco → la MÁSCARA, NO el original
     const mascara = hueco.clone();
-    mascara.position = centro;
+    mascara.position = centroReal;
     mascara.data = { esCopiaMascara: true };
 
-    // Ajustar tamaño si se conocen los límites
+    // Ajustar imagen al tamaño real del hueco
     if (hueco.bounds && !hueco.bounds.isEmpty) {
       imagen.bounds = hueco.bounds.clone();
     } else {
-      imagen.position = centro;
+      imagen.position = centroReal;
     }
     imagen.opacity = 1.0;
     imagen.data = { esImagenRecortada: true };
 
-    // Agrupar y recortar
+    // Crear grupo recortado → NUEVO objeto, NO toca el original
     const grupo = new paper.Group([mascara, imagen]);
     grupo.clipped = true;
     grupo.data = { esResultadoFusion: true };
+
+    // Colocar DEBAJO del original → el producto sigue visible arriba
     grupo.insertBelow(hueco);
+
+    console.log('📦 Grupo de fusión creado → NO se modificó el SVG original');
   },
 
   // ======================================
-  // UTILIDADES
+  // ✅ RESALTADO VISUAL
   // ======================================
   resaltar(item, color) {
-    if (!item.data._colorOriginal) {
-      item.data._colorOriginal = item.strokeColor ? item.strokeColor.toCSS() : null;
-      item.data._grosorOriginal = item.strokeWidth || 0;
+    if (!item.data._colorBorde) {
+      item.data._colorBorde = item.strokeColor ? item.strokeColor.toCSS() : null;
+      item.data._grosorBorde = item.strokeWidth || 0;
     }
     item.strokeColor = new paper.Color(color);
     item.strokeWidth = 4;
+    item.selected = false; // ✅ NO seleccionar visualmente → SOLO colorear borde
   },
 
   restaurarResaltado(item) {
     if (!item.data) return;
-    item.strokeColor = item.data._colorOriginal ? new paper.Color(item.data._colorOriginal) : null;
-    item.strokeWidth = item.data._grosorOriginal || 0;
-    delete item.data._colorOriginal;
-    delete item.data._grosorOriginal;
+    item.strokeColor = item.data._colorBorde ? new paper.Color(item.data._colorBorde) : null;
+    item.strokeWidth = item.data._grosorBorde || 0;
+    delete item.data._colorBorde;
+    delete item.data._grosorBorde;
   },
 
-  desagrupar(elementos) {
+  desagruparTodo(elementos) {
     const resultado = [];
     const recorrer = (lista) => {
       for (const el of lista) {
