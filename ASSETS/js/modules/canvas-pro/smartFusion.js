@@ -1,14 +1,13 @@
 // ============================================================
 // RUTA: ASSETS/js/modules/canvas-pro/smartFusion.js
-// ACCIÓN: REEMPLAZAR todo el contenido por este
-// VERSIÓN: v10.3 — ETAPA 3: FUSIÓN REAL + COLORES DE ESTADO
-// COLORES: CIAN = ANCLADO | FUCSIA = FUSIONADO | AZUL = DESANCLADO
+// VERSIÓN: v10.4 — CORREGIDA: sin bucles + PROTEGE SVG DEL PRODUCTO
+// REGLA: El SVG del producto NUNCA se mueve ni se guarda en referencias circulares
+// COLORES: CIAN=ANCLADO | FUCSIA=FUSIONADO | AZUL=DESANCLADO
 // ============================================================
 
 export const SMART_FUSION = {
   MAGNETIC_THRESHOLD: 20,
 
-  // 🎨 PALETA DE COLORES DE ESTADO
   COLORS: {
     ANCLADO: '#00FFFF',    // ✨ Cian neón — pendiente
     FUSIONADO: '#FF00FF',  // 💜 Fucsia neón — confirmado
@@ -26,24 +25,28 @@ export const SMART_FUSION = {
 
   init() {
     this.attachDragListeners();
-    console.log('[SMART FUSION v10.3] ✅ FUSIÓN + COLORES DE ESTADO ACTIVOS');
+    console.log('[SMART FUSION v10.4] ✅ FUSIÓN SEGURA — SVG DEL PRODUCTO PROTEGIDO');
   },
 
   attachDragListeners() {
     const self = this;
 
     paper.tools.forEach(tool => {
-      // Al iniciar arrastre
+      // Al iniciar arrastre — SOLO imágenes del cliente
       if (tool.onMouseDown) {
         const originalDown = tool.onMouseDown.bind(tool);
         tool.onMouseDown = function(e) {
           const hit = paper.project.hitTest(e.point);
-          if (hit && hit.item && hit.item.className === 'Raster') {
-            self.state.draggedItem = hit.item;
-            self.state.scanning = true;
-            self.state.isAttached = false;
-            self.state.mouseOffset = null;
-            self.scanNearbyHoles(e.point);
+          if (hit && hit.item) {
+            const item = hit.item;
+            // ✅ SOLO se arrastran imágenes cargadas por el cliente
+            if (item.className === 'Raster' || item.data?.isClientImage === true) {
+              self.state.draggedItem = item;
+              self.state.scanning = true;
+              self.state.isAttached = false;
+              self.state.mouseOffset = null;
+              self.scanNearbyHoles(e.point);
+            }
           }
           return originalDown(e);
         };
@@ -64,24 +67,21 @@ export const SMART_FUSION = {
                 self.state.activeHole = hueco;
                 self.state.mouseOffset = e.point.subtract(centroHueco);
 
-                // ✨ BRILLO CIAN NEÓN — PENDIENTE DE FUSIÓN
+                // ✨ BRILLO CIAN — SIN modificar el SVG del producto
                 self.aplicarBrillo(hueco, self.COLORS.ANCLADO);
-                // 🪟 IMAGEN TRANSLÚCIDA MIENTRAS AJUSTA
                 self.state.draggedItem.opacity = 0.75;
 
-                console.log(`🧲 ANCLADO → BRILLO CIAN ✨ — listo para fusionar`);
+                console.log(`🧲 ANCLADO → BRILLO CIAN ✨ — pendiente de fusión`);
               }
 
-              // MANTENER CENTRADO
               self.state.draggedItem.position = centroHueco.subtract(self.state.mouseOffset);
               return;
             }
             else {
-              // SE ALEJÓ → DESANCLAR CON BRILLO AZUL
               if (self.state.isAttached) {
-                console.log(`🔓 DESANCLADO → BRILLO AZUL 💙 — libre`);
-                self.restaurarBrillo(self.state.activeHole, self.COLORS.LIBRE);
-                self.state.draggedItem.opacity = 1.0;
+                console.log(`🔓 DESANCLADO → vuelve a libre`);
+                self.restaurarBrillo(self.state.activeHole);
+                if (self.state.draggedItem) self.state.draggedItem.opacity = 1.0;
                 self.resetState();
               }
             }
@@ -89,7 +89,7 @@ export const SMART_FUSION = {
         };
       }
 
-      // AL SOLTAR → FUSIÓN REAL + BRILLO FUCSIA
+      // AL SOLTAR → FUSIÓN SIN TOCAR EL SVG ORIGINAL
       if (tool.onMouseUp) {
         const originalUp = tool.onMouseUp.bind(tool);
         tool.onMouseUp = function(e) {
@@ -97,16 +97,15 @@ export const SMART_FUSION = {
             const foto = self.state.draggedItem;
             const hueco = self.state.activeHole;
 
-            // ✅ APLICAR MÁSCARA → FUSIÓN REAL
-            self.fusionar(foto, hueco);
+            // ✅ FUSIÓN: CLONAMOS el hueco como máscara → el original QUEDA INTACTO
+            self.fusionarSinModificarOriginal(foto, hueco);
 
-            // 💜 BRILLO FUCSIA NEÓN → FUSIÓN CONFIRMADA
+            // 💜 BRILLO FUCSIA — en el hueco original del producto
             self.aplicarBrillo(hueco, self.COLORS.FUSIONADO);
 
-            console.log(`✅ FUSIÓN CONFIRMADA → BRILLO FUCSIA 💜 — foto recortada dentro de la letra`);
+            console.log(`✅ FUSIÓN CONFIRMADA → Foto recortada — SVG DEL PRODUCTO INTACTO 💜`);
           }
           else {
-            // Restaurar si se soltó libre
             if (self.state.draggedItem) self.state.draggedItem.opacity = 1.0;
           }
 
@@ -117,64 +116,62 @@ export const SMART_FUSION = {
     });
   },
 
-  // 🔗 FUSIÓN REAL — Aplica máscara y agrupa
-  fusionar(foto, hueco) {
-    // Ocultar brillo de contorno
-    this.limpiarBrillo(hueco);
+  // 🔗 FUSIÓN SEGURA → NO modifica ni mueve el SVG del producto
+  fusionarSinModificarOriginal(foto, huecoOriginal) {
+    // ✅ Clonamos el hueco SOLO para usarlo como máscara
+    const mascara = huecoOriginal.clone();
+    mascara.position = huecoOriginal.position; // MISMA posición
+    mascara.bounds = huecoOriginal.bounds.clone(); // MISMOS límites
+    mascara.data = {};
+    mascara.data.isMaskCopy = true; // Marcar como copia de máscara
 
-    // Alinear foto al tamaño exacto del hueco
-    foto.bounds = hueco.bounds.clone();
-
-    // Crear grupo con máscara: hueco encima, foto debajo
-    const grupo = new paper.Group([hueco, foto]);
-    grupo.clipped = true; // ✅ EL HUECO RECORTA LA FOTO
-    grupo.data = grupo.data || {};
-    grupo.data.isFusion = true; // Marcar como fusionado
-    grupo.data.maskSource = hueco;
-    grupo.data.photoSource = foto;
-
-    // Restaurar opacidad
+    // ✅ Ajustamos la foto al tamaño del hueco
+    foto.bounds = huecoOriginal.bounds.clone();
     foto.opacity = 1.0;
+    foto.data.isClientImage = true; // Marcar como imagen del cliente
 
-    // Guardar referencia para "Quitar Fusión"
-    hueco.data.fusionGroup = grupo;
-    foto.data.fusionGroup = grupo;
+    // ✅ Creamos grupo con la MÁSCARA CLONADA, sin tocar el hueco original
+    const grupo = new paper.Group([mascara, foto]);
+    grupo.clipped = true; // La máscara recorta la foto
+    grupo.data = { isFusionResult: true };
+
+    // ✅ Colocamos el grupo fusionado DETRÁS del hueco original del producto
+    const indiceOriginal = huecoOriginal.index;
+    grupo.insertBelow(huecoOriginal); // Queda detrás → se ve el contorno original
+
+    // ✅ El hueco original del producto se mantiene VISUALMENTE igual
+    // pero ahora muestra su contorno sobre la foto recortada
   },
 
-  // ✨ Aplicar brillo de contorno
+  // ✨ Aplicar brillo sin guardar referencias circulares
   aplicarBrillo(item, color) {
-    this.limpiarBrillo(item);
-    item.data.strokeBackup = item.strokeColor;
-    item.data.strokeWidthBackup = item.strokeWidth;
-    item.data.opacityBackup = item.opacity;
+    if (!item || !item.bounds) return;
+
+    // Guardamos estado anterior en propiedades simples, SIN referencias cruzadas
+    if (!item.data._strokeOrig) {
+      item.data._strokeOrig = item.strokeColor ? item.strokeColor.toCSS() : null;
+      item.data._widthOrig = item.strokeWidth || 0;
+    }
 
     item.strokeColor = new paper.Color(color);
     item.strokeWidth = 4;
-    item.opacity = 0.95;
   },
 
-  // 💙 Transición al desanclar
-  restaurarBrillo(item, color) {
-    if (!item) return;
-    item.strokeColor = new paper.Color(color);
-    item.strokeWidth = 2;
-    // Se desvanece en 500ms
-    paper.view.onFrame = () => {
-      if (item.strokeWidth > 0.1) {
-        item.strokeWidth *= 0.92;
-      } else {
-        this.limpiarBrillo(item);
-        paper.view.onFrame = null;
-      }
-    };
-  },
-
-  // 🧹 Quitar todo brillo
-  limpiarBrillo(item) {
+  // 💙 Restaurar brillo SIN animación infinita
+  restaurarBrillo(item) {
     if (!item || !item.data) return;
-    if (item.data.strokeBackup !== undefined) item.strokeColor = item.data.strokeBackup;
-    if (item.data.strokeWidthBackup !== undefined) item.strokeWidth = item.data.strokeWidthBackup;
-    if (item.data.opacityBackup !== undefined) item.opacity = item.data.opacityBackup;
+
+    // Restaurar valores originales
+    if (item.data._strokeOrig) {
+      item.strokeColor = new paper.Color(item.data._strokeOrig);
+    } else {
+      item.strokeColor = null;
+    }
+    item.strokeWidth = item.data._widthOrig || 0;
+
+    // Limpiar datos temporales
+    delete item.data._strokeOrig;
+    delete item.data._widthOrig;
   },
 
   scanNearbyHoles(mousePoint) {
@@ -185,6 +182,8 @@ export const SMART_FUSION = {
     for (const item of todos) {
       if (!item.bounds) continue;
       if (!this.esCalado(item)) continue;
+      // ✅ Ignorar máscaras clonadas — SOLO detectar huecos originales del producto
+      if (item.data?.isMaskCopy || item.data?.isFusionResult) continue;
 
       const distance = this.distanceToBounds(mousePoint, item.bounds);
       if (distance < this.MAGNETIC_THRESHOLD && distance < nearestDistance) {
