@@ -1,6 +1,6 @@
 // ================================================================
-// EKKO STUDIO — ELIMINADOR DE FONDO INTELIGENTE v2.1
-// MEJORADO: Funciona con fotos reales, no requiere bordes nítidos
+// EKKO STUDIO — ELIMINADOR DE FONDO INTELIGENTE v2.2
+// ✅ DETECCIÓN POR CONTORNO / BORDES — NO POR COLOR
 // ================================================================
 
 (function (EKKO, undefined) {
@@ -16,14 +16,14 @@
             contexto: null,
             modoPincel: null,
             tamanoPincel: 25,
-            toleranciaBordes: 15,
+            umbralBordes: 12,  // ✅ Calibrado: menor = más estricto
             historial: [],
             posicionInicial: { x: 0, y: 0 },
             arrastrando: false
         };
 
         // ============================================================
-        // MÉTODO MEJORADO: ELIMINACIÓN DESDE LOS BORDES HACIA ADENTRO
+        // ✅ DETECCIÓN POR BORDES (GRADIENTE DE BRILLO) — SIN COLOR
         // ============================================================
         function eliminarFondoInteligente(imagenPaper) {
             if (!imagenPaper) {
@@ -50,80 +50,95 @@
             const pixeles = datosImagen.data;
 
             // ========================================================
-            // ALGORITMO NUEVO: FONDO = TODO LO QUE LLEGA DESDE AFUERA
+            // PASO 1: DETECTAR BORDES POR CAMBIO DE BRILLO
             // ========================================================
-            const mascara = new Uint8Array(ancho * alto); // 0=fondo, 1=objeto
+            const mapaBordes = new Uint8Array(ancho * alto);
+            const umbral = ESTADO.umbralBordes;
+
+            // Usamos filtro de Sobel simplificado → detecta bordes REALES
+            for (let y = 1; y < alto - 1; y++) {
+                for (let x = 1; x < ancho - 1; x++) {
+                    const idx = (y * ancho + x) * 4;
+                    const iL = (y * ancho + (x - 1)) * 4;
+                    const iR = (y * ancho + (x + 1)) * 4;
+                    const iT = ((y - 1) * ancho + x) * 4;
+                    const iB = ((y + 1) * ancho + x) * 4;
+
+                    // Brillo promedio de cada zona
+                    const bC = (pixeles[idx] + pixeles[idx+1] + pixeles[idx+2]) / 3;
+                    const bL = (pixeles[iL] + pixeles[iL+1] + pixeles[iL+2]) / 3;
+                    const bR = (pixeles[iR] + pixeles[iR+1] + pixeles[iR+2]) / 3;
+                    const bT = (pixeles[iT] + pixeles[iT+1] + pixeles[iT+2]) / 3;
+                    const bB = (pixeles[iB] + pixeles[iB+1] + pixeles[iB+2]) / 3;
+
+                    // Diferencia horizontal y vertical
+                    const gradH = Math.abs(bR - bL);
+                    const gradV = Math.abs(bB - bT);
+
+                    // Si hay cambio brusco = ES BORDE
+                    if (gradH > umbral || gradV > umbral) {
+                        mapaBordes[y * ancho + x] = 1;
+                    }
+                }
+            }
+
+            // ========================================================
+            // PASO 2: RELLENAR DESDE LOS BORDES EXTERIORES = FONDO
+            // ========================================================
             const visitado = new Uint8Array(ancho * alto);
+            const mascara = new Uint8Array(ancho * alto); // 0=fondo, 1=objeto
             const cola = [];
 
-            // PASO 1: Tomar color promedio de las esquinas = COLOR DE FONDO
-            const esquinaTL = obtenerColor(pixeles, 0, 0, ancho);
-            const esquinaTR = obtenerColor(pixeles, ancho - 1, 0, ancho);
-            const esquinaBL = obtenerColor(pixeles, 0, alto - 1, ancho);
-            const esquinaBR = obtenerColor(pixeles, ancho - 1, alto - 1, ancho);
-
-            const colorFondo = {
-                r: Math.round((esquinaTL.r + esquinaTR.r + esquinaBL.r + esquinaBR.r) / 4),
-                g: Math.round((esquinaTL.g + esquinaTR.g + esquinaBL.g + esquinaBR.g) / 4),
-                b: Math.round((esquinaTL.b + esquinaTR.b + esquinaBL.b + esquinaBR.b) / 4)
-            };
-
-            const UMBRAL_COLOR = 45; // Tolerancia al color de fondo
-
-            // PASO 2: Empezar desde TODOS los bordes de la imagen
+            // Iniciar recorrido desde el contorno de la imagen
             for (let x = 0; x < ancho; x++) {
-                if (esFondo(pixeles, x, 0, ancho, colorFondo, UMBRAL_COLOR)) {
-                    cola.push({ x, y: 0 });
-                    visitado[0 * ancho + x] = 1;
-                }
-                if (esFondo(pixeles, x, alto - 1, ancho, colorFondo, UMBRAL_COLOR)) {
-                    cola.push({ x, y: alto - 1 });
-                    visitado[(alto - 1) * ancho + x] = 1;
-                }
+                cola.push({ x, y: 0 });
+                cola.push({ x, y: alto - 1 });
+                visitado[0 * ancho + x] = 1;
+                visitado[(alto - 1) * ancho + x] = 1;
             }
             for (let y = 1; y < alto - 1; y++) {
-                if (esFondo(pixeles, 0, y, ancho, colorFondo, UMBRAL_COLOR)) {
-                    cola.push({ x: 0, y });
-                    visitado[y * ancho + 0] = 1;
-                }
-                if (esFondo(pixeles, ancho - 1, y, ancho, colorFondo, UMBRAL_COLOR)) {
-                    cola.push({ x: ancho - 1, y });
-                    visitado[y * ancho + (ancho - 1)] = 1;
-                }
+                cola.push({ x: 0, y });
+                cola.push({ x: ancho - 1, y });
+                visitado[y * ancho + 0] = 1;
+                visitado[y * ancho + (ancho - 1)] = 1;
             }
 
-            // PASO 3: Propagación hacia adentro → marcar fondo
+            // Expandir hacia adentro SIN CRUZAR BORDES
             while (cola.length > 0) {
                 const { x, y } = cola.shift();
                 const idx = y * ancho + x;
-                mascara[idx] = 0; // Es fondo
 
-                const vecinos = [
-                    { x: x - 1, y }, { x: x + 1, y },
-                    { x, y: y - 1 }, { x, y: y + 1 }
-                ];
+                // Si NO hay borde aquí = sigue siendo fondo
+                if (mapaBordes[idx] === 0) {
+                    mascara[idx] = 0; // Marcar como fondo
 
-                for (const v of vecinos) {
-                    if (v.x >= 0 && v.x < ancho && v.y >= 0 && v.y < alto) {
-                        const vidx = v.y * ancho + v.x;
-                        if (!visitado[vidx] && esFondo(pixeles, v.x, v.y, ancho, colorFondo, UMBRAL_COLOR)) {
-                            visitado[vidx] = 1;
-                            cola.push(v);
+                    const vecinos = [
+                        { x: x - 1, y }, { x: x + 1, y },
+                        { x, y: y - 1 }, { x, y: y + 1 }
+                    ];
+
+                    for (const v of vecinos) {
+                        if (v.x >= 0 && v.x < ancho && v.y >= 0 && v.y < alto) {
+                            const vidx = v.y * ancho + v.x;
+                            if (!visitado[vidx]) {
+                                visitado[vidx] = 1;
+                                cola.push(v);
+                            }
                         }
                     }
                 }
             }
 
-            // PASO 4: TODO lo NO marcado como fondo = ES OBJETO
+            // TODO lo NO alcanzado desde afuera = OBJETO
             for (let i = 0; i < mascara.length; i++) {
-                const fila = Math.floor(i / ancho);
-                const col = i % ancho;
                 if (visitado[i] === 0) {
-                    mascara[i] = 1; // Es objeto
+                    mascara[i] = 1;
                 }
             }
 
-            // PASO 5: Aplicar transparencia al fondo
+            // ========================================================
+            // PASO 3: APLICAR TRANSPARENCIA AL FONDO
+            // ========================================================
             for (let i = 0; i < mascara.length; i++) {
                 if (mascara[i] === 0) {
                     pixeles[i * 4 + 3] = 0;
@@ -132,7 +147,6 @@
 
             ctx.putImageData(datosImagen, 0, 0);
 
-            // PASO 6: Crear imagen en Paper.js
             const imagenProcesada = new paper.Raster(lienzo.toDataURL());
             imagenProcesada.position = imagenPaper.position;
             imagenProcesada.name = imagenPaper.name + '_sin_fondo';
@@ -140,25 +154,8 @@
             ESTADO.imagenProcesada = imagenProcesada;
             ESTADO.historial.push(lienzo.toDataURL());
 
-            console.log('[EKKO BackgroundRemover ✅] Fondo eliminado (algoritmo mejorado v2.1)');
+            console.log('[EKKO BackgroundRemover ✅] Fondo eliminado por CONTORNO (NO por color)');
             return imagenProcesada;
-        }
-
-        // ============================================================
-        // FUNCIONES AUXILIARES
-        // ============================================================
-        function obtenerColor(pixeles, x, y, ancho) {
-            const idx = (y * ancho + x) * 4;
-            return { r: pixeles[idx], g: pixeles[idx + 1], b: pixeles[idx + 2] };
-        }
-
-        function esFondo(pixeles, x, y, ancho, colorRef, umbral) {
-            const idx = (y * ancho + x) * 4;
-            const dr = pixeles[idx] - colorRef.r;
-            const dg = pixeles[idx + 1] - colorRef.g;
-            const db = pixeles[idx + 2] - colorRef.b;
-            const distancia = Math.sqrt(dr * dr + dg * dg + db * db);
-            return distancia < umbral;
         }
 
         // ============================================================
@@ -205,14 +202,12 @@
 
                 let imagenOriginalReferencia = null;
 
-                // ✅ ESTADO INICIAL FORZADO — ARRANCA BIEN
+                // ✅ ESTADO INICIAL: SOLO "Quitar Fondo" visible
                 if (btnQuitarFondo) btnQuitarFondo.style.display = 'inline-block';
                 if (btnEditarRecorte) btnEditarRecorte.style.display = 'none';
                 if (panelEditarRecorte) panelEditarRecorte.style.display = 'none';
 
-                // ==============================================
                 // ACCIÓN: QUITAR FONDO
-                // ==============================================
                 if (btnQuitarFondo) {
                     btnQuitarFondo.addEventListener('click', function () {
                         const seleccion = paper.project.selectedItems;
@@ -230,7 +225,6 @@
                             imagen.visible = false;
                             imagenProcesada.visible = true;
 
-                            // Cambiar visibilidad correctamente
                             btnQuitarFondo.style.display = 'none';
                             if (btnEditarRecorte) btnEditarRecorte.style.display = 'inline-block';
                             if (panelEditarRecorte) panelEditarRecorte.style.display = 'block';
@@ -240,9 +234,7 @@
                     });
                 }
 
-                // ==============================================
                 // ACCIÓN: EDITAR RECORTE
-                // ==============================================
                 if (btnEditarRecorte && panelEditarRecorte) {
                     btnEditarRecorte.addEventListener('click', function () {
                         panelEditarRecorte.style.display = panelEditarRecorte.style.display === 'none' ? 'block' : 'none';
@@ -278,13 +270,10 @@
                         if (ESTADO.imagenProcesada) {
                             ESTADO.imagenProcesada.remove();
                             ESTADO.imagenProcesada = null;
-
                             if (imagenOriginalReferencia) imagenOriginalReferencia.visible = true;
-
                             if (btnQuitarFondo) btnQuitarFondo.style.display = 'inline-block';
                             if (btnEditarRecorte) btnEditarRecorte.style.display = 'none';
                             if (panelEditarRecorte) panelEditarRecorte.style.display = 'none';
-
                             console.log('[EKKO ↩️] Deshecho. Imagen original restaurada.');
                         }
                     });
@@ -309,9 +298,9 @@
         // ============================================================
         function inicializar() {
             ESTADO.activo = true;
-            console.log('[EKKO BackgroundRemover v2.1 ✅] Eliminador de fondo CARGADO');
-            console.log('  › Lógica mejorada: desde bordes hacia adentro + color de fondo');
-            console.log('  › Compatible con fotos reales, fondos complejos y gradientes');
+            console.log('[EKKO BackgroundRemover v2.2 ✅] DETECCIÓN POR CONTORNO — NO POR COLOR');
+            console.log('  › Lógica: detecta BORDES por cambio de brillo, NO por tono');
+            console.log('  › Funciona aunque objeto y fondo tengan colores parecidos');
             console.log('  › Herramientas manuales: Restaurar / Quitar');
             conectarBotonesInterfaz();
         }
