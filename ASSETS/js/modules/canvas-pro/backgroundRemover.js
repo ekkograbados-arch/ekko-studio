@@ -1,8 +1,9 @@
 // ================================================================
 // EKKO STUDIO — ELIMINADOR DE FONDO CON IA LOCAL (BRIA RMBG)
+// ✅ Versión CORREGIDA con modelo compatible con ONNX v11
 // ✅ Corre en el navegador del cliente → la foto NO viaja afuera
 // ✅ $0 costo, sin límites, sin cuentas, sin API Keys
-// ✅ Calidad casi igual a Photoroom
+// ✅ Calidad cercana a Photoroom
 // ✅ Conserva posición, tamaño y propiedades de la imagen
 // ================================================================
 
@@ -20,7 +21,7 @@
         };
 
         // ============================================================
-        // CARGAR EL MODELO DE IA (BRIA RMBG - ONNX)
+        // CARGAR EL MODELO DE IA (BRIA RMBG - VERSIÓN COMPATIBLE)
         // ============================================================
         async function cargarModelo() {
             if (ESTADO.modeloCargado) return true;
@@ -39,10 +40,13 @@
                     });
                 }
 
-                // Configurar sesión de IA
+                // ✅ USAMOS VERSIÓN SIN CUANTIZAR = COMPATIBLE CON TODOS LOS NAVEGADORES
                 ESTADO.sesion = await ort.InferenceSession.create(
-                    'https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model_quantized.onnx',
-                    { executionProviders: ['webgl', 'wasm'] }
+                    'https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx',
+                    { 
+                        executionProviders: ['webgl', 'wasm'],
+                        graphOptimizationLevel: 'all'
+                    }
                 );
 
                 ESTADO.modeloCargado = true;
@@ -50,7 +54,7 @@
                 return true;
             } catch (err) {
                 console.error('[EKKO IA ❌ Error cargando modelo]:', err);
-                alert('⚠️ No se pudo cargar la IA. Por favor revisá tu conexión a Internet y volvé a intentar.');
+                alert('⚠️ No se pudo cargar la IA. Revisá tu conexión y volvé a intentar.');
                 return false;
             }
         }
@@ -94,7 +98,7 @@
             lienzo.height = alto;
             ctx.drawImage(imagenPaper.getElement(), 0, 0, ancho, alto);
 
-            // Preparar imagen para la IA (normalizar y redimensionar)
+            // Preparar imagen para la IA (tamaño estándar 1024x1024)
             const tamañoObjetivo = [1024, 1024];
             const lienzoRedim = document.createElement('canvas');
             lienzoRedim.width = tamañoObjetivo[0];
@@ -131,7 +135,7 @@
                     const valorMascara = arrMascara[my * tamañoObjetivo[0] + mx];
 
                     const idx = (y * ancho + x) * 4;
-                    datosSalida.data[idx + 3] = Math.round(valorMascara * 255);
+                    datosSalida.data[idx + 3] = Math.max(0, Math.min(255, Math.round(valorMascara * 255)));
                 }
             }
 
@@ -235,17 +239,17 @@
                     });
                 }
 
-                console.log('[EKKO BackgroundRemover ✅] IA Local BRIA cargada');
+                console.log('[EKKO BackgroundRemover ✅] IA Local BRIA cargada (versión compatible)');
             });
         }
 
         function inicializar() {
             ESTADO.activo = true;
-            console.log('[EKKO BackgroundRemover v5.0 ✅] INTELIGENCIA ARTIFICIAL LOCAL');
+            console.log('[EKKO BackgroundRemover v5.1 ✅] INTELIGENCIA ARTIFICIAL LOCAL — Versión Compatible');
             console.log('  › La IA corre en la computadora del cliente');
             console.log('  › La foto NO se envía a servidores externos');
             console.log('  › Sin costo, sin límites, sin cuentas');
-            console.log('  › Calidad cercana a Photoroom');
+            console.log('  › Modelo compatible con todos los navegadores');
             conectarBotonesInterfaz();
         }
 
