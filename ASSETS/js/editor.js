@@ -796,8 +796,11 @@ export function openSVGFileDialog() {
 }
 window.openSVGFileDialog = openSVGFileDialog;
 
-// CARGA UNIFICADA — reutiliza TUS cargadores que ya funcionan
+// ==============================================
+// CARGA UNIFICADA — REUTILIZA TUS FUNCIONES ORIGINALES
+// ==============================================
 function openAssetLoader() {
+  // Abre el selector de archivos múltiple pero usa TUS cargadores reales
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
@@ -815,7 +818,7 @@ function openAssetLoader() {
     const svgFiles = files.filter(f => f.name.toLowerCase().endsWith('.svg'));
     const imgFiles = files.filter(f => !f.name.toLowerCase().endsWith('.svg'));
 
-    // ENTREGAR A TUS INPUTS ORIGINALES QUE YA SABEN CARGAR
+    // 🟢 USAMOS TUS INPUTS ORIGINALES QUE YA EXISTEN
     if (imgFiles.length > 0) {
       const imgInput = document.getElementById('imagePicker');
       if (imgInput) {
@@ -842,10 +845,10 @@ function openAssetLoader() {
   input.click();
 }
 
+// EXPOSICIÓN AL HTML
 window.openAssetLoader = openAssetLoader;
 window.openImageLoader = openAssetLoader;
 window.openSVGLoader = openAssetLoader;
-
 
 // Inicializacion de la Modal de QR Dinamico
 const loadQRCodeLibrary = () => {
