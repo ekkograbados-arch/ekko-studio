@@ -26,8 +26,143 @@ CORRECCIONES ARQUITECTÓNICAS V21.0:
 
 ========================================================================= */
 
+
+
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
 import { setMeasurementsVisibility } from "./canvasMeasurements.js";
+
+// ==============================================
+// ESTADO COMPARTIDO: Barra Superior ↔ Barra Emergente
+// ==============================================
+window._toolbarState = {
+  topCollapsed: false,
+  contextHidden: false,
+  productCollapsed: false,
+  activeTab: 'fusion'
+};
+
+// ==============================================
+// LÓGICA DE BOTONES SEGÚN SELECCIÓN
+// ==============================================
+function resolveButtonSet(selection) {
+  if (!selection || !selection.length) {
+    return { show: ['zoom', 'rulers', 'guides'], hide: ['ungroup', 'editNodes', 'fusion', 'unfusion'] };
+  }
+
+  const types = getSelectionTypes(selection);
+  const count = selection.length;
+
+  // Fusión seleccionada
+  if (types.fusion === count) {
+    return { show: ['unfusion', 'editFusionImage'], hide: ['ungroup', 'fusion', 'editNodes'] };
+  }
+
+  // Imagen + Vector → Fusionar disponible
+  if (types.raster && types.vector && count === 2) {
+    return { show: ['fusion', 'align', 'group'], highlight: ['fusion'], hide: ['ungroup'] };
+  }
+
+  // Solo imagen
+  if (count === 1 && types.raster) {
+    return { show: ['removeBg', 'traceImage', 'group'], disable: ['fusion'], hide: ['ungroup', 'editNodes'] };
+  }
+
+  // Solo vector/SVG
+  if (count === 1 && types.vector) {
+    return { show: ['editNodes', 'outline', 'group'], disable: ['fusion'], hide: ['ungroup'] };
+  }
+
+  // Grupo
+  if (count === 1 && types.group) {
+    return { show: ['ungroup', 'align'], hide: ['fusion', 'unfusion'] };
+  }
+
+  // Múltiple mismo tipo
+  if (count > 1 && types.allSame) {
+    return { show: ['group', 'align', 'distribute'], disable: ['fusion'] };
+  }
+
+  // Múltiple mixto
+  return { show: ['group', 'align'], disable: ['fusion'] };
+  }
+}
+
+function getSelectionTypes(items) {
+  items = items || [];
+  const out = { raster: 0, vector: 0, text: 0, fusion: 0, group: 0 };
+  items.forEach(it => {
+    const d = it.data || {};
+    if (d.isSmartFusion) return out.fusion++;
+    if (it.className === 'Raster') return out.raster++;
+    if (d.isText || it.className === 'PointText') return out.text++;
+    if (it.className === 'Group' || it.className === 'CompoundPath') return out.group++;
+    if (it.className === 'Path' || it.className === 'CompoundPath') return out.vector++;
+  });
+  out.allSame = items.length <= 1 || Object.values(out).filter(v => v > 0).length === 1;
+  return out;
+}
+
+// ==============================================
+// SINCRONIZAR AMBOS PANELES AL MISMO ESTADO
+// ==============================================
+function refreshAllToolbars() {
+  const sel = window.selectedItem ? [window.selectedItem] : [];
+  const set = resolveButtonSet(sel);
+  syncToolbarToSet('topToolbar', set);
+  syncToolbarToSet('contextToolbar', set);
+}
+
+function syncToolbarToSet(toolbarId, set) {
+  const tb = document.getElementById(toolbarId);
+  if (!tb) return;
+
+  // Mostrar / Ocultar
+  tb.querySelectorAll('[data-fusion-btn]').forEach(btn => {
+    const name = btn.dataset.fusionBtn;
+    if (set.hide && set.hide.includes(name)) {
+      btn.style.display = 'none';
+    } else if (set.show && set.show.includes(name)) {
+      btn.style.display = '';
+      btn.classList.toggle('disabled', set.disable && set.disable.includes(name));
+      btn.classList.toggle('highlight', set.highlight && set.highlight.includes(name));
+    }
+  });
+}
+
+// ==============================================
+// BOTONES DE VISIBILIDAD DE PANELES
+// ==============================================
+function initPanelToggles() {
+  // Barra Superior ⋮⋮⋮
+  document.getElementById('toggleTopBar')?.addEventListener('click', () => {
+    window._toolbarState.topCollapsed = !window._toolbarState.topCollapsed;
+    document.getElementById('topToolbar')?.classList.toggle('collapsed', window._toolbarState.topCollapsed);
+  });
+
+  // Barra Emergente ⋮⋮⋮
+  document.getElementById('toggleContextBar')?.addEventListener('click', () => {
+    window._toolbarState.contextHidden = !window._toolbarState.contextHidden;
+    document.getElementById('contextToolbar')?.classList.toggle('hidden', window._toolbarState.contextHidden);
+  });
+
+  // Panel Izquierdo «
+  document.getElementById('toggleProductPanel')?.addEventListener('click', () => {
+    window._toolbarState.productCollapsed = !window._toolbarState.productCollapsed;
+    document.getElementById('productPanelWrap')?.classList.toggle('collapsed', window._toolbarState.productCollapsed);
+  });
+}
+
+// Inicializar
+window.addEventListener('load', () => {
+  initPanelToggles();
+  // Refrescar cada vez que cambie la selección
+  const origSelect = window.setSelectedItem;
+  window.setSelectedItem = function(it) {
+    origSelect && origSelect.call(this, it);
+    setTimeout(refreshAllToolbars, 10);
+  };
+});
+
 
 // Helper universal de resolución de contenido dentro o fuera de clipGroup
 function getContentItem(item) {
