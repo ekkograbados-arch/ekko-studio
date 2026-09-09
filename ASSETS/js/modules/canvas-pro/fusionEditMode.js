@@ -30,12 +30,23 @@ function cleanupEditState() {
   if (paper.view && paper.view.element) paper.view.element.style.cursor = 'default';
 }
 
+// Elimina imágenes/contornos huérfanos de sesiones de edición fallidas (evita duplicados)
+function cleanupStrayEditItems() {
+  try {
+    if (!paper || !paper.project) return;
+    paper.project.getItems({ match: function(it){ return it.data && (it.data.fusionEditRaster || it.data.fusionEditMask); } }).forEach(function(it){
+      try { it.remove(); } catch(e){}
+    });
+  } catch(e){}
+}
+
 /* ------------------------------------------------------------------------
    ENTRAR al modo edición interna.
 ------------------------------------------------------------------------ */
 export function enterFusionEditMode(fusionItem) {
   if (!fusionItem || window.nodeEditMode) return;
   if (window.fusionEditActive) { try { exitFusionEditMode(true); } catch(e){} }
+  cleanupStrayEditItems();
 
   let fusionGroup = null;
   let curr = fusionItem;
@@ -171,6 +182,7 @@ export function exitFusionEditMode(accept = true) {
   } catch (e) {
     console.error("[FUSION EXIT EDIT ERROR]", e);
     if (st && st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e2){} }
+    if (st && st.freeRaster && st.freeRaster.project) { try { st.freeRaster.remove(); } catch(e2){} }
     if (typeof window.recalculateDynamicSubtractions === 'function') { try { window.recalculateDynamicSubtractions(); } catch(e2){} }
     paper.view.update();
   }
@@ -182,8 +194,8 @@ export function initFusionEditMode() {
     window.exitFusionEditMode = exitFusionEditMode;
     window.fusionEditActive = false;
   }
-  console.log("%c[EKKO FUSION EDIT MODE v1.1] Edición interna (cian neón) robusta cargada.", "color: #00e5ff; font-weight: bold;");
+  cleanupStrayEditItems();
+  console.log("%c[EKKO FUSION EDIT MODE v1.2] Edición interna (cian neón) + anti-duplicados cargada.", "color: #00e5ff; font-weight: bold;");
 }
 
 initFusionEditMode();
-
