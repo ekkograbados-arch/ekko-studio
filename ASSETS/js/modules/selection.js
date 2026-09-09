@@ -32,6 +32,103 @@
       - Garantiza 'dragDisplacementValid: true' e 'inconsistencies: []' en todas las operaciones.
    ========================================================================= */
 
+// ==============================================
+// SISTEMA DE REGISTRO DE DOBLE CLIC (extensible)
+// ==============================================
+window._dblclickHandlers = window._dblclickHandlers || [];
+
+// Handler 1: FUSIÓN (prioridad máxima)
+window._dblclickHandlers.push({
+  priority: 10,
+  test: function(item) {
+    if (!item) return false;
+    const container = typeof findSmartFusionContainer === 'function' 
+      ? findSmartFusionContainer(item) 
+      : (item.data && item.data.isSmartFusion ? item : null);
+    return !!container;
+  },
+  run: function(item) {
+    const fusion = typeof findSmartFusionContainer === 'function'
+      ? findSmartFusionContainer(item)
+      : item;
+    if (typeof enterFusionEditMode === 'function') {
+      enterFusionEditMode(fusion);
+    }
+    return true; // Bloquear otros handlers
+  }
+});
+
+// Handler 2: TEXTO
+window._dblclickHandlers.push({
+  priority: 5,
+  test: function(item) {
+    return item && (item.data && item.data.isText || item.className === 'PointText');
+  },
+  run: function(item) {
+    if (typeof enterTextEditMode === 'function') {
+      enterTextEditMode(item);
+    }
+    return true;
+  }
+});
+
+// ==============================================
+// INTERCEPTAR DESAGRUPAR: FUSIÓN → QUITAR FUSIÓN
+// ==============================================
+const originalUngroup = window.ungroupSelectedItem;
+window.ungroupSelectedItem = function() {
+  const sel = window.selectedItem;
+  if (!sel) return;
+
+  // ¿Es una fusión?
+  const fusion = (sel.data && sel.data.isSmartFusion) ? sel :
+    (typeof findSmartFusionContainer === 'function' ? findSmartFusionContainer(sel) : null);
+
+  if (fusion) {
+    // 1. Si está en edición interna → SALIR aceptando cambios
+    if (window.fusionEditActive) {
+      if (typeof exitFusionEditMode === 'function') {
+        exitFusionEditMode('accept');
+      }
+    }
+    // 2. Ejecutar QUITAR FUSIÓN en lugar de Desagrupar
+    if (typeof releaseSmartFusion === 'function') {
+      releaseSmartFusion(fusion);
+    }
+    return; // ❌ NO ejecutar el Desagrupar original
+  }
+
+  // Si no es fusión → Desagrupar normal
+  return originalUngroup ? originalUngroup.apply(this, arguments) : null;
+};
+
+// ==============================================
+// DOBLE CLIC: ejecutar handlers registrados
+// ==============================================
+const originalOnDoubleClick = window.onSelectionDoubleClick;
+window.onSelectionDoubleClick = function(item, event) {
+  event = event || window.event;
+  event.preventDefault && event.preventDefault();
+
+  // Ordenar por prioridad y probar
+  const handlers = (window._dblclickHandlers || []).sort((a, b) => b.priority - a.priority);
+  for (const h of handlers) {
+    try {
+      if (h.test(item)) {
+        if (h.run(item, event)) {
+          return; // Manejado → NO llega a Edición de Nodos
+        }
+      }
+    } catch (e) {
+      console.warn('Handler doble clic falló:', e);
+    }
+  }
+
+  // Si ningún handler lo tomó → comportamiento original (sin nodos)
+  // originalOnDoubleClick && originalOnDoubleClick.call(this, item, event);
+};
+
+
 // Logging controlado y conmutable para desarrollo y auditoría F12
 window.EKKO_DEBUG = typeof window.EKKO_DEBUG !== 'undefined' ? window.EKKO_DEBUG : false;
 const debugLog = (...args) => { if (window.EKKO_DEBUG) console.log(...args); };
