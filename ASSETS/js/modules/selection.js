@@ -1279,9 +1279,16 @@ const _initSelectionTool = function() {
     window.rotationActive = false;
     window.isRotationSnapped = false;
     window.rotationTargets = [];
-     window.ungroupSelectedItem = ungroupSelectedItem;
-window.enterFusionEditMode = enterFusionEditMode;
+     
+// ==============================================================
+// EXPOSICIÓN DE FUNCIONES AL SISTEMA Y AL HTML
+// ==============================================================
+window.ungroupSelectedItem = ungroupSelectedItem;
+window.groupSelectedItems = groupSelectedItems;
+window.alignSelection = alignSelection;
+window.distributeSelection = distributeSelection;
 
+     
     const canvas = document.getElementById("editorCanvas");
     if (canvas) canvas.style.cursor = 'default';
     if (typeof clearSmartGuides === "function") clearSmartGuides();
