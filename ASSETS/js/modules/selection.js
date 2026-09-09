@@ -1083,7 +1083,7 @@ const _initSelectionTool = function() {
         const onlyTarget = window.dragTargets[0].target;
         if (onlyTarget && onlyTarget.className === 'Raster') {
           window._lastDraggedRaster = onlyTarget;
-          window.checkMagneticSnapping(onlyTarget);
+          window.checkMagneticSnapping(onlyTarget, event.point);
         }
       } else {
         if (typeof window.clearFusionPreview === 'function') window.clearFusionPreview();
@@ -1278,5 +1278,4 @@ protectGlobal('deselectItem', _deselectItem);
 protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
-
 
