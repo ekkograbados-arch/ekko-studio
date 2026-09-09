@@ -228,3 +228,8 @@ export function initFusionEditMode() {
 }
 
 initFusionEditMode();
+// ==============================================================
+// EXPOSICIÓN DE FUNCIONES AL SISTEMA Y AL HTML
+// ==============================================================
+window.enterFusionEditMode = enterFusionEditMode;
+window.exitFusionEditMode = exitFusionEditMode;
