@@ -31,136 +31,122 @@ CORRECCIONES ARQUITECTÓNICAS V21.0:
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
 import { setMeasurementsVisibility } from "./canvasMeasurements.js";
 
-// ==============================================
-// ESTADO COMPARTIDO: Barra Superior ↔ Barra Emergente
-// ==============================================
+
+// ==============================================================
+// PANELES SINCRONIZADOS — VERSIÓN DEFINITIVA v10.5
+// ==============================================================
+
 window._toolbarState = {
   topCollapsed: false,
-  contextHidden: false,
-  productCollapsed: false,
-  activeTab: 'fusion'
+  contextualHidden: false,
+  productCollapsed: false
 };
-
-// ==============================================
-// LÓGICA DE BOTONES SEGÚN SELECCIÓN
-// ==============================================
-function resolveButtonSet(selection) {
-  if (!selection || !selection.length) {
-    return { show: ['zoom', 'rulers', 'guides'], hide: ['ungroup', 'editNodes', 'fusion', 'unfusion'] };
-  }
-
-  const types = getSelectionTypes(selection);
-  const count = selection.length;
-
-  // Fusión seleccionada
-  if (types.fusion === count) {
-    return { show: ['unfusion', 'editFusionImage'], hide: ['ungroup', 'fusion', 'editNodes'] };
-  }
-
-  // Imagen + Vector → Fusionar disponible
-  if (types.raster && types.vector && count === 2) {
-    return { show: ['fusion', 'align', 'group'], highlight: ['fusion'], hide: ['ungroup'] };
-  }
-
-  // Solo imagen
-  if (count === 1 && types.raster) {
-    return { show: ['removeBg', 'traceImage', 'group'], disable: ['fusion'], hide: ['ungroup', 'editNodes'] };
-  }
-
-  // Solo vector/SVG
-  if (count === 1 && types.vector) {
-    return { show: ['editNodes', 'outline', 'group'], disable: ['fusion'], hide: ['ungroup'] };
-  }
-
-  // Grupo
-  if (count === 1 && types.group) {
-    return { show: ['ungroup', 'align'], hide: ['fusion', 'unfusion'] };
-  }
-
-  // Múltiple mismo tipo
-  if (count > 1 && types.allSame) {
-    return { show: ['group', 'align', 'distribute'], disable: ['fusion'] };
-  }
-
-  // Múltiple mixto
-  return { show: ['group', 'align'], disable: ['fusion'] };
-  }
 
 function getSelectionTypes(items) {
   items = items || [];
-  const out = { raster: 0, vector: 0, text: 0, fusion: 0, group: 0 };
+  const counts = { raster: 0, vector: 0, text: 0, fusion: 0, group: 0 };
   items.forEach(it => {
     const d = it.data || {};
-    if (d.isSmartFusion) return out.fusion++;
-    if (it.className === 'Raster') return out.raster++;
-    if (d.isText || it.className === 'PointText') return out.text++;
-    if (it.className === 'Group' || it.className === 'CompoundPath') return out.group++;
-    if (it.className === 'Path' || it.className === 'CompoundPath') return out.vector++;
+    if (d.isSmartFusion) counts.fusion++;
+    else if (it.className === 'Raster') counts.raster++;
+    else if (d.isText) counts.text++;
+    else if (it.className === 'Group') counts.group++;
+    else if (it.pathData || it.className === 'Path') counts.vector++;
   });
-  out.allSame = items.length <= 1 || Object.values(out).filter(v => v > 0).length === 1;
-  return out;
+  counts.allSame = items.length <= 1 || Object.values(counts).filter(v => v > 0).length === 1;
+  return counts;
 }
 
-// ==============================================
-// SINCRONIZAR AMBOS PANELES AL MISMO ESTADO
-// ==============================================
-function refreshAllToolbars() {
-  const sel = window.selectedItem ? [window.selectedItem] : [];
-  const set = resolveButtonSet(sel);
-  syncToolbarToSet('topToolbar', set);
-  syncToolbarToSet('contextToolbar', set);
+function resolveButtonSet(selection) {
+  if (!selection || !selection.length) {
+    return { show: ['zoom','rulers','guides'], hide: ['fusion','unfusion','ungroup','editNodes','removeBg','traceImage','editFusionImage','group','align','distribute','outline'] };
+  }
+
+  const types = getSelectionTypes(selection);
+
+  // Fusión seleccionada
+  if (types.fusion === selection.length) {
+    return { show: ['unfusion','editFusionImage'], hide: ['fusion','ungroup','editNodes','removeBg','traceImage','group','align','distribute','outline'] };
+  }
+
+  // Imagen + Vector → Fusionar disponible
+  if (types.raster && types.vector && selection.length === 2) {
+    return { show: ['fusion','group','align'], highlight: ['fusion'], hide: ['unfusion','ungroup','editNodes','distribute','outline'] };
+  }
+
+  // Solo imagen
+  if (types.raster === selection.length) {
+    return { show: ['removeBg','traceImage','group'], hide: ['fusion','unfusion','ungroup','editNodes','distribute','outline','editFusionImage'] };
+  }
+
+  // Solo vector
+  if (types.vector === selection.length) {
+    return { show: ['editNodes','outline','group'], hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage'] };
+  }
+
+  // Grupo
+  if (types.group === selection.length) {
+    return { show: ['ungroup','align'], hide: ['fusion','unfusion','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
+  }
+
+  // Múltiples del mismo tipo
+  if (selection.length > 1 && types.allSame) {
+    return { show: ['group','align','distribute'], hide: ['fusion','unfusion','ungroup','editNodes','removeBg','traceImage','outline','editFusionImage'] };
+  }
+
+  // Múltiple mixto
+  return { show: ['group','align'], hide: ['fusion','unfusion','ungroup','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
 }
 
-function syncToolbarToSet(toolbarId, set) {
+function syncToolbar(toolbarId, set) {
   const tb = document.getElementById(toolbarId);
   if (!tb) return;
-
-  // Mostrar / Ocultar
   tb.querySelectorAll('[data-fusion-btn]').forEach(btn => {
     const name = btn.dataset.fusionBtn;
-    if (set.hide && set.hide.includes(name)) {
-      btn.style.display = 'none';
-    } else if (set.show && set.show.includes(name)) {
-      btn.style.display = '';
-      btn.classList.toggle('disabled', set.disable && set.disable.includes(name));
-      btn.classList.toggle('highlight', set.highlight && set.highlight.includes(name));
-    }
+    const debeMostrar = set.show && set.show.includes(name);
+    const debeOcultar = set.hide && set.hide.includes(name);
+    const debeResaltar = set.highlight && set.highlight.includes(name);
+
+    btn.style.display = debeOcultar ? 'none' : '';
+    btn.classList.toggle('highlight', debeResaltar);
   });
 }
 
-// ==============================================
-// BOTONES DE VISIBILIDAD DE PANELES
-// ==============================================
+function refreshAllToolbars() {
+  const sel = window.selectedItems && window.selectedItems.length
+    ? window.selectedItems
+    : window.selectedItem ? [window.selectedItem] : [];
+  const set = resolveButtonSet(sel);
+  syncToolbar('topBar', set);
+  syncToolbar('contextual-toolbar', set);
+}
+
 function initPanelToggles() {
-  // Barra Superior ⋮⋮⋮
   document.getElementById('toggleTopBar')?.addEventListener('click', () => {
     window._toolbarState.topCollapsed = !window._toolbarState.topCollapsed;
-    document.getElementById('topToolbar')?.classList.toggle('collapsed', window._toolbarState.topCollapsed);
+    document.getElementById('topBar')?.classList.toggle('collapsed', window._toolbarState.topCollapsed);
   });
-
-  // Barra Emergente ⋮⋮⋮
   document.getElementById('toggleContextBar')?.addEventListener('click', () => {
-    window._toolbarState.contextHidden = !window._toolbarState.contextHidden;
-    document.getElementById('contextToolbar')?.classList.toggle('hidden', window._toolbarState.contextHidden);
+    window._toolbarState.contextualHidden = !window._toolbarState.contextualHidden;
+    document.getElementById('contextual-toolbar')?.classList.toggle('hidden', window._toolbarState.contextualHidden);
   });
-
-  // Panel Izquierdo «
   document.getElementById('toggleProductPanel')?.addEventListener('click', () => {
     window._toolbarState.productCollapsed = !window._toolbarState.productCollapsed;
     document.getElementById('productPanelWrap')?.classList.toggle('collapsed', window._toolbarState.productCollapsed);
   });
 }
 
-// Inicializar
 window.addEventListener('load', () => {
   initPanelToggles();
-  // Refrescar cada vez que cambie la selección
-  const origSelect = window.setSelectedItem;
-  window.setSelectedItem = function(it) {
-    origSelect && origSelect.call(this, it);
+  const originalSet = window.setSelectedItem;
+  window.setSelectedItem = function(item) {
+    if (originalSet) originalSet.call(this, item);
     setTimeout(refreshAllToolbars, 10);
   };
+  window.refreshAllToolbars = refreshAllToolbars;
 });
+
+
 
 
 // Helper universal de resolución de contenido dentro o fuera de clipGroup
