@@ -1,22 +1,16 @@
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/fusionEditMode.js
-ACCIÓN: CREAR (archivo nuevo)
-ESTADO: v1.0 — Modo de Edición Interna de Fusión (Canva-Style)
+ACCIÓN: REEMPLAZAR (v1.1 — a prueba de congelamientos)
   - Doble clic sobre una fusión → entra en modo edición.
-  - La imagen se muestra completa translúcida, seleccionable y transformable
-    (arrastrar / escalar / rotar) dentro de la silueta.
-  - La silueta del hueco real se colorea NEON AZUL/CIAN indicando "modo edición".
-  - Salida: Enter / clic derecho / clic fuera del área de edición → acepta.
-    Escape → cancela y restaura.
-  - Al aceptar: se re-aplica la fusión con la imagen en su nueva posición.
-DEPENDENCIAS: smartFusion.js (applySmartFusion), geometricUngroup.js
+  - Imagen libre translúcida (transformable), silueta en NEON CIAN.
+  - Salida: Enter / clic derecho / clic fuera → acepta. Escape → cancela.
+  - Todo envuelto en try/catch con limpieza de estado (no congela el lienzo).
+DEPENDENCIAS: smartFusion.js (applySmartFusion)
 ======================================================================== */
 import { applySmartFusion } from "./smartFusion.js";
 
 const NEON_CYAN = '#00e5ff';
-
-// Estado del modo edición
-let editState = null; // { fusionGroup, maskChild, freeRaster, mode, vectorData, originalIsHole, fusionId }
+let editState = null;
 
 function getContentItem(item) {
   if (!item) return null;
@@ -29,15 +23,20 @@ function getContentItem(item) {
   return item;
 }
 
+function cleanupEditState() {
+  editState = null;
+  window._fusionEditState = null;
+  window.fusionEditActive = false;
+  if (paper.view && paper.view.element) paper.view.element.style.cursor = 'default';
+}
+
 /* ------------------------------------------------------------------------
    ENTRAR al modo edición interna.
-   fusionGroup: el contenedor isSmartFusion (o su wrapper clipGroup).
 ------------------------------------------------------------------------ */
 export function enterFusionEditMode(fusionItem) {
   if (!fusionItem || window.nodeEditMode) return;
-  if (window.fusionEditActive) exitFusionEditMode(true);
+  if (window.fusionEditActive) { try { exitFusionEditMode(true); } catch(e){} }
 
-  // Localizar el contenedor real isSmartFusion (puede estar dentro de clipGroup)
   let fusionGroup = null;
   let curr = fusionItem;
   while (curr) {
@@ -46,139 +45,144 @@ export function enterFusionEditMode(fusionItem) {
   }
   if (!fusionGroup || !fusionGroup.children || fusionGroup.children.length < 2) return;
 
-  if (typeof window.saveHistory === 'function') window.saveHistory();
+  try {
+    if (typeof window.saveHistory === 'function') window.saveHistory();
 
-  const maskChild = fusionGroup.children[0];   // máscara (clipMask)
-  const rasterChild = fusionGroup.children[1]; // imagen (Raster)
-  if (!rasterChild || rasterChild.className !== 'Raster') return;
+    const maskChild = fusionGroup.children[0];
+    const rasterChild = fusionGroup.children[1];
+    if (!rasterChild || rasterChild.className !== 'Raster') return;
 
-  const mode = fusionGroup.data.fusionMode || 'intersecar';
-  const originalIsHole = !!(fusionGroup.data.originalIsHole);
-  const fusionId = fusionGroup.data.fusionId;
-  const vectorData = fusionGroup.data.originalVectorData;
-  if (!vectorData) return;
+    const mode = fusionGroup.data.fusionMode || 'intersecar';
+    const originalIsHole = !!(fusionGroup.data.originalIsHole);
+    const fusionId = fusionGroup.data.fusionId;
+    const vectorData = fusionGroup.data.originalVectorData;
+    if (!vectorData) return;
 
-  // Quitar el hueco virtual asociado temporalmente (se re-registrará al re-fusionar)
-  if (Array.isArray(window._fusionVirtualHoles)) {
-    window._fusionVirtualHoles = window._fusionVirtualHoles.filter(h => {
-      if (h.fusionId === fusionId) { try { h.geom.remove(); } catch(e){} return false; }
-      return true;
-    });
-  }
-
-  // 1. Extraer la imagen del grupo recortado y dejarla libre (translúcida)
-  const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-  rasterChild.remove();
-  rasterChild.opacity = 0.6;
-  rasterChild.data = { ...(rasterChild.data || {}), fusionEditRaster: true, label: "Imagen (editando fusión)" };
-  rasterChild.selected = false;
-  designLayer.addChild(rasterChild);
-  if (window.currentMockup) rasterChild.insertBelow(window.currentMockup);
-
-  // 2. Convertir la máscara en contorno NEON CIAN (desactivar recorte temporalmente)
-  fusionGroup.clipped = false;
-  maskChild.clipMask = false;
-  maskChild.data = { ...(maskChild.data || {}), fusionEditMask: true };
-  maskChild.fillColor = new paper.Color(0, 0.9, 1, 0.06);
-  maskChild.strokeColor = new paper.Color(NEON_CYAN);
-  maskChild.strokeWidth = 2.5 / (paper.view.zoom || 1);
-  maskChild.shadowColor = new paper.Color(NEON_CYAN);
-  maskChild.shadowBlur = 14 / (paper.view.zoom || 1);
-  maskChild.bringToFront();
-
-  editState = { fusionGroup, maskChild, freeRaster: rasterChild, mode, vectorData, originalIsHole, fusionId };
-  window.fusionEditActive = true;
-  window._fusionEditState = editState;
-
-  if (typeof window.deselectItem === 'function') window.deselectItem();
-  if (typeof window.selectItem === 'function') window.selectItem(rasterChild);
-  if (paper.view && paper.view.element) paper.view.element.style.cursor = 'move';
-  paper.view.update();
-
-  // Listener de clic fuera → aceptar y salir (estilo AutoCAD)
-  if (!window._fusionEditOutsideBound) {
-    window._fusionEditOutsideBound = true;
-    const canvas = document.getElementById('editorCanvas') || (paper.view && paper.view.element);
-    if (canvas) {
-      canvas.addEventListener('mousedown', function onDown(e) {
-        if (!window.fusionEditActive || !editState) return;
-        // Si el clic es sobre la imagen en edición, no salir (deja arrastrar)
-        let pt = null;
-        try { pt = paper.view.getEventPoint(e); } catch(err) { pt = null; }
-        if (pt && editState.freeRaster && editState.freeRaster.bounds && editState.freeRaster.bounds.contains(pt)) return;
-        setTimeout(() => { if (window.fusionEditActive) exitFusionEditMode(true); }, 0);
+    // Quitar temporalmente el hueco virtual (se re-registra al re-fusionar)
+    if (Array.isArray(window._fusionVirtualHoles)) {
+      window._fusionVirtualHoles = window._fusionVirtualHoles.filter(h => {
+        if (h.fusionId === fusionId) { try { h.geom.remove(); } catch(e){} return false; }
+        return true;
       });
     }
+
+    const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+    const zoom = paper.view.zoom || 1.0;
+
+    // 1. Extraer la imagen → libre, translúcida, transformable
+    rasterChild.remove();
+    rasterChild.opacity = 0.6;
+    rasterChild.data = { ...(rasterChild.data || {}), fusionEditRaster: true, label: "Imagen (editando fusión)" };
+    rasterChild.selected = false;
+    designLayer.addChild(rasterChild);
+    if (window.currentMockup) rasterChild.insertBelow(window.currentMockup);
+
+    // 2. Extraer la máscara → contorno NEON CIAN independiente (no depende de clipGroup)
+    let cyanOutline = null;
+    try {
+      cyanOutline = vectorData.clone({ insert: false });
+      cyanOutline.matrix = new paper.Matrix();
+      cyanOutline.data = { fusionEditMask: true, isSelectionBox: true };
+      cyanOutline.fillColor = new paper.Color(0, 0.9, 1, 0.06);
+      cyanOutline.strokeColor = new paper.Color(NEON_CYAN);
+      cyanOutline.strokeWidth = 2.5 / zoom;
+      cyanOutline.shadowColor = new paper.Color(NEON_CYAN);
+      cyanOutline.shadowBlur = 14 / zoom;
+      designLayer.addChild(cyanOutline);
+      if (window.currentMockup) cyanOutline.insertBelow(window.currentMockup);
+      cyanOutline.bringToFront();
+    } catch(e) { cyanOutline = null; }
+
+    // 3. Remover el grupo de fusión viejo (ya extrajimos ambos hijos)
+    try { maskChild.remove(); } catch(e){}
+    const parentGroup = fusionGroup.parent;
+    try { fusionGroup.remove(); } catch(e){}
+    if (parentGroup && parentGroup.data && parentGroup.data.clipGroup) {
+      const kids = parentGroup.children.filter(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+      if (kids.length === 0) try { parentGroup.remove(); } catch(e){}
+    }
+
+    editState = { cyanOutline, freeRaster: rasterChild, mode, vectorData, originalIsHole, fusionId };
+    window._fusionEditState = editState;
+    window.fusionEditActive = true;
+
+    if (typeof window.deselectItem === 'function') window.deselectItem();
+    if (typeof window.selectItem === 'function') window.selectItem(rasterChild);
+    if (paper.view && paper.view.element) paper.view.element.style.cursor = 'move';
+    paper.view.update();
+
+    // Listener de clic fuera → aceptar y salir (estilo AutoCAD), fuertemente protegido
+    if (!window._fusionEditOutsideBound) {
+      window._fusionEditOutsideBound = true;
+      const canvas = document.getElementById('editorCanvas') || (paper.view && paper.view.element);
+      if (canvas) {
+        canvas.addEventListener('mousedown', function() {
+          try {
+            if (!window.fusionEditActive || !editState) return;
+            // Si se está arrastrando la imagen o un tirador, no salir
+            if (window.dragging || window.resizeActive || window.rotationActive) return;
+            setTimeout(() => {
+              try {
+                if (window.fusionEditActive && !window.dragging) exitFusionEditMode(true);
+              } catch(e){ console.error("[FUSION EXIT OUTSIDE ERROR]", e); cleanupEditState(); }
+            }, 0);
+          } catch(e){}
+        });
+      }
+    }
+  } catch (e) {
+    console.error("[FUSION ENTER EDIT ERROR]", e);
+    cleanupEditState();
+    if (typeof window.deselectItem === 'function') { try { window.deselectItem(); } catch(e2){} }
+    paper.view.update();
   }
 }
 
 /* ------------------------------------------------------------------------
    SALIR del modo edición. accept=true → re-fusiona con la imagen movida.
-   accept=false → restaura la fusión original.
 ------------------------------------------------------------------------ */
 export function exitFusionEditMode(accept = true) {
-  if (!window.fusionEditActive || !editState) {
-    window.fusionEditActive = false;
-    return;
-  }
+  if (!window.fusionEditActive || !editState) { cleanupEditState(); return; }
   const st = editState;
-  editState = null;
-  window._fusionEditState = null;
-  window.fusionEditActive = false;
+  cleanupEditState();
 
-  const vectorClone = st.vectorData.clone({ insert: false });
-  vectorClone.data = { isHole: st.originalIsHole, isFusionReceptor: st.originalIsHole };
+  try {
+    const vectorClone = st.vectorData.clone({ insert: false });
+    vectorClone.matrix = new paper.Matrix();
+    vectorClone.data = { isHole: st.originalIsHole, isFusionReceptor: st.originalIsHole };
 
-  let rasterToUse = null;
-  if (accept) {
-    // Usar la imagen libre (movida por el usuario)
-    rasterToUse = st.freeRaster;
-    rasterToUse.opacity = 1;
-    rasterToUse.data = { label: "Imagen" };
-  } else {
-    // Cancelar: usar el raster original almacenado (posición inicial)
-    rasterToUse = st.freeRaster; // reutilizamos el ítem libre
-    // Restaurar posición original desde los datos del grupo
-    const origRaster = st.fusionGroup.data.originalRasterData;
-    if (origRaster && rasterToUse) {
-      rasterToUse.position = origRaster.position.clone();
-      rasterToUse.matrix = origRaster.matrix.clone();
+    const rasterToUse = st.freeRaster;
+    if (rasterToUse) {
+      rasterToUse.opacity = 1;
+      rasterToUse.data = { label: "Imagen" };
+      rasterToUse.selected = false;
     }
-    rasterToUse.opacity = 1;
-    rasterToUse.data = { label: "Imagen" };
-  }
 
-  // Remover el grupo de fusión viejo y la máscara cian
-  try { st.maskChild.remove(); } catch(e){}
-  const parentGroup = st.fusionGroup.parent;
-  try { st.fusionGroup.remove(); } catch(e){}
-  if (parentGroup && parentGroup.data && parentGroup.data.clipGroup) {
-    const kids = parentGroup.children.filter(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    if (kids.length === 0) try { parentGroup.remove(); } catch(e){}
-  }
+    // Remover contorno cian
+    if (st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e){} }
 
-  // Re-aplicar la fusión limpia (re-registra hueco virtual, historial, etc.)
-  if (vectorClone && rasterToUse) {
-    applySmartFusion(vectorClone, rasterToUse, st.mode);
-  } else {
-    if (vectorClone) try { vectorClone.remove(); } catch(e){}
-    if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
+    if (vectorClone && rasterToUse && rasterToUse.project) {
+      applySmartFusion(vectorClone, rasterToUse, st.mode);
+    } else {
+      if (vectorClone) try { vectorClone.remove(); } catch(e){}
+      if (typeof window.recalculateDynamicSubtractions === 'function') window.recalculateDynamicSubtractions();
+    }
+    paper.view.update();
+  } catch (e) {
+    console.error("[FUSION EXIT EDIT ERROR]", e);
+    if (st && st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e2){} }
+    if (typeof window.recalculateDynamicSubtractions === 'function') { try { window.recalculateDynamicSubtractions(); } catch(e2){} }
+    paper.view.update();
   }
-
-  if (paper.view && paper.view.element) paper.view.element.style.cursor = 'default';
-  paper.view.update();
 }
 
-/* ------------------------------------------------------------------------
-   Inicialización: exponer API en window.
------------------------------------------------------------------------- */
 export function initFusionEditMode() {
   if (typeof window !== 'undefined') {
     window.enterFusionEditMode = enterFusionEditMode;
     window.exitFusionEditMode = exitFusionEditMode;
     window.fusionEditActive = false;
   }
-  console.log("%c[EKKO FUSION EDIT MODE v1.0] Edición interna de fusión (cian neón) cargada.", "color: #00e5ff; font-weight: bold;");
+  console.log("%c[EKKO FUSION EDIT MODE v1.1] Edición interna (cian neón) robusta cargada.", "color: #00e5ff; font-weight: bold;");
 }
 
 initFusionEditMode();
