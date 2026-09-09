@@ -796,7 +796,11 @@ export function openSVGFileDialog() {
 }
 window.openSVGFileDialog = openSVGFileDialog;
 
-// CARGA UNIFICADA — LLAMA A TUS FUNCIONES UNA POR UNA
+
+// ==============================================================
+// CARGA UNIFICADA — VERSIÓN DEFINITIVA v10.5
+// Carga múltiples archivos entregándolos uno por uno a tus cargadores originales
+// ==============================================================
 async function openAssetLoader() {
   const input = document.createElement('input');
   input.type = 'file';
@@ -812,18 +816,18 @@ async function openAssetLoader() {
       return;
     }
 
-    // Separar
+    // Separar por tipo
     const svgFiles = files.filter(f => f.name.toLowerCase().endsWith('.svg'));
     const imgFiles = files.filter(f => !f.name.toLowerCase().endsWith('.svg'));
 
-    // 🟢 CARGAR SVG DE A UNO
+    // Cargar SVG uno por uno
     for (const file of svgFiles) {
-      await cargarUnArchivo(file, 'svg');
+      await cargarArchivoPorTipo(file, 'svg');
     }
 
-    // 🟢 CARGAR IMÁGENES DE A UNO
+    // Cargar imágenes una por una
     for (const file of imgFiles) {
-      await cargarUnArchivo(file, 'img');
+      await cargarArchivoPorTipo(file, 'img');
     }
 
     document.body.removeChild(input);
@@ -831,6 +835,32 @@ async function openAssetLoader() {
 
   input.click();
 }
+
+// Entrega cada archivo a TU cargador original esperando que termine
+async function cargarArchivoPorTipo(file, tipo) {
+  return new Promise(resolve => {
+    const inputId = tipo === 'svg' ? 'svgPicker' : 'imagePicker';
+    const input = document.getElementById(inputId);
+    if (!input) return resolve();
+
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+
+    const alTerminar = () => {
+      input.removeEventListener('change', alTerminar);
+      setTimeout(resolve, 250);
+    };
+
+    input.addEventListener('change', alTerminar);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+// Exponer al HTML y al sistema
+window.openAssetLoader = openAssetLoader;
+window.openImageLoader = openAssetLoader;
+window.openSVGLoader = openAssetLoader;
 
 // AYUDANTE: simula la selección de TU cargador original
 async function cargarUnArchivo(file, tipo) {
