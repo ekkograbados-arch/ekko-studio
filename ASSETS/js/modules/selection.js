@@ -1405,6 +1405,129 @@ if (typeof window !== 'undefined' && !window._ekkoFusionDblClickBound) {
   });
 }
 
+
+/**
+ * Alinea todos los elementos seleccionados según la dirección indicada.
+ * Respeta geomBase, mantiene proporciones, sincroniza posiciones y preserva máscaras/clipGroup.
+ * 
+ * @param {string} direccion - Dirección de alineación:
+ *        'left' | 'center-h' | 'right' | 'top' | 'center-v' | 'bottom'
+ */
+function alignSelection(direccion) {
+    // 1️⃣ Obtener selección activa
+    const seleccion = paper.project.selectedItems || [];
+    if (!seleccion.length) {
+        console.warn('[alignSelection] No hay elementos seleccionados.');
+        return;
+    }
+
+    // 2️⃣ Calcular bounding box UNIFICADO de toda la selección
+    const bboxUnificado = new paper.Rectangle();
+    seleccion.forEach(item => {
+        bboxUnificado.set(item.bounds);
+    });
+
+    // Coordenadas de referencia del bloque completo
+    const ref = {
+        x: {
+            izquierda: bboxUnificado.x,
+            centro: bboxUnificado.center.x,
+            derecha: bboxUnificado.right
+        },
+        y: {
+            arriba: bboxUnificado.y,
+            medio: bboxUnificado.center.y,
+            abajo: bboxUnificado.bottom
+        }
+    };
+
+    // 3️⃣ Determinar qué eje y qué valor de referencia usar
+    let eje = null;       // 'x' o 'y'
+    let valorRef = null;
+
+    switch (direccion) {
+        case 'left':
+            eje = 'x';
+            valorRef = ref.x.izquierda;
+            break;
+        case 'center-h':
+            eje = 'x';
+            valorRef = ref.x.centro;
+            break;
+        case 'right':
+            eje = 'x';
+            valorRef = ref.x.derecha;
+            break;
+        case 'top':
+            eje = 'y';
+            valorRef = ref.y.arriba;
+            break;
+        case 'center-v':
+            eje = 'y';
+            valorRef = ref.y.medio;
+            break;
+        case 'bottom':
+            eje = 'y';
+            valorRef = ref.y.abajo;
+            break;
+        default:
+            console.error('[alignSelection] Dirección desconocida:', direccion);
+            return;
+    }
+
+    // 4️⃣ Aplicar alineación a CADA elemento seleccionado
+    seleccion.forEach(item => {
+        // Saltar contenedores de máscara para no romper clipMask/clipGroup
+        if (item.data && item.data.isProductMask) return;
+
+        // Calcular desplazamiento necesario
+        let desplazamiento = 0;
+
+        if (eje === 'x') {
+            const puntoAncla = direccion === 'left'  ? item.bounds.x :
+                               direccion === 'right' ? item.bounds.right :
+                               item.bounds.center.x;
+            desplazamiento = valorRef - puntoAncla;
+            item.position.x += desplazamiento;
+        } else { // eje === 'y'
+            const puntoAncla = direccion === 'top'    ? item.bounds.y :
+                               direccion === 'bottom' ? item.bounds.bottom :
+                               item.bounds.center.y;
+            desplazamiento = valorRef - puntoAncla;
+            item.position.y += desplazamiento;
+        }
+
+        // 🔁 SINCRONIZAR geomBase (compatible con syncGeomBaseDeep)
+        // Si el elemento tiene su propio geomBase
+        if (item.data && item.data.geomBase) {
+            if (eje === 'x') item.data.geomBase.x += desplazamiento;
+            else              item.data.geomBase.y += desplazamiento;
+        }
+
+        // 🔁 Propagación recursiva a descendientes (sincronización profunda)
+        if (item.children && item.children.length) {
+            item.children.forEach(hijo => {
+                if (hijo.data && hijo.data.geomBase) {
+                    if (eje === 'x') hijo.data.geomBase.x += desplazamiento;
+                    else              hijo.data.geomBase.y += desplazamiento;
+                }
+            });
+        }
+    });
+
+    // ✅ Notificar a auditoría / diagnóstico si está disponible
+    if (typeof ekkoDiagnostics !== 'undefined' && ekkoDiagnostics.logEvent) {
+        ekkoDiagnostics.logEvent('alignSelection', {
+            direccion,
+            cantidadElementos: seleccion.length,
+            eje,
+            valorReferencia: valorRef
+        });
+    }
+
+    console.log(`[alignSelection] Alineación ${direccion} aplicada a ${seleccion.length} elemento(s)`);
+}
+
 protectGlobal('getSelectableItem', _getSelectableItem);
 protectGlobal('updateSelectionBox', _updateSelectionBox);
 protectGlobal('selectItem', _selectItem);
