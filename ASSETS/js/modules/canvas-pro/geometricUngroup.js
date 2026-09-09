@@ -338,6 +338,19 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
             }
         }
 
+        // === EKKO SMART FUSION v46: Huecos virtuales (imagen fusionada dentro de hueco) también restan del sólido ===
+        if (Array.isArray(window._fusionVirtualHoles)) {
+            window._fusionVirtualHoles.forEach(function(vh) {
+                if (!vh || !vh.geom) return;
+                const vhClone = vh.geom.clone({ insert: false });
+                if (pristineBounds.intersects(vhClone.bounds)) {
+                    intersectingHoles.push(vhClone);
+                } else {
+                    vhClone.remove();
+                }
+            });
+        }
+
         if (intersectingHoles.length === 0) {
             pristineBase.remove();
             continue;
@@ -546,6 +559,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             locked: false,
             label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
             isHole: isHole,
+            isFusionReceptor: isHole,
             geomBase: geomBase,
             layerDepth: node.depth,
             containmentId: node.id,
