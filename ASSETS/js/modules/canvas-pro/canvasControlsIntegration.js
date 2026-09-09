@@ -85,7 +85,6 @@ function resolveButtonSet(selection) {
   // Múltiple mixto
   return { show: ['group', 'align'], disable: ['fusion'] };
   }
-}
 
 function getSelectionTypes(items) {
   items = items || [];
