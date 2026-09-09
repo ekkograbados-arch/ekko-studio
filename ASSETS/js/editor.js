@@ -852,6 +852,7 @@ async function openAssetLoader() {
 // Redireccionar ambos botones a la carga unificada
 window.openImageLoader = openAssetLoader;
 window.openSVGLoader = openAssetLoader;
+window.openAssetLoader = openAssetLoader;  // ← ESTA FALTA
 
 // Inicializacion de la Modal de QR Dinamico
 const loadQRCodeLibrary = () => {
