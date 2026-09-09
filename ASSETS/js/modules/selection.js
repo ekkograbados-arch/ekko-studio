@@ -103,6 +103,42 @@ window.ungroupSelectedItem = function() {
 };
 
 // ==============================================
+// FUNCIÓN QUE FALTABA: Agrupar elementos seleccionados
+// ==============================================
+window.groupSelectedItems = function () {
+  // Obtener la selección actual
+  const sel = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+  
+  // Filtrar solo items válidos que no sean grupos ya existentes
+  const itemsToGroup = sel.filter(item => 
+    item && item.className !== 'Group' && item.parent
+  );
+
+  if (itemsToGroup.length < 2) {
+    console.warn("Se necesitan al menos 2 elementos seleccionados para agrupar");
+    return;
+  }
+
+  // Usar Paper.js para crear el grupo en el mismo nivel que los items
+  const parent = itemsToGroup[0].parent;
+  const group = new paper.Group(itemsToGroup);
+  
+  // Marcar como grupo y conservar posición
+  group.data = group.data || {};
+  group.data.isGroup = true;
+  group.parent = parent;
+
+  // Actualizar la selección al nuevo grupo
+  window.selectedItem = group;
+  window.selectedItems = [group];
+
+  console.log(`✅ Agrupados ${itemsToGroup.length} elementos`);
+};
+
+// ⬇️ Y en la lista de exposición al final del archivo, agrega:
+window.groupSelectedItems = groupSelectedItems;
+
+// ==============================================
 // DOBLE CLIC: ejecutar handlers registrados
 // ==============================================
 const originalOnDoubleClick = window.onSelectionDoubleClick;
@@ -1378,7 +1414,7 @@ protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
 
 window.ungroupSelectedItem = ungroupSelectedItem;
-window.groupSelectedItems = groupSelectedItems;
+
 window.alignSelection = alignSelection;
 window.distributeSelection = distributeSelection;
 window.toggleOutline = toggleOutline;
