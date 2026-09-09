@@ -29,6 +29,49 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
 </style>
 </head>
 <body>
+    <!-- Botones de visibilidad de paneles -->
+<div id="panelToggles" style="position:fixed;top:8px;right:16px;z-index:60;display:flex;gap:8px;">
+  <button id="toggleTopBar" title="Contraer/Expandir barra superior" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
+  <button id="toggleContextBar" title="Ocultar/Mostrar barra emergente" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
+  <button id="toggleProductPanel" title="Contraer/Expandir panel de productos" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">«</button>
+</div>
+
+<!-- Envoltorio plegable del panel izquierdo -->
+<div id="productPanelWrap" style="transition: width 0.25s ease; overflow: hidden;">
+
+</div> <!-- /#productPanelWrap -->
+
+
+<button data-fusion-btn="fusion" onclick="performSmartFusion()">Fusionar</button>
+<button data-fusion-btn="unfusion" onclick="releaseSmartFusion()">Quitar Fusión</button>
+<button data-fusion-btn="ungroup" onclick="ungroupSelectedItem()">Desagrupar</button>
+<button data-fusion-btn="editNodes" onclick="toggleNodeEditMode()">Editar Nodos</button>
+<button data-fusion-btn="removeBg" onclick="removeBackground()">Quitar Fondo</button>
+<button data-fusion-btn="traceImage" onclick="traceRaster()">Trazar Imagen</button>
+<button data-fusion-btn="editFusionImage" onclick="enterFusionEditMode()">Editar Imagen Interna</button>
+<button data-fusion-btn="align" onclick="alignSelection()">Alinear</button>
+<button data-fusion-btn="group" onclick="groupSelectedItems()">Agrupar</button>
+<button data-fusion-btn="distribute" onclick="distributeSelection()">Distribuir</button>
+<button data-fusion-btn="outline" onclick="toggleOutline()">Contorno</button>
+<button data-fusion-btn="zoom" onclick="zoomToFit()">Ajustar Vista</button>
+<button data-fusion-btn="rulers" onclick="toggleRulers()">Reglas</button>
+<button data-fusion-btn="guides" onclick="toggleGuides()">Guías</button>
+
+<button data-fusion-btn="fusion" onclick="performSmartFusion()">Fusionar</button>
+<button data-fusion-btn="unfusion" onclick="releaseSmartFusion()">Quitar Fusión</button>
+<button data-fusion-btn="ungroup" onclick="ungroupSelectedItem()">Desagrupar</button>
+<button data-fusion-btn="editNodes" onclick="toggleNodeEditMode()">Editar Nodos</button>
+<button data-fusion-btn="removeBg" onclick="removeBackground()">Quitar Fondo</button>
+<button data-fusion-btn="traceImage" onclick="traceRaster()">Trazar Imagen</button>
+<button data-fusion-btn="editFusionImage" onclick="enterFusionEditMode()">Editar Imagen Interna</button>
+<button data-fusion-btn="align" onclick="alignSelection()">Alinear</button>
+<button data-fusion-btn="group" onclick="groupSelectedItems()">Agrupar</button>
+<button data-fusion-btn="distribute" onclick="distributeSelection()">Distribuir</button>
+<button data-fusion-btn="outline" onclick="toggleOutline()">Contorno</button>
+<button data-fusion-btn="zoom" onclick="zoomToFit()">Ajustar Vista</button>
+<button data-fusion-btn="rulers" onclick="toggleRulers()">Reglas</button>
+<button data-fusion-btn="guides" onclick="toggleGuides()">Guías</button>
+    
     <!-- 1. PANEL IZQUIERDO DE PRODUCTOS -->
     <div id="leftSidebar">
         <div class="sidebar-section">
