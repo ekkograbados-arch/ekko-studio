@@ -796,33 +796,62 @@ export function openSVGFileDialog() {
 }
 window.openSVGFileDialog = openSVGFileDialog;
 
-export function openImageFileDialog() {
-  let picker = document.getElementById("imagePicker");
-  if (!picker) {
-    picker = document.createElement("input");
-    picker.type = "file";
-    picker.id = "imagePicker";
-    picker.accept = "image/*";
-    picker.style.display = "none";
-    document.body.appendChild(picker);
-    picker.addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (file) {
-        addImageFromFile(file);
-        e.target.value = "";
-      }
-    });
-  }
+// CARGA UNIFICADA: Imágenes y SVG en un solo diálogo
+async function openAssetLoader() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.accept = '.svg,.png,.jpg,.jpeg,.webp,.bmp';
+  input.style.display = 'none';
+  document.body.appendChild(input);
 
-  try {
-    picker.click();
-    return true;
-  } catch (err) {
-    console.error("[EKKO DIALOG] No se pudo invocar el selector de imagen:", err);
-    return false;
-  }
+  input.onchange = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) {
+      document.body.removeChild(input);
+      return;
+    }
+
+    // Separar por tipo: SVG primero, luego imágenes
+    const svgFiles = files.filter(f => f.name.toLowerCase().endsWith('.svg'));
+    const imgFiles = files.filter(f => !f.name.toLowerCase().endsWith('.svg'));
+
+    // Cargar todos los SVG
+    for (const file of svgFiles) {
+      try {
+        const text = await file.text();
+        if (typeof importSVGString === 'function') {
+          await importSVGString(text, file.name);
+        }
+      } catch (err) {
+        console.warn('No se pudo cargar SVG:', file.name, err);
+      }
+    }
+
+    // Cargar todas las imágenes
+    for (const file of imgFiles) {
+      try {
+        const url = URL.createObjectURL(file);
+        if (typeof placeRasterOnCanvas === 'function') {
+          await placeRasterOnCanvas(url, {
+            name: file.name,
+            preserveOriginalSize: true
+          });
+        }
+      } catch (err) {
+        console.warn('No se pudo cargar imagen:', file.name, err);
+      }
+    }
+
+    document.body.removeChild(input);
+  };
+
+  input.click();
 }
-window.openImageFileDialog = openImageFileDialog;
+
+// Redireccionar ambos botones a la carga unificada
+window.openImageLoader = openAssetLoader;
+window.openSVGLoader = openAssetLoader;
 
 // Inicializacion de la Modal de QR Dinamico
 const loadQRCodeLibrary = () => {
