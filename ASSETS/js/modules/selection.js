@@ -1279,6 +1279,8 @@ const _initSelectionTool = function() {
     window.rotationActive = false;
     window.isRotationSnapped = false;
     window.rotationTargets = [];
+     window.ungroupSelectedItem = ungroupSelectedItem;
+window.enterFusionEditMode = enterFusionEditMode;
 
     const canvas = document.getElementById("editorCanvas");
     if (canvas) canvas.style.cursor = 'default';
