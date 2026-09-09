@@ -1,6 +1,6 @@
 <!-- ========================================================================
 RUTA DESTINO EN TU DISCO LOCAL: index.html
-VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
+VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones dinámicos
 ======================================================================== -->
 <!DOCTYPE html>
 <html lang="es">
@@ -29,50 +29,24 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
 </style>
 </head>
 <body>
-    <!-- Botones de visibilidad de paneles -->
-<div id="panelToggles" style="position:fixed;top:8px;right:16px;z-index:60;display:flex;gap:8px;">
-  <button id="toggleTopBar" title="Contraer/Expandir barra superior" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
-  <button id="toggleContextBar" title="Ocultar/Mostrar barra emergente" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
-  <button id="toggleProductPanel" title="Contraer/Expandir panel de productos" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">«</button>
-</div>
 
-<!-- Envoltorio plegable del panel izquierdo -->
-<div id="productPanelWrap" style="transition: width 0.25s ease; overflow: hidden;">
+    <!-- ==============================================================
+         BOTONES DE VISIBILIDAD DE PANELES — ⋮⋮⋮ ARRIBA A LA DERECHA
+         ============================================================== -->
+    <div id="panelToggles" style="position:fixed;top:8px;right:16px;z-index:60;display:flex;gap:8px;">
+        <button id="toggleTopBar" title="Contraer/Expandir barra superior" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
+        <button id="toggleContextBar" title="Ocultar/Mostrar barra emergente" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
+        <button id="toggleProductPanel" title="Contraer/Expandir panel de productos" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">«</button>
+    </div>
 
-</div> <!-- /#productPanelWrap -->
+    <!-- ==============================================================
+         ENVOLTORIO PLEGABLE DEL PANEL IZQUIERDO
+         ============================================================== -->
+    <div id="productPanelWrap" style="transition: width 0.25s ease; overflow: hidden;">
 
-
-<button data-fusion-btn="fusion" onclick="performSmartFusion()">Fusionar</button>
-<button data-fusion-btn="unfusion" onclick="releaseSmartFusion()">Quitar Fusión</button>
-<button data-fusion-btn="ungroup" onclick="ungroupSelectedItem()">Desagrupar</button>
-<button data-fusion-btn="editNodes" onclick="toggleNodeEditMode()">Editar Nodos</button>
-<button data-fusion-btn="removeBg" onclick="removeBackground()">Quitar Fondo</button>
-<button data-fusion-btn="traceImage" onclick="traceRaster()">Trazar Imagen</button>
-<button data-fusion-btn="editFusionImage" onclick="enterFusionEditMode()">Editar Imagen Interna</button>
-<button data-fusion-btn="align" onclick="alignSelection()">Alinear</button>
-<button data-fusion-btn="group" onclick="groupSelectedItems()">Agrupar</button>
-<button data-fusion-btn="distribute" onclick="distributeSelection()">Distribuir</button>
-<button data-fusion-btn="outline" onclick="toggleOutline()">Contorno</button>
-<button data-fusion-btn="zoom" onclick="zoomToFit()">Ajustar Vista</button>
-<button data-fusion-btn="rulers" onclick="toggleRulers()">Reglas</button>
-<button data-fusion-btn="guides" onclick="toggleGuides()">Guías</button>
-
-<button data-fusion-btn="fusion" onclick="performSmartFusion()">Fusionar</button>
-<button data-fusion-btn="unfusion" onclick="releaseSmartFusion()">Quitar Fusión</button>
-<button data-fusion-btn="ungroup" onclick="ungroupSelectedItem()">Desagrupar</button>
-<button data-fusion-btn="editNodes" onclick="toggleNodeEditMode()">Editar Nodos</button>
-<button data-fusion-btn="removeBg" onclick="removeBackground()">Quitar Fondo</button>
-<button data-fusion-btn="traceImage" onclick="traceRaster()">Trazar Imagen</button>
-<button data-fusion-btn="editFusionImage" onclick="enterFusionEditMode()">Editar Imagen Interna</button>
-<button data-fusion-btn="align" onclick="alignSelection()">Alinear</button>
-<button data-fusion-btn="group" onclick="groupSelectedItems()">Agrupar</button>
-<button data-fusion-btn="distribute" onclick="distributeSelection()">Distribuir</button>
-<button data-fusion-btn="outline" onclick="toggleOutline()">Contorno</button>
-<button data-fusion-btn="zoom" onclick="zoomToFit()">Ajustar Vista</button>
-<button data-fusion-btn="rulers" onclick="toggleRulers()">Reglas</button>
-<button data-fusion-btn="guides" onclick="toggleGuides()">Guías</button>
-    
-    <!-- 1. PANEL IZQUIERDO DE PRODUCTOS -->
+    <!-- ==============================================================
+         1. PANEL IZQUIERDO DE PRODUCTOS
+         ============================================================== -->
     <div id="leftSidebar">
         <div class="sidebar-section">
             <div class="sidebar-title">Categorías</div>
@@ -88,32 +62,95 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
         </div>
     </div>
 
-    <!-- 2. ÁREA DE TRABAJO -->
+    </div> <!-- /#productPanelWrap — CIERRE DEL ENVOLTORIO PLEGABLE -->
+
+    <!-- ==============================================================
+         2. ÁREA DE TRABAJO
+         ============================================================== -->
     <div id="workspace">
+
+        <!-- ==============================================================
+             BARRA SUPERIOR — BOTONES PRINCIPALES + FUSIÓN
+             ============================================================== -->
         <div id="topBar">
             <div class="top-group">
-                <button class="btn-action" id="btnAddImage">
-                    <i class="fas fa-image"></i> Cargar Imagen
+                <button class="btn-action" onclick="openAssetLoader()">
+                    <i class="fas fa-upload"></i> Cargar Imagen / SVG
                 </button>
                 <button class="btn-action" id="btnAddText">
                     <i class="fas fa-font"></i> Agregar Texto
-                </button>
-                <button class="btn-action" id="btnAddSVG">
-                    <i class="fas fa-file-image"></i> Cargar SVG
                 </button>
                 <button class="btn-action" id="btnAddQR">
                     <i class="fas fa-qrcode"></i> QR
                 </button>
             </div>
+
+            <div class="top-group">
+                <button data-fusion-btn="fusion" class="btn-action" onclick="performSmartFusion()">
+                    <i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar
+                </button>
+                <button data-fusion-btn="unfusion" class="btn-action" onclick="releaseSmartFusion()">
+                    <i class="fas fa-unlink"></i> Quitar Fusión
+                </button>
+                <button data-fusion-btn="ungroup" class="btn-action" onclick="ungroupSelectedItem()">
+                    <i class="fas fa-object-ungroup"></i> Desagrupar
+                </button>
+                <button data-fusion-btn="editNodes" class="btn-action" onclick="toggleNodeEditMode()">
+                    <i class="fas fa-bezier-curve"></i> Editar Nodos
+                </button>
+            </div>
+
+            <div class="top-group">
+                <button data-fusion-btn="removeBg" class="btn-action" onclick="removeBackground()">
+                    <i class="fas fa-eraser"></i> Quitar Fondo
+                </button>
+                <button data-fusion-btn="traceImage" class="btn-action" onclick="traceRaster()">
+                    <i class="fas fa-magic"></i> Trazar Imagen
+                </button>
+                <button data-fusion-btn="editFusionImage" class="btn-action" onclick="enterFusionEditMode()">
+                    <i class="fas fa-pen-to-square"></i> Editar Imagen
+                </button>
+            </div>
+
+            <div class="top-group">
+                <button data-fusion-btn="group" class="btn-action" onclick="groupSelectedItems()">
+                    <i class="fas fa-object-group"></i> Agrupar
+                </button>
+                <button data-fusion-btn="align" class="btn-action" onclick="alignSelection()">
+                    <i class="fas fa-align-justify"></i> Alinear
+                </button>
+                <button data-fusion-btn="distribute" class="btn-action" onclick="distributeSelection()">
+                    <i class="fas fa-arrows-alt"></i> Distribuir
+                </button>
+                <button data-fusion-btn="outline" class="btn-action" onclick="toggleOutline()">
+                    <i class="fas fa-vector-square"></i> Contorno
+                </button>
+            </div>
+
+            <div class="top-group">
+                <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
+                    <i class="fas fa-expand"></i> Ajustar Vista
+                </button>
+                <button data-fusion-btn="rulers" class="btn-action" onclick="toggleRulers()">
+                    <i class="fas fa-ruler-combined"></i> Reglas
+                </button>
+                <button data-fusion-btn="guides" class="btn-action" onclick="toggleGuides()">
+                    <i class="fas fa-th"></i> Guías
+                </button>
+            </div>
+
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
             <div class="top-group"></div>
         </div>
 
+        <!-- ==============================================================
+             LIENZO
+             ============================================================== -->
         <div id="canvasContainer">
             <canvas id="editorCanvas"></canvas>
 
             <!-- ==============================================================
-                 BARRA CONTEXTUAL FLOTANTE — Flujo Quitar Fondo Photoroom
+                 BARRA CONTEXTUAL FLOTANTE — MISMO CONTENIDO QUE BARRA SUPERIOR
                  ============================================================== -->
             <div id="contextual-toolbar">
                 <!-- ACCIONES BASE DE LIENZO Y LIGHTBURN -->
@@ -130,34 +167,34 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
                     <button class="toolbar-btn" id="btnCtxToBack" title="Al Fondo (Ctrl+PgDn)"><i class="fas fa-angle-double-down"></i></button>
                 </div>
                 <div class="toolbar-divider"></div>
-
-                <!-- GRUPO DE IMAGEN — QUITAR FONDO + EDITAR RECORTE -->
+                <!-- FUSIÓN → BOTONES PRINCIPALES -->
                 <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxTrace" style="display: none;"><i class="fas fa-magic"></i> Trazar Imagen</button>
-                    
-                    <!-- ✅ BOTÓN PRINCIPAL: QUITAR FONDO → VISIBLE CON IMAGEN SELECCIONADA -->
-                    <button class="toolbar-btn" id="btnCtxRemoveBg" style="display: none;"><i class="fas fa-wand-magic-sparkles"></i> 🪄 Quitar Fondo</button>
-                    
-                    <!-- ✅ BOTÓN EDITAR RECORTE → APARECE SOLO DESPUÉS DE QUITAR EL FONDO -->
-                    <button class="toolbar-btn" id="btnCtxEditCutout" style="display: none;"><i class="fas fa-pen-to-square"></i> 📐 Editar Recorte</button>
-                    
-                    <button class="toolbar-btn" id="btnCtxNodeEdit" style="display: none;"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
+                    <button data-fusion-btn="fusion" class="toolbar-btn" onclick="performSmartFusion()" title="Fusionar imagen dentro de silueta"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
+                    <button data-fusion-btn="unfusion" class="toolbar-btn" onclick="releaseSmartFusion(window.selectedItem)" title="Quitar Fusión"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+                    <button data-fusion-btn="ungroup" class="toolbar-btn" onclick="ungroupSelectedItem()" title="Desagrupar"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+                    <button data-fusion-btn="editNodes" class="toolbar-btn" onclick="toggleNodeEditMode()" title="Editar Nodos"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
                 </div>
                 <div class="toolbar-divider"></div>
-
-                <!-- FASE 2: HERRAMIENTAS DE FORMA Y FUSIÓN -->
+                <!-- IMAGEN / TRAZADO -->
                 <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxContour" style="display: none;"><i class="fas fa-bullseye"></i> Contorno</button>
+                    <button data-fusion-btn="removeBg" class="toolbar-btn" id="btnCtxRemoveBg" title="Quitar Fondo"><i class="fas fa-wand-magic-sparkles"></i> 🪄 Quitar Fondo</button>
+                    <button data-fusion-btn="traceImage" class="toolbar-btn" id="btnCtxTrace" title="Trazar Imagen"><i class="fas fa-magic"></i> Trazar Imagen</button>
+                    <button data-fusion-btn="editFusionImage" class="toolbar-btn" onclick="enterFusionEditMode()" title="Editar Imagen Interna"><i class="fas fa-pen-to-square"></i> Editar Imagen</button>
+                </div>
+                <div class="toolbar-divider"></div>
+                <!-- FORMA / AGRUPACIÓN -->
+                <div class="toolbar-group">
+                    <button data-fusion-btn="group" class="toolbar-btn" id="btnCtxGroup" title="Agrupar"><i class="fas fa-object-group"></i> Agrupar</button>
+                    <button data-fusion-btn="align" class="toolbar-btn" onclick="alignSelection()" title="Alinear"><i class="fas fa-align-justify"></i> Alinear</button>
+                    <button data-fusion-btn="distribute" class="toolbar-btn" onclick="distributeSelection()" title="Distribuir"><i class="fas fa-arrows-alt"></i> Distribuir</button>
+                    <button data-fusion-btn="outline" class="toolbar-btn" id="btnCtxContour" title="Contorno"><i class="fas fa-bullseye"></i> Contorno</button>
+                </div>
+                <div class="toolbar-divider"></div>
+                <!-- UNIÓN / SUSTRACCIÓN -->
+                <div class="toolbar-group">
                     <button class="toolbar-btn" id="btnCtxBooleanUnion" style="display: none;"><i class="fas fa-plus-square"></i> Unión</button>
                     <button class="toolbar-btn" id="btnCtxSubtract" style="display: none;"><i class="fas fa-minus-square"></i> Sustracción</button>
                 </div>
-                <!-- EKKO SMART FUSION v46: Fusionar / Quitar Fusión (barra emergente) -->
-                <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxFusionar" onclick="if(window.applyFusionFromSelection)window.applyFusionFromSelection('intersecar')" title="Fusionar imagen dentro de vector/hueco (selecciona imagen + vector)"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
-                    <button class="toolbar-btn" id="btnCtxQuitarFusion" onclick="if(window.releaseSmartFusion)window.releaseSmartFusion(window.selectedItem||window.selectedItems)" title="Disolver la fusión seleccionada"><i class="fas fa-unlink"></i> Quitar Fusión</button>
-                </div>
-                <div class="toolbar-divider"></div>
-
                 <!-- CONTROL TEXTO -->
                 <div id="ctxTextControls" class="toolbar-subgroup hidden">
                     <select id="ctxFontSelector" class="toolbar-select"></select>
@@ -170,20 +207,11 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
                         <i class="fas fa-heading"></i> <input type="range" min="-100" max="100" value="0">
                     </div>
                 </div>
-
                 <!-- CONTROL IMAGEN -->
                 <div id="ctxImageControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" id="btnCtxFlipH" title="Espejo Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
                     <button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
                 </div>
-
-                <!-- CONTROL VECTOR -->
-                <div id="ctxVectorControls" class="toolbar-subgroup hidden">
-                    <button class="toolbar-btn" id="btnCtxGroup" title="Agrupar (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
-                    <button class="toolbar-btn" id="btnCtxUngroup" title="Desagrupar (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
-                    <button class="toolbar-btn" id="btnCtxEditNodes" title="Editar Nodos"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
-                </div>
-
                 <!-- PANEL EDICIÓN DE NODOS -->
                 <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
@@ -192,49 +220,29 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
             </div>
 
             <!-- ==============================================================
-                 PANEL: EDITAR RECORTE → OCULTO AL INICIO
-                 Aparece al hacer clic en "Editar Recorte" después de quitar fondo
+                 PANEL: EDITAR RECORTE
                  ============================================================== -->
             <div id="panel-editar-recorte" style="display:none; position:absolute; top:60px; right:20px; width:280px; padding:12px; border:1px solid #ccc; border-radius:10px; background:#f8f9fa; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:100;">
                 <div style="font-weight:bold; margin-bottom:12px; text-align:center; font-size:14px; border-bottom:1px solid #ddd; padding-bottom:8px;">✏️ Editar Recorte</div>
-
-                <!-- PINCELES -->
                 <div style="display:flex; gap:8px; margin-bottom:12px;">
-                    <button id="pincel-borrar" style="flex:1; padding:8px; background:#ff4444; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
-                        🔴 Borrar
-                    </button>
-                    <button id="pincel-restaurar" style="flex:1; padding:8px; background:#44cc44; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
-                        🟢 Restaurar
-                    </button>
+                    <button id="pincel-borrar" style="flex:1; padding:8px; background:#ff4444; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">🔴 Borrar</button>
+                    <button id="pincel-restaurar" style="flex:1; padding:8px; background:#44cc44; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">🟢 Restaurar</button>
                 </div>
-
-                <!-- TAMAÑO DEL PINCEL -->
                 <div style="margin-bottom:12px;">
-                   <!-- DESPUÉS: -->
-<label for="slider-tamano-pincel" style="font-size:12px; color:#444;">📏 Tamaño del pincel: <span id="valor-tamano-pincel">25</span></label>
+                    <label for="slider-tamano-pincel" style="font-size:12px; color:#444;">📏 Tamaño del pincel: <span id="valor-tamano-pincel">25</span></label>
                     <input type="range" id="slider-tamano-pincel" min="5" max="100" value="25" style="width:100%; margin-top:4px;">
                 </div>
-
-                <!-- MODO -->
                 <div style="margin-bottom:12px; font-size:12px; color:#444;">
                     <label style="display:block; margin-bottom:4px;"><input type="radio" name="modo-deteccion" id="modo-automatico" checked> 🔄 Automático (inteligente)</label>
                     <label style="display:block;"><input type="radio" name="modo-deteccion" id="modo-manual"> ✋ Manual</label>
                 </div>
-
-                <!-- VISTA COMPARATIVA -->
                 <div style="display:flex; gap:8px; margin-bottom:12px; font-size:11px; text-align:center;">
                     <div style="flex:1; background:#e9ecef; padding:6px; border-radius:6px;">🖼️ Original</div>
                     <div style="flex:1; background:#d4edda; padding:6px; border-radius:6px;">✅ Resultado</div>
                 </div>
-
-                <!-- ACCIONES FINALES -->
                 <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button id="btn-deshacer-fondo" style="flex:1; padding:8px; background:#e9ecef; border:none; border-radius:6px; cursor:pointer; font-size:13px;">
-                        ↩️ Deshacer
-                    </button>
-                    <button id="btn-aceptar-fondo" style="flex:2; padding:8px; background:#2288ff; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">
-                        ✅ Aceptar
-                    </button>
+                    <button id="btn-deshacer-fondo" style="flex:1; padding:8px; background:#e9ecef; border:none; border-radius:6px; cursor:pointer; font-size:13px;">↩️ Deshacer</button>
+                    <button id="btn-aceptar-fondo" style="flex:2; padding:8px; background:#2288ff; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">✅ Aceptar</button>
                 </div>
             </div>
 
@@ -245,9 +253,9 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
         </div>
     </div>
 
-    <!-- Cargadores de archivos ocultos -->
-    <input type="file" id="imagePicker" class="hidden-picker" accept="image/*">
-    <input type="file" id="svgPicker" class="hidden-picker" accept=".svg">
+    <!-- Cargadores de archivos ocultos → REUTILIZADOS POR CARGA UNIFICADA -->
+    <input type="file" id="imagePicker" class="hidden-picker" accept="image/*" multiple>
+    <input type="file" id="svgPicker" class="hidden-picker" accept=".svg" multiple>
 
     <!-- ARRANQUE DEL SISTEMA -->
     <script src="ASSETS/js/config.js"></script>
