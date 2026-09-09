@@ -470,6 +470,57 @@ export function handleMagneticDrop(rasterItem) {
   }
 }
 
+// ==============================================
+// AL SOLTAR LA IMAGEN: SOLO FUSIONAR SI ESTÁ SOBRE SILUETA
+// ==============================================
+function shouldFusionOnDrop(event) {
+  // ❌ Si estamos en edición interna → NO fusionar
+  if (window.fusionEditActive || window._fusionEditState) {
+    return false;
+  }
+
+  // Obtener punto EXACTO del puntero
+  const hitPoint = paper.view.getEventPoint(event);
+
+  // ¿El puntero está SOBRE una silueta válida del SVG cargado?
+  const hit = paper.project.hitTest(hitPoint, {
+    fill: true,
+    stroke: false,
+    tolerance: 2 / paper.view.zoom
+  });
+
+  // Solo fusionar si hay impacto y es un receptor válido
+  if (!hit || !hit.item || !isValidReceptorItem(hit.item)) {
+    return false; // Soltó en el vacío → imagen queda libre
+  }
+
+  return hit.item; // Devuelve el vector bajo el puntero
+}
+
+// Dentro de checkMagneticSnapping: DESACTIVAR SNAP en edición
+const originalCheckMagneticSnapping = window.checkMagneticSnapping;
+window.checkMagneticSnapping = function(event) {
+  if (window.fusionEditActive || window._fusionEditState) {
+    clearFusionPreview(true);
+    return; // ❌ NO se enciende fucsia mientras se edita
+  }
+  return originalCheckMagneticSnapping ? originalCheckMagneticSnapping.call(this, event) : null;
+};
+
+// Helper: identificar siluetas válidas del cliente
+function isValidReceptorItem(item) {
+  if (!item) return false;
+  const d = item.data || {};
+  // Excluir mockups y productos del sistema
+  if (d.isMockupPart || d.productTemplate || d.systemGenerated) {
+    return false;
+  }
+  // Aceptar cualquier forma cerrada cargada por el cliente
+  return d.isCalado || d.isSolidShape || d.userImported || 
+         (item.className === 'CompoundPath') || (item.className === 'Path' && item.closed);
+}
+
+
 /* ------------------------------------------------------------------------
    RECALCULAR FUSIÓN (ambos modos) ante Edición de Nodos en caliente.
 ------------------------------------------------------------------------ */
