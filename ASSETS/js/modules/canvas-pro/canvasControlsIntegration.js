@@ -208,6 +208,10 @@ export function initProControls() {
                 <button class="pro-btn" id="proBtnUngroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
                 <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos (Illustrator Style)"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
             </div>
+            <div class="pro-group" id="proGroupFusion">
+                <button class="pro-btn" id="proBtnFusionar" title="Fusionar imagen dentro de un vector o hueco (Canva-style) — selecciona imagen + vector"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
+                <button class="pro-btn" id="proBtnQuitarFusion" title="Disolver la fusión seleccionada y restituir imagen + vector"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+            </div>
             <div class="pro-group">
                 <span class="pro-label">Opciones de Vista</span>
                 <button class="pro-btn active" id="proBtnToggleRulers" title="Activar/Desactivar reglas físicas"><i class="fas fa-ruler"></i> Reglas</button>
@@ -616,6 +620,22 @@ function bindClickHandlers() {
             window.ungroupSelectedItem();
         } else {
             console.warn("La función window.ungroupSelectedItem no está disponible.");
+        }
+    });
+
+    // === EKKO SMART FUSION v46: Botones Fusionar / Quitar Fusión ===
+    bindBtn("proBtnFusionar", () => {
+        if (typeof window.applyFusionFromSelection === "function") {
+            window.applyFusionFromSelection("intersecar");
+        } else {
+            console.warn("window.applyFusionFromSelection no disponible.");
+        }
+    });
+    bindBtn("proBtnQuitarFusion", () => {
+        if (typeof window.releaseSmartFusion === "function") {
+            window.releaseSmartFusion(window.selectedItems || (window.selectedItem ? [window.selectedItem] : []));
+        } else {
+            console.warn("window.releaseSmartFusion no disponible.");
         }
     });
 
