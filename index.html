@@ -108,6 +108,11 @@ VERSIÓN: v10.3_VERSION_3 — Flujo Quitar Fondo estilo Photoroom integrado
                     <button class="toolbar-btn" id="btnCtxBooleanUnion" style="display: none;"><i class="fas fa-plus-square"></i> Unión</button>
                     <button class="toolbar-btn" id="btnCtxSubtract" style="display: none;"><i class="fas fa-minus-square"></i> Sustracción</button>
                 </div>
+                <!-- EKKO SMART FUSION v46: Fusionar / Quitar Fusión (barra emergente) -->
+                <div class="toolbar-group">
+                    <button class="toolbar-btn" id="btnCtxFusionar" onclick="if(window.applyFusionFromSelection)window.applyFusionFromSelection('intersecar')" title="Fusionar imagen dentro de vector/hueco (selecciona imagen + vector)"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
+                    <button class="toolbar-btn" id="btnCtxQuitarFusion" onclick="if(window.releaseSmartFusion)window.releaseSmartFusion(window.selectedItem||window.selectedItems)" title="Disolver la fusión seleccionada"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+                </div>
                 <div class="toolbar-divider"></div>
 
                 <!-- CONTROL TEXTO -->
