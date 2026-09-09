@@ -1067,6 +1067,18 @@ const _initSelectionTool = function() {
         window.recalculateDynamicSubtractions();
       }
 
+      // === EKKO SMART FUSION v46: Magnetic Snapping al arrastrar una imagen ===
+      if (window.dragTargets.length === 1 && typeof window.checkMagneticSnapping === 'function') {
+        const onlyTarget = window.dragTargets[0].target;
+        if (onlyTarget && onlyTarget.className === 'Raster') {
+          window._lastDraggedRaster = onlyTarget;
+          window.checkMagneticSnapping(onlyTarget);
+        }
+      } else {
+        if (typeof window.clearFusionPreview === 'function') window.clearFusionPreview();
+        window._lastDraggedRaster = null;
+      }
+
       if (typeof calculateSmartGuides === "function") {
         calculateSmartGuides(window.selectedItem, event);
       }
@@ -1080,6 +1092,19 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseUp = function(event) {
     if (window.nodeEditMode) return;
+
+    // === EKKO SMART FUSION v46: Consolidar fusión si se soltó sobre un receptor ===
+    if (window._lastDraggedRaster && typeof window.handleMagneticDrop === 'function') {
+      const draggedRaster = window._lastDraggedRaster;
+      window._lastDraggedRaster = null;
+      const fused = window.handleMagneticDrop(draggedRaster);
+      if (fused) {
+        window._mouseDragOccurred = false;
+        paper.view.update();
+        return;
+      }
+    }
+    window._lastDraggedRaster = null;
 
     if (window.marqueeActive && window.marqueePath) {
       const marqueeBounds = window.marqueePath.bounds;
@@ -1210,6 +1235,53 @@ const _initSelectionTool = function() {
 
 if (typeof paper !== "undefined" && paper.view) {
   _initSelectionTool();
+}
+
+// === EKKO SMART FUSION v46: Doble clic para editar imagen dentro de la fusión ===
+if (typeof window !== 'undefined' && !window._ekkoFusionDblClickBound) {
+  window._ekkoFusionDblClickBound = true;
+  const _fusionCanvas = document.getElementById('editorCanvas') || (paper.view && paper.view.element);
+  if (_fusionCanvas) {
+    _fusionCanvas.addEventListener('dblclick', function(e) {
+      if (window.nodeEditMode || window.fusionEditActive) return;
+      if (!paper.project || !paper.view) return;
+      let pt = null;
+      try { pt = paper.view.getEventPoint(e); } catch(err) { pt = new paper.Point(e.offsetX, e.offsetY); }
+      if (!pt) return;
+      const hit = paper.project.hitTest(pt, { fill: true, stroke: true, tolerance: 5 / (paper.view.zoom || 1) });
+      if (hit && hit.item) {
+        let curr = hit.item;
+        while (curr) {
+          if (curr.data && curr.data.isSmartFusion) {
+            if (typeof window.enterFusionEditMode === 'function') {
+              window.enterFusionEditMode(curr);
+              e.preventDefault();
+              e.stopPropagation();
+            }
+            return;
+          }
+          curr = curr.parent;
+        }
+      }
+    });
+  }
+  // Salir del modo edición interna con Enter / Escape
+  document.addEventListener('keydown', function(e) {
+    if (!window.fusionEditActive) return;
+    if (e.key === 'Enter' || e.key === 'Escape') {
+      if (typeof window.exitFusionEditMode === 'function') {
+        window.exitFusionEditMode(e.key !== 'Escape');
+        e.preventDefault();
+      }
+    }
+  });
+  // Clic derecho también finaliza la edición interna (según spec EKKO)
+  document.addEventListener('contextmenu', function() {
+    if (!window.fusionEditActive) return;
+    if (typeof window.exitFusionEditMode === 'function') {
+      window.exitFusionEditMode(true);
+    }
+  });
 }
 
 protectGlobal('getSelectableItem', _getSelectableItem);
