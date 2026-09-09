@@ -796,11 +796,8 @@ export function openSVGFileDialog() {
 }
 window.openSVGFileDialog = openSVGFileDialog;
 
-// ==============================================
-// CARGA UNIFICADA — REUTILIZA TUS FUNCIONES ORIGINALES
-// ==============================================
-function openAssetLoader() {
-  // Abre el selector de archivos múltiple pero usa TUS cargadores reales
+// CARGA UNIFICADA — LLAMA A TUS FUNCIONES UNA POR UNA
+async function openAssetLoader() {
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
@@ -815,28 +812,18 @@ function openAssetLoader() {
       return;
     }
 
+    // Separar
     const svgFiles = files.filter(f => f.name.toLowerCase().endsWith('.svg'));
     const imgFiles = files.filter(f => !f.name.toLowerCase().endsWith('.svg'));
 
-    // 🟢 USAMOS TUS INPUTS ORIGINALES QUE YA EXISTEN
-    if (imgFiles.length > 0) {
-      const imgInput = document.getElementById('imagePicker');
-      if (imgInput) {
-        const dt = new DataTransfer();
-        imgFiles.forEach(f => dt.items.add(f));
-        imgInput.files = dt.files;
-        imgInput.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+    // 🟢 CARGAR SVG DE A UNO
+    for (const file of svgFiles) {
+      await cargarUnArchivo(file, 'svg');
     }
 
-    if (svgFiles.length > 0) {
-      const svgInput = document.getElementById('svgPicker');
-      if (svgInput) {
-        const dt = new DataTransfer();
-        svgFiles.forEach(f => dt.items.add(f));
-        svgInput.files = dt.files;
-        svgInput.dispatchEvent(new Event('change', { bubbles: true }));
-      }
+    // 🟢 CARGAR IMÁGENES DE A UNO
+    for (const file of imgFiles) {
+      await cargarUnArchivo(file, 'img');
     }
 
     document.body.removeChild(input);
@@ -845,11 +832,30 @@ function openAssetLoader() {
   input.click();
 }
 
-// EXPOSICIÓN AL HTML
+// AYUDANTE: simula la selección de TU cargador original
+async function cargarUnArchivo(file, tipo) {
+  return new Promise(resolve => {
+    const inputId = tipo === 'svg' ? 'svgPicker' : 'imagePicker';
+    const input = document.getElementById(inputId);
+    if (!input) return resolve();
+
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+
+    // Esperar a que termine de cargar antes del siguiente
+    const handler = () => {
+      input.removeEventListener('change', handler);
+      setTimeout(resolve, 300);
+    };
+    input.addEventListener('change', handler);
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
 window.openAssetLoader = openAssetLoader;
 window.openImageLoader = openAssetLoader;
 window.openSVGLoader = openAssetLoader;
-
 // Inicializacion de la Modal de QR Dinamico
 const loadQRCodeLibrary = () => {
   return new Promise((resolve) => {
