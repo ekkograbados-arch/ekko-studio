@@ -177,7 +177,7 @@ function getFusionReceptors() {
    DETECCIÓN POR SOLAPAMIENTO (no por distancia centro-centro)
    Devuelve el mejor receptor o null.
 ------------------------------------------------------------------------ */
-function findBestSnapReceptor(rasterItem) {
+function findBestSnapReceptor(rasterItem, mousePoint) {
   const receptors = getFusionReceptors();
   if (receptors.length === 0) return null;
   const rBounds = rasterItem.bounds;
@@ -189,6 +189,13 @@ function findBestSnapReceptor(rasterItem) {
     const vBounds = rec.item.bounds;
     if (!vBounds) return;
     let score = 0;
+    // EL PUNTERO DEL MOUSE DECIDE: bonus fuerte al receptor bajo el cursor (Canva-style)
+    if (mousePoint && vBounds.contains(mousePoint)) score += 200;
+    if (mousePoint) {
+      const dm = mousePoint.getDistance(vBounds.center);
+      const diagM = Math.sqrt(vBounds.width*vBounds.width + vBounds.height*vBounds.height) || 1;
+      score += Math.max(0, 10 * (1 - dm / (diagM * 1.5)));
+    }
     if (vBounds.contains(rCenter)) score += 100;
     if (vBounds.intersects(rBounds)) {
       const inter = vBounds.intersect(rBounds);
@@ -414,9 +421,9 @@ export function applySmartFusion(vector, raster, mode = 'intersecar') {
    SNAPPING MAGNÉTICO REESCRITO (v46.0): preview sin mover la foto real.
    Se llama desde selection.js en onMouseDrag cuando se arrastra un Raster.
 ------------------------------------------------------------------------ */
-export function checkMagneticSnapping(rasterItem) {
+export function checkMagneticSnapping(rasterItem, mousePoint) {
   if (!rasterItem || !paper.project) return false;
-  const best = findBestSnapReceptor(rasterItem);
+  const best = findBestSnapReceptor(rasterItem, mousePoint);
   if (best) {
     drawFusionPreview(rasterItem, best);
     activeSnappedVector = best.item;
@@ -505,10 +512,18 @@ export function releaseSmartFusion(item) {
   if (!item) return null;
   let targetItem = item;
   if (Array.isArray(item)) {
+    // Liberar TODAS las fusiones encontradas en la selección (no solo la primera)
+    let any = false;
     for (let i = 0; i < item.length; i++) {
       const found = findSmartFusionContainer(item[i]);
-      if (found) { targetItem = found; break; }
+      if (found) { try { releaseSmartFusion(found); any = true; } catch(e){ console.error("[RELEASE MULTI ERROR]", e); } }
     }
+    if (any) {
+      if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
+      paper.view.update();
+      return true;
+    }
+    return null;
   }
   let fusionGroup = findSmartFusionContainer(targetItem);
   // Fallback: si no se encontró y hay exactamente 1 fusión en el proyecto, usarla
@@ -637,4 +652,3 @@ export function initSmartFusionListeners() {
   }
   console.log("%c[EKKO SMART FUSION v46.0] Motor de Fusión + Snapping Magnético Canva-Style cargado.", "color: #ff2ea6; font-weight: bold;");
 }
-
