@@ -796,8 +796,8 @@ export function openSVGFileDialog() {
 }
 window.openSVGFileDialog = openSVGFileDialog;
 
-// CARGA UNIFICADA: Imágenes y SVG en un solo diálogo
-async function openAssetLoader() {
+// CARGA UNIFICADA — reutiliza TUS cargadores que ya funcionan
+function openAssetLoader() {
   const input = document.createElement('input');
   input.type = 'file';
   input.multiple = true;
@@ -812,34 +812,27 @@ async function openAssetLoader() {
       return;
     }
 
-    // Separar por tipo: SVG primero, luego imágenes
     const svgFiles = files.filter(f => f.name.toLowerCase().endsWith('.svg'));
     const imgFiles = files.filter(f => !f.name.toLowerCase().endsWith('.svg'));
 
-    // Cargar todos los SVG
-    for (const file of svgFiles) {
-      try {
-        const text = await file.text();
-        if (typeof importSVGString === 'function') {
-          await importSVGString(text, file.name);
-        }
-      } catch (err) {
-        console.warn('No se pudo cargar SVG:', file.name, err);
+    // ENTREGAR A TUS INPUTS ORIGINALES QUE YA SABEN CARGAR
+    if (imgFiles.length > 0) {
+      const imgInput = document.getElementById('imagePicker');
+      if (imgInput) {
+        const dt = new DataTransfer();
+        imgFiles.forEach(f => dt.items.add(f));
+        imgInput.files = dt.files;
+        imgInput.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
 
-    // Cargar todas las imágenes
-    for (const file of imgFiles) {
-      try {
-        const url = URL.createObjectURL(file);
-        if (typeof placeRasterOnCanvas === 'function') {
-          await placeRasterOnCanvas(url, {
-            name: file.name,
-            preserveOriginalSize: true
-          });
-        }
-      } catch (err) {
-        console.warn('No se pudo cargar imagen:', file.name, err);
+    if (svgFiles.length > 0) {
+      const svgInput = document.getElementById('svgPicker');
+      if (svgInput) {
+        const dt = new DataTransfer();
+        svgFiles.forEach(f => dt.items.add(f));
+        svgInput.files = dt.files;
+        svgInput.dispatchEvent(new Event('change', { bubbles: true }));
       }
     }
 
@@ -849,10 +842,10 @@ async function openAssetLoader() {
   input.click();
 }
 
-// Redireccionar ambos botones a la carga unificada
+window.openAssetLoader = openAssetLoader;
 window.openImageLoader = openAssetLoader;
 window.openSVGLoader = openAssetLoader;
-window.openAssetLoader = openAssetLoader;  // ← ESTA FALTA
+
 
 // Inicializacion de la Modal de QR Dinamico
 const loadQRCodeLibrary = () => {
