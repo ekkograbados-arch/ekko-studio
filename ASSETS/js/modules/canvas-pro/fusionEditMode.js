@@ -44,6 +44,35 @@ function cleanupStrayEditItems() {
    ENTRAR al modo edición interna.
 ------------------------------------------------------------------------ */
 export function enterFusionEditMode(fusionItem) {
+  // ==============================================
+// BLOQUEAR SNAP EXTERNO DURANTE EDICIÓN INTERNA
+// ==============================================
+const originalEnter = window.enterFusionEditMode;
+window.enterFusionEditMode = function(fusionGroup) {
+  // Activar flag de bloqueo
+  window.fusionEditActive = true;
+  window._fusionEditState = {
+    fusion: fusionGroup,
+    lockedSnap: true
+  };
+
+  // Limpiar cualquier preview fucsia
+  if (typeof clearFusionPreview === 'function') {
+    clearFusionPreview(true);
+  }
+
+  return originalEnter ? originalEnter.call(this, fusionGroup) : null;
+};
+
+// Al salir → liberar bloqueo
+const originalExit = window.exitFusionEditMode;
+window.exitFusionEditMode = function(mode) {
+  window.fusionEditActive = false;
+  window._fusionEditState = null;
+  return originalExit ? originalExit.call(this, mode) : null;
+};
+
+  
   if (!fusionItem || window.nodeEditMode) return;
   if (window.fusionEditActive) { try { exitFusionEditMode(true); } catch(e){} }
   cleanupStrayEditItems();
