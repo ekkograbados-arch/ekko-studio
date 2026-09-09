@@ -699,6 +699,8 @@ export function initSmartFusionListeners() {
     window.clearFusionPreview = clearFusionPreview;
     window.initSmartFusionListeners = initSmartFusionListeners;
     window._fusionSnapActive = false;
+    window.performSmartFusion = performSmartFusion;
+    window.releaseSmartFusion = releaseSmartFusion;
     ensureVirtualHoleRegistry();
   }
   console.log("%c[EKKO SMART FUSION v46.0] Motor de Fusión + Snapping Magnético Canva-Style cargado.", "color: #ff2ea6; font-weight: bold;");
