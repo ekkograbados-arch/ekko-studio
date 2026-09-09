@@ -1280,14 +1280,6 @@ const _initSelectionTool = function() {
     window.isRotationSnapped = false;
     window.rotationTargets = [];
      
-// ==============================================================
-// EXPOSICIÓN DE FUNCIONES AL SISTEMA Y AL HTML
-// ==============================================================
-window.ungroupSelectedItem = ungroupSelectedItem;
-window.groupSelectedItems = groupSelectedItems;
-window.alignSelection = alignSelection;
-window.distributeSelection = distributeSelection;
-
      
     const canvas = document.getElementById("editorCanvas");
     if (canvas) canvas.style.cursor = 'default';
@@ -1385,3 +1377,12 @@ protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
 
+window.ungroupSelectedItem = ungroupSelectedItem;
+window.groupSelectedItems = groupSelectedItems;
+window.alignSelection = alignSelection;
+window.distributeSelection = distributeSelection;
+window.toggleOutline = toggleOutline;
+window.toggleRulers = toggleRulers;
+window.toggleGuides = toggleGuides;
+window.zoomToFit = zoomToFit;
+window.toggleNodeEditMode = toggleNodeEditMode;
