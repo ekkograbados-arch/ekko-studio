@@ -674,4 +674,3 @@ if (typeof window !== "undefined") {
         });
     }
 }
-
