@@ -368,3 +368,52 @@ silencia ni se elimina ningún activo sin autorización soberana.
     opacity: 0.75;
     margin-top: 12px;
 }
+
+
+/* ==============================================
+   ESTADOS DE PANELES — PLEGADO / OCULTO
+   ============================================== */
+
+/* Panel izquierdo plegable */
+#productPanelWrap {
+  width: 240px;
+}
+#productPanelWrap.collapsed {
+  width: 48px;
+}
+#productPanelWrap.collapsed > *:not(#panelToggles):not(#toggleProductPanel) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Barra superior contraída a pestañas */
+#topToolbar.collapsed {
+  height: 48px;
+}
+#topToolbar.collapsed .button-group {
+  display: none;
+}
+
+/* Barra emergente oculta */
+#contextToolbar.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+/* Botones dinámicos: deshabilitados / resaltados */
+[data-fusion-btn].disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+[data-fusion-btn].highlight {
+  border: 2px solid #ff4080 !important;
+  background: rgba(255,64,128,0.1) !important;
+}
+
+/* Botones de visibilidad: hover */
+#panelToggles button:hover {
+  background: rgba(255,255,255,0.15) !important;
+  color: #fff !important;
+}
