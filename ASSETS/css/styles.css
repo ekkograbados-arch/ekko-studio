@@ -417,3 +417,238 @@ silencia ni se elimina ningún activo sin autorización soberana.
   background: rgba(255,255,255,0.15) !important;
   color: #fff !important;
 }
+
+
+/* ========================================================================
+   EKKO PANEL COORDINATOR — FASE 0 / COMPATIBILIDAD DE INTERFAZ
+   Estos estilos se aplican a los IDs reales del DOM y corrigen los nombres
+   históricos (#topToolbar / #contextToolbar) sin tocar la geometría Paper.js.
+========================================================================= */
+:root {
+    --ekko-sidebar-width: 260px;
+    --ekko-topbar-height: 52px;
+    --ekko-panel-z: 1000;
+    --ekko-floating-z: 10100;
+}
+
+/* El panel legado queda oculto: sus listeners se conservan temporalmente
+   para no romper la versión actual mientras panelCoordinator toma el control. */
+#panelToggles[data-legacy-panel-controls="true"] {
+    display: none !important;
+}
+
+#productPanelWrap,
+#leftSidebar {
+    width: var(--ekko-sidebar-width) !important;
+    min-width: var(--ekko-sidebar-width) !important;
+    max-width: var(--ekko-sidebar-width) !important;
+}
+
+#productPanelWrap {
+    position: relative;
+    transition: width .25s ease, min-width .25s ease, transform .25s ease;
+    overflow: visible !important;
+    z-index: var(--ekko-panel-z);
+}
+
+#leftSidebar {
+    position: relative;
+    transition: opacity .2s ease, transform .25s ease;
+}
+
+#leftSidebarHeader,
+#topPanelControls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#leftSidebarHeader {
+    min-height: 38px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--ekko-border-color);
+    justify-content: space-between;
+    box-sizing: border-box;
+}
+
+.panel-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ekko-text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.panel-icon-btn,
+.panel-overflow-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--ekko-text-dark);
+    cursor: pointer;
+    font-size: 19px;
+    line-height: 1;
+}
+
+.panel-icon-btn:hover,
+.panel-overflow-btn:hover {
+    background: rgba(100, 116, 139, .15);
+}
+
+#topBar {
+    position: relative;
+    min-height: var(--ekko-topbar-height);
+}
+
+#topPanelControls {
+    margin-left: auto;
+    flex: 0 0 auto;
+    z-index: 2;
+}
+
+/* Compatibilidad con ambos nombres de estado durante la transición. */
+#topBar.collapsed,
+#topBar.is-compact {
+    min-height: 34px !important;
+    height: 34px !important;
+    overflow: hidden;
+}
+
+#topBar.is-compact .top-group,
+#topBar.is-compact #selectionInfo {
+    display: none !important;
+}
+
+#topBar.is-hidden,
+#topBar.hidden {
+    display: none !important;
+}
+
+/* La barra profesional dinámica se considera parte de la superficie superior. */
+#pro-layout-toolbar {
+    position: relative;
+    z-index: 19;
+    transition: max-height .25s ease, opacity .2s ease;
+}
+
+#topBar.is-compact + #pro-layout-toolbar,
+#topBar.is-hidden + #pro-layout-toolbar,
+#pro-layout-toolbar.is-hidden {
+    display: none !important;
+}
+
+#productPanelWrap.is-collapsed,
+#productPanelWrap.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: visible !important;
+}
+
+#productPanelWrap.is-collapsed #leftSidebar,
+#productPanelWrap.collapsed #leftSidebar {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-100%);
+}
+
+.product-panel-handle {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    display: none;
+    transform: translate(0, -50%);
+    padding: 8px 7px;
+    border: 1px solid var(--ekko-border-color);
+    border-left: 0;
+    border-radius: 0 7px 7px 0;
+    background: var(--ekko-bg-panel);
+    color: var(--ekko-text-dark);
+    cursor: pointer;
+    white-space: nowrap;
+    z-index: var(--ekko-panel-z);
+}
+
+#productPanelWrap.is-collapsed .product-panel-handle,
+#productPanelWrap.collapsed .product-panel-handle {
+    display: block;
+    left: 0;
+}
+
+#contextual-toolbar {
+    z-index: var(--ekko-floating-z) !important;
+}
+
+#contextual-toolbar:not(.active):not(.is-visible) {
+    display: none !important;
+}
+
+#contextual-toolbar.is-hidden {
+    display: none !important;
+}
+
+#contextual-toolbar.is-visible {
+    display: flex !important;
+}
+
+.floating-overflow-btn {
+    margin-left: 4px;
+    flex: 0 0 auto;
+}
+
+.panel-recovery-dock {
+    position: fixed;
+    top: 12px;
+    right: 16px;
+    display: none;
+    z-index: calc(var(--ekko-floating-z) + 10);
+    padding: 7px 10px;
+    border: 1px solid var(--ekko-border-color);
+    border-radius: 7px;
+    background: var(--ekko-bg-panel);
+    color: var(--ekko-text-dark);
+    box-shadow: var(--ekko-hud-shadow);
+    cursor: pointer;
+}
+
+#panelRecoveryDock.is-visible {
+    display: block;
+}
+
+.panel-visibility-menu {
+    position: fixed;
+    z-index: calc(var(--ekko-floating-z) + 20);
+    min-width: 210px;
+    padding: 8px;
+    border: 1px solid var(--ekko-border-color);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, .18);
+}
+
+.panel-visibility-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--ekko-text-dark);
+    text-align: left;
+    cursor: pointer;
+}
+
+.panel-visibility-menu button:hover {
+    background: #f1f5f9;
+}
+
+@media (max-width: 900px) {
+    :root { --ekko-sidebar-width: 220px; }
+    #topBar { overflow-x: auto; }
+}
