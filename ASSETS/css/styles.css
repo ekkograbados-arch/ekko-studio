@@ -715,3 +715,59 @@ silencia ni se elimina ningún activo sin autorización soberana.
 #topBar.is-hidden #ekkoTopContextSurface {
     display: none !important;
 }
+
+/* ------------------------------------------------------------------------
+   Superficie superior unificada: #topBar + #pro-layout-toolbar.
+   La segunda fila se presenta como una extensión de la cinta contextual,
+   no como una barra flotante independiente.
+------------------------------------------------------------------------- */
+#topBar + #pro-layout-toolbar {
+    flex: 0 0 auto;
+    width: 100% !important;
+    min-height: 42px;
+    margin: 0 !important;
+    padding: 5px 12px !important;
+    box-sizing: border-box;
+    border-top: 1px solid var(--ekko-border-color) !important;
+    border-bottom: 1px solid var(--ekko-border-color) !important;
+    background: #f8fafc !important;
+    box-shadow: inset 0 -1px 0 rgba(148, 163, 184, .12);
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+#topBar + #pro-layout-toolbar .pro-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 30px;
+    padding: 0 7px;
+    border-right: 1px solid rgba(148, 163, 184, .35);
+}
+
+#topBar + #pro-layout-toolbar .pro-group:last-child {
+    border-right: 0;
+}
+
+#topBar + #pro-layout-toolbar .pro-label {
+    color: var(--ekko-text-muted);
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+#topBar + #pro-layout-toolbar .pro-btn {
+    min-height: 28px;
+    white-space: nowrap;
+}
+
+#topBar.is-compact + #pro-layout-toolbar,
+#topBar.is-hidden + #pro-layout-toolbar {
+    max-height: 0 !important;
+    min-height: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    border-width: 0 !important;
+    overflow: hidden !important;
+}
