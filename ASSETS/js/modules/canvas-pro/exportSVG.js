@@ -27,6 +27,7 @@ FASE DE OPERACIÓN:
 ========================================================================= */
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+import { getVirtualHoleEntries } from "./fusionCore.js";
 
 /**
  * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
@@ -233,15 +234,31 @@ export function prepareSVGForExport(options = {}) {
     });
 
     // 5. MATERIALIZACIÓN BOOLEANA CSG EN LA CAPA CLONADA
-    // Hornea las perforaciones físicas reales de los calados activos sobre las masas sólidas inferiores
+    // El export usa copias de los huecos virtuales, nunca las geometrías del
+    // lienzo interactivo. Se conserva ownerContainmentKey para aislar fusiones.
+    const exportVirtualHoles = [];
     try {
+        getVirtualHoleEntries().forEach(entry => {
+            if (!entry || !entry.geom) return;
+            const geom = entry.geom.clone({ insert: false });
+            exportVirtualHoles.push({
+                geom,
+                fusionId: entry.fusionId,
+                ownerContainmentKey: entry.ownerContainmentKey || null
+            });
+        });
+
         if (typeof recalculateDynamicSubtractions === "function") {
-            recalculateDynamicSubtractions(tempLayer);
+            recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
         } else if (typeof window.recalculateDynamicSubtractions === "function") {
-            window.recalculateDynamicSubtractions(tempLayer);
+            window.recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
         }
     } catch (err) {
         console.warn("[EKKO EXPORT CSG RECALC ERROR]", err);
+    } finally {
+        exportVirtualHoles.forEach(entry => {
+            try { entry.geom.remove(); } catch (e) {}
+        });
     }
 
     // 6. PURGADO DE CALADOS ACTIVOS (isHole)
@@ -375,4 +392,3 @@ if (typeof window !== "undefined") {
     window.prepareSVGForExport = prepareSVGForExport;
     window.downloadExportedSVG = downloadExportedSVG;
 }
-
