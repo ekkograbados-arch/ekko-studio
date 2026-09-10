@@ -1536,7 +1536,6 @@ protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
 
-
-// La selección solo expone las funciones que realmente pertenecen a este módulo.
-// Las demás son publicadas por sus módulos responsables.
-window.alignSelection = alignSelection;
+// Las funciones de organización, vista y nodos son expuestas
+// por sus módulos responsables. selection.js solo registra
+// la herramienta de selección y sus APIs propias.
