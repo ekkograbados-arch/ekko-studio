@@ -1539,7 +1539,6 @@ protectGlobal('initSelectionTool', _initSelectionTool);
 window.ungroupSelectedItem = ungroupSelectedItem;
 
 window.alignSelection = alignSelection;
-window.distributeSelection = distributeSelection;
 window.toggleOutline = toggleOutline;
 window.toggleRulers = toggleRulers;
 window.toggleGuides = toggleGuides;
