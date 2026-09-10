@@ -205,14 +205,18 @@ export function registerVirtualHole(geometry, fusionId, fusionGroup = null) {
     const clone = geometry.clone({ insert: false });
     clone.matrix = new paper.Matrix();
 
+    const ownerContainmentKey = fusionGroup?.data?.ownerContainmentKey ||
+        fusionGroup?.data?.containmentKey || null;
+
     if (existing) {
         try { existing.geom.remove(); } catch (e) {}
         existing.geom = clone;
         existing.fusionGroup = fusionGroup || existing.fusionGroup || null;
+        existing.ownerContainmentKey = ownerContainmentKey || existing.ownerContainmentKey || null;
         return existing;
     }
 
-    const entry = { geom: clone, fusionId, fusionGroup };
+    const entry = { geom: clone, fusionId, fusionGroup, ownerContainmentKey };
     registry.push(entry);
     return entry;
 }
@@ -305,6 +309,10 @@ export function createFusionRecord(fusionItem, overrides = {}) {
         originalIsHole: !!data.originalIsHole,
         originalVectorData: data.originalVectorData || null,
         originalRasterData: data.originalRasterData || null,
+        containmentScope: data.containmentScope || null,
+        containmentKey: data.containmentKey || null,
+        ownerContainmentKey: data.ownerContainmentKey || null,
+        receiverKind: data.receiverKind || (data.originalIsHole ? "hole" : "solid"),
         updatedAt: Date.now(),
         ...overrides
     };
