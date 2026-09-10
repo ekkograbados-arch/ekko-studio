@@ -685,6 +685,15 @@ export function applyFusionFromSelection(mode = 'intersecar') {
 }
 
 /* ------------------------------------------------------------------------
+   DISPATCHER COMPATIBLE PARA EL BOTÓN "FUSIONAR"
+   El HTML existente llama performSmartFusion().
+   La lógica canónica vive en applyFusionFromSelection().
+------------------------------------------------------------------------ */
+export function performSmartFusion(mode = 'intersecar') {
+  return applyFusionFromSelection(mode);
+}
+
+/* ------------------------------------------------------------------------
    INICIALIZACIÓN Y EXPOSICIÓN DE API
 ------------------------------------------------------------------------ */
 export function initSmartFusionListeners() {
