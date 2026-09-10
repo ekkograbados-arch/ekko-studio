@@ -400,8 +400,16 @@ function makeToolbarDraggable() {
 
     document.addEventListener('mousemove', (e) => {
         if (!isDraggingToolbar) return;
-        toolbar.style.left = (e.clientX - startX) + 'px';
-        toolbar.style.top = (e.clientY - startY) + 'px';
+        const nextLeft = Math.max(8, Math.min(window.innerWidth - toolbar.offsetWidth - 8, e.clientX - startX));
+        const nextTop = Math.max(8, Math.min(window.innerHeight - toolbar.offsetHeight - 8, e.clientY - startY));
+        toolbar.style.left = nextLeft + 'px';
+        toolbar.style.top = nextTop + 'px';
+
+        // Persistir la posición elegida por el usuario durante la sesión.
+        // updateContextualMenu() reutiliza estos valores al seleccionar
+        // nuevamente cualquier objeto.
+        window.customToolbarLeft = nextLeft;
+        window.customToolbarTop = nextTop;
         toolbarDragged = true;
     });
 
@@ -798,8 +806,12 @@ export function updateContextualMenu(item) {
     }
 
     if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
-        toolbar.style.left = window.customToolbarLeft + 'px';
-        toolbar.style.top = window.customToolbarTop + 'px';
+        const savedLeft = Math.max(8, Math.min(window.innerWidth - toolbar.offsetWidth - 8, window.customToolbarLeft));
+        const savedTop = Math.max(8, Math.min(window.innerHeight - toolbar.offsetHeight - 8, window.customToolbarTop));
+        toolbar.style.left = savedLeft + 'px';
+        toolbar.style.top = savedTop + 'px';
+        window.customToolbarLeft = savedLeft;
+        window.customToolbarTop = savedTop;
     } else if (!toolbarDragged || lastSelectedItem !== item) {
         const screenPos = getUnifiedScreenBounds(item);
         if (screenPos) {
