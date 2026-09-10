@@ -428,6 +428,14 @@ export function applySmartFusion(vector, raster, mode = 'intersecar') {
    Se llama desde selection.js en onMouseDrag cuando se arrastra un Raster.
 ------------------------------------------------------------------------ */
 export function checkMagneticSnapping(rasterItem, mousePoint) {
+  // Durante la edición interna la imagen ya está dentro de una fusión.
+  // Nunca debe activar snap, halo fucsia ni buscar otro receptor.
+  if (window.fusionEditActive || window._fusionEditState) {
+    clearFusionPreview(true);
+    window._fusionSnapActive = false;
+    window._activeSnappedVector = null;
+    return false;
+  }
   if (!rasterItem || !paper.project) return false;
   const best = findBestSnapReceptor(rasterItem, mousePoint);
   if (best) {
@@ -453,6 +461,12 @@ export function checkMagneticSnapping(rasterItem, mousePoint) {
 ------------------------------------------------------------------------ */
 export function handleMagneticDrop(rasterItem) {
   try {
+    if (window.fusionEditActive || window._fusionEditState) {
+      clearFusionPreview(true);
+      window._fusionSnapActive = false;
+      window._activeSnappedVector = null;
+      return false;
+    }
     const snapped = activeSnappedVector || window._activeSnappedVector;
     const raster = rasterItem || activeSnappedRaster;
     clearFusionPreview(true);
