@@ -160,8 +160,8 @@ function getFusionReceptors() {
     if (!display) return;
     if (display.clipMask || (display.data && (display.data.mockup || display.data.isMask || display.data.wasClipMask))) return;
     if (isMockupOrProductElement(display)) return; // BLINDAJE: nunca un hueco de producto
-    if (display.className === 'Path' || display.className === 'CompoundPath') {
-      if (display.closed || display.className === 'CompoundPath') {
+    if (display.className === 'Path' || display.className === 'CompoundPath' || display.className === 'Shape') {
+      if (display.closed || display.className === 'CompoundPath' || display.className === 'Shape') {
         receptors.push({ item: display, wrapper: item, isHole: !!(display.data && display.data.isHole), priority: display.data && display.data.isFusionReceptor ? 1 : 0 });
       }
     }
@@ -659,7 +659,9 @@ export function releaseSmartFusion(item) {
 ------------------------------------------------------------------------ */
 export function applyFusionFromSelection(mode = 'intersecar') {
   try {
-  const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
+  const selected = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? [...window.selectedItems]
+    : (window.selectedItem ? [window.selectedItem] : []);
   if (selected.length < 2) {
     alert("Selecciona una imagen y un vector (hueco o silueta) para fusionar.");
     return null;
