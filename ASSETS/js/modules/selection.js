@@ -1536,11 +1536,7 @@ protectGlobal('getOppositePoint', _getOppositePoint);
 protectGlobal('getHandlePoint', _getHandlePoint);
 protectGlobal('initSelectionTool', _initSelectionTool);
 
-window.ungroupSelectedItem = ungroupSelectedItem;
 
+// La selección solo expone las funciones que realmente pertenecen a este módulo.
+// Las demás son publicadas por sus módulos responsables.
 window.alignSelection = alignSelection;
-window.toggleOutline = toggleOutline;
-window.toggleRulers = toggleRulers;
-window.toggleGuides = toggleGuides;
-window.zoomToFit = zoomToFit;
-window.toggleNodeEditMode = toggleNodeEditMode;
