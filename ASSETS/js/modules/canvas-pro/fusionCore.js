@@ -67,16 +67,54 @@ export function getContentItem(item) {
     return item;
 }
 
+function collectDescendants(item, predicate, result = []) {
+    if (!item) return result;
+    if (predicate(item)) result.push(item);
+    if (item.children) Array.from(item.children).forEach(child => collectDescendants(child, predicate, result));
+    return result;
+}
+
+export function findFusionVector(item) {
+    if (!item || isProductElement(item)) return null;
+    const direct = item.className === "CompoundPath" ||
+        (item.className === "Path" && item.closed === true)
+        ? item
+        : null;
+    if (direct) return direct;
+
+    const candidates = collectDescendants(item, child => {
+        if (child === item || isProductElement(child)) return false;
+        if (child.clipMask || child.data?.isMask || child.data?.wasClipMask) return false;
+        return child.className === "CompoundPath" ||
+            (child.className === "Path" && child.closed === true);
+    });
+
+    return candidates.length === 1 ? candidates[0] : null;
+}
+
+export function findFusionRaster(item) {
+    if (!item || isProductElement(item)) return null;
+    if (item.className === "Raster") return item;
+
+    const candidates = collectDescendants(item, child => {
+        if (child === item || isProductElement(child)) return false;
+        if (child.clipMask || child.data?.isMask || child.data?.wasClipMask) return false;
+        return child.className === "Raster";
+    });
+
+    return candidates.length === 1 ? candidates[0] : null;
+}
+
 export function isClosedClientVector(item) {
-    const target = getContentItem(item);
+    const target = findFusionVector(item) || getContentItem(item);
     if (!target || isProductElement(target) || !isClientDesignElement(target)) return false;
     return target.className === "CompoundPath" ||
         (target.className === "Path" && target.closed === true);
 }
 
 export function isValidFusionReceptor(item) {
-    const target = getContentItem(item);
-    if (!isClosedClientVector(target)) return false;
+    const target = findFusionVector(item) || getContentItem(item);
+    if (!target || isProductElement(target) || !isClosedClientVector(target)) return false;
     if (target.data && target.data.isSmartFusion) return false;
     return target.data?.isFusionReceptor === true ||
         target.data?.isHole === true ||
@@ -209,6 +247,8 @@ if (typeof window !== "undefined") {
         isProductElement,
         isClientDesignElement,
         getContentItem,
+        findFusionVector,
+        findFusionRaster,
         isClosedClientVector,
         isValidFusionReceptor,
         cloneAbsolute,
