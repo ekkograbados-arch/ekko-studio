@@ -90,6 +90,15 @@ function classifySelection() {
 
     const typeCount = ["raster", "vector", "text", "fusion", "other"].filter(type => counts[type] > 0).length;
     let context = "multiple";
+    let canUngroup = false;
+    const singleTarget = selected.length === 1 ? unwrap(selected[0]) : null;
+
+    if (singleTarget && !(singleTarget.data && singleTarget.data.isSmartFusion)) {
+        canUngroup = singleTarget.className === "Group" ||
+            singleTarget.className === "SymbolItem" ||
+            singleTarget.className === "PlacedSymbol" ||
+            (singleTarget.className === "CompoundPath" && !singleTarget.data?.decomposedLayer);
+    }
 
     if (counts.fusion === selected.length) {
         context = "fusion";
@@ -108,7 +117,7 @@ function classifySelection() {
         context = "multiple";
     }
 
-    return { context, counts };
+    return { context, counts, canUngroup };
 }
 
 function tagProfessionalButtons() {
@@ -129,6 +138,7 @@ function getSharedCommandElements() {
 function applyCommandVisibility() {
     const selection = classifySelection();
     const allowed = new Set(CONTEXT_COMMANDS[selection.context] || CONTEXT_COMMANDS.none);
+    if (selection.canUngroup) allowed.add("ungroup");
     const elements = getSharedCommandElements();
 
     elements.forEach(element => {
@@ -142,6 +152,7 @@ function applyCommandVisibility() {
     window.EKKO_COMMAND_STATE = {
         context: selection.context,
         counts: selection.counts,
+        canUngroup: selection.canUngroup,
         allowedCommands: [...allowed],
         timestamp: Date.now()
     };
@@ -149,11 +160,19 @@ function applyCommandVisibility() {
     return window.EKKO_COMMAND_STATE;
 }
 
+function enforceCommandVisibility() {
+    applyCommandVisibility();
+    // contextualMenu.js y canvasControlsIntegration.js también actualizan
+    // estilos después de la selección. Reaplicamos al final de ese ciclo.
+    setTimeout(applyCommandVisibility, 0);
+    setTimeout(applyCommandVisibility, 60);
+}
+
 function scheduleRefresh() {
     if (refreshTimer) cancelAnimationFrame(refreshTimer);
     refreshTimer = requestAnimationFrame(() => {
         refreshTimer = null;
-        applyCommandVisibility();
+        enforceCommandVisibility();
     });
 }
 
@@ -186,7 +205,8 @@ function observeProfessionalToolbar() {
 
 export function refreshSharedCommands() {
     wrapToolbarRefresh();
-    return applyCommandVisibility();
+    enforceCommandVisibility();
+    return window.EKKO_COMMAND_STATE;
 }
 
 export function initPanelCommandBridge() {
