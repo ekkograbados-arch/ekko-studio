@@ -21,6 +21,10 @@ import {
   findFusionRaster,
   cloneAbsolute,
   calculateCoverPlacement,
+  canFuse,
+  createFusionRecord,
+  unregisterFusion,
+  getCurrentFusionMask,
   registerVirtualHole as registerCoreVirtualHole,
   unregisterVirtualHole as unregisterCoreVirtualHole
 } from "./fusionCore.js";
@@ -283,6 +287,10 @@ function clearFusionPreview(resetCursor = true) {
 ------------------------------------------------------------------------ */
 export function applySmartFusion(vector, raster, mode = 'intersecar') {
   if (!vector || !raster || !paper) return null;
+  if (!canFuse(raster, vector)) {
+    console.warn("[FUSION CONTRACT]: La combinación no es un par imagen + receptor de diseño válido.");
+    return null;
+  }
   if (isMockupOrProductElement(vector) || vector.clipMask) {
     console.error("[MOCKUP_LOCK]: Intento de usar plantilla/máscara de producto como vector de corte. Cancelado.");
     return null;
@@ -402,6 +410,14 @@ export function applySmartFusion(vector, raster, mode = 'intersecar') {
   const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
   designLayer.addChild(finalItem);
   if (window.currentMockup) finalItem.insertBelow(window.currentMockup);
+
+  // Registrar la fusión en el núcleo sin cambiar todavía su representación visual.
+  createFusionRecord(finalItem, {
+    fusionId,
+    mode,
+    originalIsHole,
+    mask: getCurrentFusionMask(finalItem)
+  });
 
   // Si fusionamos DENTRO de un hueco real, registrarlo como hueco virtual sustractivo
   if (mode === 'intersecar' && originalIsHole) {
@@ -618,7 +634,10 @@ export function releaseSmartFusion(item) {
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   try {
-  if (fusionGroup.data.fusionId) unregisterVirtualHole(fusionGroup.data.fusionId);
+  if (fusionGroup.data.fusionId) {
+    unregisterVirtualHole(fusionGroup.data.fusionId);
+    unregisterFusion(fusionGroup.data.fusionId);
+  }
 
   const restoredVector = fusionGroup.data.originalVectorData.clone();
   const restoredRaster = fusionGroup.data.originalRasterData.clone();
