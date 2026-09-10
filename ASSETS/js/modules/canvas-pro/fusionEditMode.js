@@ -136,15 +136,7 @@ export function enterFusionEditMode(fusionItem) {
       if (kids.length === 0) try { parentGroup.remove(); } catch(e){}
     }
 
-    editState = {
-      cyanOutline,
-      freeRaster: rasterChild,
-      originalRasterData: fusionGroup.data.originalRasterData,
-      mode,
-      vectorData,
-      originalIsHole,
-      fusionId
-    };
+    editState = { cyanOutline, freeRaster: rasterChild, mode, vectorData, originalIsHole, fusionId };
     window._fusionEditState = editState;
     window.fusionEditActive = true;
 
@@ -193,20 +185,7 @@ export function exitFusionEditMode(accept = true) {
     vectorClone.matrix = new paper.Matrix();
     vectorClone.data = { isHole: st.originalIsHole, isFusionReceptor: st.originalIsHole };
 
-    // Aceptar conserva la posición, escala y rotación de la imagen editada.
-    // Cancelar restaura la geometría original guardada al entrar.
-    let rasterToUse = null;
-    if (accept) {
-      rasterToUse = st.freeRaster;
-    } else {
-      if (st.freeRaster && st.freeRaster.project) {
-        try { st.freeRaster.remove(); } catch (e) {}
-      }
-      rasterToUse = st.originalRasterData
-        ? st.originalRasterData.clone({ insert: false })
-        : null;
-    }
-
+    const rasterToUse = st.freeRaster;
     if (rasterToUse) {
       rasterToUse.opacity = 1;
       rasterToUse.data = { label: "Imagen" };
@@ -216,10 +195,8 @@ export function exitFusionEditMode(accept = true) {
     // Remover contorno cian
     if (st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e){} }
 
-    if (vectorClone && rasterToUse) {
-      applySmartFusion(vectorClone, rasterToUse, st.mode, {
-        preserveRasterTransform: true
-      });
+    if (vectorClone && rasterToUse && rasterToUse.project) {
+      applySmartFusion(vectorClone, rasterToUse, st.mode);
     } else {
       if (vectorClone) try { vectorClone.remove(); } catch(e){}
       if (typeof window.recalculateDynamicSubtractions === 'function') window.recalculateDynamicSubtractions();
@@ -234,51 +211,14 @@ export function exitFusionEditMode(accept = true) {
   }
 }
 
-function installFusionEditShortcuts() {
-  if (window.__ekkoFusionEditShortcutsInstalled) return;
-
-  const keyHandler = function(event) {
-    if (!window.fusionEditActive) return;
-    if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      exitFusionEditMode(true);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      exitFusionEditMode(false);
-    }
-  };
-
-  const contextHandler = function(event) {
-    if (!window.fusionEditActive) return;
-    event.preventDefault();
-    event.stopPropagation();
-    exitFusionEditMode(true);
-  };
-
-  document.addEventListener("keydown", keyHandler, true);
-  const canvas = document.getElementById("editorCanvas") || (paper.view && paper.view.element);
-  canvas?.addEventListener("contextmenu", contextHandler, true);
-
-  window.__ekkoFusionEditShortcutsInstalled = true;
-  window.__ekkoFusionEditShortcutsStop = function() {
-    document.removeEventListener("keydown", keyHandler, true);
-    canvas?.removeEventListener("contextmenu", contextHandler, true);
-    window.__ekkoFusionEditShortcutsInstalled = false;
-    delete window.__ekkoFusionEditShortcutsStop;
-  };
-}
-
 export function initFusionEditMode() {
   if (typeof window !== 'undefined') {
     window.enterFusionEditMode = enterFusionEditMode;
     window.exitFusionEditMode = exitFusionEditMode;
     window.fusionEditActive = false;
   }
-  installFusionEditShortcuts();
   cleanupStrayEditItems();
-  console.log("%c[EKKO FUSION EDIT MODE v1.4] Edición interna, transformación persistente y bloqueo de Snap cargados.", "color: #00e5ff; font-weight: bold;");
+  console.log("%c[EKKO FUSION EDIT MODE v1.3] Edición interna (cian neón) + bloqueo de Snap externo cargado.", "color: #00e5ff; font-weight: bold;");
 }
 
 initFusionEditMode();
@@ -287,5 +227,3 @@ initFusionEditMode();
 // ==============================================================
 window.enterFusionEditMode = enterFusionEditMode;
 window.exitFusionEditMode = exitFusionEditMode;
-
-
