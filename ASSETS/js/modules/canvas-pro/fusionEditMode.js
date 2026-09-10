@@ -136,7 +136,15 @@ export function enterFusionEditMode(fusionItem) {
       if (kids.length === 0) try { parentGroup.remove(); } catch(e){}
     }
 
-    editState = { cyanOutline, freeRaster: rasterChild, mode, vectorData, originalIsHole, fusionId };
+    editState = {
+      cyanOutline,
+      freeRaster: rasterChild,
+      originalRasterData: fusionGroup.data.originalRasterData,
+      mode,
+      vectorData,
+      originalIsHole,
+      fusionId
+    };
     window._fusionEditState = editState;
     window.fusionEditActive = true;
 
@@ -185,7 +193,17 @@ export function exitFusionEditMode(accept = true) {
     vectorClone.matrix = new paper.Matrix();
     vectorClone.data = { isHole: st.originalIsHole, isFusionReceptor: st.originalIsHole };
 
-    const rasterToUse = st.freeRaster;
+    let rasterToUse = null;
+    if (accept) {
+      rasterToUse = st.freeRaster;
+    } else {
+      if (st.freeRaster && st.freeRaster.project) {
+        try { st.freeRaster.remove(); } catch (e) {}
+      }
+      rasterToUse = st.originalRasterData
+        ? st.originalRasterData.clone({ insert: false })
+        : null;
+    }
     if (rasterToUse) {
       rasterToUse.opacity = 1;
       rasterToUse.data = { label: "Imagen" };
@@ -195,8 +213,10 @@ export function exitFusionEditMode(accept = true) {
     // Remover contorno cian
     if (st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e){} }
 
-    if (vectorClone && rasterToUse && rasterToUse.project) {
-      applySmartFusion(vectorClone, rasterToUse, st.mode);
+    if (vectorClone && rasterToUse) {
+      applySmartFusion(vectorClone, rasterToUse, st.mode, {
+        preserveRasterTransform: true
+      });
     } else {
       if (vectorClone) try { vectorClone.remove(); } catch(e){}
       if (typeof window.recalculateDynamicSubtractions === 'function') window.recalculateDynamicSubtractions();
