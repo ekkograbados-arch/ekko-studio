@@ -259,6 +259,14 @@ function openVisibilityMenu(anchor) {
     menu.style.top = `${top}px`;
 }
 
+function refreshSharedCommands() {
+    if (typeof window.refreshEKKOSharedCommands === "function") {
+        window.refreshEKKOSharedCommands();
+    } else if (typeof window.refreshAllToolbars === "function") {
+        window.refreshAllToolbars();
+    }
+}
+
 function wrapContextualMenuAPI() {
     const update = window.updateContextualMenu;
     if (typeof update === "function" && !update.__ekkoPanelWrapped) {
@@ -267,7 +275,7 @@ function wrapContextualMenuAPI() {
             panelState.currentSelection = item || window.selectedItem || null;
             panelState.currentContext = resolveContext(panelState.currentSelection);
             applyPanelState();
-            if (typeof window.refreshAllToolbars === "function") window.refreshAllToolbars();
+            refreshSharedCommands();
             return result;
         };
         wrappedUpdate.__ekkoPanelWrapped = true;
@@ -281,7 +289,7 @@ function wrapContextualMenuAPI() {
             panelState.currentSelection = null;
             panelState.currentContext = "none";
             applyPanelState();
-            if (typeof window.refreshAllToolbars === "function") window.refreshAllToolbars();
+            refreshSharedCommands();
             return result;
         };
         wrappedHide.__ekkoPanelWrapped = true;
@@ -350,6 +358,7 @@ export function setSelectionContext(item = null) {
     panelState.currentSelection = item;
     panelState.currentContext = resolveContext(item);
     applyPanelState();
+    refreshSharedCommands();
 }
 
 export function getPanelState() {
