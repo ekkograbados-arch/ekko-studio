@@ -260,4 +260,3 @@ if (typeof window !== "undefined") {
         getVirtualHoleEntries
     };
 }
-
