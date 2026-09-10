@@ -1,6 +1,6 @@
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/fusionEditMode.js
-ACCIÓN: REEMPLAZAR (v1.1 — a prueba de congelamientos)
+ACCIÓN: REEMPLAZAR (v1.3 — clipGroup seguro y sin wrappers recursivos)
   - Doble clic sobre una fusión → entra en modo edición.
   - Imagen libre translúcida (transformable), silueta en NEON CIAN.
   - Salida: Enter / clic derecho / clic fuera → acepta. Escape → cancela.
@@ -30,6 +30,24 @@ function cleanupEditState() {
   if (paper.view && paper.view.element) paper.view.element.style.cursor = 'default';
 }
 
+function resolveFusionGroup(item) {
+  let curr = item;
+  while (curr) {
+    if (curr.data && curr.data.isSmartFusion) {
+      if (curr.data.clipGroup && curr.children) {
+        const nested = curr.children.find(child =>
+          child && child.data && child.data.isSmartFusion &&
+          child.children && child.children.length >= 2
+        );
+        if (nested) return nested;
+      }
+      return curr;
+    }
+    curr = curr.parent;
+  }
+  return null;
+}
+
 // Elimina imágenes/contornos huérfanos de sesiones de edición fallidas (evita duplicados)
 function cleanupStrayEditItems() {
   try {
@@ -44,45 +62,11 @@ function cleanupStrayEditItems() {
    ENTRAR al modo edición interna.
 ------------------------------------------------------------------------ */
 export function enterFusionEditMode(fusionItem) {
-  // ==============================================
-// BLOQUEAR SNAP EXTERNO DURANTE EDICIÓN INTERNA
-// ==============================================
-const originalEnter = window.enterFusionEditMode;
-window.enterFusionEditMode = function(fusionGroup) {
-  // Activar flag de bloqueo
-  window.fusionEditActive = true;
-  window._fusionEditState = {
-    fusion: fusionGroup,
-    lockedSnap: true
-  };
-
-  // Limpiar cualquier preview fucsia
-  if (typeof clearFusionPreview === 'function') {
-    clearFusionPreview(true);
-  }
-
-  return originalEnter ? originalEnter.call(this, fusionGroup) : null;
-};
-
-// Al salir → liberar bloqueo
-const originalExit = window.exitFusionEditMode;
-window.exitFusionEditMode = function(mode) {
-  window.fusionEditActive = false;
-  window._fusionEditState = null;
-  return originalExit ? originalExit.call(this, mode) : null;
-};
-
-  
   if (!fusionItem || window.nodeEditMode) return;
   if (window.fusionEditActive) { try { exitFusionEditMode(true); } catch(e){} }
   cleanupStrayEditItems();
 
-  let fusionGroup = null;
-  let curr = fusionItem;
-  while (curr) {
-    if (curr.data && curr.data.isSmartFusion) { fusionGroup = curr; break; }
-    curr = curr.parent;
-  }
+  const fusionGroup = resolveFusionGroup(fusionItem);
   if (!fusionGroup || !fusionGroup.children || fusionGroup.children.length < 2) return;
 
   try {
@@ -233,3 +217,4 @@ initFusionEditMode();
 // ==============================================================
 window.enterFusionEditMode = enterFusionEditMode;
 window.exitFusionEditMode = exitFusionEditMode;
+
