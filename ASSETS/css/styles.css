@@ -648,6 +648,12 @@ silencia ni se elimina ningún activo sin autorización soberana.
     background: #f1f5f9;
 }
 
+/* El CSS base de los botones utiliza !important para conservar el layout.
+   Este modificador tiene prioridad para ocultar comandos no disponibles. */
+[data-command-surface="shared"].ekko-command-hidden {
+    display: none !important;
+}
+
 @media (max-width: 900px) {
     :root { --ekko-sidebar-width: 220px; }
     #topBar { overflow-x: auto; }
