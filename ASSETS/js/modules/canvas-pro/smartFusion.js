@@ -269,8 +269,7 @@ function clearFusionPreview(resetCursor = true) {
    MOTOR DE FUSIÓN (conservado, con mejoras: registra isHole original y
    hueco virtual sustractivo). Default mode ahora 'intersecar'.
 ------------------------------------------------------------------------ */
-export function applySmartFusion(vector, raster, mode = 'intersecar', options = {}) {
-  const preserveRasterTransform = options && options.preserveRasterTransform === true;
+export function applySmartFusion(vector, raster, mode = 'intersecar') {
   if (!vector || !raster || !paper) return null;
   if (isMockupOrProductElement(vector) || vector.clipMask) {
     console.error("[MOCKUP_LOCK]: Intento de usar plantilla/máscara de producto como vector de corte. Cancelado.");
@@ -307,22 +306,19 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     maskItem = absoluteVector.clone();
     maskItem.clipMask = true;
     fusionGroup.addChild(maskItem);
-    // Auto-ajuste Canva al crear una fusión nueva. Durante la edición
-    // interna se conserva exactamente la transformación realizada por el usuario.
+    // Auto-ajuste Canva: centrar y escalar la imagen para CUBRIR el hueco (sin recortes internos)
     const rasterCloneFit = absoluteRaster.clone();
-    if (!preserveRasterTransform) {
-      try {
-        const placement = calculateCoverPlacement(maskItem, rasterCloneFit);
-        if (placement && placement.scale > 0) {
-          if (Math.abs(placement.scale - 1) > 0.001) {
-            rasterCloneFit.scale(placement.scale, rasterCloneFit.bounds.center);
-          }
-          rasterCloneFit.position = rasterCloneFit.position.add(
-            maskItem.bounds.center.subtract(rasterCloneFit.bounds.center)
-          );
+    try {
+      const placement = calculateCoverPlacement(maskItem, rasterCloneFit);
+      if (placement && placement.scale > 0) {
+        if (Math.abs(placement.scale - 1) > 0.001) {
+          rasterCloneFit.scale(placement.scale, rasterCloneFit.bounds.center);
         }
-      } catch(e){}
-    }
+        rasterCloneFit.position = rasterCloneFit.position.add(
+          maskItem.bounds.center.subtract(rasterCloneFit.bounds.center)
+        );
+      }
+    } catch(e){}
     fusionGroup.addChild(rasterCloneFit);
     originalRasterGeom = rasterCloneFit.clone({ insert: false });
   }
