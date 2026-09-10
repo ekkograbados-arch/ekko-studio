@@ -810,6 +810,52 @@ const _initSelectionTool = function() {
   const selectTool = new paper.Tool();
   let lastClickTime = 0;
 
+  // Fallback DOM para doble clic en fusiones.
+  // El flujo histórico detecta el doble clic desde onMouseDown; este puente
+  // cubre el caso en que Paper.js recibe el dblclick del canvas pero no se
+  // completa la ventana temporal interna del Tool.
+  if (!window.__ekkoFusionDomDoubleClickInstalled && paper.view.element) {
+    const fusionDomDoubleClick = function(event) {
+      if (window.fusionEditActive || window._fusionEditState) return;
+
+      const candidates = Array.isArray(window.selectedItems) && window.selectedItems.length
+        ? [...window.selectedItems]
+        : (window.selectedItem ? [window.selectedItem] : []);
+
+      let fusion = null;
+      for (const candidate of candidates) {
+        if (candidate?.data?.isSmartFusion) {
+          fusion = candidate;
+          break;
+        }
+        if (typeof window.findSmartFusionContainer === "function") {
+          try {
+            fusion = window.findSmartFusionContainer(candidate);
+            if (fusion) break;
+          } catch (e) {}
+        }
+      }
+
+      if (!fusion || typeof window.enterFusionEditMode !== "function") return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        window.enterFusionEditMode(fusion);
+      } catch (e) {
+        console.error("[FUSION DOM DBLCLICK ERROR]", e);
+      }
+    };
+
+    paper.view.element.addEventListener("dblclick", fusionDomDoubleClick, true);
+    window.__ekkoFusionDomDoubleClickInstalled = true;
+    window.__ekkoFusionDomDoubleClickStop = function() {
+      paper.view.element.removeEventListener("dblclick", fusionDomDoubleClick, true);
+      window.__ekkoFusionDomDoubleClickInstalled = false;
+      delete window.__ekkoFusionDomDoubleClickStop;
+    };
+  }
+
   selectTool.onMouseDown = function(event) {
     if (window.nodeEditMode) return;
 
@@ -1206,8 +1252,23 @@ const _initSelectionTool = function() {
         syncGeomBaseDeep(dragInfo.target, delta);
       });
 
-      // Recálculo reactivo CSG en vivo al mover capas (perfora dinámicamente lo que queda abajo)
-      if (typeof window.recalculateDynamicSubtractions === 'function') {
+      // Una fusión debe moverse como una unidad visual autónoma. No se debe
+      // volver a perforar su contenido con huecos hermanos mientras el cliente
+      // la arrastra, porque el resultado aparece cortado por elementos que
+      // estaban por encima del receptor original.
+      const skipFusionCSGRecalc = window.dragTargets.some(function(info) {
+        const candidate = info.target || info.item;
+        let fusion = candidate?.data?.isSmartFusion ? candidate : null;
+        if (!fusion && typeof window.findSmartFusionContainer === 'function') {
+          try { fusion = window.findSmartFusionContainer(candidate); } catch (e) { fusion = null; }
+        }
+        // Las fusiones dentro de huecos sí deben actualizar sus huecos
+        // virtuales. El blindaje aplica solamente a fusiones de sólidos.
+        return !!(fusion && fusion.data?.originalIsHole !== true);
+      });
+      window._ekkoSkipFusionCSGRecalc = skipFusionCSGRecalc;
+
+      if (!skipFusionCSGRecalc && typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
       }
 
@@ -1304,12 +1365,14 @@ const _initSelectionTool = function() {
     if (window.resizeActive || window.dragging || window.rotationActive) {
       if (typeof window.saveHistory === 'function') window.saveHistory();
 
-      // Asegurar recálculo CSG final tras soltar el ratón
-      if (typeof window.recalculateDynamicSubtractions === 'function') {
+      // No recalcular CSG al soltar una fusión: sus límites visibles no deben
+      // quedar perforados por huecos hermanos durante el desplazamiento.
+      if (!window._ekkoSkipFusionCSGRecalc && typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
       }
     }
 
+    window._ekkoSkipFusionCSGRecalc = false;
     window.dragging = false;
     window.resizeActive = false;
     window.rotationActive = false;
