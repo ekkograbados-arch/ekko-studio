@@ -21,13 +21,13 @@ import {
   findFusionRaster,
   cloneAbsolute,
   calculateCoverPlacement,
-  canFuse,
-  createFusionRecord,
-  unregisterFusion,
-  getCurrentFusionMask,
-  registerVirtualHole as registerCoreVirtualHole,
-  unregisterVirtualHole as unregisterCoreVirtualHole
+  canFuse
 } from "./fusionCore.js";
+import {
+  registerFusion,
+  resolveFusionRecord,
+  removeFusionRecord
+} from "./fusionController.js";
 
 // Estado global del snapping magnético
 let fusionPreviewGroup = null;   // Contiene halo fucsia + preview recortado translúcido
@@ -118,33 +118,9 @@ function overrideChildrenSelection(group) {
 }
 
 /* ------------------------------------------------------------------------
-   REGISTRO DE HUECOS VIRTUALES SUSTRACTIVOS
-   Cuando se fusiona una imagen DENTRO de un hueco real (isHole), el hueco
-   deja de existir como ítem pero debe SEGUIR RESTANDO del sólido (si no,
-   el sólido se rellena de negro y se grabaría dos veces en LightBurn).
+   El registro de huecos pertenece a fusionController.js. smartFusion.js
+   solamente coordina la operación visual y no mantiene una segunda copia.
 ------------------------------------------------------------------------ */
-function ensureVirtualHoleRegistry() {
-  if (!Array.isArray(window._fusionVirtualHoles)) window._fusionVirtualHoles = [];
-}
-
-function registerVirtualHole(absoluteGeom, fusionId) {
-  if (!absoluteGeom) return;
-  ensureVirtualHoleRegistry();
-  const clone = absoluteGeom.clone({ insert: false });
-  clone.matrix = new paper.Matrix();
-  window._fusionVirtualHoles.push({ geom: clone, fusionId: fusionId });
-  registerCoreVirtualHole(absoluteGeom, fusionId);
-}
-
-function unregisterVirtualHole(fusionId) {
-  if (!Array.isArray(window._fusionVirtualHoles)) return;
-  window._fusionVirtualHoles = window._fusionVirtualHoles.filter(h => {
-    if (h.fusionId === fusionId) { try { h.geom.remove(); } catch(e){} return false; }
-    return true;
-  });
-  unregisterCoreVirtualHole(fusionId);
-}
-
 /* ------------------------------------------------------------------------
    RECEPTORES DE FUSIÓN (candidatos a "absorber" una imagen)
    - Vectores cerrados del cliente (Path/CompoundPath) NO mockup, NO UI,
@@ -285,7 +261,8 @@ function clearFusionPreview(resetCursor = true) {
    MOTOR DE FUSIÓN (conservado, con mejoras: registra isHole original y
    hueco virtual sustractivo). Default mode ahora 'intersecar'.
 ------------------------------------------------------------------------ */
-export function applySmartFusion(vector, raster, mode = 'intersecar') {
+export function applySmartFusion(vector, raster, mode = 'intersecar', options = {}) {
+  const preserveRasterTransform = options && options.preserveRasterTransform === true;
   if (!vector || !raster || !paper) return null;
   if (!canFuse(raster, vector)) {
     console.warn("[FUSION CONTRACT]: La combinación no es un par imagen + receptor de diseño válido.");
@@ -326,19 +303,22 @@ export function applySmartFusion(vector, raster, mode = 'intersecar') {
     maskItem = absoluteVector.clone();
     maskItem.clipMask = true;
     fusionGroup.addChild(maskItem);
-    // Auto-ajuste Canva: centrar y escalar la imagen para CUBRIR el hueco (sin recortes internos)
+    // Ajuste automático solo al crear una fusión nueva. Al aceptar una
+    // edición interna, se conserva exactamente la transformación del usuario.
     const rasterCloneFit = absoluteRaster.clone();
-    try {
-      const placement = calculateCoverPlacement(maskItem, rasterCloneFit);
-      if (placement && placement.scale > 0) {
-        if (Math.abs(placement.scale - 1) > 0.001) {
-          rasterCloneFit.scale(placement.scale, rasterCloneFit.bounds.center);
+    if (!preserveRasterTransform) {
+      try {
+        const placement = calculateCoverPlacement(maskItem, rasterCloneFit);
+        if (placement && placement.scale > 0) {
+          if (Math.abs(placement.scale - 1) > 0.001) {
+            rasterCloneFit.scale(placement.scale, rasterCloneFit.bounds.center);
+          }
+          rasterCloneFit.position = rasterCloneFit.position.add(
+            maskItem.bounds.center.subtract(rasterCloneFit.bounds.center)
+          );
         }
-        rasterCloneFit.position = rasterCloneFit.position.add(
-          maskItem.bounds.center.subtract(rasterCloneFit.bounds.center)
-        );
-      }
-    } catch(e){}
+      } catch(e){}
+    }
     fusionGroup.addChild(rasterCloneFit);
     originalRasterGeom = rasterCloneFit.clone({ insert: false });
   }
@@ -411,18 +391,12 @@ export function applySmartFusion(vector, raster, mode = 'intersecar') {
   designLayer.addChild(finalItem);
   if (window.currentMockup) finalItem.insertBelow(window.currentMockup);
 
-  // Registrar la fusión en el núcleo sin cambiar todavía su representación visual.
-  createFusionRecord(finalItem, {
+  // Registrar la fusión y derivar el hueco virtual desde su máscara actual.
+  registerFusion(finalItem, {
     fusionId,
     mode,
-    originalIsHole,
-    mask: getCurrentFusionMask(finalItem)
+    originalIsHole
   });
-
-  // Si fusionamos DENTRO de un hueco real, registrarlo como hueco virtual sustractivo
-  if (mode === 'intersecar' && originalIsHole) {
-    registerVirtualHole(originalVectorGeom, fusionId);
-  }
 
   if (typeof window.syncGeometryToGeomBase === 'function') window.syncGeometryToGeomBase(finalItem);
   if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
@@ -620,6 +594,8 @@ export function releaseSmartFusion(item) {
     return null;
   }
   let fusionGroup = findSmartFusionContainer(targetItem);
+  const fusionRecord = resolveFusionRecord(fusionGroup);
+  if (fusionRecord?.group) fusionGroup = fusionRecord.group;
   // Fallback: si no se encontró y hay exactamente 1 fusión en el proyecto, usarla
   if (!fusionGroup && paper && paper.project) {
     try {
@@ -635,8 +611,7 @@ export function releaseSmartFusion(item) {
 
   try {
   if (fusionGroup.data.fusionId) {
-    unregisterVirtualHole(fusionGroup.data.fusionId);
-    unregisterFusion(fusionGroup.data.fusionId);
+    removeFusionRecord(fusionGroup.data.fusionId);
   }
 
   const restoredVector = fusionGroup.data.originalVectorData.clone();
@@ -759,7 +734,7 @@ export function initSmartFusionListeners() {
     window._fusionSnapActive = false;
     window.performSmartFusion = performSmartFusion;
     window.releaseSmartFusion = releaseSmartFusion;
-    ensureVirtualHoleRegistry();
+    if (!Array.isArray(window._fusionVirtualHoles)) window._fusionVirtualHoles = [];
   }
   console.log("%c[EKKO SMART FUSION v46.0] Motor de Fusión + Snapping Magnético Canva-Style cargado.", "color: #ff2ea6; font-weight: bold;");
 }
