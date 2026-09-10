@@ -33,7 +33,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <!-- ==============================================================
          BOTONES DE VISIBILIDAD DE PANELES — ⋮⋮⋮ ARRIBA A LA DERECHA
          ============================================================== -->
-    <div id="panelToggles" style="position:fixed;top:8px;right:16px;z-index:60;display:flex;gap:8px;">
+    <div id="panelToggles" data-legacy-panel-controls="true" aria-hidden="true" style="position:fixed;top:8px;right:16px;z-index:60;display:flex;gap:8px;">
         <button id="toggleTopBar" title="Contraer/Expandir barra superior" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
         <button id="toggleContextBar" title="Ocultar/Mostrar barra emergente" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
         <button id="toggleProductPanel" title="Contraer/Expandir panel de productos" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">«</button>
@@ -42,12 +42,16 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <!-- ==============================================================
          ENVOLTORIO PLEGABLE DEL PANEL IZQUIERDO
          ============================================================== -->
-    <div id="productPanelWrap" style="transition: width 0.25s ease; overflow: hidden;">
+    <div id="productPanelWrap" data-panel="products" style="transition: width 0.25s ease; overflow: hidden;">
 
     <!-- ==============================================================
          1. PANEL IZQUIERDO DE PRODUCTOS
          ============================================================== -->
-    <div id="leftSidebar">
+    <div id="leftSidebar" data-panel="products-sidebar" aria-label="Panel de productos">
+        <div id="leftSidebarHeader" class="panel-header">
+            <span class="panel-title">Productos</span>
+            <button id="btnHideProductPanel" type="button" class="panel-icon-btn" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">‹</button>
+        </div>
         <div class="sidebar-section">
             <div class="sidebar-title">Categorías</div>
             <div id="categoryTabs"></div>
@@ -62,17 +66,18 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
         </div>
     </div>
 
+        <button id="productPanelHandle" type="button" class="product-panel-handle" title="Mostrar panel de productos" aria-label="Mostrar panel de productos">› Productos</button>
     </div> <!-- /#productPanelWrap — CIERRE DEL ENVOLTORIO PLEGABLE -->
 
     <!-- ==============================================================
          2. ÁREA DE TRABAJO
          ============================================================== -->
-    <div id="workspace">
+    <div id="workspace" data-ui-shell="ekko">
 
         <!-- ==============================================================
              BARRA SUPERIOR — BOTONES PRINCIPALES + FUSIÓN
              ============================================================== -->
-        <div id="topBar">
+        <div id="topBar" data-panel="top" data-panel-mode="expanded">
             <div class="top-group">
                 <button class="btn-action" onclick="openAssetLoader()">
                     <i class="fas fa-upload"></i> Cargar Imagen / SVG
@@ -140,7 +145,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
-            <div class="top-group"></div>
+            <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
+                <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
+                <button id="topPanelOverflow" type="button" class="panel-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
+            </div>
         </div>
 
         <!-- ==============================================================
@@ -217,7 +225,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
                     <button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
                 </div>
+                <button id="floatingPanelOverflow" type="button" class="panel-overflow-btn floating-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
             </div>
+
+            <button id="panelRecoveryDock" type="button" class="panel-recovery-dock" title="Mostrar herramientas" aria-label="Mostrar herramientas">☰ Mostrar herramientas</button>
 
             <!-- ==============================================================
                  PANEL: EDITAR RECORTE
@@ -260,5 +271,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <!-- ARRANQUE DEL SISTEMA -->
     <script src="ASSETS/js/config.js"></script>
     <script type="module" src="ASSETS/js/editor.js"></script>
+    <script type="module" src="ASSETS/js/modules/canvas-pro/panelCoordinator.js"></script>
 </body>
 </html>
