@@ -16,6 +16,7 @@ const panelState = {
     floatingBar: "auto",        // auto | visible | hidden
     productPanel: "visible",    // visible | hidden
     currentSelection: null,
+    currentContext: "none",
     menu: null,
     initialized: false
 };
@@ -40,8 +41,99 @@ function getElements() {
     };
 }
 
+function getContentTarget(item) {
+    if (!item) return null;
+    if (item.data && item.data.clipGroup && item.children) {
+        return item.children.find(child => !child.clipMask && !(child.data && (child.data.isMask || child.data.wasClipMask))) || item;
+    }
+    return item;
+}
+
+function resolveContext(item = null) {
+    const selected = window.selectedItems && window.selectedItems.length
+        ? window.selectedItems
+        : (item ? [item] : (window.selectedItem ? [window.selectedItem] : []));
+
+    if (selected.length > 1) return "multiple";
+    const target = getContentTarget(selected[0]);
+    if (!target) return "none";
+
+    if ((target.data && target.data.isSmartFusion) ||
+        (typeof window.findSmartFusionContainer === "function" && window.findSmartFusionContainer(target))) {
+        return "fusion";
+    }
+
+    if (target.className === "Raster") return "image";
+    if (target.className === "PointText" || (target.data && (target.data.isText || target.data.isCurvedGroup || target.data.isSpacedGroup))) return "text";
+    if (["Path", "CompoundPath", "Group", "Shape", "SymbolItem", "PlacedSymbol"].includes(target.className)) return "vector";
+    return "none";
+}
+
+const CONTEXT_LABELS = {
+    none: "Inicio",
+    image: "Imagen",
+    text: "Texto",
+    vector: "Vector",
+    multiple: "Selección múltiple",
+    fusion: "Fusión"
+};
+
+function ensureContextSurface() {
+    const top = byId("topBar");
+    if (!top) return null;
+    let surface = byId("ekkoTopContextSurface");
+    if (surface) return surface;
+
+    surface = document.createElement("div");
+    surface.id = "ekkoTopContextSurface";
+    surface.className = "ekko-top-context-surface";
+    surface.setAttribute("role", "tablist");
+    surface.innerHTML = `
+        <div id="ekkoTopContextTabs" class="ekko-top-context-tabs"></div>
+        <span id="ekkoTopContextLabel" class="ekko-top-context-label"></span>
+    `;
+    top.insertBefore(surface, top.firstChild);
+    return surface;
+}
+
+function renderContextSurface() {
+    const surface = ensureContextSurface();
+    if (!surface) return;
+
+    const tabs = byId("ekkoTopContextTabs");
+    const label = byId("ekkoTopContextLabel");
+    const context = panelState.currentContext || "none";
+    const contextLabel = CONTEXT_LABELS[context] || CONTEXT_LABELS.none;
+
+    const available = context === "none"
+        ? ["none"]
+        : ["none", context];
+
+    tabs.innerHTML = "";
+    available.forEach(name => {
+        const tab = document.createElement("button");
+        tab.type = "button";
+        tab.className = "ekko-context-tab" + (name === context ? " is-active" : "");
+        tab.dataset.context = name;
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-selected", name === context ? "true" : "false");
+        tab.textContent = CONTEXT_LABELS[name];
+        tab.addEventListener("click", () => {
+            // En esta fase las pestañas son de contexto visual.
+            // Las acciones se sincronizarán en la siguiente etapa.
+            panelState.currentContext = name;
+            renderContextSurface();
+        });
+        tabs.appendChild(tab);
+    });
+
+    if (label) label.textContent = `Contexto: ${contextLabel}`;
+    surface.dataset.context = context;
+}
+
 function applyPanelState() {
     const el = getElements();
+    renderContextSurface();
 
     if (el.top) {
         el.top.classList.toggle("is-expanded", panelState.topPanel === "expanded");
@@ -173,7 +265,9 @@ function wrapContextualMenuAPI() {
         const wrappedUpdate = function (item) {
             const result = update.apply(this, arguments);
             panelState.currentSelection = item || window.selectedItem || null;
+            panelState.currentContext = resolveContext(panelState.currentSelection);
             applyPanelState();
+            if (typeof window.refreshAllToolbars === "function") window.refreshAllToolbars();
             return result;
         };
         wrappedUpdate.__ekkoPanelWrapped = true;
@@ -185,7 +279,9 @@ function wrapContextualMenuAPI() {
         const wrappedHide = function () {
             const result = hide.apply(this, arguments);
             panelState.currentSelection = null;
+            panelState.currentContext = "none";
             applyPanelState();
+            if (typeof window.refreshAllToolbars === "function") window.refreshAllToolbars();
             return result;
         };
         wrappedHide.__ekkoPanelWrapped = true;
@@ -252,6 +348,7 @@ function bindPanelControls() {
 
 export function setSelectionContext(item = null) {
     panelState.currentSelection = item;
+    panelState.currentContext = resolveContext(item);
     applyPanelState();
 }
 
