@@ -685,8 +685,13 @@ const _deselectItem = function() {
     clearFusionSelection(window.selectedItem);
   }
 
-  // Paper.js puede conservar la selección nativa de la Layer aunque el
-  // estado EKKO ya esté vacío. Esa selección deja una caja visible falsa.
+  window.selectedItem = null;
+
+  // Primero se elimina la caja. _updateSelectionBox(null) activa la capa de
+  // diseño internamente; el deselectAll debe ocurrir después para que esa
+  // activación no deje la Layer seleccionada otra vez.
+  window.updateSelectionBox(null);
+
   try {
     if (paper?.project?.deselectAll) paper.project.deselectAll();
     if (paper?.project?.layers) {
@@ -695,10 +700,6 @@ const _deselectItem = function() {
       });
     }
   } catch (e) {}
-
-  window.selectedItem = null;
-
-  window.updateSelectionBox(null);
   if (typeof window.hideContextualMenu === 'function') {
     window.hideContextualMenu();
   }
