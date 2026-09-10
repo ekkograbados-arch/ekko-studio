@@ -173,9 +173,28 @@ function getFusionReceptors() {
    DETECCIÓN POR SOLAPAMIENTO (no por distancia centro-centro)
    Devuelve el mejor receptor o null.
 ------------------------------------------------------------------------ */
+function pointHitsFusionReceptor(receptor, point) {
+  if (!receptor || !receptor.item || !point) return false;
+  const item = receptor.item;
+  try {
+    if (typeof item.contains === "function" && item.contains(point)) return true;
+  } catch (e) {}
+  try {
+    const tolerance = 6 / (paper.view?.zoom || 1);
+    return !!item.hitTest(point, {
+      fill: true,
+      stroke: true,
+      segments: true,
+      tolerance
+    });
+  } catch (e) {
+    return false;
+  }
+}
+
 function findBestSnapReceptor(rasterItem, mousePoint) {
   const receptors = getFusionReceptors();
-  if (receptors.length === 0) return null;
+  if (receptors.length === 0 || !mousePoint) return null;
   const rBounds = rasterItem.bounds;
   if (!rBounds) return null;
   const rCenter = rBounds.center;
@@ -183,15 +202,9 @@ function findBestSnapReceptor(rasterItem, mousePoint) {
   let bestScore = -1;
   receptors.forEach(rec => {
     const vBounds = rec.item.bounds;
-    if (!vBounds) return;
-    let score = 0;
-    // EL PUNTERO DEL MOUSE DECIDE: bonus fuerte al receptor bajo el cursor (Canva-style)
-    if (mousePoint && vBounds.contains(mousePoint)) score += 200;
-    if (mousePoint) {
-      const dm = mousePoint.getDistance(vBounds.center);
-      const diagM = Math.sqrt(vBounds.width*vBounds.width + vBounds.height*vBounds.height) || 1;
-      score += Math.max(0, 10 * (1 - dm / (diagM * 1.5)));
-    }
+    if (!vBounds || !pointHitsFusionReceptor(rec, mousePoint)) return;
+
+    let score = 300; // Intención explícita: el puntero está sobre la geometría real.
     if (vBounds.contains(rCenter)) score += 100;
     if (vBounds.intersects(rBounds)) {
       const inter = vBounds.intersect(rBounds);
@@ -207,7 +220,6 @@ function findBestSnapReceptor(rasterItem, mousePoint) {
     score += rec.priority * 30;
     if (score > bestScore) { bestScore = score; best = rec; }
   });
-  if (best && bestScore < 30) return null;
   return best;
 }
 
