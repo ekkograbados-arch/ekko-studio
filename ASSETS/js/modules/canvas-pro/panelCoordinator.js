@@ -89,6 +89,7 @@ function ensureContextSurface() {
     surface.className = "ekko-top-context-surface";
     surface.setAttribute("role", "tablist");
     surface.innerHTML = `
+        <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">‹</button>
         <div id="ekkoTopContextTabs" class="ekko-top-context-tabs"></div>
         <span id="ekkoTopContextLabel" class="ekko-top-context-label"></span>
     `;
@@ -162,6 +163,14 @@ function applyPanelState() {
         const hidden = panelState.productPanel === "hidden";
         el.products.classList.toggle("is-collapsed", hidden);
         el.products.dataset.panelMode = hidden ? "hidden" : "visible";
+
+        const topToggle = byId("productPanelTopToggle");
+        if (topToggle) {
+            topToggle.textContent = hidden ? "›" : "‹";
+            topToggle.title = hidden ? "Mostrar panel de productos" : "Ocultar panel de productos";
+            topToggle.setAttribute("aria-label", topToggle.title);
+            topToggle.dataset.panelState = hidden ? "hidden" : "visible";
+        }
     }
 
     const allHidden = panelState.topPanel === "hidden" &&
@@ -301,6 +310,7 @@ function bindPanelControls() {
     const topCompact = byId("topPanelCompact");
     const topOverflow = byId("topPanelOverflow");
     const floatingOverflow = byId("floatingPanelOverflow");
+    const topProductToggle = byId("productPanelTopToggle");
     const hideProducts = byId("btnHideProductPanel");
     const productHandle = byId("productPanelHandle");
     const recovery = byId("panelRecoveryDock");
@@ -319,6 +329,12 @@ function bindPanelControls() {
     floatingOverflow?.addEventListener("click", (event) => {
         event.stopPropagation();
         openVisibilityMenu(floatingOverflow);
+    });
+
+    topProductToggle?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        panelState.productPanel = panelState.productPanel === "hidden" ? "visible" : "hidden";
+        applyPanelState();
     });
 
     hideProducts?.addEventListener("click", (event) => {
@@ -370,6 +386,7 @@ export function initPanelCoordinator() {
     panelState.initialized = true;
 
     wrapContextualMenuAPI();
+    ensureContextSurface();
     bindPanelControls();
     applyPanelState();
 
