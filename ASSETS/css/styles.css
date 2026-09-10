@@ -660,6 +660,135 @@ silencia ni se elimina ningún activo sin autorización soberana.
 }
 
 /* ========================================================================
+   EKKO STUDIO — FASE 3.5 / IDENTIDAD VISUAL MODULAR
+   Paleta provisional azul acero mate. Los valores se cambian únicamente aquí.
+========================================================================= */
+:root {
+    --ekko-canvas-bg: #cbd5e1;
+    --ekko-panel-main: #d9e2e8;
+    --ekko-panel-secondary: #d1dce3;
+    --ekko-panel-floating: #bdcbd4;
+    --ekko-border: #91a1ad;
+    --ekko-border-strong: #718491;
+    --ekko-text-main: #26343d;
+    --ekko-text-secondary: #5d6c76;
+    --ekko-text-light: #f4f7f8;
+    --ekko-accent-main: #405d6d;
+    --ekko-accent-hover: #526f80;
+    --ekko-accent-active: #314a5a;
+    --ekko-fusion-fuchsia: #ff2ea6;
+    --ekko-fusion-cyan: #00e5ff;
+}
+
+body,
+#workspace,
+#canvasContainer,
+#editorCanvas {
+    background-color: var(--ekko-canvas-bg) !important;
+}
+
+#leftSidebar,
+#leftSidebarHeader {
+    background-color: var(--ekko-panel-main) !important;
+    border-color: var(--ekko-border) !important;
+    color: var(--ekko-text-main) !important;
+}
+
+#topBar {
+    background-color: var(--ekko-panel-main) !important;
+    border-color: var(--ekko-border) !important;
+    color: var(--ekko-text-main) !important;
+}
+
+#topBar + #pro-layout-toolbar {
+    background-color: var(--ekko-panel-secondary) !important;
+    border-color: var(--ekko-border) !important;
+    color: var(--ekko-text-main) !important;
+}
+
+#contextual-toolbar {
+    background: var(--ekko-panel-floating) !important;
+    border-color: var(--ekko-border-strong) !important;
+    color: var(--ekko-text-main) !important;
+    box-shadow: 0 10px 26px rgba(38, 52, 61, .26) !important;
+}
+
+#leftSidebar .sidebar-title,
+#topBar .pro-label,
+#topBar + #pro-layout-toolbar .pro-label {
+    color: var(--ekko-text-secondary) !important;
+}
+
+#leftSidebar .tab-btn,
+#topBar .btn-action,
+#contextual-toolbar .toolbar-btn,
+#topBar + #pro-layout-toolbar .pro-btn {
+    background-color: var(--ekko-panel-secondary) !important;
+    border-color: var(--ekko-border) !important;
+    color: var(--ekko-text-main) !important;
+}
+
+#leftSidebar .tab-btn:hover,
+#topBar .btn-action:hover,
+#contextual-toolbar .toolbar-btn:hover,
+#topBar + #pro-layout-toolbar .pro-btn:hover {
+    background-color: var(--ekko-accent-hover) !important;
+    border-color: var(--ekko-accent-main) !important;
+    color: var(--ekko-text-light) !important;
+}
+
+#leftSidebar .tab-btn.active,
+#topBar + #pro-layout-toolbar .pro-btn.active {
+    background-color: var(--ekko-accent-active) !important;
+    border-color: var(--ekko-border-strong) !important;
+    color: var(--ekko-text-light) !important;
+    box-shadow: inset 0 -2px 0 var(--ekko-accent-main);
+}
+
+#ekkoTopContextSurface {
+    border-color: var(--ekko-border) !important;
+}
+
+.ekko-context-tab.is-active {
+    background-color: var(--ekko-accent-active) !important;
+    border-color: var(--ekko-border-strong) !important;
+    color: var(--ekko-text-light) !important;
+    box-shadow: inset 0 -2px 0 var(--ekko-accent-main);
+}
+
+.ekko-top-context-label {
+    color: var(--ekko-text-secondary) !important;
+}
+
+/* El control del panel oculto queda arriba, alineado con su cabecera. */
+.product-panel-handle {
+    top: 8px !important;
+    transform: none !important;
+    padding: 8px 10px !important;
+    border-color: var(--ekko-border-strong) !important;
+    background: var(--ekko-panel-main) !important;
+    color: var(--ekko-text-main) !important;
+    box-shadow: 3px 3px 12px rgba(38, 52, 61, .12);
+}
+
+.product-panel-handle:hover {
+    background: var(--ekko-accent-hover) !important;
+    color: var(--ekko-text-light) !important;
+}
+
+.panel-icon-btn,
+.panel-overflow-btn {
+    color: var(--ekko-text-main) !important;
+}
+
+.panel-icon-btn:hover,
+.panel-overflow-btn:hover {
+    background: var(--ekko-accent-hover) !important;
+    color: var(--ekko-text-light) !important;
+}
+
+
+/* ========================================================================
    EKKO CONTEXTO SUPERIOR — FASE 1
    Superficie contextual compartida por el panel superior y la barra flotante.
 ========================================================================= */
