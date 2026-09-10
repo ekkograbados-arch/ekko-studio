@@ -14,6 +14,14 @@ ESTADO: v46.0 — REESCRITURA MAGNETIC SNAPPING (Canva-Style) + FIX RELEASE/RECA
 DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ======================================================================== */
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+import {
+  isProductElement,
+  isValidFusionReceptor,
+  cloneAbsolute,
+  calculateCoverPlacement,
+  registerVirtualHole as registerCoreVirtualHole,
+  unregisterVirtualHole as unregisterCoreVirtualHole
+} from "./fusionCore.js";
 
 // Estado global del snapping magnético
 let fusionPreviewGroup = null;   // Contiene halo fucsia + preview recortado translúcido
@@ -48,13 +56,7 @@ function cleanEmptyClipGroup(parent) {
 }
 
 function isMockupOrProductElement(item) {
-  let curr = item;
-  while (curr) {
-    if (curr.clipMask || (curr.data && (curr.data.mockup || curr.data.isMask || curr.data.wasClipMask))) return true;
-    if (curr === window.currentMockup) return true;
-    curr = curr.parent;
-  }
-  return false;
+  return isProductElement(item);
 }
 
 function bakeMatrixIntoPath(path, matrix) {
@@ -72,17 +74,7 @@ function bakeMatrixIntoPath(path, matrix) {
 }
 
 function getAbsoluteClone(item) {
-  if (!item) return null;
-  const clone = item.clone({ insert: false });
-  const globalMat = item.globalMatrix.clone();
-  paper.project.activeLayer.addChild(clone);
-  if (clone.className === 'Path' || clone.className === 'CompoundPath') {
-    bakeMatrixIntoPath(clone, globalMat);
-    clone.matrix = new paper.Matrix();
-  } else {
-    clone.matrix = globalMat;
-  }
-  return clone;
+  return cloneAbsolute(item);
 }
 
 function findSmartFusionContainer(item) {
@@ -135,6 +127,7 @@ function registerVirtualHole(absoluteGeom, fusionId) {
   const clone = absoluteGeom.clone({ insert: false });
   clone.matrix = new paper.Matrix();
   window._fusionVirtualHoles.push({ geom: clone, fusionId: fusionId });
+  registerCoreVirtualHole(absoluteGeom, fusionId);
 }
 
 function unregisterVirtualHole(fusionId) {
@@ -143,6 +136,7 @@ function unregisterVirtualHole(fusionId) {
     if (h.fusionId === fusionId) { try { h.geom.remove(); } catch(e){} return false; }
     return true;
   });
+  unregisterCoreVirtualHole(fusionId);
 }
 
 /* ------------------------------------------------------------------------
@@ -313,15 +307,14 @@ export function applySmartFusion(vector, raster, mode = 'intersecar') {
     // Auto-ajuste Canva: centrar y escalar la imagen para CUBRIR el hueco (sin recortes internos)
     const rasterCloneFit = absoluteRaster.clone();
     try {
-      const mb = maskItem.bounds;
-      const rb = rasterCloneFit.bounds;
-      if (mb && rb && rb.width > 0.1 && rb.height > 0.1) {
-        const scaleFactor = Math.max(mb.width / rb.width, mb.height / rb.height);
-        if (scaleFactor > 0 && Math.abs(scaleFactor - 1) > 0.001) {
-          rasterCloneFit.scale(scaleFactor, rb.center);
+      const placement = calculateCoverPlacement(maskItem, rasterCloneFit);
+      if (placement && placement.scale > 0) {
+        if (Math.abs(placement.scale - 1) > 0.001) {
+          rasterCloneFit.scale(placement.scale, rasterCloneFit.bounds.center);
         }
-        const newCenter = rasterCloneFit.bounds.center;
-        rasterCloneFit.position = rasterCloneFit.position.add(mb.center.subtract(newCenter));
+        rasterCloneFit.position = rasterCloneFit.position.add(
+          maskItem.bounds.center.subtract(rasterCloneFit.bounds.center)
+        );
       }
     } catch(e){}
     fusionGroup.addChild(rasterCloneFit);
@@ -510,14 +503,9 @@ window.checkMagneticSnapping = function(event) {
 // Helper: identificar siluetas válidas del cliente
 function isValidReceptorItem(item) {
   if (!item) return false;
+  if (isValidFusionReceptor(item)) return true;
   const d = item.data || {};
-  // Excluir mockups y productos del sistema
-  if (d.isMockupPart || d.productTemplate || d.systemGenerated) {
-    return false;
-  }
-  // Aceptar cualquier forma cerrada cargada por el cliente
-  return d.isCalado || d.isSolidShape || d.userImported || 
-         (item.className === 'CompoundPath') || (item.className === 'Path' && item.closed);
+  return d.isCalado || d.isSolidShape || d.userImported;
 }
 
 
