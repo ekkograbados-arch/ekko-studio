@@ -684,6 +684,18 @@ const _deselectItem = function() {
   if (window.selectedItem) {
     clearFusionSelection(window.selectedItem);
   }
+
+  // Paper.js puede conservar la selección nativa de la Layer aunque el
+  // estado EKKO ya esté vacío. Esa selección deja una caja visible falsa.
+  try {
+    if (paper?.project?.deselectAll) paper.project.deselectAll();
+    if (paper?.project?.layers) {
+      paper.project.layers.forEach(layer => {
+        try { layer.selected = false; } catch (e) {}
+      });
+    }
+  } catch (e) {}
+
   window.selectedItem = null;
 
   window.updateSelectionBox(null);
