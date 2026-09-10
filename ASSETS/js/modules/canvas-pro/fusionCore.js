@@ -242,6 +242,105 @@ export function getVirtualHoleEntries() {
     return ensureRegistry();
 }
 
+function resolveFusionGroup(item) {
+    let current = item;
+    while (current) {
+        if (current.data && current.data.isSmartFusion) {
+            if (current.data.clipGroup && current.children) {
+                const nested = current.children.find(child =>
+                    child && child.data && child.data.isSmartFusion &&
+                    child.children && child.children.length >= 2
+                );
+                if (nested) return nested;
+            }
+            return current;
+        }
+        current = current.parent;
+    }
+    return null;
+}
+
+export function isFusionItem(item) {
+    return !!resolveFusionGroup(item);
+}
+
+export function getCurrentFusionMask(fusionItem) {
+    const fusionGroup = resolveFusionGroup(fusionItem);
+    if (!fusionGroup || !fusionGroup.children) return null;
+    return fusionGroup.children.find(child =>
+        child && (child.clipMask || child.data?.isFusionMask)
+    ) || null;
+}
+
+export function canFuse(rasterItem, receptorItem) {
+    const raster = findFusionRaster(rasterItem) ||
+        (rasterItem?.className === "Raster" ? rasterItem : null);
+    const receptor = findFusionVector(receptorItem) || receptorItem;
+
+    if (!raster || !receptor) return false;
+    if (isProductElement(raster) || isProductElement(receptor)) return false;
+    if (isFusionItem(raster) || isFusionItem(receptor)) return false;
+    return raster.className === "Raster" && isValidFusionReceptor(receptor);
+}
+
+function ensureFusionRecordRegistry() {
+    if (typeof window === "undefined") return [];
+    if (!Array.isArray(window._fusionRecords)) window._fusionRecords = [];
+    return window._fusionRecords;
+}
+
+export function createFusionRecord(fusionItem, overrides = {}) {
+    const fusionGroup = resolveFusionGroup(fusionItem) || fusionItem;
+    if (!fusionGroup) return null;
+
+    const data = fusionGroup.data || {};
+    const fusionId = overrides.fusionId || data.fusionId;
+    if (!fusionId) return null;
+
+    const record = {
+        fusionId,
+        group: fusionGroup,
+        mask: getCurrentFusionMask(fusionGroup),
+        mode: data.fusionMode || "intersecar",
+        originalIsHole: !!data.originalIsHole,
+        originalVectorData: data.originalVectorData || null,
+        originalRasterData: data.originalRasterData || null,
+        updatedAt: Date.now(),
+        ...overrides
+    };
+
+    const registry = ensureFusionRecordRegistry();
+    const index = registry.findIndex(entry => entry.fusionId === fusionId);
+    if (index >= 0) registry[index] = record;
+    else registry.push(record);
+    return record;
+}
+
+export function getFusionById(fusionId) {
+    if (!fusionId) return null;
+    const registry = ensureFusionRecordRegistry();
+    const record = registry.find(entry => entry.fusionId === fusionId) || null;
+    if (record && record.group && record.group.project) {
+        record.mask = getCurrentFusionMask(record.group);
+        record.updatedAt = Date.now();
+    }
+    return record;
+}
+
+export function updateFusionRecord(fusionItem, overrides = {}) {
+    return createFusionRecord(fusionItem, overrides);
+}
+
+export function unregisterFusion(fusionId) {
+    if (typeof window === "undefined") return;
+    window._fusionRecords = ensureFusionRecordRegistry()
+        .filter(entry => entry.fusionId !== fusionId);
+}
+
+export function clearFusionRecords() {
+    if (typeof window !== "undefined") window._fusionRecords = [];
+}
+
 if (typeof window !== "undefined") {
     window.EKKO_FUSION_CORE = {
         isProductElement,
@@ -257,6 +356,14 @@ if (typeof window !== "undefined") {
         updateVirtualHole,
         unregisterVirtualHole,
         clearVirtualHoles,
-        getVirtualHoleEntries
+        getVirtualHoleEntries,
+        isFusionItem,
+        getCurrentFusionMask,
+        canFuse,
+        createFusionRecord,
+        getFusionById,
+        updateFusionRecord,
+        unregisterFusion,
+        clearFusionRecords
     };
 }
