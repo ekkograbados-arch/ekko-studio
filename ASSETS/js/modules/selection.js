@@ -722,6 +722,70 @@ const _getHandlePoint = function(bounds, handleType) {
 };
 
 /**
+ * Busca primero un hueco real bajo el cursor en cualquier wrapper. Esta pasada
+ * tiene prioridad sobre una fusión sólida que pueda cubrir visualmente al
+ * hueco, porque el hueco es el receptor que el usuario debe poder elegir.
+ */
+function findHoleHitInside(item, point) {
+  if (!item || item.clipMask || isMockupOrUI(item)) return null;
+  const tol = 8 / (paper.view?.zoom || 1);
+  if (item.data?.isHole === true) {
+    const geom = item.data.geomBase || item;
+    if (geom.bounds?.expand(tol).contains(point) &&
+        ((geom.contains && geom.contains(point)) ||
+         (geom.hitTest && geom.hitTest(point, { fill: true, stroke: true, tolerance: tol })))) {
+      return item;
+    }
+    return null;
+  }
+  if (item.children && item.children.length) {
+    for (let i = item.children.length - 1; i >= 0; i--) {
+      const found = findHoleHitInside(item.children[i], point);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Busca la pieza real bajo el cursor dentro de un clipGroup de cliente.
+ * No eleva automáticamente un hueco al wrapper: el hueco debe seguir siendo
+ * seleccionable como receptor aunque otro sólido del mismo SVG ya se haya
+ * convertido en una fusión.
+ */
+function findDesignHitInside(item, point) {
+  if (!item || item.clipMask || isMockupOrUI(item)) return null;
+
+  const tol = 8 / (paper.view?.zoom || 1);
+  if (item.data?.isSmartFusion) {
+    return item.bounds?.expand(tol).contains(point) ? item : null;
+  }
+  if (item.data?.isHole === true) {
+    const geom = item.data.geomBase || item;
+    if (geom.bounds?.expand(tol).contains(point) &&
+        ((geom.contains && geom.contains(point)) ||
+         (geom.hitTest && geom.hitTest(point, { fill: true, stroke: true, tolerance: tol })))) {
+      return item;
+    }
+    return null;
+  }
+
+  if (item.children && item.children.length) {
+    for (let i = item.children.length - 1; i >= 0; i--) {
+      const found = findDesignHitInside(item.children[i], point);
+      if (found) return found;
+    }
+  }
+
+  if (item !== window.currentMockup && item.data?.decomposedLayer &&
+      item.bounds?.expand(tol).contains(point)) {
+    const hit = item.hitTest?.(point, { fill: true, stroke: true, tolerance: tol });
+    if (hit) return item;
+  }
+  return null;
+}
+
+/**
  * Resuelve de forma estricta el objeto de mayor índice Z ubicado bajo el cursor.
  * Prioridad absoluta:
  * 1. Recorre de mayor Z a menor Z (Top-Down) sobre la capa de diseño.
@@ -734,6 +798,14 @@ function findItemAtPoint(point) {
     : null;
   if (!layer || !layer.children || layer.children.length === 0) return null;
 
+  // Primera pasada: los huecos reales tienen prioridad sobre una fusión sólida
+  // que pueda cubrirlos visualmente. Esto permite seleccionar un hueco del
+  // SVG después de haber fusionado otro sólido del mismo diseño.
+  for (let i = layer.children.length - 1; i >= 0; i--) {
+    const hole = findHoleHitInside(layer.children[i], point);
+    if (hole) return hole;
+  }
+
   const tol = 8 / (paper.view ? paper.view.zoom : 1);
 
   // Recorrido topológico estricto: De mayor Z a menor Z (el objeto visible superior tiene prioridad)
@@ -741,7 +813,9 @@ function findItemAtPoint(point) {
     const child = layer.children[i];
     if (!child || isMockupOrUI(child)) continue;
 
-    const selectable = window.getSelectableItem(child);
+    const selectable = child.data?.clipGroup
+      ? (findDesignHitInside(child, point) || window.getSelectableItem(child))
+      : window.getSelectableItem(child);
     if (!selectable) continue;
 
     const target = getContentItem(selectable);
