@@ -54,7 +54,8 @@ export function isClientDesignElement(item) {
         data.isCalado === true ||
         item.className === "Path" ||
         item.className === "CompoundPath" ||
-        item.className === "Group";
+        item.className === "Group" ||
+        item.className === "Shape";
 }
 
 export function getContentItem(item) {
@@ -67,49 +68,47 @@ export function getContentItem(item) {
     return item;
 }
 
-function collectDescendants(item, predicate, result = []) {
-    if (!item) return result;
-    if (predicate(item)) result.push(item);
-    if (item.children) Array.from(item.children).forEach(child => collectDescendants(child, predicate, result));
-    return result;
+function isFusionVectorNode(item) {
+    return item && (
+        item.className === "CompoundPath" ||
+        (item.className === "Path" && item.closed === true) ||
+        (item.className === "Shape" && item.closed !== false)
+    );
+}
+
+function findSingleDescendant(item, predicate) {
+    if (!item || isProductElement(item)) return null;
+    if (predicate(item)) return item;
+    if (!item.children) return null;
+
+    const matches = [];
+    Array.from(item.children).forEach(child => {
+        const match = findSingleDescendant(child, predicate);
+        if (match) matches.push(match);
+    });
+    return matches.length === 1 ? matches[0] : null;
 }
 
 export function findFusionVector(item) {
-    if (!item || isProductElement(item)) return null;
-    const direct = item.className === "CompoundPath" ||
-        (item.className === "Path" && item.closed === true)
-        ? item
-        : null;
-    if (direct) return direct;
-
-    const candidates = collectDescendants(item, child => {
-        if (child === item || isProductElement(child)) return false;
+    return findSingleDescendant(item, child => {
         if (child.clipMask || child.data?.isMask || child.data?.wasClipMask) return false;
-        return child.className === "CompoundPath" ||
-            (child.className === "Path" && child.closed === true);
+        return isFusionVectorNode(child);
     });
-
-    return candidates.length === 1 ? candidates[0] : null;
 }
 
 export function findFusionRaster(item) {
-    if (!item || isProductElement(item)) return null;
-    if (item.className === "Raster") return item;
-
-    const candidates = collectDescendants(item, child => {
-        if (child === item || isProductElement(child)) return false;
+    return findSingleDescendant(item, child => {
         if (child.clipMask || child.data?.isMask || child.data?.wasClipMask) return false;
         return child.className === "Raster";
     });
-
-    return candidates.length === 1 ? candidates[0] : null;
 }
 
 export function isClosedClientVector(item) {
     const target = findFusionVector(item) || getContentItem(item);
     if (!target || isProductElement(target) || !isClientDesignElement(target)) return false;
     return target.className === "CompoundPath" ||
-        (target.className === "Path" && target.closed === true);
+        (target.className === "Path" && target.closed === true) ||
+        (target.className === "Shape" && target.closed !== false);
 }
 
 export function isValidFusionReceptor(item) {
@@ -121,7 +120,8 @@ export function isValidFusionReceptor(item) {
         target.data?.isCalado === true ||
         target.data?.isSolidShape === true ||
         target.className === "CompoundPath" ||
-        (target.className === "Path" && target.closed === true);
+        (target.className === "Path" && target.closed === true) ||
+        (target.className === "Shape" && target.closed !== false);
 }
 
 function bakeMatrixIntoPath(path, matrix) {
