@@ -17,6 +17,8 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import {
   isProductElement,
   isValidFusionReceptor,
+  findFusionVector,
+  findFusionRaster,
   cloneAbsolute,
   calculateCoverPlacement,
   registerVirtualHole as registerCoreVirtualHole,
@@ -365,6 +367,17 @@ export function applySmartFusion(vector, raster, mode = 'intersecar') {
     finalItem = window.clipItem(fusionGroup);
   }
   if (finalItem !== fusionGroup) {
+    // clipItem puede envolver la fusión en otro grupo. La metadata pública
+    // debe vivir también en el elemento que queda seleccionado y que leen
+    // selection.js / panelCommandBridge.js.
+    finalItem.data = {
+      ...(finalItem.data || {}),
+      ...fusionGroup.data,
+      isSmartFusion: true,
+      fusionId,
+      fusionMode: mode,
+      originalIsHole
+    };
     try {
       Object.defineProperty(finalItem, 'selected', {
         get: function() { return this._selected; },
@@ -653,10 +666,11 @@ export function applyFusionFromSelection(mode = 'intersecar') {
   }
   let raster = null, vector = null;
   for (let i = 0; i < selected.length; i++) {
-    const it = getContentItem(selected[i]);
-    if (!it) continue;
-    if (it.className === 'Raster' && !raster) raster = it;
-    else if ((it.className === 'Path' || it.className === 'CompoundPath') && !vector) vector = it;
+    const raw = selected[i];
+    const candidateRaster = findFusionRaster(raw);
+    const candidateVector = findFusionVector(raw);
+    if (candidateRaster && !raster) raster = candidateRaster;
+    if (candidateVector && !vector) vector = candidateVector;
   }
   if (!raster || !vector) {
     alert("Necesitas seleccionar exactamente una IMAGEN y un VECTOR (o hueco).");
