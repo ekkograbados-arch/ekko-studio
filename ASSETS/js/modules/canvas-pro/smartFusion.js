@@ -323,6 +323,11 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     originalRasterGeom = rasterCloneFit.clone({ insert: false });
   }
 
+  const receiverContainmentKey = vector.data?.containmentKey || null;
+  const ownerContainmentKey = vector.data?.isHole
+    ? (vector.data.ownerContainmentKey || null)
+    : receiverContainmentKey;
+
   fusionGroup.clipped = true;
   fusionGroup.data = {
     isSmartFusion: true,
@@ -333,11 +338,23 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     originalIsHole: originalIsHole,
     vectorId: vector.id,
     rasterId: raster.id,
+    containmentScope: vector.data?.containmentScope || null,
+    containmentKey: receiverContainmentKey,
+    ownerContainmentKey,
+    receiverKind: originalIsHole ? 'hole' : 'solid',
     label: mode === 'calar' ? "Fusión Calada" : "Fusión Inteligente"
   };
   fusionGroup.data.isHole = (mode === 'calar');
-  fusionGroup.data.geomBase = (mode === 'calar') ? originalVectorGeom.clone({ insert: false }) : null;
-  maskItem.data = { ...(maskItem.data || {}), isHole: false, geomBase: null };
+  fusionGroup.data.geomBase = originalVectorGeom.clone({ insert: false });
+  maskItem.data = {
+    ...(maskItem.data || {}),
+    isFusionMask: true,
+    isHole: originalIsHole,
+    geomBase: originalVectorGeom.clone({ insert: false }),
+    containmentScope: vector.data?.containmentScope || null,
+    containmentKey: receiverContainmentKey,
+    ownerContainmentKey
+  };
 
   overrideChildrenSelection(fusionGroup);
 
@@ -557,7 +574,15 @@ export function recalculateSmartFusion(fusionGroup) {
     newInverseMask.addChild(outerRect);
     newInverseMask.addChild(currentVector.clone());
     newInverseMask.fillColor = null; newInverseMask.strokeColor = null; newInverseMask.strokeWidth = 0;
-    newInverseMask.data = { ...(newInverseMask.data || {}), isHole: false, geomBase: null };
+    newInverseMask.data = {
+      ...(newInverseMask.data || {}),
+      isFusionMask: true,
+      isHole: !!fusionGroup.data.originalIsHole,
+      geomBase: currentVector.clone({ insert: false }),
+      containmentScope: fusionGroup.data.containmentScope || null,
+      containmentKey: fusionGroup.data.containmentKey || null,
+      ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null
+    };
     try { Object.defineProperty(newInverseMask, 'selected', { get(){return false;}, set(){}, configurable:true, enumerable:true }); } catch(e){}
     newInverseMask.clipMask = true;
     maskItem.replaceWith(newInverseMask);
@@ -565,7 +590,15 @@ export function recalculateSmartFusion(fusionGroup) {
     const newMask = currentVector.clone({ insert: false });
     newMask.clipMask = true;
     newMask.fillColor = null; newMask.strokeColor = null;
-    newMask.data = { ...(newMask.data || {}), isHole: false, geomBase: null };
+    newMask.data = {
+      ...(newMask.data || {}),
+      isFusionMask: true,
+      isHole: !!fusionGroup.data.originalIsHole,
+      geomBase: currentVector.clone({ insert: false }),
+      containmentScope: fusionGroup.data.containmentScope || null,
+      containmentKey: fusionGroup.data.containmentKey || null,
+      ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null
+    };
     try { Object.defineProperty(newMask, 'selected', { get(){return false;}, set(){}, configurable:true, enumerable:true }); } catch(e){}
     maskItem.replaceWith(newMask);
   }
@@ -629,8 +662,12 @@ export function releaseSmartFusion(item) {
     }
   } catch(e){}
   restoredVector.data = {
+    ...(fusionGroup.data.originalVectorData?.data || {}),
     isHole: originalIsHole,
     isFusionReceptor: originalIsHole,
+    containmentScope: fusionGroup.data.containmentScope || null,
+    containmentKey: fusionGroup.data.containmentKey || null,
+    ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null,
     label: originalIsHole ? "Trazado Calado" : "Trazado Vectorial"
   };
   if (originalIsHole) {
