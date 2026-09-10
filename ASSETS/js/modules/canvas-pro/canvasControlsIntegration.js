@@ -32,6 +32,9 @@ import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRuler
 import { setMeasurementsVisibility } from "./canvasMeasurements.js";
 
 
+window.distributeSelection = (axis = "h") => distributeSpacing(axis);
+
+
 // ==============================================================
 // PANELES SINCRONIZADOS — VERSIÓN DEFINITIVA v10.5
 // ==============================================================
