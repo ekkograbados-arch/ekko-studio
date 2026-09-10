@@ -143,7 +143,10 @@ export function enterFusionEditMode(fusionItem) {
       mode,
       vectorData,
       originalIsHole,
-      fusionId
+      fusionId,
+      containmentScope: fusionGroup.data.containmentScope || null,
+      containmentKey: fusionGroup.data.containmentKey || null,
+      ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null
     };
     window._fusionEditState = editState;
     window.fusionEditActive = true;
@@ -191,7 +194,13 @@ export function exitFusionEditMode(accept = true) {
   try {
     const vectorClone = st.vectorData.clone({ insert: false });
     vectorClone.matrix = new paper.Matrix();
-    vectorClone.data = { isHole: st.originalIsHole, isFusionReceptor: st.originalIsHole };
+    vectorClone.data = {
+      isHole: st.originalIsHole,
+      isFusionReceptor: st.originalIsHole,
+      containmentScope: st.containmentScope,
+      containmentKey: st.containmentKey,
+      ownerContainmentKey: st.ownerContainmentKey
+    };
 
     let rasterToUse = null;
     if (accept) {
