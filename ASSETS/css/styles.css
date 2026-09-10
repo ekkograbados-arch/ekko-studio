@@ -1,1 +1,711 @@
+/* ========================================================================
+RUTA DESTINO RECOMENDADA: ASSETS/css/styles.css
+VERSIÓN: v10.3_VERSION_1 (TITANIUM PRECISION - SANEADA Y PURGADA)
+ESTADO: SOBERANA, 100% LIBRE DE RESIDUOS Y SIN DECLARACIONES MANUALES DE FUENTES
+======================================================================== */
 
+/* 
+========================================================================
+[ SECCIÓN 1 - VARIABLES Y CONTROL CROMÁTICO (:root) ]
+========================================================================
+Aquí se centraliza el ADN de color del Studio. Cualquier cambio en estas 
+variables se propaga de forma instantánea a toda la interfaz.
+*/
+:root {
+    /* 1. Entorno de Trabajo: Recuperamos el Gris Pizarra de la v10.1 (Excelente Contraste) */
+    --ekko-bg-workspace: #cbd5e1;    
+
+    /* 2. Paneles y Menús Fijos: Fondo blanco limpio y profesional */
+    --ekko-bg-panel: #ffffff;        
+
+    /* 3. Bordes y Separadores: Líneas ultra-finas de alta precisión */
+    --ekko-border-color: #cbd5e1;    
+
+    /* 4. Barra Emergente (Neural HUD): Fondo blanco satinado traslúcido */
+    --ekko-hud-bg: rgba(255, 255, 255, 0.96); 
+    --ekko-hud-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+
+    /* 5. Contorno de Seguridad de la Barra Flotante: Verde Petróleo Anodizado */
+    --ekko-hud-border: #4a6163;      
+
+    /* 6. Tipografía y Textos de Interfaz */
+    --ekko-text-muted: #64748b;      /* Gris Acero para etiquetas secundarias */
+    --ekko-text-dark: #1e293b;       /* Gris Carbón oscuro para botones y opciones */
+
+    /* Re-mapeo de compatibilidad técnica con Paper.js y código antiguo */
+    --border-color: var(--ekko-border-color) !important;
+    --bg-canvas: var(--ekko-bg-workspace) !important;
+}
+
+/* 
+========================================================================
+[ SECCIÓN 2 - MAQUETACIÓN ESTRUCTURAL E INTEGRIDAD (Esqueleto) ]
+========================================================================
+Define la física tridimensional de la interfaz, impidiendo desbordes 
+o movimientos involuntarios en la pantalla del usuario.
+*/
+
+/* 1. Saneamiento del Body: Anula scroll general y activa Flexbox líquido */
+body {
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+    display: flex !important;
+    height: 100vh !important;
+    width: 100vw !important;
+    overflow: hidden !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    color: var(--ekko-text-dark) !important;
+    box-sizing: border-box !important;
+}
+
+/* 2. Barra Lateral Izquierda (Mueble del Catálogo) */
+#leftSidebar {
+    width: 260px !important;
+    min-width: 260px !important;
+    max-width: 260px !important;
+    background-color: var(--ekko-bg-panel) !important;
+    border-right: 1px solid var(--ekko-border-color) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    z-index: 10 !important;
+    height: 100vh !important;
+    box-sizing: border-box !important;
+}
+
+/* 3. Área de Trabajo de la Derecha (Workspace) */
+#workspace {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    position: relative !important;
+    overflow: hidden !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    height: 100vh !important;
+    box-sizing: border-box !important;
+}
+
+/* 4. Barra Superior de Comandos (topBar) */
+#topBar {
+    height: 52px !important;
+    min-height: 52px !important;
+    background-color: var(--ekko-bg-panel) !important;
+    border-bottom: 1px solid var(--ekko-border-color) !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 0 16px !important;
+    z-index: 20 !important;
+    box-sizing: border-box !important;
+}
+
+/* 5. Contenedor de la Mesa de Diseño */
+#canvasContainer {
+    flex: 1 !important;
+    position: relative !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    overflow: hidden !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: stretch !important;
+    justify-content: stretch !important;
+    box-sizing: border-box !important;
+}
+
+/* 6. Lienzo Físico de Grabado (Paper.js Canvas) */
+#editorCanvas {
+    width: 100% !important;
+    height: 100% !important;
+    background-color: var(--ekko-bg-workspace) !important;
+    border: none !important;
+    box-shadow: none !important;
+    display: block !important;
+}
+
+/* 
+========================================================================
+[ SECCIÓN 3 - DISEÑO DEL CATÁLOGO IZQUIERDO ]
+========================================================================
+Controla el orden, el aire y la estética simétrica del panel izquierdo.
+Restaura al 100% el diseño original de la v10.1.
+*/
+
+/* 1. Cajones de Sección (Categorías, Productos, Vistas) */
+.sidebar-section {
+    padding: 14px !important;
+    border-bottom: 1px solid var(--ekko-border-color) !important;
+    box-sizing: border-box !important;
+}
+
+/* 2. Títulos de Categoría (Fijos, no interactivos) */
+.sidebar-title {
+    font-size: 11px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.05em !important;
+    font-weight: 700 !important;
+    color: var(--ekko-text-muted) !important;
+    margin-bottom: 8px !important;
+}
+
+/* 3. El Molde de los Botones del Catálogo (.tab-btn - Restaurado a v10.1) */
+.tab-btn {
+    display: block !important;
+    width: 100% !important;
+    text-align: left !important;
+    padding: 8px 12px !important;
+    margin-bottom: 4px !important;
+    background-color: #f8fafc !important; /* Blanco-Azulado de la v10.1 */
+    border: 1px solid var(--ekko-border-color) !important;
+    border-radius: 6px !important;        /* Redondeado simétrico de la v10.1 */
+    font-size: 13px !important;
+    cursor: pointer !important;
+    color: var(--ekko-text-dark) !important;
+    transition: all 0.15s !important;
+    box-sizing: border-box !important;
+}
+
+/* Estado: Hover (Puntero encima) */
+.tab-btn:hover {
+    background-color: var(--ekko-bg-workspace) !important;
+    color: #0f172a !important;
+    border-color: var(--ekko-text-muted) !important;
+}
+
+/* Estado: Activo / Seleccionado (Fondo Azul Brillante) */
+.tab-btn.active {
+    background-color: #007bff !important;
+    border-color: #007bff !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+}
+
+/* 
+========================================================================
+[ SECCIÓN 4 - LA BARRA EMERGENTE (Neural HUD Inteligente) ]
+========================================================================
+Define el aspecto flotante y el acabado esmerilado de alta gama 
+de la barra contextual interactiva de tu Studio.
+*/
+
+/* 1. El Chasis del Neural HUD */
+#contextual-toolbar {
+    position: absolute !important;
+    display: flex !important;
+    gap: 8px !important;
+    padding: 8px 12px !important;
+    background: var(--ekko-hud-bg) !important;
+    border: 1.5px solid var(--ekko-hud-border) !important;
+    box-shadow: var(--ekko-hud-shadow) !important;
+    border-radius: 10px !important;
+    z-index: 9999 !important;
+    box-sizing: border-box !important;
+    
+    /* Efecto de Vidrio Soplado Esmerilado */
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+}
+
+/* Ocultar elementos inactivos o de fase posterior */
+.hidden {
+    display: none !important;
+}
+
+/* 2. Botones de Acción dentro del HUD */
+.toolbar-btn {
+    background-color: #f8fafc !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    border-radius: 6px !important;
+    padding: 6px 10px !important;
+    color: var(--ekko-text-dark) !important;
+    cursor: pointer !important;
+    font-size: 13px !important;
+    transition: all 0.15s !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.toolbar-btn:hover {
+    background-color: #f1f5f9 !important;
+    border-color: var(--ekko-text-muted) !important;
+}
+
+/* Líneas de División Internas en el HUD */
+.toolbar-divider {
+    width: 1px !important;
+    background-color: var(--ekko-border-color) !important;
+    margin: 4px 6px !important;
+    align-self: stretch !important;
+}
+
+/* Subgrupos de herramientas del HUD */
+.toolbar-subgroup {
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+/* Desplegable de Fuentes del HUD (Fase 1 Latente) */
+#ctxFontSelector {
+    padding: 6px !important;
+    border-radius: 6px !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    font-size: 13px !important;
+    background: #ffffff !important;
+    color: var(--ekko-text-dark) !important;
+    outline: none !important;
+}
+
+/* Control deslizante de Curvatura de Texto */
+#ctxTextCurvature {
+    width: 100px !important;
+    cursor: pointer !important;
+    accent-color: var(--ekko-hud-border) !important;
+}
+
+/* 
+========================================================================
+[ SECCIÓN 5 - CABECERA SUPERIOR Y CONTROLES AUXILIARES ]
+========================================================================
+Estiliza los botones de carga superior, el visor central de medidas 
+y los complementos integrados del lienzo.
+*/
+
+/* 1. Botones de Acción de la Barra de Herramientas Superior */
+.btn-action {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    padding: 7px 14px !important;
+    background-color: var(--ekko-bg-panel) !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    border-radius: 6px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: var(--ekko-text-dark) !important;
+    cursor: pointer !important;
+    transition: all 0.15s !important;
+    box-sizing: border-box !important;
+}
+
+.btn-action:hover {
+    background-color: var(--ekko-bg-workspace) !important;
+    border-color: var(--ekko-text-muted) !important;
+}
+
+/* 2. El Visor de Medición en Milímetros Central (#selectionInfo) */
+#selectionInfo {
+    font-size: 12px !important;
+    color: var(--ekko-text-muted) !important;
+    font-weight: 500 !important;
+    font-family: -apple-system, BlinkMacSystemFont, monospace !important;
+}
+
+/* 3. Contenedor Dinámico para Selector de Archivos de Imagen y SVG Ocultos */
+.hidden-picker {
+    display: none !important;
+}
+
+/* 4. Estilos de la Galería de Fuentes Auxiliar (Caja Desplegable) */
+.font-gallery {
+    margin-top: 10px !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    padding: 10px !important;
+    border-radius: 8px !important;
+    background: #ffffff !important;
+    max-height: 250px !important;
+    overflow-y: auto !important;
+}
+
+.font-item {
+    padding: 8px !important;
+    margin-bottom: 6px !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
+    transition: background 0.1s !important;
+}
+
+.font-item:hover {
+    background: #f1f5f9 !important;
+}
+
+
+/* 
+========================================================================
+[ SECCIÓN RESTAURADA v10.3_VERSION_2 - ACTIVOS HISTÓRICOS Y LATENTES ]
+========================================================================
+Por directiva estricta de Soberanía del Creador (Pacto A/F), se re-integran
+estos bloques de diseño en styles.css para que el analizador estático F12
+pueda detectarlos, medirlos e informarlos con total transparencia. No se
+silencia ni se elimina ningún activo sin autorización soberana.
+*/
+
+/* --- 🔵 ACTIVOS LATENTES (Estructura de Redes y Marca EKKO) --- */
+.footer-ekko {
+    margin: 16px;
+    padding: 24px;
+    text-align: center;
+}
+.footer-logo {
+    width: 100px;
+    height: auto;
+}
+.footer-social {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+.footer-social img {
+    width: 42px;
+    height: 42px;
+    object-fit: contain;
+}
+.copyright {
+    opacity: 0.75;
+    margin-top: 12px;
+}
+
+
+/* ==============================================
+   ESTADOS DE PANELES — PLEGADO / OCULTO
+   ============================================== */
+
+/* Panel izquierdo plegable */
+#productPanelWrap {
+  width: 240px;
+}
+#productPanelWrap.collapsed {
+  width: 48px;
+}
+#productPanelWrap.collapsed > *:not(#panelToggles):not(#toggleProductPanel) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Barra superior contraída a pestañas */
+#topToolbar.collapsed {
+  height: 48px;
+}
+#topToolbar.collapsed .button-group {
+  display: none;
+}
+
+/* Barra emergente oculta */
+#contextToolbar.hidden {
+  opacity: 0;
+  transform: translateY(20px);
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+/* Botones dinámicos: deshabilitados / resaltados */
+[data-fusion-btn].disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+[data-fusion-btn].highlight {
+  border: 2px solid #ff4080 !important;
+  background: rgba(255,64,128,0.1) !important;
+}
+
+/* Botones de visibilidad: hover */
+#panelToggles button:hover {
+  background: rgba(255,255,255,0.15) !important;
+  color: #fff !important;
+}
+
+
+/* ========================================================================
+   EKKO PANEL COORDINATOR — FASE 0 / COMPATIBILIDAD DE INTERFAZ
+   Estos estilos se aplican a los IDs reales del DOM y corrigen los nombres
+   históricos (#topToolbar / #contextToolbar) sin tocar la geometría Paper.js.
+========================================================================= */
+:root {
+    --ekko-sidebar-width: 260px;
+    --ekko-topbar-height: 52px;
+    --ekko-panel-z: 1000;
+    --ekko-floating-z: 10100;
+}
+
+/* El panel legado queda oculto: sus listeners se conservan temporalmente
+   para no romper la versión actual mientras panelCoordinator toma el control. */
+#panelToggles[data-legacy-panel-controls="true"] {
+    display: none !important;
+}
+
+#productPanelWrap,
+#leftSidebar {
+    width: var(--ekko-sidebar-width) !important;
+    min-width: var(--ekko-sidebar-width) !important;
+    max-width: var(--ekko-sidebar-width) !important;
+}
+
+#productPanelWrap {
+    position: relative;
+    transition: width .25s ease, min-width .25s ease, transform .25s ease;
+    overflow: visible !important;
+    z-index: var(--ekko-panel-z);
+}
+
+#leftSidebar {
+    position: relative;
+    transition: opacity .2s ease, transform .25s ease;
+}
+
+#leftSidebarHeader,
+#topPanelControls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+#leftSidebarHeader {
+    min-height: 38px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--ekko-border-color);
+    justify-content: space-between;
+    box-sizing: border-box;
+}
+
+.panel-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ekko-text-muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+}
+
+.panel-icon-btn,
+.panel-overflow-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--ekko-text-dark);
+    cursor: pointer;
+    font-size: 19px;
+    line-height: 1;
+}
+
+.panel-icon-btn:hover,
+.panel-overflow-btn:hover {
+    background: rgba(100, 116, 139, .15);
+}
+
+#topBar {
+    position: relative;
+    min-height: var(--ekko-topbar-height);
+}
+
+#topPanelControls {
+    margin-left: auto;
+    flex: 0 0 auto;
+    z-index: 2;
+}
+
+/* Compatibilidad con ambos nombres de estado durante la transición. */
+#topBar.collapsed,
+#topBar.is-compact {
+    min-height: 34px !important;
+    height: 34px !important;
+    overflow: hidden;
+}
+
+#topBar.is-compact .top-group,
+#topBar.is-compact #selectionInfo {
+    display: none !important;
+}
+
+#topBar.is-hidden,
+#topBar.hidden {
+    display: none !important;
+}
+
+/* La barra profesional dinámica se considera parte de la superficie superior. */
+#pro-layout-toolbar {
+    position: relative;
+    z-index: 19;
+    transition: max-height .25s ease, opacity .2s ease;
+}
+
+#topBar.is-compact + #pro-layout-toolbar,
+#topBar.is-hidden + #pro-layout-toolbar,
+#pro-layout-toolbar.is-hidden {
+    display: none !important;
+}
+
+#productPanelWrap.is-collapsed,
+#productPanelWrap.collapsed {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: visible !important;
+}
+
+#productPanelWrap.is-collapsed #leftSidebar,
+#productPanelWrap.collapsed #leftSidebar {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-100%);
+}
+
+.product-panel-handle {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    display: none;
+    transform: translate(0, -50%);
+    padding: 8px 7px;
+    border: 1px solid var(--ekko-border-color);
+    border-left: 0;
+    border-radius: 0 7px 7px 0;
+    background: var(--ekko-bg-panel);
+    color: var(--ekko-text-dark);
+    cursor: pointer;
+    white-space: nowrap;
+    z-index: var(--ekko-panel-z);
+}
+
+#productPanelWrap.is-collapsed .product-panel-handle,
+#productPanelWrap.collapsed .product-panel-handle {
+    display: block;
+    left: 0;
+}
+
+#contextual-toolbar {
+    z-index: var(--ekko-floating-z) !important;
+}
+
+#contextual-toolbar:not(.active):not(.is-visible) {
+    display: none !important;
+}
+
+#contextual-toolbar.is-hidden {
+    display: none !important;
+}
+
+#contextual-toolbar.is-visible {
+    display: flex !important;
+}
+
+.floating-overflow-btn {
+    margin-left: 4px;
+    flex: 0 0 auto;
+}
+
+.panel-recovery-dock {
+    position: fixed;
+    top: 12px;
+    right: 16px;
+    display: none;
+    z-index: calc(var(--ekko-floating-z) + 10);
+    padding: 7px 10px;
+    border: 1px solid var(--ekko-border-color);
+    border-radius: 7px;
+    background: var(--ekko-bg-panel);
+    color: var(--ekko-text-dark);
+    box-shadow: var(--ekko-hud-shadow);
+    cursor: pointer;
+}
+
+#panelRecoveryDock.is-visible {
+    display: block;
+}
+
+.panel-visibility-menu {
+    position: fixed;
+    z-index: calc(var(--ekko-floating-z) + 20);
+    min-width: 210px;
+    padding: 8px;
+    border: 1px solid var(--ekko-border-color);
+    border-radius: 8px;
+    background: #fff;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, .18);
+}
+
+.panel-visibility-menu button {
+    display: block;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--ekko-text-dark);
+    text-align: left;
+    cursor: pointer;
+}
+
+.panel-visibility-menu button:hover {
+    background: #f1f5f9;
+}
+
+@media (max-width: 900px) {
+    :root { --ekko-sidebar-width: 220px; }
+    #topBar { overflow-x: auto; }
+}
+
+/* ========================================================================
+   EKKO CONTEXTO SUPERIOR — FASE 1
+   Superficie contextual compartida por el panel superior y la barra flotante.
+========================================================================= */
+#ekkoTopContextSurface {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 4px;
+    border-right: 1px solid var(--ekko-border-color);
+}
+
+.ekko-top-context-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ekko-context-tab {
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 5px 8px;
+    background: transparent;
+    color: var(--ekko-text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.ekko-context-tab:hover {
+    background: #f1f5f9;
+    color: var(--ekko-text-dark);
+}
+
+.ekko-context-tab.is-active {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-weight: 700;
+}
+
+.ekko-top-context-label {
+    color: var(--ekko-text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+#topBar.is-compact #ekkoTopContextSurface {
+    display: flex !important;
+}
+
+#topBar.is-hidden #ekkoTopContextSurface {
+    display: none !important;
+}
