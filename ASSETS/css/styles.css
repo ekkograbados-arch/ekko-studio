@@ -652,3 +652,60 @@ silencia ni se elimina ningún activo sin autorización soberana.
     :root { --ekko-sidebar-width: 220px; }
     #topBar { overflow-x: auto; }
 }
+
+/* ========================================================================
+   EKKO CONTEXTO SUPERIOR — FASE 1
+   Superficie contextual compartida por el panel superior y la barra flotante.
+========================================================================= */
+#ekkoTopContextSurface {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    min-height: 32px;
+    padding: 0 4px;
+    border-right: 1px solid var(--ekko-border-color);
+}
+
+.ekko-top-context-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ekko-context-tab {
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 5px 8px;
+    background: transparent;
+    color: var(--ekko-text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.ekko-context-tab:hover {
+    background: #f1f5f9;
+    color: var(--ekko-text-dark);
+}
+
+.ekko-context-tab.is-active {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-weight: 700;
+}
+
+.ekko-top-context-label {
+    color: var(--ekko-text-muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+#topBar.is-compact #ekkoTopContextSurface {
+    display: flex !important;
+}
+
+#topBar.is-hidden #ekkoTopContextSurface {
+    display: none !important;
+}
