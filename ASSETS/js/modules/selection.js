@@ -1,4 +1,3 @@
-
 /* =========================================================================
    Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
    Ruta en repositorio: ASSETS/js/modules/selection.js
@@ -640,7 +639,7 @@ const _selectItem = function(item, isMulti = false) {
     window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
   } else {
     window.selectedItems.forEach(function(it) {
-      clearSelectionDeep(it);
+      if (it) it.selected = false;
     });
     if (item && item.project && item.parent) {
       item.selected = true;
@@ -665,15 +664,6 @@ const _selectItem = function(item, isMulti = false) {
   paper.view.update();
 };
 
-function clearSelectionDeep(item, visited = new Set()) {
-  if (!item || visited.has(item)) return;
-  visited.add(item);
-  try { item.selected = false; } catch (e) {}
-  if (item.children) {
-    Array.from(item.children).forEach(child => clearSelectionDeep(child, visited));
-  }
-}
-
 /**
  * Deselecciona todos los elementos y remueve las cajas de selección
  */
@@ -684,13 +674,13 @@ const _deselectItem = function() {
 
   if (window.selectedItems) {
     window.selectedItems.forEach(function(it) {
-      clearSelectionDeep(it);
+      if (it) it.selected = false;
     });
     window.selectedItems = [];
   }
 
   if (window.selectedItem) {
-    clearSelectionDeep(window.selectedItem);
+    window.selectedItem.selected = false;
   }
   window.selectedItem = null;
 
