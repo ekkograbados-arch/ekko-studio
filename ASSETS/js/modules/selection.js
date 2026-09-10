@@ -1273,7 +1273,10 @@ const _initSelectionTool = function() {
       }
 
       // === EKKO SMART FUSION v46: Magnetic Snapping al arrastrar una imagen ===
-      if (window.dragTargets.length === 1 && typeof window.checkMagneticSnapping === 'function') {
+      // Durante la edición interna la imagen es libre, pero sigue perteneciendo
+      // a una fusión. No debe buscar otro receptor ni encender halos fucsia.
+      const internalFusionEdit = !!(window.fusionEditActive || window._fusionEditState);
+      if (!internalFusionEdit && window.dragTargets.length === 1 && typeof window.checkMagneticSnapping === 'function') {
         const onlyTarget = window.dragTargets[0].target;
         if (onlyTarget && onlyTarget.className === 'Raster') {
           window._lastDraggedRaster = onlyTarget;
