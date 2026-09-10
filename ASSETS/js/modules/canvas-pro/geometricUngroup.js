@@ -65,6 +65,7 @@ function bakeMatrixIntoPath(path, matrix) {
  * Descompone cualquier estructura en trazados atómicos cerrados simples (paper.Path)
  */
 let docOrderCounter = 0;
+let decompositionScopeCounter = 0;
 function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
     const currentMatrix = accumulatedMatrix ? accumulatedMatrix.chain(item.matrix || new paper.Matrix()) : (item.matrix ? item.matrix.clone() : new paper.Matrix());
     const atomicPaths = [];
@@ -255,6 +256,20 @@ function extractSubtractiveItems(topList) {
         if (!item) return;
         const content = getContentItem(item);
         if (!content) return;
+
+        // Una fusión sólida participa del CSG mediante su máscara, no como
+        // un grupo completo que también contiene la imagen. Una fusión que
+        // reemplazó un hueco se representa mediante su hueco virtual.
+        if (content.data?.isSmartFusion) {
+            const fusionMask = content.children?.find(child =>
+                child.clipMask || child.data?.isFusionMask
+            );
+            if (fusionMask && !fusionMask.data?.isHole && fusionMask.data?.geomBase) {
+                result.push(fusionMask);
+            }
+            return;
+        }
+
         if (isGroup(content) && content.children && content.children.length > 0) {
             content.children.forEach(c => {
                 if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
@@ -271,8 +286,11 @@ function extractSubtractiveItems(topList) {
     return result;
 }
 
-export function recalculateDynamicSubtractions(targetLayer = null) {
+export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEntries = null) {
     const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
+    const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
+        ? virtualHoleEntries
+        : (Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []);
     if (!layer || !layer.children) return;
     const items = [...layer.children].filter(item =>
         item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
@@ -326,9 +344,14 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
         const pristineBounds = pristineBase.bounds;
 
         const intersectingHoles = [];
-        for (let i = j + 1; i < subItems.length; i++) {
+        for (let i = 0; i < subItems.length; i++) {
+            if (i === j) continue;
             const holeItem = subItems[i];
             if (!holeItem || !holeItem.data || !holeItem.data.isHole) continue;
+            if (!solid.data.containmentKey ||
+                holeItem.data.ownerContainmentKey !== solid.data.containmentKey) {
+                continue;
+            }
             const holeBase = getGlobalUnsubtractedPath(holeItem);
             if (!holeBase) continue;
             if (pristineBounds.intersects(holeBase.bounds)) {
@@ -339,9 +362,11 @@ export function recalculateDynamicSubtractions(targetLayer = null) {
         }
 
         // === EKKO SMART FUSION v46: Huecos virtuales (imagen fusionada dentro de hueco) también restan del sólido ===
-        if (Array.isArray(window._fusionVirtualHoles)) {
-            window._fusionVirtualHoles.forEach(function(vh) {
+        if (Array.isArray(scopedVirtualHoles)) {
+            scopedVirtualHoles.forEach(function(vh) {
                 if (!vh || !vh.geom) return;
+                if (!solid.data.containmentKey ||
+                    vh.ownerContainmentKey !== solid.data.containmentKey) return;
                 const vhClone = vh.geom.clone({ insert: false });
                 if (pristineBounds.intersects(vhClone.bounds)) {
                     intersectingHoles.push(vhClone);
@@ -478,6 +503,8 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     const targetLayer = rootTarget.layer || paper.project.activeLayer;
     docOrderCounter = 0;
     const shouldClip = isClipped || (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
+    const containmentScope = rootTarget.data?.containmentScope ||
+        `scope_${++decompositionScopeCounter}`;
 
     const atomicPaths = flattenToAtomicPaths(rootTarget);
     if (!atomicPaths || atomicPaths.length === 0) {
@@ -499,6 +526,10 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             isHole: false,
             geomBase: geomBase,
             layerDepth: 0,
+            containmentId: 0,
+            containmentScope,
+            containmentKey: `${containmentScope}:0`,
+            ownerContainmentKey: `${containmentScope}:0`,
             decomposedLayer: true
         };
 
@@ -526,6 +557,23 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     const sortedByDepth = [...nodes].sort((a, b) => a.depth - b.depth);
     sortedByDepth.forEach(node => {
         node.isHole = resolveItemSemantics(node, rootTarget);
+    });
+
+    // Identidad única para esta descomposición. containmentId solo no es
+    // suficiente porque distintos SVG pueden reutilizar el mismo índice.
+    function nearestSolidOwner(node) {
+        if (!node?.isHole) return node;
+        let parent = node.parent;
+        while (parent && parent.isHole) parent = parent.parent;
+        return parent || null;
+    }
+    nodes.forEach(node => {
+        const owner = nearestSolidOwner(node);
+        node.containmentScope = containmentScope;
+        node.containmentKey = `${containmentScope}:${node.id}`;
+        node.ownerContainmentKey = owner
+            ? `${containmentScope}:${owner.id}`
+            : null;
     });
 
     nodes.sort((a, b) => {
@@ -563,6 +611,9 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             geomBase: geomBase,
             layerDepth: node.depth,
             containmentId: node.id,
+            containmentScope: node.containmentScope,
+            containmentKey: node.containmentKey,
+            ownerContainmentKey: node.ownerContainmentKey,
             decomposedLayer: true
         };
 
