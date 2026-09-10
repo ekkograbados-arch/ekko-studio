@@ -1,3 +1,5 @@
+import { isProductElement, isValidFusionReceptor, findFusionVector, findFusionRaster } from "./fusionCore.js";
+
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
    Fuente única para sincronizar los comandos visibles en:
