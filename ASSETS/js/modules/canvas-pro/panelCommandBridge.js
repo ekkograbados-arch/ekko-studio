@@ -1,5 +1,7 @@
+import { isProductElement, isValidFusionReceptor } from "./fusionCore.js";
+
 /* =========================================================================
-   EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 2
+   EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
    Fuente única para sincronizar los comandos visibles en:
    - panel superior (#topBar)
    - barra profesional (#pro-layout-toolbar)
@@ -91,7 +93,15 @@ function classifySelection() {
     const typeCount = ["raster", "vector", "text", "fusion", "other"].filter(type => counts[type] > 0).length;
     let context = "multiple";
     let canUngroup = false;
+    let canFusion = false;
     const singleTarget = selected.length === 1 ? unwrap(selected[0]) : null;
+
+    if (selected.length === 2) {
+        const items = selected.map(unwrap).filter(Boolean);
+        const raster = items.find(item => item.className === "Raster");
+        const vector = items.find(item => item.className === "Path" || item.className === "CompoundPath");
+        canFusion = !!(raster && vector && !isProductElement(raster) && isValidFusionReceptor(vector));
+    }
 
     if (singleTarget && !(singleTarget.data && singleTarget.data.isSmartFusion)) {
         canUngroup = singleTarget.className === "Group" ||
@@ -117,7 +127,7 @@ function classifySelection() {
         context = "multiple";
     }
 
-    return { context, counts, canUngroup };
+    return { context, counts, canUngroup, canFusion };
 }
 
 function tagProfessionalButtons() {
@@ -139,6 +149,7 @@ function applyCommandVisibility() {
     const selection = classifySelection();
     const allowed = new Set(CONTEXT_COMMANDS[selection.context] || CONTEXT_COMMANDS.none);
     if (selection.canUngroup) allowed.add("ungroup");
+    if (!selection.canFusion) allowed.delete("fusion");
     const elements = getSharedCommandElements();
 
     elements.forEach(element => {
@@ -153,6 +164,7 @@ function applyCommandVisibility() {
         context: selection.context,
         counts: selection.counts,
         canUngroup: selection.canUngroup,
+        canFusion: selection.canFusion,
         allowedCommands: [...allowed],
         timestamp: Date.now()
     };
