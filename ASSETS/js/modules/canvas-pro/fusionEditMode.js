@@ -64,6 +64,16 @@ function cleanupStrayEditItems() {
 export function enterFusionEditMode(fusionItem) {
   if (!fusionItem || window.nodeEditMode) return;
   if (window.fusionEditActive) { try { exitFusionEditMode(true); } catch(e){} }
+
+  // La imagen entra en edición interna: limpiar cualquier estado de snap
+  // externo antes de extraerla del grupo de fusión.
+  if (typeof window.clearFusionPreview === 'function') {
+    try { window.clearFusionPreview(true); } catch (e) {}
+  }
+  window._fusionSnapActive = false;
+  window._activeSnappedVector = null;
+  window._lastDraggedRaster = null;
+
   cleanupStrayEditItems();
 
   const fusionGroup = resolveFusionGroup(fusionItem);
@@ -208,7 +218,7 @@ export function initFusionEditMode() {
     window.fusionEditActive = false;
   }
   cleanupStrayEditItems();
-  console.log("%c[EKKO FUSION EDIT MODE v1.2] Edición interna (cian neón) + anti-duplicados cargada.", "color: #00e5ff; font-weight: bold;");
+  console.log("%c[EKKO FUSION EDIT MODE v1.3] Edición interna (cian neón) + bloqueo de Snap externo cargado.", "color: #00e5ff; font-weight: bold;");
 }
 
 initFusionEditMode();
