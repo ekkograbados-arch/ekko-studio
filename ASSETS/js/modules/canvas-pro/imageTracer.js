@@ -495,9 +495,9 @@ export function openImageTraceModal(raster) {
         <input type="checkbox" id="traceFadeImage" checked>
         Desvanecer Imagen Original (25%)
       </label>
-      <label class="checkbox-label">
-        <input type="checkbox" id="traceDeleteImage">
-        Eliminar Imagen Original al Terminar
+      <label class="checkbox-label" title="La imagen original se conserva siempre para permitir edición no destructiva">
+        <input type="checkbox" id="traceDeleteImage" disabled>
+        Conservar Imagen Original (siempre)
       </label>
     </div>
 
@@ -732,30 +732,47 @@ export function openImageTraceModal(raster) {
 
       const committedVectorPaths = [];
       tracePreviewGroup.children.forEach(p => {
-        const clonedPath = p.clone();
-        clonedPath.strokeColor = new paper.Color('#000000');
-        clonedPath.strokeWidth = 1.0;
-        clonedPath.fillColor = null;
-        clonedPath.data = { locked: false, label: "Trazado" };
-        paper.project.activeLayer.addChild(clonedPath);
+        const clonedPath = p.clone({ insert: false });
+        // El grosor del trazado se entrega como geometría rellena: no depende
+        // de strokeWidth y queda disponible para Calado, Fusionar y nodos.
+        clonedPath.strokeColor = null;
+        clonedPath.strokeWidth = 0;
+        clonedPath.fillColor = new paper.Color('#111827');
+        clonedPath.data = {
+          locked: false,
+          label: "Trazado",
+          userImported: true,
+          source: "image-trace",
+          isSolidShape: true,
+          isFusionReceptor: true
+        };
         committedVectorPaths.push(clonedPath);
       });
 
-      const finalVectorGroup = new paper.Group(committedVectorPaths);
-      finalVectorGroup.data = { 
-        locked: false, 
-        label: "Imagen Vectorizada (" + (raster.data?.label || "Trazado") + ")" 
+      const finalVectorGroup = new paper.CompoundPath({ insert: false });
+      committedVectorPaths.forEach(path => finalVectorGroup.addChild(path));
+      finalVectorGroup.data = {
+        locked: false,
+        label: "Imagen Vectorizada (" + (raster.data?.label || "Trazado") + ")",
+        userImported: true,
+        source: "image-trace",
+        isSolidShape: true,
+        isFusionReceptor: true,
+        decomposedLayer: true
       };
+      finalVectorGroup.fillColor = new paper.Color('#111827');
+      finalVectorGroup.strokeColor = null;
+      finalVectorGroup.strokeWidth = 0;
+      paper.project.activeLayer.addChild(finalVectorGroup);
+      finalVectorGroup.data.geomBase = finalVectorGroup.clone({ insert: false });
 
       if (window.currentMockup) {
         finalVectorGroup.insertBelow(window.currentMockup);
       }
 
-      if (deleteCheck.checked) {
-        raster.remove();
-        window.deselectItem();
-      }
-
+      // Trazar Imagen es siempre no destructivo. La imagen original queda
+      // en el proyecto, con su identidad y transformación intactas.
+      raster.opacity = originalOpacity;
       window.selectItem(finalVectorGroup);
       paper.view.update();
     }
