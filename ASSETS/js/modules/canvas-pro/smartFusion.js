@@ -496,8 +496,8 @@ export function handleMagneticDrop(rasterItem) {
         console.warn("[FUSION DROP] Referencia inválida (el ítem ya no existe en el proyecto).");
         return false;
       }
-      applySmartFusion(snapped, raster, 'intersecar');
-      return true;
+      const fusion = applySmartFusion(snapped, raster, 'intersecar');
+      return !!fusion;
     }
     return false;
   } catch (e) {
@@ -629,13 +629,6 @@ export function releaseSmartFusion(item) {
   let fusionGroup = findSmartFusionContainer(targetItem);
   const fusionRecord = resolveFusionRecord(fusionGroup);
   if (fusionRecord?.group) fusionGroup = fusionRecord.group;
-  // Fallback: si no se encontró y hay exactamente 1 fusión en el proyecto, usarla
-  if (!fusionGroup && paper && paper.project) {
-    try {
-      const allF = paper.project.getItems({ match: function(it){ return it.data && it.data.isSmartFusion; } });
-      if (allF && allF.length === 1) fusionGroup = allF[0];
-    } catch(e){}
-  }
   if (!fusionGroup || !fusionGroup.data || !fusionGroup.data.isSmartFusion) {
     console.warn("[RELEASE_LOCK]: El elemento seleccionado no es parte de una Fusión Inteligente activa.");
     return null;
