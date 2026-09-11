@@ -34,138 +34,65 @@ import { refreshFusion, clearFusionSelection, isFusionSelection } from "./canvas
       - Garantiza 'dragDisplacementValid: true' e 'inconsistencies: []' en todas las operaciones.
    ========================================================================= */
 
-// ==============================================
-// SISTEMA DE REGISTRO DE DOBLE CLIC (extensible)
-// ==============================================
-window._dblclickHandlers = window._dblclickHandlers || [];
-
-// Handler 1: FUSIÓN (prioridad máxima)
-window._dblclickHandlers.push({
-  priority: 10,
-  test: function(item) {
-    if (!item) return false;
-    const container = typeof findSmartFusionContainer === 'function' 
-      ? findSmartFusionContainer(item) 
-      : (item.data && item.data.isSmartFusion ? item : null);
-    return !!container;
-  },
-  run: function(item) {
-    const fusion = typeof findSmartFusionContainer === 'function'
-      ? findSmartFusionContainer(item)
-      : item;
-    if (typeof enterFusionEditMode === 'function') {
-      enterFusionEditMode(fusion);
-    }
-    return true; // Bloquear otros handlers
-  }
-});
-
-// Handler 2: TEXTO
-window._dblclickHandlers.push({
-  priority: 5,
-  test: function(item) {
-    return item && (item.data && item.data.isText || item.className === 'PointText');
-  },
-  run: function(item) {
-    if (typeof enterTextEditMode === 'function') {
-      enterTextEditMode(item);
-    }
-    return true;
-  }
-});
-
-// ==============================================
-// INTERCEPTAR DESAGRUPAR: FUSIÓN → QUITAR FUSIÓN
-// ==============================================
+// ================================================================
+// API ÚNICA DE ORGANIZACIÓN Y DESAGRUPADO
+// ================================================================
+// selection.js conserva el propietario público. contextualMenu.js solo
+// publica implementaciones normales bajo ekkoGroupNormal/ekkoUngroupNormal.
 const previousUngroupHandler = window.ungroupSelectedItem;
-window.ungroupSelectedItem = function() {
-  const sel = window.selectedItem;
-  if (!sel) return;
+const previousGroupHandler = window.groupSelectedItems;
 
-  // ¿Es una fusión?
-  const fusion = (sel.data && sel.data.isSmartFusion) ? sel :
-    (typeof findSmartFusionContainer === 'function' ? findSmartFusionContainer(sel) : null);
+window.ungroupSelectedItem = function() {
+  const selected = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? window.selectedItems[window.selectedItems.length - 1]
+    : window.selectedItem;
+  if (!selected) return null;
+
+  const fusion = selected.data?.isSmartFusion
+    ? selected
+    : (typeof window.findSmartFusionContainer === 'function'
+      ? window.findSmartFusionContainer(selected)
+      : null);
 
   if (fusion) {
-    // 1. Si está en edición interna → SALIR aceptando cambios
-    if (window.fusionEditActive) {
-      if (typeof exitFusionEditMode === 'function') {
-        exitFusionEditMode('accept');
-      }
+    if (window.fusionEditActive && typeof window.exitFusionEditMode === 'function') {
+      window.exitFusionEditMode(true);
     }
-    // 2. Ejecutar QUITAR FUSIÓN en lugar de Desagrupar
-    if (typeof releaseSmartFusion === 'function') {
-      releaseSmartFusion(fusion);
-    }
-    return; // ❌ NO ejecutar el Desagrupar original
+    return typeof window.releaseSmartFusion === 'function'
+      ? window.releaseSmartFusion(fusion)
+      : null;
   }
 
-  // Si no es fusión → Desagrupar normal
-  return previousUngroupHandler ? previousUngroupHandler.apply(this, arguments) : null;
-};
-
-// ==============================================
-// FUNCIÓN QUE FALTABA: Agrupar elementos seleccionados
-// ==============================================
-window.groupSelectedItems = function () {
-  // Obtener la selección actual
-  const sel = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
-  
-  // Filtrar solo items válidos que no sean grupos ya existentes
-  const itemsToGroup = sel.filter(item => 
-    item && item.className !== 'Group' && item.parent
-  );
-
-  if (itemsToGroup.length < 2) {
-    console.warn("Se necesitan al menos 2 elementos seleccionados para agrupar");
-    return;
+  if (typeof window.ekkoUngroupNormal === 'function' &&
+      window.ekkoUngroupNormal !== window.ungroupSelectedItem) {
+    return window.ekkoUngroupNormal.apply(this, arguments);
   }
-
-  // Usar Paper.js para crear el grupo en el mismo nivel que los items
-  const parent = itemsToGroup[0].parent;
-  const group = new paper.Group(itemsToGroup);
-  
-  // Marcar como grupo y conservar posición
-  group.data = group.data || {};
-  group.data.isGroup = true;
-  group.parent = parent;
-
-  // Actualizar la selección al nuevo grupo
-  window.selectedItem = group;
-  window.selectedItems = [group];
-
-  console.log(`✅ Agrupados ${itemsToGroup.length} elementos`);
-};
-
-// ⬇️ Y en la lista de exposición al final del archivo, agrega:
-window.groupSelectedItems = groupSelectedItems;
-
-// ==============================================
-// DOBLE CLIC: ejecutar handlers registrados
-// ==============================================
-const originalOnDoubleClick = window.onSelectionDoubleClick;
-window.onSelectionDoubleClick = function(item, event) {
-  event = event || window.event;
-  event.preventDefault && event.preventDefault();
-
-  // Ordenar por prioridad y probar
-  const handlers = (window._dblclickHandlers || []).sort((a, b) => b.priority - a.priority);
-  for (const h of handlers) {
-    try {
-      if (h.test(item)) {
-        if (h.run(item, event)) {
-          return; // Manejado → NO llega a Edición de Nodos
-        }
-      }
-    } catch (e) {
-      console.warn('Handler doble clic falló:', e);
-    }
+  if (typeof previousUngroupHandler === 'function' &&
+      previousUngroupHandler !== window.ungroupSelectedItem) {
+    return previousUngroupHandler.apply(this, arguments);
   }
-
-  // Si ningún handler lo tomó → comportamiento original (sin nodos)
-  // originalOnDoubleClick && originalOnDoubleClick.call(this, item, event);
+  return null;
 };
 
+window.groupSelectedItems = function() {
+  if (typeof window.ekkoGroupNormal === 'function' &&
+      window.ekkoGroupNormal !== window.groupSelectedItems) {
+    return window.ekkoGroupNormal.apply(this, arguments);
+  }
+  if (typeof previousGroupHandler === 'function' &&
+      previousGroupHandler !== window.groupSelectedItems) {
+    return previousGroupHandler.apply(this, arguments);
+  }
+  const selected = Array.isArray(window.selectedItems) ? window.selectedItems.filter(Boolean) : [];
+  if (selected.length < 2) return null;
+  const parent = selected[0].parent;
+  const group = new paper.Group(selected);
+  group.data = { ...(group.data || {}), isGroup: true };
+  if (parent && group.parent !== parent) parent.addChild(group);
+  window.deselectItem();
+  window.selectItem(group);
+  return group;
+};
 
 // Logging controlado y conmutable para desarrollo y auditoría F12
 window.EKKO_DEBUG = typeof window.EKKO_DEBUG !== 'undefined' ? window.EKKO_DEBUG : false;
@@ -687,6 +614,22 @@ const _deselectItem = function() {
 
   window.selectedItem = null;
 
+  if (window.marqueePath) {
+    try { window.marqueePath.remove(); } catch (e) {}
+    window.marqueePath = null;
+  }
+  window.marqueeActive = false;
+  window.marqueeStartPoint = null;
+  window._pendingIsolateItem = null;
+  window._mouseDragOccurred = false;
+  if (window.distributionGuidesGroup) {
+    try { window.distributionGuidesGroup.remove(); } catch (e) {}
+    window.distributionGuidesGroup = null;
+  }
+  if (typeof window.clearFusionPreview === 'function') {
+    try { window.clearFusionPreview(true); } catch (e) {}
+  }
+
   // Primero se elimina la caja. _updateSelectionBox(null) activa la capa de
   // diseño internamente; el deselectAll debe ocurrir después para que esa
   // activación no deje la Layer seleccionada otra vez.
@@ -771,7 +714,16 @@ function findDesignHitInside(item, point) {
 
   const tol = 8 / (paper.view?.zoom || 1);
   if (item.data?.isSmartFusion) {
-    return item.bounds?.expand(tol).contains(point) ? item : null;
+    const mask = item.children?.find(child => child && (child.clipMask || child.data?.isFusionMask));
+    const geom = mask?.data?.geomBase || mask;
+    if (geom?.bounds?.expand(tol).contains(point)) {
+      try {
+        if (geom.contains?.(point) || geom.hitTest?.(point, { fill: true, stroke: true, tolerance: tol })) {
+          return item;
+        }
+      } catch (e) {}
+    }
+    return null;
   }
   if (item.data?.isHole === true) {
     const geom = item.data.geomBase || item;
@@ -816,7 +768,12 @@ function findItemAtPoint(point) {
   // SVG después de haber fusionado otro sólido del mismo diseño.
   for (let i = layer.children.length - 1; i >= 0; i--) {
     const hole = findHoleHitInside(layer.children[i], point);
-    if (hole) return hole;
+    if (hole) {
+      const fusion = typeof window.findSmartFusionContainer === 'function'
+        ? window.findSmartFusionContainer(hole)
+        : null;
+      return fusion || hole;
+    }
   }
 
   const tol = 8 / (paper.view ? paper.view.zoom : 1);
@@ -897,49 +854,56 @@ const _initSelectionTool = function() {
   }
 
   const selectTool = new paper.Tool();
-  let lastClickTime = 0;
-
-  // Fallback DOM para doble clic en fusiones.
-  // El flujo histórico detecta el doble clic desde onMouseDown; este puente
-  // cubre el caso en que Paper.js recibe el dblclick del canvas pero no se
-  // completa la ventana temporal interna del Tool.
+  // Dispatcher único de doble clic: decide por el hit real del puntero.
   if (!window.__ekkoFusionDomDoubleClickInstalled && paper.view.element) {
-    const fusionDomDoubleClick = function(event) {
+    const canvasDoubleClick = function(event) {
       if (window.fusionEditActive || window._fusionEditState) return;
-
-      const candidates = Array.isArray(window.selectedItems) && window.selectedItems.length
-        ? [...window.selectedItems]
-        : (window.selectedItem ? [window.selectedItem] : []);
+      let point = null;
+      try { point = paper.view.getEventPoint(event); } catch (e) { return; }
+      const hit = point ? findItemAtPoint(point) : null;
+      if (!hit) return;
 
       let fusion = null;
-      for (const candidate of candidates) {
-        if (candidate?.data?.isSmartFusion) {
-          fusion = candidate;
-          break;
-        }
-        if (typeof window.findSmartFusionContainer === "function") {
-          try {
-            fusion = window.findSmartFusionContainer(candidate);
-            if (fusion) break;
-          } catch (e) {}
-        }
+      if (hit.data?.isSmartFusion) {
+        fusion = hit;
+      } else if (typeof window.findSmartFusionContainer === 'function') {
+        try { fusion = window.findSmartFusionContainer(hit); } catch (e) { fusion = null; }
       }
 
-      if (!fusion || typeof window.enterFusionEditMode !== "function") return;
+      const target = getContentItem(fusion || hit);
+      const isText = target && (target.className === 'PointText' || target instanceof paper.PointText);
+      const isVector = target && (target.className === 'Path' || target.className === 'CompoundPath');
 
+      if (!fusion && !isText && !isVector) return;
       event.preventDefault();
       event.stopPropagation();
+      window.dragging = false;
+      window._lastDraggedRaster = null;
+      window._mouseDragOccurred = false;
+
       try {
-        window.enterFusionEditMode(fusion);
+        if (fusion && typeof window.enterFusionEditMode === 'function') {
+          window.deselectItem();
+          window.selectItem(fusion);
+          window.enterFusionEditMode(fusion);
+        } else if (isText && typeof window.startTextEditing === 'function') {
+          window.deselectItem();
+          window.selectItem(hit);
+          window.startTextEditing(target);
+        } else if (isVector && typeof window.enterNodeEditMode === 'function') {
+          window.deselectItem();
+          window.selectItem(hit);
+          window.enterNodeEditMode(hit);
+        }
       } catch (e) {
-        console.error("[FUSION DOM DBLCLICK ERROR]", e);
+        console.error('[EKKO DBLCLICK ERROR]', e);
       }
     };
 
-    paper.view.element.addEventListener("dblclick", fusionDomDoubleClick, true);
+    paper.view.element.addEventListener('dblclick', canvasDoubleClick, true);
     window.__ekkoFusionDomDoubleClickInstalled = true;
     window.__ekkoFusionDomDoubleClickStop = function() {
-      paper.view.element.removeEventListener("dblclick", fusionDomDoubleClick, true);
+      paper.view.element.removeEventListener('dblclick', canvasDoubleClick, true);
       window.__ekkoFusionDomDoubleClickInstalled = false;
       delete window.__ekkoFusionDomDoubleClickStop;
     };
@@ -956,38 +920,6 @@ const _initSelectionTool = function() {
       paper.view.element.style.cursor = "default";
       return;
     }
-
-    const currentTime = Date.now();
-    if (currentTime - lastClickTime < 300) {
-      lastClickTime = 0;
-      // Doble clic: Edición directa de texto o entrada en modo de nodos
-      if (window.selectedItem) {
-        // EKKO SMART FUSION v46: doble clic en fusión → editar imagen interna (cian neón)
-        let _fc = null;
-        if (typeof window.findSmartFusionContainer === 'function') {
-          try { _fc = window.findSmartFusionContainer(window.selectedItem); } catch(e){ _fc = null; }
-        }
-        if (_fc) {
-          if (typeof window.enterFusionEditMode === 'function') {
-            try { window.enterFusionEditMode(_fc); } catch(e){ console.error("[FUSION DBLCLICK ERROR]", e); }
-          }
-          return;
-        }
-        const target = getContentItem(window.selectedItem);
-        if (target instanceof paper.PointText) {
-          if (typeof window.startTextEditing === 'function') {
-            window.startTextEditing(target);
-            return;
-          }
-        } else if (target instanceof paper.Path || target instanceof paper.CompoundPath) {
-          if (typeof window.enterNodeEditMode === 'function') {
-            window.enterNodeEditMode(window.selectedItem);
-            return;
-          }
-        }
-      }
-    }
-    lastClickTime = currentTime;
 
     // 1. Hit-test exclusivo para tiradores de la caja de selección
     let hitResult = null;
@@ -1091,6 +1023,9 @@ const _initSelectionTool = function() {
           window.selectedItems.push(directHitItem);
         }
         window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
+        if (!window.selectedItem && typeof window.deselectItem === 'function') {
+          window.deselectItem();
+        }
       } else {
         // Clic simple sin Shift:
         // Si el elemento clickeado YA forma parte de una selección múltiple existente (ej. 272 capas de Minnie),
@@ -1102,7 +1037,7 @@ const _initSelectionTool = function() {
           }
         } else {
           // El elemento no estaba seleccionado: limpiamos la selección previa y seleccionamos solo este
-          window.selectedItems.forEach(it => { if (it) it.selected = false; });
+          window.selectedItems.forEach(it => { if (it) clearFusionSelection(it); });
           directHitItem.selected = true;
           window.selectedItem = directHitItem;
           window.selectedItems = [directHitItem];
@@ -1223,6 +1158,9 @@ const _initSelectionTool = function() {
           }
         };
         rotateGeomBaseDeep(targetInfo.target, angleStep, window.rotationCenter);
+        if (isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target)) {
+          refreshFusion(targetInfo.target || targetInfo.item);
+        }
       });
 
       if (typeof window.recalculateDynamicSubtractions === 'function') {
@@ -1297,6 +1235,9 @@ const _initSelectionTool = function() {
           }
         };
         scaleGeomBaseDeep(targetInfo.target, stepScaleX, stepScaleY, anchor);
+        if (isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target)) {
+          refreshFusion(targetInfo.target || targetInfo.item);
+        }
       });
 
       if (typeof window.recalculateDynamicSubtractions === 'function') {
@@ -1402,6 +1343,14 @@ const _initSelectionTool = function() {
       const fused = window.handleMagneticDrop(draggedRaster);
       if (fused) {
         window._mouseDragOccurred = false;
+        window._ekkoSkipFusionCSGRecalc = false;
+        window.dragging = false;
+        window.resizeActive = false;
+        window.rotationActive = false;
+        window.isRotationSnapped = false;
+        window.rotationTargets = [];
+        if (typeof clearSmartGuides === 'function') clearSmartGuides();
+        window.updateSelectionBox(window.selectedItem);
         paper.view.update();
         return;
       }
@@ -1448,7 +1397,7 @@ const _initSelectionTool = function() {
     // aislamos esa pieza individual de forma limpia al soltar el ratón (comportamiento estándar Canva/Figma).
     if (!window._mouseDragOccurred && window._pendingIsolateItem && window.selectedItems.length > 1) {
       const isolate = window._pendingIsolateItem;
-      window.selectedItems.forEach(it => { if (it) it.selected = false; });
+      window.selectedItems.forEach(it => { if (it) clearFusionSelection(it); });
       isolate.selected = true;
       window.selectedItem = isolate;
       window.selectedItems = [isolate];
@@ -1542,10 +1491,11 @@ if (typeof paper !== "undefined" && paper.view) {
   _initSelectionTool();
 }
 
-// === EKKO SMART FUSION v46: Doble clic para editar imagen dentro de la fusión ===
+// === EKKO: finalización de edición interna ===
 if (typeof window !== 'undefined' && !window._ekkoFusionDblClickBound) {
   window._ekkoFusionDblClickBound = true;
-  // (El doble clic se integra en el detector nativo de onMouseDown para no duplicar ni congelar)
+  // El doble clic se despacha exclusivamente por el listener del canvas;
+  // aquí solo se mantienen los cierres de edición.
   // Salir del modo edición interna con Enter / Escape
   document.addEventListener('keydown', function(e) {
     if (!window.fusionEditActive) return;
