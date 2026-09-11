@@ -51,9 +51,18 @@ function bakeMatrixIntoPath(path, matrix) {
     if (!path || !matrix || matrix.isIdentity()) return;
     if (path.segments) {
         path.segments.forEach(seg => {
-            seg.point = matrix.transform(seg.point);
-            if (seg.handleIn) seg.handleIn = matrix.transform(seg.handleIn.add(seg.point)).subtract(seg.point);
-            if (seg.handleOut) seg.handleOut = matrix.transform(seg.handleOut.add(seg.point)).subtract(seg.point);
+            const originalPoint = seg.point.clone();
+            const originalHandleIn = seg.handleIn ? seg.handleIn.clone() : null;
+            const originalHandleOut = seg.handleOut ? seg.handleOut.clone() : null;
+            seg.point = matrix.transform(originalPoint);
+            if (originalHandleIn) {
+                const absoluteHandle = originalPoint.add(originalHandleIn);
+                seg.handleIn = matrix.transform(absoluteHandle).subtract(seg.point);
+            }
+            if (originalHandleOut) {
+                const absoluteHandle = originalPoint.add(originalHandleOut);
+                seg.handleOut = matrix.transform(absoluteHandle).subtract(seg.point);
+            }
         });
     }
     if (path.children && Array.isArray(path.children)) {
@@ -520,10 +529,12 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         const geomBase = compound.clone({ insert: false });
         geomBase.matrix = new paper.Matrix();
 
+        const singleIsHole = !!(rootTarget.data?.isHole || single.data?.isHole);
         compound.data = {
             locked: false,
             label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
-            isHole: false,
+            isHole: singleIsHole,
+            isFusionReceptor: singleIsHole,
             geomBase: geomBase,
             layerDepth: 0,
             containmentId: 0,
@@ -533,9 +544,15 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             decomposedLayer: true
         };
 
-        compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
-        compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
-        compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
+        if (singleIsHole) {
+            compound.fillColor = new paper.Color(0, 0, 0, 0.0001);
+            compound.strokeColor = null;
+            compound.strokeWidth = 0;
+        } else {
+            compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
+            compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
+            compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
+        }
 
         let finalItem = compound;
         if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
