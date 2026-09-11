@@ -153,6 +153,21 @@ function getContentItem(item) {
   return item;
 }
 
+// Transform target is the public fusion container when the selected object is
+// a fusion child; otherwise it is the normal editable content item. This
+// prevents dragging the raster child alone when the user selected a fusion.
+function getTransformTarget(item) {
+  if (!item) return null;
+  if (item.data?.isSmartFusion) return item;
+  if (typeof window.findSmartFusionContainer === 'function') {
+    try {
+      const fusion = window.findSmartFusionContainer(item);
+      if (fusion) return fusion;
+    } catch (e) {}
+  }
+  return getContentItem(item);
+}
+
 /**
  * Función auxiliar: Propaga recursivamente una traslación delta a todos los geomBase
  * contenidos en un elemento, grupo de capas o subgrupos anidados.
@@ -872,9 +887,9 @@ const _initSelectionTool = function() {
 
       const target = getContentItem(fusion || hit);
       const isText = target && (target.className === 'PointText' || target instanceof paper.PointText);
-      const isVector = target && (target.className === 'Path' || target.className === 'CompoundPath');
-
-      if (!fusion && !isText && !isVector) return;
+      // Un vector normal nunca entra a nodos por doble clic. La edición de
+      // nodos se inicia exclusivamente desde el comando Editar Nodos.
+      if (!fusion && !isText) return;
       event.preventDefault();
       event.stopPropagation();
       window.dragging = false;
@@ -890,10 +905,6 @@ const _initSelectionTool = function() {
           window.deselectItem();
           window.selectItem(hit);
           window.startTextEditing(target);
-        } else if (isVector && typeof window.enterNodeEditMode === 'function') {
-          window.deselectItem();
-          window.selectItem(hit);
-          window.enterNodeEditMode(hit);
         }
       } catch (e) {
         console.error('[EKKO DBLCLICK ERROR]', e);
@@ -959,7 +970,7 @@ const _initSelectionTool = function() {
         window.rotationTargets = [];
 
         window.selectedItems.forEach(function(item) {
-          const tgt = getContentItem(item);
+          const tgt = getTransformTarget(item);
           if (tgt) {
             window.rotationTargets.push({
               item: item,
@@ -988,7 +999,7 @@ const _initSelectionTool = function() {
         }
         window.resizeTargets.push({
           item: it,
-          target: displayItem,
+          target: getTransformTarget(it) || displayItem,
           initialBounds: b ? b.clone() : displayItem.bounds.clone(),
           initialPosition: displayItem.position.clone()
         });
@@ -1048,7 +1059,7 @@ const _initSelectionTool = function() {
       window.dragging = true;
       window.dragTargets = [];
       window.selectedItems.forEach(function(item) {
-        const dragTarget = getContentItem(item);
+        const dragTarget = getTransformTarget(item);
         if (dragTarget) {
           window.dragTargets.push({
             item: item,
@@ -1074,7 +1085,7 @@ const _initSelectionTool = function() {
         window.dragging = true;
         window.dragTargets = [];
         window.selectedItems.forEach(function(item) {
-          const dragTarget = getContentItem(item);
+          const dragTarget = getTransformTarget(item);
           if (dragTarget) {
             window.dragTargets.push({
               item: item,
