@@ -196,11 +196,16 @@ export function initGlobalKeyboardShortcuts() {
         // 7. SELECCIONAR TODO (Ctrl+A)
         if (isCtrl && key === "a") {
             e.preventDefault();
+            if (typeof window.deselectItem === "function") window.deselectItem();
             const itemsToSelect = [];
             const designLayer = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
             if (designLayer && designLayer.children) {
                 designLayer.children.forEach(item => {
-                    if (item && !item.data?.mockup && !item.data?.isMask && !item.data?.locked) {
+                    const d = item?.data || {};
+                    if (item && !d.mockup && !d.isMask && !d.locked &&
+                        !d.isSelectionBox && !d.isHandle && !d.isSmartGuide &&
+                        !d.isMeasurement && !d.isTracePreview && !d.isNodeEditOverlay &&
+                        !d.isFusionPreview) {
                         itemsToSelect.push(item);
                     }
                 });
@@ -265,6 +270,9 @@ export function initGlobalKeyboardShortcuts() {
                 if (typeof window.saveHistory === "function") window.saveHistory();
                 selected.forEach(it => {
                     if (it && !it.data?.locked) {
+                        if (typeof window.EKKO_FUSION_CONTROLLER?.removeFusionForItem === "function") {
+                            window.EKKO_FUSION_CONTROLLER.removeFusionForItem(it);
+                        }
                         it.remove();
                     }
                 });
