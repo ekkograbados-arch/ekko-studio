@@ -61,7 +61,14 @@ function cleanupStrayEditItems() {
 /* ------------------------------------------------------------------------
    ENTRAR al modo edición interna.
 ------------------------------------------------------------------------ */
-export function enterFusionEditMode(fusionItem) {
+export function enterFusionEditMode(fusionItem = null) {
+  if (!fusionItem) {
+    const selected = window.selectedItem ||
+      (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+    fusionItem = selected && typeof window.findSmartFusionContainer === 'function'
+      ? (window.findSmartFusionContainer(selected) || selected)
+      : selected;
+  }
   if (!fusionItem || window.nodeEditMode) return;
   if (window.fusionEditActive) { try { exitFusionEditMode(true); } catch(e){} }
 
