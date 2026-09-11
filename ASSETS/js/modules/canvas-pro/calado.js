@@ -10,9 +10,9 @@ import {
     canConvertToCalado,
     getContentItem,
     cloneAbsolute,
-    updateVirtualHole
+    updateFusionRecord
 } from "./fusionCore.js";
-import { updateFusionRecord, syncFusionVirtualHole } from "./fusionController.js";
+import { syncFusionVirtualHole } from "./fusionController.js";
 
 function selectedItems() {
     if (Array.isArray(window.selectedItems) && window.selectedItems.length) {
