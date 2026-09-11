@@ -579,7 +579,7 @@ export const drawDistributionGuides = (selected, axis, spacing) => {
 };
 
 // Funciones profesionales de alineación de objetos
-export const alignSelection = (type) => {
+export const alignSelection = (type = "centerX") => {
     const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
     if (selected.length === 0 || !window.paper) {
         alert("Selecciona al menos un objeto para alinear.");
