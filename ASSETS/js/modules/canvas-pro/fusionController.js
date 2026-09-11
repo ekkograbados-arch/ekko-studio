@@ -1,15 +1,7 @@
 /* =========================================================================
-   EKKO STUDIO — FUSION CONTROLLER / FASE 4 CLEAN ARCHITECTURE
-
-   Fuente única para el ciclo de vida de una fusión:
-   - registro por fusionId
-   - resolución de máscara actual
-   - sincronización de hueco virtual
-   - eliminación segura del registro
-   - limpieza profunda de selección
-
-   No decide la interfaz ni ejecuta el Snap. smartFusion.js coordina la
-   operación visual y fusionEditMode.js coordina la edición interna.
+   EKKO STUDIO — FUSION CONTROLLER / FUENTE ÚNICA DE VERDAD
+   Registro, selección, duplicación, eliminación, rehidratación y huecos
+   virtuales de Fusionar.
 ========================================================================= */
 
 import {
@@ -32,6 +24,17 @@ function getRecordGroup(recordOrItem) {
     return null;
 }
 
+function collectFusionItems(item, result = []) {
+    if (!item) return result;
+    if (item.data?.isSmartFusion) result.push(item);
+    if (item.children) Array.from(item.children).forEach(child => collectFusionItems(child, result));
+    return result;
+}
+
+function makeFusionId() {
+    return `fus_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
+}
+
 export function registerFusion(fusionItem, overrides = {}) {
     const record = createFusionRecord(fusionItem, overrides);
     if (!record) return null;
@@ -41,9 +44,13 @@ export function registerFusion(fusionItem, overrides = {}) {
 
 export function resolveFusionRecord(fusionItem) {
     if (!fusionItem) return null;
-    if (fusionItem.fusionId) return getFusionById(fusionItem.fusionId);
-    if (fusionItem.data?.fusionId) return getFusionById(fusionItem.data.fusionId);
-    if (fusionItem.data?.isSmartFusion) return createFusionRecord(fusionItem);
+    const id = fusionItem.fusionId || fusionItem.data?.fusionId;
+    if (id) {
+        const record = getFusionById(id);
+        if (record?.group?.project) return record;
+        if (record && !record.group?.project) removeFusionRecord(id);
+    }
+    if (fusionItem.data?.isSmartFusion) return registerFusion(fusionItem);
     return null;
 }
 
@@ -60,20 +67,25 @@ export function syncFusionVirtualHole(fusionOrRecord) {
     const group = getRecordGroup(record);
     const shouldBeHole = record.mode === "intersecar" && record.originalIsHole === true;
 
-    if (!shouldBeHole) {
+    if (!shouldBeHole || !group?.project) {
         unregisterVirtualHole(record.fusionId);
         return null;
     }
 
     const mask = getCurrentFusionMask(group);
-    if (!mask) return null;
+    if (!mask || !mask.project) {
+        unregisterVirtualHole(record.fusionId);
+        return null;
+    }
 
     let absoluteMask = null;
     try {
         absoluteMask = cloneAbsolute(mask);
-        if (!absoluteMask) return null;
-        const updated = updateVirtualHole(record.fusionId, absoluteMask, group);
-        return updated;
+        if (!absoluteMask) {
+            unregisterVirtualHole(record.fusionId);
+            return null;
+        }
+        return updateVirtualHole(record.fusionId, absoluteMask, group);
     } finally {
         if (absoluteMask) {
             try { absoluteMask.remove(); } catch (e) {}
@@ -94,6 +106,59 @@ export function removeFusionRecord(fusionId) {
     unregisterFusion(fusionId);
 }
 
+export function removeFusionForItem(item) {
+    const ids = new Set();
+    collectFusionItems(item).forEach(fusion => {
+        if (fusion.data?.fusionId) ids.add(fusion.data.fusionId);
+    });
+    ids.forEach(removeFusionRecord);
+    return ids.size;
+}
+
+export function clearFusionRuntime() {
+    const holes = Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : [];
+    holes.forEach(entry => { try { entry.geom?.remove(); } catch (e) {} });
+    window._fusionVirtualHoles = [];
+    window._fusionRecords = [];
+}
+
+export function rebuildFusionRegistry(root = null) {
+    clearFusionRuntime();
+    const project = typeof paper !== "undefined" ? paper.project : null;
+    if (!project) return [];
+    const roots = root?.children ? Array.from(root.children) : Array.from(project.layers || []);
+    const candidates = [];
+    roots.forEach(item => collectFusionItems(item, candidates));
+    // Solo el contenedor superior representa una fusión pública. Los hijos
+    // internos pueden repetir isSmartFusion cuando existe clipGroup.
+    const topLevel = candidates.filter(item => !item.parent?.data?.isSmartFusion);
+    const usedIds = new Set();
+    const records = [];
+    topLevel.forEach(item => {
+        let id = item.data?.fusionId || makeFusionId();
+        if (usedIds.has(id)) id = makeFusionId();
+        usedIds.add(id);
+        collectFusionItems(item).forEach(node => {
+            node.data = { ...(node.data || {}), fusionId: id, isSmartFusion: true };
+        });
+        const record = registerFusion(item, { fusionId: id });
+        if (record) records.push(record);
+    });
+    return records;
+}
+
+export function rekeyFusionClone(item) {
+    const fusionItems = collectFusionItems(item);
+    if (!fusionItems.length) return null;
+    const fusionId = makeFusionId();
+    fusionItems.forEach(fusion => {
+        fusion.data = { ...(fusion.data || {}), fusionId, isSmartFusion: true };
+    });
+    removeFusionRecord(fusionId);
+    const record = registerFusion(item, { fusionId });
+    return record;
+}
+
 export function clearFusionSelection(item) {
     const visited = new Set();
     const clear = node => {
@@ -110,9 +175,7 @@ export function isFusionSelection(item) {
 }
 
 export function getFusionVirtualHoles() {
-    return Array.isArray(window._fusionVirtualHoles)
-        ? window._fusionVirtualHoles
-        : [];
+    return Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : [];
 }
 
 if (typeof window !== "undefined") {
@@ -123,6 +186,10 @@ if (typeof window !== "undefined") {
         syncFusionVirtualHole,
         refreshFusion,
         removeFusionRecord,
+        removeFusionForItem,
+        clearFusionRuntime,
+        rebuildFusionRegistry,
+        rekeyFusionClone,
         clearFusionSelection,
         isFusionSelection,
         getFusionVirtualHoles
