@@ -294,9 +294,13 @@ export function loadMockup(svgPath) {
 }
 
 export function restoreMockupReferences() {
-  var mockupItem = paper.project.activeLayer.children.find(function(c) {
-    return c.data && c.data.mockup;
-  });
+  var mockupItem = null;
+  var layers = paper.project.layers || [];
+  for (var i = 0; i < layers.length && !mockupItem; i++) {
+    mockupItem = (layers[i].children || []).find(function(c) {
+      return c.data && c.data.mockup;
+    }) || null;
+  }
 
   if (mockupItem) {
     window.currentMockup = mockupItem;
