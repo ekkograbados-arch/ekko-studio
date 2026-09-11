@@ -180,6 +180,9 @@ export function duplicateSelectedItem() {
     const offset = new paper.Point(20, 20);
     itemsToDuplicate.forEach(item => {
         const clone = duplicateSingleItem(item, offset);
+        if (clone && typeof window.EKKO_FUSION_CONTROLLER?.rekeyFusionClone === 'function') {
+            window.EKKO_FUSION_CONTROLLER.rekeyFusionClone(clone);
+        }
         if (clone) duplicatedList.push(clone);
     });
 
@@ -225,6 +228,9 @@ export function deleteImage(item) {
 
     itemsToDelete.forEach(it => {
         if (it && !it.data?.locked) {
+            if (typeof window.EKKO_FUSION_CONTROLLER?.removeFusionForItem === 'function') {
+                window.EKKO_FUSION_CONTROLLER.removeFusionForItem(it);
+            }
             it.remove();
         }
     });
@@ -645,8 +651,12 @@ export function initContextualMenu() {
     });
 
     // UNIFICACIÓN CANÓNICA 10.3: Se descartan los clicks hacia IDs alternativos obsoletos en español.
-    setClick('btnCtxGroup', () => groupSelectedItems());
-    setClick('btnCtxUngroup', () => ungroupSelectedItem());
+    setClick('btnCtxGroup', () => {
+        if (typeof window.groupSelectedItems === 'function') window.groupSelectedItems();
+    });
+    setClick('btnCtxUngroup', () => {
+        if (typeof window.ungroupSelectedItem === 'function') window.ungroupSelectedItem();
+    });
 
     setClick('btnCtxEditNodes', () => {
         if (window.selectedItem) {
@@ -844,6 +854,7 @@ if (typeof window !== 'undefined') {
     window.deleteImage = deleteImage;
     window.duplicateSingleItem = duplicateSingleItem;
     window.duplicateSelectedItem = duplicateSelectedItem;
-    window.groupSelectedItems = groupSelectedItems;
-    window.ungroupSelectedItem = ungroupSelectedItem;
+    // Implementaciones normales: no reemplazan la API central de selección.
+    window.ekkoGroupNormal = groupSelectedItems;
+    window.ekkoUngroupNormal = ungroupSelectedItem;
 }
