@@ -54,9 +54,18 @@ function bakeMatrixIntoPath(path, matrix) {
     if (!path || !matrix || matrix.isIdentity()) return;
     if (path.segments) {
         path.segments.forEach(seg => {
-            seg.point = matrix.transform(seg.point);
-            if (seg.handleIn) seg.handleIn = matrix.transform(seg.handleIn).subtract(matrix.transform(new paper.Point(0, 0)));
-            if (seg.handleOut) seg.handleOut = matrix.transform(seg.handleOut).subtract(matrix.transform(new paper.Point(0, 0)));
+            const originalPoint = seg.point.clone();
+            const originalHandleIn = seg.handleIn ? seg.handleIn.clone() : null;
+            const originalHandleOut = seg.handleOut ? seg.handleOut.clone() : null;
+            seg.point = matrix.transform(originalPoint);
+            if (originalHandleIn) {
+                const absoluteHandle = originalPoint.add(originalHandleIn);
+                seg.handleIn = matrix.transform(absoluteHandle).subtract(seg.point);
+            }
+            if (originalHandleOut) {
+                const absoluteHandle = originalPoint.add(originalHandleOut);
+                seg.handleOut = matrix.transform(absoluteHandle).subtract(seg.point);
+            }
         });
     }
     if (path.children && Array.isArray(path.children)) {
@@ -166,7 +175,12 @@ export function prepareSVGForExport(options = {}) {
     const clipGroups = [];
     tempLayer.getItems({
         match: function(item) {
-            return item.data && item.data.clipGroup === true;
+            if (!item.data || item.data.clipGroup !== true) return false;
+            if (item.data.isSmartFusion === true) return false;
+            const fusionMasks = item.getItems?.({
+                match: child => child.data?.isFusionMask === true
+            }) || [];
+            return fusionMasks.length === 0;
         }
     }).forEach(cg => clipGroups.push(cg));
 
