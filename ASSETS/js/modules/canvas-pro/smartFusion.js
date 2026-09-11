@@ -279,7 +279,9 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const originalIsHole = !!(vector.data && vector.data.isHole);
-  const fusionId = 'fus_' + Date.now() + '_' + Math.floor(Math.random()*10000);
+  const fusionId = options && options.fusionId
+    ? options.fusionId
+    : ('fus_' + Date.now() + '_' + Math.floor(Math.random()*10000));
 
   const absoluteVector = getAbsoluteClone(vector);
   const absoluteRaster = getAbsoluteClone(raster);
@@ -649,17 +651,25 @@ export function releaseSmartFusion(item = null) {
   const restoredVector = fusionGroup.data.originalVectorData.clone();
   const restoredRaster = fusionGroup.data.originalRasterData.clone();
   const originalIsHole = !!(fusionGroup.data.originalIsHole);
-  // Restaurar en la posición ACTUAL (si el usuario arrastró la fusión), no en la original
+  // Separar sin salto: aplicar a los snapshots originales la matriz actual
+  // del contenedor/máscara. Así se conservan movimiento, escala y rotación
+  // realizadas sobre la fusión completa, además de la relación interna.
   try {
-    const curMask = fusionGroup.children && fusionGroup.children[0];
-    if (curMask && curMask.bounds && restoredVector.bounds) {
+    const curMask = fusionGroup.children?.find(child =>
+      child?.clipMask || child?.data?.isFusionMask
+    ) || fusionGroup.children?.[0];
+    const currentMatrix = curMask?.globalMatrix?.clone?.() || fusionGroup.globalMatrix?.clone?.();
+    if (currentMatrix && !currentMatrix.isIdentity()) {
+      restoredVector.transform(currentMatrix);
+      restoredRaster.transform(currentMatrix);
+    } else if (curMask && curMask.bounds && restoredVector.bounds) {
       const delta = curMask.bounds.center.subtract(restoredVector.bounds.center);
       if (delta.length > 0.01) {
         restoredVector.translate(delta);
         restoredRaster.translate(delta);
       }
     }
-  } catch(e){}
+  } catch(e) {}
   restoredVector.data = {
     ...(fusionGroup.data.originalVectorData?.data || {}),
     isHole: originalIsHole,
