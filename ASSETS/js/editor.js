@@ -143,21 +143,14 @@ function undo() {
   if (undoStack.length === 0) return;
   redoStack.push(paper.project.exportJSON({ asString: true }));
   const state = undoStack.pop();
+  resetSceneRuntimeState();
   paper.project.clear();
   paper.project.importJSON(state);
   cleanGhostInterfaceItems();
   if (window.selectedItem || (window.selectedItems && window.selectedItems.length > 0)) {
     window.deselectItem();
   }
-  if (typeof restoreMockupReferences === "function") {
-    restoreMockupReferences();
-  }
-  // Reactividad CSG: Recalcular calados en el estado restaurado
-  if (typeof recalculateDynamicSubtractions === "function") {
-    recalculateDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === "function") {
-    window.recalculateDynamicSubtractions();
-  }
+  rehydrateSceneRuntime();
   paper.view.update();
 }
 window.undo = undo;
@@ -166,21 +159,14 @@ function redo() {
   if (redoStack.length === 0) return;
   undoStack.push(paper.project.exportJSON({ asString: true }));
   const state = redoStack.pop();
+  resetSceneRuntimeState();
   paper.project.clear();
   paper.project.importJSON(state);
   cleanGhostInterfaceItems();
   if (window.selectedItem || (window.selectedItems && window.selectedItems.length > 0)) {
     window.deselectItem();
   }
-  if (typeof restoreMockupReferences === "function") {
-    restoreMockupReferences();
-  }
-  // Reactividad CSG: Recalcular calados en el estado restaurado
-  if (typeof recalculateDynamicSubtractions === "function") {
-    recalculateDynamicSubtractions();
-  } else if (typeof window.recalculateDynamicSubtractions === "function") {
-    window.recalculateDynamicSubtractions();
-  }
+  rehydrateSceneRuntime();
   paper.view.update();
 }
 window.redo = redo;
@@ -189,6 +175,43 @@ function isLockedItem(item) {
   return !!(item && item.data && item.data.locked === true);
 }
 window.isLockedItem = isLockedItem;
+
+// Limpia referencias de runtime que no forman parte de exportJSON/importJSON.
+function resetSceneRuntimeState() {
+  if (window.fusionEditActive && typeof window.exitFusionEditMode === 'function') {
+    try { window.exitFusionEditMode(false); } catch (e) {}
+  }
+  if (window.selectionBoxGroup) { try { window.selectionBoxGroup.remove(); } catch (e) {} }
+  if (window.marqueePath) { try { window.marqueePath.remove(); } catch (e) {} }
+  if (window.nodeHandlesGroup) { try { window.nodeHandlesGroup.remove(); } catch (e) {} }
+  if (window.distributionGuidesGroup) { try { window.distributionGuidesGroup.remove(); } catch (e) {} }
+  window.selectionBoxGroup = null;
+  window.marqueePath = null;
+  window.nodeHandlesGroup = null;
+  window.distributionGuidesGroup = null;
+  window.marqueeActive = false;
+  window.dragging = false;
+  window.resizeActive = false;
+  window.rotationActive = false;
+  window.fusionEditActive = false;
+  window._fusionEditState = null;
+  window.selectedItem = null;
+  window.selectedItems = [];
+  try { paper?.project?.deselectAll?.(); } catch (e) {}
+  if (typeof window.EKKO_FUSION_CONTROLLER?.clearFusionRuntime === 'function') {
+    window.EKKO_FUSION_CONTROLLER.clearFusionRuntime();
+  }
+}
+
+function rehydrateSceneRuntime() {
+  if (typeof restoreMockupReferences === 'function') restoreMockupReferences();
+  if (typeof window.EKKO_FUSION_CONTROLLER?.rebuildFusionRegistry === 'function') {
+    window.EKKO_FUSION_CONTROLLER.rebuildFusionRegistry();
+  }
+  if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
+}
+window.resetSceneRuntimeState = resetSceneRuntimeState;
+window.rehydrateSceneRuntime = rehydrateSceneRuntime;
 
 // Sincronizador en mm para UI y cotas
 function updateSelectionInfo() {
@@ -225,85 +248,9 @@ function updateLockButton() {
 }
 window.updateLockButton = updateLockButton;
 
-// Metodos de seleccion unificada con tiradores
-window.selectItem = function(item, isMulti = false) {
-  if (window.nodeEditMode) {
-    window.exitNodeEditMode();
-  }
-  let isMockup = false;
-  let curr = item;
-  while (curr) {
-    if (curr.data && (curr.data.mockup || curr.data.isMask)) {
-      isMockup = true;
-      break;
-    }
-    if (curr === window.currentMockup) {
-      isMockup = true;
-      break;
-    }
-    curr = curr.parent;
-  }
-  if (isMockup) return;
-
-  if (isMulti) {
-    if (!window.selectedItems) window.selectedItems = [];
-    const idx = window.selectedItems.indexOf(item);
-    if (idx > -1) {
-      item.selected = false;
-      window.selectedItems.splice(idx, 1);
-    } else {
-      item.selected = true;
-      window.selectedItems.push(item);
-    }
-    window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
-  } else {
-    if (window.selectedItems) {
-      window.selectedItems.forEach(it => { if (it) it.selected = false; });
-    }
-    item.selected = true;
-    window.selectedItem = item;
-    window.selectedItems = [item];
-  }
-
-  if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(window.selectedItem);
-  }
-  if (typeof window.updateContextualMenu === 'function') {
-    window.updateContextualMenu(window.selectedItem);
-  }
-  updateSelectionInfo();
-  updateLockButton();
-  paper.view.update();
-};
-
-window.deselectItem = function() {
-  if (window.nodeEditMode) {
-    window.exitNodeEditMode();
-  }
-  // Protección contra bucles de deselección redundantes
-  if (!window.selectedItem && (!window.selectedItems || window.selectedItems.length === 0)) {
-    return;
-  }
-  if (window.selectedItems && window.selectedItems.length > 0) {
-    window.selectedItems.forEach(it => { if (it) it.selected = false; });
-  }
-  if (window.selectedItem) {
-    window.selectedItem.selected = false;
-  }
-  window.selectedItem = null;
-  window.selectedItems = [];
-  if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(null);
-  }
-  if (typeof window.hideContextualMenu === 'function') {
-    window.hideContextualMenu();
-  }
-  updateSelectionInfo();
-  updateLockButton();
-  if (window.paper && paper.view) {
-    paper.view.update();
-  }
-};
+// La selección pública pertenece exclusivamente a selection.js.
+// editor.js no redefine window.selectItem ni window.deselectItem: todos los
+// comandos del editor delegan en la API central instalada por selection.js.
 
 // Sincronizacion espacial del mockup y cotas reales
 window.getRealProductDimensions = function(product) {
@@ -356,11 +303,14 @@ function saveCurrentScene() {
   if (!surface) return;
   const key = getSceneKey(toolState.currentProduct, surface);
   const prevSelected = window.selectedItem;
-  if (prevSelected) {
+  const prevSelectedItems = Array.isArray(window.selectedItems) ? [...window.selectedItems] : [];
+  if (prevSelected || prevSelectedItems.length) {
     window.deselectItem();
   }
   sceneStates[key] = paper.project.exportJSON({ asString: true });
-  if (prevSelected) {
+  if (prevSelectedItems.length && typeof window.selectItem === 'function') {
+    prevSelectedItems.forEach((item, index) => window.selectItem(item, index > 0));
+  } else if (prevSelected && typeof window.selectItem === 'function') {
     window.selectItem(prevSelected);
   }
 }
@@ -374,19 +324,15 @@ function loadSurfaceScene(product, surface) {
   paper.view.zoom = 1.0;
   paper.view.center = new paper.Point(0, 0);
   if (sceneStates[key]) {
+    resetSceneRuntimeState();
     paper.project.clear();
     paper.project.importJSON(sceneStates[key]);
     cleanGhostInterfaceItems();
     if (window.selectedItem || (window.selectedItems && window.selectedItems.length > 0)) {
       window.deselectItem();
     }
-    if (typeof restoreMockupReferences === "function") {
-      restoreMockupReferences();
-      if (typeof window.updateGlobalScaleFactor === "function") window.updateGlobalScaleFactor();
-    }
-    if (typeof recalculateDynamicSubtractions === "function") {
-      recalculateDynamicSubtractions();
-    }
+    rehydrateSceneRuntime();
+    if (typeof window.updateGlobalScaleFactor === "function") window.updateGlobalScaleFactor();
     paper.view.update();
     return;
   }
