@@ -17,6 +17,17 @@ import {
     isFusionItem
 } from "./fusionCore.js";
 
+const fusionEditTransactions = new Map();
+
+function cloneDetached(item) {
+    if (!item || typeof item.clone !== "function") return null;
+    try { return item.clone({ insert: false }); } catch (e) { return null; }
+}
+
+function disposeDetached(item) {
+    try { item?.remove?.(); } catch (e) {}
+}
+
 function getRecordGroup(recordOrItem) {
     if (!recordOrItem) return null;
     if (recordOrItem.group) return recordOrItem.group;
@@ -56,6 +67,84 @@ export function resolveFusionRecord(fusionItem) {
 
 export function getFusionMask(fusionItem) {
     return getCurrentFusionMask(getRecordGroup(fusionItem) || fusionItem);
+}
+
+/**
+ * Starts an internal image-edit transaction without destroying the public
+ * fusion record. The edit module may temporarily remove visual children, but
+ * the identity and original snapshots remain owned by this controller.
+ */
+export function beginFusionEdit(fusionItem) {
+    const record = resolveFusionRecord(fusionItem);
+    const group = getRecordGroup(record);
+    if (!record || !group || !record.fusionId) return null;
+    if (fusionEditTransactions.has(record.fusionId)) {
+        return fusionEditTransactions.get(record.fusionId);
+    }
+
+    const mask = getCurrentFusionMask(group);
+    const raster = group.children?.find(child => child.className === "Raster") || null;
+    const transaction = {
+        fusionId: record.fusionId,
+        record,
+        group,
+        mode: record.mode,
+        originalIsHole: record.originalIsHole === true,
+        containmentScope: record.containmentScope || null,
+        containmentKey: record.containmentKey || null,
+        ownerContainmentKey: record.ownerContainmentKey || null,
+        originalVectorData: cloneDetached(record.originalVectorData),
+        originalRasterData: cloneDetached(record.originalRasterData),
+        maskSnapshot: mask ? cloneAbsolute(mask) : null,
+        rasterId: raster?.id ?? null,
+        startedAt: Date.now()
+    };
+
+    record.editing = true;
+    record.editStartedAt = transaction.startedAt;
+    fusionEditTransactions.set(record.fusionId, transaction);
+    unregisterVirtualHole(record.fusionId);
+    return transaction;
+}
+
+export function getFusionEditTransaction(fusionId) {
+    return fusionEditTransactions.get(fusionId) || null;
+}
+
+function disposeFusionEditTransaction(transaction) {
+    if (!transaction) return;
+    disposeDetached(transaction.originalVectorData);
+    disposeDetached(transaction.originalRasterData);
+    disposeDetached(transaction.maskSnapshot);
+}
+
+/** Re-attaches a committed visual group to the original fusion identity. */
+export function commitFusionEdit(fusionItem, overrides = {}) {
+    const id = fusionItem?.data?.fusionId || fusionItem?.fusionId || overrides.fusionId;
+    const transaction = id ? fusionEditTransactions.get(id) : null;
+    const record = fusionItem ? updateFusionRecord(fusionItem, { ...overrides, fusionId: id }) : null;
+    if (record) {
+        record.editing = false;
+        delete record.editStartedAt;
+        syncFusionVirtualHole(record);
+    }
+    if (id) fusionEditTransactions.delete(id);
+    disposeFusionEditTransaction(transaction);
+    return record;
+}
+
+/** Cancels the transaction and returns its immutable restoration snapshot. */
+export function cancelFusionEdit(fusionId) {
+    const transaction = fusionEditTransactions.get(fusionId) || null;
+    if (!transaction) return null;
+    const record = getFusionById(fusionId);
+    if (record) {
+        record.editing = false;
+        delete record.editStartedAt;
+    }
+    fusionEditTransactions.delete(fusionId);
+    unregisterVirtualHole(fusionId);
+    return transaction;
 }
 
 export function syncFusionVirtualHole(fusionOrRecord) {
@@ -119,6 +208,8 @@ export function clearFusionRuntime() {
     const holes = Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : [];
     holes.forEach(entry => { try { entry.geom?.remove(); } catch (e) {} });
     window._fusionVirtualHoles = [];
+    fusionEditTransactions.forEach(disposeFusionEditTransaction);
+    fusionEditTransactions.clear();
     window._fusionRecords = [];
 }
 
@@ -183,6 +274,10 @@ if (typeof window !== "undefined") {
         registerFusion,
         resolveFusionRecord,
         getFusionMask,
+        beginFusionEdit,
+        getFusionEditTransaction,
+        commitFusionEdit,
+        cancelFusionEdit,
         syncFusionVirtualHole,
         refreshFusion,
         removeFusionRecord,
