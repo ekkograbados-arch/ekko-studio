@@ -1,4 +1,5 @@
 import { isProductElement, isValidFusionReceptor, findFusionVector, findFusionRaster } from "./fusionCore.js";
+import { canConvertSelectionToCalado } from "./calado.js";
 
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
@@ -13,6 +14,8 @@ import { isProductElement, isValidFusionReceptor, findFusionVector, findFusionRa
 const PRO_COMMAND_IDS = {
     proBtnFusionar: "fusion",
     proBtnQuitarFusion: "unfusion",
+    proBtnCalado: "calado",
+    proBtnTextToVector: "textToVector",
     proBtnGroup: "group",
     proBtnUngroup: "ungroup",
     proBtnEditNodes: "editNodes",
@@ -35,10 +38,10 @@ const PRO_COMMAND_IDS = {
 const CONTEXT_COMMANDS = {
     none: ["zoom", "rulers", "guides", "measurements"],
     image: ["removeBg", "traceImage", "group", "zoom", "rulers", "guides", "measurements"],
-    text: ["group", "align", "zoom", "rulers", "guides", "measurements"],
-    vector: ["editNodes", "outline", "group", "align", "zoom", "rulers", "guides", "measurements"],
+    text: ["textToVector", "group", "align", "zoom", "rulers", "guides", "measurements"],
+    vector: ["editNodes", "calado", "outline", "group", "align", "zoom", "rulers", "guides", "measurements"],
     multiple: ["group", "align", "distribute", "zoom", "rulers", "guides", "measurements"],
-    fusion: ["unfusion", "editFusionImage", "zoom", "rulers", "guides", "measurements"],
+    fusion: ["calado", "unfusion", "editFusionImage", "zoom", "rulers", "guides", "measurements"],
     mixed: ["fusion", "group", "align", "zoom", "rulers", "guides", "measurements"]
 };
 
@@ -94,7 +97,11 @@ function classifySelection() {
     let context = "multiple";
     let canUngroup = false;
     let canFusion = false;
+    let canCalado = false;
     const singleTarget = selected.length === 1 ? unwrap(selected[0]) : null;
+    if (singleTarget) {
+        try { canCalado = canConvertSelectionToCalado(singleTarget); } catch (e) { canCalado = false; }
+    }
 
     if (selected.length === 2) {
         const items = selected.map(unwrap).filter(Boolean);
@@ -127,7 +134,7 @@ function classifySelection() {
         context = "multiple";
     }
 
-    return { context, counts, canUngroup, canFusion };
+    return { context, counts, canUngroup, canFusion, canCalado };
 }
 
 function tagProfessionalButtons() {
@@ -150,6 +157,7 @@ function applyCommandVisibility() {
     const allowed = new Set(CONTEXT_COMMANDS[selection.context] || CONTEXT_COMMANDS.none);
     if (selection.canUngroup) allowed.add("ungroup");
     if (!selection.canFusion) allowed.delete("fusion");
+    if (!selection.canCalado) allowed.delete("calado");
     const elements = getSharedCommandElements();
 
     elements.forEach(element => {
@@ -165,6 +173,7 @@ function applyCommandVisibility() {
         counts: selection.counts,
         canUngroup: selection.canUngroup,
         canFusion: selection.canFusion,
+        canCalado: selection.canCalado,
         allowedCommands: [...allowed],
         timestamp: Date.now()
     };
