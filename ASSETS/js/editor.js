@@ -29,7 +29,7 @@
 import "./modules/selection.js";
 import "./modules/canvas-pro/ekkoDiagnostics.js";
 import "./modules/canvas-pro/ekkoSynapse.js";
-import { loadDynamicFonts } from "./modules/canvas-pro/textToolbar.js";
+import { loadDynamicFonts, convertTextToVector } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
 import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
 import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
@@ -41,6 +41,7 @@ import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
 import { initFusionEditMode } from "./modules/canvas-pro/fusionEditMode.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
+import { convertSelectionToCalado, canConvertSelectionToCalado } from "./modules/canvas-pro/calado.js";
 // backgroundRemover.js permanece desactivado hasta que la IA local esté habilitada.
 // import './modules/canvas-pro/backgroundRemover.js';
 // ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
@@ -53,6 +54,9 @@ window.initContextualMenu = initContextualMenu;
 window.startTextEditing = startTextEditing;
 window.enterNodeEditMode = enterNodeEditMode;
 window.exitNodeEditMode = exitNodeEditMode;
+window.convertSelectionToCalado = convertSelectionToCalado;
+window.canConvertSelectionToCalado = canConvertSelectionToCalado;
+window.convertTextToVector = convertTextToVector;
 
 // ================================================================
 // API COMPATIBLE CON LA CINTA HTML
