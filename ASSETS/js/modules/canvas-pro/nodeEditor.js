@@ -43,6 +43,28 @@ let isAddNodeActive = false;
 let previousTool = null;
 let nodeEditTool = null;
 let disabledClipGroups = [];
+let activeFusionNodeContext = null;
+
+function findFusionAncestor(item) {
+    let current = item;
+    while (current) {
+        if (current.data?.isSmartFusion) {
+            if (current.data.clipGroup && current.children) {
+                const nested = Array.from(current.children).find(child =>
+                    child?.data?.isSmartFusion && child.children?.length >= 2
+                );
+                if (nested) return nested;
+            }
+            return current;
+        }
+        current = current.parent;
+    }
+    return null;
+}
+
+function getFusionEditableMask(fusion) {
+    return fusion?.children?.find(child => child?.clipMask || child?.data?.isFusionMask) || null;
+}
 
 if (typeof window !== 'undefined') {
     window.nodeEditMode = false;
@@ -134,8 +156,16 @@ export function syncGeometryToGeomBase(item) {
  */
 export function enterNodeEditMode(item) {
     if (!item || isMockupOrProductElement(item)) return;
-    const target = getContentItem(item);
+    const fusion = findFusionAncestor(item);
+    const fusionMask = fusion ? getFusionEditableMask(fusion) : null;
+    const target = fusionMask || getContentItem(item);
     if (!target) return;
+
+    if (fusion && fusion.data?.fusionMode === 'calar') {
+        // El modo calado inverso contiene un rectángulo exterior auxiliar;
+        // el vector receptor real se edita desde su snapshot, no el marco.
+        return;
+    }
 
     const isText = target.className === 'PointText' || (typeof paper !== 'undefined' && paper.PointText && target instanceof paper.PointText);
     if (isText) {
@@ -159,9 +189,14 @@ export function enterNodeEditMode(item) {
         exitNodeEditMode(true);
     }
 
-    activeNodeItem = item;
+    activeFusionNodeContext = fusion ? {
+        fusion,
+        selectionItem: item,
+        mask: target
+    } : null;
+    activeNodeItem = target;
     window.nodeEditMode = true;
-    window.nodeEditTarget = item;
+    window.nodeEditTarget = target;
 
     // Desactivar temporalmente máscaras para manipulación libre sin recortes
     function disableClipGroup(g) {
@@ -548,11 +583,35 @@ export function exitNodeEditMode(skipSelect = false) {
     }
 
     const finishedItem = activeNodeItem;
+    const finishedFusionContext = activeFusionNodeContext;
     if (finishedItem) {
         syncGeometryToGeomBase(finishedItem);
     }
 
+    // En una fusión, los nodos modifican únicamente el vector máscara. La
+    // imagen interna no se reconstruye ni pierde su transformación.
+    if (finishedFusionContext?.fusion && finishedItem?.project) {
+        const fusion = finishedFusionContext.fusion;
+        const updatedVector = finishedItem.clone({ insert: false });
+        updatedVector.clipMask = false;
+        updatedVector.data = {
+            ...(fusion.data?.originalVectorData?.data || {}),
+            ...(updatedVector.data || {}),
+            isFusionMask: false,
+            isHole: fusion.data?.originalIsHole === true
+        };
+        try { fusion.data.originalVectorData?.remove?.(); } catch (e) {}
+        fusion.data.originalVectorData = updatedVector;
+        if (typeof window.recalculateSmartFusion === 'function') {
+            window.recalculateSmartFusion(fusion);
+        }
+        if (typeof window.EKKO_FUSION_CONTROLLER?.refreshFusion === 'function') {
+            window.EKKO_FUSION_CONTROLLER.refreshFusion(fusion);
+        }
+    }
+
     activeNodeItem = null;
+    activeFusionNodeContext = null;
     window.nodeEditMode = false;
     window.nodeEditTarget = null;
     isAddNodeActive = false;
@@ -586,9 +645,10 @@ export function exitNodeEditMode(skipSelect = false) {
 
     safeRecalculateSubtractions();
 
-    if (!skipSelect && finishedItem && typeof window.selectItem === 'function') {
+    const selectionTarget = finishedFusionContext?.selectionItem || finishedItem;
+    if (!skipSelect && selectionTarget && typeof window.selectItem === 'function') {
         setTimeout(() => {
-            window.selectItem(finishedItem);
+            window.selectItem(selectionTarget);
         }, 20);
     }
     paper.view.update();
