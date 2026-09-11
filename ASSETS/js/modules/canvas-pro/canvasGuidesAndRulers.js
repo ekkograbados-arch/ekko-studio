@@ -266,6 +266,22 @@ export function setGuidesVisibility(visible) {
     }
 }
 
+// API pública estable para los botones HTML de la cinta superior.
+export function toggleRulers() {
+    setRulersVisibility(!showRulers);
+    return showRulers;
+}
+
+export function toggleGuides() {
+    setGuidesVisibility(!showGuides);
+    return showGuides;
+}
+
+if (typeof window !== "undefined") {
+    window.toggleRulers = toggleRulers;
+    window.toggleGuides = toggleGuides;
+}
+
 /* =========================================================================
    SISTEMA DE GUÍAS INTELIGENTES (SMART GUIDES & SNAPPING)
 ========================================================================= */
