@@ -124,6 +124,30 @@ export function isValidFusionReceptor(item) {
         (target.className === "Shape" && target.closed !== false);
 }
 
+/**
+ * Public semantic contract for all fusion receptors. The image never decides
+ * the nature of a fusion; the closed vector does.
+ */
+export function getReceiverKind(item) {
+    const target = findFusionVector(item) || getContentItem(item);
+    if (!target || isProductElement(target)) return null;
+    return target.data?.isHole === true || target.data?.isCalado === true
+        ? "hole"
+        : isClosedClientVector(target)
+            ? "solid"
+            : null;
+}
+
+export function isHoleReceiver(item) {
+    return getReceiverKind(item) === "hole";
+}
+
+export function canConvertToCalado(item) {
+    const target = findFusionVector(item) || getContentItem(item);
+    if (!target || isProductElement(target)) return false;
+    return isClosedClientVector(target) && target.data?.isHole !== true && target.data?.isCalado !== true;
+}
+
 function bakeMatrixIntoPath(path, matrix) {
     if (!path || !matrix || matrix.isIdentity()) return;
 
@@ -358,6 +382,9 @@ if (typeof window !== "undefined") {
         findFusionRaster,
         isClosedClientVector,
         isValidFusionReceptor,
+        getReceiverKind,
+        isHoleReceiver,
+        canConvertToCalado,
         cloneAbsolute,
         calculateCoverPlacement,
         registerVirtualHole,
