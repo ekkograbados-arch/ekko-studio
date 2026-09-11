@@ -39,6 +39,9 @@ import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-
 import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
 import { initFusionEditMode } from "./modules/canvas-pro/fusionEditMode.js";
+import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
+import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
+// backgroundRemover.js permanece desactivado hasta que la IA local esté habilitada.
 // import './modules/canvas-pro/backgroundRemover.js';
 // ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
 // PARA REACTIVAR: Quitar las dos barras "//" de arriba
@@ -48,6 +51,95 @@ window.updateContextualMenu = updateContextualMenu;
 window.hideContextualMenu = hideContextualMenu;
 window.initContextualMenu = initContextualMenu;
 window.startTextEditing = startTextEditing;
+window.enterNodeEditMode = enterNodeEditMode;
+window.exitNodeEditMode = exitNodeEditMode;
+
+// ================================================================
+// API COMPATIBLE CON LA CINTA HTML
+// ================================================================
+window.toggleNodeEditMode = function() {
+  if (window.nodeEditMode) {
+    return exitNodeEditMode();
+  }
+  const selected = window.selectedItem ||
+    (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+  if (!selected) {
+    alert("Seleccioná primero un vector para editar sus nodos.");
+    return null;
+  }
+  return enterNodeEditMode(selected);
+};
+
+window.traceRaster = function(item = null) {
+  const selected = item || window.selectedItem ||
+    (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+  const target = getContentItem(selected);
+  if (!target || !(target instanceof paper.Raster)) {
+    alert("Seleccioná primero una imagen para trazarla.");
+    return null;
+  }
+  return openImageTraceModal(target);
+};
+
+window.removeBackground = function() {
+  const api = window.EKKO?.BackgroundRemover;
+  const selected = window.selectedItem ||
+    (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+  const target = getContentItem(selected);
+  if (api?.eliminarFondoInteligente && target instanceof paper.Raster) {
+    return api.eliminarFondoInteligente(target);
+  }
+  // El módulo IA se mantiene desactivado; el botón no debe generar ReferenceError.
+  alert("Quitar Fondo IA todavía no está habilitado en esta versión.");
+  return null;
+};
+
+window.zoomToFit = function() {
+  if (!window.paper?.project || !paper.view) return null;
+  const layer = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
+  const candidates = (layer?.children || []).filter(item => {
+    const d = item.data || {};
+    return item.visible !== false && !d.mockup && !d.isSelectionBox && !d.isSmartGuide &&
+      !d.isHandle && !d.isNodeEditOverlay && !d.isFusionPreview;
+  });
+  const target = candidates.length ? candidates.reduce((acc, item) => acc ? acc.unite(item.bounds) : item.bounds.clone(), null) :
+    (window.currentMockup?.bounds?.clone?.() || null);
+  if (!target || !target.width || !target.height) return null;
+  const padding = 0.86;
+  const zx = paper.view.viewSize.width / target.width * padding;
+  const zy = paper.view.viewSize.height / target.height * padding;
+  paper.view.zoom = Math.max(0.05, Math.min(zx, zy));
+  paper.view.center = target.center;
+  paper.view.update();
+  return { zoom: paper.view.zoom, center: target.center.clone() };
+};
+
+window.toggleOutline = function() {
+  const selected = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
+  if (!selected.length) return null;
+  selected.forEach(item => {
+    const target = getContentItem(item);
+    if (!target) return;
+    if (target.__ekkoOutlineSnapshot) {
+      const snap = target.__ekkoOutlineSnapshot;
+      target.fillColor = snap.fillColor;
+      target.strokeColor = snap.strokeColor;
+      target.strokeWidth = snap.strokeWidth;
+      delete target.__ekkoOutlineSnapshot;
+    } else {
+      target.__ekkoOutlineSnapshot = {
+        fillColor: target.fillColor?.clone?.() || target.fillColor,
+        strokeColor: target.strokeColor?.clone?.() || target.strokeColor,
+        strokeWidth: target.strokeWidth
+      };
+      target.fillColor = null;
+      target.strokeColor = new paper.Color("#334155");
+      target.strokeWidth = Math.max(1 / (paper.view.zoom || 1), 0.5);
+    }
+  });
+  paper.view.update();
+};
 
 // Saneamiento de variables y namespaces globales
 window.EKKO_STUDIO_PRODUCTS = window.EKKO_STUDIO_PRODUCTS || [];
@@ -1258,4 +1350,3 @@ if (document.readyState === "loading") {
 } else {
   bootstrapEKKO();
 }
-
