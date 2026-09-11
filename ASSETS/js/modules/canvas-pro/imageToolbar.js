@@ -151,7 +151,12 @@ export function duplicateImage(item) {
     if (typeof window.deselectItem === 'function') window.deselectItem();
     window.selectedItems = [...duplicatedList];
     window.selectedItem = duplicatedList[duplicatedList.length - 1];
-    duplicatedList.forEach(cl => { cl.selected = true; });
+    duplicatedList.forEach(cl => {
+      if (typeof window.EKKO_FUSION_CONTROLLER?.rekeyFusionClone === 'function') {
+        window.EKKO_FUSION_CONTROLLER.rekeyFusionClone(cl);
+      }
+      cl.selected = true;
+    });
 
     if (typeof window.updateSelectionBox === 'function') {
       window.updateSelectionBox(window.selectedItem);
@@ -185,6 +190,9 @@ export function deleteImage(item) {
 
   itemsToDelete.forEach(it => {
     if (it && !it.data?.locked) {
+      if (typeof window.EKKO_FUSION_CONTROLLER?.removeFusionForItem === 'function') {
+        window.EKKO_FUSION_CONTROLLER.removeFusionForItem(it);
+      }
       it.remove();
     }
   });
