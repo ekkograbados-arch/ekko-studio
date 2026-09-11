@@ -8,6 +8,11 @@ ACCIÓN: REEMPLAZAR (v1.3 — clipGroup seguro y sin wrappers recursivos)
 DEPENDENCIAS: smartFusion.js (applySmartFusion)
 ======================================================================== */
 import { applySmartFusion } from "./smartFusion.js";
+import {
+  beginFusionEdit,
+  commitFusionEdit,
+  getFusionEditTransaction
+} from "./fusionController.js";
 
 const NEON_CYAN = '#00e5ff';
 let editState = null;
@@ -58,6 +63,42 @@ function cleanupStrayEditItems() {
   } catch(e){}
 }
 
+function pointIsInsideInternalEdit(point) {
+  if (!point || !editState) return false;
+  try {
+    if (editState.freeRaster?.contains?.(point)) return true;
+    if (editState.freeRaster?.bounds?.contains?.(point)) return true;
+    if (editState.cyanOutline?.contains?.(point)) return true;
+    if (window.selectionBoxGroup?.bounds?.contains?.(point)) return true;
+  } catch (e) {}
+  return false;
+}
+
+function bindFusionEditKeyboardAndContext() {
+  if (window._fusionEditKeyboardBound) return;
+  window._fusionEditKeyboardBound = true;
+
+  document.addEventListener('keydown', function(event) {
+    if (!window.fusionEditActive || !editState) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      exitFusionEditMode(false);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      exitFusionEditMode(true);
+    }
+  }, true);
+
+  document.addEventListener('contextmenu', function(event) {
+    if (!window.fusionEditActive || !editState) return;
+    event.preventDefault();
+    event.stopPropagation();
+    exitFusionEditMode(true);
+  }, true);
+}
+
 /* ------------------------------------------------------------------------
    ENTRAR al modo edición interna.
 ------------------------------------------------------------------------ */
@@ -93,19 +134,15 @@ export function enterFusionEditMode(fusionItem = null) {
     const rasterChild = fusionGroup.children[1];
     if (!rasterChild || rasterChild.className !== 'Raster') return;
 
-    const mode = fusionGroup.data.fusionMode || 'intersecar';
-    const originalIsHole = !!(fusionGroup.data.originalIsHole);
-    const fusionId = fusionGroup.data.fusionId;
-    const vectorData = fusionGroup.data.originalVectorData;
-    if (!vectorData) return;
+    const transaction = beginFusionEdit(fusionGroup);
+    if (!transaction) return;
 
-    // Quitar temporalmente el hueco virtual (se re-registra al re-fusionar)
-    if (Array.isArray(window._fusionVirtualHoles)) {
-      window._fusionVirtualHoles = window._fusionVirtualHoles.filter(h => {
-        if (h.fusionId === fusionId) { try { h.geom.remove(); } catch(e){} return false; }
-        return true;
-      });
-    }
+    const mode = transaction.mode || fusionGroup.data.fusionMode || 'intersecar';
+    const originalIsHole = transaction.originalIsHole === true;
+    const fusionId = transaction.fusionId || fusionGroup.data.fusionId;
+    const vectorData = transaction.originalVectorData || fusionGroup.data.originalVectorData;
+    const originalRasterData = transaction.originalRasterData || fusionGroup.data.originalRasterData;
+    if (!vectorData || !fusionId) return;
 
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     const zoom = paper.view.zoom || 1.0;
@@ -144,16 +181,17 @@ export function enterFusionEditMode(fusionItem = null) {
     }
 
     editState = {
+      transaction,
       cyanOutline,
       freeRaster: rasterChild,
-      originalRasterData: fusionGroup.data.originalRasterData,
+      originalRasterData,
       mode,
       vectorData,
       originalIsHole,
       fusionId,
-      containmentScope: fusionGroup.data.containmentScope || null,
-      containmentKey: fusionGroup.data.containmentKey || null,
-      ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null
+      containmentScope: transaction.containmentScope || fusionGroup.data.containmentScope || null,
+      containmentKey: transaction.containmentKey || fusionGroup.data.containmentKey || null,
+      ownerContainmentKey: transaction.ownerContainmentKey || fusionGroup.data.ownerContainmentKey || null
     };
     window._fusionEditState = editState;
     window.fusionEditActive = true;
@@ -168,10 +206,14 @@ export function enterFusionEditMode(fusionItem = null) {
       window._fusionEditOutsideBound = true;
       const canvas = document.getElementById('editorCanvas') || (paper.view && paper.view.element);
       if (canvas) {
-        canvas.addEventListener('mousedown', function() {
+        canvas.addEventListener('mousedown', function(event) {
           try {
             if (!window.fusionEditActive || !editState) return;
-            // Si se está arrastrando la imagen o un tirador, no salir
+            // La imagen, sus handles y el contorno siguen dentro de la edición.
+            // Solo un clic real fuera confirma la operación.
+            let point = null;
+            try { point = paper.view.getEventPoint(event); } catch (e) {}
+            if (pointIsInsideInternalEdit(point)) return;
             if (window.dragging || window.resizeActive || window.rotationActive) return;
             setTimeout(() => {
               try {
@@ -179,7 +221,7 @@ export function enterFusionEditMode(fusionItem = null) {
               } catch(e){ console.error("[FUSION EXIT OUTSIDE ERROR]", e); cleanupEditState(); }
             }, 0);
           } catch(e){}
-        });
+        }, true);
       }
     }
   } catch (e) {
@@ -230,11 +272,21 @@ export function exitFusionEditMode(accept = true) {
     if (st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e){} }
 
     if (vectorClone && rasterToUse) {
-      applySmartFusion(vectorClone, rasterToUse, st.mode, {
-        preserveRasterTransform: true
+      const rebuiltFusion = applySmartFusion(vectorClone, rasterToUse, st.mode, {
+        preserveRasterTransform: true,
+        fusionId: st.fusionId,
+        preserveFusionId: true
       });
+      if (rebuiltFusion) {
+        commitFusionEdit(rebuiltFusion, {
+          fusionId: st.fusionId,
+          mode: st.mode,
+          originalIsHole: st.originalIsHole
+        });
+      }
     } else {
       if (vectorClone) try { vectorClone.remove(); } catch(e){}
+      commitFusionEdit(null, { fusionId: st.fusionId });
       if (typeof window.recalculateDynamicSubtractions === 'function') window.recalculateDynamicSubtractions();
     }
     paper.view.update();
@@ -254,7 +306,8 @@ export function initFusionEditMode() {
     window.fusionEditActive = false;
   }
   cleanupStrayEditItems();
-  console.log("%c[EKKO FUSION EDIT MODE v1.3] Edición interna (cian neón) + bloqueo de Snap externo cargado.", "color: #00e5ff; font-weight: bold;");
+  bindFusionEditKeyboardAndContext();
+  console.log("%c[EKKO FUSION EDIT MODE v1.4] Edición interna con aceptación/cancelación transaccional y bloqueo de Snap externo cargado.", "color: #00e5ff; font-weight: bold;");
 }
 
 initFusionEditMode();
