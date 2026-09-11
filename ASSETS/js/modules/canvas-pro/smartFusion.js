@@ -609,7 +609,13 @@ export function recalculateSmartFusion(fusionGroup) {
    DISOLVER FUSIÓN — FIX: no re-asigna .position (clones absolutos) y
    preserva isHole original. Quita el hueco virtual si existía.
 ------------------------------------------------------------------------ */
-export function releaseSmartFusion(item) {
+export function releaseSmartFusion(item = null) {
+  if (!item) {
+    const selectedItems = Array.isArray(window.selectedItems) ? window.selectedItems.filter(Boolean) : [];
+    item = selectedItems.length > 1
+      ? selectedItems
+      : (window.selectedItem || selectedItems[0] || null);
+  }
   if (!item) return null;
   let targetItem = item;
   if (Array.isArray(item)) {
