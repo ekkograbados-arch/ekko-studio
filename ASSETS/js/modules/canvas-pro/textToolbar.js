@@ -354,7 +354,7 @@ export function applyTextSpacing(item, hspace) {
 }
 
 export function weldText(item) {
-    if (!item || item.data?.locked) return;
+    if (!item || item.data?.locked) return null;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
     let target = item;
@@ -362,38 +362,64 @@ export function weldText(item) {
         target = item.children.find(c => !c.clipMask);
     }
 
-    if (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-        const pathGroup = target.clone();
-        const converted = pathGroup.createShape ? pathGroup.toPath() : pathGroup;
-        if (converted.children && converted.children.length > 0) {
-            let resultPath = converted.children[0].clone();
-            for (let i = 1; i < converted.children.length; i++) {
-                const child = converted.children[i];
-                const union = resultPath.unite(child);
-                if (union) {
-                    resultPath.remove();
-                    resultPath = union;
-                }
-            }
-            resultPath.fillColor = target.fillColor || new paper.Color(0);
-            resultPath.strokeColor = null;
-            resultPath.data = { ...target.data, locked: false, label: "Texto Unido (Weld)" };
+    if (!(target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup)) {
+        return null;
+    }
 
-            const parent = target.parent;
-            if (parent) {
-                const index = parent.children.indexOf(target);
-                parent.insertChild(index, resultPath);
-            }
-            target.remove();
-            converted.remove();
+    const pathGroup = target.clone({ insert: false });
+    const converted = pathGroup.createShape ? pathGroup.toPath() : pathGroup;
+    const parts = converted?.children?.length ? Array.from(converted.children) : [converted];
+    const usable = parts.filter(Boolean);
+    if (!usable.length) {
+        try { pathGroup.remove(); } catch (e) {}
+        return null;
+    }
 
-            if (window.selectedItem === item) {
-                window.selectedItem = resultPath;
-                window.updateSelectionBox(resultPath);
-            }
+    let resultPath = usable[0].clone({ insert: false });
+    for (let i = 1; i < usable.length; i++) {
+        const union = resultPath.unite(usable[i]);
+        if (union) {
+            resultPath.remove();
+            resultPath = union;
         }
     }
+    resultPath.fillColor = target.fillColor || new paper.Color(0);
+    resultPath.strokeColor = null;
+    resultPath.strokeWidth = 0;
+    resultPath.data = {
+        ...(target.data || {}),
+        locked: false,
+        label: "Texto Vectorial",
+        isTextVector: true,
+        isSolidShape: true,
+        isFusionReceptor: true,
+        userImported: true,
+        source: "text-vector"
+    };
+    resultPath.data.geomBase = resultPath.clone({ insert: false });
+
+    const parent = target.parent;
+    if (parent) {
+        const index = parent.children.indexOf(target);
+        parent.insertChild(index, resultPath);
+    }
+    target.remove();
+    try { converted.remove(); } catch (e) {}
+    try { pathGroup.remove(); } catch (e) {}
+
+    if (window.selectedItem === item || window.selectedItem === target) {
+        window.selectedItem = resultPath;
+        window.selectedItems = [resultPath];
+        window.updateSelectionBox(resultPath);
+    }
     paper.view.update();
+    return resultPath;
+}
+
+export function convertTextToVector(item = null) {
+    const selected = item || window.selectedItem ||
+        (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+    return weldText(selected);
 }
 
 export function toggleBold(item) {
