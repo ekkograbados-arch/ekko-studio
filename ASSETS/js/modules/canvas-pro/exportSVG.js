@@ -267,7 +267,9 @@ export function prepareSVGForExport(options = {}) {
     const holesToRemove = [];
     tempLayer.getItems({
         match: function(item) {
-            return item.data && (item.data.isHole === true || item.data.isHoleController === true);
+            return item.data &&
+                (item.data.isHole === true || item.data.isHoleController === true) &&
+                item.data.isFusionMask !== true;
         }
     }).forEach(hole => holesToRemove.push(hole));
 
