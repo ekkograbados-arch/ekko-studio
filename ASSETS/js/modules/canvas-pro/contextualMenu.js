@@ -275,7 +275,8 @@ function injectFontFaces(fonts) {
     }
     let css = "";
     fonts.forEach(font => {
-        css += `@font-face { font-family: "${font.family}"; src: url("${font.file}") format("woff2"); font-display: swap; }\n`;
+        const fontPath = `/ASSETS/fonts/${encodeURIComponent(font.file)}`;
+        css += `@font-face { font-family: "${font.family}"; src: url("${fontPath}") format("woff2"); font-display: swap; }\n`;
     });
     styleEl.textContent = css;
 }
