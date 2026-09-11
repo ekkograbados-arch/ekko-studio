@@ -97,11 +97,17 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="unfusion" class="btn-action" onclick="releaseSmartFusion()">
                     <i class="fas fa-unlink"></i> Quitar Fusión
                 </button>
+                <button id="proBtnCalado" data-fusion-btn="calado" class="btn-action" onclick="convertSelectionToCalado()" title="Convertir vector en calado">
+                    <i class="fas fa-object-ungroup" style="color:#334155;"></i> Calado
+                </button>
                 <button data-fusion-btn="ungroup" class="btn-action" onclick="ungroupSelectedItem()">
                     <i class="fas fa-object-ungroup"></i> Desagrupar
                 </button>
                 <button data-fusion-btn="editNodes" class="btn-action" onclick="toggleNodeEditMode()">
                     <i class="fas fa-bezier-curve"></i> Editar Nodos
+                </button>
+                <button id="proBtnTextToVector" data-fusion-btn="textToVector" class="btn-action" onclick="convertTextToVector()" title="Convertir texto a vector">
+                    <i class="fas fa-font"></i> Texto a Vector
                 </button>
             </div>
 
@@ -179,8 +185,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <div class="toolbar-group">
                     <button data-fusion-btn="fusion" class="toolbar-btn" onclick="performSmartFusion()" title="Fusionar imagen dentro de silueta"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
                     <button data-fusion-btn="unfusion" class="toolbar-btn" onclick="releaseSmartFusion(window.selectedItem)" title="Quitar Fusión"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+                    <button data-fusion-btn="calado" class="toolbar-btn" onclick="convertSelectionToCalado()" title="Convertir vector en calado"><i class="fas fa-object-ungroup" style="color:#334155;"></i> Calado</button>
                     <button data-fusion-btn="ungroup" class="toolbar-btn" onclick="ungroupSelectedItem()" title="Desagrupar"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
                     <button data-fusion-btn="editNodes" class="toolbar-btn" onclick="toggleNodeEditMode()" title="Editar Nodos"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
+                    <button data-fusion-btn="textToVector" class="toolbar-btn" onclick="convertTextToVector()" title="Convertir texto a vector"><i class="fas fa-font"></i> Texto a Vector</button>
                 </div>
                 <div class="toolbar-divider"></div>
                 <!-- IMAGEN / TRAZADO -->
