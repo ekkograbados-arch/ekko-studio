@@ -46,15 +46,52 @@ function getVectorTarget(item) {
     return { fusion: null, vector: target };
 }
 
+function ensureMockupContainment(target) {
+    if (!target || !target.parent || target.parent.data?.clipGroup) return target;
+    if (!window.currentMockup || !window.clipMask || typeof window.clipItem !== "function") return target;
+
+    const parent = target.parent;
+    const index = parent.children.indexOf(target);
+    let wrapped = target;
+    const previousInfiniteMode = window.infiniteCanvasMode;
+    try {
+        // Calado pertenece al área del mockup aunque el modo de lienzo
+        // infinito esté activo para otros objetos.
+        window.infiniteCanvasMode = false;
+        wrapped = window.clipItem(target) || target;
+    } finally {
+        window.infiniteCanvasMode = previousInfiniteMode;
+    }
+
+    if (wrapped !== target) {
+        wrapped.data = {
+            ...(wrapped.data || {}),
+            clipGroup: true,
+            caladoContainment: true,
+            label: "Calado"
+        };
+        parent.insertChild(Math.max(0, index), wrapped);
+        return wrapped;
+    }
+    return target;
+}
+
 function markHole(target) {
-    if (!target) return;
+    if (!target) return null;
+    const previousFill = target.data?.originalFillColor?.clone?.() || target.fillColor?.clone?.();
+    const previousStroke = target.data?.originalStrokeColor?.clone?.() || target.strokeColor?.clone?.();
+    const previousStrokeWidth = target.data?.originalStrokeWidth || target.strokeWidth || 0;
+
     target.data = {
         ...(target.data || {}),
         isHole: true,
         isCalado: true,
         isFusionReceptor: true,
         isSolidShape: false,
-        label: "Calado"
+        label: "Calado",
+        originalFillColor: previousFill || new paper.Color("#64748b"),
+        originalStrokeColor: previousStroke || new paper.Color("#334155"),
+        originalStrokeWidth: previousStrokeWidth || (1 / (paper.view.zoom || 1))
     };
     if (!target.data.geomBase) {
         const base = cloneAbsolute(target);
@@ -64,9 +101,14 @@ function markHole(target) {
             try { base.remove(); } catch (e) {}
         }
     }
-    target.fillColor = new paper.Color(0, 0, 0, 0.0001);
-    target.strokeColor = null;
-    target.strokeWidth = 0;
+
+    // Un calado sigue siendo visible, seleccionable y editable. La semántica
+    // isHole controla el CSG; no se vuelve transparente ni pierde contorno.
+    target.fillColor = previousFill || new paper.Color("#64748b");
+    target.strokeColor = previousStroke || new paper.Color("#334155");
+    target.strokeWidth = previousStrokeWidth || (1 / (paper.view.zoom || 1));
+    target.opacity = 1;
+    return ensureMockupContainment(target);
 }
 
 function markFusionHole(fusion) {
@@ -130,13 +172,13 @@ export function convertSelectionToCalado(item = null) {
     const vector = resolved.vector;
     if (!vector || isProductElement(vector) || !canConvertToCalado(vector)) return null;
     if (typeof window.saveHistory === "function") window.saveHistory();
-    markHole(vector);
+    const finalItem = markHole(vector) || vector;
     if (typeof window.recalculateDynamicSubtractions === "function") {
         window.recalculateDynamicSubtractions();
     }
-    if (typeof window.selectItem === "function") window.selectItem(targets[0]);
+    if (typeof window.selectItem === "function") window.selectItem(finalItem);
     paper.view.update();
-    return vector;
+    return finalItem;
 }
 
 if (typeof window !== "undefined") {
