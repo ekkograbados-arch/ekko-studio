@@ -191,6 +191,27 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
 // --- PREVISUALIZACIÓN DE VECTORES EN TIEMPO REAL ---
 let tracePreviewGroup = null;
 
+function ensureMockupContainment(item) {
+  if (!item || !window.currentMockup || !window.clipMask || typeof window.clipItem !== 'function') return item;
+  if (item.parent?.data?.clipGroup) return item;
+
+  const parent = item.parent;
+  const index = parent?.children ? parent.children.indexOf(item) : -1;
+  const previousInfiniteMode = window.infiniteCanvasMode;
+  let wrapped = item;
+  try {
+    window.infiniteCanvasMode = false;
+    wrapped = window.clipItem(item) || item;
+  } finally {
+    window.infiniteCanvasMode = previousInfiniteMode;
+  }
+  if (wrapped !== item && parent?.insertChild) {
+    wrapped.data = { ...(wrapped.data || {}), clipGroup: true, mockupContainment: true };
+    parent.insertChild(Math.max(0, index), wrapped);
+  }
+  return wrapped;
+}
+
 export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false) {
   if (tracePreviewGroup) {
     tracePreviewGroup.remove();
@@ -763,17 +784,22 @@ export function openImageTraceModal(raster) {
       finalVectorGroup.fillColor = new paper.Color('#111827');
       finalVectorGroup.strokeColor = null;
       finalVectorGroup.strokeWidth = 0;
-      paper.project.activeLayer.addChild(finalVectorGroup);
       finalVectorGroup.data.geomBase = finalVectorGroup.clone({ insert: false });
+      const deliveredVector = ensureMockupContainment(finalVectorGroup);
+      paper.project.activeLayer.addChild(deliveredVector);
+      deliveredVector.data = {
+        ...(deliveredVector.data || {}),
+        mockupContainment: deliveredVector !== finalVectorGroup || !!window.currentMockup
+      };
 
       if (window.currentMockup) {
-        finalVectorGroup.insertBelow(window.currentMockup);
+        deliveredVector.insertBelow(window.currentMockup);
       }
 
       // Trazar Imagen es siempre no destructivo. La imagen original queda
       // en el proyecto, con su identidad y transformación intactas.
       raster.opacity = originalOpacity;
-      window.selectItem(finalVectorGroup);
+      window.selectItem(deliveredVector);
       paper.view.update();
     }
     closeModal();
