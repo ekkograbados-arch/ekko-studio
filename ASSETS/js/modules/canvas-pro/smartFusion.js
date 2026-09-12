@@ -61,6 +61,46 @@ function cleanEmptyClipGroup(parent) {
   }
 }
 
+// Fusiones y restauraciones deben permanecer dentro del mockup aunque el
+// lienzo infinito esté activo para otros objetos. Se fuerza solo el wrapper
+// de diseño; nunca se mueve ni modifica la máscara del producto.
+function ensureMockupContainment(item) {
+  if (!item || !window.currentMockup || !window.clipMask || typeof window.clipItem !== 'function') return item;
+  if (item.parent?.data?.clipGroup) return item;
+
+  const parent = item.parent;
+  const index = parent?.children ? parent.children.indexOf(item) : -1;
+  const previousInfiniteMode = window.infiniteCanvasMode;
+  let wrapped = item;
+  try {
+    window.infiniteCanvasMode = false;
+    wrapped = window.clipItem(item) || item;
+  } finally {
+    window.infiniteCanvasMode = previousInfiniteMode;
+  }
+
+  if (wrapped !== item && parent?.insertChild) {
+    wrapped.data = { ...(wrapped.data || {}), clipGroup: true, mockupContainment: true };
+    parent.insertChild(Math.max(0, index), wrapped);
+  }
+  return wrapped;
+}
+
+function applyVisibleHoleStyle(item, source = null) {
+  if (!item) return;
+  const sourceData = source?.data || {};
+  const data = item.data || {};
+  const fill = sourceData.originalFillColor?.clone?.() || source?.fillColor?.clone?.() ||
+    data.originalFillColor?.clone?.() || item.fillColor?.clone?.() || new paper.Color('#64748b');
+  const stroke = sourceData.originalStrokeColor?.clone?.() || source?.strokeColor?.clone?.() ||
+    data.originalStrokeColor?.clone?.() || item.strokeColor?.clone?.() || new paper.Color('#334155');
+  item.fillColor = fill.alpha > 0 ? fill : new paper.Color('#64748b');
+  item.strokeColor = stroke;
+  item.strokeWidth = sourceData.originalStrokeWidth || data.originalStrokeWidth ||
+    item.strokeWidth || (1 / (paper.view.zoom || 1));
+  item.opacity = 1;
+}
+
 function isMockupOrProductElement(item) {
   return isProductElement(item);
 }
@@ -381,10 +421,7 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   absoluteVector.remove();
   absoluteRaster.remove();
 
-  let finalItem = fusionGroup;
-  if (typeof window.clipItem === 'function' && !window.infiniteCanvasMode && window.clipMask) {
-    finalItem = window.clipItem(fusionGroup);
-  }
+  let finalItem = ensureMockupContainment(fusionGroup);
   if (finalItem !== fusionGroup) {
     // clipItem puede envolver la fusión en otro grupo. La metadata pública
     // debe vivir también en el elemento que queda seleccionado y que leen
@@ -680,20 +717,16 @@ export function releaseSmartFusion(item = null) {
     label: originalIsHole ? "Trazado Calado" : "Trazado Vectorial"
   };
   if (originalIsHole) {
-    restoredVector.fillColor = new paper.Color(0, 0, 0, 0.0001);
-    restoredVector.strokeColor = null;
-    restoredVector.strokeWidth = 0;
+    // Un calado restaurado conserva una representación visible; isHole solo
+    // controla la semántica CSG y no debe ocultar el objeto en el editor.
+    applyVisibleHoleStyle(restoredVector, fusionGroup.data.originalVectorData);
   }
   restoredRaster.data = { label: "Imagen" };
 
-  let finalVector = restoredVector, finalRaster = restoredRaster;
-  if (typeof window.clipItem === 'function' && !window.infiniteCanvasMode && window.clipMask) {
-    finalVector = window.clipItem(restoredVector);
-    finalRaster = window.clipItem(restoredRaster);
-  } else {
-    paper.project.activeLayer.addChild(finalVector);
-    paper.project.activeLayer.addChild(finalRaster);
-  }
+  let finalVector = ensureMockupContainment(restoredVector);
+  let finalRaster = ensureMockupContainment(restoredRaster);
+  if (finalVector.parent === null) paper.project.activeLayer.addChild(finalVector);
+  if (finalRaster.parent === null) paper.project.activeLayer.addChild(finalRaster);
   if (window.currentMockup) {
     finalVector.insertBelow(window.currentMockup);
     finalRaster.insertBelow(window.currentMockup);
