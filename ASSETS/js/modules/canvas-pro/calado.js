@@ -9,6 +9,8 @@ import {
     isProductElement,
     canConvertToCalado,
     getContentItem,
+    findFusionVector,
+    isClosedClientVector,
     cloneAbsolute,
     updateFusionRecord
 } from "./fusionCore.js";
@@ -42,8 +44,10 @@ function findFusionGroup(item) {
 function getVectorTarget(item) {
     const fusion = findFusionGroup(item);
     if (fusion) return { fusion, vector: fusion.data?.originalVectorData || null };
-    const target = getContentItem(item);
-    return { fusion: null, vector: target };
+    const content = getContentItem(item);
+    const vector = findFusionVector(content) ||
+        (isClosedClientVector(content) ? content : null);
+    return { fusion: null, vector };
 }
 
 function ensureMockupContainment(target) {
