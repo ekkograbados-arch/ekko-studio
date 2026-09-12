@@ -1,4 +1,4 @@
-import { isProductElement, isValidFusionReceptor, findFusionVector, findFusionRaster } from "./fusionCore.js";
+import { isProductElement, isValidFusionReceptor, isClosedClientVector, findFusionVector, findFusionRaster } from "./fusionCore.js";
 import { canConvertSelectionToCalado } from "./calado.js";
 
 /* =========================================================================
@@ -101,6 +101,19 @@ function classifySelection() {
     const singleTarget = selected.length === 1 ? unwrap(selected[0]) : null;
     if (singleTarget) {
         try { canCalado = canConvertSelectionToCalado(singleTarget); } catch (e) { canCalado = false; }
+        // Fallback defensivo para CompoundPath dentro de clipGroup. El botón
+        // debe aparecer para un sólido público, aunque el wrapper no se haya
+        // resuelto todavía por la ruta principal de Calado.
+        if (!canCalado) {
+            try {
+                const candidate = findFusionVector(singleTarget) || singleTarget;
+                canCalado = !!candidate &&
+                    !isProductElement(candidate) &&
+                    isClosedClientVector(candidate) &&
+                    candidate.data?.isHole !== true &&
+                    candidate.data?.isCalado !== true;
+            } catch (e) { canCalado = false; }
+        }
     }
 
     if (selected.length === 2) {
