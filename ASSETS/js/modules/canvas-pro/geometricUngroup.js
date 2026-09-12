@@ -259,6 +259,17 @@ function getContentItem(item) {
     return item;
 }
 
+function applyHoleVisualStyle(item, fallbackFill = "#64748b") {
+    if (!item) return;
+    const data = item.data || {};
+    const fill = data.originalFillColor?.clone?.() || item.fillColor?.clone?.() || new paper.Color(fallbackFill);
+    const stroke = data.originalStrokeColor?.clone?.() || item.strokeColor?.clone?.() || new paper.Color("#334155");
+    item.fillColor = fill.alpha > 0 ? fill : new paper.Color(fallbackFill);
+    item.strokeColor = stroke;
+    item.strokeWidth = data.originalStrokeWidth || item.strokeWidth || (1 / (paper.view.zoom || 1));
+    item.opacity = 1;
+}
+
 function extractSubtractiveItems(topList) {
     const result = [];
     function collectRecursive(item) {
@@ -338,9 +349,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             item.visible = true;
         } else if (item && item.data && item.data.isHole) {
             item.visible = true;
-            item.fillColor = new paper.Color(0, 0, 0, 0.0001);
-            item.strokeColor = null;
-            item.strokeWidth = 0;
+            // El CSG usa isHole como semántica; el objeto sigue siendo visible,
+            // seleccionable y con contorno dentro del editor.
+            applyHoleVisualStyle(item);
         }
     });
 
@@ -545,9 +556,10 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         };
 
         if (singleIsHole) {
-            compound.fillColor = new paper.Color(0, 0, 0, 0.0001);
-            compound.strokeColor = null;
-            compound.strokeWidth = 0;
+            compound.data.originalFillColor = single.data?.originalFillColor?.clone?.() || rootTarget.data?.originalFillColor?.clone?.() || null;
+            compound.data.originalStrokeColor = single.data?.originalStrokeColor?.clone?.() || rootTarget.data?.originalStrokeColor?.clone?.() || null;
+            compound.data.originalStrokeWidth = single.data?.originalStrokeWidth || rootTarget.data?.originalStrokeWidth || 0;
+            applyHoleVisualStyle(compound);
         } else {
             compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
             compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
@@ -635,9 +647,10 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         };
 
         if (isHole) {
-            compoundItem.fillColor = new paper.Color(0, 0, 0, 0.0001);
-            compoundItem.strokeColor = null;
-            compoundItem.strokeWidth = 0;
+            compoundItem.data.originalFillColor = node.path.data?.originalFillColor?.clone?.() || null;
+            compoundItem.data.originalStrokeColor = node.path.data?.originalStrokeColor?.clone?.() || null;
+            compoundItem.data.originalStrokeWidth = node.path.data?.originalStrokeWidth || 0;
+            applyHoleVisualStyle(compoundItem);
         } else {
             compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
             compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
