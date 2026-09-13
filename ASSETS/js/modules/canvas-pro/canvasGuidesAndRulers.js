@@ -444,36 +444,11 @@ export function calculateSmartGuides(draggedItem, event) {
 
 // Hook de integración automática en la herramienta de selección de Paper.js
 export function installSmartGuidesHook() {
-    if (!window.paper || !paper.tools || paper.tools.length === 0) {
-        setTimeout(installSmartGuidesHook, 100);
-        return;
-    }
-
-    // Buscar la herramienta de selección principal que tiene los eventos onMouseDrag
-    const selectTool = paper.tools.find(t => t.onMouseDrag && !t.data?.hooked);
-    if (!selectTool) return;
-
-    const originalOnMouseDrag = selectTool.onMouseDrag;
-    const originalOnMouseUp = selectTool.onMouseUp;
-
-    selectTool.onMouseDrag = function(event) {
-        // Ejecutar primero el arrastre clásico del elemento
-        originalOnMouseDrag.call(this, event);
-
-        // Si estamos arrastrando el objeto seleccionado, calcular guías e imantación
-        if (window.dragging && window.selectedItem && !window.selectedItem.data?.locked) {
-            calculateSmartGuides(window.selectedItem, event);
-        }
-    };
-
-    selectTool.onMouseUp = function(event) {
-        originalOnMouseUp.call(this, event);
-        clearSmartGuides();
-    };
-
-    selectTool.data = selectTool.data || {};
-    selectTool.data.hooked = true;
-    console.log("🚀 Guías inteligentes integradas con éxito en el flujo de arrastre de Paper.js.");
+    // Selection.js owns the Paper.js tool callbacks. This module deliberately
+    // does not monkey-patch onMouseDrag/onMouseUp; selection invokes
+    // calculateSmartGuides once per transform transaction.
+    window._ekkoSmartGuidesHook = { mode: "observer-free", owner: "selection.js", installedAt: Date.now() };
+    return true;
 }
 
 // Iniciar automáticamente las guías y reglas
