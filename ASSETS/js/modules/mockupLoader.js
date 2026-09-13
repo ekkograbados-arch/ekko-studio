@@ -411,4 +411,3 @@ window.clipItem = function(item) {
   }
   return createMockupContainmentGroup(item);
 };
-
