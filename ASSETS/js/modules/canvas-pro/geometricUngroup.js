@@ -248,6 +248,32 @@ export function getGlobalUnsubtractedPath(item) {
     return tempBase;
 }
 
+// CSG geometry is kept in project coordinates, but a detached SVG hole must
+// never subtract or render outside the active product boundary. The original
+// hole item is not modified; only the temporary boolean operand is confined.
+function confineSubtractiveGeometry(geometry) {
+    if (!geometry || !window.clipMask || window.infiniteCanvasMode) return geometry;
+    let boundary = null;
+    try {
+        boundary = window.clipMask.clone({ insert: false });
+        const confined = geometry.intersect(boundary, { insert: false });
+        if (confined && Math.abs(confined.area || 0) > 0.001) {
+            geometry.remove();
+            return confined;
+        }
+        // No intersection means this operand is entirely outside the product;
+        // it must not participate in CSG at all.
+        geometry.remove();
+        return null;
+    } catch (e) {
+        // If Paper.js cannot boolean-intersect this boundary, clipItem still
+        // provides the final visual containment; never destroy the operand.
+    } finally {
+        try { boundary?.remove?.(); } catch (e) {}
+    }
+    return geometry;
+}
+
 function getContentItem(item) {
     if (!item) return null;
     if (item.data && item.data.clipGroup) {
@@ -374,7 +400,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 holeItem.data.ownerContainmentKey !== solid.data.containmentKey) {
                 continue;
             }
-            const holeBase = getGlobalUnsubtractedPath(holeItem);
+            let holeBase = getGlobalUnsubtractedPath(holeItem);
+            if (!holeBase) continue;
+            holeBase = confineSubtractiveGeometry(holeBase);
             if (!holeBase) continue;
             if (pristineBounds.intersects(holeBase.bounds)) {
                 intersectingHoles.push(holeBase);
@@ -389,7 +417,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (!vh || !vh.geom) return;
                 if (!solid.data.containmentKey ||
                     vh.ownerContainmentKey !== solid.data.containmentKey) return;
-                const vhClone = vh.geom.clone({ insert: false });
+                let vhClone = vh.geom.clone({ insert: false });
+                vhClone = confineSubtractiveGeometry(vhClone);
+                if (!vhClone) return;
                 if (pristineBounds.intersects(vhClone.bounds)) {
                     intersectingHoles.push(vhClone);
                 } else {
