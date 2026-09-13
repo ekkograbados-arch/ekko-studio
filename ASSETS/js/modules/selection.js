@@ -153,19 +153,52 @@ function getContentItem(item) {
   return item;
 }
 
-// Transform target is the public fusion container when the selected object is
-// a fusion child; otherwise it is the normal editable content item. This
-// prevents dragging the raster child alone when the user selected a fusion.
+// Resuelve el propietario público que realmente debe trasladarse. Un
+// clipGroup de mockup solo posee la máscara estática; su hijo de contenido es
+// el target. Una fusión, en cambio, es una unidad y se mueve completa.
 function getTransformTarget(item) {
   if (!item) return null;
-  if (item.data?.isSmartFusion) return item;
+  if (item.data?.isSmartFusion && !item.data?.clipGroup) return item;
   if (typeof window.findSmartFusionContainer === 'function') {
     try {
       const fusion = window.findSmartFusionContainer(item);
-      if (fusion) return fusion;
+      if (fusion && !fusion.data?.clipGroup) return fusion;
     } catch (e) {}
   }
+
+  let current = item;
+  while (current && current !== paper.project) {
+    if (current.data?.clipGroup) {
+      const content = getContentItem(current);
+      return content && content !== current ? content : null;
+    }
+    // Si el clic ya resolvió el contenido real dentro de un wrapper, no
+    // elevamos el target al wrapper: la máscara debe permanecer inmóvil.
+    if (current.parent?.data?.clipGroup && current.parent.data.mockupContainment) {
+      return current;
+    }
+    current = current.parent;
+  }
   return getContentItem(item);
+}
+
+function buildDragTargets(items, startPoint) {
+  const targets = [];
+  const seen = new Set();
+  (Array.isArray(items) ? items : []).forEach(item => {
+    const target = getTransformTarget(item);
+    if (!target || !target.project || !target.parent || target.clipMask) return;
+    const key = target.id ?? target;
+    if (seen.has(key)) return;
+    seen.add(key);
+    targets.push({
+      item,
+      target,
+      initialGlobalPoint: startPoint?.clone?.() || startPoint,
+      initialGlobalMatrix: target.globalMatrix?.clone?.() || null
+    });
+  });
+  return targets;
 }
 
 /**
@@ -173,27 +206,36 @@ function getTransformTarget(item) {
  * contenidos en un elemento, grupo de capas o subgrupos anidados.
  */
 function translateItemByGlobalDelta(item, delta) {
-  if (!item || !delta || (Math.abs(delta.x) < 1e-9 && Math.abs(delta.y) < 1e-9)) return;
-  const parent = item.parent;
+  if (!item || !delta || (Math.abs(delta.x) < 1e-9 && Math.abs(delta.y) < 1e-9)) return false;
   try {
-    // Paper.js stores position in the parent coordinate system. Convert the
-    // same project-space delta independently for every parent so wrappers,
-    // nested fusions and multi-selection never accumulate a scaled offset.
+    const parent = item.parent;
+    let localDelta = delta.clone ? delta.clone() : new paper.Point(delta.x, delta.y);
     if (parent && typeof parent.globalToLocal === "function") {
+      // event.delta is project/global space. Convert the same vector
+      // independently for each parent; never reuse a target's local delta.
       const originGlobal = typeof item.localToGlobal === "function"
         ? item.localToGlobal(new paper.Point(0, 0))
-        : item.position.clone();
+        : (item.position?.clone?.() || new paper.Point(0, 0));
       const localOrigin = parent.globalToLocal(originGlobal);
       const localMoved = parent.globalToLocal(originGlobal.add(delta));
-      item.translate(localMoved.subtract(localOrigin));
-    } else if (typeof item.translate === "function") {
-      item.translate(delta);
-    } else if (item.position) {
-      item.position = item.position.add(delta);
+      localDelta = localMoved.subtract(localOrigin);
     }
+    if (typeof item.translate === "function") item.translate(localDelta);
+    else if (item.position) item.position = item.position.add(localDelta);
+    return true;
   } catch (e) {
-    if (item.position) item.position = item.position.add(delta);
+    try {
+      if (typeof item.translate === "function") {
+        item.translate(delta);
+        return true;
+      }
+      if (item.position) {
+        item.position = item.position.add(delta);
+        return true;
+      }
+    } catch (ignored) {}
   }
+  return false;
 }
 
 /** Keep detached geometry bases in project coordinates. Attached bases already
@@ -1049,12 +1091,23 @@ const _initSelectionTool = function() {
       window._mouseDragOccurred = false;
       window._pendingIsolateItem = null;
 
+      // El hit-test puede devolver el contenido real dentro de un clipGroup,
+      // mientras que la multiselección por marquee contiene sus wrappers. La
+      // pertenencia se compara por propietario de transformación, no por
+      // identidad superficial del wrapper.
+      const directTarget = getTransformTarget(directHitItem);
+      const selectedOwnerIndex = (window.selectedItems || []).findIndex(selected => {
+        if (!selected) return false;
+        if (selected === directHitItem) return true;
+        const selectedTarget = getTransformTarget(selected);
+        return !!directTarget && !!selectedTarget && selectedTarget === directTarget;
+      });
+
       if (isShift) {
         // Modo multiselección con Shift
-        const idx = window.selectedItems.indexOf(directHitItem);
-        if (idx > -1) {
-          directHitItem.selected = false;
-          window.selectedItems.splice(idx, 1);
+        if (selectedOwnerIndex > -1) {
+          clearFusionSelection(window.selectedItems[selectedOwnerIndex]);
+          window.selectedItems.splice(selectedOwnerIndex, 1);
         } else {
           directHitItem.selected = true;
           window.selectedItems.push(directHitItem);
@@ -1064,16 +1117,15 @@ const _initSelectionTool = function() {
           window.deselectItem();
         }
       } else {
-        // Clic simple sin Shift:
-        // Si el elemento clickeado YA forma parte de una selección múltiple existente (ej. 272 capas de Minnie),
-        // PRESERVAMOS la selección completa para permitir el arrastre en bloque del conjunto.
-        // Si el usuario solo hace clic sin arrastrar, se aislará en onMouseUp.
-        if (window.selectedItems && window.selectedItems.includes(directHitItem)) {
+        // Clic simple sin Shift. Si el propietario ya forma parte de una
+        // selección múltiple (aunque el hit sea su hijo), preservamos el
+        // conjunto completo para que el arrastre mueva todas las piezas.
+        if (selectedOwnerIndex > -1) {
           if (window.selectedItems.length > 1) {
             window._pendingIsolateItem = directHitItem;
           }
         } else {
-          // El elemento no estaba seleccionado: limpiamos la selección previa y seleccionamos solo este
+          // El elemento no estaba seleccionado: limpiamos la selección previa y seleccionamos solo este.
           window.selectedItems.forEach(it => { if (it) clearFusionSelection(it); });
           directHitItem.selected = true;
           window.selectedItem = directHitItem;
@@ -1084,17 +1136,8 @@ const _initSelectionTool = function() {
       // Iniciar arrastre del conjunto completo actualmente seleccionado
       window.dragging = true;
       window._dragStartPoint = event.point.clone();
-      window.dragTargets = [];
-      window.selectedItems.forEach(function(item) {
-        const dragTarget = getTransformTarget(item);
-        if (dragTarget && !window.dragTargets.some(entry => entry.target === dragTarget)) {
-          window.dragTargets.push({
-            item: item,
-            target: dragTarget,
-            initialGlobalPoint: event.point.clone()
-          });
-        }
-      });
+      window.dragTargets = buildDragTargets(window.selectedItems, event.point);
+      window._ekkoLastDragTargetIds = window.dragTargets.map(entry => entry.target.id);
 
       window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') {
@@ -1110,13 +1153,8 @@ const _initSelectionTool = function() {
       if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
         window.dragging = true;
         window._dragStartPoint = event.point.clone();
-        window.dragTargets = [];
-        window.selectedItems.forEach(function(item) {
-          const dragTarget = getTransformTarget(item);
-          if (dragTarget && !window.dragTargets.some(entry => entry.target === dragTarget)) {
-            window.dragTargets.push({ item: item, target: dragTarget, initialGlobalPoint: event.point.clone() });
-          }
-        });
+        window.dragTargets = buildDragTargets(window.selectedItems, event.point);
+        window._ekkoLastDragTargetIds = window.dragTargets.map(entry => entry.target.id);
         return;
       }
     }
@@ -1287,9 +1325,10 @@ const _initSelectionTool = function() {
       // event.delta is one project-space delta shared by every selected item.
       // Never derive a new absolute position from each target's local position.
       const commonDelta = event.delta ? event.delta.clone() : event.point.subtract(window._dragStartPoint || event.point);
+      let movedCount = 0;
       window.dragTargets.forEach(function(dragInfo) {
         if (dragInfo.item?.data?.locked || dragInfo.target?.data?.locked) return;
-        translateItemByGlobalDelta(dragInfo.target, commonDelta);
+        if (translateItemByGlobalDelta(dragInfo.target, commonDelta)) movedCount++;
         syncGeomBaseDeep(dragInfo.target, commonDelta);
 
         // La máscara actual es la fuente de verdad de una fusión.
@@ -1297,6 +1336,8 @@ const _initSelectionTool = function() {
           refreshFusion(dragInfo.target || dragInfo.item);
         }
       });
+      window._ekkoLastDragMovedCount = movedCount;
+      window._ekkoLastDragCommonDelta = { x: commonDelta.x, y: commonDelta.y };
 
       // Una fusión debe moverse como una unidad visual autónoma. No se debe
       // volver a perforar su contenido con huecos hermanos mientras el cliente
