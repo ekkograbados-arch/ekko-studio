@@ -305,6 +305,7 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     console.error("[MOCKUP_LOCK]: Intento de usar plantilla/máscara de producto como imagen. Cancelado.");
     return null;
   }
+  if (typeof window.beginHistoryTransaction === 'function') window.beginHistoryTransaction("fusion");
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const originalIsHole = !!(vector.data && vector.data.isHole);
@@ -459,6 +460,7 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     }
   } catch(e){}
 
+  if (typeof window.commitHistoryTransaction === 'function') window.commitHistoryTransaction("fusion");
   return finalItem;
 }
 
@@ -659,6 +661,7 @@ export function releaseSmartFusion(item = null) {
     console.warn("[RELEASE_LOCK]: El elemento seleccionado no es parte de una Fusión Inteligente activa.");
     return null;
   }
+  if (typeof window.beginHistoryTransaction === 'function') window.beginHistoryTransaction("release-fusion");
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   try {
@@ -673,10 +676,10 @@ export function releaseSmartFusion(item = null) {
   // del contenedor/máscara. Así se conservan movimiento, escala y rotación
   // realizadas sobre la fusión completa, además de la relación interna.
   try {
-    const curMask = fusionGroup.children?.find(child =>
-      child?.clipMask || child?.data?.isFusionMask
-    ) || fusionGroup.children?.[0];
-    const currentMatrix = curMask?.globalMatrix?.clone?.() || fusionGroup.globalMatrix?.clone?.();
+    // Snapshots are already in project coordinates. Apply only the public
+    // fusion-owner matrix; a mask child matrix would double-apply its local
+    // geometry and is the source of mask/raster divergence after rotate/scale.
+    const currentMatrix = fusionGroup.globalMatrix?.clone?.() || new paper.Matrix();
     if (currentMatrix && !currentMatrix.isIdentity()) {
       restoredVector.transform(currentMatrix);
       restoredRaster.transform(currentMatrix);
@@ -698,9 +701,12 @@ export function releaseSmartFusion(item = null) {
     label: originalIsHole ? "Trazado Calado" : "Trazado Vectorial"
   };
   if (originalIsHole) {
-    // Un calado restaurado conserva una representación visible; isHole solo
-    // controla la semántica CSG y no debe ocultar el objeto en el editor.
-    applyVisibleHoleStyle(restoredVector, fusionGroup.data.originalVectorData);
+    // Quitar Fusión restaura el hueco real, no una transparencia cosmética:
+    // conserva su geometría/identidad CSG y queda seleccionable por hit-test.
+    restoredVector.fillColor = new paper.Color(0, 0, 0, 0.00001);
+    restoredVector.strokeColor = null;
+    restoredVector.strokeWidth = 0;
+    restoredVector.opacity = 1;
   }
   restoredRaster.data = { label: "Imagen" };
 
@@ -722,9 +728,14 @@ export function releaseSmartFusion(item = null) {
   if (typeof window.deselectItem === 'function') window.deselectItem();
   if (typeof window.selectItem === 'function') window.selectItem(finalRaster);
   if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
+  if (typeof window.commitHistoryTransaction === 'function') window.commitHistoryTransaction("release-fusion");
+  if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === 'function') {
+    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("release-fusion");
+  }
   paper.view.update();
   return [finalVector, finalRaster];
   } catch (e) {
+    if (typeof window.cancelHistoryTransaction === 'function') window.cancelHistoryTransaction("release-fusion-error");
     console.error("[RELEASE FUSION ERROR]", e);
     window.fusionEditActive = false;
     window._fusionSnapActive = false;
