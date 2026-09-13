@@ -28,6 +28,7 @@ import {
   resolveFusionRecord,
   removeFusionRecord
 } from "./fusionController.js";
+import { ensureMockupContainment } from "../mockupLoader.js";
 
 // Estado global del snapping magnético
 let fusionPreviewGroup = null;   // Contiene halo fucsia + preview recortado translúcido
@@ -64,26 +65,10 @@ function cleanEmptyClipGroup(parent) {
 // Fusiones y restauraciones deben permanecer dentro del mockup aunque el
 // lienzo infinito esté activo para otros objetos. Se fuerza solo el wrapper
 // de diseño; nunca se mueve ni modifica la máscara del producto.
-function ensureMockupContainment(item) {
-  if (!item || !window.currentMockup || !window.clipMask || typeof window.clipItem !== 'function') return item;
-  if (item.parent?.data?.clipGroup) return item;
-
-  const parent = item.parent;
-  const index = parent?.children ? parent.children.indexOf(item) : -1;
-  const previousInfiniteMode = window.infiniteCanvasMode;
-  let wrapped = item;
-  try {
-    window.infiniteCanvasMode = false;
-    wrapped = window.clipItem(item) || item;
-  } finally {
-    window.infiniteCanvasMode = previousInfiniteMode;
-  }
-
-  if (wrapped !== item && parent?.insertChild) {
-    wrapped.data = { ...(wrapped.data || {}), clipGroup: true, mockupContainment: true };
-    parent.insertChild(Math.max(0, index), wrapped);
-  }
-  return wrapped;
+function ensureContainedDesignItem(item) {
+  // Contención obligatoria para contenido público, independiente del modo de
+  // lienzo. La máscara del producto no se mueve; solo se crea un wrapper.
+  return ensureMockupContainment(item);
 }
 
 function applyVisibleHoleStyle(item, source = null) {
@@ -425,7 +410,7 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   absoluteVector.remove();
   absoluteRaster.remove();
 
-  let finalItem = ensureMockupContainment(fusionGroup);
+  let finalItem = ensureContainedDesignItem(fusionGroup);
   if (finalItem !== fusionGroup) {
     // Keep ownership distinct: finalItem is the locked mockup clip wrapper;
     // fusionGroup remains the sole transform/record owner. Copying
@@ -719,8 +704,8 @@ export function releaseSmartFusion(item = null) {
   }
   restoredRaster.data = { label: "Imagen" };
 
-  let finalVector = ensureMockupContainment(restoredVector);
-  let finalRaster = ensureMockupContainment(restoredRaster);
+  let finalVector = ensureContainedDesignItem(restoredVector);
+  let finalRaster = ensureContainedDesignItem(restoredRaster);
   if (finalVector.parent === null) paper.project.activeLayer.addChild(finalVector);
   if (finalRaster.parent === null) paper.project.activeLayer.addChild(finalRaster);
   if (window.currentMockup) {
