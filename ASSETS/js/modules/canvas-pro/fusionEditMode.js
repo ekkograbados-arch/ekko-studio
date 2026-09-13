@@ -128,7 +128,7 @@ export function enterFusionEditMode(fusionItem = null) {
   if (!fusionGroup || !fusionGroup.children || fusionGroup.children.length < 2) return;
 
   try {
-    if (typeof window.saveHistory === 'function') window.saveHistory();
+    // Entering edit is runtime-only: no history snapshot is created here.
 
     const maskChild = fusionGroup.children[0];
     const rasterChild = fusionGroup.children[1];
@@ -241,6 +241,9 @@ export function exitFusionEditMode(accept = true) {
   cleanupEditState();
 
   try {
+    if (accept && typeof window.beginHistoryTransaction === 'function') {
+      window.beginHistoryTransaction("fusion-edit");
+    }
     const vectorClone = st.vectorData.clone({ insert: false });
     vectorClone.matrix = new paper.Matrix();
     vectorClone.data = {
@@ -289,8 +292,12 @@ export function exitFusionEditMode(accept = true) {
       commitFusionEdit(null, { fusionId: st.fusionId });
       if (typeof window.recalculateDynamicSubtractions === 'function') window.recalculateDynamicSubtractions();
     }
+    if (accept && typeof window.commitHistoryTransaction === 'function') {
+      window.commitHistoryTransaction("fusion-edit");
+    }
     paper.view.update();
   } catch (e) {
+    if (accept && typeof window.cancelHistoryTransaction === 'function') window.cancelHistoryTransaction("fusion-edit-error");
     console.error("[FUSION EXIT EDIT ERROR]", e);
     if (st && st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e2){} }
     if (st && st.freeRaster && st.freeRaster.project) { try { st.freeRaster.remove(); } catch(e2){} }
