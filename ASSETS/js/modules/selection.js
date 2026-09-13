@@ -172,38 +172,45 @@ function getTransformTarget(item) {
  * Función auxiliar: Propaga recursivamente una traslación delta a todos los geomBase
  * contenidos en un elemento, grupo de capas o subgrupos anidados.
  */
+function translateItemByGlobalDelta(item, delta) {
+  if (!item || !delta || (Math.abs(delta.x) < 1e-9 && Math.abs(delta.y) < 1e-9)) return;
+  const parent = item.parent;
+  try {
+    // Paper.js stores position in the parent coordinate system. Convert the
+    // same project-space delta independently for every parent so wrappers,
+    // nested fusions and multi-selection never accumulate a scaled offset.
+    if (parent && typeof parent.globalToLocal === "function") {
+      const originGlobal = typeof item.localToGlobal === "function"
+        ? item.localToGlobal(new paper.Point(0, 0))
+        : item.position.clone();
+      const localOrigin = parent.globalToLocal(originGlobal);
+      const localMoved = parent.globalToLocal(originGlobal.add(delta));
+      item.translate(localMoved.subtract(localOrigin));
+    } else if (typeof item.translate === "function") {
+      item.translate(delta);
+    } else if (item.position) {
+      item.position = item.position.add(delta);
+    }
+  } catch (e) {
+    if (item.position) item.position = item.position.add(delta);
+  }
+}
+
+/** Keep detached geometry bases in project coordinates. Attached bases already
+ * move with their visible owner and must not be translated a second time. */
 function syncGeomBaseDeep(item, delta) {
   if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
   const visited = new Set();
-
   function recurse(target) {
     if (!target || visited.has(target.id)) return;
     visited.add(target.id);
-
-    // 1. Sincronizar geomBase directo del item
-    if (target.data && target.data.geomBase) {
-      target.data.geomBase.position = target.data.geomBase.position.add(delta);
-    }
-
-    // 2. Si es un clipGroup, descender a su contenido real
-    if (target.data && target.data.clipGroup && target.children) {
-      target.children.forEach(function(c) {
-        if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
-          recurse(c);
-        }
-      });
-    }
-
-    // 3. Si es un Grupo, recorrer todos sus hijos de forma recursiva
-    if (target instanceof paper.Group && target.children && target.children.length > 0) {
-      target.children.forEach(function(child) {
-        recurse(child);
-      });
-    }
+    const base = target.data?.geomBase;
+    if (base && !base.parent) translateItemByGlobalDelta(base, delta);
+    if (target.children) target.children.forEach(recurse);
   }
-
   recurse(item);
 }
+
 
 // Variables globales de estado del motor de selección
 window.selectedItem = null;
@@ -697,8 +704,21 @@ const _getHandlePoint = function(bounds, handleType) {
  * tiene prioridad sobre una fusión sólida que pueda cubrir visualmente al
  * hueco, porque el hueco es el receptor que el usuario debe poder elegir.
  */
+function isPointInsideMockup(point) {
+  if (!point || !window.currentMockup) return true;
+  const mask = window.clipMask;
+  try {
+    if (mask?.contains && mask.contains(point)) return true;
+    if (window.currentMockup.contains && window.currentMockup.contains(point)) return true;
+  } catch (e) {}
+  // A mockup can be a group whose visible outer path is not directly
+  // `contains`-capable. Bounds are a conservative fallback for hit testing;
+  // rendering is still physically clipped by clipItem().
+  return !!window.currentMockup.bounds?.contains?.(point);
+}
+
 function findHoleHitInside(item, point) {
-  if (!item || item.clipMask || isMockupOrUI(item)) return null;
+  if (!item || item.clipMask || isMockupOrUI(item) || !isPointInsideMockup(point)) return null;
   const tol = 8 / (paper.view?.zoom || 1);
   if (item.data?.isHole === true) {
     const geom = item.data.geomBase || item;
@@ -862,6 +882,12 @@ function isMockupOrUI(item) {
 /**
  * Inicializador de la herramienta principal de selección de Paper.js
  */
+function toParentPoint(item, globalPoint) {
+  try {
+    return item?.parent?.globalToLocal ? item.parent.globalToLocal(globalPoint) : globalPoint;
+  } catch (e) { return globalPoint; }
+}
+
 const _initSelectionTool = function() {
   if (!paper.view) {
     debugLog("initSelectionTool: paper.view no está definido todavía.");
@@ -1057,15 +1083,15 @@ const _initSelectionTool = function() {
 
       // Iniciar arrastre del conjunto completo actualmente seleccionado
       window.dragging = true;
+      window._dragStartPoint = event.point.clone();
       window.dragTargets = [];
       window.selectedItems.forEach(function(item) {
         const dragTarget = getTransformTarget(item);
-        if (dragTarget) {
+        if (dragTarget && !window.dragTargets.some(entry => entry.target === dragTarget)) {
           window.dragTargets.push({
             item: item,
             target: dragTarget,
-            dragOffset: event.point.subtract(dragTarget.position),
-            lastPos: dragTarget.position.clone()
+            initialGlobalPoint: event.point.clone()
           });
         }
       });
@@ -1083,16 +1109,12 @@ const _initSelectionTool = function() {
       const selectionBoxBounds = window.selectionBoxGroup.bounds;
       if (selectionBoxBounds && selectionBoxBounds.contains(event.point)) {
         window.dragging = true;
+        window._dragStartPoint = event.point.clone();
         window.dragTargets = [];
         window.selectedItems.forEach(function(item) {
           const dragTarget = getTransformTarget(item);
-          if (dragTarget) {
-            window.dragTargets.push({
-              item: item,
-              target: dragTarget,
-              dragOffset: event.point.subtract(dragTarget.position),
-              lastPos: dragTarget.position.clone()
-            });
+          if (dragTarget && !window.dragTargets.some(entry => entry.target === dragTarget)) {
+            window.dragTargets.push({ item: item, target: dragTarget, initialGlobalPoint: event.point.clone() });
           }
         });
         return;
@@ -1152,7 +1174,7 @@ const _initSelectionTool = function() {
 
       window.rotationTargets.forEach(function(targetInfo) {
         const angleStep = deltaAngle - (targetInfo.lastDeltaAngle || 0);
-        targetInfo.target.rotate(angleStep, window.rotationCenter);
+        targetInfo.target.rotate(angleStep, toParentPoint(targetInfo.target, window.rotationCenter));
         targetInfo.lastDeltaAngle = deltaAngle;
 
         targetInfo.target.data = targetInfo.target.data || {};
@@ -1161,12 +1183,10 @@ const _initSelectionTool = function() {
         // Sincronizar rotación en geomBase (directo y recursivo en grupos)
         const rotateGeomBaseDeep = function(item, step, center) {
           if (!item) return;
-          if (item.data && item.data.geomBase) {
+          if (item.data?.geomBase && !item.data.geomBase.parent) {
             item.data.geomBase.rotate(step, center);
           }
-          if (item instanceof paper.Group && item.children) {
-            item.children.forEach(c => rotateGeomBaseDeep(c, step, center));
-          }
+          if (item.children) item.children.forEach(c => rotateGeomBaseDeep(c, step, center));
         };
         rotateGeomBaseDeep(targetInfo.target, angleStep, window.rotationCenter);
         if (isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target)) {
@@ -1174,9 +1194,8 @@ const _initSelectionTool = function() {
         }
       });
 
-      if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-      }
+      // CSG is intentionally deferred until mouse-up. Rebuilding paths during
+      // a transform changes bounds and causes pointer/object desynchronization.
 
       const rotationNum = document.getElementById("objRotation");
       if (rotationNum && window.selectedItem) {
@@ -1233,17 +1252,15 @@ const _initSelectionTool = function() {
       window.resizeLastScaleY = factorY;
 
       window.resizeTargets.forEach(function(targetInfo) {
-        targetInfo.target.scale(stepScaleX, stepScaleY, anchor);
+        targetInfo.target.scale(stepScaleX, stepScaleY, toParentPoint(targetInfo.target, anchor));
 
         // Sincronizar escalado en geomBase (directo y recursivo en grupos)
         const scaleGeomBaseDeep = function(item, sx, sy, anc) {
           if (!item) return;
-          if (item.data && item.data.geomBase) {
+          if (item.data?.geomBase && !item.data.geomBase.parent) {
             item.data.geomBase.scale(sx, sy, anc);
           }
-          if (item instanceof paper.Group && item.children) {
-            item.children.forEach(c => scaleGeomBaseDeep(c, sx, sy, anc));
-          }
+          if (item.children) item.children.forEach(c => scaleGeomBaseDeep(c, sx, sy, anc));
         };
         scaleGeomBaseDeep(targetInfo.target, stepScaleX, stepScaleY, anchor);
         if (isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target)) {
@@ -1251,9 +1268,8 @@ const _initSelectionTool = function() {
         }
       });
 
-      if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-      }
+      // CSG is intentionally deferred until mouse-up. Rebuilding paths during
+      // a transform changes bounds and causes pointer/object desynchronization.
 
       // Actualizar la caja y el contorno ajustado para que escale interactivamente en vivo
       window.updateSelectionBox(window.selectedItem);
@@ -1268,29 +1284,13 @@ const _initSelectionTool = function() {
        ========================================================================= */
     if (window.dragging && window.dragTargets && window.dragTargets.length > 0) {
       window._mouseDragOccurred = true;
+      // event.delta is one project-space delta shared by every selected item.
+      // Never derive a new absolute position from each target's local position.
+      const commonDelta = event.delta ? event.delta.clone() : event.point.subtract(window._dragStartPoint || event.point);
       window.dragTargets.forEach(function(dragInfo) {
-        if (dragInfo.item.data && dragInfo.item.data.locked) return;
-
-        const newPos = event.point.subtract(dragInfo.dragOffset);
-        const delta = newPos.subtract(dragInfo.target.position);
-        dragInfo.target.position = newPos;
-
-        // BLINDAJE DE CONTENCIÓN DE PRODUCTO:
-        // Si dragInfo.item es un clipGroup, la máscara de producto (clipMask) JAMÁS debe
-        // desplazarse de las coordenadas físicas del producto (window.currentMockup / window.clipMask).
-        if (dragInfo.item && dragInfo.item.data && dragInfo.item.data.clipGroup) {
-          const mask = dragInfo.item.children ? dragInfo.item.children.find(c => c.clipMask || (c.data && (c.data.isMask || c.data.mockup))) : null;
-          if (mask) {
-            if (window.clipMask && window.clipMask.position) {
-              mask.position = window.clipMask.position.clone();
-            } else if (window.currentMockup && window.currentMockup.bounds) {
-              mask.position = window.currentMockup.bounds.center.clone();
-            }
-          }
-        }
-
-        // Sincronización recursiva pura de geomBase (1x delta exacto mediante Set visited)
-        syncGeomBaseDeep(dragInfo.target, delta);
+        if (dragInfo.item?.data?.locked || dragInfo.target?.data?.locked) return;
+        translateItemByGlobalDelta(dragInfo.target, commonDelta);
+        syncGeomBaseDeep(dragInfo.target, commonDelta);
 
         // La máscara actual es la fuente de verdad de una fusión.
         if (isFusionSelection(dragInfo.target) || isFusionSelection(dragInfo.item)) {
@@ -1314,9 +1314,7 @@ const _initSelectionTool = function() {
       });
       window._ekkoSkipFusionCSGRecalc = skipFusionCSGRecalc;
 
-      if (!skipFusionCSGRecalc && typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
-      }
+      // CSG is deferred until mouse-up for every drag target.
 
       // === EKKO SMART FUSION v46: Magnetic Snapping al arrastrar una imagen ===
       // Durante la edición interna la imagen es libre, pero sigue perteneciendo
@@ -1424,7 +1422,7 @@ const _initSelectionTool = function() {
 
       // No recalcular CSG al soltar una fusión: sus límites visibles no deben
       // quedar perforados por huecos hermanos durante el desplazamiento.
-      if (!window._ekkoSkipFusionCSGRecalc && typeof window.recalculateDynamicSubtractions === 'function') {
+      if (typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
       }
     }
