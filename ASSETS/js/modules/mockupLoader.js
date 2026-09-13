@@ -343,24 +343,37 @@ export function restoreMockupReferences() {
   }
 }
 
-window.clipItem = function(item) {
-  if (window.infiniteCanvasMode || !window.clipMask) {
-    return item;
+/**
+ * Crea un wrapper de contención físico sin consultar infiniteCanvasMode.
+ *
+ * `clipItem` conserva la semántica pública del lienzo infinito para las
+ * inserciones normales. Las operaciones que prometen contenido público
+ * contenido (por ejemplo Quitar Fusión) deben usar esta función: el modo
+ * infinito no puede convertir una restauración en un elemento suelto.
+ */
+export function createMockupContainmentGroup(item) {
+  if (!item || !window.clipMask || !paper || !paper.project) return item;
+
+  // Si ya está contenido, devuelve el wrapper y nunca lo vuelve a envolver.
+  let parent = item.parent;
+  while (parent && parent !== paper.project) {
+    if (parent.data?.clipGroup && parent.data?.mockupContainment) return parent;
+    parent = parent.parent;
   }
 
-  var mask = window.clipMask.clone();
+  var mask = window.clipMask.clone({ insert: false });
   mask.clipMask = true;
   mask.visible = true;
   mask.data = { mockup: true, isMask: true };
 
-  // Garantizar alineación absoluta con el mockup visible para evitar cualquier desfasaje
+  // La máscara de producto es estática y se alinea en coordenadas de proyecto.
   if (window.currentMockup && window.currentMockup.bounds) {
     mask.position = window.currentMockup.bounds.center.clone();
-  } else if (window.clipMask && window.clipMask.position) {
+  } else if (window.clipMask.position) {
     mask.position = window.clipMask.position.clone();
   }
 
-  var group = new paper.Group();
+  var group = new paper.Group({ insert: false });
   group.addChild(mask);
   group.addChild(item);
   group.clipped = true;
@@ -368,12 +381,34 @@ window.clipItem = function(item) {
     locked: false,
     clipGroup: true,
     mockupContainment: true,
-    // The wrapper owns only clipping. The child remains the public editable
-    // design/fusion owner and the mask is never a transform target.
     transformOwnerId: item.id,
     label: (item.data && item.data.label) ? item.data.label : "Objeto"
   };
 
+  var layer = paper.project.layers?.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+  if (layer) layer.addChild(group);
+  if (window.currentMockup && group.project) group.insertBelow(window.currentMockup);
   return group;
+}
+
+/**
+ * Garantiza que un objeto público esté dentro de un clipGroup de mockup.
+ * A diferencia de clipItem(), esta API nunca deja pasar infiniteCanvasMode.
+ */
+export function ensureMockupContainment(item) {
+  if (!item || !window.currentMockup || !window.clipMask) return item;
+  let parent = item.parent;
+  while (parent && parent !== paper.project) {
+    if (parent.data?.clipGroup && parent.data?.mockupContainment) return parent;
+    parent = parent.parent;
+  }
+  return createMockupContainmentGroup(item);
+}
+
+window.clipItem = function(item) {
+  if (window.infiniteCanvasMode || !window.clipMask) {
+    return item;
+  }
+  return createMockupContainmentGroup(item);
 };
 
