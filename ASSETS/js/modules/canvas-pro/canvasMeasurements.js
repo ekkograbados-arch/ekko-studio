@@ -193,35 +193,20 @@ export function drawMeasurements() {
 
 // Hook de integración automática para escuchar eventos de transformación
 export function installMeasurementsHook() {
-    if (!window.paper || !paper.project || !paper.tools || paper.tools.length === 0) {
+    if (window._ekkoMeasurementsObserverInstalled) return true;
+    const controller = window.EKKO_FUSION_CONTROLLER;
+    if (!controller?.addTransformObserver) {
         setTimeout(installMeasurementsHook, 100);
-        return;
+        return false;
     }
-
-    const selectTool = paper.tools.find(t => t.onMouseDrag);
-    if (!selectTool) return;
-
-    // Engancharnos al flujo existente sin sobreescribir ni romper la lógica actual
-    const originalOnMouseDrag = selectTool.onMouseDrag;
-    const originalOnMouseUp = selectTool.onMouseUp;
-
-    selectTool.onMouseDrag = function(event) {
-        // Ejecutar primero el arrastre o reescala nativa
-        originalOnMouseDrag.call(this, event);
-
-        // Si hay un objeto seleccionado y se está arrastrando o transformando, redibujar cotas
+    controller.addTransformObserver(payload => {
         if (showMeasurements && (window.dragging || window.resizeActive || window.rotationActive)) {
             drawMeasurements();
         }
-    };
-
-    selectTool.onMouseUp = function(event) {
-        originalOnMouseUp.call(this, event);
-        // Ocultar cotas inmediatamente al soltar el ratón para una interfaz limpia
-        clearMeasurements();
-    };
-
-    console.log("🚀 Sistema de cotas dinámicas (mm) acoplado perfectamente al motor de Paper.js.");
+    });
+    window._ekkoMeasurementsObserverInstalled = true;
+    window._ekkoMeasurementsHook = { mode: "controller-observer", installedAt: Date.now() };
+    return true;
 }
 
 // SANEADO CRÍTICO: ÚNICA inicialización automática al cargar el DOM, libre de bucles repetitivos
