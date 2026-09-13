@@ -106,11 +106,12 @@ function markHole(target) {
         }
     }
 
-    // Un calado sigue siendo visible, seleccionable y editable. La semántica
-    // isHole controla el CSG; no se vuelve transparente ni pierde contorno.
-    target.fillColor = previousFill || new paper.Color("#64748b");
-    target.strokeColor = previousStroke || new paper.Color("#334155");
-    target.strokeWidth = previousStrokeWidth || (1 / (paper.view.zoom || 1));
+    // Calado es una perforación real: no puede volver a pintar el área que
+    // acaba de sustraerse del sólido. Se conserva como objeto seleccionable
+    // mediante alpha mínimo, sin relleno ni contorno cosmético.
+    target.fillColor = new paper.Color(0, 0, 0, 0.0001);
+    target.strokeColor = null;
+    target.strokeWidth = 0;
     target.opacity = 1;
     return ensureMockupContainment(target);
 }
