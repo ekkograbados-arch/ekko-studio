@@ -209,14 +209,58 @@ const redoStack = [];
 window.loadToken = 0;
 
 // Metodo de Trazabilidad y Preservacion del Taller
-function saveHistory() {
+// History is transaction-aware: nested Fusion/edit routes mark the current
+// transaction dirty and only the owner commits one snapshot.
+let historyTransaction = null;
+function writeHistorySnapshot() {
   if (typeof paper !== "undefined" && paper.project) {
     undoStack.push(paper.project.exportJSON({ asString: true }));
     if (undoStack.length > 50) undoStack.shift();
     redoStack.length = 0;
   }
 }
+function saveHistory() {
+  if (historyTransaction?.active) {
+    historyTransaction.dirty = true;
+    historyTransaction.lastMutationAt = Date.now();
+    window._ekkoHistoryTransaction = { ...historyTransaction, status: "dirty" };
+    return false;
+  }
+  writeHistorySnapshot();
+  window._ekkoHistoryTransaction = { active: false, status: "committed", label: "direct-save", at: Date.now() };
+  return true;
+}
+function beginHistoryTransaction(label = "operation") {
+  if (!historyTransaction?.active) {
+    historyTransaction = { active: true, label, dirty: false, startedAt: Date.now(),
+      beforeState: (typeof paper !== "undefined" && paper.project)
+        ? paper.project.exportJSON({ asString: true }) : null };
+    window._ekkoHistoryTransaction = { ...historyTransaction, beforeState: undefined, status: "open" };
+  }
+  return historyTransaction;
+}
+function commitHistoryTransaction(label = null) {
+  if (!historyTransaction?.active) return false;
+  const tx = historyTransaction;
+  if (tx.dirty && tx.beforeState) {
+    undoStack.push(tx.beforeState);
+    if (undoStack.length > 50) undoStack.shift();
+    redoStack.length = 0;
+  }
+  historyTransaction = null;
+  window._ekkoHistoryTransaction = { active: false, status: tx.dirty ? "committed" : "empty", label: label || tx.label, at: Date.now() };
+  return tx.dirty;
+}
+function cancelHistoryTransaction(reason = "cancelled") {
+  const tx = historyTransaction;
+  historyTransaction = null;
+  window._ekkoHistoryTransaction = { active: false, status: "cancelled", label: tx?.label || null, reason, at: Date.now() };
+  return tx;
+}
 window.saveHistory = saveHistory;
+window.beginHistoryTransaction = beginHistoryTransaction;
+window.commitHistoryTransaction = commitHistoryTransaction;
+window.cancelHistoryTransaction = cancelHistoryTransaction;
 
 function cleanGhostInterfaceItems() {
   if (typeof paper !== "undefined" && paper.project) {
@@ -236,6 +280,7 @@ function cleanGhostInterfaceItems() {
 }
 
 function undo() {
+  cancelHistoryTransaction("undo");
   if (undoStack.length === 0) return;
   redoStack.push(paper.project.exportJSON({ asString: true }));
   const state = undoStack.pop();
@@ -247,11 +292,15 @@ function undo() {
     window.deselectItem();
   }
   rehydrateSceneRuntime();
+  if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
+    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("undo");
+  }
   paper.view.update();
 }
 window.undo = undo;
 
 function redo() {
+  cancelHistoryTransaction("redo");
   if (redoStack.length === 0) return;
   undoStack.push(paper.project.exportJSON({ asString: true }));
   const state = redoStack.pop();
@@ -263,6 +312,9 @@ function redo() {
     window.deselectItem();
   }
   rehydrateSceneRuntime();
+  if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
+    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("redo");
+  }
   paper.view.update();
 }
 window.redo = redo;
@@ -305,6 +357,9 @@ function rehydrateSceneRuntime() {
     window.EKKO_FUSION_CONTROLLER.rebuildFusionRegistry();
   }
   if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
+  if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
+    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("rehydrate");
+  }
 }
 window.resetSceneRuntimeState = resetSceneRuntimeState;
 window.rehydrateSceneRuntime = rehydrateSceneRuntime;
