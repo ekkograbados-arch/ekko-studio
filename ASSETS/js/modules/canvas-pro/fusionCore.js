@@ -271,18 +271,22 @@ export function getVirtualHoleEntries() {
 }
 
 function resolveFusionGroup(item) {
-    let current = item;
-    while (current) {
-        if (current.data && current.data.isSmartFusion) {
-            if (current.data.clipGroup && current.children) {
-                const nested = current.children.find(child =>
-                    child && child.data && child.data.isSmartFusion &&
-                    child.children && child.children.length >= 2
-                );
-                if (nested) return nested;
-            }
-            return current;
+    if (!item) return null;
+    const isRealFusion = node => node?.data?.isSmartFusion && !node.data?.clipGroup &&
+        node.children?.some(child => child?.clipMask || child?.data?.isFusionMask);
+    if (isRealFusion(item)) return item;
+    // Resolve an inner fusion from its public mockup clip wrapper without
+    // assigning fusion ownership to the wrapper itself.
+    if (item.children) {
+        for (const child of Array.from(item.children)) {
+            if (child?.clipMask || child?.data?.isMask || child?.data?.mockup) continue;
+            const nested = resolveFusionGroup(child);
+            if (nested) return nested;
         }
+    }
+    let current = item.parent;
+    while (current) {
+        if (isRealFusion(current)) return current;
         current = current.parent;
     }
     return null;
