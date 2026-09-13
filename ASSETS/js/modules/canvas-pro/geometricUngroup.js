@@ -259,14 +259,16 @@ function getContentItem(item) {
     return item;
 }
 
-function applyHoleVisualStyle(item, fallbackFill = "#64748b") {
+function applyHoleVisualStyle(item) {
     if (!item) return;
-    const data = item.data || {};
-    const fill = data.originalFillColor?.clone?.() || item.fillColor?.clone?.() || new paper.Color(fallbackFill);
-    const stroke = data.originalStrokeColor?.clone?.() || item.strokeColor?.clone?.() || new paper.Color("#334155");
-    item.fillColor = fill.alpha > 0 ? fill : new paper.Color(fallbackFill);
-    item.strokeColor = stroke;
-    item.strokeWidth = data.originalStrokeWidth || item.strokeWidth || (1 / (paper.view.zoom || 1));
+    // Un hueco real no puede dibujarse como una masa sólida. Se conserva como
+    // objeto público seleccionable, pero su relleno permanece transparente;
+    // la perforación visual la produce el CSG sobre su sólido propietario.
+    // Alpha mínimo mantiene el hit-test de Paper.js sin volver a rellenar el
+    // hueco en pantalla.
+    item.fillColor = new paper.Color(0, 0, 0, 0.0001);
+    item.strokeColor = null;
+    item.strokeWidth = 0;
     item.opacity = 1;
 }
 
@@ -444,7 +446,13 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (testSub) {
                     const testArea = Math.abs(testSub.area || 0);
                     const testSegments = countSegments(testSub);
-                    const isValidArea = pristineArea > 1.0 ? (testArea >= 0.05 * pristineArea) : (testArea > 0.01);
+                    // Una perforación legítima puede dejar menos del 5% del
+                    // sólido original (A/F/A, bandas y detalles finos). El
+                    // umbral anterior rechazaba esos huecos y dejaba el
+                    // sólido visualmente relleno. Solo se rechaza un resultado
+                    // vacío, degenerado o con un área imposible.
+                    const isValidArea = testArea > 0.01 &&
+                        testArea <= (pristineArea * 1.000001);
                     if (testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1) {
                         finalSubtracted = testSub;
                     } else {
@@ -464,7 +472,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     if (stepSub) {
                         const stepArea = Math.abs(stepSub.area || 0);
                         const stepSegments = countSegments(stepSub);
-                        const isStepValid = pristineArea > 1.0 ? (stepArea >= 0.05 * pristineArea) : (stepArea > 0.01);
+                        const isStepValid = stepArea > 0.01 &&
+                            stepArea <= (pristineArea * 1.000001);
                         if (stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1) {
                             currentProgress.remove();
                             currentProgress = stepSub;
