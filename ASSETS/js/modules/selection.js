@@ -1,4 +1,8 @@
-import { refreshFusion, clearFusionSelection, isFusionSelection } from "./canvas-pro/fusionController.js";
+import {
+  clearFusionSelection, isFusionSelection,
+  beginTransformTransaction, accumulateDragDelta, finalizeTransformTransaction,
+  transformFusion, notifyTransformObservers
+} from "./canvas-pro/fusionController.js";
 
 /* =========================================================================
    Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
@@ -1049,6 +1053,7 @@ const _initSelectionTool = function() {
             });
           }
         });
+        beginTransformTransaction("rotate", window.rotationTargets, event.point);
         return;
       }
 
@@ -1078,6 +1083,7 @@ const _initSelectionTool = function() {
       window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
       window.resizeLastScaleX = 1.0;
       window.resizeLastScaleY = 1.0;
+      beginTransformTransaction("scale", window.resizeTargets, event.point);
       return;
     }
 
@@ -1138,6 +1144,7 @@ const _initSelectionTool = function() {
       window._dragStartPoint = event.point.clone();
       window.dragTargets = buildDragTargets(window.selectedItems, event.point);
       window._ekkoLastDragTargetIds = window.dragTargets.map(entry => entry.target.id);
+      beginTransformTransaction("drag", window.dragTargets, event.point);
 
       window.updateSelectionBox(window.selectedItem);
       if (typeof window.updateContextualMenu === 'function') {
@@ -1155,6 +1162,7 @@ const _initSelectionTool = function() {
         window._dragStartPoint = event.point.clone();
         window.dragTargets = buildDragTargets(window.selectedItems, event.point);
         window._ekkoLastDragTargetIds = window.dragTargets.map(entry => entry.target.id);
+        beginTransformTransaction("drag", window.dragTargets, event.point);
         return;
       }
     }
@@ -1212,25 +1220,25 @@ const _initSelectionTool = function() {
 
       window.rotationTargets.forEach(function(targetInfo) {
         const angleStep = deltaAngle - (targetInfo.lastDeltaAngle || 0);
-        targetInfo.target.rotate(angleStep, toParentPoint(targetInfo.target, window.rotationCenter));
+        const isFusion = isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target);
+        if (isFusion) {
+          transformFusion(targetInfo.target || targetInfo.item, {
+            type: "rotate", angle: angleStep, center: window.rotationCenter
+          });
+        } else {
+          targetInfo.target.rotate(angleStep, toParentPoint(targetInfo.target, window.rotationCenter));
+          const rotateGeomBaseDeep = function(item, step, center) {
+            if (!item) return;
+            if (item.data?.geomBase && !item.data.geomBase.parent) item.data.geomBase.rotate(step, center);
+            if (item.children) item.children.forEach(c => rotateGeomBaseDeep(c, step, center));
+          };
+          rotateGeomBaseDeep(targetInfo.target, angleStep, window.rotationCenter);
+        }
         targetInfo.lastDeltaAngle = deltaAngle;
-
         targetInfo.target.data = targetInfo.target.data || {};
         targetInfo.target.data.rotation = (targetInfo.initialRotation + deltaAngle) % 360;
-
-        // Sincronizar rotación en geomBase (directo y recursivo en grupos)
-        const rotateGeomBaseDeep = function(item, step, center) {
-          if (!item) return;
-          if (item.data?.geomBase && !item.data.geomBase.parent) {
-            item.data.geomBase.rotate(step, center);
-          }
-          if (item.children) item.children.forEach(c => rotateGeomBaseDeep(c, step, center));
-        };
-        rotateGeomBaseDeep(targetInfo.target, angleStep, window.rotationCenter);
-        if (isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target)) {
-          refreshFusion(targetInfo.target || targetInfo.item);
-        }
       });
+      notifyTransformObservers({ event, type: "rotate", cumulativeAngle: deltaAngle });
 
       // CSG is intentionally deferred until mouse-up. Rebuilding paths during
       // a transform changes bounds and causes pointer/object desynchronization.
@@ -1290,21 +1298,22 @@ const _initSelectionTool = function() {
       window.resizeLastScaleY = factorY;
 
       window.resizeTargets.forEach(function(targetInfo) {
-        targetInfo.target.scale(stepScaleX, stepScaleY, toParentPoint(targetInfo.target, anchor));
-
-        // Sincronizar escalado en geomBase (directo y recursivo en grupos)
-        const scaleGeomBaseDeep = function(item, sx, sy, anc) {
-          if (!item) return;
-          if (item.data?.geomBase && !item.data.geomBase.parent) {
-            item.data.geomBase.scale(sx, sy, anc);
-          }
-          if (item.children) item.children.forEach(c => scaleGeomBaseDeep(c, sx, sy, anc));
-        };
-        scaleGeomBaseDeep(targetInfo.target, stepScaleX, stepScaleY, anchor);
-        if (isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target)) {
-          refreshFusion(targetInfo.target || targetInfo.item);
+        const isFusion = isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target);
+        if (isFusion) {
+          transformFusion(targetInfo.target || targetInfo.item, {
+            type: "scale", sx: stepScaleX, sy: stepScaleY, center: anchor
+          });
+        } else {
+          targetInfo.target.scale(stepScaleX, stepScaleY, toParentPoint(targetInfo.target, anchor));
+          const scaleGeomBaseDeep = function(item, sx, sy, anc) {
+            if (!item) return;
+            if (item.data?.geomBase && !item.data.geomBase.parent) item.data.geomBase.scale(sx, sy, anc);
+            if (item.children) item.children.forEach(c => scaleGeomBaseDeep(c, sx, sy, anc));
+          };
+          scaleGeomBaseDeep(targetInfo.target, stepScaleX, stepScaleY, anchor);
         }
       });
+      notifyTransformObservers({ event, type: "scale", scale: { x: stepScaleX, y: stepScaleY } });
 
       // CSG is intentionally deferred until mouse-up. Rebuilding paths during
       // a transform changes bounds and causes pointer/object desynchronization.
@@ -1324,20 +1333,13 @@ const _initSelectionTool = function() {
       window._mouseDragOccurred = true;
       // event.delta is one project-space delta shared by every selected item.
       // Never derive a new absolute position from each target's local position.
-      const commonDelta = event.delta ? event.delta.clone() : event.point.subtract(window._dragStartPoint || event.point);
-      let movedCount = 0;
-      window.dragTargets.forEach(function(dragInfo) {
-        if (dragInfo.item?.data?.locked || dragInfo.target?.data?.locked) return;
-        if (translateItemByGlobalDelta(dragInfo.target, commonDelta)) movedCount++;
-        syncGeomBaseDeep(dragInfo.target, commonDelta);
-
-        // La máscara actual es la fuente de verdad de una fusión.
-        if (isFusionSelection(dragInfo.target) || isFusionSelection(dragInfo.item)) {
-          refreshFusion(dragInfo.target || dragInfo.item);
-        }
-      });
+      const dragResult = accumulateDragDelta(event, window.dragTargets);
+      const commonDelta = dragResult.delta;
+      const movedCount = dragResult.movedCount;
       window._ekkoLastDragMovedCount = movedCount;
-      window._ekkoLastDragCommonDelta = { x: commonDelta.x, y: commonDelta.y };
+      // `_ekkoLastDragCommonDelta` is cumulative for the transaction; the
+      // individual event delta remains available as `_ekkoLastDragEventDelta`.
+      window._ekkoLastDragCommonDelta = dragResult.cumulativeDelta;
 
       // Una fusión debe moverse como una unidad visual autónoma. No se debe
       // volver a perforar su contenido con huecos hermanos mientras el cliente
@@ -1392,6 +1394,7 @@ const _initSelectionTool = function() {
       window._lastDraggedRaster = null;
       const fused = window.handleMagneticDrop(draggedRaster);
       if (fused) {
+        finalizeTransformTransaction("committed-fusion-drop");
         window._mouseDragOccurred = false;
         window._ekkoSkipFusionCSGRecalc = false;
         window.dragging = false;
@@ -1459,7 +1462,9 @@ const _initSelectionTool = function() {
     window._mouseDragOccurred = false;
 
     if (window.resizeActive || window.dragging || window.rotationActive) {
+      finalizeTransformTransaction("committed");
       if (typeof window.saveHistory === 'function') window.saveHistory();
+      if (typeof window.commitHistoryTransaction === 'function') window.commitHistoryTransaction("transform");
 
       // No recalcular CSG al soltar una fusión: sus límites visibles no deben
       // quedar perforados por huecos hermanos durante el desplazamiento.
