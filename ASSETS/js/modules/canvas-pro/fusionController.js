@@ -269,6 +269,255 @@ export function getFusionVirtualHoles() {
     return Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : [];
 }
 
+
+
+/* -------------------------------------------------------------------------
+   TRANSFORM OWNER / TRANSACTION API
+   Every public transform goes through this block. A mockup clipGroup is
+   containment only; a real fusion group is the owner of mask and raster.
+------------------------------------------------------------------------- */
+const transformObservers = new Set();
+let activeTransformTransaction = null;
+
+function isRealFusionGroup(item) {
+    return !!(item?.data?.isSmartFusion && !item.data?.clipGroup &&
+        item.children?.some(child => child?.clipMask || child?.data?.isFusionMask));
+}
+
+export function resolvePublicTransformOwner(item) {
+    if (!item) return null;
+    if (isRealFusionGroup(item)) return item;
+    const record = resolveFusionRecord(item);
+    if (record?.group && isRealFusionGroup(record.group)) return record.group;
+    let current = item;
+    while (current && current !== (typeof paper !== "undefined" ? paper.project : null)) {
+        if (isRealFusionGroup(current)) return current;
+        if (current.data?.clipGroup) {
+            const content = Array.from(current.children || []).find(child =>
+                !child.clipMask && !child.data?.isMask && !child.data?.mockup &&
+                !child.data?.wasClipMask
+            );
+            return content || null;
+        }
+        current = current.parent;
+    }
+    return item;
+}
+
+function toParentDelta(owner, delta) {
+    const d = delta?.clone ? delta.clone() : new paper.Point(delta?.x || 0, delta?.y || 0);
+    const parent = owner?.parent;
+    if (!parent?.globalToLocal || !owner?.localToGlobal) return d;
+    const origin = owner.localToGlobal(new paper.Point(0, 0));
+    return parent.globalToLocal(origin.add(d)).subtract(parent.globalToLocal(origin));
+}
+
+function toParentPoint(owner, point) {
+    if (owner?.parent?.globalToLocal) return owner.parent.globalToLocal(point);
+    return point?.clone ? point.clone() : new paper.Point(point?.x || 0, point?.y || 0);
+}
+
+function applyOperation(item, operation) {
+    if (!item || !operation) return false;
+    const op = operation.type || "translate";
+    try {
+        if (op === "translate") {
+            const delta = operation.delta || new paper.Point(0, 0);
+            const local = toParentDelta(item, delta);
+            if (typeof item.translate === "function") item.translate(local);
+            else if (item.position) item.position = item.position.add(local);
+            return true;
+        }
+        if (op === "rotate") {
+            const center = toParentPoint(item, operation.center || item.bounds.center);
+            item.rotate(Number(operation.angle) || 0, center);
+            return true;
+        }
+        if (op === "scale") {
+            const center = toParentPoint(item, operation.center || item.bounds.center);
+            item.scale(Number(operation.sx) || 1, Number(operation.sy) || 1, center);
+            return true;
+        }
+        if (op === "matrix" && operation.matrix) {
+            item.transform(operation.matrix);
+            return true;
+        }
+    } catch (error) {
+        if (window.EKKO_DEBUG) console.warn("[EKKO TRANSFORM] operation failed", error);
+    }
+    return false;
+}
+
+function transformDetachedGeomBases(owner, operation) {
+    const visited = new Set();
+    const visit = node => {
+        if (!node || visited.has(node.id)) return;
+        visited.add(node.id);
+        const base = node.data?.geomBase;
+        if (base && !base.parent && base !== node) applyOperation(base, operation);
+        if (node.children) Array.from(node.children).forEach(visit);
+    };
+    visit(owner);
+}
+
+function fusionMatrixInvariant(group) {
+    const mask = getCurrentFusionMask(group);
+    const raster = Array.from(group?.children || []).find(child => child.className === "Raster");
+    const ownerMatrix = group?.globalMatrix;
+    if (!mask || !raster || !ownerMatrix) return { valid: true, maxError: 0, mask: null, raster: null };
+    try {
+        const inv = ownerMatrix.inverted();
+        const relMask = inv.concatenate(mask.globalMatrix);
+        const relRaster = inv.concatenate(raster.globalMatrix);
+        const serial = matrix => ({ a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d, tx: matrix.tx, ty: matrix.ty });
+        return { valid: true, maxError: 0, mask: serial(relMask), raster: serial(relRaster) };
+    } catch (e) { return { valid: false, maxError: Infinity, mask: null, raster: null }; }
+}
+
+function compareFusionInvariant(before, after) {
+    if (!before || !after || !before.mask || !after.mask || !before.raster || !after.raster) return after;
+    const keys = ["a", "b", "c", "d", "tx", "ty"];
+    let error = 0;
+    keys.forEach(key => {
+        error = Math.max(error, Math.abs(before.mask[key] - after.mask[key]), Math.abs(before.raster[key] - after.raster[key]));
+    });
+    return { ...after, valid: after.valid && Number.isFinite(error) && error < 1e-5, maxError: error };
+}
+
+export function transformFusion(fusionOrItem, operation = {}, options = {}) {
+    const owner = resolvePublicTransformOwner(fusionOrItem);
+    if (!owner || !isRealFusionGroup(owner)) return { applied: false, owner: null, invariant: null };
+    const before = fusionMatrixInvariant(owner);
+    const applied = applyOperation(owner, operation);
+    if (applied) transformDetachedGeomBases(owner, operation);
+    const after = compareFusionInvariant(before, fusionMatrixInvariant(owner));
+    const record = resolveFusionRecord(owner);
+    if (record) syncFusionVirtualHole(record);
+    const identity = {
+        id: owner.id ?? null,
+        fusionId: owner.data?.fusionId || record?.fusionId || null,
+        className: owner.className,
+        label: owner.data?.label || "Fusion",
+        parentId: owner.parent?.id ?? null
+    };
+    window._ekkoFusionTransformDiagnostics = {
+        applied, owner: identity, matrixInvariant: after,
+        beforeInvariant: before, operation: operation.type || "matrix",
+        at: Date.now()
+    };
+    return { applied, owner, invariant: after, identity };
+}
+
+export function transformPublicItem(item, operation = {}) {
+    const owner = resolvePublicTransformOwner(item);
+    if (!owner || owner.clipMask || owner.data?.mockup || owner.data?.isMask) {
+        return { applied: false, owner: null };
+    }
+    if (isRealFusionGroup(owner)) return transformFusion(owner, operation);
+    const applied = applyOperation(owner, operation);
+    if (applied) transformDetachedGeomBases(owner, operation);
+    return { applied, owner };
+}
+
+export function beginTransformTransaction(kind, targets = [], startPoint = null) {
+    if (typeof window.beginHistoryTransaction === "function") {
+        window.beginHistoryTransaction("transform:" + kind);
+    }
+    const entries = (Array.isArray(targets) ? targets : []).map(entry => ({
+        item: entry.item || entry, owner: resolvePublicTransformOwner(entry.target || entry.item || entry),
+        targetId: (entry.target || entry.item || entry)?.id ?? null,
+        targetClass: (entry.target || entry.item || entry)?.className || null
+    })).filter(entry => entry.owner && !entry.owner.clipMask && !entry.owner.data?.mockup);
+    activeTransformTransaction = {
+        kind, active: true, startedAt: Date.now(), previousPoint: startPoint?.clone?.() || startPoint,
+        cumulativeDelta: new paper.Point(0, 0), entries,
+        targetIdentity: entries.map(entry => ({ id: entry.targetId, className: entry.targetClass,
+            ownerId: entry.owner.id ?? null, ownerClass: entry.owner.className,
+            fusionId: entry.owner.data?.fusionId || null }))
+    };
+    window._ekkoTransformTransaction = {
+        active: true, kind, targetIdentity: activeTransformTransaction.targetIdentity,
+        transformOwner: activeTransformTransaction.targetIdentity.map(x => x.ownerId),
+        cumulativeDelta: { x: 0, y: 0 }, status: "active"
+    };
+    return activeTransformTransaction;
+}
+
+export function accumulateDragDelta(event, targets = null) {
+    if (!activeTransformTransaction || !activeTransformTransaction.active) {
+        beginTransformTransaction("drag", targets || [], event?.point || null);
+    }
+    const tx = activeTransformTransaction;
+    const point = event?.point?.clone?.() || event?.point;
+    let delta = null;
+    if (point && tx.previousPoint) delta = point.subtract(tx.previousPoint);
+    else if (event?.delta) delta = event.delta.clone ? event.delta.clone() : new paper.Point(event.delta.x, event.delta.y);
+    else delta = new paper.Point(0, 0);
+    tx.previousPoint = point || tx.previousPoint;
+    tx.cumulativeDelta = tx.cumulativeDelta.add(delta);
+    let movedCount = 0;
+    tx.entries.forEach(entry => {
+        if (entry.owner?.data?.locked) return;
+        if (transformPublicItem(entry.owner, { type: "translate", delta }).applied) movedCount++;
+    });
+    const cumulative = { x: tx.cumulativeDelta.x, y: tx.cumulativeDelta.y };
+    window._ekkoLastDragEventDelta = { x: delta.x, y: delta.y };
+    window._ekkoLastDragAccumulatedDelta = cumulative;
+    window._ekkoLastDragCommonDelta = cumulative;
+    window._ekkoLastDragMovedCount = movedCount;
+    window._ekkoLastDragTargetLevel = tx.targetIdentity.map(x => x.ownerId);
+    window._ekkoTransformTransaction = { ...window._ekkoTransformTransaction,
+        active: true, cumulativeDelta: cumulative, movedCount,
+        targetIdentity: tx.targetIdentity, status: "accumulating" };
+    notifyTransformObservers({ event, delta, cumulativeDelta: cumulative, transaction: tx });
+    return { delta, cumulativeDelta: cumulative, movedCount, transaction: tx };
+}
+
+export function notifyTransformObservers(payload = {}) {
+    transformObservers.forEach(callback => { try { callback(payload); } catch (e) {} });
+}
+export function addTransformObserver(callback) {
+    if (typeof callback === "function") transformObservers.add(callback);
+    return () => transformObservers.delete(callback);
+}
+export function finalizeTransformTransaction(status = "committed") {
+    if (!activeTransformTransaction) return null;
+    const tx = activeTransformTransaction;
+    tx.active = false; tx.status = status; tx.finishedAt = Date.now();
+    const fusions = new Set();
+    tx.entries.forEach(entry => {
+        if (isRealFusionGroup(entry.owner)) {
+            const record = resolveFusionRecord(entry.owner);
+            if (record) fusions.add(record.fusionId);
+        }
+    });
+    fusions.forEach(id => syncFusionVirtualHole(getFusionById(id)));
+    window._ekkoTransformTransaction = {
+        active: false, kind: tx.kind, status, targetIdentity: tx.targetIdentity,
+        transformOwner: tx.targetIdentity.map(x => x.ownerId),
+        cumulativeDelta: { x: tx.cumulativeDelta.x, y: tx.cumulativeDelta.y },
+        finishedAt: tx.finishedAt
+    };
+    activeTransformTransaction = null;
+    return tx;
+}
+
+export function assertFusionRegistryState(reason = "runtime") {
+    const records = Array.isArray(window._fusionRecords) ? window._fusionRecords : [];
+    const holes = Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : [];
+    const paperCount = typeof paper !== "undefined" && paper.project
+        ? paper.project.getItems({ match: item => isRealFusionGroup(item) }).filter(item => !item.parent?.data?.isSmartFusion).length
+        : null;
+    const ids = records.map(record => record.fusionId);
+    const uniqueIds = new Set(ids);
+    const result = { reason, paperFusionCount: paperCount, recordCount: records.length,
+        virtualHoleCount: holes.length, duplicateIds: ids.length !== uniqueIds.size,
+        countsEqual: paperCount === null || paperCount === records.length,
+        at: Date.now() };
+    window._ekkoHistoryFusionAssertion = result;
+    return result;
+}
+
 if (typeof window !== "undefined") {
     window.EKKO_FUSION_CONTROLLER = {
         registerFusion,
@@ -287,6 +536,15 @@ if (typeof window !== "undefined") {
         rekeyFusionClone,
         clearFusionSelection,
         isFusionSelection,
-        getFusionVirtualHoles
+        getFusionVirtualHoles,
+        resolvePublicTransformOwner,
+        transformFusion,
+        transformPublicItem,
+        beginTransformTransaction,
+        accumulateDragDelta,
+        finalizeTransformTransaction,
+        addTransformObserver,
+        notifyTransformObservers,
+        assertFusionRegistryState
     };
 }
