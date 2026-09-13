@@ -367,6 +367,10 @@ window.clipItem = function(item) {
   group.data = {
     locked: false,
     clipGroup: true,
+    mockupContainment: true,
+    // The wrapper owns only clipping. The child remains the public editable
+    // design/fusion owner and the mask is never a transform target.
+    transformOwnerId: item.id,
     label: (item.data && item.data.label) ? item.data.label : "Objeto"
   };
 
