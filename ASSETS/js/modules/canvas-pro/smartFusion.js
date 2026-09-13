@@ -125,19 +125,23 @@ function getAbsoluteClone(item) {
 
 function findSmartFusionContainer(item) {
   if (!item) return null;
-  if (item.data && item.data.isSmartFusion) return item;
-  if (item.children && item.children.length > 0) {
+  // A mockup clipGroup is only a containment wrapper. Older builds copied
+  // fusion metadata onto it; never return that wrapper as the transform owner.
+  const isRealFusion = node => node?.data?.isSmartFusion && !node.data?.clipGroup &&
+    node.children?.some(child => child?.clipMask || child?.data?.isFusionMask);
+  if (isRealFusion(item)) return item;
+  if (item.children?.length) {
     let found = null;
     (function traverse(node) {
       if (found) return;
-      if (node.data && node.data.isSmartFusion) { found = node; return; }
-      if (node.children) for (let i = 0; i < node.children.length; i++) { traverse(node.children[i]); if (found) return; }
+      if (isRealFusion(node)) { found = node; return; }
+      if (node.children) node.children.forEach(traverse);
     })(item);
     if (found) return found;
   }
   let curr = item.parent;
   while (curr && curr !== paper.project) {
-    if (curr.data && curr.data.isSmartFusion) return curr;
+    if (isRealFusion(curr)) return curr;
     curr = curr.parent;
   }
   return null;
@@ -423,24 +427,16 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
 
   let finalItem = ensureMockupContainment(fusionGroup);
   if (finalItem !== fusionGroup) {
-    // clipItem puede envolver la fusión en otro grupo. La metadata pública
-    // debe vivir también en el elemento que queda seleccionado y que leen
-    // selection.js / panelCommandBridge.js.
+    // Keep ownership distinct: finalItem is the locked mockup clip wrapper;
+    // fusionGroup remains the sole transform/record owner. Copying
+    // isSmartFusion to the wrapper makes selection move the mask and causes
+    // global/local coordinate drift.
     finalItem.data = {
       ...(finalItem.data || {}),
-      ...fusionGroup.data,
-      isSmartFusion: true,
-      fusionId,
-      fusionMode: mode,
-      originalIsHole
+      clipGroup: true,
+      mockupContainment: true,
+      label: fusionGroup.data.label
     };
-    try {
-      Object.defineProperty(finalItem, 'selected', {
-        get: function() { return this._selected; },
-        set: function(val) { this._selected = val; if (fusionGroup) fusionGroup.selected = val; },
-        configurable: true, enumerable: true
-      });
-    } catch(e) {}
   }
 
   const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
@@ -448,7 +444,7 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   if (window.currentMockup) finalItem.insertBelow(window.currentMockup);
 
   // Registrar la fusión y derivar el hueco virtual desde su máscara actual.
-  registerFusion(finalItem, {
+  registerFusion(fusionGroup, {
     fusionId,
     mode,
     originalIsHole
