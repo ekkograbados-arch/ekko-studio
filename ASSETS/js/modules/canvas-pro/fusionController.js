@@ -453,15 +453,24 @@ function fusionChildMatricesStable(snapshot) {
 function fusionMatrixInvariant(group) {
     const mask = getCurrentFusionMask(group);
     const raster = Array.from(group?.children || []).find(child => child.className === "Raster");
-    const ownerMatrix = group?.globalMatrix;
-    if (!mask || !raster || !ownerMatrix) return { valid: true, maxError: 0, mask: null, raster: null };
+    if (!mask || !raster) return { valid: true, maxError: 0, mask: null, raster: null };
     try {
-        const inv = ownerMatrix.inverted();
-        const relMask = inv.concatenate(mask.globalMatrix);
-        const relRaster = inv.concatenate(raster.globalMatrix);
-        const serial = matrix => ({ a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d, tx: matrix.tx, ty: matrix.ty });
-        return { valid: true, maxError: 0, mask: serial(relMask), raster: serial(relRaster) };
-    } catch (e) { return { valid: false, maxError: Infinity, mask: null, raster: null }; }
+        // Mask and Raster are direct children of the fusion owner. Their
+        // local matrices are the authoritative relative transform and do not
+        // depend on Paper.js lazy propagation of globalMatrix through Groups.
+        const serial = matrix => ({
+            a: matrix.a, b: matrix.b, c: matrix.c,
+            d: matrix.d, tx: matrix.tx, ty: matrix.ty
+        });
+        return {
+            valid: true,
+            maxError: 0,
+            mask: serial(mask.matrix),
+            raster: serial(raster.matrix)
+        };
+    } catch (e) {
+        return { valid: false, maxError: Infinity, mask: null, raster: null };
+    }
 }
 
 function compareFusionInvariant(before, after) {
