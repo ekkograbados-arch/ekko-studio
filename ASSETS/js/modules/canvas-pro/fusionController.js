@@ -360,6 +360,24 @@ function transformDetachedGeomBases(owner, operation) {
     visit(owner);
 }
 
+// A real fusion owns one transform. Its visible children must retain their
+// local matrices while the owner moves. Paper.js can rewrite child matrices
+// when a clipped group is transformed; snapshot/restore makes the ownership
+// contract explicit and prevents mask/Raster drift.
+function snapshotFusionChildMatrices(group) {
+    return Array.from(group?.children || []).map(child => ({
+        child,
+        matrix: child?.matrix?.clone?.() || null
+    }));
+}
+
+function restoreFusionChildMatrices(snapshot) {
+    (Array.isArray(snapshot) ? snapshot : []).forEach(entry => {
+        if (!entry?.child?.project || !entry.matrix) return;
+        try { entry.child.matrix = entry.matrix.clone(); } catch (e) {}
+    });
+}
+
 function fusionMatrixInvariant(group) {
     const mask = getCurrentFusionMask(group);
     const raster = Array.from(group?.children || []).find(child => child.className === "Raster");
@@ -387,9 +405,13 @@ function compareFusionInvariant(before, after) {
 export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     const owner = resolvePublicTransformOwner(fusionOrItem);
     if (!owner || !isRealFusionGroup(owner)) return { applied: false, owner: null, invariant: null };
+    const childMatrixSnapshot = snapshotFusionChildMatrices(owner);
     const before = fusionMatrixInvariant(owner);
     const applied = applyOperation(owner, operation);
-    if (applied) transformDetachedGeomBases(owner, operation);
+    if (applied) {
+        transformDetachedGeomBases(owner, operation);
+        restoreFusionChildMatrices(childMatrixSnapshot);
+    }
     const after = compareFusionInvariant(before, fusionMatrixInvariant(owner));
     const record = resolveFusionRecord(owner);
     if (record) syncFusionVirtualHole(record);
@@ -402,7 +424,8 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     };
     window._ekkoFusionTransformDiagnostics = {
         applied, owner: identity, matrixInvariant: after,
-        beforeInvariant: before, operation: operation.type || "matrix",
+        beforeInvariant: before, childMatricesRestored: applied,
+        operation: operation.type || "matrix",
         at: Date.now()
     };
     return { applied, owner, invariant: after, identity };
