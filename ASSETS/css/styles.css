@@ -1034,3 +1034,14 @@ body,
     border-width: 0 !important;
     overflow: hidden !important;
 }
+
+
+
+/* EKKO v11: Paneles plegables / ocultables */
+#topBar.ekko-collapsed { display: none; }
+#contextual-toolbar.ekko-hidden { display: none !important; }
+#productPanelWrap.ekko-collapsed { width: 48px; overflow: hidden; }
+#productPanelWrap.ekko-collapsed #leftSidebar { display: none; }
+#panelToggles { position: fixed; top: 8px; right: 16px; z-index: 9999; display: flex; gap: 6px; }
+#panelToggles button { background: rgba(30,30,40,0.85); color: #eee; border: 1px solid #555; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px; }
+#panelToggles button:hover { background: #ff2ea6; color: #fff; border-color: #ff2ea6; }
