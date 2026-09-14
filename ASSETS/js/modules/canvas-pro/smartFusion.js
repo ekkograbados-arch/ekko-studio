@@ -478,6 +478,7 @@ export function checkMagneticSnapping(rasterItem, mousePoint) {
     return false;
   }
   if (!rasterItem || !paper.project) return false;
+  if (mousePoint) window._lastFusionMousePoint = mousePoint;
   const best = findBestSnapReceptor(rasterItem, mousePoint);
   if (best) {
     drawFusionPreview(rasterItem, best);
@@ -510,6 +511,21 @@ export function handleMagneticDrop(rasterItem) {
     }
     const snapped = activeSnappedVector || window._activeSnappedVector;
     const raster = rasterItem || activeSnappedRaster;
+    var _dropPoint = window._lastFusionMousePoint;
+    window._lastFusionMousePoint = null;
+    if (snapped && _dropPoint) {
+      try {
+        var _b = snapped.bounds.clone();
+        _b.expand(6 / (paper.view && paper.view.zoom ? paper.view.zoom : 1));
+        if (!_b.contains(_dropPoint)) {
+          clearFusionPreview(true);
+          window._fusionSnapActive = false;
+          window._activeSnappedVector = null;
+          activeSnappedVector = null;
+          return false;
+        }
+      } catch(e){}
+    }
     clearFusionPreview(true);
     window._fusionSnapActive = false;
     window._activeSnappedVector = null;
@@ -816,3 +832,5 @@ setTimeout(() => {
   if (typeof releaseSmartFusion !== 'undefined')
     window.releaseSmartFusion = releaseSmartFusion;
 }, 0);
+
+
