@@ -317,6 +317,73 @@ function toParentPoint(owner, point) {
     return point?.clone ? point.clone() : new paper.Point(point?.x || 0, point?.y || 0);
 }
 
+function identityMatrix() {
+    return new paper.Matrix(1, 0, 0, 1, 0, 0);
+}
+
+function buildGlobalOperationMatrix(operation = {}) {
+    const matrix = identityMatrix();
+    const type = operation.type || "translate";
+    if (type === "translate") {
+        const delta = operation.delta || new paper.Point(0, 0);
+        matrix.translate(Number(delta.x) || 0, Number(delta.y) || 0);
+        return matrix;
+    }
+    if (type === "rotate") {
+        const center = operation.center || new paper.Point(0, 0);
+        matrix.rotate(Number(operation.angle) || 0, center);
+        return matrix;
+    }
+    if (type === "scale") {
+        const center = operation.center || new paper.Point(0, 0);
+        matrix.scale(Number(operation.sx) || 1, Number(operation.sy) || 1, center);
+        return matrix;
+    }
+    if (type === "matrix" && operation.matrix) {
+        return operation.matrix.clone ? operation.matrix.clone() : operation.matrix;
+    }
+    return null;
+}
+
+function setGlobalMatrix(item, globalMatrix) {
+    if (!item || !globalMatrix) return false;
+    try {
+        const parentMatrix = item.parent?.globalMatrix || identityMatrix();
+        const localMatrix = parentMatrix.inverted().concatenate(globalMatrix);
+        item.matrix = localMatrix;
+        return true;
+    } catch (error) {
+        if (window.EKKO_DEBUG) console.warn("[EKKO TRANSFORM] global matrix assignment failed", error);
+        return false;
+    }
+}
+
+function transformFusionGeomBases(owner, operationMatrix) {
+    const visited = new Set();
+    const visit = node => {
+        if (!node || visited.has(node.id)) return;
+        visited.add(node.id);
+        const base = node.data?.geomBase;
+        if (base && !base.parent && base !== node) {
+            const current = base.globalMatrix || base.matrix;
+            if (current) setGlobalMatrix(base, operationMatrix.concatenate(current));
+        }
+        if (node.children) Array.from(node.children).forEach(visit);
+    };
+    visit(owner);
+}
+
+function applyFusionGlobalOperation(owner, operation = {}) {
+    if (!owner) return { applied: false, before: null, after: null, operationMatrix: null };
+    try { owner.applyMatrix = false; } catch (e) {}
+    const before = owner.globalMatrix?.clone?.() || null;
+    const operationMatrix = buildGlobalOperationMatrix(operation);
+    if (!before || !operationMatrix) return { applied: false, before, after: owner.globalMatrix?.clone?.() || null, operationMatrix };
+    const desired = operationMatrix.concatenate(before);
+    const applied = setGlobalMatrix(owner, desired);
+    return { applied, before, after: owner.globalMatrix?.clone?.() || null, operationMatrix };
+}
+
 function applyOperation(item, operation) {
     if (!item || !operation) return false;
     const op = operation.type || "translate";
@@ -408,12 +475,12 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     // Paper.js groups may have applyMatrix=true, which bakes a group
     // translation into its children and leaves the owner matrix unchanged.
     // A fusion owner must retain the transform on the owner itself.
-    try { owner.applyMatrix = false; } catch (e) {}
     const childMatrixSnapshot = snapshotFusionChildMatrices(owner);
     const before = fusionMatrixInvariant(owner);
-    const applied = applyOperation(owner, operation);
+    const globalOperation = applyFusionGlobalOperation(owner, operation);
+    const applied = globalOperation.applied;
     if (applied) {
-        transformDetachedGeomBases(owner, operation);
+        transformFusionGeomBases(owner, globalOperation.operationMatrix);
         restoreFusionChildMatrices(childMatrixSnapshot);
     }
     const after = compareFusionInvariant(before, fusionMatrixInvariant(owner));
@@ -430,6 +497,16 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
         applied, owner: identity, matrixInvariant: after,
         beforeInvariant: before, childMatricesRestored: applied,
         ownerApplyMatrix: owner.applyMatrix === false,
+        ownerGlobalBefore: globalOperation.before ? {
+            a: globalOperation.before.a, b: globalOperation.before.b,
+            c: globalOperation.before.c, d: globalOperation.before.d,
+            tx: globalOperation.before.tx, ty: globalOperation.before.ty
+        } : null,
+        ownerGlobalAfter: globalOperation.after ? {
+            a: globalOperation.after.a, b: globalOperation.after.b,
+            c: globalOperation.after.c, d: globalOperation.after.d,
+            tx: globalOperation.after.tx, ty: globalOperation.after.ty
+        } : null,
         operation: operation.type || "matrix",
         at: Date.now()
     };
