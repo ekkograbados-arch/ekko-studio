@@ -860,3 +860,34 @@ if (typeof window !== 'undefined') {
     window.ekkoUngroupNormal = ungroupSelectedItem;
 }
 
+
+
+
+// EKKO v50: Bindear input de tamaño de fuente + slider de curvatura (faltaban listeners)
+(function bindTextInputs(){
+  var bound = false;
+  var iv = setInterval(function(){
+    if (bound) { clearInterval(iv); return; }
+    var fontSizeInput = document.getElementById('ctxFontSize');
+    var curveSlider = document.querySelector('#ctxTextCurvature input[type=range]');
+    if (fontSizeInput && curveSlider) {
+      bound = true;
+      fontSizeInput.addEventListener('input', function(){
+        try {
+          var sel = window.selectedItem || (window.selectedItems && window.selectedItems[0]);
+          if (!sel) return;
+          var t = sel.data && sel.data.clipGroup ? (sel.children && sel.children.find(function(c){return !c.clipMask;})) : sel;
+          if (t && t.className === 'PointText') { t.fontSize = parseFloat(fontSizeInput.value) || 42; paper.view && paper.view.update(); }
+        } catch(e){}
+      });
+      curveSlider.addEventListener('input', function(){
+        try {
+          var sel = window.selectedItem || (window.selectedItems && window.selectedItems[0]);
+          if (sel && typeof applyTextCurve === 'function') applyTextCurve(sel, parseFloat(curveSlider.value) || 0);
+        } catch(e){}
+      });
+      clearInterval(iv);
+    }
+  }, 200);
+  setTimeout(function(){ clearInterval(iv); }, 8000);
+})();
