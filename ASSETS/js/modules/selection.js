@@ -1211,7 +1211,7 @@ const _initSelectionTool = function() {
 
       if (event.modifiers && event.modifiers.shift) {
         const totalAngle = window.rotationInitialAngle + deltaAngle;
-        const snappedTotal = Math.round(totalAngle / 15) * 15;
+        const snappedTotal = Math.round(totalAngle / 45) * 45;
         deltaAngle = snappedTotal - window.rotationInitialAngle;
         window.isRotationSnapped = true;
       } else {
@@ -1704,4 +1704,7 @@ protectGlobal('initSelectionTool', _initSelectionTool);
 // Las funciones de organización, vista y nodos son expuestas
 // por sus módulos responsables. selection.js solo registra
 // la herramienta de selección y sus APIs propias.
+
+
+
 
