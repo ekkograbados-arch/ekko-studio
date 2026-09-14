@@ -438,11 +438,16 @@ function snapshotFusionChildMatrices(group) {
     }));
 }
 
-function restoreFusionChildMatrices(snapshot) {
+function fusionChildMatricesStable(snapshot) {
+    let maxError = 0;
     (Array.isArray(snapshot) ? snapshot : []).forEach(entry => {
         if (!entry?.child?.project || !entry.matrix) return;
-        try { entry.child.matrix = entry.matrix.clone(); } catch (e) {}
+        const current = entry.child.matrix;
+        ["a", "b", "c", "d", "tx", "ty"].forEach(key => {
+            maxError = Math.max(maxError, Math.abs((current?.[key] ?? 0) - (entry.matrix?.[key] ?? 0)));
+        });
     });
+    return { stable: Number.isFinite(maxError) && maxError < 1e-5, maxError };
 }
 
 function fusionMatrixInvariant(group) {
@@ -481,8 +486,8 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     const applied = globalOperation.applied;
     if (applied) {
         transformFusionGeomBases(owner, globalOperation.operationMatrix);
-        restoreFusionChildMatrices(childMatrixSnapshot);
     }
+    const childMatrices = fusionChildMatricesStable(childMatrixSnapshot);
     const after = compareFusionInvariant(before, fusionMatrixInvariant(owner));
     const record = resolveFusionRecord(owner);
     if (record) syncFusionVirtualHole(record);
@@ -495,7 +500,9 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     };
     window._ekkoFusionTransformDiagnostics = {
         applied, owner: identity, matrixInvariant: after,
-        beforeInvariant: before, childMatricesRestored: applied,
+        beforeInvariant: before,
+        childMatricesStable: childMatrices.stable,
+        childMatricesMaxError: childMatrices.maxError,
         ownerApplyMatrix: owner.applyMatrix === false,
         ownerGlobalBefore: globalOperation.before ? {
             a: globalOperation.before.a, b: globalOperation.before.b,
