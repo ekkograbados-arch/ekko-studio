@@ -405,6 +405,10 @@ function compareFusionInvariant(before, after) {
 export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     const owner = resolvePublicTransformOwner(fusionOrItem);
     if (!owner || !isRealFusionGroup(owner)) return { applied: false, owner: null, invariant: null };
+    // Paper.js groups may have applyMatrix=true, which bakes a group
+    // translation into its children and leaves the owner matrix unchanged.
+    // A fusion owner must retain the transform on the owner itself.
+    try { owner.applyMatrix = false; } catch (e) {}
     const childMatrixSnapshot = snapshotFusionChildMatrices(owner);
     const before = fusionMatrixInvariant(owner);
     const applied = applyOperation(owner, operation);
@@ -425,6 +429,7 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     window._ekkoFusionTransformDiagnostics = {
         applied, owner: identity, matrixInvariant: after,
         beforeInvariant: before, childMatricesRestored: applied,
+        ownerApplyMatrix: owner.applyMatrix === false,
         operation: operation.type || "matrix",
         at: Date.now()
     };
