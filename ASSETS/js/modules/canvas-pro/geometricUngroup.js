@@ -248,6 +248,22 @@ export function getGlobalUnsubtractedPath(item) {
     return tempBase;
 }
 
+// CSG operands are calculated in project/global coordinates. Before adding
+// the result back under a transformed Path/CompoundPath, convert it to the
+// owner's local coordinate system. Otherwise a moved fusion mask is rebuilt
+// with identity coordinates and drifts from its Raster after mouse-up.
+function attachGlobalGeometryToOwnerLocal(geometry, owner) {
+    if (!geometry || !owner) return geometry;
+    try {
+        const ownerGlobal = owner.globalMatrix;
+        const inverse = ownerGlobal?.inverted?.();
+        if (inverse && typeof geometry.transform === "function") {
+            geometry.transform(inverse);
+        }
+    } catch (e) {}
+    return geometry;
+}
+
 // CSG geometry is kept in project coordinates, but a detached SVG hole must
 // never subtract or render outside the active product boundary. The original
 // hole item is not modified; only the temporary boolean operand is confined.
@@ -367,10 +383,13 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 item.removeChildren();
                 if (pristine instanceof paper.CompoundPath) {
                     const cl = pristine.clone({ insert: false });
+                    attachGlobalGeometryToOwnerLocal(cl, item);
                     item.addChildren(cl.removeChildren());
                     cl.remove();
                 } else if (pristine instanceof paper.Path) {
-                    item.addChild(pristine.clone({ insert: false }));
+                    const child = pristine.clone({ insert: false });
+                    attachGlobalGeometryToOwnerLocal(child, item);
+                    item.addChild(child);
                 }
                 pristine.remove();
             }
@@ -517,6 +536,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         }
 
         if (finalSubtracted) {
+            attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
             solid.removeChildren();
             if (finalSubtracted instanceof paper.CompoundPath) {
                 solid.addChildren(finalSubtracted.removeChildren());
