@@ -317,6 +317,12 @@ const _getSelectableItem = function(item) {
       return null;
     }
 
+    // Una fusión real es el propietario público; no degradarla al wrapper
+    // de contención aunque esté dentro de un clipGroup.
+    if (d.isSmartFusion === true && !d.clipGroup) {
+      return current;
+    }
+
     // Si es un clipGroup creado por window.clipItem
     if (d.clipGroup) {
       return current;
