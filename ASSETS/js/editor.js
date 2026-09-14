@@ -1395,7 +1395,11 @@ async function bootstrapEKKO() {
       });
 
     await Promise.all([fontsPromise, productsPromise]);
-      initSmartFusionListeners(); 
+      initSmartFusionListeners();
+      if (window.EKKO_DIAG && typeof window.EKKO_DIAG.emitReady === "function" && !window.__EKKO_STUDIO_READY_EMITTED) {
+        window.__EKKO_STUDIO_READY_EMITTED = true;
+        window.EKKO_DIAG.emitReady();
+      }
      console.log(`%c[EKKO BOOTSTRAP] Editor inicializado con éxito. Dimensiones estables: ${initialWidth}x${initialHeight} px.`, "color: #10b981; font-weight: bold;");
 
   } catch (err) {
