@@ -94,7 +94,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="fusion" class="btn-action" onclick="performSmartFusion()">
                     <i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar
                 </button>
-                <button data-fusion-btn="unfusion" class="btn-action" onclick="if(window.releaseSmartFusion)window.releaseSmartFusion(window.selectedItem||window.selectedItems)">
+                <button data-fusion-btn="unfusion" class="btn-action" onclick="releaseSmartFusion()">
                     <i class="fas fa-unlink"></i> Quitar Fusión
                 </button>
                 <button id="proBtnCalado" data-fusion-btn="calado" class="btn-action" onclick="convertSelectionToCalado()" title="Convertir vector en calado">
@@ -151,7 +151,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
-            <div class="top-group" style="gap:6px;align-items:center;"><span style="font-size:11px;color:#888;">Rot:</span><input id="objRotation" type="number" min="-360" max="360" style="width:56px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;" title="Angulo de rotacion" readonly></div>
             <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
                 <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
                 <button id="topPanelOverflow" type="button" class="panel-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
@@ -173,6 +172,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxDelete" title="Eliminar (Supr)"><i class="fas fa-trash"></i> Eliminar</button>
                     <button class="toolbar-btn" id="btnCtxDuplicate" title="Duplicar (Ctrl+D)"><i class="fas fa-copy"></i> Duplicar</button>
                     <button class="toolbar-btn" id="btnCtxScaleDown" title="Achicar"><i class="fas fa-minus"></i></button>
+                    <span id="rotationAngleFloat" style="display:none;min-width:52px;text-align:center;font-weight:bold;font-size:13px;padding:2px 6px;border-radius:4px;background:#222;color:#00e5ff;">0°</span>
                     <button class="toolbar-btn" id="btnCtxScaleUp" title="Agrandar"><i class="fas fa-plus"></i></button>
                     <div class="toolbar-divider"></div>
                     <!-- CONTROLES DE APILAMIENTO Z -->
@@ -185,7 +185,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <!-- FUSIÓN → BOTONES PRINCIPALES -->
                 <div class="toolbar-group">
                     <button data-fusion-btn="fusion" class="toolbar-btn" onclick="performSmartFusion()" title="Fusionar imagen dentro de silueta"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
-                    <button data-fusion-btn="unfusion" class="toolbar-btn" onclick="if(window.releaseSmartFusion)window.releaseSmartFusion(window.selectedItem||window.selectedItems)" title="Quitar Fusión"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+                    <button data-fusion-btn="unfusion" class="toolbar-btn" onclick="releaseSmartFusion(window.selectedItem)" title="Quitar Fusión"><i class="fas fa-unlink"></i> Quitar Fusión</button>
                     <button data-fusion-btn="calado" class="toolbar-btn" onclick="convertSelectionToCalado()" title="Convertir vector en calado"><i class="fas fa-object-ungroup" style="color:#334155;"></i> Calado</button>
                     <button data-fusion-btn="ungroup" class="toolbar-btn" onclick="ungroupSelectedItem()" title="Desagrupar"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
                     <button data-fusion-btn="editNodes" class="toolbar-btn" onclick="toggleNodeEditMode()" title="Editar Nodos"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
@@ -286,13 +286,47 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <script type="module" src="ASSETS/js/editor.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCoordinator.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCommandBridge.js"></script>
-<div id="rotationAngleBadge" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.75);color:#00e5ff;font-weight:bold;padding:8px 16px;border-radius:8px;font-size:18px;z-index:99998;pointer-events:none;border:1px solid #00e5ff;">0°</div>
 <script>
-(function(){var badge=document.getElementById("rotationAngleBadge");var inp=document.getElementById("objRotation");setInterval(function(){if(window.rotationActive&&inp&&badge){badge.style.display="block";badge.textContent=(inp.value||"0")+"Â°";}else if(badge){badge.style.display="none";}},100);})();
+(function(){
+  function greenIf45(val,el){
+    var v=Math.abs(parseFloat(val)||0)%360;
+    var is45=(Math.round(v)%45===0);
+    el.style.color=is45?"#22c55e":"#00e5ff";
+    el.style.borderColor=is45?"#22c55e":"#00e5ff";
+  }
+  var inp=document.getElementById("objRotation");
+  var fl=document.getElementById("rotationAngleFloat");
+  if(inp){
+    inp.addEventListener("change",function(){
+      try{
+        var sel=window.selectedItem||(window.selectedItems&&window.selectedItems[0]);
+        if(sel){var ang=parseFloat(inp.value)||0;var cur=sel.data&&sel.data.rotation||0;sel.rotate(ang-cur);sel.data=sel.data||{};sel.data.rotation=ang;paper.view&&paper.view.update();}
+      }catch(e){}
+    });
+  }
+  setInterval(function(){
+    var rotating=window.rotationActive;
+    if(inp){greenIf45(inp.value,inp);}
+    if(fl){
+      if(rotating&&inp){fl.style.display="inline-block";fl.textContent=(inp.value||"0")+"°";greenIf45(inp.value,fl);}
+      else{fl.style.display="none";}
+    }
+    // Cotas: desactivar por defecto si estan activas
+    if(window.setMeasurementsVisibility&&!window._cotasDefaultSet){window._cotasDefaultSet=true;try{window.setMeasurementsVisibility(false);}catch(e){}}
+  },150);
+  // Fix tamaño de fuente: aplicar tambien a grupos curvados
+  var fsi=document.getElementById("ctxFontSize");
+  if(fsi&&!fsi._boundV52){fsi._boundV52=true;fsi.addEventListener("change",function(){
+    try{
+      var sel=window.selectedItem||(window.selectedItems&&window.selectedItems[0]);
+      if(!sel)return;
+      var sz=parseFloat(fsi.value)||42;
+      if(sel.data&&(sel.data.isCurvedGroup||sel.data.isSpacedGroup)&&sel.children){sel.children.forEach(function(c){if(c.className==="PointText")c.fontSize=sz;});}
+      else if(sel.className==="PointText"){sel.fontSize=sz;}
+      paper.view&&paper.view.update();
+    }catch(e){}
+  });}
+})();
 </script>
 </body>
 </html>
-
-
-
-
