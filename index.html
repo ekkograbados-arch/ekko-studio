@@ -91,7 +91,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div class="top-group">
-                <button data-fusion-btn="fusion" class="btn-action" onclick="performSmartFusion()">
+                <button data-fusion-btn="fusion" class="btn-action" data-ekko-command="performSmartFusion">
                     <i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar
                 </button>
                 <button data-fusion-btn="unfusion" class="btn-action" onclick="releaseSmartFusion()">
@@ -184,7 +184,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <div class="toolbar-divider"></div>
                 <!-- FUSIÓN → BOTONES PRINCIPALES -->
                 <div class="toolbar-group">
-                    <button data-fusion-btn="fusion" class="toolbar-btn" onclick="performSmartFusion()" title="Fusionar imagen dentro de silueta"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
+                    <button data-fusion-btn="fusion" class="toolbar-btn" data-ekko-command="performSmartFusion" title="Fusionar imagen dentro de silueta"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
                     <button data-fusion-btn="unfusion" class="toolbar-btn" onclick="releaseSmartFusion(window.selectedItem)" title="Quitar Fusión"><i class="fas fa-unlink"></i> Quitar Fusión</button>
                     <button data-fusion-btn="calado" class="toolbar-btn" onclick="convertSelectionToCalado()" title="Convertir vector en calado"><i class="fas fa-object-ungroup" style="color:#334155;"></i> Calado</button>
                     <button data-fusion-btn="ungroup" class="toolbar-btn" onclick="ungroupSelectedItem()" title="Desagrupar"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
@@ -328,5 +328,12 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
   });}
 })();
 </script>
+    <script>
+  // Emitir evento ready para ekkoDiagnostics (Fase A)
+  if (window.EKKO_DIAG && typeof window.EKKO_DIAG.emitReady === 'function') {
+    window.EKKO_DIAG.emitReady();
+  }
+</script>
+
 </body>
 </html>
