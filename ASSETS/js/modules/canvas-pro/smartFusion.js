@@ -439,7 +439,9 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   if (typeof window.syncGeometryToGeomBase === 'function') window.syncGeometryToGeomBase(finalItem);
   if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
   if (typeof window.deselectItem === 'function') window.deselectItem();
-  if (typeof window.selectItem === 'function') window.selectItem(finalItem);
+  // La selección posterior a Fusionar debe apuntar al owner real, no al
+  // wrapper de contención. El wrapper permanece solo como límite de clipping.
+  if (typeof window.selectItem === 'function') window.selectItem(fusionGroup);
   paper.view.update();
 
   // Flash de éxito: contorno NEON FUCSIA breve (600ms) → feedback visual "¡se fusionó!"
