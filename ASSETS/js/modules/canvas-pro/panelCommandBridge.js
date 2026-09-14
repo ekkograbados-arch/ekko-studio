@@ -47,6 +47,65 @@ const CONTEXT_COMMANDS = {
 
 let initialized = false;
 let refreshTimer = null;
+let commandDispatcherInstalled = false;
+
+// Registry of commands declared by data-ekko-command.  The bridge is the
+// single UI entry point; the registry only delegates to existing owners.
+const COMMAND_HANDLERS = Object.freeze({
+    performSmartFusion: () => typeof window.performSmartFusion === "function"
+        ? window.performSmartFusion()
+        : null,
+    releaseSmartFusion: () => {
+        if (typeof window.releaseSmartFusion !== "function") return null;
+        const selected = window.selectedItems && window.selectedItems.length
+            ? [...window.selectedItems]
+            : (window.selectedItem ? window.selectedItem : null);
+        return window.releaseSmartFusion(selected);
+    }
+});
+
+export function dispatchEKKOCommand(command, element = null) {
+    const handler = COMMAND_HANDLERS[command];
+    if (typeof handler !== "function") {
+        console.warn(`[EKKO COMMANDS] Comando no registrado: ${command}`);
+        return null;
+    }
+    try {
+        const result = handler(element);
+        window.EKKO_DIAG?.logEvent?.("command.dispatch", {
+            command,
+            elementId: element?.id || null,
+            ok: true
+        });
+        return result;
+    } catch (error) {
+        window.EKKO_DIAG?.logEvent?.("command.dispatch", {
+            command,
+            elementId: element?.id || null,
+            ok: false,
+            error: String(error)
+        });
+        console.error(`[EKKO COMMANDS] Fallo en ${command}`, error);
+        return null;
+    }
+}
+
+function installCommandDispatcher() {
+    const workspace = document.getElementById("workspace");
+    if (!workspace || commandDispatcherInstalled) return;
+
+    workspace.addEventListener("click", event => {
+        const element = event.target?.closest?.("[data-ekko-command]");
+        if (!element || !workspace.contains(element)) return;
+        if (element.disabled || element.classList.contains("ekko-command-hidden")) return;
+
+        // Capture declared commands before any future inline/bubble handler.
+        event.preventDefault();
+        event.stopPropagation();
+        dispatchEKKOCommand(element.dataset.ekkoCommand, element);
+    }, true);
+    commandDispatcherInstalled = true;
+}
 
 function unwrap(item) {
     if (!item) return null;
@@ -248,6 +307,7 @@ export function initPanelCommandBridge() {
     initialized = true;
 
     tagProfessionalButtons();
+    installCommandDispatcher();
     observeProfessionalToolbar();
     wrapToolbarRefresh();
     applyCommandVisibility();
