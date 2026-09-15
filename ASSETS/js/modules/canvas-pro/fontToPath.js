@@ -132,9 +132,14 @@ export async function textToCompoundPath(textItem) {
     const glyphPath = font.getPath(content, 0, 0, size, { kerning: true });
     const advance = font.getAdvanceWidth(content, size, { kerning: true });
     const justification = textItem.justification || "left";
-    let offsetX = textItem.bounds.left;
-    if (justification === "center") offsetX = textItem.point.x - advance / 2;
-    if (justification === "right") offsetX = textItem.point.x - advance;
+    // Generar la geometría en el sistema local del PointText. La versión anterior
+    // mezclaba bounds globales con point local y luego insertaba el resultado en
+    // un clipGroup transformado, provocando el doble escalado al vectorizar.
+    const anchor = textItem.point.clone ? textItem.point.clone() : new paper.Point(textItem.point.x, textItem.point.y);
+    let offsetX = anchor.x;
+    if (justification === "center") offsetX = anchor.x - advance / 2;
+    if (justification === "right") offsetX = anchor.x - advance;
+    const baselineY = anchor.y;
 
     const contours = [];
     let current = null;
@@ -143,7 +148,7 @@ export async function textToCompoundPath(textItem) {
             current = new paper.Path({ insert: false });
             contours.push(current);
         }
-        if (current) addContour(current, command, offsetX, textItem.point.y);
+        if (current) addContour(current, command, offsetX, baselineY);
     });
 
     const usable = contours.filter(path => path.segments.length > 1);
@@ -152,6 +157,11 @@ export async function textToCompoundPath(textItem) {
     compound.fillRule = "evenodd";
     compound.fillColor = textItem.fillColor ? textItem.fillColor.clone() :
         new paper.Color("black");
+    // Conservar exactamente la transformación local del texto: escala, rotación
+    // y posición. El transform del padre se aplica una sola vez al insertar.
+    if (textItem.matrix && compound.matrix) {
+        compound.matrix = textItem.matrix.clone();
+    }
     return compound;
 }
 
