@@ -173,8 +173,7 @@ export function applyTextCurve(item, curvature) {
         return;
     }
 
-    const oldHandle = targetItem.children ? targetItem.children.find(c => c.data?.isCurveHandle) : null;
-    if (oldHandle) oldHandle.remove();
+    removeCurveHandle();
 
     const curvedGroup = new paper.Group();
     curvedGroup.data = {
@@ -261,14 +260,24 @@ export function restoreFlatText(item, curvedGroup) {
         const index = parent.children.indexOf(curvedGroup);
         parent.insertChild(index, flatText);
     }
+    removeCurveHandle();
     curvedGroup.remove();
     return flatText;
 }
 
-export function drawBlueCurveHandle(group) {
-    const oldHandle = group.children.find(c => c.data?.isCurveHandle);
-    if (oldHandle) oldHandle.remove();
+function removeCurveHandle() {
+    const handle = typeof window !== 'undefined' ? window._ekkoCurveHandle : null;
+    if (handle?.project) {
+        try { handle.remove(); } catch (e) {}
+    }
+    if (typeof window !== 'undefined') window._ekkoCurveHandle = null;
+}
 
+export function drawBlueCurveHandle(group) {
+    removeCurveHandle();
+
+    // El handle es overlay de edición, no geometría del texto. Mantenerlo
+    // fuera del curvedGroup evita contaminar bounds, restauración y exportación.
     const bounds = group.bounds;
     const handlePoint = new paper.Point(bounds.center.x, bounds.bottom + 15);
     const handle = new paper.Path.Circle({
@@ -278,8 +287,11 @@ export function drawBlueCurveHandle(group) {
         strokeColor: '#007bff',
         strokeWidth: 1.5 / paper.view.zoom
     });
-    handle.data = { isCurveHandle: true, isHandle: true };
-    group.addChild(handle);
+    handle.data = { isCurveHandle: true, isHandle: true, curveOwnerId: group.id };
+    const overlayLayer = paper.project.layers?.find(layer => layer.data?.isOverlayLayer) || paper.project.activeLayer;
+    overlayLayer.addChild(handle);
+    handle.bringToFront();
+    if (typeof window !== 'undefined') window._ekkoCurveHandle = handle;
 }
 
 export function applyTextSpacing(item, hspace) {
