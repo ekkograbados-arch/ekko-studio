@@ -344,6 +344,10 @@ function applyFontFamily(item, family) {
     const target = item.data?.clipGroup ? getContentItem(item) : item;
     if (target && isPointText(target)) {
         target.fontFamily = family;
+        try {
+            const ready = document.fonts?.load?.(`16px "${family}"`);
+            if (ready?.then) ready.then(() => paper.view.update()).catch(() => {});
+        } catch (e) {}
         paper.view.update();
     }
 }
