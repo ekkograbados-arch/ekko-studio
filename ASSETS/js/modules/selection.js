@@ -317,14 +317,21 @@ const _getSelectableItem = function(item) {
       return null;
     }
 
-    // Una fusión real es el propietario público; no degradarla al wrapper
-    // de contención aunque esté dentro de un clipGroup.
-    if (d.isSmartFusion === true && !d.clipGroup) {
+    // Un wrapper de clipping nunca es owner público. Si contiene una fusión,
+    // resolver primero el fusionGroup real y devolver esa identidad.
+    if (d.clipGroup) {
+      const fusionOwner = (current.children || []).find(child =>
+        child?.data?.isSmartFusion && !child.data?.clipGroup &&
+        child.children?.some(grandChild => grandChild?.clipMask || grandChild?.data?.isFusionMask)
+      );
+      if (fusionOwner) return fusionOwner;
       return current;
     }
 
-    // Si es un clipGroup creado por window.clipItem
-    if (d.clipGroup) {
+    // Una fusión es una unidad pública aunque su máscara o Raster estén
+    // anidados dentro de un wrapper de contención.
+    if (d.isSmartFusion && !d.clipGroup &&
+        current.children?.some(child => child?.clipMask || child?.data?.isFusionMask)) {
       return current;
     }
 
