@@ -340,6 +340,7 @@ function resetSceneRuntimeState() {
   window.marqueeActive = false;
   window.dragging = false;
   window.resizeActive = false;
+  if (window.EKKO_ROTATION_CONTROLLER?.cancelPointer) window.EKKO_ROTATION_CONTROLLER.cancelPointer();
   window.rotationActive = false;
   window.fusionEditActive = false;
   window._fusionEditState = null;
