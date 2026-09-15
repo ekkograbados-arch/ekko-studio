@@ -36,12 +36,6 @@ const LEGACY_FONT_ALIASES = {
 export async function loadDynamicFonts() {
     if (loadedFontsCache.length > 0) return loadedFontsCache;
 
-    const fallbacks = [
-        { name: "Nostalgic Letter", family: "ekko_nostalgic_letter", file: "Nostalgic Letter.woff2" },
-        { name: "Please write me a song", family: "ekko_please_write_me_a_song", file: "Please write me a song.woff2" },
-        { name: "SimpleHandmade", family: "ekko_simplehandmade", file: "SimpleHandmade.woff2" }
-    ];
-
     try {
         const response = await fetch('/api/fonts');
         if (!response.ok) throw new Error("Endpoint api/fonts no disponible");
@@ -101,18 +95,10 @@ export async function loadDynamicFonts() {
         loadedFontsCache = loaded;
         return loaded;
     } catch (e) {
-        // Fallback local perezoso
-        for (const f of fallbacks) {
-            try {
-                const fontFace = new FontFace(f.family, `url(/ASSETS/fonts/${encodeURIComponent(f.file)})`, { display: 'swap' });
-                document.fonts.add(fontFace);
-            } catch (err) {
-                // Ignorar
-            }
-        }
-        fallbacks.sort((a, b) => a.name.localeCompare(b.name));
-        loadedFontsCache = fallbacks;
-        return fallbacks;
+        // No crear fuentes fantasma ni usar rutas alternativas: el catálogo único es /api/fonts.
+        loadedFontsCache = [];
+        if (typeof window !== 'undefined') window._ekkoFontCatalogError = String(e?.message || e);
+        return loadedFontsCache;
     }
 }
 
@@ -398,6 +384,8 @@ export async function weldText(item) {
         selectedItem: describe(window.selectedItem),
         selectedItems: Array.isArray(window.selectedItems) ? window.selectedItems.map(describe) : [],
         target: null,
+        fontFamily: null,
+        resolution: null,
         acceptedTarget: false,
         convertedClass: null,
         resultClass: null,
@@ -413,6 +401,7 @@ export async function weldText(item) {
     let target = findTextTarget(item);
     if (!target && item && (item.data?.isCurvedGroup || item.data?.isSpacedGroup)) target = item;
     diag.target = describe(target);
+    diag.fontFamily = target?.fontFamily || null;
     diag.acceptedTarget = !!(target && (
         target instanceof paper.PointText ||
         target.data?.isCurvedGroup ||
@@ -440,6 +429,7 @@ export async function weldText(item) {
         diag.returnValue = null;
         return null;
     }
+    diag.resolution = window._ekkoFontResolution || null;
     diag.phase = "weldText:converted";
     diag.convertedClass = converted?.className || converted?.constructor?.name || null;
     const usable = converted?.children?.length
