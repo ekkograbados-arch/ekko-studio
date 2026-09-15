@@ -389,7 +389,8 @@ export async function weldText(item) {
         acceptedTarget: false,
         convertedClass: null,
         resultClass: null,
-        returnValue: null
+        returnValue: null,
+        geometry: null
     };
     if (!item || item.data?.locked) {
         diag.phase = "weldText:rejected-item";
@@ -418,12 +419,13 @@ export async function weldText(item) {
     // Paper.js no ofrece contornos para PointText. La ruta OpenType genera
     // CompoundPath real y conserva los contornos internos de los glifos.
     let converted = null;
+    let referenceBounds = null;
     try {
         if (target instanceof paper.PointText && document.fonts?.load) {
-            // Asegurar que Paper.js y OpenType trabajan con la misma familia,
-            // incluidos los glifos distintos de mayúsculas y minúsculas.
             await document.fonts.load(`${Number(target.fontSize) || 42}px "${target.fontFamily}"`, target.content || "");
             paper.view.update();
+            // Referencia visual después de cargar la familia real.
+            referenceBounds = target.bounds.clone();
         }
         converted = target instanceof paper.PointText
             ? await textToCompoundPath(target)
@@ -476,6 +478,23 @@ export async function weldText(item) {
     if (parent) {
         const index = parent.children.indexOf(target);
         parent.insertChild(index, resultPath);
+    }
+
+    // Calibración final contra la geometría visual del PointText. Esto evita
+    // que una matriz del clipGroup, un fallback previo o las métricas de un
+    // glifo en mayúscula/minúscula reduzcan la selección al vectorizar.
+    const beforeNormalize = resultPath.bounds.clone();
+    if (referenceBounds && beforeNormalize.width > 0 && beforeNormalize.height > 0) {
+        const sx = referenceBounds.width / beforeNormalize.width;
+        const sy = referenceBounds.height / beforeNormalize.height;
+        resultPath.scale(sx, sy, beforeNormalize.center);
+        resultPath.position = referenceBounds.center;
+        diag.geometry = {
+            reference: { width: referenceBounds.width, height: referenceBounds.height, center: referenceBounds.center },
+            before: { width: beforeNormalize.width, height: beforeNormalize.height },
+            after: { width: resultPath.bounds.width, height: resultPath.bounds.height },
+            scale: { x: sx, y: sy }
+        };
     }
     target.remove();
     try { converted.remove(); } catch (e) {}
