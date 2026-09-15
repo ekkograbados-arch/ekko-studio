@@ -487,8 +487,22 @@ export async function weldText(item) {
     if (referenceBounds && beforeNormalize.width > 0 && beforeNormalize.height > 0) {
         const sx = referenceBounds.width / beforeNormalize.width;
         const sy = referenceBounds.height / beforeNormalize.height;
-        resultPath.scale(sx, sy, beforeNormalize.center);
-        resultPath.position = referenceBounds.center;
+        // Paper.js interpreta position/translate de forma local al parent.
+        // Convertir directamente a position global desplaza el texto cuando
+        // el owner vive dentro de clipGroup. Escalamos y luego trasladamos con
+        // delta global convertido al sistema local del parent.
+        resultPath.scale(sx, sy);
+        const globalDelta = referenceBounds.center.subtract(resultPath.bounds.center);
+        const ownerParent = resultPath.parent;
+        if (ownerParent?.globalToLocal && resultPath.localToGlobal) {
+            const globalOrigin = resultPath.localToGlobal(new paper.Point(0, 0));
+            const globalMoved = globalOrigin.add(globalDelta);
+            const localOrigin = ownerParent.globalToLocal(globalOrigin);
+            const localMoved = ownerParent.globalToLocal(globalMoved);
+            resultPath.translate(localMoved.subtract(localOrigin));
+        } else {
+            resultPath.translate(globalDelta);
+        }
         diag.geometry = {
             reference: { width: referenceBounds.width, height: referenceBounds.height, center: referenceBounds.center },
             before: { width: beforeNormalize.width, height: beforeNormalize.height },
