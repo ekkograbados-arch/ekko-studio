@@ -3,7 +3,7 @@
  * Requiere opentype.js cargado como window.opentype.
  */
 
-const DEFAULT_FONT_FILE = "MalvinasSans-Regular.woff2";
+const DEFAULT_FONT_FILE = "MalvinasSans-Regular.ttf";
 const fontCache = new Map();
 let fontCatalogPromise = null;
 
@@ -26,10 +26,11 @@ async function getFontCatalog() {
 async function resolveFontFile(fontFamily) {
     const catalog = await getFontCatalog();
     const wanted = normalize(fontFamily);
-    const match = catalog.find(font =>
+    const matches = catalog.filter(font =>
         normalize(font.family) === wanted || normalize(font.name) === wanted
     );
-    if (match?.file) return match.file;
+    const match = matches.find(font => /\.(ttf|otf|woff)$/i.test(font.file)) || matches[0];
+    if (match?.file && /\.(ttf|otf|woff)$/i.test(match.file)) return match.file;
     return DEFAULT_FONT_FILE;
 }
 
