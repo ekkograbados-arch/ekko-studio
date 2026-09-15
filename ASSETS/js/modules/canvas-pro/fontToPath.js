@@ -35,15 +35,18 @@ async function resolveFontFile(fontFamily) {
 }
 
 async function loadFont(fontFamily) {
-    if (!window.opentype?.load) {
-        throw new Error("OpenType no está cargado");
+    if (!window.opentype?.parse) {
+        throw new Error("OpenType parse no está cargado");
     }
     const file = await resolveFontFile(fontFamily);
     const url = `/ASSETS/fonts/${encodeURIComponent(file)}`;
     if (!fontCache.has(url)) {
-        fontCache.set(url, new Promise((resolve, reject) => {
-            window.opentype.load(url, (error, font) => error ? reject(error) : resolve(font));
-        }));
+        fontCache.set(url, fetch(url)
+            .then(response => {
+                if (!response.ok) throw new Error(`Fuente no disponible: ${response.status}`);
+                return response.arrayBuffer();
+            })
+            .then(buffer => window.opentype.parse(buffer)));
     }
     return fontCache.get(url);
 }
