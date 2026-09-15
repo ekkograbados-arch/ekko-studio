@@ -379,11 +379,16 @@ export function weldText(item) {
     }
 
     const pathGroup = target.clone({ insert: false });
-    const converted = pathGroup.createShape ? pathGroup.toPath() : pathGroup;
+    // PointText no se convierte con toPath(): Paper.js expone createPath()
+    // para transformar las letras en geometría vectorial real.
+    const converted = typeof pathGroup.createPath === "function"
+        ? pathGroup.createPath({ insert: false })
+        : pathGroup;
     const parts = converted?.children?.length ? Array.from(converted.children) : [converted];
     const usable = parts.filter(Boolean);
     if (!usable.length) {
         try { pathGroup.remove(); } catch (e) {}
+        try { converted?.remove?.(); } catch (e) {}
         return null;
     }
 
