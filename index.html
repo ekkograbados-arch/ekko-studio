@@ -26,6 +26,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
         opacity: 0 !important;
         pointer-events: none !important;
     }
+
+    #ekkoRotationPopup { position:fixed; z-index:10000; display:none; padding:4px 8px; border-radius:5px; background:#263747; color:#fff; font:600 12px sans-serif; pointer-events:none; }
+    #ekkoRotationPopup.is-visible { display:block; }
+    #ekkoRotationPopup.is-snap { background:#168447; color:#fff; }
 </style>
 </head>
 <body>
@@ -151,7 +155,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
-            <div class="top-group" style="gap:6px;align-items:center;"><span style="font-size:11px;color:#888;">Rot:</span><input id="objRotation" type="number" min="-360" max="360" style="width:56px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;" title="Angulo de rotacion" readonly></div>
+            <div class="top-group" style="gap:6px;align-items:center;"><span style="font-size:11px;color:#888;">Rot:</span><input id="objRotation" type="number" min="0" max="360" step="1" style="width:56px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;" title="Angulo de rotacion"></div>
             <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
                 <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
                 <button id="topPanelOverflow" type="button" class="panel-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
@@ -219,6 +223,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <button type="button" class="selected-font-trigger"><span>Fuente</span> ▾</button>
                         <div class="font-dropdown-list hidden"></div>
                     </div>
+                    <input id="ctxRotation" type="number" min="0" max="360" step="1" class="toolbar-input-number" title="Ángulo de rotación">
                     <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
                     <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
                     <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
@@ -268,6 +273,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button id="btn-deshacer-fondo" style="flex:1; padding:8px; background:#e9ecef; border:none; border-radius:6px; cursor:pointer; font-size:13px;">↩️ Deshacer</button>
                     <button id="btn-aceptar-fondo" style="flex:2; padding:8px; background:#2288ff; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">✅ Aceptar</button>
                 </div>
+                <label>Tamaño <input id="objFontSize" type="number" min="5" max="250" step="1" style="width:56px;padding:3px 6px;" title="Tamaño de fuente"></label>
             </div>
 
             <!-- Contenedores de herramientas adicionales -->
@@ -284,6 +290,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <!-- ARRANQUE DEL SISTEMA -->
     <script src="ASSETS/js/config.js"></script>
     <script src="ASSETS/js/vendor-opentype.min.js"></script>
+    <output id="ekkoRotationPopup" aria-live="polite" aria-label="Rotación actual"></output>
     <script type="module" src="ASSETS/js/editor.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCoordinator.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCommandBridge.js"></script>
