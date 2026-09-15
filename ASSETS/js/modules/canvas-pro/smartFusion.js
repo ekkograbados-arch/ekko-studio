@@ -436,11 +436,11 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     originalIsHole
   });
 
-  if (typeof window.syncGeometryToGeomBase === 'function') window.syncGeometryToGeomBase(finalItem);
+  // La fusión pública siempre se selecciona por su owner real. El wrapper
+  // solamente contiene el resultado para clipping y no puede ser propietario.
+  if (typeof window.syncGeometryToGeomBase === 'function') window.syncGeometryToGeomBase(fusionGroup);
   if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
   if (typeof window.deselectItem === 'function') window.deselectItem();
-  // La selección posterior a Fusionar debe apuntar al owner real, no al
-  // wrapper de contención. El wrapper permanece solo como límite de clipping.
   if (typeof window.selectItem === 'function') window.selectItem(fusionGroup);
   paper.view.update();
 
