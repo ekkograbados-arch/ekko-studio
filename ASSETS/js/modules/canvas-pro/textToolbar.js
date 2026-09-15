@@ -419,6 +419,12 @@ export async function weldText(item) {
     // CompoundPath real y conserva los contornos internos de los glifos.
     let converted = null;
     try {
+        if (target instanceof paper.PointText && document.fonts?.load) {
+            // Asegurar que Paper.js y OpenType trabajan con la misma familia,
+            // incluidos los glifos distintos de mayúsculas y minúsculas.
+            await document.fonts.load(`${Number(target.fontSize) || 42}px "${target.fontFamily}"`, target.content || "");
+            paper.view.update();
+        }
         converted = target instanceof paper.PointText
             ? await textToCompoundPath(target)
             : pathGroup;
