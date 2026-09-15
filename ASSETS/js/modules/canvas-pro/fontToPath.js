@@ -3,7 +3,6 @@
  * Requiere opentype.js cargado como window.opentype.
  */
 
-const DEFAULT_FONT_FILE = "MalvinasSans-Regular.ttf";
 const fontCache = new Map();
 let fontCatalogPromise = null;
 
@@ -29,9 +28,11 @@ async function resolveFontFile(fontFamily) {
     const matches = catalog.filter(font =>
         normalize(font.family) === wanted || normalize(font.name) === wanted
     );
-    const match = matches.find(font => /\.(ttf|otf|woff)$/i.test(font.file)) || matches[0];
-    if (match?.file && /\.(ttf|otf|woff)$/i.test(match.file)) return match.file;
-    return DEFAULT_FONT_FILE;
+    const match = matches.find(font => /\.(ttf|otf|woff)$/i.test(font.file));
+    if (!match?.file) {
+        throw new Error(`Fuente seleccionada sin formato vectorial compatible: ${fontFamily}`);
+    }
+    return match.file;
 }
 
 async function loadFont(fontFamily) {
@@ -40,13 +41,25 @@ async function loadFont(fontFamily) {
     }
     const file = await resolveFontFile(fontFamily);
     const url = `/ASSETS/fonts/${encodeURIComponent(file)}`;
+    const meta = { requestedFamily: fontFamily, resolvedFile: file, requestedUrl: url, httpStatus: null, parse: "pending" };
+    if (typeof window !== "undefined") window._ekkoFontResolution = meta;
     if (!fontCache.has(url)) {
         fontCache.set(url, fetch(url)
             .then(response => {
+                meta.httpStatus = response.status;
                 if (!response.ok) throw new Error(`Fuente no disponible: ${response.status}`);
                 return response.arrayBuffer();
             })
-            .then(buffer => window.opentype.parse(buffer)));
+            .then(buffer => {
+                const parsed = window.opentype.parse(buffer);
+                meta.parse = "success";
+                return parsed;
+            })
+            .catch(error => {
+                meta.parse = "error";
+                meta.error = String(error?.message || error);
+                throw error;
+            }));
     }
     return fontCache.get(url);
 }
@@ -112,4 +125,4 @@ export async function textToCompoundPath(textItem) {
     return compound;
 }
 
-window.EKKO_FONT_TO_PATH = { textToCompoundPath };
+window.EKKO_FONT_TO_PATH = { textToCompoundPath, resolveFontFile };
