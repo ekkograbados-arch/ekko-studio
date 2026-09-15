@@ -325,7 +325,11 @@ const _getSelectableItem = function(item) {
         child.children?.some(grandChild => grandChild?.clipMask || grandChild?.data?.isFusionMask)
       );
       if (fusionOwner) return fusionOwner;
-      return current;
+      // clipGroup es solo contención/máscara. El owner público debe ser el
+      // contenido real; devolver el wrapper agranda la caja de selección al
+      // bounds completo del mockup y rompe Texto a Vector.
+      const contentOwner = getContentItem(current);
+      return contentOwner && contentOwner !== current ? contentOwner : null;
     }
 
     // Una fusión es una unidad pública aunque su máscara o Raster estén
