@@ -1158,7 +1158,7 @@ export function createEditableText(point) {
     fontSize: 42,
     fillColor: new paper.Color(0),
     justification: "center",
-    fontFamily: "Arial"
+    fontFamily: "ekko_malvinassans_regular"
   });
   txt.data = { locked: false, label: "Texto" };
   paper.project.activeLayer.addChild(txt);
