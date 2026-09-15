@@ -367,6 +367,20 @@ export function applyTextSpacing(item, hspace) {
     paper.view.update();
 }
 
+function findTextTarget(item) {
+    if (!item) return null;
+    if (item instanceof paper.PointText) return item;
+    if (item.data?.clipMask || item.clipMask || item.data?.isMask || item.data?.wasClipMask) return null;
+    if (item.children) {
+        const children = Array.from(item.children);
+        for (const child of children) {
+            const found = findTextTarget(child);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
 export async function weldText(item) {
     const describe = (value) => value ? {
         className: value.className || value.constructor?.name || null,
@@ -396,12 +410,14 @@ export async function weldText(item) {
     }
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
-    let target = item;
-    if (item.data?.clipGroup) {
-        target = item.children.find(c => !c.clipMask);
-    }
+    let target = findTextTarget(item);
+    if (!target && item && (item.data?.isCurvedGroup || item.data?.isSpacedGroup)) target = item;
     diag.target = describe(target);
-    diag.acceptedTarget = !!(target && (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup));
+    diag.acceptedTarget = !!(target && (
+        target instanceof paper.PointText ||
+        target.data?.isCurvedGroup ||
+        target.data?.isSpacedGroup
+    ));
 
     if (!diag.acceptedTarget) {
         diag.phase = "weldText:rejected-target";
@@ -468,16 +484,16 @@ export async function weldText(item) {
     try { converted.remove(); } catch (e) {}
     try { pathGroup.remove(); } catch (e) {}
 
-    if (window.selectedItem === item || window.selectedItem === target) {
-        if (typeof window.selectItem === "function") {
-            window.selectItem(resultPath);
-        } else {
-            window.selectedItem = resultPath;
-            window.selectedItems = [resultPath];
-        }
-        window.updateSelectionBox(resultPath);
-        window.refreshEKKOSharedCommands?.();
+    // La conversión fue invocada sobre la selección pública; siempre debe
+    // publicar el nuevo vector, aunque el target sea un hijo de clipGroup.
+    if (typeof window.selectItem === "function") {
+        window.selectItem(resultPath);
+    } else {
+        window.selectedItem = resultPath;
+        window.selectedItems = [resultPath];
     }
+    window.updateSelectionBox?.(resultPath);
+    window.refreshEKKOSharedCommands?.();
     diag.phase = "weldText:success";
     diag.resultClass = resultPath.className || resultPath.constructor?.name || null;
     diag.returnValue = describe(resultPath);
