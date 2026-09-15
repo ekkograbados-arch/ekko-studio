@@ -5,7 +5,7 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
 ======================================================================== */
 
 let measurementsGroup = null;
-let showMeasurements = true;
+let showMeasurements = false;
 
 // Limpia todas las cotas y dimensiones temporales dibujadas en el lienzo
 export function clearMeasurements() {
@@ -113,7 +113,10 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
 // Genera y dibuja las cotas de diseño en el lienzo
 export function drawMeasurements() {
     if (typeof window.updateGlobalScaleFactor === "function") window.updateGlobalScaleFactor();
-    if (!showMeasurements || !window.paper || !paper.project) return;
+    if (!showMeasurements || !window.paper || !paper.project || !window.selectedItem) {
+        clearMeasurements();
+        return;
+    }
 
     clearMeasurements();
     measurementsGroup = new paper.Group();
@@ -159,7 +162,10 @@ export function drawMeasurements() {
     */
     if (window.selectedItem && !window.selectedItem.data?.mockup) {
         const displayItem = typeof window.getContentItem === 'function' ? window.getContentItem(window.selectedItem) : window.selectedItem;
-        if (!displayItem || !displayItem.bounds || displayItem.bounds.width <= 1 || displayItem.bounds.height <= 1) return;
+        if (!displayItem || !displayItem.bounds || displayItem.bounds.width <= 1 || displayItem.bounds.height <= 1) {
+            clearMeasurements();
+            return;
+        }
 
         const bounds = displayItem.bounds;
         const objColor = "#007bff"; // <- COLOR DE SECCIÓN C (Azul técnico para diseño útil)
