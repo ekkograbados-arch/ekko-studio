@@ -3,6 +3,7 @@ import {
   beginTransformTransaction, accumulateDragDelta, finalizeTransformTransaction,
   transformFusion, notifyTransformObservers
 } from "./canvas-pro/fusionController.js";
+import { rotationController } from "./canvas-pro/rotationController.js";
 
 /* =========================================================================
    Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
@@ -614,6 +615,7 @@ const _updateSelectionBox = function(item) {
   if (typeof window.bindRotationInputEvents === "function") {
     window.bindRotationInputEvents();
   }
+  rotationController.syncSelection(primaryItem);
   if (typeof window.syncContextualRotationInput === "function") {
     window.syncContextualRotationInput(primaryItem);
   }
@@ -682,6 +684,7 @@ const _selectItem = function(item, isMulti = false) {
  * Deselecciona todos los elementos y remueve las cajas de selección
  */
 const _deselectItem = function() {
+  if (window.rotationActive) rotationController.cancelPointer(); else rotationController.hidePopup();
   if (window.nodeEditMode) {
     return;
   }
@@ -1039,38 +1042,12 @@ const _initSelectionTool = function() {
       const hType = hitResult.item.data.handleType;
       if (hType === 'rot') {
         if (!window.selectedItem) return;
-        window.rotationActive = true;
-        window.rotationTarget = window.selectedItem;
-
-        let unifiedBounds = null;
-        window.selectedItems.forEach(function(it) {
-          const displayItem = getContentItem(it);
-          if (!displayItem) return;
-          const b = (displayItem.bounds && displayItem.bounds.width > 0) ? displayItem.bounds : (it.data?.geomBase?.bounds || null);
-          if (b) {
-            unifiedBounds = !unifiedBounds ? b.clone() : unifiedBounds.unite(b);
-          }
+        rotationController.startPointer(event, {
+          selectedItem: window.selectedItem,
+          selectedItems: window.selectedItems || [],
+          selectionBox: window.selectionBoxGroup,
+          getContentItem, getTransformTarget, toParentPoint
         });
-
-        window.rotationCenter = unifiedBounds ? unifiedBounds.center : window.selectedItem.bounds.center;
-        window.rotationStartAngle = event.point.subtract(window.rotationCenter).angle;
-        const primaryDisplay = getContentItem(window.selectedItem);
-        window.rotationInitialAngle = primaryDisplay ? (primaryDisplay.data?.rotation || 0) : 0;
-        window.rotationTargets = [];
-
-        window.selectedItems.forEach(function(item) {
-          const tgt = getTransformTarget(item);
-          if (tgt) {
-            window.rotationTargets.push({
-              item: item,
-              target: tgt,
-              initialRotation: tgt.data?.rotation || 0,
-              initialPosition: tgt.position.clone(),
-              lastDeltaAngle: 0
-            });
-          }
-        });
-        beginTransformTransaction("rotate", window.rotationTargets, event.point);
         return;
       }
 
@@ -1221,55 +1198,9 @@ const _initSelectionTool = function() {
       return;
     }
 
-    // Rotación interactiva con sincronización en geomBase
-    if (window.rotationActive && window.rotationTarget && window.rotationTargets && window.rotationTargets.length > 0) {
-      const currentAngle = event.point.subtract(window.rotationCenter).angle;
-      let deltaAngle = currentAngle - window.rotationStartAngle;
-
-      if (event.modifiers && event.modifiers.shift) {
-        const totalAngle = window.rotationInitialAngle + deltaAngle;
-        const snappedTotal = Math.round(totalAngle / 45) * 45;
-        deltaAngle = snappedTotal - window.rotationInitialAngle;
-        window.isRotationSnapped = true;
-      } else {
-        window.isRotationSnapped = false;
-      }
-
-      window.rotationTargets.forEach(function(targetInfo) {
-        const angleStep = deltaAngle - (targetInfo.lastDeltaAngle || 0);
-        const isFusion = isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target);
-        if (isFusion) {
-          transformFusion(targetInfo.target || targetInfo.item, {
-            type: "rotate", angle: angleStep, center: window.rotationCenter
-          });
-        } else {
-          targetInfo.target.rotate(angleStep, toParentPoint(targetInfo.target, window.rotationCenter));
-          const rotateGeomBaseDeep = function(item, step, center) {
-            if (!item) return;
-            if (item.data?.geomBase && !item.data.geomBase.parent) item.data.geomBase.rotate(step, center);
-            if (item.children) item.children.forEach(c => rotateGeomBaseDeep(c, step, center));
-          };
-          rotateGeomBaseDeep(targetInfo.target, angleStep, window.rotationCenter);
-        }
-        targetInfo.lastDeltaAngle = deltaAngle;
-        targetInfo.target.data = targetInfo.target.data || {};
-        targetInfo.target.data.rotation = (targetInfo.initialRotation + deltaAngle) % 360;
-      });
-      notifyTransformObservers({ event, type: "rotate", cumulativeAngle: deltaAngle });
-
-      // CSG is intentionally deferred until mouse-up. Rebuilding paths during
-      // a transform changes bounds and causes pointer/object desynchronization.
-
-      const rotationNum = document.getElementById("objRotation");
-      if (rotationNum && window.selectedItem) {
-        const displayItem = getContentItem(window.selectedItem);
-        if (displayItem) {
-          rotationNum.value = Math.round(displayItem.data?.rotation || 0) + '';
-        }
-      }
-
-      window.updateSelectionBox(null);
-      paper.view.update();
+    // Rotación: única ruta delegada al controlador canónico.
+    if (window.rotationActive) {
+      rotationController.dragPointer(event);
       return;
     }
 
@@ -1416,7 +1347,7 @@ const _initSelectionTool = function() {
         window._ekkoSkipFusionCSGRecalc = false;
         window.dragging = false;
         window.resizeActive = false;
-        window.rotationActive = false;
+        rotationController.endPointer("committed-fusion-drop");
         window.isRotationSnapped = false;
         window.rotationTargets = [];
         if (typeof clearSmartGuides === 'function') clearSmartGuides();
@@ -1478,7 +1409,8 @@ const _initSelectionTool = function() {
     window._pendingIsolateItem = null;
     window._mouseDragOccurred = false;
 
-    if (window.resizeActive || window.dragging || window.rotationActive) {
+    if (window.rotationActive) rotationController.endPointer("committed");
+    if (window.resizeActive || window.dragging) {
       finalizeTransformTransaction("committed");
       if (typeof window.saveHistory === 'function') window.saveHistory();
       if (typeof window.commitHistoryTransaction === 'function') window.commitHistoryTransaction("transform");
