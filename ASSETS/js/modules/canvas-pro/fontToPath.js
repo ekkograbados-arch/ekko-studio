@@ -41,10 +41,17 @@ async function loadFont(fontFamily) {
     }
     const file = await resolveFontFile(fontFamily);
     const url = `/ASSETS/fonts/${encodeURIComponent(file)}`;
-    const meta = { requestedFamily: fontFamily, resolvedFile: file, requestedUrl: url, httpStatus: null, parse: "pending" };
-    if (typeof window !== "undefined") window._ekkoFontResolution = meta;
-    if (!fontCache.has(url)) {
-        fontCache.set(url, fetch(url)
+    let entry = fontCache.get(url);
+
+    if (!entry) {
+        const meta = {
+            requestedFamily: fontFamily,
+            resolvedFile: file,
+            requestedUrl: url,
+            httpStatus: null,
+            parse: "pending"
+        };
+        const promise = fetch(url)
             .then(response => {
                 meta.httpStatus = response.status;
                 if (!response.ok) throw new Error(`Fuente no disponible: ${response.status}`);
@@ -59,9 +66,33 @@ async function loadFont(fontFamily) {
                 meta.parse = "error";
                 meta.error = String(error?.message || error);
                 throw error;
-            }));
+            });
+        entry = { promise, meta };
+        fontCache.set(url, entry);
     }
-    return fontCache.get(url);
+
+    try {
+        const font = await entry.promise;
+        window._ekkoFontResolution = {
+            ...entry.meta,
+            requestedFamily: fontFamily,
+            resolvedFile: file,
+            requestedUrl: url,
+            httpStatus: entry.meta.httpStatus ?? 200,
+            parse: "success"
+        };
+        return font;
+    } catch (error) {
+        window._ekkoFontResolution = {
+            ...entry.meta,
+            requestedFamily: fontFamily,
+            resolvedFile: file,
+            requestedUrl: url,
+            parse: "error",
+            error: String(error?.message || error)
+        };
+        throw error;
+    }
 }
 
 function addContour(path, command, offsetX, baselineY) {
@@ -119,10 +150,11 @@ export async function textToCompoundPath(textItem) {
     if (!usable.length) return null;
     const compound = new paper.CompoundPath({ insert: false, children: usable });
     compound.fillRule = "evenodd";
-    compound.fillColor = textItem.fillColor ? textItem.fillColor.clone() : new paper.Color("#000");
-    compound.strokeColor = textItem.strokeColor ? textItem.strokeColor.clone() : null;
-    compound.strokeWidth = textItem.strokeWidth || 0;
+    compound.fillColor = textItem.fillColor ? textItem.fillColor.clone() :
+        new paper.Color("black");
     return compound;
 }
 
-window.EKKO_FONT_TO_PATH = { textToCompoundPath, resolveFontFile };
+if (typeof window !== "undefined") {
+    window.EKKO_FONT_TO_PATH = { textToCompoundPath, resolveFontFile };
+}
