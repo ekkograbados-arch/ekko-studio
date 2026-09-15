@@ -427,50 +427,23 @@ function transformDetachedGeomBases(owner, operation) {
     visit(owner);
 }
 
-// A real fusion owns one transform. Its visible children must retain their
-// local matrices while the owner moves. Paper.js can rewrite child matrices
-// when a clipped group is transformed; snapshot/restore makes the ownership
-// contract explicit and prevents mask/Raster drift.
-function snapshotFusionChildMatrices(group) {
-    return Array.from(group?.children || []).map(child => ({
-        child,
-        matrix: child?.matrix?.clone?.() || null
-    }));
-}
-
-function fusionChildMatricesStable(snapshot) {
-    let maxError = 0;
-    (Array.isArray(snapshot) ? snapshot : []).forEach(entry => {
-        if (!entry?.child?.project || !entry.matrix) return;
-        const current = entry.child.matrix;
-        ["a", "b", "c", "d", "tx", "ty"].forEach(key => {
-            maxError = Math.max(maxError, Math.abs((current?.[key] ?? 0) - (entry.matrix?.[key] ?? 0)));
-        });
-    });
-    return { stable: Number.isFinite(maxError) && maxError < 1e-5, maxError };
-}
-
+// Una fusión real posee una única transformación pública: owner.matrix.
+// La máscara y el Raster conservan sus matrices locales. No se permite
+// snapshot/restore posterior de hijos: esa restauración era precisamente la
+// operación que cancelaba el desplazamiento cuando Paper.js horneaba la
+// matriz del grupo.
 function fusionMatrixInvariant(group) {
     const mask = getCurrentFusionMask(group);
     const raster = Array.from(group?.children || []).find(child => child.className === "Raster");
-    if (!mask || !raster) return { valid: true, maxError: 0, mask: null, raster: null };
+    const ownerMatrix = group?.globalMatrix;
+    if (!mask || !raster || !ownerMatrix) return { valid: true, maxError: 0, mask: null, raster: null };
     try {
-        // Mask and Raster are direct children of the fusion owner. Their
-        // local matrices are the authoritative relative transform and do not
-        // depend on Paper.js lazy propagation of globalMatrix through Groups.
-        const serial = matrix => ({
-            a: matrix.a, b: matrix.b, c: matrix.c,
-            d: matrix.d, tx: matrix.tx, ty: matrix.ty
-        });
-        return {
-            valid: true,
-            maxError: 0,
-            mask: serial(mask.matrix),
-            raster: serial(raster.matrix)
-        };
-    } catch (e) {
-        return { valid: false, maxError: Infinity, mask: null, raster: null };
-    }
+        const inv = ownerMatrix.inverted();
+        const relMask = inv.concatenate(mask.globalMatrix);
+        const relRaster = inv.concatenate(raster.globalMatrix);
+        const serial = matrix => ({ a: matrix.a, b: matrix.b, c: matrix.c, d: matrix.d, tx: matrix.tx, ty: matrix.ty });
+        return { valid: true, maxError: 0, mask: serial(relMask), raster: serial(relRaster) };
+    } catch (e) { return { valid: false, maxError: Infinity, mask: null, raster: null }; }
 }
 
 function compareFusionInvariant(before, after) {
@@ -489,14 +462,14 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     // Paper.js groups may have applyMatrix=true, which bakes a group
     // translation into its children and leaves the owner matrix unchanged.
     // A fusion owner must retain the transform on the owner itself.
-    const childMatrixSnapshot = snapshotFusionChildMatrices(owner);
     const before = fusionMatrixInvariant(owner);
     const globalOperation = applyFusionGlobalOperation(owner, operation);
     const applied = globalOperation.applied;
     if (applied) {
+        // geomBase is auxiliary geometry: it follows the same global
+        // operation, but never repositions the visual owner or its children.
         transformFusionGeomBases(owner, globalOperation.operationMatrix);
     }
-    const childMatrices = fusionChildMatricesStable(childMatrixSnapshot);
     const after = compareFusionInvariant(before, fusionMatrixInvariant(owner));
     const record = resolveFusionRecord(owner);
     if (record) syncFusionVirtualHole(record);
@@ -509,9 +482,8 @@ export function transformFusion(fusionOrItem, operation = {}, options = {}) {
     };
     window._ekkoFusionTransformDiagnostics = {
         applied, owner: identity, matrixInvariant: after,
-        beforeInvariant: before,
-        childMatricesStable: childMatrices.stable,
-        childMatricesMaxError: childMatrices.maxError,
+        beforeInvariant: before, childMatricesRestored: false,
+        childMatricesPreserved: after.valid,
         ownerApplyMatrix: owner.applyMatrix === false,
         ownerGlobalBefore: globalOperation.before ? {
             a: globalOperation.before.a, b: globalOperation.before.b,
