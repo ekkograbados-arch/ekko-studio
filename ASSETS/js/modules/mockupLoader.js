@@ -245,6 +245,7 @@ export function loadMockup(svgPath) {
     lockMockup(item);
     window.currentMockup = item;
     item.data = { locked: true, mockup: true, label: "Mockup", svgPath: svgPath };
+    if (typeof window.updateSelectionInfo === "function") window.updateSelectionInfo();
     item.bringToFront();
 
     // Activar modo infinito inteligente: si es una plantilla de hoja A4 o mesa, desactivamos el clipping mask
