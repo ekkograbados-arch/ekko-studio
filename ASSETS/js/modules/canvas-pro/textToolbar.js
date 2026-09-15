@@ -469,9 +469,14 @@ export async function weldText(item) {
     try { pathGroup.remove(); } catch (e) {}
 
     if (window.selectedItem === item || window.selectedItem === target) {
-        window.selectedItem = resultPath;
-        window.selectedItems = [resultPath];
+        if (typeof window.selectItem === "function") {
+            window.selectItem(resultPath);
+        } else {
+            window.selectedItem = resultPath;
+            window.selectedItems = [resultPath];
+        }
         window.updateSelectionBox(resultPath);
+        window.refreshEKKOSharedCommands?.();
     }
     diag.phase = "weldText:success";
     diag.resultClass = resultPath.className || resultPath.constructor?.name || null;
