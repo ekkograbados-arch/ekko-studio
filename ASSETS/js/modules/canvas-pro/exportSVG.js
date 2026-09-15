@@ -28,6 +28,7 @@ FASE DE OPERACIÓN:
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
+import { textToCompoundPath } from "./fontToPath.js";
 
 /**
  * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
@@ -78,36 +79,22 @@ function bakeMatrixIntoPath(path, matrix) {
  * @param {paper.Item} textItem
  * @returns {paper.Item|null}
  */
-function vectorizeTextItem(textItem) {
+async function vectorizeTextItem(textItem) {
     if (!textItem) return null;
     try {
-        if (typeof textItem.createPath === "function") {
-            const path = textItem.createPath({ insert: false });
-            if (path) {
-                path.fillColor = textItem.fillColor ? textItem.fillColor.clone() : new paper.Color("#000000");
-                path.strokeColor = textItem.strokeColor ? textItem.strokeColor.clone() : null;
-                path.strokeWidth = textItem.strokeWidth || 0;
-                path.matrix = textItem.matrix ? textItem.matrix.clone() : new paper.Matrix();
-                path.data = {
-                    ...(textItem.data || {}),
-                    label: (textItem.data?.label || "Texto") + " (Vectorizado)"
-                };
-                return path;
-            }
-        } else if (typeof textItem.toPath === "function") {
-            const path = textItem.toPath();
-            if (path) {
-                path.data = {
-                    ...(textItem.data || {}),
-                    label: (textItem.data?.label || "Texto") + " (Vectorizado)"
-                };
-                return path;
-            }
-        }
+        const path = await textToCompoundPath(textItem);
+        if (!path) return null;
+        path.data = {
+            ...(textItem.data || {}),
+            label: (textItem.data?.label || "Texto") + " (Vectorizado)",
+            isTextVector: true,
+            source: "text-vector"
+        };
+        return path;
     } catch (err) {
-        console.warn("[EKKO EXPORT WARNING] Falló la conversión de texto a trazado:", err);
+        console.warn("[EKKO EXPORT WARNING] Falló la conversión OpenType:", err);
+        return null;
     }
-    return null;
 }
 
 /**
@@ -120,7 +107,7 @@ function vectorizeTextItem(textItem) {
  * @param {boolean} [options.asString=true] Retorna el SVG como string XML
  * @returns {string|SVGElement} Código XML SVG puro listo para manufactura o elemento SVG
  */
-export function prepareSVGForExport(options = {}) {
+export async function prepareSVGForExport(options = {}) {
     if (typeof paper === "undefined" || !paper.project) {
         console.error("[EKKO EXPORT] Error crítico: Paper.js no está inicializado.");
         return "";
@@ -224,28 +211,28 @@ export function prepareSVGForExport(options = {}) {
         }
     }).forEach(item => textItems.push(item));
 
-    textItems.forEach(item => {
+    for (const item of textItems) {
         if (item.data && (item.data.isCurvedGroup || item.data.isSpacedGroup)) {
             // Grupo de texto compuesto: vectorizar cada hijo PointText
             if (item.children) {
                 const subTexts = [...item.children].filter(c => c instanceof paper.PointText);
-                subTexts.forEach(st => {
-                    const vec = vectorizeTextItem(st);
+                for (const st of subTexts) {
+                    const vec = await vectorizeTextItem(st);
                     if (vec) {
                         item.insertChild(st.index, vec);
                         st.remove();
                     }
-                });
+                }
             }
         } else if (item instanceof paper.PointText) {
-            const vec = vectorizeTextItem(item);
+            const vec = await vectorizeTextItem(item);
             if (vec) {
                 const parent = item.parent || tempLayer;
                 parent.insertChild(item.index, vec);
                 item.remove();
             }
         }
-    });
+    }
 
     // 5. MATERIALIZACIÓN BOOLEANA CSG EN LA CAPA CLONADA
     // El export usa copias de los huecos virtuales, nunca las geometrías del
@@ -385,8 +372,8 @@ export function prepareSVGForExport(options = {}) {
  * Dispara la descarga del SVG preparado directamente en el navegador del usuario.
  * @param {string} [filename="diseno-ekko.svg"] Nombre del archivo de salida
  */
-export function downloadExportedSVG(filename = "diseno-ekko.svg") {
-    const svgContent = prepareSVGForExport({ asString: true });
+export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
+    const svgContent = await prepareSVGForExport({ asString: true });
     if (!svgContent || svgContent.trim() === "") {
         alert("No hay elementos válidos para exportar en el lienzo.");
         return;
