@@ -276,7 +276,17 @@ function injectFontFaces(fonts) {
     let css = "";
     fonts.forEach(font => {
         const fontPath = `/ASSETS/fonts/${encodeURIComponent(font.file)}`;
-        css += `@font-face { font-family: "${font.family}"; src: url("${fontPath}") format("woff2"); font-display: swap; }\n`;
+        const extension = String(font.file || "").split(".").pop().toLowerCase();
+        const format = extension === "ttf"
+            ? "truetype"
+            : extension === "otf"
+                ? "opentype"
+                : extension === "woff"
+                    ? "woff"
+                    : extension === "woff2"
+                        ? "woff2"
+                        : "opentype";
+        css += `@font-face { font-family: "${font.family}"; src: url("${fontPath}") format("${format}"); font-display: swap; }\n`;
     });
     styleEl.textContent = css;
 }
