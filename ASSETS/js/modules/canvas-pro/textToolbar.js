@@ -442,8 +442,9 @@ export async function weldText(item) {
     }
     diag.phase = "weldText:converted";
     diag.convertedClass = converted?.className || converted?.constructor?.name || null;
-    const parts = converted?.children?.length ? Array.from(converted.children) : [converted];
-    const usable = parts.filter(Boolean);
+    const usable = converted?.children?.length
+        ? Array.from(converted.children).filter(Boolean)
+        : (converted ? [converted] : []);
     if (!usable.length) {
         diag.phase = "weldText:no-usable-geometry";
         try { pathGroup.remove(); } catch (e) {}
@@ -452,14 +453,11 @@ export async function weldText(item) {
         return null;
     }
 
-    let resultPath = usable[0].clone({ insert: false });
-    for (let i = 1; i < usable.length; i++) {
-        const union = resultPath.unite(usable[i]);
-        if (union) {
-            resultPath.remove();
-            resultPath = union;
-        }
-    }
+    // Nunca unir los subtrazados del CompoundPath: unite() convierte los
+    // contornos internos de A/O/P/R en sólidos y rellena sus huecos.
+    // La topología evenodd del CompoundPath es la autoridad geométrica.
+    const resultPath = converted.clone({ insert: false });
+    resultPath.fillRule = "evenodd";
     resultPath.fillColor = target.fillColor || new paper.Color(0);
     resultPath.strokeColor = null;
     resultPath.strokeWidth = 0;
@@ -470,6 +468,9 @@ export async function weldText(item) {
         isTextVector: true,
         isSolidShape: true,
         isFusionReceptor: true,
+        isHole: false,
+        hasInternalHoles: true,
+        preserveCompoundTopology: true,
         userImported: true,
         source: "text-vector"
     };
