@@ -370,7 +370,12 @@ function updateSelectionInfo() {
     const selInfo = document.getElementById("selectionInfo");
     const objW = document.getElementById("objWidth");
     const objH = document.getElementById("objHeight");
-    if (selInfo) selInfo.textContent = "Nada seleccionado";
+    if (selInfo) {
+      const active = window.EKKO_ACTIVE_PRODUCT;
+      selInfo.textContent = active
+        ? `${active.name} — ${active.surface}`
+        : "Nada seleccionado";
+    }
     if (objW) objW.value = "";
     if (objH) objH.value = "";
     return;
@@ -474,6 +479,10 @@ function loadSurfaceScene(product, surface) {
   }
   paper.view.zoom = 1.0;
   paper.view.center = new paper.Point(0, 0);
+  window.EKKO_ACTIVE_PRODUCT = {
+    name: product.nombre || product.id || "Producto",
+    surface: surface.nombre || "Superficie"
+  };
   if (sceneStates[key]) {
     resetSceneRuntimeState();
     paper.project.clear();
