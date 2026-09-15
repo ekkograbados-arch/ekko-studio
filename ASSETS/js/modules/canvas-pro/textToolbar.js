@@ -366,15 +366,44 @@ export function applyTextSpacing(item, hspace) {
 }
 
 export function weldText(item) {
-    if (!item || item.data?.locked) return null;
+    const describe = (value) => value ? {
+        className: value.className || value.constructor?.name || null,
+        id: value.id ?? null,
+        label: value.data?.label ?? null,
+        clipGroup: !!value.data?.clipGroup,
+        isTextVector: !!value.data?.isTextVector,
+        isCurvedGroup: !!value.data?.isCurvedGroup,
+        isSpacedGroup: !!value.data?.isSpacedGroup,
+        parentClass: value.parent?.className || value.parent?.constructor?.name || null
+    } : null;
+    const diag = window._ekkoTextVectorDiag = {
+        phase: "weldText:start",
+        item: describe(item),
+        selectedItem: describe(window.selectedItem),
+        selectedItems: Array.isArray(window.selectedItems) ? window.selectedItems.map(describe) : [],
+        target: null,
+        acceptedTarget: false,
+        convertedClass: null,
+        resultClass: null,
+        returnValue: null
+    };
+    if (!item || item.data?.locked) {
+        diag.phase = "weldText:rejected-item";
+        diag.returnValue = null;
+        return null;
+    }
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
     let target = item;
     if (item.data?.clipGroup) {
         target = item.children.find(c => !c.clipMask);
     }
+    diag.target = describe(target);
+    diag.acceptedTarget = !!(target && (target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup));
 
-    if (!(target instanceof paper.PointText || target.data?.isCurvedGroup || target.data?.isSpacedGroup)) {
+    if (!diag.acceptedTarget) {
+        diag.phase = "weldText:rejected-target";
+        diag.returnValue = null;
         return null;
     }
 
@@ -384,11 +413,15 @@ export function weldText(item) {
     const converted = typeof pathGroup.createPath === "function"
         ? pathGroup.createPath({ insert: false })
         : pathGroup;
+    diag.phase = "weldText:converted";
+    diag.convertedClass = converted?.className || converted?.constructor?.name || null;
     const parts = converted?.children?.length ? Array.from(converted.children) : [converted];
     const usable = parts.filter(Boolean);
     if (!usable.length) {
+        diag.phase = "weldText:no-usable-geometry";
         try { pathGroup.remove(); } catch (e) {}
         try { converted?.remove?.(); } catch (e) {}
+        diag.returnValue = null;
         return null;
     }
 
@@ -429,6 +462,9 @@ export function weldText(item) {
         window.selectedItems = [resultPath];
         window.updateSelectionBox(resultPath);
     }
+    diag.phase = "weldText:success";
+    diag.resultClass = resultPath.className || resultPath.constructor?.name || null;
+    diag.returnValue = describe(resultPath);
     paper.view.update();
     return resultPath;
 }
@@ -436,6 +472,15 @@ export function weldText(item) {
 export function convertTextToVector(item = null) {
     const selected = item || window.selectedItem ||
         (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+    window._ekkoTextVectorDispatch = {
+        selected: selected ? {
+            className: selected.className || selected.constructor?.name || null,
+            label: selected.data?.label ?? null,
+            clipGroup: !!selected.data?.clipGroup,
+            childCount: selected.children?.length ?? 0
+        } : null,
+        at: Date.now()
+    };
     return weldText(selected);
 }
 
