@@ -8,6 +8,8 @@ para eliminar por completo el delay de red de 2 minutos.
 // 🚀 SILENCIADOR DE CONSOLA GLOBAL: Mantener la consola limpia de logs informativos o repetitivos
 
 
+import { textToCompoundPath } from "./fontToPath.js";
+
 let loadedFontsCache = [];
 
 // Diccionario de mapeo de alias tipográficos históricos para retrocompatibilidad absoluta
@@ -365,7 +367,7 @@ export function applyTextSpacing(item, hspace) {
     paper.view.update();
 }
 
-export function weldText(item) {
+export async function weldText(item) {
     const describe = (value) => value ? {
         className: value.className || value.constructor?.name || null,
         id: value.id ?? null,
@@ -408,11 +410,20 @@ export function weldText(item) {
     }
 
     const pathGroup = target.clone({ insert: false });
-    // PointText no se convierte con toPath(): Paper.js expone createPath()
-    // para transformar las letras en geometría vectorial real.
-    const converted = typeof pathGroup.createPath === "function"
-        ? pathGroup.createPath({ insert: false })
-        : pathGroup;
+    // Paper.js no ofrece contornos para PointText. La ruta OpenType genera
+    // CompoundPath real y conserva los contornos internos de los glifos.
+    let converted = null;
+    try {
+        converted = target instanceof paper.PointText
+            ? await textToCompoundPath(target)
+            : pathGroup;
+    } catch (error) {
+        diag.phase = "weldText:font-load-failed";
+        diag.error = String(error?.message || error);
+        try { pathGroup.remove(); } catch (e) {}
+        diag.returnValue = null;
+        return null;
+    }
     diag.phase = "weldText:converted";
     diag.convertedClass = converted?.className || converted?.constructor?.name || null;
     const parts = converted?.children?.length ? Array.from(converted.children) : [converted];
