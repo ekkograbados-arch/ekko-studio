@@ -16,6 +16,7 @@ AUTORIDAD: REPOSITORIO CANÓNICO V9 / PACTO DE ESTABILIDAD
 ========================================================================= */
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+import { textToCompoundPath } from "./fontToPath.js";
 
 // Helper universal de resolución de contenido dentro o fuera de clipGroup
 function getContentItem(item) {
@@ -154,7 +155,7 @@ export function syncGeometryToGeomBase(item) {
  * Inicia el modo de edición de nodos para el objeto vectorial seleccionado.
  * @param {paper.Item} item
  */
-export function enterNodeEditMode(item) {
+export async function enterNodeEditMode(item) {
     if (!item || isMockupOrProductElement(item)) return;
     const fusion = findFusionAncestor(item);
     const fusionMask = fusion ? getFusionEditableMask(fusion) : null;
@@ -170,7 +171,7 @@ export function enterNodeEditMode(item) {
     const isText = target.className === 'PointText' || (typeof paper !== 'undefined' && paper.PointText && target instanceof paper.PointText);
     if (isText) {
         if (confirm("Para editar los nodos de este texto, primero debes convertirlo a curvas. ¿Deseas continuar?")) {
-            const converted = convertTextToPath(target);
+            const converted = await convertTextToPath(target);
             if (converted) {
                 const parent = target.parent || paper.project.activeLayer;
                 const idx = parent.children.indexOf(target);
@@ -654,13 +655,16 @@ export function exitNodeEditMode(skipSelect = false) {
     paper.view.update();
 }
 
-function convertTextToPath(pointText) {
+async function convertTextToPath(pointText) {
     if (!pointText) return null;
-    const compound = pointText.createPath({ insert: false });
-    compound.fillColor = pointText.fillColor;
-    compound.strokeColor = pointText.strokeColor;
-    compound.strokeWidth = pointText.strokeWidth;
-    compound.data = { label: "Texto Convertido" };
+    const compound = await textToCompoundPath(pointText);
+    if (!compound) return null;
+    compound.data = {
+        ...(pointText.data || {}),
+        label: "Texto Convertido",
+        isTextVector: true,
+        source: "text-vector"
+    };
     syncGeometryToGeomBase(compound);
     return compound;
 }
