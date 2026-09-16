@@ -284,6 +284,35 @@ function isRealFusionGroup(item) {
         item.children?.some(child => child?.clipMask || child?.data?.isFusionMask));
 }
 
+/** Geometry replacement contract: capture rendered world matrix and restore it after rebuilding. */
+export function snapshotWorldMatrix(item) {
+    return item?.globalMatrix?.clone?.() || item?.matrix?.clone?.() || null;
+}
+export function restoreWorldMatrix(item, matrix) {
+    if (!item || !matrix) return false;
+    try {
+        item.applyMatrix = false;
+        const current = item.globalMatrix;
+        const parent = item.parent;
+        const local = parent?.globalToLocal ? parent.globalToLocal(matrix.transform(new paper.Point(0, 0))) : null;
+        if (local && current) {
+            const desired = matrix.clone();
+            if (parent?.globalMatrix) desired.preConcatenate(parent.globalMatrix.inverted());
+            item.matrix = desired;
+        } else item.matrix = matrix.clone();
+        return true;
+    } catch (e) { return false; }
+}
+export function replaceGeometryPreservingWorldMatrix(oldItem, replacement, parent = oldItem?.parent) {
+    const matrix = snapshotWorldMatrix(oldItem);
+    if (!replacement) return null;
+    try {
+        if (parent && replacement.parent !== parent) parent.addChild(replacement);
+        restoreWorldMatrix(replacement, matrix);
+        return replacement;
+    } catch (e) { return replacement; }
+}
+
 export function resolvePublicTransformOwner(item) {
     if (!item) return null;
     if (isRealFusionGroup(item)) return item;
