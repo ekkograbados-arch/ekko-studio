@@ -8,6 +8,40 @@ celeste de Paper.js y el cursor caret en tiempo real.
 
 import { applyTextCurve } from "./canvas-pro/textToolbar.js";
 
+function containsTextItem(owner, textItem) {
+    if (!owner || !textItem) return false;
+    if (owner === textItem) return true;
+    return !!owner.children?.some(child => containsTextItem(child, textItem));
+}
+
+function resolveTextEditorOwner(textItem) {
+    if (!textItem) return null;
+    const selected = window.selectedItem || null;
+    if (selected && containsTextItem(selected, textItem)) return selected;
+    if (textItem.parent?.data?.clipGroup) return textItem.parent;
+    return textItem;
+}
+
+function publishTextEditorState(mode, textItem, content) {
+    const owner = resolveTextEditorOwner(textItem);
+    const data = owner?.data || {};
+    window.EKKO_TEXT_EDITOR_STATE = {
+        mode,
+        content: content == null ? "" : String(content),
+        owner: owner ? {
+            id: owner.id ?? null,
+            className: owner.className || owner.constructor?.name || null,
+            label: data.label ?? null,
+            fusionId: data.fusionId ?? null,
+            isSmartFusion: data.isSmartFusion === true,
+            isTextVector: data.isTextVector === true,
+            isClipGroup: data.clipGroup === true
+        } : null,
+        itemId: textItem.id ?? null,
+        updatedAt: new Date().toISOString()
+    };
+}
+
 export function startTextEditing(textItem) {
     if (!textItem) return;
     const old = document.getElementById("ekko-text-editor");
@@ -26,6 +60,7 @@ export function startTextEditing(textItem) {
     const area = document.createElement("textarea");
     area.id = "ekko-text-editor";
     area.value = textItem.content === "Texto" ? "" : textItem.content; // Si es el placeholder, iniciamos limpio
+    publishTextEditorState("editing", textItem, area.value);
 
     // 3. Función interna para sincronizar posición, tamaño y caret con los bounds reales del lienzo
     function syncEditorSizeAndPosition() {
@@ -90,6 +125,7 @@ export function startTextEditing(textItem) {
     function finish(save = true) {
         if (closed) return;
         closed = true;
+        publishTextEditorState(save ? "confirmed" : "cancelled", textItem, save ? area.value.trim() : originalContent);
         
         // Remover el detector de clics externos global
         document.removeEventListener("mousedown", handleOutsideClick);
@@ -137,6 +173,7 @@ export function startTextEditing(textItem) {
     // 5. Escuchar eventos de entrada de texto (Input) para redimensionar en caliente
     area.addEventListener("input", () => {
         textItem.content = area.value;
+        publishTextEditorState("editing", textItem, area.value);
         paper.view.update(); // Forzar a Paper.js a recalcular la geometría de los bounds
         
         // Recalcular tamaño de textarea y actualizar caja de selección celeste en tiempo real
