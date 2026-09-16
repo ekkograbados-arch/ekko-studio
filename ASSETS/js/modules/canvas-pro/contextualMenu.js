@@ -522,6 +522,19 @@ export function ungroupSelectedItem() {
     paper.view.update();
 }
 
+function dispatchTextCurve() {
+    const item = window.selectedItem || window.selectedItems?.[0];
+    if (!item) return;
+    const slider = document.querySelector('#ctxTextCurvature input[type=range]');
+    const curvature = parseFloat(slider?.value ?? item.data?.curvature ?? 0) || 0;
+    Promise.resolve(applyTextCurve(item, curvature)).then(() => {
+        window.updateSelectionBox?.(window.selectedItem || item);
+        window.updateContextualMenu?.(window.selectedItem || item);
+        if (typeof paper !== "undefined") paper.view?.update?.();
+    });
+}
+window.dispatchTextCurve = dispatchTextCurve;
+
 export function initContextualMenu() {
     const canvasEl = document.getElementById("editorCanvas");
     if (canvasEl) {
@@ -657,6 +670,9 @@ export function initContextualMenu() {
         if (window.selectedItem) weldText(window.selectedItem);
     });
 
+    setClick('btnCtxTextCurve', dispatchTextCurve);
+    setClick('btnTopTextCurve', dispatchTextCurve);
+
     setClick('btnCtxScaleDown', () => {
         if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
     });
@@ -738,6 +754,8 @@ export function updateContextualMenu(item) {
     removeOverlapTab();
 
     if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
+        const topCurve = document.getElementById('btnTopTextCurve');
+        if (topCurve) topCurve.style.display = 'none';
         toolbar.classList.remove('active');
         toolbarDragged = false;
         lastSelectedItem = null;
@@ -755,6 +773,8 @@ export function updateContextualMenu(item) {
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
+    const topCurve = document.getElementById('btnTopTextCurve');
+    if (topCurve) topCurve.style.display = 'none';
 
     const btnTrace = document.getElementById('btnCtxTrace');
     if (btnTrace) btnTrace.style.display = 'none';
@@ -793,10 +813,12 @@ export function updateContextualMenu(item) {
         if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
             const txtCtrl = document.getElementById('ctxTextControls');
             if (txtCtrl) txtCtrl.classList.remove('hidden');
+            const curveBtn = document.getElementById('btnCtxTextCurve');
+            if (curveBtn) curveBtn.style.display = 'inline-flex';
+            if (topCurve) topCurve.style.display = 'inline-flex';
             const fontTrigger = document.querySelector('.selected-font-trigger span');
             if (fontTrigger) fontTrigger.textContent = getSelectedFontFamily();
-            const fontSizeInput = document.getElementById('ctxFontSize');
-            if (fontSizeInput) fontSizeInput.value = Math.round(target.fontSize || 42);
+            window.EKKO_ROTATION_CONTROLLER?.syncFontSizeInputs?.(target.fontSize || 42);
         } else if (isRaster(target)) {
             const imgCtrl = document.getElementById('ctxImageControls');
             if (imgCtrl) imgCtrl.classList.remove('hidden');
@@ -886,7 +908,7 @@ if (typeof window !== 'undefined') {
     if (!curveSlider) return;
     bound = true;
     curveSlider.addEventListener('input', () => {
-      try { const sel = window.selectedItem || window.selectedItems?.[0]; if (sel && typeof applyTextCurve === 'function') applyTextCurve(sel, parseFloat(curveSlider.value) || 0); } catch (e) {}
+      try { const sel = window.selectedItem || window.selectedItems?.[0]; if (sel) window.dispatchTextCurve?.(); } catch (e) {}
     });
     clearInterval(iv);
   }, 200);
