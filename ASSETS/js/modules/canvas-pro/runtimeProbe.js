@@ -56,6 +56,7 @@
       name: item.name || null,
       bounds, position, scaling,
       rotation: typeof item.rotation === 'number' ? item.rotation : null,
+      fillRule: item.fillRule || null,
       matrix,
       index: typeof item.index === 'number' ? item.index : null,
       visible: item.visible !== false,
@@ -67,6 +68,9 @@
         isHole: data.isHole ?? null,
         isCalado: data.isCalado ?? null,
         isSmartFusion: data.isSmartFusion ?? null,
+        isTextVector: data.isTextVector ?? null,
+        hasInternalHoles: data.hasInternalHoles ?? null,
+        preserveCompoundTopology: data.preserveCompoundTopology ?? null,
         fusionId: data.fusionId ?? item.fusionId ?? null,
         isMask: data.isMask ?? null,
         mockup: data.mockup ?? null
@@ -87,7 +91,9 @@
       designLayer: null,
       fusionRecords: null,
       virtualHoles: null,
-      transformTransaction: null
+      transformTransaction: null,
+      textVectorDiag: null,
+      commandState: null
     };
     try { result.selectedItem = itemSnapshot(global.selectedItem); } catch (_) {}
     try {
@@ -104,6 +110,8 @@
     try { result.fusionRecords = safe(global._fusionRecords); } catch (_) {}
     try { result.virtualHoles = safe(global._fusionVirtualHoles); } catch (_) {}
     try { result.transformTransaction = safe(global._ekkoTransformTransaction); } catch (_) {}
+    try { result.textVectorDiag = safe(global._ekkoTextVectorDiag); } catch (_) {}
+    try { result.commandState = safe(global.EKKO_COMMAND_STATE); } catch (_) {}
     return result;
   }
 
