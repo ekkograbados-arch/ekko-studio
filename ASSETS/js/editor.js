@@ -28,6 +28,7 @@
 
 import "./modules/selection.js";
 import "./modules/canvas-pro/ekkoDiagnostics.js";
+import "./modules/canvas-pro/runtimeProbe.js";
 import "./modules/canvas-pro/ekkoSynapse.js";
 import { loadDynamicFonts, convertTextToVector } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
@@ -1409,6 +1410,7 @@ async function bootstrapEKKO() {
       if (window.EKKO_DIAG && typeof window.EKKO_DIAG.emitReady === "function" && !window.__EKKO_STUDIO_READY_EMITTED) {
         window.__EKKO_STUDIO_READY_EMITTED = true;
         window.EKKO_DIAG.emitReady();
+         window.EKKO_RUNTIME_PROBE?.ready({ source: "editor.bootstrap" });
       }
      console.log(`%c[EKKO BOOTSTRAP] Editor inicializado con éxito. Dimensiones estables: ${initialWidth}x${initialHeight} px.`, "color: #10b981; font-weight: bold;");
 
