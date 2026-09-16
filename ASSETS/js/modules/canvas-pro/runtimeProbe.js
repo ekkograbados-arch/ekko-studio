@@ -191,4 +191,25 @@
     if (!el) return;
     state.clicks.push({ at: now(), id: el.id || null, command: el.dataset?.ekkoCommand || null, fusionButton: el.dataset?.fusionBtn || null, text: (el.innerText || '').trim().slice(0, 120) });
   }, true);
+
+  // Modo visible para validar desde el navegador sin depender de DevTools.
+  // Activación: agregar ?runtimeDiag=1 a la URL de EKKO Studio.
+  if (global.location?.search?.includes('runtimeDiag=1')) {
+    const panel = global.document?.createElement('pre');
+    if (panel) {
+      panel.id = 'ekkoRuntimeProbePanel';
+      panel.setAttribute('aria-label', 'EKKO Runtime Probe');
+      panel.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483647;max-width:420px;max-height:260px;overflow:auto;margin:0;padding:10px;border:1px solid #38bdf8;border-radius:8px;background:#0f172acc;color:#e2e8f0;font:11px/1.35 monospace;white-space:pre-wrap;pointer-events:none;';
+      (global.document.body || global.document.documentElement).appendChild(panel);
+      const render = () => {
+        try {
+          const report = api.report();
+          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, clicks: report.clicks.slice(-8), final: report.final };
+          panel.textContent = JSON.stringify(compact, null, 2);
+        } catch (error) { panel.textContent = `RUNTIME_PROBE_RENDER_ERROR: ${String(error)}`; }
+      };
+      global.setInterval(render, 250);
+      render();
+    }
+  }
 })(window);
