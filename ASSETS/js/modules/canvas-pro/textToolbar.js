@@ -105,7 +105,7 @@ export async function loadDynamicFonts() {
 /**
  * Aplica deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
  */
-export function applyTextCurve(item, curvature) {
+export async function applyTextCurve(item, curvature) {
     if (!item || item.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -182,39 +182,46 @@ export function applyTextCurve(item, curvature) {
     const radius = 10000 / curvature;
     const centerPoint = targetItem.bounds.center.clone();
     const arcCenter = new paper.Point(centerPoint.x, centerPoint.y + radius);
-
     const textWidth = textString.length * fontSize * 0.6;
     const totalAngleRad = textWidth / radius;
     const totalAngleDeg = totalAngleRad * (180 / Math.PI);
     const startAngle = -90 - (totalAngleDeg / 2);
     const angleStep = totalAngleDeg / (charCount - 1 || 1);
 
+    // Curved text must be geometry, not a group of PointText objects. Build each
+    // glyph through the same OpenType path converter used by Text to Vector,
+    // then map its world geometry into the eventual parent's local space.
+    const parent = targetItem.parent;
+    const toParent = (point) => parent?.globalToLocal ? parent.globalToLocal(point) : point;
+    const worldToParent = (() => {
+        if (!parent?.globalToLocal) return null;
+        const o = parent.globalToLocal(new paper.Point(0, 0));
+        const x = parent.globalToLocal(new paper.Point(1, 0)).subtract(o);
+        const y = parent.globalToLocal(new paper.Point(0, 1)).subtract(o);
+        return new paper.Matrix(x.x, x.y, y.x, y.y, o.x, o.y);
+    })();
+
     for (let i = 0; i < charCount; i++) {
         const char = textString[i];
         const angle = startAngle + (i * angleStep);
         const angleRad = angle * (Math.PI / 180);
-        const x = arcCenter.x + radius * Math.cos(angleRad);
-        const y = arcCenter.y + radius * Math.sin(angleRad);
-
-        const charText = new paper.PointText({
-            point: new paper.Point(x, y),
-            content: char,
-            fontSize: fontSize,
-            fontFamily: fontFamily,
-            fillColor: fillColor,
-            fontWeight: fontWeight,
-            fontStyle: fontStyle,
-            justification: "center"
-        });
-
-        const normalAngle = angle + 90;
-        charText.rotate(normalAngle, charText.point);
-        curvedGroup.addChild(charText);
+        const point = new paper.Point(arcCenter.x + radius * Math.cos(angleRad), arcCenter.y + radius * Math.sin(angleRad));
+        const temp = new paper.PointText({ insert: false, point, content: char, fontSize, fontFamily,
+            fillColor, fontWeight, fontStyle, justification: "center" });
+        temp.rotate(angle + 90, temp.point);
+        const glyph = await textToCompoundPath(temp);
+        temp.remove();
+        if (!glyph) continue;
+        glyph.fillRule = "evenodd";
+        if (worldToParent) glyph.transform(worldToParent);
+        curvedGroup.addChild(glyph);
     }
 
+    curvedGroup.data.fillRule = "evenodd";
+    curvedGroup.data.isTextVector = true;
+    curvedGroup.data.preserveCompoundTopology = true;
     drawBlueCurveHandle(curvedGroup);
 
-    const parent = targetItem.parent;
     if (parent) {
         const index = parent.children.indexOf(targetItem);
         parent.insertChild(index, curvedGroup);
