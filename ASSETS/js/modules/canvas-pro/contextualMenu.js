@@ -795,7 +795,8 @@ export function updateContextualMenu(item) {
             if (txtCtrl) txtCtrl.classList.remove('hidden');
             const fontTrigger = document.querySelector('.selected-font-trigger span');
             if (fontTrigger) fontTrigger.textContent = getSelectedFontFamily();
-            window.EKKO_ROTATION_CONTROLLER?.syncFontSizeInputs?.(target.fontSize || 42);
+            const fontSizeInput = document.getElementById('ctxFontSize');
+            if (fontSizeInput) fontSizeInput.value = Math.round(target.fontSize || 42);
         } else if (isRaster(target)) {
             const imgCtrl = document.getElementById('ctxImageControls');
             if (imgCtrl) imgCtrl.classList.remove('hidden');
