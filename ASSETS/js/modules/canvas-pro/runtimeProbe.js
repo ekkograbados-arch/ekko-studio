@@ -13,6 +13,8 @@
     operations: [],
     errors: [],
     clicks: [],
+    wrapped: [],
+    wrappedFns: new Set(),
     startedAt: new Date().toISOString()
   };
 
@@ -138,6 +140,42 @@
     return op;
   }
 
+  const WRAPPED_GLOBALS = [
+    'performSmartFusion', 'applySmartFusion', 'applyFusionFromSelection',
+    'handleMagneticDrop', 'releaseSmartFusion', 'recalculateSmartFusion',
+    'transformFusion', 'transformPublicItem', 'beginTransformTransaction',
+    'finalizeTransformTransaction', 'recalculateDynamicSubtractions',
+    'convertTextToVector', 'convertSelectionToCalado', 'ungroupSelectedItem'
+  ];
+
+  function installGlobalWrappers() {
+    if (!state.active) return;
+    WRAPPED_GLOBALS.forEach(name => {
+      const original = global[name];
+      if (typeof original !== 'function' || original.__ekkoRuntimeProbeWrapped) return;
+      const wrapped = function (...args) {
+        const id = record(`runtime.${name}`, { argCount: args.length });
+        try {
+          const result = original.apply(this, args);
+          if (result && typeof result.then === 'function') {
+            return result.then(value => { finish(id, { ok: true, async: true, value }); return value; })
+              .catch(error => { finish(id, { ok: false, async: true, error: String(error?.stack || error) }); throw error; });
+          }
+          finish(id, { ok: true, value: result });
+          return result;
+        } catch (error) {
+          finish(id, { ok: false, error: String(error?.stack || error) });
+          throw error;
+        }
+      };
+      wrapped.__ekkoRuntimeProbeWrapped = true;
+      wrapped.__ekkoRuntimeProbeOriginal = original;
+      global[name] = wrapped;
+      state.wrapped.push({ name, at: now() });
+      state.wrappedFns.add(name);
+    });
+  }
+
   const api = {
     start() { state.active = true; return { ok: true }; },
     stop() { state.active = false; return { ok: true }; },
@@ -182,7 +220,8 @@
       };
     },
     _state: state,
-    _snapshot: documentSnapshot
+    _snapshot: documentSnapshot,
+    installGlobalWrappers
   };
 
   global.EKKO_RUNTIME_PROBE = api;
@@ -202,6 +241,9 @@
 
   // Modo visible para validar desde el navegador sin depender de DevTools.
   // Activación: agregar ?runtimeDiag=1 a la URL de EKKO Studio.
+  global.setInterval(installGlobalWrappers, 250);
+  installGlobalWrappers();
+
   if (global.location?.search?.includes('runtimeDiag=1')) {
     const panel = global.document?.createElement('pre');
     if (panel) {
@@ -212,7 +254,8 @@
       const render = () => {
         try {
           const report = api.report();
-          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, clicks: report.clicks.slice(-8), final: report.final };
+          installGlobalWrappers();
+          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, wrapped: state.wrapped, clicks: report.clicks.slice(-8), final: report.final };
           panel.textContent = JSON.stringify(compact, null, 2);
         } catch (error) { panel.textContent = `RUNTIME_PROBE_RENDER_ERROR: ${String(error)}`; }
       };
