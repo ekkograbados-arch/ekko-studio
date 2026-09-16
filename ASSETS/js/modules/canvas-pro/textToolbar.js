@@ -534,6 +534,12 @@ export async function weldText(item) {
     // publicar el nuevo vector, aunque el target sea un hijo de clipGroup.
     if (typeof window.selectItem === "function") {
         window.selectItem(resultPath);
+        // La selección central puede resolver wrappers históricos. El owner
+        // recién creado es el CompoundPath y debe quedar publicado como tal.
+        if (window.selectedItem !== resultPath && typeof window.commitSelection === "function") {
+            window.commitSelection(resultPath, [resultPath]);
+            window.updateContextualMenu?.(resultPath);
+        }
     } else {
         window.commitSelection?.(resultPath, [resultPath]);
     }
