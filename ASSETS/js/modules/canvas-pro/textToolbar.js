@@ -479,7 +479,9 @@ export async function weldText(item) {
         userImported: true,
         source: "text-vector"
     };
-    resultPath.data.geomBase = resultPath.clone({ insert: false });
+    // geomBase is the canonical hit-test/CSG geometry. It must be captured
+    // only after the final world calibration below; taking it before scale /
+    // translation leaves pointer selection and the visible owner divergent.
 
     const parent = target.parent;
     if (parent) {
@@ -517,6 +519,13 @@ export async function weldText(item) {
             scale: { x: sx, y: sy }
         };
     }
+    // Snapshot the calibrated geometry in the same local space as the public
+    // owner.  Cloning now preserves rotation/scale/position for frame and
+    // hit-test consumers; the snapshot itself is intentionally identity-local.
+    const calibratedBase = resultPath.clone({ insert: false });
+    calibratedBase.fillRule = "evenodd";
+    resultPath.data.geomBase = calibratedBase;
+    resultPath.data.fillRule = "evenodd";
     target.remove();
     try { converted.remove(); } catch (e) {}
     try { pathGroup.remove(); } catch (e) {}
