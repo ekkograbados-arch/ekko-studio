@@ -615,7 +615,7 @@ const _updateSelectionBox = function(item) {
   if (typeof window.bindRotationInputEvents === "function") {
     window.bindRotationInputEvents();
   }
-  rotationController.syncSelection(primaryItem);
+  if (!window.rotationActive) rotationController.syncSelection(primaryItem);
   if (typeof window.syncContextualRotationInput === "function") {
     window.syncContextualRotationInput(primaryItem);
   }
