@@ -25,12 +25,14 @@ function updatePopup(value, event) {
   const shown = String(Math.round(normalize(value)));
   p.textContent = `${shown}°`;
   p.classList.add("is-visible");
-  p.classList.toggle("is-snap", Math.abs(normalize(value) % 45) < 1e-7);
+  const snapped = Math.abs(normalize(value) % 45) < 1e-7;
+  p.classList.toggle("is-snap", snapped);
+  p.classList.toggle("is-non-snap", !snapped);
   const pos = pointerPosition(event);
   if (pos) { p.style.left = `${Math.round(pos.x + 14)}px`; p.style.top = `${Math.round(pos.y + 14)}px`; }
   ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
 }
-function hidePopup() { const p = popup(); if (p) { p.classList.remove("is-visible", "is-snap"); p.textContent = ""; } }
+function hidePopup() { const p = popup(); if (p) { p.classList.remove("is-visible", "is-snap", "is-non-snap"); p.textContent = ""; } }
 function owner(entry) { return resolvePublicTransformOwner(entry); }
 function syncFontSizeInputs(value) {
   const shown = String(Math.round(Math.max(5, Math.min(250, Number(value) || 42))));
@@ -65,7 +67,7 @@ export const rotationController = {
   },
   cancelPointer() { this.endPointer("cancelled"); },
   hidePopup,
-  syncSelection(item) { const publicOwner = owner(item); if (publicOwner) { updatePopup(normalize(publicOwner.data?.rotation)); if (publicOwner.className === "PointText") syncFontSizeInputs(publicOwner.fontSize); hidePopup(); } },
+  syncSelection(item) { const publicOwner = owner(item); if (publicOwner && publicOwner.className === "PointText") syncFontSizeInputs(publicOwner.fontSize); } ,
   syncFontSizeInputs,
   applyManual(value) {
     const items = selected(); if (!items.length) return;
