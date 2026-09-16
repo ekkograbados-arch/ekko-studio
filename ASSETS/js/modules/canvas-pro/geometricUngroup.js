@@ -600,11 +600,18 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         geomBase.matrix = new paper.Matrix();
 
         const singleIsHole = !!(rootTarget.data?.isHole || single.data?.isHole);
+        // The decomposed owner is a new public object, but it must carry the
+        // source topology/identity contract.  In particular, resetting the
+        // CompoundPath fill rule to Paper's default makes a real hole (and
+        // internal glyph holes) behave as a solid after ungroup.
+        compound.fillRule = "evenodd";
         compound.data = {
+            ...(rootTarget.data || {}),
             locked: false,
             label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
             isHole: singleIsHole,
             isFusionReceptor: singleIsHole,
+            fillRule: "evenodd",
             geomBase: geomBase,
             layerDepth: 0,
             containmentId: 0,
@@ -683,19 +690,30 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     nodes.forEach((node) => {
         const isHole = node.isHole;
         const compoundItem = new paper.CompoundPath({ insert: false });
+        // flattenToAtomicPaths bakes the complete source-to-project matrix
+        // into path segments.  Keep the new owner identity-free (identity
+        // matrix), while explicitly retaining even-odd topology.
         const pathClone = node.path.clone({ insert: false });
+        pathClone.matrix = new paper.Matrix();
         compoundItem.addChild(pathClone);
+        compoundItem.fillRule = "evenodd";
 
         const geomBase = new paper.CompoundPath({ insert: false });
         const baseClone = node.path.clone({ insert: false });
         geomBase.addChild(baseClone);
         geomBase.matrix = new paper.Matrix();
+        geomBase.fillRule = "evenodd";
 
         compoundItem.data = {
             locked: false,
             label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
             isHole: isHole,
             isFusionReceptor: isHole,
+            fillRule: "evenodd",
+            preserveCompoundTopology: true,
+            // A decomposed path is a new public owner; never inherit a
+            // text-vector/fusion id that would alias the removed wrapper.
+            fusionId: null,
             geomBase: geomBase,
             layerDepth: node.depth,
             containmentId: node.id,
