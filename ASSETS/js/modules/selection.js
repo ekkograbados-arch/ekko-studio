@@ -394,7 +394,11 @@ const _updateSelectionBox = function(item) {
   }
 
   const primaryItem = item || window.selectedItem;
-  if (!primaryItem) return;
+  if (!primaryItem) {
+    // Keep both contextual surfaces in sync when a tool clears selection.
+    window.updateContextualMenu?.(null);
+    return;
+  }
 
   // Validación estricta anti-huérfano
   if (!primaryItem.project || !primaryItem.parent) {
@@ -539,6 +543,12 @@ const _updateSelectionBox = function(item) {
   const ownerForHandle = selected.length === 1
     ? (window.EKKO_ROTATION_CONTROLLER?.resolveOwner?.(primaryItem) || primaryItem) : null;
   const ownerMatrix = ownerForHandle?.globalMatrix || ownerForHandle?.matrix;
+  // Re-publish the rendered world angle after geometry tools (Calado/Contorno)
+  // rebuild their paths. The matrix is authoritative; metadata follows it.
+  if (ownerForHandle && ownerMatrix) {
+    const worldAngle = ((Math.atan2(Number(ownerMatrix.b), Number(ownerMatrix.a)) * 180 / Math.PI) % 360 + 360) % 360;
+    ownerForHandle.data = { ...(ownerForHandle.data || {}), rotation: worldAngle };
+  }
   const oriented = selected.length === 1 && ownerForHandle && ownerMatrix;
   const localBounds = oriented ? (ownerForHandle.internalBounds || ownerForHandle.bounds) : null;
   const worldPoint = p => ownerMatrix.transform(p);
