@@ -535,87 +535,34 @@ const _updateSelectionBox = function(item) {
     });
   }
 
-  // Rectángulo delimitador exterior principal
-  const boxBorder = new paper.Path.Rectangle(bounds);
-  boxBorder.strokeColor = mainColor;
-  boxBorder.strokeWidth = 1.5 / paper.view.zoom;
-  boxBorder.data = { isSelectionBox: true };
+  // Single-owner frame follows the owner's world matrix; multi-select remains axis-aligned.
+  const ownerForHandle = selected.length === 1
+    ? (window.EKKO_ROTATION_CONTROLLER?.resolveOwner?.(primaryItem) || primaryItem) : null;
+  const ownerMatrix = ownerForHandle?.globalMatrix || ownerForHandle?.matrix;
+  const oriented = selected.length === 1 && ownerForHandle && ownerMatrix;
+  const localBounds = oriented ? (ownerForHandle.internalBounds || ownerForHandle.bounds) : null;
+  const worldPoint = p => ownerMatrix.transform(p);
+  const corners = localBounds ? [worldPoint(localBounds.topLeft), worldPoint(localBounds.topRight), worldPoint(localBounds.bottomRight), worldPoint(localBounds.bottomLeft)] : null;
+  const mid = (a,b) => a.add(b).divide(2);
+  const pts = corners ? {tl:corners[0],tr:corners[1],br:corners[2],bl:corners[3],t:mid(corners[0],corners[1]),r:mid(corners[1],corners[2]),b:mid(corners[2],corners[3]),l:mid(corners[3],corners[0])} : {tl:bounds.topLeft,tr:bounds.topRight,br:bounds.bottomRight,bl:bounds.bottomLeft,t:bounds.topCenter,r:bounds.rightCenter,b:bounds.bottomCenter,l:bounds.leftCenter};
+  const boxBorder = corners ? new paper.Path({segments: corners, closed: true}) : new paper.Path.Rectangle(bounds);
+  boxBorder.strokeColor = mainColor; boxBorder.strokeWidth = 1.5 / paper.view.zoom; boxBorder.data = {isSelectionBox:true};
   window.selectionBoxGroup.addChild(boxBorder);
-
-  // 8 Tiradores perimetrales (esquinas y puntos medios)
   const handleSize = 8 / paper.view.zoom;
-  const positions = [
-    { type: 'tl', point: bounds.topLeft },
-    { type: 'tr', point: bounds.topRight },
-    { type: 'bl', point: bounds.bottomLeft },
-    { type: 'br', point: bounds.bottomRight },
-    { type: 't',  point: bounds.topCenter },
-    { type: 'b',  point: bounds.bottomCenter },
-    { type: 'l',  point: bounds.leftCenter },
-    { type: 'r',  point: bounds.rightCenter }
-  ];
-
-  positions.forEach(function(pos) {
-    const handleRect = new paper.Path.Rectangle({
-      center: pos.point,
-      size: [handleSize, handleSize],
-      fillColor: '#ffffff',
-      strokeColor: mainColor,
-      strokeWidth: 1.5 / paper.view.zoom,
-      data: { isSelectionBox: true, isHandle: true, handleType: pos.type }
-    });
-    window.selectionBoxGroup.addChild(handleRect);
+  ['tl','tr','bl','br','t','b','l','r'].forEach(type => {
+    const h = new paper.Path.Rectangle({center:pts[type], size:[handleSize,handleSize], fillColor:'#fff', strokeColor:mainColor, strokeWidth:1.5 / paper.view.zoom, data:{isSelectionBox:true,isHandle:true,handleType:type}});
+    if (oriented) h.rotate(Math.atan2(Number(ownerMatrix.b),Number(ownerMatrix.a))*180/Math.PI, pts[type]);
+    window.selectionBoxGroup.addChild(h);
   });
-
-  // Tirador superior de Rotación (LightBurn / Canva Style)
   const rotOffset = 22 / paper.view.zoom;
-  // A single owner's world transform defines the orientation. Multi-selection
-  // keeps the established axis-aligned box behavior.
-  const ownerForHandle = selected.length === 1 ? (window.EKKO_ROTATION_CONTROLLER?.resolveOwner?.(primaryItem) || primaryItem) : null;
-  const wm = ownerForHandle?.globalMatrix || ownerForHandle?.matrix;
-  const handleAngle = wm ? Math.atan2(Number(wm.b), Number(wm.a)) : 0;
-  const rotateVector = (v) => new paper.Point(
-    v.x * Math.cos(handleAngle) - v.y * Math.sin(handleAngle),
-    v.x * Math.sin(handleAngle) + v.y * Math.cos(handleAngle)
-  );
-  const rotVector = rotateVector(new paper.Point(0, -rotOffset));
-  const rotHandleCenter = bounds.topCenter.add(rotVector);
-  const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
-  connector.strokeColor = mainColor;
-  connector.strokeWidth = 1.2 / paper.view.zoom;
-  connector.data = { isSelectionBox: true };
-  window.selectionBoxGroup.addChild(connector);
-
-  const rotHandleCircle = new paper.Path.Circle({
-    center: rotHandleCenter,
-    radius: 7.5 / paper.view.zoom,
-    fillColor: '#ffffff',
-    strokeColor: mainColor,
-    strokeWidth: 1.5 / paper.view.zoom,
-    data: { isSelectionBox: true, isHandle: true, handleType: 'rot' }
-  });
-  window.selectionBoxGroup.addChild(rotHandleCircle);
-
-  // Flecha circular de rotación
-  const arrowRadius = 4 / paper.view.zoom;
-  const arrowArc = new paper.Path.Arc(
-    rotHandleCenter.add(rotateVector(new paper.Point(-arrowRadius, 0))),
-    rotHandleCenter.add(rotateVector(new paper.Point(0, -arrowRadius))),
-    rotHandleCenter.add(rotateVector(new paper.Point(arrowRadius, 0)))
-  );
-  arrowArc.strokeColor = mainColor;
-  arrowArc.strokeWidth = 1.2 / paper.view.zoom;
-  arrowArc.data = { isSelectionBox: true, isHandle: true, handleType: 'rot' };
-  window.selectionBoxGroup.addChild(arrowArc);
-
-  const arrowTip = new paper.Path.RegularPolygon(
-    rotHandleCenter.add(rotateVector(new paper.Point(arrowRadius, 0))),
-    3,
-    2.5 / paper.view.zoom
-  );
-  arrowTip.fillColor = mainColor;
-  arrowTip.data = { isSelectionBox: true, isHandle: true, handleType: 'rot' };
-  window.selectionBoxGroup.addChild(arrowTip);
+  const angle = ownerMatrix ? Math.atan2(Number(ownerMatrix.b),Number(ownerMatrix.a)) : 0;
+  const rv = v => new paper.Point(v.x*Math.cos(angle)-v.y*Math.sin(angle),v.x*Math.sin(angle)+v.y*Math.cos(angle));
+  const rotCenter = pts.t.add(rv(new paper.Point(0,-rotOffset)));
+  const connector = new paper.Path.Line(pts.t,rotCenter); connector.strokeColor=mainColor; connector.strokeWidth=1.2/paper.view.zoom; connector.data={isSelectionBox:true}; window.selectionBoxGroup.addChild(connector);
+  const rotCircle = new paper.Path.Circle({center:rotCenter,radius:7.5/paper.view.zoom,fillColor:'#fff',strokeColor:mainColor,strokeWidth:1.5/paper.view.zoom,data:{isSelectionBox:true,isHandle:true,handleType:'rot'}}); window.selectionBoxGroup.addChild(rotCircle);
+  const ar=4/paper.view.zoom;
+  const arc=new paper.Path.Arc(rotCenter.add(rv(new paper.Point(-ar,0))),rotCenter.add(rv(new paper.Point(0,-ar))),rotCenter.add(rv(new paper.Point(ar,0)))); arc.strokeColor=mainColor; arc.strokeWidth=1.2/paper.view.zoom; arc.data={isSelectionBox:true,isHandle:true,handleType:'rot'}; window.selectionBoxGroup.addChild(arc);
+  const tip=new paper.Path.RegularPolygon(rotCenter.add(rv(new paper.Point(ar,0))),3,2.5/paper.view.zoom); tip.fillColor=mainColor; tip.data={isSelectionBox:true,isHandle:true,handleType:'rot'}; window.selectionBoxGroup.addChild(tip);
 
   window.selectionBoxGroup.bringToFront();
 
@@ -748,6 +695,7 @@ const _deselectItem = function() {
 };
 
 const _getOppositePoint = function(bounds, handleType) {
+  if (bounds?._framePoints) { const f=bounds._framePoints; const opposite={tl:'br',tr:'bl',bl:'tr',br:'tl',t:'b',b:'t',l:'r',r:'l'}[handleType]; return f[opposite] || f.center; }
   switch (handleType) {
     case 'tl': return bounds.bottomRight;
     case 'tr': return bounds.bottomLeft;
@@ -762,6 +710,7 @@ const _getOppositePoint = function(bounds, handleType) {
 };
 
 const _getHandlePoint = function(bounds, handleType) {
+  if (bounds?._framePoints) return bounds._framePoints[handleType] || bounds.center;
   switch (handleType) {
     case 'tl': return bounds.topLeft;
     case 'tr': return bounds.topRight;
@@ -1083,6 +1032,11 @@ const _initSelectionTool = function() {
       });
 
       window.resizeInitialBounds = unifiedBounds || window.selectedItem.bounds;
+      if (window.selectedItems.length === 1) {
+        const owner = window.EKKO_ROTATION_CONTROLLER?.resolveOwner?.(window.selectedItem) || window.selectedItem;
+        const matrix = owner?.globalMatrix || owner?.matrix; const local = owner?.internalBounds || owner?.bounds;
+        if (matrix && local) { const w=p=>matrix.transform(p), m=(a,b)=>a.add(b).divide(2); const c=[w(local.topLeft),w(local.topRight),w(local.bottomRight),w(local.bottomLeft)]; window.resizeInitialBounds._framePoints={tl:c[0],tr:c[1],br:c[2],bl:c[3],t:m(c[0],c[1]),r:m(c[1],c[2]),b:m(c[2],c[3]),l:m(c[3],c[0])}; }
+      }
       window.resizeInitialPoint = event.point.clone();
       window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
       window.resizeLastScaleX = 1.0;
