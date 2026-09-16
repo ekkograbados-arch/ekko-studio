@@ -569,7 +569,17 @@ const _updateSelectionBox = function(item) {
 
   // Tirador superior de Rotación (LightBurn / Canva Style)
   const rotOffset = 22 / paper.view.zoom;
-  const rotHandleCenter = bounds.topCenter.subtract(new paper.Point(0, rotOffset));
+  // A single owner's world transform defines the orientation. Multi-selection
+  // keeps the established axis-aligned box behavior.
+  const ownerForHandle = selected.length === 1 ? (window.EKKO_ROTATION_CONTROLLER?.resolveOwner?.(primaryItem) || primaryItem) : null;
+  const wm = ownerForHandle?.globalMatrix || ownerForHandle?.matrix;
+  const handleAngle = wm ? Math.atan2(Number(wm.b), Number(wm.a)) : 0;
+  const rotateVector = (v) => new paper.Point(
+    v.x * Math.cos(handleAngle) - v.y * Math.sin(handleAngle),
+    v.x * Math.sin(handleAngle) + v.y * Math.cos(handleAngle)
+  );
+  const rotVector = rotateVector(new paper.Point(0, -rotOffset));
+  const rotHandleCenter = bounds.topCenter.add(rotVector);
   const connector = new paper.Path.Line(bounds.topCenter, rotHandleCenter);
   connector.strokeColor = mainColor;
   connector.strokeWidth = 1.2 / paper.view.zoom;
@@ -589,9 +599,9 @@ const _updateSelectionBox = function(item) {
   // Flecha circular de rotación
   const arrowRadius = 4 / paper.view.zoom;
   const arrowArc = new paper.Path.Arc(
-    rotHandleCenter.add(new paper.Point(-arrowRadius, 0)),
-    rotHandleCenter.add(new paper.Point(0, -arrowRadius)),
-    rotHandleCenter.add(new paper.Point(arrowRadius, 0))
+    rotHandleCenter.add(rotateVector(new paper.Point(-arrowRadius, 0))),
+    rotHandleCenter.add(rotateVector(new paper.Point(0, -arrowRadius))),
+    rotHandleCenter.add(rotateVector(new paper.Point(arrowRadius, 0)))
   );
   arrowArc.strokeColor = mainColor;
   arrowArc.strokeWidth = 1.2 / paper.view.zoom;
@@ -599,7 +609,7 @@ const _updateSelectionBox = function(item) {
   window.selectionBoxGroup.addChild(arrowArc);
 
   const arrowTip = new paper.Path.RegularPolygon(
-    rotHandleCenter.add(new paper.Point(arrowRadius, 0)),
+    rotHandleCenter.add(rotateVector(new paper.Point(arrowRadius, 0))),
     3,
     2.5 / paper.view.zoom
   );
