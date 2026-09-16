@@ -32,6 +32,10 @@ function updatePopup(value, event) {
 }
 function hidePopup() { const p = popup(); if (p) { p.classList.remove("is-visible", "is-snap"); p.textContent = ""; } }
 function owner(entry) { return resolvePublicTransformOwner(entry); }
+function syncFontSizeInputs(value) {
+  const shown = String(Math.round(Math.max(5, Math.min(250, Number(value) || 42))));
+  ["objFontSize", "ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
+}
 export const rotationController = {
   startPointer(event, ctx = {}) {
     const items = ctx.selectedItems?.length ? ctx.selectedItems : (ctx.selectedItem ? [ctx.selectedItem] : []);
@@ -61,7 +65,8 @@ export const rotationController = {
   },
   cancelPointer() { this.endPointer("cancelled"); },
   hidePopup,
-  syncSelection(item) { const publicOwner = owner(item); if (publicOwner) { updatePopup(normalize(publicOwner.data?.rotation)); hidePopup(); } },
+  syncSelection(item) { const publicOwner = owner(item); if (publicOwner) { updatePopup(normalize(publicOwner.data?.rotation)); if (publicOwner.className === "PointText") syncFontSizeInputs(publicOwner.fontSize); hidePopup(); } },
+  syncFontSizeInputs,
   applyManual(value) {
     const items = selected(); if (!items.length) return;
     const targets = items.map(item => ({ item, owner: owner(item) })).filter(entry => entry.owner); if (!targets.length) return;
@@ -75,7 +80,7 @@ export const rotationController = {
     const size = Math.max(5, Math.min(250, Number(value) || 42));
     const targets = selected().map(owner).filter(item => item?.className === "PointText"); if (!targets.length) return;
     window.beginHistoryTransaction?.("text-size"); targets.forEach(item => { item.fontSize = size; item.data = { ...(item.data || {}), fontSize: size }; });
-    window.commitHistoryTransaction?.("text-size"); document.querySelectorAll("#objFontSize,#ctxFontSize").forEach(input => { input.value = String(Math.round(size)); }); window.paper?.view?.update?.(); notifyTransformObservers({ type: "text-size", size });
+    window.commitHistoryTransaction?.("text-size"); syncFontSizeInputs(size); window.paper?.view?.update?.(); notifyTransformObservers({ type: "text-size", size });
   }
 };
 function bind() {
