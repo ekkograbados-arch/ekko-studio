@@ -1,7 +1,7 @@
 import {
   clearFusionSelection, isFusionSelection,
   beginTransformTransaction, accumulateDragDelta, finalizeTransformTransaction,
-  transformFusion, notifyTransformObservers
+  transformFusion, notifyTransformObservers, resolvePublicTransformOwner
 } from "./canvas-pro/fusionController.js";
 import { rotationController } from "./canvas-pro/rotationController.js";
 
@@ -163,6 +163,10 @@ function getContentItem(item) {
 // el target. Una fusión, en cambio, es una unidad y se mueve completa.
 function getTransformTarget(item) {
   if (!item) return null;
+  // All public selection/transform routes share the fusion controller owner.
+  // Never expose clipGroup/mask/raster children as the public owner.
+  const canonical = resolvePublicTransformOwner(item);
+  if (canonical && !canonical.clipMask && !canonical.data?.isMask && !canonical.data?.mockup) return canonical;
   if (item.data?.isSmartFusion && !item.data?.clipGroup) return item;
   if (typeof window.findSmartFusionContainer === 'function') {
     try {
@@ -550,7 +554,12 @@ const _updateSelectionBox = function(item) {
     ownerForHandle.data = { ...(ownerForHandle.data || {}), rotation: worldAngle };
   }
   const oriented = selected.length === 1 && ownerForHandle && ownerMatrix;
-  const localBounds = oriented ? (ownerForHandle.internalBounds || ownerForHandle.bounds) : null;
+  // Paper.js `bounds` is already in project/world space. Applying globalMatrix
+  // to it again doubles translation/rotation. Only an explicitly local frame
+  // may be transformed; otherwise use the owner's rendered world frame.
+  const explicitLocal = ownerForHandle?.internalBounds && ownerForHandle.data?.internalBoundsSpace === "local";
+  const localBounds = oriented && explicitLocal ? ownerForHandle.internalBounds : null;
+  const worldBounds = ownerForHandle?.bounds || bounds;
   const worldPoint = p => ownerMatrix.transform(p);
   const corners = localBounds ? [worldPoint(localBounds.topLeft), worldPoint(localBounds.topRight), worldPoint(localBounds.bottomRight), worldPoint(localBounds.bottomLeft)] : null;
   const mid = (a,b) => a.add(b).divide(2);
@@ -1615,6 +1624,16 @@ function alignSelection(direccion) {
 
     console.log(`[alignSelection] Alineación ${direccion} aplicada a ${seleccion.length} elemento(s)`);
 }
+
+function _commitSelection(item, items = null) {
+  const list = Array.isArray(items) ? items.filter(Boolean) : (item ? [item] : []);
+  window.selectedItems = list;
+  window.selectedItem = item || list[list.length - 1] || null;
+  if (window.selectedItem) _updateSelectionBox(window.selectedItem);
+  else _deselectItem();
+  return window.selectedItem;
+}
+window.commitSelection = _commitSelection;
 
 protectGlobal('getSelectableItem', _getSelectableItem);
 protectGlobal('updateSelectionBox', _updateSelectionBox);
