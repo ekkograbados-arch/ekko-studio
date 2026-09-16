@@ -380,6 +380,34 @@ const _getSelectableItem = function(item) {
 };
 
 /**
+ * Returns the owner's geometry bounds in the owner's local coordinate system.
+ * Paper.js `bounds` is project/world-space after transforms, so it cannot be
+ * inverted to make an oriented frame: inverse-transforming that AABB produces
+ * a diamond for rotated geometry. Clone the public owner without insertion,
+ * clear only the clone's own matrix, and read its bounds; child matrices remain
+ * relative for Groups/fusionGroups. This works for Path, CompoundPath,
+ * PointText, Group, and the fusionGroup public owner without touching history
+ * or the live scene.
+ */
+function getOwnerLocalGeometryBounds(owner) {
+  if (!owner) return null;
+  const internal = owner.internalBounds;
+  if (internal && internal.width > 0 && internal.height > 0 &&
+      owner.data?.internalBoundsSpace === 'local') return internal.clone();
+  let clone = null;
+  try {
+    clone = owner.clone({ insert: false });
+    clone.matrix = new paper.Matrix();
+    const local = clone.bounds;
+    return local && local.width > 0 && local.height > 0 ? local.clone() : null;
+  } catch (e) {
+    return null;
+  } finally {
+    try { if (clone) clone.remove(); } catch (e) {}
+  }
+}
+
+/**
  * Actualiza la caja de selección unificada con tiradores y rotador (Canva / LightBurn style)
  */
 const _updateSelectionBox = function(item) {
@@ -554,12 +582,10 @@ const _updateSelectionBox = function(item) {
     ownerForHandle.data = { ...(ownerForHandle.data || {}), rotation: worldAngle };
   }
   const oriented = selected.length === 1 && ownerForHandle && ownerMatrix;
-  // Paper.js `bounds` is already in project/world space. Applying globalMatrix
-  // to it again doubles translation/rotation. Only an explicitly local frame
-  // may be transformed; otherwise use the owner's rendered world frame.
-  const explicitLocal = ownerForHandle?.internalBounds && ownerForHandle.data?.internalBoundsSpace === "local";
-  const localBounds = oriented && explicitLocal ? ownerForHandle.internalBounds : null;
-  const worldBounds = ownerForHandle?.bounds || bounds;
+  // `owner.bounds` is a world/project AABB and must never be used to
+  // fabricate an oriented frame. Obtain true local geometry bounds once, then
+  // map each local corner exactly once through the owner's world matrix.
+  const localBounds = oriented ? getOwnerLocalGeometryBounds(ownerForHandle) : null;
   const worldPoint = p => ownerMatrix.transform(p);
   const corners = localBounds ? [worldPoint(localBounds.topLeft), worldPoint(localBounds.topRight), worldPoint(localBounds.bottomRight), worldPoint(localBounds.bottomLeft)] : null;
   const mid = (a,b) => a.add(b).divide(2);
@@ -1053,7 +1079,7 @@ const _initSelectionTool = function() {
       window.resizeInitialBounds = unifiedBounds || window.selectedItem.bounds;
       if (window.selectedItems.length === 1) {
         const owner = window.EKKO_ROTATION_CONTROLLER?.resolveOwner?.(window.selectedItem) || window.selectedItem;
-        const matrix = owner?.globalMatrix || owner?.matrix; const local = owner?.internalBounds || owner?.bounds;
+        const matrix = owner?.globalMatrix || owner?.matrix; const local = getOwnerLocalGeometryBounds(owner);
         if (matrix && local) { const w=p=>matrix.transform(p), m=(a,b)=>a.add(b).divide(2); const c=[w(local.topLeft),w(local.topRight),w(local.bottomRight),w(local.bottomLeft)]; window.resizeInitialBounds._framePoints={tl:c[0],tr:c[1],br:c[2],bl:c[3],t:m(c[0],c[1]),r:m(c[1],c[2]),b:m(c[2],c[3]),l:m(c[3],c[0])}; }
       }
       window.resizeInitialPoint = event.point.clone();
