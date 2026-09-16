@@ -167,7 +167,7 @@ export function duplicateSelectedItem() {
     if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
         const activeTarget = window.nodeEditTarget || window.selectedItem;
         window.exitNodeEditMode(true); // Salir forzadamente antes de duplicar el objeto completo
-        window.selectedItem = activeTarget;
+        window.commitSelection?.(activeTarget, window.selectedItems);
     }
     const itemsToDuplicate = (window.selectedItems && window.selectedItems.length > 0)
         ? [...window.selectedItems]
@@ -188,8 +188,7 @@ export function duplicateSelectedItem() {
 
     if (duplicatedList.length > 0) {
         if (typeof window.deselectItem === 'function') window.deselectItem();
-        window.selectedItems = [...duplicatedList];
-        window.selectedItem = duplicatedList[duplicatedList.length - 1];
+        window.commitSelection?.(duplicatedList[duplicatedList.length - 1], duplicatedList);
         duplicatedList.forEach(cl => { cl.selected = true; });
 
         // Sincronizar recálculo CSG dinámico sobre las nuevas capas
@@ -507,8 +506,7 @@ export function ungroupSelectedItem() {
         if (typeof window.deselectItem === 'function') {
             window.deselectItem();
         }
-        window.selectedItems = [...allCreatedItems];
-        window.selectedItem = allCreatedItems[allCreatedItems.length - 1];
+        window.commitSelection?.(allCreatedItems[allCreatedItems.length - 1], allCreatedItems);
         allCreatedItems.forEach(it => { if (it) it.selected = true; });
 
         if (typeof window.updateSelectionBox === 'function') {
