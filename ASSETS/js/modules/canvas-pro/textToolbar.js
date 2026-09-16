@@ -229,7 +229,7 @@ export async function applyTextCurve(item, curvature) {
     targetItem.remove();
 
     if (window.selectedItem === targetItem) {
-        window.selectedItem = curvedGroup;
+        window.commitSelection?.(curvedGroup, window.selectedItems);
         window.updateSelectionBox(curvedGroup);
     }
     paper.view.update();
@@ -347,7 +347,7 @@ export function applyTextSpacing(item, hspace) {
         target.remove();
 
         if (window.selectedItem === item) {
-            window.selectedItem = spacedGroup;
+            window.commitSelection?.(spacedGroup, window.selectedItems);
             window.updateSelectionBox(spacedGroup);
         }
     } else if (target.data?.isCurvedGroup) {
@@ -526,8 +526,7 @@ export async function weldText(item) {
     if (typeof window.selectItem === "function") {
         window.selectItem(resultPath);
     } else {
-        window.selectedItem = resultPath;
-        window.selectedItems = [resultPath];
+        window.commitSelection?.(resultPath, [resultPath]);
     }
     window.updateSelectionBox?.(resultPath);
     window.refreshEKKOSharedCommands?.();
@@ -630,7 +629,7 @@ export function toggleUnderline(item) {
             line.remove();
             target.remove();
             if (window.selectedItem === item) {
-                window.selectedItem = originalText;
+                window.commitSelection?.(originalText, window.selectedItems);
                 window.updateSelectionBox(originalText);
             }
         }
@@ -656,7 +655,7 @@ export function toggleUnderline(item) {
         group.addChild(underlineLine);
 
         if (window.selectedItem === item) {
-            window.selectedItem = group;
+            window.commitSelection?.(group, window.selectedItems);
             window.updateSelectionBox(group);
         }
     }
