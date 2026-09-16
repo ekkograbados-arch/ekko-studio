@@ -720,6 +720,9 @@ export function initContextualMenu() {
             window.deleteSelectedNodes();
         }
     });
+
+    // Establish the empty-selection state even before the first click.
+    setTextCurveVisibility(false);
 }
 
 function getUnifiedScreenBounds(item) {
@@ -748,14 +751,31 @@ function getUnifiedScreenBounds(item) {
     };
 }
 
+function setTextCurveVisibility(visible) {
+    // Both surfaces are one command: never leave a stale top button or popup control.
+    const ids = ['btnTopTextCurve', 'btnCtxTextCurve'];
+    ids.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.style.display = visible ? 'inline-flex' : 'none';
+        el.classList.toggle('hidden', !visible);
+        el.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    });
+}
+
+function isCurveTextTarget(target) {
+    if (!target || target.data?.mockup || target.data?.isMask || target.data?.isFusion ||
+        target.data?.fusionId || target.data?.clipGroup || isRaster(target)) return false;
+    return isPointText(target) || target.data?.isCurvedGroup === true || target.data?.isSpacedGroup === true;
+}
+
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
     removeOverlapTab();
 
     if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
-        const topCurve = document.getElementById('btnTopTextCurve');
-        if (topCurve) topCurve.style.display = 'none';
+        setTextCurveVisibility(false);
         toolbar.classList.remove('active');
         toolbarDragged = false;
         lastSelectedItem = null;
@@ -773,8 +793,7 @@ export function updateContextualMenu(item) {
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
-    const topCurve = document.getElementById('btnTopTextCurve');
-    if (topCurve) topCurve.style.display = 'none';
+    setTextCurveVisibility(false);
 
     const btnTrace = document.getElementById('btnCtxTrace');
     if (btnTrace) btnTrace.style.display = 'none';
@@ -810,12 +829,10 @@ export function updateContextualMenu(item) {
         const target = item.data?.clipGroup ? getContentItem(item) : item;
         if (!target) return;
 
-        if (isPointText(target) || target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
+        if (isCurveTextTarget(target)) {
             const txtCtrl = document.getElementById('ctxTextControls');
             if (txtCtrl) txtCtrl.classList.remove('hidden');
-            const curveBtn = document.getElementById('btnCtxTextCurve');
-            if (curveBtn) curveBtn.style.display = 'inline-flex';
-            if (topCurve) topCurve.style.display = 'inline-flex';
+            setTextCurveVisibility(true);
             const fontTrigger = document.querySelector('.selected-font-trigger span');
             if (fontTrigger) fontTrigger.textContent = getSelectedFontFamily();
             window.EKKO_ROTATION_CONTROLLER?.syncFontSizeInputs?.(target.fontSize || 42);
