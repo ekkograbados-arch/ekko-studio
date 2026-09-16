@@ -322,6 +322,14 @@ const _getSelectableItem = function(item) {
       return null;
     }
 
+    // Texto a Vector publica un CompoundPath como owner, incluso cuando el
+    // texto original vivía dentro de un clipGroup o un grupo de usuario.
+    // Debe conservarse esa identidad para que la conversión no termine
+    // seleccionando el wrapper (o limpiando la selección al volver a Inicio).
+    if (d.isTextVector) {
+      return current;
+    }
+
     // Un wrapper de clipping nunca es owner público. Si contiene una fusión,
     // resolver primero el fusionGroup real y devolver esa identidad.
     if (d.clipGroup) {
