@@ -9,6 +9,7 @@ para eliminar por completo el delay de red de 2 minutos.
 
 
 import { textToCompoundPath } from "./fontToPath.js";
+import { stampDesignItem } from "./fusionCore.js";
 
 let loadedFontsCache = [];
 
@@ -466,15 +467,6 @@ export async function weldText(item) {
     resultPath.fillColor = target.fillColor || new paper.Color(0);
     resultPath.strokeColor = null;
     resultPath.strokeWidth = 0;
-        import("./fusionCore.js").then(({ stampDesignItem }) => {
-          stampDesignItem(resultPath, {
-            source: "text-vector",
-            role: "letter",
-            isFusionReceptor: true,
-            hasInternalHoles: true
-          });
-        });
-    
     // geomBase is the canonical hit-test/CSG geometry. It must be captured
     // only after the final world calibration below; taking it before scale /
     // translation leaves pointer selection and the visible owner divergent.
@@ -522,6 +514,15 @@ export async function weldText(item) {
     calibratedBase.fillRule = "evenodd";
     resultPath.data.geomBase = calibratedBase;
     resultPath.data.fillRule = "evenodd";
+    // La identidad semántica se estampa después de calibrar la geometría y
+    // antes de publicarla. Nunca se publica un vector a medio registrar.
+    stampDesignItem(resultPath, {
+        source: "text-vector",
+        role: "letter",
+        isTextVector: true,
+        isFusionReceptor: true,
+        hasInternalHoles: true
+    });
     target.remove();
     try { converted.remove(); } catch (e) {}
     try { pathGroup.remove(); } catch (e) {}
