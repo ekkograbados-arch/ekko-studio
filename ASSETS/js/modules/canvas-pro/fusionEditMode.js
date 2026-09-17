@@ -203,6 +203,10 @@ export function enterFusionEditMode(fusionItem = null) {
     };
     window._fusionEditState = editState;
     window.fusionEditActive = true;
+    // SINGLE INTERACTION OWNER (Fase 0): reclama el modo. Limpia flags de
+    // puntero huérfanos (Bug 4: dragging/resizeActive/rotationActive) y
+    // registra el claim. selectTool sigue activo (fusion-edit no exclusivo).
+    if (window.EKKO_INTERACTION) window.EKKO_INTERACTION.claim("fusion-edit", { owner: "fusionEditMode" });
 
     if (typeof window.deselectItem === 'function') window.deselectItem();
     if (typeof window.selectItem === 'function') window.selectItem(rasterChild);
@@ -247,9 +251,11 @@ export function enterFusionEditMode(fusionItem = null) {
    SALIR del modo edición. accept=true → re-fusiona con la imagen movida.
 ------------------------------------------------------------------------ */
 export function exitFusionEditMode(accept = true) {
-  if (!window.fusionEditActive || !editState) { cleanupEditState(); return; }
+  if (!window.fusionEditActive || !editState) { cleanupEditState(); if (window.EKKO_INTERACTION) window.EKKO_INTERACTION.release("fusion-edit"); return; }
   const st = editState;
   cleanupEditState();
+  // SINGLE INTERACTION OWNER: libera el modo al salir (simétrico al claim).
+  if (window.EKKO_INTERACTION) window.EKKO_INTERACTION.release("fusion-edit");
 
   try {
     if (accept && typeof window.beginHistoryTransaction === 'function') {
