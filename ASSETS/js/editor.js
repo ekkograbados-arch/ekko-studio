@@ -30,7 +30,7 @@ import "./modules/selection.js";
 import "./modules/canvas-pro/ekkoDiagnostics.js";
 import "./modules/canvas-pro/runtimeProbe.js";
 import "./modules/canvas-pro/ekkoSynapse.js";
-import { loadDynamicFonts, convertTextToVector } from "./modules/canvas-pro/textToolbar.js";
+import { loadDynamicFonts, convertTextToVector, applyTextCurve } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
 import { restoreMockupReferences, loadMockup } from "./modules/mockupLoader.js";
 import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./modules/canvas-pro/contextualMenu.js";
@@ -65,6 +65,7 @@ window.exitNodeEditMode = exitNodeEditMode;
 window.convertSelectionToCalado = convertSelectionToCalado;
 window.canConvertSelectionToCalado = canConvertSelectionToCalado;
 window.convertTextToVector = convertTextToVector;
+window.applyTextCurve = applyTextCurve;
 window.enterFusionEditMode = enterFusionEditMode;
 window.exitFusionEditMode = exitFusionEditMode;
 window.handleFusionEditKeyDown = handleFusionEditKeyDown;
@@ -727,7 +728,9 @@ function initGeomBaseRecursive(item) {
     if (!item.data) item.data = {};
     if (!item.data.geomBase) {
       const baseClone = item.clone({ insert: false });
-      baseClone.matrix = new paper.Matrix();
+      // ✅ geomBase conserva la misma matriz local que el owner
+      baseClone.applyMatrix = false;
+      baseClone.matrix = item.matrix ? item.matrix.clone() : new paper.Matrix();
       item.data.geomBase = baseClone;
     }
   }
@@ -849,7 +852,7 @@ export function addSVGFromFile(file) {
       sanitizeAndBakeVectors(item);
 
       // 5. Hornear transformaciones en coordenadas reales de cada nodo
-      item.applyMatrix = true;
+      item.applyMatrix = false;
 
       // 6. AHORA que el objeto esta escalado, centrado y horneado, inicializar geomBase
       // Garantiza que al desagrupar, cada pieza conserve exactamente este tamano y forma
@@ -1359,6 +1362,38 @@ async function bootstrapEKKO() {
       openSVGFileDialog();
     });
 
+// ============================================================
+// CURVAR TEXTO — Enlace de botones y slider
+// ============================================================
+safeAddListener("btnCtxTextCurve", "click", () => {
+  const selected = window.selectedItem ||
+    (Array.isArray(window.selectedItems) && window.selectedItems.length
+      ? window.selectedItems[window.selectedItems.length - 1] : null);
+  if (!selected) {
+    alert("Seleccioná primero un texto para curvarlo.");
+    return;
+  }
+  const val = prompt("Ingrese curvatura (-100 a 100):\nPositivo = curva hacia arriba\nNegativo = curva hacia abajo", "30");
+  if (val === null) return;
+  const curvature = parseFloat(val);
+  if (isNaN(curvature)) return;
+  applyTextCurve(selected, curvature);
+});
+
+// Slider de curvatura en la barra contextual de texto
+(function initCurveSlider() {
+  const slider = document.querySelector('#ctxTextCurvature input[type="range"]');
+  if (!slider) return;
+  slider.addEventListener('input', (e) => {
+    const selected = window.selectedItem;
+    if (!selected) return;
+    if (selected instanceof paper.PointText || selected.data?.isCurvedGroup) {
+      applyTextCurve(selected, parseFloat(e.target.value));
+    }
+  });
+})();
+
+     
     safeAddListener("svgPicker", "change", (e) => {
       const file = e.target.files && e.target.files[0];
       if (file) {
