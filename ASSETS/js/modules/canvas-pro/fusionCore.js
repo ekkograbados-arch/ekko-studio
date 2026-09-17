@@ -1,408 +1,109 @@
-/* =========================================================================
-   EKKO STUDIO — FUSION CORE / FASE 4.1
-   Contrato común de objetos, geometrías y huecos virtuales.
+import { v4 as uuidv4 } from "https://cdn.skypack.dev/uuid@9.0.0";
 
-   Este módulo no ejecuta la fusión por sí solo. Centraliza las reglas que
-   smartFusion.js, fusionEditMode.js, selection.js y exportSVG.js deben usar.
-========================================================================= */
-
-const PRODUCT_FLAGS = [
-    "mockup",
-    "isMask",
-    "wasClipMask",
-    "isMockupPart",
-    "productTemplate",
-    "systemGenerated",
-    "isProductMask"
-];
-
-function hasPaper() {
-    return typeof paper !== "undefined" && paper && paper.project;
-}
-
-function walkParents(item, callback) {
-    let current = item;
-    while (current) {
-        if (callback(current)) return true;
-        current = current.parent;
-    }
-    return false;
-}
-
+// Única fuente de verdad: clasificación de elementos
 export function isProductElement(item) {
-    if (!item) return true;
-    if (item.clipMask) return true;
-    if (typeof window !== "undefined" && item === window.currentMockup) return true;
-
-    return walkParents(item, current => {
-        if (current.clipMask) return true;
-        if (current.data && PRODUCT_FLAGS.some(flag => current.data[flag] === true)) return true;
-        if (typeof window !== "undefined" && current === window.currentMockup) return true;
-        return false;
-    });
+  if (!item?.data) return false;
+  const d = item.data;
+  return !!(
+    d.productTemplate ||
+    d.systemGenerated ||
+    d.source === "product-catalog" ||
+    d.isMockup ||
+    d.isMask ||
+    d.wasClipMask ||
+    d.clipGroup
+  );
 }
 
 export function isClientDesignElement(item) {
-    if (!item || isProductElement(item)) return false;
-    const data = item.data || {};
-    return data.userImported === true ||
-        data.source === "client-svg" ||
-        data.decomposedLayer === true ||
-        data.isFusionReceptor === true ||
-        data.isHole === true ||
-        data.isSolidShape === true ||
-        data.isCalado === true ||
-        item.className === "Path" ||
-        item.className === "CompoundPath" ||
-        item.className === "Group" ||
-        item.className === "Shape";
-}
-
-export function getContentItem(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup && item.children) {
-        return item.children.find(child =>
-            !child.clipMask && !(child.data && (child.data.isMask || child.data.wasClipMask || child.data.mockup))
-        ) || item;
-    }
-    return item;
-}
-
-function isFusionVectorNode(item) {
-    return item && (
-        item.className === "CompoundPath" ||
-        (item.className === "Path" && item.closed === true) ||
-        (item.className === "Shape" && item.closed !== false)
-    );
-}
-
-function findSingleDescendant(item, predicate) {
-    if (!item || isProductElement(item)) return null;
-    if (predicate(item)) return item;
-    if (!item.children) return null;
-
-    const matches = [];
-    Array.from(item.children).forEach(child => {
-        const match = findSingleDescendant(child, predicate);
-        if (match) matches.push(match);
-    });
-    return matches.length === 1 ? matches[0] : null;
-}
-
-export function findFusionVector(item) {
-    return findSingleDescendant(item, child => {
-        if (child.clipMask || child.data?.isMask || child.data?.wasClipMask) return false;
-        return isFusionVectorNode(child);
-    });
-}
-
-export function findFusionRaster(item) {
-    return findSingleDescendant(item, child => {
-        if (child.clipMask || child.data?.isMask || child.data?.wasClipMask) return false;
-        return child.className === "Raster";
-    });
-}
-
-export function isClosedClientVector(item) {
-    const target = findFusionVector(item) || getContentItem(item);
-    if (!target || isProductElement(target) || !isClientDesignElement(target)) return false;
-    return target.className === "CompoundPath" ||
-        (target.className === "Path" && target.closed === true) ||
-        (target.className === "Shape" && target.closed !== false);
+  if (!item?.data) return false;
+  const d = item.data;
+  return !isProductElement(item) && !!(
+    d.userImported ||
+    d.source === "client-svg" ||
+    d.source === "text-vector" ||
+    d.source === "traced" ||
+    d.source === "calado"
+  );
 }
 
 export function isValidFusionReceptor(item) {
-    const target = findFusionVector(item) || getContentItem(item);
-    if (!target || isProductElement(target) || !isClosedClientVector(target)) return false;
-    if (target.data && target.data.isSmartFusion) return false;
-    return target.data?.isFusionReceptor === true ||
-        target.data?.isHole === true ||
-        target.data?.isCalado === true ||
-        target.data?.isSolidShape === true ||
-        target.className === "CompoundPath" ||
-        (target.className === "Path" && target.closed === true) ||
-        (target.className === "Shape" && target.closed !== false);
+  if (!item) return false;
+  if (isProductElement(item)) return false;
+  const d = item.data;
+  return !!(
+    d.isFusionReceptor ||
+    d.isHole === true ||
+    d.hasInternalHoles === true
+  );
 }
 
-/**
- * Public semantic contract for all fusion receptors. The image never decides
- * the nature of a fusion; the closed vector does.
- */
-export function getReceiverKind(item) {
-    const target = findFusionVector(item) || getContentItem(item);
-    if (!target || isProductElement(target)) return null;
-    return target.data?.isHole === true || target.data?.isCalado === true
-        ? "hole"
-        : isClosedClientVector(target)
-            ? "solid"
-            : null;
+// Estampa semántica completa — TODO objeto nuevo la recibe
+export function stampDesignItem(item, meta = {}) {
+  if (!item) return item;
+  if (!item.data) item.data = {};
+  const d = item.data;
+
+  if (!d.containmentScope) d.containmentScope = uuidv4();
+  if (!d.containmentKey) d.containmentKey = uuidv4();
+  if (!d.ownerContainmentKey) d.ownerContainmentKey = d.containmentScope;
+  if (!d.geomBase && item.pathData) d.geomBase = item.clone();
+
+  d.source = meta.source || d.source || "unknown";
+  d.role = meta.role || d.role || "surface";
+  d.isFusionReceptor = meta.isFusionReceptor ?? d.isFusionReceptor ?? true;
+  d.hasInternalHoles = meta.hasInternalHoles ?? d.hasInternalHoles ?? false;
+  d.userImported = true;
+
+  return item;
 }
 
-export function isHoleReceiver(item) {
-    return getReceiverKind(item) === "hole";
-}
-
-export function canConvertToCalado(item) {
-    const target = findFusionVector(item) || getContentItem(item);
-    if (!target || isProductElement(target)) return false;
-    return isClosedClientVector(target) && target.data?.isHole !== true && target.data?.isCalado !== true;
-}
-
-function bakeMatrixIntoPath(path, matrix) {
-    if (!path || !matrix || matrix.isIdentity()) return;
-
-    if (path.segments) {
-        path.segments.forEach(segment => {
-            const originalPoint = segment.point.clone();
-            segment.point = matrix.transform(originalPoint);
-
-            if (segment.handleIn) {
-                const absoluteHandle = originalPoint.add(segment.handleIn);
-                segment.handleIn = matrix.transform(absoluteHandle)
-                    .subtract(segment.point);
-            }
-
-            if (segment.handleOut) {
-                const absoluteHandle = originalPoint.add(segment.handleOut);
-                segment.handleOut = matrix.transform(absoluteHandle)
-                    .subtract(segment.point);
-            }
-        });
-    }
-
-    if (path.children) {
-        Array.from(path.children).forEach(child => bakeMatrixIntoPath(child, matrix));
-    }
-}
-
-export function cloneAbsolute(item) {
-    if (!item || !hasPaper()) return null;
-
-    const clone = item.clone({ insert: false });
-    const globalMatrix = item.globalMatrix ? item.globalMatrix.clone() : new paper.Matrix();
-    paper.project.activeLayer.addChild(clone);
-
-    if (clone.className === "Path" || clone.className === "CompoundPath") {
-        bakeMatrixIntoPath(clone, globalMatrix);
-        clone.matrix = new paper.Matrix();
-    } else if (!globalMatrix.isIdentity()) {
-        clone.transform(globalMatrix);
-    }
-
-    return clone;
-}
-
-export function calculateCoverPlacement(maskItem, rasterItem) {
-    if (!maskItem || !rasterItem) return null;
-    const maskBounds = maskItem.bounds;
-    const rasterBounds = rasterItem.bounds;
-    if (!maskBounds || !rasterBounds || rasterBounds.width <= 0 || rasterBounds.height <= 0) return null;
-
-    const scale = Math.max(
-        maskBounds.width / rasterBounds.width,
-        maskBounds.height / rasterBounds.height
-    );
-
-    const scaledWidth = rasterBounds.width * scale;
-    const scaledHeight = rasterBounds.height * scale;
-    const delta = maskBounds.center.subtract(rasterBounds.center.multiply(scale));
-
-    return {
-        scale,
-        center: maskBounds.center.clone(),
-        delta,
-        scaledWidth,
-        scaledHeight
-    };
-}
-
-function ensureRegistry() {
-    if (typeof window === "undefined") return [];
-    if (!Array.isArray(window._fusionVirtualHoles)) window._fusionVirtualHoles = [];
-    return window._fusionVirtualHoles;
-}
-
-export function registerVirtualHole(geometry, fusionId, fusionGroup = null) {
-    if (!geometry || !fusionId) return null;
-    const registry = ensureRegistry();
-    const existing = registry.find(entry => entry.fusionId === fusionId);
-    const clone = geometry.clone({ insert: false });
-    clone.matrix = new paper.Matrix();
-
-    const ownerContainmentKey = fusionGroup?.data?.ownerContainmentKey ||
-        fusionGroup?.data?.containmentKey || null;
-
-    if (existing) {
-        try { existing.geom.remove(); } catch (e) {}
-        existing.geom = clone;
-        existing.fusionGroup = fusionGroup || existing.fusionGroup || null;
-        existing.ownerContainmentKey = ownerContainmentKey || existing.ownerContainmentKey || null;
-        return existing;
-    }
-
-    const entry = { geom: clone, fusionId, fusionGroup, ownerContainmentKey };
-    registry.push(entry);
-    return entry;
-}
-
-export function updateVirtualHole(fusionId, geometry, fusionGroup = null) {
-    return registerVirtualHole(geometry, fusionId, fusionGroup);
-}
-
-export function unregisterVirtualHole(fusionId) {
-    const registry = ensureRegistry();
-    window._fusionVirtualHoles = registry.filter(entry => {
-        if (entry.fusionId !== fusionId) return true;
-        try { entry.geom.remove(); } catch (e) {}
-        return false;
-    });
-}
-
-export function clearVirtualHoles() {
-    const registry = ensureRegistry();
-    registry.forEach(entry => {
-        try { entry.geom.remove(); } catch (e) {}
-    });
-    window._fusionVirtualHoles = [];
-}
-
-export function getVirtualHoleEntries() {
-    return ensureRegistry();
-}
-
-function resolveFusionGroup(item) {
-    if (!item) return null;
-    const isRealFusion = node => node?.data?.isSmartFusion && !node.data?.clipGroup &&
-        node.children?.some(child => child?.clipMask || child?.data?.isFusionMask);
-    if (isRealFusion(item)) return item;
-    // Resolve an inner fusion from its public mockup clip wrapper without
-    // assigning fusion ownership to the wrapper itself.
-    if (item.children) {
-        for (const child of Array.from(item.children)) {
-            if (child?.clipMask || child?.data?.isMask || child?.data?.mockup) continue;
-            const nested = resolveFusionGroup(child);
-            if (nested) return nested;
-        }
-    }
-    let current = item.parent;
-    while (current) {
-        if (isRealFusion(current)) return current;
-        current = current.parent;
-    }
+// Geometría virtual sincronizada
+export function getCurrentFusionMask(fusionGroup) {
+  if (!fusionGroup?.data) return null;
+  const { maskGroup, originalVector } = fusionGroup.data;
+  let mask = maskGroup?.children?.[0] || originalVector;
+  if (!mask) return null;
+  try {
+    return mask.clone();
+  } catch (e) {
     return null;
+  }
 }
 
-export function isFusionItem(item) {
-    return !!resolveFusionGroup(item);
-}
-
-export function getCurrentFusionMask(fusionItem) {
-    const fusionGroup = resolveFusionGroup(fusionItem);
-    if (!fusionGroup || !fusionGroup.children) return null;
-    return fusionGroup.children.find(child =>
-        child && (child.clipMask || child.data?.isFusionMask)
-    ) || null;
-}
-
-export function canFuse(rasterItem, receptorItem) {
-    const raster = findFusionRaster(rasterItem) ||
-        (rasterItem?.className === "Raster" ? rasterItem : null);
-    const receptor = findFusionVector(receptorItem) || receptorItem;
-
-    if (!raster || !receptor) return false;
-    if (isProductElement(raster) || isProductElement(receptor)) return false;
-    if (isFusionItem(raster) || isFusionItem(receptor)) return false;
-    return raster.className === "Raster" && isValidFusionReceptor(receptor);
-}
-
-function ensureFusionRecordRegistry() {
-    if (typeof window === "undefined") return [];
-    if (!Array.isArray(window._fusionRecords)) window._fusionRecords = [];
-    return window._fusionRecords;
-}
-
-export function createFusionRecord(fusionItem, overrides = {}) {
-    const fusionGroup = resolveFusionGroup(fusionItem) || fusionItem;
-    if (!fusionGroup) return null;
-
-    const data = fusionGroup.data || {};
-    const fusionId = overrides.fusionId || data.fusionId;
-    if (!fusionId) return null;
-
-    const record = {
-        fusionId,
-        group: fusionGroup,
-        mask: getCurrentFusionMask(fusionGroup),
-        mode: data.fusionMode || "intersecar",
-        originalIsHole: !!data.originalIsHole,
-        originalVectorData: data.originalVectorData || null,
-        originalRasterData: data.originalRasterData || null,
-        containmentScope: data.containmentScope || null,
-        containmentKey: data.containmentKey || null,
-        ownerContainmentKey: data.ownerContainmentKey || null,
-        receiverKind: data.receiverKind || (data.originalIsHole ? "hole" : "solid"),
-        updatedAt: Date.now(),
-        ...overrides
-    };
-
-    const registry = ensureFusionRecordRegistry();
-    const index = registry.findIndex(entry => entry.fusionId === fusionId);
-    if (index >= 0) registry[index] = record;
-    else registry.push(record);
-    return record;
-}
-
-export function getFusionById(fusionId) {
-    if (!fusionId) return null;
-    const registry = ensureFusionRecordRegistry();
-    const record = registry.find(entry => entry.fusionId === fusionId) || null;
-    if (record && record.group && record.group.project) {
-        record.mask = getCurrentFusionMask(record.group);
-        record.updatedAt = Date.now();
+export function calculateFusionPlacement(image, receptor, mode = "cover") {
+  const rBounds = receptor.bounds;
+  const iBounds = image.bounds;
+  const scaleX = rBounds.width / iBounds.width;
+  const scaleY = rBounds.height / iBounds.height;
+  const scale = mode === "cover" ? Math.max(scaleX, scaleY) : Math.min(scaleX, scaleY);
+  return {
+    scale,
+    center: rBounds.center,
+    finalBounds: {
+      x: rBounds.center.x - (iBounds.width * scale) / 2,
+      y: rBounds.center.y - (iBounds.height * scale) / 2,
+      width: iBounds.width * scale,
+      height: iBounds.height * scale
     }
-    return record;
+  };
 }
 
-export function updateFusionRecord(fusionItem, overrides = {}) {
-    return createFusionRecord(fusionItem, overrides);
+export function canFuse(raster, receptor) {
+  if (!raster || !receptor) return { ok: false, reason: "missing-elements" };
+  if (isProductElement(receptor)) return { ok: false, reason: "product-element" };
+  if (!isValidFusionReceptor(receptor)) return { ok: false, reason: "not-a-receptor" };
+  return { ok: true };
 }
 
-export function unregisterFusion(fusionId) {
-    if (typeof window === "undefined") return;
-    window._fusionRecords = ensureFusionRecordRegistry()
-        .filter(entry => entry.fusionId !== fusionId);
-}
-
-export function clearFusionRecords() {
-    if (typeof window !== "undefined") window._fusionRecords = [];
-}
-
-if (typeof window !== "undefined") {
-    window.EKKO_FUSION_CORE = {
-        isProductElement,
-        isClientDesignElement,
-        getContentItem,
-        findFusionVector,
-        findFusionRaster,
-        isClosedClientVector,
-        isValidFusionReceptor,
-        getReceiverKind,
-        isHoleReceiver,
-        canConvertToCalado,
-        cloneAbsolute,
-        calculateCoverPlacement,
-        registerVirtualHole,
-        updateVirtualHole,
-        unregisterVirtualHole,
-        clearVirtualHoles,
-        getVirtualHoleEntries,
-        isFusionItem,
-        getCurrentFusionMask,
-        canFuse,
-        createFusionRecord,
-        getFusionById,
-        updateFusionRecord,
-        unregisterFusion,
-        clearFusionRecords
-    };
+export function createFusionRecord(raster, receptor, mode) {
+  return {
+    fusionId: uuidv4(),
+    mode,
+    rasterId: raster.id,
+    receptorId: receptor.id,
+    receptorContainmentKey: receptor.data?.containmentKey,
+    receptorScope: receptor.data?.containmentScope,
+    timestamp: Date.now()
+  };
 }
