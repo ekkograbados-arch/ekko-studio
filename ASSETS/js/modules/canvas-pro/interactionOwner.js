@@ -1,120 +1,152 @@
-/* ============================================================================
-   MÓDULO NUEVO — Single Interaction Owner (Árbitro único de puntero/modo)
-   Ruta destino: ASSETS/js/modules/canvas-pro/interactionOwner.js
+/* EKKO Studio — Single Interaction Owner
+ * Fuente única para el modo activo y la sesión actual del puntero.
+ * Los módulos pueden conservar su motor interno, pero no pueden procesar un
+ * evento si no son el dueño registrado aquí.
+ */
 
-   PROPÓSITO (Bug 2 y Bug 4 resueltos):
-   Hasta hoy existían ~16 flags globales sueltos (dragging, resizeActive,
-   rotationActive, fusionEditActive, nodeEditMode, insertTextMode, ...) y
-   varios dueños del puntero simultáneos (selectTool + fusionEditMode DOM
-   capture + textEditor outside-click). No había "quién manda".
+const VALID_MODES = new Set([
+  "select", "transform", "node-edit", "fusion-edit", "text-insert", "text-edit"
+]);
 
-   Este módulo es EL ÚNICO lugar que conoce el modo de interacción activo.
-   Toda herramienta nueva (Fusionar, Texto a Vector, Trazado, Calado, ...)
-   DEBE registrarse aquí mediante claim()/release(). Todo handler de puntero
-   debe consultar isPointerExclusive() antes de procesar un evento.
-
-   MODOS:
-     select        — modo normal (selectTool dueño del puntero)
-     fusion-edit   — edición interna de fusión (selectTool sigue activo para
-                     transformar la imagen libre; NO es exclusivo)
-     node-edit     — edición de nodos (paper.Tool propio, exclusivo)
-     text-insert   — inserción de texto (clic crea PointText, exclusivo)
-     text-edit     — edición de texto existente (overlay DOM, exclusivo)
-
-   MODOS EXCLUSIVOS (isPointerExclusive() === true): selectTool NO procesa
-   el clic. Modos no exclusivos ("fusion-edit") conviven con selectTool.
-   ============================================================================ */
-
-const POINTER_EXCLUSIVE_MODES = new Set(["node-edit", "text-insert", "text-edit"]);
-
-let _state = {
+let state = {
   mode: "select",
-  owner: null,          // identificador del dueño actual (string)
-  onExit: null,         // callback que llama el dueño anterior al ser desplazado
+  owner: "selection",
+  payload: null,
+  pointer: null,
   claimedAt: 0
 };
 
 function resetPointerFlags() {
-  // Defensa contra flags huérfanos (Bug 4): un doble clic con movimiento
-  // podía dejar window.dragging === true y el "clic fuera para salir" nunca
-  // disparaba. Todo claim() limpia estos flags.
-  try {
-    window.dragging = false;
-    window.resizeActive = false;
-    window.rotationActive = false;
-    window._mouseDragOccurred = false;
-    if (window.rotationTarget) window.rotationTarget = null;
-    if (window.rotationTargets) window.rotationTargets = [];
-  } catch (e) { /* no-op */ }
+  if (typeof window === "undefined") return;
+  window.dragging = false;
+  window.resizeActive = false;
+  window.rotationActive = false;
+  window._mouseDragOccurred = false;
+  window.rotationTarget = null;
+  window.rotationTargets = [];
+}
+
+function publish() {
+  if (typeof window === "undefined") return;
+  window._ekkoInteractionMode = state.mode;
+  window.EKKO_OWNER_STATE = snapshot();
+}
+
+function snapshot() {
+  return {
+    mode: state.mode,
+    owner: state.owner,
+    claimedAt: state.claimedAt,
+    pointer: state.pointer ? {
+      token: state.pointer.token,
+      owner: state.pointer.owner,
+      phase: state.pointer.phase
+    } : null
+  };
+}
+
+function endPrevious(previous, reason) {
+  if (!previous?.payload || typeof previous.payload.onExit !== "function") return;
+  try { previous.payload.onExit(reason); } catch (error) {
+    if (typeof window !== "undefined" && window.EKKO_DEBUG) {
+      console.warn("[EKKO OWNER] Error al cerrar el owner anterior", error);
+    }
+  }
 }
 
 const interactionOwner = {
-  /** Modo activo actual. */
-  get mode() { return _state.mode; },
+  get mode() { return state.mode; },
+  get owner() { return state.owner; },
 
-  /** Devuelve true si el modo actual excluye a selectTool del puntero. */
-  isPointerExclusive() {
-    return POINTER_EXCLUSIVE_MODES.has(_state.mode);
-  },
-
-  /**
-   * Un módulo reclama el control de la interacción.
-   * @param {string} mode  uno de los modos declarados arriba
-   * @param {{owner?: string, onExit?: Function}} [meta]
-   * @returns {boolean} true si el claim procedió
-   */
-  claim(mode, meta = {}) {
-    // Si ya está activo el mismo modo, no dispara onExit de nuevo.
-    if (_state.mode === mode) { resetPointerFlags(); return true; }
-    // Llama al onExit del dueño anterior (limpieza simétrica).
-    if (typeof _state.onExit === "function") {
-      try { _state.onExit("superseded-by-" + mode); } catch (e) { /* no-op */ }
+  claim(mode, payload = {}) {
+    if (!VALID_MODES.has(mode)) return false;
+    if (state.mode === mode && state.owner === (payload.owner || state.owner)) {
+      state.payload = { ...state.payload, ...payload };
+      resetPointerFlags();
+      publish();
+      return true;
     }
-    _state = {
+    const previous = state;
+    state = {
       mode,
-      owner: meta.owner || mode,
-      onExit: typeof meta.onExit === "function" ? meta.onExit : null,
+      owner: payload.owner || mode,
+      payload,
+      pointer: null,
       claimedAt: Date.now()
     };
+    // El estado nuevo queda publicado antes del callback: si el callback
+    // intenta liberar su modo antiguo, no puede liberar al nuevo owner.
+    publish();
     resetPointerFlags();
-    window._ekkoInteractionMode = mode;
+    endPrevious(previous, "superseded-by-" + mode);
     return true;
   },
 
-  /**
-   * Un módulo libera el control. Solo libera si es el dueño actual (o si no
-   * se especifica mode, fuerza liberación a "select").
-   */
-  release(mode) {
-    if (mode && _state.mode !== mode) return false;
-    if (typeof _state.onExit === "function") {
-      try { _state.onExit("released"); } catch (e) { /* no-op */ }
+  release(mode = null, reason = "released") {
+    if (mode && state.mode !== mode) return false;
+    const previous = state;
+    state = {
+      mode: "select",
+      owner: "selection",
+      payload: null,
+      pointer: null,
+      claimedAt: 0
+    };
+    publish();
+    resetPointerFlags();
+    endPrevious(previous, reason);
+    return true;
+  },
+
+  beginPointer(owner, payload = {}) {
+    if (!owner || (state.mode !== owner && !(state.mode === "transform" && owner === "select"))) {
+      return null;
     }
-    _state = { mode: "select", owner: null, onExit: null, claimedAt: 0 };
-    resetPointerFlags();
-    window._ekkoInteractionMode = "select";
+    const token = "ptr_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    state.pointer = { token, owner, phase: "down", payload };
+    publish();
+    return token;
+  },
+
+  updatePointer(owner, phase, token = null) {
+    if (!state.pointer || state.pointer.owner !== owner) return false;
+    if (token && state.pointer.token !== token) return false;
+    state.pointer.phase = phase;
+    publish();
     return true;
   },
 
-  /** Limpia los flags de puntero (puede llamarse standalone). */
-  resetPointerFlags,
+  endPointer(owner, token = null) {
+    if (!state.pointer || state.pointer.owner !== owner) return false;
+    if (token && state.pointer.token !== token) return false;
+    state.pointer = null;
+    publish();
+    return true;
+  },
 
-  /** Estado actual (para diagnóstico / runtimeProbe). */
-  snapshot() {
-    return { mode: _state.mode, owner: _state.owner, claimedAt: _state.claimedAt,
-             pointerExclusive: this.isPointerExclusive() };
-  }
+  owns(mode) {
+    return state.mode === mode;
+  },
+
+  canHandle(owner) {
+    if (owner === "select") {
+      return state.mode === "select" || state.mode === "transform";
+    }
+    return state.mode === owner;
+  },
+
+  isPointerExclusive() {
+    return state.mode !== "select";
+  },
+
+  resetPointerFlags,
+  snapshot
 };
 
-// Exposición global: todos los módulos lo consumen vía window.EKKO_INTERACTION
-// (no necesitan importarlo, igual que EKKO_ROTATION_CONTROLLER).
 if (typeof window !== "undefined") {
   window.EKKO_INTERACTION = interactionOwner;
-  window._ekkoInteractionMode = "select";
+  publish();
 }
 
-console.log("%c[EKKO INTERACTION OWNER v1.0] Árbitro único de modo/puntero cargado. Modo inicial: select.",
-  "color: #00e676; font-weight: bold;");
-
-export { interactionOwner, POINTER_EXCLUSIVE_MODES };
+export { interactionOwner, VALID_MODES };
 export default interactionOwner;
