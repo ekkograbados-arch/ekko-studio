@@ -45,6 +45,19 @@ export function isFusionItem(item) {
   return !!(item?.data?.isSmartFusion || item?.data?.fusionId);
 }
 
+export function isClosedClientVector(item) {
+  if (!item) return false;
+  if (isProductElement(item)) return false;
+  if (item.closed !== true) return false;
+  const d = item.data;
+  return !!(
+    d.source === "client-svg" ||
+    d.source === "text-vector" ||
+    d.source === "traced" ||
+    d.isFusionReceptor
+  );
+}
+
 // ===== Búsqueda de elementos =====
 export function getContentItem(item) {
   if (!item) return null;
@@ -67,6 +80,14 @@ export function findFusionVector(fusionGroup) {
   if (!fusionGroup) return null;
   const { maskGroup, originalVector } = fusionGroup.data || {};
   return maskGroup?.children?.[0] || originalVector || null;
+}
+
+// ===== Operación de fusión =====
+export function applySmartFusion(raster, receptor, options = {}) {
+  // Delegación al módulo original — se mantiene compatibilidad
+  return import("./smartFusion.js").then(mod => 
+    mod.applySmartFusion(raster, receptor, options)
+  );
 }
 
 // ===== Estampa semántica =====
