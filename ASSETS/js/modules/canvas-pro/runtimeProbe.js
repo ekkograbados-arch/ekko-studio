@@ -14,7 +14,9 @@
     errors: [],
     clicks: [],
     wrapped: [],
+    activeWrappers: new Map(),
     wrappedFns: new Set(),
+    pollTimer: null,
     startedAt: new Date().toISOString()
   };
 
@@ -171,14 +173,35 @@
       wrapped.__ekkoRuntimeProbeWrapped = true;
       wrapped.__ekkoRuntimeProbeOriginal = original;
       global[name] = wrapped;
-      state.wrapped.push({ name, at: now() });
+      const previous = state.activeWrappers.get(name);
+      if (previous) previous.active = false;
+      const entry = {
+        name,
+        at: now(),
+        active: true,
+        original: original.name || 'anonymous'
+      };
+      state.wrapped.push(entry);
+      state.activeWrappers.set(name, entry);
       state.wrappedFns.add(name);
     });
   }
 
   const api = {
-    start() { state.active = true; return { ok: true }; },
-    stop() { state.active = false; return { ok: true }; },
+    start() {
+      state.active = true;
+      if (!state.pollTimer) state.pollTimer = global.setInterval(installGlobalWrappers, 250);
+      installGlobalWrappers();
+      return { ok: true };
+    },
+    stop() {
+      state.active = false;
+      if (state.pollTimer) {
+        global.clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+      return { ok: true };
+    },
     clear() { state.operations.length = 0; state.errors.length = 0; state.clicks.length = 0; return { ok: true }; },
     ready(details = {}) {
       state.ready = true;
@@ -207,6 +230,12 @@
     record,
     getOperations() { return state.operations.slice(); },
     getConsoleErrors() { return state.errors.slice(); },
+    getWrapperState() {
+      return {
+        active: Array.from(state.activeWrappers.values()).map(entry => ({ ...entry })),
+        history: state.wrapped.map(entry => ({ ...entry }))
+      };
+    },
     report() {
       return {
         schema: 'ekko-runtime-probe/1',
@@ -216,6 +245,7 @@
         operations: state.operations.slice(),
         errors: state.errors.slice(),
         clicks: state.clicks.slice(),
+        wrappers: api.getWrapperState(),
         final: documentSnapshot()
       };
     },
@@ -241,7 +271,7 @@
 
   // Modo visible para validar desde el navegador sin depender de DevTools.
   // Activación: agregar ?runtimeDiag=1 a la URL de EKKO Studio.
-  global.setInterval(installGlobalWrappers, 250);
+  state.pollTimer = global.setInterval(installGlobalWrappers, 250);
   installGlobalWrappers();
 
   if (global.location?.search?.includes('runtimeDiag=1')) {
@@ -255,7 +285,7 @@
         try {
           const report = api.report();
           installGlobalWrappers();
-          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, wrapped: state.wrapped, clicks: report.clicks.slice(-8), final: report.final };
+          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, wrappers: report.wrappers, clicks: report.clicks.slice(-8), final: report.final };
           panel.textContent = JSON.stringify(compact, null, 2);
         } catch (error) { panel.textContent = `RUNTIME_PROBE_RENDER_ERROR: ${String(error)}`; }
       };
