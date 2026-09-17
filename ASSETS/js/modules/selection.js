@@ -4,6 +4,11 @@ import {
   transformFusion, transformPublicItem, notifyTransformObservers, resolvePublicTransformOwner
 } from "./canvas-pro/fusionController.js";
 import { rotationController } from "./canvas-pro/rotationController.js";
+import {
+  handleFusionEditPointerDown,
+  handleFusionEditPointerDrag,
+  handleFusionEditPointerUp
+} from "./canvas-pro/fusionEditMode.js";
 
 /* =========================================================================
    Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
@@ -162,33 +167,10 @@ function getContentItem(item) {
 // clipGroup de mockup solo posee la máscara estática; su hijo de contenido es
 // el target. Una fusión, en cambio, es una unidad y se mueve completa.
 function getTransformTarget(item) {
-  if (!item) return null;
-  // All public selection/transform routes share the fusion controller owner.
-  // Never expose clipGroup/mask/raster children as the public owner.
-  const canonical = resolvePublicTransformOwner(item);
-  if (canonical && !canonical.clipMask && !canonical.data?.isMask && !canonical.data?.mockup) return canonical;
-  if (item.data?.isSmartFusion && !item.data?.clipGroup) return item;
-  if (typeof window.findSmartFusionContainer === 'function') {
-    try {
-      const fusion = window.findSmartFusionContainer(item);
-      if (fusion && !fusion.data?.clipGroup) return fusion;
-    } catch (e) {}
-  }
-
-  let current = item;
-  while (current && current !== paper.project) {
-    if (current.data?.clipGroup) {
-      const content = getContentItem(current);
-      return content && content !== current ? content : null;
-    }
-    // Si el clic ya resolvió el contenido real dentro de un wrapper, no
-    // elevamos el target al wrapper: la máscara debe permanecer inmóvil.
-    if (current.parent?.data?.clipGroup && current.parent.data.mockupContainment) {
-      return current;
-    }
-    current = current.parent;
-  }
-  return getContentItem(item);
+  // La resolución pública vive exclusivamente en fusionController.js.
+  // selection.js no puede tener una segunda interpretación de clipGroup,
+  // máscara o fusión.
+  return resolvePublicTransformOwner(item);
 }
 
 function buildDragTargets(items, startPoint) {
@@ -976,6 +958,7 @@ const _initSelectionTool = function() {
   // Dispatcher único de doble clic: decide por el hit real del puntero.
   if (!window.__ekkoFusionDomDoubleClickInstalled && paper.view.element) {
     const canvasDoubleClick = function(event) {
+      if (window.EKKO_INTERACTION && window.EKKO_INTERACTION.mode !== "select") return;
       if (window.fusionEditActive || window._fusionEditState) return;
       let point = null;
       try { point = paper.view.getEventPoint(event); } catch (e) { return; }
@@ -1027,10 +1010,19 @@ const _initSelectionTool = function() {
   selectTool.onMouseDown = function(event) {
     if (window.nodeEditMode) return;
 
-    // SINGLE INTERACTION OWNER (Fase 0): si un modo exclusivo
-    // (node-edit / text-insert / text-edit) recluyó el puntero,
-    // selectTool NO procesa este clic. "fusion-edit" no es exclusivo.
-    if (window.EKKO_INTERACTION && window.EKKO_INTERACTION.isPointerExclusive()) return;
+    const interaction = window.EKKO_INTERACTION;
+    if (interaction?.mode === "fusion-edit") {
+      handleFusionEditPointerDown(event, event.point);
+      return;
+    }
+    if (interaction?.mode === "text-insert") {
+      if (typeof createEditableText === "function") createEditableText(event.point);
+      window.insertTextMode = false;
+      interaction.release("text-insert");
+      paper.view.element.style.cursor = "default";
+      return;
+    }
+    if (interaction && !interaction.canHandle("select")) return;
 
     if (window.insertTextMode) {
       if (typeof createEditableText === "function") {
@@ -1201,6 +1193,11 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseDrag = function(event) {
     if (window.nodeEditMode) return;
+    if (window.EKKO_INTERACTION?.mode === "fusion-edit") {
+      handleFusionEditPointerDrag(event);
+      return;
+    }
+    if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
     if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
       return;
     }
@@ -1352,6 +1349,11 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseUp = function(event) {
     if (window.nodeEditMode) return;
+    if (window.EKKO_INTERACTION?.mode === "fusion-edit") {
+      handleFusionEditPointerUp(event);
+      return;
+    }
+    if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
 
     // === EKKO SMART FUSION v46: Consolidar fusión si se soltó sobre un receptor ===
     if (window._lastDraggedRaster && typeof window.handleMagneticDrop === 'function') {
@@ -1457,6 +1459,8 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseMove = function(event) {
     if (window.nodeEditMode) return;
+    if (window.EKKO_INTERACTION?.mode === "fusion-edit") return;
+    if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
     const canvas = document.getElementById("editorCanvas");
     if (!canvas) return;
     if (window.resizeActive) return;
