@@ -82,8 +82,16 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
 
     if (isPath(item)) {
         const cloned = item.clone({ insert: false });
-        bakeMatrixIntoPath(cloned, currentMatrix);
-        cloned.matrix = new paper.Matrix();
+// ✅ NO hornear la matriz en los segmentos.
+// En cambio, calcular la matriz local que representa la transformación mundial acumulada.
+cloned.applyMatrix = false;
+const parentWorld = item.parent?.globalMatrix || new paper.Matrix();
+if (!parentWorld.isIdentity()) {
+  const localForParent = parentWorld.inverted().concatenate(currentMatrix);
+  cloned.matrix = localForParent;
+} else {
+  cloned.matrix = currentMatrix.clone();
+}
         if (cloned.segments && cloned.segments.length >= 3) {
             cloned.closed = true;
             cloned.data = {
@@ -231,14 +239,21 @@ function resolveItemSemantics(node, rootTarget) {
     // cuando el SVG no aportó clasificación explícita.
     if (explicitHole !== null) return explicitHole;
 
-    if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
-        const testPt = getInteriorTestPoint(path);
-        if (testPt && rootTarget.contains(testPt)) {
-            return false;
-        } else {
-            return true;
-        }
+if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
+  const testPt = getInteriorTestPoint(path);
+  if (testPt) {
+    // ✅ Transformar el punto de prueba al sistema LOCAL del rootTarget
+    // antes de preguntar contains(), porque el path ya pudo tener su
+    // matriz horneada mientras que rootTarget conserva la suya.
+    const localPt = typeof rootTarget.globalToLocal === "function"
+      ? rootTarget.globalToLocal(testPt)
+      : testPt;
+    if (rootTarget.contains(localPt)) {
+      return false;
     }
+  }
+  return true;
+}
 
     if (node.parent) {
         const parentPath = node.parent.path;
