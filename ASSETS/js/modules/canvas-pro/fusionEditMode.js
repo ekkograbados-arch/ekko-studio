@@ -160,3 +160,12 @@ export function handleFusionEditKeyDown(event) {
   }
   return false;
 }
+export {
+  enterFusionEditMode,
+  initFusionEditMode, // Alias
+  exitFusionEditMode,
+  handleFusionEditPointerDown,
+  handleFusionEditKeyDown,
+  editState,
+  fusionEditActive
+};
