@@ -79,7 +79,8 @@ export function findFusionRaster(fusionGroup) {
 export function findFusionVector(fusionGroup) {
   if (!fusionGroup) return null;
   const { maskGroup, originalVector } = fusionGroup.data || {};
-  return maskGroup?.children?.[0] || originalVector || null;
+  return maskGroup?.children?.[0] || originalVector ||
+    fusionGroup.children?.find(child => child?.clipMask || child?.data?.isFusionMask) || null;
 }
 
 // ===== Operación de fusión =====
@@ -103,6 +104,7 @@ export function stampDesignItem(item, meta = {}) {
 
   d.source = meta.source || d.source || "unknown";
   d.role = meta.role || d.role || "surface";
+  d.isTextVector = meta.isTextVector ?? d.isTextVector ?? false;
   d.isFusionReceptor = meta.isFusionReceptor ?? d.isFusionReceptor ?? true;
   d.hasInternalHoles = meta.hasInternalHoles ?? d.hasInternalHoles ?? false;
   d.userImported = true;
@@ -161,55 +163,133 @@ export function getAllFusions() {
   return Array.from(_fusionRegistry.values());
 }
 
+function syncPublicFusionRegistry() {
+  if (typeof window !== "undefined") window._fusionRecords = getAllFusions();
+}
+
 export function registerFusionRecord(record) {
   if (!record?.fusionId) return null;
   _fusionRegistry.set(record.fusionId, record);
+  syncPublicFusionRegistry();
   return record;
 }
 
-export function updateFusionRecord(fusionId, updates) {
+export function updateFusionRecord(fusionOrId, updates = {}) {
+  const fusionId = typeof fusionOrId === "string"
+    ? fusionOrId
+    : (fusionOrId?.data?.fusionId || fusionOrId?.fusionId || updates.fusionId);
+  if (!fusionId) return null;
   const existing = _fusionRegistry.get(fusionId);
-  if (!existing) return null;
-  const updated = { ...existing, ...updates, updatedAt: Date.now() };
+  if (!existing) {
+    if (typeof fusionOrId === "object") {
+      return registerFusionRecord(createFusionRecord(fusionOrId, { ...updates, fusionId }));
+    }
+    return null;
+  }
+  const group = typeof fusionOrId === "object" && fusionOrId?.data?.isSmartFusion
+    ? fusionOrId : existing.group;
+  const updated = {
+    ...existing,
+    ...updates,
+    fusionId,
+    group: group || existing.group,
+    updatedAt: Date.now()
+  };
   _fusionRegistry.set(fusionId, updated);
+  syncPublicFusionRegistry();
   return updated;
 }
 
 export function unregisterFusion(fusionId) {
-  return _fusionRegistry.delete(fusionId);
+  const removed = _fusionRegistry.delete(fusionId);
+  syncPublicFusionRegistry();
+  return removed;
 }
 
-export function createFusionRecord(raster, receptor, mode) {
-  return {
-    fusionId: uuidv4(),
+export function clearFusionRegistry() {
+  _fusionRegistry.clear();
+  syncPublicFusionRegistry();
+}
+
+/* Canonical signature: createFusionRecord(fusionGroup, overrides).
+ * The legacy raster/receptor/mode signature remains accepted so old callers
+ * cannot silently create records with the wrong identity. */
+export function createFusionRecord(first, second = {}, third = null) {
+  const isGroup = !!(first?.data?.isSmartFusion);
+  const group = isGroup ? first : null;
+  const overrides = isGroup ? (second || {}) : {};
+  const raster = isGroup ? findFusionRaster(group) : first;
+  const receptor = isGroup ? findFusionVector(group) : second;
+  const mode = isGroup
+    ? (overrides.mode || group.data?.fusionMode || "intersecar")
+    : third;
+  const data = group?.data || {};
+  const fusionId = overrides.fusionId || data.fusionId || uuidv4();
+  const record = {
+    fusionId,
+    group,
     mode,
-    rasterId: raster.id,
-    receptorId: receptor.id,
-    receptorContainmentKey: receptor.data?.containmentKey,
-    receptorScope: receptor.data?.containmentScope,
-    timestamp: Date.now()
+    originalIsHole: overrides.originalIsHole ?? data.originalIsHole === true,
+    rasterId: overrides.rasterId ?? raster?.id ?? data.rasterId ?? null,
+    receptorId: overrides.receptorId ?? receptor?.id ?? data.vectorId ?? null,
+    containmentKey: overrides.containmentKey ?? data.containmentKey ?? receptor?.data?.containmentKey ?? null,
+    ownerContainmentKey: overrides.ownerContainmentKey ?? data.ownerContainmentKey ?? receptor?.data?.ownerContainmentKey ?? null,
+    containmentScope: overrides.containmentScope ?? data.containmentScope ?? receptor?.data?.containmentScope ?? null,
+    originalVectorData: data.originalVectorData || null,
+    originalRasterData: data.originalRasterData || null,
+    timestamp: Date.now(),
+    ...overrides,
+    fusionId
   };
+  return registerFusionRecord(record);
 }
 
 // ===== Huecos virtuales =====
 const _virtualHoles = new Map();
 
-export function registerVirtualHole(geom, fusionId) {
-  _virtualHoles.set(fusionId, { geom, fusionId, updatedAt: Date.now() });
+export function registerVirtualHole(first, second, group = null) {
+  const fusionId = typeof first === "string" ? first : second;
+  const geom = typeof first === "string" ? second : first;
+  if (!fusionId || !geom) return null;
+  const storedGeom = geom.clone?.({ insert: false }) || geom;
+  const entry = { geom: storedGeom, fusionId, group, updatedAt: Date.now() };
+  _virtualHoles.set(fusionId, entry);
+  if (typeof window !== "undefined") window._fusionVirtualHoles = getAllVirtualHoles();
+  return entry;
 }
 
-export function updateVirtualHole(fusionId, newGeom) {
-  if (!_virtualHoles.has(fusionId)) return false;
-  _virtualHoles.set(fusionId, { geom: newGeom, fusionId, updatedAt: Date.now() });
+export function updateVirtualHole(fusionId, newGeom, group = null) {
+  if (!fusionId || !newGeom) return false;
+  const previous = _virtualHoles.get(fusionId);
+  const storedGeom = newGeom.clone?.({ insert: false }) || newGeom;
+  if (previous?.geom && previous.geom !== newGeom) {
+    try { previous.geom.remove?.(); } catch (e) {}
+  }
+  _virtualHoles.set(fusionId, {
+    ...(previous || {}), geom: storedGeom, group: group || previous?.group || null,
+    fusionId, updatedAt: Date.now()
+  });
+  if (typeof window !== "undefined") window._fusionVirtualHoles = getAllVirtualHoles();
   return true;
 }
 
 export function unregisterVirtualHole(fusionId) {
-  return _virtualHoles.delete(fusionId);
+  const removed = _virtualHoles.delete(fusionId);
+  if (typeof window !== "undefined") window._fusionVirtualHoles = getAllVirtualHoles();
+  return removed;
 }
 
 export function getAllVirtualHoles() {
   return Array.from(_virtualHoles.values());
+}
+
+export function clearVirtualHoles() {
+  _virtualHoles.clear();
+  if (typeof window !== "undefined") window._fusionVirtualHoles = [];
+}
+
+export function getVirtualHoleEntries() {
+  return getAllVirtualHoles();
 }
 
 // ===== Validación =====
