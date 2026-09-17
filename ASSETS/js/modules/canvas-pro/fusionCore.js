@@ -45,6 +45,22 @@ export function isFusionItem(item) {
   return !!(item?.data?.isSmartFusion || item?.data?.fusionId);
 }
 
+// ===== Búsqueda de elementos dentro de fusión =====
+export function findFusionRaster(fusionGroup) {
+  if (!fusionGroup) return null;
+  return fusionGroup.children?.find(c => 
+    c.name === "fusion-image" || 
+    c.className === "Raster" ||
+    c instanceof paper.Raster
+  ) || null;
+}
+
+export function findFusionVector(fusionGroup) {
+  if (!fusionGroup) return null;
+  const { maskGroup, originalVector } = fusionGroup.data || {};
+  return maskGroup?.children?.[0] || originalVector || null;
+}
+
 // ===== Estampa semántica =====
 export function stampDesignItem(item, meta = {}) {
   if (!item) return item;
@@ -76,8 +92,7 @@ export function cloneAbsolute(item) {
 
 export function getCurrentFusionMask(fusionGroup) {
   if (!fusionGroup?.data) return null;
-  const { maskGroup, originalVector } = fusionGroup.data;
-  let mask = maskGroup?.children?.[0] || originalVector;
+  const mask = findFusionVector(fusionGroup);
   if (!mask) return null;
   try {
     return cloneAbsolute(mask);
@@ -104,7 +119,6 @@ export function calculateFusionPlacement(image, receptor, mode = "cover") {
   };
 }
 
-// Alias que pide smartFusion.js
 export function calculateCoverPlacement(image, receptor) {
   return calculateFusionPlacement(image, receptor, "cover");
 }
