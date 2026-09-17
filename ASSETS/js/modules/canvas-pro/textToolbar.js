@@ -466,7 +466,7 @@ export async function weldText(item) {
     resultPath.fillColor = target.fillColor || new paper.Color(0);
     resultPath.strokeColor = null;
     resultPath.strokeWidth = 0;
-        import("./modules/canvas-pro/fusionCore.js").then(({ stampDesignItem }) => {
+        import("./fusionCore.js").then(({ stampDesignItem }) => {
           stampDesignItem(resultPath, {
             source: "text-vector",
             role: "letter",
