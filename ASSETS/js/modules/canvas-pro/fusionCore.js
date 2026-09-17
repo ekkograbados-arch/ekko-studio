@@ -58,6 +58,15 @@ export function stampDesignItem(item, meta = {}) {
   return item;
 }
 
+// Geometría clonada con coordenadas absolutas
+export function cloneAbsolute(item) {
+  if (!item) return null;
+  const clone = item.clone({ insert: false });
+  clone.applyMatrix = true;
+  clone.matrix = item.globalMatrix;
+  return clone;
+}
+
 // Geometría virtual sincronizada
 export function getCurrentFusionMask(fusionGroup) {
   if (!fusionGroup?.data) return null;
@@ -65,7 +74,7 @@ export function getCurrentFusionMask(fusionGroup) {
   let mask = maskGroup?.children?.[0] || originalVector;
   if (!mask) return null;
   try {
-    return mask.clone();
+    return cloneAbsolute(mask);
   } catch (e) {
     return null;
   }
