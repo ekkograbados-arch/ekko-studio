@@ -40,6 +40,7 @@ import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-
 import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
 import { initFusionEditMode } from "./modules/canvas-pro/fusionEditMode.js";
+import "./modules/canvas-pro/interactionOwner.js"; // Árbitro único de interacción (Fase 0)
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
 import { convertSelectionToCalado, canConvertSelectionToCalado } from "./modules/canvas-pro/calado.js";
