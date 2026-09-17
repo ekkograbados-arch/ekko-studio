@@ -86,7 +86,8 @@
     initialized: false,
     operations: [],
     consoleErrors: [],
-    eventRegistry: [],
+    eventRegistry: new Map(),
+    synapse: null,
     lastOperationId: 0
   };
 
@@ -103,7 +104,7 @@
     clear(){
       state.operations = [];
       state.consoleErrors = [];
-      state.eventRegistry = [];
+      state.eventRegistry = new Map();
       return {ok:true};
     },
     last(){
@@ -115,11 +116,25 @@
     getConsoleErrors(){
       return state.consoleErrors.slice();
     },
+    getEventRegistry(){
+      return state.eventRegistry;
+    },
+    registerEvent(selector, metadata = {}){
+      if (!selector) return false;
+      state.eventRegistry.set(String(selector), metadata || {});
+      return true;
+    },
+    integrateSynapse(synapseAPI){
+      state.synapse = synapseAPI || null;
+      return {ok: !!state.synapse};
+    },
     report(){
       return {
         meta: {generatedAt: now()},
         operations: api.getOperations(),
-        consoleErrors: api.getConsoleErrors()
+        consoleErrors: api.getConsoleErrors(),
+        eventRegistry: Array.from(state.eventRegistry.entries()),
+        synapseIntegrated: !!state.synapse
       };
     },
     assert(condition, message){
