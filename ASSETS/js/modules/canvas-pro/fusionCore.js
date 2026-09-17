@@ -45,7 +45,15 @@ export function isFusionItem(item) {
   return !!(item?.data?.isSmartFusion || item?.data?.fusionId);
 }
 
-// ===== Búsqueda de elementos dentro de fusión =====
+// ===== Búsqueda de elementos =====
+export function getContentItem(item) {
+  if (!item) return null;
+  if (item.children?.length > 0) {
+    return item.children.find(c => !c.name?.startsWith("fusion-")) || item.children[0];
+  }
+  return item;
+}
+
 export function findFusionRaster(fusionGroup) {
   if (!fusionGroup) return null;
   return fusionGroup.children?.find(c => 
