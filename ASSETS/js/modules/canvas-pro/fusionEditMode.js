@@ -11,7 +11,8 @@ import { applySmartFusion } from "./smartFusion.js";
 import {
   beginFusionEdit,
   commitFusionEdit,
-  getFusionEditTransaction
+  getFusionEditTransaction,
+  abortFusionEdit
 } from "./fusionController.js";
 
 const NEON_CYAN = '#00e5ff';
@@ -124,6 +125,7 @@ export function enterFusionEditMode(fusionItem = null) {
 
   cleanupStrayEditItems();
 
+  let enteredTransaction = null;
   const fusionGroup = resolveFusionGroup(fusionItem);
   if (!fusionGroup || !fusionGroup.children || fusionGroup.children.length < 2) return;
 
@@ -136,13 +138,18 @@ export function enterFusionEditMode(fusionItem = null) {
 
     const transaction = beginFusionEdit(fusionGroup);
     if (!transaction) return;
+    enteredTransaction = transaction;
 
     const mode = transaction.mode || fusionGroup.data.fusionMode || 'intersecar';
     const originalIsHole = transaction.originalIsHole === true;
     const fusionId = transaction.fusionId || fusionGroup.data.fusionId;
     const vectorData = transaction.originalVectorData || fusionGroup.data.originalVectorData;
     const originalRasterData = transaction.originalRasterData || fusionGroup.data.originalRasterData;
-    if (!vectorData || !fusionId) return;
+    if (!vectorData || !fusionId) {
+      if (fusionId) abortFusionEdit(fusionId);
+      cleanupEditState();
+      return;
+    }
 
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     const zoom = paper.view.zoom || 1.0;
@@ -161,6 +168,7 @@ export function enterFusionEditMode(fusionItem = null) {
       cyanOutline = vectorData.clone({ insert: false });
       cyanOutline.matrix = new paper.Matrix();
       cyanOutline.data = { fusionEditMask: true, isSelectionBox: true };
+      cyanOutline.visible = true;
       cyanOutline.fillColor = new paper.Color(0, 0.9, 1, 0.06);
       cyanOutline.strokeColor = new paper.Color(NEON_CYAN);
       cyanOutline.strokeWidth = 2.5 / zoom;
@@ -226,6 +234,9 @@ export function enterFusionEditMode(fusionItem = null) {
     }
   } catch (e) {
     console.error("[FUSION ENTER EDIT ERROR]", e);
+    if (enteredTransaction?.fusionId) {
+      try { abortFusionEdit(enteredTransaction.fusionId); } catch (cleanupError) {}
+    }
     cleanupEditState();
     if (typeof window.deselectItem === 'function') { try { window.deselectItem(); } catch(e2){} }
     paper.view.update();
@@ -245,6 +256,7 @@ export function exitFusionEditMode(accept = true) {
       window.beginHistoryTransaction("fusion-edit");
     }
     const vectorClone = st.vectorData.clone({ insert: false });
+    vectorClone.visible = true;
     vectorClone.matrix = new paper.Matrix();
     vectorClone.data = {
       isHole: st.originalIsHole,
@@ -266,6 +278,7 @@ export function exitFusionEditMode(accept = true) {
         : null;
     }
     if (rasterToUse) {
+      rasterToUse.visible = true;
       rasterToUse.opacity = 1;
       rasterToUse.data = { label: "Imagen" };
       rasterToUse.selected = false;
