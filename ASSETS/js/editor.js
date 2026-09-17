@@ -39,7 +39,12 @@ import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
-import { initFusionEditMode } from "./modules/canvas-pro/fusionEditMode.js";
+import {
+  initFusionEditMode,
+  enterFusionEditMode,
+  exitFusionEditMode,
+  handleFusionEditKeyDown
+} from "./modules/canvas-pro/fusionEditMode.js";
 import "./modules/canvas-pro/interactionOwner.js"; // Árbitro único de interacción (Fase 0)
 import "./modules/canvas-pro/fusionCore.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
@@ -60,6 +65,9 @@ window.exitNodeEditMode = exitNodeEditMode;
 window.convertSelectionToCalado = convertSelectionToCalado;
 window.canConvertSelectionToCalado = canConvertSelectionToCalado;
 window.convertTextToVector = convertTextToVector;
+window.enterFusionEditMode = enterFusionEditMode;
+window.exitFusionEditMode = exitFusionEditMode;
+window.handleFusionEditKeyDown = handleFusionEditKeyDown;
 
 // ================================================================
 // API COMPATIBLE CON LA CINTA HTML
@@ -347,6 +355,7 @@ function resetSceneRuntimeState() {
   window.rotationActive = false;
   window.fusionEditActive = false;
   window._fusionEditState = null;
+  window.EKKO_INTERACTION?.release();
   window.selectedItem = null;
   window.selectedItems = [];
   try { paper?.project?.deselectAll?.(); } catch (e) {}
@@ -1155,6 +1164,7 @@ function renderSurfaces(product) {
 // Insercion de textos vectoriales
 function activateTextMode() {
   window.insertTextMode = true;
+  window.EKKO_INTERACTION?.claim("text-insert", { owner: "selection" });
   if (paper.view && paper.view.element) {
     paper.view.element.style.cursor = "text";
   }
@@ -1364,16 +1374,8 @@ async function bootstrapEKKO() {
       }
     });
 
-    // Evento mouse click nativo para activar modo texto inline
-    if (paper.view) {
-      paper.view.on("mousedown", (event) => {
-        if (window.insertTextMode) {
-          createEditableText(event.point);
-          window.insertTextMode = false;
-          if (paper.view.element) paper.view.element.style.cursor = "default";
-        }
-      });
-    }
+    // La inserción de texto se procesa exclusivamente en selection.js, que
+    // posee la sesión de puntero. No se registra un segundo mousedown de Paper.
 
     // Listener nativo del navegador como fallback de redibujado
     window.addEventListener("resize", () => {
