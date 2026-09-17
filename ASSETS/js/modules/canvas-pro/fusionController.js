@@ -14,6 +14,8 @@ import {
     registerVirtualHole,
     updateVirtualHole,
     unregisterVirtualHole,
+    clearFusionRegistry,
+    clearVirtualHoles,
     isFusionItem
 } from "./fusionCore.js";
 
@@ -231,10 +233,10 @@ export function removeFusionForItem(item) {
 export function clearFusionRuntime() {
     const holes = Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : [];
     holes.forEach(entry => { try { entry.geom?.remove(); } catch (e) {} });
-    window._fusionVirtualHoles = [];
+    clearVirtualHoles();
+    clearFusionRegistry();
     fusionEditTransactions.forEach(disposeFusionEditTransaction);
     fusionEditTransactions.clear();
-    window._fusionRecords = [];
 }
 
 export function rebuildFusionRegistry(root = null) {
