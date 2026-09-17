@@ -104,6 +104,11 @@ export function calculateFusionPlacement(image, receptor, mode = "cover") {
   };
 }
 
+// Alias que pide smartFusion.js
+export function calculateCoverPlacement(image, receptor) {
+  return calculateFusionPlacement(image, receptor, "cover");
+}
+
 // ===== Registro de fusiones =====
 export function getFusionById(fusionId) {
   return _fusionRegistry.get(fusionId) || null;
@@ -170,4 +175,16 @@ export function canFuse(raster, receptor) {
   if (isProductElement(receptor)) return { ok: false, reason: "product-element" };
   if (!isValidFusionReceptor(receptor)) return { ok: false, reason: "not-a-receptor" };
   return { ok: true };
+}
+
+// ===== Calado =====
+export function canConvertToCalado(item) {
+  if (!item) return false;
+  if (isProductElement(item)) return false;
+  const d = item.data;
+  return !!(
+    d.isHole === true ||
+    d.hasInternalHoles === true ||
+    d.isFusionReceptor === true
+  );
 }
