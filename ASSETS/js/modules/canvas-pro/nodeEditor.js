@@ -17,6 +17,7 @@ AUTORIDAD: REPOSITORIO CANÓNICO V9 / PACTO DE ESTABILIDAD
 
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { textToCompoundPath } from "./fontToPath.js";
+import { interactionOwner } from "./interactionOwner.js";
 
 // Helper universal de resolución de contenido dentro o fuera de clipGroup
 function getContentItem(item) {
@@ -196,6 +197,7 @@ export async function enterNodeEditMode(item) {
         mask: target
     } : null;
     activeNodeItem = target;
+    interactionOwner.claim("node-edit", { owner: "nodeEditor" });
     window.nodeEditMode = true;
     window.nodeEditTarget = target;
 
@@ -615,6 +617,7 @@ export function exitNodeEditMode(skipSelect = false) {
     activeFusionNodeContext = null;
     window.nodeEditMode = false;
     window.nodeEditTarget = null;
+    interactionOwner.release("node-edit");
     isAddNodeActive = false;
 
     const btnTopNodes = document.getElementById('proBtnEditNodes');
