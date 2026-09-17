@@ -19,7 +19,7 @@
       - Inicializacion recursiva de 'geomBase' en trazados cerrados para garantizar compatibilidad
         con la Descomposicion por Jerarquia de Contencion, rotacion, escala y edicion de nodos.
       - Reactividad CSG: Disparo de 'recalculateDynamicSubtractions()' al culminar la insercion.
-      - Gestion de Historial: 'saveHistory()' ejecutado tras la insercion real, no antes de leer el archivo.
+      - Gestion de Historial: snapshot tomado antes de iniciar la insercion para que Undo restaure el estado previo.
       - Seleccion inmediata con 'window.selectItem(objeto)' y actualizacion del menu contextual.
    3. Reset de Selector de Archivos:
       - 'e.target.value = ""' garantiza que re-seleccionar el mismo archivo dispare el evento 'change'.
@@ -520,6 +520,11 @@ function pasteSelected() {
   clone.position = clone.position.add(new paper.Point(20, 20));
   clone.data = { ...(clone.data || {}), locked: false };
   paper.project.activeLayer.addChild(clone);
+  if (clone.data?.isSmartFusion || clone.getItems?.({ match: item => item.data?.isSmartFusion }).length) {
+    if (typeof window.EKKO_FUSION_CONTROLLER?.rekeyFusionClone === 'function') {
+      window.EKKO_FUSION_CONTROLLER.rekeyFusionClone(clone);
+    }
+  }
   if (typeof recalculateDynamicSubtractions === 'function') {
     recalculateDynamicSubtractions();
   }
@@ -723,6 +728,8 @@ function initGeomBaseRecursive(item) {
 // Carga de Archivos e Importación
 export function addImageFromFile(file) {
   if (!file) return;
+  // El snapshot debe representar el estado anterior a la inserción.
+  saveHistory();
   const reader = new FileReader();
   reader.onload = (e) => {
     const raster = new paper.Raster({ source: e.target.result });
@@ -742,7 +749,6 @@ export function addImageFromFile(file) {
       if (window.currentMockup) {
         objeto.insertBelow(window.currentMockup);
       }
-      saveHistory();
       window.selectItem(objeto);
       paper.view.update();
     };
@@ -753,6 +759,8 @@ window.addImageFromFile = addImageFromFile;
 
 export function addSVGFromFile(file) {
   if (!file) return;
+  // El snapshot debe representar el estado anterior a la inserción.
+  saveHistory();
 
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -856,10 +864,7 @@ export function addSVGFromFile(file) {
         recalculateDynamicSubtractions();
       }
 
-      // 10. Guardado formal de historial post-insercion exitosa
-      saveHistory();
-
-      // 11. Sincronizacion de seleccion e interfaz
+      // 10. Sincronizacion de seleccion e interfaz
       window.selectItem(finalItem);
       paper.view.update();
 
