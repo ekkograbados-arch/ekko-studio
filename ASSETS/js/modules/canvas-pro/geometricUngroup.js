@@ -92,6 +92,10 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
                 originalFillColor: item.fillColor ? item.fillColor.clone() : null,
                 originalStrokeColor: item.strokeColor ? item.strokeColor.clone() : null,
                 originalStrokeWidth: item.strokeWidth || 0,
+                // La metadata explícita del SVG tiene prioridad sobre la
+                // clasificación geométrica de fallback.
+                originalIsHole: typeof item.data?.isHole === 'boolean' ? item.data.isHole :
+                    (typeof parentMeta.isHole === 'boolean' ? parentMeta.isHole : null),
                 isFromCompound: isFromCompound,
                 originalClockwise: cloned.clockwise
             };
@@ -102,7 +106,11 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
     } else if (isCompoundPath(item)) {
         if (item.children && item.children.length > 0) {
             item.children.forEach(child => {
-                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: true, compoundFill: item.fillColor }));
+                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, {
+                    isFromCompound: true,
+                    compoundFill: item.fillColor,
+                    isHole: typeof item.data?.isHole === 'boolean' ? item.data.isHole : undefined
+                }));
             });
         }
     } else if (isGroup(item)) {
@@ -215,6 +223,13 @@ function buildContainmentTree(atomicPaths) {
 function resolveItemSemantics(node, rootTarget) {
     const path = node.path;
     const isFromCompound = !!(path.data && path.data.isFromCompound);
+    const explicitHole = path.data && typeof path.data.originalIsHole === 'boolean'
+        ? path.data.originalIsHole
+        : (path.data && typeof path.data.isHole === 'boolean' ? path.data.isHole : null);
+
+    // La metadata original es la fuente de verdad. La geometría solo decide
+    // cuando el SVG no aportó clasificación explícita.
+    if (explicitHole !== null) return explicitHole;
 
     if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
         const testPt = getInteriorTestPoint(path);
@@ -303,14 +318,16 @@ function getContentItem(item) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    // Un hueco real no puede dibujarse como una masa sólida. Se conserva como
-    // objeto público seleccionable, pero su relleno permanece transparente;
-    // la perforación visual la produce el CSG sobre su sólido propietario.
-    // Alpha mínimo mantiene el hit-test de Paper.js sin volver a rellenar el
-    // hueco en pantalla.
-    item.fillColor = new paper.Color(0, 0, 0, 0.0001);
-    item.strokeColor = null;
-    item.strokeWidth = 0;
+    // Un hueco real conserva representación visible e interactiva sin
+    // convertirse semánticamente en sólido. El CSG sigue gobernado por
+    // data.isHole; el estilo solo mantiene la identidad pública del vector.
+    const data = item.data || {};
+    const fill = data.originalFillColor?.clone?.() || new paper.Color('#64748b');
+    const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
+    if (fill.alpha <= 0) fill.alpha = 0.35;
+    item.fillColor = fill;
+    item.strokeColor = stroke;
+    item.strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
     item.opacity = 1;
 }
 
