@@ -1,344 +1,160 @@
-/* ========================================================================
-RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/fusionEditMode.js
-ACCIÓN: REEMPLAZAR (v1.3 — clipGroup seguro y sin wrappers recursivos)
-  - Doble clic sobre una fusión → entra en modo edición.
-  - Imagen libre translúcida (transformable), silueta en NEON CIAN.
-  - Salida: Enter / clic derecho / clic fuera → acepta. Escape → cancela.
-  - Todo envuelto en try/catch con limpieza de estado (no congela el lienzo).
-DEPENDENCIAS: smartFusion.js (applySmartFusion)
-======================================================================== */
-import { applySmartFusion } from "./smartFusion.js";
 import {
-  beginFusionEdit,
-  commitFusionEdit,
-  getFusionEditTransaction,
-  abortFusionEdit
-} from "./fusionController.js";
+  applySmartFusion,
+  findFusionById,
+  registerVirtualHole,
+  unregisterVirtualHole,
+  updateVirtualHole,
+  getFusionReceptors
+} from "./smartFusion.js";
 
-const NEON_CYAN = '#00e5ff';
-let editState = null;
+import { interactionOwner } from "./interactionOwner.js";
 
-function getContentItem(item) {
-  if (!item) return null;
-  if (item.data && item.data.clipGroup) {
-    if (!item.children) return item;
-    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    if (content) return content;
-    return item.children[1] || item.children[0] || item;
-  }
-  return item;
-}
+export let editState = null;
+export let fusionEditActive = false;
 
 function cleanupEditState() {
-  editState = null;
-  window._fusionEditState = null;
-  window.fusionEditActive = false;
-  if (paper.view && paper.view.element) paper.view.element.style.cursor = 'default';
-}
-
-function resolveFusionGroup(item) {
-  let curr = item;
-  while (curr) {
-    if (curr.data && curr.data.isSmartFusion) {
-      if (curr.data.clipGroup && curr.children) {
-        const nested = curr.children.find(child =>
-          child && child.data && child.data.isSmartFusion &&
-          child.children && child.children.length >= 2
-        );
-        if (nested) return nested;
-      }
-      return curr;
-    }
-    curr = curr.parent;
+  if (!editState) return;
+  if (editState.tempImage) {
+    editState.tempImage.remove();
   }
-  return null;
+  if (editState.previewOutline) {
+    editState.previewOutline.remove();
+  }
+  window._fusionEditState = null;
+  editState = null;
+  fusionEditActive = false;
 }
 
-// Elimina imágenes/contornos huérfanos de sesiones de edición fallidas (evita duplicados)
-function cleanupStrayEditItems() {
+function pointIsInsideReceptor(point, receptor) {
+  if (!receptor) return false;
   try {
-    if (!paper || !paper.project) return;
-    paper.project.getItems({ match: function(it){ return it.data && (it.data.fusionEditRaster || it.data.fusionEditMask); } }).forEach(function(it){
-      try { it.remove(); } catch(e){}
-    });
-  } catch(e){}
-}
-
-function pointIsInsideInternalEdit(point) {
-  if (!point || !editState) return false;
-  try {
-    if (editState.freeRaster?.contains?.(point)) return true;
-    if (editState.freeRaster?.bounds?.contains?.(point)) return true;
-    if (editState.cyanOutline?.contains?.(point)) return true;
-    if (window.selectionBoxGroup?.bounds?.contains?.(point)) return true;
+    if (receptor.contains(point)) return true;
+    if (receptor.bounds && receptor.bounds.contains(point)) return true;
   } catch (e) {}
   return false;
 }
 
-function bindFusionEditKeyboardAndContext() {
-  if (window._fusionEditKeyboardBound) return;
-  window._fusionEditKeyboardBound = true;
+export function enterFusionEditMode(fusionGroup) {
+  if (!fusionGroup || !fusionGroup.data || !fusionGroup.data.fusionId) return false;
+  if (fusionEditActive) exitFusionEditMode(false);
 
-  document.addEventListener('keydown', function(event) {
-    if (!window.fusionEditActive || !editState) return;
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopPropagation();
-      exitFusionEditMode(false);
-    } else if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      exitFusionEditMode(true);
+  const { fusionId, fusionMode, originalVector, originalImage, maskGroup } = fusionGroup.data;
+  const mask = maskGroup?.children?.[0] || originalVector;
+  const image = fusionGroup.children?.find(c => c.name === "fusion-image" || c.className === "Raster");
+
+  if (!mask || !image) return false;
+
+  const tempImage = image.clone();
+  tempImage.name = "fusion-temp-image";
+  tempImage.opacity = 0.7;
+  tempImage.position = image.position;
+  tempImage.locked = false;
+  tempImage.applyMatrix = false;
+
+  const previewOutline = mask.clone();
+  previewOutline.name = "fusion-preview-outline";
+  previewOutline.strokeColor = "#00ffff";
+  previewOutline.strokeWidth = 2;
+  previewOutline.fillColor = null;
+  previewOutline.locked = true;
+
+  fusionGroup.addChild(tempImage);
+  fusionGroup.addChild(previewOutline);
+  image.opacity = 0;
+
+  editState = {
+    fusionGroup,
+    fusionId,
+    fusionMode,
+    mask,
+    originalVector,
+    originalImage,
+    tempImage,
+    previewOutline,
+    snapshot: {
+      imagePosition: image.position.clone(),
+      imageMatrix: image.matrix.clone()
     }
-  }, true);
+  };
 
-  document.addEventListener('contextmenu', function(event) {
-    if (!window.fusionEditActive || !editState) return;
-    event.preventDefault();
-    event.stopPropagation();
-    exitFusionEditMode(true);
-  }, true);
+  window._fusionEditState = editState;
+  fusionEditActive = true;
+
+  interactionOwner.claim("fusion-edit", {
+    owner: "fusionEditMode",
+    onExit: (reason) => {
+      if (reason === "superseded-by-select") return;
+      exitFusionEditMode(reason !== "released");
+    }
+  });
+
+  console.log("[fusionEditMode] Entró en edición:", fusionId);
+  return true;
 }
 
-/* ------------------------------------------------------------------------
-   ENTRAR al modo edición interna.
------------------------------------------------------------------------- */
-export function enterFusionEditMode(fusionItem = null) {
-  if (!fusionItem) {
-    const selected = window.selectedItem ||
-      (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
-    fusionItem = selected && typeof window.findSmartFusionContainer === 'function'
-      ? (window.findSmartFusionContainer(selected) || selected)
-      : selected;
-  }
-  if (!fusionItem || window.nodeEditMode) return;
-  if (window.fusionEditActive) { try { exitFusionEditMode(true); } catch(e){} }
-
-  // La imagen entra en edición interna: limpiar cualquier estado de snap
-  // externo antes de extraerla del grupo de fusión.
-  if (typeof window.clearFusionPreview === 'function') {
-    try { window.clearFusionPreview(true); } catch (e) {}
-  }
-  window._fusionSnapActive = false;
-  window._activeSnappedVector = null;
-  window._lastDraggedRaster = null;
-
-  cleanupStrayEditItems();
-
-  let enteredTransaction = null;
-  const fusionGroup = resolveFusionGroup(fusionItem);
-  if (!fusionGroup || !fusionGroup.children || fusionGroup.children.length < 2) return;
-
-  try {
-    // Entering edit is runtime-only: no history snapshot is created here.
-
-    const maskChild = fusionGroup.children[0];
-    const rasterChild = fusionGroup.children[1];
-    if (!rasterChild || rasterChild.className !== 'Raster') return;
-
-    const transaction = beginFusionEdit(fusionGroup);
-    if (!transaction) return;
-    enteredTransaction = transaction;
-
-    const mode = transaction.mode || fusionGroup.data.fusionMode || 'intersecar';
-    const originalIsHole = transaction.originalIsHole === true;
-    const fusionId = transaction.fusionId || fusionGroup.data.fusionId;
-    const vectorData = transaction.originalVectorData || fusionGroup.data.originalVectorData;
-    const originalRasterData = transaction.originalRasterData || fusionGroup.data.originalRasterData;
-    if (!vectorData || !fusionId) {
-      if (fusionId) abortFusionEdit(fusionId);
-      cleanupEditState();
-      return;
-    }
-
-    const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-    const zoom = paper.view.zoom || 1.0;
-
-    // 1. Extraer la imagen → libre, translúcida, transformable
-    rasterChild.remove();
-    rasterChild.opacity = 0.6;
-    rasterChild.data = { ...(rasterChild.data || {}), fusionEditRaster: true, label: "Imagen (editando fusión)" };
-    rasterChild.selected = false;
-    designLayer.addChild(rasterChild);
-    if (window.currentMockup) rasterChild.insertBelow(window.currentMockup);
-
-    // 2. Extraer la máscara → contorno NEON CIAN independiente (no depende de clipGroup)
-    let cyanOutline = null;
-    try {
-      cyanOutline = vectorData.clone({ insert: false });
-      cyanOutline.matrix = new paper.Matrix();
-      cyanOutline.data = { fusionEditMask: true, isSelectionBox: true };
-      cyanOutline.visible = true;
-      cyanOutline.fillColor = new paper.Color(0, 0.9, 1, 0.06);
-      cyanOutline.strokeColor = new paper.Color(NEON_CYAN);
-      cyanOutline.strokeWidth = 2.5 / zoom;
-      cyanOutline.shadowColor = new paper.Color(NEON_CYAN);
-      cyanOutline.shadowBlur = 14 / zoom;
-      designLayer.addChild(cyanOutline);
-      if (window.currentMockup) cyanOutline.insertBelow(window.currentMockup);
-      cyanOutline.bringToFront();
-    } catch(e) { cyanOutline = null; }
-
-    // 3. Remover el grupo de fusión viejo (ya extrajimos ambos hijos)
-    try { maskChild.remove(); } catch(e){}
-    const parentGroup = fusionGroup.parent;
-    try { fusionGroup.remove(); } catch(e){}
-    if (parentGroup && parentGroup.data && parentGroup.data.clipGroup) {
-      const kids = parentGroup.children.filter(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-      if (kids.length === 0) try { parentGroup.remove(); } catch(e){}
-    }
-
-    editState = {
-      transaction,
-      cyanOutline,
-      freeRaster: rasterChild,
-      originalRasterData,
-      mode,
-      vectorData,
-      originalIsHole,
-      fusionId,
-      containmentScope: transaction.containmentScope || fusionGroup.data.containmentScope || null,
-      containmentKey: transaction.containmentKey || fusionGroup.data.containmentKey || null,
-      ownerContainmentKey: transaction.ownerContainmentKey || fusionGroup.data.ownerContainmentKey || null
-    };
-    window._fusionEditState = editState;
-    window.fusionEditActive = true;
-    // SINGLE INTERACTION OWNER (Fase 0): reclama el modo. Limpia flags de
-    // puntero huérfanos (Bug 4: dragging/resizeActive/rotationActive) y
-    // registra el claim. selectTool sigue activo (fusion-edit no exclusivo).
-    if (window.EKKO_INTERACTION) window.EKKO_INTERACTION.claim("fusion-edit", { owner: "fusionEditMode" });
-
-    if (typeof window.deselectItem === 'function') window.deselectItem();
-    if (typeof window.selectItem === 'function') window.selectItem(rasterChild);
-    if (paper.view && paper.view.element) paper.view.element.style.cursor = 'move';
-    paper.view.update();
-
-    // Listener de clic fuera → aceptar y salir (estilo AutoCAD), fuertemente protegido
-    if (!window._fusionEditOutsideBound) {
-      window._fusionEditOutsideBound = true;
-      const canvas = document.getElementById('editorCanvas') || (paper.view && paper.view.element);
-      if (canvas) {
-        canvas.addEventListener('mousedown', function(event) {
-          try {
-            if (!window.fusionEditActive || !editState) return;
-            // La imagen, sus handles y el contorno siguen dentro de la edición.
-            // Solo un clic real fuera confirma la operación.
-            let point = null;
-            try { point = paper.view.getEventPoint(event); } catch (e) {}
-            if (pointIsInsideInternalEdit(point)) return;
-            if (window.dragging || window.resizeActive || window.rotationActive) return;
-            setTimeout(() => {
-              try {
-                if (window.fusionEditActive && !window.dragging) exitFusionEditMode(true);
-              } catch(e){ console.error("[FUSION EXIT OUTSIDE ERROR]", e); cleanupEditState(); }
-            }, 0);
-          } catch(e){}
-        }, true);
-      }
-    }
-  } catch (e) {
-    console.error("[FUSION ENTER EDIT ERROR]", e);
-    if (enteredTransaction?.fusionId) {
-      try { abortFusionEdit(enteredTransaction.fusionId); } catch (cleanupError) {}
-    }
-    cleanupEditState();
-    if (typeof window.deselectItem === 'function') { try { window.deselectItem(); } catch(e2){} }
-    paper.view.update();
-  }
-}
-
-/* ------------------------------------------------------------------------
-   SALIR del modo edición. accept=true → re-fusiona con la imagen movida.
------------------------------------------------------------------------- */
 export function exitFusionEditMode(accept = true) {
-  if (!window.fusionEditActive || !editState) { cleanupEditState(); if (window.EKKO_INTERACTION) window.EKKO_INTERACTION.release("fusion-edit"); return; }
+  if (!fusionEditActive || !editState) {
+    cleanupEditState();
+    interactionOwner?.release("fusion-edit");
+    return;
+  }
+
   const st = editState;
   cleanupEditState();
-  // SINGLE INTERACTION OWNER: libera el modo al salir (simétrico al claim).
-  if (window.EKKO_INTERACTION) window.EKKO_INTERACTION.release("fusion-edit");
 
-  try {
-    if (accept && typeof window.beginHistoryTransaction === 'function') {
-      window.beginHistoryTransaction("fusion-edit");
+  if (accept) {
+    const { fusionGroup, fusionId, tempImage, mask } = st;
+    const finalImage = fusionGroup.children?.find(c => c.name === "fusion-image");
+    if (finalImage && tempImage) {
+      finalImage.position = tempImage.position.clone();
+      finalImage.matrix = tempImage.matrix.clone();
+      finalImage.opacity = 1;
     }
-    const vectorClone = st.vectorData.clone({ insert: false });
-    vectorClone.visible = true;
-    vectorClone.matrix = new paper.Matrix();
-    vectorClone.data = {
-      isHole: st.originalIsHole,
-      isFusionReceptor: st.originalIsHole,
-      containmentScope: st.containmentScope,
-      containmentKey: st.containmentKey,
-      ownerContainmentKey: st.ownerContainmentKey
-    };
-
-    let rasterToUse = null;
-    if (accept) {
-      rasterToUse = st.freeRaster;
-    } else {
-      if (st.freeRaster && st.freeRaster.project) {
-        try { st.freeRaster.remove(); } catch (e) {}
-      }
-      rasterToUse = st.originalRasterData
-        ? st.originalRasterData.clone({ insert: false })
-        : null;
+    updateVirtualHole(fusionId, mask);
+    console.log("[fusionEditMode] Aceptada edición:", fusionId);
+  } else {
+    const { fusionGroup, snapshot, originalImage } = st;
+    const finalImage = fusionGroup.children?.find(c => c.name === "fusion-image");
+    if (finalImage && snapshot) {
+      finalImage.position = snapshot.imagePosition;
+      finalImage.matrix = snapshot.imageMatrix;
+      finalImage.opacity = 1;
     }
-    if (rasterToUse) {
-      rasterToUse.visible = true;
-      rasterToUse.opacity = 1;
-      rasterToUse.data = { label: "Imagen" };
-      rasterToUse.selected = false;
-    }
-
-    // Remover contorno cian
-    if (st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e){} }
-
-    if (vectorClone && rasterToUse) {
-      const rebuiltFusion = applySmartFusion(vectorClone, rasterToUse, st.mode, {
-        preserveRasterTransform: true,
-        fusionId: st.fusionId,
-        preserveFusionId: true
-      });
-      if (rebuiltFusion) {
-        commitFusionEdit(rebuiltFusion, {
-          fusionId: st.fusionId,
-          mode: st.mode,
-          originalIsHole: st.originalIsHole
-        });
-      }
-    } else {
-      if (vectorClone) try { vectorClone.remove(); } catch(e){}
-      commitFusionEdit(null, { fusionId: st.fusionId });
-      if (typeof window.recalculateDynamicSubtractions === 'function') window.recalculateDynamicSubtractions();
-    }
-    if (accept && typeof window.commitHistoryTransaction === 'function') {
-      window.commitHistoryTransaction("fusion-edit");
-    }
-    paper.view.update();
-  } catch (e) {
-    if (accept && typeof window.cancelHistoryTransaction === 'function') window.cancelHistoryTransaction("fusion-edit-error");
-    console.error("[FUSION EXIT EDIT ERROR]", e);
-    if (st && st.cyanOutline) { try { st.cyanOutline.remove(); } catch(e2){} }
-    if (st && st.freeRaster && st.freeRaster.project) { try { st.freeRaster.remove(); } catch(e2){} }
-    if (typeof window.recalculateDynamicSubtractions === 'function') { try { window.recalculateDynamicSubtractions(); } catch(e2){} }
-    paper.view.update();
+    console.log("[fusionEditMode] Cancelada edición:", st.fusionId);
   }
+
+  interactionOwner?.release("fusion-edit");
 }
 
-export function initFusionEditMode() {
-  if (typeof window !== 'undefined') {
-    window.enterFusionEditMode = enterFusionEditMode;
-    window.exitFusionEditMode = exitFusionEditMode;
-    window.fusionEditActive = false;
+// Se conecta desde selection.js — NO agrega listeners propios
+export function handleFusionEditPointerDown(event, point) {
+  if (!fusionEditActive || !editState) return false;
+
+  const inside = pointIsInsideReceptor(point, editState.mask);
+  if (!inside) {
+    exitFusionEditMode(true);
+    return true;
   }
-  cleanupStrayEditItems();
-  bindFusionEditKeyboardAndContext();
-  console.log("%c[EKKO FUSION EDIT MODE v1.4] Edición interna con aceptación/cancelación transaccional y bloqueo de Snap externo cargado.", "color: #00e5ff; font-weight: bold;");
+  return false;
 }
 
-initFusionEditMode();
-// ==============================================================
-// EXPOSICIÓN DE FUNCIONES AL SISTEMA Y AL HTML
-// ==============================================================
-window.enterFusionEditMode = enterFusionEditMode;
-window.exitFusionEditMode = exitFusionEditMode;
+// Atajos — se registran desde editor.js
+export function handleFusionEditKeyDown(event) {
+  if (!fusionEditActive) return false;
+  if (event.key === "Enter") {
+    event.preventDefault();
+    exitFusionEditMode(true);
+    return true;
+  }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    exitFusionEditMode(false);
+    return true;
+  }
+  if (event.button === 2 || event.type === "contextmenu") {
+    event.preventDefault();
+    exitFusionEditMode(true);
+    return true;
+  }
+  return false;
+}
