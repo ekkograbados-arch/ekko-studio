@@ -84,6 +84,18 @@ export function beginFusionEdit(fusionItem) {
 
     const mask = getCurrentFusionMask(group);
     const raster = group.children?.find(child => child.className === "Raster") || null;
+    // La edición interna debe partir de la geometría ACTUAL de la fusión,
+    // no de los snapshots de creación. Así se conserva la transformación
+    // pública ya aplicada antes de entrar en modo edición.
+    const currentMaskSnapshot = mask ? cloneAbsolute(mask) : null;
+    const currentRasterSnapshot = raster ? cloneAbsolute(raster) : null;
+    [currentMaskSnapshot, currentRasterSnapshot].forEach(snapshot => {
+        if (snapshot) {
+            snapshot.visible = false;
+            snapshot.data = { ...(snapshot.data || {}), fusionEditSnapshot: true };
+        }
+    });
+    const ownerMatrix = group.globalMatrix?.clone?.() || null;
     const transaction = {
         fusionId: record.fusionId,
         record,
@@ -93,9 +105,10 @@ export function beginFusionEdit(fusionItem) {
         containmentScope: record.containmentScope || null,
         containmentKey: record.containmentKey || null,
         ownerContainmentKey: record.ownerContainmentKey || null,
-        originalVectorData: cloneDetached(record.originalVectorData),
-        originalRasterData: cloneDetached(record.originalRasterData),
-        maskSnapshot: mask ? cloneAbsolute(mask) : null,
+        originalVectorData: currentMaskSnapshot || cloneDetached(record.originalVectorData),
+        originalRasterData: currentRasterSnapshot || cloneDetached(record.originalRasterData),
+        maskSnapshot: currentMaskSnapshot ? cloneDetached(currentMaskSnapshot) : null,
+        ownerMatrix,
         rasterId: raster?.id ?? null,
         startedAt: Date.now()
     };
@@ -144,6 +157,17 @@ export function cancelFusionEdit(fusionId) {
     }
     fusionEditTransactions.delete(fusionId);
     unregisterVirtualHole(fusionId);
+    return transaction;
+}
+
+// Aborto seguro para fallos antes de que fusionEditMode pueda reconstruir
+// la fusión. A diferencia de cancelFusionEdit(), también libera snapshots.
+export function abortFusionEdit(fusionId) {
+    const transaction = cancelFusionEdit(fusionId);
+    if (!transaction) return null;
+    disposeFusionEditTransaction(transaction);
+    const record = getFusionById(fusionId);
+    if (record) syncFusionVirtualHole(record);
     return transaction;
 }
 
@@ -649,6 +673,7 @@ if (typeof window !== "undefined") {
         getFusionEditTransaction,
         commitFusionEdit,
         cancelFusionEdit,
+        abortFusionEdit,
         syncFusionVirtualHole,
         refreshFusion,
         removeFusionRecord,
