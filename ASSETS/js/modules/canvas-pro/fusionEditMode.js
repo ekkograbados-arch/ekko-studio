@@ -4,7 +4,7 @@ import {
   registerVirtualHole,
   unregisterVirtualHole,
   updateVirtualHole,
-  getFusionReceptors
+
 } from "./fusionCore.js";
 
 
