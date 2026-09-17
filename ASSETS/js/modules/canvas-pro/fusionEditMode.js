@@ -91,7 +91,6 @@ export function enterFusionEditMode(fusionGroup) {
   return true;
 }
 
-// Alias exacto que busca editor.js
 export const initFusionEditMode = enterFusionEditMode;
 
 export function exitFusionEditMode(accept = true) {
