@@ -7,6 +7,7 @@ celeste de Paper.js y el cursor caret en tiempo real.
 ========================================================================= */
 
 import { applyTextCurve } from "./canvas-pro/textToolbar.js";
+import { interactionOwner } from "./canvas-pro/interactionOwner.js";
 
 function containsTextItem(owner, textItem) {
     if (!owner || !textItem) return false;
@@ -44,6 +45,7 @@ function publishTextEditorState(mode, textItem, content) {
 
 export function startTextEditing(textItem) {
     if (!textItem) return;
+    interactionOwner.claim("text-edit", { owner: "textEditor" });
     const old = document.getElementById("ekko-text-editor");
     if (old) old.remove();
     const canvas = document.getElementById("editorCanvas");
@@ -125,6 +127,7 @@ export function startTextEditing(textItem) {
     function finish(save = true) {
         if (closed) return;
         closed = true;
+        interactionOwner.release("text-edit");
         publishTextEditorState(save ? "confirmed" : "cancelled", textItem, save ? area.value.trim() : originalContent);
         
         // Remover el detector de clics externos global
