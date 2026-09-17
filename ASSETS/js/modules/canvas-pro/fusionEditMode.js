@@ -1,11 +1,13 @@
 import {
-  applySmartFusion,
+  applySmartFusion
+} from "./smartFusion.js";
+
+import {
+  getFusionById as findFusionById,
   registerVirtualHole,
   unregisterVirtualHole,
   updateVirtualHole
-} from "./smartFusion.js";
-
-import { getFusionById as findFusionById } from "./fusionCore.js";
+} from "./fusionCore.js";
 
 import { interactionOwner } from "./interactionOwner.js";
 
