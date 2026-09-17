@@ -443,6 +443,10 @@ function applyOperation(item, operation) {
     if (!item || !operation) return false;
     const op = operation.type || "translate";
     try {
+        // Los owners públicos no deben hornear rotate/scale dentro de los
+        // segmentos. La matriz del owner es la identidad que consumen caja,
+        // tiradores, hit-test, historial y diagnósticos.
+        if (item.applyMatrix !== undefined) item.applyMatrix = false;
         if (op === "translate") {
             const delta = operation.delta || new paper.Point(0, 0);
             const local = toParentDelta(item, delta);
