@@ -1,7 +1,7 @@
 import {
   clearFusionSelection, isFusionSelection,
   beginTransformTransaction, accumulateDragDelta, finalizeTransformTransaction,
-  transformFusion, notifyTransformObservers, resolvePublicTransformOwner
+  transformFusion, transformPublicItem, notifyTransformObservers, resolvePublicTransformOwner
 } from "./canvas-pro/fusionController.js";
 import { rotationController } from "./canvas-pro/rotationController.js";
 
@@ -1027,6 +1027,11 @@ const _initSelectionTool = function() {
   selectTool.onMouseDown = function(event) {
     if (window.nodeEditMode) return;
 
+    // SINGLE INTERACTION OWNER (Fase 0): si un modo exclusivo
+    // (node-edit / text-insert / text-edit) recluyó el puntero,
+    // selectTool NO procesa este clic. "fusion-edit" no es exclusivo.
+    if (window.EKKO_INTERACTION && window.EKKO_INTERACTION.isPointerExclusive()) return;
+
     if (window.insertTextMode) {
       if (typeof createEditableText === "function") {
         createEditableText(event.point);
@@ -1263,20 +1268,15 @@ const _initSelectionTool = function() {
       window.resizeLastScaleY = factorY;
 
       window.resizeTargets.forEach(function(targetInfo) {
-        const isFusion = isFusionSelection(targetInfo.item) || isFusionSelection(targetInfo.target);
-        if (isFusion) {
-          transformFusion(targetInfo.target || targetInfo.item, {
-            type: "scale", sx: stepScaleX, sy: stepScaleY, center: anchor
-          });
-        } else {
-          targetInfo.target.scale(stepScaleX, stepScaleY, toParentPoint(targetInfo.target, anchor));
-          const scaleGeomBaseDeep = function(item, sx, sy, anc) {
-            if (!item) return;
-            if (item.data?.geomBase && !item.data.geomBase.parent) item.data.geomBase.scale(sx, sy, anc);
-            if (item.children) item.children.forEach(c => scaleGeomBaseDeep(c, sx, sy, anc));
-          };
-          scaleGeomBaseDeep(targetInfo.target, stepScaleX, stepScaleY, anchor);
-        }
+        // UNIFIED OWNER (Fase 1): TODA escala — fusión o no — pasa por el
+        // dueño canónico transformPublicItem. Resuelve owner, aplica scale
+        // con conversión de coordenadas (toParentPoint) y sincroniza
+        // geomBase(s) desacopladas. Elimina el camino .scale() directo +
+        // scaleGeomBaseDeep manual que divergía de la rotación (causa raíz
+        // de los tiradores desincronizados).
+        transformPublicItem(targetInfo.target || targetInfo.item, {
+          type: "scale", sx: stepScaleX, sy: stepScaleY, center: anchor
+        });
       });
       notifyTransformObservers({ event, type: "scale", scale: { x: stepScaleX, y: stepScaleY } });
 
