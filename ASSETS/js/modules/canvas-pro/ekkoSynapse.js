@@ -53,6 +53,7 @@ Descripción:
                 totalLinesOfCode: 0,
                 connectedSynapses: 0,
                 brokenSynapses: 0,
+                unverifiedSynapses: 0,
                 latentNeurons: 0
             },
             neurons: {
@@ -64,7 +65,8 @@ Descripción:
             },
             axons: {
                 connected: [],     // Botones y callbacks enlazados perfectamente
-                broken: [],        // Botones inactivos (DEAD_ROUTE_CRITICAL) o ausentes en HTML (MISSING_NODE_CRITICAL)
+                broken: [],        // Botones inactivos o ausentes en HTML
+                unverified: [],    // No se puede confirmar listener sin registry
                 zCollisions: [],   // Superposición de capas de interfaz (Z_ORDER_COLLISION)
                 contextualState: { // Estado de los controladores en caliente
                     currentContext: "NONE",
@@ -265,9 +267,11 @@ Descripción:
                 { id: "tabMultiTools", label: "👥 Pestaña de Selección Múltiple", context: "DYNAMIC_PANEL" }
             ];
 
-            const eventRegistry = (window.EKKO_DIAG && typeof window.EKKO_DIAG.getEventRegistry === 'function')
+            const hasEventRegistry = !!(window.EKKO_DIAG &&
+                typeof window.EKKO_DIAG.getEventRegistry === 'function');
+            const eventRegistry = hasEventRegistry
                 ? window.EKKO_DIAG.getEventRegistry()
-                : new Map();
+                : null;
 
             expectedUiButtons.forEach(btn => {
                 const domElement = document.getElementById(btn.id);
@@ -288,10 +292,13 @@ Descripción:
                 }
 
                 // El elemento existe en el HTML. ¿Tiene cable de JS soldado?
-                const hasActiveListener = eventRegistry.has(selector) ||
-                                          domElement.onclick ||
-                                          domElement.onchange ||
-                                          domElement.oninput;
+                const hasInlineListener = !!(domElement.onclick ||
+                    domElement.onchange || domElement.oninput);
+                const hasRegisteredListener = !!(eventRegistry &&
+                    typeof eventRegistry.has === 'function' &&
+                    eventRegistry.has(selector));
+                const hasActiveListener = hasRegisteredListener || hasInlineListener;
+                const listenerUnverified = hasEventRegistry && !hasActiveListener;
 
                 if (hasActiveListener) {
                     synapseResult.axons.connected.push({
@@ -302,14 +309,24 @@ Descripción:
                         detail: `Conexión fuerte. El elemento '${btn.label}' está enlazado a su callback de JS.`
                     });
                     synapseResult.counters.connectedSynapses++;
+                } else if (listenerUnverified) {
+                    // La ausencia de inline handler no prueba que no exista
+                    // un addEventListener que no fue registrado en el mapa.
+                    synapseResult.axons.unverified.push({
+                        id: btn.id,
+                        label: btn.label,
+                        context: btn.context,
+                        type: "LISTENER_UNVERIFIED",
+                        detail: `El componente '${btn.label}' existe, pero su listener no puede confirmarse con el registro disponible.`
+                    });
+                    synapseResult.counters.unverifiedSynapses++;
                 } else {
-                    // ALARMA AUTOMÁTICA: El nodo está sordo (sin callback)
                     synapseResult.axons.broken.push({
                         id: btn.id,
                         label: btn.label,
                         context: btn.context,
                         type: "DEAD_ROUTE_CRITICAL",
-                        detail: `El componente '${btn.label}' (${selector}) existe físicamente pero su cable de lógica está ROTA (sin callback de JS conectado).`
+                        detail: `El componente '${btn.label}' existe físicamente pero no tiene callback registrado.`
                     });
                     synapseResult.counters.brokenSynapses++;
                     synapseResult.status = "CRITICAL";
@@ -450,11 +467,19 @@ Descripción:
 
     if (typeof window !== 'undefined') {
         window.EKKO_SYNAPSE = synapseAPI;
-        if (window.EKKO_DIAG && typeof window.EKKO_DIAG.integrateSynapse === 'function') {
-            window.EKKO_DIAG.integrateSynapse(synapseAPI);
-            rawConsole.log("[EKKO_SYNAPSE v9.0] Conexión establecida con el Computador de Vuelo EKKO_DIAG 🟢");
-        } else {
-            rawConsole.log("[EKKO_SYNAPSE v9.0] Registrado en memoria global. Esperando acoplamiento... 🟡");
+        const integrate = () => {
+            const diag = window.EKKO_DIAG;
+            if (diag && typeof diag.integrateSynapse === 'function') {
+                diag.integrateSynapse(synapseAPI);
+                rawConsole.log("[EKKO_SYNAPSE v9.0] Conexión establecida con EKKO_DIAG 🟢");
+                return true;
+            }
+            return false;
+        };
+        if (!integrate()) {
+            setTimeout(integrate, 0);
+            setTimeout(integrate, 250);
+            rawConsole.log("[EKKO_SYNAPSE v9.0] Registrado globalmente; integración diferida 🟡");
         }
     }
 
