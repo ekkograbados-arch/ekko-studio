@@ -119,6 +119,14 @@ export function registerFusionRecord(record) {
   return record;
 }
 
+export function updateFusionRecord(fusionId, updates) {
+  const existing = _fusionRegistry.get(fusionId);
+  if (!existing) return null;
+  const updated = { ...existing, ...updates, updatedAt: Date.now() };
+  _fusionRegistry.set(fusionId, updated);
+  return updated;
+}
+
 export function unregisterFusion(fusionId) {
   return _fusionRegistry.delete(fusionId);
 }
