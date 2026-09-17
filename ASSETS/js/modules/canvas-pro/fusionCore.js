@@ -1,6 +1,9 @@
 import { v4 as uuidv4 } from "https://cdn.skypack.dev/uuid@9.0.0";
 
-// Única fuente de verdad: clasificación de elementos
+// Almacén central de fusiones
+const _fusionRegistry = new Map();
+
+// ===== Clasificación de elementos =====
 export function isProductElement(item) {
   if (!item?.data) return false;
   const d = item.data;
@@ -38,7 +41,11 @@ export function isValidFusionReceptor(item) {
   );
 }
 
-// Estampa semántica completa — TODO objeto nuevo la recibe
+export function isFusionItem(item) {
+  return !!(item?.data?.isSmartFusion || item?.data?.fusionId);
+}
+
+// ===== Estampa semántica =====
 export function stampDesignItem(item, meta = {}) {
   if (!item) return item;
   if (!item.data) item.data = {};
@@ -58,7 +65,7 @@ export function stampDesignItem(item, meta = {}) {
   return item;
 }
 
-// Geometría clonada con coordenadas absolutas
+// ===== Geometría =====
 export function cloneAbsolute(item) {
   if (!item) return null;
   const clone = item.clone({ insert: false });
@@ -67,7 +74,6 @@ export function cloneAbsolute(item) {
   return clone;
 }
 
-// Geometría virtual sincronizada
 export function getCurrentFusionMask(fusionGroup) {
   if (!fusionGroup?.data) return null;
   const { maskGroup, originalVector } = fusionGroup.data;
@@ -98,11 +104,23 @@ export function calculateFusionPlacement(image, receptor, mode = "cover") {
   };
 }
 
-export function canFuse(raster, receptor) {
-  if (!raster || !receptor) return { ok: false, reason: "missing-elements" };
-  if (isProductElement(receptor)) return { ok: false, reason: "product-element" };
-  if (!isValidFusionReceptor(receptor)) return { ok: false, reason: "not-a-receptor" };
-  return { ok: true };
+// ===== Registro de fusiones =====
+export function getFusionById(fusionId) {
+  return _fusionRegistry.get(fusionId) || null;
+}
+
+export function getAllFusions() {
+  return Array.from(_fusionRegistry.values());
+}
+
+export function registerFusionRecord(record) {
+  if (!record?.fusionId) return null;
+  _fusionRegistry.set(record.fusionId, record);
+  return record;
+}
+
+export function unregisterFusion(fusionId) {
+  return _fusionRegistry.delete(fusionId);
 }
 
 export function createFusionRecord(raster, receptor, mode) {
@@ -115,4 +133,33 @@ export function createFusionRecord(raster, receptor, mode) {
     receptorScope: receptor.data?.containmentScope,
     timestamp: Date.now()
   };
+}
+
+// ===== Huecos virtuales =====
+const _virtualHoles = new Map();
+
+export function registerVirtualHole(geom, fusionId) {
+  _virtualHoles.set(fusionId, { geom, fusionId, updatedAt: Date.now() });
+}
+
+export function updateVirtualHole(fusionId, newGeom) {
+  if (!_virtualHoles.has(fusionId)) return false;
+  _virtualHoles.set(fusionId, { geom: newGeom, fusionId, updatedAt: Date.now() });
+  return true;
+}
+
+export function unregisterVirtualHole(fusionId) {
+  return _virtualHoles.delete(fusionId);
+}
+
+export function getAllVirtualHoles() {
+  return Array.from(_virtualHoles.values());
+}
+
+// ===== Validación =====
+export function canFuse(raster, receptor) {
+  if (!raster || !receptor) return { ok: false, reason: "missing-elements" };
+  if (isProductElement(receptor)) return { ok: false, reason: "product-element" };
+  if (!isValidFusionReceptor(receptor)) return { ok: false, reason: "not-a-receptor" };
+  return { ok: true };
 }
