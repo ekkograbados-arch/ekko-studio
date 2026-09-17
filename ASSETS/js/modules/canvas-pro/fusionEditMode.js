@@ -1,13 +1,10 @@
 import {
   applySmartFusion,
-  getFusionById,
+  findFusionById,
   registerVirtualHole,
   unregisterVirtualHole,
-  updateVirtualHole,
-
-} from "./fusionCore.js";
-
-
+  updateVirtualHole
+} from "./smartFusion.js";
 
 import { interactionOwner } from "./interactionOwner.js";
 
@@ -94,6 +91,9 @@ export function enterFusionEditMode(fusionGroup) {
   return true;
 }
 
+// Alias exacto que busca editor.js
+export const initFusionEditMode = enterFusionEditMode;
+
 export function exitFusionEditMode(accept = true) {
   if (!fusionEditActive || !editState) {
     cleanupEditState();
@@ -115,7 +115,7 @@ export function exitFusionEditMode(accept = true) {
     updateVirtualHole(fusionId, mask);
     console.log("[fusionEditMode] Aceptada edición:", fusionId);
   } else {
-    const { fusionGroup, snapshot, originalImage } = st;
+    const { fusionGroup, snapshot } = st;
     const finalImage = fusionGroup.children?.find(c => c.name === "fusion-image");
     if (finalImage && snapshot) {
       finalImage.position = snapshot.imagePosition;
@@ -128,10 +128,8 @@ export function exitFusionEditMode(accept = true) {
   interactionOwner?.release("fusion-edit");
 }
 
-// Se conecta desde selection.js — NO agrega listeners propios
 export function handleFusionEditPointerDown(event, point) {
   if (!fusionEditActive || !editState) return false;
-
   const inside = pointIsInsideReceptor(point, editState.mask);
   if (!inside) {
     exitFusionEditMode(true);
@@ -140,7 +138,6 @@ export function handleFusionEditPointerDown(event, point) {
   return false;
 }
 
-// Atajos — se registran desde editor.js
 export function handleFusionEditKeyDown(event) {
   if (!fusionEditActive) return false;
   if (event.key === "Enter") {
@@ -153,19 +150,10 @@ export function handleFusionEditKeyDown(event) {
     exitFusionEditMode(false);
     return true;
   }
-  if (event.button === 2 || event.type === "contextmenu") {
+  if (event.type === "contextmenu") {
     event.preventDefault();
     exitFusionEditMode(true);
     return true;
   }
   return false;
 }
-export {
-  enterFusionEditMode,
-  initFusionEditMode, // Alias
-  exitFusionEditMode,
-  handleFusionEditPointerDown,
-  handleFusionEditKeyDown,
-  editState,
-  fusionEditActive
-};
