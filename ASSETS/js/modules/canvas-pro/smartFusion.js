@@ -693,6 +693,9 @@ export function releaseSmartFusion(item = null) {
   // Separar sin salto: aplicar a los snapshots originales la matriz actual
   // del contenedor/máscara. Así se conservan movimiento, escala y rotación
   // realizadas sobre la fusión completa, además de la relación interna.
+  const curMask = fusionGroup.children?.find(child =>
+    child && (child.clipMask || child.data?.isFusionMask)
+  ) || null;
   try {
     // Snapshots are already in project coordinates. Apply only the public
     // fusion-owner matrix; a mask child matrix would double-apply its local
@@ -719,12 +722,9 @@ export function releaseSmartFusion(item = null) {
     label: originalIsHole ? "Trazado Calado" : "Trazado Vectorial"
   };
   if (originalIsHole) {
-    // Quitar Fusión restaura el hueco real, no una transparencia cosmética:
-    // conserva su geometría/identidad CSG y queda seleccionable por hit-test.
-    restoredVector.fillColor = new paper.Color(0, 0, 0, 0.00001);
-    restoredVector.strokeColor = null;
-    restoredVector.strokeWidth = 0;
-    restoredVector.opacity = 1;
+    // Quitar Fusión restaura el hueco real con representación pública
+    // visible/interactiva; data.isHole sigue gobernando exclusivamente el CSG.
+    applyVisibleHoleStyle(restoredVector, restoredVector);
   }
   restoredRaster.data = { label: "Imagen" };
 
