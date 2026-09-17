@@ -466,19 +466,15 @@ export async function weldText(item) {
     resultPath.fillColor = target.fillColor || new paper.Color(0);
     resultPath.strokeColor = null;
     resultPath.strokeWidth = 0;
-    resultPath.data = {
-        ...(target.data || {}),
-        locked: false,
-        label: "Texto Vectorial",
-        isTextVector: true,
-        isSolidShape: true,
-        isFusionReceptor: true,
-        isHole: false,
-        hasInternalHoles: true,
-        preserveCompoundTopology: true,
-        userImported: true,
-        source: "text-vector"
-    };
+        import("./modules/canvas-pro/fusionCore.js").then(({ stampDesignItem }) => {
+          stampDesignItem(resultPath, {
+            source: "text-vector",
+            role: "letter",
+            isFusionReceptor: true,
+            hasInternalHoles: true
+          });
+        });
+    
     // geomBase is the canonical hit-test/CSG geometry. It must be captured
     // only after the final world calibration below; taking it before scale /
     // translation leaves pointer selection and the visible owner divergent.
