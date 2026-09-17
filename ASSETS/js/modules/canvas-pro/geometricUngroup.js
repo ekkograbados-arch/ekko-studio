@@ -121,15 +121,20 @@ if (!parentWorld.isIdentity()) {
                 }));
             });
         }
-    } else if (isGroup(item)) {
-        if (item.children && item.children.length > 0) {
-            const childrenCopy = [...item.children];
-            childrenCopy.forEach(child => {
-                if (child.clipMask) return;
-                atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, { isFromCompound: false }));
-            });
-        }
-    } else if (isPlacedSymbol(item)) {
+  } else if (isGroup(item)) {
+  if (item.children && item.children.length > 0) {
+    const childrenCopy = [...item.children];
+    // ✅ Si el grupo tiene isHole explícito, heredarlo a los hijos
+    const groupIsHole = typeof item.data?.isHole === 'boolean' ? item.data.isHole : undefined;
+    childrenCopy.forEach(child => {
+      if (child.clipMask) return;
+      atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, {
+        isFromCompound: false,
+        isHole: groupIsHole
+      }));
+    });
+  }
+} else if (isPlacedSymbol(item)) {
         const def = (item.symbol && item.symbol.item) || item.definition || (item.symbol && item.symbol.definition);
         if (def) {
             const defClone = def.clone({ insert: false });
@@ -189,7 +194,10 @@ function isContainedIn(child, parent) {
  * Construye el árbol topológico de contención geométrica y calcula profundidades relativas.
  */
 function buildContainmentTree(atomicPaths) {
-    atomicPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
+  // ✅ NO reordenar por área: el árbol de contención se construye sobre
+  // el orden original del documento. El área solo se usa como criterio
+  // para validar contención (un hijo debe ser más chico que su padre).
+  atomicPaths.sort((a, b) => (a.data?.docOrder || 0) - (b.data?.docOrder || 0));
     const nodes = atomicPaths.map((path, idx) => ({
         id: idx,
         path: path,
@@ -229,15 +237,21 @@ function buildContainmentTree(atomicPaths) {
 }
 
 function resolveItemSemantics(node, rootTarget) {
-    const path = node.path;
-    const isFromCompound = !!(path.data && path.data.isFromCompound);
-    const explicitHole = path.data && typeof path.data.originalIsHole === 'boolean'
-        ? path.data.originalIsHole
-        : (path.data && typeof path.data.isHole === 'boolean' ? path.data.isHole : null);
+  const path = node.path;
+  const isFromCompound = !!(path.data && path.data.isFromCompound);
+  const explicitHole = path.data && typeof path.data.originalIsHole === 'boolean'
+    ? path.data.originalIsHole
+    : (path.data && typeof path.data.isHole === 'boolean' ? path.data.isHole : null);
 
-    // La metadata original es la fuente de verdad. La geometría solo decide
-    // cuando el SVG no aportó clasificación explícita.
-    if (explicitHole !== null) return explicitHole;
+  // ✅ REGLA ABSOLUTA: Si el objeto original (rootTarget) es explícitamente un hueco
+  // (ej. convertido a Calado por el usuario), TODO lo que sale de él es hueco.
+  if (rootTarget && rootTarget.data && rootTarget.data.isHole === true) {
+    return true;
+  }
+
+  // La metadata original es la fuente de verdad. La geometría solo decide
+  // cuando el SVG no aportó clasificación explícita.
+  if (explicitHole !== null) return explicitHole;
 
 if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
   const testPt = getInteriorTestPoint(path);
@@ -255,20 +269,21 @@ if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
   return true;
 }
 
-    if (node.parent) {
-        const parentPath = node.parent.path;
-        const isParentHole = node.parent.isHole;
-        if (!isParentHole) {
-            if (path.data && path.data.originalClockwise !== undefined && parentPath.data && parentPath.data.originalClockwise !== undefined) {
-                if (path.data.originalClockwise !== parentPath.data.originalClockwise) {
-                    return true;
-                }
-            }
-            return node.depth % 2 !== 0;
-        } else {
-            return node.depth % 2 !== 0;
-        }
+  if (node.parent) {
+    const parentPath = node.parent.path;
+    const isParentHole = node.parent.isHole;
+    if (!isParentHole) {
+      // ✅ Si ambos tienen orientación original, usarla como fuente de verdad
+      if (path.data && path.data.originalClockwise !== undefined && parentPath.data && parentPath.data.originalClockwise !== undefined) {
+        return path.data.originalClockwise !== parentPath.data.originalClockwise;
+      }
+      // Solo como último recurso, usar paridad de profundidad
+      return node.depth % 2 !== 0;
+    } else {
+      // Si el padre es hueco, la paridad se invierte lógicamente
+      return node.depth % 2 === 0;
     }
+  }
     return false;
 }
 
@@ -703,19 +718,21 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             : null;
     });
 
-    nodes.sort((a, b) => {
-        const rootA = getRootNode(a);
-        const rootB = getRootNode(b);
-        if (rootA !== rootB) {
-            return rootB.area - rootA.area || a.docOrder - b.docOrder;
-        }
-        if (isAncestorOf(a, b)) return -1;
-        if (isAncestorOf(b, a)) return 1;
-        if (a.depth !== b.depth) {
-            return a.depth - b.depth;
-        }
-        return a.docOrder - b.docOrder;
-    });
+nodes.sort((a, b) => {
+  const rootA = getRootNode(a);
+  const rootB = getRootNode(b);
+  if (rootA !== rootB) {
+    // ✅ REGLA ABSOLUTA: El orden de apilamiento viene del docOrder original.
+    // Los objetos que aparecían primero en el SVG quedan atrás (abajo en Z).
+    return a.docOrder - b.docOrder;
+  }
+  // Dentro de la misma jerarquía: ancestros primero (para que los contenedores
+  // se inserten antes que sus contenidos y queden atrás en Z).
+  if (isAncestorOf(a, b)) return -1;
+  if (isAncestorOf(b, a)) return 1;
+  // Mismo nivel: orden por docOrder original
+  return a.docOrder - b.docOrder;
+});
 
     const resultingItems = [];
 
