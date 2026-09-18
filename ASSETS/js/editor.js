@@ -599,9 +599,16 @@ function undo() {
   }
   const selectionBeforeUndo = captureHistorySelection();
   window._ekkoHistorySelection = selectionBeforeUndo;
-  const current = makeHistoryEntry();
-  if (current) redoStack.push(current);
+  // The opposite history entry must retain the transaction kind. A plain
+  // makeHistoryEntry() has no transformOnly flag, so Redo would otherwise
+  // fall through to JSON rehydration even when Undo used the live-owner path.
   const entry = undoStack.pop();
+  const current = makeHistoryEntry();
+  if (current) {
+    current.transformOnly = entry?.transformOnly === true;
+    current.label = entry?.label || null;
+    redoStack.push(current);
+  }
   window.EKKO_TRANSFORM_TRACE?.boundary("undo-target", {
     phase: "undo", historyEntry: entry, currentEntry: current,
     undoDepth: undoStack.length, redoDepth: redoStack.length
@@ -636,9 +643,15 @@ function redo() {
   const selectionBeforeRedo = currentSelection.length
     ? currentSelection
     : (Array.isArray(window._ekkoHistorySelection) ? window._ekkoHistorySelection : []);
-  const current = makeHistoryEntry();
-  if (current) undoStack.push(current);
+  // Mirror the target metadata when moving the current state to Undo. This
+  // keeps repeated Undo/Redo cycles on the same in-place transform route.
   const entry = redoStack.pop();
+  const current = makeHistoryEntry();
+  if (current) {
+    current.transformOnly = entry?.transformOnly === true;
+    current.label = entry?.label || null;
+    undoStack.push(current);
+  }
   window.EKKO_TRANSFORM_TRACE?.boundary("redo-target", {
     phase: "redo", historyEntry: entry, currentEntry: current,
     undoDepth: undoStack.length, redoDepth: redoStack.length
