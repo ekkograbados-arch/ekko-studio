@@ -287,7 +287,8 @@ function cleanGhostInterfaceItems() {
           item.data.isSelectionBox ||
           item.data.isHandle ||
           item.data.isNodeHandle ||
-          item.data.isCurveHandle
+          item.data.isCurveHandle ||
+          item.data.isMeasurement
         );
       }
     }).forEach(function(item) {
@@ -309,6 +310,11 @@ function undo() {
     window.deselectItem();
   }
   rehydrateSceneRuntime();
+  // Undo restores the document, not transient UI. Clear stale rotation values
+  // and measurement overlays after the imported owner is rehydrated.
+  window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
+  window.updateSelectionInfo?.();
+  window.clearMeasurements?.();
   if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
     window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("undo");
   }
@@ -329,6 +335,11 @@ function redo() {
     window.deselectItem();
   }
   rehydrateSceneRuntime();
+  // Redo follows the same transient-state contract as undo; the next
+  // selection will repopulate rotation and measurements from the owner matrix.
+  window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
+  window.updateSelectionInfo?.();
+  window.clearMeasurements?.();
   if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
     window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("redo");
   }
@@ -343,6 +354,9 @@ window.isLockedItem = isLockedItem;
 
 // Limpia referencias de runtime que no forman parte de exportJSON/importJSON.
 function resetSceneRuntimeState() {
+  // Measurement groups are transient Paper items and must not survive a
+  // history import as document content or be mistaken for a public owner.
+  window.clearMeasurements?.();
   if (window.fusionEditActive && typeof window.exitFusionEditMode === 'function') {
     try { window.exitFusionEditMode(false); } catch (e) {}
   }
@@ -1091,6 +1105,12 @@ async function runRuntimeFixture(mode = runtimeFixtureState.requested) {
   runtimeFixtureState.last = run;
   runtimeFixtureEvent("start", { runId: run.id, mode: selectedMode, count: specs.length });
 
+  // A fixture run is one import transaction, like a multi-file native drop.
+  // The canonical importers stay unchanged; this opt-in route disables their
+  // individual snapshots and commits once after all async imports settle.
+  const ownsHistoryTransaction = !window._ekkoHistoryTransaction?.active;
+  if (ownsHistoryTransaction) beginHistoryTransaction("runtime-fixture-import");
+
   try {
     for (let index = 0; index < specs.length; index += 1) {
       const spec = specs[index];
@@ -1100,9 +1120,11 @@ async function runRuntimeFixture(mode = runtimeFixtureState.requested) {
         // These are the canonical application import APIs. Do not replace this
         // with a drop event: the harness is specifically for real import code.
         const item = spec.kind === "svg"
-          ? await addSVGFromFile(artifact.file, { point, history: true, diagnostic: true })
-          : await addImageFromFile(artifact.file, { point, history: true, diagnostic: true });
+          ? await addSVGFromFile(artifact.file, { point, history: false, diagnostic: true })
+          : await addImageFromFile(artifact.file, { point, history: false, diagnostic: true });
         const imported = !!item;
+        // Dirty the shared snapshot only after a real public owner exists.
+        if (imported) saveHistory();
         const result = {
           kind: spec.kind,
           file: spec.name,
@@ -1131,6 +1153,7 @@ async function runRuntimeFixture(mode = runtimeFixtureState.requested) {
     });
     return run;
   } finally {
+    if (ownsHistoryTransaction) commitHistoryTransaction("runtime-fixture-import");
     runtimeFixtureState.running = false;
     runtimeFixtureState.last = run;
   }
