@@ -944,6 +944,209 @@ export function addSVGFromFile(file, pointOrOptions = null) {
 }
 window.addSVGFromFile = addSVGFromFile;
 
+// ============================================================================
+// DEV/TEST-ONLY RUNTIME FIXTURES
+// Explicit opt-in: ?runtimeFixture=afa|image|all. Nothing is fetched or
+// imported in normal sessions. Add &runtimeFixtureAuto=1 only when an
+// automated controlled-browser cycle is desired; otherwise call
+// window.EKKO_RUNTIME_FIXTURE.run("afa"|"image"|"all") manually.
+// This deliberately calls the canonical import functions above and never
+// synthesizes a DataTransfer or installs picker/drag/drop listeners.
+// ============================================================================
+const runtimeFixtureParams = typeof window !== "undefined" && window.location
+  ? new URLSearchParams(window.location.search)
+  : new URLSearchParams();
+const runtimeFixtureRequested = String(runtimeFixtureParams.get("runtimeFixture") || "")
+  .trim().toLowerCase();
+const runtimeFixtureModeEnabled = ["afa", "image", "all"].includes(runtimeFixtureRequested);
+const runtimeFixtureState = {
+  version: 1,
+  enabled: runtimeFixtureModeEnabled,
+  requested: runtimeFixtureModeEnabled ? runtimeFixtureRequested : null,
+  auto: runtimeFixtureModeEnabled && runtimeFixtureParams.get("runtimeFixtureAuto") === "1",
+  ready: false,
+  running: false,
+  source: "runtime-fixture",
+  runs: [],
+  last: null
+};
+let runtimeFixtureReadyResolve;
+const runtimeFixtureReady = new Promise(resolve => { runtimeFixtureReadyResolve = resolve; });
+
+function runtimeFixtureEvent(type, details = {}) {
+  const payload = { source: "runtime-fixture", fixture: true, ...details };
+  try { window.EKKO_DIAG?.logEvent?.(`runtime.fixture.${type}`, payload); } catch (_) {}
+  try { window.EKKO_RUNTIME_PROBE?.record?.(`runtime.fixture.${type}`, payload); } catch (_) {}
+  return payload;
+}
+
+function markRuntimeFixtureReady() {
+  if (runtimeFixtureState.ready) return;
+  runtimeFixtureState.ready = true;
+  runtimeFixtureEvent("ready", { requested: runtimeFixtureState.requested, auto: runtimeFixtureState.auto });
+  runtimeFixtureReadyResolve(true);
+}
+
+async function fetchRuntimeFixtureFile(spec) {
+  const attempts = [];
+  for (const path of spec.paths) {
+    const url = new URL(path, window.location.origin).href;
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store"
+      });
+      attempts.push({ path, status: response.status, ok: response.ok });
+      if (!response.ok) continue;
+      const blob = await response.blob();
+      const type = spec.type || blob.type || "application/octet-stream";
+      const file = typeof File === "function"
+        ? new File([blob], spec.name, { type, lastModified: 0 })
+        : (() => {
+            const fallback = new Blob([blob], { type });
+            Object.defineProperty(fallback, "name", { value: spec.name });
+            return fallback;
+          })();
+      runtimeFixtureEvent("fetch", {
+        kind: spec.kind,
+        path,
+        file: spec.name,
+        bytes: blob.size,
+        status: response.status
+      });
+      return { file, path, bytes: blob.size, attempts };
+    } catch (error) {
+      attempts.push({ path, error: String(error?.message || error) });
+    }
+  }
+  const error = new Error(`fixture-not-found:${spec.kind}`);
+  error.attempts = attempts;
+  throw error;
+}
+
+function runtimeFixturePoint(kind, index = 0, total = 1) {
+  const center = paper.view.bounds.center.clone();
+  const span = Math.max(72, Math.min(paper.view.bounds.width, paper.view.bounds.height) * 0.18);
+  if (total < 2) return center;
+  return center.add(new paper.Point(kind === "svg" ? -span : span, 0));
+}
+
+async function runRuntimeFixture(mode = runtimeFixtureState.requested) {
+  const selectedMode = String(mode || "").trim().toLowerCase();
+  if (!["afa", "image", "all"].includes(selectedMode)) {
+    return { ok: false, source: "runtime-fixture", reason: "query-required", requested: selectedMode || null };
+  }
+  if (!runtimeFixtureState.enabled || runtimeFixtureState.requested !== selectedMode) {
+    return { ok: false, source: "runtime-fixture", reason: "explicit-query-required", requested: selectedMode };
+  }
+  if (runtimeFixtureState.running) {
+    return { ok: false, source: "runtime-fixture", reason: "already-running" };
+  }
+
+  await runtimeFixtureReady;
+  if (!window.paper?.project || !paper.view) {
+    return { ok: false, source: "runtime-fixture", reason: "bootstrap-not-ready" };
+  }
+
+  const specs = selectedMode === "afa"
+    ? [{
+        kind: "svg",
+        name: "runtime-fixture-AFA_007_from_url.svg",
+        type: "image/svg+xml",
+        paths: ["/simulation-assets/AFA_007_from_url.svg", "/ASSETS/templates/007.svg"]
+      }]
+    : selectedMode === "image"
+      ? [{
+          kind: "image",
+          name: "runtime-fixture-image_1.png",
+          type: "image/png",
+          paths: ["/simulation-assets/image_1.png", "/ASSETS/social/DRIVE.png", "/logo.png"]
+        }]
+      : [
+          {
+            kind: "svg",
+            name: "runtime-fixture-AFA_007_from_url.svg",
+            type: "image/svg+xml",
+            paths: ["/simulation-assets/AFA_007_from_url.svg", "/ASSETS/templates/007.svg"]
+          },
+          {
+            kind: "image",
+            name: "runtime-fixture-image_1.png",
+            type: "image/png",
+            paths: ["/simulation-assets/image_1.png", "/ASSETS/social/DRIVE.png", "/logo.png"]
+          }
+        ];
+
+  const run = {
+    id: `FIXTURE-${String(runtimeFixtureState.runs.length + 1).padStart(3, "0")}`,
+    mode: selectedMode,
+    source: "runtime-fixture",
+    startedAt: new Date().toISOString(),
+    imports: [],
+    errors: []
+  };
+  runtimeFixtureState.running = true;
+  runtimeFixtureState.runs.push(run);
+  runtimeFixtureState.last = run;
+  runtimeFixtureEvent("start", { runId: run.id, mode: selectedMode, count: specs.length });
+
+  try {
+    for (let index = 0; index < specs.length; index += 1) {
+      const spec = specs[index];
+      try {
+        const artifact = await fetchRuntimeFixtureFile(spec);
+        const point = runtimeFixturePoint(spec.kind, index, specs.length);
+        // These are the canonical application import APIs. Do not replace this
+        // with a drop event: the harness is specifically for real import code.
+        const item = spec.kind === "svg"
+          ? await addSVGFromFile(artifact.file, { point, history: true, diagnostic: true })
+          : await addImageFromFile(artifact.file, { point, history: true, diagnostic: true });
+        const imported = !!item;
+        const result = {
+          kind: spec.kind,
+          file: spec.name,
+          path: artifact.path,
+          bytes: artifact.bytes,
+          point: { x: point.x, y: point.y },
+          imported
+        };
+        run.imports.push(result);
+        runtimeFixtureEvent("import", { runId: run.id, ...result });
+        if (!imported) throw new Error(`canonical-import-returned-empty:${spec.kind}`);
+      } catch (error) {
+        const failure = { kind: spec.kind, file: spec.name, error: String(error?.stack || error) };
+        run.errors.push(failure);
+        runtimeFixtureEvent("error", { runId: run.id, ...failure });
+      }
+    }
+    run.ok = run.errors.length === 0 && run.imports.length === specs.length;
+    run.finishedAt = new Date().toISOString();
+    runtimeFixtureEvent("complete", {
+      runId: run.id,
+      mode: selectedMode,
+      ok: run.ok,
+      imported: run.imports.length,
+      errors: run.errors.length
+    });
+    return run;
+  } finally {
+    runtimeFixtureState.running = false;
+    runtimeFixtureState.last = run;
+  }
+}
+
+window.EKKO_RUNTIME_FIXTURE = {
+  state: runtimeFixtureState,
+  run: runRuntimeFixture,
+  ready: () => runtimeFixtureState.ready,
+  enabled: () => runtimeFixtureState.enabled,
+  paths: {
+    afa: "/simulation-assets/AFA_007_from_url.svg (fallback /ASSETS/templates/007.svg)",
+    image: "/simulation-assets/image_1.png (fallback /ASSETS/social/DRIVE.png, then /logo.png)"
+  }
+};
+
 // Compact, optional instrumentation. The canonical diagnostics modules expose
 // logEvent/record; no wrappers or replacement globals are installed here.
 function emitAssetDropDiagnostic(eventName, details = {}) {
@@ -1532,6 +1735,13 @@ async function bootstrapEKKO() {
         window.__EKKO_STUDIO_READY_EMITTED = true;
         window.EKKO_DIAG.emitReady();
          window.EKKO_RUNTIME_PROBE?.ready({ source: "editor.bootstrap" });
+      }
+      markRuntimeFixtureReady();
+      if (runtimeFixtureState.auto) {
+        // Auto-run is available only behind the explicit query opt-in.
+        runRuntimeFixture(runtimeFixtureState.requested).catch(error => {
+          runtimeFixtureEvent("error", { runId: null, error: String(error?.stack || error) });
+        });
       }
      console.log(`%c[EKKO BOOTSTRAP] Editor inicializado con éxito. Dimensiones estables: ${initialWidth}x${initialHeight} px.`, "color: #10b981; font-weight: bold;");
 
