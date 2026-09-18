@@ -414,18 +414,9 @@ function setGlobalMatrix(item, globalMatrix) {
 }
 
 function transformFusionGeomBases(owner, operationMatrix) {
-    const visited = new Set();
-    const visit = node => {
-        if (!node || visited.has(node.id)) return;
-        visited.add(node.id);
-        const base = node.data?.geomBase;
-        if (base && !base.parent && base !== node) {
-            const current = base.globalMatrix || base.matrix;
-            if (current) setGlobalMatrix(base, operationMatrix.concatenate(current));
-        }
-        if (node.children) Array.from(node.children).forEach(visit);
-    };
-    visit(owner);
+    // Canonical geometry contract: geomBase is owner-local. Transforming a
+    // detached snapshot here would apply the owner operation twice during CSG.
+    return owner;
 }
 
 function applyFusionGlobalOperation(owner, operation = {}) {
@@ -475,15 +466,9 @@ function applyOperation(item, operation) {
 }
 
 function transformDetachedGeomBases(owner, operation) {
-    const visited = new Set();
-    const visit = node => {
-        if (!node || visited.has(node.id)) return;
-        visited.add(node.id);
-        const base = node.data?.geomBase;
-        if (base && !base.parent && base !== node) applyOperation(base, operation);
-        if (node.children) Array.from(node.children).forEach(visit);
-    };
-    visit(owner);
+    // Local geomBase snapshots follow their owner.matrix implicitly. They are
+    // updated only by node editing, never by a public transform operation.
+    return owner;
 }
 
 // Una fusión real posee una única transformación pública: owner.matrix.
