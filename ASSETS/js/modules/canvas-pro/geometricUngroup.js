@@ -348,17 +348,63 @@ function getContentItem(item) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    // Un hueco real conserva representación visible e interactiva sin
-    // convertirse semánticamente en sólido. El CSG sigue gobernado por
-    // data.isHole; el estilo solo mantiene la identidad pública del vector.
+    // `isHole` es semántica de CSG, no un estilo de transparencia. El owner
+    // público y cada path hijo deben tener un estilo propio: en Paper.js el
+    // estilo del CompoundPath no siempre sustituye al estilo que conserva el
+    // Path clonado desde el SVG. Sin esta propagación, el CSG sí perfora el
+    // sólido pero el hueco queda visualmente como un área vacía.
     const data = item.data || {};
     const fill = data.originalFillColor?.clone?.() || new paper.Color('#64748b');
     const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
-    if (fill.alpha <= 0) fill.alpha = 0.35;
-    item.fillColor = fill;
-    item.strokeColor = stroke;
-    item.strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
-    item.opacity = 1;
+    const alpha = Number(fill.alpha);
+    // También normaliza alpha casi cero (p. ej. Calado: 0.0001): el vector
+    // sigue siendo visible/interactivo aunque continúe marcado como hueco.
+    if (!Number.isFinite(alpha) || alpha < 0.18) fill.alpha = 0.35;
+    const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
+
+    const paint = node => {
+        if (!node || node.clipMask || node.data?.isMask || node.data?.mockup) return;
+        node.visible = true;
+        node.opacity = 1;
+        if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+            node.fillColor = fill.clone();
+            node.strokeColor = stroke.clone();
+            node.strokeWidth = strokeWidth;
+        }
+        node.children?.forEach(paint);
+    };
+    paint(item);
+}
+
+// Paper.js orders siblings by `index` (low = behind, high = in front). A
+// hole only subtracts solids below it. This is deliberately based on the
+// actual owner/wrapper ancestry, not on docOrder or containment metadata,
+// because moving an item must change the physical cut without changing its
+// `isHole` identity.
+function isAboveInRenderOrder(candidate, reference) {
+    if (!candidate || !reference || candidate === reference) return false;
+    const chain = item => {
+        const result = [];
+        let current = item;
+        while (current && current.parent) {
+            result.unshift(current);
+            current = current.parent;
+        }
+        return result;
+    };
+    const a = chain(candidate);
+    const b = chain(reference);
+    const length = Math.min(a.length, b.length);
+    let common = 0;
+    while (common < length && a[common] === b[common]) common++;
+    if (common === 0) return false;
+    if (common < length) {
+        const aIndex = typeof a[common].index === 'number' ? a[common].index : -1;
+        const bIndex = typeof b[common].index === 'number' ? b[common].index : -1;
+        return aIndex > bIndex;
+    }
+    // A descendant is rendered inside/on top of its ancestor.
+    return a.length > b.length;
 }
 
 function extractSubtractiveItems(topList) {
@@ -466,6 +512,10 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 holeItem.data.ownerContainmentKey !== solid.data.containmentKey) {
                 continue;
             }
+            // A hole cuts only objects rendered below it. Keeping this check
+            // here (before cloning the CSG operand) prevents a lower hole
+            // from silently perforating a solid that was moved above it.
+            if (!isAboveInRenderOrder(holeItem, solid)) continue;
             let holeBase = getGlobalUnsubtractedPath(holeItem);
             if (!holeBase) continue;
             holeBase = confineSubtractiveGeometry(holeBase);
@@ -483,6 +533,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (!vh || !vh.geom) return;
                 if (!solid.data.containmentKey ||
                     vh.ownerContainmentKey !== solid.data.containmentKey) return;
+                // Virtual holes carry their live fusion group. Apply the same
+                // Z-order contract as physical hole owners when available.
+                if (vh.group && !isAboveInRenderOrder(vh.group, solid)) return;
                 let vhClone = vh.geom.clone({ insert: false });
                 vhClone = confineSubtractiveGeometry(vhClone);
                 if (!vhClone) return;
