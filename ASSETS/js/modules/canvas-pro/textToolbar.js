@@ -106,11 +106,12 @@ export async function loadDynamicFonts() {
 /**
  * Aplica deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
  */
-export async function applyTextCurve(item, curvature) {
+export async function applyTextCurve(item, curvature, options = {}) {
     if (!item || item.data?.locked) return;
-    if (typeof window.saveHistory === 'function') window.saveHistory();
+    if (!options.skipHistory && typeof window.saveHistory === 'function') window.saveHistory();
+    const numericCurvature = Number(curvature) || 0;
 
-    if (Math.abs(curvature) < 0.1) {
+    if (Math.abs(numericCurvature) < 0.1) {
         if (item.data?.isCurvedGroup) {
             const flatText = restoreFlatText(window.selectedItem, item);
             if (flatText) {
@@ -155,7 +156,7 @@ export async function applyTextCurve(item, curvature) {
     } else {
         const textChild = item.children.find(c => c instanceof paper.PointText || c.data?.isCurvedGroup);
         if (textChild) {
-            applyTextCurve(textChild, curvature);
+            applyTextCurve(textChild, curvature, options);
             window.updateSelectionBox(item);
             paper.view.update();
         }
@@ -174,16 +175,23 @@ export async function applyTextCurve(item, curvature) {
         fillColor: fillColor,
         fontWeight: fontWeight,
         fontStyle: fontStyle,
-        curvature: curvature
+        curvature: numericCurvature,
+        radius: Number(options.radius) || (Math.abs(numericCurvature) > 0.001 ? 10000 / Math.abs(numericCurvature) : 10000),
+        hspace: Number(options.hspace ?? targetItem.data?.hspace ?? 0) || 0,
+        // Curved text remains editable text, not a final Text-to-Vector owner.
+        isTextVector: false,
+        preserveCompoundTopology: true
     };
 
     const charCount = textString.length;
     if (charCount === 0) return;
 
-    const radius = 10000 / curvature;
+    const signedRadius = Number(options.radius) || (10000 / numericCurvature);
+    const radius = Math.abs(signedRadius) * (numericCurvature < 0 ? -1 : 1);
     const centerPoint = targetItem.bounds.center.clone();
     const arcCenter = new paper.Point(centerPoint.x, centerPoint.y + radius);
-    const textWidth = textString.length * fontSize * 0.6;
+    const textWidth = textString.length * fontSize * 0.6 +
+        Math.max(0, textString.length - 1) * (Number(options.hspace ?? targetItem.data?.hspace ?? 0) * fontSize * 0.02);
     const totalAngleRad = textWidth / radius;
     const totalAngleDeg = totalAngleRad * (180 / Math.PI);
     const startAngle = -90 - (totalAngleDeg / 2);
@@ -219,8 +227,8 @@ export async function applyTextCurve(item, curvature) {
     }
 
     curvedGroup.data.fillRule = "evenodd";
-    curvedGroup.data.isTextVector = true;
-    curvedGroup.data.preserveCompoundTopology = true;
+    curvedGroup.data.isTextVector = false;
+    delete curvedGroup.data.isTextVector;
     drawBlueCurveHandle(curvedGroup);
 
     if (parent) {
@@ -248,8 +256,10 @@ export function restoreFlatText(item, curvedGroup) {
         fontStyle: curvedGroup.data.fontStyle || "normal",
         justification: "center"
     });
-    flatText.data = { ...curvedGroup.data, isCurvedGroup: false };
+    flatText.data = { ...curvedGroup.data, isCurvedGroup: false, isTextVector: false };
+    delete flatText.data.isTextVector;
     delete flatText.data.curvature;
+    delete flatText.data.radius;
 
     const parent = curvedGroup.parent;
     if (parent) {
