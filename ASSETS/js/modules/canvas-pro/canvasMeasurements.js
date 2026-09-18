@@ -214,6 +214,16 @@ export function installMeasurementsHook() {
     return true;
 }
 
+// Selection, history and runtime diagnostics use the public window API.  The
+// module is imported for its toggle handler, so publish the same drawing and
+// cleanup functions used by those consumers instead of leaving the overlay
+// implementation module-scoped.
+if (typeof window !== "undefined") {
+    window.drawMeasurements = drawMeasurements;
+    window.clearMeasurements = clearMeasurements;
+    window.setMeasurementsVisibility = setMeasurementsVisibility;
+}
+
 // SANEADO CRÍTICO: ÚNICA inicialización automática al cargar el DOM, libre de bucles repetitivos
 window.addEventListener("DOMContentLoaded", () => {
     setTimeout(installMeasurementsHook, 450);
