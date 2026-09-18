@@ -81,17 +81,12 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
     const isFromCompound = parentMeta.isFromCompound || isCompoundPath(item);
 
     if (isPath(item)) {
+        // One coordinate contract: the clone keeps its geometry in the
+        // decomposition root's local space.  No segment baking is performed;
+        // the returned public owner carries the root world matrix.
         const cloned = item.clone({ insert: false });
-// ✅ NO hornear la matriz en los segmentos.
-// En cambio, calcular la matriz local que representa la transformación mundial acumulada.
-cloned.applyMatrix = false;
-const parentWorld = item.parent?.globalMatrix || new paper.Matrix();
-if (!parentWorld.isIdentity()) {
-  const localForParent = parentWorld.inverted().concatenate(currentMatrix);
-  cloned.matrix = localForParent;
-} else {
-  cloned.matrix = currentMatrix.clone();
-}
+        cloned.applyMatrix = false;
+        cloned.matrix = currentMatrix.clone();
         if (cloned.segments && cloned.segments.length >= 3) {
             cloned.closed = true;
             cloned.data = {
@@ -124,13 +119,12 @@ if (!parentWorld.isIdentity()) {
   } else if (isGroup(item)) {
   if (item.children && item.children.length > 0) {
     const childrenCopy = [...item.children];
-    // ✅ Si el grupo tiene isHole explícito, heredarlo a los hijos
-    const groupIsHole = typeof item.data?.isHole === 'boolean' ? item.data.isHole : undefined;
+    // A group's flag is not inherited blindly: descendants keep their own
+    // source metadata and are classified by explicit child metadata first.
     childrenCopy.forEach(child => {
       if (child.clipMask) return;
       atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, {
-        isFromCompound: false,
-        isHole: groupIsHole
+        isFromCompound: false
       }));
     });
   }
@@ -243,12 +237,6 @@ function resolveItemSemantics(node, rootTarget) {
     ? path.data.originalIsHole
     : (path.data && typeof path.data.isHole === 'boolean' ? path.data.isHole : null);
 
-  // ✅ REGLA ABSOLUTA: Si el objeto original (rootTarget) es explícitamente un hueco
-  // (ej. convertido a Calado por el usuario), TODO lo que sale de él es hueco.
-  if (rootTarget && rootTarget.data && rootTarget.data.isHole === true) {
-    return true;
-  }
-
   // La metadata original es la fuente de verdad. La geometría solo decide
   // cuando el SVG no aportó clasificación explícita.
   if (explicitHole !== null) return explicitHole;
@@ -290,6 +278,18 @@ if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
 export function getGlobalUnsubtractedPath(item) {
     if (!item || !item.data || !item.data.geomBase) return null;
     const tempBase = item.data.geomBase.clone({ insert: false });
+    // geomBase is owner-local. Normalize legacy snapshots that carried a
+    // matrix, then apply the owner's complete world transform exactly once.
+    try {
+        const baseMatrix = tempBase.matrix?.clone?.();
+        tempBase.applyMatrix = false;
+        tempBase.matrix = new paper.Matrix();
+        if (baseMatrix && !baseMatrix.isIdentity()) tempBase.transform(baseMatrix);
+        const world = item.globalMatrix || item.matrix || new paper.Matrix();
+        tempBase.transform(world);
+    } catch (e) {
+        try { tempBase.matrix = item.globalMatrix?.clone?.() || item.matrix?.clone?.() || new paper.Matrix(); } catch (_) {}
+    }
     return tempBase;
 }
 
@@ -316,7 +316,7 @@ function confineSubtractiveGeometry(geometry) {
     if (!geometry || !window.clipMask || window.infiniteCanvasMode) return geometry;
     let boundary = null;
     try {
-        boundary = window.clipMask.clone({ insert: false });
+        boundary = getGlobalUnsubtractedPath(window.clipMask) || window.clipMask.clone({ insert: false });
         const confined = geometry.intersect(boundary, { insert: false });
         if (confined && Math.abs(confined.area || 0) > 0.001) {
             geometry.remove();
@@ -632,7 +632,14 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     const containmentScope = rootTarget.data?.containmentScope ||
         `scope_${++decompositionScopeCounter}`;
 
-    const atomicPaths = flattenToAtomicPaths(rootTarget);
+    // Flatten source children into root-local coordinates.  The new public
+    // owners receive the same world transform as the removed root.
+    const rootMatrix = rootTarget.matrix?.clone?.() || new paper.Matrix();
+    const inverseRoot = rootMatrix.inverted ? rootMatrix.inverted() : new paper.Matrix();
+    const atomicPaths = flattenToAtomicPaths(rootTarget, inverseRoot);
+    const rootWorld = rootTarget.globalMatrix?.clone?.() || rootMatrix.clone();
+    const layerWorld = targetLayer?.globalMatrix?.clone?.() || new paper.Matrix();
+    const ownerMatrix = layerWorld.inverted ? layerWorld.inverted().concatenate(rootWorld) : rootWorld;
     if (!atomicPaths || atomicPaths.length === 0) {
         return null;
     }
@@ -644,9 +651,14 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         single.remove();
 
         const geomBase = compound.clone({ insert: false });
+        geomBase.applyMatrix = false;
         geomBase.matrix = new paper.Matrix();
+        compound.applyMatrix = false;
+        compound.matrix = ownerMatrix.clone();
 
-        const singleIsHole = !!(rootTarget.data?.isHole || single.data?.isHole);
+        const singleIsHole = typeof single.data?.originalIsHole === "boolean"
+            ? single.data.originalIsHole
+            : !!rootTarget.data?.isHole;
         // The decomposed owner is a new public object, but it must carry the
         // source topology/identity contract.  In particular, resetting the
         // CompoundPath fill rule to Paper's default makes a real hole (and
@@ -743,15 +755,19 @@ nodes.sort((a, b) => {
         // into path segments.  Keep the new owner identity-free (identity
         // matrix), while explicitly retaining even-odd topology.
         const pathClone = node.path.clone({ insert: false });
-        pathClone.matrix = new paper.Matrix();
+        pathClone.applyMatrix = false;
         compoundItem.addChild(pathClone);
         compoundItem.fillRule = "evenodd";
 
         const geomBase = new paper.CompoundPath({ insert: false });
+        geomBase.applyMatrix = false;
         const baseClone = node.path.clone({ insert: false });
+        baseClone.applyMatrix = false;
         geomBase.addChild(baseClone);
         geomBase.matrix = new paper.Matrix();
         geomBase.fillRule = "evenodd";
+        compoundItem.applyMatrix = false;
+        compoundItem.matrix = ownerMatrix.clone();
 
         compoundItem.data = {
             locked: false,
