@@ -237,6 +237,13 @@ function historyMatrixSnapshot(matrix) {
     tx: Number(matrix.tx) || 0, ty: Number(matrix.ty) || 0 };
 }
 
+function historyMatricesEqual(actual, expected, epsilon = 1e-7) {
+  if (!actual || !expected) return false;
+  return ["a", "b", "c", "d", "tx", "ty"].every(key =>
+    Number.isFinite(Number(actual[key])) && Number.isFinite(Number(expected[key])) &&
+    Math.abs(Number(actual[key]) - Number(expected[key])) <= epsilon);
+}
+
 function historyOwnerPath(owner) {
   const path = [];
   let current = owner;
@@ -324,25 +331,56 @@ function findHistoryTransformOwner(descriptor) {
 }
 
 function restoreHistoryTransforms(transforms) {
-  if (!Array.isArray(transforms) || !transforms.length) return { restored: 0, requested: 0 };
+  if (!Array.isArray(transforms) || !transforms.length) return { restored: 0, requested: 0, exact: true };
   let restored = 0;
+  let exact = true;
   transforms.forEach(descriptor => {
     const owner = findHistoryTransformOwner(descriptor);
     const raw = descriptor?.matrix;
-    if (!owner || !raw) return;
+    if (!owner || !raw) { exact = false; return; }
     try {
       const desired = new paper.Matrix(raw.a, raw.b, raw.c, raw.d, raw.tx, raw.ty);
       owner.applyMatrix = false;
       const parentMatrix = owner.parent?.globalMatrix || new paper.Matrix();
       owner.matrix = parentMatrix.inverted().concatenate(desired);
+      const actual = owner.globalMatrix || owner.matrix;
+      const matched = historyMatricesEqual(actual, raw);
+      if (!matched) { exact = false; return; }
       if (Number.isFinite(descriptor.rotation)) {
         owner.data = { ...(owner.data || {}), rotation: descriptor.rotation };
       }
       restored++;
-    } catch (_) {}
+    } catch (_) { exact = false; }
   });
-  window._ekkoHistoryTransformRestore = { restored, requested: transforms.length, at: Date.now() };
-  return { restored, requested: transforms.length };
+  window._ekkoHistoryTransformRestore = { restored, requested: transforms.length, exact, at: Date.now() };
+  return { restored, requested: transforms.length, exact };
+}
+
+// Transform transactions are matrix-authoritative. Importing JSON for a pure
+// rotate/translate/scale operation rehydrates the document and can leave
+// rendered child geometry at the post-transform angle while the new public
+// owner reports the pre-transform metadata. Restore the matrices on the live
+// owners instead; this keeps Paper identities, raster pixels, fusion records,
+// selection, and measurement overlays in one scene.
+function restoreTransformHistoryInPlace(entry, selectionDescriptors, phase) {
+  if (!entry?.transformOnly || !Array.isArray(entry.transforms) || !entry.transforms.length) {
+    return false;
+  }
+  const result = restoreHistoryTransforms(entry.transforms);
+  if (!result.exact || result.restored !== result.requested) return false;
+  if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
+  const restored = restoreHistorySelection(selectionDescriptors);
+  if (!restored) {
+    window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
+    window.updateSelectionInfo?.();
+    window.clearMeasurements?.();
+  }
+  if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
+    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState(phase);
+  }
+  paper.view.update();
+  window._ekkoHistoryRestoreMode = { phase, mode: "in-place-transform", exact: true, at: Date.now() };
+  return true;
 }
 
 function writeHistorySnapshot() {
@@ -378,7 +416,9 @@ function commitHistoryTransaction(label = null) {
   if (!historyTransaction?.active) return false;
   const tx = historyTransaction;
   if (tx.dirty && tx.beforeState) {
-    undoStack.push({ state: tx.beforeState, transforms: tx.beforeTransforms || [], at: Date.now() });
+    const transformOnly = /^transform(?::|$)/.test(String(tx.label || ""));
+    undoStack.push({ state: tx.beforeState, transforms: tx.beforeTransforms || [],
+      transformOnly, label: tx.label || label || null, at: Date.now() });
     if (undoStack.length > 50) undoStack.shift();
     redoStack.length = 0;
   }
@@ -548,10 +588,11 @@ function undo() {
   const current = makeHistoryEntry();
   if (current) redoStack.push(current);
   const entry = undoStack.pop();
+  if (restoreTransformHistoryInPlace(entry, selectionBeforeUndo, "undo")) return;
   if (!importHistoryEntry(entry)) return;
-  // Undo must bind the controls and Cotas to the imported owner, not to the
-  // removed 45-degree Raster object. This is also what makes the 0-degree
-  // matrix visible in the selection frame and dimensions.
+  // Non-transform edits still use the JSON document snapshot. Transform
+  // transactions use the live-owner path above so matrix and rendered geometry
+  // cannot diverge after rehydration.
   finishHistoryImport(selectionBeforeUndo, "undo");
 }
 window.undo = undo;
@@ -566,9 +607,10 @@ function redo() {
   const current = makeHistoryEntry();
   if (current) undoStack.push(current);
   const entry = redoStack.pop();
+  if (restoreTransformHistoryInPlace(entry, selectionBeforeRedo, "redo")) return;
   if (!importHistoryEntry(entry)) return;
-  // The redo entry carries the 45-degree owner matrix. Re-selecting after the
-  // matrix restoration keeps the field, frame, raster and measurements in sync.
+  // The redo entry carries the public owner matrix. Re-selecting after import
+  // remains the fallback for non-transform document edits.
   finishHistoryImport(selectionBeforeRedo, "redo");
 }
 window.redo = redo;
