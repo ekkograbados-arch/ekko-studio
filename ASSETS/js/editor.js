@@ -196,6 +196,11 @@ if (typeof document !== 'undefined' && !document.getElementById(infiniteCanvasSt
       border: none !important;
       box-shadow: none !important;
     }
+    #editorCanvas.ekko-drop-active {
+      outline: 2px solid rgba(56, 189, 248, 0.68) !important;
+      outline-offset: -4px;
+      filter: brightness(1.025);
+    }
     #canvasContainer {
       padding: 0 !important;
       overflow: hidden !important;
@@ -741,160 +746,331 @@ function initGeomBaseRecursive(item) {
 }
 
 // Carga de Archivos e Importación
-export function addImageFromFile(file) {
-  if (!file) return;
-  // El snapshot debe representar el estado anterior a la inserción.
-  saveHistory();
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const raster = new paper.Raster({ source: e.target.result });
-    raster.onLoad = () => {
-      if (window.paper && paper.project) {
-        const dLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-        if (dLayer) dLayer.activate();
-      }
-      raster.data = { locked: false, label: file.name };
-      const area = (window.currentMockup && window.currentMockup.bounds) ? window.currentMockup.bounds : paper.view.bounds;
-      const size = Math.min(area.width, area.height) * 0.5;
-      if (raster.width > 0) {
-        raster.scale(size / raster.width);
-      }
-      raster.position = area.center.clone();
-      const objeto = window.clipItem ? window.clipItem(raster) : raster;
-      if (window.currentMockup) {
-        objeto.insertBelow(window.currentMockup);
-      }
-      window.selectItem(objeto);
-      paper.view.update();
+//
+// The second argument is intentionally optional. Existing picker callers can
+// continue passing only File; drag/drop may pass a Paper.js Point or the
+// richer { point, history } options object.
+function normalizeImportOptions(pointOrOptions) {
+  const options = pointOrOptions && typeof pointOrOptions === "object" &&
+    Object.prototype.hasOwnProperty.call(pointOrOptions, "point")
+    ? pointOrOptions : { point: pointOrOptions };
+  const point = options.point;
+  const validPoint = point && typeof point.x === "number" && typeof point.y === "number"
+    ? new paper.Point(point.x, point.y) : null;
+  return { point: validPoint, history: options.history !== false, diagnostic: options.diagnostic === true };
+}
+
+function importTargetPoint(point, area) {
+  return point ? point.clone() : area.center.clone();
+}
+
+function reportImportError(kind, file, error, options = {}) {
+  const label = file?.name || "(sin nombre)";
+  const details = { source: "asset-import", kind, file: label, error: String(error?.message || error || "unknown") };
+  console.error(`[EKKO ${kind.toUpperCase()} IMPORT] Error al importar '${label}'.`, error || "unknown");
+  if (options.diagnostic !== false) emitAssetDropDiagnostic("error", details);
+}
+
+export function addImageFromFile(file, pointOrOptions = null) {
+  if (!file) return Promise.resolve(null);
+  const options = normalizeImportOptions(pointOrOptions);
+  // Picker imports retain their original one-snapshot behavior. Drop imports
+  // disable this local snapshot and commit one transaction in drop order.
+  if (options.history) saveHistory();
+
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value || null);
     };
-  };
-  reader.readAsDataURL(file);
+    reader.onload = (e) => {
+      try {
+        const raster = new paper.Raster({ source: e.target.result });
+        raster.onLoad = () => {
+          try {
+            if (window.paper && paper.project) {
+              const dLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+              if (dLayer) dLayer.activate();
+            }
+            raster.data = { locked: false, label: file.name };
+            const area = (window.currentMockup && window.currentMockup.bounds)
+              ? window.currentMockup.bounds : paper.view.bounds;
+            const size = Math.min(area.width, area.height) * 0.5;
+            if (raster.width > 0) raster.scale(size / raster.width);
+            raster.position = importTargetPoint(options.point, area);
+            const objeto = window.clipItem ? window.clipItem(raster) : raster;
+            if (window.currentMockup) objeto.insertBelow(window.currentMockup);
+            window.selectItem(objeto);
+            paper.view.update();
+            finish(objeto);
+          } catch (error) {
+            reportImportError("image", file, error, options);
+            finish(null);
+          }
+        };
+      } catch (error) {
+        reportImportError("image", file, error, options);
+        finish(null);
+      }
+    };
+    reader.onerror = (error) => {
+      reportImportError("image", file, error, options);
+      finish(null);
+    };
+    try {
+      reader.readAsDataURL(file);
+    } catch (error) {
+      reportImportError("image", file, error, options);
+      finish(null);
+    }
+  });
 }
 window.addImageFromFile = addImageFromFile;
 
-export function addSVGFromFile(file) {
-  if (!file) return;
-  // El snapshot debe representar el estado anterior a la inserción.
-  saveHistory();
+export function addSVGFromFile(file, pointOrOptions = null) {
+  if (!file) return Promise.resolve(null);
+  const options = normalizeImportOptions(pointOrOptions);
+  if (options.history) saveHistory();
 
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const svgText = e.target.result;
-    if (!svgText || typeof svgText !== 'string' || svgText.trim() === '') {
-      console.error("[EKKO SVG IMPORT] Archivo SVG vacio o corrupto.");
-      return;
-    }
-
-    try {
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(svgText, "image/svg+xml");
-      const parserError = xmlDoc.querySelector("parsererror");
-      if (parserError) {
-        console.warn("[EKKO SVG IMPORT WARNING] Advertencia en XML de SVG:", parserError.textContent);
-      }
-    } catch (err) {
-      console.error("[EKKO SVG IMPORT ERROR] Fallo al sanear XML:", err);
-    }
-
-    // Asegurar activacion de la capa de diseno
-    if (window.paper && paper.project) {
-      const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-      if (designLayer) designLayer.activate();
-    }
-
-    paper.project.importSVG(svgText, (item) => {
-      if (!item) {
-        console.error("[EKKO SVG IMPORT] Paper.js no pudo generar el objeto vectorial a partir del SVG.");
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value || null);
+    };
+    reader.onload = (e) => {
+      const svgText = e.target.result;
+      if (!svgText || typeof svgText !== 'string' || svgText.trim() === '') {
+        reportImportError("svg", file, "empty-or-corrupt-file", options);
+        finish(null);
         return;
       }
 
-      // 1. Inicializar metadatos de capa
-      const cleanLabel = file.name ? file.name.replace(/\.svg$/i, "") : "SVG Importado";
-      item.data = { ...(item.data || {}), locked: false, label: cleanLabel };
-
-      // 2. Posicionamiento y escalado proporcional respecto al mockup o lienzo
-      const targetArea = (window.currentMockup && window.currentMockup.bounds && window.currentMockup.bounds.width > 0)
-        ? window.currentMockup.bounds
-        : paper.view.bounds;
-
-      const itemBounds = item.bounds;
-      if (itemBounds && itemBounds.width > 0 && itemBounds.height > 0) {
-        const maxSpan = Math.min(targetArea.width, targetArea.height) * 0.5;
-        const currentSpan = Math.max(itemBounds.width, itemBounds.height);
-        if (currentSpan > 0 && maxSpan > 0) {
-          const scaleRatio = maxSpan / currentSpan;
-          item.scale(scaleRatio);
+      try {
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(svgText, "image/svg+xml");
+        const parserError = xmlDoc.querySelector("parsererror");
+        if (parserError) {
+          console.warn("[EKKO SVG IMPORT WARNING] Advertencia en XML de SVG:", parserError.textContent);
         }
+      } catch (error) {
+        console.error("[EKKO SVG IMPORT ERROR] Fallo al sanear XML:", error);
       }
 
-      // 3. Centrado absoluto sobre el producto
-      item.position = targetArea.center.clone();
+      try {
+        if (window.paper && paper.project) {
+          const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+          if (designLayer) designLayer.activate();
+        }
 
-      // 4. Sanitizacion visual y preparacion de trazados
-      // Evita trazos microscopicos invisibles tras el escalado y asegura visibilidad
-      function sanitizeAndBakeVectors(node) {
-        if (!node) return;
-        if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
-          node.visible = true;
-          node.opacity = 1.0;
-          if (node.strokeColor) {
-            node.strokeScaling = false;
-            if (!node.strokeWidth || node.strokeWidth < 1.0) {
-              node.strokeWidth = 1.2;
+        paper.project.importSVG(svgText, (item) => {
+          try {
+            if (!item) {
+              reportImportError("svg", file, "paper-import-returned-empty-item", options);
+              finish(null);
+              return;
             }
-          } else if (!node.fillColor) {
-            node.fillColor = new paper.Color('#111827');
+
+          const cleanLabel = file.name ? file.name.replace(/\.svg$/i, "") : "SVG Importado";
+          item.data = { ...(item.data || {}), locked: false, label: cleanLabel };
+          const targetArea = (window.currentMockup && window.currentMockup.bounds && window.currentMockup.bounds.width > 0)
+            ? window.currentMockup.bounds : paper.view.bounds;
+          const itemBounds = item.bounds;
+          if (itemBounds && itemBounds.width > 0 && itemBounds.height > 0) {
+            const maxSpan = Math.min(targetArea.width, targetArea.height) * 0.5;
+            const currentSpan = Math.max(itemBounds.width, itemBounds.height);
+            if (currentSpan > 0 && maxSpan > 0) item.scale(maxSpan / currentSpan);
           }
-        }
-        if (node.children && node.children.length > 0) {
-          node.children.forEach(sanitizeAndBakeVectors);
-        }
+
+          // Picker imports remain centered; drops use the actual project point.
+          item.position = importTargetPoint(options.point, targetArea);
+
+          function sanitizeAndBakeVectors(node) {
+            if (!node) return;
+            if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+              node.visible = true;
+              node.opacity = 1.0;
+              if (node.strokeColor) {
+                node.strokeScaling = false;
+                if (!node.strokeWidth || node.strokeWidth < 1.0) node.strokeWidth = 1.2;
+              } else if (!node.fillColor) {
+                node.fillColor = new paper.Color('#111827');
+              }
+            }
+            if (node.children && node.children.length > 0) node.children.forEach(sanitizeAndBakeVectors);
+          }
+          sanitizeAndBakeVectors(item);
+          item.applyMatrix = false;
+          initGeomBaseRecursive(item);
+
+          let finalItem = item;
+          if (typeof window.clipItem === 'function' && !window.infiniteCanvasMode && window.clipMask) {
+            finalItem = window.clipItem(item);
+          } else if (paper.project && paper.project.activeLayer) {
+            paper.project.activeLayer.addChild(item);
+          }
+          if (window.currentMockup && finalItem) finalItem.insertBelow(window.currentMockup);
+          if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
+          window.selectItem(finalItem);
+          paper.view.update();
+            console.log(`%c[EKKO SVG IMPORT] SVG '${cleanLabel}' importado, escalado y dinamizado con exito.`, 'color: #10b981; font-weight: bold;');
+            finish(finalItem);
+          } catch (error) {
+            reportImportError("svg", file, error, options);
+            finish(null);
+          }
+        });
+      } catch (error) {
+        reportImportError("svg", file, error, options);
+        finish(null);
       }
-      sanitizeAndBakeVectors(item);
-
-      // 5. Hornear transformaciones en coordenadas reales de cada nodo
-      item.applyMatrix = false;
-
-      // 6. AHORA que el objeto esta escalado, centrado y horneado, inicializar geomBase
-      // Garantiza que al desagrupar, cada pieza conserve exactamente este tamano y forma
-      initGeomBaseRecursive(item);
-
-      // 7. Enmascaramiento segun el modo de contencion de producto
-      let finalItem = item;
-      if (typeof window.clipItem === 'function' && !window.infiniteCanvasMode && window.clipMask) {
-        finalItem = window.clipItem(item);
-      } else {
-        if (paper.project && paper.project.activeLayer) {
-          paper.project.activeLayer.addChild(item);
-        }
-      }
-
-      // 8. Orden Z: El diseño siempre se posiciona inmediatamente debajo del mockup visible
-      if (window.currentMockup && finalItem) {
-        finalItem.insertBelow(window.currentMockup);
-      }
-
-      // 9. Reactividad CSG de calados si coexistieran
-      if (typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions();
-      }
-
-      // 10. Sincronizacion de seleccion e interfaz
-      window.selectItem(finalItem);
-      paper.view.update();
-
-      console.log(`%c[EKKO SVG IMPORT] SVG '${cleanLabel}' importado, escalado y dinamizado con exito.`, 'color: #10b981; font-weight: bold;');
-    });
-  };
-
-  reader.onerror = (err) => {
-    console.error("[EKKO SVG IMPORT] Error de lectura en FileReader:", err);
-  };
-
-  reader.readAsText(file);
+    };
+    reader.onerror = (error) => {
+      reportImportError("svg", file, error, options);
+      finish(null);
+    };
+    try {
+      reader.readAsText(file);
+    } catch (error) {
+      reportImportError("svg", file, error, options);
+      finish(null);
+    }
+  });
 }
 window.addSVGFromFile = addSVGFromFile;
 
+// Compact, optional instrumentation. The canonical diagnostics modules expose
+// logEvent/record; no wrappers or replacement globals are installed here.
+function emitAssetDropDiagnostic(eventName, details = {}) {
+  const payload = { source: "asset-drop", ...details };
+  try { window.EKKO_DIAG?.logEvent?.(`asset.${eventName}`, payload); } catch (_) {}
+  try { window.EKKO_RUNTIME_PROBE?.record?.(`asset.${eventName}`, payload); } catch (_) {}
+}
+
+function classifyDroppedAsset(file) {
+  const name = String(file?.name || "").toLowerCase();
+  const type = String(file?.type || "").toLowerCase();
+  if (type === "image/svg+xml" || name.endsWith(".svg")) return "svg";
+  const imageExtensions = /\.(?:avif|bmp|gif|ico|jpe?g|png|tiff?|webp)$/i;
+  if (type.startsWith("image/") || imageExtensions.test(name)) return "image";
+  return null;
+}
+
+function projectPointFromDropEvent(event, canvasEl) {
+  if (!event || !canvasEl || !window.paper?.view) return null;
+  const rect = canvasEl.getBoundingClientRect();
+  if (!rect.width || !rect.height || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return null;
+  const scaleX = (canvasEl.width || rect.width) / rect.width;
+  const scaleY = (canvasEl.height || rect.height) / rect.height;
+  const viewPoint = new paper.Point((event.clientX - rect.left) * scaleX, (event.clientY - rect.top) * scaleY);
+  try {
+    return typeof paper.view.viewToProject === "function" ? paper.view.viewToProject(viewPoint) : viewPoint;
+  } catch (_) {
+    return null;
+  }
+}
+
+function hasFilePayload(event) {
+  const types = Array.from(event?.dataTransfer?.types || []);
+  return types.includes("Files") || !!event?.dataTransfer?.files?.length;
+}
+
+function initCanvasAssetDrop(canvasEl) {
+  if (!canvasEl || canvasEl.__ekkoAssetDropBound) return false;
+  canvasEl.__ekkoAssetDropBound = true;
+  let dragDepth = 0;
+  const clearDropState = () => {
+    dragDepth = 0;
+    canvasEl.classList.remove("ekko-drop-active");
+  };
+  const onDragEnter = (event) => {
+    if (!hasFilePayload(event)) return;
+    event.preventDefault();
+    dragDepth += 1;
+    canvasEl.classList.add("ekko-drop-active");
+    emitAssetDropDiagnostic("dragenter", { files: Number(event.dataTransfer?.files?.length || 0) });
+  };
+  const onDragOver = (event) => {
+    if (!hasFilePayload(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    canvasEl.classList.add("ekko-drop-active");
+  };
+  const onDragLeave = (event) => {
+    if (!hasFilePayload(event)) return;
+    event.preventDefault();
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth || !event.relatedTarget || !canvasEl.contains(event.relatedTarget)) clearDropState();
+  };
+  const onDrop = async (event) => {
+    if (!hasFilePayload(event)) { clearDropState(); return; }
+    event.preventDefault();
+    event.stopPropagation();
+    clearDropState();
+    const files = Array.from(event.dataTransfer?.files || []);
+    const point = projectPointFromDropEvent(event, canvasEl);
+    emitAssetDropDiagnostic("drop", { files: files.length, point: point ? { x: point.x, y: point.y } : null });
+
+    const accepted = [];
+    files.forEach((file, index) => {
+      const kind = classifyDroppedAsset(file);
+      if (!kind) {
+        emitAssetDropDiagnostic("ignored", { file: file?.name || "(sin nombre)", index, reason: "unsupported-type" });
+        return;
+      }
+      accepted.push({ file, kind, index });
+      emitAssetDropDiagnostic("accepted", { file: file?.name || "(sin nombre)", kind, index });
+    });
+    if (!accepted.length) return;
+
+    // One transaction, sequential input order. The first file is exactly under
+    // the pointer; following files use a deterministic 24-unit diagonal offset.
+    beginHistoryTransaction("drag-drop-import");
+    try {
+      for (let order = 0; order < accepted.length; order += 1) {
+        const { file, kind, index } = accepted[order];
+        const placement = point ? point.add(new paper.Point(order * 24, order * 24)) : null;
+        const options = { point: placement, history: false, diagnostic: false };
+        const result = kind === "svg"
+          ? await addSVGFromFile(file, options)
+          : await addImageFromFile(file, options);
+        if (result) {
+          // Mark the transaction dirty only after a real imported owner exists.
+          saveHistory();
+          emitAssetDropDiagnostic("success", { file: file.name || "(sin nombre)", kind, index, order });
+        } else {
+          emitAssetDropDiagnostic("error", { file: file.name || "(sin nombre)", kind, index, order, reason: "import-returned-empty" });
+        }
+      }
+    } catch (error) {
+      emitAssetDropDiagnostic("error", { reason: "drop-sequence", error: String(error?.message || error) });
+    } finally {
+      commitHistoryTransaction("drag-drop-import");
+      clearDropState();
+    }
+  };
+
+  canvasEl.addEventListener("dragenter", onDragEnter, false);
+  canvasEl.addEventListener("dragover", onDragOver, false);
+  canvasEl.addEventListener("dragleave", onDragLeave, false);
+  canvasEl.addEventListener("drop", onDrop, false);
+  // A file dropped outside the canvas must not navigate away from the editor.
+  if (!window.__ekkoAssetDropGlobalGuard) {
+    window.__ekkoAssetDropGlobalGuard = true;
+    document.addEventListener("dragover", (event) => {
+      if (hasFilePayload(event)) event.preventDefault();
+    }, true);
+    document.addEventListener("drop", (event) => {
+      if (hasFilePayload(event)) event.preventDefault();
+    }, true);
+  }
+  return true;
+}
 // Controladores persistentes de carga: el mismo input se reutiliza y cada
 // archivo se entrega directamente al cargador canónico (sin una ruta temporal de archivos).
 function getPersistentPicker(id, accept, handler, multiple = true) {
@@ -1192,6 +1368,8 @@ async function bootstrapEKKO() {
     console.error("[EKKO BOOTSTRAP] Elementos esenciales del canvas no hallados en el DOM.");
     return;
   }
+
+  initCanvasAssetDrop(canvasEl);
 
   try {
     // 1. Resolver medidas fisicas iniciales del visor
