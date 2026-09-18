@@ -728,9 +728,10 @@ function initGeomBaseRecursive(item) {
     if (!item.data) item.data = {};
     if (!item.data.geomBase) {
       const baseClone = item.clone({ insert: false });
-      // ✅ geomBase conserva la misma matriz local que el owner
+      // geomBase is owner-local; the live owner's matrix carries world
+      // placement and is applied exactly once by CSG consumers.
       baseClone.applyMatrix = false;
-      baseClone.matrix = item.matrix ? item.matrix.clone() : new paper.Matrix();
+      baseClone.matrix = new paper.Matrix();
       item.data.geomBase = baseClone;
     }
   }
@@ -894,120 +895,62 @@ export function addSVGFromFile(file) {
 }
 window.addSVGFromFile = addSVGFromFile;
 
-// Controladores Nombrados para Diálogos de Carga (Trazabilidad y Prevención de Clics Fantasma)
-export function openSVGFileDialog() {
-  let picker = document.getElementById("svgPicker");
+// Controladores persistentes de carga: el mismo input se reutiliza y cada
+// archivo se entrega directamente al cargador canónico (sin una ruta temporal de archivos).
+function getPersistentPicker(id, accept, handler, multiple = true) {
+  let picker = document.getElementById(id);
   if (!picker) {
     picker = document.createElement("input");
     picker.type = "file";
-    picker.id = "svgPicker";
-    picker.accept = ".svg";
-    picker.style.display = "none";
+    picker.id = id;
+    picker.accept = accept;
+    picker.multiple = multiple;
+    picker.className = "hidden-picker";
     document.body.appendChild(picker);
-    picker.addEventListener("change", (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (file) {
-        addSVGFromFile(file);
-        e.target.value = "";
-      }
+  }
+  if (!picker._ekkoDirectHandler) {
+    picker._ekkoDirectHandler = true;
+    picker.addEventListener("change", async (event) => {
+      const files = Array.from(event.target.files || []);
+      event.target.value = "";
+      for (const file of files) await handler(file);
     });
   }
+  return picker;
+}
 
-  try {
-    picker.click();
-    return true;
-  } catch (err) {
-    console.error("[EKKO DIALOG] No se pudo invocar el selector de SVG:", err);
-    return false;
-  }
+export function openImageFileDialog() {
+  const picker = getPersistentPicker("imagePicker", "image/*", addImageFromFile);
+  try { picker.click(); return true; } catch (e) { return false; }
+}
+window.openImageFileDialog = openImageFileDialog;
+
+// Controladores Nombrados para Diálogos de Carga (Trazabilidad y Prevención de Clics Fantasma)
+export function openSVGFileDialog() {
+  const picker = getPersistentPicker("svgPicker", ".svg,image/svg+xml", addSVGFromFile);
+  try { picker.click(); return true; } catch (err) { return false; }
 }
 window.openSVGFileDialog = openSVGFileDialog;
 
 
 // ==============================================================
-// CARGA UNIFICADA — VERSIÓN DEFINITIVA v10.5
-// Carga múltiples archivos entregándolos uno por uno a tus cargadores originales
+// CARGA UNIFICADA — selector persistente y dispatch directo
 // ==============================================================
 async function openAssetLoader() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.multiple = true;
-  input.accept = '.svg,.png,.jpg,.jpeg,.webp,.bmp';
-  input.style.display = 'none';
-  document.body.appendChild(input);
-
-  input.onchange = async (e) => {
-    const files = Array.from(e.target.files);
-    if (!files.length) {
-      document.body.removeChild(input);
-      return;
-    }
-
-    // Separar por tipo
-    const svgFiles = files.filter(f => f.name.toLowerCase().endsWith('.svg'));
-    const imgFiles = files.filter(f => !f.name.toLowerCase().endsWith('.svg'));
-
-    // Cargar SVG uno por uno
-    for (const file of svgFiles) {
-      await cargarArchivoPorTipo(file, 'svg');
-    }
-
-    // Cargar imágenes una por una
-    for (const file of imgFiles) {
-      await cargarArchivoPorTipo(file, 'img');
-    }
-
-    document.body.removeChild(input);
-  };
-
-  input.click();
+  const picker = getPersistentPicker("ekkoAssetPicker", ".svg,image/*", async (file) => {
+    if (/\.svg$/i.test(file.name) || file.type === "image/svg+xml") return addSVGFromFile(file);
+    return addImageFromFile(file);
+  }, true);
+  try { picker.click(); return true; } catch (e) { return false; }
 }
 
-// Entrega cada archivo a TU cargador original esperando que termine
 async function cargarArchivoPorTipo(file, tipo) {
-  return new Promise(resolve => {
-    const inputId = tipo === 'svg' ? 'svgPicker' : 'imagePicker';
-    const input = document.getElementById(inputId);
-    if (!input) return resolve();
-
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    input.files = dt.files;
-
-    const alTerminar = () => {
-      input.removeEventListener('change', alTerminar);
-      setTimeout(resolve, 250);
-    };
-
-    input.addEventListener('change', alTerminar);
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  if (!file) return null;
+  return tipo === "svg" ? addSVGFromFile(file) : addImageFromFile(file);
 }
 
-// Exponer al HTML y al sistema
-window.openAssetLoader = openAssetLoader;
-window.openImageLoader = openAssetLoader;
-window.openSVGLoader = openAssetLoader;
-
-// AYUDANTE: simula la selección de TU cargador original
 async function cargarUnArchivo(file, tipo) {
-  return new Promise(resolve => {
-    const inputId = tipo === 'svg' ? 'svgPicker' : 'imagePicker';
-    const input = document.getElementById(inputId);
-    if (!input) return resolve();
-
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    input.files = dt.files;
-
-    // Esperar a que termine de cargar antes del siguiente
-    const handler = () => {
-      input.removeEventListener('change', handler);
-      setTimeout(resolve, 300);
-    };
-    input.addEventListener('change', handler);
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-  });
+  return cargarArchivoPorTipo(file, tipo);
 }
 
 window.openAssetLoader = openAssetLoader;
@@ -1350,58 +1293,14 @@ async function bootstrapEKKO() {
       openImageFileDialog();
     });
 
-    safeAddListener("imagePicker", "change", (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (file) {
-        addImageFromFile(file);
-        e.target.value = "";
-      }
-    });
 
     safeAddListener("btnAddSVG", "click", () => {
       openSVGFileDialog();
     });
 
-// ============================================================
-// CURVAR TEXTO — Enlace de botones y slider
-// ============================================================
-safeAddListener("btnCtxTextCurve", "click", () => {
-  const selected = window.selectedItem ||
-    (Array.isArray(window.selectedItems) && window.selectedItems.length
-      ? window.selectedItems[window.selectedItems.length - 1] : null);
-  if (!selected) {
-    alert("Seleccioná primero un texto para curvarlo.");
-    return;
-  }
-  const val = prompt("Ingrese curvatura (-100 a 100):\nPositivo = curva hacia arriba\nNegativo = curva hacia abajo", "30");
-  if (val === null) return;
-  const curvature = parseFloat(val);
-  if (isNaN(curvature)) return;
-  applyTextCurve(selected, curvature);
-});
+// Curvar Texto se enlaza en contextualMenu.js mediante un dispatcher único.
 
-// Slider de curvatura en la barra contextual de texto
-(function initCurveSlider() {
-  const slider = document.querySelector('#ctxTextCurvature input[type="range"]');
-  if (!slider) return;
-  slider.addEventListener('input', (e) => {
-    const selected = window.selectedItem;
-    if (!selected) return;
-    if (selected instanceof paper.PointText || selected.data?.isCurvedGroup) {
-      applyTextCurve(selected, parseFloat(e.target.value));
-    }
-  });
-})();
-
-     
-    safeAddListener("svgPicker", "change", (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (file) {
-        addSVGFromFile(file);
-        e.target.value = "";
-      }
-    });
-
+    
     safeAddListener("btnAddQR", "click", () => {
       const text = prompt("Ingrese el texto o enlace (Instagram, WhatsApp, WiFi) para el codigo QR:", "https://www.instagram.com/grabados_ekko/");
       if (text && text.trim() !== "") {
