@@ -297,9 +297,107 @@ function cleanGhostInterfaceItems() {
   }
 }
 
+function getHistorySelectionOwner(item) {
+  if (!item) return null;
+  try {
+    return window.EKKO_ROTATION_CONTROLLER?.resolveOwner?.(item)
+      || window.EKKO_FUSION_CONTROLLER?.resolvePublicTransformOwner?.(item)
+      || item;
+  } catch (e) {
+    return item;
+  }
+}
+
+// exportJSON/importJSON rehydrates Paper items with new runtime identities. Keep
+// the semantic identity of the public selection so Redo can restore the same
+// owner instead of leaving the controls bound to a removed pre-import object.
+function captureHistorySelection() {
+  const entries = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+    ? window.selectedItems
+    : (window.selectedItem ? [window.selectedItem] : []);
+  const seen = new Set();
+  return entries.map(getHistorySelectionOwner).filter(owner => {
+    if (!owner || seen.has(owner)) return false;
+    seen.add(owner);
+    return true;
+  }).map(owner => {
+    const data = owner.data || {};
+    return {
+      label: data.label || null,
+      fusionId: data.fusionId || null,
+      source: data.source || null,
+      className: owner.className || null,
+      isRaster: owner.className === "Raster"
+    };
+  });
+}
+
+function historySelectionScore(owner, descriptor) {
+  if (!owner || !descriptor) return -1;
+  const data = owner.data || {};
+  let score = 0;
+  if (descriptor.fusionId && data.fusionId === descriptor.fusionId) score += 100;
+  if (descriptor.label && data.label === descriptor.label) score += 50;
+  if (descriptor.source && data.source === descriptor.source) score += 20;
+  if (descriptor.className && owner.className === descriptor.className) score += 10;
+  if (descriptor.isRaster && owner.className === "Raster") score += 5;
+  return score;
+}
+
+function findHistorySelectionOwner(descriptor) {
+  if (!descriptor || typeof paper === "undefined" || !paper.project) return null;
+  let items = [];
+  try {
+    items = paper.project.getItems({ match: () => true }) || [];
+  } catch (e) {
+    items = [];
+  }
+  const candidates = [];
+  const seen = new Set();
+  items.forEach(item => {
+    const owner = getHistorySelectionOwner(item);
+    if (!owner || !owner.project || !owner.parent || seen.has(owner)) return;
+    seen.add(owner);
+    const data = owner.data || {};
+    if (data.mockup || data.isMask || data.isSelectionBox || data.isMeasurement || owner.clipMask) return;
+    const score = historySelectionScore(owner, descriptor);
+    if (score > 0) candidates.push({ owner, score });
+  });
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.owner || null;
+}
+
+function restoreHistorySelection(descriptors) {
+  const list = Array.isArray(descriptors) ? descriptors : [];
+  if (!list.length) return false;
+  const owners = list.map(findHistorySelectionOwner).filter(Boolean);
+  if (!owners.length) return false;
+  window.deselectItem?.();
+  owners.forEach((owner, index) => window.selectItem?.(owner, index > 0));
+  const primary = owners[owners.length - 1];
+  window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(primary);
+  window.updateSelectionInfo?.();
+  window.drawMeasurements?.();
+  window._ekkoHistorySelectionRestore = {
+    restored: owners.length,
+    requested: list.length,
+    owners: owners.map(owner => ({
+      label: owner.data?.label || null,
+      fusionId: owner.data?.fusionId || null,
+      className: owner.className || null
+    })),
+    at: Date.now()
+  };
+  return true;
+}
+
 function undo() {
   cancelHistoryTransaction("undo");
   if (undoStack.length === 0) return;
+  // resetSceneRuntimeState intentionally clears the public selection. Preserve
+  // its semantic identity so a following Redo can reselect the rehydrated owner.
+  const selectionBeforeUndo = captureHistorySelection();
+  window._ekkoHistorySelection = selectionBeforeUndo;
   redoStack.push(paper.project.exportJSON({ asString: true }));
   const state = undoStack.pop();
   resetSceneRuntimeState();
@@ -325,6 +423,10 @@ window.undo = undo;
 function redo() {
   cancelHistoryTransaction("redo");
   if (redoStack.length === 0) return;
+  const currentSelection = captureHistorySelection();
+  const selectionBeforeRedo = currentSelection.length
+    ? currentSelection
+    : (Array.isArray(window._ekkoHistorySelection) ? window._ekkoHistorySelection : []);
   undoStack.push(paper.project.exportJSON({ asString: true }));
   const state = redoStack.pop();
   resetSceneRuntimeState();
@@ -335,11 +437,14 @@ function redo() {
     window.deselectItem();
   }
   rehydrateSceneRuntime();
-  // Redo follows the same transient-state contract as undo; the next
-  // selection will repopulate rotation and measurements from the owner matrix.
-  window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
-  window.updateSelectionInfo?.();
-  window.clearMeasurements?.();
+  // Re-select the semantic public owner after import. Paper item identities are
+  // intentionally new after rehydration; selecting the old object would leave
+  // the rotation controls blank and the measurements detached from the owner.
+  if (!restoreHistorySelection(selectionBeforeRedo)) {
+    window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
+    window.updateSelectionInfo?.();
+    window.clearMeasurements?.();
+  }
   if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
     window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("redo");
   }
