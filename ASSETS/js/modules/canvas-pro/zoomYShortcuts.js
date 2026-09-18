@@ -65,17 +65,23 @@ export function initGlobalKeyboardShortcuts() {
 
     window.addEventListener("keydown", (e) => {
         // Ignorar atajos si el usuario esta escribiendo en un input, textarea o editor de texto
-        const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : "";
+        const activeElement = document.activeElement;
+        const activeTag = activeElement ? activeElement.tagName.toLowerCase() : "";
         const isInput = activeTag === "input" || activeTag === "textarea" || activeTag === "select";
-        const isTextEditor = document.activeElement && (
-            document.activeElement.id === "ekko-text-editor" ||
-            document.activeElement.classList.contains("ekko-inline-editor")
+        const isTextEditor = activeElement && (
+            activeElement.id === "ekko-text-editor" ||
+            activeElement.classList.contains("ekko-inline-editor")
         );
-
-        if (isInput || isTextEditor) return;
-
         const isCtrl = e.ctrlKey || e.metaKey;
         const key = e.key.toLowerCase();
+        const isRotationControl = activeTag === "input" &&
+            activeElement.type === "number" &&
+            (activeElement.id === "objRotation" || activeElement.id === "ctxRotation");
+        const isHistoryShortcut = isCtrl && (key === "z" || key === "y");
+
+        // Los controles de texto y los demas inputs conservan el undo nativo.
+        // Solo los campos numericos de rotacion entregan Ctrl/Cmd+Z/Y al historial de la app.
+        if ((isInput || isTextEditor) && !(isRotationControl && isHistoryShortcut)) return;
 
         // 1. ESCAPE: Salir del modo edicion de nodos o deseleccionar
         if (key === "escape") {
