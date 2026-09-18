@@ -107,6 +107,10 @@ export const rotationController = {
     const items = selected(); if (!items.length) return;
     const targets = items.map(item => ({ item, owner: owner(item) })).filter(entry => entry.owner); if (!targets.length) return;
     const next = normalize(value), primary = targets[0].owner, current = syncOwnerRotation(primary), delta = next - current;
+    window.EKKO_TRANSFORM_TRACE?.boundary("before-rotate", {
+      phase: "numeric", requested: Number(value), normalized: next, current, delta,
+      targetCount: targets.length
+    });
     const bounds = targets.reduce((out, entry) => out ? out.unite(entry.owner.bounds) : entry.owner.bounds.clone(), null);
     beginTransformTransaction("rotate", targets, null);
     targets.forEach(entry => { transformPublicItem(entry.owner, { type: "rotate", angle: delta, center: bounds?.center }); syncOwnerRotation(entry.owner); });
@@ -117,6 +121,10 @@ export const rotationController = {
     window.saveHistory?.();
     finalizeTransformTransaction("committed");
     window.commitHistoryTransaction?.("transform");
+    window.EKKO_TRANSFORM_TRACE?.boundary("after-transform-commit", {
+      phase: "numeric", requested: Number(value), normalized: next, delta,
+      targetCount: targets.length, historyLabel: "transform"
+    });
     hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.paper?.view?.update?.();
   },
   applyFontSize(value) {
