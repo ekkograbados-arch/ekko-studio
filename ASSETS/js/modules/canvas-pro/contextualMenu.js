@@ -520,18 +520,33 @@ export function ungroupSelectedItem() {
     paper.view.update();
 }
 
-function dispatchTextCurve() {
+function dispatchTextCurve(options = {}) {
     const item = window.selectedItem || window.selectedItems?.[0];
     if (!item) return;
     const slider = document.querySelector('#ctxTextCurvature input[type=range]');
-    const curvature = parseFloat(slider?.value ?? item.data?.curvature ?? 0) || 0;
-    Promise.resolve(applyTextCurve(item, curvature)).then(() => {
+    const radiusInput = document.getElementById('ctxCurveRadius') || document.getElementById('objCurveRadius');
+    const spacingInput = document.getElementById('ctxTextSpacing') || document.getElementById('objTextSpacing');
+    const radius = Number(options.radius ?? radiusInput?.value ?? item.data?.radius ?? 0) || 0;
+    const spacing = Number(options.hspace ?? spacingInput?.value ?? item.data?.hspace ?? 0) || 0;
+    let curvature = Number(options.curvature ?? slider?.value ?? item.data?.curvature ?? 0) || 0;
+    if (radius > 0) curvature = Math.max(0.1, Math.min(100, 10000 / radius)) * (curvature < 0 ? -1 : 1);
+    Promise.resolve(applyTextCurve(item, curvature, { radius: radius || undefined, hspace: spacing })) .then(() => {
         window.updateSelectionBox?.(window.selectedItem || item);
         window.updateContextualMenu?.(window.selectedItem || item);
         if (typeof paper !== "undefined") paper.view?.update?.();
     });
 }
+function dispatchTextSpacing() {
+    const item = window.selectedItem || window.selectedItems?.[0];
+    if (!item) return;
+    const value = Number(document.getElementById('ctxTextSpacing')?.value ?? document.getElementById('objTextSpacing')?.value ?? item.data?.hspace ?? 0) || 0;
+    Promise.resolve(applyTextSpacing(item, value)).then(() => {
+        window.updateSelectionBox?.(window.selectedItem || item);
+        window.updateContextualMenu?.(window.selectedItem || item);
+    });
+}
 window.dispatchTextCurve = dispatchTextCurve;
+window.dispatchTextSpacing = dispatchTextSpacing;
 
 export function initContextualMenu() {
     const canvasEl = document.getElementById("editorCanvas");
@@ -670,6 +685,16 @@ export function initContextualMenu() {
 
     setClick('btnCtxTextCurve', dispatchTextCurve);
     setClick('btnTopTextCurve', dispatchTextCurve);
+    setClick('btnCtxTextSpacing', dispatchTextSpacing);
+    setClick('btnTopTextSpacing', dispatchTextSpacing);
+    ['ctxCurveRadius', 'objCurveRadius'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', () => dispatchTextCurve({ radius: el.value }));
+    });
+    ['ctxTextSpacing', 'objTextSpacing'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', dispatchTextSpacing);
+    });
 
     setClick('btnCtxScaleDown', () => {
         if (window.selectedItem) scaleImage(window.selectedItem, 0.9);
