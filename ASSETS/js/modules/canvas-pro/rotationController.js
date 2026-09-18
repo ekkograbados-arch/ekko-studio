@@ -74,13 +74,34 @@ export const rotationController = {
   },
   endPointer(reason = "committed") {
     if (!window.rotationActive) { hidePopup(); return; }
-    finalizeTransformTransaction(reason); window.rotationActive = false; window.rotationTarget = null; window.rotationTargets = []; window.isRotationSnapped = false;
+    finalizeTransformTransaction(reason);
+    // finalizeTransformTransaction closes only the transform controller state;
+    // the history owner must explicitly mark and commit the shared snapshot.
+    // Otherwise Ctrl+Z cancels this still-open transaction and pops the last
+    // import snapshot instead of reverting rotation.
+    if (reason === "cancelled") {
+      window.cancelHistoryTransaction?.("rotation-cancelled");
+    } else {
+      window.saveHistory?.();
+      window.commitHistoryTransaction?.("transform");
+    }
+    window.rotationActive = false; window.rotationTarget = null; window.rotationTargets = []; window.isRotationSnapped = false;
     hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.paper?.view?.update?.();
   },
   cancelPointer() { this.endPointer("cancelled"); },
   hidePopup,
   resolveOwner(item) { return owner(item); },
-  syncSelection(item) { const publicOwner = owner(item); if (publicOwner && publicOwner.className === "PointText") syncFontSizeInputs(publicOwner.fontSize); } ,
+  syncSelection(item) {
+    const publicOwner = owner(item);
+    if (!publicOwner) {
+      ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+      ["objFontSize", "ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+      return;
+    }
+    const shown = String(Math.round(syncOwnerRotation(publicOwner)));
+    ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
+    if (publicOwner.className === "PointText") syncFontSizeInputs(publicOwner.fontSize);
+  } ,
   syncFontSizeInputs,
   applyManual(value) {
     const items = selected(); if (!items.length) return;
@@ -89,7 +110,14 @@ export const rotationController = {
     const bounds = targets.reduce((out, entry) => out ? out.unite(entry.owner.bounds) : entry.owner.bounds.clone(), null);
     beginTransformTransaction("rotate", targets, null);
     targets.forEach(entry => { transformPublicItem(entry.owner, { type: "rotate", angle: delta, center: bounds?.center }); syncOwnerRotation(entry.owner); });
-    updatePopup(next); finalizeTransformTransaction("committed"); hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.paper?.view?.update?.();
+    updatePopup(next);
+    // Numeric rotation is a complete public transform transaction.  Mark the
+    // shared history owner after the matrix changed, then close it before the
+    // next keyboard command can reach undo/redo.
+    window.saveHistory?.();
+    finalizeTransformTransaction("committed");
+    window.commitHistoryTransaction?.("transform");
+    hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.paper?.view?.update?.();
   },
   applyFontSize(value) {
     const size = Math.max(5, Math.min(250, Number(value) || 42));
