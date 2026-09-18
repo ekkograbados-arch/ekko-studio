@@ -229,9 +229,125 @@ window.loadToken = 0;
 // History is transaction-aware: nested Fusion/edit routes mark the current
 // transaction dirty and only the owner commits one snapshot.
 let historyTransaction = null;
+function historyMatrixSnapshot(matrix) {
+  if (!matrix) return null;
+  return { a: Number(matrix.a) || 0, b: Number(matrix.b) || 0,
+    c: Number(matrix.c) || 0, d: Number(matrix.d) || 0,
+    tx: Number(matrix.tx) || 0, ty: Number(matrix.ty) || 0 };
+}
+
+function historyOwnerPath(owner) {
+  const path = [];
+  let current = owner;
+  while (current && current !== (typeof paper !== "undefined" ? paper.project : null)) {
+    path.unshift(Number.isFinite(current.index) ? current.index : null);
+    current = current.parent;
+  }
+  return path;
+}
+
+function captureHistoryTransforms() {
+  if (typeof paper === "undefined" || !paper.project) return [];
+  const seen = new Set();
+  const result = [];
+  let items = [];
+  try { items = paper.project.getItems({ match: () => true }) || []; } catch (_) {}
+  items.forEach(item => {
+    const owner = getHistorySelectionOwner(item);
+    if (!owner || seen.has(owner) || !owner.project || !owner.parent) return;
+    const data = owner.data || {};
+    if (data.mockup || data.isMask || data.isSelectionBox || data.isMeasurement || owner.clipMask) return;
+    seen.add(owner);
+    const matrix = owner.globalMatrix || owner.matrix;
+    if (!matrix) return;
+    result.push({
+      id: Number.isFinite(owner.id) ? owner.id : null,
+      path: historyOwnerPath(owner),
+      label: data.label || null,
+      fusionId: data.fusionId || null,
+      source: data.source || null,
+      className: owner.className || null,
+      isRaster: owner.className === "Raster",
+      matrix: historyMatrixSnapshot(matrix),
+      rotation: Number.isFinite(data.rotation) ? data.rotation : null
+    });
+  });
+  return result;
+}
+
+function makeHistoryEntry(state = null, transforms = null) {
+  if (typeof paper === "undefined" || !paper.project) return null;
+  return {
+    state: state || paper.project.exportJSON({ asString: true }),
+    transforms: Array.isArray(transforms) ? transforms : captureHistoryTransforms(),
+    at: Date.now()
+  };
+}
+
+function historyEntryState(entry) {
+  return typeof entry === "string" ? entry : entry?.state || null;
+}
+
+function historyTransformScore(owner, descriptor) {
+  if (!owner || !descriptor) return -1;
+  const data = owner.data || {};
+  let score = 0;
+  if (descriptor.id != null && owner.id === descriptor.id) score += 1000;
+  if (descriptor.fusionId && data.fusionId === descriptor.fusionId) score += 500;
+  if (descriptor.label && data.label === descriptor.label) score += 100;
+  if (descriptor.source && data.source === descriptor.source) score += 40;
+  if (descriptor.className && owner.className === descriptor.className) score += 20;
+  if (descriptor.isRaster && owner.className === "Raster") score += 10;
+  const path = historyOwnerPath(owner);
+  if (descriptor.path?.length && path.join("/") === descriptor.path.join("/")) score += 80;
+  return score;
+}
+
+function findHistoryTransformOwner(descriptor) {
+  if (!descriptor || typeof paper === "undefined" || !paper.project) return null;
+  let items = [];
+  try { items = paper.project.getItems({ match: () => true }) || []; } catch (_) {}
+  const candidates = [];
+  const seen = new Set();
+  items.forEach(item => {
+    const owner = getHistorySelectionOwner(item);
+    if (!owner || seen.has(owner) || !owner.project || !owner.parent) return;
+    seen.add(owner);
+    const data = owner.data || {};
+    if (data.mockup || data.isMask || data.isSelectionBox || data.isMeasurement || owner.clipMask) return;
+    const score = historyTransformScore(owner, descriptor);
+    if (score > 0) candidates.push({ owner, score });
+  });
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0]?.owner || null;
+}
+
+function restoreHistoryTransforms(transforms) {
+  if (!Array.isArray(transforms) || !transforms.length) return { restored: 0, requested: 0 };
+  let restored = 0;
+  transforms.forEach(descriptor => {
+    const owner = findHistoryTransformOwner(descriptor);
+    const raw = descriptor?.matrix;
+    if (!owner || !raw) return;
+    try {
+      const desired = new paper.Matrix(raw.a, raw.b, raw.c, raw.d, raw.tx, raw.ty);
+      owner.applyMatrix = false;
+      const parentMatrix = owner.parent?.globalMatrix || new paper.Matrix();
+      owner.matrix = parentMatrix.inverted().concatenate(desired);
+      if (Number.isFinite(descriptor.rotation)) {
+        owner.data = { ...(owner.data || {}), rotation: descriptor.rotation };
+      }
+      restored++;
+    } catch (_) {}
+  });
+  window._ekkoHistoryTransformRestore = { restored, requested: transforms.length, at: Date.now() };
+  return { restored, requested: transforms.length };
+}
+
 function writeHistorySnapshot() {
   if (typeof paper !== "undefined" && paper.project) {
-    undoStack.push(paper.project.exportJSON({ asString: true }));
+    const entry = makeHistoryEntry();
+    if (entry) undoStack.push(entry);
     if (undoStack.length > 50) undoStack.shift();
     redoStack.length = 0;
   }
@@ -251,7 +367,8 @@ function beginHistoryTransaction(label = "operation") {
   if (!historyTransaction?.active) {
     historyTransaction = { active: true, label, dirty: false, startedAt: Date.now(),
       beforeState: (typeof paper !== "undefined" && paper.project)
-        ? paper.project.exportJSON({ asString: true }) : null };
+        ? paper.project.exportJSON({ asString: true }) : null,
+      beforeTransforms: captureHistoryTransforms() };
     window._ekkoHistoryTransaction = { ...historyTransaction, beforeState: undefined, status: "open" };
   }
   return historyTransaction;
@@ -260,7 +377,7 @@ function commitHistoryTransaction(label = null) {
   if (!historyTransaction?.active) return false;
   const tx = historyTransaction;
   if (tx.dirty && tx.beforeState) {
-    undoStack.push(tx.beforeState);
+    undoStack.push({ state: tx.beforeState, transforms: tx.beforeTransforms || [], at: Date.now() });
     if (undoStack.length > 50) undoStack.shift();
     redoStack.length = 0;
   }
@@ -391,32 +508,50 @@ function restoreHistorySelection(descriptors) {
   return true;
 }
 
-function undo() {
-  cancelHistoryTransaction("undo");
-  if (undoStack.length === 0) return;
-  // resetSceneRuntimeState intentionally clears the public selection. Preserve
-  // its semantic identity so a following Redo can reselect the rehydrated owner.
-  const selectionBeforeUndo = captureHistorySelection();
-  window._ekkoHistorySelection = selectionBeforeUndo;
-  redoStack.push(paper.project.exportJSON({ asString: true }));
-  const state = undoStack.pop();
+function importHistoryEntry(entry) {
+  const state = historyEntryState(entry);
+  if (!state || typeof paper === "undefined" || !paper.project) return false;
   resetSceneRuntimeState();
   paper.project.clear();
   paper.project.importJSON(state);
   cleanGhostInterfaceItems();
-  if (window.selectedItem || (window.selectedItems && window.selectedItems.length > 0)) {
-    window.deselectItem();
-  }
   rehydrateSceneRuntime();
-  // Undo restores the document, not transient UI. Clear stale rotation values
-  // and measurement overlays after the imported owner is rehydrated.
-  window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
-  window.updateSelectionInfo?.();
-  window.clearMeasurements?.();
+  // Paper.js re-creates item identities on import and may restore a Raster
+  // with its serialized geometry but without the runtime owner contract.
+  // Restore the canonical world matrix only after mockup/fusion rehydration so
+  // the public owner, its raster and every measurement use the same geometry.
+  restoreHistoryTransforms(entry?.transforms || []);
+  if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
+  return true;
+}
+
+function finishHistoryImport(selectionDescriptors, phase) {
+  const restored = restoreHistorySelection(selectionDescriptors);
+  if (!restored) {
+    window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
+    window.updateSelectionInfo?.();
+    window.clearMeasurements?.();
+  }
   if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
-    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("undo");
+    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState(phase);
   }
   paper.view.update();
+  return restored;
+}
+
+function undo() {
+  cancelHistoryTransaction("undo");
+  if (undoStack.length === 0) return;
+  const selectionBeforeUndo = captureHistorySelection();
+  window._ekkoHistorySelection = selectionBeforeUndo;
+  const current = makeHistoryEntry();
+  if (current) redoStack.push(current);
+  const entry = undoStack.pop();
+  if (!importHistoryEntry(entry)) return;
+  // Undo must bind the controls and Cotas to the imported owner, not to the
+  // removed 45-degree Raster object. This is also what makes the 0-degree
+  // matrix visible in the selection frame and dimensions.
+  finishHistoryImport(selectionBeforeUndo, "undo");
 }
 window.undo = undo;
 
@@ -427,28 +562,13 @@ function redo() {
   const selectionBeforeRedo = currentSelection.length
     ? currentSelection
     : (Array.isArray(window._ekkoHistorySelection) ? window._ekkoHistorySelection : []);
-  undoStack.push(paper.project.exportJSON({ asString: true }));
-  const state = redoStack.pop();
-  resetSceneRuntimeState();
-  paper.project.clear();
-  paper.project.importJSON(state);
-  cleanGhostInterfaceItems();
-  if (window.selectedItem || (window.selectedItems && window.selectedItems.length > 0)) {
-    window.deselectItem();
-  }
-  rehydrateSceneRuntime();
-  // Re-select the semantic public owner after import. Paper item identities are
-  // intentionally new after rehydration; selecting the old object would leave
-  // the rotation controls blank and the measurements detached from the owner.
-  if (!restoreHistorySelection(selectionBeforeRedo)) {
-    window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
-    window.updateSelectionInfo?.();
-    window.clearMeasurements?.();
-  }
-  if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
-    window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("redo");
-  }
-  paper.view.update();
+  const current = makeHistoryEntry();
+  if (current) undoStack.push(current);
+  const entry = redoStack.pop();
+  if (!importHistoryEntry(entry)) return;
+  // The redo entry carries the 45-degree owner matrix. Re-selecting after the
+  // matrix restoration keeps the field, frame, raster and measurements in sync.
+  finishHistoryImport(selectionBeforeRedo, "redo");
 }
 window.redo = redo;
 
