@@ -100,7 +100,12 @@ export function stampDesignItem(item, meta = {}) {
   if (!d.containmentScope) d.containmentScope = uuidv4();
   if (!d.containmentKey) d.containmentKey = uuidv4();
   if (!d.ownerContainmentKey) d.ownerContainmentKey = d.containmentScope;
-  if (!d.geomBase && item.pathData) d.geomBase = item.clone();
+  if (!d.geomBase && item.pathData) {
+    const base = item.clone({ insert: false });
+    base.applyMatrix = false;
+    base.matrix = new paper.Matrix();
+    d.geomBase = base;
+  }
 
   d.source = meta.source || d.source || "unknown";
   d.role = meta.role || d.role || "surface";
