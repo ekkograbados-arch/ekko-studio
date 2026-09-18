@@ -1392,27 +1392,27 @@ async function runRuntimeFixture(mode = runtimeFixtureState.requested) {
         kind: "svg",
         name: "runtime-fixture-AFA_007_from_url.svg",
         type: "image/svg+xml",
-        paths: ["/simulation-assets/AFA_007_from_url.svg", "/ASSETS/templates/007.svg"]
+        paths: ["/ASSETS/templates/007.svg"]
       }]
     : selectedMode === "image"
       ? [{
           kind: "image",
           name: "runtime-fixture-image_1.png",
           type: "image/png",
-          paths: ["/simulation-assets/image_1.png", "/ASSETS/social/DRIVE.png", "/logo.png"]
+          paths: ["/ASSETS/social/DRIVE.png"]
         }]
       : [
           {
             kind: "svg",
             name: "runtime-fixture-AFA_007_from_url.svg",
             type: "image/svg+xml",
-            paths: ["/simulation-assets/AFA_007_from_url.svg", "/ASSETS/templates/007.svg"]
+            paths: ["/ASSETS/templates/007.svg"]
           },
           {
             kind: "image",
             name: "runtime-fixture-image_1.png",
             type: "image/png",
-            paths: ["/simulation-assets/image_1.png", "/ASSETS/social/DRIVE.png", "/logo.png"]
+            paths: ["/ASSETS/social/DRIVE.png"]
           }
         ];
 
@@ -1489,8 +1489,8 @@ window.EKKO_RUNTIME_FIXTURE = {
   ready: () => runtimeFixtureState.ready,
   enabled: () => runtimeFixtureState.enabled,
   paths: {
-    afa: "/simulation-assets/AFA_007_from_url.svg (fallback /ASSETS/templates/007.svg)",
-    image: "/simulation-assets/image_1.png (fallback /ASSETS/social/DRIVE.png, then /logo.png)"
+    afa: "/ASSETS/templates/007.svg",
+    image: "/ASSETS/social/DRIVE.png"
   }
 };
 
