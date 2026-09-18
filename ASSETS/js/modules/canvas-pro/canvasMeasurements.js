@@ -5,7 +5,8 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
 ======================================================================== */
 
 let measurementsGroup = null;
-let showMeasurements = false;
+// Cotas visibles automáticamente para cada owner público seleccionado.
+let showMeasurements = true;
 
 // Limpia todas las cotas y dimensiones temporales dibujadas en el lienzo
 export function clearMeasurements() {
@@ -120,74 +121,45 @@ export function drawMeasurements() {
 
     clearMeasurements();
     measurementsGroup = new paper.Group();
-    measurementsGroup.data = { isSelectionBox: true, isMeasurement: true };
+    measurementsGroup.data = { isMeasurement: true, nonSelectable: true };
 
     const zoom = paper.view.zoom;
     const offsetMm = 15 / zoom; // Distancia física de las cotas en pantalla respecto al objeto
 
-    // === 1. DIBUJAR COTAS DEL MOCKUP (Silueta del Producto en color gris profesional) ===
-    if (window.currentMockup) {
-        const mockupBounds = window.currentMockup.bounds;
-        if (mockupBounds && mockupBounds.width > 0 && mockupBounds.height > 0) {
-            const mColor = "#64748b"; // Gris pizarra discreto para el producto
-
-            // Cota superior (Ancho del Mockup)
-            drawDimensionLine(
-                new paper.Point(mockupBounds.left, mockupBounds.top),
-                new paper.Point(mockupBounds.right, mockupBounds.top),
-                new paper.Point(0, -offsetMm * 1.5),
-                mockupBounds.width,
-                mColor
-            );
-
-            // Cota izquierda (Alto del Mockup)
-            drawDimensionLine(
-                new paper.Point(mockupBounds.left, mockupBounds.bottom),
-                new paper.Point(mockupBounds.left, mockupBounds.top),
-                new paper.Point(-offsetMm * 1.5, 0),
-                mockupBounds.height,
-                mColor
-            );
+    // Mockup/product dimensions are reference metadata, never selection
+    // measurements.  Excluding them prevents the product bounds from
+    // contaminating the public owner's overlay.
+    // Draw one overlay per selected public owner.  Use owner-local geometry
+    // and its world matrix so rotated items receive oriented dimensions.
+    const selectedOwners = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+        ? window.selectedItems
+        : [window.selectedItem];
+    const seen = new Set();
+    selectedOwners.forEach(raw => {
+        const owner = typeof window.resolvePublicTransformOwner === "function"
+            ? window.resolvePublicTransformOwner(raw) : raw;
+        if (!owner || seen.has(owner) || owner.data?.mockup || owner.data?.isMask || owner.data?.isSelectionBox) return;
+        seen.add(owner);
+        let localClone = null;
+        try {
+            localClone = owner.clone({ insert: false });
+            localClone.applyMatrix = false;
+            localClone.matrix = new paper.Matrix();
+            const local = localClone.bounds;
+            const matrix = owner.globalMatrix || owner.matrix || new paper.Matrix();
+            if (!local || local.width <= 0 || local.height <= 0) return;
+            const toWorld = point => matrix.transform(point);
+            const tl = toWorld(local.topLeft), tr = toWorld(local.topRight);
+            const br = toWorld(local.bottomRight), bl = toWorld(local.bottomLeft);
+            const offset = new paper.Point(0, offsetMm);
+            drawDimensionLine(tl, tr, offset, tl.getDistance(tr), "#007bff");
+            drawDimensionLine(tr, br, new paper.Point(offsetMm, 0), tr.getDistance(br), "#007bff");
+        } catch (e) {
+            // An invalid transient owner is simply omitted from the overlay.
+        } finally {
+            try { localClone?.remove?.(); } catch (e) {}
         }
-    }
-
-    /* 
-       -------------------------------------------------------------------------
-       [ SECCIÓN C ] COTAS DE DISEÑO DEL OBJETO SELECCIONADO (canvasMeasurements.js)
-       -------------------------------------------------------------------------
-       Modifica el valor de la variable `objColor` abajo para alterar el color 
-       de las cotas de medición métricas (mm) en tu lienzo. El valor predeterminado 
-       es `#007bff` (Azul de Diseño), que contrasta de forma excelente con el
-       mockup y los trazos vectoriales negros de grabado.
-    */
-    if (window.selectedItem && !window.selectedItem.data?.mockup) {
-        const displayItem = typeof window.getContentItem === 'function' ? window.getContentItem(window.selectedItem) : window.selectedItem;
-        if (!displayItem || !displayItem.bounds || displayItem.bounds.width <= 1 || displayItem.bounds.height <= 1) {
-            clearMeasurements();
-            return;
-        }
-
-        const bounds = displayItem.bounds;
-        const objColor = "#007bff"; // <- COLOR DE SECCIÓN C (Azul técnico para diseño útil)
-
-        // Cota inferior (Ancho del Diseño)
-        drawDimensionLine(
-            new paper.Point(bounds.left, bounds.bottom),
-            new paper.Point(bounds.right, bounds.bottom),
-            new paper.Point(0, offsetMm),
-            bounds.width,
-            objColor
-        );
-
-        // Cota derecha (Alto del Diseño)
-        drawDimensionLine(
-            new paper.Point(bounds.right, bounds.bottom),
-            new paper.Point(bounds.right, bounds.top),
-            new paper.Point(offsetMm, 0),
-            bounds.height,
-            objColor
-        );
-    }
+    });
 
     // Asegurarse de que el grupo de cotas no tape los tiradores interactivos
     measurementsGroup.bringToFront();
