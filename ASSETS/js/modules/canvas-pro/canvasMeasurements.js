@@ -8,12 +8,24 @@ let measurementsGroup = null;
 // Cotas visibles automáticamente para cada owner público seleccionado.
 let showMeasurements = true;
 
+function publishMeasurementState(extra = {}) {
+    window._ekkoMeasurementsState = {
+        enabled: showMeasurements,
+        visible: !!measurementsGroup,
+        groupId: measurementsGroup?.id ?? null,
+        childCount: measurementsGroup?.children?.length || 0,
+        ...extra,
+        at: Date.now()
+    };
+}
+
 // Limpia todas las cotas y dimensiones temporales dibujadas en el lienzo
 export function clearMeasurements() {
     if (measurementsGroup) {
         measurementsGroup.remove();
         measurementsGroup = null;
     }
+    publishMeasurementState({ reason: "clear" });
     if (window.paper && paper.view) {
         paper.view.update();
     }
@@ -21,10 +33,15 @@ export function clearMeasurements() {
 
 // Configura la visibilidad del sistema de cotas
 export function setMeasurementsVisibility(visible) {
-    showMeasurements = visible;
-    if (!visible) {
+    showMeasurements = visible === true;
+    if (!showMeasurements) {
         clearMeasurements();
+        return;
     }
+    // Turning the toggle back on must redraw the current public selection;
+    // otherwise the state is enabled but the old overlay remains absent.
+    drawMeasurements();
+    publishMeasurementState({ reason: "visibility-on" });
 }
 
 // Dibuja una línea de cota con flechas y texto en milímetros
@@ -135,11 +152,20 @@ export function drawMeasurements() {
         ? window.selectedItems
         : [window.selectedItem];
     const seen = new Set();
+    const resolveOwner = window.EKKO_FUSION_CONTROLLER?.resolvePublicTransformOwner
+        || window.resolvePublicTransformOwner;
+    const measuredOwners = [];
     selectedOwners.forEach(raw => {
-        const owner = typeof window.resolvePublicTransformOwner === "function"
-            ? window.resolvePublicTransformOwner(raw) : raw;
+        // The public resolver is owned by fusionController.  A Raster selected
+        // through a mockup clipGroup must be measured as that Raster, never as
+        // the wrapper or its static product mask.
+        const owner = typeof resolveOwner === "function"
+            ? resolveOwner(raw)
+            : (raw?.data?.clipGroup && typeof window.getContentItem === "function"
+                ? window.getContentItem(raw) : raw);
         if (!owner || seen.has(owner) || owner.data?.mockup || owner.data?.isMask || owner.data?.isSelectionBox) return;
         seen.add(owner);
+        measuredOwners.push({ id: owner.id ?? null, className: owner.className, label: owner.data?.label || null });
         let localClone = null;
         try {
             localClone = owner.clone({ insert: false });
@@ -161,6 +187,7 @@ export function drawMeasurements() {
         }
     });
 
+    publishMeasurementState({ reason: "draw", owners: measuredOwners });
     // Asegurarse de que el grupo de cotas no tape los tiradores interactivos
     measurementsGroup.bringToFront();
     if (window.selectionBoxGroup) {
