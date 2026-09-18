@@ -232,16 +232,10 @@ function translateItemByGlobalDelta(item, delta) {
 /** Keep detached geometry bases in project coordinates. Attached bases already
  * move with their visible owner and must not be translated a second time. */
 function syncGeomBaseDeep(item, delta) {
-  if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
-  const visited = new Set();
-  function recurse(target) {
-    if (!target || visited.has(target.id)) return;
-    visited.add(target.id);
-    const base = target.data?.geomBase;
-    if (base && !base.parent) translateItemByGlobalDelta(base, delta);
-    if (target.children) target.children.forEach(recurse);
-  }
-  recurse(item);
+  // Kept as a compatibility symbol for current callers.  geomBase is
+  // owner-local; public owner.matrix transforms it and snapshots are not
+  // translated independently.
+  return false;
 }
 
 
@@ -419,11 +413,13 @@ const _updateSelectionBox = function(item) {
   if (!primaryItem) {
     // Keep both contextual surfaces in sync when a tool clears selection.
     window.updateContextualMenu?.(null);
+    window.clearMeasurements?.();
     return;
   }
 
   // Validación estricta anti-huérfano
   if (!primaryItem.project || !primaryItem.parent) {
+    window.clearMeasurements?.();
     return;
   }
 
@@ -440,14 +436,20 @@ const _updateSelectionBox = function(item) {
     }
     curr = curr.parent;
   }
-  if (isMockup) return;
+  if (isMockup) {
+    window.clearMeasurements?.();
+    return;
+  }
 
   // Filtrar elementos válidos de la selección múltiple
   const selected = (window.selectedItems && window.selectedItems.length > 0)
-    ? window.selectedItems.filter(it => it && it.project && it.parent && !it.data?.isSelectionBox)
-    : [primaryItem];
+    ? window.selectedItems.filter(it => it && it.project && it.parent && !isMockupOrUI(it))
+    : [primaryItem].filter(it => it && !isMockupOrUI(it));
 
-  if (selected.length === 0) return;
+  if (selected.length === 0) {
+    window.clearMeasurements?.();
+    return;
+  }
 
   let bounds = null;
   selected.forEach(function(it) {
@@ -611,6 +613,8 @@ const _updateSelectionBox = function(item) {
   if (typeof window.syncContextualRotationInput === "function") {
     window.syncContextualRotationInput(primaryItem);
   }
+  // Selection is the canonical visibility trigger for oriented measurements.
+  window.drawMeasurements?.();
 };
 
 /**
@@ -1033,6 +1037,21 @@ const _initSelectionTool = function() {
       return;
     }
 
+    // Curved-text handle is a real interaction target, not a decorative
+    // overlay. Route it by semantic curveOwnerId before selection hit-tests.
+    const curveHandle = window._ekkoCurveHandle;
+    if (curveHandle && curveHandle.project && curveHandle.data?.curveOwnerId) {
+      const hitCurve = curveHandle.hitTest?.(event.point, { fill: true, stroke: true, tolerance: 12 / paper.view.zoom });
+      if (hitCurve) {
+        const owner = paper.project.getItem({ id: curveHandle.data.curveOwnerId });
+        if (owner) {
+          window._ekkoCurveDrag = { owner, startPoint: event.point.clone(), startCurvature: Number(owner.data?.curvature) || 20 };
+          window.saveHistory?.();
+          return;
+        }
+      }
+    }
+
     // 1. Hit-test exclusivo para tiradores de la caja de selección
     let hitResult = null;
     if (window.selectionBoxGroup) {
@@ -1202,6 +1221,16 @@ const _initSelectionTool = function() {
       return;
     }
 
+    if (window._ekkoCurveDrag) {
+      const drag = window._ekkoCurveDrag;
+      const deltaY = event.point.y - drag.startPoint.y;
+      const sign = drag.startCurvature < 0 ? -1 : 1;
+      const curvature = Math.max(-100, Math.min(100, sign * (Math.abs(drag.startCurvature) - deltaY * 0.2)));
+      window.applyTextCurve?.(drag.owner, curvature, { skipHistory: true });
+      paper.view.update();
+      return;
+    }
+
     if (window.marqueeActive && window.marqueePath) {
       window.marqueePath.remove();
       window.marqueePath = new paper.Path.Rectangle({
@@ -1354,6 +1383,14 @@ const _initSelectionTool = function() {
       return;
     }
     if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
+
+    if (window._ekkoCurveDrag) {
+      window._ekkoCurveDrag = null;
+      window.updateSelectionBox?.(window.selectedItem);
+      window.updateContextualMenu?.(window.selectedItem);
+      paper.view.update();
+      return;
+    }
 
     // === EKKO SMART FUSION v46: Consolidar fusión si se soltó sobre un receptor ===
     if (window._lastDraggedRaster && typeof window.handleMagneticDrop === 'function') {
@@ -1632,22 +1669,8 @@ function alignSelection(direccion) {
             item.position.y += desplazamiento;
         }
 
-        // 🔁 SINCRONIZAR geomBase (compatible con syncGeomBaseDeep)
-        // Si el elemento tiene su propio geomBase
-        if (item.data && item.data.geomBase) {
-            if (eje === 'x') item.data.geomBase.x += desplazamiento;
-            else              item.data.geomBase.y += desplazamiento;
-        }
-
-        // 🔁 Propagación recursiva a descendientes (sincronización profunda)
-        if (item.children && item.children.length) {
-            item.children.forEach(hijo => {
-                if (hijo.data && hijo.data.geomBase) {
-                    if (eje === 'x') hijo.data.geomBase.x += desplazamiento;
-                    else              hijo.data.geomBase.y += desplazamiento;
-                }
-            });
-        }
+        // geomBase is owner-local and the owner matrix now carries this
+        // alignment. Never translate the detached snapshot a second time.
     });
 
     // ✅ Notificar a auditoría / diagnóstico si está disponible
