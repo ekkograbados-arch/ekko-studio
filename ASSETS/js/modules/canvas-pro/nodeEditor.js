@@ -272,6 +272,22 @@ export async function enterNodeEditMode(item) {
             return;
         }
 
+        // The standalone curved-text handle is outside nodeHandlesGroup.
+        // Resolve it by curveOwnerId so node editing does not swallow the drag.
+        const curveHandle = window._ekkoCurveHandle;
+        if (curveHandle && curveHandle.project && curveHandle.data?.curveOwnerId) {
+            const hitCurve = curveHandle.hitTest?.(event.point, { fill: true, stroke: true, tolerance: 12 / paper.view.zoom });
+            if (hitCurve) {
+                const owner = paper.project.getItem({ id: curveHandle.data.curveOwnerId });
+                if (owner) {
+                    isDraggingHandle = true;
+                    activeHandleData = { curveOwnerId: owner.id, startPoint: event.point.clone(), startCurvature: Number(owner.data?.curvature) || 20 };
+                    if (typeof window.saveHistory === 'function') window.saveHistory();
+                    return;
+                }
+            }
+        }
+
         if (nodeHandlesGroup) {
             const hitResult = nodeHandlesGroup.hitTest(event.point, {
                 fill: true,
@@ -330,6 +346,18 @@ export async function enterNodeEditMode(item) {
     };
 
     nodeEditTool.onMouseDrag = (event) => {
+        if (isDraggingHandle && activeHandleData?.curveOwnerId) {
+            const owner = paper.project.getItem({ id: activeHandleData.curveOwnerId });
+            if (owner && typeof window.applyTextCurve === 'function') {
+                const deltaY = event.point.y - activeHandleData.startPoint.y;
+                const sign = activeHandleData.startCurvature < 0 ? -1 : 1;
+                const curvature = Math.max(-100, Math.min(100, sign * (Math.abs(activeHandleData.startCurvature) - deltaY * 0.2)));
+                window.applyTextCurve(owner, curvature, { skipHistory: true });
+            }
+            paper.view.update();
+            return;
+        }
+
         if (isDraggingHandle && activeHandleData) {
             const targetPath = paper.project.getItem({ id: activeHandleData.pathId });
             if (targetPath && targetPath.segments && targetPath.segments[activeHandleData.localIdx]) {
