@@ -30,6 +30,7 @@
 import "./modules/selection.js";
 import "./modules/canvas-pro/ekkoDiagnostics.js";
 import "./modules/canvas-pro/runtimeProbe.js";
+import "./modules/canvas-pro/runtimeTransformTrace.js";
 import "./modules/canvas-pro/ekkoSynapse.js";
 import { loadDynamicFonts, convertTextToVector, applyTextCurve } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
@@ -380,6 +381,9 @@ function restoreTransformHistoryInPlace(entry, selectionDescriptors, phase) {
   }
   paper.view.update();
   window._ekkoHistoryRestoreMode = { phase, mode: "in-place-transform", exact: true, at: Date.now() };
+  window.EKKO_TRANSFORM_TRACE?.boundary("after-restore", {
+    phase, mode: "in-place-transform", restore: result, historyEntry: entry
+  });
   return true;
 }
 
@@ -566,7 +570,7 @@ function importHistoryEntry(entry) {
   return true;
 }
 
-function finishHistoryImport(selectionDescriptors, phase) {
+function finishHistoryImport(selectionDescriptors, phase, historyEntry = null) {
   const restored = restoreHistorySelection(selectionDescriptors);
   if (!restored) {
     window.EKKO_ROTATION_CONTROLLER?.syncSelection?.(null);
@@ -577,29 +581,57 @@ function finishHistoryImport(selectionDescriptors, phase) {
     window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState(phase);
   }
   paper.view.update();
+  window.EKKO_TRANSFORM_TRACE?.boundary("after-restore", {
+    phase, mode: "json-rehydrate", restored, historyEntry
+  });
   return restored;
 }
 
 function undo() {
+  window.EKKO_TRANSFORM_TRACE?.boundary("undo-entry", {
+    phase: "undo", undoDepth: undoStack.length, redoDepth: redoStack.length,
+    selected: captureHistorySelection()
+  });
   cancelHistoryTransaction("undo");
-  if (undoStack.length === 0) return;
+  if (undoStack.length === 0) {
+    window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "empty" });
+    return;
+  }
   const selectionBeforeUndo = captureHistorySelection();
   window._ekkoHistorySelection = selectionBeforeUndo;
   const current = makeHistoryEntry();
   if (current) redoStack.push(current);
   const entry = undoStack.pop();
-  if (restoreTransformHistoryInPlace(entry, selectionBeforeUndo, "undo")) return;
-  if (!importHistoryEntry(entry)) return;
+  window.EKKO_TRANSFORM_TRACE?.boundary("undo-target", {
+    phase: "undo", historyEntry: entry, currentEntry: current,
+    undoDepth: undoStack.length, redoDepth: redoStack.length
+  });
+  if (restoreTransformHistoryInPlace(entry, selectionBeforeUndo, "undo")) {
+    window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "restored-in-place", historyEntry: entry });
+    return;
+  }
+  if (!importHistoryEntry(entry)) {
+    window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "restore-failed", historyEntry: entry });
+    return;
+  }
   // Non-transform edits still use the JSON document snapshot. Transform
   // transactions use the live-owner path above so matrix and rendered geometry
   // cannot diverge after rehydration.
-  finishHistoryImport(selectionBeforeUndo, "undo");
+  finishHistoryImport(selectionBeforeUndo, "undo", entry);
+  window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "json-rehydrate", historyEntry: entry });
 }
 window.undo = undo;
 
 function redo() {
+  window.EKKO_TRANSFORM_TRACE?.boundary("redo-entry", {
+    phase: "redo", undoDepth: undoStack.length, redoDepth: redoStack.length,
+    selected: captureHistorySelection()
+  });
   cancelHistoryTransaction("redo");
-  if (redoStack.length === 0) return;
+  if (redoStack.length === 0) {
+    window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "empty" });
+    return;
+  }
   const currentSelection = captureHistorySelection();
   const selectionBeforeRedo = currentSelection.length
     ? currentSelection
@@ -607,11 +639,22 @@ function redo() {
   const current = makeHistoryEntry();
   if (current) undoStack.push(current);
   const entry = redoStack.pop();
-  if (restoreTransformHistoryInPlace(entry, selectionBeforeRedo, "redo")) return;
-  if (!importHistoryEntry(entry)) return;
+  window.EKKO_TRANSFORM_TRACE?.boundary("redo-target", {
+    phase: "redo", historyEntry: entry, currentEntry: current,
+    undoDepth: undoStack.length, redoDepth: redoStack.length
+  });
+  if (restoreTransformHistoryInPlace(entry, selectionBeforeRedo, "redo")) {
+    window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "restored-in-place", historyEntry: entry });
+    return;
+  }
+  if (!importHistoryEntry(entry)) {
+    window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "restore-failed", historyEntry: entry });
+    return;
+  }
   // The redo entry carries the public owner matrix. Re-selecting after import
   // remains the fallback for non-transform document edits.
-  finishHistoryImport(selectionBeforeRedo, "redo");
+  finishHistoryImport(selectionBeforeRedo, "redo", entry);
+  window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "json-rehydrate", historyEntry: entry });
 }
 window.redo = redo;
 
