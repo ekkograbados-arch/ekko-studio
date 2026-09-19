@@ -95,18 +95,29 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}, v
         cloned.matrix = currentMatrix.clone();
         if (cloned.segments && cloned.segments.length >= 3) {
             cloned.closed = true;
+            const sourceData = item.data || {};
             cloned.data = {
-                ...(cloned.data || {}),
+                // Preserve the canonical source contract on every atomic
+                // contour.  Do not reduce an imported CompoundPath to a
+                // depth-only classification: source fill rule, explicit
+                // contour metadata and source index must survive ungroup.
+                ...parentMeta,
+                ...sourceData,
                 docOrder: docOrderCounter++,
-                originalFillColor: item.fillColor ? item.fillColor.clone() : null,
-                originalStrokeColor: item.strokeColor ? item.strokeColor.clone() : null,
-                originalStrokeWidth: item.strokeWidth || 0,
+                originalFillColor: item.fillColor ? item.fillColor.clone() :
+                    (sourceData.originalFillColor?.clone?.() || null),
+                originalStrokeColor: item.strokeColor ? item.strokeColor.clone() :
+                    (sourceData.originalStrokeColor?.clone?.() || null),
+                originalStrokeWidth: item.strokeWidth || sourceData.originalStrokeWidth || 0,
                 // La metadata explícita del SVG tiene prioridad sobre la
                 // clasificación geométrica de fallback.
-                originalIsHole: typeof item.data?.isHole === 'boolean' ? item.data.isHole :
-                    (typeof parentMeta.isHole === 'boolean' ? parentMeta.isHole : null),
+                originalIsHole: typeof sourceData.originalIsHole === 'boolean' ? sourceData.originalIsHole :
+                    (typeof parentMeta.originalIsHole === 'boolean' ? parentMeta.originalIsHole : undefined),
+                sourceContourIndex: sourceData.sourceContourIndex ?? parentMeta.sourceContourIndex ?? null,
                 isFromCompound: isFromCompound,
-                originalClockwise: cloned.clockwise
+                originalClockwise: cloned.clockwise,
+                sourceWinding: typeof sourceData.sourceWinding === 'boolean'
+                    ? sourceData.sourceWinding : cloned.clockwise
             };
             atomicPaths.push(cloned);
         } else {
@@ -118,6 +129,13 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}, v
                 atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, {
                     isFromCompound: true,
                     compoundFill: item.fillColor,
+                    source: item.data?.source,
+                    userImported: item.data?.userImported,
+                    originalFillRule: item.data?.originalFillRule,
+                    sourceFillRuleExplicit: item.data?.sourceFillRuleExplicit,
+                    originalIsHole: typeof item.data?.originalIsHole === 'boolean' ? item.data.originalIsHole : undefined,
+                    contourRole: item.data?.contourRole,
+                    sourceContourIndex: item.data?.sourceContourIndex,
                     isHole: typeof item.data?.isHole === 'boolean' ? item.data.isHole : undefined
                 }, visited));
             });
@@ -239,12 +257,46 @@ function buildContainmentTree(atomicPaths) {
 function resolveItemSemantics(node, rootTarget) {
     const path = node?.path;
     const meta = path?.data || {};
-    // Explicit source metadata is authoritative. The topology tree is the
-    // only fallback; never probe a compound root with a point (an O opening
-    // makes that test classify the outer contour incorrectly).
+    // Explicit source metadata is authoritative.  It is intentionally tested
+    // before any topology fallback so an original real hole cannot be turned
+    // into a solid or a cosmetic transparent path during ungroup.
     if (typeof meta.originalIsHole === "boolean") return meta.originalIsHole;
     if (typeof meta.contourRole === "string") return meta.contourRole === "hole";
-    if (typeof meta.isHole === "boolean" && meta.source === "svg") return meta.isHole;
+    if (typeof meta.isHole === "boolean" &&
+        (meta.source === "svg" || meta.source === "client-svg")) return meta.isHole;
+
+    const sourceRule = String(meta.originalFillRule || rootTarget?.data?.originalFillRule || "").toLowerCase();
+    const isClientSource = meta.source === "client-svg" || meta.userImported === true ||
+        rootTarget?.data?.source === "client-svg";
+    if (isClientSource && (sourceRule === "nonzero" || sourceRule === "non-zero")) {
+        // For nonzero SVG, a contour toggles filled/unfilled only when its
+        // winding opposes the immediately containing contour.  Same-winding
+        // depth-1 islands therefore remain solids (008.svg: 3 islands),
+        // unlike depth parity.
+        if (!node.parent) return false;
+        const windingSign = contour => {
+            const data = contour?.path?.data || {};
+            const clockwise = typeof data.sourceWinding === "boolean"
+                ? data.sourceWinding : !!data.originalClockwise;
+            return clockwise ? 1 : -1;
+        };
+        // Nonzero fill is the signed sum of every enclosing contour.  A
+        // contour is a hole only when crossing it takes a nonzero winding
+        // sum to zero.  This keeps same-winding islands solid (and also
+        // handles a hole nested inside such an island) instead of merely
+        // comparing the immediate parent's direction.
+        const ancestors = [];
+        let parent = node.parent;
+        while (parent) {
+            ancestors.unshift(parent);
+            parent = parent.parent;
+        }
+        const before = ancestors.reduce((sum, ancestor) => sum + windingSign(ancestor), 0);
+        return before !== 0 && before + windingSign(node) === 0;
+    }
+
+    // Explicit evenodd, or a non-source object without reliable source
+    // semantics, is the controlled topology fallback.
     return (Number(node?.depth) || 0) % 2 === 1;
 }
 
@@ -469,7 +521,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
     for (let j = 0; j < subItems.length; j++) {
         const solid = subItems[j];
-        if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase) continue;
+        if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase ||
+            isMockupOrMask(solid)) continue;
         const pristineBase = getGlobalUnsubtractedPath(solid);
         if (!pristineBase) continue;
         const pristineArea = Math.abs(pristineBase.area || 0);
@@ -479,11 +532,12 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         for (let i = 0; i < subItems.length; i++) {
             if (i === j) continue;
             const holeItem = subItems[i];
-            if (!holeItem || !holeItem.data || !holeItem.data.isHole) continue;
-            if (!solid.data.containmentKey ||
-                holeItem.data.ownerContainmentKey !== solid.data.containmentKey) {
-                continue;
-            }
+            if (!holeItem || !holeItem.data || !holeItem.data.isHole ||
+                isMockupOrMask(holeItem)) continue;
+            // A real client hole is a physical cutter for every eligible
+            // solid rendered below it, not only for a matching containment
+            // key.  Containment keys describe ownership/history; they must
+            // not suppress the user's cross-object Z-order rule.
             // A hole cuts only objects rendered below it. Keeping this check
             // here (before cloning the CSG operand) prevents a lower hole
             // from silently perforating a solid that was moved above it.
@@ -503,8 +557,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         if (Array.isArray(scopedVirtualHoles)) {
             scopedVirtualHoles.forEach(function(vh) {
                 if (!vh || !vh.geom) return;
-                if (!solid.data.containmentKey ||
-                    vh.ownerContainmentKey !== solid.data.containmentKey) return;
+                if (isMockupOrMask(solid)) return;
                 // Virtual holes carry their live fusion group. Apply the same
                 // Z-order contract as physical hole owners when available.
                 if (vh.group && !isAboveInRenderOrder(vh.group, solid)) return;
@@ -692,14 +745,21 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         // source topology/identity contract.  In particular, resetting the
         // CompoundPath fill rule to Paper's default makes a real hole (and
         // internal glyph holes) behave as a solid after ungroup.
-        compound.fillRule = "evenodd";
+        compound.fillRule = single.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd";
         compound.data = {
             ...(rootTarget.data || {}),
             locked: false,
             label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
             isHole: singleIsHole,
+            isSolidShape: !singleIsHole,
             isFusionReceptor: singleIsHole,
-            fillRule: "evenodd",
+            fillRule: single.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
+            originalFillRule: single.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
+            originalIsHole: typeof single.data?.originalIsHole === "boolean" ? single.data.originalIsHole : undefined,
+            contourRole: single.data?.contourRole || (singleIsHole ? "hole" : "outer"),
+            sourceContourIndex: single.data?.sourceContourIndex ?? null,
+            source: single.data?.source || rootTarget.data?.source,
+            userImported: single.data?.userImported ?? rootTarget.data?.userImported,
             geomBase: geomBase,
             layerDepth: 0,
             containmentId: 0,
@@ -786,7 +846,7 @@ nodes.sort((a, b) => {
         const pathClone = node.path.clone({ insert: false });
         pathClone.applyMatrix = false;
         compoundItem.addChild(pathClone);
-        compoundItem.fillRule = "evenodd";
+        compoundItem.fillRule = node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd";
 
         const geomBase = new paper.CompoundPath({ insert: false });
         geomBase.applyMatrix = false;
@@ -794,7 +854,7 @@ nodes.sort((a, b) => {
         baseClone.applyMatrix = false;
         geomBase.addChild(baseClone);
         geomBase.matrix = new paper.Matrix();
-        geomBase.fillRule = "evenodd";
+        geomBase.fillRule = node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd";
         compoundItem.applyMatrix = false;
         compoundItem.matrix = ownerMatrix.clone();
 
@@ -802,13 +862,18 @@ nodes.sort((a, b) => {
             locked: false,
             label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
             isHole: isHole,
+            isSolidShape: !isHole,
             isFusionReceptor: isHole,
-            fillRule: "evenodd",
+            fillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
+            originalFillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
             preserveCompoundTopology: true,
             contourIndex: node.id,
+            sourceContourIndex: node.path.data?.sourceContourIndex ?? node.id,
             contourDepth: node.depth,
             contourRole: isHole ? "hole" : "outer",
-            originalIsHole: isHole,
+            originalIsHole: typeof node.path.data?.originalIsHole === "boolean" ? node.path.data.originalIsHole : isHole,
+            source: node.path.data?.source || rootTarget.data?.source,
+            userImported: node.path.data?.userImported ?? rootTarget.data?.userImported,
             // A decomposed path is a new public owner; never inherit a
             // text-vector/fusion id that would alias the removed wrapper.
             fusionId: null,
