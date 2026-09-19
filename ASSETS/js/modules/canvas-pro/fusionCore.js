@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "https://cdn.skypack.dev/uuid@9.0.0";
+import { getPublicOwner } from "./designGeometry.js";
 
 // Almacén central de fusiones
 const _fusionRegistry = new Map();
@@ -61,6 +62,11 @@ export function isClosedClientVector(item) {
 // ===== Búsqueda de elementos =====
 export function getContentItem(item) {
   if (!item) return null;
+  // Public-owner resolution is centralized in designGeometry. Do not infer
+  // ownership from child order: clip masks, fusion children and wrappers can
+  // all occupy different positions after import or undo/redo.
+  const owner = getPublicOwner(item);
+  if (owner) return owner;
   if (item.children?.length > 0) {
     return item.children.find(c => !c.name?.startsWith("fusion-")) || item.children[0];
   }
