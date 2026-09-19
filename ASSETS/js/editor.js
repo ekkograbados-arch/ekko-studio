@@ -1,4 +1,5 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds } from "./modules/canvas-pro/designGeometry.js";
+import { getStackingUnit } from "./modules/canvas-pro/vectorSemantics.js";
 
 /* =========================================================================
    Modulo: ASSETS/js/editor.js (v26.0 PRO - SVG Import, Stacking CSG & Reactive Z-Order Engine)
@@ -53,7 +54,7 @@ import "./modules/canvas-pro/interactionOwner.js"; // Árbitro único de interac
 import "./modules/canvas-pro/fusionCore.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
-import { convertSelectionToCalado, canConvertSelectionToCalado } from "./modules/canvas-pro/calado.js";
+import { convertSelectionToCalado, canConvertSelectionToCalado, convertSelectionToSolid } from "./modules/canvas-pro/calado.js";
 // backgroundRemover.js permanece desactivado hasta que la IA local esté habilitada.
 // import './modules/canvas-pro/backgroundRemover.js';
 // ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
@@ -68,6 +69,7 @@ window.enterNodeEditMode = enterNodeEditMode;
 window.exitNodeEditMode = exitNodeEditMode;
 window.convertSelectionToCalado = convertSelectionToCalado;
 window.canConvertSelectionToCalado = canConvertSelectionToCalado;
+window.convertSelectionToSolid = convertSelectionToSolid;
 window.convertTextToVector = convertTextToVector;
 window.applyTextCurve = applyTextCurve;
 window.enterFusionEditMode = enterFusionEditMode;
@@ -891,24 +893,6 @@ function isMockupOrUIItem(item) {
     curr = curr.parent;
   }
   return false;
-}
-
-function getStackingUnit(item) {
-  const owner = getPublicOwner(item) || item;
-  if (!owner) return null;
-  // A public owner inside a mockup-containment wrapper must move together
-  // with its wrapper. Reordering the owner alone only swaps it with the mask
-  // child and never changes the design-layer Z-order.
-  let unit = owner;
-  let parent = unit.parent;
-  const visited = new Set();
-  while (parent && !visited.has(parent)) {
-    visited.add(parent);
-    if (!isContainmentWrapper(parent)) break;
-    unit = parent;
-    parent = parent.parent;
-  }
-  return unit;
 }
 
 function itemsOverlapSpatial(itemA, itemB) {
