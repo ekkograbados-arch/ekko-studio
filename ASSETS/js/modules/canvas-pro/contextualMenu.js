@@ -1,3 +1,4 @@
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners } from "./designGeometry.js";
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v10.3 - Saneado y Unificado)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
@@ -22,19 +23,7 @@ function safeRecalculateSubtractions() {
 }
 
 // Helper universal de resolución de contenido dentro o fuera de clipGroup
-function getContentItem(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup) {
-        if (!item.children) return item;
-        const childrenArr = Array.from(item.children);
-        const content = childrenArr.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-        if (content) return content;
-        const fallback = childrenArr.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-        if (fallback) return fallback;
-        return item.children[1] || item.children[0] || item;
-    }
-    return item;
-}
+
 
 // --- DETECTORES DE CLASE NATIVOS DE PAPER.JS ---
 function isPath(item) {
@@ -77,23 +66,9 @@ function isShape(item) {
 }
 
 function isMockupOrProductElement(item) {
-    let curr = item;
-    while (curr) {
-        if (curr.data && (
-            curr.data.mockup ||
-            curr.data.isMask ||
-            curr.data.locked ||
-            curr.data.isSelectionBox ||
-            curr.data.isHandle ||
-            curr.data.isSmartGuide ||
-            curr.data.isMeasurement ||
-            curr.data.isTracePreview
-        )) {
-            return true;
-        }
-        curr = curr.parent;
-    }
-    return false;
+    const owner = getPublicOwner(item);
+    return !owner || isMockupOrMask(owner) || isContainmentWrapper(owner) ||
+        owner === window.currentMockup || owner === window.clipMask;
 }
 
 // Sincronización recursiva profunda de geomBase ante desplazamientos
@@ -130,7 +105,7 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
     // Clonación del objeto completo en el nodo raíz para conservar máscaras y transformaciones concéntricas
     let duplicatedObject = null;
     if (targetItem.data && targetItem.data.clipGroup) {
-        const content = targetItem.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
+        const content = getPublicOwner(targetItem);
         if (!content) return null;
         const contentClone = content.clone();
         contentClone.position = contentClone.position.add(offset);
@@ -292,7 +267,7 @@ function injectFontFaces(fonts) {
 
 function getSelectedTextString() {
     if (!window.selectedItem) return "EKKO Studio";
-    const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
+    const target = window.selectedItem.data?.clipGroup ? getPublicOwner(window.selectedItem) : window.selectedItem;
     if (!target) return "EKKO Studio";
     if (isPointText(target)) {
         return target.content || "EKKO Studio";
@@ -302,7 +277,7 @@ function getSelectedTextString() {
 
 function getSelectedFontFamily() {
     if (!window.selectedItem) return "Arial";
-    const target = window.selectedItem.data?.clipGroup ? getContentItem(window.selectedItem) : window.selectedItem;
+    const target = window.selectedItem.data?.clipGroup ? getPublicOwner(window.selectedItem) : window.selectedItem;
     if (!target) return "Arial";
     return target.fontFamily || "Arial";
 }
@@ -340,7 +315,7 @@ function renderFontList(fonts, container) {
 }
 
 function applyFontFamily(item, family) {
-    const target = item.data?.clipGroup ? getContentItem(item) : item;
+    const target = item.data?.clipGroup ? getPublicOwner(item) : item;
     if (target && isPointText(target)) {
         target.fontFamily = family;
         try {
@@ -484,13 +459,13 @@ export function ungroupSelectedItem() {
     selectedList.forEach(item => {
         if (!item || isMockupOrProductElement(item)) return;
         const isClipped = !!(item.data && item.data.clipGroup);
-        const actualItem = isClipped ? getContentItem(item) : item;
+        const actualItem = isClipped ? getPublicOwner(item) : item;
         if (!actualItem) return;
 
         const cName = actualItem.className;
         if (cName === 'Group' || cName === 'CompoundPath' || cName === 'SymbolItem' || cName === 'PlacedSymbol') {
             const decomp = typeof window.decomposeByContainmentHierarchy === 'function'
-                ? window.decomposeByContainmentHierarchy(item, isClipped)
+                ? window.decomposeByContainmentHierarchy(actualItem, isClipped)
                 : null;
             if (decomp && decomp.items) {
                 allCreatedItems.push(...decomp.items);
@@ -756,7 +731,7 @@ function getUnifiedScreenBounds(item) {
 
     if (window.selectedItems && window.selectedItems.length > 0) {
         window.selectedItems.forEach(it => {
-            const tgt = it.data?.clipGroup ? getContentItem(it) : it;
+            const tgt = it.data?.clipGroup ? getPublicOwner(it) : it;
             if (tgt && tgt.bounds && tgt.visible !== false) {
                 if (!combinedBounds) combinedBounds = tgt.bounds.clone();
                 else combinedBounds = combinedBounds.unite(tgt.bounds);
@@ -824,7 +799,7 @@ export function updateContextualMenu(item) {
     const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
     if (selectedCount > 1) {
         const allVectors = window.selectedItems.every(it => {
-            const tgt = it.data?.clipGroup ? getContentItem(it) : it;
+            const tgt = it.data?.clipGroup ? getPublicOwner(it) : it;
             return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isShape(tgt));
         });
 
@@ -849,7 +824,7 @@ export function updateContextualMenu(item) {
             }
         }
     } else {
-        const target = item.data?.clipGroup ? getContentItem(item) : item;
+        const target = item.data?.clipGroup ? getPublicOwner(item) : item;
         if (!target) return;
 
         if (isCurveTextTarget(target)) {
