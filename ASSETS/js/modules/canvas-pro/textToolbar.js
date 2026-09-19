@@ -11,6 +11,7 @@ para eliminar por completo el delay de red de 2 minutos.
 
 import { textToCompoundPath } from "./fontToPath.js";
 import { stampDesignItem } from "./fusionCore.js";
+import { buildContourRelations, applyContourRecord } from "./holeSemantics.js";
 
 let loadedFontsCache = [];
 
@@ -536,10 +537,36 @@ export async function weldText(item) {
     calibratedBase.matrix = new paper.Matrix();
     resultPath.data.geomBase = calibratedBase;
     resultPath.data.fillRule = "evenodd";
-    resultPath.data.contours = converted.data?.contours || Array.from(resultPath.children || []).map((child, index) => ({
-        contourIndex: index, contourRole: index === 0 ? "outer" : "hole",
-        originalIsHole: index !== 0, fillRule: "evenodd"
-    }));
+    // Never infer "all contours after index zero are holes". That fallback
+    // turns the outer contour of the second glyph in OO into a false hole.
+    const resultChildren = Array.from(resultPath.children || []).filter(Boolean);
+    let contourRecords = Array.isArray(converted.data?.contours)
+        ? converted.data.contours.map((record, index) => ({ ...record, contourIndex: record.contourIndex ?? index }))
+        : null;
+    if (!contourRecords?.length && resultChildren.length) {
+        const classified = buildContourRelations(resultChildren, { fillRule: "evenodd" });
+        contourRecords = classified.nodes.map(node => {
+            const record = {
+                ...node.contourRecord,
+                contourIndex: node.index,
+                contourDepth: node.depth,
+                originalIsHole: node.isHole,
+                contourRole: node.isHole ? "hole" : "outer",
+                fillRule: "evenodd"
+            };
+            applyContourRecord(node.path, record);
+            return record;
+        });
+    }
+    if (!contourRecords?.length) {
+        diag.phase = "weldText:missing-contour-semantics";
+        try { resultPath.remove(); } catch (_) {}
+        try { converted.remove(); } catch (_) {}
+        try { pathGroup.remove(); } catch (_) {}
+        diag.returnValue = null;
+        return null;
+    }
+    resultPath.data.contours = contourRecords;
     // La identidad semántica se estampa después de calibrar la geometría y
     // antes de publicarla. Nunca se publica un vector a medio registrar.
     stampDesignItem(resultPath, {
