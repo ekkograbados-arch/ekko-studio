@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "https://cdn.skypack.dev/uuid@9.0.0";
 import { getPublicOwner } from "./designGeometry.js";
+import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 // Almacén central de fusiones
 const _fusionRegistry = new Map();
@@ -118,7 +119,10 @@ export function stampDesignItem(item, meta = {}) {
   d.isTextVector = meta.isTextVector ?? d.isTextVector ?? false;
   d.isFusionReceptor = meta.isFusionReceptor ?? d.isFusionReceptor ?? true;
   d.hasInternalHoles = meta.hasInternalHoles ?? d.hasInternalHoles ?? false;
-  d.userImported = true;
+  const kind = meta.semanticKind || (meta.isHole === true ? VECTOR_KIND.HOLE :
+    meta.isSolidShape === true ? VECTOR_KIND.SOLID : d.semanticKind);
+  if (kind) setSemanticKind(item, kind);
+  item.data.userImported = true;
 
   return item;
 }
@@ -241,6 +245,10 @@ export function createFusionRecord(first, second = {}, third = null) {
     group,
     mode,
     originalIsHole: overrides.originalIsHole ?? data.originalIsHole === true,
+    semanticKind: overrides.semanticKind || data.semanticKind ||
+      (data.semanticKind === VECTOR_KIND.HOLE || data.originalIsHole === true ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID),
+    receiverKind: overrides.receiverKind || data.receiverKind ||
+      (data.semanticKind === VECTOR_KIND.HOLE || data.originalIsHole === true ? "hole" : "solid"),
     rasterId: overrides.rasterId ?? raster?.id ?? data.rasterId ?? null,
     receptorId: overrides.receptorId ?? receptor?.id ?? data.vectorId ?? null,
     containmentKey: overrides.containmentKey ?? data.containmentKey ?? receptor?.data?.containmentKey ?? null,
