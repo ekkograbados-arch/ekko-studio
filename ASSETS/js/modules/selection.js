@@ -1,11 +1,11 @@
-import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds, toWorldGeometry, hitTestOwner, intersectsMarquee, selectionFrame, worldPointToOwner } from "./canvas-pro/designGeometry.js";
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds, toWorldGeometry, hitTestOwner, intersectsMarquee, selectionFrame, worldPointToOwner } from "./canvas-pro/designGeometry.js";
 import {
   clearFusionSelection, isFusionSelection,
   beginTransformTransaction, accumulateDragDelta, finalizeTransformTransaction,
   transformFusion, transformPublicItem, notifyTransformObservers, resolvePublicTransformOwner
 } from "./canvas-pro/fusionController.js";
 import { rotationController } from "./canvas-pro/rotationController.js";
-import { semanticKind, getStackingUnit } from "./canvas-pro/vectorSemantics.js";
+import { resolveOwnerChain, collectOwners } from "./canvas-pro/ownerGraph.js";
 import {
   handleFusionEditPointerDown,
   handleFusionEditPointerDrag,
@@ -714,10 +714,13 @@ function findItemAtPoint(point) {
   const owners = [];
   const seen = new Set();
   for (let i = layer.children.length - 1; i >= 0; i--) {
-    const candidate = getPublicOwner(layer.children[i]);
-    if (!candidate || isMockupOrMask(candidate) || isContainmentWrapper(candidate) || seen.has(candidate)) continue;
-    seen.add(candidate);
-    owners.push(candidate);
+    const descendants = collectOwners(layer.children[i]);
+    for (let j = descendants.length - 1; j >= 0; j--) {
+      const candidate = descendants[j];
+      if (!candidate || isMockupOrMask(candidate) || isContainmentWrapper(candidate) || seen.has(candidate)) continue;
+      seen.add(candidate);
+      owners.push(candidate);
+    }
   }
   const hitOwner = candidate => {
     const hit = hitTestOwner(candidate, point, 8 / (paper.view?.zoom || 1));
@@ -753,46 +756,9 @@ function isMockupOrUI(item) {
  * que consume el runtime probe y los diagnósticos de interacción.
  */
 function describeSelectionOwner(item) {
-  const publicOwner = getPublicOwner(item);
-  const base = publicOwner || item || null;
-  if (!base) return null;
-  let transformOwner = null;
-  let fusionOwner = null;
-  try { transformOwner = resolvePublicTransformOwner(base); } catch (_) {}
-  try {
-    fusionOwner = base.data?.isSmartFusion
-      ? base
-      : (typeof window.findSmartFusionContainer === 'function'
-        ? window.findSmartFusionContainer(base) : null);
-  } catch (_) {}
-  let stackingUnit = null;
-  let selectionUnit = null;
-  try { stackingUnit = getStackingUnit(base); } catch (_) {}
-  try { selectionUnit = _getSelectableItem(base); } catch (_) {}
-  const data = base.data || {};
-  return {
-    rawItem: item || null,
-    publicOwner: base,
-    selectionUnit: selectionUnit || base,
-    transformOwner: transformOwner || base,
-    stackingUnit: stackingUnit || base,
-    fusionOwner: fusionOwner || null,
-    semanticKind: semanticKind(base) || null,
-    identity: {
-      id: base.id ?? null,
-      semanticId: data.semanticId ?? null,
-      ownerId: data.ownerId ?? null,
-      fusionId: data.fusionId ?? base.fusionId ?? null,
-      sourceContourIndex: data.sourceContourIndex ?? null,
-      className: base.className || base.constructor?.name || null
-    },
-    data: {
-      isHole: data.isHole === true,
-      hasGeomBase: !!data.geomBase,
-      source: data.source ?? null,
-      contourRole: data.contourRole ?? null
-    }
-  };
+  const chain = resolveOwnerChain(item);
+  if (!chain) return null;
+  return chain;
 }
 
 function resolveInteractionTarget(point, options = {}) {
@@ -837,7 +803,12 @@ function toParentPoint(item, globalPoint) {
 const _initSelectionTool = function() {
   if (!paper.view) {
     debugLog("initSelectionTool: paper.view no está definido todavía.");
-    return;
+    return null;
+  }
+  const existing = window.__EKKO_SELECTION_TOOL_SESSION;
+  if (existing?.tool && existing.view === paper.view) {
+    existing.tool.activate();
+    return existing.tool;
   }
 
   const selectTool = new paper.Tool();
@@ -1301,7 +1272,7 @@ const _initSelectionTool = function() {
           // Desagrupar. Resolve all semantic public owners recursively; using
           // getPublicOwner(item) here collapses the marquee to that group and
           // loses the individual solids/hole owners.
-          const owners = getPublicOwners(item);
+          const owners = collectOwners(item);
           owners.forEach(function(owner) {
             if (!owner || seenOwners.has(owner)) return;
             if (intersectsMarquee(owner, marqueeGeometry)) {
@@ -1413,6 +1384,12 @@ const _initSelectionTool = function() {
   };
 
   selectTool.activate();
+  window.__EKKO_SELECTION_TOOL_SESSION = {
+    tool: selectTool,
+    view: paper.view,
+    initializedAt: Date.now()
+  };
+  return selectTool;
 };
 
 if (typeof paper !== "undefined" && paper.view) {
