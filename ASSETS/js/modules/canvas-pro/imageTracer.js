@@ -1,3 +1,5 @@
+import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+
 // --- ALGORITMO DE SEGUIMIENTO DE CONTORNOS (Moore-Neighbor Tracing con Curvas) ---
 export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrace = false) {
   const width = imageData.width;
@@ -759,6 +761,7 @@ export function openImageTraceModal(raster) {
         clonedPath.strokeColor = null;
         clonedPath.strokeWidth = 0;
         clonedPath.fillColor = new paper.Color('#111827');
+        setSemanticKind(clonedPath, VECTOR_KIND.SOLID);
         clonedPath.data = {
           locked: false,
           label: "Trazado",
@@ -772,6 +775,7 @@ export function openImageTraceModal(raster) {
 
       const finalVectorGroup = new paper.CompoundPath({ insert: false });
       committedVectorPaths.forEach(path => finalVectorGroup.addChild(path));
+      setSemanticKind(finalVectorGroup, VECTOR_KIND.SOLID);
       finalVectorGroup.data = {
         locked: false,
         label: "Imagen Vectorizada (" + (raster.data?.label || "Trazado") + ")",
