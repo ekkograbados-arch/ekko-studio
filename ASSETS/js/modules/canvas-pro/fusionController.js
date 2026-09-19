@@ -18,6 +18,7 @@ import {
     clearVirtualHoles,
     isFusionItem
 } from "./fusionCore.js";
+import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
 const fusionEditTransactions = new Map();
 
@@ -613,6 +614,17 @@ export function accumulateDragDelta(event, targets = null) {
 
 export function notifyTransformObservers(payload = {}) {
     transformObservers.forEach(callback => { try { callback(payload); } catch (e) {} });
+    // CSG is part of the transform transaction, not a mouse-up side effect.
+    // Every translate/scale/rotate/node-driven transform therefore rebuilds
+    // solids from geomBase and reapplies all current physical holes live.
+    if (!payload.skipCSG) {
+        try {
+            recalculateDynamicSubtractions(
+                payload.layer || null,
+                Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []
+            );
+        } catch (_) {}
+    }
 }
 export function addTransformObserver(callback) {
     if (typeof callback === "function") transformObservers.add(callback);
