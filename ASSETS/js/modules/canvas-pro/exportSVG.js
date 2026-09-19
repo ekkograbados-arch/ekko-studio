@@ -306,9 +306,22 @@ export async function prepareSVGForExport(options = {}) {
             return item instanceof paper.PathItem;
         }
     }).forEach(item => {
-        // Regla de relleno estándar industrial
+        // Fusion masks are clipping/CSG implementation details, never an
+        // exported black engraving shape.  Keep the mask object available to
+        // Paper.js clip semantics but make it non-painting in the clone.
+        if (item.data?.isFusionMask === true) {
+            item.fillColor = null;
+            item.strokeColor = null;
+            item.strokeWidth = 0;
+            item.opacity = 0;
+            return;
+        }
+        // Preserve the source rule when it exists.  The old unconditional
+        // evenodd assignment could turn a fusion mask with no style into a
+        // default black path in the exported SVG.
         if (item instanceof paper.CompoundPath) {
-            item.fillRule = "evenodd";
+            const sourceRule = String(item.data?.originalFillRule || item.fillRule || "evenodd").toLowerCase();
+            item.fillRule = sourceRule === "nonzero" || sourceRule === "non-zero" ? "nonzero" : "evenodd";
         }
         // Asignación de estilo por defecto si carece de color
         if (!item.fillColor && !item.strokeColor) {
