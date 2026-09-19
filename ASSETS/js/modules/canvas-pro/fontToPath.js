@@ -1,5 +1,6 @@
 import { getPublicOwner } from "./designGeometry.js";
 import { buildContourRelations, applyContourRecord } from "./holeSemantics.js";
+import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 /*
  * Conversión de glifos OpenType a geometría Paper.js.
  * Requiere opentype.js cargado como window.opentype.
@@ -178,6 +179,7 @@ export async function textToCompoundPath(textItem) {
             fillRule: "evenodd"
         };
         applyContourRecord(node.path, record);
+        setSemanticKind(node.path, node.isHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID);
         node.path.data = { ...(node.path.data || {}),
             contourIndex: node.index,
             contourDepth: node.depth,
