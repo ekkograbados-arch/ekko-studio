@@ -1,3 +1,5 @@
+import { auditScene } from "./vectorSemantics.js";
+
 /* EKKO Studio — Runtime Probe / Fase 1
  * Instrumentación no destructiva para recorridos reales del cliente.
  * No modifica geometrías ni propietarios: solo captura evidencia.
@@ -70,7 +72,13 @@
         source: data.source ?? null,
         userImported: data.userImported ?? null,
         isHole: data.isHole ?? null,
+        semanticKind: data.semanticKind ?? null,
+        isSolidShape: data.isSolidShape ?? null,
+        hasGeomBase: !!data.geomBase,
+        contourRole: data.contourRole ?? null,
+        sourceContourIndex: data.sourceContourIndex ?? null,
         isCalado: data.isCalado ?? null,
+        filledFromHole: data.filledFromHole ?? null,
         isSmartFusion: data.isSmartFusion ?? null,
         isTextVector: data.isTextVector ?? null,
         hasInternalHoles: data.hasInternalHoles ?? null,
@@ -98,7 +106,9 @@
       transformTransaction: null,
       textVectorDiag: null,
       commandState: null,
-      csgReport: null
+      csgReport: null,
+      exportReport: null,
+      semanticScene: null
     };
     try { result.selectedItem = itemSnapshot(global.selectedItem); } catch (_) {}
     try {
@@ -118,6 +128,12 @@
     try { result.textVectorDiag = safe(global._ekkoTextVectorDiag); } catch (_) {}
     try { result.commandState = safe(global.EKKO_COMMAND_STATE); } catch (_) {}
     try { result.csgReport = safe(global.EKKO_CSG_LAST_REPORT); } catch (_) {}
+    try { result.exportReport = safe(global.EKKO_EXPORT_LAST_REPORT); } catch (_) {}
+    try {
+      const p = global.paper;
+      const layer = p?.project?.getItem?.({ name: 'designLayer' }) || p?.project?.activeLayer;
+      result.semanticScene = safe(auditScene(layer));
+    } catch (_) {}
     return result;
   }
 
@@ -149,7 +165,8 @@
     'handleMagneticDrop', 'releaseSmartFusion', 'recalculateSmartFusion',
     'transformFusion', 'transformPublicItem', 'beginTransformTransaction',
     'finalizeTransformTransaction', 'recalculateDynamicSubtractions',
-    'convertTextToVector', 'convertSelectionToCalado', 'ungroupSelectedItem'
+    'convertTextToVector', 'convertSelectionToCalado', 'convertSelectionToSolid',
+    'prepareSVGForExport', 'downloadExportedSVG', 'ungroupSelectedItem'
   ];
 
   function installGlobalWrappers() {
