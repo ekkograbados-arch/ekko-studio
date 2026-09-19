@@ -463,10 +463,29 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     const semanticOwners = collectVectorOwners(layer);
     const scenePlan = buildCutterPairs(semanticOwners);
     const realOwners = new Set(subItems);
+    const hasPositiveAreaPair = (hole, solid) => {
+        let holeGeom = null;
+        let solidGeom = null;
+        let overlap = null;
+        try {
+            holeGeom = getGlobalUnsubtractedPath(hole);
+            solidGeom = getGlobalUnsubtractedPath(solid);
+            if (!holeGeom || !solidGeom || !holeGeom.bounds?.intersects(solidGeom.bounds)) return false;
+            overlap = holeGeom.intersect(solidGeom, { insert: false });
+            return Math.abs(overlap?.area || 0) > 1e-7;
+        } catch (_) {
+            return false;
+        } finally {
+            try { overlap?.remove?.(); } catch (_) {}
+            try { holeGeom?.remove?.(); } catch (_) {}
+            try { solidGeom?.remove?.(); } catch (_) {}
+        }
+    };
     const realPairs = scenePlan.pairs
         .filter(pair => pair.targetKind === "solid")
         .map(pair => ({ hole: pair.hole, solid: pair.target }))
-        .filter(pair => realOwners.has(pair.hole) && realOwners.has(pair.solid));
+        .filter(pair => realOwners.has(pair.hole) && realOwners.has(pair.solid))
+        .filter(pair => hasPositiveAreaPair(pair.hole, pair.solid));
     const pairHolesBySolid = new Map();
     realPairs.forEach(({ hole, solid }) => {
         if (!pairHolesBySolid.has(solid)) pairHolesBySolid.set(solid, new Set());
