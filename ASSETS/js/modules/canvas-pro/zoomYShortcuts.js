@@ -202,31 +202,14 @@ export function initGlobalKeyboardShortcuts() {
         // 7. SELECCIONAR TODO (Ctrl+A)
         if (isCtrl && key === "a") {
             e.preventDefault();
-            if (typeof window.deselectItem === "function") window.deselectItem();
-            const itemsToSelect = [];
             const designLayer = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
-            if (designLayer && designLayer.children) {
-                designLayer.children.forEach(item => {
-                    const d = item?.data || {};
-                    if (item && !d.mockup && !d.isMask && !d.locked &&
-                        !d.isSelectionBox && !d.isHandle && !d.isSmartGuide &&
-                        !d.isMeasurement && !d.isTracePreview && !d.isNodeEditOverlay &&
-                        !d.isFusionPreview) {
-                        itemsToSelect.push(item);
-                    }
-                });
-            }
-            if (itemsToSelect.length > 0) {
-                window.selectedItems = itemsToSelect;
-                window.selectedItem = itemsToSelect[itemsToSelect.length - 1];
-                itemsToSelect.forEach(it => { it.selected = true; });
-
-                if (typeof window.updateSelectionBox === "function") {
-                    window.updateSelectionBox(window.selectedItem);
-                }
-                if (typeof window.updateContextualMenu === "function") {
-                    window.updateContextualMenu(window.selectedItem);
-                }
+            const itemsToSelect = typeof window.EKKO_OWNER_GRAPH?.collectOwners === "function"
+                ? window.EKKO_OWNER_GRAPH.collectOwners(designLayer)
+                : (designLayer?.children || []);
+            if (itemsToSelect.length > 0 && typeof window.commitSelectionContext === "function") {
+                window.commitSelectionContext(itemsToSelect, itemsToSelect[itemsToSelect.length - 1], 'select-all');
+            } else if (itemsToSelect.length > 0 && typeof window.selectItem === "function") {
+                window.selectItem(itemsToSelect[itemsToSelect.length - 1]);
             }
             paper.view.update();
             return;
