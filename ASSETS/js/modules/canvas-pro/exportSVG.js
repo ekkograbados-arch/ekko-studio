@@ -29,6 +29,7 @@ FASE DE OPERACIÓN:
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
+import { getPublicOwner } from "./designGeometry.js";
 
 /**
  * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
@@ -37,6 +38,8 @@ import { textToCompoundPath } from "./fontToPath.js";
  */
 function getContentItem(item) {
     if (!item) return null;
+    const owner = getPublicOwner(item);
+    if (owner) return owner;
     if (item.data && item.data.clipGroup) {
         if (!item.children) return item;
         const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
@@ -238,21 +241,27 @@ export async function prepareSVGForExport(options = {}) {
     // El export usa copias de los huecos virtuales, nunca las geometrías del
     // lienzo interactivo. Se conserva ownerContainmentKey para aislar fusiones.
     const exportVirtualHoles = [];
+    let exportCsgReport = null;
     try {
         getVirtualHoleEntries().forEach(entry => {
             if (!entry || !entry.geom) return;
             const geom = entry.geom.clone({ insert: false });
+            const cloneGroup = tempLayer.getItems?.({
+                match: item => item?.data?.isSmartFusion === true &&
+                    item?.data?.fusionId === entry.fusionId
+            })?.[0] || null;
             exportVirtualHoles.push({
                 geom,
                 fusionId: entry.fusionId,
+                group: cloneGroup,
                 ownerContainmentKey: entry.ownerContainmentKey || null
             });
         });
 
         if (typeof recalculateDynamicSubtractions === "function") {
-            recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
+            exportCsgReport = recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
         } else if (typeof window.recalculateDynamicSubtractions === "function") {
-            window.recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
+            exportCsgReport = window.recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
         }
     } catch (err) {
         console.warn("[EKKO EXPORT CSG RECALC ERROR]", err);
@@ -260,6 +269,11 @@ export async function prepareSVGForExport(options = {}) {
         exportVirtualHoles.forEach(entry => {
             try { entry.geom.remove(); } catch (e) {}
         });
+    }
+    if (exportCsgReport && (exportCsgReport.failedBooleans?.length || exportCsgReport.rejectedHoles > 0)) {
+        console.error("[EKKO EXPORT] CSG no pudo materializar todos los huecos", exportCsgReport);
+        tempLayer.remove();
+        return "";
     }
 
     // 6. PURGADO DE CALADOS ACTIVOS (isHole)
