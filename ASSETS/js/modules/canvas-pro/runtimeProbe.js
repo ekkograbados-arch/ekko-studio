@@ -16,6 +16,8 @@ import { auditScene } from "./vectorSemantics.js";
     errors: [],
     clicks: [],
     gestures: [],
+    gestureSequence: 0,
+    activeGesture: null,
     wrapped: [],
     activeWrappers: new Map(),
     wrappedFns: new Set(),
@@ -229,8 +231,7 @@ import { auditScene } from "./vectorSemantics.js";
     return null;
   }
 
-  function recordCanvasGesture(phase, event) {
-    if (!state.active || !event) return null;
+  function resolveCanvasHit(event) {
     const pointValue = eventPoint(event);
     let target = null;
     try {
@@ -245,14 +246,71 @@ import { auditScene } from "./vectorSemantics.js";
     } catch (error) {
       state.errors.push({ at: now(), type: 'selection-resolver', message: String(error?.stack || error) });
     }
+    return {
+      point: pointValue,
+      hit: target ? {
+        identity: target.chain?.identity || null,
+        semanticKind: target.chain?.semanticKind || null,
+        chain: ownerChainSnapshot(target.chain)
+      } : null
+    };
+  }
+
+  function finishGesture(gesture, event, phase, hit) {
+    if (!gesture) return null;
+    gesture.phase = phase;
+    gesture.eventType = event?.type || gesture.eventType || null;
+    gesture.endPoint = hit?.point || null;
+    gesture.endHit = hit?.hit || null;
+    gesture.endModifiers = {
+      shift: !!event?.shiftKey,
+      ctrl: !!event?.ctrlKey,
+      alt: !!event?.altKey,
+      meta: !!event?.metaKey
+    };
+    gesture.selectionAfter = null;
+    global.setTimeout(() => {
+      gesture.selectionAfter = selectionState();
+      gesture.interactionAfter = global.EKKO_INTERACTION?.snapshot?.() || null;
+      gesture.finishedAt = now();
+    }, 0);
+    state.activeGesture = null;
+    return gesture;
+  }
+
+  function recordCanvasGesture(phase, event) {
+    if (!state.active || !event) return null;
+    const hit = resolveCanvasHit(event);
+    if (phase === 'pointermove') {
+      const gesture = state.activeGesture;
+      if (!gesture) return null;
+      gesture.moveCount += 1;
+      gesture.lastMove = {
+        point: hit.point,
+        hit: hit.hit,
+        at: now()
+      };
+      if (gesture.moveTrace.length < 24 || gesture.moveCount % 10 === 0) {
+        gesture.moveTrace.push(gesture.lastMove);
+        if (gesture.moveTrace.length > 24) gesture.moveTrace.shift();
+      }
+      return gesture;
+    }
+
+    const isPointerStart = phase === 'pointerdown';
+    const isPointerEnd = phase === 'pointerup';
+    if (isPointerEnd && state.activeGesture) {
+      return finishGesture(state.activeGesture, event, phase, hit);
+    }
+
     const gesture = {
-      id: `GESTURE-${String(state.gestures.length + 1).padStart(5, '0')}`,
+      id: `GESTURE-${String(++state.gestureSequence).padStart(5, '0')}`,
       at: now(),
       phase,
       eventType: event.type || null,
       button: typeof event.button === 'number' ? event.button : null,
       buttons: typeof event.buttons === 'number' ? event.buttons : null,
-      point: pointValue,
+      point: hit.point,
       modifiers: {
         shift: !!event.shiftKey,
         ctrl: !!event.ctrlKey,
@@ -260,21 +318,21 @@ import { auditScene } from "./vectorSemantics.js";
         meta: !!event.metaKey
       },
       interaction: global.EKKO_INTERACTION?.snapshot?.() || null,
-      hit: target ? {
-        identity: target.chain?.identity || null,
-        semanticKind: target.chain?.semanticKind || null,
-        chain: ownerChainSnapshot(target.chain)
-      } : null,
+      hit: hit.hit,
       selectionBefore: selectionState(),
-      selectionAfter: null
+      selectionAfter: null,
+      moveCount: 0,
+      moveTrace: [],
+      endPoint: null,
+      endHit: null
     };
     state.gestures.push(gesture);
-    if (state.gestures.length > 300) state.gestures.shift();
-    global.setTimeout(() => {
-      gesture.selectionAfter = selectionState();
-      gesture.interactionAfter = global.EKKO_INTERACTION?.snapshot?.() || null;
-      gesture.finishedAt = now();
-    }, 0);
+    if (state.gestures.length > 100) state.gestures.shift();
+    if (isPointerStart) {
+      state.activeGesture = gesture;
+    } else {
+      finishGesture(gesture, event, phase, hit);
+    }
     return gesture;
   }
 
@@ -364,7 +422,7 @@ import { auditScene } from "./vectorSemantics.js";
       }
       return { ok: true };
     },
-    clear() { state.operations.length = 0; state.errors.length = 0; state.clicks.length = 0; state.gestures.length = 0; return { ok: true }; },
+    clear() { state.operations.length = 0; state.errors.length = 0; state.clicks.length = 0; state.gestures.length = 0; state.gestureSequence = 0; state.activeGesture = null; return { ok: true }; },
     ready(details = {}) {
       state.ready = true;
       return finish(record('studio.ready', details), { ok: true, ready: true });
@@ -401,7 +459,7 @@ import { auditScene } from "./vectorSemantics.js";
     },
     report() {
       return {
-        schema: 'ekko-runtime-probe/2',
+        schema: 'ekko-runtime-probe/3',
         generatedAt: now(),
         ready: state.ready,
         active: state.active,
