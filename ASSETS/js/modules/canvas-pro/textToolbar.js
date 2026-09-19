@@ -12,6 +12,7 @@ para eliminar por completo el delay de red de 2 minutos.
 import { textToCompoundPath } from "./fontToPath.js";
 import { stampDesignItem } from "./fusionCore.js";
 import { buildContourRelations, applyContourRecord } from "./holeSemantics.js";
+import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 let loadedFontsCache = [];
 
@@ -555,6 +556,7 @@ export async function weldText(item) {
                 fillRule: "evenodd"
             };
             applyContourRecord(node.path, record);
+            setSemanticKind(node.path, node.isHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID);
             return record;
         });
     }
@@ -569,6 +571,7 @@ export async function weldText(item) {
     resultPath.data.contours = contourRecords;
     // La identidad semántica se estampa después de calibrar la geometría y
     // antes de publicarla. Nunca se publica un vector a medio registrar.
+    setSemanticKind(resultPath, VECTOR_KIND.SOLID);
     stampDesignItem(resultPath, {
         source: "text-vector",
         role: "letter",
