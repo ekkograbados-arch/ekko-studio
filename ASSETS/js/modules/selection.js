@@ -1333,12 +1333,23 @@ const _initSelectionTool = function() {
       window.marqueeActive = false;
 
       const itemsToSelect = [];
+      const seenOwners = new Set();
       const layer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
       if (layer && layer.children) {
         layer.children.forEach(function(item) {
           if (isMockupOrUI(item)) return;
-          const owner = getPublicOwner(item);
-          if (owner && intersectsMarquee(owner, marqueeGeometry)) itemsToSelect.push(owner);
+          // A design-layer child may be a regular group created by import or
+          // Desagrupar. Resolve all semantic public owners recursively; using
+          // getPublicOwner(item) here collapses the marquee to that group and
+          // loses the individual solids/hole owners.
+          const owners = getPublicOwners(item);
+          owners.forEach(function(owner) {
+            if (!owner || seenOwners.has(owner)) return;
+            if (intersectsMarquee(owner, marqueeGeometry)) {
+              seenOwners.add(owner);
+              itemsToSelect.push(owner);
+            }
+          });
         });
       }
       try { marqueeGeometry.remove(); } catch (e) {}
