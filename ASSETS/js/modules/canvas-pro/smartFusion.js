@@ -29,6 +29,7 @@ import {
   removeFusionRecord
 } from "./fusionController.js";
 import { ensureMockupContainment } from "../mockupLoader.js";
+import { getPublicOwner } from "./designGeometry.js";
 
 // Estado global del snapping magnético
 let fusionPreviewGroup = null;   // Contiene halo fucsia + preview recortado translúcido
@@ -43,16 +44,7 @@ const NEON_CYAN    = '#00e5ff';  // Edición interna → "puedes transformar la 
    HELPERS CONSERVADOS (robustos, validados en producción)
 ------------------------------------------------------------------------ */
 function getContentItem(item) {
-  if (!item) return null;
-  if (item.data && item.data.clipGroup) {
-    if (!item.children) return item;
-    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    if (content) return content;
-    const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-    if (fallback) return fallback;
-    return item.children[1] || item.children[0] || item;
-  }
-  return item;
+  return getPublicOwner(item) || item || null;
 }
 
 function cleanEmptyClipGroup(parent) {
