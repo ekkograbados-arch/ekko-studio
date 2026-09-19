@@ -19,6 +19,7 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { interactionOwner } from "./interactionOwner.js";
 import { getPublicOwner } from "./designGeometry.js";
+import { setSemanticKind, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 // Única resolución de owner público. Los wrappers de contención y máscaras
 // no deben convertirse en el objeto de edición de nodos.
@@ -909,10 +910,13 @@ export function detachSelectedSubpaths() {
         }
 
         syncGeometryToGeomBase(newItem);
+        const detachedKind = typeof subPath.data?.originalIsHole === "boolean"
+            ? (subPath.data.originalIsHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID)
+            : (semanticKind(activeNodeItem) || VECTOR_KIND.SOLID);
+        setSemanticKind(newItem, detachedKind);
         newItem.data = {
             ...(newItem.data || {}),
             locked: false,
-            isHole: false,
             label: "Trazado Desprendido"
         };
         extractedItems.push(newItem);
