@@ -1,3 +1,4 @@
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ACCIÓN: REEMPLAZAR COMPLETAMENTE
@@ -231,66 +232,21 @@ function buildContainmentTree(atomicPaths) {
 }
 
 function resolveItemSemantics(node, rootTarget) {
-  const path = node.path;
-  const isFromCompound = !!(path.data && path.data.isFromCompound);
-  const explicitHole = path.data && typeof path.data.originalIsHole === 'boolean'
-    ? path.data.originalIsHole
-    : (path.data && typeof path.data.isHole === 'boolean' ? path.data.isHole : null);
-
-  // La metadata original es la fuente de verdad. La geometría solo decide
-  // cuando el SVG no aportó clasificación explícita.
-  if (explicitHole !== null) return explicitHole;
-
-if (isFromCompound && rootTarget && isCompoundPath(rootTarget)) {
-  const testPt = getInteriorTestPoint(path);
-  if (testPt) {
-    // ✅ Transformar el punto de prueba al sistema LOCAL del rootTarget
-    // antes de preguntar contains(), porque el path ya pudo tener su
-    // matriz horneada mientras que rootTarget conserva la suya.
-    const localPt = typeof rootTarget.globalToLocal === "function"
-      ? rootTarget.globalToLocal(testPt)
-      : testPt;
-    if (rootTarget.contains(localPt)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-  if (node.parent) {
-    const parentPath = node.parent.path;
-    const isParentHole = node.parent.isHole;
-    if (!isParentHole) {
-      // ✅ Si ambos tienen orientación original, usarla como fuente de verdad
-      if (path.data && path.data.originalClockwise !== undefined && parentPath.data && parentPath.data.originalClockwise !== undefined) {
-        return path.data.originalClockwise !== parentPath.data.originalClockwise;
-      }
-      // Solo como último recurso, usar paridad de profundidad
-      return node.depth % 2 !== 0;
-    } else {
-      // Si el padre es hueco, la paridad se invierte lógicamente
-      return node.depth % 2 === 0;
-    }
-  }
-    return false;
+    const path = node?.path;
+    const meta = path?.data || {};
+    // Explicit source metadata is authoritative. The topology tree is the
+    // only fallback; never probe a compound root with a point (an O opening
+    // makes that test classify the outer contour incorrectly).
+    if (typeof meta.originalIsHole === "boolean") return meta.originalIsHole;
+    if (typeof meta.contourRole === "string") return meta.contourRole === "hole";
+    if (typeof meta.isHole === "boolean" && meta.source === "svg") return meta.isHole;
+    return (Number(node?.depth) || 0) % 2 === 1;
 }
 
 export function getGlobalUnsubtractedPath(item) {
-    if (!item || !item.data || !item.data.geomBase) return null;
-    const tempBase = item.data.geomBase.clone({ insert: false });
-    // geomBase is owner-local. Normalize legacy snapshots that carried a
-    // matrix, then apply the owner's complete world transform exactly once.
-    try {
-        const baseMatrix = tempBase.matrix?.clone?.();
-        tempBase.applyMatrix = false;
-        tempBase.matrix = new paper.Matrix();
-        if (baseMatrix && !baseMatrix.isIdentity()) tempBase.transform(baseMatrix);
-        const world = item.globalMatrix || item.matrix || new paper.Matrix();
-        tempBase.transform(world);
-    } catch (e) {
-        try { tempBase.matrix = item.globalMatrix?.clone?.() || item.matrix?.clone?.() || new paper.Matrix(); } catch (_) {}
-    }
-    return tempBase;
+    // Sole world-geometry producer: geomBase is owner-local and the complete
+    // owner global matrix is applied exactly once by the canonical layer.
+    return toWorldGeometry(item);
 }
 
 // CSG operands are calculated in project/global coordinates. Before adding
@@ -335,16 +291,7 @@ function confineSubtractiveGeometry(geometry) {
     return geometry;
 }
 
-function getContentItem(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup) {
-        if (!item.children) return item;
-        const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-        if (content) return content;
-        return item.children[1] || item.children[0] || item;
-    }
-    return item;
-}
+
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
@@ -411,7 +358,7 @@ function extractSubtractiveItems(topList) {
     const result = [];
     function collectRecursive(item) {
         if (!item) return;
-        const content = getContentItem(item);
+        const content = getPublicOwner(item);
         if (!content) return;
 
         // Una fusión sólida participa del CSG mediante su máscara, no como
@@ -829,6 +776,10 @@ nodes.sort((a, b) => {
             isFusionReceptor: isHole,
             fillRule: "evenodd",
             preserveCompoundTopology: true,
+            contourIndex: node.id,
+            contourDepth: node.depth,
+            contourRole: isHole ? "hole" : "outer",
+            originalIsHole: isHole,
             // A decomposed path is a new public owner; never inherit a
             // text-vector/fusion id that would alias the removed wrapper.
             fusionId: null,
@@ -872,12 +823,15 @@ nodes.sort((a, b) => {
         // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
         if (finalItem !== item) {
             if (!finalItem.data) finalItem.data = {};
-            finalItem.data.isHole = false;
-            finalItem.data.geomBase = null;
-            finalItem.data.clipGroup = true;
+            const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
+            finalItem.data = { ...finalItem.data, role: "mockup-containment", clipGroup: true,
+                publicOwnerId: ownerId, isHole: undefined, geomBase: undefined };
+            item.data = { ...(item.data || {}), publicOwner: true, ownerId };
         }
 
-        finalDeliveredItems.push(finalItem);
+        // Return/commit only the public owner. The containment wrapper remains
+        // a clipping implementation detail and is never public selection.
+        finalDeliveredItems.push(getPublicOwner(finalItem) || item);
     });
 
     rootTarget.remove();
