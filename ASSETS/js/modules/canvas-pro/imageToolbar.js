@@ -142,21 +142,16 @@ export function duplicateImage(item) {
   });
 
   if (duplicatedList.length > 0) {
-    if (typeof window.deselectItem === 'function') window.deselectItem();
-    window.selectedItems = [...duplicatedList];
-    window.selectedItem = duplicatedList[duplicatedList.length - 1];
     duplicatedList.forEach(cl => {
       if (typeof window.EKKO_FUSION_CONTROLLER?.rekeyFusionClone === 'function') {
         window.EKKO_FUSION_CONTROLLER.rekeyFusionClone(cl);
       }
-      cl.selected = true;
     });
-
-    if (typeof window.updateSelectionBox === 'function') {
-      window.updateSelectionBox(window.selectedItem);
-    }
-    if (typeof window.updateContextualMenu === 'function') {
-      window.updateContextualMenu(window.selectedItem);
+    const primaryClone = duplicatedList[duplicatedList.length - 1];
+    if (typeof window.commitSelectionContext === 'function') {
+      window.commitSelectionContext(duplicatedList, primaryClone, 'duplicate');
+    } else if (typeof window.selectItem === 'function') {
+      window.selectItem(primaryClone);
     }
     if (typeof window.recalculateDynamicSubtractions === 'function') {
       window.recalculateDynamicSubtractions();
