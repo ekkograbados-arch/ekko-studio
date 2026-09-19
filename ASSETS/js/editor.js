@@ -41,7 +41,7 @@ import { updateContextualMenu, hideContextualMenu, initContextualMenu } from "./
 import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
-import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
+import { recalculateDynamicSubtractions, getGlobalUnsubtractedPath } from "./modules/canvas-pro/geometricUngroup.js";
 import { stampClientSvgSourceSemantics } from "./modules/canvas-pro/sourceSemantics.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
 import {
@@ -900,23 +900,23 @@ function itemsOverlapSpatial(itemA, itemB) {
   const contentA = getPublicOwner(itemA);
   const contentB = getPublicOwner(itemB);
   if (!contentA || !contentB) return false;
-  if (!contentA.bounds || !contentB.bounds) return false;
-  if (!contentA.bounds.intersects(contentB.bounds)) {
-    return false;
-  }
+  let geomA = null;
+  let geomB = null;
+  let overlap = null;
   try {
-    if (typeof contentA.intersects === 'function' && contentA.intersects(contentB)) {
-      return true;
-    }
-    if (typeof contentA.contains === 'function' && contentA.contains(contentB.bounds.center)) {
-      return true;
-    }
-    if (typeof contentB.contains === 'function' && contentB.contains(contentA.bounds.center)) {
-      return true;
-    }
-    return true;
+    geomA = getGlobalUnsubtractedPath(contentA);
+    geomB = getGlobalUnsubtractedPath(contentB);
+    if (!geomA?.bounds || !geomB?.bounds || !geomA.bounds.intersects(geomB.bounds)) return false;
+    overlap = geomA.intersect(geomB, { insert: false });
+    if (Math.abs(overlap?.area || 0) > 1e-7) return true;
+    if (geomA.contains?.(geomB.bounds.center) || geomB.contains?.(geomA.bounds.center)) return true;
+    return false;
   } catch (e) {
-    return contentA.bounds.intersects(contentB.bounds);
+    return false;
+  } finally {
+    try { overlap?.remove?.(); } catch (_) {}
+    try { geomA?.remove?.(); } catch (_) {}
+    try { geomB?.remove?.(); } catch (_) {}
   }
 }
 
