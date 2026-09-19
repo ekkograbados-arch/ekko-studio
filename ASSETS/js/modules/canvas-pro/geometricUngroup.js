@@ -511,6 +511,19 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         return 0;
     }
 
+    function geometryFullyContainedByCutter(source, cutter) {
+        if (!source || !cutter?.contains) return false;
+        const points = [];
+        const collect = (item, visited = new Set()) => {
+            if (!item || visited.has(item)) return;
+            visited.add(item);
+            if (item.segments) item.segments.forEach(segment => points.push(segment.point));
+            item.children?.forEach(child => collect(child, visited));
+        };
+        collect(source);
+        return points.length > 0 && points.every(point => cutter.contains(point));
+    }
+
     subItems.forEach(item => {
         if (item && item.data && item.data.geomBase && !item.data.isHole) {
             const pristine = getGlobalUnsubtractedPath(item);
@@ -680,10 +693,12 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     const isValidArea = testArea >= 0 &&
                         testArea <= (pristineArea * 1.000001) &&
                         areaLoss > Math.max(0.0001, pristineArea * 1e-7);
-                    if (testSegments >= 1 && isValidArea) {
-                        finalSubtracted = testSub;
+                    const completeRemoval = testArea <= 1e-7 &&
+                        geometryFullyContainedByCutter(pristineBase, mergedHole);
+                    if ((testSegments >= 1 && isValidArea) || completeRemoval) {
+                        finalSubtracted = testSub || new paper.Path({ insert: false });
                     } else {
-                        testSub.remove();
+                        testSub?.remove?.();
                     }
                 }
             } catch (error) {
@@ -706,12 +721,14 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         const isStepValid = stepArea >= 0 &&
                             stepArea <= (pristineArea * 1.000001) &&
                             stepAreaLoss > Math.max(0.0001, pristineArea * 1e-7);
-                        if (stepSegments >= 1 && isStepValid) {
+                        const completeStepRemoval = stepArea <= 1e-7 &&
+                            geometryFullyContainedByCutter(pristineBase, singleHole);
+                        if ((stepSegments >= 1 && isStepValid) || completeStepRemoval) {
                             currentProgress.remove();
-                            currentProgress = stepSub;
+                            currentProgress = stepSub || new paper.Path({ insert: false });
                             appliedSteps += 1;
                         } else {
-                            stepSub.remove();
+                            stepSub?.remove?.();
                         }
                     }
                 } catch (error) {
