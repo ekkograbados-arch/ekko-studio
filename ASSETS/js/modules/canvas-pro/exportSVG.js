@@ -30,6 +30,7 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { getPublicOwner } from "./designGeometry.js";
+import { collectVectorOwners, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 /**
  * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
@@ -270,7 +271,21 @@ export async function prepareSVGForExport(options = {}) {
             try { entry.geom.remove(); } catch (e) {}
         });
     }
-    if (exportCsgReport && (exportCsgReport.failedBooleans?.length || exportCsgReport.rejectedHoles > 0)) {
+    const exportOwners = collectVectorOwners(tempLayer);
+    const unresolvedOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
+    exportCsgReport = {
+        ...(exportCsgReport || {}),
+        holeOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE).length,
+        solidOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.SOLID).length,
+        unresolvedHoles: Number(exportCsgReport?.rejectedPairs ?? exportCsgReport?.rejectedHoles ?? 0),
+        unresolvedOwnerIds: unresolvedOwners.map(owner => owner.data?.containmentKey || owner.id || null),
+        exportReady: true
+    };
+    if (typeof window !== "undefined") window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
+    if (exportCsgReport.unresolvedHoles > 0 ||
+        exportCsgReport.failedBooleans?.length || exportCsgReport.rejectedHoles > 0) {
+        exportCsgReport.exportReady = false;
+        if (typeof window !== "undefined") window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
         console.error("[EKKO EXPORT] CSG no pudo materializar todos los huecos", exportCsgReport);
         tempLayer.remove();
         return "";
