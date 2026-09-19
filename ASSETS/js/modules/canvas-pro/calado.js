@@ -82,6 +82,10 @@ function ensureMockupContainment(target) {
 
 function markHole(target) {
     if (!target) return null;
+    const sourceData = target.data || {};
+    if (sourceData.originalIsHole === true || sourceData.contourRole === "hole" || sourceData.isHole === true) {
+        return target;
+    }
     const previousFill = target.data?.originalFillColor?.clone?.() || target.fillColor?.clone?.();
     const previousStroke = target.data?.originalStrokeColor?.clone?.() || target.strokeColor?.clone?.();
     const previousStrokeWidth = target.data?.originalStrokeWidth || target.strokeWidth || 0;
@@ -149,7 +153,7 @@ export function canConvertSelectionToCalado(item = null) {
     const targets = item ? [item] : selectedItems();
     if (targets.length !== 1) return false;
     const resolved = getVectorTarget(targets[0]);
-    if (resolved.fusion) return resolved.fusion.data?.originalIsHole !== true;
+    if (resolved.fusion) return canConvertToCalado(resolved.fusion);
     return !!resolved.vector && !isProductElement(resolved.vector) && canConvertToCalado(resolved.vector);
 }
 
@@ -161,7 +165,7 @@ export function convertSelectionToCalado(item = null) {
     }
     const resolved = getVectorTarget(targets[0]);
     if (resolved.fusion) {
-        if (resolved.fusion.data?.originalIsHole === true) return resolved.fusion;
+        if (!canConvertToCalado(resolved.fusion)) return resolved.fusion;
         if (typeof window.saveHistory === "function") window.saveHistory();
         markFusionHole(resolved.fusion);
         if (typeof window.recalculateSmartFusion === "function") {
