@@ -1,3 +1,4 @@
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds, toWorldGeometry, hitTestOwner, intersectsMarquee, selectionFrame, worldPointToOwner } from "./canvas-pro/designGeometry.js";
 import {
   clearFusionSelection, isFusionSelection,
   beginTransformTransaction, accumulateDragDelta, finalizeTransformTransaction,
@@ -150,18 +151,7 @@ function protectGlobal(name, fn) {
  * Blindaje para resolver el elemento de contenido real
  * (evita errores 'children of undefined' en paths directos o encapsulados en clipGroup)
  */
-function getContentItem(item) {
-  if (!item) return null;
-  if (item.data && item.data.clipGroup) {
-    if (!item.children) return item;
-    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    if (content) return content;
-    const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-    if (fallback) return fallback;
-    return item.children[1] || item.children[0] || item;
-  }
-  return item;
-}
+
 
 // Resuelve el propietario público que realmente debe trasladarse. Un
 // clipGroup de mockup solo posee la máscara estática; su hijo de contenido es
@@ -317,7 +307,7 @@ const _getSelectableItem = function(item) {
       // clipGroup es solo contención/máscara. El owner público debe ser el
       // contenido real; devolver el wrapper agranda la caja de selección al
       // bounds completo del mockup y rompe Texto a Vector.
-      const contentOwner = getContentItem(current);
+      const contentOwner = getPublicOwner(current);
       return contentOwner && contentOwner !== current ? contentOwner : null;
     }
 
@@ -374,21 +364,7 @@ const _getSelectableItem = function(item) {
  * or the live scene.
  */
 function getOwnerLocalGeometryBounds(owner) {
-  if (!owner) return null;
-  const internal = owner.internalBounds;
-  if (internal && internal.width > 0 && internal.height > 0 &&
-      owner.data?.internalBoundsSpace === 'local') return internal.clone();
-  let clone = null;
-  try {
-    clone = owner.clone({ insert: false });
-    clone.matrix = new paper.Matrix();
-    const local = clone.bounds;
-    return local && local.width > 0 && local.height > 0 ? local.clone() : null;
-  } catch (e) {
-    return null;
-  } finally {
-    try { if (clone) clone.remove(); } catch (e) {}
-  }
+  return getOwnerLocalBounds(getPublicOwner(owner));
 }
 
 /**
@@ -453,31 +429,11 @@ const _updateSelectionBox = function(item) {
 
   let bounds = null;
   selected.forEach(function(it) {
-    const displayItem = getContentItem(it);
+    const displayItem = getPublicOwner(it);
     if (!displayItem) return;
 
-    let itemBounds = null;
-    const gBase = (displayItem.data && displayItem.data.geomBase) || (it.data && it.data.geomBase);
-    const isHole = !!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole));
-
-    // Si es calado activo, resolver coordenadas globales exactas mediante getGlobalUnsubtractedPath
-    if (isHole && typeof window.getGlobalUnsubtractedPath === 'function') {
-      const holeGeom = window.getGlobalUnsubtractedPath(displayItem);
-      if (holeGeom && holeGeom.bounds && holeGeom.bounds.width > 0 && holeGeom.bounds.height > 0) {
-        itemBounds = holeGeom.bounds.clone();
-        try { holeGeom.remove(); } catch(e) {}
-      }
-    }
-
-    if (!itemBounds) {
-      if (displayItem.bounds && displayItem.bounds.width > 0 && displayItem.bounds.height > 0) {
-        itemBounds = displayItem.bounds;
-      } else if (gBase && gBase.bounds && gBase.bounds.width > 0) {
-        itemBounds = gBase.bounds;
-      } else if (it.bounds && it.bounds.width > 0) {
-        itemBounds = it.bounds;
-      }
-    }
+    const itemBounds = getPublicWorldBounds(displayItem);
+    const isHole = !!displayItem.data?.isHole;
 
     if (!itemBounds || itemBounds.width <= 0 || itemBounds.height <= 0) return;
 
@@ -498,7 +454,7 @@ const _updateSelectionBox = function(item) {
   // Permite al usuario/cliente visualizar el perímetro exacto de letras caladas (ej. "F", "A")
   // o bandas para alinear y ajustar con total precisión respecto a vértices o bordes.
   selected.forEach(function(it) {
-    const displayItem = getContentItem(it);
+    const displayItem = getPublicOwner(it);
     if (!displayItem) return;
 
     const isHole = !!((displayItem.data && displayItem.data.isHole) || (it.data && it.data.isHole));
@@ -509,9 +465,7 @@ const _updateSelectionBox = function(item) {
       if (typeof window.getGlobalUnsubtractedPath === 'function') {
         tightOutline = window.getGlobalUnsubtractedPath(displayItem);
       }
-      if (!tightOutline && gBase) {
-        tightOutline = gBase.clone({ insert: false });
-      }
+      if (!tightOutline) tightOutline = toWorldGeometry(displayItem);
       if (!tightOutline) {
         tightOutline = displayItem.clone({ insert: false });
       }
@@ -549,9 +503,9 @@ const _updateSelectionBox = function(item) {
   // Delineado secundario punteado si hay selección múltiple
   if (selected.length > 1) {
     selected.forEach(function(it) {
-      const displayItem = getContentItem(it);
+      const displayItem = getPublicOwner(it);
       if (!displayItem) return;
-      const b = (displayItem.bounds && displayItem.bounds.width > 0) ? displayItem.bounds : (it.data?.geomBase?.bounds || null);
+      const b = getPublicWorldBounds(displayItem);
       if (b) {
         const singleBorder = new paper.Path.Rectangle(b);
         singleBorder.strokeColor = mainColor;
@@ -768,179 +722,40 @@ const _getHandlePoint = function(bounds, handleType) {
  * tiene prioridad sobre una fusión sólida que pueda cubrir visualmente al
  * hueco, porque el hueco es el receptor que el usuario debe poder elegir.
  */
-function isPointInsideMockup(point) {
-  if (!point || !window.currentMockup) return true;
-  const mask = window.clipMask;
-  try {
-    if (mask?.contains && mask.contains(point)) return true;
-    if (window.currentMockup.contains && window.currentMockup.contains(point)) return true;
-  } catch (e) {}
-  // A mockup can be a group whose visible outer path is not directly
-  // `contains`-capable. Bounds are a conservative fallback for hit testing;
-  // rendering is still physically clipped by clipItem().
-  return !!window.currentMockup.bounds?.contains?.(point);
-}
+
 
 function findHoleHitInside(item, point) {
-  if (!item || item.clipMask || isMockupOrUI(item) || !isPointInsideMockup(point)) return null;
-  const tol = 8 / (paper.view?.zoom || 1);
-  if (item.data?.isHole === true) {
-    const geom = item.data.geomBase || item;
-    if (geom.bounds?.expand(tol).contains(point) &&
-        ((geom.contains && geom.contains(point)) ||
-         (geom.hitTest && geom.hitTest(point, { fill: true, stroke: true, tolerance: tol })))) {
-      return item;
-    }
-    return null;
-  }
-  if (item.children && item.children.length) {
-    for (let i = item.children.length - 1; i >= 0; i--) {
-      const found = findHoleHitInside(item.children[i], point);
-      if (found) return found;
-    }
-  }
-  return null;
+  const owner = getPublicOwner(item);
+  if (!owner || !owner.data?.isHole || isMockupOrMask(owner)) return null;
+  return hitTestOwner(owner, point, 8 / (paper.view?.zoom || 1));
 }
 
-/**
- * Busca la pieza real bajo el cursor dentro de un clipGroup de cliente.
- * No eleva automáticamente un hueco al wrapper: el hueco debe seguir siendo
- * seleccionable como receptor aunque otro sólido del mismo SVG ya se haya
- * convertido en una fusión.
- */
 function findDesignHitInside(item, point) {
-  if (!item || item.clipMask || isMockupOrUI(item)) return null;
-
-  const tol = 8 / (paper.view?.zoom || 1);
-  if (item.data?.isSmartFusion) {
-    const mask = item.children?.find(child => child && (child.clipMask || child.data?.isFusionMask));
-    const geom = mask?.data?.geomBase || mask;
-    if (geom?.bounds?.expand(tol).contains(point)) {
-      try {
-        if (geom.contains?.(point) || geom.hitTest?.(point, { fill: true, stroke: true, tolerance: tol })) {
-          return item;
-        }
-      } catch (e) {}
-    }
-    return null;
-  }
-  if (item.data?.isHole === true) {
-    const geom = item.data.geomBase || item;
-    if (geom.bounds?.expand(tol).contains(point) &&
-        ((geom.contains && geom.contains(point)) ||
-         (geom.hitTest && geom.hitTest(point, { fill: true, stroke: true, tolerance: tol })))) {
-      return item;
-    }
-    return null;
-  }
-
-  if (item.children && item.children.length) {
-    for (let i = item.children.length - 1; i >= 0; i--) {
-      const found = findDesignHitInside(item.children[i], point);
-      if (found) return found;
-    }
-  }
-
-  if (item !== window.currentMockup && item.data?.decomposedLayer &&
-      item.bounds?.expand(tol).contains(point)) {
-    const hit = item.hitTest?.(point, { fill: true, stroke: true, tolerance: tol });
-    if (hit) return item;
-  }
-  return null;
+  const owner = getPublicOwner(item);
+  if (!owner || isMockupOrMask(owner) || isContainmentWrapper(owner)) return null;
+  return hitTestOwner(owner, point, 8 / (paper.view?.zoom || 1));
 }
 
-/**
- * Resuelve de forma estricta el objeto de mayor índice Z ubicado bajo el cursor.
- * Prioridad absoluta:
- * 1. Recorre de mayor Z a menor Z (Top-Down) sobre la capa de diseño.
- * 2. Soporta tanto masas sólidas visibles como calados activos (isHole) o contenidos en clipGroup.
- * 3. Garantiza que un clic individual aísle exclusivamente el elemento de primer plano.
- */
+/** Resolve the top-most public owner in actual Paper sibling Z-order. */
 function findItemAtPoint(point) {
-  const layer = (paper.project && paper.project.layers)
-    ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
-    : null;
-  if (!layer || !layer.children || layer.children.length === 0) return null;
-
-  // Primera pasada: los huecos reales tienen prioridad sobre una fusión sólida
-  // que pueda cubrirlos visualmente. Esto permite seleccionar un hueco del
-  // SVG después de haber fusionado otro sólido del mismo diseño.
+  const layer = paper.project?.layers?.find(l => l.name === 'designLayer') || paper.project?.activeLayer;
+  if (!layer?.children?.length) return null;
   for (let i = layer.children.length - 1; i >= 0; i--) {
-    const hole = findHoleHitInside(layer.children[i], point);
-    if (hole) {
+    const candidate = getPublicOwner(layer.children[i]);
+    if (!candidate || isMockupOrMask(candidate) || isContainmentWrapper(candidate)) continue;
+    const hit = hitTestOwner(candidate, point, 8 / (paper.view?.zoom || 1));
+    if (hit) {
       const fusion = typeof window.findSmartFusionContainer === 'function'
-        ? window.findSmartFusionContainer(hole)
-        : null;
-      return fusion || hole;
-    }
-  }
-
-  const tol = 8 / (paper.view ? paper.view.zoom : 1);
-
-  // Recorrido topológico estricto: De mayor Z a menor Z (el objeto visible superior tiene prioridad)
-  for (let i = layer.children.length - 1; i >= 0; i--) {
-    const child = layer.children[i];
-    if (!child || isMockupOrUI(child)) continue;
-
-    const selectable = child.data?.clipGroup
-      ? (findDesignHitInside(child, point) || window.getSelectableItem(child))
-      : window.getSelectableItem(child);
-    if (!selectable) continue;
-
-    const target = getContentItem(selectable);
-    if (!target) continue;
-
-    // A) Si es calado activo (isHole: true)
-    if (target.data && target.data.isHole) {
-      const gBase = target.data.geomBase || target;
-      if (gBase) {
-        if (gBase.bounds && gBase.bounds.expand(tol).contains(point)) {
-          if (gBase.contains && gBase.contains(point)) return selectable;
-          if (gBase.hitTest && gBase.hitTest(point, { fill: true, stroke: true, tolerance: tol })) return selectable;
-        }
-      }
-    }
-
-    // B) Si es masa sólida (CompoundPath, Path, Group, PointText, etc.)
-    if (target.bounds && target.bounds.expand(tol).contains(point)) {
-      const hit = target.hitTest(point, {
-        fill: true,
-        stroke: true,
-        segments: true,
-        tolerance: tol
-      });
-      if (hit) return selectable;
-
-      // Verificación interna si es un grupo de piezas o paths compuestos
-      if (target.children && target.children.length > 0) {
-        for (let j = target.children.length - 1; j >= 0; j--) {
-          const sub = target.children[j];
-          if (!sub || isMockupOrUI(sub)) continue;
-          const subHit = sub.hitTest(point, { fill: true, stroke: true, tolerance: tol });
-          if (subHit) return selectable;
-          if (sub.contains && sub.contains(point)) return selectable;
-        }
-      }
+        ? window.findSmartFusionContainer(hit) : null;
+      return fusion || hit;
     }
   }
   return null;
 }
 
 function isMockupOrUI(item) {
-  let curr = item;
-  while (curr) {
-    const d = curr.data || {};
-    if (d.isSelectionBox || d.isHandle || d.isNodeHandle || d.isCurveHandle ||
-        d.isNodeEditOverlay || d.isSmartGuide || d.isMeasurement || d.isTracePreview ||
-        d.mockup || d.isMask || d.wasClipMask) {
-      return true;
-    }
-    if (curr === window.currentMockup || curr === window.selectionBoxGroup || curr === window.nodeHandlesGroup) {
-      return true;
-    }
-    curr = curr.parent;
-  }
-  return false;
+  return isMockupOrMask(item) || isContainmentWrapper(item) ||
+    item === window.currentMockup || item === window.selectionBoxGroup || item === window.nodeHandlesGroup;
 }
 
 /**
@@ -976,7 +791,7 @@ const _initSelectionTool = function() {
         try { fusion = window.findSmartFusionContainer(hit); } catch (e) { fusion = null; }
       }
 
-      const target = getContentItem(fusion || hit);
+      const target = getPublicOwner(fusion || hit);
       const isText = target && (target.className === 'PointText' || target instanceof paper.PointText);
       // Un vector normal nunca entra a nodos por doble clic. La edición de
       // nodos se inicia exclusivamente desde el comando Editar Nodos.
@@ -1074,7 +889,7 @@ const _initSelectionTool = function() {
           selectedItem: window.selectedItem,
           selectedItems: window.selectedItems || [],
           selectionBox: window.selectionBoxGroup,
-          getContentItem, getTransformTarget, toParentPoint
+          getContentItem: getPublicOwner, getTransformTarget, toParentPoint
         });
         return;
       }
@@ -1086,9 +901,9 @@ const _initSelectionTool = function() {
       let unifiedBounds = null;
 
       window.selectedItems.forEach(function(it) {
-        const displayItem = getContentItem(it);
+        const displayItem = getPublicOwner(it);
         if (!displayItem) return;
-        const b = (displayItem.bounds && displayItem.bounds.width > 0) ? displayItem.bounds : (it.data?.geomBase?.bounds || null);
+        const b = getPublicWorldBounds(displayItem);
         if (b) {
           unifiedBounds = !unifiedBounds ? b.clone() : unifiedBounds.unite(b);
         }
@@ -1415,7 +1230,7 @@ const _initSelectionTool = function() {
     window._lastDraggedRaster = null;
 
     if (window.marqueeActive && window.marqueePath) {
-      const marqueeBounds = window.marqueePath.bounds;
+      const marqueeGeometry = window.marqueePath.clone({ insert: false });
       window.marqueePath.remove();
       window.marqueePath = null;
       window.marqueeActive = false;
@@ -1425,13 +1240,11 @@ const _initSelectionTool = function() {
       if (layer && layer.children) {
         layer.children.forEach(function(item) {
           if (isMockupOrUI(item)) return;
-          const displayItem = getContentItem(item);
-          const b = displayItem ? displayItem.bounds : (item.data?.geomBase?.bounds || null);
-          if (b && marqueeBounds.intersects(b)) {
-            itemsToSelect.push(item);
-          }
+          const owner = getPublicOwner(item);
+          if (owner && intersectsMarquee(owner, marqueeGeometry)) itemsToSelect.push(owner);
         });
       }
+      try { marqueeGeometry.remove(); } catch (e) {}
 
       if (itemsToSelect.length > 0) {
         window.selectedItems = itemsToSelect;
