@@ -1,3 +1,4 @@
+import { getPublicOwner, getPublicOwners, getPublicWorldBounds, getOwnerLocalGeometry } from "./designGeometry.js";
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (v21.0 PRO - Top-Level Scope Stability)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
@@ -153,54 +154,13 @@ window.addEventListener('load', () => {
 
 
 // Helper universal de resolución de contenido dentro o fuera de clipGroup
-function getContentItem(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup) {
-        if (!item.children) return item;
-        const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-        if (content) return content;
-        return item.children[1] || item.children[0] || item;
-    }
-    return item;
-}
+
 
 // Sincronización recursiva profunda de geomBase para grupos simples y anidados
 export function syncGeomBaseDeep(item, delta) {
-    if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
-    
-    // Si ya existe en window una versión centralizada, usarla
-    if (typeof window.syncGeomBaseDeep === 'function' && window.syncGeomBaseDeep !== syncGeomBaseDeep) {
-        window.syncGeomBaseDeep(item, delta);
-        return;
-    }
-
-    const visited = new Set();
-    function recurse(target) {
-        if (!target || visited.has(target.id)) return;
-        visited.add(target.id);
-
-        // 1. Sincronizar geomBase directo del item
-        if (target.data && target.data.geomBase) {
-            target.data.geomBase.position = target.data.geomBase.position.add(delta);
-        }
-
-        // 2. Si es un clipGroup, descender a su contenido real
-        if (target.data && target.data.clipGroup && target.children) {
-            target.children.forEach(function(c) {
-                if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
-                    recurse(c);
-                }
-            });
-        }
-
-        // 3. Si es un Grupo, recorrer todos sus hijos de forma recursiva
-        if (target instanceof paper.Group && target.children && target.children.length > 0) {
-            target.children.forEach(function(child) {
-                recurse(child);
-            });
-        }
-    }
-    recurse(item);
+    // geomBase is detached identity-local. Owner matrices carry transforms;
+    // mutating geomBase here would double-apply alignment deltas.
+    return getPublicOwner(item) || null;
 }
 
 // Estilos CSS modernos (estilo Canva y Figma) para la barra de alineaciones y zoom
@@ -374,9 +334,9 @@ function getSelectionBounds(items) {
     if (!items || items.length === 0) return null;
     let rect = null;
     items.forEach(item => {
-        const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+        const displayItem = getPublicOwner(item);
         if (!displayItem) return;
-        const bounds = displayItem.bounds;
+        const bounds = getPublicWorldBounds(displayItem);
         if (!rect) {
             rect = bounds.clone();
         } else {
@@ -400,7 +360,7 @@ export const centerSelection = (axis) => {
 
     selected.forEach(item => {
         if (item.data && item.data.locked) return;
-        const target = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+        const target = item.data?.clipGroup ? getPublicOwner(item) : item;
         if (!target) return;
         const oldPos = target.position.clone();
         if (axis === "h" || axis === "both") {
@@ -433,8 +393,8 @@ export const distributeSpacing = (axis) => {
     if (typeof window.saveHistory === "function") window.saveHistory();
     let spacing = 0;
     const getActualBounds = (it) => {
-        const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
-        return displayItem ? displayItem.bounds : it.bounds;
+        const displayItem = getPublicOwner(it);
+        return displayItem ? getPublicWorldBounds(displayItem) : null;
     };
 
     if (axis === "h") {
@@ -452,9 +412,9 @@ export const distributeSpacing = (axis) => {
         for (let i = 0; i < selected.length; i++) {
             const item = selected[i];
             if (item.data && item.data.locked) continue;
-            const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+            const displayItem = item.data?.clipGroup ? getPublicOwner(item) : item;
             if (!displayItem) continue;
-            const bounds = displayItem.bounds;
+            const bounds = getPublicWorldBounds(displayItem);
             const halfWidth = bounds.width / 2;
             const oldX = displayItem.position.x;
             const newX = currentX + halfWidth;
@@ -478,9 +438,9 @@ export const distributeSpacing = (axis) => {
         for (let i = 0; i < selected.length; i++) {
             const item = selected[i];
             if (item.data && item.data.locked) continue;
-            const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+            const displayItem = item.data?.clipGroup ? getPublicOwner(item) : item;
             if (!displayItem) continue;
-            const bounds = displayItem.bounds;
+            const bounds = getPublicWorldBounds(displayItem);
             const halfHeight = bounds.height / 2;
             const oldY = displayItem.position.y;
             const newY = currentY + halfHeight;
@@ -516,8 +476,8 @@ export const drawDistributionGuides = (selected, axis, spacing) => {
     const mmSpacing = spacing * (window.mmPerPaperUnit || 1.0);
     const labelSpacing = mmSpacing.toFixed(1);
     const getActualBounds = (it) => {
-        const displayItem = it.data?.clipGroup ? it.children.find(c => !c.clipMask) : it;
-        return displayItem ? displayItem.bounds : it.bounds;
+        const displayItem = getPublicOwner(it);
+        return displayItem ? getPublicWorldBounds(displayItem) : null;
     };
 
     for (let i = 0; i < selected.length - 1; i++) {
@@ -590,9 +550,9 @@ export const alignSelection = (type = "centerX") => {
 
     if (selected.length === 1) {
         const item = selected[0];
-        const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+        const displayItem = getPublicOwner(item);
         if (!displayItem) return;
-        const bounds = displayItem.bounds;
+        const bounds = getPublicWorldBounds(displayItem);
         const target = displayItem;
         const oldPos = target.position.clone();
 
@@ -625,9 +585,9 @@ export const alignSelection = (type = "centerX") => {
 
         selected.forEach(item => {
             if (item.data && item.data.locked) return;
-            const displayItem = item.data?.clipGroup ? item.children.find(c => !c.clipMask) : item;
+            const displayItem = item.data?.clipGroup ? getPublicOwner(item) : item;
             if (!displayItem) return;
-            const bounds = displayItem.bounds;
+            const bounds = getPublicWorldBounds(displayItem);
             const target = displayItem;
             const oldPos = target.position.clone();
 
