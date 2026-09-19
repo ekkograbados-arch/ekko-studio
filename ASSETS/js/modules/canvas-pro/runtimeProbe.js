@@ -15,6 +15,7 @@ import { auditScene } from "./vectorSemantics.js";
     operations: [],
     errors: [],
     clicks: [],
+    gestures: [],
     wrapped: [],
     activeWrappers: new Map(),
     wrappedFns: new Set(),
@@ -29,6 +30,62 @@ import { auditScene } from "./vectorSemantics.js";
     x: Number(r.x) || 0, y: Number(r.y) || 0,
     width: Number(r.width) || 0, height: Number(r.height) || 0
   } : null;
+
+  function itemRef(item) {
+    if (!item) return null;
+    const data = item.data || {};
+    return {
+      id: item.id ?? null,
+      className: item.className || item.constructor?.name || null,
+      name: item.name || null,
+      semanticId: data.semanticId ?? null,
+      ownerId: data.ownerId ?? null,
+      fusionId: data.fusionId ?? item.fusionId ?? null,
+      sourceContourIndex: data.sourceContourIndex ?? null,
+      semanticKind: data.semanticKind ?? (data.isHole === true ? 'hole' : (data.isSolidShape === true ? 'solid' : null)),
+      isHole: data.isHole === true,
+      hasGeomBase: !!data.geomBase,
+      visible: item.visible !== false,
+      selected: !!item.selected
+    };
+  }
+
+  function ownerChainSnapshot(chain) {
+    if (!chain) return null;
+    return {
+      rawItem: itemRef(chain.rawItem),
+      publicOwner: itemRef(chain.publicOwner),
+      selectionUnit: itemRef(chain.selectionUnit),
+      transformOwner: itemRef(chain.transformOwner),
+      stackingUnit: itemRef(chain.stackingUnit),
+      fusionOwner: itemRef(chain.fusionOwner),
+      semanticKind: chain.semanticKind || null,
+      data: chain.data || null,
+      identity: chain.identity || null
+    };
+  }
+
+  function selectionState() {
+    const api = global.EKKO_SELECTION_API;
+    if (api?.describeSelectionState) {
+      try {
+        const state = api.describeSelectionState();
+        return {
+          primary: ownerChainSnapshot(state.primary),
+          items: Array.isArray(state.items) ? state.items.map(ownerChainSnapshot) : [],
+          paperSelected: Array.isArray(state.paperSelected) ? state.paperSelected.map(ownerChainSnapshot) : [],
+          interaction: state.interaction || null
+        };
+      } catch (_) {}
+    }
+    const items = Array.isArray(global.selectedItems) ? global.selectedItems : [];
+    return {
+      primary: itemRef(global.selectedItem),
+      items: items.map(itemRef),
+      paperSelected: [],
+      interaction: global.EKKO_INTERACTION?.snapshot?.() || null
+    };
+  }
 
   function safe(value, depth = 0, seen = new WeakSet()) {
     if (depth > 2 || value == null) return value == null ? value : '[MaxDepth]';
@@ -100,6 +157,7 @@ import { auditScene } from "./vectorSemantics.js";
       capturedAt: now(),
       selectedItem: null,
       selectedItems: [],
+      selectionContext: null,
       designLayer: null,
       fusionRecords: null,
       virtualHoles: null,
@@ -114,6 +172,9 @@ import { auditScene } from "./vectorSemantics.js";
     try {
       result.selectedItems = Array.isArray(global.selectedItems)
         ? global.selectedItems.map(itemSnapshot) : [];
+    } catch (_) {}
+    try {
+      result.selectionContext = selectionState();
     } catch (_) {}
     try {
       const p = global.paper;
@@ -158,6 +219,84 @@ import { auditScene } from "./vectorSemantics.js";
     op.after = documentSnapshot();
     op.ok = result.ok !== false;
     return op;
+  }
+
+  function eventPoint(event) {
+    try {
+      const p = global.paper?.view?.getEventPoint?.(event);
+      if (p) return { x: Number(p.x) || 0, y: Number(p.y) || 0 };
+    } catch (_) {}
+    return null;
+  }
+
+  function recordCanvasGesture(phase, event) {
+    if (!state.active || !event) return null;
+    const pointValue = eventPoint(event);
+    let target = null;
+    try {
+      target = pointValue && global.EKKO_SELECTION_API?.resolveInteractionTarget
+        ? global.EKKO_SELECTION_API.resolveInteractionTarget(pointValue, {
+          button: event.button,
+          shift: event.shiftKey,
+          ctrl: event.ctrlKey,
+          alt: event.altKey,
+          meta: event.metaKey
+        }) : null;
+    } catch (error) {
+      state.errors.push({ at: now(), type: 'selection-resolver', message: String(error?.stack || error) });
+    }
+    const gesture = {
+      id: `GESTURE-${String(state.gestures.length + 1).padStart(5, '0')}`,
+      at: now(),
+      phase,
+      eventType: event.type || null,
+      button: typeof event.button === 'number' ? event.button : null,
+      buttons: typeof event.buttons === 'number' ? event.buttons : null,
+      point: pointValue,
+      modifiers: {
+        shift: !!event.shiftKey,
+        ctrl: !!event.ctrlKey,
+        alt: !!event.altKey,
+        meta: !!event.metaKey
+      },
+      interaction: global.EKKO_INTERACTION?.snapshot?.() || null,
+      hit: target ? {
+        identity: target.chain?.identity || null,
+        semanticKind: target.chain?.semanticKind || null,
+        chain: ownerChainSnapshot(target.chain)
+      } : null,
+      selectionBefore: selectionState(),
+      selectionAfter: null
+    };
+    state.gestures.push(gesture);
+    if (state.gestures.length > 300) state.gestures.shift();
+    global.setTimeout(() => {
+      gesture.selectionAfter = selectionState();
+      gesture.interactionAfter = global.EKKO_INTERACTION?.snapshot?.() || null;
+      gesture.finishedAt = now();
+    }, 0);
+    return gesture;
+  }
+
+  let canvasListenersInstalled = false;
+  function installCanvasListeners() {
+    if (canvasListenersInstalled) return;
+    const canvas = global.document?.getElementById('editorCanvas');
+    if (!canvas) return;
+    const handler = event => {
+      const phase = event.type === 'mousedown' ? 'pointerdown'
+        : event.type === 'mouseup' ? 'pointerup'
+          : event.type === 'contextmenu' ? 'contextmenu'
+            : event.type === 'dblclick' ? 'doubleclick'
+              : 'pointermove';
+      if (phase === 'pointermove' && !event.buttons) return;
+      recordCanvasGesture(phase, event);
+    };
+    ['mousedown', 'mousemove', 'mouseup', 'contextmenu', 'dblclick'].forEach(type => {
+      canvas.addEventListener(type, handler, true);
+    });
+    canvasListenersInstalled = true;
+    state.wrapped.push({ name: 'canvas.pointer-trace', at: now(), active: true, original: 'editorCanvas' });
   }
 
   const WRAPPED_GLOBALS = [
@@ -209,8 +348,12 @@ import { auditScene } from "./vectorSemantics.js";
   const api = {
     start() {
       state.active = true;
-      if (!state.pollTimer) state.pollTimer = global.setInterval(installGlobalWrappers, 250);
+      if (!state.pollTimer) state.pollTimer = global.setInterval(() => {
+        installGlobalWrappers();
+        installCanvasListeners();
+      }, 250);
       installGlobalWrappers();
+      installCanvasListeners();
       return { ok: true };
     },
     stop() {
@@ -221,7 +364,7 @@ import { auditScene } from "./vectorSemantics.js";
       }
       return { ok: true };
     },
-    clear() { state.operations.length = 0; state.errors.length = 0; state.clicks.length = 0; return { ok: true }; },
+    clear() { state.operations.length = 0; state.errors.length = 0; state.clicks.length = 0; state.gestures.length = 0; return { ok: true }; },
     ready(details = {}) {
       state.ready = true;
       return finish(record('studio.ready', details), { ok: true, ready: true });
@@ -248,6 +391,7 @@ import { auditScene } from "./vectorSemantics.js";
     },
     record,
     getOperations() { return state.operations.slice(); },
+    getGestures() { return state.gestures.slice(); },
     getConsoleErrors() { return state.errors.slice(); },
     getWrapperState() {
       return {
@@ -257,13 +401,14 @@ import { auditScene } from "./vectorSemantics.js";
     },
     report() {
       return {
-        schema: 'ekko-runtime-probe/1',
+        schema: 'ekko-runtime-probe/2',
         generatedAt: now(),
         ready: state.ready,
         active: state.active,
         operations: state.operations.slice(),
         errors: state.errors.slice(),
         clicks: state.clicks.slice(),
+        gestures: state.gestures.slice(),
         wrappers: api.getWrapperState(),
         final: documentSnapshot()
       };
@@ -290,8 +435,12 @@ import { auditScene } from "./vectorSemantics.js";
 
   // Modo visible para validar desde el navegador sin depender de DevTools.
   // Activación: agregar ?runtimeDiag=1 a la URL de EKKO Studio.
-  state.pollTimer = global.setInterval(installGlobalWrappers, 250);
+  state.pollTimer = global.setInterval(() => {
+    installGlobalWrappers();
+    installCanvasListeners();
+  }, 250);
   installGlobalWrappers();
+  installCanvasListeners();
 
   if (global.location?.search?.includes('runtimeDiag=1')) {
     const panel = global.document?.createElement('pre');
@@ -304,7 +453,7 @@ import { auditScene } from "./vectorSemantics.js";
         try {
           const report = api.report();
           installGlobalWrappers();
-          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, wrappers: report.wrappers, clicks: report.clicks.slice(-8), final: report.final };
+          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, wrappers: report.wrappers, clicks: report.clicks.slice(-8), gestures: report.gestures.slice(-12), final: report.final };
           panel.textContent = JSON.stringify(compact, null, 2);
         } catch (error) { panel.textContent = `RUNTIME_PROBE_RENDER_ERROR: ${String(error)}`; }
       };
