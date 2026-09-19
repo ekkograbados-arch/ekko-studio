@@ -83,14 +83,18 @@ function realGeometryIntersects(a, b) {
     // never create a cutter pair.
     if (a.intersects?.(b) || b.intersects?.(a)) return true;
     if (a.getIntersections?.(b)?.length || b.getIntersections?.(a)?.length) return true;
-    const points = [
-      a.bounds.center, b.bounds.center,
-      a.bounds.topLeft, a.bounds.topRight,
-      a.bounds.bottomLeft, a.bounds.bottomRight,
-      b.bounds.topLeft, b.bounds.topRight,
-      b.bounds.bottomLeft, b.bounds.bottomRight
-    ].filter(Boolean);
-    return points.some(point => a.contains?.(point) || b.contains?.(point));
+    // For containment without a boundary crossing, test only the other
+    // geometry's center. Never test a shape against its own bounds corners:
+    // those points would make every overlapping bounding box look valid.
+    if (a.contains?.(b.bounds.center) || b.contains?.(a.bounds.center)) return true;
+    try {
+      const overlap = a.intersect?.(b, { insert: false });
+      const area = Math.abs(overlap?.area || 0);
+      overlap?.remove?.();
+      return area > 1e-7;
+    } catch (_) {
+      return false;
+    }
   } catch (_) {
     return false;
   }
