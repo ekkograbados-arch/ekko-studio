@@ -51,6 +51,7 @@ import {
   handleFusionEditKeyDown
 } from "./modules/canvas-pro/fusionEditMode.js";
 import "./modules/canvas-pro/interactionOwner.js"; // Árbitro único de interacción (Fase 0)
+import "./modules/canvas-pro/ownerGraph.js"; // Cadena única de owners públicos
 import "./modules/canvas-pro/fusionCore.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
