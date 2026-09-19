@@ -146,13 +146,25 @@ export function getPublicOwners(items, visited = new Set()) {
   const seenObjects = new Set();
   const seenIds = new Set();
   const basePath = visited instanceof Set ? visited : new Set();
-  (Array.isArray(items) ? items : [items]).forEach(item => {
-    const owner = getPublicOwner(item, new Set(basePath));
-    if (!owner || basePath.has(owner) || isMockupOrMask(owner) || isContainmentWrapper(owner)) return;
-    const id = dataOf(owner).ownerId || dataOf(owner).semanticId || dataOf(owner).fusionId;
+  const append = (item, path) => {
+    const owner = getPublicOwner(item, new Set(path));
+    if (!owner || path.has(owner) || isMockupOrMask(owner) || isContainmentWrapper(owner)) return;
+    const data = dataOf(owner);
+    const hasSemanticGeometry = !!data.geomBase || data.semanticKind === 'solid' ||
+      data.semanticKind === 'hole' || data.isHole === true || data.isSolidShape === true;
+    // A regular imported/user group is a selection/transform container, not a
+    // closed vector owner. Marquee and geometry consumers must descend to its
+    // public children instead of collapsing the result to the group.
+    if (owner.children?.length && !hasSemanticGeometry && !isFusionOwner(owner)) {
+      const nextPath = new Set(path); nextPath.add(owner);
+      Array.from(owner.children).forEach(child => append(child, nextPath));
+      return;
+    }
+    const id = data.ownerId || data.semanticId || data.fusionId;
     if (seenObjects.has(owner) || (id != null && seenIds.has(id))) return;
     seenObjects.add(owner); if (id != null) seenIds.add(id); result.push(owner);
-  });
+  };
+  (Array.isArray(items) ? items : [items]).forEach(item => append(item, basePath));
   return result;
 }
 
