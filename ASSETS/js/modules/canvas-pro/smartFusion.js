@@ -30,6 +30,7 @@ import {
 } from "./fusionController.js";
 import { ensureMockupContainment } from "../mockupLoader.js";
 import { getPublicOwner } from "./designGeometry.js";
+import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 // Estado global del snapping magnético
 let fusionPreviewGroup = null;   // Contiene halo fucsia + preview recortado translúcido
@@ -368,7 +369,9 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     receiverKind: originalIsHole ? 'hole' : 'solid',
     label: mode === 'calar' ? "Fusión Calada" : "Fusión Inteligente"
   };
-  fusionGroup.data.isHole = (mode === 'calar');
+  const fusionKind = (mode === 'calar' || originalIsHole)
+    ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID;
+  setSemanticKind(fusionGroup, fusionKind);
   fusionGroup.data.geomBase = originalVectorGeom.clone({ insert: false });
   maskItem.data = {
     ...(maskItem.data || {}),
@@ -379,6 +382,7 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     containmentKey: receiverContainmentKey,
     ownerContainmentKey
   };
+  setSemanticKind(maskItem, fusionKind);
 
   overrideChildrenSelection(fusionGroup);
 
