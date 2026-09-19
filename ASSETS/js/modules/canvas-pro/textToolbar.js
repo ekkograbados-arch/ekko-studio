@@ -1,3 +1,4 @@
+import { getPublicOwner, getPublicOwners, isMockupOrMask } from "./designGeometry.js";
 /* =========================================================================
 Módulo: js/modules/canvas-pro/textToolbar.js (v7 PRO - LAZY LOADING OPTIMIZED)
 Ruta de reemplazo: js/modules/canvas-pro/textToolbar.js
@@ -154,7 +155,7 @@ export async function applyTextCurve(item, curvature, options = {}) {
         item.data.fontWeight = fontWeight;
         item.data.fontStyle = fontStyle;
     } else {
-        const textChild = item.children.find(c => c instanceof paper.PointText || c.data?.isCurvedGroup);
+        const textChild = item.children.map(getPublicOwner).filter(Boolean).find(c => c instanceof paper.PointText || c.data?.isCurvedGroup);
         if (textChild) {
             applyTextCurve(textChild, curvature, options);
             window.updateSelectionBox(item);
@@ -306,7 +307,7 @@ export function applyTextSpacing(item, hspace) {
 
     let target = item;
     if (item.data?.clipGroup) {
-        target = item.children.find(c => !c.clipMask);
+        target = getPublicOwner(item);
     }
 
     if (target instanceof paper.PointText) {
@@ -372,14 +373,16 @@ export function applyTextSpacing(item, hspace) {
 }
 
 function findTextTarget(item) {
-    if (!item) return null;
-    if (item instanceof paper.PointText) return item;
-    if (item.data?.clipMask || item.clipMask || item.data?.isMask || item.data?.wasClipMask) return null;
-    if (item.children) {
-        const children = Array.from(item.children);
-        for (const child of children) {
-            const found = findTextTarget(child);
-            if (found) return found;
+    const owner = getPublicOwner(item);
+    if (!owner || isMockupOrMask(owner)) return null;
+    if (owner instanceof paper.PointText || owner.data?.isCurvedGroup || owner.data?.isSpacedGroup) return owner;
+    if (owner.children) {
+        for (const child of owner.children) {
+            const publicChild = getPublicOwner(child);
+            if (publicChild && publicChild !== owner && !isMockupOrMask(publicChild)) {
+                const found = findTextTarget(publicChild);
+                if (found) return found;
+            }
         }
     }
     return null;
@@ -485,6 +488,9 @@ export async function weldText(item) {
     if (parent) {
         const index = parent.children.indexOf(target);
         parent.insertChild(index, resultPath);
+        // PointText's transform belongs to the public owner. Apply it once to
+        // the new owner; fontToPath intentionally returned identity-local data.
+        if (target.matrix && resultPath.matrix) resultPath.matrix = target.matrix.clone();
     }
 
     // Calibración final contra la geometría visual del PointText. Esto evita
@@ -522,8 +528,18 @@ export async function weldText(item) {
     // hit-test consumers; the snapshot itself is intentionally identity-local.
     const calibratedBase = resultPath.clone({ insert: false });
     calibratedBase.fillRule = "evenodd";
+    const baseMatrix = calibratedBase.matrix?.clone?.();
+    calibratedBase.applyMatrix = false;
+    calibratedBase.matrix = new paper.Matrix();
+    if (baseMatrix && !baseMatrix.isIdentity()) calibratedBase.transform(baseMatrix);
+    calibratedBase.applyMatrix = false;
+    calibratedBase.matrix = new paper.Matrix();
     resultPath.data.geomBase = calibratedBase;
     resultPath.data.fillRule = "evenodd";
+    resultPath.data.contours = converted.data?.contours || Array.from(resultPath.children || []).map((child, index) => ({
+        contourIndex: index, contourRole: index === 0 ? "outer" : "hole",
+        originalIsHole: index !== 0, fillRule: "evenodd"
+    }));
     // La identidad semántica se estampa después de calibrar la geometría y
     // antes de publicarla. Nunca se publica un vector a medio registrar.
     stampDesignItem(resultPath, {
@@ -533,6 +549,9 @@ export async function weldText(item) {
         isFusionReceptor: true,
         hasInternalHoles: true
     });
+    resultPath.data = { ...(resultPath.data || {}), source: "text-vector", role: "letter",
+        isTextVector: true, isFusionReceptor: true, hasInternalHoles: true,
+        fillRule: "evenodd", geomBase: resultPath.data.geomBase };
     target.remove();
     try { converted.remove(); } catch (e) {}
     try { pathGroup.remove(); } catch (e) {}
@@ -580,7 +599,7 @@ export function toggleBold(item) {
 
     let target = item;
     if (item.data?.clipGroup) {
-        target = item.children.find(c => !c.clipMask);
+        target = getPublicOwner(item);
     }
 
     const toggleBoldState = (txtItem) => {
@@ -609,7 +628,7 @@ export function toggleItalic(item) {
 
     let target = item;
     if (item.data?.clipGroup) {
-        target = item.children.find(c => !c.clipMask);
+        target = getPublicOwner(item);
     }
 
     const toggleItalicState = (txtItem) => {
@@ -638,7 +657,7 @@ export function toggleUnderline(item) {
 
     let target = item;
     if (item.data?.clipGroup) {
-        target = item.children.find(c => !c.clipMask);
+        target = getPublicOwner(item);
     }
 
     if (target instanceof paper.Group && target.data?.isUnderlinedGroup) {
