@@ -307,12 +307,27 @@ export function canFuse(raster, receptor) {
 
 // ===== Calado =====
 export function canConvertToCalado(item) {
-  if (!item) return false;
-  if (isProductElement(item)) return false;
-  const d = item.data;
-  return !!(
-    d.isHole === true ||
-    d.hasInternalHoles === true ||
-    d.isFusionReceptor === true
-  );
+  if (!item || isProductElement(item)) return false;
+  const d = item.data || {};
+
+  // Original/source-derived holes are already physical cutters.  Calado must
+  // never mutate their identity into a synthetic calado or alpha-zero path.
+  if (d.originalIsHole === true || d.contourRole === "hole" || d.isHole === true) return false;
+  if (d.isCalado === true) return false;
+
+  // A fusion is eligible only when it is a genuine solid fusion.  Being a
+  // receptor alone is not evidence that a solid can be converted.
+  if (d.isSmartFusion || d.fusionId) {
+    return d.originalIsHole !== true && d.receiverKind !== "hole" &&
+      d.isHole !== true && (d.fusionMode !== "calar" || d.isSolidShape === true || d.originalIsHole === false);
+  }
+
+  // Decomposed/imported vectors carry isSolidShape.  The source/type fallback
+  // covers a closed client vector that has not yet been decomposed, but never
+  // relies on isFusionReceptor by itself.
+  const isClientVector = d.userImported === true &&
+    ["client-svg", "text-vector", "traced", "calado"].includes(d.source);
+  return d.isSolidShape === true ||
+    (isClientVector && d.originalIsHole !== true && d.contourRole !== "hole" &&
+      d.hasInternalHoles !== false);
 }
