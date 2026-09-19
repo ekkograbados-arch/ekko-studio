@@ -1,3 +1,4 @@
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds } from "./modules/canvas-pro/designGeometry.js";
 
 /* =========================================================================
    Modulo: ASSETS/js/editor.js (v26.0 PRO - SVG Import, Stacking CSG & Reactive Z-Order Engine)
@@ -91,7 +92,7 @@ window.toggleNodeEditMode = function() {
 window.traceRaster = function(item = null) {
   const selected = item || window.selectedItem ||
     (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
-  const target = getContentItem(selected);
+  const target = getPublicOwner(selected);
   if (!target || !(target instanceof paper.Raster)) {
     alert("Seleccioná primero una imagen para trazarla.");
     return null;
@@ -103,7 +104,7 @@ window.removeBackground = function() {
   const api = window.EKKO?.BackgroundRemover;
   const selected = window.selectedItem ||
     (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
-  const target = getContentItem(selected);
+  const target = getPublicOwner(selected);
   if (api?.eliminarFondoInteligente && target instanceof paper.Raster) {
     return api.eliminarFondoInteligente(target);
   }
@@ -137,7 +138,7 @@ window.toggleOutline = function() {
     ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
   if (!selected.length) return null;
   selected.forEach(item => {
-    const target = getContentItem(item);
+    const target = getPublicOwner(item);
     if (!target) return;
     if (target.__ekkoOutlineSnapshot) {
       const snap = target.__ekkoOutlineSnapshot;
@@ -166,24 +167,12 @@ window.mmPerPaperUnit = window.mmPerPaperUnit || 1.0;
 window.currentMockup = window.currentMockup || null;
 window.grabArea = window.grabArea || null;
 window.clipMask = window.clipMask || null;
+// Legacy callers receive only the canonical public owner.
+window.getContentItem = getPublicOwner;
 window.infiniteCanvasMode = typeof window.infiniteCanvasMode !== 'undefined' ? window.infiniteCanvasMode : true;
 window.selectedItems = window.selectedItems || [];
 window.selectedItem = window.selectedItem || null;
 
-// Saneador local de elementos de contencion
-function getContentItem(item) {
-  if (!item) return null;
-  if (item.data && item.data.clipGroup) {
-    if (!item.children) return item;
-    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    if (content) return content;
-    const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-    if (fallback) return fallback;
-    return item.children[1] || item.children[0] || item;
-  }
-  return item;
-}
-window.getContentItem = getContentItem;
 
 // Estilos CSS para el lienzo infinito
 const infiniteCanvasStylesId = 'ekko-infinite-canvas-styles';
@@ -737,7 +726,7 @@ function updateSelectionInfo() {
     if (objH) objH.value = "";
     return;
   }
-  const displayItem = getContentItem(window.selectedItem);
+  const displayItem = getPublicOwner(window.selectedItem);
   const selInfo = document.getElementById("selectionInfo");
   const objW = document.getElementById("objWidth");
   const objH = document.getElementById("objHeight");
@@ -905,8 +894,8 @@ function isMockupOrUIItem(item) {
 
 function itemsOverlapSpatial(itemA, itemB) {
   if (!itemA || !itemB || itemA === itemB) return false;
-  const contentA = getContentItem(itemA);
-  const contentB = getContentItem(itemB);
+  const contentA = getPublicOwner(itemA);
+  const contentB = getPublicOwner(itemB);
   if (!contentA || !contentB) return false;
   if (!contentA.bounds || !contentB.bounds) return false;
   if (!contentA.bounds.intersects(contentB.bounds)) {
@@ -1066,21 +1055,30 @@ window.sendBackward = sendBackward;
 
 // Helper para inicializar geomBase recursivamente en geometrias importadas
 function initGeomBaseRecursive(item) {
-  if (!item) return;
-  if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
-    if (!item.data) item.data = {};
-    if (!item.data.geomBase) {
-      const baseClone = item.clone({ insert: false });
-      // geomBase is owner-local; the live owner's matrix carries world
-      // placement and is applied exactly once by CSG consumers.
-      baseClone.applyMatrix = false;
-      baseClone.matrix = new paper.Matrix();
-      item.data.geomBase = baseClone;
+  if (!item || isMockupOrMask(item) || isContainmentWrapper(item)) {
+    // A wrapper can contain a public child; normalize that child explicitly.
+    item?.children?.forEach(initGeomBaseRecursive);
+    return;
+  }
+  const owner = getPublicOwner(item);
+  if (owner === item && (item instanceof paper.Path || item instanceof paper.CompoundPath)) {
+    item.data = item.data || {};
+    const old = item.data.geomBase;
+    if (!old) item.data.geomBase = getOwnerLocalGeometry(item);
+    else {
+      const normalized = old.clone({ insert: false });
+      const matrix = normalized.matrix?.clone?.();
+      normalized.applyMatrix = false; normalized.matrix = new paper.Matrix();
+      if (matrix && !matrix.isIdentity()) normalized.transform(matrix);
+      normalized.applyMatrix = false; normalized.matrix = new paper.Matrix();
+      item.data.geomBase = normalized;
+    }
+    if (item.data.geomBase) {
+      item.data.geomBase.applyMatrix = false;
+      item.data.geomBase.matrix = new paper.Matrix();
     }
   }
-  if (item instanceof paper.Group && item.children) {
-    item.children.forEach(initGeomBaseRecursive);
-  }
+  item.children?.forEach(initGeomBaseRecursive);
 }
 
 // Carga de Archivos e Importación
