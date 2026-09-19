@@ -474,8 +474,11 @@ const _updateSelectionBox = function(item) {
         tightOutline.strokeColor = new paper.Color('#06b6d4'); // Cian técnico LightBurn
         tightOutline.strokeWidth = 1.8 / paper.view.zoom;
         tightOutline.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
-        tightOutline.fillColor = new paper.Color(6, 182, 212, 0.08); // Relleno cian sutil semitransparente
-        tightOutline.data = { isSelectionBox: true, isHoleTightOutline: true };
+        // A hole is a physical cutter, never a translucent painted shape.
+        // Selection feedback is stroke-only and lives in the UI overlay, not
+        // in the design geometry or laser export.
+        tightOutline.fillColor = null;
+        tightOutline.data = { isSelectionBox: true, isHoleTightOutline: true, uiOnly: true };
         window.selectionBoxGroup.addChild(tightOutline);
       }
     } else if (displayItem instanceof paper.Group && displayItem.children) {
@@ -491,8 +494,8 @@ const _updateSelectionBox = function(item) {
             childOutline.strokeColor = new paper.Color('#06b6d4');
             childOutline.strokeWidth = 1.8 / paper.view.zoom;
             childOutline.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
-            childOutline.fillColor = new paper.Color(6, 182, 212, 0.08);
-            childOutline.data = { isSelectionBox: true, isHoleTightOutline: true };
+            childOutline.fillColor = null;
+            childOutline.data = { isSelectionBox: true, isHoleTightOutline: true, uiOnly: true };
             window.selectionBoxGroup.addChild(childOutline);
           }
         }
