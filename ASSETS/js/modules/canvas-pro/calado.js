@@ -15,6 +15,7 @@ import {
     updateFusionRecord
 } from "./fusionCore.js";
 import { syncFusionVirtualHole } from "./fusionController.js";
+import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 function selectedItems() {
     if (Array.isArray(window.selectedItems) && window.selectedItems.length) {
@@ -90,6 +91,7 @@ function markHole(target) {
     const previousStroke = target.data?.originalStrokeColor?.clone?.() || target.strokeColor?.clone?.();
     const previousStrokeWidth = target.data?.originalStrokeWidth || target.strokeWidth || 0;
 
+    setSemanticKind(target, VECTOR_KIND.HOLE);
     target.data = {
         ...(target.data || {}),
         isHole: true,
@@ -115,14 +117,16 @@ function markHole(target) {
     // disponible para CSG. La lectura visual del hueco la aporta el overlay
     // de selección, no un alpha casi cero en el objeto de diseño.
     target.fillColor = null;
-    target.strokeColor = target.data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
-    target.strokeWidth = target.data.originalStrokeWidth || (1 / (paper.view.zoom || 1));
+    target.strokeColor = null;
+    target.strokeWidth = 0;
     target.opacity = 1;
+    target.visible = false;
     return ensureMockupContainment(target);
 }
 
 function markFusionHole(fusion) {
     if (!fusion || fusion.data?.originalIsHole === true) return false;
+    setSemanticKind(fusion, VECTOR_KIND.HOLE);
     const currentMask = fusion.children?.find(child => child?.clipMask || child?.data?.isFusionMask);
     fusion.data = {
         ...(fusion.data || {}),
@@ -148,6 +152,74 @@ function markFusionHole(fusion) {
     });
     syncFusionVirtualHole(fusion);
     return true;
+}
+
+function restoreSolidGeometry(target) {
+    if (!target) return null;
+    const base = target.data?.geomBase;
+    if (base?.clone) {
+        const clone = base.clone({ insert: false });
+        if (target instanceof paper.Path && clone instanceof paper.Path) {
+            target.removeSegments();
+            target.addSegments(clone.segments);
+            clone.remove();
+        } else {
+            target.removeChildren?.();
+            if (clone instanceof paper.CompoundPath) {
+                target.addChildren(clone.removeChildren());
+                clone.remove();
+            } else {
+                target.addChild?.(clone);
+            }
+        }
+    }
+    setSemanticKind(target, VECTOR_KIND.SOLID);
+    target.data = {
+        ...(target.data || {}),
+        isHole: false,
+        isSolidShape: true,
+        isCalado: false,
+        filledFromHole: true,
+        label: "Relleno",
+        originalFillColor: target.data?.originalFillColor || new paper.Color("#111827")
+    };
+    target.fillColor = target.data.originalFillColor.clone?.() || target.data.originalFillColor;
+    target.strokeColor = target.data.originalStrokeColor?.clone?.() || null;
+    target.strokeWidth = target.data.originalStrokeWidth || 0;
+    target.visible = true;
+    return target;
+}
+
+export function convertSelectionToSolid(item = null) {
+    const targets = item ? [item] : selectedItems();
+    if (targets.length !== 1) return null;
+    const resolved = getVectorTarget(targets[0]);
+    if (resolved.fusion) {
+        const fusion = resolved.fusion;
+        setSemanticKind(fusion, VECTOR_KIND.SOLID);
+        fusion.data = {
+            ...(fusion.data || {}),
+            isHole: false, isSolidShape: true, isCalado: false,
+            receiverKind: "solid", filledFromHole: true
+        };
+        updateFusionRecord(fusion, {
+            semanticKind: VECTOR_KIND.SOLID,
+            receiverKind: "solid",
+            originalIsHole: false,
+            mode: "intersecar"
+        });
+        syncFusionVirtualHole(fusion);
+        window.recalculateDynamicSubtractions?.();
+        return fusion;
+    }
+    if (!resolved.vector || isProductElement(resolved.vector)) return null;
+    if (!resolved.vector.data?.isHole && resolved.vector.data?.semanticKind !== VECTOR_KIND.HOLE) return resolved.vector;
+    if (typeof window.saveHistory === "function") window.saveHistory();
+    const solid = restoreSolidGeometry(resolved.vector);
+    window.recalculateDynamicSubtractions?.();
+    window.selectItem?.(solid);
+    paper.view.update();
+    return solid;
 }
 
 export function canConvertSelectionToCalado(item = null) {
@@ -194,4 +266,5 @@ export function convertSelectionToCalado(item = null) {
 if (typeof window !== "undefined") {
     window.convertSelectionToCalado = convertSelectionToCalado;
     window.canConvertSelectionToCalado = canConvertSelectionToCalado;
+    window.convertSelectionToSolid = convertSelectionToSolid;
 }
