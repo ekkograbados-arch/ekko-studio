@@ -110,12 +110,13 @@ function markHole(target) {
         }
     }
 
-    // Calado es una perforación real: no puede volver a pintar el área que
-    // acaba de sustraerse del sólido. Se conserva como objeto seleccionable
-    // mediante alpha mínimo, sin relleno ni contorno cosmético.
-    target.fillColor = new paper.Color(0, 0, 0, 0.0001);
-    target.strokeColor = null;
-    target.strokeWidth = 0;
+    // Calado es una perforación real. La geometría física no se vuelve una
+    // transparencia cosmética: el owner permanece cerrado, seleccionable y
+    // disponible para CSG. La lectura visual del hueco la aporta el overlay
+    // de selección, no un alpha casi cero en el objeto de diseño.
+    target.fillColor = null;
+    target.strokeColor = target.data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
+    target.strokeWidth = target.data.originalStrokeWidth || (1 / (paper.view.zoom || 1));
     target.opacity = 1;
     return ensureMockupContainment(target);
 }
