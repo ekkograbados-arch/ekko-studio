@@ -97,7 +97,8 @@
       virtualHoles: null,
       transformTransaction: null,
       textVectorDiag: null,
-      commandState: null
+      commandState: null,
+      csgReport: null
     };
     try { result.selectedItem = itemSnapshot(global.selectedItem); } catch (_) {}
     try {
@@ -116,6 +117,7 @@
     try { result.transformTransaction = safe(global._ekkoTransformTransaction); } catch (_) {}
     try { result.textVectorDiag = safe(global._ekkoTextVectorDiag); } catch (_) {}
     try { result.commandState = safe(global.EKKO_COMMAND_STATE); } catch (_) {}
+    try { result.csgReport = safe(global.EKKO_CSG_LAST_REPORT); } catch (_) {}
     return result;
   }
 
