@@ -365,8 +365,32 @@ function applyHoleVisualStyle(item) {
 // actual owner/wrapper ancestry, not on docOrder or containment metadata,
 // because moving an item must change the physical cut without changing its
 // `isHole` identity.
+function getStackingUnit(item) {
+    const owner = getPublicOwner(item) || item;
+    if (!owner) return null;
+    let unit = owner;
+    let parent = unit.parent;
+    const visited = new Set();
+    while (parent && !visited.has(parent)) {
+        visited.add(parent);
+        if (!isContainmentWrapper(parent)) break;
+        unit = parent;
+        parent = parent.parent;
+    }
+    return unit;
+}
+
 function isAboveInRenderOrder(candidate, reference) {
     if (!candidate || !reference || candidate === reference) return false;
+    const a = getStackingUnit(candidate);
+    const b = getStackingUnit(reference);
+    if (!a || !b || a === b) return false;
+    // Public owners inside clipping wrappers are compared at the wrapper
+    // level. Comparing the owner against its sibling mask was the reason
+    // real holes were classified correctly but never selected as cutters.
+    if (a.parent && a.parent === b.parent) {
+        return a.index > b.index;
+    }
     const chain = item => {
         const result = [];
         let current = item;
@@ -376,19 +400,17 @@ function isAboveInRenderOrder(candidate, reference) {
         }
         return result;
     };
-    const a = chain(candidate);
-    const b = chain(reference);
-    const length = Math.min(a.length, b.length);
+    const ca = chain(a), cb = chain(b);
+    const length = Math.min(ca.length, cb.length);
     let common = 0;
-    while (common < length && a[common] === b[common]) common++;
+    while (common < length && ca[common] === cb[common]) common++;
     if (common === 0) return false;
     if (common < length) {
-        const aIndex = typeof a[common].index === 'number' ? a[common].index : -1;
-        const bIndex = typeof b[common].index === 'number' ? b[common].index : -1;
+        const aIndex = typeof ca[common].index === 'number' ? ca[common].index : -1;
+        const bIndex = typeof cb[common].index === 'number' ? cb[common].index : -1;
         return aIndex > bIndex;
     }
-    // A descendant is rendered inside/on top of its ancestor.
-    return a.length > b.length;
+    return ca.length > cb.length;
 }
 
 function extractSubtractiveItems(topList) {
