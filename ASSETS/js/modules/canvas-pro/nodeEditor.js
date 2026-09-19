@@ -18,18 +18,12 @@ AUTORIDAD: REPOSITORIO CANÓNICO V9 / PACTO DE ESTABILIDAD
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { interactionOwner } from "./interactionOwner.js";
+import { getPublicOwner } from "./designGeometry.js";
 
-// Helper universal de resolución de contenido dentro o fuera de clipGroup
+// Única resolución de owner público. Los wrappers de contención y máscaras
+// no deben convertirse en el objeto de edición de nodos.
 function getContentItem(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup) {
-        if (!item.children) return item;
-        const childrenArr = Array.from(item.children);
-        const content = childrenArr.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-        if (content) return content;
-        return item.children[1] || item.children[0] || item;
-    }
-    return item;
+    return getPublicOwner(item) || item || null;
 }
 
 // Variables de Estado de la Herramienta de Edición de Nodos
@@ -550,7 +544,11 @@ export async function enterNodeEditMode(item) {
 // Helper de disparo seguro de recálculo CSG
 function safeRecalculateSubtractions() {
     if (typeof recalculateDynamicSubtractions === 'function') {
-        recalculateDynamicSubtractions(null, true);
+        // The second argument is the current virtual-hole collection, not a
+        // boolean flag. Passing true silently disabled the intended CSG path.
+        const virtualHoles = Array.isArray(window._fusionVirtualHoles)
+            ? window._fusionVirtualHoles : [];
+        recalculateDynamicSubtractions(null, virtualHoles);
     }
 }
 
