@@ -1,3 +1,5 @@
+import { getPublicOwner } from "./designGeometry.js";
+
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/imageToolbar.js (v36.0 PRO - Smart Spatial Collision Z-Order & LightBurn Stacking)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/imageToolbar.js
@@ -20,16 +22,7 @@ Incorpora:
 ========================================================================= */
 
 function getContentItem(item) {
-  if (!item) return null;
-  if (item.data && item.data.clipGroup) {
-    if (!item.children) return item;
-    const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-    if (content) return content;
-    const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-    if (fallback) return fallback;
-    return item.children[1] || item.children[0] || item;
-  }
-  return item;
+  return getPublicOwner(item) || item || null;
 }
 
 function isMockupOrUI(item) {
