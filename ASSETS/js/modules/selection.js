@@ -5,6 +5,7 @@ import {
   transformFusion, transformPublicItem, notifyTransformObservers, resolvePublicTransformOwner
 } from "./canvas-pro/fusionController.js";
 import { rotationController } from "./canvas-pro/rotationController.js";
+import { semanticKind, getStackingUnit } from "./canvas-pro/vectorSemantics.js";
 import {
   handleFusionEditPointerDown,
   handleFusionEditPointerDrag,
@@ -780,6 +781,81 @@ function isMockupOrUI(item) {
 }
 
 /**
+ * Construye la cadena de ownership que debe acompañar a cada interacción.
+ * No sustituye owners ni modifica selección: es la única descripción pública
+ * que consume el runtime probe y los diagnósticos de interacción.
+ */
+function describeSelectionOwner(item) {
+  const publicOwner = getPublicOwner(item);
+  const base = publicOwner || item || null;
+  if (!base) return null;
+  let transformOwner = null;
+  let fusionOwner = null;
+  try { transformOwner = resolvePublicTransformOwner(base); } catch (_) {}
+  try {
+    fusionOwner = base.data?.isSmartFusion
+      ? base
+      : (typeof window.findSmartFusionContainer === 'function'
+        ? window.findSmartFusionContainer(base) : null);
+  } catch (_) {}
+  let stackingUnit = null;
+  let selectionUnit = null;
+  try { stackingUnit = getStackingUnit(base); } catch (_) {}
+  try { selectionUnit = _getSelectableItem(base); } catch (_) {}
+  const data = base.data || {};
+  return {
+    rawItem: item || null,
+    publicOwner: base,
+    selectionUnit: selectionUnit || base,
+    transformOwner: transformOwner || base,
+    stackingUnit: stackingUnit || base,
+    fusionOwner: fusionOwner || null,
+    semanticKind: semanticKind(base) || null,
+    identity: {
+      id: base.id ?? null,
+      semanticId: data.semanticId ?? null,
+      ownerId: data.ownerId ?? null,
+      fusionId: data.fusionId ?? base.fusionId ?? null,
+      sourceContourIndex: data.sourceContourIndex ?? null,
+      className: base.className || base.constructor?.name || null
+    },
+    data: {
+      isHole: data.isHole === true,
+      hasGeomBase: !!data.geomBase,
+      source: data.source ?? null,
+      contourRole: data.contourRole ?? null
+    }
+  };
+}
+
+function resolveInteractionTarget(point, options = {}) {
+  const target = point ? findItemAtPoint(point) : null;
+  const chain = target ? describeSelectionOwner(target) : null;
+  return {
+    point: point ? { x: Number(point.x) || 0, y: Number(point.y) || 0 } : null,
+    button: options.button ?? null,
+    modifiers: {
+      shift: !!options.shift,
+      ctrl: !!options.ctrl,
+      alt: !!options.alt,
+      meta: !!options.meta
+    },
+    target,
+    chain
+  };
+}
+
+function describeSelectionState() {
+  const items = Array.isArray(window.selectedItems) ? window.selectedItems.filter(Boolean) : [];
+  return {
+    primary: describeSelectionOwner(window.selectedItem),
+    items: items.map(describeSelectionOwner).filter(Boolean),
+    paperSelected: (paper?.project?.selectedItems || []).map(describeSelectionOwner).filter(Boolean),
+    interaction: window.EKKO_INTERACTION?.snapshot?.() || null
+  };
+}
+
+/**
  * Inicializador de la herramienta principal de selección de Paper.js
  */
 function toParentPoint(item, globalPoint) {
@@ -1529,6 +1605,12 @@ function _commitSelection(item, items = null) {
   return window.selectedItem;
 }
 window.commitSelection = _commitSelection;
+window.EKKO_SELECTION_API = {
+  resolveInteractionTarget,
+  describeSelectionOwner,
+  describeSelectionState,
+  getSelectableItem: _getSelectableItem
+};
 
 protectGlobal('getSelectableItem', _getSelectableItem);
 protectGlobal('updateSelectionBox', _updateSelectionBox);
