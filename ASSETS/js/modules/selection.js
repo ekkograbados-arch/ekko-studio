@@ -743,15 +743,33 @@ function findDesignHitInside(item, point) {
 function findItemAtPoint(point) {
   const layer = paper.project?.layers?.find(l => l.name === 'designLayer') || paper.project?.activeLayer;
   if (!layer?.children?.length) return null;
+  const owners = [];
+  const seen = new Set();
   for (let i = layer.children.length - 1; i >= 0; i--) {
     const candidate = getPublicOwner(layer.children[i]);
-    if (!candidate || isMockupOrMask(candidate) || isContainmentWrapper(candidate)) continue;
+    if (!candidate || isMockupOrMask(candidate) || isContainmentWrapper(candidate) || seen.has(candidate)) continue;
+    seen.add(candidate);
+    owners.push(candidate);
+  }
+  const hitOwner = candidate => {
     const hit = hitTestOwner(candidate, point, 8 / (paper.view?.zoom || 1));
-    if (hit) {
-      const fusion = typeof window.findSmartFusionContainer === 'function'
-        ? window.findSmartFusionContainer(hit) : null;
-      return fusion || hit;
+    if (!hit) return null;
+    const fusion = typeof window.findSmartFusionContainer === 'function'
+      ? window.findSmartFusionContainer(hit) : null;
+    return fusion || hit;
+  };
+  // A hidden physical hole must win over a visible solid covering it. This is
+  // the selection contract that lets Shift-click and marquee selection choose
+  // a real cutter instead of the painted object above it.
+  for (const candidate of owners) {
+    if (candidate.data?.isHole === true) {
+      const holeHit = hitOwner(candidate);
+      if (holeHit) return holeHit;
     }
+  }
+  for (const candidate of owners) {
+    const hit = hitOwner(candidate);
+    if (hit) return hit;
   }
   return null;
 }
