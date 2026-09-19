@@ -180,7 +180,8 @@ export function syncFusionVirtualHole(fusionOrRecord) {
 
     if (!record || !record.fusionId) return null;
     const group = getRecordGroup(record);
-    const shouldBeHole = record.mode === "intersecar" && record.originalIsHole === true;
+    const shouldBeHole = record.mode === "intersecar" &&
+        (record.semanticKind === "hole" || record.originalIsHole === true);
 
     if (!shouldBeHole || !group?.project) {
         unregisterVirtualHole(record.fusionId);
