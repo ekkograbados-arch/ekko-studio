@@ -1,4 +1,5 @@
 import { getPublicOwner } from "./designGeometry.js";
+import { buildContourRelations, applyContourRecord } from "./holeSemantics.js";
 /*
  * Conversión de glifos OpenType a geometría Paper.js.
  * Requiere opentype.js cargado como window.opentype.
@@ -163,36 +164,31 @@ export async function textToCompoundPath(textItem) {
     compound.applyMatrix = false;
     compound.matrix = new paper.Matrix();
 
-    // Build semantic topology in the same local space. A contour's explicit
-    // source metadata wins; otherwise parity of the containment tree does.
-    const nodes = usable.map((path, index) => ({ path, index, area: Math.abs(path.area || 0), parent: null, depth: 0 }));
-    nodes.forEach(node => {
-        let best = null;
-        nodes.forEach(candidate => {
-            if (candidate === node || candidate.area <= node.area) return;
-            if (!candidate.path.bounds.contains(node.path.bounds)) return;
-            const probe = node.path.bounds.center;
-            try {
-                if (candidate.path.contains(probe) && (!best || candidate.area < best.area)) best = candidate;
-            } catch (_) {}
-        });
-        node.parent = best;
-        if (best) best.children = (best.children || []).concat(node);
-    });
-    const depthOf = node => { node.depth = node.parent ? depthOf(node.parent) + 1 : 0; return node.depth; };
-    nodes.forEach(depthOf);
+    // Build semantic topology through the shared contour contract. The old
+    // route used a private bounds/center heuristic and then assumed depth
+    // parity; that made multi-glyph strings such as OO ambiguous.
+    const { nodes } = buildContourRelations(usable, { fillRule: "evenodd" });
     const contourMeta = nodes.map(node => {
-        const explicit = typeof node.path.data?.originalIsHole === "boolean" ? node.path.data.originalIsHole : null;
-        const isHole = explicit !== null ? explicit : node.depth % 2 === 1;
-        node.path.data = { ...(node.path.data || {}), contourIndex: node.index,
-            contourDepth: node.depth, contourRole: isHole ? "hole" : "outer",
-            originalIsHole: isHole, fillRule: "evenodd", source: "text-vector" };
-        return { contourIndex: node.index, contourDepth: node.depth,
-            contourRole: isHole ? "hole" : "outer", originalIsHole: isHole,
-            fillRule: "evenodd" };
+        const record = {
+            ...node.contourRecord,
+            contourIndex: node.index,
+            contourDepth: node.depth,
+            isHole: node.isHole,
+            originalIsHole: node.isHole,
+            fillRule: "evenodd"
+        };
+        applyContourRecord(node.path, record);
+        node.path.data = { ...(node.path.data || {}),
+            contourIndex: node.index,
+            contourDepth: node.depth,
+            contourRole: node.isHole ? "hole" : "outer",
+            originalIsHole: node.isHole,
+            fillRule: "evenodd", source: "text-vector" };
+        return record;
     });
     compound.data = { ...(compound.data || {}), source: "text-vector", fillRule: "evenodd",
-        contours: contourMeta, hasInternalHoles: contourMeta.some(c => c.originalIsHole) };
+        originalFillRule: "evenodd", contours: contourMeta,
+        hasInternalHoles: contourMeta.some(c => c.originalIsHole) };
     return compound;
 }
 
