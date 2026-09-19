@@ -36,7 +36,9 @@ function isPlacedSymbol(item) {
 function getMatrixRelativeTo(item, root) {
     let mat = item.matrix ? item.matrix.clone() : new paper.Matrix();
     let curr = item.parent;
-    while (curr && curr !== root && curr !== paper.project) {
+    const visited = new Set();
+    while (curr && curr !== root && curr !== paper.project && !visited.has(curr)) {
+        visited.add(curr);
         if (curr.matrix && !curr.matrix.isIdentity()) {
             mat = curr.matrix.chain(mat);
         }
@@ -48,8 +50,9 @@ function getMatrixRelativeTo(item, root) {
 /**
  * Aplica y hornea la matriz de transformación en los segmentos y curvas de un trazado
  */
-function bakeMatrixIntoPath(path, matrix) {
-    if (!path || !matrix || matrix.isIdentity()) return;
+function bakeMatrixIntoPath(path, matrix, visited = new Set()) {
+    if (!path || !matrix || matrix.isIdentity() || visited.has(path)) return;
+    visited.add(path);
     if (path.segments) {
         path.segments.forEach(seg => {
             const originalPoint = seg.point.clone();
@@ -67,7 +70,7 @@ function bakeMatrixIntoPath(path, matrix) {
         });
     }
     if (path.children && Array.isArray(path.children)) {
-        path.children.forEach(child => bakeMatrixIntoPath(child, matrix));
+        path.children.forEach(child => bakeMatrixIntoPath(child, matrix, visited));
     }
 }
 
@@ -76,7 +79,9 @@ function bakeMatrixIntoPath(path, matrix) {
  */
 let docOrderCounter = 0;
 let decompositionScopeCounter = 0;
-function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
+function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}, visited = new Set()) {
+    if (!item || visited.has(item)) return [];
+    visited.add(item);
     const currentMatrix = accumulatedMatrix ? accumulatedMatrix.chain(item.matrix || new paper.Matrix()) : (item.matrix ? item.matrix.clone() : new paper.Matrix());
     const atomicPaths = [];
     const isFromCompound = parentMeta.isFromCompound || isCompoundPath(item);
@@ -114,7 +119,7 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
                     isFromCompound: true,
                     compoundFill: item.fillColor,
                     isHole: typeof item.data?.isHole === 'boolean' ? item.data.isHole : undefined
-                }));
+                }, visited));
             });
         }
   } else if (isGroup(item)) {
@@ -126,14 +131,14 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}) {
       if (child.clipMask) return;
       atomicPaths.push(...flattenToAtomicPaths(child, currentMatrix, {
         isFromCompound: false
-      }));
+      }, visited));
     });
   }
 } else if (isPlacedSymbol(item)) {
         const def = (item.symbol && item.symbol.item) || item.definition || (item.symbol && item.symbol.definition);
         if (def) {
             const defClone = def.clone({ insert: false });
-            atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix, { isFromCompound: false }));
+            atomicPaths.push(...flattenToAtomicPaths(defClone, currentMatrix, { isFromCompound: false }, visited));
             defClone.remove();
         }
     }
@@ -356,10 +361,26 @@ function isAboveInRenderOrder(candidate, reference) {
 
 function extractSubtractiveItems(topList) {
     const result = [];
-    function collectRecursive(item) {
-        if (!item) return;
-        const content = getPublicOwner(item);
+    const visited = new Set();
+    function collectRecursive(item, ancestors = new Set()) {
+        if (!item || visited.has(item)) return;
+        visited.add(item);
+
+        // Resolve each item with its own guarded owner path. `ancestors` is
+        // kept separately so an owner that resolves back to an ancestor is
+        // rejected without preventing valid children from being visited.
+        const content = getPublicOwner(item, new Set());
         if (!content) return;
+        const resolvedToAncestor = ancestors.has(content) && content !== item;
+        if (resolvedToAncestor) {
+            item.children?.forEach(child => {
+                if (!child.clipMask && !(child.data && (child.data.wasClipMask || child.data.isMask))) {
+                    collectRecursive(child, new Set(ancestors));
+                }
+            });
+            return;
+        }
+        if (!visited.has(content)) visited.add(content);
 
         // Una fusión sólida participa del CSG mediante su máscara, no como
         // un grupo completo que también contiene la imagen. Una fusión que
@@ -374,10 +395,13 @@ function extractSubtractiveItems(topList) {
             return;
         }
 
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(item);
+        nextAncestors.add(content);
         if (isGroup(content) && content.children && content.children.length > 0) {
             content.children.forEach(c => {
                 if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
-                    collectRecursive(c);
+                    collectRecursive(c, nextAncestors);
                 }
             });
         } else if (content.data && content.data.geomBase) {
@@ -405,12 +429,13 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     const subItems = extractSubtractiveItems(items);
     if (subItems.length === 0) return;
 
-    function countSegments(item) {
-        if (!item) return 0;
+    function countSegments(item, visited = new Set()) {
+        if (!item || visited.has(item)) return 0;
+        visited.add(item);
         if (item.segments) return item.segments.length;
         if (item.children) {
             let total = 0;
-            item.children.forEach(c => { total += countSegments(c); });
+            item.children.forEach(c => { total += countSegments(c, visited); });
             return total;
         }
         return 0;
@@ -602,9 +627,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 }
 
 function isAncestorOf(potentialAncestor, node) {
-    let curr = node.parent;
-    while (curr) {
+    let curr = node && node.parent;
+    const visited = new Set();
+    while (curr && !visited.has(curr)) {
         if (curr === potentialAncestor) return true;
+        visited.add(curr);
         curr = curr.parent;
     }
     return false;
@@ -612,7 +639,9 @@ function isAncestorOf(potentialAncestor, node) {
 
 function getRootNode(node) {
     let curr = node;
-    while (curr.parent) {
+    const visited = new Set();
+    while (curr && curr.parent && !visited.has(curr)) {
+        visited.add(curr);
         curr = curr.parent;
     }
     return curr;
