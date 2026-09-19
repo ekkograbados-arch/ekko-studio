@@ -1,5 +1,12 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
 import { classifyContour, normalizeFillRule } from "./holeSemantics.js";
+import {
+    getStackingUnit,
+    semanticKind,
+    isAboveInRenderOrder,
+    collectVectorOwners,
+    buildCutterPairs
+} from "./vectorSemantics.js";
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ACCIÓN: REEMPLAZAR COMPLETAMENTE
@@ -333,86 +340,26 @@ function confineSubtractiveGeometry(geometry) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    // `isHole` is CSG semantics, not a paint color.  The previous route copied
-    // originalFillColor from 007/008 (black) onto every decomposed hole owner;
-    // that made a real cutter render as a black solid over the subtraction.
-    // Keep the closed owner selectable and visible through its contour only:
-    // physical subtraction remains the sole fill-area effect.  This is not an
-    // alpha/opacity workaround: opacity stays 1 and the owner remains a real
-    // Paper.Path/CompoundPath with its original geometry.
-    const data = item.data || {};
-    const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
-    const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
-
+    // A real hole is a closed cutter, not a permanent transparent silhouette.
+    // Its geometry remains in data.geomBase for CSG, hit testing and history,
+    // while the design owner is hidden. Selection.js creates the only visible
+    // outline, and only while the hole is selected.
     const paint = node => {
         if (!node || node.clipMask || node.data?.isMask || node.data?.mockup) return;
-        node.visible = true;
+        node.visible = false;
         node.opacity = 1;
         if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
-            // Explicit no-fill prevents source black paint and inherited child
-            // paint from turning the original hole into a rendered solid.
             node.fillColor = null;
-            node.strokeColor = stroke.clone();
-            node.strokeWidth = strokeWidth;
+            node.strokeColor = null;
+            node.strokeWidth = 0;
         }
         node.children?.forEach(paint);
     };
     paint(item);
 }
 
-// Paper.js orders siblings by `index` (low = behind, high = in front). A
-// hole only subtracts solids below it. This is deliberately based on the
-// actual owner/wrapper ancestry, not on docOrder or containment metadata,
-// because moving an item must change the physical cut without changing its
-// `isHole` identity.
-function getStackingUnit(item) {
-    const owner = getPublicOwner(item) || item;
-    if (!owner) return null;
-    let unit = owner;
-    let parent = unit.parent;
-    const visited = new Set();
-    while (parent && !visited.has(parent)) {
-        visited.add(parent);
-        if (!isContainmentWrapper(parent)) break;
-        unit = parent;
-        parent = parent.parent;
-    }
-    return unit;
-}
-
-function isAboveInRenderOrder(candidate, reference) {
-    if (!candidate || !reference || candidate === reference) return false;
-    const a = getStackingUnit(candidate);
-    const b = getStackingUnit(reference);
-    if (!a || !b || a === b) return false;
-    // Public owners inside clipping wrappers are compared at the wrapper
-    // level. Comparing the owner against its sibling mask was the reason
-    // real holes were classified correctly but never selected as cutters.
-    if (a.parent && a.parent === b.parent) {
-        return a.index > b.index;
-    }
-    const chain = item => {
-        const result = [];
-        let current = item;
-        while (current && current.parent) {
-            result.unshift(current);
-            current = current.parent;
-        }
-        return result;
-    };
-    const ca = chain(a), cb = chain(b);
-    const length = Math.min(ca.length, cb.length);
-    let common = 0;
-    while (common < length && ca[common] === cb[common]) common++;
-    if (common === 0) return false;
-    if (common < length) {
-        const aIndex = typeof ca[common].index === 'number' ? ca[common].index : -1;
-        const bIndex = typeof cb[common].index === 'number' ? cb[common].index : -1;
-        return aIndex > bIndex;
-    }
-    return ca.length > cb.length;
-}
-
+// Stacking and owner resolution live in vectorSemantics.js so editor,
+// selection, CSG and fusion cannot invent different Z-order rules.
 function extractSubtractiveItems(topList) {
     const result = [];
     const visited = new Set();
@@ -472,7 +419,12 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     const report = {
         valid: true, receivedHoles: 0, appliedHoles: 0, rejectedHoles: 0,
         failedBooleans: [], booleanWarnings: [], affectedSolids: [], reasons: [],
+        holeOwners: 0, solidOwners: 0, candidatePairs: 0,
+        appliedPairs: 0, rejectedPairs: 0, pairDiagnostics: [],
+        holeToSolidPairs: 0, holeToHolePairs: 0,
+        skippedByZOrder: 0, skippedByNoIntersection: 0,
         solidCandidates: 0, skippedSolids: [], solidChecks: [],
+        ownerDiagnostics: [],
         virtualHolesReceived: 0, virtualHolesApplied: 0
     };
     const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
@@ -505,6 +457,48 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         return report;
     }
 
+    // One scene plan feeds CSG and the layer controls. The plan records
+    // semantic owners and valid hole→solid pairs before any boolean mutates
+    // the visible geometry.
+    const semanticOwners = collectVectorOwners(layer);
+    const scenePlan = buildCutterPairs(semanticOwners);
+    const realOwners = new Set(subItems);
+    const realPairs = scenePlan.pairs
+        .filter(pair => pair.targetKind === "solid")
+        .map(pair => ({ hole: pair.hole, solid: pair.target }))
+        .filter(pair => realOwners.has(pair.hole) && realOwners.has(pair.solid));
+    const pairHolesBySolid = new Map();
+    realPairs.forEach(({ hole, solid }) => {
+        if (!pairHolesBySolid.has(solid)) pairHolesBySolid.set(solid, new Set());
+        pairHolesBySolid.get(solid).add(hole);
+    });
+    const diagnosticId = item => item?.data?.semanticId || item?.data?.containmentKey || item?.id || null;
+    report.holeOwners = scenePlan.holes.length;
+    report.solidOwners = scenePlan.solids.length;
+    report.holeToSolidPairs = realPairs.filter(pair => pair.solid && semanticKind(pair.solid) === "solid").length;
+    report.holeToHolePairs = scenePlan.pairs.filter(pair => pair.targetKind === "hole").length;
+    report.candidatePairs = realPairs.length;
+    report.ownerDiagnostics = semanticOwners.map(owner => ({
+        id: diagnosticId(owner),
+        semanticKind: semanticKind(owner),
+        hasGeomBase: !!owner.data?.geomBase,
+        sourceContourIndex: owner.data?.sourceContourIndex ?? null,
+        sourceDocumentOrder: owner.data?.sourceDocumentOrder ?? null,
+        zIndex: getStackingUnit(owner)?.index ?? null
+    }));
+    report.pairDiagnostics = [
+        ...realPairs.map(pair => ({ hole: diagnosticId(pair.hole), target: diagnosticId(pair.solid), targetKind: "solid", status: "candidate" })),
+        ...scenePlan.pairs.filter(pair => pair.targetKind === "hole").map(pair => ({
+            hole: diagnosticId(pair.hole), target: diagnosticId(pair.target), targetKind: "hole", status: "candidate"
+        })),
+        ...scenePlan.skipped.map(item => ({
+            hole: diagnosticId(item.hole), target: diagnosticId(item.target),
+            targetKind: item.targetKind, status: item.reason
+        }))
+    ];
+    report.skippedByZOrder = scenePlan.skipped.filter(item => item.reason === "z-order").length;
+    report.skippedByNoIntersection = scenePlan.skipped.filter(item => item.reason === "no-intersection").length;
+
     function countSegments(item, visited = new Set()) {
         if (!item || visited.has(item)) return 0;
         visited.add(item);
@@ -536,9 +530,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             }
             item.visible = true;
         } else if (item && item.data && item.data.isHole) {
-            item.visible = true;
-            // El CSG usa isHole como semántica; el objeto sigue siendo visible,
-            // seleccionable y con contorno dentro del editor.
+            // El cutter no se pinta en la capa de diseño. Su geometría cerrada
+            // se conserva para CSG, hit-test e historial; la selección muestra
+            // un overlay temporal cuando corresponde.
             applyHoleVisualStyle(item);
         }
     });
@@ -575,6 +569,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             const holeItem = subItems[i];
             if (!holeItem || !holeItem.data || !holeItem.data.isHole ||
                 isMockupOrMask(holeItem)) continue;
+            const allowedHoles = pairHolesBySolid.get(solid);
+            if (!allowedHoles?.has(holeItem)) continue;
             // A real client hole is a physical cutter for every eligible
             // solid rendered below it, not only for a matching containment
             // key.  Containment keys describe ownership/history; they must
@@ -729,7 +725,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         }
 
         if (finalSubtracted) {
+            const realIntersectingHoles = Math.max(0, intersectingHoles.length - intersectingVirtualHoles);
             report.appliedHoles += intersectingHoles.length;
+            report.appliedPairs += realIntersectingHoles;
             report.virtualHolesApplied += intersectingVirtualHoles;
             report.affectedSolids.push({
                 id: solid.data?.containmentKey || solid.id || null,
@@ -753,10 +751,12 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 solid.visible = true;
             }
         } else {
+            const realIntersectingHoles = Math.max(0, intersectingHoles.length - intersectingVirtualHoles);
             report.failedBooleans.push({
                 phase: "subtract-solid",
                 solid: solid.data?.containmentKey || solid.id || "solid"
             });
+            report.rejectedPairs += realIntersectingHoles;
             report.rejectedHoles += intersectingHoles.length;
             report.reasons.push(`boolean-rejected:${solid.data?.containmentKey || solid.id || "solid"}`);
         }
@@ -844,6 +844,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             locked: false,
             label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
             isHole: singleIsHole,
+            semanticKind: singleIsHole ? "hole" : "solid",
             isSolidShape: !singleIsHole,
             isFusionReceptor: singleIsHole,
             fillRule: single.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
@@ -913,18 +914,20 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     });
 
 nodes.sort((a, b) => {
+  // Semantic topology has priority over raw source order. A hole contained
+  // by a solid must be above that solid; a solid island contained by a hole
+  // must be above the hole. This reconstructs the physical AFA layering
+  // without turning a hole into a permanent cut in its parent.
+  const aInsideB = isContainedIn(a.path, b.path);
+  const bInsideA = isContainedIn(b.path, a.path);
+  if (aInsideB && (a.isHole || b.isHole)) return 1;
+  if (bInsideA && (a.isHole || b.isHole)) return -1;
+
   const rootA = getRootNode(a);
   const rootB = getRootNode(b);
-  if (rootA !== rootB) {
-    // ✅ REGLA ABSOLUTA: El orden de apilamiento viene del docOrder original.
-    // Los objetos que aparecían primero en el SVG quedan atrás (abajo en Z).
-    return a.docOrder - b.docOrder;
-  }
-  // Dentro de la misma jerarquía: ancestros primero (para que los contenedores
-  // se inserten antes que sus contenidos y queden atrás en Z).
+  if (rootA !== rootB) return a.docOrder - b.docOrder;
   if (isAncestorOf(a, b)) return -1;
   if (isAncestorOf(b, a)) return 1;
-  // Mismo nivel: orden por docOrder original
   return a.docOrder - b.docOrder;
 });
 
@@ -955,6 +958,7 @@ nodes.sort((a, b) => {
             locked: false,
             label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
             isHole: isHole,
+            semanticKind: isHole ? "hole" : "solid",
             isSolidShape: !isHole,
             isFusionReceptor: isHole,
             fillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
