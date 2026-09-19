@@ -579,59 +579,26 @@ const _updateSelectionBox = function(item) {
  * Selecciona un elemento del lienzo validando previamente su integridad topológica
  */
 const _selectItem = function(item, isMulti = false) {
-  if (window.nodeEditMode) {
-    return;
-  }
+  if (window.nodeEditMode) return;
   if (!item) {
     window.deselectItem();
     return;
   }
 
-  // Validación defensiva anti-huérfano: verificar que sea un elemento válido en designLayer
   const validItem = _getSelectableItem(item);
   if (!validItem) {
     window.deselectItem();
     return;
   }
   item = validItem;
-
-  if (!window.selectedItems) window.selectedItems = [];
-
+  const current = Array.isArray(window.selectedItems) ? [...window.selectedItems] : [];
   if (isMulti) {
-    const index = window.selectedItems.indexOf(item);
-    if (index > -1) {
-      item.selected = false;
-      window.selectedItems.splice(index, 1);
-    } else {
-      item.selected = true;
-      window.selectedItems.push(item);
-    }
-    window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
-  } else {
-    window.selectedItems.forEach(function(it) {
-      if (it) clearFusionSelection(it);
-    });
-    if (item && item.project && item.parent) {
-      item.selected = true;
-      window.selectedItem = item;
-      window.selectedItems = [item];
-    } else {
-      window.selectedItem = null;
-      window.selectedItems = [];
-    }
+    const index = current.indexOf(item);
+    if (index > -1) current.splice(index, 1);
+    else current.push(item);
+    return commitSelectionContext(current, current[current.length - 1] || null, 'api-multi');
   }
-
-  if (!window.selectedItem) {
-    window.updateSelectionBox(null);
-    paper.view.update();
-    return;
-  }
-
-  window.updateSelectionBox(window.selectedItem);
-  if (typeof window.updateContextualMenu === 'function') {
-    window.updateContextualMenu(window.selectedItem);
-  }
-  paper.view.update();
+  return commitSelectionContext([item], item, 'api-single');
 };
 
 /**
@@ -851,7 +818,10 @@ function describeSelectionState() {
     primary: describeSelectionOwner(window.selectedItem),
     items: items.map(describeSelectionOwner).filter(Boolean),
     paperSelected: (paper?.project?.selectedItems || []).map(describeSelectionOwner).filter(Boolean),
-    interaction: window.EKKO_INTERACTION?.snapshot?.() || null
+    interaction: window.EKKO_INTERACTION?.snapshot?.() || null,
+    commit: window.EKKO_SELECTION_CONTEXT
+      ? { cause: window.EKKO_SELECTION_CONTEXT.cause || null, committedAt: window.EKKO_SELECTION_CONTEXT.committedAt || null }
+      : null
   };
 }
 
@@ -1049,32 +1019,21 @@ const _initSelectionTool = function() {
       });
 
       if (isShift) {
-        // Modo multiselección con Shift
-        if (selectedOwnerIndex > -1) {
-          clearFusionSelection(window.selectedItems[selectedOwnerIndex]);
-          window.selectedItems.splice(selectedOwnerIndex, 1);
-        } else {
-          directHitItem.selected = true;
-          window.selectedItems.push(directHitItem);
-        }
-        window.selectedItem = window.selectedItems.length > 0 ? window.selectedItems[window.selectedItems.length - 1] : null;
-        if (!window.selectedItem && typeof window.deselectItem === 'function') {
-          window.deselectItem();
-        }
+        // Shift-click siempre conmuta owners dentro del mismo commit.
+        const current = Array.isArray(window.selectedItems) ? [...window.selectedItems] : [];
+        if (selectedOwnerIndex > -1) current.splice(selectedOwnerIndex, 1);
+        else current.push(directHitItem);
+        commitSelectionContext(current, current[current.length - 1] || null, 'shift-click');
       } else {
         // Clic simple sin Shift. Si el propietario ya forma parte de una
-        // selección múltiple (aunque el hit sea su hijo), preservamos el
-        // conjunto completo para que el arrastre mueva todas las piezas.
+        // selección múltiple, preservamos el conjunto durante el gesto y solo
+        // aislamos en mouseUp si realmente no hubo arrastre.
         if (selectedOwnerIndex > -1) {
           if (window.selectedItems.length > 1) {
             window._pendingIsolateItem = directHitItem;
           }
         } else {
-          // El elemento no estaba seleccionado: limpiamos la selección previa y seleccionamos solo este.
-          window.selectedItems.forEach(it => { if (it) clearFusionSelection(it); });
-          directHitItem.selected = true;
-          window.selectedItem = directHitItem;
-          window.selectedItems = [directHitItem];
+          commitSelectionContext([directHitItem], directHitItem, 'click');
         }
       }
 
@@ -1355,17 +1314,9 @@ const _initSelectionTool = function() {
       try { marqueeGeometry.remove(); } catch (e) {}
 
       if (itemsToSelect.length > 0) {
-        window.selectedItems = itemsToSelect;
-        window.selectedItem = itemsToSelect[itemsToSelect.length - 1];
-        window.selectedItems.forEach(function(it) {
-          it.selected = true;
-        });
-        window.updateSelectionBox(window.selectedItem);
-        if (typeof window.updateContextualMenu === 'function') {
-          window.updateContextualMenu(window.selectedItem);
-        }
+        commitSelectionContext(itemsToSelect, itemsToSelect[itemsToSelect.length - 1], 'marquee');
       } else {
-        window.deselectItem();
+        commitSelectionContext([], null, 'marquee-empty');
       }
       paper.view.update();
       return;
@@ -1375,13 +1326,7 @@ const _initSelectionTool = function() {
     // aislamos esa pieza individual de forma limpia al soltar el ratón (comportamiento estándar Canva/Figma).
     if (!window._mouseDragOccurred && window._pendingIsolateItem && window.selectedItems.length > 1) {
       const isolate = window._pendingIsolateItem;
-      window.selectedItems.forEach(it => { if (it) clearFusionSelection(it); });
-      isolate.selected = true;
-      window.selectedItem = isolate;
-      window.selectedItems = [isolate];
-      if (typeof window.updateContextualMenu === 'function') {
-        window.updateContextualMenu(window.selectedItem);
-      }
+      commitSelectionContext([isolate], isolate, 'isolate-click');
     }
     window._pendingIsolateItem = null;
     window._mouseDragOccurred = false;
@@ -1607,14 +1552,67 @@ function alignSelection(direccion) {
     console.log(`[alignSelection] Alineación ${direccion} aplicada a ${seleccion.length} elemento(s)`);
 }
 
-function _commitSelection(item, items = null) {
-  const list = Array.isArray(items) ? items.filter(Boolean) : (item ? [item] : []);
-  window.selectedItems = list;
-  window.selectedItem = item || list[list.length - 1] || null;
-  if (window.selectedItem) _updateSelectionBox(window.selectedItem);
-  else _deselectItem();
-  return window.selectedItem;
+function normalizeSelectionOwners(items) {
+  const list = [];
+  const seen = new Set();
+  (Array.isArray(items) ? items : [items]).filter(Boolean).forEach(item => {
+    const owner = getPublicOwner(item);
+    if (!owner || isMockupOrUI(owner) || seen.has(owner)) return;
+    seen.add(owner);
+    list.push(owner);
+  });
+  return list;
 }
+
+/**
+ * Único commit de selección pública. Todas las rutas de interacción deben
+ * entregar owners ya resueltos aquí; este commit sincroniza el estado global,
+ * la bandera selected de Paper.js, la caja y el menú sin volver a hacer hit-test.
+ */
+function commitSelectionContext(items, primary = null, cause = 'unknown') {
+  const list = normalizeSelectionOwners(items);
+  const nextPrimary = list.includes(primary)
+    ? primary
+    : (list[list.length - 1] || null);
+  const previous = new Set([
+    ...(Array.isArray(window.selectedItems) ? window.selectedItems : []),
+    ...(paper?.project?.selectedItems || [])
+  ].filter(Boolean));
+
+  previous.forEach(item => {
+    if (!list.includes(item)) {
+      try { clearFusionSelection(item); } catch (_) {}
+      try { item.selected = false; } catch (_) {}
+    }
+  });
+
+  if (!list.length) {
+    _deselectItem();
+    window.EKKO_SELECTION_CONTEXT = { cause, items: [], primary: null };
+    return null;
+  }
+
+  list.forEach(item => { try { item.selected = true; } catch (_) {} });
+  window.selectedItems = list;
+  window.selectedItem = nextPrimary;
+  window.EKKO_SELECTION_CONTEXT = {
+    cause,
+    items: list.slice(),
+    primary: nextPrimary,
+    committedAt: Date.now()
+  };
+  _updateSelectionBox(nextPrimary);
+  if (typeof window.updateContextualMenu === 'function') {
+    window.updateContextualMenu(nextPrimary);
+  }
+  paper.view.update();
+  return nextPrimary;
+}
+
+function _commitSelection(item, items = null) {
+  return commitSelectionContext(items == null ? [item] : items, item, 'api');
+}
+window.commitSelectionContext = commitSelectionContext;
 window.commitSelection = _commitSelection;
 window.EKKO_SELECTION_API = {
   resolveInteractionTarget,
