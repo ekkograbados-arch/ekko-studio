@@ -269,7 +269,22 @@ function resolveItemSemantics(node, rootTarget) {
 export function getGlobalUnsubtractedPath(item) {
     // Sole world-geometry producer: geomBase is owner-local and the complete
     // owner global matrix is applied exactly once by the canonical layer.
-    return toWorldGeometry(item);
+    // Keep a direct owner-local fallback here. CSG must not silently lose a
+    // valid owner merely because a wrapper/publicOwner cycle prevents the
+    // generic resolver from reaching geomBase.
+    const owner = getPublicOwner(item) || item;
+    const base = owner?.data?.geomBase;
+    if (base?.clone && owner) {
+        try {
+            const local = base.clone({ insert: false });
+            local.applyMatrix = false;
+            local.matrix = new paper.Matrix();
+            const world = owner.globalMatrix?.clone?.() || owner.matrix?.clone?.() || new paper.Matrix();
+            local.transform(world);
+            return local;
+        } catch (_) {}
+    }
+    return toWorldGeometry(owner);
 }
 
 // CSG operands are calculated in project/global coordinates. Before adding
@@ -435,6 +450,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     const report = {
         valid: true, receivedHoles: 0, appliedHoles: 0, rejectedHoles: 0,
         failedBooleans: [], booleanWarnings: [], affectedSolids: [], reasons: [],
+        solidCandidates: 0, skippedSolids: [], solidChecks: [],
         virtualHolesReceived: 0, virtualHolesApplied: 0
     };
     const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
@@ -507,10 +523,26 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
     for (let j = 0; j < subItems.length; j++) {
         const solid = subItems[j];
-        if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase ||
-            isMockupOrMask(solid)) continue;
+        const solidId = solid?.data?.containmentKey || solid?.id || `solid-${j}`;
+        if (!solid || !solid.data) {
+            report.skippedSolids.push({ id: solidId, reason: "missing-data" });
+            continue;
+        }
+        if (solid.data.isHole) continue;
+        if (!solid.data.geomBase) {
+            report.skippedSolids.push({ id: solidId, reason: "missing-geomBase" });
+            continue;
+        }
+        if (isMockupOrMask(solid)) {
+            report.skippedSolids.push({ id: solidId, reason: "mockup-or-mask" });
+            continue;
+        }
+        report.solidCandidates += 1;
         const pristineBase = getGlobalUnsubtractedPath(solid);
-        if (!pristineBase) continue;
+        if (!pristineBase) {
+            report.skippedSolids.push({ id: solidId, reason: "missing-world-geometry" });
+            continue;
+        }
         const pristineArea = Math.abs(pristineBase.area || 0);
         const pristineBounds = pristineBase.bounds;
 
@@ -560,6 +592,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             });
         }
 
+        report.solidChecks.push({
+            id: solidId,
+            intersectingHoles: intersectingHoles.length,
+            virtualHoles: intersectingVirtualHoles
+        });
         if (intersectingHoles.length === 0) {
             pristineBase.remove();
             continue;
