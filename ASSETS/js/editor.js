@@ -41,6 +41,7 @@ import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 import { recalculateDynamicSubtractions } from "./modules/canvas-pro/geometricUngroup.js";
+import { stampClientSvgSourceSemantics } from "./modules/canvas-pro/sourceSemantics.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
 import {
   initFusionEditMode,
@@ -1213,7 +1214,19 @@ export function addSVGFromFile(file, pointOrOptions = null) {
             }
 
           const cleanLabel = file.name ? file.name.replace(/\.svg$/i, "") : "SVG Importado";
-          item.data = { ...(item.data || {}), locked: false, label: cleanLabel };
+          // Capture source fill semantics before clipping or decomposition.  In
+          // particular, 008.svg is one nonzero path with 502 closed contours;
+          // depth parity alone misclassifies its same-winding islands.
+          const sourceSemantics = stampClientSvgSourceSemantics(item, svgText);
+          item.data = {
+            ...(item.data || {}),
+            locked: false,
+            label: cleanLabel,
+            source: "client-svg",
+            userImported: true,
+            originalFillRule: sourceSemantics.sourceFillRule,
+            sourceFillRuleExplicit: sourceSemantics.sourceFillRuleExplicit
+          };
           const targetArea = (window.currentMockup && window.currentMockup.bounds && window.currentMockup.bounds.width > 0)
             ? window.currentMockup.bounds : paper.view.bounds;
           const itemBounds = item.bounds;
