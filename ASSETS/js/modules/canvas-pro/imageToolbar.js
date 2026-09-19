@@ -1,4 +1,5 @@
 import { getPublicOwner } from "./designGeometry.js";
+import { getStackingUnit } from "./vectorSemantics.js";
 
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/imageToolbar.js (v36.0 PRO - Smart Spatial Collision Z-Order & LightBurn Stacking)
@@ -204,6 +205,7 @@ export function deleteImage(item) {
  * Salta directamente sobre el siguiente elemento con el que colisiona o se solapa en pantalla.
  */
 export function bringImageForward(item) {
+  item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -261,6 +263,7 @@ export function bringImageForward(item) {
  * Salta directamente por debajo del siguiente elemento con el que colisiona o se solapa en pantalla.
  */
 export function sendImageBackward(item) {
+  item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -315,6 +318,7 @@ export function sendImageBackward(item) {
  * Envía el elemento a la parte superior del orden de dibujo, justo bajo el mockup.
  */
 export function bringImageToFront(item) {
+  item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -343,6 +347,7 @@ export function bringImageToFront(item) {
  * Envía el elemento al fondo del orden de dibujo (Z:0).
  */
 export function sendImageToBack(item) {
+  item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
