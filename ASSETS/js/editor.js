@@ -893,6 +893,24 @@ function isMockupOrUIItem(item) {
   return false;
 }
 
+function getStackingUnit(item) {
+  const owner = getPublicOwner(item) || item;
+  if (!owner) return null;
+  // A public owner inside a mockup-containment wrapper must move together
+  // with its wrapper. Reordering the owner alone only swaps it with the mask
+  // child and never changes the design-layer Z-order.
+  let unit = owner;
+  let parent = unit.parent;
+  const visited = new Set();
+  while (parent && !visited.has(parent)) {
+    visited.add(parent);
+    if (!isContainmentWrapper(parent)) break;
+    unit = parent;
+    parent = parent.parent;
+  }
+  return unit;
+}
+
 function itemsOverlapSpatial(itemA, itemB) {
   if (!itemA || !itemB || itemA === itemB) return false;
   const contentA = getPublicOwner(itemA);
@@ -919,52 +937,54 @@ function itemsOverlapSpatial(itemA, itemB) {
 }
 
 function bringFront() {
-  if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+  const item = getStackingUnit(window.selectedItem);
+  if (!item || isLockedItem(item)) return;
   if (typeof saveHistory === 'function') saveHistory();
   if (window.currentMockup) {
-    window.selectedItem.insertBelow(window.currentMockup);
+    item.insertBelow(window.currentMockup);
   } else {
-    window.selectedItem.bringToFront();
+    item.bringToFront();
   }
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
   if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
+    recalculateDynamicSubtractions(item.layer || null);
   }
   if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(window.selectedItem);
+    window.updateSelectionBox(item);
   }
   paper.view.update();
 }
 window.bringFront = bringFront;
 
 function sendBack() {
-  if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+  const item = getStackingUnit(window.selectedItem);
+  if (!item || isLockedItem(item)) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const parent = window.selectedItem.parent || (paper.project && paper.project.activeLayer);
+  const parent = item.parent || (paper.project && paper.project.activeLayer);
   if (parent) {
-    parent.insertChild(0, window.selectedItem);
+    parent.insertChild(0, item);
   } else {
-    window.selectedItem.sendToBack();
+    item.sendToBack();
   }
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
   if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
+    recalculateDynamicSubtractions(item.layer || null);
   }
   if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(window.selectedItem);
+    window.updateSelectionBox(item);
   }
   paper.view.update();
 }
 window.sendBack = sendBack;
 
 function bringForward() {
-  if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+  const item = getStackingUnit(window.selectedItem);
+  if (!item || isLockedItem(item)) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const item = window.selectedItem;
   const parent = item.parent || (paper.project && paper.project.activeLayer);
   if (!parent || !parent.children) return;
   const siblings = parent.children;
@@ -1000,7 +1020,7 @@ function bringForward() {
     window.currentMockup.bringToFront();
   }
   if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
+    recalculateDynamicSubtractions(item.layer || null);
   }
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(item);
@@ -1010,9 +1030,9 @@ function bringForward() {
 window.bringForward = bringForward;
 
 function sendBackward() {
-  if (!window.selectedItem || isLockedItem(window.selectedItem)) return;
+  const item = getStackingUnit(window.selectedItem);
+  if (!item || isLockedItem(item)) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const item = window.selectedItem;
   const parent = item.parent || (paper.project && paper.project.activeLayer);
   if (!parent || !parent.children) return;
   const siblings = parent.children;
@@ -1045,7 +1065,7 @@ function sendBackward() {
     window.currentMockup.bringToFront();
   }
   if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions();
+    recalculateDynamicSubtractions(item.layer || null);
   }
   if (typeof window.updateSelectionBox === 'function') {
     window.updateSelectionBox(item);
