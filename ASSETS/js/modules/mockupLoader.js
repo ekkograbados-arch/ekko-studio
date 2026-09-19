@@ -1,3 +1,4 @@
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner } from "./canvas-pro/designGeometry.js";
 // 🚀 GLOBAL OVERRIDE DE CONSOLA: Silenciar logs informativos para mantener limpia la consola F12
 // Esto elimina por completo el spam de pre-cargas y cargas exitosas en F12.
 // Solo se mostrarán errores reales de programación (console.error) para depuración.
@@ -16,6 +17,19 @@ con 'window.currentMockup', blindándola contra desplazamientos durante el arras
 
 
 window.infiniteCanvasMode = false;
+
+// One mask contract for every product/mask clone. Public-owner consumers only
+// inspect this semantic marker and never infer masks from child position.
+function markMockupMask(mask) {
+  if (!mask) return mask;
+  mask.clipMask = true;
+  mask.visible = false;
+  mask.locked = true;
+  mask.data = { ...(mask.data || {}), mockup: true, isMask: true,
+    wasClipMask: true, role: "mockup-mask", publicOwner: false };
+  mask.selected = false;
+  return mask;
+}
 
 function collectPaths(item, paths) {
   paths = paths || [];
@@ -96,9 +110,7 @@ function buildCompoundMask(item, ignoredPath, svgPath) {
 
   mask.fillColor = "black";
   mask.strokeColor = null;
-  mask.visible = false;
-  mask.data = { mockup: true, isMask: true };
-  return mask;
+  return markMockupMask(mask);
 }
 
 function makeMockupTransparent(item, ignoredPath) {
@@ -231,13 +243,12 @@ export function loadMockup(svgPath) {
 
     window.grabArea = buildCompoundMask(item, ignoredPath, svgPath);
     if (window.grabArea) {
-      window.grabArea.data = { mockup: true, isMask: true };
+      markMockupMask(window.grabArea);
     }
 
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
-      window.clipMask.data = { mockup: true, isMask: true };
-      window.clipMask.visible = false;
+      markMockupMask(window.clipMask);
       window.clipMask.position = item.position.clone();
     }
 
@@ -326,13 +337,12 @@ export function restoreMockupReferences() {
 
     window.grabArea = buildCompoundMask(mockupItem, ignoredPath, svgPath);
     if (window.grabArea) {
-      window.grabArea.data = { mockup: true, isMask: true };
+      markMockupMask(window.grabArea);
     }
 
     window.clipMask = window.grabArea ? window.grabArea.clone() : null;
     if (window.clipMask) {
-      window.clipMask.data = { mockup: true, isMask: true };
-      window.clipMask.visible = false;
+      markMockupMask(window.clipMask);
       if (mockupItem.bounds) {
         window.clipMask.position = mockupItem.bounds.center.clone();
       }
@@ -362,18 +372,12 @@ export function createMockupContainmentGroup(item) {
     parent = parent.parent;
   }
 
-  var mask = window.clipMask.clone({ insert: false });
-  mask.clipMask = true;
+  var mask = markMockupMask(window.clipMask.clone({ insert: false }));
+  // The clone already shares the project/layer coordinate space of clipMask;
+  // never reposition it from wrapper bounds or child ordering.
   mask.visible = true;
-  mask.data = { mockup: true, isMask: true };
 
-  // La máscara de producto es estática y se alinea en coordenadas de proyecto.
-  if (window.currentMockup && window.currentMockup.bounds) {
-    mask.position = window.currentMockup.bounds.center.clone();
-  } else if (window.clipMask.position) {
-    mask.position = window.clipMask.position.clone();
-  }
-
+  item.data = { ...(item.data || {}), publicOwner: true, ownerId: item.id };
   var group = new paper.Group({ insert: false });
   group.addChild(mask);
   group.addChild(item);
@@ -381,7 +385,10 @@ export function createMockupContainmentGroup(item) {
   group.data = {
     locked: false,
     clipGroup: true,
+    role: "mockup-containment",
     mockupContainment: true,
+    publicOwnerId: item.id,
+    publicOwner: item,
     transformOwnerId: item.id,
     label: (item.data && item.data.label) ? item.data.label : "Objeto"
   };
