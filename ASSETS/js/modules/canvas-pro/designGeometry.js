@@ -31,7 +31,9 @@ function isMaskSelf(item) {
 /** True only for masks/mockups/UI, not for a public child inside a containment wrapper. */
 export function isMockupOrMask(item) {
   let current = item;
-  while (current) {
+  const visited = new Set();
+  while (current && !visited.has(current)) {
+    visited.add(current);
     if (isUI(current) || isMaskSelf(current)) return true;
     // A containment wrapper is a public-owner indirection, not a mask. Its
     // public child must remain selectable and is therefore not rejected here.
@@ -51,40 +53,86 @@ export function isContainmentWrapper(item) {
     (d.role === "mockup-containment" || d.role === "containment-wrapper" || d.role === "mockup-clip"));
 }
 
-function explicitWrapperOwner(wrapper) {
-  const d = dataOf(wrapper);
-  if (d.publicOwner && typeof d.publicOwner === "object") return d.publicOwner;
-  const id = d.publicOwnerId;
-  if (id != null && wrapper.children) {
-    const match = wrapper.children.find(child => child && (
-      child === d.publicOwner || child.id === id || child.data?.ownerId === id ||
-      child.data?.semanticId === id));
-    if (match) return match;
+function isWrapperChild(wrapper, candidate) {
+  if (!wrapper || !candidate || wrapper === candidate) return false;
+  if (Array.isArray(wrapper.children) && wrapper.children.includes(candidate)) return true;
+  // Paper items normally have a parent link. Walk it defensively so a
+  // nested public child is accepted without ever following a cyclic graph.
+  const visited = new Set([wrapper]);
+  let current = candidate.parent;
+  while (current && !visited.has(current)) {
+    if (current === wrapper) return true;
+    visited.add(current);
+    current = current.parent;
   }
-  if (wrapper.children) {
+  return false;
+}
+
+function explicitWrapperOwner(wrapper, visited = new Set(), allowCandidate = null) {
+  const d = dataOf(wrapper);
+  const accept = candidate => candidate && candidate !== wrapper &&
+    (!visited.has(candidate) || candidate === allowCandidate) && isWrapperChild(wrapper, candidate) &&
+    !isMockupOrMask(candidate) ? candidate : null;
+
+  // Never trust an arbitrary object reference: a publicOwner object is valid
+  // only when it is an actual descendant of this containment wrapper.
+  const referenced = accept(d.publicOwner && typeof d.publicOwner === "object" ? d.publicOwner : null);
+  if (referenced) return referenced;
+
+  const id = d.publicOwnerId;
+  if (id != null && Array.isArray(wrapper.children)) {
+    const match = wrapper.children.find(child => child &&
+      (child.id === id || child.data?.ownerId === id || child.data?.semanticId === id));
+    const accepted = accept(match);
+    if (accepted) return accepted;
+  }
+  if (Array.isArray(wrapper.children)) {
     const marked = wrapper.children.filter(child => child?.data?.publicOwner === true);
-    if (marked.length === 1) return marked[0];
+    if (marked.length === 1) return accept(marked[0]);
   }
   return null;
 }
 
 /** Resolve exactly one public owner; never infer ownership from child order. */
-export function getPublicOwner(item) {
-  if (!item || isUI(item)) return null;
+export function getPublicOwner(item, visited = new Set()) {
+  const seen = visited instanceof Set ? visited : new Set();
+  if (!item || seen.has(item) || isUI(item)) return null;
   if (isMaskSelf(item)) return null;
+  seen.add(item);
   if (isFusionOwner(item)) return item;
   if (isContainmentWrapper(item)) {
-    const owner = explicitWrapperOwner(item);
-    return owner && !isMockupOrMask(owner) ? getPublicOwner(owner) : null;
+    const owner = explicitWrapperOwner(item, seen);
+    if (!owner || isMockupOrMask(owner)) return null;
+    const resolved = getPublicOwner(owner, seen);
+    return resolved || null;
   }
   // Internal children of fusion/mask wrappers are not public unless an
   // explicit owner marker made them public. Do not use a generic child scan.
   if (item.data?.publicOwner === false) return null;
+  const lineage = new Set(seen);
   let current = item.parent;
   while (current) {
+    // A cyclic parent graph is malformed. The sole safe exception is the
+    // wrapper already on the resolution path whose owner is this child.
+    if (lineage.has(current)) {
+      if (isContainmentWrapper(current) && explicitWrapperOwner(current, lineage, item) === item) {
+        return item;
+      }
+      // A caller-supplied path may legitimately contain a plain group
+      // ancestor while collecting its children. Fusion/mask ancestors stay
+      // blocked; a local parent cycle (including self-parenting) terminates.
+      if (current !== item && seen.has(current) && !isFusionOwner(current) &&
+          !isMaskSelf(current) && !isUI(current)) return item;
+      return null;
+    }
+    lineage.add(current);
     if (isContainmentWrapper(current)) {
-      const owner = explicitWrapperOwner(current);
-      return owner === item ? item : (owner ? getPublicOwner(owner) : null);
+      const owner = explicitWrapperOwner(current, lineage, item);
+      if (!owner || !isWrapperChild(current, owner) || isMockupOrMask(owner)) return null;
+      if (owner === item) return item;
+      if (lineage.has(owner)) return null;
+      const resolved = getPublicOwner(owner, lineage);
+      return resolved || null;
     }
     if (isMaskSelf(current) || isUI(current)) return null;
     if (isFusionOwner(current)) return current;
@@ -93,13 +141,14 @@ export function getPublicOwner(item) {
   return item;
 }
 
-export function getPublicOwners(items) {
+export function getPublicOwners(items, visited = new Set()) {
   const result = [];
   const seenObjects = new Set();
   const seenIds = new Set();
+  const basePath = visited instanceof Set ? visited : new Set();
   (Array.isArray(items) ? items : [items]).forEach(item => {
-    const owner = getPublicOwner(item);
-    if (!owner || isMockupOrMask(owner) || isContainmentWrapper(owner)) return;
+    const owner = getPublicOwner(item, new Set(basePath));
+    if (!owner || basePath.has(owner) || isMockupOrMask(owner) || isContainmentWrapper(owner)) return;
     const id = dataOf(owner).ownerId || dataOf(owner).semanticId || dataOf(owner).fusionId;
     if (seenObjects.has(owner) || (id != null && seenIds.has(id))) return;
     seenObjects.add(owner); if (id != null) seenIds.add(id); result.push(owner);
@@ -121,9 +170,15 @@ function flattenIdentityClone(source) {
   return clone;
 }
 
-export function getOwnerLocalGeometry(owner) {
-  const resolved = getPublicOwner(owner);
-  if (!resolved || isMockupOrMask(resolved)) return null;
+export function getOwnerLocalGeometry(owner, visited = new Set()) {
+  const path = visited instanceof Set ? visited : new Set();
+  if (!owner || path.has(owner)) return null;
+  const resolved = getPublicOwner(owner, new Set(path));
+  if (!resolved || path.has(resolved) || isMockupOrMask(resolved)) return null;
+  const nextPath = new Set(path);
+  nextPath.add(owner);
+  nextPath.add(resolved);
+
   const base = dataOf(resolved).geomBase;
   if (base) return flattenIdentityClone(base);
   if (hasPaperType(resolved, "Path") || hasPaperType(resolved, "CompoundPath") ||
@@ -136,8 +191,16 @@ export function getOwnerLocalGeometry(owner) {
     return flattenIdentityClone(resolved);
   }
   if (resolved.children) {
-    const children = getPublicOwners(resolved.children);
-    const paths = children.map(getOwnerLocalGeometry).filter(Boolean);
+    // The visited path contains both the requested item and its canonical
+    // owner. This prevents a wrapper/publicOwner cycle from re-entering the
+    // same group or an ancestor while preserving valid sibling children.
+    const children = getPublicOwners(resolved.children, nextPath);
+    const paths = [];
+    children.forEach(child => {
+      if (!child || nextPath.has(child)) return;
+      const geometry = getOwnerLocalGeometry(child, nextPath);
+      if (geometry) paths.push(geometry);
+    });
     if (!paths.length) return null;
     if (paths.length === 1) return paths[0];
     const group = new paper.Group({ insert: false });
