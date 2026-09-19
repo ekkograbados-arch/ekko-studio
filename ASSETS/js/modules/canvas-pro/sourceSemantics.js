@@ -8,6 +8,8 @@
  * geometricUngroup.js applies the captured fill rule and winding later.
  */
 
+import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+
 const DEFAULT_FILL_RULE = "nonzero";
 
 function normalizeFillRule(value) {
@@ -147,6 +149,11 @@ export function stampClientSvgSourceSemantics(item, svgText) {
       ...(explicitIsHole === undefined ? {} : { originalIsHole: explicitIsHole }),
       ...(explicitRole ? { contourRole: explicitRole } : {})
     });
+    if (explicitIsHole !== undefined) {
+      setSemanticKind(leaf, explicitIsHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID);
+    } else if (explicitRole === "hole" || explicitRole === "outer") {
+      setSemanticKind(leaf, explicitRole === "hole" ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID);
+    }
   });
 
   return {
