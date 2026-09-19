@@ -352,18 +352,15 @@ function confineSubtractiveGeometry(geometry) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    // `isHole` es semántica de CSG, no un estilo de transparencia. El owner
-    // público y cada path hijo deben tener un estilo propio: en Paper.js el
-    // estilo del CompoundPath no siempre sustituye al estilo que conserva el
-    // Path clonado desde el SVG. Sin esta propagación, el CSG sí perfora el
-    // sólido pero el hueco queda visualmente como un área vacía.
+    // `isHole` is CSG semantics, not a paint color.  The previous route copied
+    // originalFillColor from 007/008 (black) onto every decomposed hole owner;
+    // that made a real cutter render as a black solid over the subtraction.
+    // Keep the closed owner selectable and visible through its contour only:
+    // physical subtraction remains the sole fill-area effect.  This is not an
+    // alpha/opacity workaround: opacity stays 1 and the owner remains a real
+    // Paper.Path/CompoundPath with its original geometry.
     const data = item.data || {};
-    const fill = data.originalFillColor?.clone?.() || new paper.Color('#64748b');
     const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
-    const alpha = Number(fill.alpha);
-    // También normaliza alpha casi cero (p. ej. Calado: 0.0001): el vector
-    // sigue siendo visible/interactivo aunque continúe marcado como hueco.
-    if (!Number.isFinite(alpha) || alpha < 0.18) fill.alpha = 0.35;
     const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
 
     const paint = node => {
@@ -371,7 +368,9 @@ function applyHoleVisualStyle(item) {
         node.visible = true;
         node.opacity = 1;
         if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
-            node.fillColor = fill.clone();
+            // Explicit no-fill prevents source black paint and inherited child
+            // paint from turning the original hole into a rendered solid.
+            node.fillColor = null;
             node.strokeColor = stroke.clone();
             node.strokeWidth = strokeWidth;
         }
