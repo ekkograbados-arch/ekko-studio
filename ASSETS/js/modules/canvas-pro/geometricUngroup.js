@@ -1,4 +1,5 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
+import { classifyContour, normalizeFillRule } from "./holeSemantics.js";
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ACCIÓN: REEMPLAZAR COMPLETAMENTE
@@ -255,49 +256,14 @@ function buildContainmentTree(atomicPaths) {
 }
 
 function resolveItemSemantics(node, rootTarget) {
-    const path = node?.path;
-    const meta = path?.data || {};
-    // Explicit source metadata is authoritative.  It is intentionally tested
-    // before any topology fallback so an original real hole cannot be turned
-    // into a solid or a cosmetic transparent path during ungroup.
-    if (typeof meta.originalIsHole === "boolean") return meta.originalIsHole;
-    if (typeof meta.contourRole === "string") return meta.contourRole === "hole";
-    if (typeof meta.isHole === "boolean" &&
-        (meta.source === "svg" || meta.source === "client-svg")) return meta.isHole;
-
-    const sourceRule = String(meta.originalFillRule || rootTarget?.data?.originalFillRule || "").toLowerCase();
-    const isClientSource = meta.source === "client-svg" || meta.userImported === true ||
-        rootTarget?.data?.source === "client-svg";
-    if (isClientSource && (sourceRule === "nonzero" || sourceRule === "non-zero")) {
-        // For nonzero SVG, a contour toggles filled/unfilled only when its
-        // winding opposes the immediately containing contour.  Same-winding
-        // depth-1 islands therefore remain solids (008.svg: 3 islands),
-        // unlike depth parity.
-        if (!node.parent) return false;
-        const windingSign = contour => {
-            const data = contour?.path?.data || {};
-            const clockwise = typeof data.sourceWinding === "boolean"
-                ? data.sourceWinding : !!data.originalClockwise;
-            return clockwise ? 1 : -1;
-        };
-        // Nonzero fill is the signed sum of every enclosing contour.  A
-        // contour is a hole only when crossing it takes a nonzero winding
-        // sum to zero.  This keeps same-winding islands solid (and also
-        // handles a hole nested inside such an island) instead of merely
-        // comparing the immediate parent's direction.
-        const ancestors = [];
-        let parent = node.parent;
-        while (parent) {
-            ancestors.unshift(parent);
-            parent = parent.parent;
-        }
-        const before = ancestors.reduce((sum, ancestor) => sum + windingSign(ancestor), 0);
-        return before !== 0 && before + windingSign(node) === 0;
-    }
-
-    // Explicit evenodd, or a non-source object without reliable source
-    // semantics, is the controlled topology fallback.
-    return (Number(node?.depth) || 0) % 2 === 1;
+    const fillRule = normalizeFillRule(
+        node?.path?.data?.originalFillRule || rootTarget?.data?.originalFillRule ||
+        node?.path?.fillRule || rootTarget?.fillRule || ""
+    );
+    // Classification is centralized. Z-order is intentionally not consulted
+    // here: it decides what a real hole cuts, never whether the contour is a
+    // hole in the first place.
+    return !!classifyContour(node, { fillRule }).isHole;
 }
 
 export function getGlobalUnsubtractedPath(item) {
@@ -466,19 +432,40 @@ function extractSubtractiveItems(topList) {
 }
 
 export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEntries = null) {
+    const report = {
+        valid: true, receivedHoles: 0, appliedHoles: 0, rejectedHoles: 0,
+        failedBooleans: [], booleanWarnings: [], affectedSolids: [], reasons: [],
+        virtualHolesReceived: 0, virtualHolesApplied: 0
+    };
     const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
     const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
         ? virtualHoleEntries
         : (Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []);
-    if (!layer || !layer.children) return;
+    report.virtualHolesReceived = scopedVirtualHoles.filter(Boolean).length;
+    if (!layer || !layer.children) {
+        report.valid = false;
+        report.reasons.push("missing-target-layer");
+        if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
+        return report;
+    }
     const items = [...layer.children].filter(item =>
         item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
         !item.data?.isHandle && !item.data?.isSmartGuide && !item.data?.isMeasurement &&
         !item.data?.isTracePreview && !item.data?.isNodeEditOverlay
     );
-    if (items.length === 0) return;
+    if (items.length === 0) {
+        report.valid = false;
+        report.reasons.push("empty-design-layer");
+        if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
+        return report;
+    }
     const subItems = extractSubtractiveItems(items);
-    if (subItems.length === 0) return;
+    report.receivedHoles = subItems.filter(item => item?.data?.isHole === true).length;
+    if (subItems.length === 0) {
+        report.reasons.push("no-subtractive-items");
+        if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
+        return report;
+    }
 
     function countSegments(item, visited = new Set()) {
         if (!item || visited.has(item)) return 0;
@@ -528,6 +515,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         const pristineBounds = pristineBase.bounds;
 
         const intersectingHoles = [];
+        let intersectingVirtualHoles = 0;
         for (let i = 0; i < subItems.length; i++) {
             if (i === j) continue;
             const holeItem = subItems[i];
@@ -565,6 +553,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (!vhClone) return;
                 if (pristineBounds.intersects(vhClone.bounds)) {
                     intersectingHoles.push(vhClone);
+                    intersectingVirtualHoles += 1;
                 } else {
                     vhClone.remove();
                 }
@@ -591,7 +580,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                                 mergedHole = united;
                                 continue;
                             }
-                        } catch (e) {}
+                        } catch (error) {
+                            report.booleanWarnings.push({ phase: "unite-holes", error: String(error?.message || error) });
+                        }
                     }
                     const cp = new paper.CompoundPath({ insert: false });
                     if (mergedHole instanceof paper.CompoundPath) {
@@ -608,7 +599,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     mergedHole = cp;
                 }
             }
-        } catch (err) {
+        } catch (error) {
+            report.booleanWarnings.push({ phase: "build-merged-hole", error: String(error?.message || error) });
             mergedHole = null;
         }
 
@@ -632,12 +624,15 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         testSub.remove();
                     }
                 }
-            } catch (e) {}
-            mergedHole.remove();
+            } catch (error) {
+                report.booleanWarnings.push({ phase: "merged-holes", error: String(error?.message || error) });
+            }
+            try { mergedHole?.remove?.(); } catch (_) {}
         }
 
         if (!finalSubtracted) {
             let currentProgress = pristineBase.clone({ insert: false });
+            let appliedSteps = 0;
             for (let k = 0; k < intersectingHoles.length; k++) {
                 const singleHole = intersectingHoles[k];
                 try {
@@ -650,16 +645,28 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         if (stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1) {
                             currentProgress.remove();
                             currentProgress = stepSub;
+                            appliedSteps += 1;
                         } else {
                             stepSub.remove();
                         }
                     }
-                } catch (e) {}
+                } catch (error) {
+                    report.booleanWarnings.push({ phase: "single-hole", error: String(error?.message || error) });
+                }
             }
-            finalSubtracted = currentProgress;
+            finalSubtracted = appliedSteps > 0 ? currentProgress : null;
+            if (!finalSubtracted) {
+                try { currentProgress.remove(); } catch (_) {}
+            }
         }
 
         if (finalSubtracted) {
+            report.appliedHoles += intersectingHoles.length;
+            report.virtualHolesApplied += intersectingVirtualHoles;
+            report.affectedSolids.push({
+                id: solid.data?.containmentKey || solid.id || null,
+                holes: intersectingHoles.length
+            });
             attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
             solid.removeChildren();
             if (finalSubtracted instanceof paper.CompoundPath) {
@@ -668,14 +675,24 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 solid.addChild(finalSubtracted);
             }
             solid.visible = true;
+        } else {
+            report.failedBooleans.push({
+                phase: "subtract-solid",
+                solid: solid.data?.containmentKey || solid.id || "solid"
+            });
+            report.rejectedHoles += intersectingHoles.length;
+            report.reasons.push(`boolean-rejected:${solid.data?.containmentKey || solid.id || "solid"}`);
         }
         pristineBase.remove();
         intersectingHoles.forEach(h => { try { h.remove(); } catch(e) {} });
     }
 
+    report.valid = report.failedBooleans.length === 0 && report.rejectedHoles === 0;
+    if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
     if (typeof paper !== 'undefined' && paper.view) {
         paper.view.update();
     }
+    return report;
 }
 
 function isAncestorOf(potentialAncestor, node) {
@@ -871,6 +888,11 @@ nodes.sort((a, b) => {
             contourDepth: node.depth,
             contourRole: isHole ? "hole" : "outer",
             originalIsHole: typeof node.path.data?.originalIsHole === "boolean" ? node.path.data.originalIsHole : isHole,
+            explicitHole: typeof node.path.data?.explicitHole === "boolean" ? node.path.data.explicitHole : null,
+            sourceElementId: node.path.data?.sourceElementId || null,
+            sourceDocumentOrder: node.path.data?.sourceDocumentOrder ?? node.docOrder,
+            sourceZOrder: node.path.data?.sourceZOrder ?? node.docOrder,
+            holeClassification: node.path.data?.holeClassification || "shared-classifier",
             source: node.path.data?.source || rootTarget.data?.source,
             userImported: node.path.data?.userImported ?? rootTarget.data?.userImported,
             // A decomposed path is a new public owner; never inherit a
