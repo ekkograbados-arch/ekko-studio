@@ -675,9 +675,16 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     // umbral anterior rechazaba esos huecos y dejaba el
                     // sólido visualmente relleno. Solo se rechaza un resultado
                     // vacío, degenerado o con un área imposible.
-                    const isValidArea = testArea > 0.01 &&
-                        testArea <= (pristineArea * 1.000001);
-                    if (testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1) {
+                    const areaLoss = pristineArea - testArea;
+                    // A valid cut may leave a very thin band or a result with
+                    // fewer than three segments. The old width/segment gates
+                    // rejected exactly those contours and restored them as
+                    // filled solids. Require a real area change, not an
+                    // arbitrary visual-size threshold.
+                    const isValidArea = testArea >= 0 &&
+                        testArea <= (pristineArea * 1.000001) &&
+                        areaLoss > Math.max(0.0001, pristineArea * 1e-7);
+                    if (testSegments >= 1 && isValidArea) {
                         finalSubtracted = testSub;
                     } else {
                         testSub.remove();
@@ -699,9 +706,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     if (stepSub) {
                         const stepArea = Math.abs(stepSub.area || 0);
                         const stepSegments = countSegments(stepSub);
-                        const isStepValid = stepArea > 0.01 &&
-                            stepArea <= (pristineArea * 1.000001);
-                        if (stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1) {
+                        const stepAreaLoss = pristineArea - stepArea;
+                        const isStepValid = stepArea >= 0 &&
+                            stepArea <= (pristineArea * 1.000001) &&
+                            stepAreaLoss > Math.max(0.0001, pristineArea * 1e-7);
+                        if (stepSegments >= 1 && isStepValid) {
                             currentProgress.remove();
                             currentProgress = stepSub;
                             appliedSteps += 1;
@@ -726,14 +735,23 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 id: solid.data?.containmentKey || solid.id || null,
                 holes: intersectingHoles.length
             });
-            attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
+            const resultArea = Math.abs(finalSubtracted.area || 0);
             solid.removeChildren();
-            if (finalSubtracted instanceof paper.CompoundPath) {
-                solid.addChildren(finalSubtracted.removeChildren());
+            if (resultArea <= 0.01) {
+                // A cutter can legitimately remove a very small solid
+                // completely. Keep the owner and geomBase for Undo/recalc,
+                // but do not render an empty filled placeholder.
+                try { finalSubtracted.remove(); } catch (_) {}
+                solid.visible = false;
             } else {
-                solid.addChild(finalSubtracted);
+                attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
+                if (finalSubtracted instanceof paper.CompoundPath) {
+                    solid.addChildren(finalSubtracted.removeChildren());
+                } else {
+                    solid.addChild(finalSubtracted);
+                }
+                solid.visible = true;
             }
-            solid.visible = true;
         } else {
             report.failedBooleans.push({
                 phase: "subtract-solid",
