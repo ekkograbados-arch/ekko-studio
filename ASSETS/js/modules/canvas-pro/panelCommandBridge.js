@@ -1,5 +1,6 @@
 import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConvertToCalado, findFusionVector, findFusionRaster } from "./fusionCore.js";
-import { canConvertSelectionToCalado } from "./calado.js";
+import { canConvertSelectionToCalado, convertSelectionToSolid } from "./calado.js";
+import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
@@ -15,6 +16,7 @@ const PRO_COMMAND_IDS = {
     proBtnFusionar: "fusion",
     proBtnQuitarFusion: "unfusion",
     proBtnCalado: "calado",
+    proBtnRellenar: "rellenar",
     proBtnTextToVector: "textToVector",
     proBtnGroup: "group",
     proBtnUngroup: "ungroup",
@@ -39,9 +41,9 @@ const CONTEXT_COMMANDS = {
     none: ["zoom", "rulers", "guides", "measurements"],
     image: ["removeBg", "traceImage", "group", "zoom", "rulers", "guides", "measurements"],
     text: ["textToVector", "group", "align", "zoom", "rulers", "guides", "measurements"],
-    vector: ["editNodes", "calado", "outline", "group", "align", "zoom", "rulers", "guides", "measurements"],
+    vector: ["editNodes", "calado", "rellenar", "outline", "group", "align", "zoom", "rulers", "guides", "measurements"],
     multiple: ["group", "align", "distribute", "zoom", "rulers", "guides", "measurements"],
-    fusion: ["calado", "unfusion", "editFusionImage", "zoom", "rulers", "guides", "measurements"],
+    fusion: ["calado", "rellenar", "unfusion", "editFusionImage", "zoom", "rulers", "guides", "measurements"],
     mixed: ["fusion", "group", "align", "zoom", "rulers", "guides", "measurements"]
 };
 
@@ -52,6 +54,7 @@ let commandDispatcherInstalled = false;
 // Registry of commands declared by data-ekko-command.  The bridge is the
 // single UI entry point; the registry only delegates to existing owners.
 const COMMAND_HANDLERS = Object.freeze({
+    rellenar: () => convertSelectionToSolid(),
     performSmartFusion: () => typeof window.performSmartFusion === "function"
         ? window.performSmartFusion()
         : null,
@@ -157,9 +160,11 @@ function classifySelection() {
     let canUngroup = false;
     let canFusion = false;
     let canCalado = false;
+    let canRellenar = false;
     const singleTarget = selected.length === 1 ? unwrap(selected[0]) : null;
     if (singleTarget) {
         try { canCalado = canConvertSelectionToCalado(singleTarget); } catch (e) { canCalado = false; }
+        try { canRellenar = semanticKind(singleTarget) === VECTOR_KIND.HOLE; } catch (e) { canRellenar = false; }
         // Fallback defensivo para CompoundPath dentro de clipGroup. El botón
         // debe aparecer para un sólido público, aunque el wrapper no se haya
         // resuelto todavía por la ruta principal de Calado.
@@ -205,7 +210,7 @@ function classifySelection() {
         context = "multiple";
     }
 
-    return { context, counts, canUngroup, canFusion, canCalado };
+    return { context, counts, canUngroup, canFusion, canCalado, canRellenar };
 }
 
 function tagProfessionalButtons() {
@@ -229,6 +234,7 @@ function applyCommandVisibility() {
     if (selection.canUngroup) allowed.add("ungroup");
     if (!selection.canFusion) allowed.delete("fusion");
     if (!selection.canCalado) allowed.delete("calado");
+    if (!selection.canRellenar) allowed.delete("rellenar");
     const elements = getSharedCommandElements();
 
     elements.forEach(element => {
@@ -245,6 +251,7 @@ function applyCommandVisibility() {
         canUngroup: selection.canUngroup,
         canFusion: selection.canFusion,
         canCalado: selection.canCalado,
+        canRellenar: selection.canRellenar,
         allowedCommands: [...allowed],
         timestamp: Date.now()
     };
