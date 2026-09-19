@@ -1,4 +1,4 @@
-import { isProductElement, isValidFusionReceptor, isClosedClientVector, findFusionVector, findFusionRaster } from "./fusionCore.js";
+import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConvertToCalado, findFusionVector, findFusionRaster } from "./fusionCore.js";
 import { canConvertSelectionToCalado } from "./calado.js";
 
 /* =========================================================================
@@ -169,8 +169,7 @@ function classifySelection() {
                 canCalado = !!candidate &&
                     !isProductElement(candidate) &&
                     isClosedClientVector(candidate) &&
-                    candidate.data?.isHole !== true &&
-                    candidate.data?.isCalado !== true;
+                    canConvertToCalado(candidate);
             } catch (e) { canCalado = false; }
         }
     }
