@@ -1311,7 +1311,8 @@ const _initSelectionTool = function() {
       // No recalcular CSG al soltar una fusión: sus límites visibles no deben
       // quedar perforados por huecos hermanos durante el desplazamiento.
       if (typeof window.recalculateDynamicSubtractions === 'function') {
-        window.recalculateDynamicSubtractions();
+        const designLayer = paper.project.layers.find(layer => layer?.name === 'designLayer') || window.selectedItem?.layer || null;
+        window.recalculateDynamicSubtractions(designLayer);
       }
     }
 
