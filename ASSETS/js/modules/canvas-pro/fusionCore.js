@@ -271,7 +271,18 @@ export function registerVirtualHole(first, second, group = null) {
   const geom = typeof first === "string" ? second : first;
   if (!fusionId || !geom) return null;
   const storedGeom = geom.clone?.({ insert: false }) || geom;
-  const entry = { geom: storedGeom, fusionId, group, updatedAt: Date.now() };
+  const data = group?.data || {};
+  const entry = {
+    geom: storedGeom,
+    fusionId,
+    group,
+    ownerContainmentKey: data.ownerContainmentKey || null,
+    containmentKey: data.containmentKey || null,
+    containmentScope: data.containmentScope || null,
+    semanticKind: data.semanticKind || (data.originalIsHole === true ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID),
+    originalIsHole: data.originalIsHole === true,
+    updatedAt: Date.now()
+  };
   _virtualHoles.set(fusionId, entry);
   if (typeof window !== "undefined") window._fusionVirtualHoles = getAllVirtualHoles();
   return entry;
@@ -284,9 +295,19 @@ export function updateVirtualHole(fusionId, newGeom, group = null) {
   if (previous?.geom && previous.geom !== newGeom) {
     try { previous.geom.remove?.(); } catch (e) {}
   }
+  const currentGroup = group || previous?.group || null;
+  const data = currentGroup?.data || {};
   _virtualHoles.set(fusionId, {
-    ...(previous || {}), geom: storedGeom, group: group || previous?.group || null,
-    fusionId, updatedAt: Date.now()
+    ...(previous || {}),
+    geom: storedGeom,
+    group: currentGroup,
+    fusionId,
+    ownerContainmentKey: data.ownerContainmentKey || previous?.ownerContainmentKey || null,
+    containmentKey: data.containmentKey || previous?.containmentKey || null,
+    containmentScope: data.containmentScope || previous?.containmentScope || null,
+    semanticKind: data.semanticKind || previous?.semanticKind || (data.originalIsHole === true ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID),
+    originalIsHole: data.originalIsHole === true || previous?.originalIsHole === true,
+    updatedAt: Date.now()
   });
   if (typeof window !== "undefined") window._fusionVirtualHoles = getAllVirtualHoles();
   return true;
