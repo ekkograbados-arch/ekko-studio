@@ -26,6 +26,22 @@ import { auditScene } from "./vectorSemantics.js";
   };
 
   const now = () => new Date().toISOString();
+  const REQUIRED_OPERATIONS = [
+    'undo', 'redo', 'enterNodeEditMode', 'exitNodeEditMode',
+    'enterFusionEditMode', 'exitFusionEditMode', 'convertSelectionToSolid',
+    'convertSelectionToCalado', 'ungroupSelectedItem',
+    'prepareSVGForExport', 'downloadExportedSVG'
+  ];
+  const operationCoverage = () => {
+    const available = REQUIRED_OPERATIONS.filter(name => typeof global[name] === 'function');
+    const wrapped = REQUIRED_OPERATIONS.filter(name => state.activeWrappers.has(name));
+    return {
+      required: REQUIRED_OPERATIONS.slice(), available, wrapped,
+      missing: REQUIRED_OPERATIONS.filter(name => !available.includes(name)),
+      unwrapped: available.filter(name => !wrapped.includes(name)),
+      pass: available.length === REQUIRED_OPERATIONS.length && wrapped.length === REQUIRED_OPERATIONS.length
+    };
+  };
   const point = (p) => p && typeof p.x === 'number' && typeof p.y === 'number'
     ? { x: p.x, y: p.y } : null;
   const rect = (r) => r ? {
@@ -164,6 +180,8 @@ import { auditScene } from "./vectorSemantics.js";
       fusionRecords: null,
       virtualHoles: null,
       transformTransaction: null,
+      transformCsg: null,
+      geomBaseErrors: null,
       textVectorDiag: null,
       commandState: null,
       csgReport: null,
@@ -188,6 +206,8 @@ import { auditScene } from "./vectorSemantics.js";
     try { result.fusionRecords = safe(global._fusionRecords); } catch (_) {}
     try { result.virtualHoles = safe(global._fusionVirtualHoles); } catch (_) {}
     try { result.transformTransaction = safe(global._ekkoTransformTransaction); } catch (_) {}
+    try { result.transformCsg = safe(global.EKKO_LAST_TRANSFORM_CSG); } catch (_) {}
+    try { result.geomBaseErrors = safe(global.EKKO_GEOMBASE_ERRORS); } catch (_) {}
     try { result.textVectorDiag = safe(global._ekkoTextVectorDiag); } catch (_) {}
     try { result.commandState = safe(global.EKKO_COMMAND_STATE); } catch (_) {}
     try { result.csgReport = safe(global.EKKO_CSG_LAST_REPORT); } catch (_) {}
@@ -468,6 +488,7 @@ import { auditScene } from "./vectorSemantics.js";
         clicks: state.clicks.slice(),
         gestures: state.gestures.slice(),
         wrappers: api.getWrapperState(),
+        operationCoverage: operationCoverage(),
         final: documentSnapshot()
       };
     },
