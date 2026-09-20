@@ -195,6 +195,7 @@ export function convertSelectionToSolid(item = null) {
     if (targets.length !== 1) return null;
     const resolved = getVectorTarget(targets[0]);
     if (resolved.fusion) {
+        if (typeof window.saveHistory === "function") window.saveHistory();
         const fusion = resolved.fusion;
         setSemanticKind(fusion, VECTOR_KIND.SOLID);
         fusion.data = {
