@@ -30,7 +30,7 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { getPublicOwner } from "./designGeometry.js";
-import { collectVectorOwners, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { getCanonicalDesignLayer, collectVectorOwners, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 /**
  * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
@@ -121,7 +121,7 @@ export async function prepareSVGForExport(options = {}) {
     const asString = options.asString !== false;
 
     // 1. SELECCIÓN DEFENSIVA DE LA CAPA DE DISEÑO ÚTIL
-    const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === "designLayer")) || paper.project.activeLayer;
+    const designLayer = getCanonicalDesignLayer();
     if (!designLayer) {
         console.error("[EKKO EXPORT] Error: No se encontró la capa de diseño para exportar.");
         return "";
@@ -129,6 +129,7 @@ export async function prepareSVGForExport(options = {}) {
 
     // Clonado aislado de la capa (insert: false para no contaminar el lienzo interactivo)
     const tempLayer = designLayer.clone({ insert: false });
+    tempLayer.name = "designLayer";
 
     // 2. PURGADO INICIAL DE ARTEFACTOS AUXILIARES Y ELEMENTOS NO GRABABLES
     // Elimina de inmediato mockups, fondos, guías inteligentes, cotas, reglas, marcas de agua y cajas de selección
@@ -299,7 +300,8 @@ export async function prepareSVGForExport(options = {}) {
         match: function(item) {
             return item.data &&
                 (item.data.isHole === true || item.data.isHoleController === true) &&
-                item.data.isFusionMask !== true;
+                item.data.isFusionMask !== true &&
+                item.data.isSmartFusion !== true;
         }
     }).forEach(hole => holesToRemove.push(hole));
 
@@ -407,7 +409,16 @@ export async function prepareSVGForExport(options = {}) {
         console.log("[EKKO EXPORT SUCCESS] El diseño vectorial ha sido industrializado exitosamente para LightBurn.");
     }
 
-    return asString ? svgString : new DOMParser().parseFromString(svgString, "image/svg+xml").documentElement;
+    if (typeof DOMParser !== "undefined") {
+        const parsed = new DOMParser().parseFromString(svgString, "image/svg+xml");
+        if (parsed.querySelector?.("parsererror")) {
+            exportCsgReport = { ...(window.EKKO_EXPORT_LAST_REPORT || {}), exportReady: false, reason: "generated-svg-parsererror" };
+            window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
+            return "";
+        }
+        return asString ? svgString : parsed.documentElement;
+    }
+    return asString ? svgString : svgString;
 }
 
 /**
