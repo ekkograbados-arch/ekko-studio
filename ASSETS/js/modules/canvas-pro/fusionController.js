@@ -160,6 +160,7 @@ export function cancelFusionEdit(fusionId) {
     }
     fusionEditTransactions.delete(fusionId);
     unregisterVirtualHole(fusionId);
+    disposeFusionEditTransaction(transaction);
     return transaction;
 }
 
@@ -613,17 +614,32 @@ export function accumulateDragDelta(event, targets = null) {
 }
 
 export function notifyTransformObservers(payload = {}) {
-    transformObservers.forEach(callback => { try { callback(payload); } catch (e) {} });
+    transformObservers.forEach(callback => { try { callback(payload); } catch (error) {
+        if (typeof window !== 'undefined') window.EKKO_TRANSFORM_OBSERVER_ERROR = String(error?.stack || error);
+    } });
     // CSG is part of the transform transaction, not a mouse-up side effect.
-    // Every translate/scale/rotate/node-driven transform therefore rebuilds
-    // solids from geomBase and reapplies all current physical holes live.
+    // Always resolve the canonical design layer; activeLayer may be an overlay.
     if (!payload.skipCSG) {
+        const owner = payload.owner || payload.transaction?.entries?.[0]?.owner || null;
+        const layer = payload.layer || owner?.layer ||
+            (typeof paper !== 'undefined' ? paper.project?.layers?.find(item => item?.name === 'designLayer') : null);
         try {
-            recalculateDynamicSubtractions(
-                payload.layer || null,
+            const report = recalculateDynamicSubtractions(
+                layer,
                 Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []
             );
-        } catch (_) {}
+            if (typeof window !== 'undefined') window.EKKO_LAST_TRANSFORM_CSG = {
+                at: Date.now(), layer: layer?.name || null,
+                reportValid: report?.valid === true,
+                report
+            };
+        } catch (error) {
+            if (typeof window !== 'undefined') window.EKKO_LAST_TRANSFORM_CSG = {
+                at: Date.now(), layer: layer?.name || null,
+                reportValid: false,
+                error: String(error?.stack || error)
+            };
+        }
     }
 }
 export function addTransformObserver(callback) {
