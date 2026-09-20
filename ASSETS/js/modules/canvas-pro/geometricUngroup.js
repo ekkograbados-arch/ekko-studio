@@ -910,19 +910,28 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
         }
 
+        // Igual que en la descomposición múltiple: el owner vectorial debe
+        // entrar primero al CSG sin un clipGroup interpuesto.
+        if (targetLayer) {
+            targetLayer.addChild(compound);
+            if (window.currentMockup) compound.insertBelow(window.currentMockup);
+        }
+        rootTarget.remove();
+        if (targetLayer) recalculateDynamicSubtractions(targetLayer);
+
         let finalItem = compound;
         if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
             finalItem = window.clipItem(compound);
-        }
-
-        if (targetLayer) {
-            targetLayer.addChild(finalItem);
-            if (window.currentMockup) {
-                finalItem.insertBelow(window.currentMockup);
+            if (finalItem !== compound) {
+                const ownerId = compound.id || compound.data?.ownerId || compound.data?.containmentKey;
+                finalItem.data = {
+                    ...(finalItem.data || {}), role: "mockup-containment", clipGroup: true,
+                    publicOwnerId: ownerId, isHole: undefined, geomBase: undefined
+                };
+                compound.data = { ...(compound.data || {}), publicOwner: true, ownerId };
             }
         }
-        rootTarget.remove();
-        return { handled: true, simple: true, items: [finalItem] };
+        return { handled: true, simple: true, items: [compound] };
     }
 
     const { nodes } = buildContainmentTree(atomicPaths);
@@ -1039,37 +1048,38 @@ nodes.sort((a, b) => {
         node.path.remove();
     });
 
+    // Primero publicar los owners vectoriales sin wrappers de clipping. El CSG
+    // debe operar sobre owners físicos directos; envolverlos antes de recalcular
+    // mezcla la identidad del clipGroup con la del cutter y permite que el
+    // resultado visual vuelva a ser la silueta pintada original.
     const finalDeliveredItems = [];
     resultingItems.forEach(item => {
-        let finalItem = item;
-        if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-            finalItem = window.clipItem(item);
-        }
         if (targetLayer) {
-            targetLayer.addChild(finalItem);
-            if (window.currentMockup) {
-                finalItem.insertBelow(window.currentMockup);
-            }
+            targetLayer.addChild(item);
+            if (window.currentMockup) item.insertBelow(window.currentMockup);
         }
-        
-        // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
-        if (finalItem !== item) {
-            if (!finalItem.data) finalItem.data = {};
-            const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
-            finalItem.data = { ...finalItem.data, role: "mockup-containment", clipGroup: true,
-                publicOwnerId: ownerId, isHole: undefined, geomBase: undefined };
-            item.data = { ...(item.data || {}), publicOwner: true, ownerId };
-        }
-
-        // Return/commit only the public owner. The containment wrapper remains
-        // a clipping implementation detail and is never public selection.
-        finalDeliveredItems.push(getPublicOwner(finalItem) || item);
+        finalDeliveredItems.push(item);
     });
 
     rootTarget.remove();
 
     if (targetLayer) {
         recalculateDynamicSubtractions(targetLayer);
+    }
+
+    // El clipping es una preocupación posterior al CSG. Nunca se usa como
+    // owner semántico ni como entrada de la sustracción.
+    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+        resultingItems.forEach(item => {
+            const wrapper = window.clipItem(item);
+            if (!wrapper || wrapper === item) return;
+            const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
+            wrapper.data = {
+                ...(wrapper.data || {}), role: "mockup-containment", clipGroup: true,
+                publicOwnerId: ownerId, isHole: undefined, geomBase: undefined
+            };
+            item.data = { ...(item.data || {}), publicOwner: true, ownerId };
+        });
     }
 
     return { handled: true, simple: false, items: finalDeliveredItems };
