@@ -1,5 +1,5 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds } from "./modules/canvas-pro/designGeometry.js";
-import { getStackingUnit } from "./modules/canvas-pro/vectorSemantics.js";
+import { getCanonicalDesignLayer, getStackingUnit } from "./modules/canvas-pro/vectorSemantics.js";
 
 /* =========================================================================
    Modulo: ASSETS/js/editor.js (v26.0 PRO - SVG Import, Stacking CSG & Reactive Z-Order Engine)
@@ -33,6 +33,7 @@ import "./modules/selection.js";
 import "./modules/canvas-pro/ekkoDiagnostics.js";
 import "./modules/canvas-pro/runtimeProbe.js";
 import "./modules/canvas-pro/runtimeTransformTrace.js";
+import "./modules/canvas-pro/exportSVG.js";
 import "./modules/canvas-pro/ekkoSynapse.js";
 import { loadDynamicFonts, convertTextToVector, applyTextCurve } from "./modules/canvas-pro/textToolbar.js";
 import { loadDynamicProducts } from "./modules/productsLoader.js";
@@ -282,6 +283,7 @@ function makeHistoryEntry(state = null, transforms = null) {
   return {
     state: state || paper.project.exportJSON({ asString: true }),
     transforms: Array.isArray(transforms) ? transforms : captureHistoryTransforms(),
+    selected: captureHistorySelection(),
     at: Date.now()
   };
 }
@@ -404,7 +406,8 @@ function beginHistoryTransaction(label = "operation") {
     historyTransaction = { active: true, label, dirty: false, startedAt: Date.now(),
       beforeState: (typeof paper !== "undefined" && paper.project)
         ? paper.project.exportJSON({ asString: true }) : null,
-      beforeTransforms: captureHistoryTransforms() };
+      beforeTransforms: captureHistoryTransforms(),
+      beforeSelection: captureHistorySelection() };
     window._ekkoHistoryTransaction = { ...historyTransaction, beforeState: undefined, status: "open" };
   }
   return historyTransaction;
@@ -415,6 +418,7 @@ function commitHistoryTransaction(label = null) {
   if (tx.dirty && tx.beforeState) {
     const transformOnly = /^transform(?::|$)/.test(String(tx.label || ""));
     undoStack.push({ state: tx.beforeState, transforms: tx.beforeTransforms || [],
+      selected: tx.beforeSelection || [],
       transformOnly, label: tx.label || label || null, at: Date.now() });
     if (undoStack.length > 50) undoStack.shift();
     redoStack.length = 0;
@@ -480,6 +484,14 @@ function captureHistorySelection() {
     return {
       label: data.label || null,
       fusionId: data.fusionId || null,
+      semanticId: data.semanticId || null,
+      containmentKey: data.containmentKey || null,
+      containmentScope: data.containmentScope || null,
+      ownerContainmentKey: data.ownerContainmentKey || null,
+      sourceContourIndex: data.sourceContourIndex ?? null,
+      semanticKind: data.semanticKind || null,
+      isHole: data.isHole === true,
+      originalIsHole: data.originalIsHole === true,
       source: data.source || null,
       className: owner.className || null,
       isRaster: owner.className === "Raster"
@@ -492,6 +504,13 @@ function historySelectionScore(owner, descriptor) {
   const data = owner.data || {};
   let score = 0;
   if (descriptor.fusionId && data.fusionId === descriptor.fusionId) score += 100;
+  if (descriptor.semanticId && data.semanticId === descriptor.semanticId) score += 95;
+  if (descriptor.containmentKey && data.containmentKey === descriptor.containmentKey) score += 90;
+  if (descriptor.ownerContainmentKey && data.ownerContainmentKey === descriptor.ownerContainmentKey) score += 80;
+  if (descriptor.sourceContourIndex != null && data.sourceContourIndex === descriptor.sourceContourIndex) score += 70;
+  if (descriptor.semanticKind && data.semanticKind === descriptor.semanticKind) score += 35;
+  if (descriptor.isHole === (data.isHole === true)) score += 25;
+  if (descriptor.originalIsHole === (data.originalIsHole === true)) score += 20;
   if (descriptor.label && data.label === descriptor.label) score += 50;
   if (descriptor.source && data.source === descriptor.source) score += 20;
   if (descriptor.className && owner.className === descriptor.className) score += 10;
@@ -559,7 +578,10 @@ function importHistoryEntry(entry) {
   // Restore the canonical world matrix only after mockup/fusion rehydration so
   // the public owner, its raster and every measurement use the same geometry.
   restoreHistoryTransforms(entry?.transforms || []);
-  if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
+  if (typeof recalculateDynamicSubtractions === "function") {
+    const designLayer = paper.project?.layers?.find(layer => layer?.name === 'designLayer') || null;
+    recalculateDynamicSubtractions(designLayer);
+  }
   return true;
 }
 
@@ -606,7 +628,8 @@ function undo() {
     phase: "undo", historyEntry: entry, currentEntry: current,
     undoDepth: undoStack.length, redoDepth: redoStack.length
   });
-  if (restoreTransformHistoryInPlace(entry, selectionBeforeUndo, "undo")) {
+  const targetSelection = Array.isArray(entry?.selected) ? entry.selected : selectionBeforeUndo;
+  if (restoreTransformHistoryInPlace(entry, targetSelection, "undo")) {
     window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "restored-in-place", historyEntry: entry });
     return;
   }
@@ -617,7 +640,7 @@ function undo() {
   // Non-transform edits still use the JSON document snapshot. Transform
   // transactions use the live-owner path above so matrix and rendered geometry
   // cannot diverge after rehydration.
-  finishHistoryImport(selectionBeforeUndo, "undo", entry);
+  finishHistoryImport(targetSelection, "undo", entry);
   window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "json-rehydrate", historyEntry: entry });
 }
 window.undo = undo;
@@ -649,7 +672,8 @@ function redo() {
     phase: "redo", historyEntry: entry, currentEntry: current,
     undoDepth: undoStack.length, redoDepth: redoStack.length
   });
-  if (restoreTransformHistoryInPlace(entry, selectionBeforeRedo, "redo")) {
+  const targetSelection = Array.isArray(entry?.selected) ? entry.selected : selectionBeforeRedo;
+  if (restoreTransformHistoryInPlace(entry, targetSelection, "redo")) {
     window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "restored-in-place", historyEntry: entry });
     return;
   }
@@ -659,7 +683,7 @@ function redo() {
   }
   // The redo entry carries the public owner matrix. Re-selecting after import
   // remains the fallback for non-transform document edits.
-  finishHistoryImport(selectionBeforeRedo, "redo", entry);
+  finishHistoryImport(targetSelection, "redo", entry);
   window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "json-rehydrate", historyEntry: entry });
 }
 window.redo = redo;
@@ -706,7 +730,11 @@ function rehydrateSceneRuntime() {
   if (typeof window.EKKO_FUSION_CONTROLLER?.rebuildFusionRegistry === 'function') {
     window.EKKO_FUSION_CONTROLLER.rebuildFusionRegistry();
   }
-  if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
+  const designLayer = paper.project?.layers?.find(layer => layer?.name === 'designLayer') || null;
+  designLayer?.children?.forEach(initGeomBaseRecursive);
+  if (typeof recalculateDynamicSubtractions === 'function') {
+    recalculateDynamicSubtractions(designLayer);
+  }
   if (typeof window.EKKO_FUSION_CONTROLLER?.assertFusionRegistryState === "function") {
     window.EKKO_FUSION_CONTROLLER.assertFusionRegistryState("rehydrate");
   }
@@ -1069,9 +1097,20 @@ function initGeomBaseRecursive(item) {
   const owner = getPublicOwner(item);
   if (owner === item && (item instanceof paper.Path || item instanceof paper.CompoundPath)) {
     item.data = item.data || {};
-    const old = item.data.geomBase;
+    let old = item.data.geomBase;
+    // Paper JSON can restore data.geomBase as a plain object. Revive only from
+    // the canonical detached path data; never promote already-subtracted
+    // visible children into a new base.
+    if (old && typeof old.clone !== 'function' && item.data.geomBasePathData) {
+      try {
+        old = new paper.CompoundPath({ insert: false, pathData: item.data.geomBasePathData });
+        item.data.geomBase = old;
+      } catch (_) {
+        item.data.geomBase = null;
+      }
+    }
     if (!old) item.data.geomBase = getOwnerLocalGeometry(item);
-    else {
+    else if (typeof old.clone === 'function') {
       const normalized = old.clone({ insert: false });
       const matrix = normalized.matrix?.clone?.();
       normalized.applyMatrix = false; normalized.matrix = new paper.Matrix();
@@ -1082,6 +1121,9 @@ function initGeomBaseRecursive(item) {
     if (item.data.geomBase) {
       item.data.geomBase.applyMatrix = false;
       item.data.geomBase.matrix = new paper.Matrix();
+      if (!item.data.geomBasePathData && item.data.geomBase.pathData) {
+        item.data.geomBasePathData = item.data.geomBase.pathData;
+      }
     }
   }
   item.children?.forEach(initGeomBaseRecursive);
@@ -1198,7 +1240,9 @@ export function addSVGFromFile(file, pointOrOptions = null) {
         const xmlDoc = parser.parseFromString(svgText, "image/svg+xml");
         const parserError = xmlDoc.querySelector("parsererror");
         if (parserError) {
-          console.warn("[EKKO SVG IMPORT WARNING] Advertencia en XML de SVG:", parserError.textContent);
+          reportImportError("svg", file, "malformed-svg-xml", options, parserError.textContent || "parsererror");
+          finish(null);
+          return;
         }
       } catch (error) {
         console.error("[EKKO SVG IMPORT ERROR] Fallo al sanear XML:", error);
@@ -1206,8 +1250,13 @@ export function addSVGFromFile(file, pointOrOptions = null) {
 
       try {
         if (window.paper && paper.project) {
-          const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
-          if (designLayer) designLayer.activate();
+          const designLayer = getCanonicalDesignLayer();
+          if (!designLayer) {
+            reportImportError("svg", file, "missing-design-layer", options);
+            finish(null);
+            return;
+          }
+          designLayer.activate();
         }
 
         paper.project.importSVG(svgText, (item) => {
