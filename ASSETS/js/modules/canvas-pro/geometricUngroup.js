@@ -4,8 +4,10 @@ import {
     getStackingUnit,
     semanticKind,
     isAboveInRenderOrder,
+    getCanonicalDesignLayer,
     collectVectorOwners,
-    buildCutterPairs
+    buildCutterPairs,
+    auditScene
 } from "./vectorSemantics.js";
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/geometricUngroup.js
@@ -31,6 +33,10 @@ function isCompoundPath(item) {
 
 function isGroup(item) {
     return item && (item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group));
+}
+
+function resolveCanonicalDesignLayer(targetLayer = null) {
+    return getCanonicalDesignLayer({ targetLayer });
 }
 
 function isPlacedSymbol(item) {
@@ -281,6 +287,15 @@ export function getGlobalUnsubtractedPath(item) {
     // generic resolver from reaching geomBase.
     const owner = getPublicOwner(item) || item;
     const base = owner?.data?.geomBase;
+    if (base && typeof base.clone !== 'function') {
+        if (typeof window !== 'undefined') {
+            window.EKKO_GEOMBASE_ERRORS = [
+                ...(Array.isArray(window.EKKO_GEOMBASE_ERRORS) ? window.EKKO_GEOMBASE_ERRORS : []),
+                { ownerId: owner?.id ?? null, reason: 'non-paper-geomBase' }
+            ].slice(-50);
+        }
+        return null;
+    }
     if (base?.clone && owner) {
         try {
             const local = base.clone({ insert: false });
@@ -358,63 +373,6 @@ function applyHoleVisualStyle(item) {
     paint(item);
 }
 
-// Stacking and owner resolution live in vectorSemantics.js so editor,
-// selection, CSG and fusion cannot invent different Z-order rules.
-function extractSubtractiveItems(topList) {
-    const result = [];
-    const visited = new Set();
-    function collectRecursive(item, ancestors = new Set()) {
-        if (!item || visited.has(item)) return;
-        visited.add(item);
-
-        // Resolve each item with its own guarded owner path. `ancestors` is
-        // kept separately so an owner that resolves back to an ancestor is
-        // rejected without preventing valid children from being visited.
-        const content = getPublicOwner(item, new Set());
-        if (!content) return;
-        const resolvedToAncestor = ancestors.has(content) && content !== item;
-        if (resolvedToAncestor) {
-            item.children?.forEach(child => {
-                if (!child.clipMask && !(child.data && (child.data.wasClipMask || child.data.isMask))) {
-                    collectRecursive(child, new Set(ancestors));
-                }
-            });
-            return;
-        }
-        if (!visited.has(content)) visited.add(content);
-
-        // Una fusión sólida participa del CSG mediante su máscara, no como
-        // un grupo completo que también contiene la imagen. Una fusión que
-        // reemplazó un hueco se representa mediante su hueco virtual.
-        if (content.data?.isSmartFusion) {
-            const fusionMask = content.children?.find(child =>
-                child.clipMask || child.data?.isFusionMask
-            );
-            if (fusionMask && !fusionMask.data?.isHole && fusionMask.data?.geomBase) {
-                result.push(fusionMask);
-            }
-            return;
-        }
-
-        const nextAncestors = new Set(ancestors);
-        nextAncestors.add(item);
-        nextAncestors.add(content);
-        if (isGroup(content) && content.children && content.children.length > 0) {
-            content.children.forEach(c => {
-                if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
-                    collectRecursive(c, nextAncestors);
-                }
-            });
-        } else if (content.data && content.data.geomBase) {
-            result.push(content);
-        }
-    }
-    topList.forEach(topItem => {
-        collectRecursive(topItem);
-    });
-    return result;
-}
-
 export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEntries = null) {
     const report = {
         valid: true, receivedHoles: 0, appliedHoles: 0, rejectedHoles: 0,
@@ -427,7 +385,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         ownerDiagnostics: [],
         virtualHolesReceived: 0, virtualHolesApplied: 0
     };
-    const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
+    const layer = resolveCanonicalDesignLayer(targetLayer);
     const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
         ? virtualHoleEntries
         : (Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []);
@@ -449,20 +407,18 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
         return report;
     }
-    const subItems = extractSubtractiveItems(items);
-    report.receivedHoles = subItems.filter(item => item?.data?.isHole === true).length;
-    if (subItems.length === 0) {
-        report.reasons.push("no-subtractive-items");
+    // One canonical owner set feeds diagnostics, pair planning and the
+    // boolean pass. No private recursive extractor is allowed to create a
+    // second identity for a wrapper, fusion mask or public contour.
+    const semanticOwners = collectVectorOwners(layer, { requireGeomBase: true });
+    report.receivedHoles = semanticOwners.filter(item => semanticKind(item) === 'hole').length;
+    if (semanticOwners.length === 0) {
+        report.reasons.push("no-semantic-owners");
         if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
         return report;
     }
-
-    // One scene plan feeds CSG and the layer controls. The plan records
-    // semantic owners and valid hole→solid pairs before any boolean mutates
-    // the visible geometry.
-    const semanticOwners = collectVectorOwners(layer);
     const scenePlan = buildCutterPairs(semanticOwners);
-    const realOwners = new Set(subItems);
+    const realOwners = new Set(semanticOwners);
     const hasPositiveAreaPair = (hole, solid) => {
         let holeGeom = null;
         let solidGeom = null;
@@ -497,14 +453,13 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     report.holeToSolidPairs = realPairs.filter(pair => pair.solid && semanticKind(pair.solid) === "solid").length;
     report.holeToHolePairs = scenePlan.pairs.filter(pair => pair.targetKind === "hole").length;
     report.candidatePairs = realPairs.length;
-    report.ownerDiagnostics = semanticOwners.map(owner => ({
-        id: diagnosticId(owner),
-        semanticKind: semanticKind(owner),
-        hasGeomBase: !!owner.data?.geomBase,
-        sourceContourIndex: owner.data?.sourceContourIndex ?? null,
-        sourceDocumentOrder: owner.data?.sourceDocumentOrder ?? null,
-        zIndex: getStackingUnit(owner)?.index ?? null
-    }));
+    const sceneAudit = auditScene(layer, { requireGeomBase: true });
+    report.ownerDiagnostics = sceneAudit.owners;
+    report.ownerSetContract = {
+        source: "vectorSemantics.collectVectorOwners",
+        ownerCount: semanticOwners.length,
+        matchesAudit: sceneAudit.ownerCount === semanticOwners.length
+    };
     report.pairDiagnostics = [
         ...realPairs.map(pair => ({ hole: diagnosticId(pair.hole), target: diagnosticId(pair.solid), targetKind: "solid", status: "candidate" })),
         ...scenePlan.pairs.filter(pair => pair.targetKind === "hole").map(pair => ({
@@ -569,8 +524,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         }
     });
 
-    for (let j = 0; j < subItems.length; j++) {
-        const solid = subItems[j];
+    for (let j = 0; j < semanticOwners.length; j++) {
+        const solid = semanticOwners[j];
         const solidId = solid?.data?.containmentKey || solid?.id || `solid-${j}`;
         if (!solid || !solid.data) {
             report.skippedSolids.push({ id: solidId, reason: "missing-data" });
@@ -596,9 +551,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
         const intersectingHoles = [];
         let intersectingVirtualHoles = 0;
-        for (let i = 0; i < subItems.length; i++) {
+        for (let i = 0; i < semanticOwners.length; i++) {
             if (i === j) continue;
-            const holeItem = subItems[i];
+            const holeItem = semanticOwners[i];
             if (!holeItem || !holeItem.data || !holeItem.data.isHole ||
                 isMockupOrMask(holeItem)) continue;
             const allowedHoles = pairHolesBySolid.get(solid);
@@ -837,7 +792,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         return null;
     }
 
-    const targetLayer = rootTarget.layer || paper.project.activeLayer;
+    const targetLayer = resolveCanonicalDesignLayer(rootTarget.layer || null);
     docOrderCounter = 0;
     const shouldClip = isClipped || (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
     const containmentScope = rootTarget.data?.containmentScope ||
@@ -891,6 +846,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             source: single.data?.source || rootTarget.data?.source,
             userImported: single.data?.userImported ?? rootTarget.data?.userImported,
             geomBase: geomBase,
+            geomBasePathData: geomBase.pathData || null,
             layerDepth: 0,
             containmentId: 0,
             containmentScope,
@@ -1025,6 +981,7 @@ nodes.sort((a, b) => {
             // text-vector/fusion id that would alias the removed wrapper.
             fusionId: null,
             geomBase: geomBase,
+            geomBasePathData: geomBase.pathData || null,
             layerDepth: node.depth,
             containmentId: node.id,
             containmentScope: node.containmentScope,
