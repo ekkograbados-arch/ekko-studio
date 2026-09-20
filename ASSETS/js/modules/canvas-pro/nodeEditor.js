@@ -293,6 +293,10 @@ export async function enterNodeEditMode(item) {
 
             if (hitResult) {
                 const hitData = hitResult.item.data;
+                // Snapshot before any node/handle mutation. Saving on mouseUp
+                // alone records the post-edit geometry and makes Undo unable
+                // to restore the pre-drag shape.
+                if (typeof window.saveHistory === 'function') window.saveHistory();
                 dragStartPoint = event.point.clone();
                 if (hitData.isCurveHandle) {
                     isDraggingHandle = true;
@@ -318,7 +322,6 @@ export async function enterNodeEditMode(item) {
                     if (targetPath && targetPath.segments && targetPath.segments[hitData.localIdx]) {
                         const seg = targetPath.segments[hitData.localIdx];
                         if (seg.handleIn.isZero() && seg.handleOut.isZero()) {
-                            if (typeof window.saveHistory === 'function') window.saveHistory();
                             seg.smooth();
                             syncGeometryToGeomBase(activeNodeItem);
                             safeRecalculateSubtractions();
@@ -408,6 +411,7 @@ export async function enterNodeEditMode(item) {
                                 if (targetPath && targetPath.segments && targetPath.segments[handle.data.localIdx]) {
                                     const seg = targetPath.segments[handle.data.localIdx];
                                     if (seg.handleIn.isZero() && seg.handleOut.isZero()) {
+                                        if (typeof window.saveHistory === 'function') window.saveHistory();
                                         seg.smooth();
                                         hasAutoSmooth = true;
                                     }
