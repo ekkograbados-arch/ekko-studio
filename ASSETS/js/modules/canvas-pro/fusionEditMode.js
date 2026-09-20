@@ -43,6 +43,8 @@ export function enterFusionEditMode(fusionGroup) {
   const image = fusionGroup.children?.find(child =>
     child?.name === "fusion-image" || child?.className === "Raster");
   if (!mask || !image) return false;
+  const controller = window.EKKO_FUSION_CONTROLLER;
+  const controllerTransaction = controller?.beginFusionEdit?.(fusionGroup) || null;
 
   const tempImage = image.clone();
   tempImage.name = "fusion-temp-image";
@@ -67,6 +69,7 @@ export function enterFusionEditMode(fusionGroup) {
   editState = {
     fusionGroup,
     fusionId: data.fusionId,
+    controllerTransaction,
     mask,
     image,
     tempImage,
@@ -79,6 +82,7 @@ export function enterFusionEditMode(fusionGroup) {
   };
   window._fusionEditState = editState;
   fusionEditActive = true;
+  window.fusionEditActive = true;
   interactionOwner.claim("fusion-edit", { owner: "fusionEditMode" });
   paper.view?.update?.();
   return true;
@@ -94,6 +98,7 @@ export function exitFusionEditMode(accept = true) {
   }
 
   fusionEditActive = false;
+  window.fusionEditActive = false;
   editState = null;
   window._fusionEditState = null;
   interactionOwner.endPointer("fusion-edit");
@@ -101,6 +106,7 @@ export function exitFusionEditMode(accept = true) {
   const finalImage = st.image?.project
     ? st.image
     : st.fusionGroup?.children?.find(child => child?.name === "fusion-image");
+  const controller = window.EKKO_FUSION_CONTROLLER;
   try {
     if (finalImage) {
       if (accept && st.tempImage) {
@@ -112,7 +118,24 @@ export function exitFusionEditMode(accept = true) {
       }
       finalImage.opacity = 1;
     }
-    if (accept) updateVirtualHole(st.fusionId, st.mask, st.fusionGroup);
+    let acceptedRasterSnapshot = null;
+    if (accept && finalImage?.clone) {
+      acceptedRasterSnapshot = finalImage.clone({ insert: false });
+      acceptedRasterSnapshot.visible = false;
+      acceptedRasterSnapshot.data = { ...(acceptedRasterSnapshot.data || {}), fusionEditSnapshot: true };
+      st.fusionGroup.data = { ...(st.fusionGroup.data || {}), originalRasterData: acceptedRasterSnapshot };
+    }
+    if (accept) {
+      updateVirtualHole(st.fusionId, st.mask, st.fusionGroup);
+      controller?.commitFusionEdit?.(st.fusionGroup, acceptedRasterSnapshot ? { originalRasterData: acceptedRasterSnapshot } : {});
+    } else {
+      controller?.cancelFusionEdit?.(st.fusionId);
+    }
+    // A virtual hole must exist after both accept and cancel. The controller
+    // owns the canonical metadata/scope, while this module owns the edit UI.
+    controller?.syncFusionVirtualHole?.(st.fusionGroup);
+    const designLayer = paper.project?.layers?.find(layer => layer?.name === 'designLayer') || st.fusionGroup?.layer || null;
+    window.recalculateDynamicSubtractions?.(designLayer);
   } finally {
     cleanupEditVisuals(st);
     interactionOwner.release("fusion-edit");
