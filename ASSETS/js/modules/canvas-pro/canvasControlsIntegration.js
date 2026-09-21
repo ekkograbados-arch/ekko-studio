@@ -55,7 +55,7 @@ function getSelectionTypes(items) {
     else if (it.className === 'Raster') counts.raster++;
     else if (d.isText) counts.text++;
     else if (it.className === 'Group') counts.group++;
-    else if (it.pathData || it.className === 'Path') counts.vector++;
+    else if (it.pathData || ['Path', 'CompoundPath', 'Shape'].includes(it.className)) counts.vector++;
   });
   counts.allSame = items.length <= 1 || Object.values(counts).filter(v => v > 0).length === 1;
   return counts;
@@ -63,43 +63,43 @@ function getSelectionTypes(items) {
 
 function resolveButtonSet(selection) {
   if (!selection || !selection.length) {
-    return { show: ['zoom','rulers','guides'], hide: ['fusion','unfusion','ungroup','editNodes','removeBg','traceImage','editFusionImage','group','align','distribute','outline'] };
+    return { show: ['zoom','rulers','guides'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','editFusionImage','group','align','distribute','outline'] };
   }
 
   const types = getSelectionTypes(selection);
 
   // Fusión seleccionada
   if (types.fusion === selection.length) {
-    return { show: ['unfusion','editFusionImage'], hide: ['fusion','ungroup','editNodes','removeBg','traceImage','group','align','distribute','outline'] };
+    return { show: ['unfusion','editFusionImage'], hide: ['decomposeVector', 'fusion','ungroup','editNodes','removeBg','traceImage','group','align','distribute','outline'] };
   }
 
   // Imagen + Vector → Fusionar disponible
   if (types.raster && types.vector && selection.length === 2) {
-    return { show: ['fusion','group','align'], highlight: ['fusion'], hide: ['unfusion','ungroup','editNodes','distribute','outline'] };
+    return { show: ['fusion','group','align'], highlight: ['fusion'], hide: ['decomposeVector', 'unfusion','ungroup','editNodes','distribute','outline'] };
   }
 
   // Solo imagen
   if (types.raster === selection.length) {
-    return { show: ['removeBg','traceImage','group'], hide: ['fusion','unfusion','ungroup','editNodes','distribute','outline','editFusionImage'] };
+    return { show: ['removeBg','traceImage','group'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','distribute','outline','editFusionImage'] };
   }
 
   // Solo vector
   if (types.vector === selection.length) {
-    return { show: ['editNodes','outline','group'], hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage'] };
+    return { show: ['editNodes','outline','decomposeVector','group'], hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage'] };
   }
 
   // Grupo
   if (types.group === selection.length) {
-    return { show: ['ungroup','align'], hide: ['fusion','unfusion','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
+    return { show: ['ungroup','align'], hide: ['decomposeVector', 'fusion','unfusion','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
   }
 
   // Múltiples del mismo tipo
   if (selection.length > 1 && types.allSame) {
-    return { show: ['group','align','distribute'], hide: ['fusion','unfusion','ungroup','editNodes','removeBg','traceImage','outline','editFusionImage'] };
+    return { show: ['group','align','distribute'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','outline','editFusionImage'] };
   }
 
   // Múltiple mixto
-  return { show: ['group','align'], hide: ['fusion','unfusion','ungroup','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
+  return { show: ['group','align'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
 }
 
 function syncToolbar(toolbarId, set) {
