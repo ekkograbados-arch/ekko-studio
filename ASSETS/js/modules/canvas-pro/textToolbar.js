@@ -445,11 +445,19 @@ export async function weldText(item) {
     let referenceBounds = null;
     try {
         if (target instanceof paper.PointText && document.fonts?.load) {
-            await document.fonts.load(`${Number(target.fontSize) || 42}px "${target.fontFamily}"`, target.content || "");
-            paper.view.update();
-            // Referencia visual después de cargar la familia real.
-            referenceBounds = target.bounds.clone();
+            try {
+                await document.fonts.load(`${Number(target.fontSize) || 42}px "${target.fontFamily}"`, target.content || "");
+                paper.view.update();
+                // Referencia visual después de cargar la familia real.
+                referenceBounds = target.bounds.clone();
+            } catch (fontError) {
+                // La geometría vectorial se genera con OpenType y no debe
+                // fallar solamente porque la fuente CSS todavía no terminó de
+                // cargar o no está disponible para el renderer del navegador.
+                diag.fontLoadWarning = String(fontError?.message || fontError);
+            }
         }
+
         converted = target instanceof paper.PointText
             ? await textToCompoundPath(target)
             : pathGroup;
