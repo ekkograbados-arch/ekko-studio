@@ -1,5 +1,5 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
-import { getCanonicalDesignLayer, realGeometryIntersects } from "./vectorSemantics.js";
+import { getCanonicalDesignLayer, realGeometryIntersects, isAboveInRenderOrder, getStackingUnit } from "./vectorSemantics.js";
 
 
 /*
@@ -610,36 +610,8 @@ function applyHoleVisualStyle(item) {
     });
 }
 
-// Paper.js orders siblings by `index` (low = behind, high = in front). A
-// hole only subtracts solids below it. This is deliberately based on the
-// actual owner/wrapper ancestry, not on docOrder or containment metadata,
-// because moving an item must change the physical cut without changing its
-// `isHole` identity.
-function isAboveInRenderOrder(candidate, reference) {
-    if (!candidate || !reference || candidate === reference) return false;
-    const chain = item => {
-        const result = [];
-        let current = item;
-        while (current && current.parent) {
-            result.unshift(current);
-            current = current.parent;
-        }
-        return result;
-    };
-    const a = chain(candidate);
-    const b = chain(reference);
-    const length = Math.min(a.length, b.length);
-    let common = 0;
-    while (common < length && a[common] === b[common]) common++;
-    if (common === 0) return false;
-    if (common < length) {
-        const aIndex = typeof a[common].index === 'number' ? a[common].index : -1;
-        const bIndex = typeof b[common].index === 'number' ? b[common].index : -1;
-        return aIndex > bIndex;
-    }
-    // A descendant is rendered inside/on top of its ancestor.
-    return a.length > b.length;
-}
+// Render-order authority lives in vectorSemantics.js. CSG must use the same
+// stacking-unit comparator as selection, ordering and audit code.
 
 function extractSubtractiveItems(topList) {
     const result = [];
@@ -806,7 +778,15 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             // suppress the user's cross-object Z-order rule. A hole cuts only
             // objects rendered below it.
             const zAllowed = isAboveInRenderOrder(holeItem, solid);
-            pair.zOrder = { holeAboveSolid: zAllowed, holeIndex: holeItem.index ?? null, solidIndex: solid.index ?? null };
+            const holeStackingUnit = getStackingUnit(holeItem);
+            const solidStackingUnit = getStackingUnit(solid);
+            pair.zOrder = {
+                holeAboveSolid: zAllowed,
+                holeIndex: holeStackingUnit?.index ?? holeItem.index ?? null,
+                solidIndex: solidStackingUnit?.index ?? solid.index ?? null,
+                holeOwnerIndex: holeItem.index ?? null,
+                solidOwnerIndex: solid.index ?? null
+            };
             if (!zAllowed) {
                 pair.reasons.push('z-order');
                 if (tracePass) tracePass.candidatePairs.push(pair);
