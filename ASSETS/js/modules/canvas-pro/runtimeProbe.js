@@ -108,7 +108,9 @@
       virtualHoles: null,
       transformTransaction: null,
       textVectorDiag: null,
-      commandState: null
+      commandState: null,
+      ungroupRoute: null,
+      ungroupRouteHistory: []
     };
     try { result.selectedItem = itemSnapshot(global.selectedItem); } catch (_) {}
     try {
@@ -127,6 +129,8 @@
     try { result.transformTransaction = safe(global._ekkoTransformTransaction); } catch (_) {}
     try { result.textVectorDiag = safe(global._ekkoTextVectorDiag); } catch (_) {}
     try { result.commandState = safe(global.EKKO_COMMAND_STATE); } catch (_) {}
+    try { result.ungroupRoute = safe(global.EKKO_UNGROUP_LAST_ROUTE); } catch (_) {}
+    try { result.ungroupRouteHistory = safe(global.EKKO_UNGROUP_ROUTE_HISTORY || []); } catch (_) {}
     return result;
   }
 
