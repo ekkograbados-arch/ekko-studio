@@ -272,6 +272,10 @@ export async function prepareSVGForExport(options = {}) {
     }
     const exportOwners = collectVectorOwners(tempLayer);
     const unresolvedOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
+    const materializationUnresolvedHoles = Math.max(
+        unresolvedOwners.length,
+        Number(exportCsgReport?.unresolvedHoles || 0)
+    );
     const failedBooleans = [
         ...(exportCsgReport?.failedBooleans || []),
         ...(exportCsgError ? [{ operation: "csg-recalculate", error: exportCsgError }] : [])
@@ -281,11 +285,11 @@ export async function prepareSVGForExport(options = {}) {
         ...(exportCsgReport || {}),
         holeOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE).length,
         solidOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.SOLID).length,
-        unresolvedHoles: Number(exportCsgReport?.unresolvedHoles || 0),
+        unresolvedHoles: materializationUnresolvedHoles,
         unresolvedOwnerIds: unresolvedOwners.map(owner => owner.data?.containmentKey || owner.id || null),
         failedBooleans,
         csgCompleted,
-        exportReady: csgCompleted && failedBooleans.length === 0
+        exportReady: csgCompleted && failedBooleans.length === 0 && materializationUnresolvedHoles === 0
     };
     if (typeof window !== "undefined") window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
     if (!exportCsgReport.exportReady) {
