@@ -39,17 +39,11 @@ import { getCanonicalDesignLayer, collectVectorOwners, semanticKind, VECTOR_KIND
  */
 function getContentItem(item) {
     if (!item) return null;
+    // Owner resolution is semantic and centralized. A containment wrapper
+    // without an explicit public owner is not exportable design geometry.
     const owner = getPublicOwner(item);
     if (owner) return owner;
-    if (item.data && item.data.clipGroup) {
-        if (!item.children) return item;
-        const content = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask)));
-        if (content) return content;
-        const fallback = item.children.find(c => !c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask || c.data.mockup)));
-        if (fallback) return fallback;
-        return item.children[1] || item.children[0] || item;
-    }
-    return item;
+    return item.data?.clipGroup ? null : item;
 }
 
 /**
