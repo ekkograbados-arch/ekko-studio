@@ -1,6 +1,8 @@
 import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConvertToCalado, findFusionVector, findFusionRaster } from "./fusionCore.js";
 import { canConvertSelectionToCalado, convertSelectionToSolid } from "./calado.js";
 import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { dispatchUngroup, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
+import { getPublicOwner } from "./designGeometry.js";
 
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
@@ -64,7 +66,8 @@ const COMMAND_HANDLERS = Object.freeze({
             ? [...window.selectedItems]
             : (window.selectedItem ? window.selectedItem : null);
         return window.releaseSmartFusion(selected);
-    }
+    },
+    ungroup: () => dispatchUngroup()
 });
 
 export function dispatchEKKOCommand(command, element = null) {
@@ -111,11 +114,7 @@ function installCommandDispatcher() {
 }
 
 function unwrap(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup && item.children) {
-        return item.children.find(child => !child.clipMask && !(child.data && (child.data.isMask || child.data.wasClipMask))) || item;
-    }
-    return item;
+    return getPublicOwner(item) || null;
 }
 
 function getSelectedItems() {
@@ -186,11 +185,9 @@ function classifySelection() {
         canFusion = !!(raster && vector && !isProductElement(raster) && isValidFusionReceptor(vector));
     }
 
-    if (singleTarget && !(singleTarget.data && singleTarget.data.isSmartFusion)) {
-        canUngroup = singleTarget.className === "Group" ||
-            singleTarget.className === "SymbolItem" ||
-            singleTarget.className === "PlacedSymbol" ||
-            (singleTarget.className === "CompoundPath" && !singleTarget.data?.decomposedLayer);
+    if (singleTarget) {
+        try { canUngroup = getUngroupRoute(singleTarget) !== UNGROUP_ROUTE.NONE; }
+        catch (_) { canUngroup = false; }
     }
 
     if (counts.fusion === selected.length) {
