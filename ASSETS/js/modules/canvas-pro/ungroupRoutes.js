@@ -24,6 +24,17 @@ function classNameOf(item) { return item?.className || item?.constructor?.name |
 function isGroupLike(item) {
   return ["Group", "CompoundPath", "SymbolItem", "PlacedSymbol"].includes(classNameOf(item));
 }
+function isStructuralGroup(item) {
+  return ["Group", "SymbolItem", "PlacedSymbol"].includes(classNameOf(item));
+}
+function isClosedVectorOwner(item) {
+  if (!item || isMockupOrMask(item)) return false;
+  const className = classNameOf(item);
+  if (!["Path", "CompoundPath", "Shape"].includes(className)) return false;
+  if (item.data?.decomposedLayer === true) return false;
+  if (item.data?.isSmartFusion || item.data?.fusionId) return false;
+  return className === "CompoundPath" || item.closed === true || !!item.data?.geomBase;
+}
 function isFusionOwner(item) {
   const data = dataOf(item);
   return !!(data.isSmartFusion === true || data.fusionId || data.fusionGroup === true ||
@@ -70,18 +81,13 @@ export function getUngroupRoute(item) {
   const owner = normalizeUngroupOwner(item);
   if (!owner) return UNGROUP_ROUTE.NONE;
   if (fusionOwnerInLineage(owner)) return UNGROUP_ROUTE.FUSION;
-  if (!isGroupLike(owner)) return UNGROUP_ROUTE.NONE;
+  // Desagrupar only removes structural containers. A closed vector, including
+  // a text CompoundPath, belongs to the separate decomposition command.
+  if (!isStructuralGroup(owner)) return UNGROUP_ROUTE.NONE;
   const data = dataOf(owner);
-  // A text vector is a CompoundPath, not an SVG source wrapper, but its
-  // contours still need the canonical geometric decomposition route when the
-  // user explicitly presses Desagrupar.
-  if (isTextVector(owner)) return UNGROUP_ROUTE.SVG;
-  // An explicit user-created group wins over the source type of its children:
-  // grouping imported owners must never trigger SVG topology decomposition.
-  if (data.isUserGroup === true || data.source === "user-group" || data.role === "user-group") {
-    return UNGROUP_ROUTE.STRUCTURAL;
+  if (data.geomBase || semanticKind(owner) || data.isHole === true || data.isSolidShape === true) {
+    return UNGROUP_ROUTE.NONE;
   }
-  if (hasImportedSvgDescendant(owner)) return UNGROUP_ROUTE.SVG;
   return UNGROUP_ROUTE.STRUCTURAL;
 }
 
@@ -125,8 +131,7 @@ function isStructuralContainer(item) {
   if (!item || classNameOf(item) !== "Group") return false;
   const data = dataOf(item);
   if (isFusionOwner(item) || data.geomBase || semanticKind(item)) return false;
-  return data.isUserGroup === true || data.source === "user-group" ||
-    data.role === "user-group" || data.label === "Grupo" || !hasImportedSvgDescendant(item);
+  return true;
 }
 
 function flattenStructuralGroup(group, destination, insertionIndex, result, seen = new Set()) {
@@ -169,20 +174,55 @@ export function structuralUngroup(items) {
   return created.length ? created : roots.filter(Boolean);
 }
 
-export function svgDecompose(items) {
+export function decomposeVectorItems(items) {
   const created = [];
   for (const raw of (Array.isArray(items) ? items : [items])) {
     const owner = normalizeUngroupOwner(raw);
     if (!owner || isFusionOwner(owner)) continue;
-    // Text-to-vector CompoundPaths are intentionally not classified as SVG
-    // sources, but they still use the same geometric decomposition engine when
-    // the user explicitly presses Desagrupar.
-    const decomposableSource = isTextVector(owner) || hasImportedSvgDescendant(owner);
-    if (!isGroupLike(owner) || !decomposableSource) continue;
+    if (!isClosedVectorOwner(owner)) continue;
     const result = decomposeByContainmentHierarchy(owner, !!dataOf(raw).clipGroup);
     if (result?.items?.length) created.push(...result.items.map(normalizeUngroupOwner).filter(Boolean));
   }
   return created;
+}
+
+export const svgDecompose = decomposeVectorItems;
+
+export function canDecomposeVector(item) {
+  const owner = normalizeUngroupOwner(item);
+  return !!owner && isClosedVectorOwner(owner);
+}
+
+function isInsideContainmentWrapper(item) {
+  let current = item?.parent || null;
+  const seen = new Set();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current.data?.clipGroup === true) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function selectedVectorItems(items = null) {
+  const selected = items == null ? selectedItems() : (Array.isArray(items) ? items : [items]);
+  return selected.map(normalizeUngroupOwner).filter(owner => canDecomposeVector(owner));
+}
+
+export function dispatchVectorDecomposition(items = null) {
+  const selected = selectedVectorItems(items);
+  if (!selected.length) return null;
+  emitRoute("vector-decompose", { itemCount: selected.length });
+  window.saveHistory?.();
+  const outputs = [];
+  selected.forEach(owner => {
+    const result = decomposeByContainmentHierarchy(owner, isInsideContainmentWrapper(owner));
+    if (result?.items?.length) outputs.push(...result.items.map(normalizeUngroupOwner).filter(Boolean));
+  });
+  const owners = commitSelection(outputs);
+  recalculateDynamicSubtractions?.();
+  if (typeof paper !== "undefined") paper.view?.update?.();
+  return owners.length ? owners : outputs;
 }
 
 function selectedItems() {
@@ -213,7 +253,6 @@ export function dispatchUngroup(items = null) {
   if (!selected.length) return null;
   const byRoute = new Map([
     [UNGROUP_ROUTE.FUSION, []],
-    [UNGROUP_ROUTE.SVG, []],
     [UNGROUP_ROUTE.STRUCTURAL, []]
   ]);
   selected.forEach(item => {
@@ -230,20 +269,13 @@ export function dispatchUngroup(items = null) {
     if (Array.isArray(result)) outputs.push(...result);
   }
 
-  const svgItems = byRoute.get(UNGROUP_ROUTE.SVG);
   const structuralItems = byRoute.get(UNGROUP_ROUTE.STRUCTURAL);
-  if (svgItems.length || structuralItems.length) {
+  if (structuralItems.length) {
     // The two non-fusion operations form one history checkpoint even when a
     // multi-selection contains both imported SVGs and user-created groups.
     window.saveHistory?.();
-    if (svgItems.length) {
-      emitRoute(UNGROUP_ROUTE.SVG, { itemCount: svgItems.length });
-      outputs.push(...svgDecompose(svgItems));
-    }
-    if (structuralItems.length) {
-      emitRoute(UNGROUP_ROUTE.STRUCTURAL, { itemCount: structuralItems.length });
-      outputs.push(...structuralUngroup(structuralItems));
-    }
+    emitRoute(UNGROUP_ROUTE.STRUCTURAL, { itemCount: structuralItems.length });
+    outputs.push(...structuralUngroup(structuralItems));
   }
 
   const owners = commitSelection(outputs);
@@ -255,8 +287,10 @@ export function dispatchUngroup(items = null) {
 if (typeof window !== "undefined") {
   window.EKKO_UNGROUP_ROUTES = {
     UNGROUP_ROUTE, getUngroupRoute, normalizeUngroupOwner,
-    structuralUngroup, svgDecompose, dispatchUngroup
+    structuralUngroup, decomposeVectorItems, svgDecompose, canDecomposeVector,
+    dispatchUngroup, dispatchVectorDecomposition
   };
-  // Compatibility API only; the dispatcher remains the sole authority.
+  // Desagrupar and Descomponer vector are separate public commands.
   window.ungroupSelectedItem = dispatchUngroup;
+  window.decomposeVectorSelectedItem = dispatchVectorDecomposition;
 }
