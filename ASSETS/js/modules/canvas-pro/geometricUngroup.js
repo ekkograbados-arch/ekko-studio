@@ -1,14 +1,219 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
-import { classifyContour, normalizeFillRule } from "./holeSemantics.js";
-import {
-    getStackingUnit,
-    semanticKind,
-    isAboveInRenderOrder,
-    getCanonicalDesignLayer,
-    collectVectorOwners,
-    buildCutterPairs,
-    auditScene
-} from "./vectorSemantics.js";
+
+
+/*
+ * Diagnostic-only CSG trace.  This module deliberately does not enable the
+ * trace, create geometry, or read Paper.js geometry unless the caller opts in
+ * with ?runtimeDiag=1&csgTrace=1 or window.EKKO_CSG_TRACE = true/{enabled:true}.
+ * The trace is observational: no owner, fill, z-order, boolean operand, or
+ * result is changed by these helpers.
+ */
+let activeCSGTracePass = null;
+const CSG_TRACE_SCHEMA = 'ekko-csg-trace/1';
+
+function csgTraceRequested() {
+    try {
+        const search = typeof window !== 'undefined' ? String(window.location?.search || '') : '';
+        const configured = typeof window !== 'undefined' ? window.EKKO_CSG_TRACE : null;
+        return /(?:^|[?&])csgTrace=1(?:&|$)/.test(search) ||
+            configured === true || configured?.enabled === true;
+    } catch (_) { return false; }
+}
+
+function csgTraceSafe(value) {
+    try {
+        return JSON.parse(JSON.stringify(value, (_key, item) => {
+            if (typeof item === 'number' && !Number.isFinite(item)) return String(item);
+            if (typeof item === 'function') return `[Function:${item.name || 'anonymous'}]`;
+            return item;
+        }));
+    } catch (_) { return null; }
+}
+
+function csgColorSnapshot(color) {
+    if (!color) return null;
+    try {
+        return {
+            css: typeof color.toCSS === 'function' ? color.toCSS(true) : null,
+            string: typeof color.toString === 'function' ? color.toString() : String(color),
+            red: Number.isFinite(color.red) ? color.red : null,
+            green: Number.isFinite(color.green) ? color.green : null,
+            blue: Number.isFinite(color.blue) ? color.blue : null,
+            alpha: Number.isFinite(color.alpha) ? color.alpha : null
+        };
+    } catch (_) { return '[UnreadableColor]'; }
+}
+
+function csgBoundsSnapshot(bounds) {
+    if (!bounds) return null;
+    try {
+        return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height,
+            left: bounds.left, top: bounds.top, right: bounds.right, bottom: bounds.bottom };
+    } catch (_) { return null; }
+}
+
+function csgGeometrySnapshot(geometry) {
+    if (!geometry) return { present: false, valid: false };
+    try {
+        const bounds = csgBoundsSnapshot(geometry.bounds);
+        const area = Number(geometry.area);
+        let segments = 0;
+        const seen = new Set();
+        const count = item => {
+            if (!item || seen.has(item)) return;
+            seen.add(item);
+            if (item.segments) segments += item.segments.length;
+            item.children?.forEach(count);
+        };
+        count(geometry);
+        const validBounds = !!bounds && [bounds.x, bounds.y, bounds.width, bounds.height]
+            .every(Number.isFinite) && bounds.width >= 0 && bounds.height >= 0;
+        return { present: true, className: geometry.className || null,
+            area: Number.isFinite(area) ? area : null, segments,
+            bounds, valid: validBounds && Number.isFinite(area) && Math.abs(area) >= 0 };
+    } catch (error) {
+        return { present: true, valid: false, error: String(error?.message || error) };
+    }
+}
+
+function csgParentChain(item) {
+    const chain = [];
+    const seen = new Set();
+    let current = item;
+    while (current && !seen.has(current)) {
+        seen.add(current);
+        let data = {};
+        try { data = current.data || {}; } catch (_) {}
+        chain.push({ className: current.className || current.constructor?.name || null,
+            id: current.id ?? null, semanticId: data.semanticId ?? data.ownerId ?? data.fusionId ?? null,
+            index: typeof current.index === 'number' ? current.index : null,
+            name: current.name || null });
+        current = current.parent;
+    }
+    return chain;
+}
+
+function csgItemSnapshot(item, depth = 0, seen = new Set()) {
+    if (!item || seen.has(item) || depth > 16) return depth > 16 ? '[MaxDepth]' : null;
+    seen.add(item);
+    try {
+        const data = item.data || {};
+        const snapshot = {
+            className: item.className || item.constructor?.name || null,
+            id: item.id ?? null,
+            name: item.name || null,
+            semanticId: data.semanticId ?? data.ownerId ?? data.fusionId ?? null,
+            role: data.role ?? null,
+            isHole: data.isHole ?? null,
+            originalIsHole: data.originalIsHole ?? null,
+            isMask: data.isMask ?? null,
+            mockup: data.mockup ?? null,
+            isSmartFusion: data.isSmartFusion ?? null,
+            fillColor: csgColorSnapshot(item.fillColor),
+            strokeColor: csgColorSnapshot(item.strokeColor),
+            opacity: Number.isFinite(item.opacity) ? item.opacity : null,
+            visible: item.visible !== false,
+            index: typeof item.index === 'number' ? item.index : null,
+            fillRule: item.fillRule || data.originalFillRule || null,
+            geomBase: csgGeometrySnapshot(data.geomBase),
+            liveGeometry: csgGeometrySnapshot(item),
+            bounds: csgBoundsSnapshot(item.bounds),
+            parentChain: csgParentChain(item),
+            children: []
+        };
+        if (item.children) Array.from(item.children).forEach(child => {
+            const childSnapshot = csgItemSnapshot(child, depth + 1, seen);
+            if (childSnapshot) snapshot.children.push(childSnapshot);
+        });
+        return snapshot;
+    } catch (error) {
+        return { className: null, id: null, error: String(error?.message || error) };
+    }
+}
+
+function csgItemRef(item) {
+    if (!item) return null;
+    try {
+        const data = item.data || {};
+        return { className: item.className || item.constructor?.name || null,
+            id: item.id ?? null, semanticId: data.semanticId ?? data.ownerId ?? data.fusionId ?? null,
+            isHole: data.isHole ?? null, originalIsHole: data.originalIsHole ?? null,
+            isMask: data.isMask ?? null, mockup: data.mockup ?? null,
+            fillColor: csgColorSnapshot(item.fillColor), strokeColor: csgColorSnapshot(item.strokeColor),
+            opacity: Number.isFinite(item.opacity) ? item.opacity : null,
+            bounds: csgBoundsSnapshot(item.bounds), index: typeof item.index === 'number' ? item.index : null,
+            parentChain: csgParentChain(item) };
+    } catch (error) { return { error: String(error?.message || error) }; }
+}
+
+function csgVisibleTree(layer) {
+    try {
+        return layer ? csgItemSnapshot(layer) : null;
+    } catch (_) { return null; }
+}
+
+function csgOwnersSnapshot(items) {
+    try {
+        return getPublicOwners(items || []).map(owner => csgItemSnapshot(owner)).filter(Boolean);
+    } catch (error) { return [{ error: String(error?.message || error) }]; }
+}
+
+function csgTraceEvent(pass, type, details = {}) {
+    if (!pass) return;
+    try { pass.events.push({ at: new Date().toISOString(), type, ...csgTraceSafe(details) }); }
+    catch (_) {}
+}
+
+function csgTraceForCurrentPass() {
+    if (!csgTraceRequested()) return null;
+    try {
+        const global = window;
+        const existing = global.EKKO_CSG_TRACE;
+        if (existing?.__ekkoCsgTraceApi) return existing;
+        const api = {
+            __ekkoCsgTraceApi: true,
+            schema: CSG_TRACE_SCHEMA,
+            enabled: true,
+            startedAt: new Date().toISOString(),
+            _stateSequence: 0,
+            _passes: [],
+            clear() { this._passes.length = 0; this._stateSequence = 0; return { ok: true }; },
+            getPasses() { return this._passes.slice(); },
+            report() { return csgTraceSafe({ schema: this.schema, enabled: this.enabled, startedAt: this.startedAt, passes: this._passes }); },
+            setEnabled(value) { this.enabled = !!value; return { enabled: this.enabled }; }
+        };
+        global.EKKO_CSG_TRACE = api;
+        return api;
+    } catch (_) { return null; }
+}
+
+function csgTraceBegin(layer, items) {
+    const api = csgTraceForCurrentPass();
+    if (!api || !api.enabled) return null;
+    try {
+        const pass = { id: `CSG-${String(++api._stateSequence).padStart(5, '0')}`, startedAt: new Date().toISOString(),
+            targetLayer: csgItemSnapshot(layer, 0, new Set()), items: csgOwnersSnapshot(items), subItems: [], candidatePairs: [], operations: [], events: [], finalVisibleTree: null };
+        // Retain the complete pass; the caller explicitly enabled this trace.
+        api._passes.push(pass);
+        return pass;
+    } catch (_) { return null; }
+}
+
+function csgTraceFinish(pass, layer, items, reason = null) {
+    if (!pass) return;
+    try {
+        pass.finishedAt = new Date().toISOString();
+        pass.reason = reason;
+        pass.finalVisibleTree = csgVisibleTree(layer);
+        pass.finalOwners = csgOwnersSnapshot(items);
+    } catch (_) {}
+}
+
+function csgTraceOperation(pass, operation, details = {}) {
+    if (!pass) return;
+    try { pass.operations.push({ at: new Date().toISOString(), operation, ...csgTraceSafe(details) }); }
+    catch (_) {}
+}
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/geometricUngroup.js
 ACCIÓN: REEMPLAZAR COMPLETAMENTE
@@ -33,10 +238,6 @@ function isCompoundPath(item) {
 
 function isGroup(item) {
     return item && (item.className === 'Group' || (typeof paper !== 'undefined' && paper.Group && item instanceof paper.Group));
-}
-
-function resolveCanonicalDesignLayer(targetLayer = null) {
-    return getCanonicalDesignLayer({ targetLayer });
 }
 
 function isPlacedSymbol(item) {
@@ -269,44 +470,55 @@ function buildContainmentTree(atomicPaths) {
 }
 
 function resolveItemSemantics(node, rootTarget) {
-    const fillRule = normalizeFillRule(
-        node?.path?.data?.originalFillRule || rootTarget?.data?.originalFillRule ||
-        node?.path?.fillRule || rootTarget?.fillRule || ""
-    );
-    // Classification is centralized. Z-order is intentionally not consulted
-    // here: it decides what a real hole cuts, never whether the contour is a
-    // hole in the first place.
-    return !!classifyContour(node, { fillRule }).isHole;
+    const path = node?.path;
+    const meta = path?.data || {};
+    // Explicit source metadata is authoritative.  It is intentionally tested
+    // before any topology fallback so an original real hole cannot be turned
+    // into a solid or a cosmetic transparent path during ungroup.
+    if (typeof meta.originalIsHole === "boolean") return meta.originalIsHole;
+    if (typeof meta.contourRole === "string") return meta.contourRole === "hole";
+    if (typeof meta.isHole === "boolean" &&
+        (meta.source === "svg" || meta.source === "client-svg")) return meta.isHole;
+
+    const sourceRule = String(meta.originalFillRule || rootTarget?.data?.originalFillRule || "").toLowerCase();
+    const isClientSource = meta.source === "client-svg" || meta.userImported === true ||
+        rootTarget?.data?.source === "client-svg";
+    if (isClientSource && (sourceRule === "nonzero" || sourceRule === "non-zero")) {
+        // For nonzero SVG, a contour toggles filled/unfilled only when its
+        // winding opposes the immediately containing contour.  Same-winding
+        // depth-1 islands therefore remain solids (008.svg: 3 islands),
+        // unlike depth parity.
+        if (!node.parent) return false;
+        const windingSign = contour => {
+            const data = contour?.path?.data || {};
+            const clockwise = typeof data.sourceWinding === "boolean"
+                ? data.sourceWinding : !!data.originalClockwise;
+            return clockwise ? 1 : -1;
+        };
+        // Nonzero fill is the signed sum of every enclosing contour.  A
+        // contour is a hole only when crossing it takes a nonzero winding
+        // sum to zero.  This keeps same-winding islands solid (and also
+        // handles a hole nested inside such an island) instead of merely
+        // comparing the immediate parent's direction.
+        const ancestors = [];
+        let parent = node.parent;
+        while (parent) {
+            ancestors.unshift(parent);
+            parent = parent.parent;
+        }
+        const before = ancestors.reduce((sum, ancestor) => sum + windingSign(ancestor), 0);
+        return before !== 0 && before + windingSign(node) === 0;
+    }
+
+    // Explicit evenodd, or a non-source object without reliable source
+    // semantics, is the controlled topology fallback.
+    return (Number(node?.depth) || 0) % 2 === 1;
 }
 
 export function getGlobalUnsubtractedPath(item) {
     // Sole world-geometry producer: geomBase is owner-local and the complete
     // owner global matrix is applied exactly once by the canonical layer.
-    // Keep a direct owner-local fallback here. CSG must not silently lose a
-    // valid owner merely because a wrapper/publicOwner cycle prevents the
-    // generic resolver from reaching geomBase.
-    const owner = getPublicOwner(item) || item;
-    const base = owner?.data?.geomBase;
-    if (base && typeof base.clone !== 'function') {
-        if (typeof window !== 'undefined') {
-            window.EKKO_GEOMBASE_ERRORS = [
-                ...(Array.isArray(window.EKKO_GEOMBASE_ERRORS) ? window.EKKO_GEOMBASE_ERRORS : []),
-                { ownerId: owner?.id ?? null, reason: 'non-paper-geomBase' }
-            ].slice(-50);
-        }
-        return null;
-    }
-    if (base?.clone && owner) {
-        try {
-            const local = base.clone({ insert: false });
-            local.applyMatrix = false;
-            local.matrix = new paper.Matrix();
-            const world = owner.globalMatrix?.clone?.() || owner.matrix?.clone?.() || new paper.Matrix();
-            local.transform(world);
-            return local;
-        } catch (_) {}
-    }
-    return toWorldGeometry(owner);
+    return toWorldGeometry(item);
 }
 
 // CSG operands are calculated in project/global coordinates. Before adding
@@ -333,7 +545,12 @@ function confineSubtractiveGeometry(geometry) {
     let boundary = null;
     try {
         boundary = getGlobalUnsubtractedPath(window.clipMask) || window.clipMask.clone({ insert: false });
+        const before = csgGeometrySnapshot(geometry);
         const confined = geometry.intersect(boundary, { insert: false });
+        csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
+            success: !!confined, input: before, boundary: csgGeometrySnapshot(boundary), output: csgGeometrySnapshot(confined),
+            accepted: !!confined && Math.abs(confined.area || 0) > 0.001
+        });
         if (confined && Math.abs(confined.area || 0) > 0.001) {
             geometry.remove();
             return confined;
@@ -343,6 +560,10 @@ function confineSubtractiveGeometry(geometry) {
         geometry.remove();
         return null;
     } catch (e) {
+        csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
+            success: false, error: String(e?.stack || e), input: csgGeometrySnapshot(geometry),
+            boundary: csgGeometrySnapshot(boundary), accepted: true, fallback: 'retain-unconfined-operand'
+        });
         // If Paper.js cannot boolean-intersect this boundary, clipItem still
         // provides the final visual containment; never destroy the operand.
     } finally {
@@ -355,123 +576,149 @@ function confineSubtractiveGeometry(geometry) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    // A real hole is a closed cutter, not a permanent transparent silhouette.
-    // Its geometry remains in data.geomBase for CSG, hit testing and history,
-    // while the design owner is hidden. Selection.js creates the only visible
-    // outline, and only while the hole is selected.
+    // `isHole` is CSG semantics, not a paint color.  The previous route copied
+    // originalFillColor from 007/008 (black) onto every decomposed hole owner;
+    // that made a real cutter render as a black solid over the subtraction.
+    // Keep the closed owner selectable and visible through its contour only:
+    // physical subtraction remains the sole fill-area effect.  This is not an
+    // alpha/opacity workaround: opacity stays 1 and the owner remains a real
+    // Paper.Path/CompoundPath with its original geometry.
+    const data = item.data || {};
+    const styleBefore = { fillColor: csgColorSnapshot(item.fillColor), strokeColor: csgColorSnapshot(item.strokeColor), opacity: item.opacity };
+    const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
+    const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
+
     const paint = node => {
         if (!node || node.clipMask || node.data?.isMask || node.data?.mockup) return;
-        node.visible = false;
+        node.visible = true;
         node.opacity = 1;
         if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+            // Explicit no-fill prevents source black paint and inherited child
+            // paint from turning the original hole into a rendered solid.
             node.fillColor = null;
-            node.strokeColor = null;
-            node.strokeWidth = 0;
+            node.strokeColor = stroke.clone();
+            node.strokeWidth = strokeWidth;
         }
         node.children?.forEach(paint);
     };
     paint(item);
+    csgTraceEvent(activeCSGTracePass, 'hole-visual-style', {
+        owner: csgItemSnapshot(item), before: styleBefore,
+        after: { fillColor: csgColorSnapshot(item.fillColor), strokeColor: csgColorSnapshot(item.strokeColor), opacity: item.opacity },
+        visualMode: 'no-fill-contour-only', physicalCSGRequired: true
+    });
+}
+
+// Paper.js orders siblings by `index` (low = behind, high = in front). A
+// hole only subtracts solids below it. This is deliberately based on the
+// actual owner/wrapper ancestry, not on docOrder or containment metadata,
+// because moving an item must change the physical cut without changing its
+// `isHole` identity.
+function isAboveInRenderOrder(candidate, reference) {
+    if (!candidate || !reference || candidate === reference) return false;
+    const chain = item => {
+        const result = [];
+        let current = item;
+        while (current && current.parent) {
+            result.unshift(current);
+            current = current.parent;
+        }
+        return result;
+    };
+    const a = chain(candidate);
+    const b = chain(reference);
+    const length = Math.min(a.length, b.length);
+    let common = 0;
+    while (common < length && a[common] === b[common]) common++;
+    if (common === 0) return false;
+    if (common < length) {
+        const aIndex = typeof a[common].index === 'number' ? a[common].index : -1;
+        const bIndex = typeof b[common].index === 'number' ? b[common].index : -1;
+        return aIndex > bIndex;
+    }
+    // A descendant is rendered inside/on top of its ancestor.
+    return a.length > b.length;
+}
+
+function extractSubtractiveItems(topList) {
+    const result = [];
+    const visited = new Set();
+    function collectRecursive(item, ancestors = new Set()) {
+        if (!item || visited.has(item)) return;
+        visited.add(item);
+
+        // Resolve each item with its own guarded owner path. `ancestors` is
+        // kept separately so an owner that resolves back to an ancestor is
+        // rejected without preventing valid children from being visited.
+        const content = getPublicOwner(item, new Set());
+        if (!content) return;
+        const resolvedToAncestor = ancestors.has(content) && content !== item;
+        if (resolvedToAncestor) {
+            item.children?.forEach(child => {
+                if (!child.clipMask && !(child.data && (child.data.wasClipMask || child.data.isMask))) {
+                    collectRecursive(child, new Set(ancestors));
+                }
+            });
+            return;
+        }
+        if (!visited.has(content)) visited.add(content);
+
+        // Una fusión sólida participa del CSG mediante su máscara, no como
+        // un grupo completo que también contiene la imagen. Una fusión que
+        // reemplazó un hueco se representa mediante su hueco virtual.
+        if (content.data?.isSmartFusion) {
+            const fusionMask = content.children?.find(child =>
+                child.clipMask || child.data?.isFusionMask
+            );
+            if (fusionMask && !fusionMask.data?.isHole && fusionMask.data?.geomBase) {
+                result.push(fusionMask);
+            }
+            return;
+        }
+
+        const nextAncestors = new Set(ancestors);
+        nextAncestors.add(item);
+        nextAncestors.add(content);
+        if (isGroup(content) && content.children && content.children.length > 0) {
+            content.children.forEach(c => {
+                if (!c.clipMask && !(c.data && (c.data.wasClipMask || c.data.isMask))) {
+                    collectRecursive(c, nextAncestors);
+                }
+            });
+        } else if (content.data && content.data.geomBase) {
+            result.push(content);
+        }
+    }
+    topList.forEach(topItem => {
+        collectRecursive(topItem);
+    });
+    return result;
 }
 
 export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEntries = null) {
-    const report = {
-        valid: true, receivedHoles: 0, appliedHoles: 0, rejectedHoles: 0,
-        failedBooleans: [], booleanWarnings: [], affectedSolids: [], reasons: [],
-        holeOwners: 0, solidOwners: 0, candidatePairs: 0,
-        appliedPairs: 0, rejectedPairs: 0, pairDiagnostics: [],
-        holeToSolidPairs: 0, holeToHolePairs: 0,
-        skippedByZOrder: 0, skippedByNoIntersection: 0,
-        solidCandidates: 0, skippedSolids: [], solidChecks: [],
-        ownerDiagnostics: [],
-        virtualHolesReceived: 0, virtualHolesApplied: 0
-    };
-    const layer = resolveCanonicalDesignLayer(targetLayer);
+    const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
+    const traceSeedItems = layer?.children ? [...layer.children] : [];
+    const tracePass = csgTraceBegin(layer, traceSeedItems);
+    const previousTracePass = activeCSGTracePass;
+    activeCSGTracePass = tracePass;
+    let tracedItems = [];
+    let traceReason = null;
+    try {
     const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
         ? virtualHoleEntries
         : (Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []);
-    report.virtualHolesReceived = scopedVirtualHoles.filter(Boolean).length;
-    if (!layer || !layer.children) {
-        report.valid = false;
-        report.reasons.push("missing-target-layer");
-        if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
-        return report;
-    }
+    if (!layer || !layer.children) { traceReason = 'no-layer-or-children'; return; }
     const items = [...layer.children].filter(item =>
         item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
         !item.data?.isHandle && !item.data?.isSmartGuide && !item.data?.isMeasurement &&
         !item.data?.isTracePreview && !item.data?.isNodeEditOverlay
     );
-    if (items.length === 0) {
-        report.valid = false;
-        report.reasons.push("empty-design-layer");
-        if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
-        return report;
-    }
-    // One canonical owner set feeds diagnostics, pair planning and the
-    // boolean pass. No private recursive extractor is allowed to create a
-    // second identity for a wrapper, fusion mask or public contour.
-    const semanticOwners = collectVectorOwners(layer, { requireGeomBase: true });
-    report.receivedHoles = semanticOwners.filter(item => semanticKind(item) === 'hole').length;
-    if (semanticOwners.length === 0) {
-        report.reasons.push("no-semantic-owners");
-        if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
-        return report;
-    }
-    const scenePlan = buildCutterPairs(semanticOwners);
-    const realOwners = new Set(semanticOwners);
-    const hasPositiveAreaPair = (hole, solid) => {
-        let holeGeom = null;
-        let solidGeom = null;
-        let overlap = null;
-        try {
-            holeGeom = getGlobalUnsubtractedPath(hole);
-            solidGeom = getGlobalUnsubtractedPath(solid);
-            if (!holeGeom || !solidGeom || !holeGeom.bounds?.intersects(solidGeom.bounds)) return false;
-            overlap = holeGeom.intersect(solidGeom, { insert: false });
-            return Math.abs(overlap?.area || 0) > 1e-7;
-        } catch (_) {
-            return false;
-        } finally {
-            try { overlap?.remove?.(); } catch (_) {}
-            try { holeGeom?.remove?.(); } catch (_) {}
-            try { solidGeom?.remove?.(); } catch (_) {}
-        }
-    };
-    const realPairs = scenePlan.pairs
-        .filter(pair => pair.targetKind === "solid")
-        .map(pair => ({ hole: pair.hole, solid: pair.target }))
-        .filter(pair => realOwners.has(pair.hole) && realOwners.has(pair.solid))
-        .filter(pair => hasPositiveAreaPair(pair.hole, pair.solid));
-    const pairHolesBySolid = new Map();
-    realPairs.forEach(({ hole, solid }) => {
-        if (!pairHolesBySolid.has(solid)) pairHolesBySolid.set(solid, new Set());
-        pairHolesBySolid.get(solid).add(hole);
-    });
-    const diagnosticId = item => item?.data?.semanticId || item?.data?.containmentKey || item?.id || null;
-    report.holeOwners = scenePlan.holes.length;
-    report.solidOwners = scenePlan.solids.length;
-    report.holeToSolidPairs = realPairs.filter(pair => pair.solid && semanticKind(pair.solid) === "solid").length;
-    report.holeToHolePairs = scenePlan.pairs.filter(pair => pair.targetKind === "hole").length;
-    report.candidatePairs = realPairs.length;
-    const sceneAudit = auditScene(layer, { requireGeomBase: true });
-    report.ownerDiagnostics = sceneAudit.owners;
-    report.ownerSetContract = {
-        source: "vectorSemantics.collectVectorOwners",
-        ownerCount: semanticOwners.length,
-        matchesAudit: sceneAudit.ownerCount === semanticOwners.length
-    };
-    report.pairDiagnostics = [
-        ...realPairs.map(pair => ({ hole: diagnosticId(pair.hole), target: diagnosticId(pair.solid), targetKind: "solid", status: "candidate" })),
-        ...scenePlan.pairs.filter(pair => pair.targetKind === "hole").map(pair => ({
-            hole: diagnosticId(pair.hole), target: diagnosticId(pair.target), targetKind: "hole", status: "candidate"
-        })),
-        ...scenePlan.skipped.map(item => ({
-            hole: diagnosticId(item.hole), target: diagnosticId(item.target),
-            targetKind: item.targetKind, status: item.reason
-        }))
-    ];
-    report.skippedByZOrder = scenePlan.skipped.filter(item => item.reason === "z-order").length;
-    report.skippedByNoIntersection = scenePlan.skipped.filter(item => item.reason === "no-intersection").length;
+    tracedItems = items;
+    if (tracePass) tracePass.filteredItems = csgOwnersSnapshot(items);
+    if (items.length === 0) { traceReason = 'no-eligible-layer-items'; return; }
+    const subItems = extractSubtractiveItems(items);
+    if (tracePass) tracePass.subItems = subItems.map(item => csgItemSnapshot(item)).filter(Boolean);
+    if (subItems.length === 0) { traceReason = 'no-subtractive-items'; return; }
 
     function countSegments(item, visited = new Set()) {
         if (!item || visited.has(item)) return 0;
@@ -483,19 +730,6 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             return total;
         }
         return 0;
-    }
-
-    function geometryFullyContainedByCutter(source, cutter) {
-        if (!source || !cutter?.contains) return false;
-        const points = [];
-        const collect = (item, visited = new Set()) => {
-            if (!item || visited.has(item)) return;
-            visited.add(item);
-            if (item.segments) item.segments.forEach(segment => points.push(segment.point));
-            item.children?.forEach(child => collect(child, visited));
-        };
-        collect(source);
-        return points.length > 0 && points.every(point => cutter.contains(point));
     }
 
     subItems.forEach(item => {
@@ -517,62 +751,73 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             }
             item.visible = true;
         } else if (item && item.data && item.data.isHole) {
-            // El cutter no se pinta en la capa de diseño. Su geometría cerrada
-            // se conserva para CSG, hit-test e historial; la selección muestra
-            // un overlay temporal cuando corresponde.
+            item.visible = true;
+            // El CSG usa isHole como semántica; el objeto sigue siendo visible,
+            // seleccionable y con contorno dentro del editor.
             applyHoleVisualStyle(item);
         }
     });
 
-    for (let j = 0; j < semanticOwners.length; j++) {
-        const solid = semanticOwners[j];
-        const solidId = solid?.data?.containmentKey || solid?.id || `solid-${j}`;
-        if (!solid || !solid.data) {
-            report.skippedSolids.push({ id: solidId, reason: "missing-data" });
-            continue;
-        }
-        if (solid.data.isHole) continue;
-        if (!solid.data.geomBase) {
-            report.skippedSolids.push({ id: solidId, reason: "missing-geomBase" });
-            continue;
-        }
-        if (isMockupOrMask(solid)) {
-            report.skippedSolids.push({ id: solidId, reason: "mockup-or-mask" });
-            continue;
-        }
-        report.solidCandidates += 1;
+    for (let j = 0; j < subItems.length; j++) {
+        const solid = subItems[j];
+        if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase ||
+            isMockupOrMask(solid)) continue;
         const pristineBase = getGlobalUnsubtractedPath(solid);
-        if (!pristineBase) {
-            report.skippedSolids.push({ id: solidId, reason: "missing-world-geometry" });
-            continue;
-        }
+        if (!pristineBase) continue;
         const pristineArea = Math.abs(pristineBase.area || 0);
         const pristineBounds = pristineBase.bounds;
 
         const intersectingHoles = [];
-        let intersectingVirtualHoles = 0;
-        for (let i = 0; i < semanticOwners.length; i++) {
+        for (let i = 0; i < subItems.length; i++) {
             if (i === j) continue;
-            const holeItem = semanticOwners[i];
-            if (!holeItem || !holeItem.data || !holeItem.data.isHole ||
-                isMockupOrMask(holeItem)) continue;
-            const allowedHoles = pairHolesBySolid.get(solid);
-            if (!allowedHoles?.has(holeItem)) continue;
-            // A real client hole is a physical cutter for every eligible
-            // solid rendered below it, not only for a matching containment
-            // key.  Containment keys describe ownership/history; they must
-            // not suppress the user's cross-object Z-order rule.
-            // A hole cuts only objects rendered below it. Keeping this check
-            // here (before cloning the CSG operand) prevents a lower hole
-            // from silently perforating a solid that was moved above it.
-            if (!isAboveInRenderOrder(holeItem, solid)) continue;
+            const holeItem = subItems[i];
+            const holeData = holeItem?.data || {};
+            const pair = { solid: csgItemRef(solid), hole: csgItemRef(holeItem),
+                containmentKey: { solid: solid?.data?.containmentKey ?? null, hole: holeData.containmentKey ?? null },
+                containmentKeyDecision: 'not-used-as-csg-rejection', status: 'rejected', reasons: [] };
+            if (!holeItem || !holeItem.data || !holeItem.data.isHole) {
+                pair.reasons.push('not-hole');
+                if (tracePass) tracePass.candidatePairs.push(pair);
+                continue;
+            }
+            pair.ownerMaskWrapper = { isMaskOrMockup: !!isMockupOrMask(holeItem), isContainmentWrapper: !!isContainmentWrapper(holeItem) };
+            if (pair.ownerMaskWrapper.isMaskOrMockup) {
+                pair.reasons.push('owner-mask-wrapper');
+                if (tracePass) tracePass.candidatePairs.push(pair);
+                continue;
+            }
+            // Containment keys describe ownership/history; they must not
+            // suppress the user's cross-object Z-order rule. A hole cuts only
+            // objects rendered below it.
+            const zAllowed = isAboveInRenderOrder(holeItem, solid);
+            pair.zOrder = { holeAboveSolid: zAllowed, holeIndex: holeItem.index ?? null, solidIndex: solid.index ?? null };
+            if (!zAllowed) {
+                pair.reasons.push('z-order');
+                if (tracePass) tracePass.candidatePairs.push(pair);
+                continue;
+            }
             let holeBase = getGlobalUnsubtractedPath(holeItem);
-            if (!holeBase) continue;
+            pair.holeWorldGeometry = csgGeometrySnapshot(holeBase);
+            if (!holeBase) {
+                pair.reasons.push('owner-geometry-invalid');
+                if (tracePass) tracePass.candidatePairs.push(pair);
+                continue;
+            }
             holeBase = confineSubtractiveGeometry(holeBase);
-            if (!holeBase) continue;
+            pair.confinedGeometry = csgGeometrySnapshot(holeBase);
+            if (!holeBase) {
+                pair.reasons.push('geometry-confine');
+                if (tracePass) tracePass.candidatePairs.push(pair);
+                continue;
+            }
             if (pristineBounds.intersects(holeBase.bounds)) {
+                pair.status = 'accepted';
+                pair.reasons.push('accepted');
+                if (tracePass) tracePass.candidatePairs.push(pair);
                 intersectingHoles.push(holeBase);
             } else {
+                pair.reasons.push('geometry-bounds');
+                if (tracePass) tracePass.candidatePairs.push(pair);
                 holeBase.remove();
             }
         }
@@ -590,19 +835,15 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (!vhClone) return;
                 if (pristineBounds.intersects(vhClone.bounds)) {
                     intersectingHoles.push(vhClone);
-                    intersectingVirtualHoles += 1;
                 } else {
                     vhClone.remove();
                 }
             });
         }
 
-        report.solidChecks.push({
-            id: solidId,
-            intersectingHoles: intersectingHoles.length,
-            virtualHoles: intersectingVirtualHoles
-        });
         if (intersectingHoles.length === 0) {
+            csgTraceOperation(tracePass, 'solid-pass', { solid: csgItemSnapshot(solid), pristine: csgGeometrySnapshot(pristineBase),
+                holeCount: 0, accepted: false, rejection: 'no-intersecting-holes' });
             pristineBase.remove();
             continue;
         }
@@ -616,14 +857,22 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 } else {
                     if (mergedHole.bounds.intersects(curHole.bounds)) {
                         try {
+                            const leftBefore = csgGeometrySnapshot(mergedHole);
+                            const rightBefore = csgGeometrySnapshot(curHole);
                             const united = mergedHole.unite(curHole, { insert: false });
-                            if (united && Math.abs(united.area || 0) > 0.01) {
+                            const accepted = !!united && Math.abs(united.area || 0) > 0.01;
+                            csgTraceOperation(tracePass, 'unite', { success: !!united, accepted,
+                                leftBefore, rightBefore, result: csgGeometrySnapshot(united),
+                                rejection: united && !accepted ? 'empty-or-degenerate-result' : null });
+                            if (accepted) {
                                 mergedHole.remove();
                                 mergedHole = united;
                                 continue;
                             }
-                        } catch (error) {
-                            report.booleanWarnings.push({ phase: "unite-holes", error: String(error?.message || error) });
+                        } catch (e) {
+                            csgTraceOperation(tracePass, 'unite', { success: false, accepted: false,
+                                error: String(e?.stack || e), leftBefore: csgGeometrySnapshot(mergedHole), rightBefore: csgGeometrySnapshot(curHole),
+                                rejection: 'caught-error' });
                         }
                     }
                     const cp = new paper.CompoundPath({ insert: false });
@@ -641,14 +890,19 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     mergedHole = cp;
                 }
             }
-        } catch (error) {
-            report.booleanWarnings.push({ phase: "build-merged-hole", error: String(error?.message || error) });
+        } catch (err) {
+            csgTraceOperation(tracePass, 'merge-hole', { success: false, accepted: false,
+                error: String(err?.stack || err), rejection: 'caught-error' });
             mergedHole = null;
         }
+        csgTraceOperation(tracePass, 'merge-hole', { success: !!mergedHole, accepted: !!mergedHole,
+            result: csgGeometrySnapshot(mergedHole), holeCount: intersectingHoles.length });
 
         let finalSubtracted = null;
         if (mergedHole) {
             try {
+                const solidBefore = csgGeometrySnapshot(pristineBase);
+                const holeBefore = csgGeometrySnapshot(mergedHole);
                 const testSub = pristineBase.subtract(mergedHole, { insert: false });
                 if (testSub) {
                     const testArea = Math.abs(testSub.area || 0);
@@ -658,109 +912,92 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     // umbral anterior rechazaba esos huecos y dejaba el
                     // sólido visualmente relleno. Solo se rechaza un resultado
                     // vacío, degenerado o con un área imposible.
-                    const areaLoss = pristineArea - testArea;
-                    // A valid cut may leave a very thin band or a result with
-                    // fewer than three segments. The old width/segment gates
-                    // rejected exactly those contours and restored them as
-                    // filled solids. Require a real area change, not an
-                    // arbitrary visual-size threshold.
-                    const isValidArea = testArea >= 0 &&
-                        testArea <= (pristineArea * 1.000001) &&
-                        areaLoss > Math.max(0.0001, pristineArea * 1e-7);
-                    const completeRemoval = testArea <= 1e-7 &&
-                        geometryFullyContainedByCutter(pristineBase, mergedHole);
-                    if ((testSegments >= 1 && isValidArea) || completeRemoval) {
-                        finalSubtracted = testSub || new paper.Path({ insert: false });
+                    const isValidArea = testArea > 0.01 &&
+                        testArea <= (pristineArea * 1.000001);
+                    const accepted = testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1;
+                    csgTraceOperation(tracePass, 'subtract.merged', { success: true, accepted,
+                        solidBefore, holeBefore, result: csgGeometrySnapshot(testSub),
+                        testArea, testSegments, pristineArea,
+                        rejection: accepted ? null : (!isValidArea ? 'area' : (testSegments < 3 ? 'segments' : 'bounds')) });
+                    if (accepted) {
+                        finalSubtracted = testSub;
                     } else {
-                        testSub?.remove?.();
+                        testSub.remove();
                     }
+                } else {
+                    csgTraceOperation(tracePass, 'subtract.merged', { success: false, accepted: false,
+                        solidBefore, holeBefore, result: null, rejection: 'null-result' });
                 }
-            } catch (error) {
-                report.booleanWarnings.push({ phase: "merged-holes", error: String(error?.message || error) });
+            } catch (e) {
+                csgTraceOperation(tracePass, 'subtract.merged', { success: false, accepted: false,
+                    solidBefore: csgGeometrySnapshot(pristineBase), holeBefore: csgGeometrySnapshot(mergedHole),
+                    error: String(e?.stack || e), rejection: 'caught-error' });
             }
-            try { mergedHole?.remove?.(); } catch (_) {}
+            mergedHole.remove();
         }
 
         if (!finalSubtracted) {
             let currentProgress = pristineBase.clone({ insert: false });
-            let appliedSteps = 0;
             for (let k = 0; k < intersectingHoles.length; k++) {
                 const singleHole = intersectingHoles[k];
                 try {
+                    const progressBefore = csgGeometrySnapshot(currentProgress);
+                    const holeBefore = csgGeometrySnapshot(singleHole);
                     const stepSub = currentProgress.subtract(singleHole, { insert: false });
                     if (stepSub) {
                         const stepArea = Math.abs(stepSub.area || 0);
                         const stepSegments = countSegments(stepSub);
-                        const stepAreaLoss = pristineArea - stepArea;
-                        const isStepValid = stepArea >= 0 &&
-                            stepArea <= (pristineArea * 1.000001) &&
-                            stepAreaLoss > Math.max(0.0001, pristineArea * 1e-7);
-                        const completeStepRemoval = stepArea <= 1e-7 &&
-                            geometryFullyContainedByCutter(pristineBase, singleHole);
-                        if ((stepSegments >= 1 && isStepValid) || completeStepRemoval) {
+                        const isStepValid = stepArea > 0.01 &&
+                            stepArea <= (pristineArea * 1.000001);
+                        const accepted = stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1;
+                        csgTraceOperation(tracePass, 'subtract.step', { success: true, accepted,
+                            solidBefore: progressBefore, holeBefore, result: csgGeometrySnapshot(stepSub),
+                            stepArea, stepSegments, pristineArea,
+                            rejection: accepted ? null : (!isStepValid ? 'area' : (stepSegments < 3 ? 'segments' : 'bounds')) });
+                        if (accepted) {
                             currentProgress.remove();
-                            currentProgress = stepSub || new paper.Path({ insert: false });
-                            appliedSteps += 1;
+                            currentProgress = stepSub;
                         } else {
-                            stepSub?.remove?.();
+                            stepSub.remove();
                         }
+                    } else {
+                        csgTraceOperation(tracePass, 'subtract.step', { success: false, accepted: false,
+                            solidBefore: progressBefore, holeBefore, result: null, rejection: 'null-result' });
                     }
-                } catch (error) {
-                    report.booleanWarnings.push({ phase: "single-hole", error: String(error?.message || error) });
+                } catch (e) {
+                    csgTraceOperation(tracePass, 'subtract.step', { success: false, accepted: false,
+                        solidBefore: csgGeometrySnapshot(currentProgress), holeBefore: csgGeometrySnapshot(singleHole),
+                        error: String(e?.stack || e), rejection: 'caught-error' });
                 }
             }
-            finalSubtracted = appliedSteps > 0 ? currentProgress : null;
-            if (!finalSubtracted) {
-                try { currentProgress.remove(); } catch (_) {}
-            }
+            finalSubtracted = currentProgress;
         }
 
+        csgTraceOperation(tracePass, 'solid-pass', { solid: csgItemSnapshot(solid), pristine: csgGeometrySnapshot(pristineBase),
+            holeCount: intersectingHoles.length, final: csgGeometrySnapshot(finalSubtracted), accepted: !!finalSubtracted,
+            rejection: finalSubtracted ? null : 'no-valid-subtract-result' });
         if (finalSubtracted) {
-            const realIntersectingHoles = Math.max(0, intersectingHoles.length - intersectingVirtualHoles);
-            report.appliedHoles += intersectingHoles.length;
-            report.appliedPairs += realIntersectingHoles;
-            report.virtualHolesApplied += intersectingVirtualHoles;
-            report.affectedSolids.push({
-                id: solid.data?.containmentKey || solid.id || null,
-                holes: intersectingHoles.length
-            });
-            const resultArea = Math.abs(finalSubtracted.area || 0);
+            attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
             solid.removeChildren();
-            if (resultArea <= 0.01) {
-                // A cutter can legitimately remove a very small solid
-                // completely. Keep the owner and geomBase for Undo/recalc,
-                // but do not render an empty filled placeholder.
-                try { finalSubtracted.remove(); } catch (_) {}
-                solid.visible = false;
+            if (finalSubtracted instanceof paper.CompoundPath) {
+                solid.addChildren(finalSubtracted.removeChildren());
             } else {
-                attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
-                if (finalSubtracted instanceof paper.CompoundPath) {
-                    solid.addChildren(finalSubtracted.removeChildren());
-                } else {
-                    solid.addChild(finalSubtracted);
-                }
-                solid.visible = true;
+                solid.addChild(finalSubtracted);
             }
-        } else {
-            const realIntersectingHoles = Math.max(0, intersectingHoles.length - intersectingVirtualHoles);
-            report.failedBooleans.push({
-                phase: "subtract-solid",
-                solid: solid.data?.containmentKey || solid.id || "solid"
-            });
-            report.rejectedPairs += realIntersectingHoles;
-            report.rejectedHoles += intersectingHoles.length;
-            report.reasons.push(`boolean-rejected:${solid.data?.containmentKey || solid.id || "solid"}`);
+            solid.visible = true;
         }
         pristineBase.remove();
         intersectingHoles.forEach(h => { try { h.remove(); } catch(e) {} });
     }
 
-    report.valid = report.failedBooleans.length === 0 && report.rejectedHoles === 0;
-    if (typeof window !== "undefined") window.EKKO_CSG_LAST_REPORT = report;
     if (typeof paper !== 'undefined' && paper.view) {
         paper.view.update();
     }
-    return report;
+    traceReason = 'completed';
+    } finally {
+        csgTraceFinish(tracePass, layer, tracedItems, traceReason);
+        activeCSGTracePass = previousTracePass;
+    }
 }
 
 function isAncestorOf(potentialAncestor, node) {
@@ -792,7 +1029,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         return null;
     }
 
-    const targetLayer = resolveCanonicalDesignLayer(rootTarget.layer || null);
+    const targetLayer = rootTarget.layer || paper.project.activeLayer;
     docOrderCounter = 0;
     const shouldClip = isClipped || (typeof window !== 'undefined' && typeof window.clipItem === 'function' && !window.infiniteCanvasMode && !!window.clipMask);
     const containmentScope = rootTarget.data?.containmentScope ||
@@ -835,7 +1072,6 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             locked: false,
             label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
             isHole: singleIsHole,
-            semanticKind: singleIsHole ? "hole" : "solid",
             isSolidShape: !singleIsHole,
             isFusionReceptor: singleIsHole,
             fillRule: single.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
@@ -846,7 +1082,6 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             source: single.data?.source || rootTarget.data?.source,
             userImported: single.data?.userImported ?? rootTarget.data?.userImported,
             geomBase: geomBase,
-            geomBasePathData: geomBase.pathData || null,
             layerDepth: 0,
             containmentId: 0,
             containmentScope,
@@ -866,28 +1101,19 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
         }
 
-        // Igual que en la descomposición múltiple: el owner vectorial debe
-        // entrar primero al CSG sin un clipGroup interpuesto.
-        if (targetLayer) {
-            targetLayer.addChild(compound);
-            if (window.currentMockup) compound.insertBelow(window.currentMockup);
-        }
-        rootTarget.remove();
-        if (targetLayer) recalculateDynamicSubtractions(targetLayer);
-
         let finalItem = compound;
         if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
             finalItem = window.clipItem(compound);
-            if (finalItem !== compound) {
-                const ownerId = compound.id || compound.data?.ownerId || compound.data?.containmentKey;
-                finalItem.data = {
-                    ...(finalItem.data || {}), role: "mockup-containment", clipGroup: true,
-                    publicOwnerId: ownerId, isHole: undefined, geomBase: undefined
-                };
-                compound.data = { ...(compound.data || {}), publicOwner: true, ownerId };
+        }
+
+        if (targetLayer) {
+            targetLayer.addChild(finalItem);
+            if (window.currentMockup) {
+                finalItem.insertBelow(window.currentMockup);
             }
         }
-        return { handled: true, simple: true, items: [compound] };
+        rootTarget.remove();
+        return { handled: true, simple: true, items: [finalItem] };
     }
 
     const { nodes } = buildContainmentTree(atomicPaths);
@@ -915,20 +1141,18 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     });
 
 nodes.sort((a, b) => {
-  // Semantic topology has priority over raw source order. A hole contained
-  // by a solid must be above that solid; a solid island contained by a hole
-  // must be above the hole. This reconstructs the physical AFA layering
-  // without turning a hole into a permanent cut in its parent.
-  const aInsideB = isContainedIn(a.path, b.path);
-  const bInsideA = isContainedIn(b.path, a.path);
-  if (aInsideB && (a.isHole || b.isHole)) return 1;
-  if (bInsideA && (a.isHole || b.isHole)) return -1;
-
   const rootA = getRootNode(a);
   const rootB = getRootNode(b);
-  if (rootA !== rootB) return a.docOrder - b.docOrder;
+  if (rootA !== rootB) {
+    // ✅ REGLA ABSOLUTA: El orden de apilamiento viene del docOrder original.
+    // Los objetos que aparecían primero en el SVG quedan atrás (abajo en Z).
+    return a.docOrder - b.docOrder;
+  }
+  // Dentro de la misma jerarquía: ancestros primero (para que los contenedores
+  // se inserten antes que sus contenidos y queden atrás en Z).
   if (isAncestorOf(a, b)) return -1;
   if (isAncestorOf(b, a)) return 1;
+  // Mismo nivel: orden por docOrder original
   return a.docOrder - b.docOrder;
 });
 
@@ -959,7 +1183,6 @@ nodes.sort((a, b) => {
             locked: false,
             label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
             isHole: isHole,
-            semanticKind: isHole ? "hole" : "solid",
             isSolidShape: !isHole,
             isFusionReceptor: isHole,
             fillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
@@ -970,18 +1193,12 @@ nodes.sort((a, b) => {
             contourDepth: node.depth,
             contourRole: isHole ? "hole" : "outer",
             originalIsHole: typeof node.path.data?.originalIsHole === "boolean" ? node.path.data.originalIsHole : isHole,
-            explicitHole: typeof node.path.data?.explicitHole === "boolean" ? node.path.data.explicitHole : null,
-            sourceElementId: node.path.data?.sourceElementId || null,
-            sourceDocumentOrder: node.path.data?.sourceDocumentOrder ?? node.docOrder,
-            sourceZOrder: node.path.data?.sourceZOrder ?? node.docOrder,
-            holeClassification: node.path.data?.holeClassification || "shared-classifier",
             source: node.path.data?.source || rootTarget.data?.source,
             userImported: node.path.data?.userImported ?? rootTarget.data?.userImported,
             // A decomposed path is a new public owner; never inherit a
             // text-vector/fusion id that would alias the removed wrapper.
             fusionId: null,
             geomBase: geomBase,
-            geomBasePathData: geomBase.pathData || null,
             layerDepth: node.depth,
             containmentId: node.id,
             containmentScope: node.containmentScope,
@@ -1005,38 +1222,37 @@ nodes.sort((a, b) => {
         node.path.remove();
     });
 
-    // Primero publicar los owners vectoriales sin wrappers de clipping. El CSG
-    // debe operar sobre owners físicos directos; envolverlos antes de recalcular
-    // mezcla la identidad del clipGroup con la del cutter y permite que el
-    // resultado visual vuelva a ser la silueta pintada original.
     const finalDeliveredItems = [];
     resultingItems.forEach(item => {
-        if (targetLayer) {
-            targetLayer.addChild(item);
-            if (window.currentMockup) item.insertBelow(window.currentMockup);
+        let finalItem = item;
+        if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+            finalItem = window.clipItem(item);
         }
-        finalDeliveredItems.push(item);
+        if (targetLayer) {
+            targetLayer.addChild(finalItem);
+            if (window.currentMockup) {
+                finalItem.insertBelow(window.currentMockup);
+            }
+        }
+        
+        // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
+        if (finalItem !== item) {
+            if (!finalItem.data) finalItem.data = {};
+            const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
+            finalItem.data = { ...finalItem.data, role: "mockup-containment", clipGroup: true,
+                publicOwnerId: ownerId, isHole: undefined, geomBase: undefined };
+            item.data = { ...(item.data || {}), publicOwner: true, ownerId };
+        }
+
+        // Return/commit only the public owner. The containment wrapper remains
+        // a clipping implementation detail and is never public selection.
+        finalDeliveredItems.push(getPublicOwner(finalItem) || item);
     });
 
     rootTarget.remove();
 
     if (targetLayer) {
         recalculateDynamicSubtractions(targetLayer);
-    }
-
-    // El clipping es una preocupación posterior al CSG. Nunca se usa como
-    // owner semántico ni como entrada de la sustracción.
-    if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-        resultingItems.forEach(item => {
-            const wrapper = window.clipItem(item);
-            if (!wrapper || wrapper === item) return;
-            const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
-            wrapper.data = {
-                ...(wrapper.data || {}), role: "mockup-containment", clipGroup: true,
-                publicOwnerId: ownerId, isHole: undefined, geomBase: undefined
-            };
-            item.data = { ...(item.data || {}), publicOwner: true, ownerId };
-        });
     }
 
     return { handled: true, simple: false, items: finalDeliveredItems };
@@ -1051,6 +1267,9 @@ export function geometricUngroupOneLevel(group) {
 }
 
 if (typeof window !== 'undefined') {
+    // Query/explicit opt-in creates the public collector immediately; normal
+    // studio loads leave no trace object and execute the original route.
+    csgTraceForCurrentPass();
     window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
     window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
     window.geometricUngroupCompound = decomposeByContainmentHierarchy;
