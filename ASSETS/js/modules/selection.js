@@ -676,6 +676,35 @@ function findItemAtPoint(point) {
       ? window.findSmartFusionContainer(hit) : null;
     return fusion || hit;
   };
+
+  // Imported SVGs can be nested below a mockup-containment wrapper. The
+  // generic owner graph intentionally refuses wrapper identities, but the
+  // selection tool still needs to expose the public SVG child. Walk those
+  // imported roots explicitly before the semantic-owner pass; otherwise the
+  // SVG renders yet no click can ever reach it.
+  const importedSvgOwners = [];
+  const collectImportedSvgOwners = node => {
+    if (!node || (isMockupOrUI(node) && !isContainmentWrapper(node))) return;
+    if (node.data?.source === 'client-svg' && node.data?.userImported === true) {
+      const owner = getPublicOwner(node) || node;
+      if (owner && !isMockupOrUI(owner) && !importedSvgOwners.includes(owner)) {
+        importedSvgOwners.push(owner);
+      }
+    }
+    if (node.children) {
+      for (let i = node.children.length - 1; i >= 0; i -= 1) {
+        collectImportedSvgOwners(node.children[i]);
+      }
+    }
+  };
+  for (let i = layer.children.length - 1; i >= 0; i -= 1) {
+    collectImportedSvgOwners(layer.children[i]);
+  }
+  for (const importedOwner of importedSvgOwners) {
+    const importedHit = hitOwner(importedOwner);
+    if (importedHit) return importedHit;
+  }
+
   // A hidden physical hole must win over a visible solid covering it. This is
   // the selection contract that lets Shift-click and marquee selection choose
   // a real cutter instead of the painted object above it.
