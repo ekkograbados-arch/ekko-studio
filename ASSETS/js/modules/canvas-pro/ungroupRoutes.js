@@ -174,7 +174,11 @@ export function svgDecompose(items) {
   for (const raw of (Array.isArray(items) ? items : [items])) {
     const owner = normalizeUngroupOwner(raw);
     if (!owner || isFusionOwner(owner)) continue;
-    if (!isGroupLike(owner) || !hasImportedSvgDescendant(owner)) continue;
+    // Text-to-vector CompoundPaths are intentionally not classified as SVG
+    // sources, but they still use the same geometric decomposition engine when
+    // the user explicitly presses Desagrupar.
+    const decomposableSource = isTextVector(owner) || hasImportedSvgDescendant(owner);
+    if (!isGroupLike(owner) || !decomposableSource) continue;
     const result = decomposeByContainmentHierarchy(owner, !!dataOf(raw).clipGroup);
     if (result?.items?.length) created.push(...result.items.map(normalizeUngroupOwner).filter(Boolean));
   }
