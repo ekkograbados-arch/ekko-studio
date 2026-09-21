@@ -224,6 +224,16 @@ export function removeFusionRecord(fusionId) {
     unregisterFusion(fusionId);
 }
 
+/*
+ * Desagrupar a fusion is a controller-owned route. The visual release
+ * implementation remains in smartFusion.js for API compatibility, but no UI
+ * command may call it directly or treat a fusion as a normal group.
+ */
+export function releaseFusion(item = null) {
+    if (typeof window === "undefined" || typeof window.releaseSmartFusion !== "function") return null;
+    return window.releaseSmartFusion(item);
+}
+
 export function removeFusionForItem(item) {
     const ids = new Set();
     collectFusionItems(item).forEach(fusion => {
@@ -697,6 +707,7 @@ if (typeof window !== "undefined") {
         syncFusionVirtualHole,
         refreshFusion,
         removeFusionRecord,
+        releaseFusion,
         removeFusionForItem,
         clearFusionRuntime,
         rebuildFusionRegistry,
