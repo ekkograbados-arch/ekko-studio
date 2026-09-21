@@ -29,8 +29,17 @@ function isFusionOwner(item) {
   return !!(data.isSmartFusion === true || data.fusionId || data.fusionGroup === true ||
     data.role === "fusion-group" || data.semanticKind === "fusion");
 }
+function isTextVector(item) {
+  const data = dataOf(item);
+  return data.source === "text-vector" || data.isTextVector === true;
+}
+
 function isImportedSvg(item) {
   const data = dataOf(item);
+  // `userImported` is a broad client-design flag and is also stamped on
+  // text-to-vector results. It must not route text vectors through the SVG
+  // source classifier when they live inside an ordinary user group.
+  if (isTextVector(item)) return false;
   return data.source === "client-svg" || data.originalSource === "svg" ||
     data.source === "svg-import" || data.importedSvg === true || data.userImported === true;
 }
@@ -63,6 +72,10 @@ export function getUngroupRoute(item) {
   if (fusionOwnerInLineage(owner)) return UNGROUP_ROUTE.FUSION;
   if (!isGroupLike(owner)) return UNGROUP_ROUTE.NONE;
   const data = dataOf(owner);
+  // A text vector is a CompoundPath, not an SVG source wrapper, but its
+  // contours still need the canonical geometric decomposition route when the
+  // user explicitly presses Desagrupar.
+  if (isTextVector(owner)) return UNGROUP_ROUTE.SVG;
   // An explicit user-created group wins over the source type of its children:
   // grouping imported owners must never trigger SVG topology decomposition.
   if (data.isUserGroup === true || data.source === "user-group" || data.role === "user-group") {
