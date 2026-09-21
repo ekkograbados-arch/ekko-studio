@@ -654,26 +654,6 @@ export function initContextualMenu() {
         else dispatchVectorDecomposition();
     });
 
-    setClick('btnCtxEditNodes', () => {
-        if (window.selectedItem) {
-            if (typeof window.enterNodeEditMode === 'function') {
-                window.enterNodeEditMode(window.selectedItem);
-            } else if (typeof enterNodeEditMode === 'function') {
-                enterNodeEditMode(window.selectedItem);
-            }
-        }
-    });
-
-    setClick('btnCtxNodeEdit', () => {
-        if (window.selectedItem) {
-            if (typeof window.enterNodeEditMode === 'function') {
-                window.enterNodeEditMode(window.selectedItem);
-            } else if (typeof enterNodeEditMode === 'function') {
-                enterNodeEditMode(window.selectedItem);
-            }
-        }
-    });
-
     setClick('btnCtxExitNodeEdit', () => {
         if (typeof window.exitNodeEditMode === 'function') {
             window.exitNodeEditMode();
@@ -757,7 +737,6 @@ export function updateContextualMenu(item) {
 
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
-    hideSubgroup('ctxVectorControls');
     setTextCurveVisibility(false);
 
     const btnTrace = document.getElementById('btnCtxTrace');
@@ -773,12 +752,8 @@ export function updateContextualMenu(item) {
         });
 
         if (allVectors) {
-            const vecCtrl = document.getElementById('ctxVectorControls');
-            if (vecCtrl) {
-                vecCtrl.classList.remove('hidden');
-                const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
-                if (btnEditNodes) btnEditNodes.style.display = 'none';
-            }
+            const btnEditNodes = toolbar.querySelector('[data-fusion-btn="editNodes"]');
+            if (btnEditNodes) btnEditNodes.style.display = 'none';
 
             // UNIFICACIÓN CANÓNICA 10.3: Se usa estrictamente el ID unificado en inglés, sin alias obsoletos en español.
             const btnGroup = document.getElementById('btnCtxGroup');
@@ -811,14 +786,10 @@ export function updateContextualMenu(item) {
                 btnTrace.style.display = 'inline-flex';
             }
         } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target) || isShape(target)) {
-            const vecCtrl = document.getElementById('ctxVectorControls');
-            if (vecCtrl) {
-                vecCtrl.classList.remove('hidden');
-                const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
-                if (btnEditNodes) {
-                    const canEdit = !isGroup(target) && !isSymbolItem(target);
-                    btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
-                }
+            const btnEditNodes = toolbar.querySelector('[data-fusion-btn="editNodes"]');
+            if (btnEditNodes) {
+                const canEdit = !isGroup(target) && !isSymbolItem(target);
+                btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
             }
 
             // UNIFICACIÓN CANÓNICA 10.3: Se usan estrictamente los IDs unificados en inglés, sin alias obsoletos en español.
