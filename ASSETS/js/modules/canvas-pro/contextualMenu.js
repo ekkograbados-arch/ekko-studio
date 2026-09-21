@@ -14,7 +14,7 @@ y unificar IDs interactivos en inglés Figma/Canva Style.
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
-import { dispatchUngroup } from "./ungroupRoutes.js";
+import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector } from "./ungroupRoutes.js";
 
 // Helper de recálculo dinámico de sustracciones booleanas CSG
 function safeRecalculateSubtractions() {
@@ -649,6 +649,10 @@ export function initContextualMenu() {
     setClick('btnCtxUngroup', () => {
         if (typeof window.ungroupSelectedItem === 'function') window.ungroupSelectedItem();
     });
+    setClick('btnCtxDecomposeVector', () => {
+        if (typeof window.decomposeVectorSelectedItem === 'function') window.decomposeVectorSelectedItem();
+        else dispatchVectorDecomposition();
+    });
 
     setClick('btnCtxEditNodes', () => {
         if (window.selectedItem) {
@@ -758,6 +762,8 @@ export function updateContextualMenu(item) {
 
     const btnTrace = document.getElementById('btnCtxTrace');
     if (btnTrace) btnTrace.style.display = 'none';
+    const btnDecompose = document.getElementById('btnCtxDecomposeVector');
+    if (btnDecompose) btnDecompose.style.display = 'none';
 
     const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
     if (selectedCount > 1) {
@@ -824,8 +830,11 @@ export function updateContextualMenu(item) {
 
             const btnUngroup = document.getElementById('btnCtxUngroup');
             if (btnUngroup) {
-                const canUngroup = isGroup(target) || isSymbolItem(target) || (isCompoundPath(target) && !target.data?.decomposedLayer);
+                const canUngroup = isGroup(target) || isSymbolItem(target);
                 btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
+            }
+            if (btnDecompose) {
+                btnDecompose.style.display = canDecomposeVector(target) ? 'inline-block' : 'none';
             }
         }
     }
