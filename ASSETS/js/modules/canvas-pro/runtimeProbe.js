@@ -1,5 +1,3 @@
-import { auditScene } from "./vectorSemantics.js";
-
 /* EKKO Studio — Runtime Probe / Fase 1
  * Instrumentación no destructiva para recorridos reales del cliente.
  * No modifica geometrías ni propietarios: solo captura evidencia.
@@ -15,9 +13,6 @@ import { auditScene } from "./vectorSemantics.js";
     operations: [],
     errors: [],
     clicks: [],
-    gestures: [],
-    gestureSequence: 0,
-    activeGesture: null,
     wrapped: [],
     activeWrappers: new Map(),
     wrappedFns: new Set(),
@@ -26,84 +21,12 @@ import { auditScene } from "./vectorSemantics.js";
   };
 
   const now = () => new Date().toISOString();
-  const REQUIRED_OPERATIONS = [
-    'undo', 'redo', 'enterNodeEditMode', 'exitNodeEditMode',
-    'enterFusionEditMode', 'exitFusionEditMode', 'convertSelectionToSolid',
-    'convertSelectionToCalado', 'ungroupSelectedItem',
-    'prepareSVGForExport', 'downloadExportedSVG'
-  ];
-  const operationCoverage = () => {
-    const available = REQUIRED_OPERATIONS.filter(name => typeof global[name] === 'function');
-    const wrapped = REQUIRED_OPERATIONS.filter(name => state.activeWrappers.has(name));
-    return {
-      required: REQUIRED_OPERATIONS.slice(), available, wrapped,
-      missing: REQUIRED_OPERATIONS.filter(name => !available.includes(name)),
-      unwrapped: available.filter(name => !wrapped.includes(name)),
-      pass: available.length === REQUIRED_OPERATIONS.length && wrapped.length === REQUIRED_OPERATIONS.length
-    };
-  };
   const point = (p) => p && typeof p.x === 'number' && typeof p.y === 'number'
     ? { x: p.x, y: p.y } : null;
   const rect = (r) => r ? {
     x: Number(r.x) || 0, y: Number(r.y) || 0,
     width: Number(r.width) || 0, height: Number(r.height) || 0
   } : null;
-
-  function itemRef(item) {
-    if (!item) return null;
-    const data = item.data || {};
-    return {
-      id: item.id ?? null,
-      className: item.className || item.constructor?.name || null,
-      name: item.name || null,
-      semanticId: data.semanticId ?? null,
-      ownerId: data.ownerId ?? null,
-      fusionId: data.fusionId ?? item.fusionId ?? null,
-      sourceContourIndex: data.sourceContourIndex ?? null,
-      semanticKind: data.semanticKind ?? (data.isHole === true ? 'hole' : (data.isSolidShape === true ? 'solid' : null)),
-      isHole: data.isHole === true,
-      hasGeomBase: !!data.geomBase,
-      visible: item.visible !== false,
-      selected: !!item.selected
-    };
-  }
-
-  function ownerChainSnapshot(chain) {
-    if (!chain) return null;
-    return {
-      rawItem: itemRef(chain.rawItem),
-      publicOwner: itemRef(chain.publicOwner),
-      selectionUnit: itemRef(chain.selectionUnit),
-      transformOwner: itemRef(chain.transformOwner),
-      stackingUnit: itemRef(chain.stackingUnit),
-      fusionOwner: itemRef(chain.fusionOwner),
-      semanticKind: chain.semanticKind || null,
-      data: chain.data || null,
-      identity: chain.identity || null
-    };
-  }
-
-  function selectionState() {
-    const api = global.EKKO_SELECTION_API;
-    if (api?.describeSelectionState) {
-      try {
-        const state = api.describeSelectionState();
-        return {
-          primary: ownerChainSnapshot(state.primary),
-          items: Array.isArray(state.items) ? state.items.map(ownerChainSnapshot) : [],
-          paperSelected: Array.isArray(state.paperSelected) ? state.paperSelected.map(ownerChainSnapshot) : [],
-          interaction: state.interaction || null
-        };
-      } catch (_) {}
-    }
-    const items = Array.isArray(global.selectedItems) ? global.selectedItems : [];
-    return {
-      primary: itemRef(global.selectedItem),
-      items: items.map(itemRef),
-      paperSelected: [],
-      interaction: global.EKKO_INTERACTION?.snapshot?.() || null
-    };
-  }
 
   function safe(value, depth = 0, seen = new WeakSet()) {
     if (depth > 2 || value == null) return value == null ? value : '[MaxDepth]';
@@ -147,13 +70,7 @@ import { auditScene } from "./vectorSemantics.js";
         source: data.source ?? null,
         userImported: data.userImported ?? null,
         isHole: data.isHole ?? null,
-        semanticKind: data.semanticKind ?? null,
-        isSolidShape: data.isSolidShape ?? null,
-        hasGeomBase: !!data.geomBase,
-        contourRole: data.contourRole ?? null,
-        sourceContourIndex: data.sourceContourIndex ?? null,
         isCalado: data.isCalado ?? null,
-        filledFromHole: data.filledFromHole ?? null,
         isSmartFusion: data.isSmartFusion ?? null,
         isTextVector: data.isTextVector ?? null,
         hasInternalHoles: data.hasInternalHoles ?? null,
@@ -170,31 +87,33 @@ import { auditScene } from "./vectorSemantics.js";
     return snap;
   }
 
+  function csgTraceSnapshot() {
+    try {
+      const trace = global.EKKO_CSG_TRACE;
+      if (!trace || trace.enabled !== true) return null;
+      return typeof trace.report === 'function' ? trace.report() : trace;
+    } catch (error) {
+      return { schema: 'ekko-csg-trace/error', error: String(error?.stack || error) };
+    }
+  }
+
   function documentSnapshot() {
     const result = {
       capturedAt: now(),
+      csgTrace: csgTraceSnapshot(),
       selectedItem: null,
       selectedItems: [],
-      selectionContext: null,
       designLayer: null,
       fusionRecords: null,
       virtualHoles: null,
       transformTransaction: null,
-      transformCsg: null,
-      geomBaseErrors: null,
       textVectorDiag: null,
-      commandState: null,
-      csgReport: null,
-      exportReport: null,
-      semanticScene: null
+      commandState: null
     };
     try { result.selectedItem = itemSnapshot(global.selectedItem); } catch (_) {}
     try {
       result.selectedItems = Array.isArray(global.selectedItems)
         ? global.selectedItems.map(itemSnapshot) : [];
-    } catch (_) {}
-    try {
-      result.selectionContext = selectionState();
     } catch (_) {}
     try {
       const p = global.paper;
@@ -206,17 +125,8 @@ import { auditScene } from "./vectorSemantics.js";
     try { result.fusionRecords = safe(global._fusionRecords); } catch (_) {}
     try { result.virtualHoles = safe(global._fusionVirtualHoles); } catch (_) {}
     try { result.transformTransaction = safe(global._ekkoTransformTransaction); } catch (_) {}
-    try { result.transformCsg = safe(global.EKKO_LAST_TRANSFORM_CSG); } catch (_) {}
-    try { result.geomBaseErrors = safe(global.EKKO_GEOMBASE_ERRORS); } catch (_) {}
     try { result.textVectorDiag = safe(global._ekkoTextVectorDiag); } catch (_) {}
     try { result.commandState = safe(global.EKKO_COMMAND_STATE); } catch (_) {}
-    try { result.csgReport = safe(global.EKKO_CSG_LAST_REPORT); } catch (_) {}
-    try { result.exportReport = safe(global.EKKO_EXPORT_LAST_REPORT); } catch (_) {}
-    try {
-      const p = global.paper;
-      const layer = p?.project?.getItem?.({ name: 'designLayer' }) || p?.project?.activeLayer;
-      result.semanticScene = safe(auditScene(layer));
-    } catch (_) {}
     return result;
   }
 
@@ -243,147 +153,12 @@ import { auditScene } from "./vectorSemantics.js";
     return op;
   }
 
-  function eventPoint(event) {
-    try {
-      const p = global.paper?.view?.getEventPoint?.(event);
-      if (p) return { x: Number(p.x) || 0, y: Number(p.y) || 0 };
-    } catch (_) {}
-    return null;
-  }
-
-  function resolveCanvasHit(event) {
-    const pointValue = eventPoint(event);
-    let target = null;
-    try {
-      target = pointValue && global.EKKO_SELECTION_API?.resolveInteractionTarget
-        ? global.EKKO_SELECTION_API.resolveInteractionTarget(pointValue, {
-          button: event.button,
-          shift: event.shiftKey,
-          ctrl: event.ctrlKey,
-          alt: event.altKey,
-          meta: event.metaKey
-        }) : null;
-    } catch (error) {
-      state.errors.push({ at: now(), type: 'selection-resolver', message: String(error?.stack || error) });
-    }
-    return {
-      point: pointValue,
-      hit: target ? {
-        identity: target.chain?.identity || null,
-        semanticKind: target.chain?.semanticKind || null,
-        chain: ownerChainSnapshot(target.chain)
-      } : null
-    };
-  }
-
-  function finishGesture(gesture, event, phase, hit) {
-    if (!gesture) return null;
-    gesture.phase = phase;
-    gesture.eventType = event?.type || gesture.eventType || null;
-    gesture.endPoint = hit?.point || null;
-    gesture.endHit = hit?.hit || null;
-    gesture.endModifiers = {
-      shift: !!event?.shiftKey,
-      ctrl: !!event?.ctrlKey,
-      alt: !!event?.altKey,
-      meta: !!event?.metaKey
-    };
-    gesture.selectionAfter = null;
-    global.setTimeout(() => {
-      gesture.selectionAfter = selectionState();
-      gesture.interactionAfter = global.EKKO_INTERACTION?.snapshot?.() || null;
-      gesture.finishedAt = now();
-    }, 0);
-    state.activeGesture = null;
-    return gesture;
-  }
-
-  function recordCanvasGesture(phase, event) {
-    if (!state.active || !event) return null;
-    const hit = resolveCanvasHit(event);
-    if (phase === 'pointermove') {
-      const gesture = state.activeGesture;
-      if (!gesture) return null;
-      gesture.moveCount += 1;
-      gesture.lastMove = {
-        point: hit.point,
-        hit: hit.hit,
-        at: now()
-      };
-      if (gesture.moveTrace.length < 24 || gesture.moveCount % 10 === 0) {
-        gesture.moveTrace.push(gesture.lastMove);
-        if (gesture.moveTrace.length > 24) gesture.moveTrace.shift();
-      }
-      return gesture;
-    }
-
-    const isPointerStart = phase === 'pointerdown';
-    const isPointerEnd = phase === 'pointerup';
-    if (isPointerEnd && state.activeGesture) {
-      return finishGesture(state.activeGesture, event, phase, hit);
-    }
-
-    const gesture = {
-      id: `GESTURE-${String(++state.gestureSequence).padStart(5, '0')}`,
-      at: now(),
-      phase,
-      eventType: event.type || null,
-      button: typeof event.button === 'number' ? event.button : null,
-      buttons: typeof event.buttons === 'number' ? event.buttons : null,
-      point: hit.point,
-      modifiers: {
-        shift: !!event.shiftKey,
-        ctrl: !!event.ctrlKey,
-        alt: !!event.altKey,
-        meta: !!event.metaKey
-      },
-      interaction: global.EKKO_INTERACTION?.snapshot?.() || null,
-      hit: hit.hit,
-      selectionBefore: selectionState(),
-      selectionAfter: null,
-      moveCount: 0,
-      moveTrace: [],
-      endPoint: null,
-      endHit: null
-    };
-    state.gestures.push(gesture);
-    if (state.gestures.length > 100) state.gestures.shift();
-    if (isPointerStart) {
-      state.activeGesture = gesture;
-    } else {
-      finishGesture(gesture, event, phase, hit);
-    }
-    return gesture;
-  }
-
-  let canvasListenersInstalled = false;
-  function installCanvasListeners() {
-    if (canvasListenersInstalled) return;
-    const canvas = global.document?.getElementById('editorCanvas');
-    if (!canvas) return;
-    const handler = event => {
-      const phase = event.type === 'mousedown' ? 'pointerdown'
-        : event.type === 'mouseup' ? 'pointerup'
-          : event.type === 'contextmenu' ? 'contextmenu'
-            : event.type === 'dblclick' ? 'doubleclick'
-              : 'pointermove';
-      if (phase === 'pointermove' && !event.buttons) return;
-      recordCanvasGesture(phase, event);
-    };
-    ['mousedown', 'mousemove', 'mouseup', 'contextmenu', 'dblclick'].forEach(type => {
-      canvas.addEventListener(type, handler, true);
-    });
-    canvasListenersInstalled = true;
-    state.wrapped.push({ name: 'canvas.pointer-trace', at: now(), active: true, original: 'editorCanvas' });
-  }
-
   const WRAPPED_GLOBALS = [
     'performSmartFusion', 'applySmartFusion', 'applyFusionFromSelection',
     'handleMagneticDrop', 'releaseSmartFusion', 'recalculateSmartFusion',
     'transformFusion', 'transformPublicItem', 'beginTransformTransaction',
     'finalizeTransformTransaction', 'recalculateDynamicSubtractions',
-    'convertTextToVector', 'convertSelectionToCalado', 'convertSelectionToSolid',
-    'prepareSVGForExport', 'downloadExportedSVG', 'ungroupSelectedItem'
+    'convertTextToVector', 'convertSelectionToCalado', 'ungroupSelectedItem'
   ];
 
   function installGlobalWrappers() {
@@ -426,12 +201,8 @@ import { auditScene } from "./vectorSemantics.js";
   const api = {
     start() {
       state.active = true;
-      if (!state.pollTimer) state.pollTimer = global.setInterval(() => {
-        installGlobalWrappers();
-        installCanvasListeners();
-      }, 250);
+      if (!state.pollTimer) state.pollTimer = global.setInterval(installGlobalWrappers, 250);
       installGlobalWrappers();
-      installCanvasListeners();
       return { ok: true };
     },
     stop() {
@@ -442,7 +213,7 @@ import { auditScene } from "./vectorSemantics.js";
       }
       return { ok: true };
     },
-    clear() { state.operations.length = 0; state.errors.length = 0; state.clicks.length = 0; state.gestures.length = 0; state.gestureSequence = 0; state.activeGesture = null; return { ok: true }; },
+    clear() { state.operations.length = 0; state.errors.length = 0; state.clicks.length = 0; return { ok: true }; },
     ready(details = {}) {
       state.ready = true;
       return finish(record('studio.ready', details), { ok: true, ready: true });
@@ -469,7 +240,6 @@ import { auditScene } from "./vectorSemantics.js";
     },
     record,
     getOperations() { return state.operations.slice(); },
-    getGestures() { return state.gestures.slice(); },
     getConsoleErrors() { return state.errors.slice(); },
     getWrapperState() {
       return {
@@ -479,16 +249,14 @@ import { auditScene } from "./vectorSemantics.js";
     },
     report() {
       return {
-        schema: 'ekko-runtime-probe/3',
+        schema: 'ekko-runtime-probe/1',
         generatedAt: now(),
         ready: state.ready,
         active: state.active,
         operations: state.operations.slice(),
         errors: state.errors.slice(),
         clicks: state.clicks.slice(),
-        gestures: state.gestures.slice(),
         wrappers: api.getWrapperState(),
-        operationCoverage: operationCoverage(),
         final: documentSnapshot()
       };
     },
@@ -514,12 +282,8 @@ import { auditScene } from "./vectorSemantics.js";
 
   // Modo visible para validar desde el navegador sin depender de DevTools.
   // Activación: agregar ?runtimeDiag=1 a la URL de EKKO Studio.
-  state.pollTimer = global.setInterval(() => {
-    installGlobalWrappers();
-    installCanvasListeners();
-  }, 250);
+  state.pollTimer = global.setInterval(installGlobalWrappers, 250);
   installGlobalWrappers();
-  installCanvasListeners();
 
   if (global.location?.search?.includes('runtimeDiag=1')) {
     const panel = global.document?.createElement('pre');
@@ -532,7 +296,14 @@ import { auditScene } from "./vectorSemantics.js";
         try {
           const report = api.report();
           installGlobalWrappers();
-          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length, wrappers: report.wrappers, clicks: report.clicks.slice(-8), gestures: report.gestures.slice(-12), final: report.final };
+          const csg = report.final?.csgTrace;
+          const compact = { schema: report.schema, ready: report.ready, operations: report.operations.length, errors: report.errors.length,
+            wrappers: report.wrappers, clicks: report.clicks.slice(-8),
+            csgTrace: csg ? { schema: csg.schema, enabled: csg.enabled, passes: Array.isArray(csg.passes) ? csg.passes.length : 0,
+              lastPass: csg.passes?.length ? { id: csg.passes[csg.passes.length - 1].id, reason: csg.passes[csg.passes.length - 1].reason,
+                candidates: csg.passes[csg.passes.length - 1].candidatePairs?.length || 0,
+                operations: csg.passes[csg.passes.length - 1].operations?.length || 0 } : null } : null,
+            final: report.final };
           panel.textContent = JSON.stringify(compact, null, 2);
         } catch (error) { panel.textContent = `RUNTIME_PROBE_RENDER_ERROR: ${String(error)}`; }
       };
