@@ -66,17 +66,22 @@ function ensureContainedDesignItem(item) {
 
 function applyVisibleHoleStyle(item, source = null) {
   if (!item) return;
-  const sourceData = source?.data || {};
-  const data = item.data || {};
-  const fill = sourceData.originalFillColor?.clone?.() || source?.fillColor?.clone?.() ||
-    data.originalFillColor?.clone?.() || item.fillColor?.clone?.() || new paper.Color('#64748b');
-  const stroke = sourceData.originalStrokeColor?.clone?.() || source?.strokeColor?.clone?.() ||
-    data.originalStrokeColor?.clone?.() || item.strokeColor?.clone?.() || new paper.Color('#334155');
-  item.fillColor = fill.alpha > 0 ? fill : new paper.Color('#64748b');
-  item.strokeColor = stroke;
-  item.strokeWidth = sourceData.originalStrokeWidth || data.originalStrokeWidth ||
-    item.strokeWidth || (1 / (paper.view.zoom || 1));
+  // A released fusion that was a hole remains a semantic cutter. Never
+  // recreate a painted fill/contour here: the CSG engine, Z order and
+  // geomBase are the only sources of the cut. Selection/node overlays provide
+  // editing feedback without changing the design geometry.
+  item.data = {
+    ...(item.data || {}),
+    semanticKind: VECTOR_KIND.HOLE,
+    isHole: true,
+    isSolidShape: false,
+    holeRenderMode: "semantic-cutter-no-paint"
+  };
+  item.fillColor = null;
+  item.strokeColor = null;
+  item.strokeWidth = 0;
   item.opacity = 1;
+  item.visible = true;
 }
 
 function isMockupOrProductElement(item) {
