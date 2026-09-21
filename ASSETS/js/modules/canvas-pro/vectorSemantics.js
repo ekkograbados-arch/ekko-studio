@@ -77,7 +77,7 @@ export function isAboveInRenderOrder(candidate, reference) {
   return ca.length > cb.length;
 }
 
-function realGeometryIntersects(a, b) {
+export function realGeometryIntersects(a, b) {
   if (!a?.bounds || !b?.bounds || !a.bounds.intersects(b.bounds)) return false;
   try {
     // Bounds are only a cheap pre-filter. A bounding-box overlap alone must
@@ -100,6 +100,7 @@ function realGeometryIntersects(a, b) {
     return false;
   }
 }
+
 
 /**
  * The only accepted render layer for design geometry.  Consumers may pass a
