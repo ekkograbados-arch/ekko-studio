@@ -29,7 +29,7 @@ import {
   removeFusionRecord
 } from "./fusionController.js";
 import { ensureMockupContainment } from "../mockupLoader.js";
-import { getPublicOwner } from "./designGeometry.js";
+import { getPublicOwner, getPublicOwners } from "./designGeometry.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 // Estado global del snapping magnético
@@ -153,20 +153,31 @@ function overrideChildrenSelection(group) {
 function getFusionReceptors() {
   const layer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
   if (!layer || !layer.children) return [];
+
+  // Resolve public owners recursively. The previous direct-child scan missed
+  // valid receptors nested in imported SVG groups and containment wrappers.
+  const candidates = getPublicOwners(layer.children);
   const receptors = [];
-  layer.children.forEach(item => {
-    if (item.data && (item.data.isSelectionBox || item.data.isSmartGuide || item.data.isMeasurement ||
-                      item.data.isTracePreview || item.data.isNodeEditOverlay || item.data.isHandle)) return;
-    if (item.data && item.data.isSmartFusion) return;
-    const display = getContentItem(item);
-    if (!display) return;
-    if (display.clipMask || (display.data && (display.data.mockup || display.data.isMask || display.data.wasClipMask))) return;
-    if (isMockupOrProductElement(display)) return; // BLINDAJE: nunca un hueco de producto
-    if (display.className === 'Path' || display.className === 'CompoundPath' || display.className === 'Shape') {
-      if (display.closed || display.className === 'CompoundPath' || display.className === 'Shape') {
-        receptors.push({ item: display, wrapper: item, isHole: !!(display.data && display.data.isHole), priority: display.data && display.data.isFusionReceptor ? 1 : 0 });
-      }
-    }
+  const seen = new Set();
+
+  candidates.forEach(display => {
+    if (!display || seen.has(display)) return;
+    seen.add(display);
+    const data = display.data || {};
+    if (data.isSelectionBox || data.isSmartGuide || data.isMeasurement ||
+        data.isTracePreview || data.isNodeEditOverlay || data.isHandle ||
+        data.isSmartFusion) return;
+    if (display.clipMask || data.mockup || data.isMask || data.wasClipMask) return;
+    if (isMockupOrProductElement(display)) return;
+    if (display.className !== 'Path' && display.className !== 'CompoundPath' && display.className !== 'Shape') return;
+    if (!(display.closed || display.className === 'CompoundPath' || display.className === 'Shape')) return;
+
+    receptors.push({
+      item: display,
+      wrapper: display.parent || display,
+      isHole: data.isHole === true,
+      priority: data.isFusionReceptor ? 1 : 0
+    });
   });
   return receptors;
 }
@@ -262,6 +273,13 @@ function drawFusionPreview(rasterItem, receptor) {
     maskClone.clipMask = true;
     maskClone.fillColor = null; maskClone.strokeColor = null;
     const rasterClone = rasterItem.clone({ insert: false });
+    const placement = calculateCoverPlacement(rasterClone, maskClone);
+    if (placement && placement.scale > 0) {
+      rasterClone.scale(placement.scale, rasterClone.bounds.center);
+      rasterClone.position = rasterClone.position.add(
+        maskClone.bounds.center.subtract(rasterClone.bounds.center)
+      );
+    }
     rasterClone.opacity = 0.55;
     rasterClone.data = {};
     const clipGroup = new paper.Group({ children: [maskClone, rasterClone], clipped: true });
@@ -286,8 +304,9 @@ function clearFusionPreview(resetCursor = true) {
 export function applySmartFusion(vector, raster, mode = 'intersecar', options = {}) {
   const preserveRasterTransform = options && options.preserveRasterTransform === true;
   if (!vector || !raster || !paper) return null;
-  if (!canFuse(raster, vector)) {
-    console.warn("[FUSION CONTRACT]: La combinación no es un par imagen + receptor de diseño válido.");
+  const validation = canFuse(raster, vector);
+  if (!validation?.ok) {
+    console.warn("[FUSION CONTRACT]: combinación rechazada", validation?.reason || "invalid-pair");
     return null;
   }
   if (isMockupOrProductElement(vector) || vector.clipMask) {
@@ -333,7 +352,7 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     const rasterCloneFit = absoluteRaster.clone();
     if (!preserveRasterTransform) {
       try {
-        const placement = calculateCoverPlacement(maskItem, rasterCloneFit);
+        const placement = calculateCoverPlacement(rasterCloneFit, maskItem);
         if (placement && placement.scale > 0) {
           if (Math.abs(placement.scale - 1) > 0.001) {
             rasterCloneFit.scale(placement.scale, rasterCloneFit.bounds.center);
