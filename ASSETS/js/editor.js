@@ -1925,7 +1925,13 @@ export function createEditableText(point) {
     justification: "center",
     fontFamily: "ekko_malvinassans_regular"
   });
-  txt.data = { locked: false, label: "Texto" };
+   txt.data = {
+    locked: false,
+    label: "Texto",
+    isText: true,
+    source: "text"
+  };
+
   paper.project.activeLayer.addChild(txt);
   const clipped = window.clipItem ? window.clipItem(txt) : txt;
   if (window.currentMockup) {
