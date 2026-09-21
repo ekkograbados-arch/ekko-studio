@@ -590,6 +590,12 @@ export async function weldText(item) {
     resultPath.data = { ...(resultPath.data || {}), source: "text-vector", role: "letter",
         isTextVector: true, isFusionReceptor: true, hasInternalHoles: true,
         fillRule: "evenodd", geomBase: resultPath.data.geomBase };
+
+        };
+
+
+
+    
     target.remove();
     try { converted.remove(); } catch (e) {}
     try { pathGroup.remove(); } catch (e) {}
