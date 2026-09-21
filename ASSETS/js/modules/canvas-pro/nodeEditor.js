@@ -121,6 +121,53 @@ function getTargetPaths(target) {
 }
 
 /**
+ * Pone el owner en modo edición usando su geometría fuente, no el resultado
+ * visual de una sustracción CSG anterior. Mientras se editan nodos, el owner
+ * permanece sin materializar para que cada movimiento pueda actualizar
+ * geomBase sin incorporar los bordes del calado a la masa sólida.
+ */
+function prepareCanonicalNodeGeometry(target) {
+    const base = target?.data?.geomBase;
+    if (!target || !base?.clone) return false;
+    target.data = target.data || {};
+    const ownerMatrix = target.matrix?.clone?.() || new paper.Matrix();
+    const clone = base.clone({ insert: false });
+    let cloneConsumed = false;
+    try {
+        target.applyMatrix = false;
+        if (target instanceof paper.Path && clone instanceof paper.Path) {
+            target.removeSegments();
+            target.addSegments(clone.segments);
+            target.closed = clone.closed;
+        } else if (target instanceof paper.CompoundPath) {
+            target.removeChildren();
+            if (clone instanceof paper.CompoundPath) {
+                target.addChildren(clone.removeChildren());
+            } else {
+                target.addChild(clone);
+                cloneConsumed = true;
+            }
+        } else if (target.children && clone.children) {
+            target.removeChildren();
+            target.addChildren(clone.removeChildren());
+        } else {
+            return false;
+        }
+        target.matrix = ownerMatrix;
+        target.visible = true;
+        target.data.csgMaterialized = false;
+        target.data.nodeEditActive = true;
+        return true;
+    } catch (_) {
+        return false;
+    } finally {
+        if (!cloneConsumed) {
+            try { clone.remove?.(); } catch (e) {}
+        }
+    }
+}
+
+/**
  * Sincroniza la geometría editada con 'geomBase' manteniendo coherencia matemática.
  * @param {paper.Item} item
  */
@@ -130,6 +177,21 @@ export function syncGeometryToGeomBase(item) {
     if (!target) return;
 
     if (!target.data) target.data = {};
+
+    // A solid may currently contain a materialized CSG result. That visible
+    // result is not the source geometry: copying it back into geomBase would
+    // permanently bake every active hole into the solid and the solid could
+    // never recover when the hole moves, changes Z or is deleted. Real holes
+    // themselves are never materialized and remain fully editable here.
+    if (target.data.csgMaterialized === true && target.data.nodeEditActive !== true && target.data.isHole !== true) {
+        target.data.geomBaseSync = {
+            skipped: true,
+            reason: 'visible-geometry-is-csg-result',
+            at: Date.now()
+        };
+        return;
+    }
+
     const newGeomBase = target.clone({ insert: false });
     newGeomBase.matrix = new paper.Matrix();
 
@@ -137,6 +199,8 @@ export function syncGeometryToGeomBase(item) {
         try { target.data.geomBase.remove(); } catch (e) {}
     }
     target.data.geomBase = newGeomBase;
+    target.data.csgMaterialized = false;
+    target.data.geomBaseSync = { skipped: false, at: Date.now() };
 
     if (item !== target) {
         if (!item.data) item.data = {};
@@ -191,7 +255,14 @@ export async function enterNodeEditMode(item) {
         selectionItem: item,
         mask: target
     } : null;
+    // Normal public vectors are edited from geomBase. A fusion mask keeps its
+    // own controller-owned edit transaction and must not be replaced here.
+    if (!fusion) prepareCanonicalNodeGeometry(target);
     activeNodeItem = target;
+    target.data = {
+        ...(target.data || {}),
+        nodeEditActive: true
+    };
     interactionOwner.claim("node-edit", { owner: "nodeEditor" });
     window.nodeEditMode = true;
     window.nodeEditTarget = target;
@@ -644,6 +715,10 @@ export function exitNodeEditMode(skipSelect = false) {
         }
     }
 
+    if (finishedItem?.data) {
+        finishedItem.data.nodeEditActive = false;
+        finishedItem.data.csgMaterialized = false;
+    }
     activeNodeItem = null;
     activeFusionNodeContext = null;
     window.nodeEditMode = false;
