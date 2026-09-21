@@ -288,6 +288,16 @@ export function hitTestOwner(owner, worldPoint, tolerance = 0) {
     return resolved;
   }
   try { local?.remove?.(); } catch (_) {}
+
+  // Some browser/Paper.js builds do not recurse through the imported SVG root
+  // for hit testing even though the SVG is visibly rendered. Keep the fallback
+  // scoped to client SVG imports so normal paths and real holes still require
+  // their closed geometry; the public imported SVG owner remains selectable as
+  // one unit for Shift-click, marquee selection and Fusionar.
+  if (resolved.data?.source === "client-svg" && resolved.data?.userImported === true &&
+      resolved.bounds?.contains?.(worldPoint)) {
+    return resolved;
+  }
   return null;
 }
 
