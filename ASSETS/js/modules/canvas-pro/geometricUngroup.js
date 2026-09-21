@@ -584,29 +584,29 @@ function applyHoleVisualStyle(item) {
     // physical subtraction remains the sole fill-area effect.  This is not an
     // alpha/opacity workaround: opacity stays 1 and the owner remains a real
     // Paper.Path/CompoundPath with its original geometry.
-    const data = item.data || {};
     const styleBefore = { fillColor: csgColorSnapshot(item.fillColor), strokeColor: csgColorSnapshot(item.strokeColor), opacity: item.opacity };
-    const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
-    const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
 
-    const paint = node => {
+    // A real hole is closed negative geometry, not a transparent object and
+    // not a replacement contour. The selection overlay is responsible for
+    // showing the editable boundary; the design owner must contribute no
+    // paint of its own, otherwise the generated stroke can be exported or
+    // interpreted by the laser as an engraving/cut line.
+    const clearPaint = node => {
         if (!node || node.clipMask || node.data?.isMask || node.data?.mockup) return;
         node.visible = true;
         node.opacity = 1;
         if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
-            // Explicit no-fill prevents source black paint and inherited child
-            // paint from turning the original hole into a rendered solid.
             node.fillColor = null;
-            node.strokeColor = stroke.clone();
-            node.strokeWidth = strokeWidth;
+            node.strokeColor = null;
+            node.strokeWidth = 0;
         }
-        node.children?.forEach(paint);
+        node.children?.forEach(clearPaint);
     };
-    paint(item);
+    clearPaint(item);
     csgTraceEvent(activeCSGTracePass, 'hole-visual-style', {
         owner: csgItemSnapshot(item), before: styleBefore,
         after: { fillColor: csgColorSnapshot(item.fillColor), strokeColor: csgColorSnapshot(item.strokeColor), opacity: item.opacity },
-        visualMode: 'no-fill-contour-only', physicalCSGRequired: true
+        visualMode: 'no-fill-no-stroke', physicalCSGRequired: true
     });
 }
 
