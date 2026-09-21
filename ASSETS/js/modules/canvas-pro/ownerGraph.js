@@ -78,8 +78,15 @@ function identityOf(owner) {
   };
 }
 
+/** Canonical public-owner normalization shared by command routes and diagnostics. */
+function normalizePublicOwner(rawItem) {
+  const owner = getPublicOwner(rawItem);
+  if (!owner || isUiOwner(owner) || isMockupOrMask(owner) || isContainmentWrapper(owner)) return null;
+  return owner;
+}
+
 function resolveOwnerChain(rawItem) {
-  const publicOwner = getPublicOwner(rawItem);
+  const publicOwner = normalizePublicOwner(rawItem);
   if (!publicOwner || isUiOwner(publicOwner)) return null;
   const selectionUnit = getRegularSelectionUnit(publicOwner) || publicOwner;
   const transformOwner = resolveTransformOwner(publicOwner);
@@ -118,6 +125,7 @@ function resolvePoint(point, resolver) {
 
 const api = {
   resolveOwnerChain,
+  normalizePublicOwner,
   collectOwners,
   resolvePoint,
   isSemanticOwner,
@@ -125,5 +133,5 @@ const api = {
 };
 
 if (typeof window !== "undefined") window.EKKO_OWNER_GRAPH = api;
-export { resolveOwnerChain, collectOwners, resolvePoint, isSemanticOwner, identityOf };
+export { resolveOwnerChain, normalizePublicOwner, collectOwners, resolvePoint, isSemanticOwner, identityOf };
 export default api;
