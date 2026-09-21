@@ -14,6 +14,7 @@ y unificar IDs interactivos en inglés Figma/Canva Style.
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
+import { dispatchUngroup } from "./ungroupRoutes.js";
 
 // Helper de recálculo dinámico de sustracciones booleanas CSG
 function safeRecalculateSubtractions() {
@@ -424,7 +425,13 @@ export function groupSelectedItems() {
 
     if (typeof window.saveHistory === 'function') window.saveHistory();
     const finalGroup = new paper.Group(selected);
-    finalGroup.data = { locked: false, label: "Grupo" };
+    finalGroup.data = {
+        locked: false,
+        label: "Grupo",
+        isUserGroup: true,
+        source: "user-group",
+        role: "user-group"
+    };
 
     const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
     if (designLayer) {
@@ -441,58 +448,14 @@ export function groupSelectedItems() {
 }
 
 /**
- * DESAGRUPAR: Descomposición completa en 1 clic con selección unificada limpia.
+ * DESAGRUPAR: canonical dispatcher. Route selection belongs exclusively to
+ * ungroupRoutes.js; this compatibility export never performs topology work.
  */
 export function ungroupSelectedItem() {
-    const wasInNodeEdit = !!window.nodeEditMode;
-    if (wasInNodeEdit && typeof exitNodeEditMode === 'function') {
+    if (window.nodeEditMode && typeof exitNodeEditMode === "function") {
         exitNodeEditMode(true);
     }
-    const selectedList = (window.selectedItems && window.selectedItems.length > 0)
-        ? [...window.selectedItems]
-        : (window.selectedItem ? [window.selectedItem] : []);
-    if (selectedList.length === 0) return;
-
-    if (typeof window.saveHistory === 'function') window.saveHistory();
-    const allCreatedItems = [];
-
-    selectedList.forEach(item => {
-        if (!item || isMockupOrProductElement(item)) return;
-        const isClipped = !!(item.data && item.data.clipGroup);
-        const actualItem = isClipped ? getPublicOwner(item) : item;
-        if (!actualItem) return;
-
-        const cName = actualItem.className;
-        if (cName === 'Group' || cName === 'CompoundPath' || cName === 'SymbolItem' || cName === 'PlacedSymbol') {
-            const decomp = typeof window.decomposeByContainmentHierarchy === 'function'
-                ? window.decomposeByContainmentHierarchy(actualItem, isClipped)
-                : null;
-            if (decomp && decomp.items) {
-                allCreatedItems.push(...decomp.items);
-            } else {
-                allCreatedItems.push(item);
-            }
-        } else {
-            allCreatedItems.push(item);
-        }
-    });
-
-    if (allCreatedItems.length > 0) {
-        if (typeof window.deselectItem === 'function') {
-            window.deselectItem();
-        }
-        window.commitSelection?.(allCreatedItems[allCreatedItems.length - 1], allCreatedItems);
-        allCreatedItems.forEach(it => { if (it) it.selected = true; });
-
-        if (typeof window.updateSelectionBox === 'function') {
-            window.updateSelectionBox(window.selectedItem);
-        }
-        if (typeof updateContextualMenu === 'function') {
-            updateContextualMenu(window.selectedItem);
-        }
-    }
-    safeRecalculateSubtractions();
-    paper.view.update();
+    return dispatchUngroup();
 }
 
 function dispatchTextCurve(options = {}) {
@@ -906,9 +869,11 @@ if (typeof window !== 'undefined') {
     window.deleteImage = deleteImage;
     window.duplicateSingleItem = duplicateSingleItem;
     window.duplicateSelectedItem = duplicateSelectedItem;
-    // Implementaciones normales: no reemplazan la API central de selección.
+    // Agrupar mantiene su API histórica; Desagrupar solo publica el
+    // dispatcher canónico de ungroupRoutes.js.
+    window.groupSelectedItems = groupSelectedItems;
     window.ekkoGroupNormal = groupSelectedItems;
-    window.ekkoUngroupNormal = ungroupSelectedItem;
+    window.ekkoUngroupNormal = dispatchUngroup;
 }
 
 
