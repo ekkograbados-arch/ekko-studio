@@ -587,12 +587,32 @@ export async function weldText(item) {
         isFusionReceptor: true,
         hasInternalHoles: true
     });
+    
+    
     resultPath.data = { ...(resultPath.data || {}), source: "text-vector", role: "letter",
         isTextVector: true, isFusionReceptor: true, hasInternalHoles: true,
         fillRule: "evenodd", geomBase: resultPath.data.geomBase };
 
+    // Si el PointText original vivía dentro de un wrapper de contención,
+    // actualizar el owner público antes de eliminar el objeto original.
+    const containmentWrapper = target.parent?.data?.clipGroup === true
+        ? target.parent
+        : null;
+
+    if (containmentWrapper) {
+        resultPath.data = {
+            ...(resultPath.data || {}),
+            publicOwner: true,
+            ownerId: resultPath.id
         };
 
+        containmentWrapper.data = {
+            ...(containmentWrapper.data || {}),
+            publicOwner: resultPath,
+            publicOwnerId: resultPath.id,
+            transformOwnerId: resultPath.id
+        };
+    }
 
 
     
