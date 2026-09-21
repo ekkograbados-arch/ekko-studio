@@ -145,6 +145,18 @@ window.toggleOutline = function() {
   selected.forEach(item => {
     const target = getPublicOwner(item);
     if (!target) return;
+    // Contorno is a UI aid for positive geometry only. A real hole must
+    // never acquire a paint stroke here: its identity is semantic CSG plus Z
+    // order, not the dark outline used by the legacy visual tool.
+    if (target.data?.isHole === true || target.data?.semanticKind === "hole") {
+      delete target.__ekkoOutlineSnapshot;
+      target.fillColor = null;
+      target.strokeColor = null;
+      target.strokeWidth = 0;
+      target.opacity = 1;
+      target.visible = true;
+      return;
+    }
     if (target.__ekkoOutlineSnapshot) {
       const snap = target.__ekkoOutlineSnapshot;
       target.fillColor = snap.fillColor;
