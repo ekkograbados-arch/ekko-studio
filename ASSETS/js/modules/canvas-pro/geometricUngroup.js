@@ -1,4 +1,5 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
+import { getCanonicalDesignLayer, realGeometryIntersects } from "./vectorSemantics.js";
 
 
 /*
@@ -696,7 +697,19 @@ function extractSubtractiveItems(topList) {
 }
 
 export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEntries = null) {
-    const layer = targetLayer || (typeof paper !== 'undefined' && paper.project ? paper.project.activeLayer : null);
+    const layer = targetLayer || getCanonicalDesignLayer() || null;
+    const report = {
+        schema: 'ekko-csg-report/1',
+        targetLayer: layer?.name || null,
+        filteredItemCount: 0,
+        subtractiveItemCount: 0,
+        candidatePairs: 0,
+        acceptedPairs: 0,
+        rejectedPairs: 0,
+        failedBooleans: [],
+        status: 'started',
+        completed: false
+    };
     const traceSeedItems = layer?.children ? [...layer.children] : [];
     const tracePass = csgTraceBegin(layer, traceSeedItems);
     const previousTracePass = activeCSGTracePass;
@@ -707,18 +720,20 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
         ? virtualHoleEntries
         : (Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []);
-    if (!layer || !layer.children) { traceReason = 'no-layer-or-children'; return; }
+    if (!layer || !layer.children) { traceReason = 'no-layer-or-children'; report.status = traceReason; return report; }
     const items = [...layer.children].filter(item =>
         item && !item.data?.mockup && !item.data?.isMask && !item.data?.isSelectionBox &&
         !item.data?.isHandle && !item.data?.isSmartGuide && !item.data?.isMeasurement &&
         !item.data?.isTracePreview && !item.data?.isNodeEditOverlay
     );
     tracedItems = items;
+    report.filteredItemCount = items.length;
     if (tracePass) tracePass.filteredItems = csgOwnersSnapshot(items);
-    if (items.length === 0) { traceReason = 'no-eligible-layer-items'; return; }
+    if (items.length === 0) { traceReason = 'no-eligible-layer-items'; report.status = traceReason; return report; }
     const subItems = extractSubtractiveItems(items);
+    report.subtractiveItemCount = subItems.length;
     if (tracePass) tracePass.subItems = subItems.map(item => csgItemSnapshot(item)).filter(Boolean);
-    if (subItems.length === 0) { traceReason = 'no-subtractive-items'; return; }
+    if (subItems.length === 0) { traceReason = 'no-subtractive-items'; report.status = traceReason; return report; }
 
     function countSegments(item, visited = new Set()) {
         if (!item || visited.has(item)) return 0;
@@ -780,6 +795,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
+            report.candidatePairs += 1;
             pair.ownerMaskWrapper = { isMaskOrMockup: !!isMockupOrMask(holeItem), isContainmentWrapper: !!isContainmentWrapper(holeItem) };
             if (pair.ownerMaskWrapper.isMaskOrMockup) {
                 pair.reasons.push('owner-mask-wrapper');
@@ -810,13 +826,14 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            if (pristineBounds.intersects(holeBase.bounds)) {
+            if (realGeometryIntersects(pristineBase, holeBase)) {
                 pair.status = 'accepted';
+                report.acceptedPairs += 1;
                 pair.reasons.push('accepted');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 intersectingHoles.push(holeBase);
             } else {
-                pair.reasons.push('geometry-bounds');
+                pair.reasons.push('no-intersection');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 holeBase.remove();
             }
@@ -873,6 +890,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                             csgTraceOperation(tracePass, 'unite', { success: false, accepted: false,
                                 error: String(e?.stack || e), leftBefore: csgGeometrySnapshot(mergedHole), rightBefore: csgGeometrySnapshot(curHole),
                                 rejection: 'caught-error' });
+                            report.failedBooleans.push({ operation: 'unite', error: String(e?.message || e) });
                         }
                     }
                     const cp = new paper.CompoundPath({ insert: false });
@@ -893,6 +911,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         } catch (err) {
             csgTraceOperation(tracePass, 'merge-hole', { success: false, accepted: false,
                 error: String(err?.stack || err), rejection: 'caught-error' });
+            report.failedBooleans.push({ operation: 'merge-hole', error: String(err?.message || err) });
             mergedHole = null;
         }
         csgTraceOperation(tracePass, 'merge-hole', { success: !!mergedHole, accepted: !!mergedHole,
@@ -932,6 +951,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 csgTraceOperation(tracePass, 'subtract.merged', { success: false, accepted: false,
                     solidBefore: csgGeometrySnapshot(pristineBase), holeBefore: csgGeometrySnapshot(mergedHole),
                     error: String(e?.stack || e), rejection: 'caught-error' });
+                report.failedBooleans.push({ operation: 'subtract.merged', error: String(e?.message || e) });
             }
             mergedHole.remove();
         }
@@ -968,6 +988,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     csgTraceOperation(tracePass, 'subtract.step', { success: false, accepted: false,
                         solidBefore: csgGeometrySnapshot(currentProgress), holeBefore: csgGeometrySnapshot(singleHole),
                         error: String(e?.stack || e), rejection: 'caught-error' });
+                    report.failedBooleans.push({ operation: 'subtract.step', error: String(e?.message || e) });
                 }
             }
             finalSubtracted = currentProgress;
@@ -995,9 +1016,14 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     }
     traceReason = 'completed';
     } finally {
+        report.rejectedPairs = Math.max(0, report.candidatePairs - report.acceptedPairs);
+        report.status = traceReason || report.status;
+        report.completed = traceReason === 'completed' || report.status === 'no-subtractive-items' || report.status === 'no-eligible-layer-items';
+        if (typeof window !== 'undefined') window.EKKO_CSG_LAST_REPORT = report;
         csgTraceFinish(tracePass, layer, tracedItems, traceReason);
         activeCSGTracePass = previousTracePass;
     }
+    return report;
 }
 
 function isAncestorOf(potentialAncestor, node) {
