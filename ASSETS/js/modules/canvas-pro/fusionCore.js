@@ -63,15 +63,12 @@ export function isClosedClientVector(item) {
 // ===== Búsqueda de elementos =====
 export function getContentItem(item) {
   if (!item) return null;
-  // Public-owner resolution is centralized in designGeometry. Do not infer
+  // Public-owner resolution is centralized in designGeometry. Never infer
   // ownership from child order: clip masks, fusion children and wrappers can
   // all occupy different positions after import or undo/redo.
   const owner = getPublicOwner(item);
   if (owner) return owner;
-  if (item.children?.length > 0) {
-    return item.children.find(c => !c.name?.startsWith("fusion-")) || item.children[0];
-  }
-  return item;
+  return item.data?.clipGroup ? null : item;
 }
 
 export function findFusionRaster(fusionGroup) {
@@ -86,7 +83,10 @@ export function findFusionRaster(fusionGroup) {
 export function findFusionVector(fusionGroup) {
   if (!fusionGroup) return null;
   const { maskGroup, originalVector } = fusionGroup.data || {};
-  return maskGroup?.children?.[0] || originalVector ||
+  const markedMask = maskGroup?.children?.find(child =>
+    child?.clipMask || child?.data?.isFusionMask || child?.data?.publicOwner === true
+  ) || null;
+  return originalVector || markedMask ||
     fusionGroup.children?.find(child => child?.clipMask || child?.data?.isFusionMask) || null;
 }
 
