@@ -98,10 +98,15 @@ function markHole(target) {
         isCalado: true,
         isFusionReceptor: true,
         isSolidShape: false,
+        csgMaterialized: false,
+        holeRenderMode: "semantic-cutter-no-paint",
         label: "Calado",
-        originalFillColor: previousFill || new paper.Color("#64748b"),
-        originalStrokeColor: previousStroke || new paper.Color("#334155"),
-        originalStrokeWidth: previousStrokeWidth || (1 / (paper.view.zoom || 1))
+        // Preserve source paint only for a later explicit Rellenar action.
+        // No fallback contour is created: color and stroke are never hole
+        // semantics and must not be used to visualize the cutter.
+        originalFillColor: previousFill || null,
+        originalStrokeColor: previousStroke || null,
+        originalStrokeWidth: previousStrokeWidth || 0
     };
     if (!target.data.geomBase) {
         const base = cloneAbsolute(target);
@@ -180,6 +185,7 @@ function restoreSolidGeometry(target) {
         isSolidShape: true,
         isCalado: false,
         filledFromHole: true,
+        csgMaterialized: false,
         label: "Relleno",
         originalFillColor: target.data?.originalFillColor || new paper.Color("#111827")
     };
