@@ -1,5 +1,6 @@
 import { getPublicOwner } from "./designGeometry.js";
 import { getStackingUnit } from "./vectorSemantics.js";
+import { transformPublicItem } from "./fusionController.js";
 
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/imageToolbar.js (v36.0 PRO - Smart Spatial Collision Z-Order & LightBurn Stacking)
@@ -75,18 +76,26 @@ export function scaleImage(item, factor) {
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
-  // Obtiene la imagen real dentro del Clip Group
-  const target = item.data?.clipGroup
-    ? item.children.find(c => !c.clipMask)
-    : item;
+  // Scaling is a public transform, not a direct child mutation. The previous
+  // path scaled the content inside a clipGroup and left geomBase, owner
+  // matrices and dynamic CSG out of sync. That made a hole look opaque or
+  // stopped it from recalculating when the contextual +/- buttons were used.
+  const target = getPublicOwner(item) || item;
+  if (!target || target.data?.locked || !target.bounds) return;
+  const applied = transformPublicItem(target, {
+    type: 'scale',
+    sx: Number(factor) || 1,
+    sy: Number(factor) || 1,
+    center: target.bounds.center.clone()
+  });
 
-  if (target) {
-    target.scale(factor);
-    if (typeof window.updateSelectionBox === 'function') {
-      window.updateSelectionBox(item);
-    }
-    paper.view.update();
+  if (applied?.applied && typeof window.recalculateDynamicSubtractions === 'function') {
+    window.recalculateDynamicSubtractions();
   }
+  if (typeof window.updateSelectionBox === 'function') {
+    window.updateSelectionBox(target);
+  }
+  paper.view.update();
 }
 
 // Helper para clonar un único objeto preservando máscara o clon plano
