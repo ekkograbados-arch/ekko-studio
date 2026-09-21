@@ -114,6 +114,33 @@ export function findFusionVector(item) {
     ) || null;
 }
 
+/**
+ * Single authority for the live semantic kind of a fusion receiver.
+ * `originalIsHole` is historical migration data only; it never overrides a
+ * live receiver/mask kind. The CSG and controller use this helper instead of
+ * independently combining mode, group and virtual-hole flags.
+ */
+export function getFusionReceiverKind(fusionOrRecord) {
+  const group = fusionOrRecord?.data?.isSmartFusion
+    ? fusionOrRecord
+    : (fusionOrRecord?.group?.data?.isSmartFusion ? fusionOrRecord.group : null);
+  const recordKind = fusionOrRecord?.receiverKind;
+  const groupKind = group?.data?.receiverKind;
+  const mask = group ? findFusionVector(group) : null;
+  const maskData = mask?.data || {};
+  const liveKind = maskData.semanticKind === VECTOR_KIND.HOLE || maskData.isHole === true
+    ? VECTOR_KIND.HOLE
+    : maskData.semanticKind === VECTOR_KIND.SOLID || maskData.isSolidShape === true
+      ? VECTOR_KIND.SOLID : null;
+  const explicit = [liveKind, groupKind, recordKind, group?.data?.semanticKind]
+    .find(kind => kind === VECTOR_KIND.HOLE || kind === VECTOR_KIND.SOLID);
+  if (explicit) return explicit;
+  // Migration fallback for old persisted fusion records. New records always
+  // receive receiverKind at creation and never need this branch.
+  return fusionOrRecord?.originalIsHole === true || group?.data?.originalIsHole === true
+    ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID;
+}
+
 // ===== Operación de fusión =====
 // Canonical order: receptor, raster, mode, options.
 // The legacy raster,receptor,options shape remains accepted for compatibility.
@@ -275,15 +302,18 @@ export function createFusionRecord(first, second = {}, third = null) {
     : third;
   const data = group?.data || {};
   const fusionId = overrides.fusionId || data.fusionId || uuidv4();
+  const legacyHole = data.originalIsHole === true || data.semanticKind === VECTOR_KIND.HOLE;
+  const receiverKind = overrides.receiverKind || data.receiverKind ||
+    (legacyHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID);
   const record = {
     fusionId,
     group,
     mode,
+    // Historical source fact. It is not the live CSG authority.
     originalIsHole: overrides.originalIsHole ?? data.originalIsHole === true,
-    semanticKind: overrides.semanticKind || data.semanticKind ||
-      (data.semanticKind === VECTOR_KIND.HOLE || data.originalIsHole === true ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID),
-    receiverKind: overrides.receiverKind || data.receiverKind ||
-      (data.semanticKind === VECTOR_KIND.HOLE || data.originalIsHole === true ? "hole" : "solid"),
+    receiverKind,
+    semanticKind: receiverKind,
+    isHole: receiverKind === VECTOR_KIND.HOLE, 
     rasterId: overrides.rasterId ?? raster?.id ?? data.rasterId ?? null,
     receptorId: overrides.receptorId ?? receptor?.id ?? data.vectorId ?? null,
     containmentKey: overrides.containmentKey ?? data.containmentKey ?? receptor?.data?.containmentKey ?? null,
@@ -307,14 +337,21 @@ export function registerVirtualHole(first, second, group = null) {
   if (!fusionId || !geom) return null;
   const storedGeom = geom.clone?.({ insert: false }) || geom;
   const data = group?.data || {};
+  const receiverKind = data.receiverKind === VECTOR_KIND.HOLE || data.semanticKind === VECTOR_KIND.HOLE || data.isHole === true
+    ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID;
+  if (receiverKind !== VECTOR_KIND.HOLE) {
+    try { storedGeom.remove?.(); } catch (_) {}
+    return null;
+  }
   const entry = {
     geom: storedGeom,
     fusionId,
     group,
+    receiverKind,
     ownerContainmentKey: data.ownerContainmentKey || null,
     containmentKey: data.containmentKey || null,
     containmentScope: data.containmentScope || null,
-    semanticKind: data.semanticKind || (data.originalIsHole === true ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID),
+    semanticKind: VECTOR_KIND.HOLE,
     originalIsHole: data.originalIsHole === true,
     updatedAt: Date.now()
   };
@@ -332,15 +369,23 @@ export function updateVirtualHole(fusionId, newGeom, group = null) {
   }
   const currentGroup = group || previous?.group || null;
   const data = currentGroup?.data || {};
+  const receiverKind = data.receiverKind === VECTOR_KIND.HOLE || data.semanticKind === VECTOR_KIND.HOLE || data.isHole === true
+    ? VECTOR_KIND.HOLE : (previous?.receiverKind || VECTOR_KIND.SOLID);
+  if (receiverKind !== VECTOR_KIND.HOLE) {
+    try { storedGeom.remove?.(); } catch (_) {}
+    unregisterVirtualHole(fusionId);
+    return false;
+  }
   _virtualHoles.set(fusionId, {
     ...(previous || {}),
     geom: storedGeom,
     group: currentGroup,
     fusionId,
+    receiverKind: VECTOR_KIND.HOLE,
     ownerContainmentKey: data.ownerContainmentKey || previous?.ownerContainmentKey || null,
     containmentKey: data.containmentKey || previous?.containmentKey || null,
     containmentScope: data.containmentScope || previous?.containmentScope || null,
-    semanticKind: data.semanticKind || previous?.semanticKind || (data.originalIsHole === true ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID),
+    semanticKind: VECTOR_KIND.HOLE,
     originalIsHole: data.originalIsHole === true || previous?.originalIsHole === true,
     updatedAt: Date.now()
   });

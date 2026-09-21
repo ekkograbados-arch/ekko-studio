@@ -516,10 +516,25 @@ function resolveItemSemantics(node, rootTarget) {
     return (Number(node?.depth) || 0) % 2 === 1;
 }
 
+function getLiveFusionOwner(item) {
+    let current = item;
+    const seen = new Set();
+    while (current && !seen.has(current)) {
+        seen.add(current);
+        if (current.data?.isSmartFusion) return current;
+        current = current.parent;
+    }
+    return null;
+}
+
 export function getGlobalUnsubtractedPath(item) {
+    // Fusion masks are internal children and intentionally rejected by the
+    // public-owner resolver. Their live geometry belongs to the fusion owner.
+    const fusionOwner = item?.data?.isFusionMask ? getLiveFusionOwner(item) : null;
+    const source = fusionOwner || item;
     // Sole world-geometry producer: geomBase is owner-local and the complete
     // owner global matrix is applied exactly once by the canonical layer.
-    return toWorldGeometry(item);
+    return toWorldGeometry(source);
 }
 
 // CSG operands are calculated in project/global coordinates. Before adding
@@ -632,6 +647,17 @@ function applyHoleVisualStyle(item) {
 // Render-order authority lives in vectorSemantics.js. CSG must use the same
 // stacking-unit comparator as selection, ordering and audit code.
 
+function isLiveFusionMask(item) {
+    if (!item?.data?.isFusionMask) return false;
+    return !!getLiveFusionOwner(item);
+}
+
+function isCsgExcludedOwner(item) {
+    // Product/mockup masks are excluded. A fusion mask is different: it is the
+    // live design receptor and must remain a valid solid or hole operand.
+    return isMockupOrMask(item) && !isLiveFusionMask(item);
+}
+
 function extractSubtractiveItems(topList) {
     const result = [];
     const visited = new Set();
@@ -655,14 +681,15 @@ function extractSubtractiveItems(topList) {
         }
         if (!visited.has(content)) visited.add(content);
 
-        // Una fusión sólida participa del CSG mediante su máscara, no como
-        // un grupo completo que también contiene la imagen. Una fusión que
-        // reemplazó un hueco se representa mediante su hueco virtual.
+        // A fusion is one public owner, but its live mask is the CSG operand.
+        // Both solid and hole receivers enter the same canonical pipeline. A
+        // hole fusion is not removed from this list and must not depend solely
+        // on the auxiliary virtual-hole registry.
         if (content.data?.isSmartFusion) {
             const fusionMask = content.children?.find(child =>
                 child.clipMask || child.data?.isFusionMask
             );
-            if (fusionMask && !fusionMask.data?.isHole && fusionMask.data?.geomBase) {
+            if (fusionMask && fusionMask.data?.geomBase) {
                 result.push(fusionMask);
             }
             return;
@@ -729,6 +756,13 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     const subItems = extractSubtractiveItems(items);
     report.subtractiveItemCount = subItems.length;
     report.holeOwnerCount = subItems.filter(item => item?.data?.isHole === true).length;
+    // Live fusion masks are first-class CSG cutters. Virtual entries remain a
+    // migration/diagnostic fallback only and must never subtract the same
+    // fusion twice.
+    const liveFusionHoleIds = new Set(subItems
+        .filter(item => item?.data?.isFusionMask === true && item?.data?.isHole === true)
+        .map(item => item.data.fusionId || getLiveFusionOwner(item)?.data?.fusionId)
+        .filter(Boolean));
     if (tracePass) tracePass.subItems = subItems.map(item => csgItemSnapshot(item)).filter(Boolean);
     if (subItems.length === 0) { traceReason = 'no-subtractive-items'; report.status = traceReason; return report; }
 
@@ -776,7 +810,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     for (let j = 0; j < subItems.length; j++) {
         const solid = subItems[j];
         if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase ||
-            isMockupOrMask(solid)) continue;
+            isCsgExcludedOwner(solid)) continue;
         const pristineBase = getGlobalUnsubtractedPath(solid);
         if (!pristineBase) continue;
         const pristineArea = Math.abs(pristineBase.area || 0);
@@ -796,7 +830,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 continue;
             }
             report.candidatePairs += 1;
-            pair.ownerMaskWrapper = { isMaskOrMockup: !!isMockupOrMask(holeItem), isContainmentWrapper: !!isContainmentWrapper(holeItem) };
+            pair.ownerMaskWrapper = { isMaskOrMockup: !!isCsgExcludedOwner(holeItem), isContainmentWrapper: !!isContainmentWrapper(holeItem) };
             if (pair.ownerMaskWrapper.isMaskOrMockup) {
                 pair.reasons.push('owner-mask-wrapper');
                 if (tracePass) tracePass.candidatePairs.push(pair);
@@ -857,7 +891,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         if (Array.isArray(scopedVirtualHoles)) {
             scopedVirtualHoles.forEach(function(vh) {
                 if (!vh || !vh.geom) return;
-                if (isMockupOrMask(solid)) return;
+                if (isCsgExcludedOwner(solid)) return;
+                // A live fusion mask already participates in subItems. The
+                // auxiliary entry is skipped to prevent double subtraction.
+                if (vh.fusionId && liveFusionHoleIds.has(vh.fusionId)) return;
+                if (vh.receiverKind && vh.receiverKind !== VECTOR_KIND.HOLE) return;
                 // Virtual holes carry their live fusion group. Apply the same
                 // Z-order contract as physical hole owners when available.
                 if (vh.group && !isAboveInRenderOrder(vh.group, solid)) return;

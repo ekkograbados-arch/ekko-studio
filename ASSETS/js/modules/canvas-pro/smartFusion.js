@@ -326,6 +326,10 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const originalIsHole = !!(vector.data && vector.data.isHole);
+  // The receiver owns the semantic kind. `calar` is an explicit conversion
+  // operation; ordinary fusion never changes a solid into a hole.
+  const receiverKind = (mode === 'calar' || originalIsHole)
+    ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID;
   const fusionId = options && options.fusionId
     ? options.fusionId
     : ('fus_' + Date.now() + '_' + Math.floor(Math.random()*10000));
@@ -390,17 +394,20 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
     containmentScope: vector.data?.containmentScope || null,
     containmentKey: receiverContainmentKey,
     ownerContainmentKey,
-    receiverKind: originalIsHole ? 'hole' : 'solid',
-    label: mode === 'calar' ? "Fusión Calada" : "Fusión Inteligente"
+    receiverKind,
+    label: receiverKind === VECTOR_KIND.HOLE ? "Fusión Calada" : "Fusión Inteligente"
   };
-  const fusionKind = (mode === 'calar' || originalIsHole)
-    ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID;
+  const fusionKind = receiverKind;
   setSemanticKind(fusionGroup, fusionKind);
   fusionGroup.data.geomBase = originalVectorGeom.clone({ insert: false });
   maskItem.data = {
     ...(maskItem.data || {}),
     isFusionMask: true,
-    isHole: originalIsHole,
+    fusionId,
+    receiverKind,
+    semanticKind: receiverKind,
+    isHole: receiverKind === VECTOR_KIND.HOLE,
+    isSolidShape: receiverKind === VECTOR_KIND.SOLID,
     geomBase: originalVectorGeom.clone({ insert: false }),
     containmentScope: vector.data?.containmentScope || null,
     containmentKey: receiverContainmentKey,
@@ -637,7 +644,11 @@ export function recalculateSmartFusion(fusionGroup) {
     newInverseMask.data = {
       ...(newInverseMask.data || {}),
       isFusionMask: true,
-      isHole: !!fusionGroup.data.originalIsHole,
+      fusionId: fusionGroup.data.fusionId || null,
+      receiverKind: fusionGroup.data.receiverKind || VECTOR_KIND.SOLID,
+      semanticKind: fusionGroup.data.receiverKind || VECTOR_KIND.SOLID,
+      isHole: (fusionGroup.data.receiverKind || VECTOR_KIND.SOLID) === VECTOR_KIND.HOLE,
+      isSolidShape: (fusionGroup.data.receiverKind || VECTOR_KIND.SOLID) === VECTOR_KIND.SOLID,
       geomBase: currentVector.clone({ insert: false }),
       containmentScope: fusionGroup.data.containmentScope || null,
       containmentKey: fusionGroup.data.containmentKey || null,
@@ -645,6 +656,7 @@ export function recalculateSmartFusion(fusionGroup) {
     };
     try { Object.defineProperty(newInverseMask, 'selected', { get(){return false;}, set(){}, configurable:true, enumerable:true }); } catch(e){}
     newInverseMask.clipMask = true;
+    setSemanticKind(newInverseMask, fusionGroup.data.receiverKind || VECTOR_KIND.SOLID);
     maskItem.replaceWith(newInverseMask);
   } else {
     const newMask = currentVector.clone({ insert: false });
@@ -653,13 +665,18 @@ export function recalculateSmartFusion(fusionGroup) {
     newMask.data = {
       ...(newMask.data || {}),
       isFusionMask: true,
-      isHole: !!fusionGroup.data.originalIsHole,
+      fusionId: fusionGroup.data.fusionId || null,
+      receiverKind: fusionGroup.data.receiverKind || VECTOR_KIND.SOLID,
+      semanticKind: fusionGroup.data.receiverKind || VECTOR_KIND.SOLID,
+      isHole: (fusionGroup.data.receiverKind || VECTOR_KIND.SOLID) === VECTOR_KIND.HOLE,
+      isSolidShape: (fusionGroup.data.receiverKind || VECTOR_KIND.SOLID) === VECTOR_KIND.SOLID,
       geomBase: currentVector.clone({ insert: false }),
       containmentScope: fusionGroup.data.containmentScope || null,
       containmentKey: fusionGroup.data.containmentKey || null,
       ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null
     };
     try { Object.defineProperty(newMask, 'selected', { get(){return false;}, set(){}, configurable:true, enumerable:true }); } catch(e){}
+    setSemanticKind(newMask, fusionGroup.data.receiverKind || VECTOR_KIND.SOLID);
     maskItem.replaceWith(newMask);
   }
   paper.view.update();

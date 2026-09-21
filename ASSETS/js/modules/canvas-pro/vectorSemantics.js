@@ -34,8 +34,19 @@ export function setSemanticKind(item, kind) {
 }
 
 /** Return the wrapper that must move with a public owner in the layer stack. */
+function nearestFusionOwner(item) {
+  let current = item;
+  const seen = new Set();
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    if (current.data?.isSmartFusion) return current;
+    current = current.parent;
+  }
+  return null;
+}
+
 export function getStackingUnit(item) {
-  const owner = getPublicOwner(item) || item;
+  const owner = getPublicOwner(item) || nearestFusionOwner(item) || item;
   if (!owner) return null;
   let unit = owner;
   let parent = unit.parent;

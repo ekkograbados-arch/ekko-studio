@@ -10,6 +10,7 @@ import {
     updateFusionRecord,
     unregisterFusion,
     getCurrentFusionMask,
+    getFusionReceiverKind,
     cloneAbsolute,
     registerVirtualHole,
     updateVirtualHole,
@@ -182,8 +183,18 @@ export function syncFusionVirtualHole(fusionOrRecord) {
 
     if (!record || !record.fusionId) return null;
     const group = getRecordGroup(record);
-    const shouldBeHole = record.mode === "intersecar" &&
-        (record.semanticKind === "hole" || record.originalIsHole === true);
+    // The live receiver kind is the only semantic authority. Fusion mode is
+    // a mask-construction detail and must never disable a physical cutter.
+    const receiverKind = getFusionReceiverKind(record);
+    const shouldBeHole = receiverKind === "hole";
+    if (group?.data) {
+        group.data.receiverKind = receiverKind;
+        group.data.semanticKind = receiverKind;
+        group.data.isHole = shouldBeHole;
+    }
+    record.receiverKind = receiverKind;
+    record.semanticKind = receiverKind;
+    record.isHole = shouldBeHole;
 
     if (!shouldBeHole || !group?.project) {
         unregisterVirtualHole(record.fusionId);
