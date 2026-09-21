@@ -1,7 +1,7 @@
 import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConvertToCalado, findFusionVector, findFusionRaster } from "./fusionCore.js";
 import { canConvertSelectionToCalado, convertSelectionToSolid } from "./calado.js";
 import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
-import { dispatchUngroup, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
+import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
 import { getPublicOwner } from "./designGeometry.js";
 
 /* =========================================================================
@@ -22,6 +22,7 @@ const PRO_COMMAND_IDS = {
     proBtnTextToVector: "textToVector",
     proBtnGroup: "group",
     proBtnUngroup: "ungroup",
+    proBtnDecomposeVector: "decomposeVector",
     proBtnEditNodes: "editNodes",
     proBtnDistributeH: "distribute",
     proBtnDistributeV: "distribute",
@@ -43,7 +44,7 @@ const CONTEXT_COMMANDS = {
     none: ["zoom", "rulers", "guides", "measurements"],
     image: ["removeBg", "traceImage", "group", "zoom", "rulers", "guides", "measurements"],
     text: ["textToVector", "group", "align", "zoom", "rulers", "guides", "measurements"],
-    vector: ["editNodes", "calado", "rellenar", "outline", "group", "align", "zoom", "rulers", "guides", "measurements"],
+    vector: ["editNodes", "calado", "rellenar", "outline", "decomposeVector", "group", "align", "zoom", "rulers", "guides", "measurements"],
     multiple: ["group", "align", "distribute", "zoom", "rulers", "guides", "measurements"],
     fusion: ["calado", "rellenar", "unfusion", "editFusionImage", "zoom", "rulers", "guides", "measurements"],
     mixed: ["fusion", "group", "align", "zoom", "rulers", "guides", "measurements"]
@@ -67,7 +68,8 @@ const COMMAND_HANDLERS = Object.freeze({
             : (window.selectedItem ? window.selectedItem : null);
         return window.releaseSmartFusion(selected);
     },
-    ungroup: () => dispatchUngroup()
+    ungroup: () => dispatchUngroup(),
+    decomposeVector: () => dispatchVectorDecomposition()
 });
 
 export function dispatchEKKOCommand(command, element = null) {
@@ -157,6 +159,7 @@ function classifySelection() {
     const typeCount = ["raster", "vector", "text", "fusion", "other"].filter(type => counts[type] > 0).length;
     let context = "multiple";
     let canUngroup = false;
+    let canDecompose = false;
     let canFusion = false;
     let canCalado = false;
     let canRellenar = false;
@@ -188,6 +191,8 @@ function classifySelection() {
     if (singleTarget) {
         try { canUngroup = getUngroupRoute(singleTarget) !== UNGROUP_ROUTE.NONE; }
         catch (_) { canUngroup = false; }
+        try { canDecompose = canDecomposeVector(singleTarget); }
+        catch (_) { canDecompose = false; }
     }
 
     if (counts.fusion === selected.length) {
@@ -207,7 +212,7 @@ function classifySelection() {
         context = "multiple";
     }
 
-    return { context, counts, canUngroup, canFusion, canCalado, canRellenar };
+    return { context, counts, canUngroup, canDecompose, canFusion, canCalado, canRellenar };
 }
 
 function tagProfessionalButtons() {
@@ -229,6 +234,8 @@ function applyCommandVisibility() {
     const selection = classifySelection();
     const allowed = new Set(CONTEXT_COMMANDS[selection.context] || CONTEXT_COMMANDS.none);
     if (selection.canUngroup) allowed.add("ungroup");
+    if (selection.canDecompose) allowed.add("decomposeVector");
+    else allowed.delete("decomposeVector");
     if (!selection.canFusion) allowed.delete("fusion");
     if (!selection.canCalado) allowed.delete("calado");
     if (!selection.canRellenar) allowed.delete("rellenar");
@@ -246,6 +253,7 @@ function applyCommandVisibility() {
         context: selection.context,
         counts: selection.counts,
         canUngroup: selection.canUngroup,
+        canDecompose: selection.canDecompose,
         canFusion: selection.canFusion,
         canCalado: selection.canCalado,
         canRellenar: selection.canRellenar,
