@@ -35,7 +35,7 @@ export function isClientDesignElement(item) {
 export function isValidFusionReceptor(item) {
   if (!item) return false;
   if (isProductElement(item)) return false;
-  const d = item.data;
+  const d = item.data || {};
   return !!(
     d.isFusionReceptor ||
     d.isHole === true ||
@@ -71,30 +71,65 @@ export function getContentItem(item) {
   return item.data?.clipGroup ? null : item;
 }
 
-export function findFusionRaster(fusionGroup) {
+function isRasterItem(item) {
+  return !!item && (item.className === "Raster" ||
+    (typeof paper !== "undefined" && paper.Raster && item instanceof paper.Raster));
+}
+
+function isVectorItem(item) {
+  return !!item && ["Path", "CompoundPath", "Shape"].includes(item.className);
+}
+
+export function findFusionRaster(item) {
+  if (!item) return null;
+  const owner = getPublicOwner(item) || item;
+  if (isRasterItem(owner)) return owner;
+
+  // Descend only through a real fusion owner. A generic group must not make
+  // arbitrary children fusion operands merely because it contains a Raster.
+  const fusionGroup = owner?.data?.isSmartFusion ? owner :
+    (item?.data?.isSmartFusion ? item : null);
   if (!fusionGroup) return null;
-  return fusionGroup.children?.find(c => 
-    c.name === "fusion-image" || 
-    c.className === "Raster" ||
-    c instanceof paper.Raster
+  return Array.from(fusionGroup.children || []).find(child =>
+    child?.name === "fusion-image" || isRasterItem(child)
   ) || null;
 }
 
-export function findFusionVector(fusionGroup) {
+export function findFusionVector(item) {
+  if (!item) return null;
+  const owner = getPublicOwner(item) || item;
+  if (isVectorItem(owner) && !owner.clipMask && !owner.data?.isFusionMask) return owner;
+
+  const fusionGroup = owner?.data?.isSmartFusion ? owner :
+    (item?.data?.isSmartFusion ? item : null);
   if (!fusionGroup) return null;
+
   const { maskGroup, originalVector } = fusionGroup.data || {};
   const markedMask = maskGroup?.children?.find(child =>
     child?.clipMask || child?.data?.isFusionMask || child?.data?.publicOwner === true
   ) || null;
   return originalVector || markedMask ||
-    fusionGroup.children?.find(child => child?.clipMask || child?.data?.isFusionMask) || null;
+    Array.from(fusionGroup.children || []).find(child =>
+      child?.clipMask || child?.data?.isFusionMask
+    ) || null;
 }
 
 // ===== Operación de fusión =====
-export function applySmartFusion(raster, receptor, options = {}) {
-  // Delegación al módulo original — se mantiene compatibilidad
-  return import("./smartFusion.js").then(mod => 
-    mod.applySmartFusion(raster, receptor, options)
+// Canonical order: receptor, raster, mode, options.
+// The legacy raster,receptor,options shape remains accepted for compatibility.
+export function applySmartFusion(first, second, third = "intersecar", fourth = {}) {
+  let receptor = first;
+  let raster = second;
+  let mode = typeof third === "string" ? third : (third?.mode || "intersecar");
+  let options = typeof third === "object" && third !== null ? third : (fourth || {});
+
+  if (isRasterItem(first) && !isRasterItem(second)) {
+    raster = first;
+    receptor = second;
+  }
+
+  return import("./smartFusion.js").then(mod =>
+    mod.applySmartFusion(receptor, raster, mode, options)
   );
 }
 
