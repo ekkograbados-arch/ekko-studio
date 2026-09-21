@@ -31,6 +31,7 @@ CORRECCIONES ARQUITECTÓNICAS V21.0:
 
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
 import { setMeasurementsVisibility } from "./canvasMeasurements.js";
+import { getUngroupRoute, canDecomposeVector, UNGROUP_ROUTE } from "./ungroupRoutes.js";
 
 
 window.distributeSelection = (axis = "h") => distributeSpacing(axis);
@@ -67,6 +68,10 @@ function resolveButtonSet(selection) {
   }
 
   const types = getSelectionTypes(selection);
+  const publicOwners = selection.map(getPublicOwner).filter(Boolean);
+  const canUngroup = publicOwners.length === 1 &&
+    getUngroupRoute(publicOwners[0]) === UNGROUP_ROUTE.STRUCTURAL;
+  const canDecompose = publicOwners.length === 1 && canDecomposeVector(publicOwners[0]);
 
   // Fusión seleccionada
   if (types.fusion === selection.length) {
@@ -85,12 +90,23 @@ function resolveButtonSet(selection) {
 
   // Solo vector
   if (types.vector === selection.length) {
-    return { show: ['editNodes','outline','decomposeVector','group'], hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage'] };
+    return {
+      show: ['editNodes','outline','group'].concat(canDecompose ? ['decomposeVector'] : []),
+      hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage']
+    };
   }
 
-  // Grupo
+  // Grupo: only an explicit user structural group may be ungrouped.
   if (types.group === selection.length) {
-    return { show: ['ungroup','align'], hide: ['decomposeVector', 'fusion','unfusion','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
+    const show = ['align'];
+    if (canUngroup) show.push('ungroup');
+    if (canDecompose) show.push('decomposeVector');
+    return {
+      show,
+      hide: ['fusion','unfusion','editNodes','removeBg','traceImage','distribute','outline','editFusionImage']
+        .concat(canUngroup ? [] : ['ungroup'])
+        .concat(canDecompose ? [] : ['decomposeVector'])
+    };
   }
 
   // Múltiples del mismo tipo
@@ -288,12 +304,13 @@ export function initProControls() {
             <div class="pro-group" id="proGroupOrganize">
                 <span class="pro-label">Organizar</span>
                 <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
-                <button class="pro-btn" id="proBtnUngroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+                <button class="pro-btn" id="proBtnUngroup" data-ekko-command="ungroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+                <button class="pro-btn" id="proBtnDecomposeVector" data-ekko-command="decomposeVector" title="Descomponer vector según relleno y winding"><i class="fas fa-vector-square"></i> Descomponer Vector</button>
                 <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos (Illustrator Style)"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
             </div>
             <div class="pro-group" id="proGroupFusion">
                 <button class="pro-btn" id="proBtnFusionar" title="Fusionar imagen dentro de un vector o hueco (Canva-style) — selecciona imagen + vector"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
-                <button class="pro-btn" id="proBtnQuitarFusion" title="Disolver la fusión seleccionada y restituir imagen + vector"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+                <button class="pro-btn" id="proBtnQuitarFusion" data-ekko-command="releaseSmartFusion" title="Disolver la fusión seleccionada y restituir imagen + vector"><i class="fas fa-unlink"></i> Quitar Fusión</button>
             </div>
             <div class="pro-group">
                 <span class="pro-label">Opciones de Vista</span>
@@ -699,10 +716,18 @@ function bindClickHandlers() {
     });
 
     bindBtn("proBtnUngroup", () => {
-        if (typeof window.ungroupSelectedItem === "function") {
+        if (typeof window.dispatchEKKOCommand === "function") {
+            window.dispatchEKKOCommand("ungroup");
+        } else if (typeof window.ungroupSelectedItem === "function") {
             window.ungroupSelectedItem();
-        } else {
-            console.warn("La función window.ungroupSelectedItem no está disponible.");
+        }
+    });
+
+    bindBtn("proBtnDecomposeVector", () => {
+        if (typeof window.dispatchEKKOCommand === "function") {
+            window.dispatchEKKOCommand("decomposeVector");
+        } else if (typeof window.decomposeVectorSelectedItem === "function") {
+            window.decomposeVectorSelectedItem();
         }
     });
 
@@ -715,10 +740,12 @@ function bindClickHandlers() {
         }
     });
     bindBtn("proBtnQuitarFusion", () => {
-        if (typeof window.releaseSmartFusion === "function") {
-            window.releaseSmartFusion(window.selectedItems || (window.selectedItem ? [window.selectedItem] : []));
-        } else {
-            console.warn("window.releaseSmartFusion no disponible.");
+        if (typeof window.dispatchEKKOCommand === "function") {
+            window.dispatchEKKOCommand("releaseSmartFusion");
+        } else if (typeof window.releaseSmartFusion === "function") {
+            // Legacy fallback is still owner-gated by the command bridge once
+            // it is installed; this branch only covers early bootstrap.
+            window.EKKO_UNGROUP_ROUTES?.dispatchFusionRelease?.();
         }
     });
 

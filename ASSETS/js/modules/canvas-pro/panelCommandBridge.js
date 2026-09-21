@@ -1,7 +1,7 @@
 import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConvertToCalado, findFusionVector, findFusionRaster } from "./fusionCore.js";
 import { canConvertSelectionToCalado, convertSelectionToSolid } from "./calado.js";
 import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
-import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
+import { dispatchUngroup, dispatchVectorDecomposition, dispatchFusionRelease, canDecomposeVector, getUngroupRoute, isFusionOwner, UNGROUP_ROUTE } from "./ungroupRoutes.js";
 import { getPublicOwner } from "./designGeometry.js";
 
 /* =========================================================================
@@ -62,11 +62,9 @@ const COMMAND_HANDLERS = Object.freeze({
         ? window.performSmartFusion()
         : null,
     releaseSmartFusion: () => {
-        if (typeof window.releaseSmartFusion !== "function") return null;
-        const selected = window.selectedItems && window.selectedItems.length
-            ? [...window.selectedItems]
-            : (window.selectedItem ? window.selectedItem : null);
-        return window.releaseSmartFusion(selected);
+        // The only release route accepts a FusionGroup owner. Desagrupar and
+        // Descomponer Vector never call this handler.
+        return dispatchFusionRelease();
     },
     ungroup: () => dispatchUngroup(),
     decomposeVector: () => dispatchVectorDecomposition()
@@ -143,7 +141,7 @@ function classifySelection() {
             return;
         }
 
-        if (item.data && item.data.isSmartFusion) {
+        if (isFusionOwner(item)) {
             counts.fusion++;
         } else if (item.className === "Raster") {
             counts.raster++;
@@ -324,6 +322,10 @@ export function initPanelCommandBridge() {
     applyCommandVisibility();
 
     window.refreshEKKOSharedCommands = refreshSharedCommands;
+    // Every toolbar surface delegates to this same command dispatcher. Inline
+    // handlers kept for legacy controls cannot create a second route because
+    // the bridge captures data-ekko-command clicks at workspace level.
+    window.dispatchEKKOCommand = dispatchEKKOCommand;
     console.log("%c[EKKO COMMANDS] Superficies de comandos sincronizadas.", "color:#7c3aed;font-weight:bold;");
 }
 

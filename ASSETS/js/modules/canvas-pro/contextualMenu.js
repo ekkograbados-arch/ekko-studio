@@ -14,7 +14,7 @@ y unificar IDs interactivos en inglés Figma/Canva Style.
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
 import { scaleImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
-import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector } from "./ungroupRoutes.js";
+import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
 
 // Helper de recálculo dinámico de sustracciones booleanas CSG
 function safeRecalculateSubtractions() {
@@ -268,7 +268,7 @@ function injectFontFaces(fonts) {
 
 function getSelectedTextString() {
     if (!window.selectedItem) return "EKKO Studio";
-    const target = window.selectedItem.data?.clipGroup ? getPublicOwner(window.selectedItem) : window.selectedItem;
+    const target = getPublicOwner(window.selectedItem);
     if (!target) return "EKKO Studio";
     if (isPointText(target)) {
         return target.content || "EKKO Studio";
@@ -278,7 +278,7 @@ function getSelectedTextString() {
 
 function getSelectedFontFamily() {
     if (!window.selectedItem) return "Arial";
-    const target = window.selectedItem.data?.clipGroup ? getPublicOwner(window.selectedItem) : window.selectedItem;
+    const target = getPublicOwner(window.selectedItem);
     if (!target) return "Arial";
     return target.fontFamily || "Arial";
 }
@@ -316,7 +316,7 @@ function renderFontList(fonts, container) {
 }
 
 function applyFontFamily(item, family) {
-    const target = item.data?.clipGroup ? getPublicOwner(item) : item;
+    const target = getPublicOwner(item);
     if (target && isPointText(target)) {
         target.fontFamily = family;
         try {
@@ -698,7 +698,7 @@ function getUnifiedScreenBounds(item) {
 
     if (window.selectedItems && window.selectedItems.length > 0) {
         window.selectedItems.forEach(it => {
-            const tgt = it.data?.clipGroup ? getPublicOwner(it) : it;
+            const tgt = getPublicOwner(it);
             if (tgt && tgt.bounds && tgt.visible !== false) {
                 if (!combinedBounds) combinedBounds = tgt.bounds.clone();
                 else combinedBounds = combinedBounds.unite(tgt.bounds);
@@ -768,7 +768,7 @@ export function updateContextualMenu(item) {
     const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
     if (selectedCount > 1) {
         const allVectors = window.selectedItems.every(it => {
-            const tgt = it.data?.clipGroup ? getPublicOwner(it) : it;
+            const tgt = getPublicOwner(it);
             return tgt && (isPath(tgt) || isCompoundPath(tgt) || isGroup(tgt) || isPointText(tgt) || isSymbolItem(tgt) || isShape(tgt));
         });
 
@@ -793,7 +793,7 @@ export function updateContextualMenu(item) {
             }
         }
     } else {
-        const target = item.data?.clipGroup ? getPublicOwner(item) : item;
+        const target = getPublicOwner(item);
         if (!target) return;
 
         if (isCurveTextTarget(target)) {
@@ -830,7 +830,9 @@ export function updateContextualMenu(item) {
 
             const btnUngroup = document.getElementById('btnCtxUngroup');
             if (btnUngroup) {
-                const canUngroup = isGroup(target) || isSymbolItem(target);
+                // Desagrupar is structural-only. A generic Group, imported SVG,
+                // CompoundPath or FusionGroup must use its dedicated command.
+                const canUngroup = getUngroupRoute(target) === UNGROUP_ROUTE.STRUCTURAL;
                 btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
             }
             if (btnDecompose) {
