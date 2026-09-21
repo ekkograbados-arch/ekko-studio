@@ -236,8 +236,9 @@ export async function prepareSVGForExport(options = {}) {
     // 5. MATERIALIZACIÓN BOOLEANA CSG EN LA CAPA CLONADA
     // El export usa copias de los huecos virtuales, nunca las geometrías del
     // lienzo interactivo. Se conserva ownerContainmentKey para aislar fusiones.
-    const exportVirtualHoles = [];
+      const exportVirtualHoles = [];
     let exportCsgReport = null;
+    let exportCsgError = null;
     try {
         getVirtualHoleEntries().forEach(entry => {
             if (!entry || !entry.geom) return;
@@ -258,9 +259,12 @@ export async function prepareSVGForExport(options = {}) {
             exportCsgReport = recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
         } else if (typeof window.recalculateDynamicSubtractions === "function") {
             exportCsgReport = window.recalculateDynamicSubtractions(tempLayer, exportVirtualHoles);
+        } else {
+            exportCsgError = "csg-recalculator-unavailable";
         }
     } catch (err) {
-        console.warn("[EKKO EXPORT CSG RECALC ERROR]", err);
+        exportCsgError = String(err?.stack || err);
+        console.warn("[EKKO EXPORT CSG RECALC ERROR]", exportCsgError);
     } finally {
         exportVirtualHoles.forEach(entry => {
             try { entry.geom.remove(); } catch (e) {}
@@ -268,23 +272,29 @@ export async function prepareSVGForExport(options = {}) {
     }
     const exportOwners = collectVectorOwners(tempLayer);
     const unresolvedOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
+    const failedBooleans = [
+        ...(exportCsgReport?.failedBooleans || []),
+        ...(exportCsgError ? [{ operation: "csg-recalculate", error: exportCsgError }] : [])
+    ];
+    const csgCompleted = exportCsgReport?.completed === true && !exportCsgError;
     exportCsgReport = {
         ...(exportCsgReport || {}),
         holeOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE).length,
         solidOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.SOLID).length,
-        unresolvedHoles: Number(exportCsgReport?.rejectedPairs ?? exportCsgReport?.rejectedHoles ?? 0),
+        unresolvedHoles: Number(exportCsgReport?.unresolvedHoles || 0),
         unresolvedOwnerIds: unresolvedOwners.map(owner => owner.data?.containmentKey || owner.id || null),
-        exportReady: true
+        failedBooleans,
+        csgCompleted,
+        exportReady: csgCompleted && failedBooleans.length === 0
     };
     if (typeof window !== "undefined") window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
-    if (exportCsgReport.unresolvedHoles > 0 ||
-        exportCsgReport.failedBooleans?.length || exportCsgReport.rejectedHoles > 0) {
-        exportCsgReport.exportReady = false;
-        if (typeof window !== "undefined") window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
+    if (!exportCsgReport.exportReady) {
         console.error("[EKKO EXPORT] CSG no pudo materializar todos los huecos", exportCsgReport);
         tempLayer.remove();
         return "";
     }
+
+
 
     // 6. PURGADO DE CALADOS ACTIVOS (isHole)
     // Dado que el corte booleano ya fue materializado en la geometría de las masas sólidas inferiores,
