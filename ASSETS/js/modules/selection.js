@@ -11,6 +11,7 @@ import {
   handleFusionEditPointerDrag,
   handleFusionEditPointerUp
 } from "./canvas-pro/fusionEditMode.js";
+import "./canvas-pro/ungroupRoutes.js";
 
 /* =========================================================================
    Módulo: ASSETS/js/modules/selection.js (v38.0 PRO Industrial - Multiselection Unity & Product Mask Lock - selection-v5)
@@ -49,62 +50,8 @@ import {
 // ================================================================
 // API ÚNICA DE ORGANIZACIÓN Y DESAGRUPADO
 // ================================================================
-// selection.js conserva el propietario público. contextualMenu.js solo
-// publica implementaciones normales bajo ekkoGroupNormal/ekkoUngroupNormal.
-const previousUngroupHandler = window.ungroupSelectedItem;
-const previousGroupHandler = window.groupSelectedItems;
-
-window.ungroupSelectedItem = function() {
-  const selected = Array.isArray(window.selectedItems) && window.selectedItems.length
-    ? window.selectedItems[window.selectedItems.length - 1]
-    : window.selectedItem;
-  if (!selected) return null;
-
-  const fusion = selected.data?.isSmartFusion
-    ? selected
-    : (typeof window.findSmartFusionContainer === 'function'
-      ? window.findSmartFusionContainer(selected)
-      : null);
-
-  if (fusion) {
-    if (window.fusionEditActive && typeof window.exitFusionEditMode === 'function') {
-      window.exitFusionEditMode(true);
-    }
-    return typeof window.releaseSmartFusion === 'function'
-      ? window.releaseSmartFusion(fusion)
-      : null;
-  }
-
-  if (typeof window.ekkoUngroupNormal === 'function' &&
-      window.ekkoUngroupNormal !== window.ungroupSelectedItem) {
-    return window.ekkoUngroupNormal.apply(this, arguments);
-  }
-  if (typeof previousUngroupHandler === 'function' &&
-      previousUngroupHandler !== window.ungroupSelectedItem) {
-    return previousUngroupHandler.apply(this, arguments);
-  }
-  return null;
-};
-
-window.groupSelectedItems = function() {
-  if (typeof window.ekkoGroupNormal === 'function' &&
-      window.ekkoGroupNormal !== window.groupSelectedItems) {
-    return window.ekkoGroupNormal.apply(this, arguments);
-  }
-  if (typeof previousGroupHandler === 'function' &&
-      previousGroupHandler !== window.groupSelectedItems) {
-    return previousGroupHandler.apply(this, arguments);
-  }
-  const selected = Array.isArray(window.selectedItems) ? window.selectedItems.filter(Boolean) : [];
-  if (selected.length < 2) return null;
-  const parent = selected[0].parent;
-  const group = new paper.Group(selected);
-  group.data = { ...(group.data || {}), isGroup: true };
-  if (parent && group.parent !== parent) parent.addChild(group);
-  window.deselectItem();
-  window.selectItem(group);
-  return group;
-};
+// Desagrupar se instala en un único módulo (ungroupRoutes.js). Este módulo
+// conserva únicamente la selección y el movimiento de propietarios públicos.
 
 // Logging controlado y conmutable para desarrollo y auditoría F12
 window.EKKO_DEBUG = typeof window.EKKO_DEBUG !== 'undefined' ? window.EKKO_DEBUG : false;
