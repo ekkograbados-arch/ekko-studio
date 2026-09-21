@@ -680,7 +680,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         rejectedPairs: 0,
         failedBooleans: [],
         status: 'started',
-        completed: false
+        completed: false,
+        holeOwnerCount: 0,
+        acceptedHoleCount: 0,
+        unresolvedHoles: 0,
+        acceptedHoleKeys: []
     };
     const traceSeedItems = layer?.children ? [...layer.children] : [];
     const tracePass = csgTraceBegin(layer, traceSeedItems);
@@ -688,6 +692,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     activeCSGTracePass = tracePass;
     let tracedItems = [];
     let traceReason = null;
+    const acceptedHoleKeys = new Set();
     try {
     const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
         ? virtualHoleEntries
@@ -704,6 +709,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     if (items.length === 0) { traceReason = 'no-eligible-layer-items'; report.status = traceReason; return report; }
     const subItems = extractSubtractiveItems(items);
     report.subtractiveItemCount = subItems.length;
+    report.holeOwnerCount = subItems.filter(item => item?.data?.isHole === true).length;
     if (tracePass) tracePass.subItems = subItems.map(item => csgItemSnapshot(item)).filter(Boolean);
     if (subItems.length === 0) { traceReason = 'no-subtractive-items'; report.status = traceReason; return report; }
 
@@ -774,14 +780,19 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            // Containment keys describe ownership/history; they must not
-            // suppress the user's cross-object Z-order rule. A hole cuts only
-            // objects rendered below it.
-            const zAllowed = isAboveInRenderOrder(holeItem, solid);
+            // A nested contour owns an explicit containing solid. This is
+            // positive topology evidence for that one solid only; it does not
+            // replace Z-order for unrelated objects.
+            const containmentOwnerMatch = !!(
+                holeData.ownerContainmentKey &&
+                holeData.ownerContainmentKey === solid.data?.containmentKey
+            );
+            const zAllowed = isAboveInRenderOrder(holeItem, solid) || containmentOwnerMatch;
             const holeStackingUnit = getStackingUnit(holeItem);
             const solidStackingUnit = getStackingUnit(solid);
             pair.zOrder = {
                 holeAboveSolid: zAllowed,
+                containmentOwnerMatch,
                 holeIndex: holeStackingUnit?.index ?? holeItem.index ?? null,
                 solidIndex: solidStackingUnit?.index ?? solid.index ?? null,
                 holeOwnerIndex: holeItem.index ?? null,
@@ -809,7 +820,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             if (realGeometryIntersects(pristineBase, holeBase)) {
                 pair.status = 'accepted';
                 report.acceptedPairs += 1;
-                pair.reasons.push('accepted');
+                acceptedHoleKeys.add(holeData.containmentKey || holeItem.id);
+                pair.reasons.push(containmentOwnerMatch ? 'accepted-containing-solid' : 'accepted');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 intersectingHoles.push(holeBase);
             } else {
@@ -997,6 +1009,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     traceReason = 'completed';
     } finally {
         report.rejectedPairs = Math.max(0, report.candidatePairs - report.acceptedPairs);
+        report.acceptedHoleKeys = [...acceptedHoleKeys];
+        report.acceptedHoleCount = acceptedHoleKeys.size;
+        report.unresolvedHoles = Math.max(0, report.holeOwnerCount - report.acceptedHoleCount);
         report.status = traceReason || report.status;
         report.completed = traceReason === 'completed' || report.status === 'no-subtractive-items' || report.status === 'no-eligible-layer-items';
         if (typeof window !== 'undefined') window.EKKO_CSG_LAST_REPORT = report;
