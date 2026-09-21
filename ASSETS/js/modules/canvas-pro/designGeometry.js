@@ -265,6 +265,22 @@ function geometryHitLocal(geometry, localPoint, tolerance) {
 export function hitTestOwner(owner, worldPoint, tolerance = 0) {
   const resolved = getPublicOwner(owner);
   if (!resolved || isMockupOrMask(resolved)) return null;
+
+  // Prefer Paper's native hit test before reconstructing a clone. Imported SVG
+  // groups and CompoundPaths can carry child matrices/fill rules that are not
+  // faithfully represented by a flattened owner clone. Without this pass a
+  // visible SVG may render correctly but remain impossible to select, which
+  // also prevents Shift-selection and Fusionar from ever reaching the owner.
+  try {
+    const nativeHit = resolved.hitTest?.(worldPoint, {
+      fill: true,
+      stroke: true,
+      segments: true,
+      tolerance
+    });
+    if (nativeHit) return resolved;
+  } catch (_) {}
+
   const localPoint = worldPointToOwner(resolved, worldPoint);
   const local = getOwnerLocalGeometry(resolved);
   if (geometryHitLocal(local, localPoint, tolerance)) {
