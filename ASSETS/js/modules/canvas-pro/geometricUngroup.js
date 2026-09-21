@@ -1,5 +1,5 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
-import { getCanonicalDesignLayer, realGeometryIntersects, isAboveInRenderOrder, getStackingUnit } from "./vectorSemantics.js";
+import { getCanonicalDesignLayer, realGeometryIntersects, isAboveInRenderOrder, getStackingUnit, VECTOR_KIND } from "./vectorSemantics.js";
 
 
 /*
@@ -577,36 +577,55 @@ function confineSubtractiveGeometry(geometry) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    // `isHole` is CSG semantics, not a paint color.  The previous route copied
-    // originalFillColor from 007/008 (black) onto every decomposed hole owner;
-    // that made a real cutter render as a black solid over the subtraction.
-    // Keep the closed owner selectable and visible through its contour only:
-    // physical subtraction remains the sole fill-area effect.  This is not an
-    // alpha/opacity workaround: opacity stays 1 and the owner remains a real
-    // Paper.Path/CompoundPath with its original geometry.
-    const data = item.data || {};
-    const styleBefore = { fillColor: csgColorSnapshot(item.fillColor), strokeColor: csgColorSnapshot(item.strokeColor), opacity: item.opacity };
-    const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
-    const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
+    /*
+     * A real hole is a semantic cutter, never a painted contour.
+     *
+     * The former implementation used the source stroke (or a dark fallback)
+     * to draw every hole. That made the editor's visual guide look like the
+     * mechanism that produced the hole and allowed source styles from
+     * templates such as 007.svg to leak into the cutter contract. It also
+     * made opacity/transparency appear to be part of the boolean operation.
+     *
+     * The owner remains a real, closed, selectable Paper.js geometry with
+     * opacity 1. Its only visual effect is the CSG subtraction applied to
+     * solids below it. Selection and node-edit overlays are responsible for
+     * showing an active hole while it is selected.
+     */
+    const before = {
+        fillColor: csgColorSnapshot(item.fillColor),
+        strokeColor: csgColorSnapshot(item.strokeColor),
+        opacity: item.opacity
+    };
+    item.data = {
+        ...(item.data || {}),
+        semanticKind: VECTOR_KIND.HOLE,
+        isHole: true,
+        isSolidShape: false,
+        holeRenderMode: 'semantic-cutter-no-paint'
+    };
 
-    const paint = node => {
+    const clearPaint = node => {
         if (!node || node.clipMask || node.data?.isMask || node.data?.mockup) return;
         node.visible = true;
         node.opacity = 1;
         if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
-            // Explicit no-fill prevents source black paint and inherited child
-            // paint from turning the original hole into a rendered solid.
             node.fillColor = null;
-            node.strokeColor = stroke.clone();
-            node.strokeWidth = strokeWidth;
+            node.strokeColor = null;
+            node.strokeWidth = 0;
         }
-        node.children?.forEach(paint);
+        node.children?.forEach(clearPaint);
     };
-    paint(item);
+    clearPaint(item);
     csgTraceEvent(activeCSGTracePass, 'hole-visual-style', {
-        owner: csgItemSnapshot(item), before: styleBefore,
-        after: { fillColor: csgColorSnapshot(item.fillColor), strokeColor: csgColorSnapshot(item.strokeColor), opacity: item.opacity },
-        visualMode: 'no-fill-contour-only', physicalCSGRequired: true
+        owner: csgItemSnapshot(item), before,
+        after: {
+            fillColor: csgColorSnapshot(item.fillColor),
+            strokeColor: csgColorSnapshot(item.strokeColor),
+            opacity: item.opacity
+        },
+        visualMode: 'semantic-cutter-no-paint',
+        physicalCSGRequired: true,
+        colorIsNotSemantic: true
     });
 }
 
@@ -727,6 +746,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
     subItems.forEach(item => {
         if (item && item.data && item.data.geomBase && !item.data.isHole) {
+            // The rendered children may contain previous CSG cuts. They are
+            // never the canonical editable source; geomBase is restored first.
+            item.data.csgMaterialized = false;
             const pristine = getGlobalUnsubtractedPath(item);
             if (pristine) {
                 item.removeChildren();
@@ -990,14 +1012,27 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             holeCount: intersectingHoles.length, final: csgGeometrySnapshot(finalSubtracted), accepted: !!finalSubtracted,
             rejection: finalSubtracted ? null : 'no-valid-subtract-result' });
         if (finalSubtracted) {
-            attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
-            solid.removeChildren();
-            if (finalSubtracted instanceof paper.CompoundPath) {
-                solid.addChildren(finalSubtracted.removeChildren());
+            if (solid.data.nodeEditActive === true) {
+                // Node editing works on the canonical positive geometry. Do
+                // not replace it with the temporary cut result until the edit
+                // session ends; otherwise the next node gesture would edit
+                // the hole boundary instead of the solid.
+                finalSubtracted.remove();
+                solid.data.csgMaterialized = false;
+                solid.visible = true;
             } else {
-                solid.addChild(finalSubtracted);
+                attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
+                solid.removeChildren();
+                if (finalSubtracted instanceof paper.CompoundPath) {
+                    solid.addChildren(finalSubtracted.removeChildren());
+                } else {
+                    solid.addChild(finalSubtracted);
+                }
+                solid.data.csgMaterialized = true;
+                solid.visible = true;
             }
-            solid.visible = true;
+        } else {
+            solid.data.csgMaterialized = false;
         }
         pristineBase.remove();
         intersectingHoles.forEach(h => { try { h.remove(); } catch(e) {} });
@@ -1092,6 +1127,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             ...(rootTarget.data || {}),
             locked: false,
             label: (rootTarget.data && rootTarget.data.label) ? rootTarget.data.label : "Capa Independiente",
+            semanticKind: singleIsHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID,
             isHole: singleIsHole,
             isSolidShape: !singleIsHole,
             isFusionReceptor: singleIsHole,
@@ -1203,6 +1239,7 @@ nodes.sort((a, b) => {
         compoundItem.data = {
             locked: false,
             label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
+            semanticKind: isHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID,
             isHole: isHole,
             isSolidShape: !isHole,
             isFusionReceptor: isHole,
