@@ -1,5 +1,5 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds, stampGeomBase, rehydrateGeomBase } from "./modules/canvas-pro/designGeometry.js";
-import { getCanonicalDesignLayer, getStackingUnit } from "./modules/canvas-pro/vectorSemantics.js";
+import { getCanonicalDesignLayer, getStackingUnit, semanticKind, VECTOR_KIND } from "./modules/canvas-pro/vectorSemantics.js";
 
 /* =========================================================================
    Modulo: ASSETS/js/editor.js (v26.0 PRO - SVG Import, Stacking CSG & Reactive Z-Order Engine)
@@ -43,6 +43,7 @@ import { startTextEditing } from "./modules/textEditor.js";
 import { initProControls } from "./modules/canvas-pro/canvasControlsIntegration.js";
 import { initZoomControls, initGlobalKeyboardShortcuts } from "./modules/canvas-pro/zoomYShortcuts.js";
 import { recalculateDynamicSubtractions, getGlobalUnsubtractedPath } from "./modules/canvas-pro/geometricUngroup.js";
+import { transformPublicItem } from "./modules/canvas-pro/fusionController.js";
 import { stampClientSvgSourceSemantics } from "./modules/canvas-pro/sourceSemantics.js";
 import { initSmartFusionListeners } from "./modules/canvas-pro/smartFusion.js";
 import {
@@ -1562,6 +1563,112 @@ window.EKKO_RUNTIME_FIXTURE = {
   }
 };
 
+function runtimePhysicalOwners() {
+  const layer = getCanonicalDesignLayer();
+  if (!layer?.children) return [];
+  return getPublicOwners(Array.from(layer.children)).filter(owner =>
+    owner && (semanticKind(owner) === VECTOR_KIND.SOLID || semanticKind(owner) === VECTOR_KIND.HOLE)
+  );
+}
+
+function runtimeOwnerKey(owner) {
+  return owner?.data?.containmentKey || owner?.data?.semanticId || owner?.id || null;
+}
+
+function runtimeReportHasHole(report, key) {
+  return !!(report?.appliedHoleKeys || []).some(value => String(value) === String(key));
+}
+
+function runtimeHoleEvent(type, details = {}) {
+  const payload = { source: "runtime-hole-scenario", scenario: true, ...details };
+  try { window.EKKO_DIAG?.logEvent?.(`runtime.hole.${type}`, payload); } catch (_) {}
+  try { window.EKKO_RUNTIME_PROBE?.record?.(`runtime.hole.${type}`, payload); } catch (_) {}
+  return payload;
+}
+
+function runtimeWait(ms) {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+async function runRuntimeHoleScenario() {
+  const scenario = { ok: false, status: "started", steps: [], errors: [] };
+  window.EKKO_RUNTIME_HOLE_SCENARIO = scenario;
+  try {
+    await runtimeWait(1800);
+    const decomposition = window.decomposeVectorSelectedItem?.();
+    scenario.steps.push({ name: "decompose", accepted: !!decomposition });
+    await runtimeWait(2200);
+    const owners = runtimePhysicalOwners();
+    const holes = owners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
+    const solids = owners.filter(owner => semanticKind(owner) === VECTOR_KIND.SOLID);
+    const initial = window.EKKO_CSG_LAST_REPORT || null;
+    const hole = holes.find(owner => runtimeReportHasHole(initial, runtimeOwnerKey(owner))) || holes[0];
+    if (!hole || !solids.length) throw new Error("runtime-hole-owner-not-found");
+    const key = runtimeOwnerKey(hole);
+    const before = { key, semanticKind: semanticKind(hole), isHole: hole.data?.isHole === true,
+      fillColor: hole.fillColor == null ? null : String(hole.fillColor),
+      strokeColor: hole.strokeColor == null ? null : String(hole.strokeColor),
+      geomBasePathData: typeof hole.data?.geomBasePathData === "string",
+      bounds: { x: hole.bounds.x, y: hole.bounds.y, width: hole.bounds.width, height: hole.bounds.height } };
+    runtimeHoleEvent("before", { owner: before, ownerCount: owners.length, holeCount: holes.length, solidCount: solids.length });
+
+    const delta = new paper.Point(Math.max(1200, paper.view.bounds.width * 3), 0);
+    transformPublicItem(hole, { type: "translate", delta });
+    const outside = window.recalculateDynamicSubtractions?.() || null;
+    scenario.steps.push({ name: "move-outside", applied: runtimeReportHasHole(outside, key), report: outside });
+    runtimeHoleEvent("outside", { key, applied: runtimeReportHasHole(outside, key), report: outside });
+
+    transformPublicItem(hole, { type: "translate", delta: delta.multiply(-1) });
+    const inside = window.recalculateDynamicSubtractions?.() || null;
+    scenario.steps.push({ name: "move-back", applied: runtimeReportHasHole(inside, key), report: inside });
+    runtimeHoleEvent("inside", { key, applied: runtimeReportHasHole(inside, key), report: inside });
+
+    window.saveHistory?.();
+    const nodeBefore = typeof hole.data?.geomBasePathData === "string" ? hole.data.geomBasePathData : null;
+    await enterNodeEditMode(hole);
+    const nodeTarget = window.nodeEditTarget || hole;
+    const nodePath = nodeTarget.segments ? nodeTarget : Array.from(nodeTarget.children || []).find(child => child?.segments?.length);
+    if (!nodePath?.segments?.length) throw new Error("runtime-hole-node-path-not-found");
+    nodePath.segments[0].point = nodePath.segments[0].point.add(new paper.Point(2, 0));
+    exitNodeEditMode(true);
+    await runtimeWait(250);
+    const nodeAfter = typeof hole.data?.geomBasePathData === "string" ? hole.data.geomBasePathData : null;
+    const nodeReport = window.EKKO_CSG_LAST_REPORT || null;
+    const nodeStep = { name: "node-edit", nodeEditActive: hole.data?.nodeEditActive === true,
+      semanticKind: semanticKind(hole), isHole: hole.data?.isHole === true,
+      geomBasePathData: !!nodeAfter, baseChanged: !!nodeBefore && nodeBefore !== nodeAfter,
+      csgCompleted: nodeReport?.completed === true, report: nodeReport };
+    scenario.steps.push(nodeStep);
+    runtimeHoleEvent("node-edit", nodeStep);
+
+    window.saveHistory?.();
+    const beforeUndo = runtimePhysicalOwners().filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE).length;
+    window.undo?.();
+    await runtimeWait(350);
+    const afterUndo = runtimePhysicalOwners().filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE).length;
+    window.redo?.();
+    await runtimeWait(350);
+    const afterRedo = runtimePhysicalOwners().filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE).length;
+    scenario.steps.push({ name: "undo-redo", beforeUndo, afterUndo, afterRedo });
+
+    scenario.ok = scenario.steps.some(step => step.name === "move-outside" && step.applied === false) &&
+      scenario.steps.some(step => step.name === "move-back" && step.applied === true) &&
+      nodeStep.baseChanged === true && nodeStep.semanticKind === VECTOR_KIND.HOLE &&
+      nodeStep.isHole === true && afterRedo > 0;
+    scenario.status = scenario.ok ? "completed" : "failed-acceptance";
+    runtimeHoleEvent("complete", scenario);
+    return scenario;
+  } catch (error) {
+    scenario.errors.push(String(error?.stack || error));
+    scenario.status = "error";
+    runtimeHoleEvent("error", { error: String(error?.stack || error) });
+    return scenario;
+  }
+}
+
+window.EKKO_RUNTIME_HOLE_SCENARIO_API = { run: runRuntimeHoleScenario };
+
+
 // The controlled-browser URL is the source of truth for a fixture run. This
 // fallback deliberately re-reads the query at load time because Vercel
 // previews can restore the document after an auth/redirect cycle and the
@@ -1579,7 +1686,12 @@ function scheduleRuntimeFixtureFromUrl() {
   runtimeFixtureEvent("configured", { requested, auto: true, fallback: true });
   if (!runtimeFixtureState.ready) markRuntimeFixtureReady();
   window.setTimeout(() => {
-    runRuntimeFixture(requested).catch(error => {
+    runRuntimeFixture(requested).then(() => {
+      if (params.get("runtimeScenario") === "holes" && requested === "afa") {
+        return runRuntimeHoleScenario();
+      }
+      return null;
+    }).catch(error => {
       runtimeFixtureEvent("error", { runId: null, fallback: true, error: String(error?.stack || error) });
     });
   }, 250);
