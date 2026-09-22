@@ -1602,7 +1602,12 @@ async function runRuntimeHoleScenario() {
     const holes = owners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
     const solids = owners.filter(owner => semanticKind(owner) === VECTOR_KIND.SOLID);
     const initial = window.EKKO_CSG_LAST_REPORT || null;
-    const hole = holes.find(owner => runtimeReportHasHole(initial, runtimeOwnerKey(owner))) || holes[0];
+    // CSG materialization can leave a semantic child inside a cut solid. The
+    // dynamic transform must target the canonical top-level physical owner,
+    // never that derived child, or the duplicate key would mask the move.
+    const directHoles = holes.filter(owner => owner?.parent?.name === "designLayer");
+    const hole = directHoles.find(owner => runtimeReportHasHole(initial, runtimeOwnerKey(owner))) ||
+      directHoles[0] || holes.find(owner => runtimeReportHasHole(initial, runtimeOwnerKey(owner))) || holes[0];
     if (!hole || !solids.length) throw new Error("runtime-hole-owner-not-found");
     const key = runtimeOwnerKey(hole);
     const before = { key, semanticKind: semanticKind(hole), isHole: hole.data?.isHole === true,
