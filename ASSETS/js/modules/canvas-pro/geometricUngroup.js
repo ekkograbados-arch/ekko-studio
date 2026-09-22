@@ -520,6 +520,16 @@ export function getGlobalUnsubtractedPath(item) {
     // Sole world-geometry producer: geomBase is owner-local and the complete
     // owner global matrix is applied exactly once by the canonical layer.
     return toWorldGeometry(item);
+    const world = toWorldGeometry(item);
+    if (world) {
+        // Paper.js boolean operations (subtract/unite/intersect) read raw
+        // segment coordinates and ignore an item's .matrix while applyMatrix is
+        // false. toWorldGeometry leaves the owner world transform in .matrix, so
+        // without baking it here a moved hole is still cut at its pristine
+        // owner-local position and its subtraction never follows the move.
+        try { world.applyMatrix = true; } catch (_) {}
+    }
+    return world;
 }
 
 // CSG operands are calculated in project/global coordinates. Before adding
