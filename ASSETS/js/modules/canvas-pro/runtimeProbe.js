@@ -313,7 +313,8 @@
         candidates: report.candidatePairs ?? null, intersections: report.intersectionPairs ?? null,
         appliedPairs: report.appliedPairs ?? null, appliedHoles: report.appliedHoleCount ?? null,
         unresolvedHoles: report.unresolvedHoles ?? null, failedBooleans: report.failedBooleans?.length || 0,
-        appliedHoleKeys: Array.isArray(report.appliedHoleKeys) ? report.appliedHoleKeys : []
+        appliedHoleKeys: Array.isArray(report.appliedHoleKeys) ? report.appliedHoleKeys : [],
+        appliedHoleSourceBounds: report.appliedHoleSourceBounds || {}
       } : null;
       const holeScenarioSnapshot = () => {
         const scenario = global.EKKO_RUNTIME_HOLE_SCENARIO;

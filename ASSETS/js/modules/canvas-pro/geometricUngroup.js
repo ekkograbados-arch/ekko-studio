@@ -589,7 +589,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         unresolvedHoles: 0,
         acceptedHoleKeys: [],
         appliedHoleKeys: [],
-        virtualAppliedPairs: 0
+        virtualAppliedPairs: 0,
+        appliedHoleSourceBounds: {}
     };
     const traceSeedItems = layer?.children ? [...layer.children] : [];
     const tracePass = csgTraceBegin(layer, traceSeedItems);
@@ -660,6 +661,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         }
     });
 
+    const appliedHoleSourceBounds = new Map();
     for (let j = 0; j < subItems.length; j++) {
         const solid = subItems[j];
         if (!solid || !solid.data || semanticKind(solid) !== VECTOR_KIND.SOLID || !solid.data.geomBase ||
@@ -734,6 +736,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 const holeKey = holeData.containmentKey || holeData.semanticId || holeItem.id;
                 intersectingHoleKeys.add(holeKey);
                 intersectingHoleKeysForSolid.push(holeKey);
+                appliedHoleSourceBounds.set(String(holeKey), { x: holeBase.bounds.x, y: holeBase.bounds.y,
+                    width: holeBase.bounds.width, height: holeBase.bounds.height });
                 pair.reasons.push(containmentOwnerMatch ? 'accepted-containing-solid' : 'accepted');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 intersectingHoles.push(holeBase);
@@ -846,7 +850,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     if (accepted) {
                         finalSubtracted = testSub;
                         report.appliedPairs += intersectingHoles.length;
-                        intersectingHoleKeysForSolid.forEach(key => appliedHoleKeys.add(key));
+                        intersectingHoleKeysForSolid.forEach(key => {
+                            appliedHoleKeys.add(key);
+                            const bounds = appliedHoleSourceBounds.get(String(key));
+                            if (bounds) report.appliedHoleSourceBounds[String(key)] = bounds;
+                        });
                     } else {
                         testSub.remove();
                     }
@@ -888,7 +896,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                             acceptedStepCount += 1;
                             report.appliedPairs += 1;
                             const stepKey = intersectingHoleKeysForSolid[k];
-                            if (stepKey != null) appliedHoleKeys.add(stepKey);
+                            if (stepKey != null) {
+                                appliedHoleKeys.add(stepKey);
+                                const bounds = appliedHoleSourceBounds.get(String(stepKey));
+                                if (bounds) report.appliedHoleSourceBounds[String(stepKey)] = bounds;
+                            }
                         } else {
                             stepSub.remove();
                         }
