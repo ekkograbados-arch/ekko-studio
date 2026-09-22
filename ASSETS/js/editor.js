@@ -1371,7 +1371,10 @@ const runtimeFixtureState = {
   running: false,
   source: "runtime-fixture",
   runs: [],
-  last: null
+  last: null,
+  autoTriggered: false,
+  configuredAt: new Date().toISOString(),
+  query: typeof window !== "undefined" ? String(window.location?.search || "") : ""
 };
 let runtimeFixtureReadyResolve;
 const runtimeFixtureReady = new Promise(resolve => { runtimeFixtureReadyResolve = resolve; });
@@ -1558,6 +1561,32 @@ window.EKKO_RUNTIME_FIXTURE = {
     image: "/ASSETS/social/DRIVE.png"
   }
 };
+
+// The controlled-browser URL is the source of truth for a fixture run. This
+// fallback deliberately re-reads the query at load time because Vercel
+// previews can restore the document after an auth/redirect cycle and the
+// module-level URL snapshot may otherwise miss the opt-in flags. It still
+// calls the canonical importer and never fabricates a scene.
+function scheduleRuntimeFixtureFromUrl() {
+  if (runtimeFixtureState.autoTriggered) return;
+  const params = new URLSearchParams(window.location?.search || "");
+  const requested = String(params.get("runtimeFixture") || "").trim().toLowerCase();
+  if (!params || params.get("runtimeFixtureAuto") !== "1" || !["afa", "image", "all"].includes(requested)) return;
+  runtimeFixtureState.enabled = true;
+  runtimeFixtureState.requested = requested;
+  runtimeFixtureState.auto = true;
+  runtimeFixtureState.autoTriggered = true;
+  runtimeFixtureEvent("configured", { requested, auto: true, fallback: true });
+  if (!runtimeFixtureState.ready) markRuntimeFixtureReady();
+  window.setTimeout(() => {
+    runRuntimeFixture(requested).catch(error => {
+      runtimeFixtureEvent("error", { runId: null, fallback: true, error: String(error?.stack || error) });
+    });
+  }, 250);
+}
+
+window.addEventListener?.("load", scheduleRuntimeFixtureFromUrl, { once: true });
+if (document.readyState === "complete") scheduleRuntimeFixtureFromUrl();
 
 // Compact, optional instrumentation. The canonical diagnostics modules expose
 // logEvent/record; no wrappers or replacement globals are installed here.
@@ -2155,8 +2184,9 @@ async function bootstrapEKKO() {
          window.EKKO_RUNTIME_PROBE?.ready({ source: "editor.bootstrap" });
       }
       markRuntimeFixtureReady();
-      if (runtimeFixtureState.auto) {
+      if (runtimeFixtureState.auto && !runtimeFixtureState.autoTriggered) {
         // Auto-run is available only behind the explicit query opt-in.
+        runtimeFixtureState.autoTriggered = true;
         runRuntimeFixture(runtimeFixtureState.requested).catch(error => {
           runtimeFixtureEvent("error", { runId: null, error: String(error?.stack || error) });
         });
