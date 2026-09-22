@@ -2106,7 +2106,14 @@ async function bootstrapEKKO() {
       }
     }
 
-    // 8. Enlazar eventos de click interactivos en la barra de herramientas superior
+    // 8. Inicializar una sola vez los pickers persistentes. Antes se
+    // registraba el change-handler únicamente al hacer click en el botón,
+    // por lo que una carga automatizada o una selección restaurada sobre
+    // #svgPicker quedaba silenciosamente sin importador.
+    getPersistentPicker("imagePicker", "image/*", addImageFromFile);
+    getPersistentPicker("svgPicker", ".svg,image/svg+xml", addSVGFromFile);
+
+    // 9. Enlazar eventos de click interactivos en la barra de herramientas superior
     safeAddListener("btnAddText", "click", () => {
       let targetPoint = new paper.Point(0, 0);
       if (window.currentMockup) {
