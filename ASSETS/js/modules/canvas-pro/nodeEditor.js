@@ -18,13 +18,14 @@ AUTORIDAD: REPOSITORIO CANÓNICO V9 / PACTO DE ESTABILIDAD
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { interactionOwner } from "./interactionOwner.js";
-import { getPublicOwner } from "./designGeometry.js";
+import { getPublicOwner, isContainmentWrapper, stampGeomBase, rehydrateGeomBase } from "./designGeometry.js";
 import { setSemanticKind, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 // Única resolución de owner público. Los wrappers de contención y máscaras
 // no deben convertirse en el objeto de edición de nodos.
 function getContentItem(item) {
-    return getPublicOwner(item) || item || null;
+    const owner = getPublicOwner(item);
+    return owner && !isContainmentWrapper(owner) ? owner : null;
 }
 
 // Variables de Estado de la Herramienta de Edición de Nodos
@@ -127,8 +128,10 @@ function getTargetPaths(target) {
  * geomBase sin incorporar los bordes del calado a la masa sólida.
  */
 function prepareCanonicalNodeGeometry(target) {
-    const base = target?.data?.geomBase;
-    if (!target || !base?.clone) return false;
+    if (!target) return false;
+    let base = target.data?.geomBase;
+    if (!base?.clone) base = rehydrateGeomBase(target);
+    if (!base?.clone) return false;
     target.data = target.data || {};
     const ownerMatrix = target.matrix?.clone?.() || new paper.Matrix();
     const clone = base.clone({ insert: false });
@@ -154,6 +157,7 @@ function prepareCanonicalNodeGeometry(target) {
             return false;
         }
         target.matrix = ownerMatrix;
+        if (target instanceof paper.CompoundPath && base.fillRule) target.fillRule = base.fillRule;
         target.visible = true;
         target.data.csgMaterialized = false;
         target.data.nodeEditActive = true;
@@ -183,7 +187,8 @@ export function syncGeometryToGeomBase(item) {
     // permanently bake every active hole into the solid and the solid could
     // never recover when the hole moves, changes Z or is deleted. Real holes
     // themselves are never materialized and remain fully editable here.
-    if (target.data.csgMaterialized === true && target.data.nodeEditActive !== true && target.data.isHole !== true) {
+    if (target.data.csgMaterialized === true && target.data.nodeEditActive !== true &&
+        semanticKind(target) !== VECTOR_KIND.HOLE) {
         target.data.geomBaseSync = {
             skipped: true,
             reason: 'visible-geometry-is-csg-result',
@@ -193,21 +198,26 @@ export function syncGeometryToGeomBase(item) {
     }
 
     const newGeomBase = target.clone({ insert: false });
+    newGeomBase.applyMatrix = false;
     newGeomBase.matrix = new paper.Matrix();
-
-    if (target.data.geomBase) {
-        try { target.data.geomBase.remove(); } catch (e) {}
+    if (newGeomBase instanceof paper.CompoundPath) {
+        newGeomBase.fillRule = target.fillRule || target.data.originalFillRule || "evenodd";
     }
-    target.data.geomBase = newGeomBase;
+
+    // Node editing is an owner mutation, including for a real hole. Stamp the
+    // same detached, serializable base used by CSG instead of creating a
+    // second ad-hoc geomBase state. The visible result is never copied into a
+    // solid base while csgMaterialized is true.
+    const canonicalBase = stampGeomBase(target, newGeomBase);
+    try { newGeomBase.remove(); } catch (_) {}
+    if (!canonicalBase) return;
     target.data.csgMaterialized = false;
-    target.data.geomBaseSync = { skipped: false, at: Date.now() };
+    target.data.geomBaseSync = { skipped: false, semanticKind: semanticKind(target), at: Date.now() };
 
     if (item !== target) {
         if (!item.data) item.data = {};
-        if (item.data.geomBase) {
-            try { item.data.geomBase.remove(); } catch (e) {}
-        }
-        item.data.geomBase = newGeomBase.clone({ insert: false });
+        item.data.geomBasePathData = target.data.geomBasePathData || null;
+        item.data.geomBase = canonicalBase.clone({ insert: false });
     }
 }
 
