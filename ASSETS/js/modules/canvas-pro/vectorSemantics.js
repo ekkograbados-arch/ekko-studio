@@ -80,22 +80,29 @@ export function isAboveInRenderOrder(candidate, reference) {
 export function realGeometryIntersects(a, b) {
   if (!a?.bounds || !b?.bounds || !a.bounds.intersects(b.bounds)) return false;
   try {
-    // Bounds are only a cheap pre-filter. A bounding-box overlap alone must
-    // never create a cutter pair.
-    if (a.intersects?.(b) || b.intersects?.(a)) return true;
-    if (a.getIntersections?.(b)?.length || b.getIntersections?.(a)?.length) return true;
-    // For containment without a boundary crossing, test only the other
-    // geometry's center. Never test a shape against its own bounds corners:
-    // those points would make every overlapping bounding box look valid.
-    if (a.contains?.(b.bounds.center) || b.contains?.(a.bounds.center)) return true;
+    // Nested holes are normally fully contained and have no boundary
+    // crossing. Test containment first; calling intersects/getIntersections
+    // on large imported SVG/text paths first can be needlessly expensive and
+    // may block the UI before the actual CSG subtraction is attempted.
+    const probes = [b.bounds.center, a.bounds.center];
+    for (const point of probes) {
+      if (a.contains?.(point) || b.contains?.(point)) return true;
+    }
+
+    // The boolean overlap is the authoritative fallback for partial overlap.
+    // It is intentionally run before the more expensive curve intersection
+    // enumeration and its temporary result is always removed.
     try {
       const overlap = a.intersect?.(b, { insert: false });
       const area = Math.abs(overlap?.area || 0);
       overlap?.remove?.();
-      return area > 1e-7;
-    } catch (_) {
-      return false;
-    }
+      if (area > 1e-7) return true;
+    } catch (_) {}
+
+    return !!(
+      a.intersects?.(b) || b.intersects?.(a) ||
+      a.getIntersections?.(b)?.length || b.getIntersections?.(a)?.length
+    );
   } catch (_) {
     return false;
   }

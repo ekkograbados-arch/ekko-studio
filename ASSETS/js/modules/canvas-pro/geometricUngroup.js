@@ -839,7 +839,13 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            if (realGeometryIntersects(pristineBase, holeBase)) {
+            // For a nested contour the ownerContainmentKey is definitive
+            // topology evidence that this is the hole of this solid. Avoid a
+            // second expensive pre-boolean on large SVG/text paths; the real
+            // subtract below remains the final authority and must reduce area.
+            const geometryCandidate = containmentOwnerMatch ||
+                realGeometryIntersects(pristineBase, holeBase);
+            if (geometryCandidate) {
                 pair.status = 'accepted';
                 report.acceptedPairs += 1;
                 acceptedHoleKeys.add(holeData.containmentKey || holeItem.id);
@@ -945,12 +951,14 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     // umbral anterior rechazaba esos huecos y dejaba el
                     // sólido visualmente relleno. Solo se rechaza un resultado
                     // vacío, degenerado o con un área imposible.
+                    const areaDelta = pristineArea - testArea;
                     const isValidArea = testArea > 0.01 &&
-                        testArea <= (pristineArea * 1.000001);
+                        testArea <= (pristineArea * 1.000001) &&
+                        areaDelta > Math.max(1e-7, pristineArea * 1e-7);
                     const accepted = testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1;
                     csgTraceOperation(tracePass, 'subtract.merged', { success: true, accepted,
                         solidBefore, holeBefore, result: csgGeometrySnapshot(testSub),
-                        testArea, testSegments, pristineArea,
+                        testArea, testSegments, pristineArea, areaDelta,
                         rejection: accepted ? null : (!isValidArea ? 'area' : (testSegments < 3 ? 'segments' : 'bounds')) });
                     if (accepted) {
                         finalSubtracted = testSub;
@@ -981,12 +989,14 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     if (stepSub) {
                         const stepArea = Math.abs(stepSub.area || 0);
                         const stepSegments = countSegments(stepSub);
+                        const stepAreaDelta = pristineArea - stepArea;
                         const isStepValid = stepArea > 0.01 &&
-                            stepArea <= (pristineArea * 1.000001);
+                            stepArea <= (pristineArea * 1.000001) &&
+                            stepAreaDelta > Math.max(1e-7, pristineArea * 1e-7);
                         const accepted = stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1;
                         csgTraceOperation(tracePass, 'subtract.step', { success: true, accepted,
                             solidBefore: progressBefore, holeBefore, result: csgGeometrySnapshot(stepSub),
-                            stepArea, stepSegments, pristineArea,
+                            stepArea, stepSegments, pristineArea, stepAreaDelta,
                             rejection: accepted ? null : (!isStepValid ? 'area' : (stepSegments < 3 ? 'segments' : 'bounds')) });
                         if (accepted) {
                             currentProgress.remove();
