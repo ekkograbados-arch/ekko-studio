@@ -322,6 +322,8 @@
           status: scenario.status || null, ok: scenario.ok === true, errors: scenario.errors || [],
           steps: Array.isArray(scenario.steps) ? scenario.steps.map(step => ({
             name: step.name || null, accepted: step.accepted, applied: step.applied,
+            transformApplied: step.transformApplied, beforeBounds: step.beforeBounds,
+            afterBounds: step.afterBounds,
             semanticKind: step.semanticKind, isHole: step.isHole,
             nodeEditActive: step.nodeEditActive, baseChanged: step.baseChanged,
             csgCompleted: step.csgCompleted, beforeUndo: step.beforeUndo,

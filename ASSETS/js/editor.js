@@ -1612,15 +1612,22 @@ async function runRuntimeHoleScenario() {
       bounds: { x: hole.bounds.x, y: hole.bounds.y, width: hole.bounds.width, height: hole.bounds.height } };
     runtimeHoleEvent("before", { owner: before, ownerCount: owners.length, holeCount: holes.length, solidCount: solids.length });
 
+    const boundsSnapshot = item => item?.bounds ? { x: item.bounds.x, y: item.bounds.y, width: item.bounds.width, height: item.bounds.height } : null;
+    const beforeMoveBounds = boundsSnapshot(hole);
     const delta = new paper.Point(Math.max(1200, paper.view.bounds.width * 3), 0);
-    transformPublicItem(hole, { type: "translate", delta });
+    const moveOutsideResult = transformPublicItem(hole, { type: "translate", delta });
+    const outsideBounds = boundsSnapshot(hole);
     const outside = window.recalculateDynamicSubtractions?.() || null;
-    scenario.steps.push({ name: "move-outside", applied: runtimeReportHasHole(outside, key), report: outside });
-    runtimeHoleEvent("outside", { key, applied: runtimeReportHasHole(outside, key), report: outside });
+    scenario.steps.push({ name: "move-outside", applied: runtimeReportHasHole(outside, key), transformApplied: moveOutsideResult?.applied === true,
+      beforeBounds: beforeMoveBounds, afterBounds: outsideBounds, report: outside });
+    runtimeHoleEvent("outside", { key, applied: runtimeReportHasHole(outside, key), transformApplied: moveOutsideResult?.applied === true,
+      beforeBounds: beforeMoveBounds, afterBounds: outsideBounds, report: outside });
 
-    transformPublicItem(hole, { type: "translate", delta: delta.multiply(-1) });
+    const moveBackResult = transformPublicItem(hole, { type: "translate", delta: delta.multiply(-1) });
+    const insideBounds = boundsSnapshot(hole);
     const inside = window.recalculateDynamicSubtractions?.() || null;
-    scenario.steps.push({ name: "move-back", applied: runtimeReportHasHole(inside, key), report: inside });
+    scenario.steps.push({ name: "move-back", applied: runtimeReportHasHole(inside, key), transformApplied: moveBackResult?.applied === true,
+      afterBounds: insideBounds, report: inside });
     runtimeHoleEvent("inside", { key, applied: runtimeReportHasHole(inside, key), report: inside });
 
     window.saveHistory?.();
