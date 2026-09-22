@@ -519,7 +519,7 @@ function resolveItemSemantics(node, rootTarget) {
 export function getGlobalUnsubtractedPath(item) {
     // Sole world-geometry producer: geomBase is owner-local and the complete
     // owner global matrix is applied exactly once by the canonical layer.
-    return toWorldGeometry(item);
+
     const world = toWorldGeometry(item);
     if (world) {
         // Paper.js boolean operations (subtract/unite/intersect) read raw
