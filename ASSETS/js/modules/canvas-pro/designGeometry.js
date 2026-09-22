@@ -168,6 +168,63 @@ export function getPublicOwners(items, visited = new Set()) {
   return result;
 }
 
+
+function isLiveGeometry(value) {
+  return !!value && typeof value.clone === "function" && typeof value.remove === "function";
+}
+
+function normalizeDetachedGeometry(geometry) {
+  if (!isLiveGeometry(geometry)) return null;
+  const clone = geometry.clone({ insert: false });
+  try {
+    const matrix = clone.matrix?.clone?.();
+    clone.applyMatrix = false;
+    clone.matrix = new paper.Matrix();
+    if (matrix && !matrix.isIdentity()) clone.transform(matrix);
+    clone.applyMatrix = false;
+    clone.matrix = new paper.Matrix();
+  } catch (_) {}
+  return clone;
+}
+
+/**
+ * Canonical detached editable geometry contract. The live Paper item owns the
+ * transform; geomBase is owner-local, identity-matrix geometry and its path
+ * data is the serialization source for history/rehydration.
+ */
+export function stampGeomBase(owner, geometry = null) {
+  if (!owner) return null;
+  const source = geometry || owner.data?.geomBase || owner;
+  const base = normalizeDetachedGeometry(source);
+  if (!base) return null;
+  owner.data = { ...(owner.data || {}), geomBase: base,
+    geomBasePathData: base.pathData || owner.data?.geomBasePathData || null,
+    geomBaseClassName: base.className || "CompoundPath",
+    geomBaseFillRule: base.fillRule || owner.fillRule || owner.data?.originalFillRule || "evenodd" };
+  base.applyMatrix = false;
+  base.matrix = new paper.Matrix();
+  return base;
+}
+
+/** Rehydrate only from canonical path data; never promote a CSG-cut visible path. */
+export function rehydrateGeomBase(owner) {
+  if (!owner) return null;
+  const data = owner.data || {};
+  if (isLiveGeometry(data.geomBase)) return stampGeomBase(owner, data.geomBase);
+  if (!data.geomBasePathData || typeof paper === "undefined" || !paper.CompoundPath) {
+    data.geomBase = null;
+    return null;
+  }
+  try {
+    const base = new paper.CompoundPath({ insert: false, pathData: data.geomBasePathData });
+    base.fillRule = data.geomBaseFillRule || data.originalFillRule || owner.fillRule || "evenodd";
+    return stampGeomBase(owner, base);
+  } catch (_) {
+    data.geomBase = null;
+    return null;
+  }
+}
+
 function flattenIdentityClone(source) {
   if (!source || typeof source.clone !== "function") return null;
   const clone = source.clone({ insert: false });
@@ -191,7 +248,8 @@ export function getOwnerLocalGeometry(owner, visited = new Set()) {
   nextPath.add(owner);
   nextPath.add(resolved);
 
-  const base = dataOf(resolved).geomBase;
+  let base = dataOf(resolved).geomBase;
+  if (!isLiveGeometry(base)) base = rehydrateGeomBase(resolved);
   if (base) return flattenIdentityClone(base);
   if (hasPaperType(resolved, "Path") || hasPaperType(resolved, "CompoundPath") ||
       hasPaperType(resolved, "PointText") || hasPaperType(resolved, "Raster")) {
@@ -310,7 +368,7 @@ function assertGeometry(condition, message, payload) {
 
 if (typeof window !== "undefined") {
   window.EKKO_GEOMETRY_API = { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners,
-    getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getOwnerLocalBounds,
+    stampGeomBase, rehydrateGeomBase, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getOwnerLocalBounds,
     getPublicWorldBounds, hitTestOwner, intersectsMarquee, selectionFrame };
   window.EKKO_GEOMETRY_ASSERT = window.EKKO_GEOMETRY_ASSERT || { errors: [] };
   window.EKKO_GEOMETRY_ASSERT.validateOwner = owner => {

@@ -28,9 +28,10 @@ function boundsContain(parent, child) {
 }
 
 function interiorPoint(path) {
-  if (!path?.bounds) return null;
+  const localBounds = path?.internalBounds || path?.bounds;
+  if (!localBounds) return null;
   try {
-    const center = path.bounds.center;
+    const center = localBounds.center;
     if (path.contains?.(center)) return center;
     for (const curve of Array.from(path.curves || [])) {
       const point = curve.getPointAtTime(0.5);
@@ -51,7 +52,10 @@ function interiorPoint(path) {
 
 export function geometricallyContains(parent, child) {
   if (!parent || !child || parent === child) return false;
-  if (!boundsContain(parent, child) && !parent?.bounds?.intersects?.(child?.bounds)) return false;
+  const parentBounds = parent.globalBounds || parent.bounds;
+  const childBounds = child.globalBounds || child.bounds;
+  if (parentBounds && childBounds && !parentBounds.contains?.(childBounds) &&
+      !parentBounds.intersects?.(childBounds)) return false;
   const samples = [];
   const point = interiorPoint(child);
   if (point) samples.push(point);
@@ -61,7 +65,14 @@ export function geometricallyContains(parent, child) {
   if (!samples.length) return false;
   let inside = 0;
   for (const sample of samples) {
-    try { if (parent.contains?.(sample)) inside += 1; } catch (_) {}
+    try {
+      // Paper.js contains() is local-space-sensitive. Convert every child
+      // sample through project space into the parent's local coordinates so
+      // nested SVG transforms cannot change topology classification.
+      const world = child.localToGlobal?.(sample) || sample;
+      const local = parent.globalToLocal?.(world) || world;
+      if (parent.contains?.(local)) inside += 1;
+    } catch (_) {}
   }
   return inside >= Math.ceil(samples.length * 0.5);
 }

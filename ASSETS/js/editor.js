@@ -1,4 +1,4 @@
-import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds } from "./modules/canvas-pro/designGeometry.js";
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds, stampGeomBase, rehydrateGeomBase } from "./modules/canvas-pro/designGeometry.js";
 import { getCanonicalDesignLayer, getStackingUnit } from "./modules/canvas-pro/vectorSemantics.js";
 
 /* =========================================================================
@@ -1102,40 +1102,28 @@ window.sendBackward = sendBackward;
 // Helper para inicializar geomBase recursivamente en geometrias importadas
 function initGeomBaseRecursive(item) {
   if (!item || isMockupOrMask(item) || isContainmentWrapper(item)) {
-    // A wrapper can contain a public child; normalize that child explicitly.
     item?.children?.forEach(initGeomBaseRecursive);
     return;
   }
   const owner = getPublicOwner(item);
   if (owner === item && (item instanceof paper.Path || item instanceof paper.CompoundPath)) {
     item.data = item.data || {};
-    let old = item.data.geomBase;
-    // Paper JSON can restore data.geomBase as a plain object. Revive only from
-    // the canonical detached path data; never promote already-subtracted
-    // visible children into a new base.
-    if (old && typeof old.clone !== 'function' && item.data.geomBasePathData) {
-      try {
-        old = new paper.CompoundPath({ insert: false, pathData: item.data.geomBasePathData });
-        item.data.geomBase = old;
-      } catch (_) {
-        item.data.geomBase = null;
-      }
+    // A serialized/plain-object geomBase is never a valid geometry operand.
+    // Rehydrate only from the canonical path-data string; if a materialized
+    // CSG owner has no source data, fail closed instead of promoting the cut
+    // visible geometry as the new editable base.
+    let base = rehydrateGeomBase(item);
+    if (!base && item.data.csgMaterialized !== true) {
+      const local = getOwnerLocalGeometry(item);
+      if (local) base = stampGeomBase(item, local);
+      try { local?.remove?.(); } catch (_) {}
     }
-    if (!old) item.data.geomBase = getOwnerLocalGeometry(item);
-    else if (typeof old.clone === 'function') {
-      const normalized = old.clone({ insert: false });
-      const matrix = normalized.matrix?.clone?.();
-      normalized.applyMatrix = false; normalized.matrix = new paper.Matrix();
-      if (matrix && !matrix.isIdentity()) normalized.transform(matrix);
-      normalized.applyMatrix = false; normalized.matrix = new paper.Matrix();
-      item.data.geomBase = normalized;
-    }
-    if (item.data.geomBase) {
-      item.data.geomBase.applyMatrix = false;
-      item.data.geomBase.matrix = new paper.Matrix();
-      if (!item.data.geomBasePathData && item.data.geomBase.pathData) {
-        item.data.geomBasePathData = item.data.geomBase.pathData;
-      }
+    if (base) {
+      base.applyMatrix = false;
+      base.matrix = new paper.Matrix();
+    } else {
+      item.data.geomBase = null;
+      item.data.geomBaseInvalid = true;
     }
   }
   item.children?.forEach(initGeomBaseRecursive);

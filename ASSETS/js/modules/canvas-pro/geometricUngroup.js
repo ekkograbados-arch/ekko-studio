@@ -1,5 +1,6 @@
-import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds } from "./designGeometry.js";
-import { getCanonicalDesignLayer, realGeometryIntersects, isAboveInRenderOrder, getStackingUnit, VECTOR_KIND } from "./vectorSemantics.js";
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry, worldPointToOwner, getPublicWorldBounds, stampGeomBase } from "./designGeometry.js";
+import { getCanonicalDesignLayer, realGeometryIntersects, isAboveInRenderOrder, getStackingUnit, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { buildContourRelations, geometricallyContains, normalizeFillRule } from "./holeSemantics.js";
 
 
 /*
@@ -380,140 +381,12 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}, v
 }
 
 /**
- * Obtiene un punto interior estricto y garantizado de un paper.Path.
+ * Compatibility geometry relation. Topology classification is owned by
+ * holeSemantics.buildContourRelations; this adapter exists only for legacy
+ * diagnostics and never creates a second classifier.
  */
-function getInteriorTestPoint(path) {
-    if (!path || !path.bounds) return null;
-    const center = path.bounds.center;
-    if (path.contains(center)) return center;
-    if (path.curves && path.curves.length > 0) {
-        for (let c = 0; c < path.curves.length; c++) {
-            const curve = path.curves[c];
-            const pt = curve.getPointAtTime(0.5);
-            const normal = curve.getNormalAtTime(0.5).normalize(2);
-            const inward1 = pt.add(normal);
-            if (path.contains(inward1)) return inward1;
-            const inward2 = pt.subtract(normal);
-            if (path.contains(inward2)) return inward2;
-        }
-    }
-    return center;
-}
-
-function isContainedIn(child, parent) {
-    if (!child || !parent || child === parent) return false;
-    if (!parent.bounds.contains(child.bounds) && !parent.bounds.intersects(child.bounds)) {
-        return false;
-    }
-    const testPoints = [];
-    const interior = getInteriorTestPoint(child);
-    if (interior) testPoints.push(interior);
-    if (child.segments && child.segments.length > 0) {
-        const step = Math.max(1, Math.floor(child.segments.length / 6));
-        for (let i = 0; i < child.segments.length; i += step) {
-            testPoints.push(child.segments[i].point);
-        }
-    }
-    if (testPoints.length === 0) return false;
-    let containedCount = 0;
-    for (let i = 0; i < testPoints.length; i++) {
-        if (parent.contains(testPoints[i])) {
-            containedCount++;
-        }
-    }
-    return containedCount >= Math.ceil(testPoints.length * 0.5);
-}
-
-/**
- * Construye el árbol topológico de contención geométrica y calcula profundidades relativas.
- */
-function buildContainmentTree(atomicPaths) {
-  // ✅ NO reordenar por área: el árbol de contención se construye sobre
-  // el orden original del documento. El área solo se usa como criterio
-  // para validar contención (un hijo debe ser más chico que su padre).
-  atomicPaths.sort((a, b) => (a.data?.docOrder || 0) - (b.data?.docOrder || 0));
-    const nodes = atomicPaths.map((path, idx) => ({
-        id: idx,
-        path: path,
-        area: Math.abs(path.area),
-        parent: null,
-        children: [],
-        depth: 0,
-        isHole: false,
-        docOrder: path.data?.docOrder || idx
-    }));
-
-    for (let i = 0; i < nodes.length; i++) {
-        const candidate = nodes[i];
-        let bestParent = null;
-        for (let j = 0; j < nodes.length; j++) {
-            if (i === j) continue;
-            const potentialParent = nodes[j];
-            if (potentialParent.area > candidate.area && isContainedIn(candidate.path, potentialParent.path)) {
-                if (!bestParent || potentialParent.area < bestParent.area) {
-                    bestParent = potentialParent;
-                }
-            }
-        }
-        if (bestParent) {
-            candidate.parent = bestParent;
-            bestParent.children.push(candidate);
-        }
-    }
-
-    function computeDepth(node, currentDepth) {
-        node.depth = currentDepth;
-        node.children.forEach(child => computeDepth(child, currentDepth + 1));
-    }
-
-    nodes.filter(n => n.parent === null).forEach(root => computeDepth(root, 0));
-    return { nodes };
-}
-
-function resolveItemSemantics(node, rootTarget) {
-    const path = node?.path;
-    const meta = path?.data || {};
-    // Explicit source metadata is authoritative.  It is intentionally tested
-    // before any topology fallback so an original real hole cannot be turned
-    // into a solid or a cosmetic transparent path during ungroup.
-    if (typeof meta.originalIsHole === "boolean") return meta.originalIsHole;
-    if (typeof meta.contourRole === "string") return meta.contourRole === "hole";
-    if (typeof meta.isHole === "boolean" &&
-        (meta.source === "svg" || meta.source === "client-svg")) return meta.isHole;
-
-    const sourceRule = String(meta.originalFillRule || rootTarget?.data?.originalFillRule || "").toLowerCase();
-    const isClientSource = meta.source === "client-svg" || meta.userImported === true ||
-        rootTarget?.data?.source === "client-svg";
-    if (isClientSource && (sourceRule === "nonzero" || sourceRule === "non-zero")) {
-        // For nonzero SVG, a contour toggles filled/unfilled only when its
-        // winding opposes the immediately containing contour.  Same-winding
-        // depth-1 islands therefore remain solids (008.svg: 3 islands),
-        // unlike depth parity.
-        if (!node.parent) return false;
-        const windingSign = contour => {
-            const data = contour?.path?.data || {};
-            const clockwise = typeof data.sourceWinding === "boolean"
-                ? data.sourceWinding : !!data.originalClockwise;
-            return clockwise ? 1 : -1;
-        };
-        // Nonzero fill is the signed sum of every enclosing contour.  A
-        // contour is a hole only when crossing it takes a nonzero winding
-        // sum to zero.  This keeps same-winding islands solid (and also
-        // handles a hole nested inside such an island) instead of merely
-        // comparing the immediate parent's direction.
-        const ancestors = [];
-        let parent = node.parent;
-        while (parent) {
-            ancestors.unshift(parent);
-            parent = parent.parent;
-        }
-        const before = ancestors.reduce((sum, ancestor) => sum + windingSign(ancestor), 0);
-        return before !== 0 && before + windingSign(node) === 0;
-    }
-
-    // Explicit evenodd, or a non-source object without reliable source
-    // semantics, is the controlled topology fallback.
-    return (Number(node?.depth) || 0) % 2 === 1;
+export function isContainedIn(child, parent) {
+    return geometricallyContains(parent, child);
 }
 
 export function getGlobalUnsubtractedPath(item) {
@@ -662,7 +535,7 @@ function extractSubtractiveItems(topList) {
             const fusionMask = content.children?.find(child =>
                 child.clipMask || child.data?.isFusionMask
             );
-            if (fusionMask && !fusionMask.data?.isHole && fusionMask.data?.geomBase) {
+            if (fusionMask && semanticKind(fusionMask) !== VECTOR_KIND.HOLE && fusionMask.data?.geomBase) {
                 result.push(fusionMask);
             }
             return;
@@ -734,7 +607,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     if (items.length === 0) { traceReason = 'no-eligible-layer-items'; report.status = traceReason; return report; }
     const subItems = extractSubtractiveItems(items);
     report.subtractiveItemCount = subItems.length;
-    report.holeOwnerCount = subItems.filter(item => item?.data?.isHole === true).length;
+    report.holeOwnerCount = subItems.filter(item => semanticKind(item) === VECTOR_KIND.HOLE).length;
     if (tracePass) tracePass.subItems = subItems.map(item => csgItemSnapshot(item)).filter(Boolean);
     if (subItems.length === 0) { traceReason = 'no-subtractive-items'; report.status = traceReason; return report; }
 
@@ -751,7 +624,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     }
 
     subItems.forEach(item => {
-        if (item && item.data && item.data.geomBase && !item.data.isHole) {
+        if (item && item.data && item.data.geomBase && semanticKind(item) === VECTOR_KIND.SOLID) {
             // The rendered children may contain previous CSG cuts. They are
             // never the canonical editable source; geomBase is restored first.
             item.data.csgMaterialized = false;
@@ -771,7 +644,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 pristine.remove();
             }
             item.visible = true;
-        } else if (item && item.data && item.data.isHole) {
+        } else if (item && semanticKind(item) === VECTOR_KIND.HOLE) {
             item.visible = true;
             // El CSG usa isHole como semántica; el objeto sigue siendo visible,
             // seleccionable y con contorno dentro del editor.
@@ -781,7 +654,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
     for (let j = 0; j < subItems.length; j++) {
         const solid = subItems[j];
-        if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase ||
+        if (!solid || !solid.data || semanticKind(solid) !== VECTOR_KIND.SOLID || !solid.data.geomBase ||
             isMockupOrMask(solid)) continue;
         const pristineBase = getGlobalUnsubtractedPath(solid);
         if (!pristineBase) continue;
@@ -797,7 +670,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             const pair = { solid: csgItemRef(solid), hole: csgItemRef(holeItem),
                 containmentKey: { solid: solid?.data?.containmentKey ?? null, hole: holeData.containmentKey ?? null },
                 containmentKeyDecision: 'not-used-as-csg-rejection', status: 'rejected', reasons: [] };
-            if (!holeItem || !holeItem.data || !holeItem.data.isHole) {
+            if (!holeItem || semanticKind(holeItem) !== VECTOR_KIND.HOLE) {
                 pair.reasons.push('not-hole');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
@@ -1164,6 +1037,8 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             source: single.data?.source || rootTarget.data?.source,
             userImported: single.data?.userImported ?? rootTarget.data?.userImported,
             geomBase: geomBase,
+            geomBasePathData: geomBase.pathData || null,
+            geomBaseClassName: geomBase.className || "CompoundPath",
             layerDepth: 0,
             containmentId: 0,
             containmentScope,
@@ -1183,6 +1058,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             compound.strokeWidth = rootTarget.strokeWidth || single.strokeWidth || 0;
         }
 
+        stampGeomBase(compound, geomBase);
         let finalItem = compound;
         if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
             finalItem = window.clipItem(compound);
@@ -1198,11 +1074,14 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         return { handled: true, simple: true, items: [finalItem] };
     }
 
-    const { nodes } = buildContainmentTree(atomicPaths);
-
-    const sortedByDepth = [...nodes].sort((a, b) => a.depth - b.depth);
-    sortedByDepth.forEach(node => {
-        node.isHole = resolveItemSemantics(node, rootTarget);
+    atomicPaths.sort((a, b) => (a.data?.docOrder || 0) - (b.data?.docOrder || 0));
+    const relationResult = buildContourRelations(atomicPaths, {
+        fillRule: normalizeFillRule(rootTarget.data?.originalFillRule || atomicPaths[0]?.data?.originalFillRule)
+    });
+    const { nodes } = relationResult;
+    nodes.forEach(node => {
+        node.id = node.index;
+        node.docOrder = node.path.data?.docOrder ?? node.sourceContourIndex ?? node.index;
     });
 
     // Identidad única para esta descomposición. containmentId solo no es
@@ -1273,6 +1152,8 @@ nodes.sort((a, b) => {
             preserveCompoundTopology: true,
             contourIndex: node.id,
             sourceContourIndex: node.path.data?.sourceContourIndex ?? node.id,
+            sourceDocumentOrder: node.docOrder ?? node.path.data?.docOrder ?? node.id,
+            sourceZOrder: node.docOrder ?? node.path.data?.docOrder ?? node.id,
             contourDepth: node.depth,
             contourRole: isHole ? "hole" : "outer",
             originalIsHole: typeof node.path.data?.originalIsHole === "boolean" ? node.path.data.originalIsHole : isHole,
@@ -1282,6 +1163,8 @@ nodes.sort((a, b) => {
             // text-vector/fusion id that would alias the removed wrapper.
             fusionId: null,
             geomBase: geomBase,
+            geomBasePathData: geomBase.pathData || null,
+            geomBaseClassName: geomBase.className || "CompoundPath",
             layerDepth: node.depth,
             containmentId: node.id,
             containmentScope: node.containmentScope,
@@ -1301,22 +1184,35 @@ nodes.sort((a, b) => {
             compoundItem.strokeWidth = node.path.data?.originalStrokeWidth || rootTarget.strokeWidth || 0;
         }
 
+        // The detached base and its path-data serialization are one contract.
+        // Never leave a decomposed real hole dependent on a live Paper object.
+        stampGeomBase(compoundItem, geomBase);
         resultingItems.push(compoundItem);
         node.path.remove();
     });
 
     const finalDeliveredItems = [];
-    resultingItems.forEach(item => {
+    let previousStackingUnit = null;
+    resultingItems.forEach((item, sourceOrder) => {
         let finalItem = item;
         if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
             finalItem = window.clipItem(item);
         }
         if (targetLayer) {
+            // Add all owners through one controlled stacking sequence. Repeated
+            // insertBelow(currentMockup) reverses independent SVG contours in
+            // Paper.js, which changes hole-vs-solid Z semantics.
             targetLayer.addChild(finalItem);
             if (window.currentMockup) {
-                finalItem.insertBelow(window.currentMockup);
+                if (previousStackingUnit && previousStackingUnit.parent === targetLayer) {
+                    finalItem.insertAbove(previousStackingUnit);
+                } else {
+                    finalItem.insertBelow(window.currentMockup);
+                }
             }
         }
+        finalItem.data = { ...(finalItem.data || {}), decompositionOrder: sourceOrder };
+        previousStackingUnit = finalItem;
         
         // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
         if (finalItem !== item) {
@@ -1336,6 +1232,31 @@ nodes.sort((a, b) => {
 
     if (targetLayer) {
         recalculateDynamicSubtractions(targetLayer);
+    }
+
+    const auditOwners = finalDeliveredItems.map((entry, index) => {
+        const owner = getPublicOwner(entry) || entry;
+        const data = owner?.data || {};
+        const unit = getStackingUnit(owner) || owner;
+        return {
+            index, ownerId: owner?.id ?? null, className: owner?.className || null,
+            sourceContourIndex: data.sourceContourIndex ?? null,
+            sourceDocumentOrder: data.sourceDocumentOrder ?? null,
+            semanticKind: semanticKind(owner), isHole: data.isHole === true,
+            hasGeomBase: !!data.geomBase, hasGeomBasePathData: typeof data.geomBasePathData === "string",
+            layerIndex: unit?.index ?? null
+        };
+    });
+    if (typeof window !== "undefined") {
+        window.EKKO_DECOMPOSITION_LAST = {
+            sourceCount: atomicPaths.length, ownerCount: auditOwners.length,
+            owners: auditOwners,
+            sourceOrderPreserved: auditOwners.every((entry, i, all) => i === 0 ||
+                (entry.sourceDocumentOrder ?? entry.sourceContourIndex ?? i) >=
+                (all[i - 1].sourceDocumentOrder ?? all[i - 1].sourceContourIndex ?? i - 1)),
+            allBasesSerializable: auditOwners.every(entry => entry.hasGeomBase && entry.hasGeomBasePathData),
+            at: new Date().toISOString()
+        };
     }
 
     return { handled: true, simple: false, items: finalDeliveredItems };

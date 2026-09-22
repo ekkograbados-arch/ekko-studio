@@ -278,7 +278,13 @@ const _getSelectableItem = function(item) {
       let walker = current.parent;
       while (walker && walker !== designLayer && !(walker instanceof paper.Layer)) {
         if (walker.data && walker.data.clipGroup) {
-          return walker;
+          // Containment wrappers are implementation details, never public
+          // selection owners. Resolve the marked child through the canonical
+          // owner graph or reject the hit rather than selecting the mockup
+          // bounds as if they were the physical hole/solid.
+          const resolved = getPublicOwner(current);
+          return resolved && resolved !== walker && !isContainmentWrapper(resolved)
+            ? resolved : null;
         }
         topContainer = walker;
         walker = walker.parent;

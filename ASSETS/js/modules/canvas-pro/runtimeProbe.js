@@ -75,6 +75,8 @@
         role: data.role ?? null,
         source: data.source ?? null,
         userImported: data.userImported ?? null,
+        semanticKind: data.semanticKind ?? null,
+        geomBasePathData: typeof data.geomBasePathData === "string",
         isHole: data.isHole ?? null,
         isCalado: data.isCalado ?? null,
         isSmartFusion: data.isSmartFusion ?? null,
@@ -108,6 +110,7 @@
       capturedAt: now(),
       csgTrace: csgTraceSnapshot(),
       csgReport: null,
+      decomposition: null,
       selectedItem: null,
       selectedItems: [],
       designLayer: null,
@@ -120,6 +123,7 @@
       ungroupRouteHistory: []
     };
     try { result.csgReport = safe(global.EKKO_CSG_LAST_REPORT); } catch (_) {}
+    try { result.decomposition = safe(global.EKKO_DECOMPOSITION_LAST); } catch (_) {}
     try { result.selectedItem = itemSnapshot(global.selectedItem); } catch (_) {}
     try {
       result.selectedItems = Array.isArray(global.selectedItems)
@@ -315,6 +319,8 @@
               lastPass: csg.passes?.length ? { id: csg.passes[csg.passes.length - 1].id, reason: csg.passes[csg.passes.length - 1].reason,
                 candidates: csg.passes[csg.passes.length - 1].candidatePairs?.length || 0,
                 operations: csg.passes[csg.passes.length - 1].operations?.length || 0 } : null } : null,
+            decomposition: report.final?.decomposition ? { sourceCount: report.final.decomposition.sourceCount, ownerCount: report.final.decomposition.ownerCount,
+              sourceOrderPreserved: report.final.decomposition.sourceOrderPreserved, allBasesSerializable: report.final.decomposition.allBasesSerializable } : null,
             csgReport: report.final?.csgReport ? { status: report.final.csgReport.status, completed: report.final.csgReport.completed,
               owners: report.final.csgReport.subtractiveItemCount, candidates: report.final.csgReport.candidatePairs,
               intersections: report.final.csgReport.intersectionPairs, appliedPairs: report.final.csgReport.appliedPairs,
