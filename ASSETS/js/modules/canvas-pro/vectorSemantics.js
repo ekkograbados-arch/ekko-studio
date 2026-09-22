@@ -78,27 +78,13 @@ export function isAboveInRenderOrder(candidate, reference) {
 }
 
 export function realGeometryIntersects(a, b) {
-  if (!a?.bounds || !b?.bounds || !a.bounds.intersects(b.bounds)) return false;
-  try {
-    // Bounds are only a cheap pre-filter. A bounding-box overlap alone must
-    // never create a cutter pair.
-    if (a.intersects?.(b) || b.intersects?.(a)) return true;
-    if (a.getIntersections?.(b)?.length || b.getIntersections?.(a)?.length) return true;
-    // For containment without a boundary crossing, test only the other
-    // geometry's center. Never test a shape against its own bounds corners:
-    // those points would make every overlapping bounding box look valid.
-    if (a.contains?.(b.bounds.center) || b.contains?.(a.bounds.center)) return true;
-    try {
-      const overlap = a.intersect?.(b, { insert: false });
-      const area = Math.abs(overlap?.area || 0);
-      overlap?.remove?.();
-      return area > 1e-7;
-    } catch (_) {
-      return false;
-    }
-  } catch (_) {
-    return false;
-  }
+  // This is deliberately a cheap candidate test. Paper.js `intersects`,
+  // `getIntersections` and especially a preflight `intersect` can each run a
+  // full boolean walk over imported CompoundPaths. Descomposing AFA/large
+  // SVGs then freezes the renderer before the real subtract can run. The
+  // subtraction below remains authoritative and rejects candidates whose
+  // resulting area does not actually change.
+  return !!(a?.bounds && b?.bounds && a.bounds.intersects(b.bounds));
 }
 
 

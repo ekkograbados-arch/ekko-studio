@@ -450,52 +450,34 @@ function confineSubtractiveGeometry(geometry) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    /*
-     * A real hole is a semantic cutter, never a painted contour.
-     *
-     * The former implementation used the source stroke (or a dark fallback)
-     * to draw every hole. That made the editor's visual guide look like the
-     * mechanism that produced the hole and allowed source styles from
-     * templates such as 007.svg to leak into the cutter contract. It also
-     * made opacity/transparency appear to be part of the boolean operation.
-     *
-     * The owner remains a real, closed, selectable Paper.js geometry with
-     * opacity 1. Its only visual effect is the CSG subtraction applied to
-     * solids below it. Selection and node-edit overlays are responsible for
-     * showing an active hole while it is selected.
-     */
+    // A real hole is an unpainted physical cutter. Its only visual effect is
+    // the subtraction it produces on eligible solids below it. Selection and
+    // node-edit overlays may indicate the active owner, but the hole itself
+    // must never receive fill or stroke as a visual substitute for CSG.
     const before = {
         fillColor: csgColorSnapshot(item.fillColor),
         strokeColor: csgColorSnapshot(item.strokeColor),
         opacity: item.opacity
     };
     const data = item.data || {};
-    const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
-    const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
     item.data = {
         ...data,
         semanticKind: VECTOR_KIND.HOLE,
         isHole: true,
         isSolidShape: false,
-        holeRenderMode: 'semantic-cutter-contour'
+        holeRenderMode: 'semantic-cutter-no-paint'
     };
-
-    // Historical working behavior: a real hole has no fill, but keeps a thin
-    // contour so the closed physical owner remains visible/selectable while
-    // CSG removes its area from eligible solids. The contour is not the cut
-    // itself and is never exported as a filled laser object.
-    const paintContour = node => {
+    const clearPaint = node => {
         if (!node || node.clipMask || node.data?.isMask || node.data?.mockup) return;
         node.visible = true;
         node.opacity = 1;
         if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
             node.fillColor = null;
-            node.strokeColor = stroke.clone();
-            node.strokeWidth = strokeWidth;
+            node.strokeColor = null;
         }
-        node.children?.forEach(paintContour);
+        node.children?.forEach(clearPaint);
     };
-    paintContour(item);
+    clearPaint(item);
     csgTraceEvent(activeCSGTracePass, 'hole-visual-style', {
         owner: csgItemSnapshot(item), before,
         after: {
@@ -503,7 +485,7 @@ function applyHoleVisualStyle(item) {
             strokeColor: csgColorSnapshot(item.strokeColor),
             opacity: item.opacity
         },
-        visualMode: 'semantic-cutter-contour',
+        visualMode: 'semantic-cutter-no-paint',
         physicalCSGRequired: true,
         colorIsNotSemantic: true
     });
@@ -836,7 +818,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     // sólido visualmente relleno. Solo se rechaza un resultado
                     // vacío, degenerado o con un área imposible.
                     const isValidArea = testArea > 0.01 &&
-                        testArea <= (pristineArea * 1.000001);
+                        testArea < (pristineArea - Math.max(0.01, pristineArea * 1e-7));
                     const accepted = testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1;
                     csgTraceOperation(tracePass, 'subtract.merged', { success: true, accepted,
                         solidBefore, holeBefore, result: csgGeometrySnapshot(testSub),
@@ -875,7 +857,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         const stepArea = Math.abs(stepSub.area || 0);
                         const stepSegments = countSegments(stepSub);
                         const isStepValid = stepArea > 0.01 &&
-                            stepArea <= (pristineArea * 1.000001);
+                            stepArea < (pristineArea - Math.max(0.01, pristineArea * 1e-7));
                         const accepted = stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1;
                         csgTraceOperation(tracePass, 'subtract.step', { success: true, accepted,
                             solidBefore: progressBefore, holeBefore, result: csgGeometrySnapshot(stepSub),
