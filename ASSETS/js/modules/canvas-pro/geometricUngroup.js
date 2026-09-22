@@ -469,26 +469,33 @@ function applyHoleVisualStyle(item) {
         strokeColor: csgColorSnapshot(item.strokeColor),
         opacity: item.opacity
     };
+    const data = item.data || {};
+    const stroke = data.originalStrokeColor?.clone?.() || new paper.Color('#334155');
+    const strokeWidth = data.originalStrokeWidth || (1 / (paper.view?.zoom || 1));
     item.data = {
-        ...(item.data || {}),
+        ...data,
         semanticKind: VECTOR_KIND.HOLE,
         isHole: true,
         isSolidShape: false,
-        holeRenderMode: 'semantic-cutter-no-paint'
+        holeRenderMode: 'semantic-cutter-contour'
     };
 
-    const clearPaint = node => {
+    // Historical working behavior: a real hole has no fill, but keeps a thin
+    // contour so the closed physical owner remains visible/selectable while
+    // CSG removes its area from eligible solids. The contour is not the cut
+    // itself and is never exported as a filled laser object.
+    const paintContour = node => {
         if (!node || node.clipMask || node.data?.isMask || node.data?.mockup) return;
         node.visible = true;
         node.opacity = 1;
         if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
             node.fillColor = null;
-            node.strokeColor = null;
-            node.strokeWidth = 0;
+            node.strokeColor = stroke.clone();
+            node.strokeWidth = strokeWidth;
         }
-        node.children?.forEach(clearPaint);
+        node.children?.forEach(paintContour);
     };
-    clearPaint(item);
+    paintContour(item);
     csgTraceEvent(activeCSGTracePass, 'hole-visual-style', {
         owner: csgItemSnapshot(item), before,
         after: {
@@ -496,7 +503,7 @@ function applyHoleVisualStyle(item) {
             strokeColor: csgColorSnapshot(item.strokeColor),
             opacity: item.opacity
         },
-        visualMode: 'semantic-cutter-no-paint',
+        visualMode: 'semantic-cutter-contour',
         physicalCSGRequired: true,
         colorIsNotSemantic: true
     });
