@@ -238,7 +238,7 @@ export function decomposeVectorItems(items) {
   const owners = Array.from(new Set((Array.isArray(items) ? items : [items])
     .map(normalizeUngroupOwner).filter(owner => canDecomposeVector(owner))));
   for (const owner of owners) {
-    const result = decomposeByContainmentHierarchy(owner, isInsideContainmentWrapper(owner));
+    const result = decomposeByContainmentHierarchy(owner, isInsideContainmentWrapper(owner), { deferCSG: true });
     if (result?.items?.length) created.push(...result.items.map(normalizeUngroupOwner).filter(Boolean));
   }
   return created;
@@ -304,7 +304,6 @@ export function dispatchVectorDecomposition(items = null) {
   window.saveHistory?.();
   const outputs = decomposeVectorItems(accepted);
   const committed = commitSelection(outputs);
-  recalculateDynamicSubtractions?.();
   if (typeof paper !== "undefined") paper.view?.update?.();
   return committed.length ? committed : outputs;
 }
