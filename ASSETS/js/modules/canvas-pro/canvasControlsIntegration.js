@@ -303,14 +303,14 @@ export function initProControls() {
             </div>
             <div class="pro-group" id="proGroupOrganize">
                 <span class="pro-label">Organizar</span>
-                <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
-                <button class="pro-btn" id="proBtnUngroup" data-ekko-command="ungroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
-                <button class="pro-btn" id="proBtnDecomposeVector" data-ekko-command="decomposeVector" title="Descomponer vector según relleno y winding"><i class="fas fa-vector-square"></i> Descomponer Vector</button>
-                <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos (Illustrator Style)"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
+                <button class="pro-btn" id="proLayoutBtnGroup" data-fusion-btn="group" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
+                <button class="pro-btn" id="proLayoutBtnUngroup" data-fusion-btn="ungroup" data-ekko-command="ungroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
+                <button class="pro-btn" id="proLayoutBtnDecomposeVector" data-fusion-btn="decomposeVector" data-ekko-command="decomposeVector" title="Descomponer vector según relleno y winding"><i class="fas fa-vector-square"></i> Descomponer Vector</button>
+                <button class="pro-btn" id="proLayoutBtnEditNodes" data-fusion-btn="editNodes" title="Editar puntos de anclaje / Nodos (Illustrator Style)"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
             </div>
             <div class="pro-group" id="proGroupFusion">
-                <button class="pro-btn" id="proBtnFusionar" title="Fusionar imagen dentro de un vector o hueco (Canva-style) — selecciona imagen + vector"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
-                <button class="pro-btn" id="proBtnQuitarFusion" data-ekko-command="releaseSmartFusion" title="Disolver la fusión seleccionada y restituir imagen + vector"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+                <button class="pro-btn" id="proLayoutBtnFusionar" data-fusion-btn="fusion" data-ekko-command="performSmartFusion" title="Fusionar imagen dentro de un vector o hueco (Canva-style) — selecciona imagen + vector"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
+                <button class="pro-btn" id="proLayoutBtnQuitarFusion" data-fusion-btn="unfusion" data-ekko-command="releaseSmartFusion" title="Disolver la fusión seleccionada y restituir imagen + vector"><i class="fas fa-unlink"></i> Quitar Fusión</button>
             </div>
             <div class="pro-group">
                 <span class="pro-label">Opciones de Vista</span>
@@ -707,7 +707,7 @@ function bindClickHandlers() {
     bindBtn("proBtnDistributeV", () => distributeSpacing("v"));
 
     // Vincular acciones de organización (Agrupar / Desagrupar)
-    bindBtn("proBtnGroup", () => {
+    bindBtn("proLayoutBtnGroup", () => {
         if (typeof window.groupSelectedItems === "function") {
             window.groupSelectedItems();
         } else {
@@ -715,7 +715,7 @@ function bindClickHandlers() {
         }
     });
 
-    bindBtn("proBtnUngroup", () => {
+    bindBtn("proLayoutBtnUngroup", () => {
         if (typeof window.dispatchEKKOCommand === "function") {
             window.dispatchEKKOCommand("ungroup");
         } else if (typeof window.ungroupSelectedItem === "function") {
@@ -723,7 +723,7 @@ function bindClickHandlers() {
         }
     });
 
-    bindBtn("proBtnDecomposeVector", () => {
+    bindBtn("proLayoutBtnDecomposeVector", () => {
         if (typeof window.dispatchEKKOCommand === "function") {
             window.dispatchEKKOCommand("decomposeVector");
         } else if (typeof window.decomposeVectorSelectedItem === "function") {
@@ -732,14 +732,14 @@ function bindClickHandlers() {
     });
 
     // === EKKO SMART FUSION v46: Botones Fusionar / Quitar Fusión ===
-    bindBtn("proBtnFusionar", () => {
+    bindBtn("proLayoutBtnFusionar", () => {
         if (typeof window.applyFusionFromSelection === "function") {
             window.applyFusionFromSelection("intersecar");
         } else {
             console.warn("window.applyFusionFromSelection no disponible.");
         }
     });
-    bindBtn("proBtnQuitarFusion", () => {
+    bindBtn("proLayoutBtnQuitarFusion", () => {
         if (typeof window.dispatchEKKOCommand === "function") {
             window.dispatchEKKOCommand("releaseSmartFusion");
         } else if (typeof window.releaseSmartFusion === "function") {
@@ -750,8 +750,8 @@ function bindClickHandlers() {
     });
 
     // Vincular Modo de Edición Directa de Nodos (Illustrator Style)
-    bindBtn("proBtnEditNodes", () => {
-        const btn = document.getElementById("proBtnEditNodes");
+    bindBtn("proLayoutBtnEditNodes", () => {
+        const btn = document.getElementById("proLayoutBtnEditNodes");
         if (!window.nodeEditMode) {
             if (window.selectedItem) {
                 if (typeof window.enterNodeEditMode === "function") {

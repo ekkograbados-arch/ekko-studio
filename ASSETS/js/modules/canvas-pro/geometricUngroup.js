@@ -696,14 +696,19 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         subtractiveItemCount: 0,
         candidatePairs: 0,
         acceptedPairs: 0,
+        intersectionPairs: 0,
+        appliedPairs: 0,
         rejectedPairs: 0,
         failedBooleans: [],
         status: 'started',
         completed: false,
         holeOwnerCount: 0,
         acceptedHoleCount: 0,
+        appliedHoleCount: 0,
         unresolvedHoles: 0,
-        acceptedHoleKeys: []
+        acceptedHoleKeys: [],
+        appliedHoleKeys: [],
+        virtualAppliedPairs: 0
     };
     const traceSeedItems = layer?.children ? [...layer.children] : [];
     const tracePass = csgTraceBegin(layer, traceSeedItems);
@@ -711,7 +716,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     activeCSGTracePass = tracePass;
     let tracedItems = [];
     let traceReason = null;
-    const acceptedHoleKeys = new Set();
+    const intersectingHoleKeys = new Set();
+    const appliedHoleKeys = new Set();
     try {
     const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
         ? virtualHoleEntries
@@ -783,6 +789,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         const pristineBounds = pristineBase.bounds;
 
         const intersectingHoles = [];
+        const intersectingHoleKeysForSolid = [];
         for (let i = 0; i < subItems.length; i++) {
             if (i === j) continue;
             const holeItem = subItems[i];
@@ -842,7 +849,10 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             if (realGeometryIntersects(pristineBase, holeBase)) {
                 pair.status = 'accepted';
                 report.acceptedPairs += 1;
-                acceptedHoleKeys.add(holeData.containmentKey || holeItem.id);
+                report.intersectionPairs += 1;
+                const holeKey = holeData.containmentKey || holeData.semanticId || holeItem.id;
+                intersectingHoleKeys.add(holeKey);
+                intersectingHoleKeysForSolid.push(holeKey);
                 pair.reasons.push(containmentOwnerMatch ? 'accepted-containing-solid' : 'accepted');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 intersectingHoles.push(holeBase);
@@ -954,6 +964,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         rejection: accepted ? null : (!isValidArea ? 'area' : (testSegments < 3 ? 'segments' : 'bounds')) });
                     if (accepted) {
                         finalSubtracted = testSub;
+                        report.appliedPairs += intersectingHoles.length;
+                        intersectingHoleKeysForSolid.forEach(key => appliedHoleKeys.add(key));
                     } else {
                         testSub.remove();
                     }
@@ -972,6 +984,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
         if (!finalSubtracted) {
             let currentProgress = pristineBase.clone({ insert: false });
+            let acceptedStepCount = 0;
             for (let k = 0; k < intersectingHoles.length; k++) {
                 const singleHole = intersectingHoles[k];
                 try {
@@ -991,6 +1004,10 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         if (accepted) {
                             currentProgress.remove();
                             currentProgress = stepSub;
+                            acceptedStepCount += 1;
+                            report.appliedPairs += 1;
+                            const stepKey = intersectingHoleKeysForSolid[k];
+                            if (stepKey != null) appliedHoleKeys.add(stepKey);
                         } else {
                             stepSub.remove();
                         }
@@ -1005,11 +1022,17 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     report.failedBooleans.push({ operation: 'subtract.step', error: String(e?.message || e) });
                 }
             }
-            finalSubtracted = currentProgress;
+            if (acceptedStepCount > 0) {
+                finalSubtracted = currentProgress;
+            } else {
+                currentProgress.remove();
+                finalSubtracted = null;
+            }
         }
 
         csgTraceOperation(tracePass, 'solid-pass', { solid: csgItemSnapshot(solid), pristine: csgGeometrySnapshot(pristineBase),
             holeCount: intersectingHoles.length, final: csgGeometrySnapshot(finalSubtracted), accepted: !!finalSubtracted,
+            appliedHoleKeys: [...intersectingHoleKeysForSolid].filter(key => appliedHoleKeys.has(key)),
             rejection: finalSubtracted ? null : 'no-valid-subtract-result' });
         if (finalSubtracted) {
             if (solid.data.nodeEditActive === true) {
@@ -1044,9 +1067,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     traceReason = 'completed';
     } finally {
         report.rejectedPairs = Math.max(0, report.candidatePairs - report.acceptedPairs);
-        report.acceptedHoleKeys = [...acceptedHoleKeys];
-        report.acceptedHoleCount = acceptedHoleKeys.size;
-        report.unresolvedHoles = Math.max(0, report.holeOwnerCount - report.acceptedHoleCount);
+        report.acceptedHoleKeys = [...intersectingHoleKeys];
+        report.appliedHoleKeys = [...appliedHoleKeys];
+        report.acceptedHoleCount = intersectingHoleKeys.size;
+        report.appliedHoleCount = appliedHoleKeys.size;
+        report.unresolvedHoles = Math.max(0, report.holeOwnerCount - report.appliedHoleCount);
         report.status = traceReason || report.status;
         report.completed = traceReason === 'completed' || report.status === 'no-subtractive-items' || report.status === 'no-eligible-layer-items';
         if (typeof window !== 'undefined') window.EKKO_CSG_LAST_REPORT = report;

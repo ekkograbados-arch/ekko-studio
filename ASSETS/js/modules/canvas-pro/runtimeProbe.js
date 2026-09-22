@@ -64,6 +64,12 @@
       matrix,
       index: typeof item.index === 'number' ? item.index : null,
       visible: item.visible !== false,
+      semanticKind: data.semanticKind ?? null,
+      csgMaterialized: data.csgMaterialized ?? null,
+      originalIsHole: data.originalIsHole ?? null,
+      geomBase: !!data.geomBase,
+      containmentKey: data.containmentKey ?? null,
+      ownerContainmentKey: data.ownerContainmentKey ?? null,
       selected: !!item.selected,
       data: {
         role: data.role ?? null,
@@ -101,6 +107,7 @@
     const result = {
       capturedAt: now(),
       csgTrace: csgTraceSnapshot(),
+      csgReport: null,
       selectedItem: null,
       selectedItems: [],
       designLayer: null,
@@ -112,6 +119,7 @@
       ungroupRoute: null,
       ungroupRouteHistory: []
     };
+    try { result.csgReport = safe(global.EKKO_CSG_LAST_REPORT); } catch (_) {}
     try { result.selectedItem = itemSnapshot(global.selectedItem); } catch (_) {}
     try {
       result.selectedItems = Array.isArray(global.selectedItems)
@@ -307,6 +315,11 @@
               lastPass: csg.passes?.length ? { id: csg.passes[csg.passes.length - 1].id, reason: csg.passes[csg.passes.length - 1].reason,
                 candidates: csg.passes[csg.passes.length - 1].candidatePairs?.length || 0,
                 operations: csg.passes[csg.passes.length - 1].operations?.length || 0 } : null } : null,
+            csgReport: report.final?.csgReport ? { status: report.final.csgReport.status, completed: report.final.csgReport.completed,
+              owners: report.final.csgReport.subtractiveItemCount, candidates: report.final.csgReport.candidatePairs,
+              intersections: report.final.csgReport.intersectionPairs, appliedPairs: report.final.csgReport.appliedPairs,
+              appliedHoles: report.final.csgReport.appliedHoleCount, unresolvedHoles: report.final.csgReport.unresolvedHoles,
+              failedBooleans: report.final.csgReport.failedBooleans?.length || 0 } : null,
             final: report.final };
           panel.textContent = JSON.stringify(compact, null, 2);
         } catch (error) { panel.textContent = `RUNTIME_PROBE_RENDER_ERROR: ${String(error)}`; }
