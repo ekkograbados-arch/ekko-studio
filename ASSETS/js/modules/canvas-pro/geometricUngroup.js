@@ -549,6 +549,25 @@ function extractSubtractiveItems(topList) {
     return result;
 }
 
+// Boolean results are derived render geometry, not additional public owners.
+// Paper.js can preserve operand metadata on result child paths; if a hole's
+// semantic tags survive there, the derived cut is re-discovered as a second
+// cutter on the next pass and moving the real top-level hole cannot restore
+// the solid. Strip owner semantics recursively while retaining the geometry
+// and paint of the materialized solid result.
+function sanitizeMaterializedCSGGeometry(node) {
+    if (!node?.children) return node;
+    node.children.forEach(child => {
+        if (!child) return;
+        child.data = { ...(child.data || {}), semanticKind: undefined, isHole: false,
+            originalIsHole: false, containmentKey: undefined, ownerContainmentKey: undefined,
+            geomBase: undefined, geomBasePathData: undefined, holeRenderMode: undefined,
+            publicOwner: false };
+        sanitizeMaterializedCSGGeometry(child);
+    });
+    return node;
+}
+
 export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEntries = null) {
     const layer = targetLayer || getCanonicalDesignLayer() || null;
     const report = {
@@ -897,6 +916,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             appliedHoleKeys: [...intersectingHoleKeysForSolid].filter(key => appliedHoleKeys.has(key)),
             rejection: finalSubtracted ? null : 'no-valid-subtract-result' });
         if (finalSubtracted) {
+            sanitizeMaterializedCSGGeometry(finalSubtracted);
             if (solid.data.nodeEditActive === true) {
                 // Node editing works on the canonical positive geometry. Do
                 // not replace it with the temporary cut result until the edit
