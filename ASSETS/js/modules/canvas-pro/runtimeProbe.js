@@ -308,6 +308,28 @@
       panel.setAttribute('aria-label', 'EKKO Runtime Probe');
       panel.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:2147483647;max-width:420px;max-height:260px;overflow:auto;margin:0;padding:10px;border:1px solid #38bdf8;border-radius:8px;background:#0f172acc;color:#e2e8f0;font:11px/1.35 monospace;white-space:pre-wrap;pointer-events:none;';
       (global.document.body || global.document.documentElement).appendChild(panel);
+      const compactCsgReport = (report) => report ? {
+        status: report.status || null, completed: report.completed === true,
+        candidates: report.candidatePairs ?? null, intersections: report.intersectionPairs ?? null,
+        appliedPairs: report.appliedPairs ?? null, appliedHoles: report.appliedHoleCount ?? null,
+        unresolvedHoles: report.unresolvedHoles ?? null, failedBooleans: report.failedBooleans?.length || 0,
+        appliedHoleKeys: Array.isArray(report.appliedHoleKeys) ? report.appliedHoleKeys : []
+      } : null;
+      const holeScenarioSnapshot = () => {
+        const scenario = global.EKKO_RUNTIME_HOLE_SCENARIO;
+        if (!scenario) return null;
+        return {
+          status: scenario.status || null, ok: scenario.ok === true, errors: scenario.errors || [],
+          steps: Array.isArray(scenario.steps) ? scenario.steps.map(step => ({
+            name: step.name || null, accepted: step.accepted, applied: step.applied,
+            semanticKind: step.semanticKind, isHole: step.isHole,
+            nodeEditActive: step.nodeEditActive, baseChanged: step.baseChanged,
+            csgCompleted: step.csgCompleted, beforeUndo: step.beforeUndo,
+            afterUndo: step.afterUndo, afterRedo: step.afterRedo,
+            report: compactCsgReport(step.report)
+          })) : []
+        };
+      };
       const render = () => {
         try {
           const report = api.report();
@@ -326,6 +348,7 @@
               intersections: report.final.csgReport.intersectionPairs, appliedPairs: report.final.csgReport.appliedPairs,
               appliedHoles: report.final.csgReport.appliedHoleCount, unresolvedHoles: report.final.csgReport.unresolvedHoles,
               failedBooleans: report.final.csgReport.failedBooleans?.length || 0 } : null,
+            holeScenario: holeScenarioSnapshot(),
             final: report.final };
           panel.textContent = JSON.stringify(compact, null, 2);
         } catch (error) { panel.textContent = `RUNTIME_PROBE_RENDER_ERROR: ${String(error)}`; }
