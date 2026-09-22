@@ -145,18 +145,6 @@ window.toggleOutline = function() {
   selected.forEach(item => {
     const target = getPublicOwner(item);
     if (!target) return;
-    // Contorno is a UI aid for positive geometry only. A real hole must
-    // never acquire a paint stroke here: its identity is semantic CSG plus Z
-    // order, not the dark outline used by the legacy visual tool.
-    if (target.data?.isHole === true || target.data?.semanticKind === "hole") {
-      delete target.__ekkoOutlineSnapshot;
-      target.fillColor = null;
-      target.strokeColor = null;
-      target.strokeWidth = 0;
-      target.opacity = 1;
-      target.visible = true;
-      return;
-    }
     if (target.__ekkoOutlineSnapshot) {
       const snap = target.__ekkoOutlineSnapshot;
       target.fillColor = snap.fillColor;
@@ -961,141 +949,127 @@ function itemsOverlapSpatial(itemA, itemB) {
   }
 }
 
-function bringFront() {
-  const item = getStackingUnit(window.selectedItem);
-  if (!item || isLockedItem(item)) return;
-  if (typeof saveHistory === 'function') saveHistory();
-  if (window.currentMockup) {
-    item.insertBelow(window.currentMockup);
-  } else {
-    item.bringToFront();
-  }
+function getSelectedStackingUnits() {
+  const selected = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? window.selectedItems
+    : (window.selectedItem ? [window.selectedItem] : []);
+  const result = [];
+  const seen = new Set();
+  selected.forEach(item => {
+    const unit = getStackingUnit(item) || item;
+    if (!unit || seen.has(unit) || isLockedItem(unit)) return;
+    seen.add(unit);
+    result.push(unit);
+  });
+  return result;
+}
+
+/**
+ * Reorders the complete current selection as a block.  Decomposition leaves
+ * every public solid/hole selected at once; moving only selectedItem would
+ * split a stacking unit and change the relative order of a physical hole and
+ * its solid.  Rebuilding the sibling list keeps all selected units together
+ * and preserves their order for front/back and one-step forward/back moves.
+ */
+function reorderSelectedStackingUnits(direction) {
+  const units = getSelectedStackingUnits();
+  if (!units.length) return null;
+  const byParent = new Map();
+  units.forEach(unit => {
+    const parent = unit.parent || (paper.project && paper.project.activeLayer);
+    if (!parent?.children) return;
+    if (!byParent.has(parent)) byParent.set(parent, []);
+    byParent.get(parent).push(unit);
+  });
+  byParent.forEach((selectedUnits, parent) => {
+    const children = Array.from(parent.children);
+    const selectedSet = new Set(selectedUnits);
+    const ordered = children.filter(child => selectedSet.has(child));
+    if (!ordered.length) return;
+    const eligible = child => child && !selectedSet.has(child) && !isMockupOrUIItem(child);
+    let insertionIndex = null;
+    if (direction === 'front') {
+      const remaining = children.filter(child => !selectedSet.has(child));
+      insertionIndex = remaining.length;
+      const rebuilt = remaining.slice(0, insertionIndex).concat(ordered);
+      rebuilt.forEach((child, index) => parent.insertChild(index, child));
+      return;
+    }
+    if (direction === 'back') {
+      const remaining = children.filter(child => !selectedSet.has(child));
+      const rebuilt = ordered.concat(remaining);
+      rebuilt.forEach((child, index) => parent.insertChild(index, child));
+      return;
+    }
+    if (direction === 'forward') {
+      const lastIndex = Math.max(...children.map((child, index) => selectedSet.has(child) ? index : -1));
+      const target = children.slice(lastIndex + 1).find(eligible);
+      if (!target) return;
+      const remaining = children.filter(child => !selectedSet.has(child));
+      insertionIndex = remaining.indexOf(target) + 1;
+      remaining.splice(insertionIndex, 0, ...ordered);
+      remaining.forEach((child, index) => parent.insertChild(index, child));
+      return;
+    }
+    if (direction === 'backward') {
+      const firstIndex = Math.min(...children.map((child, index) => selectedSet.has(child) ? index : Number.MAX_SAFE_INTEGER));
+      const target = children.slice(0, firstIndex).reverse().find(eligible);
+      if (!target) return;
+      const remaining = children.filter(child => !selectedSet.has(child));
+      insertionIndex = remaining.indexOf(target);
+      remaining.splice(insertionIndex, 0, ...ordered);
+      remaining.forEach((child, index) => parent.insertChild(index, child));
+    }
+  });
+  return units[units.length - 1] || units[0];
+}
+
+function finishZOrderChange(item) {
   if (window.currentMockup) {
     window.currentMockup.bringToFront();
   }
   if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions(item.layer || null);
+    recalculateDynamicSubtractions(item?.layer || null);
   }
   if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(item);
+    window.updateSelectionBox(item || window.selectedItem);
   }
   paper.view.update();
+}
+
+function bringFront() {
+  const item = getSelectedStackingUnits()[0];
+  if (!item) return;
+  if (typeof saveHistory === 'function') saveHistory();
+  reorderSelectedStackingUnits('front');
+  finishZOrderChange(item);
 }
 window.bringFront = bringFront;
 
 function sendBack() {
-  const item = getStackingUnit(window.selectedItem);
-  if (!item || isLockedItem(item)) return;
+  const item = getSelectedStackingUnits()[0];
+  if (!item) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const parent = item.parent || (paper.project && paper.project.activeLayer);
-  if (parent) {
-    parent.insertChild(0, item);
-  } else {
-    item.sendToBack();
-  }
-  if (window.currentMockup) {
-    window.currentMockup.bringToFront();
-  }
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions(item.layer || null);
-  }
-  if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(item);
-  }
-  paper.view.update();
+  reorderSelectedStackingUnits('back');
+  finishZOrderChange(item);
 }
 window.sendBack = sendBack;
 
 function bringForward() {
-  const item = getStackingUnit(window.selectedItem);
-  if (!item || isLockedItem(item)) return;
+  const item = getSelectedStackingUnits()[0];
+  if (!item) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const parent = item.parent || (paper.project && paper.project.activeLayer);
-  if (!parent || !parent.children) return;
-  const siblings = parent.children;
-  const myIndex = siblings.indexOf(item);
-  if (myIndex === -1) return;
-
-  // Buscar el primer hermano superior que colisione espacialmente con este elemento (LightBurn Style)
-  let targetSibling = null;
-  for (let i = myIndex + 1; i < siblings.length; i++) {
-    const candidate = siblings[i];
-    if (candidate.data && (candidate.data.mockup || candidate.data.isMask)) break;
-    if (isMockupOrUIItem(candidate)) continue;
-    if (itemsOverlapSpatial(item, candidate)) {
-      targetSibling = candidate;
-      break;
-    }
-  }
-
-  if (targetSibling) {
-    item.insertAbove(targetSibling);
-  } else {
-    const next = item.nextSibling;
-    if (next && (!next.data || !next.data.mockup)) {
-      item.insertAbove(next);
-    } else if (window.currentMockup) {
-      item.insertBelow(window.currentMockup);
-    } else {
-      item.bringToFront();
-    }
-  }
-
-  if (window.currentMockup) {
-    window.currentMockup.bringToFront();
-  }
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions(item.layer || null);
-  }
-  if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(item);
-  }
-  paper.view.update();
+  reorderSelectedStackingUnits('forward');
+  finishZOrderChange(item);
 }
 window.bringForward = bringForward;
 
 function sendBackward() {
-  const item = getStackingUnit(window.selectedItem);
-  if (!item || isLockedItem(item)) return;
+  const item = getSelectedStackingUnits()[0];
+  if (!item) return;
   if (typeof saveHistory === 'function') saveHistory();
-  const parent = item.parent || (paper.project && paper.project.activeLayer);
-  if (!parent || !parent.children) return;
-  const siblings = parent.children;
-  const myIndex = siblings.indexOf(item);
-  if (myIndex === -1) return;
-
-  // Buscar el primer hermano inferior que colisione espacialmente con este elemento (LightBurn Style)
-  let targetSibling = null;
-  for (let i = myIndex - 1; i >= 0; i--) {
-    const candidate = siblings[i];
-    if (isMockupOrUIItem(candidate)) continue;
-    if (itemsOverlapSpatial(item, candidate)) {
-      targetSibling = candidate;
-      break;
-    }
-  }
-
-  if (targetSibling) {
-    item.insertBelow(targetSibling);
-  } else {
-    const prev = item.previousSibling;
-    if (prev && !isMockupOrUIItem(prev)) {
-      item.insertBelow(prev);
-    } else {
-      item.sendToBack();
-    }
-  }
-
-  if (window.currentMockup) {
-    window.currentMockup.bringToFront();
-  }
-  if (typeof recalculateDynamicSubtractions === 'function') {
-    recalculateDynamicSubtractions(item.layer || null);
-  }
-  if (typeof window.updateSelectionBox === 'function') {
-    window.updateSelectionBox(item);
-  }
-  paper.view.update();
+  reorderSelectedStackingUnits('backward');
+  finishZOrderChange(item);
 }
 window.sendBackward = sendBackward;
 
@@ -1937,13 +1911,7 @@ export function createEditableText(point) {
     justification: "center",
     fontFamily: "ekko_malvinassans_regular"
   });
-   txt.data = {
-    locked: false,
-    label: "Texto",
-    isText: true,
-    source: "text"
-  };
-
+  txt.data = { locked: false, label: "Texto" };
   paper.project.activeLayer.addChild(txt);
   const clipped = window.clipItem ? window.clipItem(txt) : txt;
   if (window.currentMockup) {
