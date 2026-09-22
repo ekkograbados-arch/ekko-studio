@@ -1618,15 +1618,27 @@ async function runRuntimeHoleScenario() {
     runtimeHoleEvent("before", { owner: before, ownerCount: owners.length, holeCount: holes.length, solidCount: solids.length });
 
     const boundsSnapshot = item => item?.bounds ? { x: item.bounds.x, y: item.bounds.y, width: item.bounds.width, height: item.bounds.height } : null;
+    const worldGeometryBounds = item => {
+      try {
+        const geometry = window.EKKO_GEOMETRY_API?.toWorldGeometry?.(item);
+        const bounds = boundsSnapshot(geometry);
+        geometry?.remove?.();
+        return bounds;
+      } catch (_) { return null; }
+    };
     const beforeMoveBounds = boundsSnapshot(hole);
+    const beforeMoveGeometryBounds = worldGeometryBounds(hole);
     const delta = new paper.Point(Math.max(1200, paper.view.bounds.width * 3), 0);
     const moveOutsideResult = transformPublicItem(hole, { type: "translate", delta });
     const outsideBounds = boundsSnapshot(hole);
+    const outsideGeometryBounds = worldGeometryBounds(hole);
     const outside = window.recalculateDynamicSubtractions?.() || null;
     scenario.steps.push({ name: "move-outside", applied: runtimeReportHasHole(outside, key), transformApplied: moveOutsideResult?.applied === true,
-      beforeBounds: beforeMoveBounds, afterBounds: outsideBounds, report: outside });
+      beforeBounds: beforeMoveBounds, afterBounds: outsideBounds, geometryBeforeBounds: beforeMoveGeometryBounds,
+      geometryAfterBounds: outsideGeometryBounds, report: outside });
     runtimeHoleEvent("outside", { key, applied: runtimeReportHasHole(outside, key), transformApplied: moveOutsideResult?.applied === true,
-      beforeBounds: beforeMoveBounds, afterBounds: outsideBounds, report: outside });
+      beforeBounds: beforeMoveBounds, afterBounds: outsideBounds, geometryBeforeBounds: beforeMoveGeometryBounds,
+      geometryAfterBounds: outsideGeometryBounds, report: outside });
 
     const moveBackResult = transformPublicItem(hole, { type: "translate", delta: delta.multiply(-1) });
     const insideBounds = boundsSnapshot(hole);
