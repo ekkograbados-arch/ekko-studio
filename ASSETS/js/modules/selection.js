@@ -397,12 +397,6 @@ const _updateSelectionBox = function(item) {
   window.selectionBoxGroup = new paper.Group();
   window.selectionBoxGroup.data = { isSelectionBox: true };
   const mainColor = '#007bff';
-  const cotaColor = '#ff6b30';
-  const z = paper.view.zoom || 1;
-  const cotaStroke = Math.max(1.8, 2.2 / Math.sqrt(z));
-  const cotaOffset = Math.max(8, 12 / Math.sqrt(z));
-  const handleSize = Math.max(8, 10 / Math.sqrt(z));
-  const outsideBounds = bounds.clone().expand(cotaOffset / z);
 
   // CONTORNO AJUSTADO A LA FORMA EXACTA DEL CALADO (Hole Tight Contour / Magnetic Shell)
   // Permite al usuario/cliente visualizar el perímetro exacto de letras caladas (ej. "F", "A")
@@ -493,9 +487,10 @@ const _updateSelectionBox = function(item) {
   const corners = localBounds ? [worldPoint(localBounds.topLeft), worldPoint(localBounds.topRight), worldPoint(localBounds.bottomRight), worldPoint(localBounds.bottomLeft)] : null;
   const mid = (a,b) => a.add(b).divide(2);
   const pts = corners ? {tl:corners[0],tr:corners[1],br:corners[2],bl:corners[3],t:mid(corners[0],corners[1]),r:mid(corners[1],corners[2]),b:mid(corners[2],corners[3]),l:mid(corners[3],corners[0])} : {tl:bounds.topLeft,tr:bounds.topRight,br:bounds.bottomRight,bl:bounds.bottomLeft,t:bounds.topCenter,r:bounds.rightCenter,b:bounds.bottomCenter,l:bounds.leftCenter};
-  const boxBorder = corners ? new paper.Path({segments: corners, closed: true}) : new paper.Path.Rectangle(outsideBounds);
-  boxBorder.strokeColor = cotaColor; boxBorder.strokeWidth = cotaStroke; boxBorder.data = {isSelectionBox:true};
+  const boxBorder = corners ? new paper.Path({segments: corners, closed: true}) : new paper.Path.Rectangle(bounds);
+  boxBorder.strokeColor = mainColor; boxBorder.strokeWidth = 1.5 / paper.view.zoom; boxBorder.data = {isSelectionBox:true};
   window.selectionBoxGroup.addChild(boxBorder);
+  const handleSize = 8 / paper.view.zoom;
   ['tl','tr','bl','br','t','b','l','r'].forEach(type => {
     const h = new paper.Path.Rectangle({center:pts[type], size:[handleSize,handleSize], fillColor:'#fff', strokeColor:mainColor, strokeWidth:1.5 / paper.view.zoom, data:{isSelectionBox:true,isHandle:true,handleType:type}});
     if (oriented) h.rotate(Math.atan2(Number(ownerMatrix.b),Number(ownerMatrix.a))*180/Math.PI, pts[type]);
@@ -1570,5 +1565,6 @@ protectGlobal('initSelectionTool', _initSelectionTool);
 // Las funciones de organización, vista y nodos son expuestas
 // por sus módulos responsables. selection.js solo registra
 // la herramienta de selección y sus APIs propias.
+
 
 
