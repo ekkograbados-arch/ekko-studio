@@ -96,7 +96,7 @@ export function realGeometryIntersects(a, b) {
       const overlap = a.intersect?.(b, { insert: false });
       const area = Math.abs(overlap?.area || 0);
       overlap?.remove?.();
-      if (area > 1e-7) return true;
+      if (area > 1e-12) return true;
     } catch (_) {}
 
     return !!(
