@@ -548,26 +548,378 @@ function attachGlobalGeometryToOwnerLocal(geometry, owner) {
     return geometry;
 }
 
+function copyOwnerState(source, target) {
+    if (!source || !target) return target;
+    target.data = { ...(source.data || {}) };
+    target.name = source.name;
+    target.visible = source.visible !== false;
+    target.opacity = source.opacity;
+    target.blendMode = source.blendMode;
+    target.locked = source.locked === true;
+    target.clipped = source.clipped === true;
+    target.clipMask = source.clipMask === true;
+    target.applyMatrix = false;
+    if (source.matrix?.clone) target.matrix = source.matrix.clone();
+    if (source.fillColor?.clone) target.fillColor = source.fillColor.clone();
+    else target.fillColor = source.fillColor || null;
+    if (source.strokeColor?.clone) target.strokeColor = source.strokeColor.clone();
+    else target.strokeColor = source.strokeColor || null;
+    target.strokeWidth = source.strokeWidth;
+    target.strokeScaling = source.strokeScaling;
+    target.fillRule = source.fillRule;
+    target.dashArray = source.dashArray?.slice?.() || source.dashArray || null;
+    return target;
+}
+
+function remapOwnerReferences(oldOwner, replacement, parentBeforeRemove = null) {
+    if (!oldOwner || !replacement || oldOwner === replacement) return replacement;
+    const oldId = oldOwner.id;
+    const replace = item => item === oldOwner ? replacement : item;
+
+    if (Array.isArray(window.selectedItems)) {
+        window.selectedItems = window.selectedItems.map(replace);
+    }
+    if (window.selectedItem === oldOwner) window.selectedItem = replacement;
+    if (Array.isArray(window._ekkoHistorySelection)) {
+        window._ekkoHistorySelection = window._ekkoHistorySelection.map(replace);
+    }
+
+    // A public owner can live inside a product containment wrapper or a
+    // fusion group. Keep those explicit references valid after a Path has to
+    // become a CompoundPath because a boolean produced multiple contours.
+    let ancestor = parentBeforeRemove || oldOwner.parent;
+    const visited = new Set();
+    while (ancestor && !visited.has(ancestor)) {
+        visited.add(ancestor);
+        const data = ancestor.data || {};
+        for (const key of ["publicOwner", "owner", "maskGroup", "originalVector", "group"]) {
+            if (data[key] === oldOwner) data[key] = replacement;
+        }
+        if (data.publicOwnerId === oldId) data.publicOwnerId = replacement.id;
+        if (data.transformOwnerId === oldId) data.transformOwnerId = replacement.id;
+        ancestor = ancestor.parent;
+    }
+    return replacement;
+}
+
+function replacePublicOwner(owner, replacement) {
+    if (!owner || !replacement || owner === replacement) return owner;
+    const parent = owner.parent;
+    const index = typeof owner.index === "number"
+        ? owner.index
+        : (parent?.children?.indexOf?.(owner) ?? 0);
+    copyOwnerState(owner, replacement);
+    if (replacement.data) {
+        if (replacement.data.ownerId === owner.id) replacement.data.ownerId = replacement.id;
+        if (replacement.data.publicOwnerId === owner.id) replacement.data.publicOwnerId = replacement.id;
+        if (replacement.data.transformOwnerId === owner.id) replacement.data.transformOwnerId = replacement.id;
+    }
+    if (parent?.insertChild) parent.insertChild(index, replacement);
+    else parent?.addChild?.(replacement);
+    remapOwnerReferences(owner, replacement, parent);
+    owner.remove();
+    try { window.EKKO_FUSION_CONTROLLER?.rebuildFusionRegistry?.(); } catch (_) {}
+    return replacement;
+}
+
+/**
+ * Install a detached boolean result into its public owner.
+ *
+ * Paper.js Path and CompoundPath do not share a child API. A subtraction can
+ * legitimately turn one closed Path into a CompoundPath with several
+ * contours, so calling addChildren() on the original Path used to abort CSG
+ * for perfectly valid small holes and imported vector bases.
+ */
+export function installOwnerGeometry(owner, geometry, geometryIsLocal = false) {
+    if (!owner || !geometry) return owner;
+    const geometryFillRule = geometry.fillRule;
+    if (!geometryIsLocal) attachGlobalGeometryToOwnerLocal(geometry, owner);
+
+    if (owner instanceof paper.CompoundPath) {
+        owner.removeChildren();
+        if (geometry instanceof paper.CompoundPath) owner.addChildren(geometry.removeChildren());
+        else if (geometry instanceof paper.Path) owner.addChild(geometry);
+        if (geometryFillRule) {
+            owner.fillRule = geometryFillRule;
+            owner.data = { ...(owner.data || {}), fillRule: geometryFillRule };
+        }
+        return owner;
+    }
+
+    if (owner instanceof paper.Path) {
+        if (geometry instanceof paper.Path) {
+            const segments = geometry.segments.map(segment => segment.clone());
+            owner.removeSegments();
+            owner.addSegments(segments);
+            geometry.remove();
+            return owner;
+        }
+        const children = geometry instanceof paper.CompoundPath
+            ? geometry.removeChildren()
+            : (Array.isArray(geometry.children) ? geometry.removeChildren() : [geometry]);
+        if (children.length === 1 && children[0] instanceof paper.Path) {
+            const segments = children[0].segments.map(segment => segment.clone());
+            owner.removeSegments();
+            owner.addSegments(segments);
+            children[0].remove();
+            return owner;
+        }
+        const replacement = new paper.CompoundPath({ insert: false });
+        replacement.addChildren(children);
+        const installed = replacePublicOwner(owner, replacement);
+        if (geometryFillRule && installed) {
+            installed.fillRule = geometryFillRule;
+            installed.data = { ...(installed.data || {}), fillRule: geometryFillRule };
+        }
+        return installed;
+    }
+
+    // A future owner type may be a Group. Keep the operation defensive rather
+    // than mutating an object with an incompatible Paper.js child API.
+    if (owner.removeChildren && owner.addChild) {
+        owner.removeChildren();
+        owner.addChild(geometry);
+    }
+    return owner;
+}
+
+/**
+ * A text-to-vector CompoundPath keeps its counters as internal contours until
+ * the user explicitly decomposes it. Those contours are still real geometry,
+ * not a visual transparency: expose them to CSG as virtual cutters so every
+ * solid below the compound is perforated immediately.
+ */
+function collectInternalVirtualHoles(items) {
+    const result = [];
+    const visited = new Set();
+    const visit = item => {
+        if (!item || visited.has(item)) return;
+        const owner = getPublicOwner(item, new Set());
+        if (!owner) {
+            item.children?.forEach(visit);
+            return;
+        }
+        if (visited.has(owner)) return;
+        visited.add(owner);
+
+        if (!owner.data?.isSmartFusion && owner.data?.geomBase) {
+            const base = owner.data.geomBase;
+            const children = Array.isArray(base?.children) ? base.children : [];
+            children.forEach((child, index) => {
+                const data = child?.data || {};
+                const isHoleContour = data.semanticKind === VECTOR_KIND.HOLE ||
+                    data.isHole === true || data.originalIsHole === true;
+                if (!isHoleContour) return;
+                const geometry = child.clone({ insert: false });
+                geometry.applyMatrix = false;
+                geometry.matrix = new paper.Matrix();
+                try {
+                    const matrix = owner.globalMatrix?.clone?.() || owner.matrix?.clone?.();
+                    if (matrix && !matrix.isIdentity()) geometry.transform(matrix);
+                } catch (_) {}
+                geometry.applyMatrix = true;
+                result.push({
+                    geom: geometry,
+                    fusionId: `internal:${owner.id}:${index}`,
+                    group: owner,
+                    ownerContainmentKey: owner.data?.containmentKey || null,
+                    internal: true
+                });
+            });
+        }
+
+        // Semantic owners own their internal contours. Plain structural groups
+        // must still be traversed so nested user vectors are discovered.
+        if (!owner.data?.semanticKind && !owner.data?.isSmartFusion) {
+            owner.children?.forEach(visit);
+        }
+    };
+    (Array.isArray(items) ? items : [items]).forEach(visit);
+    return result;
+}
+
 // CSG geometry is kept in project coordinates, but a detached SVG hole must
 // never subtract or render outside the active product boundary. The original
 // hole item is not modified; only the temporary boolean operand is confined.
-function confineSubtractiveGeometry(geometry) {
+function geometryClockwise(geometry) {
+    const first = geometry instanceof paper.CompoundPath
+        ? (geometry.children?.[0] || null)
+        : geometry;
+    if (!first) return true;
+    try {
+        if (typeof first.isClockwise === 'function') return first.isClockwise();
+        if (typeof first.clockwise === 'boolean') return first.clockwise;
+    } catch (_) {}
+    return true;
+}
+
+function bakeGeometryClone(geometry) {
+    const clone = geometry?.clone?.({ insert: false });
+    if (!clone) return null;
+    const matrix = clone.matrix?.clone?.();
+    clone.applyMatrix = false;
+    clone.matrix = new paper.Matrix();
+    if (matrix && !matrix.isIdentity()) clone.transform(matrix);
+    clone.applyMatrix = true;
+    return clone;
+}
+
+/**
+ * Paper.js boolean subtraction expects a positive operand. Decomposed vector
+ * owners are CompoundPaths, and a one-child CompoundPath has no reliable
+ * `isClockwise()` value; in several font contours that made subtract() return
+ * an area larger than the original instead of drilling a hole. Normalize the
+ * operand to a simple positive Path (or a same-winding CompoundPath) before
+ * every CSG subtraction.
+ */
+function normalizeSubtractiveOperand(geometry, reference = null, preserveCompoundTopology = false) {
+    if (!geometry) return geometry;
+    const targetClockwise = reference ? geometryClockwise(reference) : true;
+    if (geometry instanceof paper.CompoundPath) {
+        const sourceChildren = Array.from(geometry.children || []);
+        if (sourceChildren.length === 1 && sourceChildren[0] instanceof paper.Path) {
+            const path = bakeGeometryClone(sourceChildren[0]);
+            if (path) {
+                try { path.setClockwise(targetClockwise); } catch (_) {}
+                path.fillRule = 'nonzero';
+                geometry.remove();
+                return path;
+            }
+        }
+        if (sourceChildren.length > 1 && preserveCompoundTopology) {
+            const preserved = bakeGeometryClone(geometry);
+            if (preserved) {
+                geometry.remove();
+                return preserved;
+            }
+        }
+        if (sourceChildren.length > 1) {
+            const compound = new paper.CompoundPath({ insert: false });
+            compound.applyMatrix = false;
+            compound.matrix = new paper.Matrix();
+            compound.fillRule = 'nonzero';
+            sourceChildren.forEach(child => {
+                const normalized = bakeGeometryClone(child);
+                if (!normalized) return;
+                try { normalized.setClockwise?.(targetClockwise); } catch (_) {}
+                compound.addChild(normalized);
+            });
+            geometry.remove();
+            return compound;
+        }
+    }
+    const path = bakeGeometryClone(geometry);
+    if (path) {
+        try { path.setClockwise?.(targetClockwise); } catch (_) {}
+        path.fillRule = 'nonzero';
+        geometry.remove();
+        return path;
+    }
+    return geometry;
+}
+
+function buildEvenOddComposite(baseGeometry, holeEntries) {
+    if (!baseGeometry || !holeEntries?.length) return null;
+    const composite = new paper.CompoundPath({ insert: false });
+    composite.applyMatrix = false;
+    composite.matrix = new paper.Matrix();
+    composite.fillRule = 'evenodd';
+    const append = geometry => {
+        if (!geometry) return;
+        if (geometry instanceof paper.CompoundPath) {
+            const children = geometry.removeChildren();
+            children.forEach(append);
+            return;
+        }
+        if (geometry instanceof paper.Path) {
+            const clone = bakeGeometryClone(geometry);
+            if (clone) composite.addChild(clone);
+        }
+    };
+    append(baseGeometry.clone?.({ insert: false }) || baseGeometry);
+    holeEntries.forEach(entry => append(entry.geom?.clone?.({ insert: false }) || entry.geom));
+    return composite.children.length > 1 ? composite : null;
+}
+
+// CSG geometry is kept in project coordinates, but a detached SVG hole must
+// never subtract or render outside the active product boundary. The original
+// hole item is not modified; only the temporary boolean operand is confined.
+//
+// The product mask is the real mockup silhouette (often a CompoundPath), not
+// its bounding box: a hole can sit inside the bbox yet over an area with no
+// material. Such holes are recorded in outOfProductKeys so the report can
+// tell "nothing to cut here" apart from a genuinely unresolved cutter.
+function confineSubtractiveGeometry(geometry, holeKey = null, outOfProductKeys = null) {
     if (!geometry || !window.clipMask || window.infiniteCanvasMode) return geometry;
+    const markOutOfProduct = () => { if (holeKey && outOfProductKeys) outOfProductKeys.add(holeKey); };
+    const boundaryContains = (boundary, point) => {
+        try { return !!boundary?.contains?.(point); } catch (_) { return false; }
+    };
     let boundary = null;
     try {
-        boundary = getGlobalUnsubtractedPath(window.clipMask) || window.clipMask.clone({ insert: false });
+        boundary = getGlobalUnsubtractedPath(window.clipMask);
+        if (!boundary && window.clipMask) {
+            boundary = window.clipMask.clone({ insert: false });
+            try {
+                const maskWorld = window.clipMask.globalMatrix?.clone?.();
+                boundary.applyMatrix = false;
+                boundary.matrix = new paper.Matrix();
+                if (maskWorld && !maskWorld.isIdentity()) boundary.transform(maskWorld);
+                boundary.applyMatrix = true;
+            } catch (_) {}
+        }
+        // Fast robust path first: bbox math plus point-in-fill votes. This
+        // avoids Paper.js boolean quirks with tiny operands fully inside the
+        // silhouette, and correctly rejects holes over material-free notches.
+        // A single center probe is not enough near concave silhouette edges,
+        // so the interior votes by majority; ties fall through to the
+        // boolean clip below.
+        const gb = geometry.bounds, bb = boundary?.bounds;
+        if (gb && bb) {
+            if (!bb.intersects(gb)) {
+                markOutOfProduct();
+                geometry.remove();
+                return null;
+            }
+            if (typeof bb.contains === 'function' && bb.contains(gb)) {
+                const probes = [gb.center,
+                    new paper.Point(gb.x + gb.width * 0.2, gb.y + gb.height * 0.2),
+                    new paper.Point(gb.x + gb.width * 0.8, gb.y + gb.height * 0.2),
+                    new paper.Point(gb.x + gb.width * 0.2, gb.y + gb.height * 0.8),
+                    new paper.Point(gb.x + gb.width * 0.8, gb.y + gb.height * 0.8)];
+                let insideVotes = 0;
+                probes.forEach(point => { if (boundaryContains(boundary, point)) insideVotes += 1; });
+                if (insideVotes >= 3) return geometry;
+                if (insideVotes === 0) {
+                    markOutOfProduct();
+                    geometry.remove();
+                    return null;
+                }
+            }
+        }
         const before = csgGeometrySnapshot(geometry);
         const confined = geometry.intersect(boundary, { insert: false });
         csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
             success: !!confined, input: before, boundary: csgGeometrySnapshot(boundary), output: csgGeometrySnapshot(confined),
-            accepted: !!confined && Math.abs(confined.area || 0) > 0.001
+            accepted: !!confined && Math.abs(confined.area || 0) > 1e-12
         });
-        if (confined && Math.abs(confined.area || 0) > 0.001) {
+        if (confined && Math.abs(confined.area || 0) > 1e-12) {
             geometry.remove();
             return confined;
         }
-        // No intersection means this operand is entirely outside the product;
-        // it must not participate in CSG at all.
+        // No intersection: either truly outside the product, or a boolean
+        // precision miss on a boundary-crossing operand. The interior vote
+        // tells them apart so only material-free holes are excused.
+        if (gb) {
+            const probes = [gb.center,
+                new paper.Point(gb.x + gb.width * 0.2, gb.y + gb.height * 0.2),
+                new paper.Point(gb.x + gb.width * 0.8, gb.y + gb.height * 0.2),
+                new paper.Point(gb.x + gb.width * 0.2, gb.y + gb.height * 0.8),
+                new paper.Point(gb.x + gb.width * 0.8, gb.y + gb.height * 0.8)];
+            let insideVotes = 0;
+            probes.forEach(point => { if (boundaryContains(boundary, point)) insideVotes += 1; });
+            if (insideVotes === 0) markOutOfProduct();
+        }
         geometry.remove();
         return null;
     } catch (e) {
@@ -713,7 +1065,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         holeOwnerCount: 0,
         acceptedHoleCount: 0,
         unresolvedHoles: 0,
-        acceptedHoleKeys: []
+        acceptedHoleKeys: [],
+        unresolvedHoleKeys: [],
+        outOfProductHoleKeys: []
     };
     const traceSeedItems = layer?.children ? [...layer.children] : [];
     const tracePass = csgTraceBegin(layer, traceSeedItems);
@@ -721,9 +1075,27 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     activeCSGTracePass = tracePass;
     let tracedItems = [];
     let traceReason = null;
-    const acceptedHoleKeys = new Set();
+    let subItems = [];
+    const requiredHoleTargets = new Map();
+    const successfulHoleTargets = new Map();
+    let internalVirtualHoles = [];
+    let holeGeometryCache = new Map();
+    const physicalHoleKeys = new Set();
+    const outOfProductHoleKeys = new Set();
+    const holeKeyOf = item => item?.data?.containmentKey || item?.id || null;
+    const solidKeyOf = item => item?.data?.containmentKey || item?.id || null;
+    const requireHoleTarget = (holeKey, solidKey) => {
+        if (!holeKey || !solidKey) return;
+        if (!requiredHoleTargets.has(holeKey)) requiredHoleTargets.set(holeKey, new Set());
+        requiredHoleTargets.get(holeKey).add(solidKey);
+    };
+    const resolveHoleTarget = (holeKey, solidKey) => {
+        if (!holeKey || !solidKey) return;
+        if (!successfulHoleTargets.has(holeKey)) successfulHoleTargets.set(holeKey, new Set());
+        successfulHoleTargets.get(holeKey).add(solidKey);
+    };
     try {
-    const scopedVirtualHoles = Array.isArray(virtualHoleEntries)
+    const providedVirtualHoles = Array.isArray(virtualHoleEntries)
         ? virtualHoleEntries
         : (Array.isArray(window._fusionVirtualHoles) ? window._fusionVirtualHoles : []);
     if (!layer || !layer.children) { traceReason = 'no-layer-or-children'; report.status = traceReason; return report; }
@@ -736,9 +1108,15 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     report.filteredItemCount = items.length;
     if (tracePass) tracePass.filteredItems = csgOwnersSnapshot(items);
     if (items.length === 0) { traceReason = 'no-eligible-layer-items'; report.status = traceReason; return report; }
-    const subItems = extractSubtractiveItems(items);
+    subItems = extractSubtractiveItems(items);
+    internalVirtualHoles = collectInternalVirtualHoles(items);
+    const scopedVirtualHoles = [...providedVirtualHoles, ...internalVirtualHoles];
     report.subtractiveItemCount = subItems.length;
     report.holeOwnerCount = subItems.filter(item => item?.data?.isHole === true).length;
+    subItems.filter(item => item?.data?.isHole === true).forEach(item => {
+        const key = holeKeyOf(item);
+        if (key) physicalHoleKeys.add(key);
+    });
     if (tracePass) tracePass.subItems = subItems.map(item => csgItemSnapshot(item)).filter(Boolean);
     if (subItems.length === 0) { traceReason = 'no-subtractive-items'; report.status = traceReason; return report; }
 
@@ -754,25 +1132,40 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         return 0;
     }
 
-    subItems.forEach(item => {
+    function subtractionMetrics(originalArea, result, operandArea) {
+        const resultArea = Math.abs(Number(result?.area) || 0);
+        const operand = Math.abs(Number(operandArea) || 0);
+        const scale = Math.max(originalArea, resultArea, operand, 1);
+        const tolerance = Math.max(1e-12, scale * 1e-12);
+        const areaDelta = originalArea - resultArea;
+        const validArea = Number.isFinite(resultArea) && resultArea > 1e-12 &&
+            resultArea <= originalArea + tolerance && areaDelta > tolerance;
+        const validBounds = !!result?.bounds &&
+            Number.isFinite(result.bounds.width) && Number.isFinite(result.bounds.height) &&
+            result.bounds.width > 1e-9 && result.bounds.height > 1e-9;
+        return { resultArea, operandArea: operand, areaDelta, tolerance, validArea, validBounds };
+    }
+
+    holeGeometryCache = new Map();
+    for (const item of subItems) {
+        if (!item?.data?.isHole) continue;
+        const geometry = getGlobalUnsubtractedPath(item);
+        holeGeometryCache.set(item, geometry);
+    }
+
+    for (let itemIndex = 0; itemIndex < subItems.length; itemIndex++) {
+        let item = subItems[itemIndex];
         if (item && item.data && item.data.geomBase && !item.data.isHole) {
             // The rendered children may contain previous CSG cuts. They are
             // never the canonical editable source; geomBase is restored first.
             item.data.csgMaterialized = false;
             const pristine = getGlobalUnsubtractedPath(item);
             if (pristine) {
-                item.removeChildren();
-                if (pristine instanceof paper.CompoundPath) {
-                    const cl = pristine.clone({ insert: false });
-                    attachGlobalGeometryToOwnerLocal(cl, item);
-                    item.addChildren(cl.removeChildren());
-                    cl.remove();
-                } else if (pristine instanceof paper.Path) {
-                    const child = pristine.clone({ insert: false });
-                    attachGlobalGeometryToOwnerLocal(child, item);
-                    item.addChild(child);
+                const restored = installOwnerGeometry(item, pristine);
+                if (restored !== item) {
+                    item = restored;
+                    subItems[itemIndex] = restored;
                 }
-                pristine.remove();
             }
             item.visible = true;
         } else if (item && item.data && item.data.isHole) {
@@ -781,16 +1174,18 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             // seleccionable y con contorno dentro del editor.
             applyHoleVisualStyle(item);
         }
-    });
+    }
 
     for (let j = 0; j < subItems.length; j++) {
-        const solid = subItems[j];
+        let solid = subItems[j];
         if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase ||
             isMockupOrMask(solid)) continue;
-        const pristineBase = getGlobalUnsubtractedPath(solid);
+        let pristineBase = getGlobalUnsubtractedPath(solid);
+        pristineBase = normalizeSubtractiveOperand(pristineBase, null, true);
         if (!pristineBase) continue;
         const pristineArea = Math.abs(pristineBase.area || 0);
         const pristineBounds = pristineBase.bounds;
+        const solidKey = solidKeyOf(solid);
 
         const intersectingHoles = [];
         for (let i = 0; i < subItems.length; i++) {
@@ -812,14 +1207,15 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            // A nested contour owns an explicit containing solid. This is
-            // positive topology evidence for that one solid only; it does not
-            // replace Z-order for unrelated objects.
+            // A nested contour keeps its source owner for diagnostics, but
+            // physical CSG always obeys the actual render order. If the client
+            // moves a decomposed hole below its former solid, it must stop
+            // cutting that solid; semantic provenance cannot override Z.
             const containmentOwnerMatch = !!(
                 holeData.ownerContainmentKey &&
                 holeData.ownerContainmentKey === solid.data?.containmentKey
             );
-            const zAllowed = isAboveInRenderOrder(holeItem, solid) || containmentOwnerMatch;
+            const zAllowed = isAboveInRenderOrder(holeItem, solid);
             const holeStackingUnit = getStackingUnit(holeItem);
             const solidStackingUnit = getStackingUnit(solid);
             pair.zOrder = {
@@ -835,33 +1231,42 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            let holeBase = getGlobalUnsubtractedPath(holeItem);
+            const rawHoleBase = holeGeometryCache.get(holeItem);
+            if (!rawHoleBase || !rawHoleBase.bounds || !pristineBounds.intersects(rawHoleBase.bounds)) {
+                pair.reasons.push(rawHoleBase ? 'bounds-disjoint' : 'owner-geometry-invalid');
+                if (tracePass) tracePass.candidatePairs.push(pair);
+                continue;
+            }
+            let holeBase = normalizeSubtractiveOperand(rawHoleBase.clone({ insert: false }), pristineBase);
             pair.holeWorldGeometry = csgGeometrySnapshot(holeBase);
             if (!holeBase) {
                 pair.reasons.push('owner-geometry-invalid');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            holeBase = confineSubtractiveGeometry(holeBase);
+            holeBase = confineSubtractiveGeometry(holeBase, holeKeyOf(holeItem), outOfProductHoleKeys);
             pair.confinedGeometry = csgGeometrySnapshot(holeBase);
             if (!holeBase) {
                 pair.reasons.push('geometry-confine');
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            // For a nested contour the ownerContainmentKey is definitive
-            // topology evidence that this is the hole of this solid. Avoid a
-            // second expensive pre-boolean on large SVG/text paths; the real
-            // subtract below remains the final authority and must reduce area.
-            const geometryCandidate = containmentOwnerMatch ||
-                realGeometryIntersects(pristineBase, holeBase);
+            // For a nested contour the owner relationship is definitive only
+            // after the independent Z-order check above. It also covers tiny
+            // font/SVG counters where Paper's point-in-polygon test falls below
+            // numeric precision; the actual result is still built as real
+            // geometry (subtract or the even-odd composite fallback).
+            const geometryCandidate = realGeometryIntersects(pristineBase, holeBase) ||
+                (containmentOwnerMatch && zAllowed);
             if (geometryCandidate) {
-                pair.status = 'accepted';
-                report.acceptedPairs += 1;
-                acceptedHoleKeys.add(holeData.containmentKey || holeItem.id);
-                pair.reasons.push(containmentOwnerMatch ? 'accepted-containing-solid' : 'accepted');
+                pair.status = 'candidate';
+                const holeKey = holeKeyOf(holeItem);
+                requireHoleTarget(holeKey, solidKey);
+                pair.holeKey = holeKey;
+                pair.solidKey = solidKey;
+                pair.reasons.push(containmentOwnerMatch ? 'candidate-containing-solid' : 'candidate');
                 if (tracePass) tracePass.candidatePairs.push(pair);
-                intersectingHoles.push(holeBase);
+                intersectingHoles.push({ geom: holeBase, holeKey });
             } else {
                 pair.reasons.push('no-intersection');
                 if (tracePass) tracePass.candidatePairs.push(pair);
@@ -877,11 +1282,16 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 // Virtual holes carry their live fusion group. Apply the same
                 // Z-order contract as physical hole owners when available.
                 if (vh.group && !isAboveInRenderOrder(vh.group, solid)) return;
-                let vhClone = vh.geom.clone({ insert: false });
-                vhClone = confineSubtractiveGeometry(vhClone);
+                const vhKey = vh.fusionId || `virtual:${vh.group?.id || 'unknown'}`;
+                let vhClone = normalizeSubtractiveOperand(vh.geom.clone({ insert: false }), pristineBase);
+                vhClone = confineSubtractiveGeometry(vhClone, vhKey, outOfProductHoleKeys);
                 if (!vhClone) return;
                 if (pristineBounds.intersects(vhClone.bounds)) {
-                    intersectingHoles.push(vhClone);
+                    intersectingHoles.push({
+                        geom: vhClone,
+                        holeKey: vhKey,
+                        virtual: true
+                    });
                 } else {
                     vhClone.remove();
                 }
@@ -895,10 +1305,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             continue;
         }
 
+        const successfulCuts = [];
         let mergedHole = null;
         try {
             for (let k = 0; k < intersectingHoles.length; k++) {
-                const curHole = intersectingHoles[k];
+                const curHole = intersectingHoles[k].geom;
                 if (!mergedHole) {
                     mergedHole = curHole.clone({ insert: false });
                 } else {
@@ -907,7 +1318,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                             const leftBefore = csgGeometrySnapshot(mergedHole);
                             const rightBefore = csgGeometrySnapshot(curHole);
                             const united = mergedHole.unite(curHole, { insert: false });
-                            const accepted = !!united && Math.abs(united.area || 0) > 0.01;
+                            const accepted = !!united && Number.isFinite(united.area) && Math.abs(united.area) > 1e-12;
                             csgTraceOperation(tracePass, 'unite', { success: !!united, accepted,
                                 leftBefore, rightBefore, result: csgGeometrySnapshot(united),
                                 rejection: united && !accepted ? 'empty-or-degenerate-result' : null });
@@ -954,24 +1365,23 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 const holeBefore = csgGeometrySnapshot(mergedHole);
                 const testSub = pristineBase.subtract(mergedHole, { insert: false });
                 if (testSub) {
-                    const testArea = Math.abs(testSub.area || 0);
+                    const metrics = subtractionMetrics(
+                        pristineArea,
+                        testSub,
+                        Math.abs(mergedHole.area || 0)
+                    );
                     const testSegments = countSegments(testSub);
-                    // Una perforación legítima puede dejar menos del 5% del
-                    // sólido original (A/F/A, bandas y detalles finos). El
-                    // umbral anterior rechazaba esos huecos y dejaba el
-                    // sólido visualmente relleno. Solo se rechaza un resultado
-                    // vacío, degenerado o con un área imposible.
-                    const areaDelta = pristineArea - testArea;
-                    const isValidArea = testArea > 0.01 &&
-                        testArea <= (pristineArea * 1.000001) &&
-                        areaDelta > Math.max(1e-7, pristineArea * 1e-7);
-                    const accepted = testSegments >= 3 && isValidArea && testSub.bounds.width > 1 && testSub.bounds.height > 1;
+                    const accepted = testSegments >= 3 && metrics.validArea && metrics.validBounds;
                     csgTraceOperation(tracePass, 'subtract.merged', { success: true, accepted,
                         solidBefore, holeBefore, result: csgGeometrySnapshot(testSub),
-                        testArea, testSegments, pristineArea, areaDelta,
-                        rejection: accepted ? null : (!isValidArea ? 'area' : (testSegments < 3 ? 'segments' : 'bounds')) });
+                        testArea: metrics.resultArea, testSegments, pristineArea,
+                        areaDelta: metrics.areaDelta, tolerance: metrics.tolerance,
+                        rejection: accepted ? null : (!metrics.validArea ? 'area' : (testSegments < 3 ? 'segments' : 'bounds')) });
                     if (accepted) {
                         finalSubtracted = testSub;
+                        intersectingHoles.forEach(entry => {
+                            successfulCuts.push({ holeKey: entry.holeKey, virtual: entry.virtual === true });
+                        });
                     } else {
                         testSub.remove();
                     }
@@ -990,27 +1400,33 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
         if (!finalSubtracted) {
             let currentProgress = pristineBase.clone({ insert: false });
+            let madeProgress = false;
             for (let k = 0; k < intersectingHoles.length; k++) {
-                const singleHole = intersectingHoles[k];
+                const entry = intersectingHoles[k];
+                const singleHole = entry.geom;
                 try {
                     const progressBefore = csgGeometrySnapshot(currentProgress);
                     const holeBefore = csgGeometrySnapshot(singleHole);
+                    const progressArea = Math.abs(currentProgress.area || 0);
                     const stepSub = currentProgress.subtract(singleHole, { insert: false });
                     if (stepSub) {
-                        const stepArea = Math.abs(stepSub.area || 0);
+                        const metrics = subtractionMetrics(
+                            progressArea,
+                            stepSub,
+                            Math.abs(singleHole.area || 0)
+                        );
                         const stepSegments = countSegments(stepSub);
-                        const stepAreaDelta = pristineArea - stepArea;
-                        const isStepValid = stepArea > 0.01 &&
-                            stepArea <= (pristineArea * 1.000001) &&
-                            stepAreaDelta > Math.max(1e-7, pristineArea * 1e-7);
-                        const accepted = stepSegments >= 3 && isStepValid && stepSub.bounds.width > 1 && stepSub.bounds.height > 1;
+                        const accepted = stepSegments >= 3 && metrics.validArea && metrics.validBounds;
                         csgTraceOperation(tracePass, 'subtract.step', { success: true, accepted,
                             solidBefore: progressBefore, holeBefore, result: csgGeometrySnapshot(stepSub),
-                            stepArea, stepSegments, pristineArea, stepAreaDelta,
-                            rejection: accepted ? null : (!isStepValid ? 'area' : (stepSegments < 3 ? 'segments' : 'bounds')) });
+                            stepArea: metrics.resultArea, stepSegments, pristineArea: progressArea,
+                            areaDelta: metrics.areaDelta, tolerance: metrics.tolerance,
+                            rejection: accepted ? null : (!metrics.validArea ? 'area' : (stepSegments < 3 ? 'segments' : 'bounds')) });
                         if (accepted) {
                             currentProgress.remove();
                             currentProgress = stepSub;
+                            madeProgress = true;
+                            successfulCuts.push({ holeKey: entry.holeKey, virtual: entry.virtual === true });
                         } else {
                             stepSub.remove();
                         }
@@ -1025,7 +1441,24 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                     report.failedBooleans.push({ operation: 'subtract.step', error: String(e?.message || e) });
                 }
             }
-            finalSubtracted = currentProgress;
+            if (!finalSubtracted) {
+                const composite = buildEvenOddComposite(pristineBase, intersectingHoles);
+                if (composite) {
+                    currentProgress.remove();
+                    finalSubtracted = composite;
+                    intersectingHoles.forEach(entry => {
+                        successfulCuts.push({ holeKey: entry.holeKey, virtual: entry.virtual === true });
+                    });
+                    csgTraceOperation(tracePass, 'subtract.evenodd-fallback', {
+                        accepted: true,
+                        solid: csgItemSnapshot(solid),
+                        contourCount: composite.children?.length || 0
+                    });
+                } else if (madeProgress) {
+                    finalSubtracted = currentProgress;
+                }
+            }
+            if (!finalSubtracted) currentProgress.remove();
         }
 
         csgTraceOperation(tracePass, 'solid-pass', { solid: csgItemSnapshot(solid), pristine: csgGeometrySnapshot(pristineBase),
@@ -1041,21 +1474,24 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 solid.data.csgMaterialized = false;
                 solid.visible = true;
             } else {
-                attachGlobalGeometryToOwnerLocal(finalSubtracted, solid);
-                solid.removeChildren();
-                if (finalSubtracted instanceof paper.CompoundPath) {
-                    solid.addChildren(finalSubtracted.removeChildren());
-                } else {
-                    solid.addChild(finalSubtracted);
+                const installed = installOwnerGeometry(solid, finalSubtracted);
+                if (installed !== solid) {
+                    solid = installed;
+                    subItems[j] = installed;
                 }
                 solid.data.csgMaterialized = true;
                 solid.visible = true;
+                successfulCuts.forEach(entry => {
+                    if (entry.virtual) return;
+                    resolveHoleTarget(entry.holeKey, solidKey);
+                    report.acceptedPairs += 1;
+                });
             }
         } else {
             solid.data.csgMaterialized = false;
         }
         pristineBase.remove();
-        intersectingHoles.forEach(h => { try { h.remove(); } catch(e) {} });
+        intersectingHoles.forEach(entry => { try { entry.geom.remove(); } catch(e) {} });
     }
 
     if (typeof paper !== 'undefined' && paper.view) {
@@ -1063,12 +1499,27 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     }
     traceReason = 'completed';
     } finally {
+        const fullyResolvedHoleKeys = new Set();
+        requiredHoleTargets.forEach((targets, holeKey) => {
+            if (!targets || targets.size === 0) return;
+            const successful = successfulHoleTargets.get(holeKey);
+            if (successful && [...targets].every(target => successful.has(target))) {
+                fullyResolvedHoleKeys.add(holeKey);
+            }
+        });
         report.rejectedPairs = Math.max(0, report.candidatePairs - report.acceptedPairs);
-        report.acceptedHoleKeys = [...acceptedHoleKeys];
-        report.acceptedHoleCount = acceptedHoleKeys.size;
-        report.unresolvedHoles = Math.max(0, report.holeOwnerCount - report.acceptedHoleCount);
+        report.acceptedHoleKeys = [...fullyResolvedHoleKeys];
+        report.acceptedHoleCount = fullyResolvedHoleKeys.size;
+        report.outOfProductHoleKeys = [...outOfProductHoleKeys].filter(key => physicalHoleKeys.has(key));
+        // A hole over a material-free notch of the product silhouette cannot
+        // cut anything: it is ignorable, not a cutter needing attention.
+        report.unresolvedHoleKeys = [...physicalHoleKeys].filter(key =>
+            !fullyResolvedHoleKeys.has(key) && !outOfProductHoleKeys.has(key));
+        report.unresolvedHoles = report.unresolvedHoleKeys.length;
         report.status = traceReason || report.status;
         report.completed = traceReason === 'completed' || report.status === 'no-subtractive-items' || report.status === 'no-eligible-layer-items';
+        internalVirtualHoles.forEach(entry => { try { entry.geom.remove(); } catch (_) {} });
+        holeGeometryCache.forEach(geometry => { try { geometry?.remove?.(); } catch (_) {} });
         if (typeof window !== 'undefined') window.EKKO_CSG_LAST_REPORT = report;
         csgTraceFinish(tracePass, layer, tracedItems, traceReason);
         activeCSGTracePass = previousTracePass;
