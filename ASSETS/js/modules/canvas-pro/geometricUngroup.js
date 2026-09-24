@@ -1806,3 +1806,149 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         return parent || null;
     }
     nodes.forEach(node => {
+        const owner = nearestSolidOwner(node);
+        node.containmentScope = containmentScope;
+        node.containmentKey = `${containmentScope}:${node.id}`;
+        node.ownerContainmentKey = owner
+            ? `${containmentScope}:${owner.id}`
+            : null;
+    });
+
+nodes.sort((a, b) => {
+  const rootA = getRootNode(a);
+  const rootB = getRootNode(b);
+  if (rootA !== rootB) {
+    // ✅ REGLA ABSOLUTA: El orden de apilamiento viene del docOrder original.
+    // Los objetos que aparecían primero en el SVG quedan atrás (abajo en Z).
+    return a.docOrder - b.docOrder;
+  }
+  // Dentro de la misma jerarquía: ancestros primero (para que los contenedores
+  // se inserten antes que sus contenidos y queden atrás en Z).
+  if (isAncestorOf(a, b)) return -1;
+  if (isAncestorOf(b, a)) return 1;
+  // Mismo nivel: orden por docOrder original
+  return a.docOrder - b.docOrder;
+});
+
+    const resultingItems = [];
+
+    nodes.forEach((node) => {
+        const isHole = node.isHole;
+        const compoundItem = new paper.CompoundPath({ insert: false });
+        // flattenToAtomicPaths bakes the complete source-to-project matrix
+        // into path segments.  Keep the new owner identity-free (identity
+        // matrix), while explicitly retaining even-odd topology.
+        const pathClone = node.path.clone({ insert: false });
+        pathClone.applyMatrix = false;
+        compoundItem.addChild(pathClone);
+        compoundItem.fillRule = node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd";
+
+        const geomBase = new paper.CompoundPath({ insert: false });
+        geomBase.applyMatrix = false;
+        const baseClone = node.path.clone({ insert: false });
+        baseClone.applyMatrix = false;
+        geomBase.addChild(baseClone);
+        geomBase.matrix = new paper.Matrix();
+        geomBase.fillRule = node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd";
+        compoundItem.applyMatrix = false;
+        compoundItem.matrix = ownerMatrix.clone();
+
+        compoundItem.data = {
+            locked: false,
+            label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
+            semanticKind: isHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID,
+            isHole: isHole,
+            isSolidShape: !isHole,
+            isFusionReceptor: isHole,
+            fillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
+            originalFillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
+            preserveCompoundTopology: true,
+            contourIndex: node.id,
+            sourceContourIndex: node.path.data?.sourceContourIndex ?? node.id,
+            contourDepth: node.depth,
+            contourRole: isHole ? "hole" : "outer",
+            originalIsHole: typeof node.path.data?.originalIsHole === "boolean" ? node.path.data.originalIsHole : isHole,
+            source: node.path.data?.source || rootTarget.data?.source,
+            userImported: node.path.data?.userImported ?? rootTarget.data?.userImported,
+            // A decomposed path is a new public owner; never inherit a
+            // text-vector/fusion id that would alias the removed wrapper.
+            fusionId: null,
+            geomBase: geomBase,
+            layerDepth: node.depth,
+            containmentId: node.id,
+            containmentScope: node.containmentScope,
+            containmentKey: node.containmentKey,
+            ownerContainmentKey: node.ownerContainmentKey,
+            decomposedLayer: true
+        };
+
+        if (isHole) {
+            compoundItem.data.originalFillColor = node.path.data?.originalFillColor?.clone?.() || null;
+            compoundItem.data.originalStrokeColor = node.path.data?.originalStrokeColor?.clone?.() || null;
+            compoundItem.data.originalStrokeWidth = node.path.data?.originalStrokeWidth || 0;
+            applyHoleVisualStyle(compoundItem);
+        } else {
+            compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
+            compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
+            compoundItem.strokeWidth = node.path.data?.originalStrokeWidth || rootTarget.strokeWidth || 0;
+        }
+
+        resultingItems.push(compoundItem);
+        node.path.remove();
+    });
+
+    const finalDeliveredItems = [];
+    resultingItems.forEach(item => {
+        let finalItem = item;
+        if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
+            finalItem = window.clipItem(item);
+        }
+        if (targetLayer) {
+            targetLayer.addChild(finalItem);
+            if (window.currentMockup) {
+                finalItem.insertBelow(window.currentMockup);
+            }
+        }
+        
+        // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
+        if (finalItem !== item) {
+            if (!finalItem.data) finalItem.data = {};
+            const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
+            finalItem.data = { ...finalItem.data, role: "mockup-containment", clipGroup: true,
+                publicOwnerId: ownerId, isHole: undefined, geomBase: undefined };
+            item.data = { ...(item.data || {}), publicOwner: true, ownerId };
+        }
+
+        // Return/commit only the public owner. The containment wrapper remains
+        // a clipping implementation detail and is never public selection.
+        finalDeliveredItems.push(getPublicOwner(finalItem) || item);
+    });
+
+    rootTarget.remove();
+
+    if (targetLayer) {
+        recalculateDynamicSubtractions(targetLayer);
+    }
+
+    return { handled: true, simple: false, items: finalDeliveredItems };
+}
+
+export function geometricUngroupCompound(item) {
+    return decomposeByContainmentHierarchy(item);
+}
+
+export function geometricUngroupOneLevel(group) {
+    return decomposeByContainmentHierarchy(group);
+}
+
+if (typeof window !== 'undefined') {
+    // Query/explicit opt-in creates the public collector immediately; normal
+    // studio loads leave no trace object and execute the original route.
+    csgTraceForCurrentPass();
+    window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
+    window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
+    window.geometricUngroupCompound = decomposeByContainmentHierarchy;
+    window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
+    window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
+    window.isContainedIn = isContainedIn;
+}
