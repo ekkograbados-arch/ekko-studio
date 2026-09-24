@@ -45,7 +45,7 @@ export function setMeasurementsVisibility(visible) {
 }
 
 // Dibuja una línea de cota con flechas y texto en milímetros
-function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#1e3a5f") {
+function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#BD3575") {
     if (!window.paper || !measurementsGroup) return;
 
     const zoom = paper.view.zoom || 1;
@@ -119,13 +119,11 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#1e3a5f") {
         justification: "center"
     });
 
-    // Alinear rotación del texto con el ángulo de la línea para cotas laterales
     const angle = lineVector.angle;
-    if (Math.abs(angle) > 45 && Math.abs(angle) < 135) {
-        textEl.rotate(angle + 90, textEl.point); // Mantener texto orientado vertical u horizontal
-    } else if (Math.abs(angle) >= 135) {
-        textEl.rotate(angle + 180, textEl.point);
-    }
+    let textAngle = angle;
+    if (textAngle > 90) textAngle -= 180;
+    if (textAngle < -90) textAngle += 180;
+    if (Math.abs(angle) > 30) textEl.rotate(textAngle, textEl.point);
     measurementsGroup.addChild(textEl);
 }
 
@@ -178,9 +176,16 @@ export function drawMeasurements() {
             const toWorld = point => matrix.transform(point);
             const tl = toWorld(local.topLeft), tr = toWorld(local.topRight);
             const br = toWorld(local.bottomRight), bl = toWorld(local.bottomLeft);
-            const cotaColor = "#1e3a5f";
-            const topOffset = new paper.Point(0, -offsetMm);
-            const rightOffset = new paper.Point(offsetMm, 0);
+            const center = tl.add(tr).add(br).add(bl).multiply(0.25);
+            const topMid = tl.add(tr).multiply(0.5);
+            let topNormal = tr.subtract(tl).rotate(90).normalize();
+            if (topMid.subtract(center).dot(topNormal) < 0) topNormal = topNormal.multiply(-1);
+            const topOffset = topNormal.multiply(offsetMm);
+            const rightMid = tr.add(br).multiply(0.5);
+            let rightNormal = br.subtract(tr).rotate(90).normalize();
+            if (rightMid.subtract(center).dot(rightNormal) < 0) rightNormal = rightNormal.multiply(-1);
+            const rightOffset = rightNormal.multiply(offsetMm);
+            const cotaColor = "#BD3575";
             drawDimensionLine(tl, tr, topOffset, tl.getDistance(tr), cotaColor);
             drawDimensionLine(tr, br, rightOffset, tr.getDistance(br), cotaColor);
         } catch (e) {
