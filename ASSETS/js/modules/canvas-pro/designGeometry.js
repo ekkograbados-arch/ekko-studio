@@ -24,8 +24,9 @@ function isUI(item) {
 }
 function isMaskSelf(item) {
   const d = dataOf(item);
-  return !!(item && (item.clipMask === true || d.isMask === true || d.mockup === true ||
-    d.wasClipMask === true || d.role === "mockup-mask" || d.isFusionMask === true));
+  return !!(item && (item.clipMask === true || item.locked === true || d.locked === true ||
+    d.isMask === true || d.mockup === true || d.wasClipMask === true ||
+    d.role === "mockup-mask" || d.isFusionMask === true));
 }
 
 /** True only for masks/mockups/UI, not for a public child inside a containment wrapper. */
@@ -70,9 +71,17 @@ function isWrapperChild(wrapper, candidate) {
 
 function explicitWrapperOwner(wrapper, visited = new Set(), allowCandidate = null) {
   const d = dataOf(wrapper);
-  const accept = candidate => candidate && candidate !== wrapper &&
-    (!visited.has(candidate) || candidate === allowCandidate) && isWrapperChild(wrapper, candidate) &&
-    !isMockupOrMask(candidate) ? candidate : null;
+  const accept = candidate => {
+    const nestedPublicChild = allowCandidate && allowCandidate !== candidate &&
+      !isMaskSelf(allowCandidate) && !isFusionOwner(allowCandidate) && !isUI(allowCandidate) &&
+      (allowCandidate.data?.geomBase || allowCandidate.className === "Group" ||
+        allowCandidate.className === "Path" || allowCandidate.className === "CompoundPath" || allowCandidate.className === "Shape");
+    const explicitReference = candidate === wrapper.data?.publicOwner ||
+      candidate === wrapper.data?.publicOwnerId;
+    return candidate && candidate !== wrapper &&
+      (!visited.has(candidate) || candidate === allowCandidate || explicitReference) && isWrapperChild(wrapper, candidate) &&
+      (!isMockupOrMask(candidate) || nestedPublicChild) ? candidate : null;
+  };
 
   // Never trust an arbitrary object reference: a publicOwner object is valid
   // only when it is an actual descendant of this containment wrapper.
@@ -128,9 +137,28 @@ export function getPublicOwner(item, visited = new Set()) {
     lineage.add(current);
     if (isContainmentWrapper(current)) {
       const owner = explicitWrapperOwner(current, lineage, item);
-      if (!owner || !isWrapperChild(current, owner) || isMockupOrMask(owner)) return null;
+      if (!owner || !isWrapperChild(current, owner)) return null;
+      const nestedPublicItem = owner !== item && !isMaskSelf(item) && !isFusionOwner(item) && !isUI(item) &&
+        (item.data?.geomBase || item.className === "Group" || item.className === "Path" ||
+          item.className === "CompoundPath" || item.className === "Shape");
+      if (isMockupOrMask(owner) && !nestedPublicItem) return null;
       if (owner === item) return item;
-      if (lineage.has(owner)) return null;
+      if (lineage.has(owner)) {
+        // A containment wrapper may publish a structural group that is also
+        // an ancestor of the clicked child. The wrapper reference identifies
+        // the root owner, but nested public vector/group children must remain
+        // independently selectable; otherwise getPublicOwners() collapses the
+        // whole import to the wrapper and fusion/selection lose the artwork.
+        if (owner !== item && !isMaskSelf(item) && !isFusionOwner(item) && !isUI(item) &&
+            (item.data?.geomBase || item.className === "Group" ||
+              item.className === "Path" || item.className === "CompoundPath" || item.className === "Shape")) {
+          return item;
+        }
+        if (owner !== item && !isMaskSelf(owner) && !isFusionOwner(owner) && !isUI(owner)) {
+          return owner;
+        }
+        return null;
+      }
       const resolved = getPublicOwner(owner, lineage);
       return resolved || null;
     }
@@ -275,18 +303,114 @@ export function hitTestOwner(owner, worldPoint, tolerance = 0) {
   return null;
 }
 
+function pointOnSegment(point, start, end, epsilon = 1e-7) {
+  if (!point || !start || !end) return false;
+  const segment = end.subtract(start);
+  const lengthSquared = segment.lengthSquared;
+  if (lengthSquared <= epsilon * epsilon) return point.getDistance(start) <= epsilon;
+  const offset = point.subtract(start);
+  const cross = Math.abs(segment.x * offset.y - segment.y * offset.x);
+  const scale = Math.max(1, lengthSquared * Math.max(1, offset.length));
+  if (cross > epsilon * scale) return false;
+  const projection = offset.dot(segment);
+  return projection >= -epsilon && projection <= lengthSquared + epsilon;
+}
+
+function collectWorldSegments(item, result = [], seen = new Set()) {
+  if (!item || seen.has(item)) return result;
+  seen.add(item);
+  if (Array.isArray(item.segments)) result.push(...item.segments);
+  if (item.children) Array.from(item.children).forEach(child => collectWorldSegments(child, result, seen));
+  return result;
+}
+
+function segmentEndpoints(segment) {
+  if (!segment) return null;
+  const start = segment.point?.clone?.() || segment.point;
+  const end = segment.next?.point?.clone?.() || segment.next?.point;
+  return start && end ? { start, end } : null;
+}
+
+function segmentsTouch(first, second, epsilon = 1e-7) {
+  const a = segmentEndpoints(first);
+  const b = segmentEndpoints(second);
+  if (!a || !b) return false;
+  try {
+    const crossing = first.intersect?.(second);
+    if (crossing) return true;
+  } catch (_) {}
+  return pointOnSegment(a.start, b.start, b.end, epsilon) ||
+    pointOnSegment(a.end, b.start, b.end, epsilon) ||
+    pointOnSegment(b.start, a.start, a.end, epsilon) ||
+    pointOnSegment(b.end, a.start, a.end, epsilon);
+}
+
+/**
+ * Marquee selection follows the requested CAD-style rule: touching the
+ * selection area is a hit. Paper.js `contains()` and `intersects()` treat
+ * coincident boundaries inconsistently (notably for open/compound paths), so
+ * the public path check below is deliberately inclusive and uses both exact
+ * segment contacts and interior containment.
+ */
 export function intersectsMarquee(owner, marqueeWorldPath) {
   const resolved = getPublicOwner(owner);
   if (!resolved || isMockupOrMask(resolved) || !marqueeWorldPath) return false;
   const world = toWorldGeometry(resolved);
   if (!world) return false;
+  let marquee = null;
   try {
-    if (marqueeWorldPath.bounds && !marqueeWorldPath.bounds.intersects(world.bounds)) return false;
-    if (world.intersects?.(marqueeWorldPath) || marqueeWorldPath.intersects?.(world)) return true;
-    if (marqueeWorldPath.contains?.(world.bounds.center) || world.contains?.(marqueeWorldPath.bounds.center)) return true;
-    return !!world.segments?.some(segment => marqueeWorldPath.contains?.(segment.point));
+    marquee = marqueeWorldPath.clone?.({ insert: false }) || marqueeWorldPath;
+    // The marquee is normally already detached in project coordinates. Baking
+    // a non-identity matrix here also covers a caller that passes a live path.
+    try { marquee.applyMatrix = true; } catch (_) {}
+    const worldBounds = world.bounds;
+    const marqueeBounds = marquee.bounds;
+    if (!worldBounds || !marqueeBounds) return false;
+    const epsilon = 1e-7;
+    const boundsTouch = worldBounds.x <= marqueeBounds.right + epsilon &&
+      worldBounds.right >= marqueeBounds.left - epsilon &&
+      worldBounds.y <= marqueeBounds.bottom + epsilon &&
+      worldBounds.bottom >= marqueeBounds.top - epsilon;
+    if (!boundsTouch) return false;
+
+    const worldSegments = collectWorldSegments(world);
+    const marqueeSegments = collectWorldSegments(marquee);
+    // Rasters and other non-path owners have no segments; their public
+    // bounds are the selection contract, including an edge/corner contact.
+    if (!worldSegments.length && boundsTouch) return true;
+    for (const worldSegment of worldSegments) {
+      for (const marqueeSegment of marqueeSegments) {
+        if (segmentsTouch(worldSegment, marqueeSegment, epsilon)) return true;
+      }
+      const endpoints = segmentEndpoints(worldSegment);
+      if (endpoints && (marquee.contains?.(endpoints.start) || marquee.contains?.(endpoints.end))) return true;
+    }
+    // Shape/host items may not expose Paper segments; retain Paper's native
+    // boolean intersection as a fallback for those owners.
+    try {
+      if (world.intersects?.(marquee) || marquee.intersects?.(world)) return true;
+    } catch (_) {}
+    for (const marqueeSegment of marqueeSegments) {
+      const endpoints = segmentEndpoints(marqueeSegment);
+      if (endpoints && (world.contains?.(endpoints.start) || world.contains?.(endpoints.end))) return true;
+    }
+    // Covers a fully enclosed item and the inverse case (marquee enclosed by
+    // a concave/compound owner) without relying on a centre-point heuristic.
+    const probes = [
+      worldBounds.center,
+      ...worldSegments.flatMap(segment => {
+        const endpoints = segmentEndpoints(segment);
+        return endpoints ? [endpoints.start, endpoints.end] : [];
+      }),
+      marqueeBounds.topLeft, marqueeBounds.topRight,
+      marqueeBounds.bottomRight, marqueeBounds.bottomLeft
+    ];
+    return probes.some(point => marquee.contains?.(point) || world.contains?.(point));
   } catch (_) { return false; }
-  finally { try { world.remove?.(); } catch (_) {} }
+  finally {
+    try { world.remove?.(); } catch (_) {}
+    try { if (marquee && marquee !== marqueeWorldPath) marquee.remove?.(); } catch (_) {}
+  }
 }
 
 export function selectionFrame(ownerOrOwners) {
