@@ -99,12 +99,15 @@ export function dispatchEKKOCommand(command, element = null) {
 }
 
 function installCommandDispatcher() {
-    const workspace = document.getElementById("workspace");
-    if (!workspace || commandDispatcherInstalled) return;
+    // Listen on document, not #workspace: the floating contextual toolbar is
+    // moved to document.body at runtime (contextualMenu.js), so workspace
+    // scoped clicks never reach its [data-ekko-command] buttons (Rellenar,
+    // Desagrupar, Descomponer...). The selector already scopes the handler.
+    if (commandDispatcherInstalled) return;
 
-    workspace.addEventListener("click", event => {
+    document.addEventListener("click", event => {
         const element = event.target?.closest?.("[data-ekko-command]");
-        if (!element || !workspace.contains(element)) return;
+        if (!element || !document.contains(element)) return;
         if (element.disabled || element.classList.contains("ekko-command-hidden")) return;
 
         // Capture declared commands before any future inline/bubble handler.
