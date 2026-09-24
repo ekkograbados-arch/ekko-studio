@@ -56,7 +56,10 @@ import "./modules/canvas-pro/ownerGraph.js"; // Cadena única de owners público
 import "./modules/canvas-pro/fusionCore.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
+import { toggleOwnerOutline } from "./modules/canvas-pro/outlineGeometry.js";
 import { convertSelectionToCalado, canConvertSelectionToCalado, convertSelectionToSolid } from "./modules/canvas-pro/calado.js";
+import "./modules/canvas-pro/booleanOperations.js";
+import { runGeometryAudit } from "./modules/canvas-pro/geometryAudit.js";
 // backgroundRemover.js permanece desactivado hasta que la IA local esté habilitada.
 // import './modules/canvas-pro/backgroundRemover.js';
 // ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
@@ -138,31 +141,49 @@ window.zoomToFit = function() {
   return { zoom: paper.view.zoom, center: target.center.clone() };
 };
 
-window.toggleOutline = function() {
-  const selected = Array.isArray(window.selectedItems) && window.selectedItems.length
-    ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
-  if (!selected.length) return null;
-  selected.forEach(item => {
-    const target = getPublicOwner(item);
-    if (!target) return;
-    if (target.__ekkoOutlineSnapshot) {
-      const snap = target.__ekkoOutlineSnapshot;
-      target.fillColor = snap.fillColor;
-      target.strokeColor = snap.strokeColor;
-      target.strokeWidth = snap.strokeWidth;
-      delete target.__ekkoOutlineSnapshot;
-    } else {
-      target.__ekkoOutlineSnapshot = {
-        fillColor: target.fillColor?.clone?.() || target.fillColor,
-        strokeColor: target.strokeColor?.clone?.() || target.strokeColor,
-        strokeWidth: target.strokeWidth
-      };
-      target.fillColor = null;
-      target.strokeColor = new paper.Color("#334155");
-      target.strokeWidth = Math.max(1 / (paper.view.zoom || 1), 0.5);
+window.toggleOutline = function(item = null) {
+  const selected = item
+    ? [item]
+    : (Array.isArray(window.selectedItems) && window.selectedItems.length
+      ? window.selectedItems
+      : (window.selectedItem ? [window.selectedItem] : []));
+  const owners = [];
+  const seen = new Set();
+  selected.forEach(raw => {
+    const candidates = getPublicOwners([raw]);
+    const owner = candidates.find(candidate => candidate &&
+      ["Path", "CompoundPath", "Shape"].includes(candidate.className) &&
+      candidate.data?.geomBase && candidate.data?.isCutLine !== true) ||
+      getPublicOwner(raw);
+    if (owner && !seen.has(owner) && !owner.data?.locked &&
+        ["Path", "CompoundPath", "Shape"].includes(owner.className)) {
+      seen.add(owner);
+      owners.push(owner);
     }
   });
+  if (!owners.length) return null;
+  if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
+    window.exitNodeEditMode(true);
+  }
+  if (typeof window.saveHistory === 'function') window.saveHistory();
+  const width = Number(document.getElementById("ctxOutlineWidth")?.value) || 2;
+  const side = document.getElementById("ctxOutlineSide")?.value || "center";
+  const results = [];
+  owners.forEach(owner => {
+    const result = toggleOwnerOutline(owner, { width, side, skipHistory: true });
+    if (result) results.push(result);
+  });
+  if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
+  if (results.length) {
+    window.deselectItem?.();
+    const primary = results[results.length - 1];
+    if (window.commitSelection) window.commitSelection(primary, results);
+    else window.selectItem?.(primary);
+  }
+  window.updateSelectionBox?.(window.selectedItem);
+  window.updateContextualMenu?.(window.selectedItem);
   paper.view.update();
+  return results;
 };
 
 // Saneamiento de variables y namespaces globales
@@ -744,31 +765,88 @@ window.rehydrateSceneRuntime = rehydrateSceneRuntime;
 
 // Sincronizador en mm para UI y cotas
 function updateSelectionInfo() {
-  if (!window.selectedItem) {
-    const selInfo = document.getElementById("selectionInfo");
-    const objW = document.getElementById("objWidth");
-    const objH = document.getElementById("objHeight");
-    if (selInfo) {
-      const active = window.EKKO_ACTIVE_PRODUCT;
-      selInfo.textContent = active
-        ? `${active.name} — ${active.surface}`
-        : "Nada seleccionado";
-    }
-    if (objW) objW.value = "";
-    if (objH) objH.value = "";
-    return;
-  }
-  const displayItem = getPublicOwner(window.selectedItem);
   const selInfo = document.getElementById("selectionInfo");
   const objW = document.getElementById("objWidth");
   const objH = document.getElementById("objHeight");
-  if (displayItem && selInfo) {
-    selInfo.textContent = displayItem.data?.label || "Objeto";
-    if (objW) objW.value = (displayItem.bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
-    if (objH) objH.value = (displayItem.bounds.height * (window.mmPerPaperUnit || 1.0)).toFixed(1);
+  const ctxW = document.getElementById("ctxWidth");
+  const ctxH = document.getElementById("ctxHeight");
+  const items = (Array.isArray(window.selectedItems) && window.selectedItems.length) ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
+  if (!items.length) {
+    if (selInfo) {
+      const active = window.EKKO_ACTIVE_PRODUCT;
+      selInfo.textContent = active ? `${active.name} — ${active.surface}` : "Nada seleccionado";
+    }
+    if (objW) objW.value = "";
+    if (objH) objH.value = "";
+    if (ctxW) ctxW.value = "";
+    if (ctxH) ctxH.value = "";
+    window._sizeLockRatio = null;
+    return;
   }
+  let bounds = null;
+  items.forEach(it=>{
+    const disp = getPublicOwner(it) || it;
+    if (!disp || !disp.bounds) return;
+    const b = disp.bounds;
+    if (!bounds) bounds = b.clone(); else bounds = bounds.unite(b);
+  });
+  if (!bounds) return;
+  const wMm = (bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
+  const hMm = (bounds.height * (window.mmPerPaperUnit || 1.0)).toFixed(1);
+  if (selInfo) selInfo.textContent = items.length===1 ? (getPublicOwner(items[0])?.data?.label || "Objeto") : `${items.length} objetos`;
+  if (objW) objW.value = wMm;
+  if (objH) objH.value = hMm;
+  if (ctxW) ctxW.value = wMm;
+  if (ctxH) ctxH.value = hMm;
+  const wNum = parseFloat(wMm), hNum = parseFloat(hMm);
+  if (wNum>0 && hNum>0) window._sizeLockRatio = wNum / hNum;
+  if (typeof window._sizeLockEnabled === 'undefined') window._sizeLockEnabled = true;
 }
 window.updateSelectionInfo = updateSelectionInfo;
+
+// --- Tamaño numérico con candado (An/Al) ---
+window._sizeLockEnabled = true;
+function applySizeFromInputs(changedDim, newMm) {
+  const items = (Array.isArray(window.selectedItems) && window.selectedItems.length) ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
+  if (!items.length) return;
+  let bounds = null;
+  items.forEach(it=>{ const d=getPublicOwner(it)||it; if(!d||!d.bounds) return; const b=d.bounds; if(!bounds) bounds=b.clone(); else bounds=bounds.unite(b); });
+  if (!bounds || bounds.width<=0 || bounds.height<=0) return;
+  const curW = bounds.width * (window.mmPerPaperUnit||1);
+  const curH = bounds.height * (window.mmPerPaperUnit||1);
+  let targetW = curW, targetH = curH;
+  if (changedDim==='w') { targetW=newMm; if (window._sizeLockEnabled && window._sizeLockRatio) targetH = targetW / window._sizeLockRatio; }
+  else { targetH=newMm; if (window._sizeLockEnabled && window._sizeLockRatio) targetW = targetH * window._sizeLockRatio; }
+  if (targetW<=0 || targetH<=0) return;
+  const sx = targetW / curW, sy = targetH / curH;
+  const center = bounds.center;
+  if (typeof window.saveHistory==='function') window.saveHistory();
+  items.forEach(it=>{
+    const disp=getPublicOwner(it)||it;
+    if (!disp) return;
+    const tr = disp.globalMatrix || disp.matrix;
+    // escalar alrededor del centro del bloque
+    const localCenter = disp.parent ? disp.parent.globalMatrix.inverted().transform(center) : center;
+    disp.scale(sx, sy, localCenter);
+    if (disp.data && disp.data.geomBase) { try{ disp.data.geomBase.scale(sx,sy, disp.data.geomBase.bounds.center); }catch(e){} }
+  });
+  if (typeof window.updateSelectionBox==='function') window.updateSelectionBox(items[items.length-1]);
+  if (typeof window.drawMeasurements==='function') window.drawMeasurements();
+  window.updateSelectionInfo();
+  if (paper && paper.view) paper.view.update();
+  if (typeof window.commitHistoryTransaction==='function') window.commitHistoryTransaction('size-input');
+}
+function initSizeInputs(){
+  const w1=document.getElementById('objWidth'), h1=document.getElementById('objHeight'), l1=document.getElementById('btnToggleLock');
+  const w2=document.getElementById('ctxWidth'), h2=document.getElementById('ctxHeight'), l2=document.getElementById('btnCtxToggleLock');
+  const setLockUI=()=>{ const on=!!window._sizeLockEnabled; [l1,l2].forEach(b=>{ if(!b) return; b.textContent= on?'🔒':'🔓'; b.style.background= on?'#e0f2fe':'#fff'; b.title= on?'Bloqueado (proporción)':'Libre';}); };
+  const bind=(w,h)=>{ if(!w||!h) return; w.addEventListener('change',()=>{ const v=parseFloat(w.value); if(isFinite(v)) applySizeFromInputs('w', v); }); h.addEventListener('change',()=>{ const v=parseFloat(h.value); if(isFinite(v)) applySizeFromInputs('h', v); }); };
+  bind(w1,h1); bind(w2,h2);
+  [l1,l2].forEach(b=>{ if(!b) return; b.addEventListener('click',()=>{ window._sizeLockEnabled=!window._sizeLockEnabled; setLockUI(); }); });
+  setLockUI();
+}
+if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', initSizeInputs); else setTimeout(initSizeInputs, 600);
+
 
 function updateLockButton() {
   const btnLock = document.getElementById("btnToggleLock");
@@ -1282,13 +1360,26 @@ export function addSVGFromFile(file, pointOrOptions = null) {
           function sanitizeAndBakeVectors(node) {
             if (!node) return;
             if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+              const sourceData = node.data || {};
               node.visible = true;
               node.opacity = 1.0;
-              if (node.strokeColor) {
+              // `fill="none"` is meaningful SVG paint semantics, not a
+              // request to invent a filled mass. Preserve it so open/stroke
+              // only artwork can later be treated as a real cut line.
+              if (sourceData.sourceFillNone === true) {
+                node.fillColor = null;
+                if (!sourceData.sourceStrokeNone && !node.strokeColor) {
+                  node.strokeColor = new paper.Color('#111827');
+                }
+              } else if (node.strokeColor) {
                 node.strokeScaling = false;
                 if (!node.strokeWidth || node.strokeWidth < 1.0) node.strokeWidth = 1.2;
               } else if (!node.fillColor) {
                 node.fillColor = new paper.Color('#111827');
+              }
+              if (sourceData.sourceStrokeNone === true) {
+                node.strokeColor = null;
+                node.strokeWidth = 0;
               }
             }
             if (node.children && node.children.length > 0) node.children.forEach(sanitizeAndBakeVectors);
@@ -2080,6 +2171,10 @@ async function bootstrapEKKO() {
 // Curvar Texto se enlaza en contextualMenu.js mediante un dispatcher único.
 
     
+    safeAddListener("btnAuditVectors", "click", () => {
+        runGeometryAudit();
+    });
+
     safeAddListener("btnAddQR", "click", () => {
       const text = prompt("Ingrese el texto o enlace (Instagram, WhatsApp, WiFi) para el codigo QR:", "https://www.instagram.com/grabados_ekko/");
       if (text && text.trim() !== "") {
