@@ -15,6 +15,7 @@ import {
     updateFusionRecord
 } from "./fusionCore.js";
 import { syncFusionVirtualHole } from "./fusionController.js";
+import { installOwnerGeometry } from "./geometricUngroup.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 function selectedItems() {
@@ -85,7 +86,7 @@ function markHole(target) {
     if (!target) return null;
     const sourceData = target.data || {};
     if (sourceData.originalIsHole === true || sourceData.contourRole === "hole" || sourceData.isHole === true) {
-        return target;
+        if (sourceData.filledFromHole !== true) return target;
     }
     const previousFill = target.data?.originalFillColor?.clone?.() || target.fillColor?.clone?.();
     const previousStroke = target.data?.originalStrokeColor?.clone?.() || target.strokeColor?.clone?.();
@@ -96,6 +97,7 @@ function markHole(target) {
         ...(target.data || {}),
         isHole: true,
         isCalado: true,
+        filledFromHole: false,
         isFusionReceptor: true,
         isSolidShape: false,
         csgMaterialized: false,
@@ -125,18 +127,19 @@ function markHole(target) {
     target.strokeColor = null;
     target.strokeWidth = 0;
     target.opacity = 1;
-    target.visible = false;
+    target.visible = true;
     return ensureMockupContainment(target);
 }
 
 function markFusionHole(fusion) {
-    if (!fusion || fusion.data?.originalIsHole === true) return false;
+    if (!fusion || (fusion.data?.originalIsHole === true && fusion.data?.filledFromHole !== true)) return false;
     setSemanticKind(fusion, VECTOR_KIND.HOLE);
     const currentMask = fusion.children?.find(child => child?.clipMask || child?.data?.isFusionMask);
     fusion.data = {
         ...(fusion.data || {}),
         isHole: true,
         isCalado: true,
+        filledFromHole: false,
         originalIsHole: true,
         receiverKind: "hole",
         fusionMode: "intersecar",
@@ -162,38 +165,30 @@ function markFusionHole(fusion) {
 function restoreSolidGeometry(target) {
     if (!target) return null;
     const base = target.data?.geomBase;
+    let owner = target;
     if (base?.clone) {
         const clone = base.clone({ insert: false });
-        if (target instanceof paper.Path && clone instanceof paper.Path) {
-            target.removeSegments();
-            target.addSegments(clone.segments);
-            clone.remove();
-        } else {
-            target.removeChildren?.();
-            if (clone instanceof paper.CompoundPath) {
-                target.addChildren(clone.removeChildren());
-                clone.remove();
-            } else {
-                target.addChild?.(clone);
-            }
-        }
+        // geomBase is owner-local; do not apply the owner's inverse matrix a
+        // second time. installOwnerGeometry also handles Path -> CompoundPath
+        // replacement and updates wrapper/selection references when needed.
+        owner = installOwnerGeometry(owner, clone, true) || owner;
     }
-    setSemanticKind(target, VECTOR_KIND.SOLID);
-    target.data = {
-        ...(target.data || {}),
+    setSemanticKind(owner, VECTOR_KIND.SOLID);
+    owner.data = {
+        ...(owner.data || {}),
         isHole: false,
         isSolidShape: true,
         isCalado: false,
         filledFromHole: true,
         csgMaterialized: false,
         label: "Relleno",
-        originalFillColor: target.data?.originalFillColor || new paper.Color("#111827")
+        originalFillColor: owner.data?.originalFillColor || new paper.Color("#111827")
     };
-    target.fillColor = target.data.originalFillColor.clone?.() || target.data.originalFillColor;
-    target.strokeColor = target.data.originalStrokeColor?.clone?.() || null;
-    target.strokeWidth = target.data.originalStrokeWidth || 0;
-    target.visible = true;
-    return target;
+    owner.fillColor = owner.data.originalFillColor.clone?.() || owner.data.originalFillColor;
+    owner.strokeColor = owner.data.originalStrokeColor?.clone?.() || null;
+    owner.strokeWidth = owner.data.originalStrokeWidth || 0;
+    owner.visible = true;
+    return owner;
 }
 
 export function convertSelectionToSolid(item = null) {
