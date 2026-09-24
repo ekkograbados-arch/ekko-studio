@@ -380,14 +380,17 @@ export function canConvertToCalado(item) {
   if (!item || isProductElement(item)) return false;
   const d = item.data || {};
 
-  // Original/source-derived holes are already physical cutters.  Calado must
-  // never mutate their identity into a synthetic calado or alpha-zero path.
-  if (d.originalIsHole === true || d.contourRole === "hole" || d.isHole === true) return false;
+  // A source hole can be filled and later explicitly cut again. The
+  // filledFromHole marker is the reset boundary; without it, source metadata
+  // would permanently block a second Calado operation.
+  const wasFilled = d.filledFromHole === true;
+  if (!wasFilled && (d.originalIsHole === true || d.contourRole === "hole" || d.isHole === true)) return false;
   if (d.isCalado === true) return false;
 
-  // A fusion is eligible only when it is a genuine solid fusion.  Being a
+  // A fusion is eligible only when it is a genuine solid fusion. Being a
   // receptor alone is not evidence that a solid can be converted.
   if (d.isSmartFusion || d.fusionId) {
+    if (wasFilled) return d.isSolidShape === true;
     return d.originalIsHole !== true && d.receiverKind !== "hole" &&
       d.isHole !== true && (d.fusionMode !== "calar" || d.isSolidShape === true || d.originalIsHole === false);
   }
