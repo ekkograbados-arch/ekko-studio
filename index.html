@@ -150,10 +150,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div class="top-group">
-                <button class="btn-action" onclick="downloadExportedSVG()" title="Descargar SVG para LightBurn">
-                    <i class="fas fa-download"></i> Descargar SVG
-                </button>
-                <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
+                <button class="btn-action" id="btnAuditVectors" title="Auditar vectores, huecos reales y líneas de corte"><i class="fas fa-clipboard-check"></i> Auditar Vectores</button>
+                 <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
                     <i class="fas fa-expand"></i> Ajustar Vista
                 </button>
                 <button data-fusion-btn="rulers" class="btn-action" onclick="toggleRulers()">
@@ -226,8 +224,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <div class="toolbar-divider"></div>
                 <!-- UNIÓN / SUSTRACCIÓN -->
                 <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxBooleanUnion" style="display: none;"><i class="fas fa-plus-square"></i> Unión</button>
-                    <button class="toolbar-btn" id="btnCtxSubtract" style="display: none;"><i class="fas fa-minus-square"></i> Sustracción</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanUnion" data-fusion-btn="booleanUnion" data-ekko-command="unionSelected" title="Unir vectores superpuestos (operación booleana real)"><i class="fas fa-plus-square"></i> Unión</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanIntersect" data-fusion-btn="booleanIntersect" data-ekko-command="intersectSelected" title="Intersecar vectores"><i class="fas fa-circle-notch"></i> Intersecar</button>
+                     <button class="toolbar-btn" id="btnCtxSubtract" data-fusion-btn="booleanSubtract" data-ekko-command="subtractSelected"><i class="fas fa-minus-square"></i> Sustracción</button>
                 </div>
                 <!-- CONTROL TEXTO -->
                 <div id="ctxTextControls" class="toolbar-subgroup hidden">
@@ -256,7 +255,24 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
                 </div>
                 <!-- PANEL EDICIÓN DE NODOS -->
-                <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
+                    <!-- CONTORNO REAL: el grosor se convierte en geometría, no en un stroke visual -->
+                 <div id="ctxOutlineControls" class="toolbar-subgroup hidden">
+                     <label class="toolbar-number-label" title="Grosor del contorno">Grosor
+                         <input id="ctxOutlineWidth" type="number" min="0.1" max="100" step="0.1" value="2" class="toolbar-input-number">
+                     </label>
+                     <label class="toolbar-number-label" title="Posición del contorno">Posición
+                         <select id="ctxOutlineSide" class="toolbar-select">
+                             <option value="center">Centrado</option>
+                             <option value="inside">Interior</option>
+                             <option value="outside">Exterior</option>
+                         </select>
+                     </label>
+                     <button class="toolbar-btn" id="btnCtxApplyOutline" title="Crear contorno vectorial real">
+                         <i class="fas fa-vector-square"></i> Aplicar Contorno
+                     </button>
+                 </div>
+                 <!-- PANEL EDICIÓN DE NODOS -->
+             <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
                     <button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
                 </div>
