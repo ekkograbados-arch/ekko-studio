@@ -45,33 +45,34 @@ export function setMeasurementsVisibility(visible) {
 }
 
 // Dibuja una línea de cota con flechas y texto en milímetros
-function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
+function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#1e3a5f") {
     if (!window.paper || !measurementsGroup) return;
 
-    const zoom = paper.view.zoom;
-    const arrowSize = 5 / zoom; // Ajustar tamaño físico de la flecha con el zoom
+    const zoom = paper.view.zoom || 1;
+    const z = Math.sqrt(zoom);
+    const arrowSize = Math.max(5, 6 / z);
 
     // Puntos de la línea de cota desplazada
     const dp1 = p1.add(offsetVector);
     const dp2 = p2.add(offsetVector);
 
     // 1. Líneas de extensión desde los límites del objeto hasta la línea de cota
-    const extLine1 = new paper.Path.Line(p1, dp1.add(offsetVector.normalize(2 / zoom)));
+    const extLine1 = new paper.Path.Line(p1, dp1.add(offsetVector.normalize(2 / Math.sqrt(zoom))));
     extLine1.strokeColor = color;
-    extLine1.strokeWidth = 0.8 / zoom;
-    extLine1.opacity = 0.5;
+    extLine1.strokeWidth = Math.max(0.9, 1.1 / Math.sqrt(zoom));
+    extLine1.opacity = 0.85;
     measurementsGroup.addChild(extLine1);
 
-    const extLine2 = new paper.Path.Line(p2, dp2.add(offsetVector.normalize(2 / zoom)));
+    const extLine2 = new paper.Path.Line(p2, dp2.add(offsetVector.normalize(2 / Math.sqrt(zoom))));
     extLine2.strokeColor = color;
-    extLine2.strokeWidth = 0.8 / zoom;
-    extLine2.opacity = 0.5;
+    extLine2.strokeWidth = Math.max(0.9, 1.1 / Math.sqrt(zoom));
+    extLine2.opacity = 0.85;
     measurementsGroup.addChild(extLine2);
 
     // 2. Línea de dimensión principal
     const dimLine = new paper.Path.Line(dp1, dp2);
     dimLine.strokeColor = color;
-    dimLine.strokeWidth = 1 / zoom;
+    dimLine.strokeWidth = Math.max(1.4, 1.6 / Math.sqrt(zoom));
     measurementsGroup.addChild(dimLine);
 
     // 3. Flechas de cota
@@ -86,7 +87,7 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
             dp1.add(lineNormal.rotate(-30).multiply(arrowSize))
         ],
         strokeColor: color,
-        strokeWidth: 1 / zoom
+        strokeWidth: Math.max(1.1, 1.4 / Math.sqrt(zoom))
     });
     measurementsGroup.addChild(arrow1);
 
@@ -98,7 +99,7 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
             dp2.subtract(lineNormal.rotate(-30).multiply(arrowSize))
         ],
         strokeColor: color,
-        strokeWidth: 1 / zoom
+        strokeWidth: Math.max(1.1, 1.4 / Math.sqrt(zoom))
     });
     measurementsGroup.addChild(arrow2);
 
@@ -107,24 +108,24 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
     const textStr = typeof mmVal === 'number' ? `${mmVal.toFixed(1)} mm` : mmVal;
 
     const midPoint = dp1.add(dp2).multiply(0.5);
-    const textOffset = offsetVector.normalize(8 / zoom);
+    const textOffset = offsetVector.normalize(10 / Math.sqrt(zoom));
 
     const textEl = new paper.PointText({
         point: midPoint.add(textOffset),
         content: textStr,
         fillColor: color,
-        fontSize: 10 / zoom,
+        fontSize: Math.max(11, 12 / Math.sqrt(zoom)),
         fontFamily: "sans-serif",
         justification: "center"
     });
 
-    // Alinear el texto con la línea sin que nunca quede de cabeza: el
-    // ángulo se normaliza al rango legible [-90, 90]. La versión anterior
-    // sumaba +90/+180 y dejaba las cotas verticales rotadas 180°.
-    const rawAngle = lineVector.angle;
-    const normalized = ((rawAngle % 360) + 360) % 360;
-    const readable = normalized > 90 && normalized <= 270 ? normalized - 180 : normalized;
-    if (readable !== 0) textEl.rotate(readable, textEl.point);
+    // Alinear rotación del texto con el ángulo de la línea para cotas laterales
+    const angle = lineVector.angle;
+    if (Math.abs(angle) > 45 && Math.abs(angle) < 135) {
+        textEl.rotate(angle + 90, textEl.point); // Mantener texto orientado vertical u horizontal
+    } else if (Math.abs(angle) >= 135) {
+        textEl.rotate(angle + 180, textEl.point);
+    }
     measurementsGroup.addChild(textEl);
 }
 
@@ -140,8 +141,8 @@ export function drawMeasurements() {
     measurementsGroup = new paper.Group();
     measurementsGroup.data = { isMeasurement: true, nonSelectable: true };
 
-    const zoom = paper.view.zoom;
-    const offsetMm = 15 / zoom; // Distancia física de las cotas en pantalla respecto al objeto
+    const zoom = paper.view.zoom || 1;
+    const offsetMm = Math.max(14, 18 / Math.sqrt(zoom));
 
     // Mockup/product dimensions are reference metadata, never selection
     // measurements.  Excluding them prevents the product bounds from
@@ -177,9 +178,11 @@ export function drawMeasurements() {
             const toWorld = point => matrix.transform(point);
             const tl = toWorld(local.topLeft), tr = toWorld(local.topRight);
             const br = toWorld(local.bottomRight), bl = toWorld(local.bottomLeft);
-            const offset = new paper.Point(0, offsetMm);
-            drawDimensionLine(tl, tr, offset, tl.getDistance(tr), "#007bff");
-            drawDimensionLine(tr, br, new paper.Point(offsetMm, 0), tr.getDistance(br), "#007bff");
+            const cotaColor = "#1e3a5f";
+            const topOffset = new paper.Point(0, -offsetMm);
+            const rightOffset = new paper.Point(offsetMm, 0);
+            drawDimensionLine(tl, tr, topOffset, tl.getDistance(tr), cotaColor);
+            drawDimensionLine(tr, br, rightOffset, tr.getDistance(br), cotaColor);
         } catch (e) {
             // An invalid transient owner is simply omitted from the overlay.
         } finally {
