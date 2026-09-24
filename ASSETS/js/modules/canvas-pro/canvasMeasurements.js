@@ -118,13 +118,13 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
         justification: "center"
     });
 
-    // Alinear rotación del texto con el ángulo de la línea para cotas laterales
-    const angle = lineVector.angle;
-    if (Math.abs(angle) > 45 && Math.abs(angle) < 135) {
-        textEl.rotate(angle + 90, textEl.point); // Mantener texto orientado vertical u horizontal
-    } else if (Math.abs(angle) >= 135) {
-        textEl.rotate(angle + 180, textEl.point);
-    }
+    // Alinear el texto con la línea sin que nunca quede de cabeza: el
+    // ángulo se normaliza al rango legible [-90, 90]. La versión anterior
+    // sumaba +90/+180 y dejaba las cotas verticales rotadas 180°.
+    const rawAngle = lineVector.angle;
+    const normalized = ((rawAngle % 360) + 360) % 360;
+    const readable = normalized > 90 && normalized <= 270 ? normalized - 180 : normalized;
+    if (readable !== 0) textEl.rotate(readable, textEl.point);
     measurementsGroup.addChild(textEl);
 }
 
