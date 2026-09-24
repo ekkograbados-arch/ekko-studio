@@ -949,6 +949,11 @@ const _initSelectionTool = function() {
         if (selectedOwnerIndex > -1) {
           if (window.selectedItems.length > 1) {
             window._pendingIsolateItem = directHitItem;
+          } else if (directHitItem !== window.selectedItems[0]) {
+            // Un clic sobre un descendiente real de un grupo estructural
+            // debe publicar ese descendiente inmediatamente. Antes, el grupo
+            // exterior interceptaba el clic y el SVG parecía no seleccionable.
+            commitSelectionContext([directHitItem], directHitItem, 'click');
           }
         } else {
           commitSelectionContext([directHitItem], directHitItem, 'click');
@@ -1214,7 +1219,10 @@ const _initSelectionTool = function() {
       const layer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
       if (layer && layer.children) {
         layer.children.forEach(function(item) {
-          if (isMockupOrUI(item)) return;
+          // A containment wrapper is not itself selectable, but it can hold
+          // public client owners. Let collectOwners() descend into it; only
+          // skip true product/UI children here.
+          if (isMockupOrUI(item) && !isContainmentWrapper(item)) return;
           // A design-layer child may be a regular group created by import or
           // Desagrupar. Resolve all semantic public owners recursively; using
           // getPublicOwner(item) here collapses the marquee to that group and
