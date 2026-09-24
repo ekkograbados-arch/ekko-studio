@@ -741,6 +741,17 @@ function collectInternalVirtualHoles(items) {
 // CSG geometry is kept in project coordinates, but a detached SVG hole must
 // never subtract or render outside the active product boundary. The original
 // hole item is not modified; only the temporary boolean operand is confined.
+function bakeGeometryClone(geometry) {
+    const clone = geometry?.clone?.({ insert: false });
+    if (!clone) return null;
+    const matrix = clone.matrix?.clone?.();
+    clone.applyMatrix = false;
+    clone.matrix = new paper.Matrix();
+    if (matrix && !matrix.isIdentity()) clone.transform(matrix);
+    clone.applyMatrix = true;
+    return clone;
+}
+
 function geometryClockwise(geometry) {
     const first = geometry instanceof paper.CompoundPath
         ? (geometry.children?.[0] || null)
@@ -753,24 +764,16 @@ function geometryClockwise(geometry) {
     return true;
 }
 
-function bakeGeometryClone(geometry) {
-    const clone = geometry?.clone?.({ insert: false });
-    if (!clone) return null;
-    const matrix = clone.matrix?.clone?.();
-    clone.applyMatrix = false;
-    clone.matrix = new paper.Matrix();
-    if (matrix && !matrix.isIdentity()) clone.transform(matrix);
-    clone.applyMatrix = true;
-    return clone;
-}
-
 /**
- * Paper.js boolean subtraction expects a positive operand. Decomposed vector
- * owners are CompoundPaths, and a one-child CompoundPath has no reliable
- * `isClockwise()` value; in several font contours that made subtract() return
- * an area larger than the original instead of drilling a hole. Normalize the
- * operand to a simple positive Path (or a same-winding CompoundPath) before
- * every CSG subtraction.
+ * Paper.js boolean subtraction expects consistently oriented operands.
+ * Decomposed vector owners are CompoundPaths, and a one-child CompoundPath
+ * has no reliable `isClockwise()` value; in several font contours that made
+ * subtract() return an area larger than the original instead of drilling a
+ * hole. Normalize the operand to a simple positive Path (or a same-winding
+ * CompoundPath) before every CSG subtraction. Verified load-bearing: without
+ * the uniform orientation, valid small-hole cuts are rejected by the area
+ * check. Rendering safety additionally comes from rebuilding every accepted
+ * result as an even-odd compound (see evenOddResult).
  */
 function normalizeSubtractiveOperand(geometry, reference = null, preserveCompoundTopology = false) {
     if (!geometry) return geometry;
@@ -781,7 +784,6 @@ function normalizeSubtractiveOperand(geometry, reference = null, preserveCompoun
             const path = bakeGeometryClone(sourceChildren[0]);
             if (path) {
                 try { path.setClockwise(targetClockwise); } catch (_) {}
-                path.fillRule = 'nonzero';
                 geometry.remove();
                 return path;
             }
@@ -797,7 +799,6 @@ function normalizeSubtractiveOperand(geometry, reference = null, preserveCompoun
             const compound = new paper.CompoundPath({ insert: false });
             compound.applyMatrix = false;
             compound.matrix = new paper.Matrix();
-            compound.fillRule = 'nonzero';
             sourceChildren.forEach(child => {
                 const normalized = bakeGeometryClone(child);
                 if (!normalized) return;
@@ -811,11 +812,100 @@ function normalizeSubtractiveOperand(geometry, reference = null, preserveCompoun
     const path = bakeGeometryClone(geometry);
     if (path) {
         try { path.setClockwise?.(targetClockwise); } catch (_) {}
-        path.fillRule = 'nonzero';
         geometry.remove();
         return path;
     }
     return geometry;
+}
+
+/**
+ * Rebuild an accepted boolean result as an even-odd compound. Boolean
+ * outputs are disjoint contours, so even-odd renders exactly the intended
+ * material while being immune to per-contour winding quirks.
+ */
+function evenOddResult(geometry) {
+    if (!geometry) return geometry;
+    if (geometry instanceof paper.CompoundPath) {
+        geometry.fillRule = 'evenodd';
+        return geometry;
+    }
+    return geometry;
+}
+
+function interiorPointOf(geometry) {
+    try {
+        const leaf = geometry instanceof paper.CompoundPath
+            ? (geometry.children?.[0] || null)
+            : geometry;
+        const point = leaf?.getInteriorPoint?.();
+        if (point) return point;
+        return geometry.bounds?.center || null;
+    } catch (_) {
+        return geometry?.bounds?.center || null;
+    }
+}
+
+/**
+ * True when a hole cutter actually overlaps a solid's material. Bounds
+ * overlap alone is not enough (grazing contours), and Paper booleans can
+ * miss tiny overlaps, so several sample points of the cutter vote inside
+ * the base under even-odd semantics. Used to excuse spurious candidacies:
+ * a hole with no real overlap never needed a cut from that solid.
+ */
+function contourSamplePoints(geometry, count = 8) {
+    const points = [];
+    try {
+        const leaf = geometry instanceof paper.CompoundPath
+            ? (geometry.children?.[0] || null)
+            : geometry;
+        const length = leaf?.length || 0;
+        if (length > 0) {
+            for (let k = 0; k < count; k++) {
+                const point = leaf.getPointAt((length * k) / count);
+                if (point) points.push(point);
+            }
+        }
+    } catch (_) {}
+    return points;
+}
+
+function holeOverlapsSolid(holeGeom, baseGeom) {
+    if (!holeGeom || !baseGeom) return false;
+    // Either direction counts: a hole grazing a solid, or a small solid
+    // island sitting entirely inside a hole region, both need the cut.
+    const holeProbes = [];
+    const holeInterior = interiorPointOf(holeGeom);
+    if (holeInterior) holeProbes.push(holeInterior);
+    holeProbes.push(...contourSamplePoints(holeGeom));
+    if (!holeProbes.length && holeGeom.bounds?.center) holeProbes.push(holeGeom.bounds.center);
+    if (holeProbes.some(point => evenOddContains(baseGeom, point))) return true;
+    const solidProbes = [];
+    const solidInterior = interiorPointOf(baseGeom);
+    if (solidInterior) solidProbes.push(solidInterior);
+    solidProbes.push(...contourSamplePoints(baseGeom));
+    if (!solidProbes.length && baseGeom.bounds?.center) solidProbes.push(baseGeom.bounds.center);
+    return solidProbes.some(point => evenOddContains(holeGeom, point));
+}
+
+/**
+ * Even-odd point-in-fill over a world-baked geometry. Paper's own
+ * `contains()` is winding-based and unreliable on multi-contour results;
+ * counting leaf containment gives the even-odd answer the renderer uses.
+ */
+function evenOddContains(baseGeometry, point) {
+    if (!baseGeometry || !point) return false;
+    try {
+        const leaves = baseGeometry instanceof paper.CompoundPath
+            ? Array.from(baseGeometry.children || [])
+            : [baseGeometry];
+        let hits = 0;
+        leaves.forEach(leaf => {
+            try { if (leaf?.contains?.(point)) hits += 1; } catch (_) {}
+        });
+        return hits % 2 === 1;
+    } catch (_) {
+        return false;
+    }
 }
 
 function buildEvenOddComposite(baseGeometry, holeEntries) {
@@ -824,6 +914,7 @@ function buildEvenOddComposite(baseGeometry, holeEntries) {
     composite.applyMatrix = false;
     composite.matrix = new paper.Matrix();
     composite.fillRule = 'evenodd';
+    const included = [];
     const append = geometry => {
         if (!geometry) return;
         if (geometry instanceof paper.CompoundPath) {
@@ -837,8 +928,46 @@ function buildEvenOddComposite(baseGeometry, holeEntries) {
         }
     };
     append(baseGeometry.clone?.({ insert: false }) || baseGeometry);
-    holeEntries.forEach(entry => append(entry.geom?.clone?.({ insert: false }) || entry.geom));
-    return composite.children.length > 1 ? composite : null;
+    holeEntries.forEach(entry => {
+        const hole = entry.geom?.clone?.({ insert: false }) || entry.geom;
+        if (!hole) return;
+        // Clip the cutter to the solid. A hole contour that merely overlaps
+        // the solid bounds would otherwise paint stray fill outside the
+        // material once composed under even-odd.
+        let clipped = null, clipFailed = false;
+        try {
+            const clipBase = baseGeometry.clone?.({ insert: false });
+            if (clipBase) {
+                clipped = clipBase.intersect(hole, { insert: false });
+                clipBase.remove();
+            }
+        } catch (_) { clipFailed = true; clipped = null; }
+        if (clipped && Math.abs(clipped.area || 0) > 1e-12) {
+            append(clipped);
+            try { hole.remove(); } catch (_) {}
+            included.push(entry);
+            return;
+        }
+        if (clipped) { try { clipped.remove(); } catch (_) {} }
+        if (!clipFailed) {
+            // Empty clip with a working boolean: the cutter is genuinely
+            // outside this solid. Skipping it (instead of appending the
+            // whole contour) avoids a stray filled speck. When the interior
+            // still votes inside, it is a Paper precision miss: keep it.
+            const interior = interiorPointOf(hole);
+            if (interior && !evenOddContains(baseGeometry, interior)) {
+                try { hole.remove(); } catch (_) {}
+                return;
+            }
+        }
+        append(hole);
+        included.push(entry);
+    });
+    if (composite.children.length <= 1) {
+        try { composite.remove(); } catch (_) {}
+        return null;
+    }
+    return { composite, included };
 }
 
 // CSG geometry is kept in project coordinates, but a detached SVG hole must
@@ -1378,7 +1507,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         areaDelta: metrics.areaDelta, tolerance: metrics.tolerance,
                         rejection: accepted ? null : (!metrics.validArea ? 'area' : (testSegments < 3 ? 'segments' : 'bounds')) });
                     if (accepted) {
-                        finalSubtracted = testSub;
+                        finalSubtracted = evenOddResult(testSub);
                         intersectingHoles.forEach(entry => {
                             successfulCuts.push({ holeKey: entry.holeKey, virtual: entry.virtual === true });
                         });
@@ -1442,12 +1571,16 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 }
             }
             if (!finalSubtracted) {
-                const composite = buildEvenOddComposite(pristineBase, intersectingHoles);
+                const built = buildEvenOddComposite(pristineBase, intersectingHoles);
+                const composite = built?.composite || null;
                 if (composite) {
                     currentProgress.remove();
                     finalSubtracted = composite;
+                    const includedSet = new Set(built.included || []);
                     intersectingHoles.forEach(entry => {
-                        successfulCuts.push({ holeKey: entry.holeKey, virtual: entry.virtual === true });
+                        if (includedSet.has(entry)) {
+                            successfulCuts.push({ holeKey: entry.holeKey, virtual: entry.virtual === true });
+                        }
                     });
                     csgTraceOperation(tracePass, 'subtract.evenodd-fallback', {
                         accepted: true,
@@ -1455,7 +1588,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         contourCount: composite.children?.length || 0
                     });
                 } else if (madeProgress) {
-                    finalSubtracted = currentProgress;
+                    finalSubtracted = evenOddResult(currentProgress);
                 }
             }
             if (!finalSubtracted) currentProgress.remove();
@@ -1490,6 +1623,19 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         } else {
             solid.data.csgMaterialized = false;
         }
+        // Excuse spurious candidacies: a hole with no actual overlap with
+        // this solid never needed a cut from it. Without this, a grazing
+        // contour (bounds overlap, zero material overlap) would stay
+        // required forever and falsely block the scene/export.
+        try {
+            intersectingHoles.forEach(entry => {
+                if (!entry || entry.virtual) return;
+                if (successfulHoleTargets.get(entry.holeKey)?.has(solidKey)) return;
+                if (!holeOverlapsSolid(entry.geom, pristineBase)) {
+                    requiredHoleTargets.get(entry.holeKey)?.delete(solidKey);
+                }
+            });
+        } catch (_) {}
         pristineBase.remove();
         intersectingHoles.forEach(entry => { try { entry.geom.remove(); } catch(e) {} });
     }
@@ -1660,149 +1806,3 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         return parent || null;
     }
     nodes.forEach(node => {
-        const owner = nearestSolidOwner(node);
-        node.containmentScope = containmentScope;
-        node.containmentKey = `${containmentScope}:${node.id}`;
-        node.ownerContainmentKey = owner
-            ? `${containmentScope}:${owner.id}`
-            : null;
-    });
-
-nodes.sort((a, b) => {
-  const rootA = getRootNode(a);
-  const rootB = getRootNode(b);
-  if (rootA !== rootB) {
-    // ✅ REGLA ABSOLUTA: El orden de apilamiento viene del docOrder original.
-    // Los objetos que aparecían primero en el SVG quedan atrás (abajo en Z).
-    return a.docOrder - b.docOrder;
-  }
-  // Dentro de la misma jerarquía: ancestros primero (para que los contenedores
-  // se inserten antes que sus contenidos y queden atrás en Z).
-  if (isAncestorOf(a, b)) return -1;
-  if (isAncestorOf(b, a)) return 1;
-  // Mismo nivel: orden por docOrder original
-  return a.docOrder - b.docOrder;
-});
-
-    const resultingItems = [];
-
-    nodes.forEach((node) => {
-        const isHole = node.isHole;
-        const compoundItem = new paper.CompoundPath({ insert: false });
-        // flattenToAtomicPaths bakes the complete source-to-project matrix
-        // into path segments.  Keep the new owner identity-free (identity
-        // matrix), while explicitly retaining even-odd topology.
-        const pathClone = node.path.clone({ insert: false });
-        pathClone.applyMatrix = false;
-        compoundItem.addChild(pathClone);
-        compoundItem.fillRule = node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd";
-
-        const geomBase = new paper.CompoundPath({ insert: false });
-        geomBase.applyMatrix = false;
-        const baseClone = node.path.clone({ insert: false });
-        baseClone.applyMatrix = false;
-        geomBase.addChild(baseClone);
-        geomBase.matrix = new paper.Matrix();
-        geomBase.fillRule = node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd";
-        compoundItem.applyMatrix = false;
-        compoundItem.matrix = ownerMatrix.clone();
-
-        compoundItem.data = {
-            locked: false,
-            label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
-            semanticKind: isHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID,
-            isHole: isHole,
-            isSolidShape: !isHole,
-            isFusionReceptor: isHole,
-            fillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
-            originalFillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
-            preserveCompoundTopology: true,
-            contourIndex: node.id,
-            sourceContourIndex: node.path.data?.sourceContourIndex ?? node.id,
-            contourDepth: node.depth,
-            contourRole: isHole ? "hole" : "outer",
-            originalIsHole: typeof node.path.data?.originalIsHole === "boolean" ? node.path.data.originalIsHole : isHole,
-            source: node.path.data?.source || rootTarget.data?.source,
-            userImported: node.path.data?.userImported ?? rootTarget.data?.userImported,
-            // A decomposed path is a new public owner; never inherit a
-            // text-vector/fusion id that would alias the removed wrapper.
-            fusionId: null,
-            geomBase: geomBase,
-            layerDepth: node.depth,
-            containmentId: node.id,
-            containmentScope: node.containmentScope,
-            containmentKey: node.containmentKey,
-            ownerContainmentKey: node.ownerContainmentKey,
-            decomposedLayer: true
-        };
-
-        if (isHole) {
-            compoundItem.data.originalFillColor = node.path.data?.originalFillColor?.clone?.() || null;
-            compoundItem.data.originalStrokeColor = node.path.data?.originalStrokeColor?.clone?.() || null;
-            compoundItem.data.originalStrokeWidth = node.path.data?.originalStrokeWidth || 0;
-            applyHoleVisualStyle(compoundItem);
-        } else {
-            compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
-            compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
-            compoundItem.strokeWidth = node.path.data?.originalStrokeWidth || rootTarget.strokeWidth || 0;
-        }
-
-        resultingItems.push(compoundItem);
-        node.path.remove();
-    });
-
-    const finalDeliveredItems = [];
-    resultingItems.forEach(item => {
-        let finalItem = item;
-        if (shouldClip && typeof window !== 'undefined' && typeof window.clipItem === 'function') {
-            finalItem = window.clipItem(item);
-        }
-        if (targetLayer) {
-            targetLayer.addChild(finalItem);
-            if (window.currentMockup) {
-                finalItem.insertBelow(window.currentMockup);
-            }
-        }
-        
-        // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
-        if (finalItem !== item) {
-            if (!finalItem.data) finalItem.data = {};
-            const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
-            finalItem.data = { ...finalItem.data, role: "mockup-containment", clipGroup: true,
-                publicOwnerId: ownerId, isHole: undefined, geomBase: undefined };
-            item.data = { ...(item.data || {}), publicOwner: true, ownerId };
-        }
-
-        // Return/commit only the public owner. The containment wrapper remains
-        // a clipping implementation detail and is never public selection.
-        finalDeliveredItems.push(getPublicOwner(finalItem) || item);
-    });
-
-    rootTarget.remove();
-
-    if (targetLayer) {
-        recalculateDynamicSubtractions(targetLayer);
-    }
-
-    return { handled: true, simple: false, items: finalDeliveredItems };
-}
-
-export function geometricUngroupCompound(item) {
-    return decomposeByContainmentHierarchy(item);
-}
-
-export function geometricUngroupOneLevel(group) {
-    return decomposeByContainmentHierarchy(group);
-}
-
-if (typeof window !== 'undefined') {
-    // Query/explicit opt-in creates the public collector immediately; normal
-    // studio loads leave no trace object and execute the original route.
-    csgTraceForCurrentPass();
-    window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
-    window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
-    window.geometricUngroupCompound = decomposeByContainmentHierarchy;
-    window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
-    window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
-    window.isContainedIn = isContainedIn;
-}
