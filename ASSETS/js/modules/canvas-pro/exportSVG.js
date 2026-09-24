@@ -270,12 +270,13 @@ export async function prepareSVGForExport(options = {}) {
             try { entry.geom.remove(); } catch (e) {}
         });
     }
+    // Export gate: hole owners are EXPECTED in the scene (they are purged
+    // after materialization in step 6). The gate must use the CSG report,
+    // not the mere presence of cutters: a hole with no unresolved targets
+    // (fully cut, or over a material-free notch) must not block export.
     const exportOwners = collectVectorOwners(tempLayer);
-    const unresolvedOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
-    const materializationUnresolvedHoles = Math.max(
-        unresolvedOwners.length,
-        Number(exportCsgReport?.unresolvedHoles || 0)
-    );
+    const holeOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
+    const materializationUnresolvedHoles = Number(exportCsgReport?.unresolvedHoles || 0);
     const failedBooleans = [
         ...(exportCsgReport?.failedBooleans || []),
         ...(exportCsgError ? [{ operation: "csg-recalculate", error: exportCsgError }] : [])
@@ -283,10 +284,11 @@ export async function prepareSVGForExport(options = {}) {
     const csgCompleted = exportCsgReport?.completed === true && !exportCsgError;
     exportCsgReport = {
         ...(exportCsgReport || {}),
-        holeOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE).length,
+        holeOwners: holeOwners.length,
         solidOwners: exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.SOLID).length,
+        outOfProductHoles: (exportCsgReport?.outOfProductHoleKeys || []).length,
         unresolvedHoles: materializationUnresolvedHoles,
-        unresolvedOwnerIds: unresolvedOwners.map(owner => owner.data?.containmentKey || owner.id || null),
+        unresolvedOwnerIds: [...(exportCsgReport?.unresolvedHoleKeys || [])],
         failedBooleans,
         csgCompleted,
         exportReady: csgCompleted && failedBooleans.length === 0 && materializationUnresolvedHoles === 0
@@ -355,12 +357,18 @@ export async function prepareSVGForExport(options = {}) {
             item.opacity = 0;
             return;
         }
-        // Preserve the source rule when it exists.  The old unconditional
-        // evenodd assignment could turn a fusion mask with no style into a
-        // default black path in the exported SVG.
-        if (item instanceof paper.CompoundPath) {
-            const sourceRule = String(item.data?.originalFillRule || item.fillRule || "evenodd").toLowerCase();
-            item.fillRule = sourceRule === "nonzero" || sourceRule === "non-zero" ? "nonzero" : "evenodd";
+        // Boolean outputs are disjoint contours: evenodd and nonzero agree,
+        // except when a contour kept the outer winding (Paper quirk on some
+        // glyph/SVG holes). Anything CSG actually cut is therefore stamped
+        // evenodd. Untouched multi-contour owners keep their source rule so
+        // same-winding nonzero designs (e.g. 008 islands) keep rendering.
+        if (item instanceof paper.CompoundPath && (item.children?.length || 0) > 1) {
+            if (item.data?.csgMaterialized === true) {
+                item.fillRule = "evenodd";
+            } else {
+                const sourceRule = String(item.data?.originalFillRule || item.fillRule || "nonzero").toLowerCase();
+                item.fillRule = sourceRule === "nonzero" || sourceRule === "non-zero" ? "nonzero" : "evenodd";
+            }
         }
         // Asignación de estilo por defecto si carece de color
         if (!item.fillColor && !item.strokeColor) {
@@ -382,31 +390,22 @@ export async function prepareSVGForExport(options = {}) {
 
     let svgString = tempLayer.exportSVG(exportConfig);
 
-    // 9. INYECCIÓN DE DIMENSIONES FÍSICAS EN MILÍMETROS (Garantía de Escala 1:1 en LightBurn)
-    if (typeof svgString === "string" && window.mmPerPaperUnit) {
+    // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
+    // Paper exporta la capa como fragmento <g> sin raíz <svg>; el antiguo
+    // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdían.
+    // Se construye la raíz explícitamente: width/height en mm y viewBox en
+    // unidades de proyecto, de modo que 1 unidad = window.mmPerPaperUnit mm.
+    if (typeof svgString === "string" && svgString.trim() !== "") {
         const bounds = tempLayer.bounds;
-        if (bounds && bounds.width > 0 && bounds.height > 0) {
-            const widthMm = (bounds.width * window.mmPerPaperUnit).toFixed(2);
-            const heightMm = (bounds.height * window.mmPerPaperUnit).toFixed(2);
-            
-            // Reemplazar o inyectar width y height con sufijo "mm" en el tag raíz <svg>
-            svgString = svgString.replace(
-                /<svg\b([^>]*)>/i,
-                (match, attrs) => {
-                    let newAttrs = attrs;
-                    if (/\bwidth="[^"]*"/i.test(newAttrs)) {
-                        newAttrs = newAttrs.replace(/\bwidth="[^"]*"/i, `width="${widthMm}mm"`);
-                    } else {
-                        newAttrs += ` width="${widthMm}mm"`;
-                    }
-                    if (/\bheight="[^"]*"/i.test(newAttrs)) {
-                        newAttrs = newAttrs.replace(/\bheight="[^"]*"/i, `height="${heightMm}mm"`);
-                    } else {
-                        newAttrs += ` height="${heightMm}mm"`;
-                    }
-                    return `<svg${newAttrs}>`;
-                }
-            );
+        const mmPerUnit = Number(window.mmPerPaperUnit) || 0;
+        if (bounds && bounds.width > 0 && bounds.height > 0 && mmPerUnit > 0) {
+            const num = value => Number.isFinite(value) ? value.toFixed(precision) : "0";
+            const widthMm = (bounds.width * mmPerUnit).toFixed(3);
+            const heightMm = (bounds.height * mmPerUnit).toFixed(3);
+            const viewBox = `${num(bounds.x)} ${num(bounds.y)} ${num(bounds.width)} ${num(bounds.height)}`;
+            svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthMm}mm" height="${heightMm}mm" viewBox="${viewBox}">${svgString}</svg>`;
+        } else {
+            svgString = `<svg xmlns="http://www.w3.org/2000/svg">${svgString}</svg>`;
         }
     }
 
