@@ -332,3 +332,19 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <div id="tabSvgTools"></div>
             <div id="tabMultiTools"></div>
         </div>
+    <!-- Cargadores de archivos ocultos -->
+    <input type="file" id="imagePicker" class="hidden-picker" accept="image/*" multiple>
+    <input type="file" id="svgPicker" class="hidden-picker" accept=".svg" multiple>
+
+    <!-- ARRANQUE DEL SISTEMA -->
+    <script src="ASSETS/js/config.js"></script>
+    <script src="ASSETS/js/vendor-opentype.min.js"></script>
+
+    <output id="ekkoRotationPopup" aria-live="polite" aria-label="Rotación actual"></output>
+
+    <script type="module" src="ASSETS/js/editor.js"></script>
+    <script type="module" src="ASSETS/js/modules/canvas-pro/panelCoordinator.js"></script>
+    <script type="module" src="ASSETS/js/modules/canvas-pro/panelCommandBridge.js"></script>
+
+</body>
+</html>
