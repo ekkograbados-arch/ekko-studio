@@ -233,14 +233,6 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
     document.head.appendChild(styleEl);
 }
 
-function removeOverlapTab() {
-    const btnSubtract = document.getElementById('btnCtxSubtract');
-    if (btnSubtract) {
-        btnSubtract.style.display = 'none';
-        btnSubtract.remove();
-    }
-}
-
 function injectFontFaces(fonts) {
     let styleEl = document.getElementById('ekko-dynamic-font-faces');
     if (!styleEl) {
@@ -528,7 +520,6 @@ export function initContextualMenu() {
         document.body.appendChild(toolbar);
     }
 
-    removeOverlapTab();
     populateFontDropdowns();
     makeToolbarDraggable();
 
@@ -737,7 +728,6 @@ function isCurveTextTarget(target) {
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
-    removeOverlapTab();
 
     if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
         setTextCurveVisibility(false);
