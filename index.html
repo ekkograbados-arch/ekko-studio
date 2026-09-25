@@ -245,6 +245,21 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div class="top-group">
+                <button class="btn-action" id="proBtnBooleanUnion" data-ekko-command="booleanUnion" title="Unir formas en una sola">
+                    <i class="fas fa-plus-square"></i> Unión
+                </button>
+                <button class="btn-action" id="proBtnBooleanSubtract" data-ekko-command="booleanSubtract" title="Restar la forma de encima de la de abajo">
+                    <i class="fas fa-minus-square"></i> Restar
+                </button>
+                <button class="btn-action" id="proBtnBooleanIntersect" data-ekko-command="booleanIntersect" title="Conservar solo la parte común">
+                    <i class="fas fa-object-intersect"></i> Intersección
+                </button>
+                <button class="btn-action" id="proBtnBooleanDifference" data-ekko-command="booleanDifference" title="Conservar lo que queda al restar en ambos sentidos">
+                    <i class="fas fa-not-equal"></i> Diferencia
+                </button>
+            </div>
+
+            <div class="top-group">
                 <button data-fusion-btn="removeBg" class="btn-action" onclick="removeBackground()">
                     <i class="fas fa-eraser"></i> Quitar Fondo
                 </button>
@@ -342,12 +357,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button data-fusion-btn="distribute" class="toolbar-btn" onclick="distributeSelection()" title="Distribuir"><i class="fas fa-arrows-alt"></i> Distribuir</button>
                     <button data-fusion-btn="outline" class="toolbar-btn" id="btnCtxContour" title="Contorno"><i class="fas fa-bullseye"></i> Contorno</button>
                 </div>
-                <div class="toolbar-divider"></div>
-                <!-- UNIÓN / SUSTRACCIÓN -->
-                <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxBooleanUnion" style="display: none;"><i class="fas fa-plus-square"></i> Unión</button>
-                    <button class="toolbar-btn" id="btnCtxSubtract" style="display: none;"><i class="fas fa-minus-square"></i> Sustracción</button>
-                </div>
                 <!-- CONTROL TEXTO -->
                 <div id="ctxTextControls" class="toolbar-subgroup hidden">
                     <select id="ctxFontSelector" class="toolbar-select"></select>
@@ -436,3 +445,5 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
 
 </body>
 </html>
+
+
