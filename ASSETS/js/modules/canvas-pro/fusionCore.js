@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from "https://cdn.skypack.dev/uuid@9.0.0";
-import { getPublicOwner } from "./designGeometry.js";
+import { getPublicOwner, getPublicOwners } from "./designGeometry.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 // Almacén central de fusiones
@@ -7,8 +7,9 @@ const _fusionRegistry = new Map();
 
 // ===== Clasificación de elementos =====
 export function isProductElement(item) {
-  if (!item?.data) return false;
-  const d = item.data;
+  if (!item) return false;
+  const d = item.data || {};
+  if (item.locked === true || d.locked === true) return true;
   return !!(
     d.productTemplate ||
     d.systemGenerated ||
@@ -36,6 +37,7 @@ export function isValidFusionReceptor(item) {
   if (!item) return false;
   if (isProductElement(item)) return false;
   const d = item.data || {};
+  if (d.isFusionMask === true || d.isSmartFusion === true) return false;
   return !!(
     d.isFusionReceptor ||
     d.isHole === true ||
@@ -82,36 +84,63 @@ function isVectorItem(item) {
 
 export function findFusionRaster(item) {
   if (!item) return null;
-  const owner = getPublicOwner(item) || item;
-  if (isRasterItem(owner)) return owner;
+  const directOwner = getPublicOwner(item) || item;
+  if (isRasterItem(directOwner)) return directOwner;
 
-  // Descend only through a real fusion owner. A generic group must not make
-  // arbitrary children fusion operands merely because it contains a Raster.
-  const fusionGroup = owner?.data?.isSmartFusion ? owner :
+  // A selected imported SVG can be a structural Group whose public vector
+  // owner is one of its descendants. Resolve that owner for the raster
+  // lookup as well, but never treat a product/mockup as an operand.
+  const directFusion = directOwner?.data?.isSmartFusion ? directOwner :
     (item?.data?.isSmartFusion ? item : null);
-  if (!fusionGroup) return null;
-  return Array.from(fusionGroup.children || []).find(child =>
-    child?.name === "fusion-image" || isRasterItem(child)
-  ) || null;
+  if (directFusion) {
+    return Array.from(directFusion.children || []).find(child =>
+      child?.name === "fusion-image" || isRasterItem(child)
+    ) || null;
+  }
+  const candidates = getPublicOwners([item]);
+  for (const candidate of candidates) {
+    if (!candidate || isProductElement(candidate)) continue;
+    if (isRasterItem(candidate)) return candidate;
+    if (candidate.data?.isSmartFusion) {
+      const nested = Array.from(candidate.children || []).find(child =>
+        child?.name === "fusion-image" || isRasterItem(child));
+      if (nested) return nested;
+    }
+  }
+  return null;
 }
 
 export function findFusionVector(item) {
   if (!item) return null;
-  const owner = getPublicOwner(item) || item;
-  if (isVectorItem(owner) && !owner.clipMask && !owner.data?.isFusionMask) return owner;
+  const directOwner = getPublicOwner(item) || item;
+  if (isVectorItem(directOwner) && !directOwner.clipMask && !directOwner.data?.isFusionMask) return directOwner;
 
-  const fusionGroup = owner?.data?.isSmartFusion ? owner :
+  const directFusion = directOwner?.data?.isSmartFusion ? directOwner :
     (item?.data?.isSmartFusion ? item : null);
-  if (!fusionGroup) return null;
-
-  const { maskGroup, originalVector } = fusionGroup.data || {};
-  const markedMask = maskGroup?.children?.find(child =>
-    child?.clipMask || child?.data?.isFusionMask || child?.data?.publicOwner === true
-  ) || null;
-  return originalVector || markedMask ||
-    Array.from(fusionGroup.children || []).find(child =>
-      child?.clipMask || child?.data?.isFusionMask
+  if (directFusion) {
+    const { maskGroup, originalVector } = directFusion.data || {};
+    const markedMask = maskGroup?.children?.find(child =>
+      child?.clipMask || child?.data?.isFusionMask || child?.data?.publicOwner === true
     ) || null;
+    return originalVector || markedMask ||
+      Array.from(directFusion.children || []).find(child =>
+        child?.clipMask || child?.data?.isFusionMask
+      ) || null;
+  }
+
+  // Resolve a vector inside a selected structural SVG group. Only public
+  // vector owners are accepted; product paths and mask children are excluded.
+  const candidates = getPublicOwners([item]);
+  for (const candidate of candidates) {
+    if (!candidate || isProductElement(candidate) || candidate.clipMask || candidate.data?.isFusionMask) continue;
+    if (isVectorItem(candidate)) return candidate;
+    if (candidate.data?.isSmartFusion) {
+      const mask = candidate.data?.originalVectorData ||
+        Array.from(candidate.children || []).find(child => child?.clipMask || child?.data?.isFusionMask);
+      if (mask) return mask;
+    }
+  }
+  return null;
 }
 
 // ===== Operación de fusión =====
@@ -370,8 +399,11 @@ export function getVirtualHoleEntries() {
 // ===== Validación =====
 export function canFuse(raster, receptor) {
   if (!raster || !receptor) return { ok: false, reason: "missing-elements" };
-  if (isProductElement(receptor)) return { ok: false, reason: "product-element" };
-  if (!isValidFusionReceptor(receptor)) return { ok: false, reason: "not-a-receptor" };
+  const resolvedRaster = findFusionRaster(raster) || raster;
+  const resolvedReceptor = findFusionVector(receptor) || receptor;
+  if (!isRasterItem(resolvedRaster)) return { ok: false, reason: "not-a-raster" };
+  if (isProductElement(resolvedRaster) || isProductElement(resolvedReceptor)) return { ok: false, reason: "product-element" };
+  if (!isValidFusionReceptor(resolvedReceptor)) return { ok: false, reason: "not-a-receptor" };
   return { ok: true };
 }
 
@@ -380,17 +412,14 @@ export function canConvertToCalado(item) {
   if (!item || isProductElement(item)) return false;
   const d = item.data || {};
 
-  // A source hole can be filled and later explicitly cut again. The
-  // filledFromHole marker is the reset boundary; without it, source metadata
-  // would permanently block a second Calado operation.
-  const wasFilled = d.filledFromHole === true;
-  if (!wasFilled && (d.originalIsHole === true || d.contourRole === "hole" || d.isHole === true)) return false;
+  // Original/source-derived holes are already physical cutters.  Calado must
+  // never mutate their identity into a synthetic calado or alpha-zero path.
+  if (d.originalIsHole === true || d.contourRole === "hole" || d.isHole === true) return false;
   if (d.isCalado === true) return false;
 
-  // A fusion is eligible only when it is a genuine solid fusion. Being a
+  // A fusion is eligible only when it is a genuine solid fusion.  Being a
   // receptor alone is not evidence that a solid can be converted.
   if (d.isSmartFusion || d.fusionId) {
-    if (wasFilled) return d.isSolidShape === true;
     return d.originalIsHole !== true && d.receiverKind !== "hole" &&
       d.isHole !== true && (d.fusionMode !== "calar" || d.isSolidShape === true || d.originalIsHole === false);
   }
@@ -404,3 +433,6 @@ export function canConvertToCalado(item) {
     (isClientVector && d.originalIsHole !== true && d.contourRole !== "hole" &&
       d.hasInternalHoles !== false);
 }
+
+// La API pública de fusión se expone desde smartFusion.js; no se instala un
+// segundo registro global de helpers de diagnóstico en el runtime normal.
