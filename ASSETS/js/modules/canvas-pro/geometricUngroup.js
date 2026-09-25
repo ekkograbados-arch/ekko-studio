@@ -775,7 +775,7 @@ function geometryClockwise(geometry) {
  * check. Rendering safety additionally comes from rebuilding every accepted
  * result as an even-odd compound (see evenOddResult).
  */
-function normalizeSubtractiveOperand(geometry, reference = null, preserveCompoundTopology = false) {
+export function normalizeSubtractiveOperand(geometry, reference = null, preserveCompoundTopology = false) {
     if (!geometry) return geometry;
     const targetClockwise = reference ? geometryClockwise(reference) : true;
     if (geometry instanceof paper.CompoundPath) {
