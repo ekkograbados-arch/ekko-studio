@@ -1,4 +1,5 @@
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { buildOutlineGeometry } from "./outlineGeometry.js";
 
 // --- ALGORITMO DE SEGUIMIENTO DE CONTORNOS (Moore-Neighbor Tracing con Curvas) ---
 export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrace = false) {
@@ -214,7 +215,7 @@ function ensureMockupContainment(item) {
   return wrapped;
 }
 
-export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false) {
+export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false, outlineWidth = 0, outlineSide = "center") {
   if (tracePreviewGroup) {
     tracePreviewGroup.remove();
     tracePreviewGroup = null;
@@ -270,7 +271,7 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
         }
       });
 
-      const path = new paper.Path({
+      let path = new paper.Path({
         segments: pathPoints,
         closed: true,
         strokeColor: '#ff00ff', // Magenta de LightBurn
@@ -282,6 +283,17 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
       if (smoothness > 0) {
         const tolerance = (smoothness * 0.12) + (optimize * 0.25);
         path.simplify(Math.max(0.01, tolerance));
+      }
+
+      // El contorno opcional se genera como región cerrada real. En la
+      // previsualización se puede ver el mismo anillo que se entregará al
+      // cliente; no se depende de strokeWidth para el resultado final.
+      if (Number(outlineWidth) > 0) {
+        const outlined = buildOutlineGeometry(path, Number(outlineWidth), outlineSide);
+        if (outlined) {
+          path.remove();
+          path = outlined;
+        }
       }
       
       temporaryPaths.push(path);
@@ -505,7 +517,18 @@ export function openImageTraceModal(raster) {
       <input type="number" id="traceOptimizeNum" min="0.0" max="1.0" step="0.01" value="0.2">
     </div>
 
-    <div class="options-box">
+    <div class="slider-row" title="Crea un contorno geométrico real; 0 conserva solo el trazado">
+       <label for="traceOutlineWidth">Contorno (grosor):</label>
+       <input type="range" id="traceOutlineWidth" min="0" max="100" step="0.1" value="0">
+       <input type="number" id="traceOutlineWidthNum" min="0" max="100" step="0.1" value="0">
+       <select id="traceOutlineSide" title="Posición del contorno">
+         <option value="center">Centrado</option>
+         <option value="inside">Interior</option>
+         <option value="outside">Exterior</option>
+       </select>
+     </div>
+
+     <div class="options-box">
       <label class="checkbox-label" title="Ignorar trazados interiores para siluetas limpias de personas/objetos">
         <input type="checkbox" id="traceOnlyOuter">
         <b>Trazar Solo Contorno Exterior (Silueta)</b>
@@ -613,7 +636,9 @@ export function openImageTraceModal(raster) {
     smoothness: 1.0,
     optimize: 0.2,
     sketchTrace: false,
-    onlyOuter: false
+    onlyOuter: false,
+    outlineWidth: 0,
+    outlineSide: 'center'
   };
 
   // Debounce para previsualización ultra fluida
@@ -628,7 +653,9 @@ export function openImageTraceModal(raster) {
         currentParams.smoothness,
         currentParams.optimize,
         currentParams.sketchTrace,
-        currentParams.onlyOuter
+        currentParams.onlyOuter,
+        currentParams.outlineWidth,
+        currentParams.outlineSide
       );
     }, 45);
   }
@@ -692,6 +719,15 @@ export function openImageTraceModal(raster) {
   registerInteractiveControl('traceCutoff', 'traceCutoffNum', 0, 240, 1, 'cutoff', 0);
   registerInteractiveControl('traceSmooth', 'traceSmoothNum', 0.0, 1.333, 0.01, 'smoothness', 1.0);
   registerInteractiveControl('traceOptimize', 'traceOptimizeNum', 0.0, 1.0, 0.01, 'optimize', 0.2);
+  registerInteractiveControl('traceOutlineWidth', 'traceOutlineWidthNum', 0, 100, 0.1, 'outlineWidth', 0);
+  const outlineSide = modal.querySelector('#traceOutlineSide');
+  if (outlineSide) {
+    outlineSide.value = currentParams.outlineSide;
+    outlineSide.onchange = () => {
+      currentParams.outlineSide = outlineSide.value || 'center';
+      triggerTraceUpdate();
+    };
+  }
 
   // Switch de Trazado de Croquis vs Estándar para evitar confusiones de parámetros
   sketchCheck.onchange = () => {
@@ -763,12 +799,15 @@ export function openImageTraceModal(raster) {
         clonedPath.fillColor = new paper.Color('#111827');
         setSemanticKind(clonedPath, VECTOR_KIND.SOLID);
         clonedPath.data = {
+          ...(p.data || {}),
           locked: false,
-          label: "Trazado",
+          label: currentParams.outlineWidth > 0 ? "Contorno de imagen" : "Trazado",
           userImported: true,
           source: "image-trace",
           isSolidShape: true,
-          isFusionReceptor: true
+          isFusionReceptor: true,
+          outlineWidth: currentParams.outlineWidth,
+          outlineSide: currentParams.outlineSide
         };
         committedVectorPaths.push(clonedPath);
       });
