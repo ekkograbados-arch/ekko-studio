@@ -34,7 +34,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
 </style>
 </head>
 <body>
-    <!-- EKKO-STUDIO-INTEGRATED-2026-09-24: numeric-size-lock-rotation-v1 -->
 
     <!-- ==============================================================
          BOTONES DE VISIBILIDAD DE PANELES — ⋮⋮⋮ ARRIBA A LA DERECHA
@@ -151,8 +150,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div class="top-group">
-                <button class="btn-action" id="btnAuditVectors" title="Auditar vectores, huecos reales y líneas de corte"><i class="fas fa-clipboard-check"></i> Auditar Vectores</button>
-                 <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
+                <button class="btn-action" onclick="downloadExportedSVG()" title="Descargar diseño para LightBurn">
+                    <i class="fas fa-download"></i> Descargar
+                </button>
+                <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
                     <i class="fas fa-expand"></i> Ajustar Vista
                 </button>
                 <button data-fusion-btn="rulers" class="btn-action" onclick="toggleRulers()">
@@ -164,19 +165,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
-            <div class="top-group size-control-group" style="gap:6px;align-items:center;flex-wrap:wrap;">
-                <span style="font-size:11px;color:#64748b;">Ancho</span>
-                <input id="objWidth" type="number" min="0" step="0.01" style="width:68px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;" title="Ancho real en milímetros">
-                <button id="btnSizeLockTop" type="button" class="size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="min-width:112px;padding:4px 7px;border:1px solid #94a3b8;border-radius:4px;background:#e0f2fe;color:#075985;font-size:11px;font-weight:700;cursor:pointer;">🔒 Proporción: SÍ</button>
-                <span style="font-size:11px;color:#64748b;">Alto</span>
-                <input id="objHeight" type="number" min="0" step="0.01" style="width:68px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;" title="Alto real en milímetros">
-                <span style="font-size:11px;color:#888;">Rot:</span>
-                <input id="objRotation" type="text" inputmode="decimal" style="width:58px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;" title="Ángulo de rotación en grados; Mixto indica ángulos diferentes">
-                <label>Tamaño <input id="objFontSize" type="number" min="5" max="250" step="1" style="width:56px;padding:3px 6px;" title="Tamaño de fuente"></label>
-                <label>Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" placeholder="10000" style="width:64px;padding:3px 6px;" title="Radio de curvatura"></label>
-                <label>Espacio <input id="objTextSpacing" type="number" step="0.1" value="0" style="width:54px;padding:3px 6px;" title="Espaciado de texto"></label>
-                <button id="btnTopTextSpacing" class="btn-action" title="Aplicar espaciado">Espaciado</button>
-            </div>
+            <div class="top-group" style="gap:6px;align-items:center;"><span style="font-size:11px;color:#888;">Rot:</span><input id="objRotation" type="number" min="0" max="360" step="1" style="width:56px;padding:3px 6px;border:1px solid #ccc;border-radius:4px;font-size:12px;" title="Angulo de rotacion"><label>Tamaño <input id="objFontSize" type="number" min="5" max="250" step="1" style="width:56px;padding:3px 6px;" title="Tamaño de fuente"></label><label>Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" placeholder="10000" style="width:64px;padding:3px 6px;" title="Radio de curvatura"></label><label>Espacio <input id="objTextSpacing" type="number" step="0.1" value="0" style="width:54px;padding:3px 6px;" title="Espaciado de texto"></label><button id="btnTopTextSpacing" class="btn-action" title="Aplicar espaciado">Espaciado</button></div>
             <button id="btnTopTextCurve" class="btn-action" title="Curvar texto"><i class="fas fa-bezier-curve"></i> Curvar Texto</button>
             <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
                 <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
@@ -206,12 +195,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxForward" title="Subir Capa (PgUp)"><i class="fas fa-layer-group"></i> +</button>
                     <button class="toolbar-btn" id="btnCtxBackward" title="Bajar Capa (PgDown)"><i class="fas fa-layer-group"></i> -</button>
                     <button class="toolbar-btn" id="btnCtxToBack" title="Al Fondo (Ctrl+PgDn)"><i class="fas fa-angle-double-down"></i></button>
-                </div>
-                <div class="toolbar-group size-control-group" style="gap:5px;align-items:center;flex-wrap:wrap;" aria-label="Tamaño y rotación">
-                    <label class="toolbar-number-label" title="Ancho real en milímetros">Ancho <input id="ctxWidth" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
-                    <button id="btnSizeLockContext" type="button" class="toolbar-btn size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="min-width:112px;font-size:11px;font-weight:700;">🔒 Proporción: SÍ</button>
-                    <label class="toolbar-number-label" title="Alto real en milímetros">Alto <input id="ctxHeight" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
-                    <label class="toolbar-number-label" title="Ángulo de rotación en grados; Mixto indica ángulos diferentes">Rot <input id="ctxRotation" type="text" inputmode="decimal" class="toolbar-input-number" placeholder="°"></label>
                 </div>
                 <div class="toolbar-divider"></div>
                 <!-- FUSIÓN → BOTONES PRINCIPALES -->
@@ -243,9 +226,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <div class="toolbar-divider"></div>
                 <!-- UNIÓN / SUSTRACCIÓN -->
                 <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxBooleanUnion" data-fusion-btn="booleanUnion" data-ekko-command="unionSelected" title="Unir vectores superpuestos (operación booleana real)"><i class="fas fa-plus-square"></i> Unión</button>
-                    <button class="toolbar-btn" id="btnCtxBooleanIntersect" data-fusion-btn="booleanIntersect" data-ekko-command="intersectSelected" title="Intersecar vectores"><i class="fas fa-circle-notch"></i> Intersecar</button>
-                     <button class="toolbar-btn" id="btnCtxSubtract" data-fusion-btn="booleanSubtract" data-ekko-command="subtractSelected"><i class="fas fa-minus-square"></i> Sustracción</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanUnion" style="display: none;"><i class="fas fa-plus-square"></i> Unión</button>
+                    <button class="toolbar-btn" id="btnCtxSubtract" style="display: none;"><i class="fas fa-minus-square"></i> Sustracción</button>
                 </div>
                 <!-- CONTROL TEXTO -->
                 <div id="ctxTextControls" class="toolbar-subgroup hidden">
@@ -254,6 +236,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <button type="button" class="selected-font-trigger"><span>Fuente</span> ▾</button>
                         <div class="font-dropdown-list hidden"></div>
                     </div>
+                    <input id="ctxRotation" type="number" min="0" max="360" step="1" class="toolbar-input-number" title="Ángulo de rotación">
                     <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
                     <button class="toolbar-btn" id="btnCtxBold" title="Negrita"><i class="fas fa-bold"></i></button>
                     <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
@@ -273,24 +256,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
                 </div>
                 <!-- PANEL EDICIÓN DE NODOS -->
-                    <!-- CONTORNO REAL: el grosor se convierte en geometría, no en un stroke visual -->
-                 <div id="ctxOutlineControls" class="toolbar-subgroup hidden">
-                     <label class="toolbar-number-label" title="Grosor del contorno">Grosor
-                         <input id="ctxOutlineWidth" type="number" min="0.1" max="100" step="0.1" value="2" class="toolbar-input-number">
-                     </label>
-                     <label class="toolbar-number-label" title="Posición del contorno">Posición
-                         <select id="ctxOutlineSide" class="toolbar-select">
-                             <option value="center">Centrado</option>
-                             <option value="inside">Interior</option>
-                             <option value="outside">Exterior</option>
-                         </select>
-                     </label>
-                     <button class="toolbar-btn" id="btnCtxApplyOutline" title="Crear contorno vectorial real">
-                         <i class="fas fa-vector-square"></i> Aplicar Contorno
-                     </button>
-                 </div>
-                 <!-- PANEL EDICIÓN DE NODOS -->
-             <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
+                <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" id="btnCtxDeleteNode" title="Eliminar Nodo" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
                     <button class="toolbar-btn" id="btnCtxExitNodeEdit" title="Salir de Edición" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
                 </div>
@@ -332,19 +298,21 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <div id="tabSvgTools"></div>
             <div id="tabMultiTools"></div>
         </div>
-    <!-- Cargadores de archivos ocultos -->
+    </div>
+
+    <!-- Cargadores de archivos ocultos → REUTILIZADOS POR CARGA UNIFICADA -->
     <input type="file" id="imagePicker" class="hidden-picker" accept="image/*" multiple>
     <input type="file" id="svgPicker" class="hidden-picker" accept=".svg" multiple>
 
     <!-- ARRANQUE DEL SISTEMA -->
     <script src="ASSETS/js/config.js"></script>
     <script src="ASSETS/js/vendor-opentype.min.js"></script>
-
     <output id="ekkoRotationPopup" aria-live="polite" aria-label="Rotación actual"></output>
-
     <script type="module" src="ASSETS/js/editor.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCoordinator.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCommandBridge.js"></script>
+
+
 
 </body>
 </html>
