@@ -14,19 +14,19 @@ const CATALOGO_FALLBACK = [
       {
         id: "chapita-huesito-16x32",
         nombre: "Chapita Huesito 16x32",
-        svgBase: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg",
+        svgBase: "ASSETS/mockups-medidas/chapita-huesito-16x32_FRENTE.svg",
         superficies: [
-          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg", area: "silueta" },
-          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32.svg", area: "silueta" }
+          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32_FRENTE.svg", area: "silueta" },
+          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-16x32-DORSO.svg", area: "silueta" }
         ]
       },
       {
         id: "chapita-huesito-21x40",
         nombre: "Chapita Huesito 21x40",
-        svgBase: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg",
+        svgBase: "ASSETS/mockups-medidas/chapita-huesito-21x40-FRENTE.svg",
         superficies: [
-          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg", area: "silueta" },
-          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40.svg", area: "silueta" }
+          { nombre: "Frente", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40-FRENTE.svg", area: "silueta" },
+          { nombre: "Dorso", svg: "ASSETS/mockups-medidas/chapita-huesito-21x40-DORSO.svg", area: "silueta" }
         ]
       }
     ]
@@ -37,9 +37,9 @@ const CATALOGO_FALLBACK = [
       {
         id: "mate-acero",
         nombre: "Mate Acero",
-        svgBase: "ASSETS/mockups-medidas/mate-acero.svg",
+        svgBase: "ASSETS/mockups-medidas/mate-acero-LATERAL.svg",
         superficies: [
-          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-acero.svg", area: "rectangulo" }
+          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-acero-LATERAL.svg", area: "rectangulo" }
         ]
       }
     ]
@@ -50,18 +50,18 @@ const CATALOGO_FALLBACK = [
       {
         id: "mate-algarrobo-con-virola",
         nombre: "Mate Algarrobo con Virola",
-        svgBase: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg",
+        svgBase: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola-LATERAL.svg",
         superficies: [
-          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola.svg", area: "rectangulo" },
-          { nombre: "Virola", svg: "ASSETS/mockups-medidas/virola-mate-de-algarrobo-con-virola.svg", area: "anillo" }
+          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola-LATERAL.svg", area: "rectangulo" },
+          { nombre: "Virola", svg: "ASSETS/mockups-medidas/mate-de-algarrobo-con-virola-virola.svg", area: "anillo" }
         ]
       },
       {
         id: "mate-algarrobo-sin-virola",
         nombre: "Mate Algarrobo sin Virola",
-        svgBase: "ASSETS/mockups-medidas/mate-algarrobo-sin-virola.svg",
+        svgBase: "ASSETS/mockups-medidas/mate-de-algarrobo-sin-virola-LATERAL.svg",
         superficies: [
-          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-algarrobo-sin-virola.svg", area: "rectangulo" }
+          { nombre: "Mate", svg: "ASSETS/mockups-medidas/mate-de-algarrobo-sin-virola-LATERAL.svg", area: "rectangulo" }
         ]
       }
     ]
