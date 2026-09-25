@@ -615,6 +615,7 @@ export async function enterNodeEditMode(item) {
     if (nodeEl) nodeEl.classList.remove('hidden');
 
     paper.view.update();
+    return true;
 }
 
 // Helper de disparo seguro de recálculo CSG
@@ -707,6 +708,11 @@ export function exitNodeEditMode(skipSelect = false) {
         };
         try { fusion.data.originalVectorData?.remove?.(); } catch (e) {}
         fusion.data.originalVectorData = updatedVector;
+        try { fusion.data.geomBase?.remove?.(); } catch (_) {}
+        const fusionBase = updatedVector.clone({ insert: false });
+        fusionBase.applyMatrix = false;
+        fusionBase.matrix = new paper.Matrix();
+        fusion.data.geomBase = fusionBase;
         if (typeof window.recalculateSmartFusion === 'function') {
             window.recalculateSmartFusion(fusion);
         }
@@ -762,6 +768,7 @@ export function exitNodeEditMode(skipSelect = false) {
         }, 20);
     }
     paper.view.update();
+    return true;
 }
 
 async function convertTextToPath(pointText) {
