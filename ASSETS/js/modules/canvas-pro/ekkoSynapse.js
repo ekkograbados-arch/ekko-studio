@@ -247,8 +247,10 @@ Descripción:
                 // C. CONTEXTO SVG / VECTORIAL (Operaciones Booleanas y unión de nodos)
                 { id: "btnCtxGroup", label: "📦 Agrupar Elementos SVG", context: "SVG" },
                 { id: "btnCtxUngroup", label: "🔓 Desagrupar Elementos SVG", context: "SVG" },
-                { id: "btnCtxBooleanUnion", label: "➕ Unión Booleana SVG (Fusión)", context: "SVG" },
-                { id: "btnCtxBooleanSubtract", label: "➖ Sustracción Booleana SVG", context: "SVG" },
+                { id: "proBtnBooleanUnion", label: "➕ Unión booleana de vectores", context: "SVG" },
+                { id: "proBtnBooleanSubtract", label: "➖ Restar vector superior", context: "SVG" },
+                { id: "proBtnBooleanIntersect", label: "✂️ Intersección de vectores", context: "SVG" },
+                { id: "proBtnBooleanDifference", label: "↔️ Diferencia de vectores", context: "SVG" },
 
                 // D. CONTEXTO SELECCIÓN MÚLTIPLE (Alineaciones y Distribuciones Canva/Word style)
                 { id: "btnAlignLeft", label: "⬅️ Alineación Izquierda Múltiple", context: "MULTI" },
