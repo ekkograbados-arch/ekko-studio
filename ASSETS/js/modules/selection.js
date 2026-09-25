@@ -520,6 +520,8 @@ const _updateSelectionBox = function(item) {
   }
   // Selection is the canonical visibility trigger for oriented measurements.
   window.drawMeasurements?.();
+  // Keep numeric size/rotation controls synchronized with every selection frame.
+  window.updateSelectionInfo?.();
 };
 
 /**
@@ -590,6 +592,7 @@ const _deselectItem = function() {
   // diseño internamente; el deselectAll debe ocurrir después para que esa
   // activación no deje la Layer seleccionada otra vez.
   window.updateSelectionBox(null);
+  window.updateSelectionInfo?.();
 
   try {
     if (paper?.project?.deselectAll) paper.project.deselectAll();
@@ -1565,6 +1568,4 @@ protectGlobal('initSelectionTool', _initSelectionTool);
 // Las funciones de organización, vista y nodos son expuestas
 // por sus módulos responsables. selection.js solo registra
 // la herramienta de selección y sus APIs propias.
-
-
 
