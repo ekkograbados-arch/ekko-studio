@@ -455,3 +455,222 @@ export async function prepareSVGForExport(options = {}) {
                             } catch (_) {
                                 preservesHoles = false;
                             }
+                        }
+                        if (united && unitedArea > 1e-9 && unitedArea <= sumArea * (1 + 1e-6) && preservesHoles) {
+                            try {
+                                toLocalOf(united, first);
+                                const parent = first.parent || tempLayer;
+                                const index = typeof first.index === "number" ? first.index : 0;
+                                united.applyMatrix = false;
+                                united.matrix = first.matrix?.clone?.() || new paper.Matrix();
+                                united.fillColor = first.fillColor?.clone?.() || first.fillColor;
+                                united.strokeColor = first.strokeColor?.clone?.() || first.strokeColor;
+                                united.strokeWidth = first.strokeWidth;
+                                united.fillRule = "evenodd";
+                                united.data = { ...(first.data || {}), exportUnited: true, csgMaterialized: true };
+                                parent.insertChild(index, united);
+                                first.remove();
+                                second.remove();
+                                group[a] = united;
+                                first = united;
+                                unionReport.mergedPairs += 1;
+                            } catch (_) {
+                                try { united.remove(); } catch (_) {}
+                                unionReport.skippedPairs += 1;
+                            }
+                        } else {
+                            try { united?.remove?.(); } catch (_) {}
+                            unionReport.skippedPairs += 1;
+                        }
+                    }
+                }
+            });
+            if (Date.now() >= deadline || pairCount >= maxPairs) unionReport.timedOut = true;
+            // Deduplicación de trazos abiertos idénticos (doble línea de corte).
+            const seenStrokes = new Set();
+            tempLayer.getItems({
+                match: item => (item instanceof paper.Path) && !item.closed &&
+                    !item.data?.isHole && (item.strokeColor || item.fillColor)
+            }).forEach(item => {
+                let key = null;
+                try {
+                    key = item.pathData + "|" + (item.strokeColor ? item.strokeColor.toCSS(true) : "") +
+                        "|" + (item.strokeWidth || 0) + "|" + (item.position?.x.toFixed(3) || "") +
+                        "," + (item.position?.y.toFixed(3) || "");
+                } catch (_) { key = null; }
+                if (!key) return;
+                if (seenStrokes.has(key)) {
+                    try { item.remove(); unionReport.dedupedStrokes += 1; } catch (_) {}
+                } else {
+                    seenStrokes.add(key);
+                }
+            });
+        } catch (err) {
+            unionReport.timedOut = unionReport.timedOut || false;
+            console.warn("[EKKO EXPORT UNION ERROR]", String(err?.message || err));
+        }
+    }
+
+    // 6. PURGADO DE CALADOS ACTIVOS (isHole)
+    // Dado que el corte booleano ya fue materializado en la geometría de las masas sólidas inferiores,
+    // se eliminan todas las entidades de calado interactivo para no generar líneas de corte duplicadas en LightBurn
+    const holesToRemove = [];
+    tempLayer.getItems({
+        match: function(item) {
+            return item.data &&
+                (item.data.isHole === true || item.data.isHoleController === true) &&
+                item.data.isFusionMask !== true &&
+                item.data.isSmartFusion !== true;
+        }
+    }).forEach(hole => holesToRemove.push(hole));
+
+    holesToRemove.forEach(hole => {
+        try { hole.remove(); } catch (e) {}
+    });
+
+    // 7. SANITIZACIÓN VECTORIAL Y ASIGNACIÓN DE ESTILOS PARA CORTE/GRABADO LÁSER
+    // - Asigna fillRule "evenodd" en todos los CompoundPaths para renderizado de huecos estándar
+    // - Asegura colores visibles (negro para grabado / trazo fino) evitando paths invisibles ignorados por LightBurn
+    // - Descarta geometrías vacías o degeneradas (sin área ni segmentos)
+    const emptyItems = [];
+    tempLayer.getItems({
+        match: function(item) {
+            if (item instanceof paper.PathItem) {
+                const segCount = item.segments ? item.segments.length : 
+                    (item.children ? item.children.reduce((acc, c) => acc + (c.segments ? c.segments.length : 0), 0) : 0);
+                const area = Math.abs(item.area || 0);
+                if (segCount < 2 || area < 1e-4) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }).forEach(it => emptyItems.push(it));
+
+    emptyItems.forEach(it => {
+        try { it.remove(); } catch (e) {}
+    });
+
+    tempLayer.getItems({
+        match: function(item) {
+            return item instanceof paper.PathItem;
+        }
+    }).forEach(item => {
+        // Fusion masks are clipping/CSG implementation details, never an
+        // exported black engraving shape.  Keep the mask object available to
+        // Paper.js clip semantics but make it non-painting in the clone.
+        if (item.data?.isFusionMask === true) {
+            item.fillColor = null;
+            item.strokeColor = null;
+            item.strokeWidth = 0;
+            item.opacity = 0;
+            return;
+        }
+        // Boolean outputs are disjoint contours: evenodd and nonzero agree,
+        // except when a contour kept the outer winding (Paper quirk on some
+        // glyph/SVG holes). Anything CSG actually cut is therefore stamped
+        // evenodd. Untouched multi-contour owners keep their source rule so
+        // same-winding nonzero designs (e.g. 008 islands) keep rendering.
+        if (item instanceof paper.CompoundPath && (item.children?.length || 0) > 1) {
+            if (item.data?.csgMaterialized === true) {
+                item.fillRule = "evenodd";
+            } else {
+                const sourceRule = String(item.data?.originalFillRule || item.fillRule || "nonzero").toLowerCase();
+                item.fillRule = sourceRule === "nonzero" || sourceRule === "non-zero" ? "nonzero" : "evenodd";
+            }
+        }
+        // Asignación de estilo por defecto si carece de color
+        if (!item.fillColor && !item.strokeColor) {
+            item.fillColor = new paper.Color("#000000");
+        }
+        // Garantizar trazo mínimo si es un path abierto de corte
+        if (!item.closed && (!item.strokeWidth || item.strokeWidth <= 0)) {
+            item.strokeWidth = 1.0;
+            if (!item.strokeColor) item.strokeColor = new paper.Color("#000000");
+        }
+    });
+
+    // 7b. CONTORNO DEL PRODUCTO (opcional, grupo propio eliminable)
+    if (mockupOutline) {
+        try {
+            tempLayer.insertChild(0, mockupOutline);
+        } catch (_) {
+            try { mockupOutline.remove(); } catch (_) {}
+            mockupOutline = null;
+        }
+    }
+
+    // 8. EXPORTACIÓN NATIVA A SVG CON PRECISIÓN INDUSTRIAL
+    const exportConfig = {
+        asString: true,
+        bounds: "content",
+        precision: precision
+    };
+
+    let svgString = tempLayer.exportSVG(exportConfig);
+
+    // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
+    // Paper exporta la capa como fragmento <g> sin raíz <svg>; el antiguo
+    // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdían.
+    // Se construye la raíz explícitamente: width/height en mm y viewBox en
+    // unidades de proyecto, de modo que 1 unidad = window.mmPerPaperUnit mm.
+    if (typeof svgString === "string" && svgString.trim() !== "") {
+        const bounds = tempLayer.bounds;
+        const mmPerUnit = Number(window.mmPerPaperUnit) || 0;
+        if (bounds && bounds.width > 0 && bounds.height > 0 && mmPerUnit > 0) {
+            const num = value => Number.isFinite(value) ? value.toFixed(precision) : "0";
+            const widthMm = (bounds.width * mmPerUnit).toFixed(3);
+            const heightMm = (bounds.height * mmPerUnit).toFixed(3);
+            const viewBox = `${num(bounds.x)} ${num(bounds.y)} ${num(bounds.width)} ${num(bounds.height)}`;
+            svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthMm}mm" height="${heightMm}mm" viewBox="${viewBox}">${svgString}</svg>`;
+        } else {
+            svgString = `<svg xmlns="http://www.w3.org/2000/svg">${svgString}</svg>`;
+        }
+    }
+
+    // 10. LIBERACIÓN DE MEMORIA DEL LIENZO TEMPORAL
+    tempLayer.remove();
+
+    if (window.EKKO_DEBUG) {
+        console.log("[EKKO EXPORT SUCCESS] El diseño vectorial ha sido industrializado exitosamente para LightBurn.");
+    }
+
+    if (typeof DOMParser !== "undefined") {
+        const parsed = new DOMParser().parseFromString(svgString, "image/svg+xml");
+        if (parsed.querySelector?.("parsererror")) {
+            exportCsgReport = { ...(window.EKKO_EXPORT_LAST_REPORT || {}), exportReady: false, reason: "generated-svg-parsererror" };
+            window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
+            return "";
+        }
+        return asString ? svgString : parsed.documentElement;
+    }
+    return asString ? svgString : svgString;
+}
+
+/**
+ * Dispara la descarga del SVG preparado directamente en el navegador del usuario.
+ * @param {string} [filename="diseno-ekko.svg"] Nombre del archivo de salida
+ */
+export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
+    const svgContent = await prepareSVGForExport({ asString: true });
+    if (!svgContent || svgContent.trim() === "") {
+        alert("No hay elementos válidos para exportar en el lienzo.");
+        return;
+    }
+
+    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename.endsWith(".svg") ? filename : (filename + ".svg");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+// Exposición global segura
+if (typeof window !== "undefined") {
+    window.prepareSVGForExport = prepareSVGForExport;
+    window.downloadExportedSVG = downloadExportedSVG;
+}
