@@ -225,8 +225,7 @@ function booleanOperandOwners() {
         });
 }
 
-function commitBooleanResult(keeper) {
-    window.saveHistory?.();
+function commitBooleanResult(keeper, ownsHistory = false) {
     try { recalculateDynamicSubtractions?.(); } catch (_) {}
     window.deselectItem?.();
     if (typeof window.commitSelection === "function") {
@@ -238,6 +237,12 @@ function commitBooleanResult(keeper) {
     window.updateSelectionBox?.(keeper);
     window.updateContextualMenu?.(keeper);
     paper.view?.update?.();
+    if (ownsHistory) {
+        // Mark the already-open transaction dirty so commitHistoryTransaction
+        // stores the pre-boolean state for Undo.
+        window.saveHistory?.();
+        window.commitHistoryTransaction?.("boolean");
+    }
     return keeper;
 }
 
@@ -268,6 +273,16 @@ function performBooleanOperation(operation) {
         console.warn("[EKKO BOOLEAN] Se necesitan 2 vectores solids. Los calados, el mockup y las mascaras no participan.");
         return null;
     }
+
+    // Use one explicit history transaction for the whole boolean mutation.
+    // A direct save can be swallowed by an already active transform/fusion
+    // transaction, leaving Undo with no pre-boolean snapshot.
+    const ownsHistory = !window._ekkoHistoryTransaction?.active;
+    if (ownsHistory) window.beginHistoryTransaction?.("boolean");
+    const rejectBoolean = reason => {
+        if (ownsHistory) window.cancelHistoryTransaction?.(reason || "boolean-failed");
+        return null;
+    };
 
     const ordered = owners.slice().sort(compareBooleanStack);
     const base = ordered[0];
@@ -311,7 +326,7 @@ function performBooleanOperation(operation) {
         try { result?.remove(); } catch (_) {}
         window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: failure || "empty" });
         console.warn(`[EKKO BOOLEAN] ${operation} descartada: ${failure || "resultado vacio"}. Los vectores originales se conservan.`);
-        return null;
+        return rejectBoolean(failure || "empty");
     }
 
     // Guardas: una interseccion de formas que no se tocan, o un resultado que
@@ -321,13 +336,13 @@ function performBooleanOperation(operation) {
         try { result.remove(); } catch (_) {}
         window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: "empty-area" });
         console.warn(`[EKKO BOOLEAN] ${operation} sin area resultante. Los vectores originales se conservan.`);
-        return null;
+        return rejectBoolean("empty-area");
     }
     if (resultArea > sourceArea * (1 + BOOLEAN_AREA_TOLERANCE) + BOOLEAN_MIN_AREA) {
         try { result.remove(); } catch (_) {}
         window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: "area-overflow" });
         console.warn(`[EKKO BOOLEAN] ${operation} descartada: el area resultante excede la suma de las formas.`);
-        return null;
+        return rejectBoolean("area-overflow");
     }
 
     // even-odd: las siluetas disjuntas que devuelve el kernel se renderizan
@@ -335,18 +350,36 @@ function performBooleanOperation(operation) {
     // como huecos reales, no como opacidad cero.
     try { result.fillRule = "evenodd"; } catch (_) {}
 
+    // Capture the new geometry in owner-local space before installing it.
+    // installOwnerGeometry can promote a Path to a CompoundPath; afterwards
+    // getOwnerLocalGeometry(keeper) would read the old geomBase and CSG would
+    // restore the pre-boolean shape.
+    let booleanResultLocal = null;
+    try {
+        booleanResultLocal = result.clone({ insert: false });
+        booleanResultLocal.applyMatrix = false;
+        const baseGlobal = base.globalMatrix?.clone?.() || new paper.Matrix();
+        booleanResultLocal.transform(baseGlobal.inverted());
+        booleanResultLocal.applyMatrix = false;
+        booleanResultLocal.matrix = new paper.Matrix();
+        booleanResultLocal.fillRule = result.fillRule || "evenodd";
+    } catch (_) {
+        try { booleanResultLocal?.remove?.(); } catch (_) {}
+        booleanResultLocal = null;
+    }
+
     let keeper = null;
     try {
         keeper = installOwnerGeometry(base, result, false);
     } catch (error) {
         console.error(`[EKKO BOOLEAN] No se pudo instalar el resultado:`, error);
         try { result.remove(); } catch (_) {}
-        return null;
+        return rejectBoolean("install-failed");
     }
 
     if (!keeper) {
         window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: "no-keeper" });
-        return null;
+        return rejectBoolean("no-keeper");
     }
 
     // installOwnerGeometry solo propaga fillRule cuando el propietario pasa a
@@ -358,15 +391,20 @@ function performBooleanOperation(operation) {
         keeper.data = { ...(keeper.data || {}), fillRule: "evenodd" };
     } catch (_) {}
 
-    // El resultado es una forma nueva: geomBase describia la silueta anterior y
-    // debe reconstruirse o el CSG seguiria perforando la geometria pre-booleana.
+    // El resultado es una forma nueva: geomBase debe contener la geometría
+    // booleana real, no la silueta anterior del primer operando.
     try {
-        const local = getOwnerLocalGeometry(keeper);
-        if (local) {
-            local.applyMatrix = false;
-            local.matrix = new paper.Matrix();
-            keeper.data = { ...(keeper.data || {}), geomBase: local };
-            if (local.pathData) keeper.data.geomBasePathData = local.pathData;
+        if (booleanResultLocal) {
+            keeper.data = { ...(keeper.data || {}), geomBase: booleanResultLocal };
+            if (booleanResultLocal.pathData) keeper.data.geomBasePathData = booleanResultLocal.pathData;
+        } else {
+            const local = getOwnerLocalGeometry(keeper);
+            if (local) {
+                local.applyMatrix = false;
+                local.matrix = new paper.Matrix();
+                keeper.data = { ...(keeper.data || {}), geomBase: local };
+                if (local.pathData) keeper.data.geomBasePathData = local.pathData;
+            }
         }
     } catch (_) {}
 
@@ -381,7 +419,7 @@ function performBooleanOperation(operation) {
         area: resultArea
     });
 
-    return commitBooleanResult(keeper);
+    return commitBooleanResult(keeper, ownsHistory);
 }
 
 function classifySelection() {
