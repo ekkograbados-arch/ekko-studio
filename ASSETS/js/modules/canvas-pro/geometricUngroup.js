@@ -832,7 +832,7 @@ function evenOddResult(geometry) {
     return geometry;
 }
 
-function interiorPointOf(geometry) {
+export function interiorPointOf(geometry) {
     try {
         const leaf = geometry instanceof paper.CompoundPath
             ? (geometry.children?.[0] || null)
@@ -892,7 +892,7 @@ function holeOverlapsSolid(holeGeom, baseGeom) {
  * `contains()` is winding-based and unreliable on multi-contour results;
  * counting leaf containment gives the even-odd answer the renderer uses.
  */
-function evenOddContains(baseGeometry, point) {
+export function evenOddContains(baseGeometry, point) {
     if (!baseGeometry || !point) return false;
     try {
         const leaves = baseGeometry instanceof paper.CompoundPath
@@ -1952,6 +1952,3 @@ if (typeof window !== 'undefined') {
     window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
     window.isContainedIn = isContainedIn;
 }
-
-// Alias para compatibilidad con outlineGeometry.js
-export const installGeometryInOwner = installOwnerGeometry;
