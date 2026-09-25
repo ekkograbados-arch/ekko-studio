@@ -1569,3 +1569,6 @@ protectGlobal('initSelectionTool', _initSelectionTool);
 // por sus módulos responsables. selection.js solo registra
 // la herramienta de selección y sus APIs propias.
 
+
+
+
