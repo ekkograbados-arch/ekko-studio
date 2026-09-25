@@ -56,7 +56,10 @@ import "./modules/canvas-pro/ownerGraph.js"; // Cadena única de owners público
 import "./modules/canvas-pro/fusionCore.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
+import { toggleOwnerOutline } from "./modules/canvas-pro/outlineGeometry.js";
 import { convertSelectionToCalado, canConvertSelectionToCalado, convertSelectionToSolid } from "./modules/canvas-pro/calado.js";
+import "./modules/canvas-pro/booleanOperations.js";
+import { runGeometryAudit } from "./modules/canvas-pro/geometryAudit.js";
 // backgroundRemover.js permanece desactivado hasta que la IA local esté habilitada.
 // import './modules/canvas-pro/backgroundRemover.js';
 // ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
@@ -138,31 +141,49 @@ window.zoomToFit = function() {
   return { zoom: paper.view.zoom, center: target.center.clone() };
 };
 
-window.toggleOutline = function() {
-  const selected = Array.isArray(window.selectedItems) && window.selectedItems.length
-    ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
-  if (!selected.length) return null;
-  selected.forEach(item => {
-    const target = getPublicOwner(item);
-    if (!target) return;
-    if (target.__ekkoOutlineSnapshot) {
-      const snap = target.__ekkoOutlineSnapshot;
-      target.fillColor = snap.fillColor;
-      target.strokeColor = snap.strokeColor;
-      target.strokeWidth = snap.strokeWidth;
-      delete target.__ekkoOutlineSnapshot;
-    } else {
-      target.__ekkoOutlineSnapshot = {
-        fillColor: target.fillColor?.clone?.() || target.fillColor,
-        strokeColor: target.strokeColor?.clone?.() || target.strokeColor,
-        strokeWidth: target.strokeWidth
-      };
-      target.fillColor = null;
-      target.strokeColor = new paper.Color("#334155");
-      target.strokeWidth = Math.max(1 / (paper.view.zoom || 1), 0.5);
+window.toggleOutline = function(item = null) {
+  const selected = item
+    ? [item]
+    : (Array.isArray(window.selectedItems) && window.selectedItems.length
+      ? window.selectedItems
+      : (window.selectedItem ? [window.selectedItem] : []));
+  const owners = [];
+  const seen = new Set();
+  selected.forEach(raw => {
+    const candidates = getPublicOwners([raw]);
+    const owner = candidates.find(candidate => candidate &&
+      ["Path", "CompoundPath", "Shape"].includes(candidate.className) &&
+      candidate.data?.geomBase && candidate.data?.isCutLine !== true) ||
+      getPublicOwner(raw);
+    if (owner && !seen.has(owner) && !owner.data?.locked &&
+        ["Path", "CompoundPath", "Shape"].includes(owner.className)) {
+      seen.add(owner);
+      owners.push(owner);
     }
   });
+  if (!owners.length) return null;
+  if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
+    window.exitNodeEditMode(true);
+  }
+  if (typeof window.saveHistory === 'function') window.saveHistory();
+  const width = Number(document.getElementById("ctxOutlineWidth")?.value) || 2;
+  const side = document.getElementById("ctxOutlineSide")?.value || "center";
+  const results = [];
+  owners.forEach(owner => {
+    const result = toggleOwnerOutline(owner, { width, side, skipHistory: true });
+    if (result) results.push(result);
+  });
+  if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
+  if (results.length) {
+    window.deselectItem?.();
+    const primary = results[results.length - 1];
+    if (window.commitSelection) window.commitSelection(primary, results);
+    else window.selectItem?.(primary);
+  }
+  window.updateSelectionBox?.(window.selectedItem);
+  window.updateContextualMenu?.(window.selectedItem);
   paper.view.update();
+  return results;
 };
 
 // Saneamiento de variables y namespaces globales
@@ -217,17 +238,14 @@ const toolState = {
 };
 
 const sceneStates = {};
-const undoStack = [];
-const redoStack = [];
-window.loadToken = 0;
 
-// Acceso público al almacén de escenas por vista (base del modo Proyecto
-// EKKO: exportar/importar .ekko.json sin tocar el flujo de vistas).
-// sceneStates vive aquí porque toolState/save/loadSurfaceScene también.
+// Public scene contract used by projectIO.js for multi-view project files.
+// It delegates to the existing surface/save/load functions; it does not
+// duplicate scene state or reimplement product loading.
 function findProductById(productId) {
   if (!productId || !Array.isArray(window.EKKO_STUDIO_PRODUCTS)) return null;
   for (const group of window.EKKO_STUDIO_PRODUCTS) {
-    const found = (group?.productos || []).find(p => p?.id === productId);
+    const found = (group?.productos || []).find(product => product?.id === productId);
     if (found) return found;
   }
   return null;
@@ -258,18 +276,18 @@ if (typeof window !== "undefined") {
         productName: product?.nombre || null,
         surfaceIndex: index,
         surfaceName: surfaces[index]?.nombre || null,
-        surfaces: surfaces.map((surf, i) => ({
-          index: i,
-          name: surf?.nombre || `Vista ${i + 1}`,
-          sceneKey: product?.id ? `${product.id}__${surf?.nombre}` : null,
-          hasScene: product?.id ? !!sceneStates[`${product.id}__${surf?.nombre}`] : false
+        surfaces: surfaces.map((surface, surfaceIndex) => ({
+          index: surfaceIndex,
+          name: surface?.nombre || `Vista ${surfaceIndex + 1}`,
+          sceneKey: product?.id ? `${product.id}__${surface?.nombre}` : null,
+          hasScene: product?.id ? !!sceneStates[`${product.id}__${surface?.nombre}`] : false
         }))
       };
     },
     openSurface(productId, surfaceName) {
       const product = findProductById(productId);
       if (!product || !Array.isArray(product.superficies)) return false;
-      const index = product.superficies.findIndex(surf => surf?.nombre === surfaceName);
+      const index = product.superficies.findIndex(surface => surface?.nombre === surfaceName);
       if (index < 0) return false;
       try { saveCurrentScene(); } catch (_) {}
       toolState.currentProduct = product;
@@ -284,6 +302,10 @@ if (typeof window !== "undefined") {
     }
   };
 }
+
+const undoStack = [];
+const redoStack = [];
+window.loadToken = 0;
 
 // Metodo de Trazabilidad y Preservacion del Taller
 // History is transaction-aware: nested Fusion/edit routes mark the current
@@ -806,33 +828,284 @@ function rehydrateSceneRuntime() {
 window.resetSceneRuntimeState = resetSceneRuntimeState;
 window.rehydrateSceneRuntime = rehydrateSceneRuntime;
 
-// Sincronizador en mm para UI y cotas
+// Sincronizador en mm para UI, tamaño real y rotación.
+// Un objeto usa sus dimensiones locales (no su AABB rotado); una multiselección
+// muestra las dimensiones de la caja global que se está transformando.
+function getNumericSelectionOwners() {
+  const raw = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? window.selectedItems
+    : (window.selectedItem ? [window.selectedItem] : []);
+  const result = [];
+  const seen = new Set();
+  raw.forEach(item => {
+    const owner = getPublicOwner(item) || item;
+    if (!owner || isMockupOrMask(owner) || seen.has(owner)) return;
+    seen.add(owner);
+    result.push(owner);
+  });
+  return result;
+}
+
+function cloneBounds(bounds) {
+  try { return bounds?.clone?.() || null; } catch (_) { return null; }
+}
+
+function getNumericSelectionBounds(owners) {
+  if (!Array.isArray(owners) || !owners.length) return null;
+  const single = owners.length === 1;
+  let measureBounds = null;
+  let worldBounds = null;
+
+  if (single) {
+    const baseBounds = cloneBounds(getOwnerLocalBounds(owners[0]));
+    worldBounds = cloneBounds(getPublicWorldBounds(owners[0])) || cloneBounds(owners[0].bounds);
+    if (baseBounds) {
+      // geomBase is intentionally immutable; the owner's global matrix carries
+      // scale. Include that scale so a numeric resize immediately changes the
+      // displayed real size, while rotation itself does not alter W/H.
+      let scaleX = 1;
+      let scaleY = 1;
+      try {
+        const decomposed = (owners[0].globalMatrix || owners[0].matrix)?.decompose?.();
+        if (decomposed?.scaling) {
+          scaleX = Math.abs(Number(decomposed.scaling.x) || 1);
+          scaleY = Math.abs(Number(decomposed.scaling.y) || 1);
+        }
+      } catch (_) {}
+      try {
+        measureBounds = new paper.Rectangle(baseBounds.center, [
+          baseBounds.width * scaleX,
+          baseBounds.height * scaleY
+        ]);
+      } catch (_) {
+        measureBounds = baseBounds;
+      }
+    }
+    // Fallback preserves functionality for unusual plugin items without a
+    // detached local geometry; ordinary vector/raster owners use the branch above.
+    if (!measureBounds) measureBounds = cloneBounds(worldBounds);
+  } else {
+    owners.forEach(owner => {
+      const bounds = cloneBounds(getPublicWorldBounds(owner)) || cloneBounds(owner.bounds);
+      if (!bounds) return;
+      worldBounds = worldBounds ? worldBounds.unite(bounds) : bounds;
+    });
+    measureBounds = worldBounds ? cloneBounds(worldBounds) : null;
+  }
+
+  if (!measureBounds || !worldBounds) return null;
+  return { single, measureBounds, worldBounds };
+}
+
+function normalizeDegrees(value) {
+  return ((Number(value) || 0) % 360 + 360) % 360;
+}
+
+function getOwnerWorldRotation(owner) {
+  const matrix = owner?.globalMatrix || owner?.matrix;
+  if (matrix) return normalizeDegrees(Math.atan2(Number(matrix.b), Number(matrix.a)) * 180 / Math.PI);
+  return normalizeDegrees(owner?.data?.rotation);
+}
+
+function getNumericSelectionRotation(owners) {
+  if (!owners.length) return "";
+  const values = owners.map(getOwnerWorldRotation);
+  const first = values[0];
+  const mixed = values.some(value => Math.abs(normalizeDegrees(value - first)) > 0.25);
+  return mixed ? "Mixto" : String(Math.round(normalizeDegrees(first)));
+}
+
+function setNumericInput(id, value, enabled = true) {
+  const input = document.getElementById(id);
+  if (!input) return;
+  input.value = value == null ? "" : String(value);
+  input.disabled = !enabled;
+}
+
+function syncSizeLockButtons() {
+  const locked = window._sizeLockEnabled !== false;
+  ["btnSizeLockTop", "btnSizeLockContext"].forEach(id => {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.textContent = locked ? "🔒 Proporción: SÍ" : "🔓 Proporción: NO";
+    button.classList.toggle("active", locked);
+    button.setAttribute("aria-pressed", locked ? "true" : "false");
+    button.title = locked
+      ? "Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor"
+      : "Proporción libre: Ancho y Alto se editan independientemente";
+    button.style.background = locked ? "#e0f2fe" : "#ffffff";
+    button.style.color = locked ? "#075985" : "#475569";
+  });
+}
+
 function updateSelectionInfo() {
-  if (!window.selectedItem) {
-    const selInfo = document.getElementById("selectionInfo");
-    const objW = document.getElementById("objWidth");
-    const objH = document.getElementById("objHeight");
-    if (selInfo) {
+  window.updateGlobalScaleFactor?.();
+  const owners = getNumericSelectionOwners();
+  const selectionInfo = document.getElementById("selectionInfo");
+  const widthIds = ["objWidth", "ctxWidth"];
+  const heightIds = ["objHeight", "ctxHeight"];
+  const rotationIds = ["objRotation", "ctxRotation"];
+
+  if (!owners.length) {
+    if (selectionInfo) {
       const active = window.EKKO_ACTIVE_PRODUCT;
-      selInfo.textContent = active
+      selectionInfo.textContent = active
         ? `${active.name} — ${active.surface}`
         : "Nada seleccionado";
     }
-    if (objW) objW.value = "";
-    if (objH) objH.value = "";
+    [...widthIds, ...heightIds, ...rotationIds].forEach(id => setNumericInput(id, "", false));
+    syncSizeLockButtons();
+    window._ekkoSelectionProperties = { count: 0, at: Date.now() };
     return;
   }
-  const displayItem = getPublicOwner(window.selectedItem);
-  const selInfo = document.getElementById("selectionInfo");
-  const objW = document.getElementById("objWidth");
-  const objH = document.getElementById("objHeight");
-  if (displayItem && selInfo) {
-    selInfo.textContent = displayItem.data?.label || "Objeto";
-    if (objW) objW.value = (displayItem.bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
-    if (objH) objH.value = (displayItem.bounds.height * (window.mmPerPaperUnit || 1.0)).toFixed(1);
+
+  const boundsState = getNumericSelectionBounds(owners);
+  if (!boundsState) {
+    [...widthIds, ...heightIds, ...rotationIds].forEach(id => setNumericInput(id, "", false));
+    return;
   }
+
+  const mmPerPaperUnit = Number(window.mmPerPaperUnit) || 1;
+  const widthMm = boundsState.measureBounds.width * mmPerPaperUnit;
+  const heightMm = boundsState.measureBounds.height * mmPerPaperUnit;
+  const widthText = Number.isFinite(widthMm) ? widthMm.toFixed(2) : "";
+  const heightText = Number.isFinite(heightMm) ? heightMm.toFixed(2) : "";
+  const rotationText = getNumericSelectionRotation(owners);
+
+  widthIds.forEach(id => setNumericInput(id, widthText, true));
+  heightIds.forEach(id => setNumericInput(id, heightText, true));
+  rotationIds.forEach(id => setNumericInput(id, rotationText, true));
+
+  if (selectionInfo) {
+    selectionInfo.textContent = owners.length === 1
+      ? (owners[0].data?.label || "Objeto")
+      : `${owners.length} objetos`;
+  }
+  syncSizeLockButtons();
+  window._ekkoSelectionProperties = {
+    count: owners.length,
+    single: boundsState.single,
+    widthMm: Number(widthMm),
+    heightMm: Number(heightMm),
+    rotation: rotationText,
+    locked: window._sizeLockEnabled !== false,
+    at: Date.now()
+  };
 }
+
+function applyNumericSize(axis, requestedMm) {
+  const requested = Number(requestedMm);
+  if (!Number.isFinite(requested) || requested <= 0) {
+    updateSelectionInfo();
+    return false;
+  }
+  const owners = getNumericSelectionOwners();
+  const boundsState = getNumericSelectionBounds(owners);
+  const controller = window.EKKO_FUSION_CONTROLLER;
+  if (!owners.length || !boundsState || !controller?.transformPublicItem) return false;
+
+  const mmPerPaperUnit = Number(window.mmPerPaperUnit) || 1;
+  const currentWidthMm = boundsState.measureBounds.width * mmPerPaperUnit;
+  const currentHeightMm = boundsState.measureBounds.height * mmPerPaperUnit;
+  if (!(currentWidthMm > 0) || !(currentHeightMm > 0)) return false;
+
+  const locked = window._sizeLockEnabled !== false;
+  let targetWidthMm = currentWidthMm;
+  let targetHeightMm = currentHeightMm;
+  if (axis === "width") {
+    targetWidthMm = requested;
+    if (locked) targetHeightMm = requested * (currentHeightMm / currentWidthMm);
+  } else {
+    targetHeightMm = requested;
+    if (locked) targetWidthMm = requested * (currentWidthMm / currentHeightMm);
+  }
+  if (!(targetWidthMm > 0) || !(targetHeightMm > 0)) return false;
+
+  const sx = targetWidthMm / currentWidthMm;
+  const sy = targetHeightMm / currentHeightMm;
+  if (Math.abs(sx - 1) < 1e-7 && Math.abs(sy - 1) < 1e-7) {
+    updateSelectionInfo();
+    return false;
+  }
+
+  const center = boundsState.worldBounds.center;
+  const targets = owners.map(owner => ({ item: owner, owner }));
+  window._sizeInputApplying = true;
+  try {
+    controller.beginTransformTransaction?.("scale", targets, null);
+    owners.forEach(owner => {
+      controller.transformPublicItem(owner, { type: "scale", sx, sy, center });
+    });
+    window.saveHistory?.();
+    controller.finalizeTransformTransaction?.("committed");
+    window.commitHistoryTransaction?.("transform");
+    controller.notifyTransformObservers?.({
+      type: "numeric-size",
+      axis,
+      sx,
+      sy,
+      targetWidthMm,
+      targetHeightMm
+    });
+  } finally {
+    window._sizeInputApplying = false;
+  }
+
+  window.updateSelectionBox?.(window.selectedItem);
+  updateSelectionInfo();
+  paper.view.update();
+  return true;
+}
+
+function bindNumericSelectionControls() {
+  const bindings = [
+    ["objWidth", "width"], ["ctxWidth", "width"],
+    ["objHeight", "height"], ["ctxHeight", "height"]
+  ];
+  bindings.forEach(([id, axis]) => {
+    const input = document.getElementById(id);
+    if (!input || input.dataset.sizeOwner === "1") return;
+    input.dataset.sizeOwner = "1";
+    input.addEventListener("change", () => applyNumericSize(axis, input.value));
+  });
+  ["btnSizeLockTop", "btnSizeLockContext"].forEach(id => {
+    const button = document.getElementById(id);
+    if (!button || button.dataset.sizeLockOwner === "1") return;
+    button.dataset.sizeLockOwner = "1";
+    button.addEventListener("click", () => {
+      window._sizeLockEnabled = window._sizeLockEnabled === false;
+      syncSizeLockButtons();
+      updateSelectionInfo();
+    });
+  });
+  window._sizeLockEnabled = window._sizeLockEnabled !== false;
+  syncSizeLockButtons();
+}
+
+function installSelectionPropertyObserver() {
+  const controller = window.EKKO_FUSION_CONTROLLER;
+  if (!controller?.addTransformObserver) {
+    setTimeout(installSelectionPropertyObserver, 100);
+    return;
+  }
+  if (window._ekkoSelectionPropertyObserver) return;
+  controller.addTransformObserver(() => {
+    if (!window._sizeInputApplying) updateSelectionInfo();
+  });
+  window._ekkoSelectionPropertyObserver = true;
+}
+
+window._sizeLockEnabled = true;
 window.updateSelectionInfo = updateSelectionInfo;
+bindNumericSelectionControls();
+installSelectionPropertyObserver();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    bindNumericSelectionControls();
+    installSelectionPropertyObserver();
+    updateSelectionInfo();
+  }, { once: true });
+}
 
 function updateLockButton() {
   const btnLock = document.getElementById("btnToggleLock");
@@ -1346,13 +1619,26 @@ export function addSVGFromFile(file, pointOrOptions = null) {
           function sanitizeAndBakeVectors(node) {
             if (!node) return;
             if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
+              const sourceData = node.data || {};
               node.visible = true;
               node.opacity = 1.0;
-              if (node.strokeColor) {
+              // `fill="none"` is meaningful SVG paint semantics, not a
+              // request to invent a filled mass. Preserve it so open/stroke
+              // only artwork can later be treated as a real cut line.
+              if (sourceData.sourceFillNone === true) {
+                node.fillColor = null;
+                if (!sourceData.sourceStrokeNone && !node.strokeColor) {
+                  node.strokeColor = new paper.Color('#111827');
+                }
+              } else if (node.strokeColor) {
                 node.strokeScaling = false;
                 if (!node.strokeWidth || node.strokeWidth < 1.0) node.strokeWidth = 1.2;
               } else if (!node.fillColor) {
                 node.fillColor = new paper.Color('#111827');
+              }
+              if (sourceData.sourceStrokeNone === true) {
+                node.strokeColor = null;
+                node.strokeWidth = 0;
               }
             }
             if (node.children && node.children.length > 0) node.children.forEach(sanitizeAndBakeVectors);
@@ -2144,6 +2430,10 @@ async function bootstrapEKKO() {
 // Curvar Texto se enlaza en contextualMenu.js mediante un dispatcher único.
 
     
+    safeAddListener("btnAuditVectors", "click", () => {
+        runGeometryAudit();
+    });
+
     safeAddListener("btnAddQR", "click", () => {
       const text = prompt("Ingrese el texto o enlace (Instagram, WhatsApp, WiFi) para el codigo QR:", "https://www.instagram.com/grabados_ekko/");
       if (text && text.trim() !== "") {
