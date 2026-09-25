@@ -85,7 +85,7 @@ function resolveButtonSet(selection) {
 
   // Solo vector
   if (types.vector === selection.length) {
-    return { show: ['editNodes','outline','decomposeVector','group'], hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage'] };
+    return { show: ['editNodes','outline','decomposeVector','booleanUnion','booleanIntersect','booleanSubtract','booleanDifference','group'], hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage'] };
   }
 
   // Grupo
@@ -95,7 +95,7 @@ function resolveButtonSet(selection) {
 
   // Múltiples del mismo tipo
   if (selection.length > 1 && types.allSame) {
-    return { show: ['group','align','distribute'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','outline','editFusionImage'] };
+    return { show: ['group','align','distribute','booleanUnion','booleanIntersect','booleanSubtract','booleanDifference'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','outline','editFusionImage'] };
   }
 
   // Múltiple mixto
