@@ -9,7 +9,7 @@ para eliminar por completo el delay de red de 2 minutos.
 // 🚀 SILENCIADOR DE CONSOLA GLOBAL: Mantener la consola limpia de logs informativos o repetitivos
 
 
-import { textToCompoundPath } from "./fontToPath.js";
+import { textToCompoundPath, getBuiltinFontCatalog } from "./fontToPath.js";
 import { stampDesignItem } from "./fusionCore.js";
 import { buildContourRelations, applyContourRecord } from "./holeSemantics.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
@@ -45,7 +45,11 @@ export async function loadDynamicFonts() {
         if (!response.ok) throw new Error("Endpoint api/fonts no disponible");
         const fontFiles = await response.json();
         if (!fontFiles || fontFiles.length === 0) {
-            throw new Error("No se devolvieron tipografías desde el servidor.");
+            // Keep the editor usable in a static/local installation. The
+            // fallback files are part of the repository and are also the
+            // source used by the OpenType converter.
+            loadedFontsCache = getBuiltinFontCatalog();
+            return loadedFontsCache;
         }
 
         const loaded = [];
@@ -99,8 +103,9 @@ export async function loadDynamicFonts() {
         loadedFontsCache = loaded;
         return loaded;
     } catch (e) {
-        // No crear fuentes fantasma ni usar rutas alternativas: el catálogo único es /api/fonts.
-        loadedFontsCache = [];
+        // Static/local mode: expose the bundled catalogue instead of leaving
+        // the text tools empty. The endpoint remains the preferred source.
+        loadedFontsCache = getBuiltinFontCatalog();
         if (typeof window !== 'undefined') window._ekkoFontCatalogError = String(e?.message || e);
         return loadedFontsCache;
     }
