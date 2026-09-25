@@ -86,46 +86,62 @@ export const rotationController = {
       window.commitHistoryTransaction?.("transform");
     }
     window.rotationActive = false; window.rotationTarget = null; window.rotationTargets = []; window.isRotationSnapped = false;
-    hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.paper?.view?.update?.();
+    hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.updateSelectionInfo?.(); window.paper?.view?.update?.();
   },
   cancelPointer() { this.endPointer("cancelled"); },
   hidePopup,
   resolveOwner(item) { return owner(item); },
   syncSelection(item) {
-    const publicOwner = owner(item);
-    if (!publicOwner) {
-      ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+    const owners = selected().map(owner).filter(Boolean);
+    if (!owners.length) {
+      ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) { input.value = ""; input.disabled = true; } });
       ["objFontSize", "ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+      window.updateSelectionInfo?.();
       return;
     }
-    const shown = String(Math.round(syncOwnerRotation(publicOwner)));
-    ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
-    if (publicOwner.className === "PointText") syncFontSizeInputs(publicOwner.fontSize);
+    const angles = owners.map(syncOwnerRotation);
+    const first = angles[0];
+    const mixed = angles.some(value => Math.abs(normalize(value - first)) > 0.25);
+    const shown = mixed ? "Mixto" : String(Math.round(normalize(first)));
+    ["objRotation", "ctxRotation"].forEach(id => {
+      const input = document.getElementById(id);
+      if (input) { input.value = shown; input.disabled = false; }
+    });
+    const textOwner = owners.find(value => value.className === "PointText");
+    if (textOwner) syncFontSizeInputs(textOwner.fontSize);
+    window.updateSelectionInfo?.();
   } ,
   syncFontSizeInputs,
   applyManual(value) {
+    if (String(value).trim().toLowerCase() === "mixto") return;
     const items = selected(); if (!items.length) return;
     const targets = items.map(item => ({ item, owner: owner(item) })).filter(entry => entry.owner); if (!targets.length) return;
-    const next = normalize(value), primary = targets[0].owner, current = syncOwnerRotation(primary), delta = next - current;
-    window.EKKO_TRANSFORM_TRACE?.boundary("before-rotate", {
-      phase: "numeric", requested: Number(value), normalized: next, current, delta,
-      targetCount: targets.length
-    });
+    const next = normalize(value);
     const bounds = targets.reduce((out, entry) => out ? out.unite(entry.owner.bounds) : entry.owner.bounds.clone(), null);
+    const center = bounds?.center;
+    const deltas = targets.map(entry => next - syncOwnerRotation(entry.owner));
+    window.EKKO_TRANSFORM_TRACE?.boundary("before-rotate", {
+      phase: "numeric", requested: Number(value), normalized: next, targetCount: targets.length,
+      deltas
+    });
     beginTransformTransaction("rotate", targets, null);
-    targets.forEach(entry => { transformPublicItem(entry.owner, { type: "rotate", angle: delta, center: bounds?.center }); syncOwnerRotation(entry.owner); });
+    targets.forEach((entry, index) => {
+      transformPublicItem(entry.owner, { type: "rotate", angle: deltas[index], center });
+      syncOwnerRotation(entry.owner);
+    });
     updatePopup(next);
-    // Numeric rotation is a complete public transform transaction.  Mark the
+    // Numeric rotation is a complete public transform transaction. Mark the
     // shared history owner after the matrix changed, then close it before the
     // next keyboard command can reach undo/redo.
     window.saveHistory?.();
     finalizeTransformTransaction("committed");
     window.commitHistoryTransaction?.("transform");
     window.EKKO_TRANSFORM_TRACE?.boundary("after-transform-commit", {
-      phase: "numeric", requested: Number(value), normalized: next, delta,
+      phase: "numeric", requested: Number(value), normalized: next,
       targetCount: targets.length, historyLabel: "transform"
     });
-    hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.paper?.view?.update?.();
+    notifyTransformObservers({ type: "rotate", cumulativeAngle: next, numeric: true });
+    hidePopup(); window.updateSelectionBox?.(window.selectedItem); window.updateSelectionInfo?.(); window.paper?.view?.update?.();
   },
   applyFontSize(value) {
     const size = Math.max(5, Math.min(250, Number(value) || 42));
