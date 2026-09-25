@@ -307,6 +307,30 @@ function clearFusionPreview(resetCursor = true) {
    hueco virtual sustractivo). Default mode ahora 'intersecar'.
 ------------------------------------------------------------------------ */
 export function applySmartFusion(vector, raster, mode = 'intersecar', options = {}) {
+  // Keep the public dispatcher tolerant of the two historical call shapes:
+  // (vector, raster, mode) and (raster, vector, options). A mode-only call is
+  // also a safe alias for the explicit selection dispatcher used by the UI.
+  const requestedMode = typeof mode === 'string' ? mode : (mode?.mode || 'intersecar');
+  const requestedOptions = mode && typeof mode === 'object' ? mode : (options || {});
+  if (typeof vector === 'string' && raster == null) {
+    return applyFusionFromSelection(requestedMode);
+  }
+  const firstRasterCandidate = findFusionRaster(vector);
+  const secondVectorCandidate = findFusionVector(raster);
+  if (firstRasterCandidate && secondVectorCandidate) {
+    // Legacy raster-first shape, including a containment wrapper returned by
+    // the image importer rather than the raw Raster itself.
+    const legacyVector = secondVectorCandidate;
+    raster = firstRasterCandidate;
+    vector = legacyVector;
+  } else {
+    // Normalize structural SVG groups and containment wrappers before the
+    // validation contract is evaluated.
+    vector = findFusionVector(vector) || vector;
+    raster = findFusionRaster(raster) || raster;
+  }
+  mode = requestedMode;
+  options = requestedOptions;
   const preserveRasterTransform = options && options.preserveRasterTransform === true;
   if (!vector || !raster || !paper) return null;
   const validation = canFuse(raster, vector);
@@ -458,7 +482,9 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
 
   // La fusión pública siempre se selecciona por su owner real. El wrapper
   // solamente contiene el resultado para clipping y no puede ser propietario.
-  if (typeof window.syncGeometryToGeomBase === 'function') window.syncGeometryToGeomBase(fusionGroup);
+  // Do not call the generic group synchronizer here: it would clone the Raster
+  // together with the mask and replace the fusion's vector geomBase. The
+  // canonical vector snapshot was installed above and follows owner.matrix.
   if (typeof recalculateDynamicSubtractions === 'function') recalculateDynamicSubtractions();
   if (typeof window.deselectItem === 'function') window.deselectItem();
   if (typeof window.selectItem === 'function') window.selectItem(fusionGroup);
@@ -483,7 +509,11 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   } catch(e){}
 
   if (typeof window.commitHistoryTransaction === 'function') window.commitHistoryTransaction("fusion");
-  return finalItem;
+  // Return the public fusion owner, not the mockup containment wrapper. The
+  // wrapper is an implementation detail used only for clipping; callers that
+  // receive this result must be able to edit, release and re-select the actual
+  // fusion without resolving a second time.
+  return fusionGroup;
 }
 
 /* ------------------------------------------------------------------------
