@@ -1,7 +1,7 @@
 /* ========================================================================
 RUTA DESTINO EN TU DISCO LOCAL: ASSETS/js/modules/canvas-pro/canvasMeasurements.js
 ACCIÓN: REEMPLAZAR COMPLETAMENTE TU ARCHIVO "ASSETS/js/modules/canvas-pro/canvasMeasurements.js"
-ESTADO: VERSIÓN DEFINITIVA v10.3 (TITANIUM PRECISION) - COTAS ORIENTADAS Y CAJA GLOBAL
+ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATIVOS INTEGRADOS
 ======================================================================== */
 
 let measurementsGroup = null;
@@ -45,33 +45,33 @@ export function setMeasurementsVisibility(visible) {
 }
 
 // Dibuja una línea de cota con flechas y texto en milímetros
-function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#BD3575") {
+function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
     if (!window.paper || !measurementsGroup) return;
 
-    const zoom = paper.view.zoom || 1;
-    const arrowSize = Math.max(5, 6 / Math.sqrt(zoom));
+    const zoom = paper.view.zoom;
+    const arrowSize = 5 / zoom; // Ajustar tamaño físico de la flecha con el zoom
 
     // Puntos de la línea de cota desplazada
     const dp1 = p1.add(offsetVector);
     const dp2 = p2.add(offsetVector);
 
     // 1. Líneas de extensión desde los límites del objeto hasta la línea de cota
-    const extLine1 = new paper.Path.Line(p1, dp1.add(offsetVector.normalize(2 / Math.sqrt(zoom))));
+    const extLine1 = new paper.Path.Line(p1, dp1.add(offsetVector.normalize(2 / zoom)));
     extLine1.strokeColor = color;
-    extLine1.strokeWidth = Math.max(0.9, 1.1 / Math.sqrt(zoom));
-    extLine1.opacity = 0.85;
+    extLine1.strokeWidth = 0.8 / zoom;
+    extLine1.opacity = 0.5;
     measurementsGroup.addChild(extLine1);
 
-    const extLine2 = new paper.Path.Line(p2, dp2.add(offsetVector.normalize(2 / Math.sqrt(zoom))));
+    const extLine2 = new paper.Path.Line(p2, dp2.add(offsetVector.normalize(2 / zoom)));
     extLine2.strokeColor = color;
-    extLine2.strokeWidth = Math.max(0.9, 1.1 / Math.sqrt(zoom));
-    extLine2.opacity = 0.85;
+    extLine2.strokeWidth = 0.8 / zoom;
+    extLine2.opacity = 0.5;
     measurementsGroup.addChild(extLine2);
 
     // 2. Línea de dimensión principal
     const dimLine = new paper.Path.Line(dp1, dp2);
     dimLine.strokeColor = color;
-    dimLine.strokeWidth = Math.max(1.4, 1.6 / Math.sqrt(zoom));
+    dimLine.strokeWidth = 1 / zoom;
     measurementsGroup.addChild(dimLine);
 
     // 3. Flechas de cota
@@ -86,7 +86,7 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#BD3575") {
             dp1.add(lineNormal.rotate(-30).multiply(arrowSize))
         ],
         strokeColor: color,
-        strokeWidth: Math.max(1.1, 1.4 / Math.sqrt(zoom))
+        strokeWidth: 1 / zoom
     });
     measurementsGroup.addChild(arrow1);
 
@@ -98,7 +98,7 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#BD3575") {
             dp2.subtract(lineNormal.rotate(-30).multiply(arrowSize))
         ],
         strokeColor: color,
-        strokeWidth: Math.max(1.1, 1.4 / Math.sqrt(zoom))
+        strokeWidth: 1 / zoom
     });
     measurementsGroup.addChild(arrow2);
 
@@ -107,23 +107,24 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#BD3575") {
     const textStr = typeof mmVal === 'number' ? `${mmVal.toFixed(1)} mm` : mmVal;
 
     const midPoint = dp1.add(dp2).multiply(0.5);
-    const textOffset = offsetVector.normalize(10 / Math.sqrt(zoom));
+    const textOffset = offsetVector.normalize(8 / zoom);
 
     const textEl = new paper.PointText({
         point: midPoint.add(textOffset),
         content: textStr,
         fillColor: color,
-        fontSize: Math.max(11, 12 / Math.sqrt(zoom)),
+        fontSize: 10 / zoom,
         fontFamily: "sans-serif",
         justification: "center"
     });
 
-    // Mantener el texto legible en cualquier orientación de la cota.
-    const angle = lineVector.angle;
-    let textAngle = angle;
-    if (textAngle > 90) textAngle -= 180;
-    if (textAngle < -90) textAngle += 180;
-    if (Math.abs(textAngle) > 0.01) textEl.rotate(textAngle, textEl.point);
+    // Alinear el texto con la línea sin que nunca quede de cabeza: el
+    // ángulo se normaliza al rango legible [-90, 90]. La versión anterior
+    // sumaba +90/+180 y dejaba las cotas verticales rotadas 180°.
+    const rawAngle = lineVector.angle;
+    const normalized = ((rawAngle % 360) + 360) % 360;
+    const readable = normalized > 90 && normalized <= 270 ? normalized - 180 : normalized;
+    if (readable !== 0) textEl.rotate(readable, textEl.point);
     measurementsGroup.addChild(textEl);
 }
 
@@ -139,8 +140,8 @@ export function drawMeasurements() {
     measurementsGroup = new paper.Group();
     measurementsGroup.data = { isMeasurement: true, nonSelectable: true };
 
-    const zoom = paper.view.zoom || 1;
-    const offsetMm = Math.max(14, 18 / Math.sqrt(zoom));
+    const zoom = paper.view.zoom;
+    const offsetMm = 15 / zoom; // Distancia física de las cotas en pantalla respecto al objeto
 
     // Mockup/product dimensions are reference metadata, never selection
     // measurements.  Excluding them prevents the product bounds from
@@ -154,7 +155,6 @@ export function drawMeasurements() {
     const resolveOwner = window.EKKO_FUSION_CONTROLLER?.resolvePublicTransformOwner
         || window.resolvePublicTransformOwner;
     const measuredOwners = [];
-    const measuredOwnerItems = [];
     selectedOwners.forEach(raw => {
         // The public resolver is owned by fusionController.  A Raster selected
         // through a mockup clipGroup must be measured as that Raster, never as
@@ -165,7 +165,6 @@ export function drawMeasurements() {
                 ? window.getContentItem(raw) : raw);
         if (!owner || seen.has(owner) || owner.data?.mockup || owner.data?.isMask || owner.data?.isSelectionBox) return;
         seen.add(owner);
-        measuredOwnerItems.push(owner);
         measuredOwners.push({ id: owner.id ?? null, className: owner.className, label: owner.data?.label || null });
         let localClone = null;
         try {
@@ -178,42 +177,15 @@ export function drawMeasurements() {
             const toWorld = point => matrix.transform(point);
             const tl = toWorld(local.topLeft), tr = toWorld(local.topRight);
             const br = toWorld(local.bottomRight), bl = toWorld(local.bottomLeft);
-            const center = tl.add(tr).add(br).add(bl).multiply(0.25);
-            const topMid = tl.add(tr).multiply(0.5);
-            let topNormal = tr.subtract(tl).rotate(90).normalize();
-            if (topMid.subtract(center).dot(topNormal) < 0) topNormal = topNormal.multiply(-1);
-            const rightMid = tr.add(br).multiply(0.5);
-            let rightNormal = br.subtract(tr).rotate(90).normalize();
-            if (rightMid.subtract(center).dot(rightNormal) < 0) rightNormal = rightNormal.multiply(-1);
-            const cotaColor = "#BD3575";
-            drawDimensionLine(tl, tr, topNormal.multiply(offsetMm), tl.getDistance(tr), cotaColor);
-            drawDimensionLine(tr, br, rightNormal.multiply(offsetMm), tr.getDistance(br), cotaColor);
+            const offset = new paper.Point(0, offsetMm);
+            drawDimensionLine(tl, tr, offset, tl.getDistance(tr), "#007bff");
+            drawDimensionLine(tr, br, new paper.Point(offsetMm, 0), tr.getDistance(br), "#007bff");
         } catch (e) {
             // An invalid transient owner is simply omitted from the overlay.
         } finally {
             try { localClone?.remove?.(); } catch (e) {}
         }
     });
-
-    // En una multiselección, la caja global necesita sus propias cotas.
-    // Las cotas por owner muestran el tamaño local; estas dos muestran el
-    // ancho/alto de la caja que engloba a todos los objetos.
-    if (measuredOwnerItems.length > 1) {
-        let envelope = null;
-        measuredOwnerItems.forEach(owner => {
-            const bounds = owner?.bounds;
-            if (!bounds) return;
-            envelope = envelope ? envelope.unite(bounds) : bounds.clone();
-        });
-        if (envelope && envelope.width > 0 && envelope.height > 0) {
-            const tl = envelope.topLeft;
-            const tr = envelope.topRight;
-            const br = envelope.bottomRight;
-            const envelopeColor = "#BD3575";
-            drawDimensionLine(tl, tr, new paper.Point(0, -offsetMm), envelope.width, envelopeColor);
-            drawDimensionLine(tr, br, new paper.Point(offsetMm, 0), envelope.height, envelopeColor);
-        }
-    }
 
     publishMeasurementState({ reason: "draw", owners: measuredOwners });
     // Asegurarse de que el grupo de cotas no tape los tiradores interactivos
