@@ -13,7 +13,7 @@
  * are stored here.
  */
 import { getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry } from "./designGeometry.js";
-import { installGeometryInOwner } from "./geometricUngroup.js";
+import { installOwnerGeometry } from "./geometricUngroup.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
 const EPSILON = 1e-7;
@@ -380,7 +380,7 @@ function restoreOutlineSource(owner) {
         world.transform(owner.globalMatrix || new paper.Matrix());
         world.applyMatrix = true;
     } catch (_) {}
-    const restored = installGeometryInOwner(owner, world);
+    const restored = installOwnerGeometry(owner, world);
     if (restored) {
         const local = snapshot.clone({ insert: false });
         local.applyMatrix = false;
@@ -395,7 +395,7 @@ function applyOutlineResult(owner, result) {
     const before = owner.data?.geomBase?.clone?.({ insert: false }) ||
         getOwnerLocalGeometry(owner);
     if (before) owner.data.outlineSourceGeomBase = before;
-    const installed = installGeometryInOwner(owner, result);
+    const installed = installOwnerGeometry(owner, result);
     if (!installed) return null;
     const local = localSnapshotFromWorld(result, installed);
     if (local) {
