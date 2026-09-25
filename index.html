@@ -38,6 +38,128 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <!-- ==============================================================
          BOTONES DE VISIBILIDAD DE PANELES — ⋮⋮⋮ ARRIBA A LA DERECHA
          ============================================================== -->
+    <!-- DESCARGAR — FIJO ARRIBA A LA DERECHA, SIEMPRE VISIBLE.
+         Pruebas: solo SVG. Formatos de cliente (con marca de agua) vendrán
+         como opciones deshabilitadas hasta definir planes. -->
+    <div id="ekkoDownloadWrap" style="position:fixed;top:44px;right:16px;z-index:200;">
+        <button id="btnEkkoDownload" class="btn-action" type="button" onclick="window.__ekkoToggleDownloadMenu?.()" title="Descargar diseño" style="background:#15803d;color:#fff;border-color:#15803d;font-weight:bold;">
+            <i class="fas fa-download"></i> Descargar
+        </button>
+        <div id="ekkoDownloadMenu" hidden style="position:absolute;top:calc(100% + 6px);right:0;min-width:270px;background:#fff;border:1px solid #d7dee8;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.18);padding:6px;z-index:201;">
+            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">GRABADO · LIGHTBURN</div>
+            <div style="display:flex;gap:6px;padding:2px 10px 6px;align-items:center;font-size:12px;">
+                <label style="display:flex;gap:4px;align-items:center;">Vista
+                    <select id="ekkoDownloadViews" style="max-width:130px;padding:3px 4px;border:1px solid #d7dee8;border-radius:6px;font-size:12px;"></select>
+                </label>
+                <label style="display:flex;gap:4px;align-items:center;" title="Incluye el contorno del producto en un grupo separado">
+                    <input type="checkbox" id="ekkoDownloadMockup"> Contorno
+                </label>
+            </div>
+            <button type="button" onclick="window.__ekkoDownloadSVG?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
+                <i class="fas fa-bezier-curve" style="color:#15803d;"></i>
+                <span><b>SVG grabado</b> <span style="color:#64748b;">(sin doble quemado)</span></span>
+            </button>
+            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">TRABAJO · RE-EDITABLE</div>
+            <button type="button" onclick="window.__ekkoDownloadProject?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#eff6ff;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
+                <i class="fas fa-file-export" style="color:#1d4ed8;"></i>
+                <span><b>Proyecto EKKO</b> <span style="color:#64748b;">(todas las vistas)</span></span>
+            </button>
+            <button type="button" onclick="window.__ekkoOpenProject?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
+                <i class="fas fa-folder-open" style="color:#475569;"></i>
+                <span><b>Abrir proyecto…</b></span>
+            </button>
+            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">CLIENTE</div>
+            <button type="button" onclick="window.__ekkoDownloadSketch?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#fefce8;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
+                <i class="fas fa-image" style="color:#a16207;"></i>
+                <span><b>Boceto PNG</b> <span style="color:#64748b;">(con marca de agua)</span></span>
+            </button>
+            <button type="button" disabled title="Próximamente" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;font-size:13px;color:#94a3b8;cursor:not-allowed;text-align:left;margin-top:4px;">
+                <i class="fas fa-file-pdf"></i>
+                <span><b>PDF cliente</b> <span>· Próximamente</span></span>
+            </button>
+        </div>
+    </div>
+    <script>
+        window.__ekkoDownloadMenuViews = function() {
+            const select = document.getElementById("ekkoDownloadViews");
+            const store = window.EKKO_SCENE_STORE;
+            if (!select || !store) return;
+            let describe = null;
+            try { describe = store.describe(); } catch (_) { describe = null; }
+            select.innerHTML = "";
+            const addOption = (value, label) => {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = label;
+                select.appendChild(option);
+            };
+            const surfaces = (describe && describe.surfaces) || [];
+            if (!surfaces.length) {
+                addOption("__current", "Vista actual");
+                return;
+            }
+            surfaces.forEach(surf => addOption(surf.name, surf.name));
+            addOption("__all", "Todas las vistas");
+            const current = surfaces[describe.surfaceIndex];
+            select.value = current ? current.name : "__current";
+        };
+        window.__ekkoToggleDownloadMenu = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (!menu) return;
+            if (menu.hidden) {
+                try { window.__ekkoDownloadMenuViews(); } catch (_) {}
+            }
+            menu.hidden = !menu.hidden;
+        };
+        window.__ekkoDownloadReadOptions = function() {
+            const select = document.getElementById("ekkoDownloadViews");
+            const mockup = document.getElementById("ekkoDownloadMockup");
+            const value = select ? select.value : "__current";
+            return {
+                surfaces: !value || value === "__current" ? null : (value === "__all" ? "__all" : [value]),
+                includeMockup: !!(mockup && mockup.checked)
+            };
+        };
+        window.__ekkoDownloadSVG = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            const io = window.EKKO_PROJECT_IO;
+            if (!io) return;
+            const opts = window.__ekkoDownloadReadOptions();
+            const store = window.EKKO_SCENE_STORE;
+            let surfaces = null;
+            if (opts.surfaces === "__all") {
+                try {
+                    const describe = store.describe();
+                    surfaces = (describe.surfaces || []).map(surf => surf.name);
+                } catch (_) { surfaces = null; }
+            } else {
+                surfaces = opts.surfaces;
+            }
+            io.exportViewsToSVG(surfaces, { includeMockup: opts.includeMockup });
+        };
+        window.__ekkoDownloadProject = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.downloadProjectFile();
+        };
+        window.__ekkoOpenProject = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.requestOpenProjectFile();
+        };
+        window.__ekkoDownloadSketch = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.downloadSketchPNG();
+        };
+        document.addEventListener("click", function(event) {
+            const wrap = document.getElementById("ekkoDownloadWrap");
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (wrap && menu && !menu.hidden && !wrap.contains(event.target)) menu.hidden = true;
+        });
+    </script>
+
     <div id="panelToggles" data-legacy-panel-controls="true" aria-hidden="true" style="position:fixed;top:8px;right:16px;z-index:60;display:flex;gap:8px;">
         <button id="toggleTopBar" title="Contraer/Expandir barra superior" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
         <button id="toggleContextBar" title="Ocultar/Mostrar barra emergente" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
@@ -150,9 +272,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div class="top-group">
-                <button class="btn-action" onclick="downloadExportedSVG()" title="Descargar diseño para LightBurn">
-                    <i class="fas fa-download"></i> Descargar
-                </button>
                 <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
                     <i class="fas fa-expand"></i> Ajustar Vista
                 </button>
@@ -311,6 +430,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <script type="module" src="ASSETS/js/editor.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCoordinator.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCommandBridge.js"></script>
+    <script type="module" src="ASSETS/js/modules/canvas-pro/projectIO.js"></script>
 
 
 
