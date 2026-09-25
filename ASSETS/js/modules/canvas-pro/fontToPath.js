@@ -9,6 +9,53 @@ import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 const fontCache = new Map();
 let fontCatalogPromise = null;
 
+/*
+ * The editor is normally deployed on Vercel, where /api/fonts supplies the
+ * catalogue.  It is also used from a plain static server (and in automated
+ * tests), where that endpoint does not exist.  Text-to-path must not silently
+ * depend on the API: the repository already contains the fonts, so keep a
+ * small deterministic fallback catalogue and use it when the endpoint is
+ * unavailable or empty.
+ */
+const BUILTIN_FONT_CATALOG = [
+    { name: "MalvinasSans-Regular", family: "ekko_malvinassans_regular", file: "MalvinasSans-Regular.ttf" },
+    { name: "waltographUI", family: "ekko_waltograph_ui", file: "waltographUI.ttf" },
+    { name: "waltograph42", family: "ekko_waltograph42", file: "waltograph42.otf" },
+    { name: "Vartigo", family: "ekko_vartigo", file: "Vartigo.ttf" },
+    { name: "Thesignature", family: "ekko_thesignature", file: "Thesignature.ttf" },
+    { name: "Study Night", family: "ekko_study_night", file: "Study Night.otf" },
+    { name: "SimpleHandmade", family: "ekko_simplehandmade", file: "SimpleHandmade.ttf" },
+    { name: "Romantic Sunrise", family: "ekko_romantic_sunrise", file: "Romantic Sunrise.otf" },
+    { name: "Photograph Signature", family: "ekko_photograph_signature", file: "Photograph Signature.ttf" },
+    { name: "Papernotes", family: "ekko_papernotes", file: "Papernotes.ttf" },
+    { name: "Papernotes Bold", family: "ekko_papernotes_bold", file: "Papernotes Bold.ttf" },
+    { name: "Mayonice", family: "ekko_mayonice", file: "Mayonice.ttf" },
+    { name: "Love", family: "ekko_love", file: "Love.ttf" },
+    { name: "Little", family: "ekko_little", file: "Little.ttf" },
+    { name: "Milky Matcha", family: "ekko_milky_matcha", file: "Milky Matcha.otf" },
+    { name: "Nostalgic Letter", family: "ekko_nostalgic_letter", file: "Nostalgic Letter.otf" },
+    { name: "Farmhouse", family: "ekko_farmhouse", file: "Farmhouse.ttf" },
+    { name: "Chocolate", family: "ekko_chocolate", file: "Chocolate.ttf" },
+    { name: "bromello", family: "ekko_bromello_regular", file: "bromello-Regular.ttf" }
+];
+
+const BUILTIN_FONT_ALIASES = {
+    arial: "MalvinasSans-Regular.ttf",
+    helvetica: "MalvinasSans-Regular.ttf",
+    sans: "MalvinasSans-Regular.ttf",
+    sansserif: "MalvinasSans-Regular.ttf",
+    systemui: "MalvinasSans-Regular.ttf",
+    ekko_malvinassans_regular: "MalvinasSans-Regular.ttf",
+    ekko_malvinassans: "MalvinasSans-Regular.ttf",
+    waltograph: "waltograph42.otf",
+    waltographui: "waltographUI.ttf",
+    simplehandmade: "SimpleHandmade.ttf",
+    study_night: "Study Night.otf",
+    study_person: "Study Person.otf",
+    nostalgic: "Nostalgic Letter.otf",
+    please_writ: "Please write me a song.ttf"
+};
+
 function normalize(value) {
     return String(value || "")
         .toLowerCase()
@@ -16,13 +63,30 @@ function normalize(value) {
         .replace(/[^a-z0-9]/g, "");
 }
 
+function normalizeFileName(file) {
+    const value = String(file || "").replace(/^\/+/, "");
+    return value.includes("/") ? value.slice(value.lastIndexOf("/") + 1) : value;
+}
+
+function localFontCatalog() {
+    return BUILTIN_FONT_CATALOG.map(font => ({
+        ...font,
+        file: normalizeFileName(font.file)
+    }));
+}
+
 async function getFontCatalog() {
     if (!fontCatalogPromise) {
         fontCatalogPromise = fetch("/api/fonts")
             .then(response => response.ok ? response.json() : [])
-            .catch(() => []);
+            .then(catalog => Array.isArray(catalog) && catalog.length ? catalog : localFontCatalog())
+            .catch(() => localFontCatalog());
     }
     return fontCatalogPromise;
+}
+
+export function getBuiltinFontCatalog() {
+    return localFontCatalog();
 }
 
 async function resolveFontFile(fontFamily) {
@@ -32,10 +96,20 @@ async function resolveFontFile(fontFamily) {
         normalize(font.family) === wanted || normalize(font.name) === wanted
     );
     const match = matches.find(font => /\.(ttf|otf|woff)$/i.test(font.file));
-    if (!match?.file) {
-        throw new Error(`Fuente seleccionada sin formato vectorial compatible: ${fontFamily}`);
+    if (match?.file) return normalizeFileName(match.file);
+
+    // A CSS family may be an alias rather than the family returned by the API.
+    // Resolve aliases before giving up so a project can still be vectorized
+    // offline and with a previously selected font.
+    const alias = BUILTIN_FONT_ALIASES[wanted];
+    if (alias) return alias;
+
+    // The default font used by the editor is deliberately deterministic.
+    if (!fontFamily || ["arial", "helvetica", "sans-serif", "sansserif"].includes(wanted)) {
+        return "MalvinasSans-Regular.ttf";
     }
-    return match.file;
+
+    throw new Error(`Fuente seleccionada sin formato vectorial compatible: ${fontFamily}`);
 }
 
 async function loadFont(fontFamily) {
@@ -195,5 +269,5 @@ export async function textToCompoundPath(textItem) {
 }
 
 if (typeof window !== "undefined") {
-    window.EKKO_FONT_TO_PATH = { textToCompoundPath, resolveFontFile };
+    window.EKKO_FONT_TO_PATH = { textToCompoundPath, resolveFontFile, getBuiltinFontCatalog };
 }
