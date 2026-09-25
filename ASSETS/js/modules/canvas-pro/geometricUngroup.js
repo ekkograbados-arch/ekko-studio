@@ -1952,3 +1952,6 @@ if (typeof window !== 'undefined') {
     window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
     window.isContainedIn = isContainedIn;
 }
+
+// Alias para compatibilidad con outlineGeometry.js
+export const installGeometryInOwner = installOwnerGeometry;
