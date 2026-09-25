@@ -26,7 +26,7 @@ FASE DE OPERACIÓN:
 9. Inyección de unidades físicas métricas reales (mm) y precisión micrométrica (5 decimales).
 ========================================================================= */
 
-import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+import { recalculateDynamicSubtractions, interiorPointOf, evenOddContains } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { getPublicOwner } from "./designGeometry.js";
@@ -124,6 +124,45 @@ export async function prepareSVGForExport(options = {}) {
     // Clonado aislado de la capa (insert: false para no contaminar el lienzo interactivo)
     const tempLayer = designLayer.clone({ insert: false });
     tempLayer.name = "designLayer";
+
+    // Contorno del producto como grupo separado y fácilmente eliminable.
+    // Se captura ANTES del purgado de artefactos. Solo se incluye si el
+    // llamador lo pide (options.includeMockup): es referencia, no material.
+    let mockupOutline = null;
+    if (options.includeMockup === true) {
+        try {
+            const mockup = tempLayer.getItems({
+                match: item => item && (item.data?.mockup === true || item === window.currentMockup) &&
+                    (item instanceof paper.Path || item instanceof paper.CompoundPath)
+            })?.[0] || null;
+            const source = mockup || window.clipMask;
+            if (source) {
+                const outline = source.clone({ insert: false });
+                const flat = [];
+                (function collect(node) {
+                    if (!node) return;
+                    if (node instanceof paper.Path) flat.push(node);
+                    else if (node.children) Array.from(node.children).forEach(collect);
+                })(outline);
+                if (flat.length) {
+                    mockupOutline = new paper.Group({ insert: false });
+                    mockupOutline.data = { id: "EKKO-mockup", isMockupOutline: true };
+                    flat.forEach(path => {
+                        path.fillColor = null;
+                        path.strokeColor = new paper.Color("#0000ff");
+                        path.strokeWidth = 0.5;
+                        path.opacity = 1;
+                        mockupOutline.addChild(path);
+                    });
+                    try { outline.remove(); } catch (_) {}
+                } else {
+                    try { outline.remove(); } catch (_) {}
+                }
+            }
+        } catch (_) {
+            mockupOutline = null;
+        }
+    }
 
     // 2. PURGADO INICIAL DE ARTEFACTOS AUXILIARES Y ELEMENTOS NO GRABABLES
     // Elimina de inmediato mockups, fondos, guías inteligentes, cotas, reglas, marcas de agua y cajas de selección
@@ -236,6 +275,9 @@ export async function prepareSVGForExport(options = {}) {
     // 5. MATERIALIZACIÓN BOOLEANA CSG EN LA CAPA CLONADA
     // El export usa copias de los huecos virtuales, nunca las geometrías del
     // lienzo interactivo. Se conserva ownerContainmentKey para aislar fusiones.
+    // unionReport se declara aquí porque el informe de compuerta (más abajo)
+    // lo referencia antes de que corra la unión 5b.
+    const unionReport = { mergedPairs: 0, skippedPairs: 0, dedupedStrokes: 0, timedOut: false, filledCount: 0, evaluatedPairs: 0 };
       const exportVirtualHoles = [];
     let exportCsgReport = null;
     let exportCsgError = null;
@@ -289,6 +331,8 @@ export async function prepareSVGForExport(options = {}) {
         outOfProductHoles: (exportCsgReport?.outOfProductHoleKeys || []).length,
         unresolvedHoles: materializationUnresolvedHoles,
         unresolvedOwnerIds: [...(exportCsgReport?.unresolvedHoleKeys || [])],
+        union: unionReport,
+        mockupIncluded: !!mockupOutline,
         failedBooleans,
         csgCompleted,
         exportReady: csgCompleted && failedBooleans.length === 0 && materializationUnresolvedHoles === 0
@@ -302,156 +346,112 @@ export async function prepareSVGForExport(options = {}) {
 
 
 
-    // 6. PURGADO DE CALADOS ACTIVOS (isHole)
-    // Dado que el corte booleano ya fue materializado en la geometría de las masas sólidas inferiores,
-    // se eliminan todas las entidades de calado interactivo para no generar líneas de corte duplicadas en LightBurn
-    const holesToRemove = [];
-    tempLayer.getItems({
-        match: function(item) {
-            return item.data &&
-                (item.data.isHole === true || item.data.isHoleController === true) &&
-                item.data.isFusionMask !== true &&
-                item.data.isSmartFusion !== true;
-        }
-    }).forEach(hole => holesToRemove.push(hole));
-
-    holesToRemove.forEach(hole => {
-        try { hole.remove(); } catch (e) {}
-    });
-
-    // 7. SANITIZACIÓN VECTORIAL Y ASIGNACIÓN DE ESTILOS PARA CORTE/GRABADO LÁSER
-    // - Asigna fillRule "evenodd" en todos los CompoundPaths para renderizado de huecos estándar
-    // - Asegura colores visibles (negro para grabado / trazo fino) evitando paths invisibles ignorados por LightBurn
-    // - Descarta geometrías vacías o degeneradas (sin área ni segmentos)
-    const emptyItems = [];
-    tempLayer.getItems({
-        match: function(item) {
-            if (item instanceof paper.PathItem) {
-                const segCount = item.segments ? item.segments.length : 
-                    (item.children ? item.children.reduce((acc, c) => acc + (c.segments ? c.segments.length : 0), 0) : 0);
-                const area = Math.abs(item.area || 0);
-                if (segCount < 2 || area < 1e-4) {
-                    return true;
-                }
-            }
-            return false;
-        }
-    }).forEach(it => emptyItems.push(it));
-
-    emptyItems.forEach(it => {
-        try { it.remove(); } catch (e) {}
-    });
-
-    tempLayer.getItems({
-        match: function(item) {
-            return item instanceof paper.PathItem;
-        }
-    }).forEach(item => {
-        // Fusion masks are clipping/CSG implementation details, never an
-        // exported black engraving shape.  Keep the mask object available to
-        // Paper.js clip semantics but make it non-painting in the clone.
-        if (item.data?.isFusionMask === true) {
-            item.fillColor = null;
-            item.strokeColor = null;
-            item.strokeWidth = 0;
-            item.opacity = 0;
-            return;
-        }
-        // Boolean outputs are disjoint contours: evenodd and nonzero agree,
-        // except when a contour kept the outer winding (Paper quirk on some
-        // glyph/SVG holes). Anything CSG actually cut is therefore stamped
-        // evenodd. Untouched multi-contour owners keep their source rule so
-        // same-winding nonzero designs (e.g. 008 islands) keep rendering.
-        if (item instanceof paper.CompoundPath && (item.children?.length || 0) > 1) {
-            if (item.data?.csgMaterialized === true) {
-                item.fillRule = "evenodd";
-            } else {
-                const sourceRule = String(item.data?.originalFillRule || item.fillRule || "nonzero").toLowerCase();
-                item.fillRule = sourceRule === "nonzero" || sourceRule === "non-zero" ? "nonzero" : "evenodd";
-            }
-        }
-        // Asignación de estilo por defecto si carece de color
-        if (!item.fillColor && !item.strokeColor) {
-            item.fillColor = new paper.Color("#000000");
-        }
-        // Garantizar trazo mínimo si es un path abierto de corte
-        if (!item.closed && (!item.strokeWidth || item.strokeWidth <= 0)) {
-            item.strokeWidth = 1.0;
-            if (!item.strokeColor) item.strokeColor = new paper.Color("#000000");
-        }
-    });
-
-    // 8. EXPORTACIÓN NATIVA A SVG CON PRECISIÓN INDUSTRIAL
-    const exportConfig = {
-        asString: true,
-        bounds: "content",
-        precision: precision
-    };
-
-    let svgString = tempLayer.exportSVG(exportConfig);
-
-    // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
-    // Paper exporta la capa como fragmento <g> sin raíz <svg>; el antiguo
-    // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdían.
-    // Se construye la raíz explícitamente: width/height en mm y viewBox en
-    // unidades de proyecto, de modo que 1 unidad = window.mmPerPaperUnit mm.
-    if (typeof svgString === "string" && svgString.trim() !== "") {
-        const bounds = tempLayer.bounds;
-        const mmPerUnit = Number(window.mmPerPaperUnit) || 0;
-        if (bounds && bounds.width > 0 && bounds.height > 0 && mmPerUnit > 0) {
-            const num = value => Number.isFinite(value) ? value.toFixed(precision) : "0";
-            const widthMm = (bounds.width * mmPerUnit).toFixed(3);
-            const heightMm = (bounds.height * mmPerUnit).toFixed(3);
-            const viewBox = `${num(bounds.x)} ${num(bounds.y)} ${num(bounds.width)} ${num(bounds.height)}`;
-            svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthMm}mm" height="${heightMm}mm" viewBox="${viewBox}">${svgString}</svg>`;
-        } else {
-            svgString = `<svg xmlns="http://www.w3.org/2000/svg">${svgString}</svg>`;
-        }
-    }
-
-    // 10. LIBERACIÓN DE MEMORIA DEL LIENZO TEMPORAL
-    tempLayer.remove();
-
-    if (window.EKKO_DEBUG) {
-        console.log("[EKKO EXPORT SUCCESS] El diseño vectorial ha sido industrializado exitosamente para LightBurn.");
-    }
-
-    if (typeof DOMParser !== "undefined") {
-        const parsed = new DOMParser().parseFromString(svgString, "image/svg+xml");
-        if (parsed.querySelector?.("parsererror")) {
-            exportCsgReport = { ...(window.EKKO_EXPORT_LAST_REPORT || {}), exportReady: false, reason: "generated-svg-parsererror" };
-            window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
-            return "";
-        }
-        return asString ? svgString : parsed.documentElement;
-    }
-    return asString ? svgString : svgString;
-}
-
-/**
- * Dispara la descarga del SVG preparado directamente en el navegador del usuario.
- * @param {string} [filename="diseno-ekko.svg"] Nombre del archivo de salida
- */
-export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
-    const svgContent = await prepareSVGForExport({ asString: true });
-    if (!svgContent || svgContent.trim() === "") {
-        alert("No hay elementos válidos para exportar en el lienzo.");
-        return;
-    }
-
-    const blob = new Blob([svgContent], { type: "image/svg+xml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename.endsWith(".svg") ? filename : (filename + ".svg");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-}
-
-// Exposición global segura
-if (typeof window !== "undefined") {
-    window.prepareSVGForExport = prepareSVGForExport;
-    window.downloadExportedSVG = downloadExportedSVG;
-}
+    // 5b. UNIÓN ANTI DOBLE-GRABADO (solo modo grabado)
+    // Dos rellenos superpuestos del mismo estilo se grabarían dos veces en
+    // la intersección. Se fusionan por estilo con tope de tiempo/pares; lo
+    // no unido se informa en el reporte en vez de bloquear la exportación.
+    // Las líneas de corte abiertas duplicadas exactas se deduplican por
+    // pathData normalizado.
+    if (options.uniteOverlaps !== false) {
+        try {
+            const styleKey = item => {
+                const fill = item.fillColor ? item.fillColor.toCSS(true) : "none";
+                const stroke = item.strokeColor ? item.strokeColor.toCSS(true) : "none";
+                return `${fill}|${stroke}|${item.strokeWidth || 0}`;
+            };
+            // Only top-level public owners: getItems descends into compound
+            // children, which would double-count (and wrongly merge) the
+            // internal contours of every solid.
+            const filled = [];
+            tempLayer.getItems({
+                match: item => (item instanceof paper.Path || item instanceof paper.CompoundPath) &&
+                    !(item.parent instanceof paper.Path) && !(item.parent instanceof paper.CompoundPath) &&
+                    !item.data?.isHole && !item.data?.isFusionMask && !item.data?.mockup &&
+                    !item.data?.isMask && !item.data?.wasClipMask && !item.clipMask &&
+                    !!item.fillColor && item.closed !== false
+            }).forEach(item => filled.push(item));
+            // Interior probes of every hole owner: a union must never fill a
+            // previously empty hole (e.g. swallowing an island solid that
+            // sits inside a hole region).
+            const holeProbes = [];
+            tempLayer.getItems({
+                match: item => item?.data?.isHole === true &&
+                    (item instanceof paper.Path || item instanceof paper.CompoundPath)
+            }).forEach(hole => {
+                try {
+                    const probe = interiorPointOf(hole);
+                    if (probe) holeProbes.push(probe);
+                } catch (_) {}
+            });
+            const byStyle = new Map();
+            filled.forEach(item => {
+                const key = styleKey(item);
+                if (!byStyle.has(key)) byStyle.set(key, []);
+                byStyle.get(key).push(item);
+            });
+            unionReport.filledCount = filled.length;
+            const bakeWorld = item => {
+                // Paper booleans read raw segments and ignore .matrix when
+                // applyMatrix is false. Bake the FULL world transform (owner
+                // plus ancestors) into a detached clone so the union runs in
+                // project coordinates.
+                const clone = item.clone({ insert: false });
+                try {
+                    const matrix = item.globalMatrix?.clone?.() || clone.matrix?.clone?.();
+                    clone.applyMatrix = false;
+                    clone.matrix = new paper.Matrix();
+                    if (matrix && !matrix.isIdentity()) clone.transform(matrix);
+                    clone.applyMatrix = true;
+                } catch (_) {}
+                return clone;
+            };
+            const toLocalOf = (geometry, owner) => {
+                // Bring world-baked result back to the keeper's local frame.
+                try {
+                    const inverse = owner.globalMatrix?.inverted?.();
+                    if (inverse && typeof geometry.transform === "function") geometry.transform(inverse);
+                } catch (_) {}
+                return geometry;
+            };
+            const deadline = Date.now() + (Number.isFinite(options.uniteBudgetMs) ? options.uniteBudgetMs : 4000);
+            let pairCount = 0;
+            const maxPairs = Number.isFinite(options.uniteMaxPairs) ? options.uniteMaxPairs : 2000;
+            byStyle.forEach(group => {
+                for (let a = 0; a < group.length && Date.now() < deadline && pairCount < maxPairs; a++) {
+                    let first = group[a];
+                    if (!first || !first.project) continue;
+                    for (let b = a + 1; b < group.length && Date.now() < deadline && pairCount < maxPairs; b++) {
+                        const second = group[b];
+                        if (!second || !second.project) continue;
+                        try {
+                            if (!first.bounds.intersects(second.bounds)) continue;
+                        } catch (_) { continue; }
+                        pairCount += 1;
+                        unionReport.evaluatedPairs += 1;
+                        let united = null;
+                        const worldA = bakeWorld(first);
+                        const worldB = bakeWorld(second);
+                        try {
+                            united = worldA.unite(worldB, { insert: false });
+                        } catch (_) { united = null; }
+                        // Validate in the world frame: Item.area ignores the
+                        // owner matrix, so live areas and baked areas differ
+                        // under transforms.
+                        const unitedArea = united ? Math.abs(united.area || 0) : 0;
+                        const sumArea = Math.abs(worldA.area || 0) + Math.abs(worldB.area || 0);
+                        try { worldA.remove(); } catch (_) {}
+                        try { worldB.remove(); } catch (_) {}
+                        let preservesHoles = true;
+                        if (united && unitedArea > 1e-9 && unitedArea <= sumArea * (1 + 1e-6)) {
+                            try {
+                                united.fillRule = "evenodd";
+                                for (const probe of holeProbes) {
+                                    const wasEmpty = !evenOddContains(first, probe) && !evenOddContains(second, probe);
+                                    if (wasEmpty && evenOddContains(united, probe)) {
+                                        preservesHoles = false;
+                                        break;
+                                    }
+                                }
+                            } catch (_) {
+                                preservesHoles = false;
+                            }
