@@ -33,6 +33,14 @@ export function setSemanticKind(item, kind) {
   return item;
 }
 
+/** Open/stroke-only vector owners are cut lines, not boolean areas. */
+export function isCutLine(item) {
+  const owner = getPublicOwner(item) || item;
+  return !!(owner?.data?.isCutLine === true ||
+    owner?.data?.sourcePaintMode === 'stroke-only' ||
+    owner?.data?.sourceFillNone === true);
+}
+
 /** Return the wrapper that must move with a public owner in the layer stack. */
 export function getStackingUnit(item) {
   const owner = getPublicOwner(item) || item;
@@ -96,7 +104,7 @@ export function realGeometryIntersects(a, b) {
       const overlap = a.intersect?.(b, { insert: false });
       const area = Math.abs(overlap?.area || 0);
       overlap?.remove?.();
-      if (area > 1e-12) return true;
+      if (area > 1e-7) return true;
     } catch (_) {}
 
     return !!(
@@ -216,10 +224,18 @@ export function buildCutterPairs(owners) {
 
 export function auditScene(layer, options = {}) {
   const owners = collectVectorOwners(layer, options);
+  const allPublicOwners = getPublicOwners(layer?.children || []);
+  const cutLines = allPublicOwners.filter(owner => owner && isCutLine(owner));
   const plan = buildCutterPairs(owners);
   const id = item => item?.data?.semanticId || item?.data?.containmentKey || item?.id || null;
   return {
     ownerCount: owners.length,
+    cutLineCount: cutLines.length,
+    cutLines: cutLines.map(item => ({
+      id: id(item),
+      sourceContourIndex: item.data?.sourceContourIndex ?? null,
+      closed: item.children?.[0]?.closed ?? item.closed ?? null
+    })),
     solidOwners: plan.solids.length,
     holeOwners: plan.holes.length,
     holeToSolidPairs: plan.pairs.filter(pair => pair.targetKind === VECTOR_KIND.SOLID).length,
@@ -262,7 +278,7 @@ export function auditScene(layer, options = {}) {
 
 if (typeof window !== "undefined") {
   window.EKKO_VECTOR_SEMANTICS = {
-    VECTOR_KIND, semanticKind, setSemanticKind, getCanonicalDesignLayer,
+    VECTOR_KIND, semanticKind, setSemanticKind, isCutLine, getCanonicalDesignLayer,
     getStackingUnit, isAboveInRenderOrder, collectVectorOwners,
     buildCutterPairs, auditScene
   };
