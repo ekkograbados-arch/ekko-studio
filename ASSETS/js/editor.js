@@ -763,90 +763,284 @@ function rehydrateSceneRuntime() {
 window.resetSceneRuntimeState = resetSceneRuntimeState;
 window.rehydrateSceneRuntime = rehydrateSceneRuntime;
 
-// Sincronizador en mm para UI y cotas
-function updateSelectionInfo() {
-  const selInfo = document.getElementById("selectionInfo");
-  const objW = document.getElementById("objWidth");
-  const objH = document.getElementById("objHeight");
-  const ctxW = document.getElementById("ctxWidth");
-  const ctxH = document.getElementById("ctxHeight");
-  const items = (Array.isArray(window.selectedItems) && window.selectedItems.length) ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
-  if (!items.length) {
-    if (selInfo) {
-      const active = window.EKKO_ACTIVE_PRODUCT;
-      selInfo.textContent = active ? `${active.name} — ${active.surface}` : "Nada seleccionado";
+// Sincronizador en mm para UI, tamaño real y rotación.
+// Un objeto usa sus dimensiones locales (no su AABB rotado); una multiselección
+// muestra las dimensiones de la caja global que se está transformando.
+function getNumericSelectionOwners() {
+  const raw = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? window.selectedItems
+    : (window.selectedItem ? [window.selectedItem] : []);
+  const result = [];
+  const seen = new Set();
+  raw.forEach(item => {
+    const owner = getPublicOwner(item) || item;
+    if (!owner || isMockupOrMask(owner) || seen.has(owner)) return;
+    seen.add(owner);
+    result.push(owner);
+  });
+  return result;
+}
+
+function cloneBounds(bounds) {
+  try { return bounds?.clone?.() || null; } catch (_) { return null; }
+}
+
+function getNumericSelectionBounds(owners) {
+  if (!Array.isArray(owners) || !owners.length) return null;
+  const single = owners.length === 1;
+  let measureBounds = null;
+  let worldBounds = null;
+
+  if (single) {
+    const baseBounds = cloneBounds(getOwnerLocalBounds(owners[0]));
+    worldBounds = cloneBounds(getPublicWorldBounds(owners[0])) || cloneBounds(owners[0].bounds);
+    if (baseBounds) {
+      // geomBase is intentionally immutable; the owner's global matrix carries
+      // scale. Include that scale so a numeric resize immediately changes the
+      // displayed real size, while rotation itself does not alter W/H.
+      let scaleX = 1;
+      let scaleY = 1;
+      try {
+        const decomposed = (owners[0].globalMatrix || owners[0].matrix)?.decompose?.();
+        if (decomposed?.scaling) {
+          scaleX = Math.abs(Number(decomposed.scaling.x) || 1);
+          scaleY = Math.abs(Number(decomposed.scaling.y) || 1);
+        }
+      } catch (_) {}
+      try {
+        measureBounds = new paper.Rectangle(baseBounds.center, [
+          baseBounds.width * scaleX,
+          baseBounds.height * scaleY
+        ]);
+      } catch (_) {
+        measureBounds = baseBounds;
+      }
     }
-    if (objW) objW.value = "";
-    if (objH) objH.value = "";
-    if (ctxW) ctxW.value = "";
-    if (ctxH) ctxH.value = "";
-    window._sizeLockRatio = null;
+    // Fallback preserves functionality for unusual plugin items without a
+    // detached local geometry; ordinary vector/raster owners use the branch above.
+    if (!measureBounds) measureBounds = cloneBounds(worldBounds);
+  } else {
+    owners.forEach(owner => {
+      const bounds = cloneBounds(getPublicWorldBounds(owner)) || cloneBounds(owner.bounds);
+      if (!bounds) return;
+      worldBounds = worldBounds ? worldBounds.unite(bounds) : bounds;
+    });
+    measureBounds = worldBounds ? cloneBounds(worldBounds) : null;
+  }
+
+  if (!measureBounds || !worldBounds) return null;
+  return { single, measureBounds, worldBounds };
+}
+
+function normalizeDegrees(value) {
+  return ((Number(value) || 0) % 360 + 360) % 360;
+}
+
+function getOwnerWorldRotation(owner) {
+  const matrix = owner?.globalMatrix || owner?.matrix;
+  if (matrix) return normalizeDegrees(Math.atan2(Number(matrix.b), Number(matrix.a)) * 180 / Math.PI);
+  return normalizeDegrees(owner?.data?.rotation);
+}
+
+function getNumericSelectionRotation(owners) {
+  if (!owners.length) return "";
+  const values = owners.map(getOwnerWorldRotation);
+  const first = values[0];
+  const mixed = values.some(value => Math.abs(normalizeDegrees(value - first)) > 0.25);
+  return mixed ? "Mixto" : String(Math.round(normalizeDegrees(first)));
+}
+
+function setNumericInput(id, value, enabled = true) {
+  const input = document.getElementById(id);
+  if (!input) return;
+  input.value = value == null ? "" : String(value);
+  input.disabled = !enabled;
+}
+
+function syncSizeLockButtons() {
+  const locked = window._sizeLockEnabled !== false;
+  ["btnSizeLockTop", "btnSizeLockContext"].forEach(id => {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.textContent = locked ? "🔒 Proporción: SÍ" : "🔓 Proporción: NO";
+    button.classList.toggle("active", locked);
+    button.setAttribute("aria-pressed", locked ? "true" : "false");
+    button.title = locked
+      ? "Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor"
+      : "Proporción libre: Ancho y Alto se editan independientemente";
+    button.style.background = locked ? "#e0f2fe" : "#ffffff";
+    button.style.color = locked ? "#075985" : "#475569";
+  });
+}
+
+function updateSelectionInfo() {
+  window.updateGlobalScaleFactor?.();
+  const owners = getNumericSelectionOwners();
+  const selectionInfo = document.getElementById("selectionInfo");
+  const widthIds = ["objWidth", "ctxWidth"];
+  const heightIds = ["objHeight", "ctxHeight"];
+  const rotationIds = ["objRotation", "ctxRotation"];
+
+  if (!owners.length) {
+    if (selectionInfo) {
+      const active = window.EKKO_ACTIVE_PRODUCT;
+      selectionInfo.textContent = active
+        ? `${active.name} — ${active.surface}`
+        : "Nada seleccionado";
+    }
+    [...widthIds, ...heightIds, ...rotationIds].forEach(id => setNumericInput(id, "", false));
+    syncSizeLockButtons();
+    window._ekkoSelectionProperties = { count: 0, at: Date.now() };
     return;
   }
-  let bounds = null;
-  items.forEach(it=>{
-    const disp = getPublicOwner(it) || it;
-    if (!disp || !disp.bounds) return;
-    const b = disp.bounds;
-    if (!bounds) bounds = b.clone(); else bounds = bounds.unite(b);
-  });
-  if (!bounds) return;
-  const wMm = (bounds.width * (window.mmPerPaperUnit || 1.0)).toFixed(1);
-  const hMm = (bounds.height * (window.mmPerPaperUnit || 1.0)).toFixed(1);
-  if (selInfo) selInfo.textContent = items.length===1 ? (getPublicOwner(items[0])?.data?.label || "Objeto") : `${items.length} objetos`;
-  if (objW) objW.value = wMm;
-  if (objH) objH.value = hMm;
-  if (ctxW) ctxW.value = wMm;
-  if (ctxH) ctxH.value = hMm;
-  const wNum = parseFloat(wMm), hNum = parseFloat(hMm);
-  if (wNum>0 && hNum>0) window._sizeLockRatio = wNum / hNum;
-  if (typeof window._sizeLockEnabled === 'undefined') window._sizeLockEnabled = true;
-}
-window.updateSelectionInfo = updateSelectionInfo;
 
-// --- Tamaño numérico con candado (An/Al) ---
+  const boundsState = getNumericSelectionBounds(owners);
+  if (!boundsState) {
+    [...widthIds, ...heightIds, ...rotationIds].forEach(id => setNumericInput(id, "", false));
+    return;
+  }
+
+  const mmPerPaperUnit = Number(window.mmPerPaperUnit) || 1;
+  const widthMm = boundsState.measureBounds.width * mmPerPaperUnit;
+  const heightMm = boundsState.measureBounds.height * mmPerPaperUnit;
+  const widthText = Number.isFinite(widthMm) ? widthMm.toFixed(2) : "";
+  const heightText = Number.isFinite(heightMm) ? heightMm.toFixed(2) : "";
+  const rotationText = getNumericSelectionRotation(owners);
+
+  widthIds.forEach(id => setNumericInput(id, widthText, true));
+  heightIds.forEach(id => setNumericInput(id, heightText, true));
+  rotationIds.forEach(id => setNumericInput(id, rotationText, true));
+
+  if (selectionInfo) {
+    selectionInfo.textContent = owners.length === 1
+      ? (owners[0].data?.label || "Objeto")
+      : `${owners.length} objetos`;
+  }
+  syncSizeLockButtons();
+  window._ekkoSelectionProperties = {
+    count: owners.length,
+    single: boundsState.single,
+    widthMm: Number(widthMm),
+    heightMm: Number(heightMm),
+    rotation: rotationText,
+    locked: window._sizeLockEnabled !== false,
+    at: Date.now()
+  };
+}
+
+function applyNumericSize(axis, requestedMm) {
+  const requested = Number(requestedMm);
+  if (!Number.isFinite(requested) || requested <= 0) {
+    updateSelectionInfo();
+    return false;
+  }
+  const owners = getNumericSelectionOwners();
+  const boundsState = getNumericSelectionBounds(owners);
+  const controller = window.EKKO_FUSION_CONTROLLER;
+  if (!owners.length || !boundsState || !controller?.transformPublicItem) return false;
+
+  const mmPerPaperUnit = Number(window.mmPerPaperUnit) || 1;
+  const currentWidthMm = boundsState.measureBounds.width * mmPerPaperUnit;
+  const currentHeightMm = boundsState.measureBounds.height * mmPerPaperUnit;
+  if (!(currentWidthMm > 0) || !(currentHeightMm > 0)) return false;
+
+  const locked = window._sizeLockEnabled !== false;
+  let targetWidthMm = currentWidthMm;
+  let targetHeightMm = currentHeightMm;
+  if (axis === "width") {
+    targetWidthMm = requested;
+    if (locked) targetHeightMm = requested * (currentHeightMm / currentWidthMm);
+  } else {
+    targetHeightMm = requested;
+    if (locked) targetWidthMm = requested * (currentWidthMm / currentHeightMm);
+  }
+  if (!(targetWidthMm > 0) || !(targetHeightMm > 0)) return false;
+
+  const sx = targetWidthMm / currentWidthMm;
+  const sy = targetHeightMm / currentHeightMm;
+  if (Math.abs(sx - 1) < 1e-7 && Math.abs(sy - 1) < 1e-7) {
+    updateSelectionInfo();
+    return false;
+  }
+
+  const center = boundsState.worldBounds.center;
+  const targets = owners.map(owner => ({ item: owner, owner }));
+  window._sizeInputApplying = true;
+  try {
+    controller.beginTransformTransaction?.("scale", targets, null);
+    owners.forEach(owner => {
+      controller.transformPublicItem(owner, { type: "scale", sx, sy, center });
+    });
+    window.saveHistory?.();
+    controller.finalizeTransformTransaction?.("committed");
+    window.commitHistoryTransaction?.("transform");
+    controller.notifyTransformObservers?.({
+      type: "numeric-size",
+      axis,
+      sx,
+      sy,
+      targetWidthMm,
+      targetHeightMm
+    });
+  } finally {
+    window._sizeInputApplying = false;
+  }
+
+  window.updateSelectionBox?.(window.selectedItem);
+  updateSelectionInfo();
+  paper.view.update();
+  return true;
+}
+
+function bindNumericSelectionControls() {
+  const bindings = [
+    ["objWidth", "width"], ["ctxWidth", "width"],
+    ["objHeight", "height"], ["ctxHeight", "height"]
+  ];
+  bindings.forEach(([id, axis]) => {
+    const input = document.getElementById(id);
+    if (!input || input.dataset.sizeOwner === "1") return;
+    input.dataset.sizeOwner = "1";
+    input.addEventListener("change", () => applyNumericSize(axis, input.value));
+  });
+  ["btnSizeLockTop", "btnSizeLockContext"].forEach(id => {
+    const button = document.getElementById(id);
+    if (!button || button.dataset.sizeLockOwner === "1") return;
+    button.dataset.sizeLockOwner = "1";
+    button.addEventListener("click", () => {
+      window._sizeLockEnabled = window._sizeLockEnabled === false;
+      syncSizeLockButtons();
+      updateSelectionInfo();
+    });
+  });
+  window._sizeLockEnabled = window._sizeLockEnabled !== false;
+  syncSizeLockButtons();
+}
+
+function installSelectionPropertyObserver() {
+  const controller = window.EKKO_FUSION_CONTROLLER;
+  if (!controller?.addTransformObserver) {
+    setTimeout(installSelectionPropertyObserver, 100);
+    return;
+  }
+  if (window._ekkoSelectionPropertyObserver) return;
+  controller.addTransformObserver(() => {
+    if (!window._sizeInputApplying) updateSelectionInfo();
+  });
+  window._ekkoSelectionPropertyObserver = true;
+}
+
 window._sizeLockEnabled = true;
-function applySizeFromInputs(changedDim, newMm) {
-  const items = (Array.isArray(window.selectedItems) && window.selectedItems.length) ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
-  if (!items.length) return;
-  let bounds = null;
-  items.forEach(it=>{ const d=getPublicOwner(it)||it; if(!d||!d.bounds) return; const b=d.bounds; if(!bounds) bounds=b.clone(); else bounds=bounds.unite(b); });
-  if (!bounds || bounds.width<=0 || bounds.height<=0) return;
-  const curW = bounds.width * (window.mmPerPaperUnit||1);
-  const curH = bounds.height * (window.mmPerPaperUnit||1);
-  let targetW = curW, targetH = curH;
-  if (changedDim==='w') { targetW=newMm; if (window._sizeLockEnabled && window._sizeLockRatio) targetH = targetW / window._sizeLockRatio; }
-  else { targetH=newMm; if (window._sizeLockEnabled && window._sizeLockRatio) targetW = targetH * window._sizeLockRatio; }
-  if (targetW<=0 || targetH<=0) return;
-  const sx = targetW / curW, sy = targetH / curH;
-  const center = bounds.center;
-  if (typeof window.saveHistory==='function') window.saveHistory();
-  items.forEach(it=>{
-    const disp=getPublicOwner(it)||it;
-    if (!disp) return;
-    const tr = disp.globalMatrix || disp.matrix;
-    // escalar alrededor del centro del bloque
-    const localCenter = disp.parent ? disp.parent.globalMatrix.inverted().transform(center) : center;
-    disp.scale(sx, sy, localCenter);
-    if (disp.data && disp.data.geomBase) { try{ disp.data.geomBase.scale(sx,sy, disp.data.geomBase.bounds.center); }catch(e){} }
-  });
-  if (typeof window.updateSelectionBox==='function') window.updateSelectionBox(items[items.length-1]);
-  if (typeof window.drawMeasurements==='function') window.drawMeasurements();
-  window.updateSelectionInfo();
-  if (paper && paper.view) paper.view.update();
-  if (typeof window.commitHistoryTransaction==='function') window.commitHistoryTransaction('size-input');
+window.updateSelectionInfo = updateSelectionInfo;
+bindNumericSelectionControls();
+installSelectionPropertyObserver();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => {
+    bindNumericSelectionControls();
+    installSelectionPropertyObserver();
+    updateSelectionInfo();
+  }, { once: true });
 }
-function initSizeInputs(){
-  const w1=document.getElementById('objWidth'), h1=document.getElementById('objHeight'), l1=document.getElementById('btnToggleLock');
-  const w2=document.getElementById('ctxWidth'), h2=document.getElementById('ctxHeight'), l2=document.getElementById('btnCtxToggleLock');
-  const setLockUI=()=>{ const on=!!window._sizeLockEnabled; [l1,l2].forEach(b=>{ if(!b) return; b.textContent= on?'🔒':'🔓'; b.style.background= on?'#e0f2fe':'#fff'; b.title= on?'Bloqueado (proporción)':'Libre';}); };
-  const bind=(w,h)=>{ if(!w||!h) return; w.addEventListener('change',()=>{ const v=parseFloat(w.value); if(isFinite(v)) applySizeFromInputs('w', v); }); h.addEventListener('change',()=>{ const v=parseFloat(h.value); if(isFinite(v)) applySizeFromInputs('h', v); }); };
-  bind(w1,h1); bind(w2,h2);
-  [l1,l2].forEach(b=>{ if(!b) return; b.addEventListener('click',()=>{ window._sizeLockEnabled=!window._sizeLockEnabled; setLockUI(); }); });
-  setLockUI();
-}
-if (document.readyState==='loading') document.addEventListener('DOMContentLoaded', initSizeInputs); else setTimeout(initSizeInputs, 600);
-
 
 function updateLockButton() {
   const btnLock = document.getElementById("btnToggleLock");
