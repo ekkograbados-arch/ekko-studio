@@ -2,7 +2,8 @@ import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConve
 import { canConvertSelectionToCalado, convertSelectionToSolid } from "./calado.js";
 import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
-import { getPublicOwner } from "./designGeometry.js";
+import { getPublicOwner, getOwnerLocalGeometry } from "./designGeometry.js";
+import { installOwnerGeometry, recalculateDynamicSubtractions, normalizeSubtractiveOperand } from "./geometricUngroup.js";
 
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
@@ -37,15 +38,20 @@ const PRO_COMMAND_IDS = {
     proBtnAlignRight: "align",
     proBtnAlignTop: "align",
     proBtnAlignCenterV: "align",
-    proBtnAlignBottom: "align"
+    proBtnAlignBottom: "align",
+    // Boolean operations
+    proBtnBooleanUnion: "booleanUnion",
+    proBtnBooleanSubtract: "booleanSubtract",
+    proBtnBooleanIntersect: "booleanIntersect",
+    proBtnBooleanDifference: "booleanDifference"
 };
 
 const CONTEXT_COMMANDS = {
     none: ["zoom", "rulers", "guides", "measurements"],
     image: ["removeBg", "traceImage", "group", "zoom", "rulers", "guides", "measurements"],
     text: ["textToVector", "group", "align", "zoom", "rulers", "guides", "measurements"],
-    vector: ["editNodes", "calado", "rellenar", "outline", "decomposeVector", "group", "align", "zoom", "rulers", "guides", "measurements"],
-    multiple: ["group", "align", "distribute", "zoom", "rulers", "guides", "measurements"],
+    vector: ["editNodes", "calado", "rellenar", "outline", "decomposeVector", "group", "align", "zoom", "rulers", "guides", "measurements", "booleanUnion", "booleanSubtract", "booleanIntersect", "booleanDifference"],
+    multiple: ["group", "align", "distribute", "zoom", "rulers", "guides", "measurements", "booleanUnion", "booleanSubtract", "booleanIntersect", "booleanDifference"],
     fusion: ["calado", "rellenar", "unfusion", "editFusionImage", "zoom", "rulers", "guides", "measurements"],
     mixed: ["fusion", "group", "align", "zoom", "rulers", "guides", "measurements"]
 };
@@ -69,7 +75,12 @@ const COMMAND_HANDLERS = Object.freeze({
         return window.releaseSmartFusion(selected);
     },
     ungroup: () => dispatchUngroup(),
-    decomposeVector: () => dispatchVectorDecomposition()
+    decomposeVector: () => dispatchVectorDecomposition(),
+    // Boolean operations (vector ↔ vector)
+    booleanUnion: () => performBooleanOperation("union"),
+    booleanSubtract: () => performBooleanOperation("subtract"),
+    booleanIntersect: () => performBooleanOperation("intersect"),
+    booleanDifference: () => performBooleanOperation("difference"),
 });
 
 export function dispatchEKKOCommand(command, element = null) {
@@ -127,6 +138,252 @@ function getSelectedItems() {
     return window.selectedItem ? [window.selectedItem] : [];
 }
 
+// =========================================================================
+// BOOLEANAS VECTOR <-> VECTOR
+// =========================================================================
+// Paper.js lee coordenadas crudas de segmento e ignora `item.matrix` mientras
+// `applyMatrix` es false. Por eso cada operando se hornea en coordenadas de
+// proyecto antes de operar y el resultado aceptado vuelve al marco local del
+// propietario con installOwnerGeometry (geometryIsLocal = false).
+//
+// La union es la unica operacion que se puede repetir sobre el resultado sin
+// perder material: por eso las formas que se solapan por completo deben fundirse
+// en un solo owner (ver exportSVG.js / union anti-doble-grabado).
+//
+// NOTA: "difference" NO usa exclude(). Con operandos de orientacion homogenea
+// el kernel de Paper devuelve un CompoundPath de area ~0 en lugar de la
+// diferencia simetrica. Se compone con las dos mitades, que si se apoyan en
+// subtract() y unite(), las primitivas ya verificadas por el CSG.
+const BOOLEAN_OPERATIONS = Object.freeze({
+    union: { method: "unite", oriented: false },
+    subtract: { method: "subtract", oriented: true },
+    intersect: { method: "intersect", oriented: false },
+    difference: { method: "difference", oriented: true }
+});
+
+const BOOLEAN_MIN_AREA = 1e-6;
+const BOOLEAN_AREA_TOLERANCE = 1e-6;
+
+function bakeBooleanOperand(item) {
+    const clone = item.clone({ insert: false });
+    try {
+        const matrix = item.globalMatrix?.clone?.() || clone.matrix?.clone?.();
+        clone.applyMatrix = false;
+        clone.matrix = new paper.Matrix();
+        if (matrix && !matrix.isIdentity()) clone.transform(matrix);
+        clone.applyMatrix = true;
+    } catch (_) {}
+    return clone;
+}
+
+function booleanStackPath(item) {
+    const path = [];
+    const seen = new Set();
+    let node = item;
+    while (node && !seen.has(node)) {
+        seen.add(node);
+        if (typeof node.index === "number") path.unshift(node.index);
+        node = node.parent;
+    }
+    return path;
+}
+
+// Z-order real: la forma mas baja es el material y la de encima es el cutter.
+// Sin esto "Restar" dependeria del orden de seleccion, que es arbitrario.
+function compareBooleanStack(a, b) {
+    const left = booleanStackPath(a);
+    const right = booleanStackPath(b);
+    const length = Math.max(left.length, right.length);
+    for (let i = 0; i < length; i++) {
+        const lv = left[i] ?? -1;
+        const rv = right[i] ?? -1;
+        if (lv !== rv) return lv - rv;
+    }
+    return 0;
+}
+
+function isBooleanOperand(owner) {
+    if (!owner || !owner.project) return false;
+    if (owner.className !== "Path" && owner.className !== "CompoundPath") return false;
+    const data = owner.data || {};
+    if (data.mockup || data.isMask || data.isFusionMask || data.isSmartFusion) return false;
+    try { if (isProductElement(owner)) return false; } catch (_) { return false; }
+    // Un calado es un hueco: no se funde, se conserva y sigue perforando.
+    try { if (semanticKind(owner) === VECTOR_KIND.HOLE) return false; } catch (_) {}
+    return true;
+}
+
+function booleanOperandOwners() {
+    const seen = new Set();
+    return getSelectedItems()
+        .map(unwrap)
+        .filter(isBooleanOperand)
+        .filter(owner => {
+            if (seen.has(owner)) return false;
+            seen.add(owner);
+            return true;
+        });
+}
+
+function commitBooleanResult(keeper) {
+    window.saveHistory?.();
+    try { recalculateDynamicSubtractions?.(); } catch (_) {}
+    window.deselectItem?.();
+    if (typeof window.commitSelection === "function") {
+        window.commitSelection(keeper, keeper ? [keeper] : []);
+    }
+    if (keeper) {
+        try { keeper.selected = true; } catch (_) {}
+    }
+    window.updateSelectionBox?.(keeper);
+    window.updateContextualMenu?.(keeper);
+    paper.view?.update?.();
+    return keeper;
+}
+
+// Diferencia simetrica A xor B = (A - B) + (B - A). Ambas mitadas son disjuntas,
+// de modo que la union de las dos no reintroduce material. Como el XOR es
+// asociativo, plegar el resultado contra cada operando successive da la
+// diferencia simetrica n-aria sin acumulacion de error.
+function booleanDifference(keep, drop) {
+    const left = keep.subtract(drop, { insert: false });
+    if (!left) return null;
+    const right = drop.subtract(keep, { insert: false });
+    if (!right) {
+        try { left.remove(); } catch (_) {}
+        return null;
+    }
+    const merged = left.unite(right, { insert: false });
+    try { left.remove(); } catch (_) {}
+    try { right.remove(); } catch (_) {}
+    return merged;
+}
+
+function performBooleanOperation(operation) {
+    const spec = BOOLEAN_OPERATIONS[operation];
+    if (!spec) return null;
+
+    const owners = booleanOperandOwners();
+    if (owners.length < 2) {
+        console.warn("[EKKO BOOLEAN] Se necesitan 2 vectores solids. Los calados, el mockup y las mascaras no participan.");
+        return null;
+    }
+
+    const ordered = owners.slice().sort(compareBooleanStack);
+    const base = ordered[0];
+    const baked = ordered.map(bakeBooleanOperand);
+    const sourceArea = baked.reduce((total, geometry) => total + Math.abs(geometry?.area || 0), 0);
+
+    let result = baked[0];
+    let failure = null;
+
+    for (let i = 1; i < baked.length && !failure; i++) {
+        const subject = result;
+        let cutter = baked[i];
+        // El CSG ya demostro que subtract() necesita operandos con orientacion
+        // uniforme: un CompoundPath de texto descomuesto puede reportar mal
+        // isClockwise() y devolver un area mayor que la original en vez de
+        // perforar. Normalizar contra el sujeto es la misma defensa.
+        if (spec.oriented) {
+            try { cutter = normalizeSubtractiveOperand(cutter, subject); } catch (_) {}
+        }
+        try {
+            const next = spec.method === "difference"
+                ? booleanDifference(subject, cutter)
+                : subject[spec.method](cutter, { insert: false });
+            try { subject.remove(); } catch (_) {}
+            if (cutter !== baked[i]) { try { cutter.remove(); } catch (_) {} }
+            result = next;
+            if (!result) failure = "sin geometria resultante";
+        } catch (error) {
+            console.error(`[EKKO BOOLEAN] Fallo en ${operation}:`, error);
+            failure = String(error?.message || error);
+        }
+    }
+
+    baked.forEach(geometry => {
+        if (geometry && geometry !== result) {
+            try { geometry.remove(); } catch (_) {}
+        }
+    });
+
+    if (failure || !result) {
+        try { result?.remove(); } catch (_) {}
+        window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: failure || "empty" });
+        console.warn(`[EKKO BOOLEAN] ${operation} descartada: ${failure || "resultado vacio"}. Los vectores originales se conservan.`);
+        return null;
+    }
+
+    // Guardas: una interseccion de formas que no se tocan, o un resultado que
+    // crece mas que la suma de sus operandos, indican un fallo del kernel.
+    const resultArea = Math.abs(result.area || 0);
+    if (resultArea <= BOOLEAN_MIN_AREA) {
+        try { result.remove(); } catch (_) {}
+        window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: "empty-area" });
+        console.warn(`[EKKO BOOLEAN] ${operation} sin area resultante. Los vectores originales se conservan.`);
+        return null;
+    }
+    if (resultArea > sourceArea * (1 + BOOLEAN_AREA_TOLERANCE) + BOOLEAN_MIN_AREA) {
+        try { result.remove(); } catch (_) {}
+        window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: "area-overflow" });
+        console.warn(`[EKKO BOOLEAN] ${operation} descartada: el area resultante excede la suma de las formas.`);
+        return null;
+    }
+
+    // even-odd: las siluetas disjuntas que devuelve el kernel se renderizan
+    // exactamente como la materia prevista y los contornos anidados se leen
+    // como huecos reales, no como opacidad cero.
+    try { result.fillRule = "evenodd"; } catch (_) {}
+
+    let keeper = null;
+    try {
+        keeper = installOwnerGeometry(base, result, false);
+    } catch (error) {
+        console.error(`[EKKO BOOLEAN] No se pudo instalar el resultado:`, error);
+        try { result.remove(); } catch (_) {}
+        return null;
+    }
+
+    if (!keeper) {
+        window.EKKO_DIAG?.logEvent?.("boolean.reject", { operation, reason: "no-keeper" });
+        return null;
+    }
+
+    // installOwnerGeometry solo propaga fillRule cuando el propietario pasa a
+    // CompoundPath. Un resultado de una sola silueta lo perderia y volveria a
+    // nonzero, que es la regla con la que el kernel de Paper orientó los
+    // contornos anidados. even-odd es la convencion del proyecto.
+    try {
+        keeper.fillRule = "evenodd";
+        keeper.data = { ...(keeper.data || {}), fillRule: "evenodd" };
+    } catch (_) {}
+
+    // El resultado es una forma nueva: geomBase describia la silueta anterior y
+    // debe reconstruirse o el CSG seguiria perforando la geometria pre-booleana.
+    try {
+        const local = getOwnerLocalGeometry(keeper);
+        if (local) {
+            local.applyMatrix = false;
+            local.matrix = new paper.Matrix();
+            keeper.data = { ...(keeper.data || {}), geomBase: local };
+            if (local.pathData) keeper.data.geomBasePathData = local.pathData;
+        }
+    } catch (_) {}
+
+    // Los operandos consumidos desaparecen: la forma resultante los contiene.
+    ordered.slice(1).forEach(owner => {
+        try { owner.remove(); } catch (_) {}
+    });
+
+    window.EKKO_DIAG?.logEvent?.("boolean.applied", {
+        operation,
+        operands: ordered.length,
+        area: resultArea
+    });
+
+    return commitBooleanResult(keeper);
+}
+
 function classifySelection() {
     const selected = getSelectedItems();
     if (!selected.length) return { context: "none", counts: {} };
@@ -166,6 +423,7 @@ function classifySelection() {
     let canFusion = false;
     let canCalado = false;
     let canRellenar = false;
+    let canBoolean = false;
     const singleTarget = selected.length === 1 ? unwrap(selected[0]) : null;
     if (singleTarget) {
         try { canCalado = canConvertSelectionToCalado(singleTarget); } catch (e) { canCalado = false; }
@@ -198,6 +456,12 @@ function classifySelection() {
         catch (_) { canDecompose = false; }
     }
 
+    // Solo cuentan los vectores que el kernel puede usar como operandos: un
+    // Group, un calado o una mascara no son fusionables.
+    if (booleanOperandOwners().length >= 2) {
+        canBoolean = true;
+    }
+
     if (counts.fusion === selected.length) {
         context = "fusion";
     } else if (selected.length === 2 && counts.raster === 1 && counts.vector === 1) {
@@ -215,7 +479,7 @@ function classifySelection() {
         context = "multiple";
     }
 
-    return { context, counts, canUngroup, canDecompose, canFusion, canCalado, canRellenar };
+    return { context, counts, canUngroup, canDecompose, canFusion, canCalado, canRellenar, canBoolean };
 }
 
 function tagProfessionalButtons() {
@@ -242,6 +506,17 @@ function applyCommandVisibility() {
     if (!selection.canFusion) allowed.delete("fusion");
     if (!selection.canCalado) allowed.delete("calado");
     if (!selection.canRellenar) allowed.delete("rellenar");
+    if (selection.canBoolean) {
+        allowed.add("booleanUnion");
+        allowed.add("booleanSubtract");
+        allowed.add("booleanIntersect");
+        allowed.add("booleanDifference");
+    } else {
+        allowed.delete("booleanUnion");
+        allowed.delete("booleanSubtract");
+        allowed.delete("booleanIntersect");
+        allowed.delete("booleanDifference");
+    }
     const elements = getSharedCommandElements();
 
     elements.forEach(element => {
@@ -327,6 +602,16 @@ export function initPanelCommandBridge() {
     applyCommandVisibility();
 
     window.refreshEKKOSharedCommands = refreshSharedCommands;
+    // Superficie de diagnostico: permite verificar una booleana sin pasar por
+    // el DOM y confirma que la operacion respeta la semantica vectorial.
+    window.EKKO_BOOLEAN = Object.freeze({
+        union: () => performBooleanOperation("union"),
+        subtract: () => performBooleanOperation("subtract"),
+        intersect: () => performBooleanOperation("intersect"),
+        difference: () => performBooleanOperation("difference"),
+        isOperand: isBooleanOperand,
+        operandCount: () => booleanOperandOwners().length
+    });
     console.log("%c[EKKO COMMANDS] Superficies de comandos sincronizadas.", "color:#7c3aed;font-weight:bold;");
 }
 
@@ -338,3 +623,4 @@ if (document.readyState === "loading") {
 } else {
     initPanelCommandBridge();
 }
+
