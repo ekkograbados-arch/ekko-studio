@@ -1,7 +1,7 @@
 /* ========================================================================
 RUTA DESTINO EN TU DISCO LOCAL: ASSETS/js/modules/canvas-pro/canvasMeasurements.js
 ACCIÓN: REEMPLAZAR COMPLETAMENTE TU ARCHIVO "ASSETS/js/modules/canvas-pro/canvasMeasurements.js"
-ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATIVOS INTEGRADOS
+ESTADO: VERSIÓN DEFINITIVA v10.3 (TITANIUM PRECISION) - COTAS ORIENTADAS Y CAJA GLOBAL
 ======================================================================== */
 
 let measurementsGroup = null;
@@ -49,8 +49,7 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#BD3575") {
     if (!window.paper || !measurementsGroup) return;
 
     const zoom = paper.view.zoom || 1;
-    const z = Math.sqrt(zoom);
-    const arrowSize = Math.max(5, 6 / z);
+    const arrowSize = Math.max(5, 6 / Math.sqrt(zoom));
 
     // Puntos de la línea de cota desplazada
     const dp1 = p1.add(offsetVector);
@@ -119,11 +118,12 @@ function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#BD3575") {
         justification: "center"
     });
 
+    // Mantener el texto legible en cualquier orientación de la cota.
     const angle = lineVector.angle;
     let textAngle = angle;
     if (textAngle > 90) textAngle -= 180;
     if (textAngle < -90) textAngle += 180;
-    if (Math.abs(angle) > 30) textEl.rotate(textAngle, textEl.point);
+    if (Math.abs(textAngle) > 0.01) textEl.rotate(textAngle, textEl.point);
     measurementsGroup.addChild(textEl);
 }
 
@@ -154,6 +154,7 @@ export function drawMeasurements() {
     const resolveOwner = window.EKKO_FUSION_CONTROLLER?.resolvePublicTransformOwner
         || window.resolvePublicTransformOwner;
     const measuredOwners = [];
+    const measuredOwnerItems = [];
     selectedOwners.forEach(raw => {
         // The public resolver is owned by fusionController.  A Raster selected
         // through a mockup clipGroup must be measured as that Raster, never as
@@ -164,6 +165,7 @@ export function drawMeasurements() {
                 ? window.getContentItem(raw) : raw);
         if (!owner || seen.has(owner) || owner.data?.mockup || owner.data?.isMask || owner.data?.isSelectionBox) return;
         seen.add(owner);
+        measuredOwnerItems.push(owner);
         measuredOwners.push({ id: owner.id ?? null, className: owner.className, label: owner.data?.label || null });
         let localClone = null;
         try {
@@ -180,20 +182,38 @@ export function drawMeasurements() {
             const topMid = tl.add(tr).multiply(0.5);
             let topNormal = tr.subtract(tl).rotate(90).normalize();
             if (topMid.subtract(center).dot(topNormal) < 0) topNormal = topNormal.multiply(-1);
-            const topOffset = topNormal.multiply(offsetMm);
             const rightMid = tr.add(br).multiply(0.5);
             let rightNormal = br.subtract(tr).rotate(90).normalize();
             if (rightMid.subtract(center).dot(rightNormal) < 0) rightNormal = rightNormal.multiply(-1);
-            const rightOffset = rightNormal.multiply(offsetMm);
             const cotaColor = "#BD3575";
-            drawDimensionLine(tl, tr, topOffset, tl.getDistance(tr), cotaColor);
-            drawDimensionLine(tr, br, rightOffset, tr.getDistance(br), cotaColor);
+            drawDimensionLine(tl, tr, topNormal.multiply(offsetMm), tl.getDistance(tr), cotaColor);
+            drawDimensionLine(tr, br, rightNormal.multiply(offsetMm), tr.getDistance(br), cotaColor);
         } catch (e) {
             // An invalid transient owner is simply omitted from the overlay.
         } finally {
             try { localClone?.remove?.(); } catch (e) {}
         }
     });
+
+    // En una multiselección, la caja global necesita sus propias cotas.
+    // Las cotas por owner muestran el tamaño local; estas dos muestran el
+    // ancho/alto de la caja que engloba a todos los objetos.
+    if (measuredOwnerItems.length > 1) {
+        let envelope = null;
+        measuredOwnerItems.forEach(owner => {
+            const bounds = owner?.bounds;
+            if (!bounds) return;
+            envelope = envelope ? envelope.unite(bounds) : bounds.clone();
+        });
+        if (envelope && envelope.width > 0 && envelope.height > 0) {
+            const tl = envelope.topLeft;
+            const tr = envelope.topRight;
+            const br = envelope.bottomRight;
+            const envelopeColor = "#BD3575";
+            drawDimensionLine(tl, tr, new paper.Point(0, -offsetMm), envelope.width, envelopeColor);
+            drawDimensionLine(tr, br, new paper.Point(offsetMm, 0), envelope.height, envelopeColor);
+        }
+    }
 
     publishMeasurementState({ reason: "draw", owners: measuredOwners });
     // Asegurarse de que el grupo de cotas no tape los tiradores interactivos
