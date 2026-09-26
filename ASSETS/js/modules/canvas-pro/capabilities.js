@@ -73,6 +73,33 @@ export function roleOf(item) {
   return ROLE.NEUTRAL;
 }
 
+/** Un grupo estructural aporta vectores si todos sus descendientes de diseno
+ *  son vectores o lineas (sin imagen ni texto). Asi un SVG recien importado
+ *  ofrece Descomponer aunque su raiz sea un Group. */
+function groupHasOnlyVectorish(owner) {
+  if (!owner || owner.className !== "Group") return false;
+  let vectorish = 0;
+  let invalido = false;
+  const visit = node => {
+    if (!node || invalido) return;
+    const data = node.data || {};
+    if (data.mockup || data.isMask || data.wasClipMask || node.clipMask ||
+        data.isSelectionBox || data.isHandle || data.isMeasurement ||
+        data.isSmartGuide || data.isNodeEditOverlay || data.isTracePreview) return;
+    if (node.className === "Raster" || node.className === "PointText" ||
+        data.isText || data.isCurvedGroup || data.isSpacedGroup) {
+      // Una imagen o un texto adentro: primero Desagrupar, despues se
+      // seleccionan los vectores sueltos y se descomponen.
+      invalido = true;
+      return;
+    }
+    if (["Path", "CompoundPath", "Shape"].includes(node.className)) vectorish++;
+    (node.children || []).forEach(visit);
+  };
+  visit(owner);
+  return !invalido && vectorish > 0;
+}
+
 export function isProductElement(item) {
   const owner = ownerOf(item);
   if (!owner) return true;
@@ -154,7 +181,8 @@ export const TOOLS = {
   ungroup:     { label: "Desagrupar",
                  active: s => s.count >= 1 && s.species.size === 1 && s.species.has(SPECIES.GROUP) },
 
-  // --- Descomposicion: solo vectores NO descompuestos. Una pieza con
+  // --- Descomposicion: vectores sueltos o grupos estructurales que solo
+  //     contienen vectores (como un SVG recien importado). Una pieza con
   //     decomposedLayer ya es atomica: el boton se oculta y re-descomponer
   //     es no-op (antes el boton seguia activo y cada clic reemplazaba la
   //     pieza por un clon identico, ensuciando historial y rompiendo
@@ -162,7 +190,9 @@ export const TOOLS = {
   //     procesa solo lo fresco. ---
   decomposeVector: {
     label: "Descomponer Vector",
-    active: s => s.count > 0 && s.onlyVectorish &&
+    active: s => s.count > 0 &&
+      s.list.every(e => e.species === SPECIES.VECTOR || e.species === SPECIES.LINE ||
+        (e.species === SPECIES.GROUP && groupHasOnlyVectorish(e.owner))) &&
       s.list.some(e => e.owner?.data?.decomposedLayer !== true)
   },
 
