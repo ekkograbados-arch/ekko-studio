@@ -1867,7 +1867,11 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             semanticKind: singleIsHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID,
             isHole: singleIsHole,
             isSolidShape: !singleIsHole,
-            isFusionReceptor: singleIsHole,
+            // Toda pieza cerrada es receptora de Fusion (igual que un vector
+            // trazado, importado o convertido a texto). Antes solo los huecos
+            // lo eran y fusionar imagen+solido descompuesto se rechazaba en
+            // silencio aunque el boton se mostraba.
+            isFusionReceptor: true,
             fillRule: single.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
             originalFillRule: single.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
             originalIsHole: typeof single.data?.originalIsHole === "boolean" ? single.data.originalIsHole : undefined,
@@ -1983,7 +1987,9 @@ nodes.sort((a, b) => {
             semanticKind: isHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID,
             isHole: isHole,
             isSolidShape: !isHole,
-            isFusionReceptor: isHole,
+            // Toda pieza cerrada es receptora de Fusion (ver rama de un solo
+            // contorno: mismo contrato para solidos y huecos reales).
+            isFusionReceptor: true,
             fillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
             originalFillRule: node.path.data?.originalFillRule || rootTarget.data?.originalFillRule || "evenodd",
             preserveCompoundTopology: true,
