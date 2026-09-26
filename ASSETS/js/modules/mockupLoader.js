@@ -413,6 +413,20 @@ export function ensureMockupContainment(item) {
   return createMockupContainmentGroup(item);
 }
 
+// Helper canonico para toda ruta que GENERA un objeto publico nuevo
+// (duplicar, agrupar, pegar, descomponer, booleanas, calado, trazo...).
+// No consulta infiniteCanvasMode a proposito: si hay mockup, el contenido
+// publico siempre queda dentro. Sin mockup devuelve el item intacto, de modo
+// que el lienzo sin producto tambien funciona.
+window.ensureContainedDesignItem = function(item) {
+  try { return ensureMockupContainment(item) || item; }
+  catch (e) {
+    console.warn('[EKKO CONTAIN] No se pudo contener el objeto:', e);
+    return item;
+  }
+};
+window.createMockupContainmentGroup = createMockupContainmentGroup;
+
 window.clipItem = function(item) {
   if (window.infiniteCanvasMode || !window.clipMask) {
     return item;
