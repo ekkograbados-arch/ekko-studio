@@ -154,11 +154,16 @@ export const TOOLS = {
   ungroup:     { label: "Desagrupar",
                  active: s => s.count >= 1 && s.species.size === 1 && s.species.has(SPECIES.GROUP) },
 
-  // --- Descomposicion: solo vectores. Un grupo con imagenes se desagrupa
-  //     primero; despues se seleccionan sus vectores y se descomponen. ---
+  // --- Descomposicion: solo vectores NO descompuestos. Una pieza con
+  //     decomposedLayer ya es atomica: el boton se oculta y re-descomponer
+  //     es no-op (antes el boton seguia activo y cada clic reemplazaba la
+  //     pieza por un clon identico, ensuciando historial y rompiendo
+  //     semantica). Con mezcla fresco+descompuesto se muestra y el dispatcher
+  //     procesa solo lo fresco. ---
   decomposeVector: {
     label: "Descomponer Vector",
-    active: s => s.count > 0 && s.onlyVectorish
+    active: s => s.count > 0 && s.onlyVectorish &&
+      s.list.some(e => e.owner?.data?.decomposedLayer !== true)
   },
 
   // --- Roles solido/hueco ---
