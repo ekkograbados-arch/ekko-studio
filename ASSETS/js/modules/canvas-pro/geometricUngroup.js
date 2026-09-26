@@ -550,8 +550,14 @@ function resolveItemSemantics(node, rootTarget) {
     // before any topology fallback so an original real hole cannot be turned
     // into a solid or a cosmetic transparent path during ungroup.
     if (isCutLinePath(path)) return false;
+    // Un contorno marcado explicitamente como hueco es autoritativo y tiene
+    // precedencia sobre un originalIsHole heredado. En un texto a vector el
+    // contador llega con contourRole "hole", pero el compuesto padre arrastra
+    // originalIsHole=false; al mirar ese flag primero el hueco se degradaba a
+    // solido y el texto perdiа sus huecos reales al descomponerlo.
+    if (meta.contourRole === "hole" || meta.explicitHole === true) return true;
+    if (meta.contourRole === "outer") return false;
     if (typeof meta.originalIsHole === "boolean") return meta.originalIsHole;
-    if (typeof meta.contourRole === "string") return meta.contourRole === "hole";
     if (typeof meta.isHole === "boolean" &&
         (meta.source === "svg" || meta.source === "client-svg")) return meta.isHole;
 
@@ -1869,6 +1875,10 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     const sortedByDepth = [...nodes].sort((a, b) => a.depth - b.depth);
     sortedByDepth.forEach(node => {
         node.isHole = resolveItemSemantics(node, rootTarget);
+        // La verdad del contorno ya esta resuelta. Dejarla escrita evita que la
+        // pieza final herede un originalIsHole contradictorio del compuesto
+        // padre, que es lo que hacia que un hueco real saliera como solido.
+        if (node.path?.data) node.path.data.originalIsHole = node.isHole;
     });
 
     // Identidad única para esta descomposición. containmentId solo no es
