@@ -417,70 +417,82 @@ export async function prepareSVGForExport(options = {}) {
             let pairCount = 0;
             const maxPairs = Number.isFinite(options.uniteMaxPairs) ? options.uniteMaxPairs : 2000;
             byStyle.forEach(group => {
-                for (let a = 0; a < group.length && Date.now() < deadline && pairCount < maxPairs; a++) {
-                    let first = group[a];
-                    if (!first || !first.project) continue;
-                    for (let b = a + 1; b < group.length && Date.now() < deadline && pairCount < maxPairs; b++) {
-                        const second = group[b];
-                        if (!second || !second.project) continue;
-                        try {
-                            if (!first.bounds.intersects(second.bounds)) continue;
-                        } catch (_) { continue; }
-                        pairCount += 1;
-                        unionReport.evaluatedPairs += 1;
-                        let united = null;
-                        const worldA = bakeWorld(first);
-                        const worldB = bakeWorld(second);
-                        try {
-                            united = worldA.unite(worldB, { insert: false });
-                        } catch (_) { united = null; }
-                        // Validate in the world frame: Item.area ignores the
-                        // owner matrix, so live areas and baked areas differ
-                        // under transforms.
-                        const unitedArea = united ? Math.abs(united.area || 0) : 0;
-                        const sumArea = Math.abs(worldA.area || 0) + Math.abs(worldB.area || 0);
-                        try { worldA.remove(); } catch (_) {}
-                        try { worldB.remove(); } catch (_) {}
-                        let preservesHoles = true;
-                        if (united && unitedArea > 1e-9 && unitedArea <= sumArea * (1 + 1e-6)) {
+                // Union de punto fijo: se repite hasta que ninguna pareja se
+                // pueda fusionar mas. Antes el bucle jardin seguia despues de
+                // fusionar y voltaba a unir geometria ya removida, dejando
+                // paths fantasma en el SVG (el laser quemaba dos veces).
+                let pending = group.filter(Boolean);
+                let progressed = true;
+                while (progressed && Date.now() < deadline && pairCount < maxPairs) {
+                    progressed = false;
+                    for (let a = 0; a < pending.length && Date.now() < deadline && pairCount < maxPairs; a++) {
+                        let first = pending[a];
+                        if (!first || !first.project) continue;
+                        for (let b = a + 1; b < pending.length; b++) {
+                            if (Date.now() >= deadline || pairCount >= maxPairs) break;
+                            const second = pending[b];
+                            if (!second || !second.project || first === second) continue;
                             try {
-                                united.fillRule = "evenodd";
-                                for (const probe of holeProbes) {
-                                    const wasEmpty = !evenOddContains(first, probe) && !evenOddContains(second, probe);
-                                    if (wasEmpty && evenOddContains(united, probe)) {
-                                        preservesHoles = false;
-                                        break;
+                                if (!first.bounds.intersects(second.bounds)) continue;
+                            } catch (_) { continue; }
+                            pairCount += 1;
+                            unionReport.evaluatedPairs += 1;
+                            let united = null;
+                            const worldA = bakeWorld(first);
+                            const worldB = bakeWorld(second);
+                            try {
+                                united = worldA.unite(worldB, { insert: false });
+                            } catch (_) { united = null; }
+                            const unitedArea = united ? Math.abs(united.area || 0) : 0;
+                            const sumArea = Math.abs(worldA.area || 0) + Math.abs(worldB.area || 0);
+                            try { worldA.remove(); } catch (_) {}
+                            try { worldB.remove(); } catch (_) {}
+                            let preservesHoles = true;
+                            if (united && unitedArea > 1e-9 && unitedArea <= sumArea * (1 + 1e-6)) {
+                                try {
+                                    united.fillRule = "evenodd";
+                                    for (const probe of holeProbes) {
+                                        const wasEmpty = !evenOddContains(first, probe) && !evenOddContains(second, probe);
+                                        if (wasEmpty && evenOddContains(united, probe)) {
+                                            preservesHoles = false;
+                                            break;
+                                        }
                                     }
+                                } catch (_) {
+                                    preservesHoles = false;
                                 }
-                            } catch (_) {
-                                preservesHoles = false;
                             }
-                        }
-                        if (united && unitedArea > 1e-9 && unitedArea <= sumArea * (1 + 1e-6) && preservesHoles) {
-                            try {
-                                toLocalOf(united, first);
-                                const parent = first.parent || tempLayer;
-                                const index = typeof first.index === "number" ? first.index : 0;
-                                united.applyMatrix = false;
-                                united.matrix = first.matrix?.clone?.() || new paper.Matrix();
-                                united.fillColor = first.fillColor?.clone?.() || first.fillColor;
-                                united.strokeColor = first.strokeColor?.clone?.() || first.strokeColor;
-                                united.strokeWidth = first.strokeWidth;
-                                united.fillRule = "evenodd";
-                                united.data = { ...(first.data || {}), exportUnited: true, csgMaterialized: true };
-                                parent.insertChild(index, united);
-                                first.remove();
-                                second.remove();
-                                group[a] = united;
-                                first = united;
-                                unionReport.mergedPairs += 1;
-                            } catch (_) {
-                                try { united.remove(); } catch (_) {}
+                            if (united && unitedArea > 1e-9 && unitedArea <= sumArea * (1 + 1e-6) && preservesHoles) {
+                                try {
+                                    toLocalOf(united, first);
+                                    const parent = first.parent || tempLayer;
+                                    const index = typeof first.index === "number" ? first.index : 0;
+                                    united.applyMatrix = false;
+                                    united.matrix = first.matrix?.clone?.() || new paper.Matrix();
+                                    united.fillColor = first.fillColor?.clone?.() || first.fillColor;
+                                    united.strokeColor = first.strokeColor?.clone?.() || first.strokeColor;
+                                    united.strokeWidth = first.strokeWidth;
+                                    united.fillRule = "evenodd";
+                                    united.data = { ...(first.data || {}), exportUnited: true, csgMaterialized: true };
+                                    parent.insertChild(index, united);
+                                    first.remove();
+                                    second.remove();
+                                    // La pareja se consume: se saca de la lista
+                                    // activa y el bucle vuelve a intentarlo con
+                                    // la geometria ya combinada.
+                                    pending.splice(b, 1);
+                                    pending[a] = united;
+                                    first = united;
+                                    progressed = true;
+                                    unionReport.mergedPairs += 1;
+                                } catch (_) {
+                                    try { united.remove(); } catch (_) {}
+                                    unionReport.skippedPairs += 1;
+                                }
+                            } else {
+                                try { united?.remove?.(); } catch (_) {}
                                 unionReport.skippedPairs += 1;
                             }
-                        } else {
-                            try { united?.remove?.(); } catch (_) {}
-                            unionReport.skippedPairs += 1;
                         }
                     }
                 }
