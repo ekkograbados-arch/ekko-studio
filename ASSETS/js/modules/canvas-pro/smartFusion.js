@@ -356,6 +356,24 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
 
   const absoluteVector = getAbsoluteClone(vector);
   const absoluteRaster = getAbsoluteClone(raster);
+  // Guardia anti-NaN: un Raster recien creado puede no tener su imagen
+  // cargada todavia (bounds 0x0). Sin esta verificacion, el encaje cover
+  // divide por cero y el <image> termina con translate(NaN,NaN),
+  // corrompiendo la escena sin mensaje claro.
+  const boundsSanos = geom => {
+    try {
+      const b = geom?.bounds;
+      return !!b && Number.isFinite(b.width) && Number.isFinite(b.height) &&
+        b.width > 1e-9 && b.height > 1e-9;
+    } catch (_) { return false; }
+  };
+  if (!boundsSanos(absoluteVector) || !boundsSanos(absoluteRaster)) {
+    try { absoluteVector?.remove?.(); } catch (_) {}
+    try { absoluteRaster?.remove?.(); } catch (_) {}
+    window.cancelHistoryTransaction?.("fusion-invalid-bounds");
+    console.warn("[FUSION CONTRACT]: geometria sin bounds validos (imagen aun cargando?). Fusion cancelada sin cambios.");
+    return null;
+  }
   const originalVectorGeom = absoluteVector.clone({ insert: false });
   let originalRasterGeom = absoluteRaster.clone({ insert: false });
 
