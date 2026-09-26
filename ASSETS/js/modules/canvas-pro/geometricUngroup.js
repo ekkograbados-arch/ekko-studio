@@ -1029,6 +1029,25 @@ function remapOwnerReferences(oldOwner, replacement, parentBeforeRemove = null) 
     return replacement;
 }
 
+/**
+ * Mueve un hijo desde una geometria ya convertida al espacio local del owner
+ * hacia su nuevo padre, conservando su posicion. La matriz compuesta es
+ * obligatoria: la geometria de trabajo ya fue convertida al espacio local
+ * del owner (attachGlobalGeometryToOwnerLocal) y su matriz forma parte de
+ * esa conversion. Mover al hijo con su matriz original descartaba la
+ * conversion y la pieza volvia a transformarse con la matriz del owner.
+ */
+function adoptConvertedChild(newParent, working, child) {
+    if (!child) return null;
+    try {
+        const workingMatrix = working?.matrix?.clone?.() || new paper.Matrix();
+        const childMatrix = child?.matrix?.clone?.() || new paper.Matrix();
+        child.matrix = workingMatrix.concatenate(childMatrix);
+    } catch (_) {}
+    newParent.addChild(child);
+    return child;
+}
+
 function replacePublicOwner(owner, replacement) {
     if (!owner || !replacement || owner === replacement) return owner;
     const parent = owner.parent;
@@ -1064,7 +1083,7 @@ function promotePathOwner(owner, geometry) {
     const replacement = new paper.CompoundPath({ insert: false });
     if (isCompoundGeometry(geometry)) {
         const children = geometry.removeChildren ? geometry.removeChildren() : [];
-        children.forEach(child => replacement.addChild(child));
+        children.forEach(child => adoptConvertedChild(replacement, geometry, child));
     } else if (isPathGeometry(geometry)) {
         replacement.addChild(geometry.clone({ insert: false }));
     } else {
@@ -1100,8 +1119,10 @@ export function installOwnerGeometry(owner, geometry, geometryIsLocal = false) {
     if (isCompoundGeometry(owner)) {
         try {
             owner.removeChildren();
-            if (isCompoundGeometry(working)) owner.addChildren(working.removeChildren());
-            else if (isPathGeometry(working)) owner.addChild(working);
+            if (isCompoundGeometry(working)) {
+                const moved = working.removeChildren();
+                moved.forEach(child => adoptConvertedChild(owner, working, child));
+            } else if (isPathGeometry(working)) owner.addChild(working);
             if (geometryFillRule) {
                 owner.fillRule = geometryFillRule;
                 owner.data = { ...(owner.data || {}), fillRule: geometryFillRule };
@@ -1117,9 +1138,14 @@ export function installOwnerGeometry(owner, geometry, geometryIsLocal = false) {
             : (isCompoundGeometry(working) && (working.children?.length === 1) ? working.children[0] : null);
         if (singleContour && isPathGeometry(singleContour)) {
             try {
-                const segments = singleContour.segments.map(segment => segment.clone());
+                const baked = singleContour.clone({ insert: false });
+                baked.applyMatrix = true;
+                baked.transform(working.matrix?.clone?.().concatenate(singleContour.matrix || new paper.Matrix()) || new paper.Matrix());
+                baked.applyMatrix = false;
+                baked.matrix = new paper.Matrix();
                 owner.removeSegments();
-                owner.addSegments(segments);
+                owner.addSegments(baked.segments.map(segment => segment.clone()));
+                baked.remove?.();
                 owner.closed = singleContour.closed === true;
                 working.remove?.();
                 return owner;
@@ -2045,6 +2071,7 @@ nodes.sort((a, b) => {
             const scaleY = envelope.height / Math.max(1e-9, silhouetteBefore.height);
             const driftX = Math.abs(envelope.x - silhouetteBefore.x);
             const driftY = Math.abs(envelope.y - silhouetteBefore.y);
+            try { window.__ekkoSilhouetteCheck = { scaleX, scaleY, driftX, driftY, n: finalDeliveredItems.length }; } catch (_) {}
             const ok = Math.abs(scaleX - 1) <= 0.01 && Math.abs(scaleY - 1) <= 0.01 &&
                 driftX <= 1 && driftY <= 1;
             if (!ok) {
