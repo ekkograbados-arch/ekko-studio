@@ -38,6 +38,11 @@ function isClosedVectorOwner(item) {
 function isVectorSourceContainer(item) {
   if (!item || !isGroupLike(item) || isUserStructuralGroup(item)) return false;
   const data = dataOf(item);
+  // Una pieza YA descompuesta nunca vuelve a ser contenedor fuente, aunque
+  // conserve source/userImported del SVG original. Sin este freno, la pieza
+  // pasaba este chequeo (el freno de decomposedLayer solo vivia en
+  // isClosedVectorOwner) y Descomponer la re-procesaba: churn de identidad.
+  if (data.decomposedLayer === true) return false;
   return data.source === "client-svg" || data.originalSource === "svg" ||
     data.source === "svg-import" || data.importedSvg === true ||
     data.userImported === true || hasImportedSvgDescendant(item);
