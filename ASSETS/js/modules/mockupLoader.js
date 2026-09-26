@@ -428,8 +428,14 @@ window.ensureContainedDesignItem = function(item) {
 window.createMockupContainmentGroup = createMockupContainmentGroup;
 
 window.clipItem = function(item) {
-  if (window.infiniteCanvasMode || !window.clipMask) {
-    return item;
-  }
+  // La contencion NO depende del modo de lienzo. Si hay un mockup cargado, el
+  // contenido publico SIEMPRE va dentro: es la garantia que impide que un
+  // hueco o un vector se salga del producto y rompa una fusion posterior.
+  // Antes esta funcion consultaba infiniteCanvasMode y devolvia el item sin
+  // envolver, de modo que con el lienzo infinito activo la descomposicion
+  // dejaba piezas sueltas FUERA del mockup.
+  // Sin mockup no hay nada que recortar, asi que la edicion libre (el caso del
+  // lienzo sin producto) sigue funcionando exactamente igual.
+  if (!window.clipMask || !window.currentMockup) return item;
   return createMockupContainmentGroup(item);
 };
