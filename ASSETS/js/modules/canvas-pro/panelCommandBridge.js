@@ -4,6 +4,8 @@ import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
 import { getPublicOwner, getOwnerLocalGeometry } from "./designGeometry.js";
 import { installOwnerGeometry, recalculateDynamicSubtractions, normalizeSubtractiveOperand } from "./geometricUngroup.js";
+import { isToolEnabled, legacyNamesFor } from "./capabilities.js";
+import { aplicarContorno } from "./contorno.js";
 
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
@@ -19,6 +21,7 @@ const PRO_COMMAND_IDS = {
     proBtnFusionar: "fusion",
     proBtnQuitarFusion: "unfusion",
     proBtnCalado: "calado",
+    proBtnSolidHole: "solidHole",
     proBtnRellenar: "rellenar",
     proBtnTextToVector: "textToVector",
     proBtnGroup: "group",
@@ -46,15 +49,6 @@ const PRO_COMMAND_IDS = {
     proBtnBooleanDifference: "booleanDifference"
 };
 
-const CONTEXT_COMMANDS = {
-    none: ["zoom", "rulers", "guides", "measurements"],
-    image: ["removeBg", "traceImage", "group", "zoom", "rulers", "guides", "measurements"],
-    text: ["textToVector", "group", "align", "zoom", "rulers", "guides", "measurements"],
-    vector: ["editNodes", "calado", "rellenar", "outline", "decomposeVector", "group", "align", "zoom", "rulers", "guides", "measurements", "booleanUnion", "booleanSubtract", "booleanIntersect", "booleanDifference"],
-    multiple: ["group", "align", "distribute", "zoom", "rulers", "guides", "measurements", "booleanUnion", "booleanSubtract", "booleanIntersect", "booleanDifference"],
-    fusion: ["calado", "rellenar", "unfusion", "editFusionImage", "zoom", "rulers", "guides", "measurements"],
-    mixed: ["fusion", "group", "align", "zoom", "rulers", "guides", "measurements"]
-};
 
 let initialized = false;
 let refreshTimer = null;
@@ -64,6 +58,11 @@ let commandDispatcherInstalled = false;
 // single UI entry point; the registry only delegates to existing owners.
 const COMMAND_HANDLERS = Object.freeze({
     rellenar: () => convertSelectionToSolid(),
+    // Contorno unificado: vector <-> trazo, texto -> vector -> trazo,
+    // imagen -> calcar silueta (o recuadro si el cliente dice que tiene fondo).
+    contorno: () => aplicarContorno(),
+    contornoRecuadro: () => aplicarContorno(null, { withBackground: true }),
+    solidHole: () => invertSelectionRoles(),
     performSmartFusion: () => typeof window.performSmartFusion === "function"
         ? window.performSmartFusion()
         : null,
@@ -422,6 +421,56 @@ function performBooleanOperation(operation) {
     return commitBooleanResult(keeper, ownsHistory);
 }
 
+/**
+ * <Solidos <-> Huecos>: intercambia el papel fisico de cada pieza.
+ * Un solido pasa a perforar (hueco real) y un hueco pasa a material.
+ * Un clic, util cuando la seleccion mezcla ambos papeles.
+ */
+export function invertSelectionRoles() {
+    const selected = getSelectedItems();
+    const owners = [];
+    const seen = new Set();
+    selected.map(unwrap).filter(Boolean).forEach(owner => {
+        if (seen.has(owner) || isMockupOrMask(owner)) return;
+        if (owner.className !== "Path" && owner.className !== "CompoundPath") return;
+        seen.add(owner);
+        owners.push(owner);
+    });
+    if (!owners.length) return null;
+
+    window.beginHistoryTransaction?.("solid-hole-toggle");
+    const converted = [];
+    try {
+        owners.forEach(owner => {
+            let kind = null;
+            try { kind = semanticKind(owner); } catch (_) {}
+            if (kind === VECTOR_KIND.HOLE) {
+                const solid = convertSelectionToSolid(owner);
+                if (solid) converted.push(solid);
+            } else if (canConvertSelectionToCalado(owner)) {
+                const hole = convertSelectionToCalado(owner);
+                if (hole) converted.push(hole);
+            }
+        });
+    } catch (e) {
+        window.cancelHistoryTransaction?.("solid-hole-toggle-failed");
+        console.warn("[EKKO <Solidos <-> Huecos>] no se pudo invertir:", e);
+        return null;
+    }
+    if (!converted.length) {
+        window.cancelHistoryTransaction?.("solid-hole-toggle-empty");
+        return null;
+    }
+    try { recalculateDynamicSubtractions?.(); } catch (_) {}
+    window.saveHistory?.();
+    window.commitHistoryTransaction?.("solid-hole-toggle");
+    window.deselectItem?.();
+    converted.forEach((owner, index) => window.selectItem?.(owner, index > 0));
+    window.EKKO_DIAG?.logEvent?.("solid-hole.toggle", { count: converted.length });
+    return converted;
+}
+window.invertSelectionRoles = invertSelectionRoles;
+
 function classifySelection() {
     const selected = getSelectedItems();
     if (!selected.length) return { context: "none", counts: {} };
@@ -463,9 +512,12 @@ function classifySelection() {
     let canRellenar = false;
     let canBoolean = false;
     const singleTarget = selected.length === 1 ? unwrap(selected[0]) : null;
-    if (singleTarget) {
+    // El motor decide: Calar solo con solidos, Rellenar solo con huecos.
+    // Con una mezcla no aparece ninguno (aparece <Solidos <-> Huecos>).
+    try { canCalado = isToolEnabled('calado', selected); } catch (e) { canCalado = false; }
+    try { canRellenar = isToolEnabled('rellenar', selected); } catch (e) { canRellenar = false; }
+    if (singleTarget && canCalado) {
         try { canCalado = canConvertSelectionToCalado(singleTarget); } catch (e) { canCalado = false; }
-        try { canRellenar = semanticKind(singleTarget) === VECTOR_KIND.HOLE; } catch (e) { canRellenar = false; }
         // Fallback defensivo para CompoundPath dentro de clipGroup. El botón
         // debe aparecer para un sólido público, aunque el wrapper no se haya
         // resuelto todavía por la ruta principal de Calado.
@@ -490,9 +542,11 @@ function classifySelection() {
     if (singleTarget) {
         try { canUngroup = getUngroupRoute(singleTarget) !== UNGROUP_ROUTE.NONE; }
         catch (_) { canUngroup = false; }
-        try { canDecompose = canDecomposeVector(singleTarget); }
-        catch (_) { canDecompose = false; }
     }
+    // Descomponer acepta MULTIPLES vectores: se descomponen uno por uno.
+    // Con imagen mezclada el motor lo oculta: primero Desagrupar.
+    try { canDecompose = isToolEnabled('decomposeVector', selected); }
+    catch (_) { canDecompose = false; }
 
     // Solo cuentan los vectores que el kernel puede usar como operandos: un
     // Group, un calado o una mascara no son fusionables.
@@ -537,13 +591,17 @@ function getSharedCommandElements() {
 
 function applyCommandVisibility() {
     const selection = classifySelection();
-    const allowed = new Set(CONTEXT_COMMANDS[selection.context] || CONTEXT_COMMANDS.none);
+    // El motor de capacidades es la unica autoridad de la barra.
+    const allowed = new Set(legacyNamesFor(window.selectedItems?.length
+        ? window.selectedItems
+        : (window.selectedItem ? [window.selectedItem] : [])));
     if (selection.canUngroup) allowed.add("ungroup");
     if (selection.canDecompose) allowed.add("decomposeVector");
     else allowed.delete("decomposeVector");
     if (!selection.canFusion) allowed.delete("fusion");
     if (!selection.canCalado) allowed.delete("calado");
     if (!selection.canRellenar) allowed.delete("rellenar");
+    if (!isToolEnabled('solidHole', window.selectedItems || [])) allowed.delete("solidHole");
     if (selection.canBoolean) {
         allowed.add("booleanUnion");
         allowed.add("booleanSubtract");
