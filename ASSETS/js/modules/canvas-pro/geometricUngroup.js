@@ -1764,6 +1764,14 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     const rootWorld = rootTarget.globalMatrix?.clone?.() || rootMatrix.clone();
     const layerWorld = targetLayer?.globalMatrix?.clone?.() || new paper.Matrix();
     const ownerMatrix = layerWorld.inverted ? layerWorld.inverted().concatenate(rootWorld) : rootWorld;
+
+    // REGLA DEL CLIENTE: una herramienta NUNCA cambia el tamano, la rotacion ni
+    // la posicion de lo que el usuario dejo. Descomponer divide la geometria,
+    // no la transforma. Se mide la silueta antes de crear las piezas para poder
+    // abortar si el reparto movio o agrando algo.
+    const silhouetteBefore = (() => {
+        try { return rootTarget.bounds?.clone?.() || null; } catch (_) { return null; }
+    })();
     if (!atomicPaths || atomicPaths.length === 0) {
         return null;
     }
@@ -2019,6 +2027,37 @@ nodes.sort((a, b) => {
         // a clipping implementation detail and is never public selection.
         finalDeliveredItems.push(getPublicOwner(finalItem) || item);
     });
+
+    // Verificacion de la silueta antes de destruir el original. Si la union de
+    // las piezas no reproduce el envelope del objeto descompuesto, la
+    // herramienta no se aplica: es preferible no descomponer a cambiar el
+    // tamano de lo que el cliente dejo.
+    if (silhouetteBefore) {
+        const envelope = (() => {
+            try {
+                return finalDeliveredItems.length
+                    ? finalDeliveredItems.reduce((acc, item) => (acc ? acc.unite(item.bounds) : item.bounds.clone()), null)
+                    : null;
+            } catch (_) { return null; }
+        })();
+        if (envelope) {
+            const scaleX = envelope.width / Math.max(1e-9, silhouetteBefore.width);
+            const scaleY = envelope.height / Math.max(1e-9, silhouetteBefore.height);
+            const driftX = Math.abs(envelope.x - silhouetteBefore.x);
+            const driftY = Math.abs(envelope.y - silhouetteBefore.y);
+            const ok = Math.abs(scaleX - 1) <= 0.01 && Math.abs(scaleY - 1) <= 0.01 &&
+                driftX <= 1 && driftY <= 1;
+            if (!ok) {
+                // Revertir: se borran las piezas y el original sigue en su sitio.
+                finalDeliveredItems.forEach(item => { try { item.remove(); } catch (_) {} });
+                window.EKKO_DIAG?.logEvent?.("decompose.silhouette-rejected", {
+                    scaleX, scaleY, driftX, driftY
+                });
+                console.warn("[EKKO DESCOMPONER] Se cancelo: la silueta habria cambiado", { scaleX, scaleY, driftX, driftY });
+                return null;
+            }
+        }
+    }
 
     rootTarget.remove();
 
