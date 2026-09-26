@@ -1,4 +1,5 @@
 import { getPublicOwner, getPublicOwners, getPublicWorldBounds, getOwnerLocalGeometry } from "./designGeometry.js";
+import { legacyNamesFor } from "./capabilities.js";
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js (v21.0 PRO - Top-Level Scope Stability)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
@@ -46,72 +47,32 @@ window._toolbarState = {
   productCollapsed: false
 };
 
-function getSelectionTypes(items) {
-  items = items || [];
-  const counts = { raster: 0, vector: 0, text: 0, fusion: 0, group: 0 };
-  items.forEach(it => {
-    const d = it.data || {};
-    if (d.isSmartFusion) counts.fusion++;
-    else if (it.className === 'Raster') counts.raster++;
-    else if (d.isText) counts.text++;
-    else if (it.className === 'Group') counts.group++;
-    else if (it.pathData || ['Path', 'CompoundPath', 'Shape'].includes(it.className)) counts.vector++;
-  });
-  counts.allSame = items.length <= 1 || Object.values(counts).filter(v => v > 0).length === 1;
-  return counts;
-}
 
+
+/**
+ * Delegado total al motor de capacidades. La tabla de casos fijos vivia aqui
+ * y se pisaba con panelCommandBridge.classifySelection(); ahora hay una sola
+ * fuente de verdad (capabilities.js) que ademas distingue un vector SOLIDO
+ * de un HUECO.
+ */
 function resolveButtonSet(selection) {
-  if (!selection || !selection.length) {
-    return { show: ['zoom','rulers','guides'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','editFusionImage','group','align','distribute','outline'] };
-  }
-
-  const types = getSelectionTypes(selection);
-
-  // Fusión seleccionada
-  if (types.fusion === selection.length) {
-    return { show: ['unfusion','editFusionImage'], hide: ['decomposeVector', 'fusion','ungroup','editNodes','removeBg','traceImage','group','align','distribute','outline'] };
-  }
-
-  // Imagen + Vector → Fusionar disponible
-  if (types.raster && types.vector && selection.length === 2) {
-    return { show: ['fusion','group','align'], highlight: ['fusion'], hide: ['decomposeVector', 'unfusion','ungroup','editNodes','distribute','outline'] };
-  }
-
-  // Solo imagen
-  if (types.raster === selection.length) {
-    return { show: ['removeBg','traceImage','group'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','distribute','outline','editFusionImage'] };
-  }
-
-  // Solo vector
-  if (types.vector === selection.length) {
-    return { show: ['editNodes','outline','decomposeVector','booleanUnion','booleanIntersect','booleanSubtract','booleanDifference','group'], hide: ['fusion','unfusion','ungroup','removeBg','traceImage','distribute','editFusionImage'] };
-  }
-
-  // Grupo
-  if (types.group === selection.length) {
-    return { show: ['ungroup','align'], hide: ['decomposeVector', 'fusion','unfusion','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
-  }
-
-  // Múltiples del mismo tipo
-  if (selection.length > 1 && types.allSame) {
-    return { show: ['group','align','distribute','booleanUnion','booleanIntersect','booleanSubtract','booleanDifference'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','outline','editFusionImage'] };
-  }
-
-  // Múltiple mixto
-  return { show: ['group','align'], hide: ['decomposeVector', 'fusion','unfusion','ungroup','editNodes','removeBg','traceImage','distribute','outline','editFusionImage'] };
+  // Mismo motor y mismo mapeo que panelCommandBridge: la barra superior y la
+  // emergente no pueden mostrar herramientas distintas para la misma seleccion.
+  return { show: legacyNamesFor(selection), hide: [] };
 }
 
 function syncToolbar(toolbarId, set) {
   const tb = document.getElementById(toolbarId);
   if (!tb) return;
+  const permitidos = new Set([...(set.show || []), ...(set.hide || [])].filter(Boolean));
   tb.querySelectorAll('[data-fusion-btn]').forEach(btn => {
     const name = btn.dataset.fusionBtn;
-    const debeMostrar = set.show && set.show.includes(name);
-    const debeOcultar = set.hide && set.hide.includes(name);
-    const debeResaltar = set.highlight && set.highlight.includes(name);
-
-    btn.style.display = debeOcultar ? 'none' : '';
+    // Autoritativo: un boton se muestra solo si el motor lo habilito.
+    // Antes se calculaba debeMostrar y nunca se usaba, por eso la barra
+    // conservaba herramientas que debian desaparecer.
+    const debeMostrar = permitidos.has(name);
+    const debeResaltar = !!set.highlight && set.highlight.includes(name);
+    btn.style.display = debeMostrar ? '' : 'none';
     btn.classList.toggle('highlight', debeResaltar);
   });
 }
