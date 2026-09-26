@@ -139,12 +139,30 @@
 
             ctx.putImageData(datosSalida, 0, 0);
 
-            // ✅ Crear imagen conservando TODAS las propiedades originales
+            // ✅ Crear imagen conservando TODAS las propiedades originales.
+            // La posicion/tamano se aplican SOLO cuando la imagen cargo: un
+            // Raster posicionado antes de cargar envenena su matriz con NaN
+            // (translate(NaN,NaN)) y corrompe todo lo que lo use despues.
             const imagenProcesada = new paper.Raster(lienzo.toDataURL('image/png'));
-            imagenProcesada.position = posOriginal;
-            imagenProcesada.size = tamOriginal;
-            imagenProcesada.rotation = rotOriginal;
-            imagenProcesada.scaling = escOriginal;
+            const colocar = () => {
+                try {
+                    imagenProcesada.matrix = new paper.Matrix();
+                    imagenProcesada.position = posOriginal;
+                    imagenProcesada.size = tamOriginal;
+                    imagenProcesada.rotation = rotOriginal;
+                    imagenProcesada.scaling = escOriginal;
+                } catch (_) {}
+            };
+            if (imagenProcesada.image?.complete && imagenProcesada.width > 0) colocar();
+            else {
+                imagenProcesada.onLoad = colocar;
+                setTimeout(() => {
+                    try {
+                        const m = imagenProcesada.matrix;
+                        if (![m.a, m.b, m.c, m.d, m.tx, m.ty].every(Number.isFinite)) colocar();
+                    } catch (_) {}
+                }, 3000);
+            }
             imagenProcesada.opacity = opaOriginal;
             imagenProcesada.name = nombreOriginal + '_sin_fondo';
 
