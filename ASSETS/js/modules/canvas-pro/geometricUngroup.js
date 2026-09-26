@@ -1770,6 +1770,12 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     if (!rootTarget || rootTarget.data?.locked || rootTarget.data?.mockup || rootTarget.data?.isMask) {
         return null;
     }
+    // Una pieza ya descompuesta es atomica: re-descomponer es no-op por
+    // contrato. Defensa en profundidad para llamadas directas al kernel que
+    // no pasen por el dispatcher (que ya filtra por decomposedLayer).
+    if (rootTarget.data?.decomposedLayer === true) {
+        return null;
+    }
 
     const targetLayer = rootTarget.layer || paper.project.activeLayer;
     docOrderCounter = 0;
