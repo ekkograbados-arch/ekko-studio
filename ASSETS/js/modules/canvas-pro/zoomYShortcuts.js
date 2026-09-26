@@ -135,6 +135,11 @@ export function initGlobalKeyboardShortcuts() {
                     clone.insertBelow(window.currentMockup);
                 }
 
+                // Un objeto pegado es contenido de diseno nuevo y debe quedar
+                // dentro del mockup, igual que un duplicado. Se_envuelve al
+                // final: el wrapper ya se coloca bajo el mockup por su cuenta.
+                try { window.ensureContainedDesignItem?.(clone); } catch (_) {}
+
                 if (typeof window.selectItem === "function") {
                     window.selectItem(clone);
                 }
