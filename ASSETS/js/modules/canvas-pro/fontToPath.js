@@ -223,9 +223,25 @@ export async function textToCompoundPath(textItem) {
     (glyphPath.commands || []).forEach(command => {
         if (command.type === "M") {
             current = new paper.Path({ insert: false });
+            current.__ekkoClosed = false;
             contours.push(current);
         }
-        if (current) addContour(current, command, offsetX, baselineY);
+        if (current) {
+            addContour(current, command, offsetX, baselineY);
+            if (command.type === "Z") current.__ekkoClosed = true;
+        }
+    });
+
+    // Un contorno de glifo es SIEMPRE un lazo cerrado. Muchas fuentes no
+    // emiten el comando Z final, y Paper entonces lo trata como trazo
+    // abierto: la letra se dibuja solo como contorno, sin relleno, y al
+    // descomponer el texto el motor la clasifica como linea de corte en vez
+    // de solido o hueco real.
+    contours.forEach(path => {
+        if (path.__ekkoClosed) return;
+        if (path.segments.length > 1) {
+            try { path.closePath(); } catch (_) {}
+        }
     });
 
     const usable = contours.filter(path => path.segments.length > 1);
