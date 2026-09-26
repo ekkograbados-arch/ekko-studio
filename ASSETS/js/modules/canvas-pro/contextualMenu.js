@@ -122,7 +122,9 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
     const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === "designLayer")) || paper.project.activeLayer;
     if (designLayer) designLayer.addChild(duplicatedObject);
 
-    // Ajustar Orden Z: Insertar ordenadamente justo encima del original pero debajo del mockup
+    // Orden Z primero, sobre el objeto suelto. Envolverlo despues: el wrapper
+    // de contencion ya se inserta bajo el mockup por su cuenta, y mover el
+    // owner DESPUES de envolverlo lo extraeria del wrapper.
     if (duplicatedObject) {
         if (targetItem.nextSibling) {
             duplicatedObject.insertAbove(targetItem);
@@ -131,6 +133,15 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
         } else {
             duplicatedObject.bringToFront();
         }
+    }
+
+    // Todo objeto publico recien generado debe quedar dentro del mockup. Un
+    // duplicado es contenido de diseno, no un elemento suelto del lienzo: si
+    // se escapa, el cliente puede moverlo fuera del producto y el recorte
+    // automatico deja de aplicarse. ensureContainedDesignItem nunca consulta
+    // infiniteCanvasMode, y sin mockup no hace nada.
+    if (duplicatedObject) {
+        try { window.ensureContainedDesignItem?.(duplicatedObject); } catch (_) {}
     }
     return duplicatedObject;
 }
@@ -428,15 +439,20 @@ export function groupSelectedItems() {
     const designLayer = (paper.project.layers && paper.project.layers.find(l => l.name === 'designLayer')) || paper.project.activeLayer;
     if (designLayer) {
         designLayer.addChild(finalGroup);
+        // Orden Z antes de envolver: el wrapper se inserta bajo el mockup por
+        // su cuenta, y reposicionar el owner despues lo sacaria de adentro.
         if (window.currentMockup) {
             finalGroup.insertBelow(window.currentMockup);
         }
     }
+    // Un grupo es contenido de diseno nuevo: tambien debe quedar contenido.
+    try { window.ensureContainedDesignItem?.(finalGroup); } catch (_) {}
 
     if (typeof window.deselectItem === 'function') window.deselectItem();
     if (typeof window.selectItem === 'function') window.selectItem(finalGroup);
     safeRecalculateSubtractions();
     paper.view.update();
+    return finalGroup;
 }
 
 /**
