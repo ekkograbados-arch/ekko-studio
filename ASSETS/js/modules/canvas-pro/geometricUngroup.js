@@ -1203,10 +1203,21 @@ function confineSubtractiveGeometry(geometry) {
             geometry.remove();
             return confined;
         }
-        // No intersection means this operand is entirely outside the product;
-        // it must not participate in CSG at all.
-        geometry.remove();
-        return null;
+        if (confined) { try { confined.remove(); } catch (_) {} }
+        // Un resultado vacio NO prueba que el cortador este fuera del
+        // producto: el booleano de Paper.js tambien se vacia con geometria
+        // compleja a caballo del borde curvo. Solo se descarta con prueba
+        // positiva de exterioridad; si solapa, se conserva sin confinar para
+        // que la porcion contenida siga cortando de forma dinamica, igual que
+        // los solidos recortados por el borde del mockup.
+        if (boundary && !subtractiveOverlapsBoundary(geometry, boundary)) {
+            geometry.remove();
+            return null;
+        }
+        csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
+            success: true, input: before, boundary: csgGeometrySnapshot(boundary),
+            output: null, accepted: true, fallback: 'retain-overlapping-operand'
+        });
     } catch (e) {
         csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
             success: false, error: String(e?.stack || e), input: csgGeometrySnapshot(geometry),
@@ -1218,6 +1229,39 @@ function confineSubtractiveGeometry(geometry) {
         try { boundary?.remove?.(); } catch (e) {}
     }
     return geometry;
+}
+
+/*
+ * Prueba positiva de exterioridad: true solo cuando el cortador esta
+ * totalmente fuera del producto (cajas disjuntas o ningun punto de muestra
+ * contenido en ninguna direccion). Un hueco a caballo del borde solapa y
+ * debe conservarse.
+ */
+function subtractiveOverlapsBoundary(geometry, boundary) {
+    try {
+        if (!geometry || !boundary) return true;
+        const gb = geometry.bounds, bb = boundary.bounds;
+        if (!gb || !bb || !Number.isFinite(gb.width) || !Number.isFinite(bb.width)) return true;
+        if (!gb.intersects(bb)) return false;
+        const probes = [];
+        try {
+            const interior = interiorPointOf(geometry);
+            if (interior) probes.push(interior);
+        } catch (_) {}
+        try { probes.push(...contourSamplePoints(geometry, 8)); } catch (_) {}
+        if (!probes.length && geometry.bounds?.center) probes.push(geometry.bounds.center);
+        if (probes.some(point => { try { return evenOddContains(boundary, point); } catch (_) { return false; } })) return true;
+        const bProbes = [];
+        try {
+            const bInterior = interiorPointOf(boundary);
+            if (bInterior) bProbes.push(bInterior);
+        } catch (_) {}
+        try { bProbes.push(...contourSamplePoints(boundary, 8)); } catch (_) {}
+        if (bProbes.some(point => { try { return evenOddContains(geometry, point); } catch (_) { return false; } })) return true;
+        return false;
+    } catch (_) {
+        return true;
+    }
 }
 
 
