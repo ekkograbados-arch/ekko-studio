@@ -1151,15 +1151,27 @@ const _initSelectionTool = function() {
       // Durante la edición interna la imagen es libre, pero sigue perteneciendo
       // a una fusión. No debe buscar otro receptor ni encender halos fucsia.
       const internalFusionEdit = !!(window.fusionEditActive || window._fusionEditState);
-      if (!internalFusionEdit && window.dragTargets.length === 1 && typeof window.checkMagneticSnapping === 'function') {
+      if (!internalFusionEdit && window.dragTargets.length === 1) {
         const onlyTarget = window.dragTargets[0].target;
-        if (onlyTarget && onlyTarget.className === 'Raster') {
+        if (onlyTarget && onlyTarget.className === 'Raster' && typeof window.checkMagneticSnapping === 'function') {
           window._lastDraggedRaster = onlyTarget;
+          window._lastDraggedVector = null;
           window.checkMagneticSnapping(onlyTarget, event.point);
+        } else if (onlyTarget && (onlyTarget.className === 'Path' || onlyTarget.className === 'CompoundPath' || onlyTarget.className === 'Shape') && typeof window.checkVectorDragSnapping === 'function') {
+          // Arrastre inverso: el VECTOR busca una imagen debajo. El vector se
+          // ilumina fucsia (es la futura mascara) y al soltar se fusiona.
+          window._lastDraggedVector = onlyTarget;
+          window._lastDraggedRaster = null;
+          window.checkVectorDragSnapping(onlyTarget, event.point);
+        } else {
+          if (typeof window.clearFusionPreview === 'function') window.clearFusionPreview();
+          window._lastDraggedRaster = null;
+          window._lastDraggedVector = null;
         }
       } else {
         if (typeof window.clearFusionPreview === 'function') window.clearFusionPreview();
         window._lastDraggedRaster = null;
+        window._lastDraggedVector = null;
       }
 
       if (typeof calculateSmartGuides === "function") {
@@ -1210,6 +1222,27 @@ const _initSelectionTool = function() {
       }
     }
     window._lastDraggedRaster = null;
+    // === FUSION INVERSA: se arrastró el VECTOR sobre una imagen ===
+    if (window._lastDraggedVector && typeof window.handleVectorDrop === 'function') {
+      const draggedVector = window._lastDraggedVector;
+      window._lastDraggedVector = null;
+      const fused = window.handleVectorDrop(draggedVector);
+      if (fused) {
+        finalizeTransformTransaction("committed-fusion-drop");
+        window._mouseDragOccurred = false;
+        window._ekkoSkipFusionCSGRecalc = false;
+        window.dragging = false;
+        window.resizeActive = false;
+        rotationController.endPointer("committed-fusion-drop");
+        window.isRotationSnapped = false;
+        window.rotationTargets = [];
+        if (typeof clearSmartGuides === 'function') clearSmartGuides();
+        window.updateSelectionBox(window.selectedItem);
+        paper.view.update();
+        return;
+      }
+    }
+    window._lastDraggedVector = null;
 
     if (window.marqueeActive && window.marqueePath) {
       const marqueeGeometry = window.marqueePath.clone({ insert: false });
@@ -1361,15 +1394,10 @@ if (typeof window !== 'undefined' && !window._ekkoFusionDblClickBound) {
   // El doble clic se despacha exclusivamente por el listener del canvas;
   // aquí solo se mantienen los cierres de edición.
   // Salir del modo edición interna con Enter / Escape
-  document.addEventListener('keydown', function(e) {
-    if (!window.fusionEditActive) return;
-    if (e.key === 'Enter' || e.key === 'Escape') {
-      if (typeof window.exitFusionEditMode === 'function') {
-        window.exitFusionEditMode(e.key !== 'Escape');
-        e.preventDefault();
-      }
-    }
-  });
+  // NOTA: Enter/Escape en edicion interna los posee zoomYShortcuts.js en
+  // exclusiva (tambien mueve con flechas y blinda la sesion). Un segundo
+  // listener aqui competia por document-vs-window: el primero salia bien y
+  // el segundo caia en el Escape generico y borraba la seleccion restaurada.
   // Clic derecho también finaliza la edición interna (según spec EKKO)
   document.addEventListener('contextmenu', function() {
     if (!window.fusionEditActive) return;
