@@ -83,6 +83,77 @@ export function initGlobalKeyboardShortcuts() {
         // Solo los campos numericos de rotacion entregan Ctrl/Cmd+Z/Y al historial de la app.
         if ((isInput || isTextEditor) && !(isRotationControl && isHistoryShortcut)) return;
 
+        // 0. ENTER en edicion interna de fusion = ACEPTAR. El handler existe
+        // pero nadie lo llamaba: cableado muerto hasta ahora.
+        if (key === "enter" && (window.fusionEditActive || window._fusionEditState)) {
+            e.preventDefault();
+            if (typeof window.handleFusionEditKeyDown === "function") window.handleFusionEditKeyDown(e);
+            return;
+        }
+
+        // 0b. ESCAPE en edicion interna = CANCELAR (restaura snapshot).
+        // Debe ir antes del Escape generico, que solo deseleccionaria y
+        // dejaria la sesion de edicion colgada.
+        if (key === "escape" && (window.fusionEditActive || window._fusionEditState)) {
+            e.preventDefault();
+            if (typeof window.exitFusionEditMode === "function") window.exitFusionEditMode(false);
+            return;
+        }
+
+        // 0b. FLECHAS: desplazar seleccion (1px, 10px con Shift), como
+        // Canva/LightBurn. En edicion de nodos las flechas las posee el
+        // editor de nodos; en edicion interna mueven la imagen contenida.
+        if ((key === "arrowup" || key === "arrowdown" || key === "arrowleft" || key === "arrowright") && !window.nodeEditMode) {
+            e.preventDefault();
+            const paso = e.shiftKey ? 10 : 1;
+            const delta = new paper.Point(
+                key === "arrowleft" ? -paso : key === "arrowright" ? paso : 0,
+                key === "arrowup" ? -paso : key === "arrowdown" ? paso : 0);
+            if ((window.fusionEditActive || window._fusionEditState) && window._fusionEditState?.tempImage) {
+                try {
+                    const temp = window._fusionEditState.tempImage;
+                    const parent = temp.parent;
+                    let local = delta;
+                    if (parent?.globalToLocal && temp.localToGlobal) {
+                        const o = temp.localToGlobal(new paper.Point(0, 0));
+                        local = parent.globalToLocal(o.add(delta)).subtract(parent.globalToLocal(o));
+                    }
+                    temp.translate(local);
+                    try {
+                        const ghost = window._fusionEditState.ghost;
+                        if (ghost?.project && temp.project) {
+                            const gInv = ghost.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
+                            ghost.matrix = gInv.concatenate(temp.globalMatrix);
+                        }
+                    } catch (_) {}
+                    paper.view?.update?.();
+                } catch (_) {}
+                return;
+            }
+            try {
+                const controller = window.EKKO_FUSION_CONTROLLER;
+                const sel = Array.isArray(window.selectedItems) && window.selectedItems.length
+                    ? [...window.selectedItems]
+                    : (window.selectedItem ? [window.selectedItem] : []);
+                if (!sel.length || !controller?.transformPublicItem) return;
+                if (typeof window.beginHistoryTransaction === "function") window.beginHistoryTransaction("transform:nudge");
+                sel.forEach(item => { try { controller.transformPublicItem(item, { type: "translate", delta }); } catch (_) {} });
+                if (typeof window.saveHistory === "function") window.saveHistory();
+                if (typeof window.commitHistoryTransaction === "function") window.commitHistoryTransaction("transform:nudge");
+                if (typeof window.recalculateDynamicSubtractions === "function") window.recalculateDynamicSubtractions();
+                if (typeof window.updateSelectionBox === "function") window.updateSelectionBox(window.selectedItem);
+                paper.view?.update?.();
+            } catch (_) {}
+            return;
+        }
+
+        // Sesion modal de edicion interna: los comandos estructurales
+        // (duplicar, borrar, agrupar, ordenar, portapapeles, seleccionar
+        // todo) romperian el proxy editable. Solo flechas/Enter/Escape
+        // (manejados arriba) e historial bloqueado operan aqui.
+        const editFusionLocked = !!((window.fusionEditActive || window._fusionEditState) &&
+            !window.nodeEditMode);
+
         // 1. ESCAPE: Salir del modo edicion de nodos o deseleccionar
         if (key === "escape") {
             if (window.nodeEditMode && typeof window.exitNodeEditMode === "function") {
@@ -106,6 +177,7 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         // 3. COPIAR (Ctrl+C)
+        if (editFusionLocked) return;
         if (isCtrl && key === "c") {
             e.preventDefault();
             if (typeof window.copySelected === "function") {
@@ -120,6 +192,7 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         // 4. PEGAR (Ctrl+V)
+        if (editFusionLocked) return;
         if (isCtrl && key === "v") {
             e.preventDefault();
             if (typeof window.pasteSelected === "function") {
@@ -155,6 +228,7 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         // 5. DESHACER (Ctrl+Z)
+        if (editFusionLocked) return;
         if (isCtrl && key === "z" && !e.shiftKey) {
             e.preventDefault();
             if (typeof window.undo === "function") {
@@ -180,6 +254,7 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         // 6. REHACER (Ctrl+Y o Ctrl+Shift+Z)
+        if (editFusionLocked) return;
         if ((isCtrl && key === "y") || (isCtrl && e.shiftKey && key === "z")) {
             e.preventDefault();
             if (typeof window.redo === "function") {
@@ -206,6 +281,7 @@ export function initGlobalKeyboardShortcuts() {
 
         // 7. SELECCIONAR TODO (Ctrl+A)
         if (isCtrl && key === "a") {
+            if (editFusionLocked) return;
             e.preventDefault();
             const designLayer = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
             const itemsToSelect = typeof window.EKKO_OWNER_GRAPH?.collectOwners === "function"
@@ -220,6 +296,8 @@ export function initGlobalKeyboardShortcuts() {
             return;
         }
 
+        if (editFusionLocked) return;
+
         // 8. DUPLICAR OBJETO COMPLETO CON CONTROL+D (BLINDAJE DE CHROME)
         if (isCtrl && key === "d") {
             e.preventDefault();
@@ -232,6 +310,7 @@ export function initGlobalKeyboardShortcuts() {
 
         // 9. AGRUPAR (Ctrl+G)
         if (isCtrl && key === "g") {
+            if (editFusionLocked) return;
             e.preventDefault();
             if (typeof window.groupSelectedItems === "function") {
                 window.groupSelectedItems();
@@ -241,6 +320,7 @@ export function initGlobalKeyboardShortcuts() {
 
         // 10. DESAGRUPAR (Ctrl+U)
         if (isCtrl && key === "u") {
+            if (editFusionLocked) return;
             e.preventDefault();
             if (typeof window.ungroupSelectedItem === "function") {
                 window.ungroupSelectedItem();
@@ -250,6 +330,7 @@ export function initGlobalKeyboardShortcuts() {
 
         // 11. ELIMINAR ELEMENTOS O NODOS (Delete o Backspace)
         if (key === "delete" || key === "backspace") {
+            if (editFusionLocked) return;
             e.preventDefault();
             if (window.nodeEditMode) {
                 if (typeof window.deleteSelectedNodes === "function") {
@@ -285,6 +366,7 @@ export function initGlobalKeyboardShortcuts() {
 
         // 12. ORDEN Z / APILAMIENTO ESTILO LIGHTBURN (PgUp / PgDown / Ctrl+PgUp / Ctrl+PgDown)
         if (key === "pageup") {
+            if (editFusionLocked) return;
             e.preventDefault();
             if (isCtrl) {
                 if (typeof window.bringFront === "function") window.bringFront();
@@ -295,6 +377,7 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         if (key === "pagedown") {
+            if (editFusionLocked) return;
             e.preventDefault();
             if (isCtrl) {
                 if (typeof window.sendBack === "function") window.sendBack();
