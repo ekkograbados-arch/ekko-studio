@@ -1192,25 +1192,79 @@ function confineSubtractiveGeometry(geometry) {
     if (!geometry || !window.clipMask || window.infiniteCanvasMode) return geometry;
     let boundary = null;
     try {
-        boundary = getGlobalUnsubtractedPath(window.clipMask) || window.clipMask.clone({ insert: false });
+        boundary = getGlobalUnsubtractedPath(window.clipMask);
+        if (!boundary) {
+            // clipMask no tiene geomBase: su geometria ya esta en coordenadas
+            // de proyecto. Hornearla a applyMatrix=false es obligatorio; con
+            // applyMatrix=true el intersect contra el hueco escalado devuelve
+            // vacio y todos los huecos quedan descartados (acc:0).
+            try {
+                const c = window.clipMask.clone({ insert: false });
+                c.applyMatrix = true;
+                c.transform(c.matrix || new paper.Matrix());
+                c.applyMatrix = false;
+                c.matrix = new paper.Matrix();
+                boundary = c;
+            } catch (_) {
+                try { boundary = window.clipMask.clone({ insert: false }); } catch (e) {}
+            }
+        }
         const before = csgGeometrySnapshot(geometry);
-        const confined = geometry.intersect(boundary, { insert: false });
+        // Hornear el hueco a coordenadas de proyecto es obligatorio antes del
+        // intersect: con applyMatrix=true Paper.js lee segmentos crudos e
+        // ignora la matriz, de modo que dos operandos escalados nunca se
+        // intersecan y el confine devuelve vacio (acc:0, huecos que parecen
+        // transparencias tras agrandar con tiradores).
+        let bakedHole = null;
+        try {
+            if (geometry.applyMatrix !== false) {
+                bakedHole = geometry.clone({ insert: false });
+                bakedHole.applyMatrix = true;
+                bakedHole.transform(bakedHole.matrix || new paper.Matrix());
+                bakedHole.applyMatrix = false;
+                bakedHole.matrix = new paper.Matrix();
+            }
+        } catch (_) { bakedHole = null; }
+        const operand = bakedHole || geometry;
+        const confined = operand.intersect(boundary, { insert: false });
         csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
             success: !!confined, input: before, boundary: csgGeometrySnapshot(boundary), output: csgGeometrySnapshot(confined),
             accepted: !!confined && Math.abs(confined.area || 0) > 0.001
         });
         if (confined && Math.abs(confined.area || 0) > 0.001) {
             geometry.remove();
+            try { bakedHole?.remove?.(); } catch (_) {}
             return confined;
         }
         if (confined) { try { confined.remove(); } catch (_) {} }
+        try { bakedHole?.remove?.(); } catch (_) {}
         // Un resultado vacio NO prueba que el cortador este fuera del
         // producto: el booleano de Paper.js tambien se vacia con geometria
-        // compleja a caballo del borde curvo. Solo se descarta con prueba
-        // positiva de exterioridad; si solapa, se conserva sin confinar para
-        // que la porcion contenida siga cortando de forma dinamica, igual que
-        // los solidos recortados por el borde del mockup.
+        // compleja a caballo del borde curvo, y el intersect entre dos
+        // operandos horneados puede seguir vacio por precision numerica.
+        // Solo se descarta con prueba positiva de exterioridad; si solapa,
+        // se conserva sin confinar para que la porcion contenida siga
+        // cortando de forma dinamica, igual que los solidos recortados por
+        // el borde del mockup.
         if (boundary && !subtractiveOverlapsBoundary(geometry, boundary)) {
+            // Tras escalar con tiradores, la posición mundial del hueco puede
+            // quedar fuera del clipMask aunque visualmente siga dentro del
+            // producto. En ese caso, conservar el hueco sin confinar para que
+            // el CSG lo use directamente y siga cortando.
+            try {
+                const ownerWorld = toWorldGeometry(geometry);
+                if (ownerWorld && Number.isFinite(ownerWorld.area) &&
+                    Math.abs(ownerWorld.area) > 1e-9) {
+                    // El hueco tiene geometría válida: conservarlo sin confinar
+                    csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
+                        success: true, input: before, boundary: csgGeometrySnapshot(boundary),
+                        output: null, accepted: true, fallback: 'retain-owner-geometry'
+                    });
+                    try { ownerWorld.remove?.(); } catch (_) {}
+                    return geometry;
+                }
+                try { ownerWorld?.remove?.(); } catch (_) {}
+            } catch (_) {}
             geometry.remove();
             return null;
         }
