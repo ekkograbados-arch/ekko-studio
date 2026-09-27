@@ -1246,25 +1246,24 @@ function confineSubtractiveGeometry(geometry) {
         // se conserva sin confinar para que la porcion contenida siga
         // cortando de forma dinamica, igual que los solidos recortados por
         // el borde del mockup.
+        // TRAS ESCALAR: los bounds del hueco pueden quedar fuera del clipMask
+        // aunque visualmente siga dentro del producto. En ese caso, conservar
+        // el hueco sin confinar para que el CSG lo use directamente.
+        try {
+            const ownerWorld = toWorldGeometry(geometry);
+            if (ownerWorld && Number.isFinite(ownerWorld.area) &&
+                Math.abs(ownerWorld.area) > 1e-9) {
+                csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
+                    success: true, input: before, boundary: csgGeometrySnapshot(boundary),
+                    output: null, accepted: true, fallback: 'retain-owner-geometry'
+                });
+                try { ownerWorld.remove?.(); } catch (_) {}
+                return geometry;
+            }
+            try { ownerWorld?.remove?.(); } catch (_) {}
+        } catch (_) {}
+        // Solo descartar si hay prueba positiva de exterioridad
         if (boundary && !subtractiveOverlapsBoundary(geometry, boundary)) {
-            // Tras escalar con tiradores, la posición mundial del hueco puede
-            // quedar fuera del clipMask aunque visualmente siga dentro del
-            // producto. En ese caso, conservar el hueco sin confinar para que
-            // el CSG lo use directamente y siga cortando.
-            try {
-                const ownerWorld = toWorldGeometry(geometry);
-                if (ownerWorld && Number.isFinite(ownerWorld.area) &&
-                    Math.abs(ownerWorld.area) > 1e-9) {
-                    // El hueco tiene geometría válida: conservarlo sin confinar
-                    csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
-                        success: true, input: before, boundary: csgGeometrySnapshot(boundary),
-                        output: null, accepted: true, fallback: 'retain-owner-geometry'
-                    });
-                    try { ownerWorld.remove?.(); } catch (_) {}
-                    return geometry;
-                }
-                try { ownerWorld?.remove?.(); } catch (_) {}
-            } catch (_) {}
             geometry.remove();
             return null;
         }
@@ -2228,3 +2227,4 @@ if (typeof window !== 'undefined') {
     window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
     window.isContainedIn = isContainedIn;
 }
+
