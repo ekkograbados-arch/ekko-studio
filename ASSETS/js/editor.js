@@ -2300,6 +2300,12 @@ function resetCanvasView() {
 }
 window.resetCanvasView = resetCanvasView;
 
+// Version visible del build (F12 > Consola). Ante cualquier "no funciona",
+// lo primero es verificar esta linea: distingue codigo viejo cacheado de
+// codigo actual sin adivinar.
+const EKKO_BUILD = "v10.1";
+if (typeof window !== "undefined") window.EKKO_BUILD = EKKO_BUILD;
+
 /* =========================================================================
    SISTEMA DE ARRANQUE SECUENCIAL DEFENSIVO (BOOTSTRAP)
    Evita carreras asincronas de DOMContentLoaded en el flujo de Paper.js.
@@ -2311,6 +2317,7 @@ async function bootstrapEKKO() {
   }
   window.ekkoEditorInitialized = true;
   console.log("%c[EKKO BOOTSTRAP] Iniciando secuencia de arranque unificada de EKKO Studio...", "color: #007bff; font-weight: bold;");
+  console.log(`%c[EKKO BUILD] ${EKKO_BUILD} — si esta linea no coincide con la ultima version entregada, recargar con Ctrl+F5.`, "color: #7c3aed; font-weight: bold;");
 
   const canvasEl = document.getElementById("editorCanvas");
   const containerEl = document.getElementById("canvasContainer");
