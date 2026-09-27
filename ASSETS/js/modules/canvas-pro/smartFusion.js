@@ -29,6 +29,7 @@ import {
   removeFusionRecord
 } from "./fusionController.js";
 import { ensureMockupContainment } from "../mockupLoader.js";
+import { isMockupOrMask } from "./designGeometry.js";
 import { getPublicOwner, getPublicOwners } from "./designGeometry.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 
@@ -459,7 +460,47 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
       configurable: true, enumerable: true
     });
     Object.defineProperty(fusionGroup, 'bounds', {
-      get: function() { return this.children[0] ? this.children[0].bounds : new paper.Rectangle(); },
+      // Bounds VIVOS de la mascara: la caja de la fusion es la del vector
+      // (no la de la imagen, que suele desbordar). Se calcula a mano desde
+      // matrices vivas (grupo + hijo) porque el .bounds de Paper no invalida
+      // su cache ante la matriz de un ancestro y quedaba congelado al mover.
+      get: function() {
+        try {
+          var first = this.children ? this.children[0] : null;
+          if (!first) return new paper.Rectangle();
+          var gm = null;
+          try { gm = first.globalMatrix || new paper.Matrix(); } catch (e) { gm = new paper.Matrix(); }
+          var leaves = first.className === 'CompoundPath'
+            ? Array.from(first.children || [])
+            : [first];
+          var xs = [], ys = [];
+          var push = function(pt) {
+            if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y)) return;
+            var w;
+            try { w = gm.transform(pt); } catch (e) { return; }
+            if (w && Number.isFinite(w.x) && Number.isFinite(w.y)) { xs.push(w.x); ys.push(w.y); }
+          };
+          leaves.forEach(function(leaf) {
+            var lm = null;
+            try { lm = leaf.matrix || new paper.Matrix(); } catch (e) { lm = new paper.Matrix(); }
+            (leaf.segments || []).forEach(function(seg) {
+              var base = function(p) {
+                try { return lm.transform(p); } catch (e) { return p; }
+              };
+              push(base(seg.point));
+              if (seg.handleIn) push(base(seg.point.add(seg.handleIn)));
+              if (seg.handleOut) push(base(seg.point.add(seg.handleOut)));
+            });
+          });
+          if (!xs.length) return new paper.Rectangle();
+          return new paper.Rectangle(
+            new paper.Point(Math.min.apply(null, xs), Math.min.apply(null, ys)),
+            new paper.Point(Math.max.apply(null, xs), Math.max.apply(null, ys)));
+        } catch (e) {
+          try { return this.children[0].bounds.clone(); }
+          catch (_) { return new paper.Rectangle(); }
+        }
+      },
       configurable: true, enumerable: true
     });
   } catch(e) {}
@@ -718,6 +759,15 @@ export function recalculateSmartFusion(fusionGroup) {
    preserva isHole original. Quita el hueco virtual si existía.
 ------------------------------------------------------------------------ */
 export function releaseSmartFusion(item = null) {
+  // Quitar durante una edicion interna: primero se cancela la sesion (los
+  // proxies se limpian) y despues se libera sobre la fusion restaurada.
+  // Sin esto, tempImage/ghost quedaban huerfanos en la escena.
+  if (window.fusionEditActive || window._fusionEditState) {
+    try { if (typeof window.exitFusionEditMode === "function") window.exitFusionEditMode(false); } catch (_) {}
+    // Salir re-selecciona la fusion: descartar el item viejo (apuntaba al
+    // proxy temporal) y resolver de nuevo desde la seleccion actual.
+    item = null;
+  }
   if (!item) {
     const selectedItems = Array.isArray(window.selectedItems) ? window.selectedItems.filter(Boolean) : [];
     item = selectedItems.length > 1
@@ -800,9 +850,17 @@ export function releaseSmartFusion(item = null) {
   let finalRaster = ensureContainedDesignItem(restoredRaster);
   if (finalVector.parent === null) paper.project.activeLayer.addChild(finalVector);
   if (finalRaster.parent === null) paper.project.activeLayer.addChild(finalRaster);
+  // La imagen SIEMPRE queda DEBAJO del vector: el vector suele ser mas chico
+  // y el cliente lo busca arriba; la imagen (casi siempre mas grande) lo
+  // taparia. El vector conserva especie (hueco/solido) y transformaciones.
+  try {
+    if (finalVector?.parent && finalVector.parent === finalRaster?.parent) {
+      finalVector.insertAbove(finalRaster);
+    }
+  } catch (_) {}
   if (window.currentMockup) {
-    finalVector.insertBelow(window.currentMockup);
     finalRaster.insertBelow(window.currentMockup);
+    finalVector.insertBelow(window.currentMockup);
   }
   if (typeof window.syncGeometryToGeomBase === 'function') {
     window.syncGeometryToGeomBase(finalVector);
@@ -875,6 +933,125 @@ export function performSmartFusion(mode = 'intersecar') {
 }
 
 /* ------------------------------------------------------------------------
+   SNAPPING INVERSO: arrastrar el VECTOR sobre una imagen (complemento del
+   snap imagen→vector). El VECTOR se ilumina fucsia (es la futura mascara) y
+   al soltar se fusiona vector+imagen. Misma experiencia en ambas direcciones.
+------------------------------------------------------------------------ */
+let activeSnappedImage = null;
+
+function findImageUnderPoint(point) {
+  if (!point || !paper?.project) return null;
+  const layer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+  if (!layer) return null;
+  const hits = [];
+  try {
+    layer.getItems({ match: item => item?.className === 'Raster' }).forEach(raster => {
+      try {
+        const data = raster.data || {};
+        if (data.isSmartFusion || data.isFusionMask || data.mockup || data.isMask) return;
+        // Dentro de una fusion existente no se puede volver a fusionar.
+        let p = raster.parent, dentro = false;
+        while (p && p !== paper.project) {
+          if (p.data?.isSmartFusion) { dentro = true; break; }
+          p = p.parent;
+        }
+        if (dentro) return;
+        if (isMockupOrMask(raster)) return;
+        const b = raster.bounds;
+        if (!b || !Number.isFinite(b.width) || b.width <= 0) return;
+        if (b.contains(point)) hits.push(raster);
+      } catch (_) {}
+    });
+  } catch (_) {}
+  if (!hits.length) return null;
+  // La de mas arriba manda (ultima en orden de documento).
+  hits.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  return hits[hits.length - 1];
+}
+
+function isVectorDragCandidate(item) {
+  if (!item || !item.project) return false;
+  if (item.data?.isSmartFusion || item.data?.isFusionMask) return false;
+  if (item.data?.mockup || item.data?.isMask || item.clipMask) return false;
+  try { if (isMockupOrMask(item)) return false; } catch (_) {}
+  return item.className === 'Path' || item.className === 'CompoundPath' || item.className === 'Shape';
+}
+
+export function checkVectorDragSnapping(vectorItem, mousePoint) {
+  if (window.fusionEditActive || window._fusionEditState) {
+    clearFusionPreview(true);
+    window._fusionSnapActive = false;
+    window._activeSnappedImage = null;
+    return false;
+  }
+  if (!isVectorDragCandidate(vectorItem) || !paper.project) return false;
+  if (mousePoint) window._lastFusionMousePoint = mousePoint;
+  const image = findImageUnderPoint(mousePoint);
+  if (image) {
+    drawFusionPreview(image, { item: vectorItem });
+    activeSnappedImage = image;
+    window._activeSnappedImage = image;
+    window._fusionSnapActive = true;
+    paper.view.update();
+    return true;
+  }
+  clearFusionPreview(true);
+  activeSnappedImage = null;
+  window._activeSnappedImage = null;
+  window._fusionSnapActive = false;
+  paper.view.update();
+  return false;
+}
+
+export function handleVectorDrop(vectorItem) {
+  try {
+    if (window.fusionEditActive || window._fusionEditState) {
+      clearFusionPreview(true);
+      window._fusionSnapActive = false;
+      window._activeSnappedImage = null;
+      return false;
+    }
+    const vector = vectorItem || null;
+    const image = activeSnappedImage || window._activeSnappedImage || null;
+    var _dropPoint = window._lastFusionMousePoint;
+    window._lastFusionMousePoint = null;
+    if (vector && _dropPoint) {
+      try {
+        var _b = vector.bounds.clone();
+        _b.expand(6 / (paper.view && paper.view.zoom ? paper.view.zoom : 1));
+        if (!_b.contains(_dropPoint) && !(image?.bounds?.contains?.(_dropPoint))) {
+          clearFusionPreview(true);
+          window._fusionSnapActive = false;
+          window._activeSnappedImage = null;
+          activeSnappedImage = null;
+          return false;
+        }
+      } catch (e) {}
+    }
+    clearFusionPreview(true);
+    window._fusionSnapActive = false;
+    window._activeSnappedImage = null;
+    activeSnappedImage = null;
+    if (vector && image && paper) {
+      if (!vector.project || !image.project) {
+        console.warn("[FUSION DROP] Referencia inválida (el ítem ya no existe en el proyecto).");
+        return false;
+      }
+      const fusion = applySmartFusion(vector, image, 'intersecar');
+      return !!fusion;
+    }
+    return false;
+  } catch (e) {
+    console.error("[FUSION DROP INVERSO ERROR]", e);
+    clearFusionPreview(true);
+    window._fusionSnapActive = false;
+    window._activeSnappedImage = null;
+    activeSnappedImage = null;
+    return false;
+  }
+}
+
+/* ------------------------------------------------------------------------
    INICIALIZACIÓN Y EXPOSICIÓN DE API
 ------------------------------------------------------------------------ */
 export function initSmartFusionListeners() {
@@ -882,6 +1059,8 @@ export function initSmartFusionListeners() {
     window.applySmartFusion = applySmartFusion;
     window.checkMagneticSnapping = checkMagneticSnapping;
     window.handleMagneticDrop = handleMagneticDrop;
+    window.checkVectorDragSnapping = checkVectorDragSnapping;
+    window.handleVectorDrop = handleVectorDrop;
     window.recalculateSmartFusion = recalculateSmartFusion;
     window.releaseSmartFusion = releaseSmartFusion;
     window.applyFusionFromSelection = applyFusionFromSelection;
