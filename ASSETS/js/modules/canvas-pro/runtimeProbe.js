@@ -159,7 +159,7 @@
 
   const WRAPPED_GLOBALS = [
     'performSmartFusion', 'applySmartFusion', 'applyFusionFromSelection',
-    'handleMagneticDrop', 'releaseSmartFusion', 'recalculateSmartFusion',
+    'handleMagneticDrop', 'checkVectorDragSnapping', 'handleVectorDrop', 'releaseSmartFusion', 'recalculateSmartFusion',
     'transformFusion', 'transformPublicItem', 'beginTransformTransaction',
     'finalizeTransformTransaction', 'recalculateDynamicSubtractions',
     'convertTextToVector', 'convertSelectionToCalado', 'ungroupSelectedItem'
