@@ -973,6 +973,10 @@ function isVectorDragCandidate(item) {
   if (!item || !item.project) return false;
   if (item.data?.isSmartFusion || item.data?.isFusionMask) return false;
   if (item.data?.mockup || item.data?.isMask || item.clipMask) return false;
+  // Un hueco es un cortador semantico, nunca una futura mascara de fusion.
+  // Arrastrarlo sobre una imagen no debe armar snapping ni fusionarlo al
+  // soltar: eso destruia el hueco en silencio y el solido quedaba macizo.
+  if (item.data?.isHole === true) return false;
   try { if (isMockupOrMask(item)) return false; } catch (_) {}
   return item.className === 'Path' || item.className === 'CompoundPath' || item.className === 'Shape';
 }
@@ -1006,6 +1010,15 @@ export function checkVectorDragSnapping(vectorItem, mousePoint) {
 export function handleVectorDrop(vectorItem) {
   try {
     if (window.fusionEditActive || window._fusionEditState) {
+      clearFusionPreview(true);
+      window._fusionSnapActive = false;
+      window._activeSnappedImage = null;
+      return false;
+    }
+    // Defensa en profundidad: un hueco soltado sobre una imagen es un
+    // reposicionamiento del cortador, nunca una fusion. Sin este rechazo el
+    // hueco se consumia como mascara y desaparecia como owner.
+    if (vectorItem?.data?.isHole === true) {
       clearFusionPreview(true);
       window._fusionSnapActive = false;
       window._activeSnappedImage = null;
