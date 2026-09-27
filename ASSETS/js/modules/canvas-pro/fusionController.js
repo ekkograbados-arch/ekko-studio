@@ -481,29 +481,6 @@ function applyOperation(item, operation) {
 function transformDetachedGeomBases(owner, operation) {
     // Local geomBase snapshots follow their owner.matrix implicitly. They are
     // updated only by node editing, never by a public transform operation.
-    // EXCEPTO tras escala: si geomBase queda en coordenadas viejas, el CSG
-    // calcula mal la posición mundial del hueco y lo descarta (acc:0).
-    if (!owner || !owner.data) return owner;
-    try {
-        if (operation?.type === 'scale' || operation?.type === 'translate') {
-            const gb = owner.data.geomBase;
-            if (gb && owner.matrix) {
-                // Verificar si geomBase está stale: si su matriz difiere de la del owner
-                const m = owner.matrix;
-                const gbm = gb.matrix;
-                const stale = Math.abs(m.a - gbm.a) > 0.001 || Math.abs(m.d - gbm.d) > 0.001;
-                if (stale) {
-                    // Reconstruir geomBase desde la geometría actual del owner
-                    const fresh = owner.clone({ insert: false });
-                    fresh.applyMatrix = true;
-                    fresh.transform(fresh.matrix || new paper.Matrix());
-                    fresh.applyMatrix = false;
-                    fresh.matrix = new paper.Matrix();
-                    owner.data.geomBase = fresh;
-                }
-            }
-        }
-    } catch (_) {}
     return owner;
 }
 
