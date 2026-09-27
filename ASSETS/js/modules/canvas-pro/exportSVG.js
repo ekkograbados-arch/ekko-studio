@@ -182,6 +182,9 @@ export async function prepareSVGForExport(options = {}) {
                 data.isMeasurement === true ||
                 data.isTracePreview === true ||
                 data.isNodeEditOverlay === true ||
+                data.isFusionEditGhost === true ||
+                data.isFusionEditProxy === true ||
+                data.isFusionEditClip === true ||
                 data.isGuide === true ||
                 data.isWatermark === true ||
                 data.isUnderlineLine === true ||
