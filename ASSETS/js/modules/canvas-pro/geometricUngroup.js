@@ -1128,7 +1128,11 @@ export function installOwnerGeometry(owner, geometry, geometryIsLocal = false) {
                 owner.data = { ...(owner.data || {}), fillRule: geometryFillRule };
             }
         } catch (_) {}
-        working.remove?.();
+        // Solo se elimina el contenedor de trabajo si NO fue adoptado: en la
+        // rama Path, working es ahora hijo del owner y removerlo vaciaria el
+        // solido (el CSG posterior lo tapaba dentro del producto, pero fuera
+        // del mockup quedaba destruido).
+        if (working.parent !== owner) working.remove?.();
         return owner;
     }
 
