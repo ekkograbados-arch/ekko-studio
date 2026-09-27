@@ -1157,7 +1157,7 @@ const _initSelectionTool = function() {
           window._lastDraggedRaster = onlyTarget;
           window._lastDraggedVector = null;
           window.checkMagneticSnapping(onlyTarget, event.point);
-        } else if (onlyTarget && (onlyTarget.className === 'Path' || onlyTarget.className === 'CompoundPath' || onlyTarget.className === 'Shape') && typeof window.checkVectorDragSnapping === 'function') {
+        } else if (onlyTarget && (onlyTarget.className === 'Path' || onlyTarget.className === 'CompoundPath' || onlyTarget.className === 'Shape') && onlyTarget.data?.isHole !== true && typeof window.checkVectorDragSnapping === 'function') {
           // Arrastre inverso: el VECTOR busca una imagen debajo. El vector se
           // ilumina fucsia (es la futura mascara) y al soltar se fusiona.
           window._lastDraggedVector = onlyTarget;
