@@ -29,8 +29,29 @@ function toParentDelta(item, delta) {
 }
 
 function cleanupEditVisuals(st) {
+  try { if (st.editSyncTimer) clearInterval(st.editSyncTimer); } catch (e) {}
   try { st.tempImage?.remove?.(); } catch (e) {}
   try { st.previewOutline?.remove?.(); } catch (e) {}
+  try { st.ghost?.remove?.(); } catch (e) {}
+  // El wrapper de edicion solo contenia clones de trabajo; al vaciarse se
+  // elimina para no dejar grupos huerfanos en la capa.
+  try {
+    if (st.editWrapper && !st.editWrapper?.children?.length) st.editWrapper.remove?.();
+    else st.editWrapper?.remove?.();
+  } catch (e) {}
+}
+
+/** El fantasma espeja la matriz global de la imagen editable, expresada
+ *  en el sistema local de su propio padre. Asi la referencia externa nunca
+ *  se desfasa, la muevan flechas, arrastre o tiradores. */
+export function syncEditGhost() {
+  const st = editState;
+  try {
+    if (!st?.ghost?.project || !st?.tempImage?.project) return false;
+    const parentInv = st.ghost.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
+    st.ghost.matrix = parentInv.concatenate(st.tempImage.globalMatrix);
+    return true;
+  } catch (_) { return false; }
 }
 
 export function enterFusionEditMode(fusionGroup) {
@@ -46,12 +67,51 @@ export function enterFusionEditMode(fusionGroup) {
   const controller = window.EKKO_FUSION_CONTROLLER;
   const controllerTransaction = controller?.beginFusionEdit?.(fusionGroup) || null;
 
-  const tempImage = image.clone();
+  // El proxy editable vive a NIVEL CAPA dentro de su propio wrapper de
+  // recorte (mascara = clon del vector actual). Asi es un Raster publico
+  // normal: tiene caja, tiradores y herramientas de imagen, y lo que se ve
+  // fuera del vector es el fantasma de referencia, no geometria recortada.
+  const designLayer = paper.project?.layers?.find(layer => layer?.name === 'designLayer')
+    || paper.project?.activeLayer || null;
+  const tempImage = image.clone({ insert: false });
   tempImage.name = "fusion-temp-image";
-  tempImage.opacity = 0.7;
+  tempImage.opacity = 1;
   tempImage.locked = false;
   tempImage.clipMask = false;
   tempImage.applyMatrix = false;
+  tempImage.data = { ...(tempImage.data || {}), isFusionEditProxy: true };
+  const editMask = mask.clone({ insert: false });
+  editMask.clipMask = true;
+  editMask.fillColor = null; editMask.strokeColor = null;
+  const editWrapper = new paper.Group({ insert: false });
+  editWrapper.addChild(editMask);
+  editWrapper.addChild(tempImage);
+  editWrapper.clipped = true;
+  editWrapper.data = { isFusionEditClip: true, fusionId: data.fusionId, locked: false };
+  if (designLayer) designLayer.addChild(editWrapper);
+  // La matriz global del proxy reproduce la de la imagen interna para que no
+  // haya ningun salto visual al entrar.
+  try {
+    const parentInv = editWrapper.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
+    tempImage.matrix = parentInv.concatenate(image.globalMatrix);
+  } catch (_) {}
+
+  // Fantasma de referencia: la imagen completa con transparencia, DEBAJO del
+  // wrapper de edicion. Lo de afuera del vector se ve atenuado (se cortara
+  // al aceptar); lo de adentro lo muestra el proxy a opacidad plena.
+  // No es seleccionable ni entra a CSG/exportacion/mediciones.
+  let ghost = null;
+  try {
+    ghost = image.clone({ insert: false });
+    ghost.name = "fusion-edit-ghost";
+    ghost.opacity = 0.32;
+    ghost.locked = true;
+    ghost.clipMask = false;
+    ghost.data = { ...(ghost.data || {}), isFusionEditGhost: true, locked: true };
+    if (designLayer) designLayer.addChild(ghost);
+    const gInv = ghost.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
+    ghost.matrix = gInv.concatenate(image.globalMatrix);
+  } catch (_) { try { ghost?.remove?.(); } catch (__) {} ghost = null; }
 
   const previewOutline = mask.clone();
   previewOutline.name = "fusion-preview-outline";
@@ -62,7 +122,6 @@ export function enterFusionEditMode(fusionGroup) {
   previewOutline.locked = true;
   previewOutline.data = { ...(previewOutline.data || {}), isFusionEditOverlay: true };
 
-  fusionGroup.addChild(tempImage);
   fusionGroup.addChild(previewOutline);
   image.opacity = 0;
 
@@ -73,6 +132,8 @@ export function enterFusionEditMode(fusionGroup) {
     mask,
     image,
     tempImage,
+    editWrapper,
+    ghost,
     previewOutline,
     pointer: null,
     snapshot: {
@@ -84,6 +145,23 @@ export function enterFusionEditMode(fusionGroup) {
   fusionEditActive = true;
   window.fusionEditActive = true;
   interactionOwner.claim("fusion-edit", { owner: "fusionEditMode" });
+  // La imagen editable queda SELECCIONADA con su caja y tiradores: es un
+  // Raster publico a nivel capa, asi que el sistema la acepta sin resolver
+  // a la fusion. Las herramientas de imagen actuan sobre ella.
+  try {
+    window.selectedItem = tempImage;
+    window.selectedItems = [tempImage];
+    window.updateSelectionBox?.(tempImage);
+    window.updateContextualMenu?.(tempImage);
+    window.refreshAllToolbars?.();
+  } catch (_) {}
+  // Espejo periodico fantasma<->proxy: cubre tiradores y cualquier ruta que
+  // mueva al proxy sin pasar por los handlers de este modulo.
+  try {
+    editState.editSyncTimer = setInterval(() => {
+      try { if (window._fusionEditState) syncEditGhost(); } catch (_) {}
+    }, 150);
+  } catch (_) {}
   paper.view?.update?.();
   return true;
 }
@@ -109,9 +187,13 @@ export function exitFusionEditMode(accept = true) {
   const controller = window.EKKO_FUSION_CONTROLLER;
   try {
     if (finalImage) {
-      if (accept && st.tempImage) {
-        finalImage.position = st.tempImage.position.clone();
-        finalImage.matrix = st.tempImage.matrix.clone();
+      if (accept && st.tempImage?.project) {
+        // El proxy vive en otro padre que la imagen interna: convertir su
+        // matriz global al sistema local del grupo de fusion. Copiarla
+        // directo desfasa (ese era el "salto" al aceptar).
+        if (typeof window.saveHistory === "function") window.saveHistory();
+        const gInv = st.fusionGroup?.globalMatrix?.inverted?.() || new paper.Matrix();
+        finalImage.matrix = gInv.concatenate(st.tempImage.globalMatrix);
       } else if (st.snapshot) {
         finalImage.position = st.snapshot.imagePosition.clone();
         finalImage.matrix = st.snapshot.imageMatrix.clone();
@@ -139,6 +221,18 @@ export function exitFusionEditMode(accept = true) {
   } finally {
     cleanupEditVisuals(st);
     interactionOwner.release("fusion-edit");
+    // La seleccion vuelve a la fusion completa con su caja.
+    try {
+      if (st.fusionGroup?.project) {
+        window.selectedItem = st.fusionGroup;
+        window.selectedItems = [st.fusionGroup];
+        window.updateSelectionBox?.(st.fusionGroup);
+        window.updateContextualMenu?.(st.fusionGroup);
+        window.refreshAllToolbars?.();
+      } else {
+        window.deselectItem?.();
+      }
+    } catch (_) {}
     paper.view?.update?.();
   }
   return true;
@@ -148,12 +242,20 @@ export function exitFusionEditMode(accept = true) {
  * no registra listeners DOM propios. */
 export function handleFusionEditPointerDown(event, point) {
   if (!fusionEditActive || !editState) return false;
+  // La imagen editable (incluido su fantasma visual) manda: agarrarla
+  // arrastra, aunque el punto caiga fuera de la mascara. Solo un clic en
+  // vacio real acepta y sale.
+  const draggingImage = pointHits(editState.tempImage, point);
+  if (draggingImage) {
+    editState.pointer = { dragging: true, token: null };
+    editState.pointer.token = interactionOwner.beginPointer("fusion-edit");
+    return true;
+  }
   if (!pointInsideMask(point, editState.mask)) {
     exitFusionEditMode(true);
     return true;
   }
-  const draggingImage = pointHits(editState.tempImage, point);
-  editState.pointer = { dragging: draggingImage, token: null };
+  editState.pointer = { dragging: false, token: null };
   editState.pointer.token = interactionOwner.beginPointer("fusion-edit");
   return true;
 }
@@ -164,6 +266,7 @@ export function handleFusionEditPointerDrag(event) {
   const delta = event.delta.clone ? event.delta.clone() :
     new paper.Point(event.delta.x || 0, event.delta.y || 0);
   editState.tempImage.translate(toParentDelta(editState.tempImage, delta));
+  syncEditGhost();
   paper.view?.update?.();
   return true;
 }
