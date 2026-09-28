@@ -1246,23 +1246,23 @@ function confineSubtractiveGeometry(geometry) {
         // se conserva sin confinar para que la porcion contenida siga
         // cortando de forma dinamica, igual que los solidos recortados por
         // el borde del mockup.
-        // TRAS ESCALAR: los bounds del hueco pueden quedar fuera del clipMask
-        // aunque visualmente siga dentro del producto. En ese caso, conservar
-        // el hueco sin confinar para que el CSG lo use directamente.
-        try {
-            const ownerWorld = toWorldGeometry(geometry);
-            if (ownerWorld && Number.isFinite(ownerWorld.area) &&
-                Math.abs(ownerWorld.area) > 1e-9) {
-                csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
-                    success: true, input: before, boundary: csgGeometrySnapshot(boundary),
-                    output: null, accepted: true, fallback: 'retain-owner-geometry'
-                });
-                try { ownerWorld.remove?.(); } catch (_) {}
-                return geometry;
-            }
-            try { ownerWorld?.remove?.(); } catch (_) {}
-        } catch (_) {}
-        // Solo descartar si hay prueba positiva de exterioridad
+        // Los huecos REALES se conservan SIEMPRE: el laser graba todo lo que
+        // esta por debajo de su capa, por lo que jamas pueden degradarse a
+        // transparencia ni descartarse. Solo se descartan cut-lines reales.
+        const isRealHole = geometry.data?.isHole === true ||
+            geometry.data?.originalIsHole === true ||
+            geometry.data?.semanticKind === VECTOR_KIND.HOLE;
+        const isCutLine = geometry.data?.isCutState === true ||
+            geometry.data?.isCutLine === true ||
+            geometry.data?.sourceCutLine === true;
+        if (isRealHole && !isCutLine) {
+            csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
+                success: true, input: before, boundary: csgGeometrySnapshot(boundary),
+                output: null, accepted: true, fallback: 'retain-real-hole-always'
+            });
+            return geometry;
+        }
+        // Los cut-lines si pueden descartarse si no solapan el boundary
         if (boundary && !subtractiveOverlapsBoundary(geometry, boundary)) {
             geometry.remove();
             return null;
