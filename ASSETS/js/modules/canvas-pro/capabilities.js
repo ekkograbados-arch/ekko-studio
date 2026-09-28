@@ -208,7 +208,7 @@ export const TOOLS = {
     active: s => s.count > 0 && s.onlyVectorish && s.hasHole && !s.hasSolid
   },
   solidHole: {
-    label: "<Sólidos ⇄ Huecos>",
+    label: "Sólidos ⇄ Huecos",
     // Mezcla de sólidos y huecos: un clic intercambia los papeles.
     active: s => s.count > 0 && s.onlyVectorish && s.mixedRoles
   },
