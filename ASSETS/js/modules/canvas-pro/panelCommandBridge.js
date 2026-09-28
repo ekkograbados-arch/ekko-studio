@@ -2,7 +2,7 @@ import { isProductElement, isValidFusionReceptor, isClosedClientVector, canConve
 import { canConvertSelectionToCalado, convertSelectionToSolid } from "./calado.js";
 import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
-import { getPublicOwner, getOwnerLocalGeometry } from "./designGeometry.js";
+import { getPublicOwner, getOwnerLocalGeometry, isMockupOrMask } from "./designGeometry.js";
 import { installOwnerGeometry, recalculateDynamicSubtractions, normalizeSubtractiveOperand } from "./geometricUngroup.js";
 import { isToolEnabled, legacyNamesFor } from "./capabilities.js";
 import { aplicarContorno } from "./contorno.js";
