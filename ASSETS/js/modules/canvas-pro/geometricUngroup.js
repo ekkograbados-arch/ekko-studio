@@ -1092,7 +1092,13 @@ function promotePathOwner(owner, geometry) {
     }
     replacement.applyMatrix = false;
     const installed = replacePublicOwner(owner, replacement);
-    installed.fillRule = geometry.fillRule || owner.data?.originalFillRule || 'evenodd';
+    // Un resultado de CSG son contornos disjuntos y DEBE renderizarse par-impar.
+    // Paper.jsgive por defecto fillRule 'nonzero' al resultado booleano: con
+    // 'nonzero' y todos los contornos del mismo sentido el solido se rellena
+    // macizo y los huecos desaparecen aunque el corte este instalado.
+    installed.fillRule = (replacement.children?.length || 0) > 1
+        ? 'evenodd'
+        : (geometry.fillRule || owner.data?.originalFillRule || 'evenodd');
     installed.data = { ...(installed.data || {}), fillRule: installed.fillRule, csgMaterialized: true };
     geometry.remove?.();
     return installed;
@@ -1123,9 +1129,15 @@ export function installOwnerGeometry(owner, geometry, geometryIsLocal = false) {
                 const moved = working.removeChildren();
                 moved.forEach(child => adoptConvertedChild(owner, working, child));
             } else if (isPathGeometry(working)) owner.addChild(working);
-            if (geometryFillRule) {
-                owner.fillRule = geometryFillRule;
-                owner.data = { ...(owner.data || {}), fillRule: geometryFillRule };
+            // Mismo contrato par-impar que promotePathOwner: si el owner queda
+            // con multi-contorno, 'nonzero' rellenaria macizo y esconderia los
+            // huecos ya perforados.
+            const installedRule = (owner.children?.length || 0) > 1
+                ? 'evenodd'
+                : geometryFillRule;
+            if (installedRule) {
+                owner.fillRule = installedRule;
+                owner.data = { ...(owner.data || {}), fillRule: installedRule };
             }
         } catch (_) {}
         // Solo se elimina el contenedor de trabajo si NO fue adoptado: en la
@@ -1830,6 +1842,14 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 }
                 solid.data.csgMaterialized = true;
                 solid.visible = true;
+                // Autoridad final de render: un solido con CSG materializado y
+                // multi-contorno SIEMPRE es par-impar. Si cualquier ruta lo dejo
+                // en 'nonzero', Paper rellena todos los contornos del mismo
+                // sentido y el escudo se ve macizo aunque el corte exista.
+                if ((solid.children?.length || 0) > 1 || solid.fillRule !== 'evenodd') {
+                    solid.fillRule = 'evenodd';
+                    solid.data = { ...(solid.data || {}), fillRule: 'evenodd' };
+                }
                 // installGeometryInOwner works on a detached clone so the
                 // boolean result is never accidentally removed twice.
                 finalSubtracted.remove?.();
