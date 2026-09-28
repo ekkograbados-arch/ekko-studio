@@ -1188,7 +1188,7 @@ export function installGeometryInOwner(owner, geometry) {
 // CSG geometry is kept in project coordinates, but a detached SVG hole must
 // never subtract or render outside the active product boundary. The original
 // hole item is not modified; only the temporary boolean operand is confined.
-function confineSubtractiveGeometry(geometry) {
+function confineSubtractiveGeometry(geometry, holeOwner = null) {
     if (!geometry || !window.clipMask || window.infiniteCanvasMode) return geometry;
     let boundary = null;
     try {
@@ -1249,13 +1249,29 @@ function confineSubtractiveGeometry(geometry) {
         // Los huecos REALES se conservan SIEMPRE: el laser graba todo lo que
         // esta por debajo de su capa, por lo que jamas pueden degradarse a
         // transparencia ni descartarse. Solo se descartan cut-lines reales.
-        const isRealHole = geometry.data?.isHole === true ||
-            geometry.data?.originalIsHole === true ||
-            geometry.data?.semanticKind === VECTOR_KIND.HOLE;
-        const isCutLine = geometry.data?.isCutState === true ||
-            geometry.data?.isCutLine === true ||
-            geometry.data?.sourceCutLine === true;
+        // `geometry` es un clon temporal SIN data: la semantica del hueco vive
+        // en su owner. Por eso se lee desde holeOwner y no desde geometry.data.
+        const isRealHole = holeOwner?.data?.isHole === true ||
+            holeOwner?.data?.originalIsHole === true ||
+            holeOwner?.data?.semanticKind === VECTOR_KIND.HOLE;
+        const isCutLine = holeOwner?.data?.isCutLine === true ||
+            holeOwner?.data?.isCutState === true ||
+            holeOwner?.data?.sourceCutLine === true;
         if (isRealHole && !isCutLine) {
+            // Retornar el hueco HORNEADO a coordenadas de mundo. Paper.js lee
+            // segmentos crudos e ignora .matrix mientras applyMatrix=true, por
+            // lo que devolver la geometria sin hornear hacia al CSG a probar
+            // la posicion local vieja: el par se rechaza como 'no-intersection'
+            // y el solido queda macizo aunque el hueco siga ahi.
+            const baked = bakeGeometryClone(geometry);
+            if (baked) {
+                csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
+                    success: true, input: before, boundary: csgGeometrySnapshot(boundary),
+                    output: csgGeometrySnapshot(baked), accepted: true,
+                    fallback: 'retain-real-hole-baked'
+                });
+                return baked;
+            }
             csgTraceOperation(activeCSGTracePass, 'confine.intersect', {
                 success: true, input: before, boundary: csgGeometrySnapshot(boundary),
                 output: null, accepted: true, fallback: 'retain-real-hole-always'
@@ -1576,7 +1592,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
-            holeBase = confineSubtractiveGeometry(holeBase);
+            holeBase = confineSubtractiveGeometry(holeBase, holeItem);
             pair.confinedGeometry = csgGeometrySnapshot(holeBase);
             if (!holeBase) {
                 pair.reasons.push('geometry-confine');
