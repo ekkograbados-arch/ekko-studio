@@ -1048,6 +1048,44 @@ function adoptConvertedChild(newParent, working, child) {
     return child;
 }
 
+/**
+ * Firma geometrica de un contorno. Dos contornos con la misma caja y la misma
+ * area son el mismo contorno: instalarlos dos veces rompe la paridad evenodd
+ * (un hueco con profundidad 2 se rellena) y el solido se ve macizo.
+ */
+function contourSignature(geometry) {
+    try {
+        const b = geometry?.bounds;
+        if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.width)) return null;
+        return [b.x.toFixed(2), b.y.toFixed(2), b.width.toFixed(2), b.height.toFixed(2),
+            Math.abs(Number(geometry.area) || 0).toFixed(2)].join('|');
+    } catch (_) { return null; }
+}
+
+/**
+ * Instala los hijos de un resultado de CSG descartando duplicados exactos.
+ * Devuelve cuantos se instalaron y cuantos se descartaron.
+ */
+function installUniqueContours(target, children, working) {
+    const seen = new Set();
+    let installed = 0, dropped = 0;
+    (Array.isArray(children) ? children : []).forEach(child => {
+        if (!child) return;
+        const signature = contourSignature(child);
+        if (signature) {
+            if (seen.has(signature)) {
+                dropped += 1;
+                try { child.remove?.(); } catch (_) {}
+                return;
+            }
+            seen.add(signature);
+        }
+        adoptConvertedChild(target, working, child);
+        installed += 1;
+    });
+    return { installed, dropped };
+}
+
 function replacePublicOwner(owner, replacement) {
     if (!owner || !replacement || owner === replacement) return owner;
     const parent = owner.parent;
@@ -1083,7 +1121,7 @@ function promotePathOwner(owner, geometry) {
     const replacement = new paper.CompoundPath({ insert: false });
     if (isCompoundGeometry(geometry)) {
         const children = geometry.removeChildren ? geometry.removeChildren() : [];
-        children.forEach(child => adoptConvertedChild(replacement, geometry, child));
+        installUniqueContours(replacement, children, geometry);
     } else if (isPathGeometry(geometry)) {
         replacement.addChild(geometry.clone({ insert: false }));
     } else {
@@ -1124,10 +1162,20 @@ export function installOwnerGeometry(owner, geometry, geometryIsLocal = false) {
 
     if (isCompoundGeometry(owner)) {
         try {
-            owner.removeChildren();
+            // Purga defensiva: removeChildren() puede no vaciar si el owner ya
+            // fue materializado antes en este mismo paso, y un hijo colgante
+            // duplica un contorno. Sin esto la paridad evenodd se invierte.
+            let purged = [];
+            try { purged = owner.removeChildren() || []; } catch (_) { purged = []; }
+            if (owner.children && owner.children.length) {
+                let rest = [];
+                try { rest = owner.removeChildren() || []; } catch (_) { rest = []; }
+                purged = purged.concat(rest);
+            }
+            purged.forEach(stale => { try { stale?.remove?.(); } catch (_) {} });
             if (isCompoundGeometry(working)) {
                 const moved = working.removeChildren();
-                moved.forEach(child => adoptConvertedChild(owner, working, child));
+                installUniqueContours(owner, moved, working);
             } else if (isPathGeometry(working)) owner.addChild(working);
             // Mismo contrato par-impar que promotePathOwner: si el owner queda
             // con multi-contorno, 'nonzero' rellenaria macizo y esconderia los
@@ -2262,5 +2310,6 @@ if (typeof window !== 'undefined') {
     window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
     window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
     window.isContainedIn = isContainedIn;
+    window.EKKO_INSTALL_OWNER_GEOMETRY = installOwnerGeometry;
 }
 
