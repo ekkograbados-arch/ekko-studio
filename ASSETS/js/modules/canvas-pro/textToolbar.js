@@ -647,7 +647,14 @@ export async function weldText(item) {
     return resultPath;
 }
 
-export function convertTextToVector(item = null) {
+/**
+ * Texto -> vector. weldText carga la fuente antes de convertir, asi que el
+ * resultado es una PROMESA: quien necesite el owner nuevo (por ejemplo
+ * Contorno, que recien vectoriza y despues engrosa) debe esperar el retorno.
+ * La firma async lo declara; antes mongooseaba un Promise y los llamadores
+ * que usan el valor de retorno creian estar trabajando con un objeto Paper.
+ */
+export async function convertTextToVector(item = null) {
     const selected = item || window.selectedItem ||
         (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
     window._ekkoTextVectorDispatch = {
