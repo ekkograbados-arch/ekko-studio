@@ -255,7 +255,7 @@ function subtractPositiveParts(left, right) {
  * Create a closed outline in the same world/project space as `source`.
  * `side` is one of center, inside or outside and `width` is in Paper units.
  */
-export function buildOutlineGeometry(source, width = 2, side = "center") {
+export function buildOutlineGeometry(source, width = 2, side = "center", radius = 0, smoothing = 0) {
     if (!source || typeof paper === "undefined") return null;
     const worldClone = source?.clone?.({ insert: false }) || null;
     const world = worldClone || source;
@@ -273,6 +273,16 @@ export function buildOutlineGeometry(source, width = 2, side = "center") {
     }
     const mode = ["inside", "outside", "center"].includes(String(side).toLowerCase())
         ? String(side).toLowerCase() : "center";
+    // RADIO: separación del contorno respecto del borde original. 0 deja la
+    // línea justo sobre el borde; positivo la corre hacia afuera, negativo la
+    // acerca hacia adentro. Equivale a "Offset Distance" de LightBurn y a
+    // "Expandir/Contraer" de Photoshop. Se aplica ANTES de engrosar: primero
+    // se decide dónde va la línea, después qué tan gruesa es.
+    const offset = Number(radius) || 0;
+    // SUAVIDAD: cuanto mayor, menos puntos. Un contorno de pelo o de bigote
+    // trae cientos de nodos que no aportan nada al grabado. Equivale a
+    // "Optimize/Simplify results" de LightBurn y a "Suavizar" de Photoshop.
+    const smooth = Math.max(0, Number(smoothing) || 0);
 
     const cleanup = new Set();
     const track = geometry => { if (geometry) cleanup.add(geometry); return geometry; };
@@ -307,9 +317,14 @@ export function buildOutlineGeometry(source, width = 2, side = "center") {
 
         const records = [];
         contours.forEach(contour => {
-            const base = track(makeClosedPath(contour.points));
-            const firstOffset = track(makeClosedPath(offsetPolygon(contour.points, amount)));
-            const secondOffset = track(makeClosedPath(offsetPolygon(contour.points, -amount)));
+            // El borde de trabajo es el original corrido por el Radio. El
+            // engrosamiento se mide desde ahi, no desde el borde original.
+            const working = (Math.abs(offset) > EPSILON)
+                ? (offsetPolygon(contour.points, offset) || contour.points)
+                : contour.points;
+            const base = track(makeClosedPath(working));
+            const firstOffset = track(makeClosedPath(offsetPolygon(working, amount)));
+            const secondOffset = track(makeClosedPath(offsetPolygon(working, -amount)));
             if (!base || !firstOffset || !secondOffset) return;
             const expanded = areaMagnitude(firstOffset) >= areaMagnitude(secondOffset) ? firstOffset : secondOffset;
             const contracted = expanded === firstOffset ? secondOffset : firstOffset;
@@ -350,13 +365,89 @@ export function buildOutlineGeometry(source, width = 2, side = "center") {
         result.fillColor = new paper.Color("#111827");
         result.strokeColor = null;
         result.strokeWidth = 0;
-        result.data = { ...(result.data || {}), outlineWidth: amount, outlineSide: mode, source: "vector-outline" };
+        // Suavidad: se aplica al final, sobre la geometria ya resuelta, para
+        // que simplifique el contorno entregado y no las siluetas intermedias
+        // con las que se calcularon las bandas.
+        if (smooth > 0) applySmoothing(result, smooth);
+        result.data = {
+            ...(result.data || {}),
+            outlineWidth: amount,
+            outlineSide: mode,
+            outlineRadius: offset,
+            outlineSmoothing: smooth,
+            source: "vector-outline"
+        };
         release(result);
         return result;
     } catch (_) {
         release(null);
         return null;
     }
+}
+
+/**
+ * SUAVIDAD: reduce los nodos de cada contorno sin cambiar la forma visible.
+ *
+ * No usa una tolerancia fija en unidades porque el mismo 0,5 seria invisible
+ * con la vista alejada y un desorden con la vista cerca. Se escala con la
+ * dimension del contorno: un pelo de 3 unidades y una caja de 800 no pueden
+ * simplificarse con la misma tolerancia.
+ *
+ * simplify() reescribe los segmentos sin vuelta atras y, sobre geometria que
+ * recien salio de una booleana, puede deformar la silueta en vez de limpiarla.
+ * Por eso la operacion es LO QUE SI O LO QUE NO: se mide el area y la caja
+ * antes y despues, y si la forma se movio mas de lo permitido se revierte
+ * entera. Suavizar nunca puede alterar el diseno del cliente.
+ */
+function applySmoothing(geometry, level) {
+    if (!geometry || !(level > 0)) return geometry;
+    const leaves = (geometry.className === "CompoundPath" && geometry.children?.length)
+        ? geometry.children
+        : [geometry];
+    const scale = leaves.reduce((max, leaf) => Math.max(max, leaf.bounds?.width || 0, leaf.bounds?.height || 0), 0);
+    if (!(scale > 0)) return geometry;
+    // level 0..10 -> tolerancia relativa, de muy suave a muy agresiva.
+    const tolerance = (scale / 2600) * level;
+    if (!(tolerance > 0)) return geometry;
+
+    const areaBefore = areaMagnitude(geometry);
+    const boxBefore = geometry.bounds?.clone?.() || null;
+    // Respaldo completo: si hay que revertir, se restaura desde aca.
+    const backup = cloneDetached(geometry);
+    const applied = [];
+    try {
+        leaves.forEach(leaf => {
+            const before = leaf.segments?.length || 0;
+            if (before <= 3 || typeof leaf.simplify !== "function") return;
+            leaf.simplify(tolerance);
+            if ((leaf.segments?.length || 0) >= 3) applied.push(leaf);
+        });
+    } catch (_) { applied.length = 0; }
+
+    const areaAfter = areaMagnitude(geometry);
+    const boxAfter = geometry.bounds?.clone?.() || null;
+    const grew = areaBefore > EPSILON ? Math.abs(areaAfter - areaBefore) / areaBefore : 1;
+    const movedX = boxBefore && boxAfter ? Math.abs(boxAfter.x - boxBefore.x) : 0;
+    const movedY = boxBefore && boxAfter ? Math.abs(boxAfter.y - boxBefore.y) : 0;
+    const drift = Math.max(movedX, movedY);
+    // Un 2% de area o mas de 1% de la dimension cuenta como deformacion.
+    if (!applied.length || grew > 0.02 || drift > scale * 0.01) {
+        if (backup) {
+            try { geometry.removeSegments?.(); } catch (_) {}
+            if (geometry.className === "CompoundPath") {
+                geometry.removeChildren?.();
+                backup.children?.forEach(child => geometry.addChild(child));
+            } else {
+                geometry.addSegments?.(backup.segments.map(seg => seg.clone()));
+            }
+            try { geometry.applyMatrix = true; } catch (_) {}
+            if (geometry.fillRule !== undefined) geometry.fillRule = "evenodd";
+        }
+        try { backup?.remove?.(); } catch (_) {}
+        return geometry;
+    }
+    try { backup?.remove?.(); } catch (_) {}
+    return geometry;
 }
 
 function localSnapshotFromWorld(geometry, owner) {
@@ -409,6 +500,11 @@ function applyOutlineResult(owner, result) {
         isOutline: true,
         outlineSide: result.data?.outlineSide || "center",
         outlineWidth: Number(result.data?.outlineWidth) || 0,
+        // Radio y Suavidad quedan registrados con el resultado: si el cliente
+        // vuelve a tocar un control, el contorno tiene que saber con que
+        // parametros se hizo.
+        outlineRadius: Number(result.data?.outlineRadius) || 0,
+        outlineSmoothing: Number(result.data?.outlineSmoothing) || 0,
         isFusionReceptor: true,
         isCalado: false,
         isHole: false,
@@ -432,11 +528,15 @@ export function createOwnerOutline(ownerLike, options = {}) {
     if (owner.data?.isOutline === true && options.restore === true) return null;
     const widthControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineWidth")?.value : null;
     const sideControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSide")?.value : null;
+    const radiusControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineRadius")?.value : null;
+    const smoothingControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSmoothing")?.value : null;
     const width = Number(options.width ?? widthControl ?? 2) || 2;
     const side = options.side ?? sideControl ?? "center";
+    const radius = Number(options.radius ?? radiusControl ?? 0) || 0;
+    const smoothing = Number(options.smoothing ?? smoothingControl ?? 0) || 0;
     const source = options.restore ? null : toWorldGeometry(owner);
     if (!source) return null;
-    const result = buildOutlineGeometry(source, width, side);
+    const result = buildOutlineGeometry(source, width, side, radius, smoothing);
     if (!result) return null;
     // buildOutlineGeometry returns a detached result; applyOutlineResult
     // installs a defensive copy, so keep it alive until that call returns.
