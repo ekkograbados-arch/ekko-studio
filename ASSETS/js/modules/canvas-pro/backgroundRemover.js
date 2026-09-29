@@ -1,4 +1,5 @@
 // ================================================================
+import { notice } from "./ekkoNotice.js";
 // EKKO STUDIO — ELIMINADOR DE FONDO CON IA LOCAL (BRIA RMBG)
 // ✅ Modelo exige 1024×1024 → se respeta ese tamaño
 // ✅ Usa WASM = estable, no pierde contexto
@@ -51,7 +52,7 @@
                 return true;
             } catch (err) {
                 console.error('[EKKO IA ❌ Error cargando modelo]:', err);
-                alert('⚠️ No se pudo cargar la IA. Revisá tu conexión y volvé a intentar.');
+                notice('No se pudo cargar la IA. Revisá tu conexión y volvé a intentar.', { kind: "error" });
                 return false;
             }
         }
@@ -81,7 +82,9 @@
             }
 
             console.log('[EKKO IA] Procesando imagen...');
-            alert('⏳ Procesando con IA... Esto puede tardar unos segundos.');
+            // Antes esto congela la pantalla con un alert mientras la IA
+            // trabaja. El aviso no bloquea y se cierra solo.
+            notice('Procesando con IA… puede tardar unos segundos.', { kind: "info", ms: 6000 });
 
             const bounds = imagenPaper.bounds;
             const ancho = Math.round(bounds.width);
@@ -170,7 +173,7 @@
 
             ESTADO.imagenProcesada = imagenProcesada;
             console.log('[EKKO IA ✅] Fondo eliminado correctamente');
-            alert('✅ Fondo eliminado con Inteligencia Artificial!');
+            notice('Fondo eliminado con Inteligencia Artificial.', { kind: "ok" });
 
             return imagenProcesada;
         }
@@ -212,7 +215,7 @@
                         const imagen = seleccion.find(item => item instanceof paper.Raster);
 
                         if (!imagen) {
-                            alert('⚠️ Seleccioná primero una imagen');
+                            notice('Seleccioná primero una imagen', { kind: "warn" });
                             return;
                         }
 
@@ -247,7 +250,7 @@
                         if (panelEditarRecorte) panelEditarRecorte.style.display = 'none';
                         if (btnEditarRecorte) btnEditarRecorte.style.display = 'none';
                         if (btnQuitarFondo) btnQuitarFondo.style.display = 'inline-block';
-                        alert('✅ Imagen lista!');
+                        notice('Imagen lista!', { kind: "ok" });
                     });
                 }
 
