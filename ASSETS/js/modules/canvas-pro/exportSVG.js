@@ -31,6 +31,7 @@ import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { getPublicOwner } from "./designGeometry.js";
 import { getCanonicalDesignLayer, collectVectorOwners, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { notice } from "./ekkoNotice.js";
 
 /**
  * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
@@ -669,7 +670,7 @@ export async function prepareSVGForExport(options = {}) {
 export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
     const svgContent = await prepareSVGForExport({ asString: true });
     if (!svgContent || svgContent.trim() === "") {
-        alert("No hay elementos válidos para exportar en el lienzo.");
+        notice("No hay elementos válidos para exportar en el lienzo.", { kind: "warn" });
         return;
     }
 
