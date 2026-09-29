@@ -31,7 +31,8 @@ CORRECCIONES ARQUITECTÓNICAS V21.0:
 
 
 import { setRulersVisibility, setGuidesVisibility } from "./canvasGuidesAndRulers.js";
-import { setMeasurementsVisibility } from "./canvasMeasurements.js";
+import { setMeasurementsVisibility, areMeasurementsVisible } from "./canvasMeasurements.js";
+import { notice } from "./ekkoNotice.js";
 
 
 window.distributeSelection = (axis = "h") => distributeSpacing(axis);
@@ -260,7 +261,7 @@ export function initProControls() {
                 <span class="pro-label">Opciones de Vista</span>
                 <button class="pro-btn active" id="proBtnToggleRulers" title="Activar/Desactivar reglas físicas"><i class="fas fa-ruler"></i> Reglas</button>
                 <button class="pro-btn active" id="proBtnToggleGuides" title="Activar/Desactivar guías inteligentes"><i class="fas fa-magic"></i> Guías</button>
-                <button class="pro-btn active" id="proBtnToggleMeasurements" title="Activar/Desactivar cotas en mm"><i class="fas fa-arrows-alt"></i> Cotas (mm)</button>
+                <button class="pro-btn" id="proBtnToggleMeasurements" title="Activar/Desactivar cotas en mm"><i class="fas fa-arrows-alt"></i> Cotas (mm)</button>
                 <div class="pro-divider"></div>
                 <span class="pro-label">Zoom</span>
                 <button class="pro-btn" id="pro-zoom-reset" title="Restablecer zoom al 100%"><i class="fas fa-search-plus"></i> <span id="pro-zoom-text">100%</span></button>
@@ -348,7 +349,7 @@ export const centerSelection = (axis) => {
 export const distributeSpacing = (axis) => {
     const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
     if (selected.length < 3) {
-        alert("Selecciona al menos 3 elementos para distribuir su espacio.");
+        notice("Selecciona al menos 3 elementos para distribuir su espacio.", { kind: "warn" });
         return;
     }
     if (typeof window.saveHistory === "function") window.saveHistory();
@@ -503,7 +504,7 @@ export const drawDistributionGuides = (selected, axis, spacing) => {
 export const alignSelection = (type = "centerX") => {
     const selected = window.selectedItems || (window.selectedItem ? [window.selectedItem] : []);
     if (selected.length === 0 || !window.paper) {
-        alert("Selecciona al menos un objeto para alinear.");
+        notice("Selecciona al menos un objeto para alinear.", { kind: "warn" });
         return;
     }
     if (typeof window.saveHistory === "function") window.saveHistory();
@@ -590,25 +591,27 @@ export const alignSelection = (type = "centerX") => {
 // Vincula las acciones de alineación, distribución, vista y organización a los botones
 function bindClickHandlers() {
     // Vincular botones de visibilidad
-    const setupToggle = (btnId, toggleFn) => {
+    // El estado inicial NO se inventa: se lee del modulo dueño. Asi el boton
+    // y el comportamiento real nunca pueden quedar desalineados.
+    const setupToggle = (btnId, toggleFn, initialState) => {
         const btn = document.getElementById(btnId);
-        let state = true;
+        let state = initialState === true;
         if (btn) {
+            btn.classList.toggle("active", state);
             btn.onclick = () => {
                 state = !state;
-                if (state) {
-                    btn.classList.add("active");
-                } else {
-                    btn.classList.remove("active");
-                }
+                btn.classList.toggle("active", state);
                 toggleFn(state);
             };
         }
+        toggleFn(state);
     };
 
-    setupToggle("proBtnToggleRulers", (state) => setRulersVisibility(state));
-    setupToggle("proBtnToggleGuides", (state) => setGuidesVisibility(state));
-    setupToggle("proBtnToggleMeasurements", (state) => setMeasurementsVisibility(state));
+    setupToggle("proBtnToggleRulers", (state) => setRulersVisibility(state), true);
+    setupToggle("proBtnToggleGuides", (state) => setGuidesVisibility(state), true);
+    // Las cotas arrancan apagadas: el cliente las activa si quiere medir. Los
+    // campos Ancho/Alto de las barras siguen mostrando la medida siempre.
+    setupToggle("proBtnToggleMeasurements", (state) => setMeasurementsVisibility(state), areMeasurementsVisible());
 
     // Resetear zoom al 100% al hacer clic en el indicador numérico
     const zoomReadoutBtn = document.getElementById("pro-zoom-reset");
@@ -692,7 +695,7 @@ function bindClickHandlers() {
                     window.enterNodeEditMode(window.selectedItem);
                 }
             } else {
-                alert("Por favor, selecciona un objeto vectorial para editar sus nodos.");
+                notice("Por favor, selecciona un objeto vectorial para editar sus nodos.", { kind: "warn" });
             }
         } else {
             if (typeof window.exitNodeEditMode === "function") {
