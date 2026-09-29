@@ -243,8 +243,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="removeBg" class="btn-action" onclick="removeBackground()">
                     <i class="fas fa-eraser"></i> Quitar Fondo
                 </button>
-                <button data-fusion-btn="traceImage" class="btn-action" data-ekko-command="contorno">
-                    <i class="fas fa-magic"></i> Trazar Imagen
+                <button data-fusion-btn="traceImage" class="btn-action" onclick="traceRaster()">
+                    <i class="fas fa-magic"></i> Trazar
                 </button>
                 <button data-fusion-btn="editFusionImage" class="btn-action" onclick="enterFusionEditMode()">
                     <i class="fas fa-pen-to-square"></i> Editar Imagen
@@ -344,7 +344,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button data-fusion-btn="calado" class="toolbar-btn" onclick="convertSelectionToCalado()" title="Convertir vector en calado"><i class="fas fa-object-ungroup" style="color:#334155;"></i> Calado</button>
                     <button data-fusion-btn="rellenar" data-ekko-command="rellenar" class="toolbar-btn" title="Rellenar hueco"><i class="fas fa-fill-drip" style="color:#334155;"></i> Rellenar</button>
                     <button id="btnCtxSolidHole" data-fusion-btn="solidHole" data-ekko-command="solidHole" class="toolbar-btn" title="Intercambiar solidos y huecos reales de una sola vez"><i class="fas fa-right-left"></i> Sólidos ⇄ Huecos</button>
-                    <button id="btnCtxContourBox" data-fusion-btn="outlineBox" data-ekko-command="contornoRecuadro" class="toolbar-btn" title="La imagen tiene fondo: el contorno es el recuadro"><i class="fas fa-vector-square"></i> Contorno · recuadro</button>
                     <button id="btnCtxUngroup" data-fusion-btn="ungroup" data-ekko-command="ungroup" class="toolbar-btn" title="Desagrupar"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
                     <button id="btnCtxDecomposeVector" data-fusion-btn="decomposeVector" data-ekko-command="decomposeVector" class="toolbar-btn" title="Descomponer vector"><i class="fas fa-vector-square"></i> Descomponer Vector</button>
                     <button data-fusion-btn="editNodes" class="toolbar-btn" onclick="toggleNodeEditMode()" title="Editar Nodos"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
@@ -354,7 +353,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <!-- IMAGEN / TRAZADO -->
                 <div class="toolbar-group">
                     <button data-fusion-btn="removeBg" class="toolbar-btn" id="btnCtxRemoveBg" title="Quitar Fondo"><i class="fas fa-wand-magic-sparkles"></i> 🪄 Quitar Fondo</button>
-                    <button data-fusion-btn="traceImage" class="toolbar-btn" id="btnCtxTrace" title="Trazar Imagen"><i class="fas fa-magic"></i> Trazar Imagen</button>
+                    <button data-fusion-btn="traceImage" class="toolbar-btn" id="btnCtxTrace" onclick="traceRaster()" title="Trazar toda la imagen: borde y detalle interno"><i class="fas fa-magic"></i> Trazar</button>
                     <button data-fusion-btn="editFusionImage" class="toolbar-btn" onclick="enterFusionEditMode()" title="Editar Imagen Interna"><i class="fas fa-pen-to-square"></i> Editar Imagen</button>
                 </div>
                 <div class="toolbar-divider"></div>
@@ -404,12 +403,18 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                      <label class="toolbar-number-label" title="Grosor del contorno">Grosor
                          <input id="ctxOutlineWidth" type="number" min="0.1" max="100" step="0.1" value="2" class="toolbar-input-number">
                      </label>
+                     <label class="toolbar-number-label" title="Distancia del borde. 0 = el contorno va justo sobre el borde; positivo lo separa hacia afuera, negativo lo acerca hacia adentro. Equivale a Offset Distance de LightBurn y a Expandir/Contraer de Photoshop.">Radio
+                         <input id="ctxOutlineRadius" type="number" min="-50" max="50" step="0.1" value="0" class="toolbar-input-number">
+                     </label>
                      <label class="toolbar-number-label" title="Posición del contorno">Posición
                          <select id="ctxOutlineSide" class="toolbar-select">
                              <option value="center">Centrado</option>
                              <option value="inside">Interior</option>
                              <option value="outside">Exterior</option>
                          </select>
+                     </label>
+                     <label class="toolbar-number-label" title="Suavidad: simplifica el contorno para que los pelos y el ruido no traigan cientos de puntos. Equivale a Simplify de LightBurn y a Suavizar de Photoshop.">Suavidad
+                         <input id="ctxOutlineSmoothing" type="number" min="0" max="10" step="0.1" value="0" class="toolbar-input-number">
                      </label>
                      <button class="toolbar-btn" id="btnCtxApplyOutline" title="Crear contorno vectorial real">
                          <i class="fas fa-vector-square"></i> Aplicar Contorno
