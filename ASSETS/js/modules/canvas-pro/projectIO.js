@@ -13,6 +13,7 @@
    ========================================================================= */
 
 import { prepareSVGForExport } from "./exportSVG.js";
+import { notice } from "./ekkoNotice.js";
 
 const PROJECT_FORMAT = "ekko-project/1";
 
@@ -178,7 +179,7 @@ export function requestOpenProjectFile() {
         if (!file) return;
         const result = await openProjectFile(file);
         if (!result.ok) {
-            alert("No se pudo abrir el proyecto: " + (result.reason || "desconocido"));
+            notice("No se pudo abrir el proyecto: " + (result.reason || "desconocido"), { kind: "error" });
         }
     };
     input.click();
