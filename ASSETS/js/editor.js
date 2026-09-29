@@ -58,8 +58,8 @@ import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEd
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
 import { toggleOwnerOutline } from "./modules/canvas-pro/outlineGeometry.js";
 import { convertSelectionToCalado, canConvertSelectionToCalado, convertSelectionToSolid } from "./modules/canvas-pro/calado.js";
-import "./modules/canvas-pro/booleanOperations.js";
 import { runGeometryAudit } from "./modules/canvas-pro/geometryAudit.js";
+import { notice } from "./modules/canvas-pro/ekkoNotice.js";
 // backgroundRemover.js permanece desactivado hasta que la IA local esté habilitada.
 // import './modules/canvas-pro/backgroundRemover.js';
 // ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
@@ -91,7 +91,7 @@ window.toggleNodeEditMode = function() {
   const selected = window.selectedItem ||
     (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
   if (!selected) {
-    alert("Seleccioná primero un vector para editar sus nodos.");
+    notice("Seleccioná primero un vector para editar sus nodos.", { kind: "warn" });
     return null;
   }
   return enterNodeEditMode(selected);
@@ -102,7 +102,7 @@ window.traceRaster = function(item = null) {
     (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
   const target = getPublicOwner(selected);
   if (!target || !(target instanceof paper.Raster)) {
-    alert("Seleccioná primero una imagen para trazarla.");
+    notice("Seleccioná primero una imagen para trazarla.", { kind: "warn" });
     return null;
   }
   return openImageTraceModal(target);
@@ -117,7 +117,7 @@ window.removeBackground = function() {
     return api.eliminarFondoInteligente(target);
   }
   // El módulo IA se mantiene desactivado; el botón no debe generar ReferenceError.
-  alert("Quitar Fondo IA todavía no está habilitado en esta versión.");
+  notice("Quitar Fondo IA todavía no está habilitado en esta versión.", { kind: "info" });
   return null;
 };
 
@@ -166,11 +166,15 @@ window.toggleOutline = function(item = null) {
     window.exitNodeEditMode(true);
   }
   if (typeof window.saveHistory === 'function') window.saveHistory();
+  // Los cuatro controles del panel de contorno. Radio separa la linea del
+  // borde original (0 = justo sobre el borde), Suavidad quita nodos de mas.
   const width = Number(document.getElementById("ctxOutlineWidth")?.value) || 2;
   const side = document.getElementById("ctxOutlineSide")?.value || "center";
+  const radius = Number(document.getElementById("ctxOutlineRadius")?.value) || 0;
+  const smoothing = Number(document.getElementById("ctxOutlineSmoothing")?.value) || 0;
   const results = [];
   owners.forEach(owner => {
-    const result = toggleOwnerOutline(owner, { width, side, skipHistory: true });
+    const result = toggleOwnerOutline(owner, { width, side, radius, smoothing, skipHistory: true });
     if (result) results.push(result);
   });
   if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
@@ -2506,7 +2510,7 @@ async function bootstrapEKKO() {
 
   } catch (err) {
     console.error("[EKKO BOOTSTRAP] Error critico de inicializacion asincrona de Paper.js:", err);
-    alert("Ocurrio un error al cargar el lienzo interactivo. Revisa la consola F12.");
+    notice("Ocurrió un error al cargar el lienzo interactivo. Revisá la consola (F12).", { kind: "error" });
   }
 }
 
