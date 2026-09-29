@@ -32,6 +32,7 @@ import { ensureMockupContainment } from "../mockupLoader.js";
 import { isMockupOrMask } from "./designGeometry.js";
 import { getPublicOwner, getPublicOwners } from "./designGeometry.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { notice } from "./ekkoNotice.js";
 
 // Estado global del snapping magnético
 let fusionPreviewGroup = null;   // Contiene halo fucsia + preview recortado translúcido
@@ -898,7 +899,7 @@ export function applyFusionFromSelection(mode = 'intersecar') {
     ? [...window.selectedItems]
     : (window.selectedItem ? [window.selectedItem] : []);
   if (selected.length < 2) {
-    alert("Selecciona una imagen y un vector (hueco o silueta) para fusionar.");
+    notice("Selecciona una imagen y un vector (hueco o silueta) para fusionar.", { kind: "warn" });
     return null;
   }
   let raster = null, vector = null;
@@ -910,7 +911,7 @@ export function applyFusionFromSelection(mode = 'intersecar') {
     if (candidateVector && !vector) vector = candidateVector;
   }
   if (!raster || !vector) {
-    alert("Necesitas seleccionar exactamente una IMAGEN y un VECTOR (o hueco).");
+    notice("Necesitas seleccionar exactamente una IMAGEN y un VECTOR (o hueco).", { kind: "warn" });
     return null;
   }
   return applySmartFusion(vector, raster, mode);
