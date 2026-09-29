@@ -6,6 +6,7 @@
 import { getCanonicalDesignLayer, auditScene, VECTOR_KIND } from "./vectorSemantics.js";
 import { getPublicOwners } from "./designGeometry.js";
 import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
+import { notice } from "./ekkoNotice.js";
 
 function listProblems(layer, scene) {
     const problems = [];
@@ -85,9 +86,10 @@ export function runGeometryAudit({ refresh = true, show = true } = {}) {
     if (problems.length) console.warn("Problemas:", problems);
     else console.log("Geometría íntegra: no se detectaron problemas.");
     console.groupEnd?.();
-    if (show && typeof alert === "function") {
-        const summary = `Vectores: ${report.ownerCount}\nSólidos: ${report.solidOwners}\nHuecos reales: ${report.holeOwners}\nLíneas de corte: ${report.cutLineCount}\nHuecos sin materializar: ${report.unresolvedHoles}\n\n${report.valid ? "Auditoría OK" : "Revisar detalles en la consola (F12)."}`;
-        alert(summary);
+    if (show && report.problems.length) {
+        notice(`Geometría: ${report.problems.length} problema(s) para revisar. Detalle en la consola (F12).`, { kind: "warn" });
+    } else if (show) {
+        notice("Geometría íntegra: no se detectaron problemas.", { kind: "ok" });
     }
     return report;
 }
