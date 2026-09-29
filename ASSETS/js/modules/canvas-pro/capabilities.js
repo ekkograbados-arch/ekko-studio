@@ -23,7 +23,396 @@ export const SPECIES = Object.freeze({
   LINE: "line",
   TEXT: "text",
   GROUP: "group",
+  FUSION: "fusion"import { semanticKind, VECTOR_KIND, isCutLine } from "./vectorSemantics.js";
+import { getPublicOwner, isMockupOrMask, isContainmentWrapper } from "./designGeometry.js";
+// El motor NO rederiva reglas que el dominio ya resuelve. Estas son las
+// rutas autoritativas: si una herramienta puede aplicarse, lo dicen ellas, no
+// una copia de su condicion escrita en un `if` de la barra. Asi una correccion
+// en fusionCore/calado/ungroupRoutes llega a la interfaz sin tocar capabilities.
+import { canConvertToCalado, isClosedClientVector } from "./fusionCore.js";
+import { canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
+
+/* =========================================================================
+   EKKO STUDIO — MOTOR DE CAPACIDADES (v1.0)
+
+   Fuente UNICA de verdad para decidir que herramientas se muestran.
+
+   Antes habia dos decididores que se pisaban entre si:
+     - canvasControlsIntegration.resolveButtonSet()  (tabla de casos fijos)
+     - panelCommandBridge.classifySelection()       (Calado/Rellenar sueltos)
+   y getSelectionTypes() no distinguia un vector SOLIDO de un HUECO, por lo
+   que Calar y Rellenar nunca se decidian bien.
+
+   Aqui cada herramienta DECLARA que especies y que roles soporta, y la barra
+   muestra un boton solo si TODOS los objetos seleccionados lo soportan.
+   Es el mismo criterio de AutoCAD, Word y Canva: nada de casos fijos.
+   ========================================================================= */
+
+export const SPECIES = Object.freeze({
+  RASTER: "raster",
+  VECTOR: "vector",
+  LINE: "line",
+  TEXT: "text",
+  GROUP: "group",
   FUSION: "fusion"
+});
+
+export const ROLE = Object.freeze({
+  SOLID: VECTOR_KIND.SOLID,
+  HOLE: VECTOR_KIND.HOLE,
+  CUTLINE: "cutline",
+  NEUTRAL: "neutral"
+});
+
+const VECTOR_CLASSES = ["Path", "CompoundPath", "Shape", "PlacedSymbol", "SymbolItem"];
+
+function ownerOf(item) {
+  try { return getPublicOwner(item) || item; } catch (_) { return item; }
+}
+
+/**
+ * Especie del objeto: de donde viene, no como se ve. Un CompoundPath puede
+ * ser un relleno o una linea de corte; la especie es "vector" y el rol
+ * dice lo de relleno/hueco.
+ */
+export function speciesOf(item) {
+  const owner = ownerOf(item);
+  if (!owner) return null;
+  const data = owner.data || {};
+  if (data.isSmartFusion) return SPECIES.FUSION;
+  if (data.isText || data.isCurvedGroup || data.isSpacedGroup || owner.className === "PointText") {
+    return SPECIES.TEXT;
+  }
+  if (owner.className === "Group") return SPECIES.GROUP;
+  if (owner.className === "Raster") return SPECIES.RASTER;
+  if (VECTOR_CLASSES.includes(owner.className)) {
+    return isCutLine(owner) ? SPECIES.LINE : SPECIES.VECTOR;
+  }
+  return null;
+}
+
+/** Un vector cerrado es material por defecto: una forma nueva, un texto ya
+ *  vectorizado o un contorno todavía no llevan semanticKind, pero el cliente
+ *  debe poder calarlos igual. Un path abierto NO es material. */
+function isClosedVectorish(owner) {
+  if (!owner) return false;
+  if (!["Path", "CompoundPath", "Shape"].includes(owner.className)) return false;
+  if (owner.className === "CompoundPath") {
+    const kids = owner.children || [];
+    return kids.length > 0 && kids.every(k => k.closed === true);
+  }
+  if (owner.className === "Shape") return true;
+  return owner.closed === true;
+}
+
+/** Papel fisico: lo que hace el laser con esta pieza.
+ *  REGLA DEL CLIENTE: TODO vector tiene identidad, sin importar de donde
+ *  venga (SVG, texto vectorizado, contorno, forma nueva, booleanas). Si nadie
+ *  lo clasifico, un vector cerrado es material solido. Un hueco nunca se
+ *  inventa: solo lo es si Calado lo marco. */
+export function roleOf(item) {
+  const owner = ownerOf(item);
+  if (!owner) return ROLE.NEUTRAL;
+  if (isCutLine(owner)) return ROLE.CUTLINE;
+  try {
+    const kind = semanticKind(owner);
+    if (kind === VECTOR_KIND.HOLE) return ROLE.HOLE;
+    if (kind === VECTOR_KIND.SOLID) return ROLE.SOLID;
+  } catch (_) {}
+  if (isClosedVectorish(owner)) return ROLE.SOLID;
+  return ROLE.NEUTRAL;
+}
+
+/** Un grupo estructural aporta vectores si todos sus descendientes de diseno
+ *  son vectores o lineas (sin imagen ni texto). */
+function groupHasOnlyVectorish(owner) {
+  if (!owner || owner.className !== "Group") return false;
+  let vectorish = 0;
+  let invalido = false;
+  const visit = node => {
+    if (!node || invalido) return;
+    const data = node.data || {};
+    if (data.mockup || data.isMask || data.wasClipMask || node.clipMask ||
+        data.isSelectionBox || data.isHandle || data.isMeasurement ||
+        data.isSmartGuide || data.isNodeEditOverlay || data.isTracePreview) return;
+    if (node.className === "Raster" || node.className === "PointText" ||
+        data.isText || data.isCurvedGroup || data.isSpacedGroup) {
+      // Una imagen o un texto adentro: primero Desagrupar, despues se
+      // seleccionan los vectores sueltos y se descomponen.
+      invalido = true;
+      return;
+    }
+    if (["Path", "CompoundPath", "Shape"].includes(node.className)) vectorish++;
+    (node.children || []).forEach(visit);
+  };
+  visit(owner);
+  return !invalido && vectorish > 0;
+}
+
+export function isProductElement(item) {
+  const owner = ownerOf(item);
+  if (!owner) return true;
+  try {
+    if (isMockupOrMask(owner)) return true;
+    if (isContainmentWrapper(owner)) return true;
+  } catch (_) {}
+  return owner === window.currentMockup || owner === window.clipMask;
+}
+
+/** Desglose de una seleccion, listo para decidir. */
+export function describeSelection(selection) {
+  const list = (Array.isArray(selection) ? selection : [])
+    .filter(Boolean)
+    .map(item => {
+      const owner = ownerOf(item);
+      return {
+        item,
+        owner,
+        species: speciesOf(item),
+        role: roleOf(item)
+      };
+    })
+    .filter(entry => entry.owner && entry.species && !isProductElement(entry.owner));
+
+  const species = new Set(list.map(e => e.species));
+  const roles = new Set(list.map(e => e.role));
+  const solids = list.filter(e => e.role === ROLE.SOLID);
+  const holes = list.filter(e => e.role === ROLE.HOLE);
+
+  return {
+    list,
+    count: list.length,
+    species,
+    roles,
+    speciesCount: species.size,
+    solids,
+    holes,
+    allSameSpecies: list.length > 0 && species.size <= 1,
+    allSolid: list.length > 0 && list.every(e => e.role === ROLE.SOLID),
+    allHole: list.length > 0 && list.every(e => e.role === ROLE.HOLE),
+    hasSolid: solids.length > 0,
+    hasHole: holes.length > 0,
+    mixedRoles: solids.length > 0 && holes.length > 0,
+    onlyVectorish: list.length > 0 && list.every(e =>
+      e.species === SPECIES.VECTOR || e.species === SPECIES.LINE)
+  };
+}
+
+const ALL_SPECIES = [SPECIES.RASTER, SPECIES.VECTOR, SPECIES.LINE, SPECIES.TEXT, SPECIES.GROUP, SPECIES.FUSION];
+
+/**
+ * Declaracion de cada herramienta. `active` recibe el desglose de la
+ * seleccion y devuelve true/false. Asi una regla compleja no queda escondida
+ * en un if/else de barra.
+ */
+export const TOOLS = {
+  // --- Siempre activas: sirven para cualquier objeto ---
+  delete:      { label: "Eliminar",     always: true },
+  duplicate:   { label: "Duplicar",     always: true },
+  copy:        { label: "Copiar",       always: true },
+  paste:       { label: "Pegar",        always: true },
+  bringForward:{ label: "Subir capa",   always: true },
+  sendBackward:{ label: "Bajar capa",   always: true },
+  toFront:     { label: "Al frente",    always: true },
+  toBack:      { label: "Al fondo",     always: true },
+  rotate:      { label: "Rotar",        always: true },
+  flip:        { label: "Voltear",      always: true },
+  size:        { label: "Tamaño",       always: true },
+  measurements:{ label: "Cotas",        always: true },
+  align:       { label: "Alinear",      always: true },
+  distribute:  { label: "Distribuir",   active: s => s.count >= 2 },
+  zoom:        { label: "Ajustar vista",always: true },
+  rulers:      { label: "Reglas",       always: true },
+  guides:      { label: "Guías",        always: true },
+
+  // --- Estructural ---
+  group:       { label: "Agrupar",      active: s => s.count >= 2 },
+  ungroup:     { label: "Desagrupar",
+                 // La ruta de desagrupado es del dominio: una pieza importada
+                 // puede desagruparse aunque su especie raiz no sea "grupo".
+                 active: s => s.count === 1 && s.list.every(e => {
+                   try { return getUngroupRoute(e.owner) !== UNGROUP_ROUTE.NONE; } catch (_) { return false; }
+                 })},
+
+  // --- Descomposicion: vectores sueltos o grupos estructurales que solo
+  //     contienen vectores (como un SVG recien importado). Una pieza con
+  //     decomposedLayer ya es atomica: el boton se oculta y re-descomponer
+  //     es no-op (antes el boton seguia activo y cada clic reemplazaba la
+  //     pieza por un clon identico, ensuciando historial y rompiendo
+  //     semantica). Con mezcla fresco+descompuesto se muestra y el dispatcher
+  //     procesa solo lo fresco. ---
+  decomposeVector: {
+    label: "Descomponer Vector",
+    active: s => s.count > 0 && s.list.some(e => {
+      try { return canDecomposeVector(e.owner); } catch (_) { return false; }
+    })
+  },
+
+  // --- Roles solido/hueco ---
+  // Todo vector cerrado llega con identidad solida (ver roleOf), asi que estas
+  // tres reglas no dependen de que la herramienta de origen haya estampeado
+  // una etiqueta: SVG, texto vectorizado, contorno y booleanas se tratan igual.
+  calado: {
+    label: "Calar",
+    // Calar un hueco seria un absurdo, asi que la seleccion no puede traer
+    // ninguno. Para el resto se acepta lo que diga el dominio
+    // (canConvertToCalado/isClosedClientVector, que conocen fusiones y
+    // procedencias) MAS la regla de identidad: todo vector cerrado es
+    // material. Unir las dos nunca deja el boton mas restrictivo que antes.
+    active: s => s.count > 0 && s.onlyVectorish && !s.hasHole &&
+      (s.hasSolid || s.list.every(e => {
+        try { return canConvertToCalado(e.owner) || isClosedClientVector(e.owner); }
+        catch (_) { return false; }
+      }))
+  },
+  rellenar: {
+    label: "Rellenar",
+    active: s => s.count > 0 && s.onlyVectorish && s.hasHole && !s.hasSolid
+  },
+  solidHole: {
+    label: "Sólidos ⇄ Huecos",
+    // Mezcla de sólidos y huecos: un clic intercambia los papeles.
+    active: s => s.count > 0 && s.onlyVectorish && s.mixedRoles
+  },
+
+  // --- Geometria ---
+  editNodes: {
+    label: "Editar Nodos",
+    // Cualquier vector (sólido, hueco o fusionado) y cualquier línea.
+    // Una imagen no tiene nodos, así que queda oculta.
+    active: s => s.count > 0 && s.onlyVectorish
+  },
+  boolean: {
+    label: "Booleanas",
+    // El dispatcher es la autoridad final y NO acepta calados: un hueco
+    // perfora, no se funde. Si la barra ofrece la booleana con un hueco
+    // seleccionado, el cliente aprieta y no pasa nada. La regla debe ser la
+    // misma que ejecuta el boton.
+    active: s => s.count >= 2 && s.onlyVectorish &&
+      !s.roles.has(ROLE.CUTLINE) && !s.hasHole
+  },
+  outline: {
+    label: "Contorno",
+    // Un solo concepto de contorno para imagen, vector y texto.
+    active: s => s.count > 0 && [...s.species].every(sp =>
+      sp === SPECIES.RASTER || sp === SPECIES.VECTOR || sp === SPECIES.TEXT || sp === SPECIES.FUSION)
+  },
+  audit: {
+    label: "Auditar Vectores",
+    active: s => s.count > 0 && s.onlyVectorish
+  },
+
+  // --- Imagen ---
+  outlineBox:    { label: "Contorno · recuadro",
+                   active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
+  removeBg:      { label: "Quitar Fondo",  active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
+  traceImage:    { label: "Trazar Imagen", active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
+
+  // --- Texto ---
+  textToVector:  { label: "Texto a Vector", active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.TEXT) },
+
+  // --- Fusion ---
+  fusion: {
+    label: "Fusionar",
+    // Imagen + vector, o imagen + linea cerrada. La imagen aporta el
+    // relleno, el vector o la linea aportan la mascara.
+    active: s => {
+      if (s.count < 2) return false;
+      const rasters = s.list.filter(e => e.species === SPECIES.RASTER);
+      const masks = s.list.filter(e => e.species === SPECIES.VECTOR || e.species === SPECIES.LINE);
+      return rasters.length >= 1 && masks.length >= 1;
+    }
+  },
+  unfusion:       { label: "Quitar Fusión",      active: s => s.count > 0 && s.species.has(SPECIES.FUSION) },
+  editFusionImage:{ label: "Editar Imagen",      active: s => s.count > 0 && s.species.has(SPECIES.FUSION) }
+};
+
+/** Nombres de herramientas visibles para una seleccion. */
+export function resolveToolNames(selection) {
+  const selectionList = (Array.isArray(selection) ? selection : []).filter(Boolean);
+  if (!selectionList.length) {
+    return Object.entries(TOOLS)
+      .filter(([, tool]) => tool.always)
+      .map(([name]) => name);
+  }
+  const summary = describeSelection(selectionList);
+  return Object.entries(TOOLS)
+    .filter(([, tool]) => {
+      try { return tool.always ? true : !!tool.active?.(summary); }
+      catch (_) { return false; }
+    })
+    .map(([name]) => name);
+}
+
+/** Alias historicos que la barra y el puente siguen esperando. */
+const LEGACY_ALIAS = Object.freeze({
+  booleanUnion: "boolean",
+  booleanSubtract: "boolean",
+  booleanIntersect: "boolean",
+  booleanDifference: "boolean"
+});
+
+export function isToolEnabled(toolName, selection) {
+  const canonical = LEGACY_ALIAS[toolName] || toolName;
+  const tool = TOOLS[canonical];
+  if (!tool) return false;
+  const selectionList = (Array.isArray(selection) ? selection : []).filter(Boolean);
+  if (!selectionList.length) return !!tool.always;
+  if (tool.always) return true;
+  try { return !!tool.active?.(describeSelection(selectionList)); }
+  catch (_) { return false; }
+}
+
+/**
+ * Traduce el motor a los nombres historicos que usan los data-fusion-btn de
+ * las barras. Las dos superficies (panelCommandBridge y
+ * canvasControlsIntegration) consumen ESTA funcion, por lo que la barra
+ * superior y laemergente no pueden discrepar entre si.
+ */
+const ENGINE_TO_LEGACY = Object.freeze({
+  boolean: ["booleanUnion", "booleanIntersect", "booleanSubtract", "booleanDifference"],
+  group: ["group"],
+  ungroup: ["ungroup"],
+  align: ["align", "centerH", "centerV", "centerBoth", "alignLeft", "alignCenterX", "alignRight", "alignTop", "alignCenterY", "alignBottom"],
+  distribute: ["distribute", "distributeH", "distributeV"],
+  decomposeVector: ["decomposeVector"],
+  editNodes: ["editNodes"],
+  outline: ["outline"],
+  outlineBox: ["outlineBox"],
+  calado: ["calado"],
+  rellenar: ["rellenar"],
+  solidHole: ["solidHole"],
+  fusion: ["fusion"],
+  unfusion: ["unfusion"],
+  editFusionImage: ["editFusionImage"],
+  removeBg: ["removeBg"],
+  traceImage: ["traceImage"],
+  textToVector: ["textToVector"],
+  zoom: ["zoom"],
+  rulers: ["rulers"],
+  guides: ["guides"],
+  measurements: ["measurements"]
+});
+
+export function legacyNamesFor(selection) {
+  const selectionList = (Array.isArray(selection) ? selection : []).filter(Boolean);
+  if (!selectionList.length) return ["zoom", "rulers", "guides", "measurements"];
+  const enabled = new Set(resolveToolNames(selectionList));
+  const names = [];
+  Object.entries(ENGINE_TO_LEGACY).forEach(([tool, legacy]) => {
+    if (!enabled.has(tool)) return;
+    legacy.forEach(name => { if (!names.includes(name)) names.push(name); });
+  });
+  return names;
+}
+
+if (typeof window !== "undefined") {
+  window.EKKO_CAPABILITIES = {
+    SPECIES, ROLE, TOOLS, describeSelection, resolveToolNames, legacyNamesFor,
+    isToolEnabled, speciesOf, roleOf
+  };
+}
+
 });
 
 export const ROLE = Object.freeze({
