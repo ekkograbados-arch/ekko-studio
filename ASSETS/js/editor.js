@@ -58,12 +58,11 @@ import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEd
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
 import { toggleOwnerOutline } from "./modules/canvas-pro/outlineGeometry.js";
 import { convertSelectionToCalado, canConvertSelectionToCalado, convertSelectionToSolid } from "./modules/canvas-pro/calado.js";
+import "./modules/canvas-pro/booleanOperations.js";
 import { runGeometryAudit } from "./modules/canvas-pro/geometryAudit.js";
-import { notice } from "./modules/canvas-pro/ekkoNotice.js";
-// backgroundRemover.js permanece desactivado hasta que la IA local esté habilitada.
-// import './modules/canvas-pro/backgroundRemover.js';
-// ⏸️ [DESACTIVADO TEMPORALMENTE] — Módulo Quitar Fondo IA
-// PARA REACTIVAR: Quitar las dos barras "//" de arriba
+// Quitar Fondo con IA local: corre en el navegador, la foto nunca sale.
+// Modelo silueta.onnx (42 MB, Apache-2.0) servido por el propio despliegue.
+import './modules/canvas-pro/backgroundRemover.js';
 
 // Exposicion segura de API al contexto global del navegador (WYSIWYG-Sync)
 window.updateContextualMenu = updateContextualMenu;
@@ -91,7 +90,7 @@ window.toggleNodeEditMode = function() {
   const selected = window.selectedItem ||
     (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
   if (!selected) {
-    notice("Seleccioná primero un vector para editar sus nodos.", { kind: "warn" });
+    alert("Seleccioná primero un vector para editar sus nodos.");
     return null;
   }
   return enterNodeEditMode(selected);
@@ -102,7 +101,7 @@ window.traceRaster = function(item = null) {
     (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
   const target = getPublicOwner(selected);
   if (!target || !(target instanceof paper.Raster)) {
-    notice("Seleccioná primero una imagen para trazarla.", { kind: "warn" });
+    alert("Seleccioná primero una imagen para trazarla.");
     return null;
   }
   return openImageTraceModal(target);
@@ -113,11 +112,13 @@ window.removeBackground = function() {
   const selected = window.selectedItem ||
     (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
   const target = getPublicOwner(selected);
-  if (api?.eliminarFondoInteligente && target instanceof paper.Raster) {
-    return api.eliminarFondoInteligente(target);
+  if (api?.quitarFondo && target instanceof paper.Raster) {
+    return api.quitarFondo(target).catch((err) => {
+      console.warn('[EKKO Quitar Fondo]', err);
+      return null;
+    });
   }
-  // El módulo IA se mantiene desactivado; el botón no debe generar ReferenceError.
-  notice("Quitar Fondo IA todavía no está habilitado en esta versión.", { kind: "info" });
+  console.warn('[EKKO Quitar Fondo] Selecciona una imagen raster antes de usar la herramienta.');
   return null;
 };
 
@@ -166,15 +167,11 @@ window.toggleOutline = function(item = null) {
     window.exitNodeEditMode(true);
   }
   if (typeof window.saveHistory === 'function') window.saveHistory();
-  // Los cuatro controles del panel de contorno. Radio separa la linea del
-  // borde original (0 = justo sobre el borde), Suavidad quita nodos de mas.
   const width = Number(document.getElementById("ctxOutlineWidth")?.value) || 2;
   const side = document.getElementById("ctxOutlineSide")?.value || "center";
-  const radius = Number(document.getElementById("ctxOutlineRadius")?.value) || 0;
-  const smoothing = Number(document.getElementById("ctxOutlineSmoothing")?.value) || 0;
   const results = [];
   owners.forEach(owner => {
-    const result = toggleOwnerOutline(owner, { width, side, radius, smoothing, skipHistory: true });
+    const result = toggleOwnerOutline(owner, { width, side, skipHistory: true });
     if (result) results.push(result);
   });
   if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
@@ -2307,7 +2304,7 @@ window.resetCanvasView = resetCanvasView;
 // Version visible del build (F12 > Consola). Ante cualquier "no funciona",
 // lo primero es verificar esta linea: distingue codigo viejo cacheado de
 // codigo actual sin adivinar.
-const EKKO_BUILD = "v10.10";
+const EKKO_BUILD = "v11.0";
 if (typeof window !== "undefined") window.EKKO_BUILD = EKKO_BUILD;
 
 /* =========================================================================
@@ -2510,7 +2507,7 @@ async function bootstrapEKKO() {
 
   } catch (err) {
     console.error("[EKKO BOOTSTRAP] Error critico de inicializacion asincrona de Paper.js:", err);
-    notice("Ocurrió un error al cargar el lienzo interactivo. Revisá la consola (F12).", { kind: "error" });
+    alert("Ocurrio un error al cargar el lienzo interactivo. Revisa la consola F12.");
   }
 }
 
