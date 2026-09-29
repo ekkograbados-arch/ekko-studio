@@ -17,6 +17,7 @@ import {
 import { syncFusionVirtualHole } from "./fusionController.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { installGeometryInOwner } from "./geometricUngroup.js";
+import { notice } from "./ekkoNotice.js";
 
 function selectedItems() {
     if (Array.isArray(window.selectedItems) && window.selectedItems.length) {
@@ -243,7 +244,7 @@ export function canConvertSelectionToCalado(item = null) {
 export function convertSelectionToCalado(item = null) {
     const targets = item ? [item] : selectedItems();
     if (targets.length !== 1) {
-        alert("Seleccioná un vector sólido o una fusión sólida para aplicar Calado.");
+        notice("Seleccioná un vector sólido o una fusión sólida para aplicar Calado.", { kind: "warn" });
         return null;
     }
     const resolved = getVectorTarget(targets[0]);
