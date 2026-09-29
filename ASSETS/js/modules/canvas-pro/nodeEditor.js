@@ -20,6 +20,7 @@ import { textToCompoundPath } from "./fontToPath.js";
 import { interactionOwner } from "./interactionOwner.js";
 import { getPublicOwner } from "./designGeometry.js";
 import { setSemanticKind, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { notice } from "./ekkoNotice.js";
 
 // Única resolución de owner público. Los wrappers de contención y máscaras
 // no deben convertirse en el objeto de edición de nodos.
@@ -957,7 +958,7 @@ export function detachSelectedSubpaths() {
     const target = getContentItem(activeNodeItem);
     const isCP = target && (target.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && target instanceof paper.CompoundPath));
     if (!target || !isCP) {
-        alert("Esta acción solo es válida para calados o trazados compuestos (CompoundPath).");
+        notice("Esta acción solo es válida para calados o trazados compuestos (CompoundPath).", { kind: "warn" });
         return;
     }
 
