@@ -5,8 +5,15 @@ ESTADO: VERSIÓN DEFINITIVA v10.2 (TITANIUM PRECISION) CON COMENTARIOS EXPLICATI
 ======================================================================== */
 
 let measurementsGroup = null;
-// Cotas visibles automáticamente para cada owner público seleccionado.
-let showMeasurements = true;
+// Las cotas arrancan APAGADAS. El cliente las activa con el boton cuando
+// quiere medir; los campos Ancho/Alto de las barras siguen mostrando la
+// medida siempre, asi que la informacion no se pierde.
+let showMeasurements = false;
+
+/** Estado real del sistema de cotas. El boton lo lee, no lo inventa. */
+export function areMeasurementsVisible() {
+    return showMeasurements === true;
+}
 
 function publishMeasurementState(extra = {}) {
     window._ekkoMeasurementsState = {
