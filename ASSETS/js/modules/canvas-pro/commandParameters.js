@@ -165,9 +165,12 @@ function crearParametro(spec, comando) {
 
     pintar(valorActual);
 
-    // 1) Arrastre: se pinta al instante, se aplica al soltar. Asi el control
-    //    responde al dedo sin congelar el lienzo.
-    rango.addEventListener("input", () => pintar(Number(rango.value)));
+    // 1) Arrastre: se aplica EN VIVO. Antes solo se aplicaba al soltar, y con un
+    //    raton el evento `change` llega tarde o no llega: el cliente arrastraba
+    //    y no veia nada hasta que soltaba, en un canvas que puede
+    //    tardar en recomponerse. Ahora cada movimiento recompone (una sola vez
+    //    por fotograma) y el recorte se ve seguir al dedo.
+    rango.addEventListener("input", () => { pintar(Number(rango.value)); aplicador.pedir(); });
     rango.addEventListener("change", () => { pintar(Number(rango.value)); aplicador.aplicarAhora(); });
 
     // 2) Teclado: escribir el numero y confirmar.
