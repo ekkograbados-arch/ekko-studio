@@ -19,9 +19,22 @@
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
         ENTRADA: 320,          // tamaño fijo que exige el modelo
         MAX_LADO: 2600,        // techo de trabajo: memoria y tiempo razonables
-        // Refinado de borde: quita el halo oscuro que deja el recorte.
-        BORDE_CONTRASTE: 0.06, // umbral de diferencia contra el vecino
-        BORDE_SUAVIZADO: 0.35  // fuerza del suavizado en la franja
+
+        // --- Perfil del recorte (lo que manipulan los sliders) ---
+        // BORDE y SUAVIZADO trabajan sobre TODA la mascara, no sobre una
+        // franja. Antes solo se tocaba la banda de transicion de 1-2 px, y
+        // en pantalla eso era indistinguible: el cliente movía el control y
+        // no veía nada, parecia un boton muerto.
+        //
+        // 0.50 = neutro. Subir BORDE conserva mas sujeto (baja el recorte);
+        // bajarlo recorta mas. SUAVIZADO ensancha la transicion: mas suave.
+        BORDE: 0.5,
+        SUAVIZADO: 0.2,
+
+        // Refinado fino del halo. Se mantiene aparte porque corrige un
+        // defecto concreto (borde oscuro) y no es un control de estilo.
+        BORDE_CONTRASTE: 0.06,
+        BORDE_SUAVIZADO: 0.35
     };
 
     const ESTADO = {
@@ -156,6 +169,91 @@
     // ----------------------------------------------------------------------
     // Aplicación de la máscara + refinado de borde
     // ----------------------------------------------------------------------
+    /**
+     * Anchos de la transicion para BORDE = 0 y BORDE = 1.
+     *
+     * Se eligieron disjuntos a proposito: el sujeto opaco esta por encima de
+     * 0.5 y el fondo en 0, asi que la transicion puede deslizarse entre ambos
+     * sin llegar a comerse ninguno. Con anchos que se solapaban, mover BORDE
+     * tambien movia el umbral y el area opaca iba al reves.
+     */
+    const UMBRAL_BORDE = [0.72, 0.28];   // BORDE=0 contrae, BORDE=1 expande
+
+    /**
+     * Perfil de un valor de alfa de la mascara.
+     *
+     * Es lo que hace VISIBLE el control "Borde". En vez de tocar solo la
+     * franja de 1-2 px (indistinguible en pantalla), remapea la opacidad
+     * completa con una curva de potencia alrededor del umbral:
+     *   - BORDE mueve el UMBRAL y aplica gamma. Subirlo baja el umbral, asi
+     *     que mas pixeles entran como sujeto y el pelo fino sobrevive.
+     *     Bajarlo sube el umbral y el recorte se cierra.
+     *   - SUAVIZADO ensancha la transicion alrededor de ese umbral, para
+     *     ablandar el corte sin cambiar que se considera sujeto.
+     *
+     * El smoothstep evita el borde escalonado de un umbral duro, que es lo
+     * que hace que un recorte automatico se vea "falso".
+     */
+    function perfilarAlfa(v, borde, suave) {
+        if (v <= 0.004) return 0;
+        if (v >= 0.996) return 1;
+
+        // El umbral SI se mueve, y lo hace de forma monotona: por eso subir
+        // BORDE conserva mas sujeto. La version anterior lo dejaba fijo en
+        // 0.5, con lo que subirlo solo alargaba la transicion y el area
+        // opaca se mantenia igual o incluso bajaba.
+        const umbral = UMBRAL_BORDE[0] + (UMBRAL_BORDE[1] - UMBRAL_BORDE[0]) * borde;
+
+        // Gamma: <1 levanta los valores bajos (expande), >1 los hunde (contrae).
+        const gamma = 1.6 - borde * 1.2;          // 1.6 .. 0.4
+        let t = Math.pow(v, gamma);
+
+        // Transicion alrededor del umbral,anchura gobernada por SUAVIZADO.
+        const ancho = 0.03 + suave * 0.45;
+        const d = Math.abs(t - umbral) / ancho;
+        if (d >= 1) return t >= umbral ? 1 : 0;
+        const s = 1 - d * d * (3 - 2 * d);         // smoothstep invertido
+        return t >= umbral ? s : t * (1 - s);
+    }
+
+    /**
+     * Perfila la mascara UNA vez y guarda el resultado como indice de busqueda.
+     *
+     * Sin esto, Suavizar se llevaba por delante los pelo fino y los bordes
+     * suaves del sujeto: el perfil se aplicaba sobre un alfa ya degradado y
+     * cada recomposicion lo volvia a reprocesar, arrastrando el recorte hacia
+     * dentro cada vez que se movia el control.
+     *
+     * Aqui la curva se calcula una sola vez y se consulta por indice, asi que
+     * mover el control es idempotente: el mismo valor da siempre el mismo
+     * recorte, sin importar quantas veces se ajuste.
+     */
+    const PERFIL_TAM = 1024;
+    const perfilMemo = new Float32Array(PERFIL_TAM);
+    let perfilClave = '';
+
+    function perfilarMascara(alfa, borde, suave) {
+        const clave = borde.toFixed(4) + '|' + suave.toFixed(4);
+        if (clave !== perfilClave) {
+            for (let i = 0; i < PERFIL_TAM; i++) {
+                perfilMemo[i] = perfilarAlfa(i / (PERFIL_TAM - 1), borde, suave);
+            }
+            perfilClave = clave;
+        }
+        return alfa;
+    }
+
+    function perfilarValor(v) {
+        if (v <= 0) return 0;
+        if (v >= 1) return 1;
+        const x = v * (PERFIL_TAM - 1);
+        const i = x | 0;
+        const f = x - i;
+        const a = perfilMemo[i];
+        const b = perfilMemo[i + 1 < PERFIL_TAM ? i + 1 : PERFIL_TAM - 1];
+        return a + (b - a) * f;
+    }
+
     function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo) {
         const lienzo = document.createElement('canvas');
         lienzo.width = anchoTrabajo;
@@ -177,9 +275,14 @@
                 const c = alfa[y1 * mw + x0], d = alfa[y1 * mw + x1];
                 fila[x] = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
             }
+            // La curva se calcula UNA vez por ajuste, no por pixel: el perfil se
+            // consulta por indice, asi el recorte es idempotente.
+            perfilarMascara(alfa, CFG.BORDE, CFG.SUAVIZADO);
+
             for (let x = 0; x < anchoTrabajo; x++) {
                 const o = (y * anchoTrabajo + x) * 4;
-                px[o + 3] = Math.max(0, Math.min(255, Math.round(fila[x] * 255)));
+                const a = perfilarValor(fila[x]);
+                px[o + 3] = Math.max(0, Math.min(255, Math.round(a * 255)));
             }
         }
         ctx.putImageData(img, 0, 0);
@@ -373,10 +476,13 @@
      * resultado al momento.
      */
     function ajustarBorde(clave, valor) {
-        if (clave === 'contraste') CFG.BORDE_CONTRASTE = Math.max(0, Math.min(1, Number(valor)));
-        else if (clave === 'suavizado') CFG.BORDE_SUAVIZADO = Math.max(0, Math.min(1, Number(valor)));
+        const v = Math.max(0, Math.min(1, Number(valor)));
+        if (clave === 'borde') CFG.BORDE = v;
+        else if (clave === 'suavizado') CFG.SUAVIZADO = v;
         else return false;
 
+        // El valor SI se guarda aunque aun no haya recorte: asi el cliente ve
+        // el numero movido y no Cree que el control esta roto.
         if (!ESTADO.mascara || !ESTADO.imagenOriginal || !ESTADO.imagenProcesada) return false;
 
         const original = ESTADO.imagenOriginal;
@@ -386,31 +492,44 @@
         const { aw, ah } = ESTADO.lienzoTrabajo;
         const procesada = ESTADO.imagenProcesada;
 
-        try {
-            const lienzo = aplicarMascara(ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, elemento, aw, ah);
-            const url = lienzo.toDataURL('image/png');
+        // Serializado: arrastrar el control dispara decenas de eventos y cada
+        // uno recomponia a la vez. Con una foto grande eso congelaba el lienzo
+        // y el cliente perdia el hilo. Ahora se encola y se procesa de a uno.
+        ESTADO.pendientes = (ESTADO.pendientes || 0) + 1;
+        if (ESTADO.recomponiendo) return true;
 
-            // Se reasigna la fuente de la MISMA pieza ya colocada, sin
-            // quitarla del proyecto ni crear otra. Si se creara una nueva, el
-            // cliente veria el recorte duplicado y ademas perderia la
-            // posicion, la rotacion y el z-order que ya tenia.
-            const nuevaImg = new Image();
-            const listo = new Promise((res) => {
-                nuevaImg.onload = () => res();
-                nuevaImg.onerror = () => res();
-            });
-            nuevaImg.src = url;
-            listo.then(() => {
-                try {
-                    procesada.source = url;
-                    procesada.dirty = true;
-                } catch (e) { ESTADO.ultimoError = e; }
-            });
-            return true;
-        } catch (e) {
-            ESTADO.ultimoError = e;
-            return false;
-        }
+        const procesar = () => {
+            if (!ESTADO.pendientes) return;
+            ESTADO.pendientes--;
+            ESTADO.recomponiendo = true;
+            try {
+                const lienzo = aplicarMascara(
+                    ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, elemento, aw, ah);
+                const url = lienzo.toDataURL('image/png');
+
+                // Se reasigna la fuente de la MISMA pieza ya colocada, sin
+                // quitarla del proyecto ni crear otra. Si se creara una nueva,
+                // el cliente veria el recorte duplicado y ademas perderia la
+                // posicion, la rotacion y el z-order que ya tenia.
+                const img = new Image();
+                img.onload = () => {
+                    try {
+                        procesada.source = url;
+                        procesada.dirty = true;
+                    } catch (e) { ESTADO.ultimoError = e; }
+                    ESTADO.recomponiendo = false;
+                    procesar();
+                };
+                img.onerror = () => { ESTADO.recomponiendo = false; procesar(); };
+                img.src = url;
+            } catch (e) {
+                ESTADO.ultimoError = e;
+                ESTADO.recomponiendo = false;
+                procesar();
+            }
+        };
+        procesar();
+        return true;
     }
 
     EKKO.BackgroundRemover = {
