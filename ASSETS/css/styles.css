@@ -257,6 +257,35 @@ de la barra contextual interactiva de tu Studio.
     outline: none !important;
 }
 
+#ctxOutlineControls {
+    gap: 5px !important;
+    padding: 3px 5px !important;
+    border-left: 1px solid rgba(46,58,89,.18) !important;
+}
+
+#ctxOutlineControls .toolbar-number-label {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    white-space: nowrap !important;
+    font-size: 11px !important;
+}
+
+#ctxOutlineControls .toolbar-select,
+#ctxOutlineControls .toolbar-input-number {
+    min-height: 28px !important;
+    padding: 3px 5px !important;
+    border: 1px solid var(--ekko-border-color) !important;
+    border-radius: 5px !important;
+    background: #fff !important;
+    color: var(--ekko-text-dark) !important;
+    font-size: 11px !important;
+}
+
+#ctxOutlineControls .toolbar-input-number {
+    width: 54px !important;
+}
+
 /* Control deslizante de Curvatura de Texto */
 #ctxTextCurvature {
     width: 100px !important;
@@ -963,6 +992,90 @@ body,
     background: #eff6ff;
     color: #1d4ed8;
     font-weight: 700;
+}
+
+/* Pestana que el cliente eligio a proposito: se marca con el punto para que
+   sepa que esta recortando las herramientas, no que el motor la dedujo. */
+/* ===================== NIVEL 2: PARAMETROS POR COMANDO =====================
+   Tira que se despliega bajo la barra emergente al pulsar un boton que tiene
+   parametros. Se crea desde commandParameters.js. */
+.ekko-param-surface {
+    position: fixed;
+    display: none;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 9px 14px;
+    background: #ffffff;
+    border: 1px solid var(--ekko-border-color, #cbd5e1);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .16);
+    font-size: 12px;
+    z-index: 9600;
+    max-width: min(760px, 94vw);
+}
+
+.ekko-param-title {
+    font-weight: 700;
+    color: var(--ekko-text-dark, #0f172a);
+    white-space: nowrap;
+}
+
+.ekko-param {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.ekko-param-label { color: var(--ekko-text-muted, #64748b); }
+
+.ekko-param-input { width: 130px; accent-color: #2563eb; cursor: pointer; }
+
+.ekko-param-value {
+    min-width: 38px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+    color: #1d4ed8;
+}
+
+.ekko-param-action {
+    border: 1px solid var(--ekko-border-color, #cbd5e1);
+    border-radius: 6px;
+    background: #f8fafc;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--ekko-text-dark, #0f172a);
+}
+.ekko-param-action:hover { background: #f1f5f9; }
+
+.ekko-param-close {
+    margin-left: auto;
+    border: none;
+    background: transparent;
+    font-size: 19px;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--ekko-text-muted, #64748b);
+    padding: 0 3px;
+}
+.ekko-param-close:hover { color: #0f172a; }
+
+/* Botones con parametros: la flechita avisa de que hay mas que configurar. */
+[data-ekko-has-params]::after {
+    content: "▾";
+    margin-left: 5px;
+    font-size: 9px;
+    opacity: .65;
+}
+
+.ekko-context-tab.is-manual::after {
+    content: "•";
+    margin-left: 5px;
+    font-weight: 900;
+    color: #2563eb;
 }
 
 .ekko-top-context-label {
