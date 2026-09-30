@@ -147,10 +147,26 @@ async function obtenerBufferModelo() {
     return buf;
 }
 
-async function obtenerSesion() {
-    if (sesion) return sesion;
+// Que proveedor se esta usando de verdad. WebGPU es mucho mas rapido cuando
+// funciona, pero no todas las maquinas lo tienen bien soportado y su fallo
+// TIPICO no aparece al crear la sesion sino DESPUES, al ejecutar. Sin esto,
+// un equipo con WebGPU defectuoso se queda colgado sin error visible.
+let usandoWebGPU = false;
+
+async function obtenerSesion(forzarWasm = false) {
+    if (sesion && !forzarWasm) return sesion;
     const ort = await cargarOrt();
-    const buf = await obtenerBufferModelo();
+    const buf = forzarWasm && modeloClave ? modeloClave : await obtenerBufferModelo();
+
+    if (forzarWasm) {
+        reportar('sesion', 0, 0, 'reintentando en CPU…');
+        sesion = await ort.InferenceSession.create(buf, {
+            executionProviders: ['wasm'],
+            graphOptimizationLevel: 'all'
+        });
+        usandoWebGPU = false;
+        return sesion;
+    }
 
     reportar('sesion', 0, 0, 'preparando el motor…');
     const proveedores = [];
@@ -161,8 +177,10 @@ async function obtenerSesion() {
             executionProviders: proveedores,
             graphOptimizationLevel: 'all'
         });
+        usandoWebGPU = proveedores[0] === 'webgpu';
     } catch (_) {
         sesion = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
+        usandoWebGPU = false;
     }
     return sesion;
 }
@@ -192,10 +210,23 @@ self.onmessage = async (ev) => {
     if (d.accion === 'inferir') {
         try {
             const ort = await cargarOrt();
-            const s = await obtenerSesion();
-            reportar('inferir', 0, 0, 'analizando la imagen…');
             const tensor = construirTensor(ort, new Uint8ClampedArray(d.pixeles));
-            const salida = await s.run({ [s.inputNames[0]]: tensor });
+
+            let salida = null;
+            let s = await obtenerSesion();
+            reportar('inferir', 0, 0, 'analizando la imagen…');
+            try {
+                salida = await s.run({ [s.inputNames[0]]: tensor });
+            } catch (e) {
+                // Un fallo aqui con WebGPU es el caso clasico: la sesion se
+                // creo bien pero el dispositivo se pierde al ejecutar. Se
+                // reconstruye en CPU y se reintenta UNA vez. Si tampoco
+                // funciona en CPU, el error real sube al cliente.
+                if (!usandoWebGPU) throw e;
+                s = await obtenerSesion(true);
+                salida = await s.run({ [s.inputNames[0]]: tensor });
+            }
+
             const pred = salida[s.outputNames[0]];
             const dims = pred.dims;
             const w = dims[dims.length - 1], h = dims[dims.length - 2];
