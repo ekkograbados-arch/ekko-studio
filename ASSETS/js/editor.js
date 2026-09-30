@@ -2303,7 +2303,7 @@ window.resetCanvasView = resetCanvasView;
 // Version visible del build (F12 > Consola). Ante cualquier "no funciona",
 // lo primero es verificar esta linea: distingue codigo viejo cacheado de
 // codigo actual sin adivinar.
-const EKKO_BUILD = "v11.4";
+const EKKO_BUILD = "v11.5";
 if (typeof window !== "undefined") window.EKKO_BUILD = EKKO_BUILD;
 
 /* =========================================================================
