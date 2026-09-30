@@ -13,33 +13,36 @@
        que se acaba de aplicar. Si solo quiere el valor por defecto, le basta
        un clic y nunca tiene que abrir la tira.
 
+   Cada control tiene TRES formas de ajustarse, como en cualquier editor
+   profesional: arrastre, escritura directa y rueda del raton.
+
    Este archivo NO reimplementa ninguna accion: solo dibuja los controles y
-   llama al callback que le declare el registro PARAM_SPECS.
+   llama al callback que declare el registro PARAM_SPECS.
    ========================================================================= */
 
 /**
  * Registro de parametros por herramienta.
- * Cada parametro: { id, etiqueta, tipo, min, max, paso, valor, aplicar }
- *   aplicar(valor) -> void, se llama en cada cambio.
- * Cada comando puede declarar ademas `acciones`: botones de una sola vez
- * (Restaurar original, Deshacer...) que no son un valor continuo.
+ *   aplicar(valor)  -> se llama al soltar / confirmar / rueda
+ *   claveCfg(id)    -> nombre de la propiedad real en BackgroundRemover.config
  */
 export const PARAM_SPECS = Object.freeze({
     removeBg: {
         etiqueta: "Quitar Fondo",
         parametros: [
             {
-                id: "contraste",
+                id: "borde",
                 etiqueta: "Borde",
-                ayuda: "Cuanto se conserva del contorno del sujeto. Sube para no comerte pelo fino.",
-                tipo: "range", min: 0, max: 30, paso: 1, valor: 6, formato: v => v + "%",
+                ayuda: "Cuanto se conserva del sujeto. Sube para no comerte el pelo fino; baja para un recorte mas cerrado.",
+                tipo: "range", min: 0, max: 100, paso: 1,
+                claveCfg: "BORDE",
                 disponible: () => !!(window.EKKO && window.EKKO.BackgroundRemover)
             },
             {
                 id: "suavizado",
                 etiqueta: "Suavizar",
-                ayuda: "Difumina la transicion del recorte para quitar el halo.",
-                tipo: "range", min: 0, max: 100, paso: 1, valor: 35, formato: v => v + "%",
+                ayuda: "Difumina la transicion del recorte. Poco = borde nitido; mucho = borde fino y natural.",
+                tipo: "range", min: 0, max: 100, paso: 1,
+                claveCfg: "SUAVIZADO",
                 disponible: () => !!(window.EKKO && window.EKKO.BackgroundRemover)
             }
         ],
@@ -69,10 +72,48 @@ function asegurarSuperficie() {
     superficie.className = "ekko-param-surface";
     superficie.setAttribute("role", "group");
     superficie.style.display = "none";
-
-    // Se inserta justo despues de la barra para que quede pegada a ella.
     barra.insertAdjacentElement("afterend", superficie);
     return superficie;
+}
+
+/* ------------------------------------------------------------------
+   Aplicacion coalescente.
+
+   Recomponer el recorte son millones de pixeles. Si se llamara en cada
+   `input` del raton la interfaz se congelaria y el control pareceria
+   muerto: eso es exactamente lo que pasaba antes. Se aplica UNA vez por
+   animacion, al soltar, al confirmar el numero y al parar la rueda.
+   ------------------------------------------------------------------ */
+function crearAplicador(spec, comando) {
+    let pendiente = null;
+
+    // El valor vive AQUI, dentro del aplicador. Antes apply() leia una
+    // variable que solo existia en otro ambito: lanzaba ReferenceError y el
+    // catch lo silenciaba, de modo que mover el control no hacia NADA y
+    // parecia un boton muerto.
+    let valor = 0;
+
+    const aplicar = () => {
+        pendiente = null;
+        try { PARAM_SPECS[comando]?.alAplicar?.(spec.id, valor); }
+        catch (e) {
+            // Se avisa en rojo: un fallo aqui significa que el control va a
+            // parecer muerto, y no puede volver a esconderse en silencio.
+            console.error("[EKKO] no se pudo aplicar el parametro", spec.id, e);
+        }
+    };
+
+    const pedir = () => {
+        if (pendiente) return;
+        pendiente = requestAnimationFrame(aplicar);
+    };
+
+    return {
+        pedir,
+        aplicarAhora: aplicar,
+        setValor: v => { valor = v; },
+        obtener: () => valor
+    };
 }
 
 function crearParametro(spec, comando) {
@@ -86,35 +127,78 @@ function crearParametro(spec, comando) {
     const valor = document.createElement("span");
     valor.className = "ekko-param-value";
 
-    const entrada = document.createElement("input");
-    entrada.type = "range";
-    entrada.min = String(spec.min);
-    entrada.max = String(spec.max);
-    entrada.step = String(spec.paso);
-    entrada.className = "ekko-param-input";
-    entrada.title = spec.ayuda || spec.etiqueta;
+    // --- Campo numerico editable: el cliente escribe el valor directo ---
+    const numero = document.createElement("input");
+    numero.type = "number";
+    numero.className = "ekko-param-number";
+    numero.min = String(spec.min);
+    numero.max = String(spec.max);
+    numero.step = String(spec.paso);
 
-    // Los controles de EKKO van en porcentaje. La configuracion interna usa
-    // fracciones (0..1), asi que el valor real manda sobre el declarado: si
-    // otro modulo ya toco CFG, la barra no puede mostrar un numero inventado.
-    const cfg = window.EKKO?.BackgroundRemover?.config?.[claveCfg(spec.id)];
-    const fraccion = typeof cfg === "number" ? cfg : Number(spec.valor) / 100;
-    const inicial = Math.round(Math.max(spec.min, Math.min(spec.max, fraccion * 100)));
-    entrada.value = String(inicial);
-    valor.textContent = (spec.formato || String)(inicial);
+    const rango = document.createElement("input");
+    rango.type = "range";
+    rango.min = String(spec.min);
+    rango.max = String(spec.max);
+    rango.step = String(spec.paso);
+    rango.className = "ekko-param-input";
+    rango.title = spec.ayuda || spec.etiqueta;
+    numero.title = spec.ayuda || spec.etiqueta;
 
-    entrada.addEventListener("input", () => {
-        valor.textContent = (spec.formato || String)(entrada.value);
-        try { PARAM_SPECS[comando]?.alAplicar?.(spec.id, Number(entrada.value)); }
-        catch (e) { console.warn("[EKKO] parametro", spec.id, e); }
+    // El estado real del control manda sobre el declarado: si el motor ya
+    // toco CFG, la barra no puede mostrar un numero inventado.
+    const cfg = window.EKKO?.BackgroundRemover?.config?.[spec.claveCfg];
+    const fraccion = typeof cfg === "number" ? cfg : 0.5;
+    const valorActual = Math.round(Math.max(spec.min, Math.min(spec.max, fraccion * 100)));
+
+    const aplicador = crearAplicador(spec, comando);
+
+    // pintar NO guarda el valor: se lo pasa al aplicador. Asi el control y el
+    // motor nunca pueden discrepar.
+    const pintar = v => {
+        const n = Math.max(spec.min, Math.min(spec.max, Math.round(v)));
+        rango.value = String(n);
+        numero.value = String(n);
+        valor.textContent = n + "%";
+        aplicador.setValor(n);
+        return n;
+    };
+
+    pintar(valorActual);
+
+    // 1) Arrastre: se pinta al instante, se aplica al soltar. Asi el control
+    //    responde al dedo sin congelar el lienzo.
+    rango.addEventListener("input", () => pintar(Number(rango.value)));
+    rango.addEventListener("change", () => { pintar(Number(rango.value)); aplicador.aplicarAhora(); });
+
+    // 2) Teclado: escribir el numero y confirmar.
+    numero.addEventListener("input", () => {
+        const v = Number(numero.value);
+        if (!Number.isFinite(v)) return;
+        pintar(v);
+    });
+    const confirmar = () => { pintar(Number(numero.value)); aplicador.aplicarAhora(); };
+    numero.addEventListener("change", confirmar);
+    numero.addEventListener("blur", confirmar);
+    numero.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") { confirmar(); numero.blur(); ev.preventDefault(); }
     });
 
-    envoltorio.append(texto, entrada, valor);
-    return envoltorio;
-}
+    // 3) Rueda del raton. preventDefault para que la pagina no scrollee.
+    const rueda = (delta) => {
+        const paso = Math.max(1, Number(spec.paso) || 1) * (Math.abs(delta) >= 100 ? 5 : 1);
+        pintar(aplicador.obtener() + (delta > 0 ? -paso : paso));
+        aplicador.pedir();
+        // Retraso corto: si deja de girar, se aplica igual.
+        clearTimeout(rango.__ruedaT);
+        rango.__ruedaT = setTimeout(() => aplicador.aplicarAhora(), 220);
+    };
+    [rango, numero].forEach(ctrl => {
+        ctrl.addEventListener("wheel", (ev) => { ev.preventDefault(); rueda(ev.deltaY); }, { passive: false });
+    });
 
-function claveCfg(idParam) {
-    return idParam === "contraste" ? "BORDE_CONTRASTE" : "BORDE_SUAVIZADO";
+    envoltorio.append(texto, rango, numero, valor);
+    envoltorio.appendChild(document.createTextNode('%'));
+    return envoltorio;
 }
 
 function pintar(comando) {
@@ -195,16 +279,13 @@ export function initParametros() {
         if (!boton) return;
         const comando = boton.dataset.fusionBtn;
         if (!PARAM_SPECS[comando]) return;
-        // Se aplaza para que la ejecucion del comando ya haya empezado.
         setTimeout(() => alternarParametros(comando), 0);
     }, true);
 
-    // El teclado tambien debe cerrarlo.
     document.addEventListener("keydown", (ev) => {
         if (ev.key === "Escape" && comandoAbierto) cerrarParametros();
     });
 
-    // Marca las dos superficies (panel y barra) con la flechita de "hay mas".
     Object.keys(PARAM_SPECS).forEach(comando => {
         document.querySelectorAll(`[data-fusion-btn="${comando}"]`)
             .forEach(b => b.setAttribute("data-ekko-has-params", comando));
