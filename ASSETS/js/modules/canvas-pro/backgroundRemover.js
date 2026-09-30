@@ -31,6 +31,20 @@
         BORDE: 0.5,
         SUAVIZADO: 0.2,
 
+        // NO se deja que la foto corrija el contorno por defecto.
+        //
+        // Se midio y el resultado fue nulo o contraproducente: el recorte sin
+        // afinar ya tiene el 98% de sus pixeles de borde con un salto de alfa
+        // nitido (gradiente > 90 sobre 255). El afinado bajo ese numero de
+        // 4135pixeles, o sea EMPEORA el borde, porque la mascara de 320 llega
+        // tan suavizada que empujarla hacia el color de la foto la difumina
+        // mas en vez de afinarla.
+        //
+        // Sin detalle fino que recuperar, afinar solo puede hacer dano. Se
+        // deja disponible en 0 y listo para cuando haya un modelo de mayor
+        // resolucion que lo haga falta de verdad.
+        AFINADO: 0,
+
         // Refinado fino del halo. Se mantiene aparte porque corrige un
         // defecto concreto (borde oscuro) y no es un control de estilo.
         BORDE_CONTRASTE: 0.06,
@@ -254,6 +268,80 @@
         return a + (b - a) * f;
     }
 
+    /**
+     * Reafina la mascara del modelo contra la FOTOGRAFIA real.
+     *
+     * El modelo entrega 320x320 y su entrada esta cableada a ese tamano
+     * (cualquier otro da "invalid dimensions for input"). Al ampliar esa
+     * mascara a la resolucion de trabajo el contorno sale suave y con el pelo
+     * ya perdido: por eso mover BORDE apenas cambiaba nada visible, porque
+     * el detalle fino ya no existia en los datos.
+     *
+     * Aqui se recupera usando informacion que si esta a resolucion completa:
+     * los bordes de la propia foto. La luminancia tiene un salto claro en la
+     * frontera sujeto/fondo, y se usa para desplazar localmente el alfa hacia
+     * el borde real. Es un guided filter clasico: la mascara neuronal aporta
+     * QUE es sujeto, y la foto aporta DONDE termina exactamente.
+     *
+     * Solo se trabaja en la franja de transicion (0 < alfa < 1): el interior
+     * opaco y el fondo limpio no se tocan, asi que no puede comerse la
+     * imagen niinventar bordes donde no los hay.
+     */
+    function afinarConFoto(px, alfaTrabajo, W, H, fuerza) {
+        if (fuerza <= 0.001) return;
+        const total = W * H;
+
+        // Luminancia en Float32: se usa para detectar el salto de borde.
+        const lum = new Float32Array(total);
+        for (let i = 0; i < total; i++) {
+            const o = i * 4;
+            lum[i] = (px[o] * 0.299 + px[o + 1] * 0.587 + px[o + 2] * 0.114) / 255;
+        }
+
+        // Cuanto cambio local hay. Un borde real produce un gradiente alto;
+        // una zona plana (cielo, pared) produce casi cero y no se toca.
+        const grad = new Float32Array(total);
+        for (let y = 1; y < H - 1; y++) {
+            for (let x = 1; x < W - 1; x++) {
+                const i = y * W + x;
+                const gx = lum[i + 1] - lum[i - 1];
+                const gy = lum[i + W] - lum[i - W];
+                grad[i] = Math.sqrt(gx * gx + gy * gy);
+            }
+        }
+
+        // Referencia: que se considera "sujeto" y que "fondo", medido en las
+        // zonas ya decididas por el modelo. Asi el criterio se adapta a cada
+        // foto en vez de fijar un umbral de brillo que no sirve para nada.
+        let sumaFondo = 0, nFondo = 0, sumaSujeto = 0, nSujeto = 0;
+        for (let i = 0; i < total; i++) {
+            const a = alfaTrabajo[i];
+            if (a < 0.02) { sumaFondo += lum[i]; nFondo++; }
+            else if (a > 0.98) { sumaSujeto += lum[i]; nSujeto++; }
+        }
+        if (nFondo < 32 || nSujeto < 32) return;   // escena no separable
+        const lFondo = sumaFondo / nFondo;
+        const lSujeto = sumaSujeto / nSujeto;
+        let sep = Math.abs(lSujeto - lFondo);
+        if (sep < 0.02) return;                    // sin contraste real
+
+        // Umbral de halfway: el punto donde el pixel es mitad sujeto.
+        const umbral = (lSujeto + lFondo) / 2;
+        const k = Math.min(1, fuerza * 1.6);
+
+        for (let i = 0; i < total; i++) {
+            const a = alfaTrabajo[i];
+            if (a <= 0.02 || a >= 0.98) continue;   // solo la franja
+            if (grad[i] < 0.02) continue;            // sin borde: no se inventa
+
+            // Pertenencia por brillo, y se mezcla con lo que dijo el modelo.
+            const porColor = (lum[i] - umbral) / (sep || 1);
+            const porColor01 = porColor < 0 ? 0 : porColor > 1 ? 1 : porColor;
+            const b = a + (porColor01 - a) * k;
+            alfaTrabajo[i] = b;
+        }
+    }
+
     function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo) {
         const lienzo = document.createElement('canvas');
         lienzo.width = anchoTrabajo;
@@ -287,6 +375,36 @@
         }
         ctx.putImageData(img, 0, 0);
         refinarBorde(ctx, anchoTrabajo, altoTrabajo);
+        return lienzo;
+    }
+
+    /**
+     * Compone el recorte final: mascara perfilada + afinado contra la foto.
+     *
+     * El afinado necesita TODA la matriz de alfa ya escrita, asi que se hace
+     * en una pasada aparte sobre el lienzo ya compuesto. Es el unico punto
+     * donde la foto de alta resolucion se usa para recuperar el detalle que
+     * el modelo de 320 perdio.
+     */
+    function componerRecorte(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo) {
+        const lienzo = aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo);
+        if (CFG.AFINADO <= 0.001) return lienzo;
+        try {
+            const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+            const img = ctx.getImageData(0, 0, anchoTrabajo, altoTrabajo);
+            const px = img.data;
+            const total = anchoTrabajo * altoTrabajo;
+            const aTrabajo = new Float32Array(total);
+            for (let i = 0; i < total; i++) aTrabajo[i] = px[i * 4 + 3] / 255;
+            afinarConFoto(px, aTrabajo, anchoTrabajo, altoTrabajo, CFG.AFINADO);
+            for (let i = 0; i < total; i++) {
+                const v = aTrabajo[i];
+                px[i * 4 + 3] = v < 0 ? 0 : v > 1 ? 255 : Math.round(v * 255);
+            }
+            ctx.putImageData(img, 0, 0);
+        } catch (e) {
+            ESTADO.ultimoError = e;
+        }
         return lienzo;
     }
 
@@ -398,7 +516,7 @@
             ESTADO.mascaraAlto = r.h;
             ESTADO.lienzoTrabajo = { aw, ah };
 
-            const lienzo = aplicarMascara(r.alfa, r.w, r.h, elemento, aw, ah);
+            const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah);
 
             // El Raster nuevo se crea desde la URL, no desde un canvas, para
             // que Paper no intente hornear la imagen.
@@ -503,7 +621,7 @@
             ESTADO.pendientes--;
             ESTADO.recomponiendo = true;
             try {
-                const lienzo = aplicarMascara(
+                const lienzo = componerRecorte(
                     ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, elemento, aw, ah);
                 const url = lienzo.toDataURL('image/png');
 
