@@ -13,9 +13,11 @@
 'use strict';
 
 // --- Configuración de ruta -------------------------------------------------
-// Ruta ABSOLUTA: dentro de un worker, una ruta relativa se resolvería
-// contra /ASSETS/js/modules/canvas-pro/ y el modelo daría 404.
-const MODELO_URL = '/ASSETS/modelos/silueta.onnx';
+// Ruta ABSOLUTA y MISMO ORIGEN: dentro de un worker una ruta relativa se
+// resolvería contra /ASSETS/js/modules/canvas-pro/ y daría 404.
+// /modelos/silueta.onnx lo sirve el propio despliegue (rewrite de vercel.json),
+// por eso el navegador no necesita CORS ni descarga desde HuggingFace directo.
+const MODELO_URL = '/modelos/silueta.onnx';
 const MODELO_ID = 'silueta-v1';
 const TAM_ENTRADA = 320;
 const MEDIA = [0.485, 0.456, 0.406];
