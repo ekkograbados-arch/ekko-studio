@@ -6,7 +6,6 @@ import { getPublicOwner, getOwnerLocalGeometry, isMockupOrMask } from "./designG
 import { installOwnerGeometry, recalculateDynamicSubtractions, normalizeSubtractiveOperand } from "./geometricUngroup.js";
 import { isToolEnabled, legacyNamesFor } from "./capabilities.js";
 import { aplicarContorno } from "./contorno.js";
-import { notice } from "./ekkoNotice.js";
 
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
@@ -59,11 +58,10 @@ let commandDispatcherInstalled = false;
 // single UI entry point; the registry only delegates to existing owners.
 const COMMAND_HANDLERS = Object.freeze({
     rellenar: () => convertSelectionToSolid(),
-    // Contorno unificado: una linea que dibuja el BORDE EXTERIOR de la
-    // seleccion, sin nada de lo que esta adentro. Vector, texto o imagen: la
-    // misma idea. Trazar es otra herramienta (copia el objeto entero).
-    contorno: async () => aplicarContorno(),
-    contornoRecuadro: async () => aplicarContorno(null, { withBackground: true }),
+    // Contorno unificado: vector <-> trazo, texto -> vector -> trazo,
+    // imagen -> calcar silueta (o recuadro si el cliente dice que tiene fondo).
+    contorno: () => aplicarContorno(),
+    contornoRecuadro: () => aplicarContorno(null, { withBackground: true }),
     solidHole: () => invertSelectionRoles(),
     performSmartFusion: () => typeof window.performSmartFusion === "function"
         ? window.performSmartFusion()
@@ -205,38 +203,13 @@ function compareBooleanStack(a, b) {
 
 function isBooleanOperand(owner) {
     if (!owner || !owner.project) return false;
-    // Shape entra como operando: es un vector cerrado mas, solo que lo creo
-    // una herramienta de primitivas y no el importador.
-    if (!["Path", "CompoundPath", "Shape"].includes(owner.className)) return false;
+    if (owner.className !== "Path" && owner.className !== "CompoundPath") return false;
     const data = owner.data || {};
     if (data.mockup || data.isMask || data.isFusionMask || data.isSmartFusion) return false;
     try { if (isProductElement(owner)) return false; } catch (_) { return false; }
     // Un calado es un hueco: no se funde, se conserva y sigue perforando.
     try { if (semanticKind(owner) === VECTOR_KIND.HOLE) return false; } catch (_) {}
     return true;
-}
-
-/**
- * Un wrapper de recorte que se queda sin contenido util no debe sobrevivir a
- * la operacion: son contenedores de recorte, no piezas del cliente. Sin esta
- * limpieza, cada booleana dejaba un Group vacio y la capa se llenaba de basura
- * que el cliente no puede ver ni borrar.
- */
-function cleanEmptyContainment(item) {
-    let parent = item?.parent || item;
-    const seen = new Set();
-    while (parent && parent !== paper.project && !seen.has(parent)) {
-        seen.add(parent);
-        const next = parent.parent;
-        if (parent.data?.clipGroup === true) {
-            const useful = (parent.children || []).filter(child =>
-                !child.clipMask && !(child.data && (child.data.isMask || child.data.mockup || child.data.wasClipMask)));
-            if (!useful.length) {
-                try { parent.remove(); } catch (_) {}
-            }
-        }
-        parent = next;
-    }
 }
 
 function booleanOperandOwners() {
@@ -435,12 +408,8 @@ function performBooleanOperation(operation) {
     } catch (_) {}
 
     // Los operandos consumidos desaparecen: la forma resultante los contiene.
-    // Se recuerda el padre ANTES de quitarlo porque Paper borra el puntero al
-    // remover, y sin el no se puede limpiar el wrapper de recorte vacio.
     ordered.slice(1).forEach(owner => {
-        const parent = owner.parent;
         try { owner.remove(); } catch (_) {}
-        cleanEmptyContainment(parent);
     });
 
     window.EKKO_DIAG?.logEvent?.("boolean.applied", {
@@ -469,15 +438,7 @@ export function invertSelectionRoles() {
     });
     if (!owners.length) return null;
 
-    // Solo se cancela una transaccion que abrio esta misma llamada. Si ya
-    // habia una abierta (un arrastre, una fusion) es de otro dueno: cancelarla
-    // aqui borraria el punto de Deshacer de esa operacion sin avisar.
-    const ownsHistory = !window._ekkoHistoryTransaction?.active;
-    if (ownsHistory) window.beginHistoryTransaction?.("solid-hole-toggle");
-    const fail = reason => {
-        if (ownsHistory) window.cancelHistoryTransaction?.(reason || "solid-hole-toggle-failed");
-        return null;
-    };
+    window.beginHistoryTransaction?.("solid-hole-toggle");
     const converted = [];
     try {
         owners.forEach(owner => {
@@ -492,15 +453,17 @@ export function invertSelectionRoles() {
             }
         });
     } catch (e) {
+        window.cancelHistoryTransaction?.("solid-hole-toggle-failed");
         console.warn("[EKKO <Solidos <-> Huecos>] no se pudo invertir:", e);
-        return fail("solid-hole-toggle-failed");
+        return null;
     }
     if (!converted.length) {
-        return fail("solid-hole-toggle-empty");
+        window.cancelHistoryTransaction?.("solid-hole-toggle-empty");
+        return null;
     }
     try { recalculateDynamicSubtractions?.(); } catch (_) {}
     window.saveHistory?.();
-    if (ownsHistory) window.commitHistoryTransaction?.("solid-hole-toggle");
+    window.commitHistoryTransaction?.("solid-hole-toggle");
     window.deselectItem?.();
     converted.forEach((owner, index) => window.selectItem?.(owner, index > 0));
     window.EKKO_DIAG?.logEvent?.("solid-hole.toggle", { count: converted.length });
@@ -628,15 +591,28 @@ function getSharedCommandElements() {
 
 function applyCommandVisibility() {
     const selection = classifySelection();
-    // UNA sola autoridad. El motor de capacidades decide que se muestra y sus
-    // reglas ya delegan en los predicados del dominio (canConvertToCalado,
-    // canDecomposeVector, getUngroupRoute...). Antes esta funcion agregaba y
-    // borraba comandos a mano con una segunda lista de reglas: por eso las dos
-    // superficies llegaron a discrepar entre si. Si hay que cambiar cuando
-    // aparece un boton, se cambia en capabilities.js y nowhere mas.
+    // El motor de capacidades es la unica autoridad de la barra.
     const allowed = new Set(legacyNamesFor(window.selectedItems?.length
         ? window.selectedItems
         : (window.selectedItem ? [window.selectedItem] : [])));
+    if (selection.canUngroup) allowed.add("ungroup");
+    if (selection.canDecompose) allowed.add("decomposeVector");
+    else allowed.delete("decomposeVector");
+    if (!selection.canFusion) allowed.delete("fusion");
+    if (!selection.canCalado) allowed.delete("calado");
+    if (!selection.canRellenar) allowed.delete("rellenar");
+    if (!isToolEnabled('solidHole', window.selectedItems || [])) allowed.delete("solidHole");
+    if (selection.canBoolean) {
+        allowed.add("booleanUnion");
+        allowed.add("booleanSubtract");
+        allowed.add("booleanIntersect");
+        allowed.add("booleanDifference");
+    } else {
+        allowed.delete("booleanUnion");
+        allowed.delete("booleanSubtract");
+        allowed.delete("booleanIntersect");
+        allowed.delete("booleanDifference");
+    }
     const elements = getSharedCommandElements();
 
     elements.forEach(element => {
@@ -724,6 +700,11 @@ export function initPanelCommandBridge() {
     window.refreshEKKOSharedCommands = refreshSharedCommands;
     // Superficie de diagnostico: permite verificar una booleana sin pasar por
     // el DOM y confirma que la operacion respeta la semantica vectorial.
+    // Esta es la UNICA definicion de window.EKKO_BOOLEAN. Antes tambien la
+    // escribia booleanOperations.js con otra forma de claves; como ambos
+    // modulos se cargan, el ultimo en ejecutarse pisaba al otro y una de las
+    // dos superficies desaparecia. Ese modulo era codigo muerto: sus funciones
+    // no las llamaba nadie y las booleanas reales viven en performBooleanOperation.
     window.EKKO_BOOLEAN = Object.freeze({
         union: () => performBooleanOperation("union"),
         subtract: () => performBooleanOperation("subtract"),
