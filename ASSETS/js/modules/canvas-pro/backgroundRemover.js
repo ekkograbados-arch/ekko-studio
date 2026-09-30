@@ -550,6 +550,21 @@
             raster.visible = false;
             ESTADO.imagenProcesada = nueva;
             ESTADO.listo = true;
+
+            // La seleccion debe CAER en el recorte, no quedarse en el original
+            // oculto. Antes el cliente quedaba manipulando una pieza invisible:
+            // mover BORDE funcionaba por debajo pero no se veia nada cambiar, y
+            // el panel no ofrecia herramientas porque la especie del original ya
+            // no era la que se estaba editando.
+            try {
+                paper.project.deselectAll();
+                nueva.selected = true;
+                if (typeof window.selectItem === 'function') window.selectItem(nueva);
+                else if (typeof window.updateContextualMenu === 'function') {
+                    window.updateContextualMenu(nueva);
+                }
+            } catch (_) {}
+
             informar('listo', 1, 1, 'Fondo eliminado');
             if (typeof window.saveHistory === 'function') {
                 try { window.saveHistory(); } catch (_) {}
@@ -569,6 +584,17 @@
         }
         if (ESTADO.imagenOriginal) {
             try { ESTADO.imagenOriginal.visible = true; } catch (_) {}
+            // Al deshacer, la seleccion vuelve al original, que es lo unico
+            // que queda visible. Sin esto el cliente se queda sin nada
+            // seleccionado y el panel se apaga.
+            try {
+                paper.project.deselectAll();
+                ESTADO.imagenOriginal.selected = true;
+                if (typeof window.selectItem === 'function') window.selectItem(ESTADO.imagenOriginal);
+                else if (typeof window.updateContextualMenu === 'function') {
+                    window.updateContextualMenu(ESTADO.imagenOriginal);
+                }
+            } catch (_) {}
         }
         informar('listo', 1, 1, 'Recorte deshecho');
     }
