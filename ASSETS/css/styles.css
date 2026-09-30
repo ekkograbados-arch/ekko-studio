@@ -999,22 +999,55 @@ body,
 /* ===================== NIVEL 2: PARAMETROS POR COMANDO =====================
    Tira que se despliega bajo la barra emergente al pulsar un boton que tiene
    parametros. Se crea desde commandParameters.js. */
+/* Panel de parametros. Flotante e INDEPENDIENTE de la barra emergente:
+   antes iba cosido a su borde inferior, asi que se movia con ella y encima
+   se confundia con una segunda toolbar. Va sobre el lienzo, con sombra propia,
+   y remembers donde se dejo. */
 .ekko-param-surface {
     position: fixed;
     display: none;
     align-items: center;
     gap: 14px;
     flex-wrap: wrap;
-    padding: 9px 14px;
+    padding: 11px 14px;
     background: #ffffff;
     border: 1px solid var(--ekko-border-color, #cbd5e1);
-    border-top: none;
-    border-radius: 0 0 10px 10px;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, .16);
+    border-radius: 11px;
+    box-shadow: 0 14px 34px rgba(15, 23, 42, .22);
     font-size: 12px;
     z-index: 9600;
-    max-width: min(760px, 94vw);
+    max-width: min(720px, 94vw);
+    cursor: grab;
 }
+.ekko-param-surface.is-arrastrando { cursor: grabbing; }
+.ekko-param-surface.is-pegada { cursor: default; }
+
+/* Asa de arrastre: deja claro que el panel se mueve solo. */
+/* El asa nombra el comando: "Parametros" a secas no dice que se esta
+   ajustando ni de que herramienta, y con dos paneles a la vez no se sabe. */
+.ekko-param-title {
+    font-weight: 700;
+    color: var(--ekko-text-muted, #64748b);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    white-space: nowrap;
+}
+
+.ekko-param-asa {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding-right: 10px;
+    margin-right: 2px;
+    border-right: 1px solid var(--ekko-border-color, #e2e8f0);
+    font-size: 11px;
+    color: var(--ekko-text-muted, #64748b);
+    font-weight: 600;
+    cursor: grab;
+    user-select: none;
+}
+.ekko-param-asa:active { cursor: grabbing; }
 
 .ekko-param-title {
     font-weight: 700;
