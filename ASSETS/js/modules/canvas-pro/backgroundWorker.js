@@ -207,6 +207,12 @@ self.onmessage = async (ev) => {
         catch (e) { self.postMessage({ tipo: 'error', mensaje: String(e && e.message || e) }); }
         return;
     }
+    if (d.accion === 'probar') {
+        // Sonda de diagnostico: responde con algo pequeno para comprobar que el
+        // worker sigue vivo sin pagar el coste de una inferencia completa.
+        self.postMessage({ tipo: 'listo', carga: 1, total: 1, detalle: 'sondeo' });
+        return;
+    }
     if (d.accion === 'inferir') {
         try {
             const ort = await cargarOrt();
