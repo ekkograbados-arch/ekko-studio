@@ -4,7 +4,7 @@ import { semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
 import { getPublicOwner, getOwnerLocalGeometry, isMockupOrMask } from "./designGeometry.js";
 import { installOwnerGeometry, recalculateDynamicSubtractions, normalizeSubtractiveOperand } from "./geometricUngroup.js";
-import { isToolEnabled, legacyNamesFor } from "./capabilities.js";
+import { isToolEnabled, legacyNamesFor, legacyNamesForTab } from "./capabilities.js";
 import { aplicarContorno } from "./contorno.js";
 
 /* =========================================================================
@@ -592,9 +592,13 @@ function getSharedCommandElements() {
 function applyCommandVisibility() {
     const selection = classifySelection();
     // El motor de capacidades es la unica autoridad de la barra.
-    const allowed = new Set(legacyNamesFor(window.selectedItems?.length
+    // La pestana de contexto activa RECORTA ese conjunto: nunca lo amplia,
+    // asi que un boton nunca aparece si el objeto seleccionado no lo soporta.
+    const selectionList = window.selectedItems?.length
         ? window.selectedItems
-        : (window.selectedItem ? [window.selectedItem] : [])));
+        : (window.selectedItem ? [window.selectedItem] : []);
+    const activeTab = window.EKKO_PANEL_STATE?.activeTab || "auto";
+    const allowed = new Set(legacyNamesForTab(selectionList, activeTab));
     if (selection.canUngroup) allowed.add("ungroup");
     if (selection.canDecompose) allowed.add("decomposeVector");
     else allowed.delete("decomposeVector");
