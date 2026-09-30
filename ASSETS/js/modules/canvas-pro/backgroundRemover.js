@@ -14,7 +14,7 @@
     'use strict';
 
     const CFG = {
-        MODELO: '/ASSETS/modelos/silueta.onnx',
+        MODELO: '/modelos/silueta.onnx',
         WORKER: '/ASSETS/js/modules/canvas-pro/backgroundWorker.js',
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
         ENTRADA: 320,          // tamaño fijo que exige el modelo
