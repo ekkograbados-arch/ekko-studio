@@ -1,7 +1,7 @@
 /* =========================================================================
-   EKKO STUDIO — PANEL COORDINATOR / FASE 0
+   EKKO STUDIO â€” PANEL COORDINATOR / FASE 0
    Coordina exclusivamente la interfaz de paneles.
-   No modifica geometría, Paper.js, mockups ni productos.
+   No modifica geometrÃ­a, Paper.js, mockups ni productos.
 
    Superficies coordinadas:
    - #topBar
@@ -11,15 +11,55 @@
    - #panelRecoveryDock
 ========================================================================= */
 
+import { TABS, detectTab, tabsForSelection } from "./capabilities.js";
+
+const STORAGE_KEY = "ekko.panels.v1";
+
 const panelState = {
     topPanel: "expanded",       // expanded | compact | hidden
     floatingBar: "auto",        // auto | visible | hidden
     productPanel: "visible",    // visible | hidden
+    // "auto" = no se recorta nada (interseccion completa, comportamiento
+    // previo). Un id de TABS = el usuario eligio ese grupo a proposito.
+    activeTab: "auto",
     currentSelection: null,
     currentContext: "none",
     menu: null,
     initialized: false
 };
+
+/* --- Persistencia: el cliente configura los paneles una vez y los mantiene.
+   Sin esto, recargar devolvia todo a los valores de fabrica. --- */
+function loadPanelState() {
+    let raw = null;
+    try { raw = localStorage.getItem(STORAGE_KEY); } catch (_) { return; }
+    if (!raw) return;
+    let saved;
+    try { saved = JSON.parse(raw); } catch (_) { return; }
+    if (!saved || typeof saved !== "object") return;
+    ["topPanel", "floatingBar", "productPanel", "activeTab"].forEach(key => {
+        if (typeof saved[key] === "string") panelState[key] = saved[key];
+    });
+    if (panelState.activeTab !== "auto" && !TABS[panelState.activeTab]) panelState.activeTab = "auto";
+}
+
+function savePanelState() {
+    // Coalescente: applyPanelState se dispara en cada cambio de seleccion y
+    // no tiene sentido escribir en localStorage en cada raf.
+    if (savePanelState.__pending) return;
+    savePanelState.__pending = true;
+    setTimeout(() => {
+        savePanelState.__pending = false;
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                topPanel: panelState.topPanel,
+                floatingBar: panelState.floatingBar,
+                productPanel: panelState.productPanel,
+                activeTab: panelState.activeTab
+            }));
+        } catch (_) {}
+    }, 150);
+}
 
 function byId(id) {
     return document.getElementById(id);
@@ -74,8 +114,8 @@ const CONTEXT_LABELS = {
     image: "Imagen",
     text: "Texto",
     vector: "Vector",
-    multiple: "Selección múltiple",
-    fusion: "Fusión"
+    multiple: "SelecciÃ³n mÃºltiple",
+    fusion: "FusiÃ³n"
 };
 
 function ensureContextSurface() {
@@ -89,7 +129,7 @@ function ensureContextSurface() {
     surface.className = "ekko-top-context-surface";
     surface.setAttribute("role", "tablist");
     surface.innerHTML = `
-        <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">‹</button>
+        <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">â€¹</button>
         <div id="ekkoTopContextTabs" class="ekko-top-context-tabs"></div>
         <span id="ekkoTopContextLabel" class="ekko-top-context-label"></span>
     `;
@@ -104,35 +144,75 @@ function renderContextSurface() {
     const tabs = byId("ekkoTopContextTabs");
     const label = byId("ekkoTopContextLabel");
     const context = panelState.currentContext || "none";
-    const contextLabel = CONTEXT_LABELS[context] || CONTEXT_LABELS.none;
 
-    const available = context === "none"
-        ? ["none"]
-        : ["none", context];
+    const selection = panelState.currentSelection
+        ? [panelState.currentSelection]
+        : ((window.selectedItems && window.selectedItems.length)
+            ? window.selectedItems
+            : (window.selectedItem ? [window.selectedItem] : []));
 
-    tabs.innerHTML = "";
-    available.forEach(name => {
-        const tab = document.createElement("button");
-        tab.type = "button";
-        tab.className = "ekko-context-tab" + (name === context ? " is-active" : "");
-        tab.dataset.context = name;
-        tab.setAttribute("role", "tab");
-        tab.setAttribute("aria-selected", name === context ? "true" : "false");
-        tab.textContent = CONTEXT_LABELS[name];
-        tab.addEventListener("click", () => {
-            // En esta fase las pestañas son de contexto visual.
-            // Las acciones se sincronizarán en la siguiente etapa.
-            panelState.currentContext = name;
-            renderContextSurface();
+    // Solo se ofrecen pestanas que tienen herramientas para ESTA seleccion.
+    // Con una imagen el cliente ve Inicio e Imagen; Texto y Vector ni aparecen.
+    const available = tabsForSelection(selection);
+    const detected = detectTab(selection);
+
+    // La pestana resaltada es la que el motor dedujo de la seleccion.
+    // Si el usuario aplico una a mano, esa manda.
+    const highlighted = panelState.activeTab !== "auto" ? panelState.activeTab : detected;
+
+    // Si la preferencia activa no aparece en la lista natural, se agrega para
+    // que el cliente pueda verla y desactivarla. Si no, quedaria filtrando en
+    // silencio sin ninguna pista de como volver al automatico.
+    if (panelState.activeTab !== "auto" && !available.includes(panelState.activeTab)) {
+        available.push(panelState.activeTab);
+    }
+
+    if (tabs) {
+        tabs.innerHTML = "";
+        available.forEach(id => {
+            const def = TABS[id];
+            if (!def) return;
+            const tab = document.createElement("button");
+            tab.type = "button";
+            tab.className = "ekko-context-tab" + (id === highlighted ? " is-active" : "");
+            if (panelState.activeTab !== "auto" && id === panelState.activeTab) {
+                tab.classList.add("is-manual");
+            }
+            tab.dataset.context = id;
+            tab.setAttribute("role", "tab");
+            tab.setAttribute("aria-selected", id === highlighted ? "true" : "false");
+            tab.textContent = def.label;
+            tab.title = panelState.activeTab === id
+                ? `${def.label} â€” pulsalo de nuevo para ver todas las herramientas`
+                : `Mostrar herramientas de ${def.label.toLowerCase()}`;
+            tab.addEventListener("click", () => {
+                // Segundo clic sobre la misma pestana = volver al automatico.
+                panelState.activeTab = (panelState.activeTab === id) ? "auto" : id;
+                savePanelState();
+                applyPanelState();
+                refreshSharedCommands();
+            });
+            tabs.appendChild(tab);
         });
-        tabs.appendChild(tab);
-    });
+    }
 
-    if (label) label.textContent = `Contexto: ${contextLabel}`;
+    const def = TABS[highlighted];
+    if (label) {
+        const contextLabel = CONTEXT_LABELS[context] || CONTEXT_LABELS.none;
+        label.textContent = panelState.activeTab === "auto"
+            ? `Contexto: ${contextLabel}`
+            : `Contexto: ${contextLabel} Â· ${def ? def.label : ""}`;
+    }
     surface.dataset.context = context;
+    surface.dataset.activeTab = panelState.activeTab;
 }
 
 function applyPanelState() {
+    renderPanelState();
+    savePanelState();
+}
+
+function renderPanelState() {
     const el = getElements();
     renderContextSurface();
 
@@ -143,7 +223,7 @@ function applyPanelState() {
         el.top.dataset.panelMode = panelState.topPanel;
     }
 
-    // La barra profesional dinámica es una extensión del panel superior.
+    // La barra profesional dinÃ¡mica es una extensiÃ³n del panel superior.
     if (el.pro) {
         el.pro.classList.toggle("is-compact", panelState.topPanel === "compact");
         el.pro.classList.toggle("is-hidden", panelState.topPanel === "hidden");
@@ -166,7 +246,7 @@ function applyPanelState() {
 
         const topToggle = byId("productPanelTopToggle");
         if (topToggle) {
-            topToggle.textContent = hidden ? "›" : "‹";
+            topToggle.textContent = hidden ? "â€º" : "â€¹";
             topToggle.title = hidden ? "Mostrar panel de productos" : "Ocultar panel de productos";
             topToggle.setAttribute("aria-label", topToggle.title);
             topToggle.dataset.panelState = hidden ? "hidden" : "visible";
@@ -224,7 +304,7 @@ function openVisibilityMenu(anchor) {
         applyPanelState();
     });
 
-    addMenuButton(menu, "Barra emergente: automática", () => {
+    addMenuButton(menu, "Barra emergente: automÃ¡tica", () => {
         panelState.floatingBar = "auto";
         applyPanelState();
     });
@@ -276,6 +356,18 @@ function refreshSharedCommands() {
     }
 }
 
+/**
+ * La pestana activa es una PREFERENCIA del cliente, no un estado derivado de
+ * la seleccion. Por eso NO se recalcula aqui al seleccionar otra cosa: si se
+ * hiciera, el grupo que el cliente eligio se perderia en cuanto tocara un
+ * objeto de otro tipo, y no sobreviviria a la recarga.
+ *
+ * Es seguro que el filtro sobreviva: legacyNamesForTab() siempre recorta por
+ * la interseccion real de capacidades, asi que una pestana "Imagen" con un
+ * vector seleccionado muestra solo las herramientas universales. Nunca aparece
+ * un boton que el objeto no soporta.
+ */
+
 function wrapContextualMenuAPI() {
     const update = window.updateContextualMenu;
     if (typeof update === "function" && !update.__ekkoPanelWrapped) {
@@ -297,6 +389,8 @@ function wrapContextualMenuAPI() {
             const result = hide.apply(this, arguments);
             panelState.currentSelection = null;
             panelState.currentContext = "none";
+            // activeTab NO se toca aqui: es una preferencia del cliente sobre
+            // la barra, no un estado derivado de lo que hay seleccionado.
             applyPanelState();
             refreshSharedCommands();
             return result;
@@ -385,6 +479,7 @@ export function initPanelCoordinator() {
     if (panelState.initialized) return;
     panelState.initialized = true;
 
+    loadPanelState();
     wrapContextualMenuAPI();
     ensureContextSurface();
     bindPanelControls();
