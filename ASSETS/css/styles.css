@@ -1031,10 +1031,31 @@ body,
 
 .ekko-param-label { color: var(--ekko-text-muted, #64748b); }
 
-.ekko-param-input { width: 130px; accent-color: #2563eb; cursor: pointer; }
+.ekko-param-input { width: 120px; accent-color: #2563eb; cursor: pointer; }
+
+/* Campo numerico editable: se escribe el valor con el teclado. */
+.ekko-param-number {
+    width: 52px;
+    padding: 3px 5px;
+    border: 1px solid var(--ekko-border-color, #cbd5e1);
+    border-radius: 5px;
+    background: #fff;
+    font: 600 12px/1.2 system-ui, sans-serif;
+    color: var(--ekko-text-dark, #0f172a);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    -moz-appearance: textfield;
+}
+.ekko-param-number::-webkit-outer-spin-button,
+.ekko-param-number::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ekko-param-number:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, .18);
+}
 
 .ekko-param-value {
-    min-width: 38px;
+    min-width: 30px;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
     color: #1d4ed8;
