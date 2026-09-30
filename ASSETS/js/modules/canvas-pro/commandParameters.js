@@ -201,21 +201,98 @@ function crearParametro(spec, comando) {
     return envoltorio;
 }
 
-function pintar(comando) {
+const LLAVE_POSICION = "ekko.params.pos";
+
+/** Remember donde el cliente dejo el panel, para no repositionarlo cada vez. */
+function colocar(cont, forzarCentro) {
+    const ancho = cont.offsetWidth || 420;
+    const alto = cont.offsetHeight || 64;
+    let x = null, y = null;
+
+    if (!forzarCentro) {
+        try {
+            const g = JSON.parse(localStorage.getItem(LLAVE_POSICION) || 'null');
+            if (g && typeof g.x === 'number' && typeof g.y === 'number') { x = g.x; y = g.y; }
+        } catch (_) {}
+    }
+
+    if (x === null || forzarCentro) {
+        // Por defecto: centrado en el lienzo, por DEBAJO de la barra
+        // emergente pero con holgura propia, para que se lea como un panel
+        // aparte y no como una prolongacion de la barra.
+        const barra = el("contextual-toolbar");
+        const r = barra ? barra.getBoundingClientRect() : null;
+        x = r ? r.left + r.width / 2 - ancho / 2 : (window.innerWidth - ancho) / 2;
+        y = r ? r.bottom + 26 : Math.max(90, (window.innerHeight - alto) / 2);
+    }
+
+    // Se mantiene siempre dentro de la ventana visible.
+    x = Math.max(8, Math.min(window.innerWidth - ancho - 8, x));
+    y = Math.max(8, Math.min(window.innerHeight - alto - 8, y));
+    cont.style.left = Math.round(x) + "px";
+    cont.style.top = Math.round(y) + "px";
+}
+
+function hacerArrastrable(cont) {
+    const asa = cont.querySelector('.ekko-param-asa');
+    if (!asa) return;
+
+    let dx = 0, dy = 0, moviendo = false;
+
+    const inicio = (ev) => {
+        if (ev.target.closest('input, button, select, textarea')) return;
+        const r = cont.getBoundingClientRect();
+        const p = ev.touches ? ev.touches[0] : ev;
+        dx = p.clientX - r.left;
+        dy = p.clientY - r.top;
+        moviendo = true;
+        cont.classList.add('is-arrastrando');
+        ev.preventDefault();
+    };
+    const mover = (ev) => {
+        if (!moviendo) return;
+        const p = ev.touches ? ev.touches[0] : ev;
+        const x = p.clientX - dx, y = p.clientY - dy;
+        const ancho = cont.offsetWidth, alto = cont.offsetHeight;
+        cont.style.left = Math.round(Math.max(8, Math.min(window.innerWidth - ancho - 8, x))) + 'px';
+        cont.style.top = Math.round(Math.max(8, Math.min(window.innerHeight - alto - 8, y))) + 'px';
+        ev.preventDefault();
+    };
+    const fin = () => {
+        if (!moviendo) return;
+        moviendo = false;
+        cont.classList.remove('is-arrastrando');
+        try {
+            localStorage.setItem(LLAVE_POSICION, JSON.stringify({
+                x: parseFloat(cont.style.left) || 0,
+                y: parseFloat(cont.style.top) || 0
+            }));
+        } catch (_) {}
+    };
+
+    asa.addEventListener('pointerdown', inicio);
+    window.addEventListener('pointermove', mover);
+    window.addEventListener('pointerup', fin);
+    window.addEventListener('pointercancel', fin);
+}
+
+function pintar(comando, recentrar) {
     const spec = PARAM_SPECS[comando];
     if (!spec) return;
 
     const cont = asegurarSuperficie();
     if (!cont) return;
-    const barra = el("contextual-toolbar");
 
     cont.innerHTML = "";
     cont.dataset.comando = comando;
+    cont.classList.remove('is-pegada');
 
-    const titulo = document.createElement("span");
-    titulo.className = "ekko-param-title";
-    titulo.textContent = spec.etiqueta;
-    cont.appendChild(titulo);
+    // Asa: separa visualmente el panel de la barra, lo hace arrastrable y dice
+    // QUE se esta ajustando, para que no se confunda con una toolbar mas.
+    const asa = document.createElement("div");
+    asa.className = "ekko-param-asa";
+    asa.innerHTML = '<span aria-hidden="true">⠿</span><span>' + spec.etiqueta + '</span>';
+    cont.appendChild(asa);
 
     (spec.parametros || []).forEach(p => {
         if (p.disponible && !p.disponible()) return;
@@ -244,13 +321,10 @@ function pintar(comando) {
 
     cont.style.display = "flex";
 
-    // La tira es HERMANA de la barra, no hija (la barra es flex y la anadiria
-    // al grupo de botones). Por eso top:100% no serviria: se resolveria contra
-    // el contenedor equivocado. Se coloca con el rect real de la barra.
-    const r = barra.getBoundingClientRect();
-    cont.style.left = `${Math.round(r.left)}px`;
-    cont.style.top = `${Math.round(r.bottom)}px`;
-    cont.style.width = `${Math.round(r.width)}px`;
+    // Se mide primero con el panel ya en pantalla y luego se coloca: hace
+    // falta conocer su ancho real para centrarlo o clamp-earlo.
+    colocar(cont, !!recentrar);
+    hacerArrastrable(cont);
 }
 
 export function cerrarParametros() {
@@ -263,8 +337,11 @@ export function cerrarParametros() {
 
 export function alternarParametros(comando) {
     if (comandoAbierto === comando) { cerrarParametros(); return; }
+    // Si se cambia de comando, el panel se recentra: sus controles cambian de
+    // ancho y dejarlo en la posicion anterior lo dejaba descuadrado.
+    const cambiar = comandoAbierto !== null;
     comandoAbierto = comando;
-    pintar(comando);
+    pintar(comando, cambiar);
 }
 
 /**
@@ -284,6 +361,12 @@ export function initParametros() {
 
     document.addEventListener("keydown", (ev) => {
         if (ev.key === "Escape" && comandoAbierto) cerrarParametros();
+    });
+
+    // Si la ventana cambia de tamano, el panel se mantiene dentro: sin esto
+    // se quedaria colgando fuera de la pantalla al rotar una tablet.
+    window.addEventListener("resize", () => {
+        if (superficie && superficie.style.display !== "none") colocar(superficie, false);
     });
 
     Object.keys(PARAM_SPECS).forEach(comando => {
