@@ -58,7 +58,6 @@ import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEd
 import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
 import { toggleOwnerOutline } from "./modules/canvas-pro/outlineGeometry.js";
 import { convertSelectionToCalado, canConvertSelectionToCalado, convertSelectionToSolid } from "./modules/canvas-pro/calado.js";
-import "./modules/canvas-pro/booleanOperations.js";
 import { runGeometryAudit } from "./modules/canvas-pro/geometryAudit.js";
 // Quitar Fondo con IA local: corre en el navegador, la foto nunca sale.
 // Modelo silueta.onnx (42 MB, Apache-2.0) servido por el propio despliegue.
