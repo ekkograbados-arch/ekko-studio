@@ -1,11 +1,5 @@
 import { semanticKind, VECTOR_KIND, isCutLine } from "./vectorSemantics.js";
 import { getPublicOwner, isMockupOrMask, isContainmentWrapper } from "./designGeometry.js";
-// El motor NO rederiva reglas que el dominio ya resuelve. Estas son las
-// rutas autoritativas: si una herramienta puede aplicarse, lo dicen ellas, no
-// una copia de su condicion escrita en un `if` de la barra. Asi una correccion
-// en fusionCore/calado/ungroupRoutes llega a la interfaz sin tocar capabilities.
-import { canConvertToCalado, isClosedClientVector } from "./fusionCore.js";
-import { canDecomposeVector, getUngroupRoute, UNGROUP_ROUTE } from "./ungroupRoutes.js";
 
 /* =========================================================================
    EKKO STUDIO — MOTOR DE CAPACIDADES (v1.0)
@@ -66,25 +60,7 @@ export function speciesOf(item) {
   return null;
 }
 
-/** Un vector cerrado es material por defecto: una forma nueva, un texto ya
- *  vectorizado o un contorno todavía no llevan semanticKind, pero el cliente
- *  debe poder calarlos igual. Un path abierto NO es material. */
-function isClosedVectorish(owner) {
-  if (!owner) return false;
-  if (!["Path", "CompoundPath", "Shape"].includes(owner.className)) return false;
-  if (owner.className === "CompoundPath") {
-    const kids = owner.children || [];
-    return kids.length > 0 && kids.every(k => k.closed === true);
-  }
-  if (owner.className === "Shape") return true;
-  return owner.closed === true;
-}
-
-/** Papel fisico: lo que hace el laser con esta pieza.
- *  REGLA DEL CLIENTE: TODO vector tiene identidad, sin importar de donde
- *  venga (SVG, texto vectorizado, contorno, forma nueva, booleanas). Si nadie
- *  lo clasifico, un vector cerrado es material solido. Un hueco nunca se
- *  inventa: solo lo es si Calado lo marco. */
+/** Papel fisico: lo que hace el laser con esta pieza. */
 export function roleOf(item) {
   const owner = ownerOf(item);
   if (!owner) return ROLE.NEUTRAL;
@@ -94,12 +70,12 @@ export function roleOf(item) {
     if (kind === VECTOR_KIND.HOLE) return ROLE.HOLE;
     if (kind === VECTOR_KIND.SOLID) return ROLE.SOLID;
   } catch (_) {}
-  if (isClosedVectorish(owner)) return ROLE.SOLID;
   return ROLE.NEUTRAL;
 }
 
 /** Un grupo estructural aporta vectores si todos sus descendientes de diseno
- *  son vectores o lineas (sin imagen ni texto). */
+ *  son vectores o lineas (sin imagen ni texto). Asi un SVG recien importado
+ *  ofrece Descomponer aunque su raiz sea un Group. */
 function groupHasOnlyVectorish(owner) {
   if (!owner || owner.className !== "Group") return false;
   let vectorish = 0;
@@ -203,11 +179,7 @@ export const TOOLS = {
   // --- Estructural ---
   group:       { label: "Agrupar",      active: s => s.count >= 2 },
   ungroup:     { label: "Desagrupar",
-                 // La ruta de desagrupado es del dominio: una pieza importada
-                 // puede desagruparse aunque su especie raiz no sea "grupo".
-                 active: s => s.count === 1 && s.list.every(e => {
-                   try { return getUngroupRoute(e.owner) !== UNGROUP_ROUTE.NONE; } catch (_) { return false; }
-                 })},
+                 active: s => s.count >= 1 && s.species.size === 1 && s.species.has(SPECIES.GROUP) },
 
   // --- Descomposicion: vectores sueltos o grupos estructurales que solo
   //     contienen vectores (como un SVG recien importado). Una pieza con
@@ -218,27 +190,18 @@ export const TOOLS = {
   //     procesa solo lo fresco. ---
   decomposeVector: {
     label: "Descomponer Vector",
-    active: s => s.count > 0 && s.list.some(e => {
-      try { return canDecomposeVector(e.owner); } catch (_) { return false; }
-    })
+    active: s => s.count > 0 &&
+      s.list.every(e => e.species === SPECIES.VECTOR || e.species === SPECIES.LINE ||
+        (e.species === SPECIES.GROUP && groupHasOnlyVectorish(e.owner))) &&
+      s.list.some(e => e.owner?.data?.decomposedLayer !== true)
   },
 
   // --- Roles solido/hueco ---
-  // Todo vector cerrado llega con identidad solida (ver roleOf), asi que estas
-  // tres reglas no dependen de que la herramienta de origen haya estampeado
-  // una etiqueta: SVG, texto vectorizado, contorno y booleanas se tratan igual.
   calado: {
     label: "Calar",
-    // Calar un hueco seria un absurdo, asi que la seleccion no puede traer
-    // ninguno. Para el resto se acepta lo que diga el dominio
-    // (canConvertToCalado/isClosedClientVector, que conocen fusiones y
-    // procedencias) MAS la regla de identidad: todo vector cerrado es
-    // material. Unir las dos nunca deja el boton mas restrictivo que antes.
-    active: s => s.count > 0 && s.onlyVectorish && !s.hasHole &&
-      (s.hasSolid || s.list.every(e => {
-        try { return canConvertToCalado(e.owner) || isClosedClientVector(e.owner); }
-        catch (_) { return false; }
-      }))
+    // Todo vector cerrado puede calarse. Solo si NO hay huecos en la
+    // seleccion: calar un hueco seria un absurdo.
+    active: s => s.count > 0 && s.onlyVectorish && s.hasSolid && !s.hasHole
   },
   rellenar: {
     label: "Rellenar",
@@ -259,12 +222,7 @@ export const TOOLS = {
   },
   boolean: {
     label: "Booleanas",
-    // El dispatcher es la autoridad final y NO acepta calados: un hueco
-    // perfora, no se funde. Si la barra ofrece la booleana con un hueco
-    // seleccionado, el cliente aprieta y no pasa nada. La regla debe ser la
-    // misma que ejecuta el boton.
-    active: s => s.count >= 2 && s.onlyVectorish &&
-      !s.roles.has(ROLE.CUTLINE) && !s.hasHole
+    active: s => s.count >= 2 && s.onlyVectorish
   },
   outline: {
     label: "Contorno",
@@ -381,9 +339,94 @@ export function legacyNamesFor(selection) {
   return names;
 }
 
+/* =========================================================================
+   EKKO STUDIO — PESTAÑAS DE CONTEXTO (v1.0)
+
+   El nivel 1 del panel de dos niveles. Decide QUE grupo de herramientas se
+   despliega. El nivel 2 (los parametros de cada boton) vive en
+   commandParameters.js.
+
+   "auto" NO filtra: devuelve exactamente la interseccion completa que ya
+   devolvia legacyNamesFor(). Eso mantiene el comportamiento actual intacto y
+   evita sorpresas. Solo cuando el usuario pulsa una pestana explicita se
+   restringe al grupo de esa pestana.
+   ========================================================================= */
+
+const ALWAYS_TOOLS = Object.entries(TOOLS)
+  .filter(([, tool]) => tool.always)
+  .map(([name]) => name);
+
+export const TABS = Object.freeze({
+  base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
+  image:    { id: "image",    label: "Imagen",  tools: ["outlineBox", "removeBg", "traceImage", "outline", "fusion"] },
+  vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline"] },
+  text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "boolean", "fusion", "measurements"] },
+  fusion:   { id: "fusion",   label: "Fusión",  tools: ["unfusion", "editFusionImage", "outline"] }
+});
+
+/** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
+ *  usa el resto de EKKO: especie unica -> su pestana; mezcla -> Varios. */
+export function detectTab(selection) {
+  const list = (Array.isArray(selection) ? selection : []).filter(Boolean);
+  if (!list.length) return "base";
+  const s = describeSelection(list);
+  if (!s.count) return "base";
+  if (s.species.has(SPECIES.FUSION)) return "fusion";
+  if (s.count > 1 || s.speciesCount > 1) return "multiple";
+  const only = [...s.species][0];
+  if (only === SPECIES.RASTER) return "image";
+  if (only === SPECIES.TEXT) return "text";
+  if (only === SPECIES.VECTOR || only === SPECIES.LINE || only === SPECIES.GROUP) return "vector";
+  return "base";
+}
+
+/** Pestanas que tienen sentido con esta seleccion. Con una imagen
+ *  seleccionada el cliente ve Inicio e Imagen, no Texto ni Vector. */
+export function tabsForSelection(selection) {
+  const detected = detectTab(selection);
+  const ids = ["base", detected];
+  if (detected === "multiple") ids.push("image", "vector", "text");
+  return [...new Set(ids)].filter(id => TABS[id]);
+}
+
+/**
+ * Nombres legacy visibles para una pestana concreta.
+ * - "auto"  -> interseccion completa (comportamiento previo, sin cambios)
+ * - "base"  -> solo herramientas universales mas las de su grupo
+ * - resto   -> universales + herramientas del grupo, siempre recortadas por
+ *               la interseccion real de la seleccion (nunca se ofrece una
+ *               herramienta que el objeto seleccionado no soporta)
+ */
+export function legacyNamesForTab(selection, tabId) {
+  const all = legacyNamesFor(selection);
+  if (!tabId || tabId === "auto") return all;
+
+  const tab = TABS[tabId];
+  if (!tab) return all;
+
+  const enabled = new Set(resolveToolNames(selection));
+  const allowedTools = new Set(tab.tools);
+  const baseTools = new Set(TABS.base.tools);
+
+  const names = [];
+  Object.entries(ENGINE_TO_LEGACY).forEach(([tool, legacy]) => {
+    if (!enabled.has(tool)) return;
+    if (!allowedTools.has(tool) && !baseTools.has(tool)) return;
+    legacy.forEach(name => { if (!names.includes(name)) names.push(name); });
+  });
+
+  // Sin seleccion solo se ofrecen las universales, igual que antes.
+  if (!names.length && !(Array.isArray(selection) && selection.filter(Boolean).length)) {
+    return ["zoom", "rulers", "guides", "measurements"];
+  }
+  return names;
+}
+
 if (typeof window !== "undefined") {
   window.EKKO_CAPABILITIES = {
-    SPECIES, ROLE, TOOLS, describeSelection, resolveToolNames, legacyNamesFor,
+    SPECIES, ROLE, TOOLS, TABS, describeSelection, resolveToolNames, legacyNamesFor,
+    legacyNamesForTab, detectTab, tabsForSelection,
     isToolEnabled, speciesOf, roleOf
   };
 }
