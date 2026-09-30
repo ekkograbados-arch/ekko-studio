@@ -1,7 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" }
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    {
+      "source": "/modelos/silueta.onnx",
+      "destination": "https://huggingface.co/tomjackson2023/rembg/resolve/main/silueta.onnx"
+    }
   ],
   "headers": [
     {
