@@ -32,6 +32,13 @@
         fase: '',
         imagenOriginal: null,
         imagenProcesada: null,
+        // La salida cruda del modelo. Guardarla es lo que hace la edicion no
+        // destructiva: reajustar el borde o retoquear despues solo recompone
+        // esta mascara, sin volver a pasar por la red neuronal.
+        mascara: null,        // Float32Array de alfa, 320x320
+        mascaraAncho: 0,
+        mascaraAlto: 0,
+        lienzoTrabajo: null,  // { aw, ah }
         ultimoError: null,
         oyentes: new Set()
     };
@@ -281,6 +288,13 @@
             const aw = Math.max(1, Math.round(entrada.W * esc));
             const ah = Math.max(1, Math.round(entrada.H * esc));
 
+            // La mascara cruda se conserva antes de refinar: es lo que permite
+            // reajustar el borde y retocar despues sin volver a inferir.
+            ESTADO.mascara = r.alfa;
+            ESTADO.mascaraAncho = r.w;
+            ESTADO.mascaraAlto = r.h;
+            ESTADO.lienzoTrabajo = { aw, ah };
+
             const lienzo = aplicarMascara(r.alfa, r.w, r.h, elemento, aw, ah);
 
             // El Raster nuevo se crea desde la URL, no desde un canvas, para
@@ -350,11 +364,61 @@
         })();
     }
 
+    /**
+     * Parametros de borde, antes fijos en CFG y ahora ajustables por el cliente.
+     *
+     * Recompone el recorte desde la mascara guardada y el original. NO vuelve
+     * a pasar por la red neuronal ni vuelve a descargar el modelo, asi que el
+     * ajuste es practicamente instantaneo: el cliente mueve el control y ve el
+     * resultado al momento.
+     */
+    function ajustarBorde(clave, valor) {
+        if (clave === 'contraste') CFG.BORDE_CONTRASTE = Math.max(0, Math.min(1, Number(valor)));
+        else if (clave === 'suavizado') CFG.BORDE_SUAVIZADO = Math.max(0, Math.min(1, Number(valor)));
+        else return false;
+
+        if (!ESTADO.mascara || !ESTADO.imagenOriginal || !ESTADO.imagenProcesada) return false;
+
+        const original = ESTADO.imagenOriginal;
+        const elemento = original.getElement && original.getElement();
+        if (!elemento) return false;
+
+        const { aw, ah } = ESTADO.lienzoTrabajo;
+        const procesada = ESTADO.imagenProcesada;
+
+        try {
+            const lienzo = aplicarMascara(ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, elemento, aw, ah);
+            const url = lienzo.toDataURL('image/png');
+
+            // Se reasigna la fuente de la MISMA pieza ya colocada, sin
+            // quitarla del proyecto ni crear otra. Si se creara una nueva, el
+            // cliente veria el recorte duplicado y ademas perderia la
+            // posicion, la rotacion y el z-order que ya tenia.
+            const nuevaImg = new Image();
+            const listo = new Promise((res) => {
+                nuevaImg.onload = () => res();
+                nuevaImg.onerror = () => res();
+            });
+            nuevaImg.src = url;
+            listo.then(() => {
+                try {
+                    procesada.source = url;
+                    procesada.dirty = true;
+                } catch (e) { ESTADO.ultimoError = e; }
+            });
+            return true;
+        } catch (e) {
+            ESTADO.ultimoError = e;
+            return false;
+        }
+    }
+
     EKKO.BackgroundRemover = {
         quitarFondo,
         deshacer,
         precargar,
         alProgresar,
+        ajustarBorde,
         estado: () => ({
             listo: ESTADO.listo,
             cargando: ESTADO.cargando,
