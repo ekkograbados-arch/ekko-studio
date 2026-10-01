@@ -109,6 +109,12 @@ export const rotationController = {
     });
     const textOwner = owners.find(value => value.className === "PointText");
     if (textOwner) syncFontSizeInputs(textOwner.fontSize);
+    // La barra superior reserva espacio para tamano de fuente, radio de
+    // curvatura y espaciado. Eso solo le sirve al cliente cuando hay TEXTO
+    // seleccionado; con otra cosa esas cajas quedan vacias y empujan las
+    // herramientas fuera de la pantalla. Se avisa aca, que es donde ya se
+    // sabe que hay texto, y la hoja de estilos decide que se ve.
+    document.getElementById("topBar")?.setAttribute("data-ekko-texto", textOwner ? "si" : "no");
     window.updateSelectionInfo?.();
   } ,
   syncFontSizeInputs,
