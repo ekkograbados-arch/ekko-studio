@@ -87,7 +87,24 @@ export function runGeometryAudit({ refresh = true, show = true } = {}) {
     else console.log("Geometría íntegra: no se detectaron problemas.");
     console.groupEnd?.();
     if (show && report.problems.length) {
-        notice(`Geometría: ${report.problems.length} problema(s) para revisar. Detalle en la consola (F12).`, { kind: "warn" });
+        // Antes se decia "detalle en la consola (F12)". Para el cliente eso
+        // es lo mismo que no avisar nada: nadie que disene abre la consola
+        // del navegador, y le queda un aviso de que hay un problema que no
+        // puede ver. Ahora los problemas se enuncian aqui, en palabras, y la
+        // consola sigue siendo el respaldo de quien este desarmando esto.
+        const detalle = report.problems
+            .slice(0, 4)
+            .map((p, i) => {
+                if (typeof p === "string") return `${i + 1}. ${p}`;
+                // Los problemas traen "message" escrito para humanos y "code"
+                // para maquinas. Se enseña el texto: el cliente no va a
+                // descifrar un JSON.
+                const texto = p?.message || p?.reason || p?.type || p?.code || "";
+                return `${i + 1}. ${texto}`;
+            })
+            .join("\n");
+        const resto = report.problems.length > 4 ? `\n…y ${report.problems.length - 4} más.` : "";
+        notice(`Geometría: ${report.problems.length} problema(s) para revisar.\n${detalle}${resto}`, { kind: "warn" });
     } else if (show) {
         notice("Geometría íntegra: no se detectaron problemas.", { kind: "ok" });
     }
