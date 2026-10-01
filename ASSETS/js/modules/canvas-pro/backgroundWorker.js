@@ -17,11 +17,25 @@
 // resolvería contra /ASSETS/js/modules/canvas-pro/ y daría 404.
 // /modelos/silueta.onnx lo sirve el propio despliegue (rewrite de vercel.json),
 // por eso el navegador no necesita CORS ni descarga desde HuggingFace directo.
-const MODELO_URL = '/modelos/silueta.onnx';
+//
+// Este es el valor por defecto. El hilo principal puede sobrescribirlo con
+// setModeloUrl() almandar "preparar", que es donde vive CFG.MODELO: cambiar la
+// config surte efecto de verdad y el worker no queda atado a una sola URL.
+let MODELO_URL = '/modelos/silueta.onnx';
 const MODELO_ID = 'silueta-v1';
 const TAM_ENTRADA = 320;
 const MEDIA = [0.485, 0.456, 0.406];
 const DESV = [0.229, 0.224, 0.225];
+
+/** El hilo principal decide de dónde se baja el modelo. */
+function setModeloUrl(url) {
+    if (!url || typeof url !== 'string') return;
+    if (url === MODELO_URL) return;
+    // Si ya se habia cargado una sesion con otra URL, no vale: hay que
+    // reconstruirla o se seguira inferiendo con el modelo viejo.
+    if (sesion) { try { sesion = null; } catch (_) {} }
+    MODELO_URL = url;
+}
 
 // --- Estado ---------------------------------------------------------------
 let ortCargado = null;
@@ -203,6 +217,12 @@ function construirTensor(ort, pixeles) {
 self.onmessage = async (ev) => {
     const d = ev.data || {};
     if (d.accion === 'preparar') {
+        // La URL del modelo la decide el hilo principal (CFG.MODELO), no el
+        // worker. Antes estaba fija acá adentro y ningun cambio en la config
+        // surtia efecto: cambiar CFG.MODELO no servia de nada. Ademas asi el
+        // despliegue puede servir el modelo desde su propio dominio sin tocar
+        // este archivo.
+        if (d.modelo) setModeloUrl(d.modelo);
         try { await obtenerSesion(); reportar('listo', 1, 1, 'motor listo'); }
         catch (e) { self.postMessage({ tipo: 'error', mensaje: String(e && e.message || e) }); }
         return;
