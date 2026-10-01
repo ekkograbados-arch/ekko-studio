@@ -158,7 +158,7 @@ Restaura al 100% el diseño original de la v10.1.
     background-color: #f8fafc !important; /* Blanco-Azulado de la v10.1 */
     border: 1px solid var(--ekko-border-color) !important;
     border-radius: 6px !important;        /* Redondeado simétrico de la v10.1 */
-    font-size: 13px !important;
+    font-size: 12px !important;
     cursor: pointer !important;
     color: var(--ekko-text-dark) !important;
     transition: all 0.15s !important;
@@ -219,7 +219,7 @@ de la barra contextual interactiva de tu Studio.
     padding: 6px 10px !important;
     color: var(--ekko-text-dark) !important;
     cursor: pointer !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     transition: all 0.15s !important;
     display: inline-flex !important;
     align-items: center !important;
@@ -251,7 +251,7 @@ de la barra contextual interactiva de tu Studio.
     padding: 6px !important;
     border-radius: 6px !important;
     border: 1px solid var(--ekko-border-color) !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     background: #ffffff !important;
     color: var(--ekko-text-dark) !important;
     outline: none !important;
@@ -306,11 +306,11 @@ y los complementos integrados del lienzo.
     display: inline-flex !important;
     align-items: center !important;
     gap: 6px !important;
-    padding: 7px 14px !important;
+    padding: 6px 10px !important;
     background-color: var(--ekko-bg-panel) !important;
     border: 1px solid var(--ekko-border-color) !important;
     border-radius: 6px !important;
-    font-size: 13px !important;
+    font-size: 12px !important;
     font-weight: 500 !important;
     color: var(--ekko-text-dark) !important;
     cursor: pointer !important;
@@ -1291,158 +1291,4 @@ body,
 .ekko-seg-btn:focus-visible {
     outline: 2px solid var(--ekko-accent-hover, #526f80);
     outline-offset: -2px;
-}
-/* =====================================================================
-   BARRA SUPERIOR: HERRAMIENTAS QUE NO ENTRAN
-   ---------------------------------------------------------------------
-   Con la ventana angosta la fila desborda y #topBar tiene overflow-x: auto,
-   asi que los ULTIMOS botones quedan desplazados fuera de la ventana: se los
-   ve cortados y no se pueden apretar. No es que no funcionen, es que estan
-   fuera de alcance.
-
-   La salida es la misma de Word: lo que no entra va a "mas herramientas" (el
-   boton ...). Se calculan al vuelo segun el ancho REAL disponible, asi que
-   funciona en cualquier monitor sin numeros magos.
-   ===================================================================== */
-.ekko-overflowed {
-    display: none !important;
-}
-
-#ekkoMasHerramientas {
-    position: fixed;
-    display: none;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 232px;
-    max-height: min(70vh, 520px);
-    overflow-y: auto;
-    padding: 6px;
-    background: var(--ekko-bg-panel, #ffffff);
-    border: 1px solid var(--ekko-border-color, #cbd5e1);
-    border-radius: 10px;
-    box-shadow: 0 14px 34px rgba(15, 23, 42, .22);
-    z-index: 2147483000;
-}
-#ekkoMasHerramientas button {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 10px;
-    border: none;
-    border-radius: 7px;
-    background: transparent;
-    color: var(--ekko-text-dark, #0f172a);
-    font: 500 12.5px/1.3 system-ui, "Segoe UI", sans-serif;
-    text-align: left;
-    cursor: pointer;
-}
-#ekkoMasHerramientas button:hover {
-    background: var(--ekko-panel-secondary, #d1dce3);
-}
-#ekkoMasHerramientas .ekko-mas-titulo {
-    padding: 6px 10px 4px;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: .05em;
-    text-transform: uppercase;
-    color: var(--ekko-text-muted, #64748b);
-}
-/* =====================================================================
-   GRUPOS DE LA BARRA SUPERIOR
-   ---------------------------------------------------------------------
-   #topBar es un flex con flex-wrap: nowrap, pero cada .top-group es un
-   item flexible con min-width:auto: en vez de desbordar a lo ancho, se
-   ESTIRABA HACIA ABAJO y sus botones se partian en varias lineas. Con
-   29 botones la fila media 100px de alto dentro de una barra de 51px, y
-   como overflow-x: auto obliga a overflow-y: auto (regla de CSS), todo
-   lo que caia en la segunda linea quedaba recortado e imposible de
-   apretar.
-
-   Ahora los grupos no se comprimen ni parten: la fila es de una sola
-   linea y, si no entra, desborda a lo ancho como estaba previsto. Eso
-   deja que la barra tenga scroll horizontal de verdad, y que el motor
-   de "mas herramientas" pueda medir que no entra.
-   ===================================================================== */
-#topBar > .top-group {
-    flex: 0 0 auto;
-    white-space: nowrap;
-    display: flex;
-    align-items: center;
-    flex-wrap: nowrap;
-}
-#topBar > .top-group > button,
-#topBar > button {
-    flex: 0 0 auto;
-    white-space: nowrap;
-}
-/* =====================================================================
-   CONTROLES QUE SOLO SIRVEN CON TEXTO
-   ---------------------------------------------------------------------
-   La barra superior tiene dos cosas mezcladas en el mismo lado: las
-   herramientas (unions, agrupar, contorno...) y los controles ajustables
-   (ancho, alto, rotacion, y tambien fuente, radio de curvatura y
-   espaciado). Los tres ultimos solo le sirven al cliente si lo que tiene
-   seleccionado es TEXTO: con un logo o una foto selected no se tocan, y
-   sus cajas quedan ahi empujando todo lo demas.
-
-   Esos 300 pixeles eran la causa real de que las herramientas quedaran
-   fuera de la fila: el grupo de controles media 856 de los 1316 pixeles de
-   la barra, y a los botones les quedaban 460. Por eso "Auditar Vectores" y
-   el candado se veian recortados y no se podian apretar.
-
-   Ahora se esconden cuando no hay texto. Quien decide es el sincronizador
-   de seleccion, que ya sabe si hay un PointText: solo se le avisa con
-   data-ekko-texto en la barra. No hay una segunda opinion.
-
-   La regla mira "no sea si" y no "sea no" a proposito: al abrir la app la
-   bandera todavia no existe, y sin nada seleccionado esos controles no
-   sirven de nada. Esconderlos de entrada es lo correcto.
-   ===================================================================== */
-#topBar:not([data-ekko-texto="si"]) .ekko-solo-texto {
-    display: none !important;
-}
-
-/* Los controles ajustables se afinan para dejar respirar a la fila: los
-   campos de numero no necesitan 68 pixeles para mostrar "1234.5".
-   A diferencia de los demas grupos, ESTE si cede espacio: si la ventana es
-   angosta, las herramientas tienen prioridad y los numeros son los que se
-   recortan. Al reves, el cliente se queda sin herramientas, que es
-   justo lo que el cliente venia pidiendo.
-
-   El minimo son 240 px: lo que siempre hace falta (ancho, candado, alto,
-   rotacion) ocupa unos 200. Los tres controles de texto pueden quedarse
-   fuera de vista cuando no hay texto, que es justo cuando no sirven; con
-   texto seleccionado vuelven y, si la ventana es angosta, lo que se
-   recoge son las herramientas. Es el orden correcto: primero lo que el
-   cliente aprieta, despues lo que puede escribir a mano. */
-#topBar > .size-control-group {
-    flex: 0 1 auto;
-    min-width: 240px;
-    overflow: hidden;
-}
-.size-control-group {
-    gap: 4px !important;
-    flex-wrap: nowrap !important;
-}
-.size-control-group input[type="number"],
-.size-control-group input[type="text"] {
-    width: 56px !important;
-    padding: 3px 4px !important;
-    font-size: 11.5px !important;
-}
-.size-control-group label {
-    font-size: 11px;
-    margin: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-}
-/* El candado no necesita 112 pixeles: el icono y el texto que ya lleva
-   dicen si la proporcion esta bloqueada. */
-#btnSizeLockTop {
-    min-width: 0 !important;
-    padding: 4px 6px !important;
-    font-size: 10.5px !important;
-    white-space: nowrap;
 }
