@@ -53,6 +53,125 @@ export const PARAM_SPECS = Object.freeze({
             }
         ],
         alAplicar: (clave, valor) => window.EKKO?.BackgroundRemover?.ajustarBorde(clave, valor / 100)
+    },
+
+    /* ------------------------------------------------------------------
+       CONTORNO = una linea sobre el BORDE EXTERIOR de la pieza, y nada de
+       lo de adentro. Un clic y ya esta aplicada; este panel es solo para
+       ajustarla despues. Trazar es OTRA herramienta y no comparte nada con
+       esta.
+
+       La clave es `outline` porque es lo que dice el atributo
+       data-fusion-btn del boton: el panel se busca por ahi, no por el
+       nombre del comando. Con `contorno` el panel nunca encontraba nada.
+
+       Los `domId` no son cosmeticos: contorno.js lee estos ids con
+       getElementById para construir la linea. Por eso el control no puede
+       desincronizarse del motor.
+       ------------------------------------------------------------------ */
+    outline: {
+        etiqueta: "Contorno",
+        parametros: [
+            {
+                id: "grosor", grupo: "Valores", etiqueta: "Grosor de línea",
+                ayuda: "Grosor de la línea del borde. Con 1 sale una línea delgada, como en AutoCAD.",
+                tipo: "range", min: 1, max: 40, paso: 1,
+                sufijo: "px", domId: "ctxOutlineWidth",
+                valorActual: 1,
+                disponible: () => typeof window.aplicarContorno === "function"
+            },
+            {
+                id: "radio", grupo: "Valores", etiqueta: "Radio",
+                ayuda: "Redondea las esquinas. Sube para un borde más suave, baja para conservar el dibujo original.",
+                tipo: "range", min: 0, max: 60, paso: 1,
+                sufijo: "px", domId: "ctxOutlineRadius",
+                valorActual: 0,
+                disponible: () => typeof window.aplicarContorno === "function"
+            },
+            {
+                id: "suavidad", grupo: "Valores", etiqueta: "Suavidad",
+                ayuda: "Suaviza los dientes que deja el calco sobre la imagen. Más suave, contorno más limpio.",
+                tipo: "range", min: 0, max: 10, paso: 1,
+                sufijo: "", domId: "ctxOutlineSmoothing",
+                valorActual: 0,
+                disponible: () => typeof window.aplicarContorno === "function"
+            },
+            {
+                id: "posicion", grupo: "Posición", etiqueta: "",
+                ayuda: "De qué lado del borde va la línea.",
+                tipo: "segmentos", domId: "ctxOutlineSide",
+                valorActual: "center",
+                opciones: [
+                    { valor: "center", etiqueta: "Centro", ayuda: "La línea se apoya justo sobre el borde." },
+                    { valor: "outside", etiqueta: "Exterior", ayuda: "La línea sale para afuera del objeto." },
+                    { valor: "inside", etiqueta: "Interior", ayuda: "La línea entra hacia adentro del objeto." }
+                ],
+                disponible: () => typeof window.aplicarContorno === "function"
+            }
+        ],
+        acciones: [
+            { id: "rehacer", etiqueta: "Volver a aplicar", ejecutar: () => window.aplicarContorno?.() }
+        ],
+        // Cada cambio rehace el contorno con el valor nuevo. El motor se
+        // encarga de no crear uno duplicado: si ya existe, lo rehace.
+        alAplicar: () => window.EKKO?.contornoVivo?.()
+    },
+
+    /* ------------------------------------------------------------------
+       TRAZAR = calcar el objeto ENTERO: borde por fuera y detalle por
+       adentro, con lineas y siluetas cerradas. Es OTRA herramienta, no
+       Contorno: Contorno solo dibuja la linea del borde exterior.
+       Por eso aca NO hay grosor, ni posicion, ni "solo exterior": todo
+       eso es Contorno y vive en su propio panel.
+
+       Un clic previsualiza el calco en magenta; "Aplicar trazado" lo
+       entrega como vector. Cada control rehace la vista en vivo.
+       ------------------------------------------------------------------ */
+    traceImage: {
+        etiqueta: "Trazar",
+        parametros: [
+            {
+                id: "lineas", grupo: "Trazado", etiqueta: "Cantidad de líneas",
+                ayuda: "Cuántas bandas de gris se calcan. Con 1 sale el dibujo base; sube para traer sombras, pelos y medios tonos.",
+                tipo: "range", min: 1, max: 6, paso: 1,
+                sufijo: "", domId: "traceLineas",
+                valorActual: 1,
+                disponible: () => typeof window.traceRaster === "function"
+            },
+            {
+                id: "detalle", grupo: "Trazado", etiqueta: "Detalle",
+                ayuda: "Hasta qué gris se calca. Sube para traer más dibujo interno; baja para quedarte con lo esencial.",
+                tipo: "range", min: 0, max: 255, paso: 1,
+                sufijo: "", domId: "traceUmbral",
+                valorActual: 128,
+                disponible: () => typeof window.traceRaster === "function"
+            },
+            {
+                id: "suavidad", grupo: "Trazado", etiqueta: "Suavidad",
+                ayuda: "Limpia los dientes del calco. Más suave, líneas más limpias; menos suave, más fiel al píxel.",
+                tipo: "range", min: 0, max: 100, paso: 1,
+                sufijo: "", domId: "traceSuavidad",
+                valorActual: 75,
+                disponible: () => typeof window.traceRaster === "function"
+            },
+            {
+                id: "modo", grupo: "Modo", etiqueta: "",
+                ayuda: "Foto calca por niveles de gris; Croquis es para firmas o manuscritos con luz dispareja.",
+                tipo: "segmentos", domId: "traceModo",
+                valorActual: "foto",
+                opciones: [
+                    { valor: "foto", etiqueta: "Foto", ayuda: "Calca por niveles de gris. Para fotos e imágenes normales." },
+                    { valor: "croquis", etiqueta: "Croquis", ayuda: "Umbral adaptativo local. Para firmas o manuscritos en papel." }
+                ],
+                disponible: () => typeof window.traceRaster === "function"
+            }
+        ],
+        acciones: [
+            { id: "aplicar", etiqueta: "Aplicar trazado", ejecutar: () => window.EKKO?.confirmarTrazo?.() },
+            { id: "descartar", etiqueta: "Descartar", ejecutar: () => window.EKKO?.cancelarTrazo?.() }
+        ],
+        // Cada cambio rehace la vista previa con los valores nuevos.
+        alAplicar: () => window.EKKO?.trazoVivo?.()
     }
 });
 
@@ -116,7 +235,84 @@ function crearAplicador(spec, comando) {
     };
 }
 
+/* ------------------------------------------------------------------
+   Botones segmentados (Centro / Exterior / Interior).
+
+   No es un desplegable: se ven las tres opciones y se aprieta la que se
+   quiere, como los grupos de la cinta de Word. Menos clics y sin adivinar
+   que hay algo escondido.
+
+   La rueda tambien los recorre: es la misma idea que en los deslizadores,
+   el cliente no necesita cobrar la otra mano para cambiar el valor.
+   ------------------------------------------------------------------ */
+function crearSegmentos(spec, comando) {
+    const envoltorio = document.createElement("span");
+    envoltorio.className = "ekko-param";
+
+    const opciones = Array.isArray(spec.opciones) ? spec.opciones : [];
+    if (!opciones.length) return envoltorio;
+
+    const grupo = document.createElement("div");
+    grupo.className = "ekko-seg";
+
+    // El motor lee la eleccion con document.getElementById(domId).value, que
+    // es lo que hacen los <select>. Un <div> no tiene .value, asi que el boton
+    // se pintaba pero el motor seguia viendo "center". Este input oculto es el
+    // que el motor lee; los botones solo lo actualizan. Por eso la eleccion se
+    // ve Y se aplica, sin que el motor sepa que hay botones.
+    let puente = null;
+    if (spec.domId) {
+        puente = document.createElement("input");
+        puente.type = "hidden";
+        puente.id = spec.domId;
+        grupo.appendChild(puente);
+    }
+    // El valor REAL manda: si el motor ya tiene algo aplicado, el control se
+    // muestra en ese valor y no en uno inventado.
+    const inicial = String(spec.valorActual ?? opciones[0].valor ?? "");
+    let valor = inicial;
+
+    const botones = opciones.map((op) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "ekko-seg-btn";
+        b.textContent = op.etiqueta;
+        if (op.ayuda) b.title = op.ayuda;
+        b.dataset.valor = String(op.valor);
+        b.addEventListener("click", () => { fijar(String(op.valor)); aplicador.aplicarAhora(); });
+        grupo.appendChild(b);
+        return b;
+    });
+
+    const fijar = (v) => {
+        valor = v;
+        if (puente) puente.value = v;
+        botones.forEach((b) => b.classList.toggle("is-activo", b.dataset.valor === v));
+    };
+
+    const aplicador = crearAplicador(spec, comando);
+    fijar(inicial);
+    // El motor tambien necesita saber cual quedo elegido.
+    aplicador.setValor(valor);
+
+    grupo.addEventListener("wheel", (ev) => {
+        ev.preventDefault();
+        const i = opciones.findIndex((o) => String(o.valor) === valor);
+        const paso = ev.deltaY > 0 ? 1 : -1;
+        const siguiente = opciones[(i + paso + opciones.length) % opciones.length];
+        fijar(String(siguiente.valor));
+        aplicador.pedir();
+        clearTimeout(grupo.__ruedaT);
+        grupo.__ruedaT = setTimeout(() => aplicador.aplicarAhora(), 220);
+    }, { passive: false });
+
+    envoltorio.appendChild(grupo);
+    return envoltorio;
+}
+
 function crearParametro(spec, comando) {
+    if (spec.tipo === "segmentos") return crearSegmentos(spec, comando);
+
     const envoltorio = document.createElement("label");
     envoltorio.className = "ekko-param";
 
@@ -144,11 +340,25 @@ function crearParametro(spec, comando) {
     rango.title = spec.ayuda || spec.etiqueta;
     numero.title = spec.ayuda || spec.etiqueta;
 
+    // domId es el puente con el motor: contorno.js busca estos ids con
+    // getElementById, asi el control y el motor no pueden separarse nunca.
+    if (spec.domId) {
+        rango.id = spec.domId;
+        numero.id = spec.domId + "Num";
+    }
+    // Las unidades: un borde de fondo va en porcentaje; un grosor de linea no.
+    // Sin esto se veria "12%" en algo que no es un porcentaje.
+    const sufijo = spec.sufijo !== undefined ? spec.sufijo : "%";
+
     // El estado real del control manda sobre el declarado: si el motor ya
     // toco CFG, la barra no puede mostrar un numero inventado.
-    const cfg = window.EKKO?.BackgroundRemover?.config?.[spec.claveCfg];
+    const cfg = spec.leerCfg
+        ? spec.leerCfg()
+        : window.EKKO?.BackgroundRemover?.config?.[spec.claveCfg];
     const fraccion = typeof cfg === "number" ? cfg : 0.5;
-    const valorActual = Math.round(Math.max(spec.min, Math.min(spec.max, fraccion * 100)));
+    const valorActual = spec.valorActual !== undefined
+        ? spec.valorActual
+        : Math.round(Math.max(spec.min, Math.min(spec.max, fraccion * 100)));
 
     const aplicador = crearAplicador(spec, comando);
 
@@ -158,7 +368,7 @@ function crearParametro(spec, comando) {
         const n = Math.max(spec.min, Math.min(spec.max, Math.round(v)));
         rango.value = String(n);
         numero.value = String(n);
-        valor.textContent = n + "%";
+        valor.textContent = n + (sufijo ? " " + sufijo : "");
         aplicador.setValor(n);
         return n;
     };
@@ -200,7 +410,7 @@ function crearParametro(spec, comando) {
     });
 
     envoltorio.append(texto, rango, numero, valor);
-    envoltorio.appendChild(document.createTextNode('%'));
+    if (sufijo) envoltorio.appendChild(document.createTextNode(sufijo));
     return envoltorio;
 }
 
@@ -297,10 +507,46 @@ function pintar(comando, recentrar) {
     asa.innerHTML = '<span aria-hidden="true">⠿</span><span>' + spec.etiqueta + '</span>';
     cont.appendChild(asa);
 
-    (spec.parametros || []).forEach(p => {
-        if (p.disponible && !p.disponible()) return;
-        cont.appendChild(crearParametro(p, comando));
-    });
+    // --- Grupos ---------------------------------------------------------
+    // Si el comando declara grupos, los controles se reparten en columnas
+    // separadas por una linea, como los grupos de la cinta de Word: los
+    // valores que se ajustan a la izquierda, los botones a la derecha.
+    // Si NO declara grupos se dibuja todo en fila, como antes: un comando
+    // que no pide grupos no cambia de aspecto.
+    const visibles = (spec.parametros || []).filter(p => !p.disponible || p.disponible());
+    const conGrupos = visibles.some(p => p.grupo);
+
+    if (conGrupos) {
+        const orden = [];
+        const porNombre = new Map();
+        visibles.forEach(p => {
+            const nombre = p.grupo || "";
+            if (!porNombre.has(nombre)) {
+                const g = { nombre, controles: [] };
+                porNombre.set(nombre, g);
+                orden.push(g);
+            }
+            porNombre.get(nombre).controles.push(p);
+        });
+
+        orden.forEach(g => {
+            const caja = document.createElement("div");
+            caja.className = "ekko-param-grupo";
+            if (g.nombre) {
+                const titulo = document.createElement("div");
+                titulo.className = "ekko-param-grupo-titulo";
+                titulo.textContent = g.nombre;
+                caja.appendChild(titulo);
+            }
+            const fila = document.createElement("div");
+            fila.className = "ekko-param-fila";
+            g.controles.forEach(p => fila.appendChild(crearParametro(p, comando)));
+            caja.appendChild(fila);
+            cont.appendChild(caja);
+        });
+    } else {
+        visibles.forEach(p => cont.appendChild(crearParametro(p, comando)));
+    }
 
     (spec.acciones || []).forEach(a => {
         const b = document.createElement("button");
