@@ -27,6 +27,32 @@ function getContentItem(item) {
   return getPublicOwner(item) || item || null;
 }
 
+/**
+ * Baja hasta el Raster real cuando lo que se pasa es el envoltorio.
+ *
+ * La app envuelve cada pieza importada en un grupo de recorte, asi que lo
+ * seleccionado suele ser el Group. Las herramientas que necesitan PIXELES
+ * (brillo, contraste, filtros) reciben ese Group y no tienen nada que leer:
+ * antes se comprobaba con `instanceof paper.Raster` y salia en silencio, con
+ * el control movido y nada cambiando, como un boton muerto.
+ *
+ * Es la misma trampa que en Trazar y en Quitar Fondo. Se resuelve aqui una
+ * sola vez, en vez de repetir el chequeo en cada herramienta.
+ */
+export function getRasterReal(item) {
+  let actual = getContentItem(item);
+  if (!actual) return null;
+  try { if (actual instanceof paper.Raster) return actual; } catch (_) { return null; }
+  const pila = actual.children ? [...actual.children] : [];
+  while (pila.length) {
+    const c = pila.shift();
+    if (!c) continue;
+    try { if (c instanceof paper.Raster) return c; } catch (_) { continue; }
+    if (c.children) pila.push(...c.children);
+  }
+  return null;
+}
+
 function isMockupOrUI(item) {
   let curr = item;
   while (curr) {
@@ -378,7 +404,14 @@ export function sendImageToBack(item) {
 
 // Aplicar filtros de brillo y contraste píxel a píxel mediante Canvas nativo de alto rendimiento
 export function applyBrightnessContrast(raster, brightness, contrast) {
-  if (!raster || !(raster instanceof paper.Raster)) return;
+  // Se baja al Raster real: lo que llega suele ser el grupo de recorte, y un
+  // Group no tiene pixeles. Antes salia en silencio y el control parecia muerto.
+  const real = getRasterReal(raster);
+  if (!real) {
+    console.warn("[EKKO IMAGEN] brillo/contraste: la seleccion no contiene una imagen");
+    return;
+  }
+  raster = real;
 
   // 0. SOLUCIÓN AL EVENT LEAK: Anular de raíz cualquier callback onLoad obsoleto para evitar que
   // se re-dispare recursivamente al reasignar .canvas y destruya la imagen o resetee sus datos.
