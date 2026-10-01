@@ -35,6 +35,112 @@ const CONTOUR_COLOR = "#111827";
 const ALPHA_SCAN_MAX = 1200;
 const ALPHA_ISO = 128;
 
+/* ------------------------------------------------------------------
+   VINCULOS: que contorno salio de que pieza.
+
+   Vive solo en memoria, a proposito. La app envuelve cada pieza en un grupo
+   contenedor, as que lo que el cliente selecciona casi nunca es el contorno
+   mismo sino el envoltorio, y la marca en .data no siempre sobrevive al
+   envoltorio. El registro evita depender de eso: se guarda el par real.
+   ------------------------------------------------------------------ */
+const VINCULOS = new Map();
+
+/** Trocea la banda de geometria y la deja dentro del contorno, en el lugar. */
+function volcarGeometria(contorno, band, opciones = {}) {
+    if (!contorno || !band) return null;
+    const hijos = (band.className === "CompoundPath" && band.children?.length
+        ? band.children.map(c => c.clone({ insert: false }))
+        : [band.clone({ insert: false })]);
+    band.remove?.();
+    // Se reemplaza la geometria DENTRO del mismo objeto, no se borra y se
+    // crea otro: asi el contorno no pierde su posicion, su envoltorio ni su
+    // seleccion, y el cliente no ve que la pieza desaparezca un instante.
+    contorno.removeChildren?.();
+    contorno.applyMatrix = false;
+    contorno.matrix = new paper.Matrix();
+    hijos.forEach(child => contorno.addChild(child));
+    contorno.fillRule = "evenodd";
+    contorno.data = {
+        ...(contorno.data || {}),
+        outlineWidth: opciones.width,
+        outlineRadius: opciones.radius,
+        outlineSmoothing: opciones.smoothing,
+        outlineSide: opciones.side
+    };
+    try { window.syncGeometryToGeomBase?.(contorno); } catch (_) {}
+    try { paper.view?.update?.(); } catch (_) {}
+    return contorno;
+}
+
+/** Rehace la banda de un contorno que ya esta en el lienzo, con los valores de ahora. */
+function regenerarContorno(contorno, opciones = null) {
+    if (!contorno) return null;
+    // El origen se busca en el registro comparando contra la pieza real.
+    let origen = null;
+    for (const vinculo of VINCULOS.values()) {
+        if (vinculo.contorno === contorno || vinculo.contorno === ownerOf(contorno)) {
+            origen = vinculo.origen;
+            break;
+        }
+    }
+    if (!origen) {
+        console.warn("[EKKO CONTORNO] no se encontro de que pieza salio este contorno");
+        return null;
+    }
+
+    const control = opciones || readOutlineControls();
+    const sampled = sampleRasterAlpha(origen);
+    const bounds = ownerOf(origen)?.bounds?.clone?.() || origen?.bounds?.clone?.();
+    if (!bounds) return null;
+    const loops = sampled ? alphaSilhouetteContours(sampled, bounds) : [];
+
+    const base = new paper.CompoundPath({ insert: false });
+    base.applyMatrix = false;
+    base.matrix = new paper.Matrix();
+    base.fillRule = "evenodd";
+    if (loops.length) {
+        loops.forEach(loop => base.addChild(new paper.Path({ segments: loop, closed: true, insert: false })));
+    } else {
+        base.addChild(new paper.Path.Rectangle({
+            from: bounds.topLeft, to: bounds.bottomRight, closed: true, insert: false
+        }));
+    }
+
+    const width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
+    const band = buildOutlineGeometry(base, width, control.side, Number(control.radius) || 0,
+        Number(control.smoothing) || 0);
+    base.remove?.();
+    if (!band) return null;
+    return volcarGeometria(contorno, band, {
+        width, side: control.side, radius: Number(control.radius) || 0, smoothing: Number(control.smoothing) || 0
+    });
+}
+
+/**
+ * Recalcula el contorno VIVO: el que el cliente tiene seleccionado ahora.
+ * Es lo que hace que mover un control se vea en el instante, sin apretar nada.
+ */
+export function refrescarContornoVivo() {
+    const seleccion = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+        ? window.selectedItems
+        : (window.selectedItem ? [window.selectedItem] : []);
+    for (const item of seleccion) {
+        const owner = ownerOf(item);
+        //Caso 1: el cliente tiene seleccionado el contorno mismo.
+        if (owner?.data?.source === "image-outline" || item?.data?.source === "image-outline") {
+            return regenerarContorno(owner);
+        }
+        // Caso 2: tiene seleccionada la pieza. Como la app la envuelve, se
+        // busca tambien en el registro comparando contra la pieza de origen.
+        for (const vinculo of VINCULOS.values()) {
+            if (vinculo.origen === item || vinculo.origen === owner) {
+                return regenerarContorno(vinculo.contorno);
+            }
+        }
+    }
+    return null;
+}
+
 /** Muestrea el canal alfa de la imagen a una resolucion workable.
  *  Devuelve null si la imagen no tiene nada transparente: en ese caso el borde
  *  exterior es el rectangulo de la pieza y no hay nada que leer. */
@@ -181,7 +287,8 @@ function createRasterBorderContour(raster, options = {}) {
     const bounds = owner?.bounds?.clone?.() || raster?.bounds?.clone?.();
     if (!bounds) return null;
 
-    // De donde sale el borde NO es una decision del cliente:
+    // CONTORNO = EL BORDE. Es una sola cosa, y de donde sale NO lo decide el
+    // cliente: la app mira la imagen y ya esta.
     //   - imagen llena hasta su caja  -> el borde es la caja
     //   - imagen recortada            -> el borde es su silueta real
     // En los dos casos el contorno se arma con el MISMO motor, asi que los
@@ -205,7 +312,7 @@ function createRasterBorderContour(raster, options = {}) {
         compound.addChild(frame);
     }
 
-    const width = Math.abs(Number(options.width) || 0) || 2;
+    const width = Math.abs(Number(options.width) || 0) || 1;
     const side = ["inside", "outside", "center"].includes(String(options.side || "").toLowerCase())
         ? String(options.side).toLowerCase() : "center";
     const radius = Number(options.radius) || 0;
@@ -245,6 +352,16 @@ function createRasterBorderContour(raster, options = {}) {
         if (window.currentMockup) outline.insertBelow(window.currentMockup);
     }
     window.syncGeometryToGeomBase?.(outline);
+
+    // Se anota de que pieza salio este contorno. Es lo que permite que, al
+    // mover un control, se rehaga ESTE contorno y no se cree uno nuevo al lado.
+    try {
+        const clave = owner?.id ?? raster?.id;
+        if (clave !== undefined && clave !== null) {
+            VINCULOS.set(clave, { contorno: outline, origen: owner || raster });
+        }
+    } catch (_) {}
+
     return outline;
 }
 
@@ -337,7 +454,10 @@ function readOutlineControls() {
   };
   const sideEl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSide") : null;
   return {
-    width: read("ctxOutlineWidth", 2),
+    // Grosor minimo 1: al apretar Contorno tiene que salir una LINEA delgada,
+    // pegada al borde, como en AutoCAD o LightBurn. Si el panel esta cerrado no
+    // hay ningun control que leer, asi que gana este valor por defecto.
+    width: read("ctxOutlineWidth", 1),
     radius: read("ctxOutlineRadius", 0),
     smoothing: read("ctxOutlineSmoothing", 0),
     side: sideEl?.value || "center"
@@ -414,4 +534,10 @@ if (typeof window !== "undefined") {
   window.createBoundingContour = createBoundingContour;
   window.createRasterBorderContour = createRasterBorderContour;
   window.isSingleClosedContour = isSingleClosedContour;
+
+  // Puente con commandParameters.js: el panel de Contorno llama a esto cada
+  // vez que el cliente mueve un control. Vive en EKKO porque es la unica
+  // autoridad de este dominio; el panel no sabe nada de geometria.
+  window.EKKO = window.EKKO || {};
+  window.EKKO.contornoVivo = refrescarContornoVivo;
 }
