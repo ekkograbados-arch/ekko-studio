@@ -940,6 +940,29 @@ function syncSizeLockButtons() {
   });
 }
 
+/**
+ * Cambia el candado de proporción.
+ *
+ * Existía el botón y existía syncSizeLockButtons(), que DIBUJA el estado
+ * actual... pero ninguna función que lo cambiara: apretar el candado no
+ * alteraba nada. El flag _sizeLockEnabled quedaba siempre en su valor
+ * inicial y el candado era decorativo.
+ *
+ * Ambos botones comparten el mismo flag: el candado de la barra superior y el
+ * de la barra emergente son el mismo control, que se vea en los dos.
+ */
+function toggleSizeLock() {
+  const estabaActivo = window._sizeLockEnabled !== false;
+  window._sizeLockEnabled = !estabaActivo;
+  syncSizeLockButtons();
+  const activo = window._sizeLockEnabled;
+  // El propio boton ya muestra el estado ("Proporción: SI/NO"), asi que no
+  // hace falta un aviso aparte: dos mensajes para lo mismo es ruido.
+  // Se dispara el evento para que quien caresca de la proporcion se entere.
+  window.dispatchEvent(new CustomEvent("ekko-sizelock-change", { detail: { activo } }));
+  return activo;
+}
+
 function updateSelectionInfo() {
   window.updateGlobalScaleFactor?.();
   const owners = getNumericSelectionOwners();
@@ -2245,6 +2268,8 @@ function activateTextMode() {
   }
 }
 window.activateTextMode = activateTextMode;
+window.toggleSizeLock = toggleSizeLock;
+window.syncSizeLockButtons = syncSizeLockButtons;
 
 export function createEditableText(point) {
   saveHistory();
@@ -2517,4 +2542,3 @@ if (document.readyState === "loading") {
 } else {
   bootstrapEKKO();
 }
-
