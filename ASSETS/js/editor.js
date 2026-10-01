@@ -55,7 +55,7 @@ import "./modules/canvas-pro/interactionOwner.js"; // Árbitro único de interac
 import "./modules/canvas-pro/ownerGraph.js"; // Cadena única de owners públicos
 import "./modules/canvas-pro/fusionCore.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
-import { openImageTraceModal } from "./modules/canvas-pro/imageTracer.js";
+import { iniciarTrazado } from "./modules/canvas-pro/imageTracer.js";
 import { toggleOwnerOutline } from "./modules/canvas-pro/outlineGeometry.js";
 import { convertSelectionToCalado, canConvertSelectionToCalado, convertSelectionToSolid } from "./modules/canvas-pro/calado.js";
 import { runGeometryAudit } from "./modules/canvas-pro/geometryAudit.js";
@@ -103,7 +103,9 @@ window.traceRaster = function(item = null) {
     alert("Seleccioná primero una imagen para trazarla.");
     return null;
   }
-  return openImageTraceModal(target);
+  // Ya no abre la ventana modal: previsualiza en el lienzo y el panel de
+  // parametros (que se abre solo con el clic) ajusta en vivo.
+  return iniciarTrazado(target);
 };
 
 window.removeBackground = function() {
