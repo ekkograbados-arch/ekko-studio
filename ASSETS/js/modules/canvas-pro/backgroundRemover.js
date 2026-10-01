@@ -465,7 +465,30 @@
     // ----------------------------------------------------------------------
     // API principal
     // ----------------------------------------------------------------------
+    /**
+     * Baja hasta el Raster real. La app envuelve cada pieza importada en un
+     * grupo de recorte (clipItem), asi que lo que llega aca suele ser un Group:
+     * un Group no tiene .position, y quitar el fondo reventaba con
+     * "Cannot read properties of undefined". Es la misma trampa que en Trazar.
+     */
+    function resolverImagen(item) {
+        if (!item) return null;
+        try { if (item instanceof paper.Raster) return item; } catch (_) { return null; }
+        const pila = item.children ? [...item.children] : [];
+        while (pila.length) {
+            const c = pila.shift();
+            if (!c) continue;
+            try { if (c instanceof paper.Raster) return c; } catch (_) { continue; }
+            if (c.children) pila.push(...c.children);
+        }
+        return null;
+    }
+
     async function quitarFondo(raster, opciones = {}) {
+        // Se acepta el envoltorio: el trabajo se hace sobre el Raster de adentro.
+        const destino = resolverImagen(raster);
+        if (!destino) throw new Error('Seleccioná una imagen primero');
+        raster = destino;
         if (!raster) throw new Error('Seleccioná una imagen primero');
         ESTADO.ultimoError = null;
         ESTADO.imagenOriginal = raster;
@@ -492,7 +515,7 @@
 
             await cargarOrt();
             await obtenerWorker();
-            await enviar({ accion: 'preparar' }, 'listo');
+            await enviar({ accion: 'preparar', modelo: CFG.MODELO }, 'listo');
 
             const entrada = prepararEntrada(elemento);
             informar('inferir', 0, 0, 'analizando la imagen…');
@@ -605,7 +628,7 @@
             try {
                 await cargarOrt();
                 await obtenerWorker();
-                await enviar({ accion: 'preparar' }, 'listo');
+                await enviar({ accion: 'preparar', modelo: CFG.MODELO }, 'listo');
                 return true;
             } catch (_) { return false; }
         })();
