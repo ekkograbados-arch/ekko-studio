@@ -155,6 +155,15 @@ const ALL_SPECIES = [SPECIES.RASTER, SPECIES.VECTOR, SPECIES.LINE, SPECIES.TEXT,
  * Declaracion de cada herramienta. `active` recibe el desglose de la
  * seleccion y devuelve true/false. Asi una regla compleja no queda escondida
  * en un if/else de barra.
+ *
+ * REGLAS DE SELECCION MULTIPLE (del cliente):
+ *   - Un objeto -> todo lo de su tipo queda visible.
+ *   - Varios del mismo tipo -> agrupar, alinear y distribuir SI; editar NO.
+ *     Por eso las herramientas de edicion exigen count === 1.
+ *   - Fusionar -> SOLO si hay vector + imagen. Solo vectores o solo
+ *     imagenes: no se fusiona. (La regla de `fusion` ya lo dice.)
+ *   - Booleanas, descomponer, solidos/huecos y auditar son operaciones
+ *     geometricas pensadas para varios objetos: quedan como estan.
  */
 export const TOOLS = {
   // --- Siempre activas: sirven para cualquier objeto ---
@@ -196,16 +205,16 @@ export const TOOLS = {
       s.list.some(e => e.owner?.data?.decomposedLayer !== true)
   },
 
-  // --- Roles solido/hueco ---
+  // --- Roles solido/hueco (edicion de UN objeto: con varios se ocultan) ---
   calado: {
     label: "Calar",
     // Todo vector cerrado puede calarse. Solo si NO hay huecos en la
     // seleccion: calar un hueco seria un absurdo.
-    active: s => s.count > 0 && s.onlyVectorish && s.hasSolid && !s.hasHole
+    active: s => s.count === 1 && s.onlyVectorish && s.hasSolid && !s.hasHole
   },
   rellenar: {
     label: "Rellenar",
-    active: s => s.count > 0 && s.onlyVectorish && s.hasHole && !s.hasSolid
+    active: s => s.count === 1 && s.onlyVectorish && s.hasHole && !s.hasSolid
   },
   solidHole: {
     label: "Sólidos ⇄ Huecos",
@@ -213,12 +222,12 @@ export const TOOLS = {
     active: s => s.count > 0 && s.onlyVectorish && s.mixedRoles
   },
 
-  // --- Geometria ---
+  // --- Geometria (edicion de UN objeto: con varios se ocultan) ---
   editNodes: {
     label: "Editar Nodos",
     // Cualquier vector (sólido, hueco o fusionado) y cualquier línea.
     // Una imagen no tiene nodos, así que queda oculta.
-    active: s => s.count > 0 && s.onlyVectorish
+    active: s => s.count === 1 && s.onlyVectorish
   },
   boolean: {
     label: "Booleanas",
@@ -227,7 +236,9 @@ export const TOOLS = {
   outline: {
     label: "Contorno",
     // Un solo concepto de contorno para imagen, vector y texto.
-    active: s => s.count > 0 && [...s.species].every(sp =>
+    // Edicion de UN objeto: con varios seleccionados se oculta (ahi solo
+    // quedan agrupar, alinear, distribuir, booleanas y fusion).
+    active: s => s.count === 1 && [...s.species].every(sp =>
       sp === SPECIES.RASTER || sp === SPECIES.VECTOR || sp === SPECIES.TEXT || sp === SPECIES.FUSION)
   },
   audit: {
@@ -235,20 +246,23 @@ export const TOOLS = {
     active: s => s.count > 0 && s.onlyVectorish
   },
 
-  // --- Imagen ---
-  outlineBox:    { label: "Contorno · recuadro",
-                   active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
-  removeBg:      { label: "Quitar Fondo",  active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
-  traceImage:    { label: "Trazar Imagen", active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
+  // --- Imagen (edicion de UNA imagen: con varias se ocultan) ---
+  // NO hay una herramienta "Contorno · recuadro": recuadro NO es un concepto
+  // para el cliente. CONTORNO ES EL BORDE, y es una sola cosa. De donde sale
+  // ese borde (silueta o caja) lo decide la app sola mirando la imagen, asi
+  // que acá no hay una entrada aparte: solo `outline`.
+  removeBg:      { label: "Quitar Fondo",  active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
+  traceImage:    { label: "Trazar Imagen", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
 
-  // --- Texto ---
-  textToVector:  { label: "Texto a Vector", active: s => s.count > 0 && s.species.size === 1 && s.species.has(SPECIES.TEXT) },
+  // --- Texto (edicion de UN texto: con varios se oculta) ---
+  textToVector:  { label: "Texto a Vector", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT) },
 
   // --- Fusion ---
   fusion: {
     label: "Fusionar",
-    // Imagen + vector, o imagen + linea cerrada. La imagen aporta el
-    // relleno, el vector o la linea aportan la mascara.
+    // REGLA DEL CLIENTE: fusionar SOLO si hay vector + imagen. Solo vectores
+    // o solo imagenes: no se fusiona. Por eso se exigen las dos especies a la
+    // vez: la imagen aporta el relleno, el vector o la linea aportan la mascara.
     active: s => {
       if (s.count < 2) return false;
       const rasters = s.list.filter(e => e.species === SPECIES.RASTER);
@@ -311,7 +325,6 @@ const ENGINE_TO_LEGACY = Object.freeze({
   decomposeVector: ["decomposeVector"],
   editNodes: ["editNodes"],
   outline: ["outline"],
-  outlineBox: ["outlineBox"],
   calado: ["calado"],
   rellenar: ["rellenar"],
   solidHole: ["solidHole"],
@@ -358,7 +371,7 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
 
 export const TABS = Object.freeze({
   base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
-  image:    { id: "image",    label: "Imagen",  tools: ["outlineBox", "removeBg", "traceImage", "outline", "fusion"] },
+  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "traceImage", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
   multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "boolean", "fusion", "measurements"] },
