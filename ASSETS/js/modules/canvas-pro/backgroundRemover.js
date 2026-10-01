@@ -705,6 +705,9 @@
         precargar,
         alProgresar,
         ajustarBorde,
+        abrirRetoque,
+        deshacerRetoque,
+        cerrarRetoque,
         estado: () => ({
             listo: ESTADO.listo,
             cargando: ESTADO.cargando,
@@ -775,3 +778,219 @@
     });
 
 })(window.EKKO = window.EKKO || {});
+
+    /* =====================================================================
+       RETOQUE CON PINCELES
+       ---------------------------------------------------------------------
+       La IA acierta casi siempre, pero en una foto con bigotes, pelo o
+       un carton con los bordes rotos siempre queda algo por corregir. Sin
+       esto el cliente tiene dos salidas: aceptar un recorte con errores o
+       empezar de cero.
+
+       Se trabaja sobre la MASCARA que la IA ya guardo, no sobre los pixeles
+       de la imagen. Ventaja: no hay que volver a inferir, y mover BORDE o
+       SUAVIZADO mas tarde sigue funcionando sobre el mismo recorte.
+
+       Por eso "Deshacer" devuelve la mascara original: el cliente puede
+       retocar, arrepentirse y volver al resultado de la IA sin recalcular.
+       ===================================================================== */
+    const RETOQUE = {
+        activo: false,
+        modo: 'borrar',        // 'borrar' quita, 'restaurar' devuelve
+        radio: 25,
+        original: null,        // Uint8ClampedArray de la mascara de la IA
+        capa: null,            // canvas de trabajo
+        puntero: false
+    };
+
+    function imagenEnRetoque() {
+        const seleccion = Array.isArray(window.selectedItems) && window.selectedItems.length
+            ? window.selectedItems
+            : (window.selectedItem ? [window.selectedItem] : []);
+        for (const item of seleccion) {
+            try { if (item instanceof paper.Raster) return item; } catch (_) {}
+            // La app envuelve la pieza: se baja hasta el Raster de adentro.
+            const pila = item && item.children ? [...item.children] : [];
+            while (pila.length) {
+                const c = pila.shift();
+                try { if (c instanceof paper.Raster) return c; } catch (_) { continue; }
+                if (c && c.children) pila.push(...c.children);
+            }
+        }
+        return ESTADO.imagenProcesada || null;
+    }
+
+    /** Abre el panel de retoque. El recorte ya tiene que estar hecho. */
+    function abrirRetoque() {
+        if (!ESTADO.imagenProcesada || !ESTADO.mascara) {
+            notice('Primero quitá el fondo, después retocá el recorte.', { kind: 'warn' });
+            return false;
+        }
+        if (!RETOQUE.original) {
+            RETOQUE.original = new Uint8ClampedArray(ESTADO.mascara);
+        }
+        const panel = document.getElementById('panel-editar-recorte');
+        if (panel) panel.style.display = 'block';
+        RETOQUE.activo = true;
+        marcarPincelActivo();
+        return true;
+    }
+
+    /**
+     * "Deshacer" DENTRO del retoque: vuelve al recorte que dio la IA, sin
+     * perder el trabajo de fondo ya hecho ni recalcular la inferencia. Es lo
+     * que el cliente espera: si retoquea de más, no quiere perder la IA.
+     */
+    function deshacerRetoque() {
+        if (!RETOQUE.original) {
+            notice('Todavía no retocaste nada.', { kind: 'info' });
+            return false;
+        }
+        ESTADO.mascara = new Uint8ClampedArray(RETOQUE.original);
+        recomponerDesdeMascara();
+        try { if (window.saveHistory) window.saveHistory(); } catch (_) {}
+        return true;
+    }
+
+    function cerrarRetoque() {        RETOQUE.activo = false;
+        RETOQUE.puntero = false;
+        const panel = document.getElementById('panel-editar-recorte');
+        if (panel) panel.style.display = 'none';
+        marcarPincelActivo();
+        try { if (window.saveHistory) window.saveHistory(); } catch (_) {}
+        return true;
+    }
+
+    function marcarPincelActivo() {
+        const b = document.getElementById('pincel-borrar');
+        const r = document.getElementById('pincel-restaurar');
+        if (b) b.style.outline = RETOQUE.activo && RETOQUE.modo === 'borrar' ? '3px solid #0f172a' : 'none';
+        if (r) r.style.outline = RETOQUE.activo && RETOQUE.modo === 'restaurar' ? '3px solid #0f172a' : 'none';
+    }
+
+    /** Pinta un circulo sobre la mascara, en coordenadas de la mascara. */
+    function pintarPincel(mx, my) {
+        const { w, h } = { w: ESTADO.mascaraAncho, h: ESTADO.mascaraAlto };
+        if (!(w > 0) || !(h > 0)) return;
+        const r = RETOQUE.radio;
+        const quitar = RETOQUE.modo === 'borrar';
+        const x0 = Math.max(0, Math.floor(mx - r)), x1 = Math.min(w, Math.ceil(mx + r));
+        const y0 = Math.max(0, Math.floor(my - r)), y1 = Math.min(h, Math.ceil(my + r));
+        const r2 = r * r;
+        for (let y = y0; y < y1; y++) {
+            for (let x = x0; x < x1; x++) {
+                const dx = x - mx, dy = y - my;
+                if (dx * dx + dy * dy > r2) continue;
+                // El borde del pincel se desvanece: un corte duro deja un
+                // escalon en el recorte que el laser va a notar.
+                const dist = Math.sqrt(dx * dx + dy * dy) / r;
+                const suave = dist > 0.65 ? (1 - dist) / 0.35 : 1;
+                const i = y * w + x;
+                ESTADO.mascara[i] = quitar
+                    ? Math.max(0, Math.round(ESTADO.mascara[i] * (1 - suave)))
+                    : Math.min(255, Math.round(ESTADO.mascara[i] + (255 - ESTADO.mascara[i]) * suave));
+            }
+        }
+    }
+
+    /** Traduce un punto de pantalla a coordenadas de la mascara. */
+    function pantallaAMascara(ev) {
+        const r = ESTADO.imagenProcesada;
+        if (!r || !r.canvas && !r.getElement) return null;
+        const src = r.canvas || (typeof r.getElement === 'function' ? r.getElement() : null) || r.image;
+        if (!src) return null;
+        const natural = src.naturalWidth || src.width || 1;
+        const b = r.bounds;
+        if (!b || !(b.width > 0)) return null;
+        // La pieza puede estar rotada o escalada; se usa la caja proyectada.
+        const rel = (ev.clientX - b.left) / b.width;
+        const relY = (ev.clientY - b.top) / b.height;
+        if (rel < -0.1 || rel > 1.1 || relY < -0.1 || relY > 1.1) return null;
+        return { x: rel * natural, y: relY * (src.naturalHeight || src.height || 1) };
+    }
+
+    /** Vuelve a componer el recorte desde la mascara (reutiliza el motor). */
+    function recomponerDesdeMascara() {
+        // El motor ya sabe recomponer desde la mascara: es el mismo camino que
+        // usa mover BORDE. Se reusa en vez de duplicar la composicion.
+        try { recomponer(); return true; }
+        catch (e) { console.warn('[EKKO RETOQUE] no se pudo recomponer', e); return false; }
+    }
+
+    function conectarRetoque() {
+        const panel = document.getElementById('panel-editar-recorte');
+        if (!panel || panel.__ekkoConectado) return;
+        panel.__ekkoConectado = true;
+
+        const b = document.getElementById('pincel-borrar');
+        const r = document.getElementById('pincel-restaurar');
+        const slider = document.getElementById('slider-tamano-pincel');
+        const valor = document.getElementById('valor-tamano-pincel');
+        const aceptar = document.getElementById('btn-aceptar-fondo');
+        const deshacerBtn = document.getElementById('btn-deshacer-fondo');
+
+        const elegir = (modo) => {
+            RETOQUE.modo = modo;
+            RETOQUE.activo = true;
+            panel.style.display = 'block';
+            marcarPincelActivo();
+        };
+        if (b) b.addEventListener('click', () => elegir('borrar'));
+        if (r) r.addEventListener('click', () => elegir('restaurar'));
+
+        if (slider) {
+            slider.addEventListener('input', function () {
+                RETOQUE.radio = Number(slider.value) || 25;
+                if (valor) valor.textContent = String(RETOQUE.radio);
+            });
+        }
+        if (aceptar) aceptar.addEventListener('click', function () { cerrarRetoque(); });
+        if (deshacerBtn) {
+            deshacerBtn.addEventListener('click', function () {
+                // Vuelve al resultado de la IA. Es lo que el cliente espera de
+                // "Deshacer" dentro del retoque: no deshacer la IA entera.
+                if (RETOQUE.original) {
+                    ESTADO.mascara = new Uint8ClampedArray(RETOQUE.original);
+                    recomponerDesdeMascara();
+                }
+            });
+        }
+
+        // El pincel se pinta arrastrando sobre el lienzo.
+        const canvas = document.getElementById('editorCanvas');
+        if (!canvas) return;
+        let pintando = false;
+        canvas.addEventListener('pointerdown', (ev) => {
+            if (!RETOQUE.activo) return;
+            const p = pantallaAMascara(ev);
+            if (!p) return;
+            ev.preventDefault();
+            canvas.setPointerCapture?.(ev.pointerId);
+            pintarPincel(p.x, p.y);
+            recomponerDesdeMascara();
+            pintando = true;
+        });
+        canvas.addEventListener('pointermove', (ev) => {
+            if (!RETOQUE.activo || !pintando) return;
+            const p = pantallaAMascara(ev);
+            if (!p) return;
+            ev.preventDefault();
+            pintarPincel(p.x, p.y);
+            recomponerDesdeMascara();
+        });
+        const soltar = () => { pintando = false; };
+        canvas.addEventListener('pointerup', soltar);
+        canvas.addEventListener('pointercancel', soltar);
+        window.addEventListener('pointerup', soltar);
+    }
+
+    // El panel se conecta apenas el documento esta listo, y tambien si el
+    // modulo carga despues (los scripts de la app se cargan diferidos).
+    function arrancarRetoque() {
+        try { conectarRetoque(); } catch (e) { console.warn('[EKKO RETOQUE] no se pudo conectar', e); }
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', arrancarRetoque, { once: true });
+    } else {
+        arrancarRetoque();
+    }
