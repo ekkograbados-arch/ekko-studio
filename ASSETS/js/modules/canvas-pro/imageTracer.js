@@ -1,5 +1,6 @@
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { buildOutlineGeometry } from "./outlineGeometry.js";
+import { cerrarParametros } from "./commandParameters.js";
 
 // --- ALGORITMO DE SEGUIMIENTO DE CONTORNOS (Moore-Neighbor Tracing con Curvas) ---
 export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrace = false) {
@@ -191,8 +192,79 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
   return filteredContours;
 }
 
+// --- TRAZADO POR NIVELES (cantidad de lineas) ---------------------------
+// Un solo umbral da una sola banda: dentro o fuera. Para calcar una foto con
+// sombras, pelos o medios tonos hacen falta N bandas, una por nivel de gris.
+// Cada banda se traza con el mismo motor de siempre; solo cambia el intervalo
+// de grises que se le pasa. Con niveles = 1 el resultado es identico al de
+// antes: no cambia nada para quien no toca el control.
+export function traceRasterBandas(imageData, { umbral = 128, corte = 0, niveles = 1, croquis = false } = {}) {
+  const n = Math.max(1, Math.min(6, Math.round(niveles) || 1));
+  const lo = Math.max(0, Math.min(255, corte));
+  const hi = Math.max(0, Math.min(255, umbral));
+  if (hi <= lo || n === 1) {
+    return [{ nivel: 0, contours: traceRasterContours(imageData, hi, lo, croquis) }];
+  }
+  const bandas = [];
+  for (let i = 0; i < n; i++) {
+    const t0 = lo + ((hi - lo) * i) / n;
+    const t1 = lo + ((hi - lo) * (i + 1)) / n;
+    bandas.push({ nivel: i, contours: traceRasterContours(imageData, t1, t0, croquis) });
+  }
+  return bandas;
+}
+
 // --- PREVISUALIZACIÓN DE VECTORES EN TIEMPO REAL ---
 let tracePreviewGroup = null;
+
+/**
+ * La app envuelve cada pieza importada en un grupo de recorte (clipItem), y
+ * ese grupo se crea ANTES de que el Raster de adentro termine de cargar. Si se
+ * busca en el instante del clic, el grupo todavia no tiene hijos y no hay nada
+ * que leer: el trazado salia vacio sin avisar nada.
+ *
+ * Por eso, si hay un envoltorio pero todavia no aparece el Raster, se espera
+ * unos ticks a que aparezca. Es una espera CORTA y con tope: si de verdad no
+ * hay imagen, se avisa y se sigue, nunca se queda colgado.
+ */
+function esperarRaster(item, intentos = 24) {
+  const directo = resolverRaster(item);
+  if (directo) return directo;
+  return new Promise((resolve) => {
+    let tries = 0;
+    const revisar = () => {
+      const r = resolverRaster(window.selectedItems?.[0] || window.selectedItem) ||
+                resolverRaster(item);
+      tries++;
+      if (r) return resolve(r);
+      if (tries >= intentos) return resolve(null);
+      requestAnimationFrame(revisar);
+    };
+    revisar();
+  });
+}
+
+/**
+ * Resuelve el Raster real desde un item que puede ser el envoltorio. Se
+ * mantiene sincrona para los caminos ya cargados; cuando aun no hay Raster
+ * devuelve null y quien necesite esperar usa esperarRaster().
+ */
+function resolverRaster(item) {
+  if (!item) return null;
+  try {
+    if (item instanceof paper.Raster) return item;
+  } catch (_) { return null; }
+  const pila = item.children ? [...item.children] : [];
+  while (pila.length) {
+    const c = pila.shift();
+    if (!c) continue;
+    try {
+      if (c instanceof paper.Raster) return c;
+    } catch (_) { continue; }
+    if (c.children) pila.push(...c.children);
+  }
+  return null;
+}
 
 function ensureMockupContainment(item) {
   if (!item || !window.currentMockup || !window.clipMask || typeof window.clipItem !== 'function') return item;
@@ -215,7 +287,7 @@ function ensureMockupContainment(item) {
   return wrapped;
 }
 
-export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false, outlineWidth = 0, outlineSide = "center") {
+export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false, outlineWidth = 0, outlineSide = "center", niveles = 1) {
   if (tracePreviewGroup) {
     tracePreviewGroup.remove();
     tracePreviewGroup = null;
@@ -225,8 +297,16 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
   tracePreviewGroup.data = { isSelectionBox: true, isTracePreview: true };
 
   try {
-    const imgSource = raster.canvas || raster.image;
-    if (!imgSource) return;
+    // Se resuelve al Raster real: puede venir el envoltorio y no tener canvas.
+    const fuente = resolverRaster(raster) || raster;
+    // Contorno lee asi y funciona: canvas directo o el elemento interno.
+    const imgSource = fuente.canvas
+      || (typeof fuente.getElement === "function" ? fuente.getElement() : null)
+      || fuente.image;
+    if (!imgSource) {
+      console.warn("[EKKO TRAZO] la imagen no tiene pixeles legibles todavia");
+      return;
+    }
 
     const width = raster.width || imgSource.width;
     const height = raster.height || imgSource.height;
@@ -242,7 +322,10 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
     pCtx.drawImage(imgSource, 0, 0, previewCanvas.width, previewCanvas.height);
     const imageData = pCtx.getImageData(0, 0, previewCanvas.width, previewCanvas.height);
 
-    const contours = traceRasterContours(imageData, threshold, cutoff, sketchTrace);
+    // Cada nivel traza su propia banda de grises; el calco final es la suma.
+    const contours = traceRasterBandas(imageData, {
+      umbral: threshold, corte: cutoff, niveles, croquis: sketchTrace
+    }).flatMap(b => b.contours);
     const bounds = raster.bounds;
 
     const temporaryPaths = [];
@@ -327,524 +410,211 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
   }
 }
 
-// --- DIÁLOGO MODAL INTEGRAL DE TRAZADO (ESTILO LIGHTBURN) ---
-export function openImageTraceModal(raster) {
-  const styleId = 'image-trace-magenta-styles';
-  if (!document.getElementById(styleId)) {
-    const styleEl = document.createElement('style');
-    styleEl.id = styleId;
-    styleEl.textContent = `
-      .trace-overlay {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background-color: rgba(0, 0, 0, 0.25); /* Fondo sutil, permite ver el canvas debajo */
-        z-index: 10000;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: system-ui, -apple-system, sans-serif;
-        pointer-events: none;
-      }
-      .trace-modal {
-        position: fixed;
-        background-color: #1e1e1e;
-        color: #f3f3f3;
-        border: 2px solid #ff00ff;
-        border-radius: 8px;
-        padding: 24px;
-        width: 440px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
-        z-index: 10001;
-        pointer-events: auto;
-        user-select: none;
-      }
-      .trace-modal h3 {
-        color: #ff00ff;
-        margin-top: 0;
-        margin-bottom: 8px;
-        font-size: 18px;
-        font-weight: bold;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        cursor: move;
-        user-select: none;
-      }
-      .trace-modal .drag-subtitle {
-        font-size: 11px;
-        color: #888888;
-        margin-bottom: 18px;
-        border-bottom: 2px solid rgba(255, 0, 255, 0.35);
-        padding-bottom: 6px;
-      }
-      .trace-modal .slider-row {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-bottom: 16px;
-      }
-      .trace-modal .slider-row label {
-        width: 140px;
-        font-size: 13px;
-        font-weight: bold;
-        color: #e2e8f0;
-      }
-      .trace-modal .slider-row input[type="range"] {
-        flex-grow: 1;
-        accent-color: #ff00ff;
-        cursor: pointer;
-        height: 5px;
-        border-radius: 2px;
-      }
-      .trace-modal .slider-row input[type="number"] {
-        width: 70px;
-        background-color: #2b2a2b;
-        border: 1px solid #ff00ff;
-        border-radius: 4px;
-        color: #ffffff;
-        padding: 4px;
-        font-size: 13px;
-        text-align: center;
-        font-weight: bold;
-      }
-      .trace-modal .slider-row input[type="number"]:focus {
-        outline: none;
-        box-shadow: 0 0 5px #ff00ff;
-      }
-      .trace-modal .options-box {
-        background-color: #252525;
-        border-radius: 6px;
-        padding: 14px;
-        margin-bottom: 20px;
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.05);
-      }
-      .trace-modal .checkbox-label {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        font-size: 13px;
-        cursor: pointer;
-        user-select: none;
-        color: #f1f5f9;
-      }
-      .trace-modal .checkbox-label input[type="checkbox"] {
-        accent-color: #ff00ff;
-        cursor: pointer;
-        width: 16px;
-        height: 16px;
-      }
-      .trace-modal .info-text {
-        font-size: 11px;
-        color: #a0aec0;
-        background-color: #2b2a2b;
-        padding: 8px 12px;
-        border-radius: 4px;
-        border-left: 3px solid #ff00ff;
-        margin-bottom: 15px;
-        line-height: 1.4;
-      }
-      .trace-modal .btn-row {
-        display: flex;
-        justify-content: flex-end;
-        gap: 12px;
-        margin-top: 15px;
-      }
-      .trace-modal button {
-        padding: 8px 20px;
-        border-radius: 4px;
-        font-weight: bold;
-        font-size: 14px;
-        cursor: pointer;
-        transition: all 0.2s;
-        border: none;
-        outline: none;
-      }
-      .trace-modal .btn-cancel {
-        background-color: #3b3a3b;
-        color: #e6e6e6;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-      }
-      .trace-modal .btn-cancel:hover {
-        background-color: #4a4a4b;
-      }
-      .trace-modal .btn-accept {
-        background-color: #ff00ff;
-        color: #ffffff;
-        box-shadow: 0 2px 8px rgba(255, 0, 255, 0.4);
-      }
-      .trace-modal .btn-accept:hover {
-        background-color: #d900d9;
-        transform: scale(1.02);
-      }
-    `;
-    document.head.appendChild(styleEl);
+
+// --- FLUJO DE TRAZADO EN EL PANEL (sin ventana modal) --------------------
+// Antes Trazar abria una ventana aparte con rotulos tecnicos en ingles
+// (Threshold, Cutoff, Smoothness, Optimize) y con controles que son de
+// Contorno (grosor, posicion, "solo exterior"). Ahora vive en el panel de
+// parametros como cualquier otra herramienta: un clic previsualiza con los
+// valores actuales, los controles ajustan en vivo y "Aplicar trazado"
+// entrega el vector.
+//
+// El estado vive ACA y no en el DOM: si el panel se cierra y se vuelve a
+// abrir, el trazado a medias se retoma donde estaba, no se pierde.
+
+const TRAZO = {
+  activo: false,
+  raster: null,
+  opacidadOriginal: 1
+};
+
+/** Lee los controles del panel. Si el panel esta cerrado, valen los de fabrica. */
+function leerControlesTrazo() {
+  const num = (id, fb) => {
+    const el = typeof document !== "undefined" ? document.getElementById(id) : null;
+    const v = el ? Number(el.value ?? el.textContent) : NaN;
+    // Los botones segmentados guardan en un input oculto con .value; el
+    // grupo visible es un div que no tiene valor. Se lee el oculto.
+    return Number.isFinite(v) ? v : fb;
+  };
+  const modoEl = typeof document !== "undefined" ? document.getElementById("traceModo") : null;
+  const modo = modoEl ? String(modoEl.value || "foto") : "foto";
+  return {
+    lineas: Math.max(1, Math.min(6, Math.round(num("traceLineas", 1)) || 1)),
+    detalle: Math.max(0, Math.min(255, Math.round(num("traceUmbral", 128)))),
+    // El panel muestra 0..100; el motor trabaja 0..1.333. 75 = 1.0, el valor
+    // con el que el trazado salia bien en la ventana anterior.
+    suavidad: Math.max(0, Math.min(100, num("traceSuavidad", 75))) / 75,
+    croquis: modo === "croquis"
+  };
+}
+
+/**
+ * Un clic en Trazar: calca la imagen con los valores actuales y muestra el
+ * calco en magenta sobre la imagen atenuada. No entrega nada todavia: para
+ * eso esta "Aplicar trazado" en el panel.
+ */
+export async function iniciarTrazado(raster) {
+  cancelarTrazado(true);
+
+  // Se espera a que haya un Raster de verdad. El grupo de recorte se crea
+  // antes de que la imagen termine de cargar, y si se busca en el instante
+  // del clic no hay pixeles que leer: el calco salia vacio sin avisar nada.
+  // La espera tiene tope, asi que si de verdad no hay imagen se avisa y no
+  // se queda colgada.
+  const fuente = await esperarRaster(raster);
+  if (!fuente || !(fuente instanceof paper.Raster)) {
+    console.warn("[EKKO TRAZO] no se encontro ninguna imagen para trazar");
+    return null;
+  }
+  if (!(fuente.width > 0) || !(fuente.height > 0)) {
+    console.warn("[EKKO TRAZO] la imagen todavia no termino de cargar");
+    return null;
   }
 
-  const originalOpacity = raster.opacity;
-  const overlay = document.createElement('div');
-  overlay.className = 'trace-overlay';
+  TRAZO.activo = true;
+  TRAZO.raster = fuente;
+  TRAZO.opacidadOriginal = fuente.opacity;
+  // La imagen se atenua para ver el calco encima, como hacia la ventana.
+  fuente.opacity = 0.25;
+  trazoVivo();
+  try { paper.view?.update?.(); } catch (_) {}
+  return true;
+}
 
-  const modal = document.createElement('div');
-  modal.className = 'trace-modal';
-  modal.innerHTML = `
-    <h3>✨ Trazar Imagen</h3>
-    <div class="drag-subtitle">↔️ Haz clic sostenido aquí para arrastrar este panel</div>
-    
-    <div class="slider-row" id="rowThreshold">
-      <label for="traceThreshold" id="lblThreshold">Umbral (Threshold):</label>
-      <input type="range" id="traceThreshold" min="0" max="255" value="128">
-      <input type="number" id="traceThresholdNum" min="0" max="255" value="128">
-    </div>
+/**
+ * Rehace la previsualizacion con lo que dicen los controles ahora mismo.
+ * Es lo que el panel llama cada vez que el cliente mueve algo.
+ */
+export function trazoVivo() {
+  if (!TRAZO.activo || !TRAZO.raster) return null;
+  const c = leerControlesTrazo();
+  runTracePreview(TRAZO.raster, c.detalle, 0, c.suavidad, 0.2, c.croquis, false, 0, "center", c.lineas);
+  return true;
+}
 
-    <div class="slider-row" id="rowCutoff">
-      <label for="traceCutoff">Corte (Cutoff):</label>
-      <input type="range" id="traceCutoff" min="0" max="240" value="0">
-      <input type="number" id="traceCutoffNum" min="0" max="240" value="0">
-    </div>
-
-    <div class="slider-row">
-      <label for="traceSmooth">Suavizado (Smooth):</label>
-      <input type="range" id="traceSmooth" min="0.0" max="1.333" step="0.01" value="1.0">
-      <input type="number" id="traceSmoothNum" min="0.0" max="1.333" step="0.01" value="1.0">
-    </div>
-
-    <div class="slider-row">
-      <label for="traceOptimize">Optimizar (Optimize):</label>
-      <input type="range" id="traceOptimize" min="0.0" max="1.0" step="0.01" value="0.2">
-      <input type="number" id="traceOptimizeNum" min="0.0" max="1.0" step="0.01" value="0.2">
-    </div>
-
-    <div class="slider-row" title="Crea un contorno geométrico real; 0 conserva solo el trazado">
-       <label for="traceOutlineWidth">Contorno (grosor):</label>
-       <input type="range" id="traceOutlineWidth" min="0" max="100" step="0.1" value="0">
-       <input type="number" id="traceOutlineWidthNum" min="0" max="100" step="0.1" value="0">
-       <select id="traceOutlineSide" title="Posición del contorno">
-         <option value="center">Centrado</option>
-         <option value="inside">Interior</option>
-         <option value="outside">Exterior</option>
-       </select>
-     </div>
-
-     <div class="options-box">
-      <label class="checkbox-label" title="Ignorar trazados interiores para siluetas limpias de personas/objetos">
-        <input type="checkbox" id="traceOnlyOuter">
-        <b>Trazar Solo Contorno Exterior (Silueta)</b>
-      </label>
-      <label class="checkbox-label" title="Para firmas o manuscritos en papel. Para fotos normales, déjalo desactivado.">
-        <input type="checkbox" id="traceSketch">
-        Activar Trazado de Croquis (Sketch Trace)
-      </label>
-      <label class="checkbox-label">
-        <input type="checkbox" id="traceFadeImage" checked>
-        Desvanecer Imagen Original (25%)
-      </label>
-      <label class="checkbox-label" title="La imagen original se conserva siempre para permitir edición no destructiva">
-        <input type="checkbox" id="traceDeleteImage" disabled>
-        Conservar Imagen Original (siempre)
-      </label>
-    </div>
-
-    <div class="info-text" id="traceGuideText">
-      💡 <b>Guía de Trazado:</b> Para fotos con personas y fondo, activa <b>"Solo Contorno Exterior"</b> para extraer una silueta limpia. Usa el <b>Umbral</b> para refinar la silueta.
-    </div>
-
-    <div class="btn-row">
-      <button class="btn-cancel" id="btnTraceCancel">Cancelar</button>
-      <button class="btn-accept" id="btnTraceAccept">Aceptar</button>
-    </div>
-  `;
-
-  overlay.appendChild(modal);
-  document.body.appendChild(overlay);
-
-  // --- COMPORTAMIENTO DRAGGABLE (ARRISTRABLE) DE LA VENTANA MODAL ---
-  const dragHeader = modal.querySelector('.drag-subtitle');
-  const mainHeader = modal.querySelector('h3');
-  let isDragging = false;
-  let startX = 0;
-  let startY = 0;
-  let initialLeft = 0;
-  let initialTop = 0;
-
-  const initiateDrag = (e) => {
-    if (e.button !== 0) return;
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-
-    isDragging = true;
-    const rect = modal.getBoundingClientRect();
-    
-    startX = e.clientX;
-    startY = e.clientY;
-    initialLeft = rect.left;
-    initialTop = rect.top;
-
-    modal.style.transform = 'none';
-    modal.style.margin = '0';
-    modal.style.left = initialLeft + 'px';
-    modal.style.top = initialTop + 'px';
-
-    e.preventDefault();
-  };
-
-  dragHeader.addEventListener('mousedown', initiateDrag);
-  mainHeader.addEventListener('mousedown', initiateDrag);
-
-  const handleMouseMove = function(e) {
-    if (!isDragging) return;
-    
-    const deltaX = e.clientX - startX;
-    const deltaY = e.clientY - startY;
-
-    let newX = initialLeft + deltaX;
-    let newY = initialTop + deltaY;
-
-    const maxX = window.innerWidth - modal.offsetWidth;
-    const maxY = window.innerHeight - modal.offsetHeight;
-
-    newX = Math.max(0, Math.min(newX, maxX));
-    newY = Math.max(0, Math.min(newY, maxY));
-
-    modal.style.left = newX + 'px';
-    modal.style.top = newY + 'px';
-  };
-
-  const handleMouseUp = function() {
-    isDragging = false;
-  };
-
-  document.addEventListener('mousemove', handleMouseMove);
-  document.addEventListener('mouseup', handleMouseUp);
-
-  const outerCheck = modal.querySelector('#traceOnlyOuter');
-  const sketchCheck = modal.querySelector('#traceSketch');
-  const fadeCheck = modal.querySelector('#traceFadeImage');
-  const deleteCheck = modal.querySelector('#traceDeleteImage');
-  const btnCancel = modal.querySelector('#btnTraceCancel');
-  const btnAccept = modal.querySelector('#btnTraceAccept');
-  
-  const lblThreshold = modal.querySelector('#lblThreshold');
-  const rowCutoff = modal.querySelector('#rowCutoff');
-  const guideText = modal.querySelector('#traceGuideText');
-
-  // Guardar estado de parámetros
-  const currentParams = {
-    threshold: 128,
-    cutoff: 0,
-    smoothness: 1.0,
-    optimize: 0.2,
-    sketchTrace: false,
-    onlyOuter: false,
-    outlineWidth: 0,
-    outlineSide: 'center'
-  };
-
-  // Debounce para previsualización ultra fluida
-  let traceTimeout = null;
-  function triggerTraceUpdate() {
-    if (traceTimeout) clearTimeout(traceTimeout);
-    traceTimeout = setTimeout(() => {
-      runTracePreview(
-        raster,
-        currentParams.threshold,
-        currentParams.cutoff,
-        currentParams.smoothness,
-        currentParams.optimize,
-        currentParams.sketchTrace,
-        currentParams.onlyOuter,
-        currentParams.outlineWidth,
-        currentParams.outlineSide
-      );
-    }, 45);
+/** Descarta el trazado a medias y devuelve la imagen a como estaba. */
+export function cancelarTrazado(silencioso = false) {
+  if (TRAZO.raster) {
+    try { TRAZO.raster.opacity = TRAZO.opacidadOriginal; } catch (_) {}
   }
-
-  // Registrador interactivo de controles en 4-Vías (Rango, Rueda, Teclas, Directo)
-  function registerInteractiveControl(sliderId, numId, min, max, step, key, initialVal) {
-    const slider = modal.querySelector('#' + sliderId);
-    const numInput = modal.querySelector('#' + numId);
-
-    function setValue(val, skipUpdate = false) {
-      let parsed = parseFloat(val);
-      if (isNaN(parsed)) return;
-      parsed = Math.max(min, Math.min(max, parsed));
-      if (step >= 1) {
-        parsed = Math.round(parsed);
-      } else {
-        parsed = parseFloat(parsed.toFixed(3));
-      }
-      slider.value = parsed;
-      numInput.value = parsed;
-      currentParams[key] = parsed;
-      if (!skipUpdate) {
-        triggerTraceUpdate();
-      }
-    }
-
-    slider.oninput = (e) => setValue(e.target.value);
-    
-    numInput.oninput = (e) => {
-      if (e.target.value !== '') {
-        setValue(e.target.value);
-      }
-    };
-
-    const handleWheel = (e) => {
-      e.preventDefault();
-      const currentVal = parseFloat(slider.value);
-      const direction = e.deltaY < 0 ? 1 : -1;
-      setValue(currentVal + direction * step);
-    };
-    slider.onwheel = handleWheel;
-    numInput.onwheel = handleWheel;
-
-    const handleKeys = (e) => {
-      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        setValue(parseFloat(slider.value) + step);
-      } else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        setValue(parseFloat(slider.value) - step);
-      }
-    };
-    slider.addEventListener('keydown', handleKeys);
-    numInput.addEventListener('keydown', handleKeys);
-
-    setValue(initialVal, true);
+  if (tracePreviewGroup) {
+    try { tracePreviewGroup.remove(); } catch (_) {}
+    tracePreviewGroup = null;
   }
-
-  // Inicializar cada uno de los parámetros de control interactivo de LightBurn
-  registerInteractiveControl('traceThreshold', 'traceThresholdNum', 0, 255, 1, 'threshold', 128);
-  registerInteractiveControl('traceCutoff', 'traceCutoffNum', 0, 240, 1, 'cutoff', 0);
-  registerInteractiveControl('traceSmooth', 'traceSmoothNum', 0.0, 1.333, 0.01, 'smoothness', 1.0);
-  registerInteractiveControl('traceOptimize', 'traceOptimizeNum', 0.0, 1.0, 0.01, 'optimize', 0.2);
-  registerInteractiveControl('traceOutlineWidth', 'traceOutlineWidthNum', 0, 100, 0.1, 'outlineWidth', 0);
-  const outlineSide = modal.querySelector('#traceOutlineSide');
-  if (outlineSide) {
-    outlineSide.value = currentParams.outlineSide;
-    outlineSide.onchange = () => {
-      currentParams.outlineSide = outlineSide.value || 'center';
-      triggerTraceUpdate();
-    };
+  TRAZO.activo = false;
+  TRAZO.raster = null;
+  if (!silencioso) {
+    try { cerrarParametros(); } catch (_) {}
+    try { paper.view?.update?.(); } catch (_) {}
   }
+  return true;
+}
 
-  // Switch de Trazado de Croquis vs Estándar para evitar confusiones de parámetros
-  sketchCheck.onchange = () => {
-    currentParams.sketchTrace = sketchCheck.checked;
-    if (sketchCheck.checked) {
-      lblThreshold.textContent = "Sensibilidad:";
-      rowCutoff.style.opacity = '0.3';
-      rowCutoff.style.pointerEvents = 'none';
-      guideText.innerHTML = "📝 <b>Modo Croquis Activo:</b> Diseñado exclusivamente para firmas o recetas manuscritas. La 'Sensibilidad' compensa iluminación dispareja.";
-    } else {
-      lblThreshold.textContent = "Umbral (Threshold):";
-      rowCutoff.style.opacity = '1';
-      rowCutoff.style.pointerEvents = 'auto';
-      guideText.innerHTML = "💡 <b>Guía de Trazado:</b> Para fotos con personas y fondo, activa <b>'Solo Contorno Exterior'</b> para extraer una silueta limpia. Ajusta el <b>Umbral</b> para refinar.";
+/**
+ * Entrega el vector: lo que se ve en magenta pasa al lienzo como geometria
+ * rellena, lista para Calado, Fusionar y nodos. La imagen original queda en
+ * el proyecto, con su identidad y transformacion intactas: trazar nunca es
+ * destructivo.
+ */
+export function confirmarTrazado() {
+  if (!TRAZO.activo || !TRAZO.raster) return null;
+  const raster = TRAZO.raster;
+  const originalOpacity = TRAZO.opacidadOriginal;
+  let entregado = null;
+
+  if (tracePreviewGroup && tracePreviewGroup.children.length > 0) {
+    if (typeof window.saveHistory === "function") {
+      window.saveHistory();
     }
-    triggerTraceUpdate();
-  };
 
-  outerCheck.onchange = () => {
-    currentParams.onlyOuter = outerCheck.checked;
-    triggerTraceUpdate();
-  };
-
-  const handleFadeToggle = () => {
-    if (fadeCheck.checked) {
-      raster.opacity = 0.25;
-    } else {
-      raster.opacity = originalOpacity;
-    }
-    paper.view.update();
-  };
-  fadeCheck.onchange = handleFadeToggle;
-
-  handleFadeToggle();
-  triggerTraceUpdate();
-
-  const closeModal = () => {
-    raster.opacity = originalOpacity;
-    if (traceTimeout) clearTimeout(traceTimeout);
-    if (tracePreviewGroup) {
-      tracePreviewGroup.remove();
-      tracePreviewGroup = null;
-    }
-    
-    dragHeader.removeEventListener('mousedown', initiateDrag);
-    mainHeader.removeEventListener('mousedown', initiateDrag);
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    
-    overlay.remove();
-    paper.view.update();
-  };
-
-  btnCancel.onclick = closeModal;
-
-  btnAccept.onclick = () => {
-    if (tracePreviewGroup && tracePreviewGroup.children.length > 0) {
-      if (typeof window.saveHistory === 'function') {
-        window.saveHistory();
-      }
-
-      const committedVectorPaths = [];
-      tracePreviewGroup.children.forEach(p => {
-        const clonedPath = p.clone({ insert: false });
-        // El grosor del trazado se entrega como geometría rellena: no depende
-        // de strokeWidth y queda disponible para Calado, Fusionar y nodos.
-        clonedPath.strokeColor = null;
-        clonedPath.strokeWidth = 0;
-        clonedPath.fillColor = new paper.Color('#111827');
-        setSemanticKind(clonedPath, VECTOR_KIND.SOLID);
-        clonedPath.data = {
-          ...(p.data || {}),
-          locked: false,
-          label: currentParams.outlineWidth > 0 ? "Contorno de imagen" : "Trazado",
-          userImported: true,
-          source: "image-trace",
-          isSolidShape: true,
-          isFusionReceptor: true,
-          outlineWidth: currentParams.outlineWidth,
-          outlineSide: currentParams.outlineSide
-        };
-        committedVectorPaths.push(clonedPath);
-      });
-
-      const finalVectorGroup = new paper.CompoundPath({ insert: false });
-      committedVectorPaths.forEach(path => finalVectorGroup.addChild(path));
-      setSemanticKind(finalVectorGroup, VECTOR_KIND.SOLID);
-      finalVectorGroup.data = {
+    const piezas = [];
+    tracePreviewGroup.children.forEach(p => {
+      const clon = p.clone({ insert: false });
+      // El calco se entrega como geometria rellena: no depende de
+      // strokeWidth y queda disponible para Calado, Fusionar y nodos.
+      clon.strokeColor = null;
+      clon.strokeWidth = 0;
+      clon.fillColor = new paper.Color("#111827");
+      setSemanticKind(clon, VECTOR_KIND.SOLID);
+      clon.data = {
+        ...(p.data || {}),
         locked: false,
-        label: "Imagen Vectorizada (" + (raster.data?.label || "Trazado") + ")",
+        label: "Trazado",
         userImported: true,
         source: "image-trace",
         isSolidShape: true,
-        isFusionReceptor: true,
-        decomposedLayer: true
+        isFusionReceptor: true
       };
-      finalVectorGroup.fillColor = new paper.Color('#111827');
-      finalVectorGroup.strokeColor = null;
-      finalVectorGroup.strokeWidth = 0;
-      finalVectorGroup.data.geomBase = finalVectorGroup.clone({ insert: false });
-      const deliveredVector = ensureMockupContainment(finalVectorGroup);
-      paper.project.activeLayer.addChild(deliveredVector);
-      deliveredVector.data = {
-        ...(deliveredVector.data || {}),
-        mockupContainment: deliveredVector !== finalVectorGroup || !!window.currentMockup
-      };
+      piezas.push(clon);
+    });
 
-      if (window.currentMockup) {
-        deliveredVector.insertBelow(window.currentMockup);
+    const grupo = new paper.CompoundPath({ insert: false });
+    piezas.forEach(path => grupo.addChild(path));
+    setSemanticKind(grupo, VECTOR_KIND.SOLID);
+    grupo.data = {
+      locked: false,
+      label: "Imagen Vectorizada (" + (raster.data?.label || "Trazado") + ")",
+      userImported: true,
+      source: "image-trace",
+      isSolidShape: true,
+      isFusionReceptor: true,
+      decomposedLayer: true
+    };
+    grupo.fillColor = new paper.Color("#111827");
+    grupo.strokeColor = null;
+    grupo.strokeWidth = 0;
+    try { grupo.data.geomBase = grupo.clone({ insert: false }); } catch (_) {}
+    const final = ensureMockupContainment(grupo);
+
+    // Antes estos dos fallos se comian en silencio y el cliente apritaba
+    // "Aplicar trazado" y no pasaba absolutely nada. Ahora avisa: si el vector
+    // no llega al lienzo, es un fallo que hay que ver, no tragarse.
+    if (!final || !final.parent) {
+      if (!paper.project.activeLayer) {
+        console.error("[EKKO TRAZO] no hay capa activa: el trazado no se pudo colocar");
       }
-
-      // Trazar Imagen es siempre no destructivo. La imagen original queda
-      // en el proyecto, con su identidad y transformación intactas.
-      raster.opacity = originalOpacity;
-      window.selectItem(deliveredVector);
-      paper.view.update();
     }
-    closeModal();
-  };
+    try {
+      const capa = paper.project.activeLayer || paper.project.layers.find(l => l.name === "designLayer");
+      if (!capa) throw new Error("no hay ninguna capa donde colocar el trazado");
+      capa.addChild(final);
+      console.log("[EKKO TRAZO] trazado entregado en la capa", capa.name, "con", piezas.length, "trazos");
+    } catch (e) {
+      console.error("[EKKO TRAZO] no se pudo colocar el trazado en el lienzo:", e);
+    }
+    final.data = {
+      ...(final.data || {}),
+      mockupContainment: final !== grupo || !!window.currentMockup
+    };
+
+    if (window.currentMockup) {
+      try { final.insertBelow(window.currentMockup); } catch (_) {}
+    }
+    entregado = final;
+  }
+
+  try { raster.opacity = originalOpacity; } catch (_) {}
+  TRAZO.activo = false;
+  TRAZO.raster = null;
+  if (tracePreviewGroup) {
+    try { tracePreviewGroup.remove(); } catch (_) {}
+    tracePreviewGroup = null;
+  }
+  try { cerrarParametros(); } catch (_) {}
+  if (entregado) {
+    try { window.selectItem?.(entregado); } catch (_) {}
+  }
+  try { paper.view?.update?.(); } catch (_) {}
+  return entregado;
+}
+
+if (typeof window !== "undefined") {
+  window.EKKO = window.EKKO || {};
+  // Puente con commandParameters.js: el panel llama a esto cada vez que el
+  // cliente mueve un control o aprieta una accion. El panel no sabe nada de
+  // pixeles; este modulo no sabe nada de DOM salvo leer sus controles.
+  window.EKKO.trazoVivo = trazoVivo;
+  window.EKKO.confirmarTrazo = confirmarTrazado;
+  window.EKKO.cancelarTrazo = cancelarTrazado;
 }
