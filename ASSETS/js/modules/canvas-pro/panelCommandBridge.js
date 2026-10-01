@@ -84,10 +84,126 @@ const COMMAND_HANDLERS = Object.freeze({
     booleanSubtract: () => performBooleanOperation("subtract"),
     booleanIntersect: () => performBooleanOperation("intersect"),
     booleanDifference: () => performBooleanOperation("difference"),
+
+    // Espejo H y V. Estos dos botones existian en la barra pero no tenian
+    // NADA conectado: apretarlos no hacia nada. El motor ya declaraba la
+    // herramienta "Voltear" como siempre activa, o sea que la capacidad
+    // estaba; faltaba la accion.
+    flipH: () => mirrorSelection("horizontal"),
+    flipV: () => mirrorSelection("vertical"),
+
+    // Retoque del recorte con pincel. El panel ya existia en el HTML pero sus
+    // cuatro botones no tenian nada conectado: apretarlos no hacia nada.
+    pincelBorrar: () => EKKO.BackgroundRemover?.abrirRetoque() && setPincel("borrar"),
+    pincelRestaurar: () => EKKO.BackgroundRemover?.abrirRetoque() && setPincel("restaurar"),
+    deshacerRetoque: () => EKKO.BackgroundRemover?.deshacerRetoque?.(),
+    aceptarRetoque: () => EKKO.BackgroundRemover?.cerrarRetoque(),
 });
 
-export function dispatchEKKOCommand(command, element = null) {
-    const handler = COMMAND_HANDLERS[command];
+/** Elige el pincel activo sin abrir el panel dos veces. */
+function setPincel(modo) {
+    const b = document.getElementById(modo === "borrar" ? "pincel-borrar" : "pincel-restaurar");
+    const r = document.getElementById(modo === "borrar" ? "pincel-restaurar" : "pincel-borrar");
+    if (b) b.style.outline = "3px solid #0f172a";
+    if (r) r.style.outline = "none";
+    return true;
+}
+
+/**
+ * Espejo del objeto (o de varios) sobre su propio eje.
+ *
+ * No se puede usar item.scale(-1, 1): paper.js no admite escala negativa y
+ * dejaria la matriz del objeto envenenada. Tampoco sirve aplicar el cambio y
+ * llamar a syncGeometryToGeomBase(), porque geomBase es la referencia con la
+ * que el motor reconstruye la escena: un espejo guardado ahi no seria un
+ * espejo sino una pieza deformada.
+ *
+ * Por eso el espejo se hornea en la geometria: se calcula el ancho real de
+ * cada hijo y se invierte punto por punto. Asi el resultado es una pieza
+ * legitima, con la misma logica que usa la fusion y los calados.
+ */
+function mirrorSelection(sentido) {
+    const seleccion = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+        ? [...window.selectedItems]
+        : (window.selectedItem ? [window.selectedItem] : []);
+    if (!seleccion.length) {
+        notice("Seleccioná primero un objeto para voltearlo.", { kind: "warn" });
+        return null;
+    }
+
+    const pieza = (seleccion[0] instanceof paper.Group) ? seleccion[0] : seleccion[0];
+    const contenedor = pieza.parent;
+    const horizontal = sentido === "horizontal";
+
+    // Se trabaja sobre un clon, se hornea, y recién ahi se cambia: el
+    // original queda intacto hasta que el espejo esta comprobado.
+    const horneado = hornearEspejo(pieza, horizontal);
+    if (!horneado) {
+        notice("Ese objeto no se puede voltear.", { kind: "warn" });
+        return null;
+    }
+
+    if (typeof window.saveHistory === "function") window.saveHistory();
+    try { if (window.beginHistoryTransaction) window.beginHistoryTransaction("espejo"); } catch (_) {}
+
+    const indice = contenedor ? contenedor.children.indexOf(pieza) : -1;
+    pieza.remove();
+    horneado.data = {
+        ...(pieza.data || {}),
+        label: (pieza.data && pieza.data.label) || pieza.name || "Objeto",
+        mirrored: horizontal ? "h" : "v"
+    };
+    if (contenedor) {
+        if (indice >= 0) contenedor.insertChild(indice, horneado);
+        else contenedor.addChild(horneado);
+    } else {
+        (paper.project.activeLayer || paper.project.layers[0]).addChild(horneado);
+        if (window.currentMockup) {
+            try { horneado.insertBelow(window.currentMockup); } catch (_) {}
+        }
+    }
+
+    try { window.syncGeometryToGeomBase?.(horneado); } catch (_) {}
+    try { window.recalculateDynamicSubtractions?.(); } catch (_) {}
+    try { if (window.commitHistoryTransaction) window.commitHistoryTransaction("espejo"); } catch (_) {}
+    try { if (window.selectItem) window.selectItem(horneado); } catch (_) {}
+    try { paper.view?.update?.(); } catch (_) {}
+
+    return horneado;
+}
+
+/** Devuelve un clon de la pieza con la geometria ya invertida. */
+function hornearEspejo(pieza, horizontal) {
+    const clon = pieza.clone({ insert: false });
+    if (!clon) return null;
+    const caja = pieza.bounds;
+    if (!caja || !(caja.width > 0) || !(caja.height > 0)) return null;
+
+    // Se invierte cada hijo en su propia caja, y despues se recoloca la pieza
+    // para que siga donde estaba: el cliente no quiere ver el objeto saltar.
+    const invertir = (item) => {
+        if (item.children) item.children.forEach(invertir);
+        if (!item.segments || !item.segments.length) return;
+        const b = item.bounds;
+        const cx = b.left + b.width / 2;
+        const cy = b.top + b.height / 2;
+        item.segments.forEach((seg) => {
+            if (horizontal) seg.point.x = 2 * cx - seg.point.x;
+            else seg.point.y = 2 * cy - seg.point.y;
+        });
+        // Un camino espejado invierte su sentido de recorrido.
+        if (item.closed) item.reverse?.();
+    };
+    invertir(clon);
+
+    // La posicion original se restaura porque el clon nace en el mismo lugar
+    // pero con la caja espejada.
+    if (horizontal) clon.position.x = pieza.position.x;
+    else clon.position.y = pieza.position.y;
+    return clon;
+}
+
+export function dispatchEKKOCommand(command, element = null) {    const handler = COMMAND_HANDLERS[command];
     if (typeof handler !== "function") {
         console.warn(`[EKKO COMMANDS] Comando no registrado: ${command}`);
         return null;
