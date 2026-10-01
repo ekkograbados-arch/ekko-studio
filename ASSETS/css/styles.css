@@ -990,7 +990,7 @@ body,
 .ekko-context-tab.is-active {
     border-color: #bfdbfe;
     background: #eff6ff;
-    color: #1d4ed8;
+    color: var(--ekko-accent-main, #405d6d);
     font-weight: 700;
 }
 
@@ -1064,7 +1064,7 @@ body,
 
 .ekko-param-label { color: var(--ekko-text-muted, #64748b); }
 
-.ekko-param-input { width: 120px; accent-color: #2563eb; cursor: pointer; }
+.ekko-param-input { width: 120px; accent-color: var(--ekko-accent-main, #405d6d); cursor: pointer; }
 
 /* Campo numerico editable: se escribe el valor con el teclado. */
 .ekko-param-number {
@@ -1091,7 +1091,7 @@ body,
     min-width: 30px;
     font-variant-numeric: tabular-nums;
     font-weight: 700;
-    color: #1d4ed8;
+    color: var(--ekko-accent-main, #405d6d);
 }
 
 .ekko-param-action {
@@ -1129,7 +1129,7 @@ body,
     content: "•";
     margin-left: 5px;
     font-weight: 900;
-    color: #2563eb;
+    color: var(--ekko-accent-main, #405d6d);
 }
 
 .ekko-top-context-label {
@@ -1225,3 +1225,70 @@ body,
 #panelToggles { position: fixed; top: 8px; right: 16px; z-index: 9999; display: flex; gap: 6px; }
 #panelToggles button { background: rgba(30,30,40,0.85); color: #eee; border: 1px solid #555; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px; }
 #panelToggles button:hover { background: #ff2ea6; color: #fff; border-color: #ff2ea6; }
+
+/* =====================================================================
+   PANEL CONTEXTUAL DE HERRAMIENTA
+   ---------------------------------------------------------------------
+   Armado por groups: los valores que se ajustan a la izquierda y los
+   botones a la derecha, separados por una linea, como los grupos de la
+   cinta de Word. Todo con los mismos colores que la barra emergente y el
+   panel superior, para que se lean como una sola pieza.
+   ===================================================================== */
+.ekko-param-grupo {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 12px;
+}
+.ekko-param-grupo + .ekko-param-grupo {
+    border-left: 1px solid var(--ekko-border-color, #cbd5e1);
+}
+.ekko-param-grupo:first-child { padding-left: 2px; }
+.ekko-param-grupo:last-child { padding-right: 2px; }
+.ekko-param-grupo-titulo {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--ekko-text-muted, #64748b);
+}
+.ekko-param-fila {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* --- Botones segmentados (Centro / Exterior / Interior) --------------
+   Igual que los grupos de Word: un marco comun, el activo pintado. No hay
+   desplegable: el cliente ve las tres opciones y aprieta la que quiere. */
+.ekko-seg {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid var(--ekko-border-color, #cbd5e1);
+    border-radius: 7px;
+    overflow: hidden;
+    background: #fff;
+}
+.ekko-seg-btn {
+    appearance: none;
+    border: none;
+    border-left: 1px solid var(--ekko-border-color, #cbd5e1);
+    background: transparent;
+    color: var(--ekko-text-secondary, #5d6c76);
+    font: 600 12px/1 system-ui, "Segoe UI", sans-serif;
+    padding: 7px 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background .12s ease, color .12s ease;
+}
+.ekko-seg-btn:first-child { border-left: none; }
+.ekko-seg-btn:hover { background: var(--ekko-panel-secondary, #d1dce3); }
+.ekko-seg-btn.is-activo {
+    background: var(--ekko-accent-main, #405d6d);
+    color: var(--ekko-text-light, #f4f7f8);
+}
+.ekko-seg-btn:focus-visible {
+    outline: 2px solid var(--ekko-accent-hover, #526f80);
+    outline-offset: -2px;
+}
