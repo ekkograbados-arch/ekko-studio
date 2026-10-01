@@ -61,7 +61,6 @@ const COMMAND_HANDLERS = Object.freeze({
     // Contorno unificado: vector <-> trazo, texto -> vector -> trazo,
     // imagen -> calcar silueta (o recuadro si el cliente dice que tiene fondo).
     contorno: () => aplicarContorno(),
-    contornoRecuadro: () => aplicarContorno(null, { withBackground: true }),
     solidHole: () => invertSelectionRoles(),
     performSmartFusion: () => typeof window.performSmartFusion === "function"
         ? window.performSmartFusion()
@@ -75,6 +74,11 @@ const COMMAND_HANDLERS = Object.freeze({
     },
     ungroup: () => dispatchUngroup(),
     decomposeVector: () => dispatchVectorDecomposition(),
+    // TRAZAR = calcar el objeto ENTERO: borde por fuera y detalle por
+    // adentro. Es una herramienta DISTINTA de Contorno, que solo dibuja la
+    // linea del borde exterior. Antes este boton ejecutaba "contorno", asi
+    // que Trazar no trazaba: le ponia un borde y nada mas.
+    traceImage: () => (typeof window.traceRaster === "function" ? window.traceRaster() : null),
     // Boolean operations (vector ↔ vector)
     booleanUnion: () => performBooleanOperation("union"),
     booleanSubtract: () => performBooleanOperation("subtract"),
