@@ -1098,8 +1098,12 @@ function bindNumericSelectionControls() {
     if (!button || button.dataset.sizeLockOwner === "1") return;
     button.dataset.sizeLockOwner = "1";
     button.addEventListener("click", () => {
-      window._sizeLockEnabled = window._sizeLockEnabled === false;
-      syncSizeLockButtons();
+      // Aca se llama a toggleSizeLock() y no se repite el cambio del flag a
+      // mano. Antes este listener invertia _sizeLockEnabled Y el boton
+      // ademas traia onclick="toggleSizeLock()" en el HTML: cada clic
+      // cambiaba el flag dos veces y el candado no se movia nunca. Por eso
+      // el cliente lo daba por muerto. Ahora hay un solo lugar que decide.
+      toggleSizeLock();
       updateSelectionInfo();
     });
   });
@@ -2108,6 +2112,18 @@ async function cargarUnArchivo(file, tipo) {
 window.openAssetLoader = openAssetLoader;
 window.openImageLoader = openAssetLoader;
 window.openSVGLoader = openAssetLoader;
+/* El QR de la casa: el Instagram de EKKO Studio. Es lo que sale por defecto
+   cuando el cliente aprieta el boton sin cambiar nada, que es justo lo que se
+   pidio: no pedirle al cliente que escriba una direccion que nunca va a
+   cambiar. Si quiere otro, lo escribe en el dialogo y se respeta.
+
+   Va SIN https:// y SIN www. a proposito. El celular abre las dos formas
+   igual, pero cada caracter que sobra es un modulo mas de ancho: con la
+   direccion completa el QR es version 3 (29x29, 431 modulos) y con esta es
+   version 2 (25x25, 328). Un 14% mas de ancho por modulo, que en un grabado
+   chico es la diferencia entre que se lea justo y que se lea bien. */
+const QR_POR_DEFECTO = "instagram.com/grabados_ekko";
+
 // Inicializacion de la Modal de QR Dinamico
 const loadQRCodeLibrary = () => {
   return new Promise((resolve) => {
@@ -2119,9 +2135,125 @@ const loadQRCodeLibrary = () => {
   });
 };
 
+/**
+ * Inserta un codigo QR en el lienzo como VECTOR.
+ *
+ * Antes salia como imagen (un canvas traido como paper.Raster), y en un laser
+ * eso se ve borroso: no tiene bordes limpios para cortar y no entra al motor
+ * de formas como un dibujo mas. Ahora se arma con la matriz de modulos real y
+ * se convierte en un CompoundPath con la misma convencion que cualquier otro
+ * vector de la app, de modo que el cliente lo trata igual que el logo.
+ *
+ * Si la libreria de modulos no se pudiera cargar, se cae al camino viejo de
+ * la imagen: es peor, pero es un QR y no un error.
+ */
 export async function addQRToCanvas(text) {
-  await loadQRCodeLibrary();
+  const pedido = String(text || "").trim() || QR_POR_DEFECTO;
+  /* Se limpia el link antes de codificarlo. Los botones de compartir de
+     Instagram y WhatsApp agregan parametros de tracking que no cambian a
+     donde va el link: sacarlos no mueve el destino y puede bajar el QR de
+     version 5 a version 2, que es la diferencia entre leerse o no en una
+     pulsera de 4 mm. El texto que mando el cliente y el mensaje del chat se
+     respetan tal cual: solo se va el lastre. */
+  const prep = window.EKKO_QR_LINK?.limpiarLink?.(pedido) || { texto: pedido, cambiado: false };
+  const contenido = prep.texto || QR_POR_DEFECTO;
+  if (prep.cambiado) {
+    window.EKKO_NOTICE?.notice?.(
+      `Se quitaron ${prep.economia} caracteres de rastreo del link: el QR queda mas chico y se lee mejor.`,
+      { kind: "ok" }
+    );
+  }
+  const area = (window.currentMockup && window.currentMockup.bounds) ? window.currentMockup.bounds : paper.view.bounds;
+  // El QR se mide contra el producto REAL, no contra un porcentaje de la
+  // pantalla. En una pulsera de 5x30 mm un codigo que ocupe 30% del alto
+  // puede quedar con modulos de 0.2 mm y el celular no lo lee. Para eso estan
+  // getRealProductDimensions() y mmPerPaperUnit, que son las que ya usan los
+  // campos Ancho y Alto: el QR no mide otra cosa que el resto de la app.
+  window.updateGlobalScaleFactor?.();
+  const dims = window.getRealProductDimensions?.(window.toolState?.currentProduct) || null;
+  const anchoRealMm = Number(dims?.width) > 0 ? Number(dims.width) : 0;
+  const altoRealMm = Number(dims?.height) > 0 ? Number(dims.height) : 0;
+  const menorReal = Math.min(anchoRealMm, altoRealMm) > 0
+    ? Math.min(anchoRealMm, altoRealMm)
+    : 0;
+  // 55% del lado menor del producto: deja aire alrededor y cabe en pulseras
+  // sin invadir el resto del diseno.
+  const size = Math.min(area.width, area.height) * 0.55;
   saveHistory();
+  try {
+    const vector = await window.EKKO_QR_VECTOR?.construirQrVector(contenido, {
+      tamano: size,
+      anchoModulo: menorReal
+    });
+    if (vector) {
+      if (window.paper && paper.project) {
+        const dLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+        if (dLayer) dLayer.activate();
+      }
+      // El QR va a la capa de diseno, SIEMPRE. Antes se usaba
+      // insertBelow(currentMockup), que lo dejaba como hijo del Group del
+      // mockup: ahi no lo encuentra el motor de formas, la auditoria lo
+      // ignora y el cliente no lo puede ni seleccionar.
+      const dLayer2 = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+      if (dLayer2) dLayer2.addChild(vector);
+      // El QR nace centrado en el area de trabajo.
+      const b = vector.bounds;
+      vector.translate(new paper.Point(area.center.x - b.x - b.width / 2, area.center.y - b.y - b.height / 2));
+      // Geometria base editable: sin esto la auditoria marca el QR como
+      // problema y el motor de formas lo trata como un dibujo sin respaldo.
+      // Se usa la funcion del propio editor, que ya normaliza matrices y
+      // guarda geomBasePathData, en vez de asignarlo a mano.
+      initGeomBaseRecursive(vector);
+      window.selectItem(vector);
+      paper.view.update();
+      // El aviso sale solo cuando el codigo queda en el rango fino. Los de
+      // 4 mm que se grabaron en EKKO Studio andaban en 0.121 mm por modulo y
+      // se leen bien con zoom, asi que 0.14 mm NO es motivo de alarma: es el
+      // punto donde conviene revisar la maquina, no donde decir que no
+      // funciona. El limite duro esta en 0.10 mm.
+      const mm = Number(vector.data?.anchoModuloMm || 0).toFixed(2);
+      // notice vive en ekkoNotice.js, que lo publica como
+      // window.EKKO_NOTICE = { notice, notify }. EKKO_GEOMETRY_AUDIT solo
+      // publica runGeometryAudit, asi que no hay a donde colgarlo ahi.
+      if (vector.data?.qrLegible === false) {
+        window.EKKO_NOTICE?.notice?.(
+          `El QR quedo con modulos de ${mm} mm: asi no lo va a leer el celular. ` +
+          `Hace falta al menos 0.10 mm por modulo, y para que se lea sin zoom, 0.20 mm.`,
+          { kind: "warn" }
+        );
+      } else if (vector.data?.qrAjustado) {
+        window.EKKO_NOTICE?.notice?.(
+          `QR de ${mm} mm por modulo: se lee, pero con poco margen. ` +
+          `Si el grabado sale justo, proba un link mas corto.`,
+          { kind: "warn" }
+        );
+      }
+      /* Que va a pasar al escanear. Un QR lleva texto y lo que sigue lo
+         decide el celular, asi que se dice con palabras exactas. Un link de
+         WhatsApp con texto abre el chat con el mensaje escrito, NO suena una
+         nota de voz: conviene que el cliente lo sepa antes de grabar mil
+         pulseras con esa expectation. Para que suene solo, el link tiene que
+         apuntar al archivo de audio. */
+      const desc = window.EKKO_QR_LINK?.descriptorDeLink?.(contenido);
+      if (desc?.esChatConTexto) {
+        window.EKKO_NOTICE?.notice?.(
+          "Este link abre WhatsApp con el chat listo, pero no reproduce audio. " +
+          "Para que suene solo al escanear, el link tiene que apuntar al archivo de audio.",
+          { kind: "warn" }
+        );
+      } else if (desc?.plataforma) {
+        window.EKKO_NOTICE?.notice?.(
+          `QR de ${desc.plataforma}${desc.reproduceAudio ? ", que reproduce el audio" : ""}.`,
+          { kind: "ok" }
+        );
+      }
+      window.EKKO_GEOMETRY_AUDIT?.runGeometryAudit?.();
+      return vector;
+    }
+  } catch (error) {
+    console.warn("[EKKO QR] No se pudo armar el vector, se usa la imagen.", error);
+  }
+  await loadQRCodeLibrary();
   const tempDiv = document.createElement("div");
   tempDiv.style.display = "none";
   document.body.appendChild(tempDiv);
@@ -2469,10 +2601,14 @@ async function bootstrapEKKO() {
     });
 
     safeAddListener("btnAddQR", "click", () => {
-      const text = prompt("Ingrese el texto o enlace (Instagram, WhatsApp, WiFi) para el codigo QR:", "https://www.instagram.com/grabados_ekko/");
-      if (text && text.trim() !== "") {
-        addQRToCanvas(text.trim());
-      }
+      // El dialogo propio reemplaza al prompt del navegador: este ultimo no
+      // avisa cuanto link se le puede quitar, ni que plataforma es, y obliga
+      // a escribir un link largo a mano en una caja del sistema operativo.
+      // Aca se pega, se ve el efecto del recorte y se elige.
+      window.abrirDialogoQr?.({
+        porDefecto: QR_POR_DEFECTO,
+        alConfirmar: (texto) => addQRToCanvas(texto)
+      });
     });
 
     // La inserción de texto se procesa exclusivamente en selection.js, que
