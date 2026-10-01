@@ -6,6 +6,10 @@ import { getPublicOwner, getOwnerLocalGeometry, isMockupOrMask } from "./designG
 import { installOwnerGeometry, recalculateDynamicSubtractions, normalizeSubtractiveOperand } from "./geometricUngroup.js";
 import { isToolEnabled, legacyNamesFor, legacyNamesForTab } from "./capabilities.js";
 import { aplicarContorno } from "./contorno.js";
+// mirrorSelection avisa cuando no hay nada que voltear. Sin este import,
+// notice no existia en el ambito del modulo y el comando reventaba al
+// ejecutarse: el boton del espejo no hacia nada y noavia por que.
+import { notice } from "./ekkoNotice.js";
 
 /* =========================================================================
    EKKO STUDIO — PANEL COMMAND BRIDGE / FASE 4.2
