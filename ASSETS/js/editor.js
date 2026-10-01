@@ -929,7 +929,7 @@ function syncSizeLockButtons() {
   ["btnSizeLockTop", "btnSizeLockContext"].forEach(id => {
     const button = document.getElementById(id);
     if (!button) return;
-    button.textContent = locked ? "🔒 Proporción: SÍ" : "🔓 Proporción: NO";
+    button.textContent = locked ? "🔒" : "🔓";
     button.classList.toggle("active", locked);
     button.setAttribute("aria-pressed", locked ? "true" : "false");
     button.title = locked
