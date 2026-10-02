@@ -17,10 +17,25 @@
         WORKER: '/ASSETS/js/modules/canvas-pro/backgroundWorker.js',
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
 
-        // Modelo preferido. El worker tiene su propio respaldo: si este no
-        // entra en la memoria de la maquina, baja al estandar sin que el
-        // cliente vea nada. Se cambia aqui para dejar el estandar siempre.
-        MODELO_CLAVE: 'birefnet',
+        // Modelo usado. DEJADO EN EL ESTANDAR a proposito, con evidencia:
+        //
+        // BiRefNet lite es incompatible con WebGPU por ARQUITECTURA, no por
+        // falta de memoria. Medido en la maquina del cliente:
+        //
+        //   "The number of storage buffers (65) in the Compute stage exceeds
+        //    the maximum per-stage limit (8)"
+        //
+        // El nodo Concat de BiRefNet necesita 65 storage buffers y WebGPU
+        // admite 8 por etapa como maximo. No hay bandera ni version que lo
+        // resuelva. Como el worker pedia webgpu primero, ORT entraba en un
+        // ciclo de pipelines invalidos y el navegador se CONGELABA.
+        //
+        // En CPU (WASM) el modelo de 1024 consumia tanta memoria que se
+        // quedaba corto al medirlo. Hoy no hay ninguna via viable.
+        //
+        // El codigo de BiRefNet queda en el worker por si aparece una
+        // exportacion preparada para WebGPU, pero NO se usa.
+        MODELO_CLAVE: 'silueta',
 
         MAX_LADO: 2600,        // techo de trabajo: memoria y tiempo razonables
 
