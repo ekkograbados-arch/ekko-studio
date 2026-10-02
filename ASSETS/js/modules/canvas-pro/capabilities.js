@@ -376,6 +376,17 @@ export const TOOLS = {
   removeBg:      { label: "Quitar Fondo",  active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
   traceImage:    { label: "Trazar Imagen", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
 
+  // --- Editar Fondo: el pincel de retoque (borrar / restaurar).
+  //     Segundo escalon de la piramide: solo existe si el fondo YA se quito.
+  //     No basta con que sea un Raster: tiene que ser un recorte con la marca
+  //     que deja quitarFondo, asi que antes de quitar el fondo el boton
+  //     queda oculto y no hay forma de abrir el pincel sin recorte. ---
+  editCutout: {
+    label: "Editar Fondo",
+    active: s => s.count > 0 && s.list.length > 0 &&
+      s.list.every(e => e.owner?.data?.quitarFondoIA === true)
+  },
+
   // --- Texto (edicion de UN texto: con varios se oculta) ---
   textToVector:  { label: "Texto a Vector", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT) },
 
@@ -465,6 +476,7 @@ const ENGINE_TO_LEGACY = Object.freeze({
   fusion: ["fusion"],
   removeBg: ["removeBg"],
   traceImage: ["traceImage"],
+  editCutout: ["editCutout"],
   textToVector: ["textToVector"],
   zoom: ["zoom"],
   rulers: ["rulers"],
