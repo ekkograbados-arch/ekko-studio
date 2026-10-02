@@ -22,23 +22,41 @@
 // setModeloUrl() almandar "preparar", que es donde vive CFG.MODELO: cambiar la
 // config surte efecto de verdad y el worker no queda atado a una sola URL.
 const MODELOS = {
+    // BiRefNet lite queda DESACTIVADO y fuera de la lista de candidatos a
+    // proposito. Medido en la maquina del cliente:
+    //
+    //   "The number of storage buffers (65) in the Compute stage exceeds the
+    //    maximum per-stage limit (8)"
+    //
+    // Su nodo Concat pide 65 storage buffers y WebGPU admite 8 por etapa: es
+    // incompatible por arquitectura, no por memoria ni por configuracion. Al
+    // pedir webgpu primero, ORT entraba en un ciclo de pipelines invalidos y
+    // el navegador se congelaba. En CPU se queda corto de memoria.
+    //
+    // Se conserva el bloque para poder activarlo si aparece una exportacion
+    // preparada para WebGPU (con el Concat partido), pero hoy no se usa.
     birefnet: {
         url: '/modelos/birefnet_fp16.onnx',
         id: 'birefnet-lite-fp16',
         tam: 1024,
-        etiqueta: 'Alta definicion'
+        etiqueta: 'Alta definicion',
+        DESHABILITADO: true
     },
     silueta: {
         url: '/modelos/silueta.onnx',
         id: 'silueta-v1',
         tam: 320,
-        etiqueta: 'Estandar'
+        etiqueta: 'Estandar',
+        DESHABILITADO: false
     }
 };
 
-// Modelo en uso. Arranca en el de mejor calidad; si la maquina no puede con
-// el, baja al estandar SOLO por su cuenta (ver obtenerSesion).
-let MODELO_ACTUAL = 'birefnet';
+// Modelo en uso. Arranca en el estandar porque es el unico que hoy puede
+// ejecutarse en un navegador; el de alta queda en la lista pero deshabilitado
+// (ver MODELOS.biRefNet: incompatible con WebGPU por el nodo Concat).
+// Modelo por defecto: el ESTANDAR. El de alta esta en la lista pero marcado
+// como deshabilitado (ver MODELOS), asi que nunca se pide.
+let MODELO_ACTUAL = 'silueta';
 let TAM_ENTRADA = MODELOS[MODELO_ACTUAL].tam;
 const MEDIA = [0.485, 0.456, 0.406];
 const DESV = [0.229, 0.224, 0.225];
@@ -46,6 +64,12 @@ const DESV = [0.229, 0.224, 0.225];
 /** Fuerza un modelo concreto desde el hilo principal. */
 function setModelo(clave) {
     if (!MODELOS[clave]) return false;
+    // Un modelo marcado como deshabilitado no se activa por mucho que lo
+    // pidan: activarlo fue lo que congelo el navegador.
+    if (MODELOS[clave].DESHABILITADO) {
+        if (clave !== MODELO_ACTUAL) { MODELO_ACTUAL = 'silueta'; TAM_ENTRADA = MODELOS.silueta.tam; }
+        return false;
+    }
     if (clave === MODELO_ACTUAL) return true;
     MODELO_ACTUAL = clave;
     TAM_ENTRADA = MODELOS[clave].tam;
