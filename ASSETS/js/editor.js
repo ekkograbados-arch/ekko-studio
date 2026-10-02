@@ -926,7 +926,7 @@ function setNumericInput(id, value, enabled = true) {
 
 function syncSizeLockButtons() {
   const locked = window._sizeLockEnabled !== false;
-  ["btnSizeLockTop", "btnSizeLockContext"].forEach(id => {
+  ["btnSizeLockContext"].forEach(id => {
     const button = document.getElementById(id);
     if (!button) return;
     button.textContent = locked ? "🔒" : "🔓";
@@ -967,9 +967,9 @@ function updateSelectionInfo() {
   window.updateGlobalScaleFactor?.();
   const owners = getNumericSelectionOwners();
   const selectionInfo = document.getElementById("selectionInfo");
-  const widthIds = ["objWidth", "ctxWidth"];
-  const heightIds = ["objHeight", "ctxHeight"];
-  const rotationIds = ["objRotation", "ctxRotation"];
+  const widthIds = ["ctxWidth"];
+  const heightIds = ["ctxHeight"];
+  const rotationIds = ["ctxRotation"];
 
   if (!owners.length) {
     if (selectionInfo) {
@@ -1084,8 +1084,8 @@ function applyNumericSize(axis, requestedMm) {
 
 function bindNumericSelectionControls() {
   const bindings = [
-    ["objWidth", "width"], ["ctxWidth", "width"],
-    ["objHeight", "height"], ["ctxHeight", "height"]
+    ["ctxWidth", "width"],
+    ["ctxHeight", "height"]
   ];
   bindings.forEach(([id, axis]) => {
     const input = document.getElementById(id);
@@ -1093,7 +1093,7 @@ function bindNumericSelectionControls() {
     input.dataset.sizeOwner = "1";
     input.addEventListener("change", () => applyNumericSize(axis, input.value));
   });
-  ["btnSizeLockTop", "btnSizeLockContext"].forEach(id => {
+  ["btnSizeLockContext"].forEach(id => {
     const button = document.getElementById(id);
     if (!button || button.dataset.sizeLockOwner === "1") return;
     button.dataset.sizeLockOwner = "1";
