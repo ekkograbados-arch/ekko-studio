@@ -22,6 +22,25 @@
 // setModeloUrl() almandar "preparar", que es donde vive CFG.MODELO: cambiar la
 // config surte efecto de verdad y el worker no queda atado a una sola URL.
 const MODELOS = {
+    // MODNet: el modelo que se usa. Entrena para retrato, y su salida suave es
+    // justamente lo que hace falta en la cabeza y el pelo, que es donde el
+    // modelo anterior fallaba. MEDIDO contra la foto de referencia del
+    // cliente, de punta a punta dentro de la app:
+    //
+    //   u2net 320 (antes) ....... IoU 71,4%   sujeto faltante 7,6%
+    //   MODNet 512 (este) ....... IoU 96,4%   sujeto faltante 0,4%
+    //
+    // Pesa 6,3 MB (contra 42 MB) y usa la misma normalizacion ImageNet que ya
+    // tenia el worker, asi que el preprocesado no cambio. Su grafo tiene 24
+    // nodos Concat y NINGUNO con mas de 8 entradas: es exactamente lo que hacia
+    // imposible a BiRefNet en WebGPU.
+    modnet: {
+        url: '/modelos/modnet.onnx',
+        id: 'modnet-q512',
+        tam: 512,
+        etiqueta: 'Retrato',
+        soloWasm: true
+    },
     // BiRefNet lite queda DESACTIVADO y fuera de la lista de candidatos a
     // proposito. Medido en la maquina del cliente:
     //
@@ -51,12 +70,11 @@ const MODELOS = {
     }
 };
 
-// Modelo en uso. Arranca en el estandar porque es el unico que hoy puede
-// ejecutarse en un navegador; el de alta queda en la lista pero deshabilitado
-// (ver MODELOS.biRefNet: incompatible con WebGPU por el nodo Concat).
-// Modelo por defecto: el ESTANDAR. El de alta esta en la lista pero marcado
-// como deshabilitado (ver MODELOS), asi que nunca se pide.
-let MODELO_ACTUAL = 'silueta';
+// Modelo en uso. Arranca en MODNet, que es el que mejor recorte da medido (ver
+// MODELOS.modnet). El de alta queda en la lista pero deshabilitado, asi que
+// nunca se pide.
+const MODELO_POR_DEFECTO = 'modnet';
+let MODELO_ACTUAL = MODELO_POR_DEFECTO;
 let TAM_ENTRADA = MODELOS[MODELO_ACTUAL].tam;
 const MEDIA = [0.485, 0.456, 0.406];
 const DESV = [0.229, 0.224, 0.225];
@@ -67,7 +85,10 @@ function setModelo(clave) {
     // Un modelo marcado como deshabilitado no se activa por mucho que lo
     // pidan: activarlo fue lo que congelo el navegador.
     if (MODELOS[clave].DESHABILITADO) {
-        if (clave !== MODELO_ACTUAL) { MODELO_ACTUAL = 'silueta'; TAM_ENTRADA = MODELOS.silueta.tam; }
+        if (clave !== MODELO_ACTUAL) {
+            MODELO_ACTUAL = MODELO_POR_DEFECTO;
+            TAM_ENTRADA = MODELOS[MODELO_POR_DEFECTO].tam;
+        }
         return false;
     }
     if (clave === MODELO_ACTUAL) return true;
@@ -232,8 +253,8 @@ async function obtenerSesion(forzarWasm = false) {
 
     // Si estamos en un modelo que ya fallo, no se reintenta: se baja de una.
     if (falloAltaDefinicion && MODELO_ACTUAL === 'birefnet') {
-        MODELO_ACTUAL = 'silueta';
-        TAM_ENTRADA = MODELOS.silueta.tam;
+        MODELO_ACTUAL = MODELO_POR_DEFECTO;
+        TAM_ENTRADA = MODELOS[MODELO_POR_DEFECTO].tam;
         sesion = null;
     }
 
@@ -255,8 +276,12 @@ async function obtenerSesion(forzarWasm = false) {
         throw e;
     }
 
-    if (forzarWasm) {
-        reportar('sesion', 0, 0, 'reintentando en CPU…');
+    if (forzarWasm || (MODELOS[MODELO_ACTUAL] && MODELOS[MODELO_ACTUAL].soloWasm)) {
+        // MODNet va solo por CPU a proposito: pesa tan poco que la GPU no
+        // aporta, y asi no queda ninguna posibilidad de que ORT entre en el
+        // ciclo de pipelines invalidos que congelo el navegador con BiRefNet.
+        if (!forzarWasm) reportar('sesion', 0, 0, 'preparando el motor…');
+        else reportar('sesion', 0, 0, 'reintentando en CPU…');
         sesion = await ort.InferenceSession.create(buf, {
             executionProviders: ['wasm'],
             graphOptimizationLevel: 'all'
@@ -307,36 +332,33 @@ function construirTensor(ort, pixeles) {
 /**
  * Escala la imagen al tamano que pida el modelo ACTUAL.
  *
- * Hace falta porque el respaldo cambia la entrada de 1024 a 320: si se
- * reusara el tensor ya construido, el modelo recibiria una forma que no
- * espera y fallaria otra vez por el motivo equivocado.
+ * Hace falta porque cada modelo pide un lado distinto (MODNet 512, silueta
+ * 320) y el respaldo puede cambiarlo en caliente: si se reusara el tensor ya
+ * construido, el modelo recibiria una forma que no espera.
+ *
+ * El reescalado lo hace el propio canvas con su filtrado y no vecino mas
+ * cercana: en una foto de retrato, muestrear a saltos deja aliasing en el pelo
+ * y el recorte sale sucio.
  */
 function construirTensorEscalada(ort, pixeles, tam) {
     const t = tam || TAM_ENTRADA;
     const n = t * t;
     const data = new Float32Array(3 * n);
+    const ladoViejo = Math.max(1, Math.round(Math.sqrt(pixeles.length / 4)));
+
+    const origen = new ImageData(ladoViejo, ladoViejo);
+    origen.data.set(pixeles.subarray(0, ladoViejo * ladoViejo * 4));
+    const tmp = document.createElement('canvas');
+    tmp.width = ladoViejo; tmp.height = ladoViejo;
+    tmp.getContext('2d').putImageData(origen, 0, 0);
+
     const cv = document.createElement('canvas');
     cv.width = t; cv.height = t;
     const ctx = cv.getContext('2d', { willReadFrequently: true });
-    const img = ctx.createImageData(t, t);
-    // Los pixeles que llegan vienen del lienzo; se muestrean al tamano nuevo.
-    const origen = new ImageData(t, t);
-    // Reconstruccion simple: se toma el area central del tensor viejo.
-    const viejo = pixeles;
-    const ladoViejo = Math.round(Math.sqrt(viejo.length / 4));
-    for (let y = 0; y < t; y++) {
-        for (let x = 0; x < t; x++) {
-            const fx = Math.floor((x / t) * ladoViejo);
-            const fy = Math.floor((y / t) * ladoViejo);
-            const so = (fy * ladoViejo + fx) * 4;
-            const dof = (y * t + x) * 4;
-            img.data[dof] = viejo[so];
-            img.data[dof + 1] = viejo[so + 1];
-            img.data[dof + 2] = viejo[so + 2];
-            img.data[dof + 3] = 255;
-        }
-    }
-    ctx.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(tmp, 0, 0, t, t);
+
     const px = ctx.getImageData(0, 0, t, t).data;
     for (let i = 0; i < n; i++) {
         const o = i * 4;
@@ -355,7 +377,17 @@ self.onmessage = async (ev) => {
         // ya conoce las suyas, y asi el respaldo automatico sigue siendo
         // responsabilidad de este archivo).
         if (d.modeloClave) setModelo(d.modeloClave);
-        try { await obtenerSesion(); reportar('listo', 1, 1, 'motor listo'); }
+        try {
+            await obtenerSesion();
+            // El hilo principal necesita saber a que lado escalar la foto, y el
+            // worker es quien sabe que modelo quedo activo (puede haber bajado
+            // al estandar). Se avisa SIEMPRE, no solo cuando hay respaldo: antes
+            // no se hacia y el hilo principal adivinaba 320, asi que con MODNet
+            // (que pide 512) mandaba un buffer de 320, el tensor salia lleno de
+            // NaN y el recorte llegaba VACIO sin ningun error visible.
+            self.postMessage({ tipo: 'nota', lado: TAM_ENTRADA });
+            reportar('listo', 1, 1, 'motor listo');
+        }
         catch (e) { self.postMessage({ tipo: 'error', mensaje: String(e && e.message || e) }); }
         return;
     }
@@ -368,7 +400,15 @@ self.onmessage = async (ev) => {
     if (d.accion === 'inferir') {
         try {
             const ort = await cargarOrt();
-            const tensor = construirTensor(ort, new Uint8ClampedArray(d.pixeles));
+            const pixeles = new Uint8ClampedArray(d.pixeles);
+            // Si el buffer NO viene al tamano que pide el modelo, construir el
+            // tensor a pelo lo leeria fuera de rango y devolveria NaN en todo el
+            // tensor: el recorte saldria vacio, sin error y sin aviso. Se
+            // reescala, que ademas es lo correcto.
+            const ladoRecibido = Math.round(Math.sqrt(pixeles.length / 4));
+            const tensor = ladoRecibido === TAM_ENTRADA
+                ? construirTensor(ort, pixeles)
+                : construirTensorEscalada(ort, pixeles, TAM_ENTRADA);
 
             let salida = null;
             let s = await obtenerSesion();
