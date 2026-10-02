@@ -17,25 +17,17 @@
         WORKER: '/ASSETS/js/modules/canvas-pro/backgroundWorker.js',
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
 
-        // Modelo usado. DEJADO EN EL ESTANDAR a proposito, con evidencia:
+        // Modelo usado. MODNet: entrenado para retrato, 6,3 MB, entrada 512.
         //
-        // BiRefNet lite es incompatible con WebGPU por ARQUITECTURA, no por
-        // falta de memoria. Medido en la maquina del cliente:
+        // Se eligio MEDIDO, no por sabor: contra la foto de referencia del
+        // cliente, de punta a punta dentro de la app, IoU 96,4% con 0,4% de
+        // sujeto faltante, frente al 71,4% y 7,6% del modelo anterior. El pelo
+        // y la cabeza, que es lo que el cliente reportaba roto, es justamente
+        // lo que MODNet hace bien.
         //
-        //   "The number of storage buffers (65) in the Compute stage exceeds
-        //    the maximum per-stage limit (8)"
-        //
-        // El nodo Concat de BiRefNet necesita 65 storage buffers y WebGPU
-        // admite 8 por etapa como maximo. No hay bandera ni version que lo
-        // resuelva. Como el worker pedia webgpu primero, ORT entraba en un
-        // ciclo de pipelines invalidos y el navegador se CONGELABA.
-        //
-        // En CPU (WASM) el modelo de 1024 consumia tanta memoria que se
-        // quedaba corto al medirlo. Hoy no hay ninguna via viable.
-        //
-        // El codigo de BiRefNet queda en el worker por si aparece una
-        // exportacion preparada para WebGPU, pero NO se usa.
-        MODELO_CLAVE: 'silueta',
+        // El worker tiene su propio respaldo: si este no se descarga, baja al
+        // estandar por su cuenta (ver obtenerSesion).
+        MODELO_CLAVE: 'modnet',
 
         MAX_LADO: 2600,        // techo de trabajo: memoria y tiempo razonables
 
@@ -205,15 +197,32 @@
         const escala = Math.min(S / W, S / H);
         const dw = Math.max(1, Math.round(W * escala));
         const dh = Math.max(1, Math.round(H * escala));
+        const ox = (S - dw) / 2;
+        const oy = (S - dh) / 2;
 
         const lienzo = document.createElement('canvas');
         lienzo.width = S; lienzo.height = S;
         const ctx = lienzo.getContext('2d', { willReadFrequently: true });
-        ctx.fillStyle = '#000';
-        ctx.fillRect(0, 0, S, S);
-        ctx.drawImage(imagen, (S - dw) / 2, (S - dh) / 2, dw, dh);
 
-        return { pixeles: ctx.getImageData(0, 0, S, S).data, W, H };
+        // El relleno NO es negro. MEDIDO con MODNet: con marco negro el recorte
+        // cae a IoU 89,5% y el modelo clasifica parte del marco como sujeto
+        // (2,6% de pixeles de sobra). Con el color medio de la propia foto sube
+        // a 95,5%: el marco se camufla con el fondo real y deja de existir.
+        const tonal = document.createElement('canvas');
+        tonal.width = 8; tonal.height = 8;
+        const tc = tonal.getContext('2d', { willReadFrequently: true });
+        tc.drawImage(imagen, 0, 0, 8, 8);
+        const d8 = tc.getImageData(0, 0, 8, 8).data;
+        let tr = 0, tg = 0, tb = 0;
+        for (let i = 0; i < 64; i++) { tr += d8[i * 4]; tg += d8[i * 4 + 1]; tb += d8[i * 4 + 2]; }
+        ctx.fillStyle = `rgb(${tr >> 6},${tg >> 6},${tb >> 6})`;
+        ctx.fillRect(0, 0, S, S);
+        ctx.drawImage(imagen, ox, oy, dw, dh);
+
+        // Se devuelve el rectangulo que ocupa la foto DENTRO del cuadrado. Sin
+        // el, al volver la mascara habria que suponer que la foto llena todo el
+        // cuadrado, y no es cierto: queda corrida y con un marco pegado.
+        return { pixeles: ctx.getImageData(0, 0, S, S).data, W, H, caja: { ox, oy, dw, dh } };
     }
 
     // ----------------------------------------------------------------------
@@ -227,7 +236,17 @@
      * sin llegar a comerse ninguno. Con anchos que se solapaban, mover BORDE
      * tambien movia el umbral y el area opaca iba al reves.
      */
-    const UMBRAL_BORDE = [0.72, 0.28];   // BORDE=0 contrae, BORDE=1 expande
+    // Umbral de CORTE segun BORDE. El signo importa: un umbral BAJO deja entrar
+    // mas pixeles como sujeto (expande) y uno ALTO los expulsa (contrae).
+    //   BORDE=0 -> 0.72 (contrae)   BORDE=1 -> 0.28 (expande)   BORDE=0.5 -> 0.5
+    //
+    // MEDIDO con el modelo anterior (u2net 320): subir BORDE al maximo NO
+    // arreglaba nada. IoU contra la foto de referencia iba de 71,4% (BORDE 0.5)
+    // a 72,9% (BORDE 1.0) y el sujeto faltante solo bajaba de 7,6% a 6,8%. El
+    // control estaba bien calibrado; lo que fallaba era el modelo. Con MODNet el
+    // valor por defecto (0.5) da IoU 96,4% con 0,4% de sujeto faltante, y el
+    // control queda como ajuste fino.
+    const UMBRAL_BORDE = [0.72, 0.28];
 
     /**
      * Perfil de un valor de alfa de la mascara.
@@ -378,7 +397,7 @@
         }
     }
 
-    function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo) {
+    function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja) {
         const lienzo = document.createElement('canvas');
         lienzo.width = anchoTrabajo;
         lienzo.height = altoTrabajo;
@@ -387,17 +406,32 @@
         const img = ctx.getImageData(0, 0, anchoTrabajo, altoTrabajo);
         const px = img.data;
 
+        // La foto se metio CENTRADA en un cuadrado (ver prepararEntrada), asi
+        // que la mascara cubre el cuadrado entero y la foto solo una parte.
+        // Mapear el cuadrado completo sobre la foto corrida el recorte en
+        // vertical y superpone el marco de relleno sobre el sujeto. MEDIDO: eso
+        // solo, sin tocar el modelo, bajaba el IoU de 95,5% a 69,9%. Se mapea el
+        // rectangulo real.
+        const c = caja || { ox: 0, oy: 0, dw: mw, dh: mh };
+        const escalaX = c.dw / anchoTrabajo;
+        const escalaY = c.dh / altoTrabajo;
+
         // Muestreo bilineal de la máscara: evita el serrucho de un nearest.
         const fila = new Float32Array(anchoTrabajo);
         for (let y = 0; y < altoTrabajo; y++) {
-            const fy = Math.min(mh - 1, (y * mh) / altoTrabajo);
-            const y0 = Math.floor(fy), y1 = Math.min(mh - 1, y0 + 1), ty = fy - y0;
+            const fy = c.oy + y * escalaY;
+            const dentroY = fy >= 0 && fy <= mh - 1;
+            const fyc = Math.max(0, Math.min(mh - 1, fy));
+            const y0 = Math.floor(fyc), y1 = Math.min(mh - 1, y0 + 1), ty = fyc - y0;
             for (let x = 0; x < anchoTrabajo; x++) {
-                const fx = Math.min(mw - 1, (x * mw) / anchoTrabajo);
-                const x0 = Math.floor(fx), x1 = Math.min(mw - 1, x0 + 1), tx = fx - x0;
+                const fx = c.ox + x * escalaX;
+                const dentroX = fx >= 0 && fx <= mw - 1;
+                if (!dentroY || !dentroX) { fila[x] = 0; continue; }
+                const fxc = Math.max(0, Math.min(mw - 1, fx));
+                const x0 = Math.floor(fxc), x1 = Math.min(mw - 1, x0 + 1), tx = fxc - x0;
                 const a = alfa[y0 * mw + x0], b = alfa[y0 * mw + x1];
-                const c = alfa[y1 * mw + x0], d = alfa[y1 * mw + x1];
-                fila[x] = (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+                const cc = alfa[y1 * mw + x0], d = alfa[y1 * mw + x1];
+                fila[x] = (a * (1 - tx) + b * tx) * (1 - ty) + (cc * (1 - tx) + d * tx) * ty;
             }
             // La curva se calcula UNA vez por ajuste, no por pixel: el perfil se
             // consulta por indice, asi el recorte es idempotente.
@@ -586,8 +620,8 @@
         }
     }
 
-    function componerRecorte(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo) {
-        const lienzo = aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo);
+    function componerRecorte(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja) {
+        const lienzo = aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja);
         if (CFG.MATTING <= 0.001 && CFG.AFINADO <= 0.001) return lienzo;
         try {
             const ctx = lienzo.getContext('2d', { willReadFrequently: true });
@@ -726,7 +760,11 @@
 
             // El lado de entrada lo decide el modelo que este activo. El worker
             // avisa cual quedo si tuvo que bajar al estandar por falta de memoria.
-            const ladoModelo = (window.__EKKO_LADO_ENTRADA || (CFG.MODELO_CLAVE === 'birefnet' ? 1024 : 320));
+            // El lado de entrada lo DECIDE el worker, que es quien sabe que modelo quedo
+            // activo (puede haber bajado al estandar). Antes se adivinaba aqui
+            // con un 320 fijo y, con un modelo que pide 512, se mandaba un buffer
+            // de 320: el recorte salia vacio sin dar ningun error.
+            const ladoModelo = window.__EKKO_LADO_ENTRADA || 512;
             const entrada = prepararEntrada(elemento, ladoModelo);
             informar('inferir', 0, 0, 'analizando la imagen…');
             const r = await enviar({
@@ -748,8 +786,12 @@
             ESTADO.mascaraAncho = r.w;
             ESTADO.mascaraAlto = r.h;
             ESTADO.lienzoTrabajo = { aw, ah };
+            // El rectangulo que la foto ocupa dentro del cuadrado de entrada se
+            // guarda para que todo recorte posterior (ajustar el borde, pincel)
+            // siga con la misma correspondencia y no se vuelva a correr.
+            ESTADO.caja = entrada.caja;
 
-            const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah);
+            const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah, entrada.caja);
 
             // El Raster nuevo se crea desde la URL, no desde un canvas, para
             // que Paper no intente hornear la imagen.
@@ -894,7 +936,8 @@
             ESTADO.recomponiendo = true;
             try {
                 const lienzo = componerRecorte(
-                    ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, elemento, aw, ah);
+                    ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, elemento, aw, ah,
+                    ESTADO.caja);
                 const url = lienzo.toDataURL('image/png');
 
                 // Se reasigna la fuente de la MISMA pieza ya colocada, sin
