@@ -1,42 +1,47 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    {
-      "source": "/modelos/silueta.onnx",
-      "destination": "https://huggingface.co/tomjackson2023/rembg/resolve/main/silueta.onnx"
-    },
-    {
-      "source": "/modelos/birefnet_fp16.onnx",
-      "destination": "https://huggingface.co/onnx-community/BiRefNet_lite-ONNX/resolve/main/onnx/model_fp16.onnx"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
-      "headers": [
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" },
-        { "key": "Cross-Origin-Embedder-Policy", "value": "credentialless" }
-      ]
-    }
-  ],
-  "functions": {
-    "api/products.js": {
-      "includeFiles": "ASSETS/mockups-medidas/**/*"
-    },
-    "api/fonts.js": {
-      "includeFiles": "ASSETS/fonts/**/*"
-    },
-    "api/synapse.js": {
-      "includeFiles": "ASSETS/**/*"
-    },
-    "api/repo-scanner.js": {
-      "includeFiles": "ASSETS/**/*"
-    },
-    "api/payload-scanner.js": {
-      "includeFiles": "ASSETS/**/*"
-    }
-  },
-  "cleanUrls": true,
-  "trailingSlash": false
+    "$schema":  "https://openapi.vercel.sh/vercel.json",
+    "rewrites":  [
+                     {
+                         "source":  "/api/(.*)",
+                         "destination":  "/api/$1"
+                     },
+                     {
+                         "source":  "/modelos/silueta.onnx",
+                         "destination":  "https://huggingface.co/tomjackson2023/rembg/resolve/main/silueta.onnx"
+                     }
+                 ],
+    "headers":  [
+                    {
+                        "source":  "/(.*)",
+                        "headers":  [
+                                        {
+                                            "key":  "Cross-Origin-Opener-Policy",
+                                            "value":  "same-origin"
+                                        },
+                                        {
+                                            "key":  "Cross-Origin-Embedder-Policy",
+                                            "value":  "credentialless"
+                                        }
+                                    ]
+                    }
+                ],
+    "functions":  {
+                      "api/products.js":  {
+                                              "includeFiles":  "ASSETS/mockups-medidas/**/*"
+                                          },
+                      "api/fonts.js":  {
+                                           "includeFiles":  "ASSETS/fonts/**/*"
+                                       },
+                      "api/synapse.js":  {
+                                             "includeFiles":  "ASSETS/**/*"
+                                         },
+                      "api/repo-scanner.js":  {
+                                                  "includeFiles":  "ASSETS/**/*"
+                                              },
+                      "api/payload-scanner.js":  {
+                                                     "includeFiles":  "ASSETS/**/*"
+                                                 }
+                  },
+    "cleanUrls":  true,
+    "trailingSlash":  false
 }
