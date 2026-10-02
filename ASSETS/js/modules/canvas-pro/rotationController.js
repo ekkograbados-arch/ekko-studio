@@ -42,13 +42,13 @@ function updatePopup(value, event) {
   p.classList.toggle("is-non-snap", !snapped);
   const pos = pointerPosition(event);
   if (pos) { p.style.left = `${Math.round(pos.x + 14)}px`; p.style.top = `${Math.round(pos.y + 14)}px`; }
-  ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
+  ["ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
 }
 function hidePopup() { const p = popup(); if (p) { p.classList.remove("is-visible", "is-snap", "is-non-snap"); p.textContent = ""; } }
 function owner(entry) { return resolvePublicTransformOwner(entry); }
 function syncFontSizeInputs(value) {
   const shown = String(Math.round(Math.max(5, Math.min(250, Number(value) || 42))));
-  ["objFontSize", "ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
+  ["ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
 }
 export const rotationController = {
   startPointer(event, ctx = {}) {
@@ -94,8 +94,8 @@ export const rotationController = {
   syncSelection(item) {
     const owners = selected().map(owner).filter(Boolean);
     if (!owners.length) {
-      ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) { input.value = ""; input.disabled = true; } });
-      ["objFontSize", "ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+      ["ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) { input.value = ""; input.disabled = true; } });
+      ["ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
       window.updateSelectionInfo?.();
       return;
     }
@@ -103,7 +103,7 @@ export const rotationController = {
     const first = angles[0];
     const mixed = angles.some(value => Math.abs(normalize(value - first)) > 0.25);
     const shown = mixed ? "Mixto" : String(Math.round(normalize(first)));
-    ["objRotation", "ctxRotation"].forEach(id => {
+    ["ctxRotation"].forEach(id => {
       const input = document.getElementById(id);
       if (input) { input.value = shown; input.disabled = false; }
     });
@@ -157,8 +157,8 @@ export const rotationController = {
   }
 };
 function bind() {
-  ["objRotation", "ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input && !input.dataset.rotationOwner) { input.dataset.rotationOwner = "1"; input.addEventListener("change", () => rotationController.applyManual(input.value)); } });
-  ["objFontSize", "ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input && !input.dataset.fontSizeOwner) { input.dataset.fontSizeOwner = "1"; input.addEventListener("change", () => rotationController.applyFontSize(input.value)); } });
+  ["ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input && !input.dataset.rotationOwner) { input.dataset.rotationOwner = "1"; input.addEventListener("change", () => rotationController.applyManual(input.value)); } });
+  ["ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input && !input.dataset.fontSizeOwner) { input.dataset.fontSizeOwner = "1"; input.addEventListener("change", () => rotationController.applyFontSize(input.value)); } });
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind, { once: true }); else bind();
 window.EKKO_ROTATION_CONTROLLER = rotationController;
