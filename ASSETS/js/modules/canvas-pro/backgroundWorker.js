@@ -21,22 +21,37 @@
 // Este es el valor por defecto. El hilo principal puede sobrescribirlo con
 // setModeloUrl() almandar "preparar", que es donde vive CFG.MODELO: cambiar la
 // config surte efecto de verdad y el worker no queda atado a una sola URL.
-let MODELO_URL = '/modelos/silueta.onnx';
-const MODELO_ID = 'silueta-v1';
-const TAM_ENTRADA = 320;
+const MODELOS = {
+    birefnet: {
+        url: '/modelos/birefnet_fp16.onnx',
+        id: 'birefnet-lite-fp16',
+        tam: 1024,
+        etiqueta: 'Alta definicion'
+    },
+    silueta: {
+        url: '/modelos/silueta.onnx',
+        id: 'silueta-v1',
+        tam: 320,
+        etiqueta: 'Estandar'
+    }
+};
+
+// Modelo en uso. Arranca en el de mejor calidad; si la maquina no puede con
+// el, baja al estandar SOLO por su cuenta (ver obtenerSesion).
+let MODELO_ACTUAL = 'birefnet';
+let TAM_ENTRADA = MODELOS[MODELO_ACTUAL].tam;
 const MEDIA = [0.485, 0.456, 0.406];
 const DESV = [0.229, 0.224, 0.225];
 
-/** El hilo principal decide de dónde se baja el modelo. */
-function setModeloUrl(url) {
-    if (!url || typeof url !== 'string') return;
-    if (url === MODELO_URL) return;
-    // Si ya se habia cargado una sesion con otra URL, no vale: hay que
-    // reconstruirla o se seguira inferiendo con el modelo viejo.
+/** Fuerza un modelo concreto desde el hilo principal. */
+function setModelo(clave) {
+    if (!MODELOS[clave]) return false;
+    if (clave === MODELO_ACTUAL) return true;
+    MODELO_ACTUAL = clave;
+    TAM_ENTRADA = MODELOS[clave].tam;
     if (sesion) { try { sesion = null; } catch (_) {} }
-    MODELO_URL = url;
+    return true;
 }
-
 // --- Estado ---------------------------------------------------------------
 let ortCargado = null;
 let sesion = null;
@@ -96,24 +111,26 @@ function abrirCache() {
     return cacheIdb;
 }
 
-async function leerModeloCacheado() {
+async function leerModeloCacheado(id) {
     try {
+        const clave = id || MODELOS[MODELO_ACTUAL].id;
         const db = await abrirCache();
         return await new Promise((resolve) => {
             const tx = db.transaction('modelos', 'readonly');
-            const r = tx.objectStore('modelos').get(MODELO_ID);
+            const r = tx.objectStore('modelos').get(clave);
             r.onsuccess = () => resolve(r.result || null);
             r.onerror = () => resolve(null);
         });
     } catch (_) { return null; }
 }
 
-async function guardarEnCache(arrayBuffer) {
+async function guardarEnCache(arrayBuffer, id) {
     try {
+        const clave = id || MODELOS[MODELO_ACTUAL].id;
         const db = await abrirCache();
         await new Promise((resolve) => {
             const tx = db.transaction('modelos', 'readwrite');
-            tx.objectStore('modelos').put(arrayBuffer, MODELO_ID);
+            tx.objectStore('modelos').put(arrayBuffer, clave);
             tx.oncomplete = resolve;
             tx.onerror = resolve;
             tx.onabort = resolve;
@@ -122,16 +139,20 @@ async function guardarEnCache(arrayBuffer) {
     } catch (_) { return false; }
 }
 
-async function obtenerBufferModelo() {
-    if (modeloClave) return modeloClave;
-    const enCache = await leerModeloCacheado();
+async function obtenerBufferModelo(clave) {
+    const modelo = MODELOS[clave] || MODELOS[MODELO_ACTUAL];
+    // Cada modelo se cachea por separado: si se cae al estandar y otro dia
+    // vuelve al de alta, no tiene que volver a bajarlo.
+    if (buffersCache[modelo.id]) return buffersCache[modelo.id];
+    const enCache = await leerModeloCacheado(modelo.id);
     if (enCache) {
         reportar('cache', enCache.byteLength, enCache.byteLength, 'modelo desde caché local');
+        buffersCache[modelo.id] = enCache;
         modeloClave = enCache;
-        return modeloClave;
+        return enCache;
     }
     reportar('descarga', 0, 0, 'descargando modelo…');
-    const resp = await fetch(MODELO_URL);
+    const resp = await fetch(modelo.url);
     if (!resp.ok) throw new Error('No se pudo cargar el modelo (' + resp.status + ')');
     const total = Number(resp.headers.get('content-length')) || 0;
 
@@ -156,7 +177,8 @@ async function obtenerBufferModelo() {
         reportar('descarga', buf.byteLength, buf.byteLength, 'descargando modelo…');
     }
 
-    await guardarEnCache(buf);
+    await guardarEnCache(buf, modelo.id);
+    buffersCache[modelo.id] = buf;
     modeloClave = buf;
     return buf;
 }
@@ -166,11 +188,48 @@ async function obtenerBufferModelo() {
 // TIPICO no aparece al crear la sesion sino DESPUES, al ejecutar. Sin esto,
 // un equipo con WebGPU defectuoso se queda colgado sin error visible.
 let usandoWebGPU = false;
+// Buffers ya bajados, por id de modelo.
+const buffersCache = {};
+// El modelo de alta fallo en esta maquina: no se vuelve a intentar.
+let falloAltaDefinicion = false;
 
+/**
+ * Carga el modelo activo y, si la maquina no puede con el, baja al estandar
+ * SIN QUE EL CLIENTE SEPA NADA.
+ *
+ * El de alta definicion (1024) necesita mucha memoria: se midio que en una
+ * maquina sin WebGPU falla con error de memoria al ejecutar. Si eso pasa, el
+ * recorte igual sale, con el modelo de 320, que es peor pero usable, y el
+ * cliente cierra el detalle fino con el pincel.
+ */
 async function obtenerSesion(forzarWasm = false) {
     if (sesion && !forzarWasm) return sesion;
     const ort = await cargarOrt();
-    const buf = forzarWasm && modeloClave ? modeloClave : await obtenerBufferModelo();
+
+    // Si estamos en un modelo que ya fallo, no se reintenta: se baja de una.
+    if (falloAltaDefinicion && MODELO_ACTUAL === 'birefnet') {
+        MODELO_ACTUAL = 'silueta';
+        TAM_ENTRADA = MODELOS.silueta.tam;
+        sesion = null;
+    }
+
+    let buf;
+    try {
+        buf = await obtenerBufferModelo(MODELO_ACTUAL);
+    } catch (e) {
+        // El modelo preferido NO esta desplegado todavia (404) o la descarga
+        // fallo. No es un error para el cliente: se cae al estandar, que es el
+        // que siempre estuvo disponible. Sin esto, subir BiRefNet rompia
+        // Quitar Fondo por completo hasta que estuviera desplegado.
+        if (MODELO_ACTUAL !== 'silueta') {
+            falloAltaDefinicion = true;
+            MODELO_ACTUAL = 'silueta';
+            TAM_ENTRADA = MODELOS.silueta.tam;
+            self.postMessage({ tipo: 'nota', detalle: 'usando recorte estandar', lado: MODELOS.silueta.tam });
+            return obtenerSesion(forzarWasm);
+        }
+        throw e;
+    }
 
     if (forzarWasm) {
         reportar('sesion', 0, 0, 'reintentando en CPU…');
@@ -186,18 +245,26 @@ async function obtenerSesion(forzarWasm = false) {
     const proveedores = [];
     if (typeof navigator !== 'undefined' && navigator.gpu) proveedores.push('webgpu');
     proveedores.push('wasm');
+
     try {
         sesion = await ort.InferenceSession.create(buf, {
             executionProviders: proveedores,
             graphOptimizationLevel: 'all'
         });
         usandoWebGPU = proveedores[0] === 'webgpu';
-    } catch (_) {
+    } catch (e) {
+        // Si ni siquiera puede CREAR la sesion de alta, no hay caso: al estandar.
+        if (MODELO_ACTUAL !== 'silueta') {
+            falloAltaDefinicion = true;
+            sesion = null;
+            return obtenerSesion(forzarWasm);
+        }
         sesion = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
         usandoWebGPU = false;
     }
     return sesion;
 }
+
 
 // --- Preprocesado ---------------------------------------------------------
 function construirTensor(ort, pixeles) {
@@ -213,16 +280,57 @@ function construirTensor(ort, pixeles) {
     return new ort.Tensor('float32', data, [1, 3, TAM_ENTRADA, TAM_ENTRADA]);
 }
 
+/**
+ * Escala la imagen al tamano que pida el modelo ACTUAL.
+ *
+ * Hace falta porque el respaldo cambia la entrada de 1024 a 320: si se
+ * reusara el tensor ya construido, el modelo recibiria una forma que no
+ * espera y fallaria otra vez por el motivo equivocado.
+ */
+function construirTensorEscalada(ort, pixeles, tam) {
+    const t = tam || TAM_ENTRADA;
+    const n = t * t;
+    const data = new Float32Array(3 * n);
+    const cv = document.createElement('canvas');
+    cv.width = t; cv.height = t;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const img = ctx.createImageData(t, t);
+    // Los pixeles que llegan vienen del lienzo; se muestrean al tamano nuevo.
+    const origen = new ImageData(t, t);
+    // Reconstruccion simple: se toma el area central del tensor viejo.
+    const viejo = pixeles;
+    const ladoViejo = Math.round(Math.sqrt(viejo.length / 4));
+    for (let y = 0; y < t; y++) {
+        for (let x = 0; x < t; x++) {
+            const fx = Math.floor((x / t) * ladoViejo);
+            const fy = Math.floor((y / t) * ladoViejo);
+            const so = (fy * ladoViejo + fx) * 4;
+            const dof = (y * t + x) * 4;
+            img.data[dof] = viejo[so];
+            img.data[dof + 1] = viejo[so + 1];
+            img.data[dof + 2] = viejo[so + 2];
+            img.data[dof + 3] = 255;
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    const px = ctx.getImageData(0, 0, t, t).data;
+    for (let i = 0; i < n; i++) {
+        const o = i * 4;
+        data[i] = (px[o] / 255 - MEDIA[0]) / DESV[0];
+        data[i + n] = (px[o + 1] / 255 - MEDIA[1]) / DESV[1];
+        data[i + 2 * n] = (px[o + 2] / 255 - MEDIA[2]) / DESV[2];
+    }
+    return new ort.Tensor('float32', data, [1, 3, t, t]);
+}
+
 // --- Mensajería -----------------------------------------------------------
 self.onmessage = async (ev) => {
     const d = ev.data || {};
     if (d.accion === 'preparar') {
-        // La URL del modelo la decide el hilo principal (CFG.MODELO), no el
-        // worker. Antes estaba fija acá adentro y ningun cambio en la config
-        // surtia efecto: cambiar CFG.MODELO no servia de nada. Ademas asi el
-        // despliegue puede servir el modelo desde su propio dominio sin tocar
-        // este archivo.
-        if (d.modelo) setModeloUrl(d.modelo);
+        // El hilo principal decide QUE modelo se quiere (no una URL: el worker
+        // ya conoce las suyas, y asi el respaldo automatico sigue siendo
+        // responsabilidad de este archivo).
+        if (d.modeloClave) setModelo(d.modeloClave);
         try { await obtenerSesion(); reportar('listo', 1, 1, 'motor listo'); }
         catch (e) { self.postMessage({ tipo: 'error', mensaje: String(e && e.message || e) }); }
         return;
@@ -244,13 +352,32 @@ self.onmessage = async (ev) => {
             try {
                 salida = await s.run({ [s.inputNames[0]]: tensor });
             } catch (e) {
-                // Un fallo aqui con WebGPU es el caso clasico: la sesion se
-                // creo bien pero el dispositivo se pierde al ejecutar. Se
-                // reconstruye en CPU y se reintenta UNA vez. Si tampoco
-                // funciona en CPU, el error real sube al cliente.
-                if (!usandoWebGPU) throw e;
-                s = await obtenerSesion(true);
-                salida = await s.run({ [s.inputNames[0]]: tensor });
+                // Dos motivos distintos de fallo y dos respuestas distintas:
+                //
+                // a) Fallo de MEMORIA con el modelo de alta (1024). Es lo que
+                //    se midio en una maquina sin WebGPU. El recorte NO puede
+                //    quedar sin hacer: se baja al modelo estandar de 320, que
+                //    es peor pero usable, y el cliente lo completa con el
+                //    pincel. El cliente no ve ningun error.
+                // b) Dispositivo WebGPU perdido con un modelo que ya funciona
+                //    en CPU: se reintenta en CPU una vez.
+                if (MODELO_ACTUAL !== 'silueta') {
+                    falloAltaDefinicion = true;
+                    MODELO_ACTUAL = 'silueta';
+                    TAM_ENTRADA = MODELOS.silueta.tam;
+                    sesion = null;
+                    self.postMessage({ tipo: 'nota', detalle: 'usando recorte estandar', lado: MODELOS.silueta.tam });
+                    // Hay que rehacer el tensor: cambio el tamano de entrada.
+                    const pix2 = new Uint8ClampedArray(d.pixeles);
+                    const t2 = await construirTensorEscalada(ort, pix2);
+                    s = await obtenerSesion();
+                    salida = await s.run({ [s.inputNames[0]]: t2 });
+                } else if (usandoWebGPU) {
+                    s = await obtenerSesion(true);
+                    salida = await s.run({ [s.inputNames[0]]: tensor });
+                } else {
+                    throw e;
+                }
             }
 
             const pred = salida[s.outputNames[0]];
