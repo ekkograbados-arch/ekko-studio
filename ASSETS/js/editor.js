@@ -123,6 +123,25 @@ window.removeBackground = function() {
   return null;
 };
 
+/**
+ * Abre el pincel para corregir a mano un recorte ya quitado.
+ *
+ * Es el segundo escalon de la piramide: el boton "Editar Fondo" solo se
+ * muestra sobre una pieza que ya tenga la marca `quitarFondoIA`, y abrirRetoque
+ * vuelve a validar eso. Si el cliente intenta abrirlo sin fondo quitado, sale
+ * un aviso explicativo en vez de un panel vacio.
+ */
+window.abrirEditorFondo = function() {
+  const api = window.EKKO?.BackgroundRemover;
+  const selected = window.selectedItem ||
+    (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+  const target = getPublicOwner(selected);
+  const esRecorte = !!(api?.abrirRetoque && target?.data?.quitarFondoIA);
+  if (esRecorte) return api.abrirRetoque();
+  console.warn('[EKKO Editar Fondo] Primero quitá el fondo: el pincel corrige un recorte que ya existe.');
+  return false;
+};
+
 window.zoomToFit = function() {
   if (!window.paper?.project || !paper.view) return null;
   const layer = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
@@ -2462,7 +2481,7 @@ window.resetCanvasView = resetCanvasView;
 // Version visible del build (F12 > Consola). Ante cualquier "no funciona",
 // lo primero es verificar esta linea: distingue codigo viejo cacheado de
 // codigo actual sin adivinar.
-const EKKO_BUILD = "v11.6";
+const EKKO_BUILD = "v11.7";
 if (typeof window !== "undefined") window.EKKO_BUILD = EKKO_BUILD;
 
 /* =========================================================================
