@@ -17,13 +17,50 @@ import { getPublicOwner, isMockupOrMask, isContainmentWrapper } from "./designGe
    Es el mismo criterio de AutoCAD, Word y Canva: nada de casos fijos.
    ========================================================================= */
 
+/* =========================================================================
+   ESPECIES: TRES, Y SOLO TRES.
+
+   Lo que el cliente puede cargar en EKKO son vectores, imagenes y textos.
+   Todo lo demas es una PROPIEDAD de uno de esos tres, no un tipo aparte:
+
+     - Una linea de corte es un vector con isCutLine. Sigue siendo vector:
+       por eso le sirven el contorno y las booleanas como a cualquier otro.
+     - Una fusion es un vector que tiene una imagen adentro. Por eso sale
+       en la pestana Vector, y a la vez ofrece "Quitar Fusion" y "Trazar".
+     - Un grupo no es un tipo: es un envoltorio. Se clasifica por lo que
+       TIENE ADENTRO, y si tiene mas de una cosa, primero hay que
+       desagrupar para saber con que se esta trabajando.
+
+   Antes existian LINE, GROUP y FUSION como especies propias. Eso obligaba
+   al motor a adivinar que hacer con un grupo, y por eso un grupo mixto
+   terminaba en la pestana "Varios", ofreciendo Union y Distribuir sobre un
+   solo objeto apretado. Con tres especies eso no puede pasar: un grupo
+   misto es un vector con imagen y texto adentro, y por definicion hay que
+   abrirlo primero.
+
+   NUNCA se decide por la etiqueta. Un QR no es "un QR": es un
+   CompoundPath, o sea un vector, y se comporta como cualquier vector. Un
+   objeto se identifica por su clase y sus propiedades geometricas, jamas
+   por su nombre.
+   ========================================================================= */
 export const SPECIES = Object.freeze({
   RASTER: "raster",
   VECTOR: "vector",
-  LINE: "line",
   TEXT: "text",
-  GROUP: "group",
-  FUSION: "fusion"
+  /* No es un tipo que el cliente pueda cargar. Es un grupo que tiene mas de
+     una especie adentro: hay que desagruparlo antes de poder operarlo. */
+  MIXED: "mixed"
+});
+
+/* PROPIEDADES de un vector. No son tipos: describen que le pasa a un vector,
+   y por eso el motor las lee sin cambiarle la especie. */
+export const PROPS = Object.freeze({
+  /* Vector que tiene una imagen fusionada adentro. Sale en la pestana
+     Vector y por eso ofrece Quitar Fusion y Trazar. */
+  containsImage: "contieneImagen",
+  /* Vector que es una linea de corte. Sigue siendo vector: por eso le
+     sirven el contorno y las booleanas. */
+  cutLine: "esLineaDeCorte"
 });
 
 export const ROLE = Object.freeze({
@@ -40,22 +77,78 @@ function ownerOf(item) {
 }
 
 /**
- * Especie del objeto: de donde viene, no como se ve. Un CompoundPath puede
- * ser un relleno o una linea de corte; la especie es "vector" y el rol
- * dice lo de relleno/hueco.
+ * Un objeto es CONTENEDOR si al apretar Descomponer se lo puede partir en
+ * varias piezas y trabajar con cada una por separado.
+ *
+ * Solo los Group y las piezas que conservan el grupo de un SVG importado.
+ * Un CompoundPath tiene hijos, pero son los TRAZOS que lo componen, no partes
+ * sueltas: partirlo deja de darle sentido. Por eso un QR, una letra
+ * vectorizada o una forma son una pieza y no se descomponen.
+ */
+function esContenedor(entry) {
+  const owner = entry.owner;
+  if (!owner) return false;
+  if (owner.className === "Group") return true;
+  return entry.species === SPECIES.VECTOR && owner.data?.decomposedLayer !== true &&
+    !!(owner.data?.svgSourceGroup || owner.data?.fromSvgImport || owner.data?.importedGroup);
+}
+
+/** Un grupo es un envoltorio: cuenta que cosa de diseno tiene adentro. */
+function contenidoDeGrupo(owner) {
+  const especies = new Set();
+  const visit = node => {
+    if (!node) return;
+    const data = node.data || {};
+    if (data.mockup || data.isMask || data.wasClipMask || node.clipMask ||
+        data.isSelectionBox || data.isHandle || data.isMeasurement ||
+        data.isSmartGuide || data.isNodeEditOverlay || data.isTracePreview) return;
+    if (data.isText || data.isCurvedGroup || data.isSpacedGroup || node.className === "PointText") {
+      especies.add(SPECIES.TEXT);
+    } else if (node.className === "Raster") {
+      especies.add(SPECIES.RASTER);
+    } else if (VECTOR_CLASSES.includes(node.className)) {
+      especies.add(SPECIES.VECTOR);
+    }
+    (node.children || []).forEach(visit);
+  };
+  visit(owner);
+  return especies;
+}
+
+/**
+ * Especie del objeto: VECTOR, RASTER o TEXT. Nada mas.
+ *
+ * Un grupo no tiene especie propia: se lee por lo que contiene. Si tiene
+ * una sola cosa, es esa cosa. Si tiene varias, es un vector multiple y por
+ * definicion hay que desagrupar antes de operar: por eso describeSelection
+ * marca mezcla y la cinta ofrece solo "Desagrupar".
+ *
+ * Ni la fusion ni la linea de corte cambian la especie: son propiedades.
  */
 export function speciesOf(item) {
   const owner = ownerOf(item);
   if (!owner) return null;
   const data = owner.data || {};
-  if (data.isSmartFusion) return SPECIES.FUSION;
   if (data.isText || data.isCurvedGroup || data.isSpacedGroup || owner.className === "PointText") {
     return SPECIES.TEXT;
   }
-  if (owner.className === "Group") return SPECIES.GROUP;
   if (owner.className === "Raster") return SPECIES.RASTER;
-  if (VECTOR_CLASSES.includes(owner.className)) {
-    return isCutLine(owner) ? SPECIES.LINE : SPECIES.VECTOR;
+  if (VECTOR_CLASSES.includes(owner.className)) return SPECIES.VECTOR;
+  if (owner.className === "Group") {
+    /* UNA FUSION ES UN VECTOR QUE TIENE UNA IMAGEN ADENTRO. No es un grupo
+       mixto cualquiera: es una sola pieza compuesta, con su unico contorno
+       (la mascara vectorial) y su relleno (la imagen). Por eso se reporta
+       como vector, y por eso ofrece Quitar Fusion y Trazar. Sin esto, una
+       fusion caia en la categoria de grupo mixto y no le ofrecia nada. */
+    if (data.isSmartFusion) return SPECIES.VECTOR;
+
+    const dentro = contenidoDeGrupo(owner);
+    if (dentro.size === 1) return [...dentro][0];
+    // Vacio: un Group sin contenido de diseno (un marco, por ejemplo) no es
+    // una especie y no debe aparecer en la cinta. Si tiene varias cosas, se
+    // reporta como mezcla y la cinta ofrece solo Desagrupar.
+    if (dentro.size === 0) return null;
+    return SPECIES.MIXED;
   }
   return null;
 }
@@ -130,6 +223,12 @@ export function describeSelection(selection) {
   const solids = list.filter(e => e.role === ROLE.SOLID);
   const holes = list.filter(e => e.role === ROLE.HOLE);
 
+  /* PROPIEDADES, no especies. Una fusion es un vector con una imagen
+     adentro; una linea de corte es un vector. Ninguna de las dos cambia lo
+     que el objeto es, solo lo que se le puede hacer. */
+  const fusions = list.filter(e => esFusion(e.owner));
+  const cutLines = list.filter(e => isCutLine(e.owner));
+
   return {
     list,
     count: list.length,
@@ -138,18 +237,34 @@ export function describeSelection(selection) {
     speciesCount: species.size,
     solids,
     holes,
+    fusions,
+    cutLines,
     allSameSpecies: list.length > 0 && species.size <= 1,
     allSolid: list.length > 0 && list.every(e => e.role === ROLE.SOLID),
     allHole: list.length > 0 && list.every(e => e.role === ROLE.HOLE),
     hasSolid: solids.length > 0,
     hasHole: holes.length > 0,
     mixedRoles: solids.length > 0 && holes.length > 0,
-    onlyVectorish: list.length > 0 && list.every(e =>
-      e.species === SPECIES.VECTOR || e.species === SPECIES.LINE)
+    /* Un grupo con varias especies adentro. Hay que desagruparlo antes de
+       operar: no se le puede aplicar nada a "un vector con una imagen y un
+       texto adentro" sin saber primero cual es cual. */
+    hasMixed: list.some(e => e.species === SPECIES.MIXED),
+    onlyVectorish: list.length > 0 && list.every(e => e.species === SPECIES.VECTOR)
   };
 }
 
-const ALL_SPECIES = [SPECIES.RASTER, SPECIES.VECTOR, SPECIES.LINE, SPECIES.TEXT, SPECIES.GROUP, SPECIES.FUSION];
+/** Un vector que tiene una imagen fusionada adentro. Sigue siendo vector. */
+export function esFusion(owner) {
+  const data = (owner && owner.data) || {};
+  if (data.isSmartFusion) return true;
+  // Un grupo con un Raster adentro tambien es una fusion, aunque no traiga la
+  // marca: la imagen es el relleno y el vector es la mascara.
+  if (!owner || owner.className !== "Group") return false;
+  const dentro = contenidoDeGrupo(owner);
+  return dentro.has(SPECIES.RASTER) && dentro.has(SPECIES.VECTOR);
+}
+
+const ALL_SPECIES = [SPECIES.RASTER, SPECIES.VECTOR, SPECIES.TEXT, SPECIES.MIXED];
 
 /**
  * Declaracion de cada herramienta. `active` recibe el desglose de la
@@ -187,21 +302,28 @@ export const TOOLS = {
 
   // --- Estructural ---
   group:       { label: "Agrupar",      active: s => s.count >= 2 },
+  /* Desagrupar se ofrece siempre que haya un grupo apretado, sea homogeneo o
+     mixto. Un grupo mixto NO se puede operar: primero hay que abrirlo para
+     ver que hay adentro, y despues recien cada parte con su tipo. */
   ungroup:     { label: "Desagrupar",
-                 active: s => s.count >= 1 && s.species.size === 1 && s.species.has(SPECIES.GROUP) },
+                 active: s => s.count > 0 && s.list.some(e => e.owner?.className === "Group") },
 
-  // --- Descomposicion: vectores sueltos o grupos estructurales que solo
-  //     contienen vectores (como un SVG recien importado). Una pieza con
-  //     decomposedLayer ya es atomica: el boton se oculta y re-descomponer
-  //     es no-op (antes el boton seguia activo y cada clic reemplazaba la
-  //     pieza por un clon identico, ensuciando historial y rompiendo
-  //     semantica). Con mezcla fresco+descompuesto se muestra y el dispatcher
-  //     procesa solo lo fresco. ---
+  // --- Descomposicion ---
+  //     Descomponer significa SEPARAR UNA PIEZA EN VARIAS. Solo tiene
+  //     sentido si el objeto seleccionado es un contenedor: un grupo, o una
+  //     pieza que todavia conserve el grupo de origen de un SVG importado.
+  //
+  //     Un CompoundPath NO es un contenedor. Sus hijos son los trazos que lo
+  //     componen, no partes que el cliente pueda tratar por separado: un QR,
+  //     una letra vectorizada o una forma con curvas son una sola pieza.
+  //     Por eso NO se ofrece Descomponer, aunque por dentro tenga 120
+  //     rectangulos. No es un caso especial para el QR: es la misma regla
+  //     para cualquier vector que ya es una pieza unica.
+  //
+  //     Un grupo mixto tampoco: primero hay que desagrupar.
   decomposeVector: {
     label: "Descomponer Vector",
-    active: s => s.count > 0 &&
-      s.list.every(e => e.species === SPECIES.VECTOR || e.species === SPECIES.LINE ||
-        (e.species === SPECIES.GROUP && groupHasOnlyVectorish(e.owner))) &&
+    active: s => s.count > 0 && !s.hasMixed && s.list.every(esContenedor) &&
       s.list.some(e => e.owner?.data?.decomposedLayer !== true)
   },
 
@@ -239,7 +361,7 @@ export const TOOLS = {
     // Edicion de UN objeto: con varios seleccionados se oculta (ahi solo
     // quedan agrupar, alinear, distribuir, booleanas y fusion).
     active: s => s.count === 1 && [...s.species].every(sp =>
-      sp === SPECIES.RASTER || sp === SPECIES.VECTOR || sp === SPECIES.TEXT || sp === SPECIES.FUSION)
+      sp === SPECIES.RASTER || sp === SPECIES.VECTOR || sp === SPECIES.TEXT)
   },
   audit: {
     label: "Auditar Vectores",
@@ -266,12 +388,16 @@ export const TOOLS = {
     active: s => {
       if (s.count < 2) return false;
       const rasters = s.list.filter(e => e.species === SPECIES.RASTER);
-      const masks = s.list.filter(e => e.species === SPECIES.VECTOR || e.species === SPECIES.LINE);
+      const masks = s.list.filter(e => e.species === SPECIES.VECTOR);
       return rasters.length >= 1 && masks.length >= 1;
     }
   },
-  unfusion:       { label: "Quitar Fusión",      active: s => s.count > 0 && s.species.has(SPECIES.FUSION) },
-  editFusionImage:{ label: "Editar Imagen",      active: s => s.count > 0 && s.species.has(SPECIES.FUSION) }
+
+  // --- Fusion: NO es una especie. Es un vector que tiene una imagen
+  //     adentro, asi que se declara por la PROPIEDAD "fusions" del resumen.
+  //     Por eso viven en la pestana Vector y no en una pestana aparte. ---
+  unfusion:        { label: "Quitar Fusión",  active: s => s.count > 0 && s.fusions.length === s.count },
+  editFusionImage: { label: "Editar Imagen",  active: s => s.count > 0 && s.fusions.length === s.count }
 };
 
 /** Nombres de herramientas visibles para una seleccion. */
@@ -283,6 +409,14 @@ export function resolveToolNames(selection) {
       .map(([name]) => name);
   }
   const summary = describeSelection(selectionList);
+  /* Un grupo con varias especies adentro (un vector, una imagen y un texto
+     en la misma caja) NO se puede trabajar: hay que abrirlo primero para
+     saber que hay. Se ofrece Desagrupar y nada mas, aunque la pestana
+     "Varios" admita otras cosas, porque Alinear o Distribuir sobre un grupo
+     con imagen adentro no significan nada. */
+  if (summary.hasMixed) {
+    return ["ungroup"].filter(name => TOOLS[name]?.active?.(summary));
+  }
   return Object.entries(TOOLS)
     .filter(([, tool]) => {
       try { return tool.always ? true : !!tool.active?.(summary); }
@@ -329,8 +463,6 @@ const ENGINE_TO_LEGACY = Object.freeze({
   rellenar: ["rellenar"],
   solidHole: ["solidHole"],
   fusion: ["fusion"],
-  unfusion: ["unfusion"],
-  editFusionImage: ["editFusionImage"],
   removeBg: ["removeBg"],
   traceImage: ["traceImage"],
   textToVector: ["textToVector"],
@@ -369,13 +501,19 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
   .filter(([, tool]) => tool.always)
   .map(([name]) => name);
 
+/* Pestanas del modelo de TRES especies.
+   - No existe pestana "Fusion": una fusion es un vector con una imagen
+     adentro, asi que sale en Vector y ahi ofrece Quitar Fusion y Trazar.
+   - No existe pestana "Grupo": un grupo se clasifica por lo que contiene.
+   - "Varios" es para varios objetos SUELTOS apretados a la vez, no para un
+     grupo. Un grupo mixto cae aca y lo unico que ofrece es Desagrupar, que es
+     justamente lo que hace falta para poder seguir trabajando. */
 export const TABS = Object.freeze({
   base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
   image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "traceImage", "outline", "fusion"] },
-  vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline"] },
+  vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "boolean", "fusion", "measurements"] },
-  fusion:   { id: "fusion",   label: "Fusión",  tools: ["unfusion", "editFusionImage", "outline"] }
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
@@ -384,13 +522,12 @@ export function detectTab(selection) {
   const list = (Array.isArray(selection) ? selection : []).filter(Boolean);
   if (!list.length) return "base";
   const s = describeSelection(list);
-  if (!s.count) return "base";
-  if (s.species.has(SPECIES.FUSION)) return "fusion";
+     if (s.species.has(SPECIES.MIXED)) return "multiple";
   if (s.count > 1 || s.speciesCount > 1) return "multiple";
   const only = [...s.species][0];
   if (only === SPECIES.RASTER) return "image";
-  if (only === SPECIES.TEXT) return "text";
-  if (only === SPECIES.VECTOR || only === SPECIES.LINE || only === SPECIES.GROUP) return "vector";
+      if (only === SPECIES.TEXT) return "text";
+     if (only === SPECIES.VECTOR) return "vector";
   return "base";
 }
 
@@ -440,6 +577,6 @@ if (typeof window !== "undefined") {
   window.EKKO_CAPABILITIES = {
     SPECIES, ROLE, TOOLS, TABS, describeSelection, resolveToolNames, legacyNamesFor,
     legacyNamesForTab, detectTab, tabsForSelection,
-    isToolEnabled, speciesOf, roleOf
+    isToolEnabled, speciesOf, roleOf, esFusion, PROPS
   };
 }
