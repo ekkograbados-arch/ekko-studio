@@ -69,6 +69,7 @@ const COMMAND_HANDLERS = Object.freeze({
     performSmartFusion: () => typeof window.performSmartFusion === "function"
         ? window.performSmartFusion()
         : null,
+    abrirEditorFondo: () => window.abrirEditorFondo?.() ?? false,
     releaseSmartFusion: () => {
         if (typeof window.releaseSmartFusion !== "function") return null;
         const selected = window.selectedItems && window.selectedItems.length
@@ -98,14 +99,22 @@ const COMMAND_HANDLERS = Object.freeze({
 
     // Retoque del recorte con pincel. El panel ya existia en el HTML pero sus
     // cuatro botones no tenian nada conectado: apretarlos no hacia nada.
-    pincelBorrar: () => EKKO.BackgroundRemover?.abrirRetoque() && setPincel("borrar"),
-    pincelRestaurar: () => EKKO.BackgroundRemover?.abrirRetoque() && setPincel("restaurar"),
+    pincelBorrar: () => setPincel("borrar"),
+    pincelRestaurar: () => setPincel("restaurar"),
     deshacerRetoque: () => EKKO.BackgroundRemover?.deshacerRetoque?.(),
     aceptarRetoque: () => EKKO.BackgroundRemover?.cerrarRetoque(),
 });
 
 /** Elige el pincel activo sin abrir el panel dos veces. */
 function setPincel(modo) {
+    // El estado del pincel vive SOLO en BackgroundRemover. Antes este bloque
+    // se limitaba a pintar un outline por CSS y ademas corria DESPUES de
+    // abrirRetoque(), que ya habia marcado el boton: el segundo marcado pisaba
+    // al primero y dejaba el pincel inactivo con el boton resaltado.
+    const api = EKKO.BackgroundRemover;
+    if (api && typeof api.elegirPincel === "function") return !!api.elegirPincel(modo);
+
+    // Respaldo si la API todavia no expone elegirPincel.
     const b = document.getElementById(modo === "borrar" ? "pincel-borrar" : "pincel-restaurar");
     const r = document.getElementById(modo === "borrar" ? "pincel-restaurar" : "pincel-borrar");
     if (b) b.style.outline = "3px solid #0f172a";
