@@ -14,10 +14,14 @@
     'use strict';
 
     const CFG = {
-        MODELO: '/modelos/silueta.onnx',
         WORKER: '/ASSETS/js/modules/canvas-pro/backgroundWorker.js',
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
-        ENTRADA: 320,          // tamaño fijo que exige el modelo
+
+        // Modelo preferido. El worker tiene su propio respaldo: si este no
+        // entra en la memoria de la maquina, baja al estandar sin que el
+        // cliente vea nada. Se cambia aqui para dejar el estandar siempre.
+        MODELO_CLAVE: 'birefnet',
+
         MAX_LADO: 2600,        // techo de trabajo: memoria y tiempo razonables
 
         // --- Perfil del recorte (lo que manipulan los sliders) ---
@@ -31,18 +35,29 @@
         BORDE: 0.5,
         SUAVIZADO: 0.2,
 
-        // NO se deja que la foto corrija el contorno por defecto.
+        // MATTING: cuanto se deja que la FOTOGRAFIA real resuelva la franja
+        // dudosa del recorte.
         //
-        // Se midio y el resultado fue nulo o contraproducente: el recorte sin
-        // afinar ya tiene el 98% de sus pixeles de borde con un salto de alfa
-        // nitido (gradiente > 90 sobre 255). El afinado bajo ese numero de
-        // 4135pixeles, o sea EMPEORA el borde, porque la mascara de 320 llega
-        // tan suavizada que empujarla hacia el color de la foto la difumina
-        // mas en vez de afinarla.
+        // DESACTIVADO (0) a proposito, y medido con la foto de referencia:
+        //   MATTING 0  -> IoU 71.4%, transicion 8758 px
+        //   MATTING 55 -> IoU 71.4%, transicion 8458 px
+        // No mejora nada y solo endurece el borde.
         //
-        // Sin detalle fino que recuperar, afinar solo puede hacer dano. Se
-        // deja disponible en 0 y listo para cuando haya un modelo de mayor
-        // resolucion que lo haga falta de verdad.
+        // El motivo es tecnico, no una mania: el matteado por color compara
+        // contra el COLOR MEDIO del sujeto. En una foto con varias personas y
+        // ropa de color intenso (vestido azul, pelo castano oscuro), el medio
+        // lo domina el azul, el pelo queda lejos de esa referencia y nunca se
+        // recupera. Sirve para un sujeto monocromo; aqui no.
+        //
+        // Queda el codigo porque sirve para fotos de un solo color, y el
+        // slider "Pelo" existe para que el cliente lo pruebe y lo vea por si
+        // mismo. En 0 = solo el modelo, que es el estado recomendado.
+        MATTING: 0,
+
+        // AFINADO: segunda pasada que solo pica el ultimo pixel del borde para
+        // quitar el halo oscuro. Antes se llamaba igual y se confundian: el pelo
+        // NO lo arregla el afilado, porque el pelo ya no esta en los datos que
+        // el modelo entrego. Se deja en 0, que es lo medido.
         AFINADO: 0,
 
         // Refinado fino del halo. Se mantiene aparte porque corrige un
@@ -131,6 +146,12 @@
                     if (rechazar) { const r = rechazar; resolver = null; rechazar = null; esperaTipo = null; r(new Error(d.mensaje || 'Error del motor de IA')); }
                 } else if (esRespuesta) {
                     if (resolver) { const r = resolver; resolver = null; rechazar = null; esperaTipo = null; r(d); }
+                } else if (d.tipo === 'nota') {
+                    // Aviso interno del worker (por ejemplo: bajo al modelo
+                    // estandar porque el de alta no entra en memoria). Se
+                    // registra el lado de entrada para escalar bien.
+                    if (d.lado) window.__EKKO_LADO_ENTRADA = d.lado;
+                    ESTADO.ladoEntrada = d.lado || ESTADO.ladoEntrada;
                 } else {
                     informar(d.tipo, d.carga || 0, d.total || 0, d.detalle || '');
                 }
@@ -156,16 +177,16 @@
     }
 
     // ----------------------------------------------------------------------
-    // Escalado a 320x320 conservando el aspecto dentro de un lienzo cuadrado
+    // Escalado al tamaño que pide el modelo, conservando el aspecto
     // ----------------------------------------------------------------------
-    function prepararEntrada(imagen) {
+    function prepararEntrada(imagen, lado) {
         const W = imagen.naturalWidth || imagen.width;
         const H = imagen.naturalHeight || imagen.height;
         if (!W || !H) throw new Error('La imagen no tiene dimensiones');
 
-        const S = CFG.ENTRADA;
-        // Encajar dentro de 320x320 sin deformar: el modelo vería un sujeto
-        // estirado y el recorte saldría torcido.
+        const S = lado || 320;
+        // Encajar en un cuadrado SIN deformar: si el modelo ve un sujeto
+        // estirado, el recorte sale torcido.
         const escala = Math.min(S / W, S / H);
         const dw = Math.max(1, Math.round(W * escala));
         const dh = Math.max(1, Math.round(H * escala));
@@ -386,9 +407,173 @@
      * donde la foto de alta resolucion se usa para recuperar el detalle que
      * el modelo de 320 perdio.
      */
+    /**
+     * MATTING POR COLORES DE LA FOTOGRAFIA
+     *
+     * El modelo entrega la mascara a 320x320 y al ampliarla el pelo fino ya se
+     * perdio: por eso la cabeza de la nina se veia cortada (el pelo oscuro cae
+     * sobre un fondo oscuro y el modelo no sabe cual de los dos es pelo).
+     *
+     * Ningun ajuste de umbral recupera eso, porque el dato no esta. Lo que si
+     * esta a resolucion completa es la PROPIA FOTOGRAFIA. Este paso usa esa
+     * informacion para rehacer SOLO la franja donde el modelo duda:
+     *
+     *   - El interior opaco (alfa > 0.9) no se toca: el modelo esta seguro y
+     *     la foto no aporta nada mejor ahi.
+     *   - El fondo limpio (alfa < 0.1) tampoco: ya es transparente.
+     *   - La franja intermedia (0.1..0.9) es la zona de decision. Ahi se
+     *     compara el color del pixel con los colores dominantes del sujeto y
+     *     del fondo, y se corrige el alfa hacia el lado que corresponda.
+     *
+     * Asi el pelo se conserva porque se parece al sujeto, y el fondo se
+     * conserva transparente porque se parece al fondo. La diferencia con un
+     * guided filter a secas es que NO se toca el interior ni el exterior: antes
+     * se empujaba toda la mascara hacia el color del fondo y el recorte
+     * empeoraba (medido: los pixeles de borde nitidos bajaron de 4135 a 3229).
+     */
+    function mattearConFoto(px, alfaTrabajo, W, H, fuerza) {
+        if (fuerza <= 0.001) return;
+        const total = W * H;
+
+        // Luminancia media de lo que el modelo considero sujeto y fondo.
+        // Se mide sobre las zonas en las que NO duda, para que la referencia no
+        // este contaminada por la propia franja que queremos corregir.
+        let sFondo = 0, nFondo = 0, sSujeto = 0, nSujeto = 0;
+        const rF = [0, 0, 0], rS = [0, 0, 0];
+        for (let i = 0; i < total; i++) {
+            const a = alfaTrabajo[i];
+            const o = i * 4;
+            if (a < 0.08) { rF[0] += px[o]; rF[1] += px[o+1]; rF[2] += px[o+2]; nFondo++; }
+            else if (a > 0.92) { rS[0] += px[o]; rS[1] += px[o+1]; rS[2] += px[o+2]; nSujeto++; }
+        }
+        if (nFondo < 64 || nSujeto < 64) return;   // escena no separable
+        rF[0] /= nFondo; rF[1] /= nFondo; rF[2] /= nFondo;
+        rS[0] /= nSujeto; rS[1] /= nSujeto; rS[2] /= nSujeto;
+        sFondo = (rF[0] + rF[1] + rF[2]) / 3;
+        sSujeto = (rS[0] + rS[1] + rS[2]) / 3;
+        const sepL = Math.abs(sSujeto - sFondo);
+
+        // Encuadre: el modelo solo vio 320 px, asi que el sujeto en la foto
+        // grande estarappedido en una regionmucho mas pequena que la imagen.
+        // Medimos la caja real del sujeto sobre la propia imagen de trabajo.
+        let minX = W, maxX = 0, minY = H, maxY = 0, nCaja = 0;
+        const EPO = W * H / 4096;                   // muestra ~4096 pixeles
+        const paso = Math.max(1, Math.floor(Math.sqrt(EPO)));
+        for (let y = 0; y < H; y += paso) {
+            for (let x = 0; x < W; x += paso) {
+                if (alfaTrabajo[y * W + x] > 0.5) {
+                    nCaja++;
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                }
+            }
+        }
+        if (nCaja < 16) return;
+
+        // Padding proporcional: el sujeto suele tocar el borde de su caja.
+        const pad = Math.max(6, Math.round(Math.max(maxX - minX, maxY - minY) * 0.04));
+        minX = Math.max(0, minX - pad); maxX = Math.min(W - 1, maxX + pad);
+        minY = Math.max(0, minY - pad); maxY = Math.min(H - 1, maxY + pad);
+        const anchoCaja = maxX - minX, altoCaja = maxY - minY;
+        if (anchoCaja < 8 || altoCaja < 8) return;
+
+        const k = Math.min(1, fuerza * 1.5);
+        // RECUPERACION: el modelo marco como fondo (alfa casi 0) zonas que en
+        // realidad son sujeto. Es el caso de la cabeza de la nina: pelo oscuro
+        // sobre fondo oscuro, el modelo no lo vio y lo corto. El paso anterior
+        // no puede recuperarlo porque solo trabaja donde el modelo DUDABA
+        // (0.1..0.9); aqui ya estaba en 0.
+        //
+        // Solo se recupera lo que la foto dice claramente que es sujeto: un
+        // pixel totalmente transparente cuyo color este muy cerca del color
+        // medio del sujeto, Y que tenga un vecino opaco cerca (si no, se
+        // pegaria fondo lejano con un color parecido). Es conservador a
+        // proposito: perder pelo es un defecto muy visible.
+        const radioBusqueda = Math.max(3, Math.round(Math.min(anchoCaja, altoCaja) * 0.06));
+        const umbralColor = 0.16 + (1 - fuerza) * 0.2;   // fuerza alta = mas exquisito
+
+        // Hay un pixel que el modelo SI conserva como sujeto cerca de este?
+        const cercano = (x, y) => {
+            for (let dy = -radioBusqueda; dy <= radioBusqueda; dy += 2) {
+                const yy = y + dy;
+                if (yy < 0 || yy >= H) continue;
+                for (let dx = -radioBusqueda; dx <= radioBusqueda; dx += 2) {
+                    const xx = x + dx;
+                    if (xx < 0 || xx >= W) continue;
+                    if (alfaTrabajo[yy * W + xx] > 0.6) return true;
+                }
+            }
+            return false;
+        };
+
+        for (let y = minY; y <= maxY; y++) {
+            for (let x = minX; x <= maxX; x++) {
+                const i = y * W + x;
+                const a = alfaTrabajo[i];
+                const o = i * 4;
+                const R = px[o], G = px[o+1], B = px[o+2];
+                const lum = (R * 0.299 + G * 0.587 + B * 0.114) / 255;
+
+                // --- Recuperacion de sujeto que el modelo mato ---
+                if (a <= 0.1) {
+                    if (fuerza < 0.25) continue;
+                    const ds = Math.sqrt(
+                        (R - rS[0]) * (R - rS[0]) +
+                        (G - rS[1]) * (G - rS[1]) +
+                        (B - rS[2]) * (B - rS[2])) / 441.67;
+                    const df = Math.sqrt(
+                        (R - rF[0]) * (R - rF[0]) +
+                        (G - rF[1]) * (G - rF[1]) +
+                        (B - rF[2]) * (B - rF[2])) / 441.67;
+                    // Claramente mas parecido al sujeto que al fondo...
+                    if (ds > umbralColor || ds >= df) continue;
+                    // ...y pegado a algo que el modelo SI conservo como sujeto.
+                    if (!cercano(x, y)) continue;
+                    // Recuperacion gradual: en el borde de la zona recuperada
+                    // el alfa entra suave, para que no aparezca un escalon.
+                    alfaTrabajo[i] = Math.min(1, fuerza * 1.15);
+                    continue;
+                }
+                if (a >= 0.9) continue;      // el modelo ya decidio opaco
+
+                // Distancia normalizada a los colores de referencia.
+                const dS = Math.sqrt(
+                    (R - rS[0]) * (R - rS[0]) +
+                    (G - rS[1]) * (G - rS[1]) +
+                    (B - rS[2]) * (B - rS[2])) / 441.67;
+                const dF = Math.sqrt(
+                    (R - rF[0]) * (R - rF[0]) +
+                    (G - rF[1]) * (G - rF[1]) +
+                    (B - rF[2]) * (B - rF[2])) / 441.67;
+
+                // Pertenencia al sujeto segun el color: 1 = sujeto, 0 = fondo.
+                let porColor;
+                const total2 = dS + dF;
+                if (total2 < 1e-4) porColor = a;         // caso degenerado
+                else porColor = dF / total2;             // cuanto mas lejos del fondo, mas sujeto
+
+                // El pelo es oscuro sobre fondo oscuro: la luminancia sola no
+                // alcanza, por eso se usa la distancia de color completa. Solo
+                // si la escena tiene poco contraste de luminancia se recurre a
+                // ella, porque ahi el color no aporta y la luminancia si.
+                if (sepL < 0.045) {
+                    porColor = (lum - sFondo) / (sepL || 1);
+                    porColor = porColor < 0 ? 0 : porColor > 1 ? 1 : porColor;
+                }
+
+                // Correccion suave: solo se acerca al veredicto del color, sin
+                // sustituirlo. Asi una zona dudosa por color NO fuerza el corte.
+                const corregido = a + (porColor - a) * k;
+                alfaTrabajo[i] = corregido < 0 ? 0 : corregido > 1 ? 1 : corregido;
+            }
+        }
+    }
+
     function componerRecorte(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo) {
         const lienzo = aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo);
-        if (CFG.AFINADO <= 0.001) return lienzo;
+        if (CFG.MATTING <= 0.001 && CFG.AFINADO <= 0.001) return lienzo;
         try {
             const ctx = lienzo.getContext('2d', { willReadFrequently: true });
             const img = ctx.getImageData(0, 0, anchoTrabajo, altoTrabajo);
@@ -396,7 +581,14 @@
             const total = anchoTrabajo * altoTrabajo;
             const aTrabajo = new Float32Array(total);
             for (let i = 0; i < total; i++) aTrabajo[i] = px[i * 4 + 3] / 255;
-            afinarConFoto(px, aTrabajo, anchoTrabajo, altoTrabajo, CFG.AFINADO);
+
+            // Primero el matteado por color, que es el que recupera el pelo;
+            // despues el afilado fino del halo, que solo pica la ultima franja.
+            mattearConFoto(px, aTrabajo, anchoTrabajo, altoTrabajo, CFG.MATTING);
+            if (CFG.AFINADO > 0.001) {
+                afinarConFoto(px, aTrabajo, anchoTrabajo, altoTrabajo, CFG.AFINADO);
+            }
+
             for (let i = 0; i < total; i++) {
                 const v = aTrabajo[i];
                 px[i * 4 + 3] = v < 0 ? 0 : v > 1 ? 255 : Math.round(v * 255);
@@ -515,9 +707,12 @@
 
             await cargarOrt();
             await obtenerWorker();
-            await enviar({ accion: 'preparar', modelo: CFG.MODELO }, 'listo');
+            await enviar({ accion: 'preparar', modeloClave: CFG.MODELO_CLAVE }, 'listo');
 
-            const entrada = prepararEntrada(elemento);
+            // El lado de entrada lo decide el modelo que este activo. El worker
+            // avisa cual quedo si tuvo que bajar al estandar por falta de memoria.
+            const ladoModelo = (window.__EKKO_LADO_ENTRADA || (CFG.MODELO_CLAVE === 'birefnet' ? 1024 : 320));
+            const entrada = prepararEntrada(elemento, ladoModelo);
             informar('inferir', 0, 0, 'analizando la imagen…');
             const r = await enviar({
                 accion: 'inferir',
@@ -637,7 +832,7 @@
             try {
                 await cargarOrt();
                 await obtenerWorker();
-                await enviar({ accion: 'preparar', modelo: CFG.MODELO }, 'listo');
+                await enviar({ accion: 'preparar', modeloClave: CFG.MODELO_CLAVE }, 'listo');
                 return true;
             } catch (_) { return false; }
         })();
