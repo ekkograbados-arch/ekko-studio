@@ -16,17 +16,15 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <link rel="stylesheet" href="ASSETS/css/styles.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <style>
-    /* Quitar Fondo: la barra y el panel superior ya exponen el boton y el
-       motor de capacidades lo muestra cuando la seleccion es un Raster.
-       Los controles de retoque fino todavia no existen, asi que siguen
-       ocultos; se activan cuando se construya el editor de recorte. */
-    #btnCtxEditCutout.toolbar-btn,
-    #panel-editar-recorte {
-        display: none !important;
-        visibility: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-    }
+    /* Quitar Fondo: tanto "Quitar Fondo" como "Editar Fondo" ya existen y los
+       muestra el motor de capacidades segun la seleccion:
+         - Quitar Fondo  -> aparece con cualquier Raster.
+         - Editar Fondo  -> SOLO aparece sobre un recorte ya sin fondo.
+       No se ocultan por CSS a proposito: si se ocultaran con !important,
+       ganarian al motor y el boton no apare jamas. El panel de retoque con
+       pincel tampoco se oculta: esta construido y conectado, y esconderlo
+       hacia que sus botones se pulsaran sin ver nada. */
+
 
     #ekkoRotationPopup { position:fixed; z-index:10000; display:none; padding:4px 8px; border-radius:5px; background:#263747; color:#fff; font:600 12px sans-serif; pointer-events:none; }
     #ekkoRotationPopup.is-visible { display:block; }
@@ -342,6 +340,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <!-- IMAGEN / TRAZADO -->
                 <div class="toolbar-group">
                     <button data-fusion-btn="removeBg" class="toolbar-btn" id="btnCtxRemoveBg" title="Quitar Fondo"><i class="fas fa-wand-magic-sparkles"></i> 🪄 Quitar Fondo</button>
+                    <button data-fusion-btn="editCutout" class="toolbar-btn" id="btnCtxEditCutout" data-ekko-command="abrirEditorFondo" title="Corregir a mano el recorte ya quitado (borrar o restaurar)"><i class="fas fa-eraser"></i> ✏️ Editar Fondo</button>
                     <button data-fusion-btn="traceImage" class="toolbar-btn" id="btnCtxTrace" data-ekko-command="traceImage" title="Trazar Imagen"><i class="fas fa-magic"></i> Trazar Imagen</button>
                     <button data-fusion-btn="editFusionImage" class="toolbar-btn" onclick="enterFusionEditMode()" title="Editar Imagen Interna"><i class="fas fa-pen-to-square"></i> Editar Imagen</button>
                 </div>
