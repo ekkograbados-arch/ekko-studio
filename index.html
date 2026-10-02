@@ -288,19 +288,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
-            <div class="top-group size-control-group" style="gap:6px;align-items:center;flex-wrap:wrap;">
-                <span style="font-size:11px;color:#64748b;">Ancho</span>
-                <input id="objWidth" type="number" min="0" step="0.01" style="width:68px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;" title="Ancho real en milímetros">
-                <button id="btnSizeLockTop" type="button" class="size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="width:30px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;border:1px solid #94a3b8;border-radius:4px;background:#e0f2fe;color:#075985;font-size:11px;font-weight:700;cursor:pointer;">🔒🔒 Proporción: SÍ</button>
-                <span style="font-size:11px;color:#64748b;">Alto</span>
-                <input id="objHeight" type="number" min="0" step="0.01" style="width:68px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;" title="Alto real en milímetros">
-                <span style="font-size:11px;color:#888;">Rot:</span>
-                <input id="objRotation" type="text" inputmode="decimal" style="width:58px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;" title="Ángulo de rotación en grados; Mixto indica ángulos diferentes">
-                <label>Tamaño <input id="objFontSize" type="number" min="5" max="250" step="1" style="width:56px;padding:3px 6px;" title="Tamaño de fuente"></label>
-                <label>Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" placeholder="10000" style="width:64px;padding:3px 6px;" title="Radio de curvatura"></label>
-                <label>Espacio <input id="objTextSpacing" type="number" step="0.1" value="0" style="width:54px;padding:3px 6px;" title="Espaciado de texto"></label>
-                <button id="btnTopTextSpacing" class="btn-action" title="Aplicar espaciado">Espaciado</button>
-            </div>
             <button id="btnTopTextCurve" class="btn-action" title="Curvar texto"><i class="fas fa-bezier-curve"></i> Curvar Texto</button>
             <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
                 <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
@@ -333,9 +320,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 </div>
                 <div class="toolbar-group size-control-group" style="gap:5px;align-items:center;flex-wrap:wrap;" aria-label="Tamaño y rotación">
                     <label class="toolbar-number-label" title="Ancho real en milímetros">Ancho <input id="ctxWidth" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
-                    <button id="btnSizeLockContext" type="button" class="toolbar-btn size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="width:30px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:15px;">🔒🔒 Proporción: SÍ</button>
+                    <button id="btnSizeLockContext" type="button" class="toolbar-btn size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="width:30px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:15px;">🔒</button>
                     <label class="toolbar-number-label" title="Alto real en milímetros">Alto <input id="ctxHeight" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
                     <label class="toolbar-number-label" title="Ángulo de rotación en grados; Mixto indica ángulos diferentes">Rot <input id="ctxRotation" type="text" inputmode="decimal" class="toolbar-input-number" placeholder="°"></label>
+                        <label class="toolbar-number-label" title="Tamaño de fuente en puntos">Tamano <input id="objFontSize" type="number" min="5" max="250" step="1" class="toolbar-input-number" placeholder="pt" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Radio de curvatura del texto">Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" class="toolbar-input-number" placeholder="radio" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Espaciado entre letras">Espacio <input id="objTextSpacing" type="number" step="0.1" value="0" class="toolbar-input-number" placeholder="0" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <button id="btnTopTextSpacing" class="toolbar-btn" title="Aplicar espaciado al texto"><i class="fas fa-arrows-left-right"></i> Espaciado</button>
                 </div>
                 <div class="toolbar-divider"></div>
                 <!-- FUSIÓN → BOTONES PRINCIPALES -->
