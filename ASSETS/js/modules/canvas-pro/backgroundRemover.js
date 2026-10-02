@@ -559,11 +559,20 @@
             });
 
             try {
+                // La transformacion se aplica UNA sola vez, propiedad por
+                // propiedad. Antes se hacia `matrix = raster.matrix.clone()` y
+                // despues `position = posOriginal`: el desplazamiento entraba
+                // dos veces y la escala tambien, porque el Raster nuevo nace a
+                // escala 1 con su propia matriz y clonar la del original la
+                // multiplicaba encima.
+                //
+                // Medido: el recorte quedaba con escala 5.05 contra 0.20 de la
+                // foto (5 veces mas grande y corrido), y por eso el pincel
+                // apuntaba a coordenadas negativas y no pintaba nada.
                 nueva.applyMatrix = false;
-                nueva.matrix = raster.matrix.clone();
+                nueva.scaling = escOriginal.clone();
                 nueva.rotation = rotOriginal;
-                nueva.scaling = escOriginal;
-                nueva.position = posOriginal;
+                nueva.position = posOriginal.clone();
             } catch (_) {}
 
             nueva.opacity = opaOriginal;
@@ -644,9 +653,13 @@
      */
     function ajustarBorde(clave, valor) {
         const v = Math.max(0, Math.min(1, Number(valor)));
+        // 'recomponer' no cambia ningun parametro: es la via para que el retoque
+        // refresque el recorte tras alterar la mascara, sin tocar BORDE ni
+        // SUAVIZADO. Sin aceptarla aqui, el pincel no tendria forma de
+        // actualizar lo que el cliente ve.
         if (clave === 'borde') CFG.BORDE = v;
         else if (clave === 'suavizado') CFG.SUAVIZADO = v;
-        else return false;
+        else if (clave !== 'recomponer') return false;
 
         // El valor SI se guarda aunque aun no haya recorte: asi el cliente ve
         // el numero movido y no Cree que el control esta roto.
@@ -706,6 +719,8 @@
         alProgresar,
         ajustarBorde,
         abrirRetoque,
+        elegirPincel,
+        pintarPincel,
         deshacerRetoque,
         cerrarRetoque,
         estado: () => ({
@@ -777,8 +792,6 @@
         if (btnBarra) btnBarra.addEventListener('click', ejecutar);
     });
 
-})(window.EKKO = window.EKKO || {});
-
     /* =====================================================================
        RETOQUE CON PINCELES
        ---------------------------------------------------------------------
@@ -818,6 +831,23 @@
             }
         }
         return ESTADO.imagenProcesada || null;
+    }
+
+    /**
+     * Elige el modo del pincel y deja el retoque activo.
+     *
+     * Es la UNICA via para cambiar de modo. Antes el puente de comandos y los
+     * botones del panel activaban el pincel por separado: el puente ejecutaba
+     * un marcado por CSS DESPUES de que este modulo ya lo hubiera hecho, y el
+     * segundo marcado pisaba al primero dejando RETOQUE.activo en false. El
+     * boton quedaba resaltado pero el lienzo no recibia el trazo.
+     */
+    function elegirPincel(modo) {
+        if (!abrirRetoque()) return false;
+        RETOQUE.modo = modo === 'restaurar' ? 'restaurar' : 'borrar';
+        RETOQUE.activo = true;
+        marcarPincelActivo();
+        return true;
     }
 
     /** Abre el panel de retoque. El recorte ya tiene que estar hecho. */
@@ -893,28 +923,72 @@
         }
     }
 
-    /** Traduce un punto de pantalla a coordenadas de la mascara. */
+    /**
+     * Traduce un punto de pantalla a coordenadas de la mascara.
+     *
+     * OJO con las unidades. `item.bounds` de Paper esta en el espacio del
+     * LIENZO (con la escala y el desplazamiento del zoom ya aplicados), y
+     * `ev.clientX` esta en pixeles de PANTALLA. Restarlos directamente mezcla
+     * dos sistemas distintos y devuelve numeros sin sentido: con la pieza
+     * desplazada salian coordenadas negativas, el pincel se salia del rango
+     * en cada trazo y no pintaba NADA. Ese era el motivo por el que abrir el
+     * panel de retoque no producia ningun efecto.
+     *
+     * La conversion correcta es en dos pasos, usando las matrices reales:
+     * pantalla -> lienzo (matriz de vista) y lienzo -> pieza (matriz del
+     * item), que puede traer escala, rotacion y traslacion.
+     */
     function pantallaAMascara(ev) {
-        const r = ESTADO.imagenProcesada;
-        if (!r || !r.canvas && !r.getElement) return null;
+        // Se puede estar retocando una imagen que ya no es la ultima procesada:
+        // se resuelve desde la seleccion para no pintar sobre la pieza
+        // equivocada cuando el cliente retoca dos fotos seguidas.
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        if (!r) return null;
         const src = r.canvas || (typeof r.getElement === 'function' ? r.getElement() : null) || r.image;
         if (!src) return null;
-        const natural = src.naturalWidth || src.width || 1;
+        const natW = src.naturalWidth || src.width || 1;
+        const natH = src.naturalHeight || src.height || 1;
+        if (!(natW > 0) || !(natH > 0)) return null;
+        if (!(ESTADO.mascaraAncho > 0) || !(ESTADO.mascaraAlto > 0)) return null;
+
+        const cv = document.getElementById('editorCanvas');
+        if (!cv || !paper.view) return null;
+        const rc = cv.getBoundingClientRect();
+        const m = paper.view.matrix;
+
+        // Pantalla -> espacio del lienzo.
+        const lx = (ev.clientX - rc.left - m.tx) / m.a;
+        const ly = (ev.clientY - rc.top - m.ty) / m.d;
+        if (!isFinite(lx) || !isFinite(ly)) return null;
+
+        // Lienzo -> espacio local de la pieza.
+        //
+        // Se usa la caja REAL de la pieza (bounds), no su matriz. Medido: la
+        // matriz de un Raster recien creado con escala y posicion NO
+        // coincide con la caja que Paper reporta, e invertirla daba
+        // coordenadas negativas incluso con la pieza bien colocada: el
+        // pincel se salia del rango en cada trazo y no pintaba nada.
         const b = r.bounds;
-        if (!b || !(b.width > 0)) return null;
-        // La pieza puede estar rotada o escalada; se usa la caja proyectada.
-        const rel = (ev.clientX - b.left) / b.width;
-        const relY = (ev.clientY - b.top) / b.height;
-        if (rel < -0.1 || rel > 1.1 || relY < -0.1 || relY > 1.1) return null;
-        return { x: rel * natural, y: relY * (src.naturalHeight || src.height || 1) };
+        if (!b || !(b.width > 0) || !(b.height > 0)) return null;
+        const sx = (lx - b.x) / b.width;
+        const sy = (ly - b.y) / b.height;
+        // Margen del 12%: el cliente puede empezar el trazo justo en el borde.
+        if (sx < -0.12 || sx > 1.12 || sy < -0.12 || sy > 1.12) return null;
+        return { x: sx * ESTADO.mascaraAncho, y: sy * ESTADO.mascaraAlto };
     }
 
     /** Vuelve a componer el recorte desde la mascara (reutiliza el motor). */
     function recomponerDesdeMascara() {
-        // El motor ya sabe recomponer desde la mascara: es el mismo camino que
-        // usa mover BORDE. Se reusa en vez de duplicar la composicion.
-        try { recomponer(); return true; }
-        catch (e) { console.warn('[EKKO RETOQUE] no se pudo recomponer', e); return false; }
+        // Llama a ajustarBorde con la clave 'recomponer', que es el camino real
+        // del motor. Antes llamaba a una funcion `recomponer()` que NO existe
+        // en este archivo: el ReferenceError caia en un catch que solo imprimia
+        // un aviso, con lo que el pincel pintaba la mascara pero la imagen
+        // nunca cambiaba. El cliente veia el panel abierto y ningun efecto.
+        try { return ajustarBorde('recomponer', 0) !== false; }
+        catch (e) {
+            console.error('[EKKO RETOQUE] no se pudo recomponer', e);
+            return false;
+        }
     }
 
     function conectarRetoque() {
@@ -957,31 +1031,52 @@
         }
 
         // El pincel se pinta arrastrando sobre el lienzo.
+        //
+        // OJO con donde se escucha. Se midio que el manejador de eventos de
+        // EKKO detiene la propagacion en un ancestro del lienzo: el evento
+        // llegaba a `document` pero NUNCA al `canvas`. Con el listener en el
+        // lienzo el pincel no recibia nada y abrir el panel no producia
+        // ningun efecto visible.
+        //
+        // Por eso se escucha en `window` en fase de captura, que es lo
+        // PRIMERO que se ejecuta en toda la cadena. Se filtra por objetivo
+        // para no secuestrar clics que no son del lienzo.
         const canvas = document.getElementById('editorCanvas');
-        if (!canvas) return;
         let pintando = false;
-        canvas.addEventListener('pointerdown', (ev) => {
+
+        const sobreLienzo = (ev) => {
+            try { return !!(canvas && canvas.contains(ev.target)); }
+            catch (_) { return false; }
+        };
+        const pintarEn = (ev) => {
+            const p = pantallaAMascara(ev);
+            if (!p) return false;
+            pintarPincel(p.x, p.y);
+            recomponerDesdeMascara();
+            return true;
+        };
+
+        window.addEventListener('pointerdown', (ev) => {
             if (!RETOQUE.activo) return;
-            const p = pantallaAMascara(ev);
-            if (!p) return;
+            if (!sobreLienzo(ev)) return;
+            if (ev.button !== undefined && ev.button !== 0) return;
             ev.preventDefault();
-            canvas.setPointerCapture?.(ev.pointerId);
-            pintarPincel(p.x, p.y);
-            recomponerDesdeMascara();
+            ev.stopPropagation();
+            pintarEn(ev);
             pintando = true;
-        });
-        canvas.addEventListener('pointermove', (ev) => {
-            if (!RETOQUE.activo || !pintando) return;
-            const p = pantallaAMascara(ev);
-            if (!p) return;
+        }, true);
+
+        window.addEventListener('pointermove', (ev) => {
+            if (!pintando || !RETOQUE.activo) return;
+            if (!sobreLienzo(ev)) return;
             ev.preventDefault();
-            pintarPincel(p.x, p.y);
-            recomponerDesdeMascara();
-        });
+            ev.stopPropagation();
+            pintarEn(ev);
+        }, true);
+
         const soltar = () => { pintando = false; };
-        canvas.addEventListener('pointerup', soltar);
-        canvas.addEventListener('pointercancel', soltar);
-        window.addEventListener('pointerup', soltar);
+        window.addEventListener('pointerup', soltar, true);
+        window.addEventListener('pointercancel', soltar, true);
     }
 
     // El panel se conecta apenas el documento esta listo, y tambien si el
@@ -994,3 +1089,5 @@
     } else {
         arrancarRetoque();
     }
+
+})(window.EKKO = window.EKKO || {});
