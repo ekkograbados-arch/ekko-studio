@@ -76,7 +76,7 @@ export function initGlobalKeyboardShortcuts() {
         const key = e.key.toLowerCase();
         const isRotationControl = activeTag === "input" &&
             activeElement.type === "number" &&
-            (activeElement.id === "objRotation" || activeElement.id === "ctxRotation");
+            (activeElement.id === "ctxRotation");
         const isHistoryShortcut = isCtrl && (key === "z" || key === "y");
 
         // Los controles de texto y los demas inputs conservan el undo nativo.
