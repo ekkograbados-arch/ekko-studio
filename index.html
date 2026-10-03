@@ -400,30 +400,79 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <!-- ==============================================================
                  PANEL: EDITAR RECORTE
                  ============================================================== -->
-            <div id="panel-editar-recorte" style="display:none; position:absolute; top:60px; right:20px; width:280px; padding:12px; border:1px solid #ccc; border-radius:10px; background:#f8f9fa; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:100;">
-                <div style="font-weight:bold; margin-bottom:12px; text-align:center; font-size:14px; border-bottom:1px solid #ddd; padding-bottom:8px;">✏️ Editar Recorte</div>
-                <div style="display:flex; gap:8px; margin-bottom:12px;">
-                    <button data-ekko-command="pincelBorrar" id="pincel-borrar" style="flex:1; padding:8px; background:#ff4444; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">🔴 Borrar</button>
-                    <button data-ekko-command="pincelRestaurar" id="pincel-restaurar" style="flex:1; padding:8px; background:#44cc44; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">🟢 Restaurar</button>
-                </div>
-                <div style="margin-bottom:12px;">
-                    <label for="slider-tamano-pincel" style="font-size:12px; color:#444;">📏 Tamaño del pincel: <span id="valor-tamano-pincel">25</span></label>
-                    <input type="range" id="slider-tamano-pincel" min="5" max="100" value="25" style="width:100%; margin-top:4px;">
-                </div>
-                <div style="margin-bottom:12px; font-size:12px; color:#444;">
-                    <label style="display:block; margin-bottom:4px;"><input type="radio" name="modo-deteccion" id="modo-automatico" checked> 🔄 Automático (inteligente)</label>
-                    <label style="display:block;"><input type="radio" name="modo-deteccion" id="modo-manual"> ✋ Manual</label>
-                </div>
-                <div style="display:flex; gap:8px; margin-bottom:12px; font-size:11px; text-align:center;">
-                    <div style="flex:1; background:#e9ecef; padding:6px; border-radius:6px;">🖼️ Original</div>
-                    <div style="flex:1; background:#d4edda; padding:6px; border-radius:6px;">✅ Resultado</div>
-                </div>
-                <div style="display:flex; gap:8px; margin-top:8px;">
-                    <button data-ekko-command="deshacerRetoque" id="btn-deshacer-fondo" style="flex:1; padding:8px; background:#e9ecef; border:none; border-radius:6px; cursor:pointer; font-size:13px;">↩️ Deshacer</button>
-                    <button data-ekko-command="aceptarRetoque" id="btn-aceptar-fondo" style="flex:2; padding:8px; background:#2288ff; color:white; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px;">✅ Aceptar</button>
+            <!-- ==============================================================
+                 PANEL: EDITAR RECORTE
+                 Estructura tomada de "Edit Cutout" de PhotoRoom, que es lo
+                 que el cliente pidio replicar:
+                     Asistido / Manual      <- como se elige la zona
+                     Borrar / Restaurar      <- que se le hace
+                     Tamaño del pincel       <- solo en Manual
+                     Ver lo quitado          <- capa transparente sobre lo
+                                                que la IA ya habia quitado
+                     Deshacer / Listo        <- cerrar la edicion
+                 Todo con el tema oscuro de la app: antes era un bloque gris
+                 claro suelto dentro de una interfaz oscura, y los botones
+                 eran rectangulos rojo/verde sin estado visible, asi que no se
+                 podia saber cual estaba activo.
+                 ============================================================== -->
+            <div id="panel-editar-recorte" class="ekko-recorte" style="display:none;">
+                <div class="ekko-recorte__cab">
+                    <span class="ekko-recorte__titulo">Editar recorte</span>
+                    <button type="button" id="btn-cerrar-retoque" class="ekko-recorte__cerrar" title="Cerrar (Esc)">&#10005;</button>
                 </div>
 
+                <div class="ekko-recorte__grupo">
+                    <div class="ekko-recorte__et">Cómo elegir la zona</div>
+                    <div class="ekko-recorte__seg" role="group" aria-label="Como elegir la zona">
+                        <button type="button" id="modo-asistido" class="ekko-recorte__segb is-activo" aria-pressed="true">
+                            <span aria-hidden="true">&#9881;</span> Asistido
+                        </button>
+                        <button type="button" id="modo-manual" class="ekko-recorte__segb" aria-pressed="false">
+                            <span aria-hidden="true">&#9998;</span> Manual
+                        </button>
+                    </div>
+                    <p class="ekko-recorte__ayuda" id="ayuda-modo">Tocá una zona y se selecciona sola. Para marcar a mano, pasá a Manual.</p>
+                </div>
+
+                <div class="ekko-recorte__grupo">
+                    <div class="ekko-recorte__et">Qué hacer</div>
+                    <div class="ekko-recorte__seg" role="group" aria-label="Que hacer">
+                        <button type="button" id="pincel-borrar" data-ekko-command="pincelBorrar" class="ekko-recorte__segb ekko-recorte__segb--borrar is-activo" aria-pressed="true">
+                            <span class="ekko-recorte__pt" aria-hidden="true"></span> Borrar
+                        </button>
+                        <button type="button" id="pincel-restaurar" data-ekko-command="pincelRestaurar" class="ekko-recorte__segb ekko-recorte__segb--restaurar" aria-pressed="false">
+                            <span class="ekko-recorte__pt" aria-hidden="true"></span> Restaurar
+                        </button>
+                    </div>
+                    <p class="ekko-recorte__ayuda"><b>Borrar</b> saca lo que marques. <b>Restaurar</b> lo devuelve.</p>
+                </div>
+
+                <div class="ekko-recorte__grupo" id="grupo-tamano" hidden>
+                    <label class="ekko-recorte__et" for="slider-tamano-pincel">Tamaño del pincel <span id="valor-tamano-pincel">25</span></label>
+                    <input type="range" id="slider-tamano-pincel" min="4" max="120" value="25" step="1">
+                </div>
+
+                <label class="ekko-recorte__int">
+                    <input type="checkbox" id="ver-quitado">
+                    <span class="ekko-recorte__pista"><span class="ekko-recorte__bola"></span></span>
+                    <span>Ver lo que se quitó</span>
+                </label>
+
+                <div class="ekko-recorte__acc">
+                    <button type="button" data-ekko-command="deshacerRetoque" id="btn-deshacer-fondo" class="ekko-recorte__btn">&#8617; Deshacer</button>
+                    <button type="button" data-ekko-command="aceptarRetoque" id="btn-aceptar-fondo" class="ekko-recorte__btn ekko-recorte__btn--ok">&#10003; Listo</button>
+                </div>
             </div>
+
+            <!-- Cursor del pincel: sigue al puntero y cambia de color segun la
+                 herramienta, para que se vea QUE esta por hacer sin mirar el
+                 panel. -->
+            <div id="cursor-pincel" class="ekko-recorte__cursor" style="display:none;"></div>
+
+            <!-- Capa "ver lo que se quito": superpone en rojo translucido todo
+                 lo que quedo transparente, para poder precisar que restaurar.
+                 Se dibuja aparte y NO toca el arte: es solo informacion. -->
+            <canvas id="capa-quitado" style="display:none; position:fixed; pointer-events:none; z-index:900;"></canvas>
 
             <!-- Contenedores de herramientas adicionales -->
             <div id="tabTextTools"></div>
