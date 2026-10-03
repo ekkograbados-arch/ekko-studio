@@ -1326,13 +1326,9 @@
         // manual=false: un toque y la zona se elige sola por color (asistido).
         // manual=true:  se pinta con el pincel del tamaño que se elija.
         //
-        // Arranca en MANUAL a proposito, aunque en PhotoRoom el destaque sea el
-        // asistido. En Asistido, arrastrar no pinta: es un toque que elige una
-        // zona. Al dejarlo como venia, un cliente que ya sabia pintar se
-        // encontraba con que el pincel no hacia nada. MEDIDO: al poner
-        // Asistido por defecto, el trazo de prueba paso de -33.058 px a 0.
-        // Asistido sigue a un clic y su funcion se explica en el panel.
-        manual: true,
+        // Arranca en ASISTIDO: es lo que pidio el cliente y lo que hace
+        // PhotoRoom. Manual queda a un clic y con atajo de teclado.
+        manual: false,
         // Pintar solo se permite en manual: en asistido el puntero no debe
         // pintar, porque el cliente quiere "marcar" una zona, no hacer un rayado.
         permitirPintado: true,
@@ -1413,7 +1409,47 @@
     }
 
     /** Abre el panel de retoque. El recorte ya tiene que estar hecho. */
-    // Modo Asistido: tocás una zona y se selecciona sola (como en PhotoRoom).
+    /**
+     * Vista de edicion: la foto ocupa la pantalla y solo quedan las
+     * herramientas.
+     *
+     * Se guarda la vista previa para devolverla exactamente al salir con
+     * "Listo": si el cliente cierra sin querer, el editor no queda movido.
+     */
+    function entrarEnVistaCompleta() {
+        if (RETOQUE.vistaGuardada) return;
+        try {
+            const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+            if (!r || !paper.view) return;
+            const b = r.getBounds();
+            if (!b || !(b.width > 0) || !(b.height > 0)) return;
+            if (![b.x, b.y, b.width, b.height].every(Number.isFinite)) return;
+
+            RETOQUE.vistaGuardada = {
+                center: paper.view.center.clone(),
+                zoom: paper.view.zoom
+            };
+            const vs = paper.view.viewSize;
+            const margen = 1.08;                       // aire alrededor
+            const z = Math.min(vs.width / (b.width * margen), vs.height / (b.height * margen));
+            paper.view.zoom = Math.max(0.05, Math.min(40, z));
+            paper.view.center = b.center;
+            paper.view.update();
+        } catch (e) { ESTADO.ultimoError = e; }
+    }
+
+    function salirDeVistaCompleta() {
+        const v = RETOQUE.vistaGuardada;
+        RETOQUE.vistaGuardada = null;
+        if (!v || !paper.view) return;
+        try {
+            paper.view.center = v.center;
+            paper.view.zoom = v.zoom;
+            paper.view.update();
+        } catch (_) {}
+    }
+
+    // Modo Asistido: tocas una zona y se selecciona sola (como en PhotoRoom).
     function modoAsistido() { return ponerModoRetoque(false); }
 
     // Modo Manual: pintás con el pincel del tamaño que elijas.
@@ -1427,28 +1463,52 @@
         if (!RETOQUE.original) {
             RETOQUE.original = new Uint8ClampedArray(ESTADO.mascara);
         }
-        const panel = document.getElementById('panel-editar-recorte');
-        if (panel) panel.style.display = 'block';
+        const barra = document.getElementById('barra-editar-recorte');
+        if (!barra) {
+            avisar('No se encontró la barra de editar.', { kind: 'error' });
+            return false;
+        }
         RETOQUE.activo = true;
 
-        // La transparencia de lo quitado se ENCIENDE SOLA al entrar a editar.
+        // La barra REEMPLAZA a la contextual: ocupa su misma banda y se queda
+        // sola. Antes convivan las dos con los mismos botones duplicados, y la
+        // contextual seguia apareciendo encima.
         //
-        // Se habia implementado como un interruptor que el cliente tenia que
-        // encontrar y activar, y eso no era lo pedido: lo que quiere ver es
-        // QUE quito la automatica, sin tener que pedirlo. El interruptor se
-        // queda para poder apagarla (a veces estorba al pintar), pero nace
-        // encendida.
+        // La barra tiene que quedar SIEMPRE junto a la barra contextual, no dentro
+        // del contenedor del lienzo: si comparten padre comparten tambien el
+        // bloque que posiciona los absolutos, y el `top` que calcula la app
+        // para la contextual sirve para las dos.
+        //
+        // MEDIDO: con la barra dentro de #canvasContainer quedava 140 px mas
+        // arriba y 260 px a la derecha (exactamente el offset del contenedor).
+        // Ningun ajuste de `top` lo arregla: son containing blocks distintos.
+        try {
+            const ctx = document.getElementById('contextual-toolbar');
+            if (ctx && ctx.parentElement && barra.parentElement !== ctx.parentElement) {
+                ctx.parentElement.insertBefore(barra, ctx.nextSibling);
+            }
+            if (ctx) {
+                const top = parseFloat(getComputedStyle(ctx).top);
+                if (Number.isFinite(top)) barra.style.top = top + 'px';
+            }
+        } catch (_) {}
+        barra.style.display = 'flex';
+        barra.classList.add('ekko-visible');
+
+        // Vista de edicion: la foto a pantalla completa y solo las
+        // herramientas. Es lo que pidio el cliente; antes seguian viéndose el
+        // producto entero y los paneles de al lado, que para retocar el pelo
+        // sobran y estorban.
+        document.body.classList.add('ekko-modo-retoque');
+        entrarEnVistaCompleta();
+
+        // La transparencia de lo quitado se ENCIENDE SOLA al entrar a editar.
+        // Antes era un interruptor que el cliente tenia que encontrar y
+        // activar, y no era lo pedido: lo que quiere ver es QUE quito la
+        // automatica sin tener que pedirlo.
         RETOQUE.verQuitado = true;
         const vq = document.getElementById('ver-quitado');
-        if (vq) vq.checked = true;
-
-        // La tira de parametros y el panel son dos formas de la misma tarea.
-        // Dejarlas las dos en pantalla era la incoherencia que reporto el
-        // cliente: se veian duplicados los mismos botones y ademas la tira
-        // tapaba el artwork. Al abrir el panel, la tira se cierra.
-        try {
-            if (typeof window.EKKO_PARAMETROS?.cerrar === 'function') window.EKKO_PARAMETROS.cerrar();
-        } catch (_) {}
+        if (vq) vq.setAttribute('aria-pressed', 'true');
 
         marcarPincelActivo();
         dibujarCapaQuitado();
@@ -1476,12 +1536,12 @@
         RETOQUE.activo = false;
         RETOQUE.puntero = false;
         RETOQUE.verQuitado = false;
-        const panel = document.getElementById('panel-editar-recorte');
-        if (panel) panel.style.display = 'none';
-        // La casilla queda desmarcada para que al reabrir no aparezca una capa
-        // que el panel dice que esta apagada.
+        const barra = document.getElementById('barra-editar-recorte');
+        if (barra) { barra.style.display = 'none'; barra.classList.remove('ekko-visible'); }
+        document.body.classList.remove('ekko-modo-retoque');
+        salirDeVistaCompleta();
         const vq = document.getElementById('ver-quitado');
-        if (vq) vq.checked = false;
+        if (vq) { vq.setAttribute('aria-pressed', 'false'); vq.classList.remove('is-activo'); }
         const capa = document.getElementById('capa-quitado');
         if (capa) capa.style.display = 'none';
         const cur = document.getElementById('cursor-pincel');
@@ -1534,12 +1594,6 @@
         // cumple y el cliente lo cuenta como que no funciona.
         const grupo = document.getElementById('grupo-tamano');
         if (grupo) grupo.hidden = !RETOQUE.manual;
-        const ayuda = document.getElementById('ayuda-modo');
-        if (ayuda) {
-            ayuda.textContent = RETOQUE.manual
-                ? 'Arrastrá el puntero sobre la imagen para marcar. El círculo del cursor marca el tamaño.'
-                : 'Tocá una zona y se selecciona sola. Para marcar a mano, pasá a Manual.';
-        }
         actualizarCursor();
     }
 
@@ -1883,9 +1937,9 @@
     }
 
     function conectarRetoque() {
-        const panel = document.getElementById('panel-editar-recorte');
-        if (!panel || panel.__ekkoConectado) return;
-        panel.__ekkoConectado = true;
+        const barra = document.getElementById('barra-editar-recorte');
+        if (!barra || barra.__ekkoConectado) return;
+        barra.__ekkoConectado = true;
 
         const b = document.getElementById('pincel-borrar');
         const r = document.getElementById('pincel-restaurar');
@@ -1893,7 +1947,6 @@
         const valor = document.getElementById('valor-tamano-pincel');
         const aceptar = document.getElementById('btn-aceptar-fondo');
         const deshacerBtn = document.getElementById('btn-deshacer-fondo');
-        const cerrarBtn = document.getElementById('btn-cerrar-retoque');
         const ma = document.getElementById('modo-asistido');
         const mm = document.getElementById('modo-manual');
         const verQuitado = document.getElementById('ver-quitado');
@@ -1901,28 +1954,33 @@
         const elegir = (modo) => {
             RETOQUE.modo = modo;
             RETOQUE.activo = true;
-            panel.style.display = 'block';
             marcarPincelActivo();
+            actualizarCursor();
         };
         if (b) b.addEventListener('click', () => elegir('borrar'));
         if (r) r.addEventListener('click', () => elegir('restaurar'));
 
         // Asistido / Manual. Cambia lo que hace el puntero sobre el lienzo, asi
-        // que el estado tiene que verse en el panel (marcarPincelActivo).
+        // que el estado tiene que verse en la barra (marcarPincelActivo).
         const ponerModo = (manual) => {
             RETOQUE.manual = !!manual;
             marcarPincelActivo();
+            actualizarCursor();
         };
         if (ma) ma.addEventListener('click', () => ponerModo(false));
         if (mm) mm.addEventListener('click', () => ponerModo(true));
 
+        // "Ver lo quitado" es ahora un BOTON, no una casilla: la barra es un
+        // sitio plano y una casilla invisible obligaba a acertar el punto
+        // exacto.
         if (verQuitado) {
-            verQuitado.addEventListener('change', function () {
-                RETOQUE.verQuitado = !!verQuitado.checked;
+            verQuitado.addEventListener('click', function () {
+                RETOQUE.verQuitado = !RETOQUE.verQuitado;
+                verQuitado.setAttribute('aria-pressed', RETOQUE.verQuitado ? 'true' : 'false');
+                verQuitado.classList.toggle('is-activo', RETOQUE.verQuitado);
                 dibujarCapaQuitado();
             });
         }
-        if (cerrarBtn) cerrarBtn.addEventListener('click', function () { cerrarRetoque(); });
 
         if (slider) {
             slider.addEventListener('input', function () {
@@ -2020,6 +2078,34 @@
         const soltar = () => { pintando = false; };
         window.addEventListener('pointerup', soltar, true);
         window.addEventListener('pointercancel', soltar, true);
+
+        // Atajos de teclado. Mientras se esta retocando el recorte, escribir
+        // B/R/A/M no debe insertar texto en el editor: se intercepta antes.
+        //   B  Borrar          R  Restaurar
+        //   A  Asistido       M  Manual
+        //   V  ver lo quitado  Esc  Listo
+        window.addEventListener('keydown', (ev) => {
+            if (!RETOQUE.activo) return;
+            if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+            const t = ev.target;
+            const nombre = (t && (t.tagName || '')).toUpperCase();
+            if (nombre === 'INPUT' || nombre === 'TEXTAREA' || (t && t.isContentEditable)) return;
+            const k = String(ev.key || '').toLowerCase();
+            const actuar = {
+                b: () => { RETOQUE.modo = 'borrar'; marcarPincelActivo(); },
+                r: () => { RETOQUE.modo = 'restaurar'; marcarPincelActivo(); },
+                a: () => { RETOQUE.manual = false; marcarPincelActivo(); },
+                m: () => { RETOQUE.manual = true; marcarPincelActivo(); },
+                v: () => { RETOQUE.verQuitado = !RETOQUE.verQuitado; marcarPincelActivo(); dibujarCapaQuitado(); },
+                escape: () => cerrarRetoque(),
+                enter: () => cerrarRetoque()
+            }[k];
+            if (!actuar) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            actuar();
+            actualizarCursor();
+        }, true);
     }
 
     // El panel se conecta apenas el documento esta listo, y tambien si el
