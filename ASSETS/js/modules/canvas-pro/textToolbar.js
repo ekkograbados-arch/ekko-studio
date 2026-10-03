@@ -282,12 +282,24 @@ export async function applyTextCurve(item, curvature, options = {}) {
     const numericCurvature = Number(curvature) || 0;
 
     if (Math.abs(numericCurvature) < 0.1) {
+        /* APPLANAR. applyTextCurve con curvatura cero deshace el arco.
+           restoreFlatText cambia el owner de la escena, asi que la seleccion hay
+           que entregarla al texto plano. Antes solo se hacia si la seleccion
+           apuntaba EXACTAMENTE al grupo curvo: cuando apuntaba al wrapper de
+           contencion, o cuando venia de otra ruta, la seleccion se quedaba
+           colgando del grupo ya removido y el texto plano quedaba sin poder
+           editar. Se resuelve el owner publico para no depender de cual de los
+           dos este seleccionado. */
         if (item.data?.isCurvedGroup) {
-            const flatText = restoreFlatText(window.selectedItem, item);
+            const owner = getPublicOwner(item) || item;
+            const flatText = restoreFlatText(item, item);
             if (flatText) {
-                if (window.selectedItem === item) {
-                    window.selectItem(flatText);
+                const seleccion = window.selectedItem;
+                if (seleccion === item || seleccion === owner ||
+                    seleccion?.data?.publicOwnerId === owner?.id) {
+                    if (typeof window.selectItem === "function") window.selectItem(flatText);
                 }
+                window.updateSelectionBox?.(flatText);
                 paper.view.update();
             }
         }
@@ -516,6 +528,27 @@ export function drawBlueCurveHandle(group) {
 export function applyTextSpacing(item, hspace) {
     const owner = resolveTextTarget(item);
     if (!owner) return;
+    const valor = Number(hspace) || 0;
+
+    /* ESPACIADO CERO ES SIN ESPACIADO.
+
+       Antes, con un clic en "Espaciado" sin escribir nada, se armaba igual un
+       grupo con un PointText por letra, solo que pegados. El texto se veia
+       exactamente igual, pero dejaba de ser un unico PointText: a partir de ahi
+       Bold, Fuente y Tamano tenian que pasar por la reconstruccion, y el
+       hit-test y el export tomaban otro camino. Convertir sin motivo es peor
+       que no hacer nada. */
+    if (valor === 0) {
+        if (isGroupedText(owner)) {
+            if (typeof window.saveHistory === 'function') window.saveHistory();
+            rebuildEKKOTextOwner(owner, { hspace: 0 });
+        } else {
+            owner.data = { ...(owner.data || {}), hspace: 0 };
+        }
+        paper.view.update();
+        return;
+    }
+
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
     /* Un owner agrupado (curvado o espaciado) se reconstruye SIEMPRE desde el
@@ -525,7 +558,7 @@ export function applyTextSpacing(item, hspace) {
        que ya tuviera, asi que cambiar el espaciado de un texto curvado lo
        mantiene curvado. */
     if (isGroupedText(owner)) {
-        rebuildEKKOTextOwner(owner, { hspace });
+        rebuildEKKOTextOwner(owner, { hspace: valor });
         paper.view.update();
         return;
     }
@@ -537,7 +570,8 @@ export function applyTextSpacing(item, hspace) {
     const target = owner;
     {
         target.data = target.data || {};
-        target.data.hspace = hspace;        const content = target.content;
+        target.data.hspace = valor;
+        const content = target.content;
         const fontSize = target.fontSize;
         const fontFamily = target.fontFamily;
         const fillColor = target.fillColor;
@@ -591,6 +625,28 @@ export function applyTextSpacing(item, hspace) {
         }
     }
     paper.view.update();
+}
+
+/**
+ * Devuelve la lista REAL de contornos de un owner de texto vectorizado.
+ *
+ * Un CompoundPath se abre: de el salen sus Paths hijos, que son los lazos. Un
+ * Group se recorre: sus hijos pueden ser CompoundPath (un glifo) y se abren
+ * tambien. Sin esto, el clasificador de huecos recibe una letra por lazo y no ve
+ * los contadores internos de A, O, P, R, B ni D.
+ */
+function flattenGlyphContours(node, out = []) {
+    if (!node) return out;
+    if (node.className === "CompoundPath") {
+        Array.from(node.children || []).forEach(child => flattenGlyphContours(child, out));
+        return out;
+    }
+    if (node.className === "Path") {
+        out.push(node);
+        return out;
+    }
+    Array.from(node.children || []).forEach(child => flattenGlyphContours(child, out));
+    return out;
 }
 
 function findTextTarget(item) {
@@ -767,12 +823,30 @@ export async function weldText(item) {
     resultPath.data.fillRule = "evenodd";
     // Never infer "all contours after index zero are holes". That fallback
     // turns the outer contour of the second glyph in OO into a false hole.
-    const resultChildren = Array.from(resultPath.children || []).filter(Boolean);
+    /* LA LISTA DE CONTORNOS SE APLANA UN NIVEL.
+
+       buildContourRelations trabaja con CONTORNOS: cada path que le pasan es
+       un lazo, y decide si es solido o hueco comparandolo con los demás por
+       contencion y area.
+
+       Para texto plano el owner vectorizado es un CompoundPath cuyos hijos ya
+       son los contornos, asi que children sirve. Para texto CURVO el owner es
+       un grupo de CompoundPath, uno por glifo, y cada glifo es un lazo con su
+       propio relleno. Si se le pasa esa lista, el clasificador ve "la letra R"
+       como un unico contorno sin huecos: nada lo contiene, da profundidad 0, y
+       TODOS salen como solido. MEDIDO: "PRUEBA" curvado devolvia 0 huecos, y P
+       y R llegaban al laser como manchas llenas.
+
+       Por eso la lista se aplana: de cada CompoundPath salen sus hijos Path, que
+       si son los contornos reales. El glifo exterior y su contador quedan como
+       dos lazos, y el contador cae dentro del exterior por contencion, que es
+       exactamente como se clasifica el texto plano. */
+    const contourPaths = flattenGlyphContours(resultPath);
     let contourRecords = Array.isArray(converted.data?.contours)
         ? converted.data.contours.map((record, index) => ({ ...record, contourIndex: record.contourIndex ?? index }))
         : null;
-    if (!contourRecords?.length && resultChildren.length) {
-        const classified = buildContourRelations(resultChildren, { fillRule: "evenodd" });
+    if (!contourRecords?.length && contourPaths.length) {
+        const classified = buildContourRelations(contourPaths, { fillRule: "evenodd" });
         contourRecords = classified.nodes.map(node => {
             const record = {
                 ...node.contourRecord,
