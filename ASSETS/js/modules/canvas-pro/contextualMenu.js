@@ -490,6 +490,7 @@ function dispatchTextCurve(options = {}) {
     const item = window.selectedItem || window.selectedItems?.[0];
     if (!item) return;
     const slider = document.querySelector('#ctxTextCurvature input[type=range]');
+
     /* La fuente de verdad de un campo numerico es el campo que el cliente esta
        TOCANDO, no el que aparece primero en una busqueda por ID.
 
@@ -498,14 +499,51 @@ function dispatchTextCurve(options = {}) {
        solo esta oculto con .hidden), el `||` nunca llegaba al campo de la barra
        superior. El listener de change si se registraba en los dos, asi que el
        evento disparaba y el valor se leia del input equivocado: se escribia un
-       radio y la curvatura salia con el anterior.
-
-       Por eso el radio y el espaciado llegan como argumento desde el listener,
-       que si sabe que input se toco. Si la llamada viene de un boton (sin
-       argumento) se cae a data.*, que es el estado real del objeto. */
-    const radius = Number(options.radius ?? item.data?.radius ?? 0) || 0;
+       radio y la curvatura salia con el anterior. Por eso el radio llega como
+       argumento desde el listener, que si sabe que input se toco. */
     const hspace = Number(options.hspace ?? item.data?.hspace ?? 0) || 0;
-    let curvature = Number(options.curvature ?? slider?.value ?? item.data?.curvature ?? 0) || 0;
+    const valorSlider = Number(slider?.value ?? 0) || 0;
+    const radioDelObjeto = Number(item.data?.radius ?? 0) || 0;
+    const yaCurvo = item.data?.isCurvedGroup === true;
+
+    let radius;
+    let curvature;
+
+    if (options.radius !== undefined) {
+        /* El cliente escribio un radio en alguno de los dos campos. Manda ese. */
+        radius = Number(options.radius) || 0;
+        curvature = Number(options.curvature ?? item.data?.curvature ?? 0) || 0;
+    } else if (valorSlider !== 0) {
+        /* Movio el slider de curvatura. El radio es el que ya tenia el objeto. */
+        radius = radioDelObjeto;
+        curvature = valorSlider;
+    } else {
+        /* Ni slider ni radio: solo aprieto el boton. */
+        if (yaCurvo) {
+            /* MEDIDO: antes el segundo clic NO aplanaba. data.radius queda
+               guardado en el objeto, asi que el segundo clic volvia a curvar con
+               el radio anterior y el texto no cambiaba nunca de forma. Un boton
+               que hace siempre lo mismo no es un boton. Aplanar es lo que ya
+               hace applyTextCurve con curvatura cero. */
+            radius = 0;
+            curvature = 0;
+        } else {
+            /* UN CLIC CONCURVE.
+               MEDIDO: con el slider en 0 y sin radio escrito, "Curvar Texto" no
+               hacia NADA. El cliente aprieta, no ve cambio, y las herramientas de
+               texto curvado (negrita, fuente y tamano sobre glifos horneados)
+               quedan inalcanzables salvo que sepa que existe un radio escondido.
+               En LightBurn el equivalente es agarrar el tirador azul y arrastrar,
+               que es discoverible.
+
+               El radio por defecto sale del ANCHO del propio texto: un arco suave
+               que siempre se ve bien, sea cual sea el tamaño de la palabra. */
+            const ancho = Number(item.bounds?.width) || 0;
+            radius = ancho > 0 ? Math.max(60, Math.round(ancho * 1.2)) : 240;
+            curvature = 0;
+        }
+    }
+
     if (radius > 0) curvature = Math.max(0.1, Math.min(100, 10000 / Math.abs(radius))) * (curvature < 0 ? -1 : 1);
     Promise.resolve(applyTextCurve(item, curvature, { radius: radius || undefined, hspace })) .then(() => {
         window.updateSelectionBox?.(window.selectedItem || item);
