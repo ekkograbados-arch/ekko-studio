@@ -966,117 +966,85 @@
 
             const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah, entrada.caja);
 
-            // El Raster nuevo se crea desde la URL, no desde un canvas, para
-            // que Paper no intente hornear la imagen.
+            // ==================================================================
+            // NO SE CREA UNA IMAGEN NUEVA: se le cambia el CONTENIDO a la que ya
+            // esta ahi. Este es el cambio de fondo del asunto.
             //
-            // Se deja que Paper lo inserte en la capa activa. Con
-            // `{ insert: false }` el item nace SIN proyecto y su `position` sale
-            // en NaN de origen, y no se deja ni reasignar a mano (medido): sin
-            // posicion no hay recorte visible, ni pincel, ni exportacion. La
-            // contencion del mockup se resuelve DESPUES, moviendo el item ya
-            // transformado al grupo del original: al moverlo, la posicion se
-            // conserva (medido).
-            const nueva = new paper.Raster(lienzo.toDataURL('image/png'));
-            nueva.applyMatrix = false;
-            nueva.data = { ...(raster.data || {}), quitarFondoIA: true, source: raster.data?.source || 'user-image' };
+            // MEDIDO, y explica TODO lo que报告中 el cliente:
+            //
+            //   - Una imagen CARGADA, con fondo, se arrastra y se recorta contra
+            //     el mockup sin problema, porque la app ya la mete dentro del
+            //     grupo de contencion y la recorta sola.
+            //   - El recorte de fondo NO lo hacia: era un `paper.Raster` NUEVO,
+            //     aparte, en la capa. Al ser otra pieza perdia la contencion, y
+            //     por eso se salia del producto y el arrastre fallaba.
+            //   - Meter el Raster nuevo dentro del grupo tampoco servia: dentro
+            //     del grupo no se arrastra (medido con raton real: (0,0) ->
+            //     (0,0)), porque la unidad de seleccion es el wrapper.
+            //
+            // Cambiar el `source` del MISMO item conserva id, padre,
+            // transformacion, escala, rotacion y seleccion. Todo lo que la app
+            // ya hace bien con una imagen normal sigue haciendo exactamente
+            // igual: se arrastra y se recorta contra el mockup.
+            // ==================================================================
 
-            // Esperar a que la imagen exista ANTES de aplicar la transformacion.
-            // Aplicarla antes daba size 0 y perdida de rotacion, porque un
-            // Raster recien creado todavia no tiene dimensiones.
+            // El lienzo se entrega al tamano NATURAL del elemento original. Si se
+            // entregara al tamano de trabajo, al cambiar el source el item
+            // cambiaria de tamano y con el se moveria la caja de seleccion.
+            const natW = elemento.naturalWidth || elemento.width || 0;
+            const natH = elemento.naturalHeight || elemento.height || 0;
+            let salida = lienzo;
+            if (natW > 0 && natH > 0 && (natW !== aw || natH !== ah)) {
+                salida = document.createElement('canvas');
+                salida.width = natW;
+                salida.height = natH;
+                const sctx = salida.getContext('2d');
+                sctx.imageSmoothingEnabled = true;
+                sctx.imageSmoothingQuality = 'high';
+                sctx.drawImage(lienzo, 0, 0, natW, natH);
+            }
+
+            // Se guarda la fuente original para el "deshacer": volver a ponerla
+            // devuelve la foto con su fondo, sin tocar nada mas.
+            if (!ESTADO.urlOriginal) ESTADO.urlOriginal = elemento.src;
+            ESTADO.rasterOriginal = raster;
+
+            raster.source = salida.toDataURL('image/png');
+            raster.data = {
+                ...(raster.data || {}),
+                quitarFondoIA: true,
+                source: raster.data?.source || 'user-image'
+            };
+            if (nomOriginal) raster.name = nomOriginal;
+
+            // Se espera a que la imagen nueva este cargada antes de seguir.
             await new Promise(res => {
-                const listo = nueva.image && nueva.image.complete && nueva.width > 0;
+                const el = raster.getElement && raster.getElement();
+                const listo = el && el.complete && el.width > 0;
                 if (listo) return res();
                 let hecho = false;
                 const fin = () => { if (!hecho) { hecho = true; res(); } };
-                nueva.onLoad = fin;
+                raster.onLoad = fin;
                 setTimeout(fin, 8000);
             });
 
-            nueva.opacity = opaOriginal;
-            nueva.name = (nomOriginal || 'Imagen') + ' sin fondo';
-
-            // La transformacion se aplica UNA sola vez, propiedad por propiedad,
-            // y ANTES de mover el item al grupo de contencion.
-            //
-            // Primero: aplicar `matrix = raster.matrix.clone()` y despues
-            // `position` hacia que el desplazamiento y la escala entraran dos
-            // veces (medido: escala 5,05 contra 0,20 de la foto), y por eso el
-            // pincel apuntaba a coordenadas negativas y no pintaba nada.
-            try {
-                nueva.scaling = escOriginal.clone();
-                nueva.rotation = rotOriginal;
-                nueva.position = posOriginal.clone();
-            } catch (e) { ESTADO.ultimoError = e; }
-
-            // --- CONTENCION DEL MOCKUP ---
-            //
-            // El recorte tiene que quedar dentro del MISMO grupo que el
-            // original. Si no, se dibuja fuera del producto: el cliente lo
-            // reporto como "la imagen queda por fuera de la contencion del
-            // mockup".
-            //
-            // SE REVIERTE LA CONTENCION DEL MOCKUP. Se habia metido el recorte
-            // dentro del grupo `clipGroup` del producto y trajo TRES regresiones
-            // seguidas, todas medidas en el navegador:
-            //
-            //   1. La `position` del recorte se iba a NaN (con `insert:false`),
-            //      y sin posicion no hay recorte visible ni arrastre.
-            //   2. Aparecia una SEGUNDA caja de seleccion. En Paper.js la
-            //      unidad de seleccion dentro de un mockup es el grupo, no el
-            //      contenido: `_getSelectableItem` (selection.js:281) devuelve
-            //      el wrapper. Con el recorte dentro, el grupo queda seleccionado
-            //      Y el recorte tambien, y el arrastre no sabe cual mover. El
-            //      cliente lo reporto como "no se puede arrastrar la imagen sin
-            //      fondo", dos veces.
-            //   3. "Editar Fondo" se apagaba despues de quitar el fondo, porque
-            //      el grupo seguia publicando al original oculto como dueno.
-            //
-            // El recorte va DIRECTO a la capa de diseno, como estaba antes de
-            // tocar nada. Es una pieza publica normal: se selecciona con una
-            // sola caja y se arrastra arrastrando.
-            try {
-                const capa = paper.project.layers?.find(l => l.name === 'designLayer')
-                    || paper.project.activeLayer;
-                if (capa && capa.addChild) capa.addChild(nueva);
-                else if (nueva.parent === null) paper.project.activeLayer.addChild(nueva);
-            } catch (e) { ESTADO.ultimoError = e; }
-
-            // Red de seguridad: la posicion nunca debe quedar en NaN. Sin
-            // posicion no hay recorte visible, ni pincel, ni exportacion, y el
-            // cliente no ve nada mas que un producto vacio. MEDIDO: asi fue
-            // como se rompio al meter el recorte dentro de la contencion.
-            try {
-                if (!Number.isFinite(nueva.position.x) || !Number.isFinite(nueva.position.y)) {
-                    const seguro = raster.position;
-                    if (Number.isFinite(seguro.x) && Number.isFinite(seguro.y)) {
-                        nueva.position = seguro.clone();
-                    }
-                }
-            } catch (e) { ESTADO.ultimoError = e; }
-
-            // El original se oculta, no se borra: deshacer es un clic.
-            raster.visible = false;
+            const nueva = raster;
             ESTADO.imagenProcesada = nueva;
             ESTADO.listo = true;
 
-            // La seleccion debe CAER en el recorte, no quedarse en el original
-            // oculto. Antes el cliente quedaba manipulando una pieza invisible:
-            // mover BORDE funcionaba por debajo pero no se veia nada cambiar, y
-            // el panel no ofrecia herramientas porque la especie del original ya
-            // no era la que se estaba editando.
-            // La seleccion la arma la APP, no este archivo.
-                //
-                // MEDIDO: si ademas se marca `nueva.selected = true` aqui,
-                // La seleccion la arma la APP, no este archivo.
-                // Con el recorte directo en la capa, `_getSelectableItem`
-                // devuelve el recorte mismo y queda UNA sola caja.
-                try {
-                    paper.project.deselectAll();
-                    if (typeof window.selectItem === 'function') window.selectItem(nueva);
-                    else if (typeof window.updateContextualMenu === 'function') {
-                        window.updateContextualMenu(nueva);
-                    }
-                } catch (_) {}
+            // La seleccion no se toca: sigue siendo la misma pieza que el
+            // cliente ya estaba moviendo.
+            try {
+                if (typeof window.selectItem === 'function') window.selectItem(nueva);
+            } catch (_) {}
+
+            // OJO: ya no se oculta el original, porque AHI MISMO esta el recorte.
+            // `nueva === raster`: el item es el mismo, con otro contenido. Dejar
+            // `raster.visible = false` dejaba el recorte invisible, que es
+            // justo lo que se reportaba antes.
+
+            // Nada que readjustar: el item no se movio, no cambio de padre y no cambio de
+            // tamano. La seleccion sigue siendo la misma pieza de antes.
 
             informar('listo', 1, 1, 'Fondo eliminado');
             if (typeof window.saveHistory === 'function') {
@@ -1091,22 +1059,27 @@
     }
 
     function deshacer() {
-        if (ESTADO.imagenProcesada) {
-            try { ESTADO.imagenProcesada.remove(); } catch (_) {}
-            ESTADO.imagenProcesada = null;
+        // El recorte es el MISMO item que la foto original, con otro contenido
+        // (ver quitarFondo). Deshacer es volver a poner la fuente que tenia,
+        // que es lo unico que hay que cambiar: no se borra ni se oculta nada.
+        const r = ESTADO.imagenProcesada || ESTADO.rasterOriginal;
+        if (r && ESTADO.urlOriginal) {
+            try {
+                r.source = ESTADO.urlOriginal;
+                r.data = { ...(r.data || {}) };
+                delete r.data.quitarFondoIA;
+            } catch (_) {}
         }
-        if (ESTADO.imagenOriginal) {
-            try { ESTADO.imagenOriginal.visible = true; } catch (_) {}
-            // Al deshacer, la seleccion vuelve al original, que es lo unico
-            // que queda visible. Sin esto el cliente se queda sin nada
-            // seleccionado y el panel se apaga.
+        ESTADO.imagenProcesada = null;
+        ESTADO.rasterOriginal = null;
+        ESTADO.urlOriginal = null;
+        ESTADO.mascara = null;
+        ESTADO.listo = false;
+        if (r) {
             try {
                 paper.project.deselectAll();
-                ESTADO.imagenOriginal.selected = true;
-                if (typeof window.selectItem === 'function') window.selectItem(ESTADO.imagenOriginal);
-                else if (typeof window.updateContextualMenu === 'function') {
-                    window.updateContextualMenu(ESTADO.imagenOriginal);
-                }
+                if (typeof window.selectItem === 'function') window.selectItem(r);
+                else if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(r);
             } catch (_) {}
         }
         informar('listo', 1, 1, 'Recorte deshecho');
