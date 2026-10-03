@@ -1049,8 +1049,9 @@
             // sin la marca `quitarFondoIA`), y el boton "Editar Fondo" se
             // apagaba despues de quitar el fondo. Es el mismo mecanismo que
             // usa el resto de la app: el wrapper declara su publicOwner.
+            let wrapper = null;
             try {
-                const wrapper = nueva.parent;
+                wrapper = nueva.parent;
                 if (wrapper && wrapper.data && wrapper.data.mockupContainment) {
                     wrapper.data.publicOwner = nueva;
                     wrapper.data.publicOwnerId = nueva.id;
@@ -1083,14 +1084,26 @@
             // mover BORDE funcionaba por debajo pero no se veia nada cambiar, y
             // el panel no ofrecia herramientas porque la especie del original ya
             // no era la que se estaba editando.
-            try {
-                paper.project.deselectAll();
-                nueva.selected = true;
-                if (typeof window.selectItem === 'function') window.selectItem(nueva);
-                else if (typeof window.updateContextualMenu === 'function') {
-                    window.updateContextualMenu(nueva);
-                }
-            } catch (_) {}
+            // La seleccion la arma la APP, no este archivo.
+                //
+                // MEDIDO: si ademas se marca `nueva.selected = true` aqui,
+                // quedan DOS cajas de seleccion: la del grupo de contencion
+                // (198x99, el producto entero) y la del recorte (49x37). Con
+                // dos cajas el arrastre no sabe cual mover y el cliente reporto
+                // que no se puede arrastrar la imagen sin fondo.
+                //
+                // El diseno de la app es que un contenido dentro de un
+                // mockup se selecciona por su GRUPO: una sola caja, la del
+                // producto, y arrastrar mueve el recorte con el. Ademas la app
+                // vuelve a seleccionar el grupo en su propio sincronizador, asi
+                // que desmarcarlo desde aqui no servia de nada (medido).
+                try {
+                    paper.project.deselectAll();
+                    if (typeof window.selectItem === 'function') window.selectItem(nueva);
+                    else if (typeof window.updateContextualMenu === 'function') {
+                        window.updateContextualMenu(nueva);
+                    }
+                } catch (_) {}
 
             informar('listo', 1, 1, 'Fondo eliminado');
             if (typeof window.saveHistory === 'function') {
@@ -1784,14 +1797,28 @@
     }
 
     /**
-     * Capa translucida que muestra lo que ya quedo fuera.
+     * La capa roja de "lo que se quito" SE ELIMINA. Estaba inventada aqui.
      *
-     * Es lo que pidio el cliente para poder ser preciso: sin ver QUE quito la
-     * automatica no hay forma de saber que restaurar.
+     * El cliente pidio "ver de forma transparente lo que se quito de fondo", y
+     * lo que quiso decir es que el recorte se ve TRANSPARENTE de verdad, no
+     * que hay que pintarlo de rojo. El recorte ya es transparente: superponer
+     * un velo encima solo tapa el dibujo.
+     *
+     * MEDIDO: la capa cubria la caja de seleccion ENTERA de rosa y el cliente
+     * la veto explicitamente. Ademas es falso: teñia de rojo tambien el pelo y
+     * los bordes suaves, que no estan quitados. FotoRoom no tiene ninguna capa
+     * de este tipo.
+     *
+     * Se conserva la funcion, apagada, para no romper las llamadas, pero ya no
+     * dibuja nada. Lo que se ve al editar el recorte es el recorte con su
+     * transparencia real.
      */
     function dibujarCapaQuitado() {
         const lienzo = document.getElementById('capa-quitado');
         if (!lienzo) return;
+        lienzo.style.display = 'none';
+        return;
+        /* eslint-disable no-unreachable */
         const r = imagenEnRetoque() || ESTADO.imagenProcesada;
         const ec = document.getElementById('editorCanvas');
         const m = paper && paper.view ? paper.view.matrix : null;
