@@ -1015,50 +1015,30 @@
             // reporto como "la imagen queda por fuera de la contencion del
             // mockup".
             //
-            // No alcanza con llamar a ensureContainedDesignItem al final: si el
-            // item no esta ya dentro de un grupo, esa funcion lo envuelve en uno
-            // NUEVO y lo manda a designLayer por debajo del mockup, con lo que
-            // el recorte se separa del resto del diseno. Primero se coloca
-            // junto al original y despues se verifica la contencion.
-            let padreOk = false;
-            try {
-                const padre = raster.parent;
-                if (padre && padre.insertChild) {
-                    padre.insertChild(raster.index + 1, nueva);
-                    padreOk = true;
-                }
-            } catch (e) {
-                ESTADO.ultimoError = e;
-            }
-            if (!padreOk) {
-                // El original no estaba en ningun grupo: se usa la ruta
-                // canonica del resto de la app, que crea la contencion si hace
-                // falta y es un no-op cuando no hay mockup.
-                try {
-                    if (typeof window.ensureContainedDesignItem === 'function') {
-                        window.ensureContainedDesignItem(nueva);
-                    }
-                } catch (e) { ESTADO.ultimoError = e; }
-            }
-
-            // El grupo de contencion sigue publicando al ORIGINAL como dueño.
-            // Eso hay que corregirlo, porque el recorte es ahora la pieza
-            // publica y el original queda solo como copia oculta del "deshacer".
+            // SE REVIERTE LA CONTENCION DEL MOCKUP. Se habia metido el recorte
+            // dentro del grupo `clipGroup` del producto y trajo TRES regresiones
+            // seguidas, todas medidas en el navegador:
             //
-            // MEDIDO: sin esto, `getPublicOwner` resolvia al original (oculto,
-            // sin la marca `quitarFondoIA`), y el boton "Editar Fondo" se
-            // apagaba despues de quitar el fondo. Es el mismo mecanismo que
-            // usa el resto de la app: el wrapper declara su publicOwner.
-            let wrapper = null;
+            //   1. La `position` del recorte se iba a NaN (con `insert:false`),
+            //      y sin posicion no hay recorte visible ni arrastre.
+            //   2. Aparecia una SEGUNDA caja de seleccion. En Paper.js la
+            //      unidad de seleccion dentro de un mockup es el grupo, no el
+            //      contenido: `_getSelectableItem` (selection.js:281) devuelve
+            //      el wrapper. Con el recorte dentro, el grupo queda seleccionado
+            //      Y el recorte tambien, y el arrastre no sabe cual mover. El
+            //      cliente lo reporto como "no se puede arrastrar la imagen sin
+            //      fondo", dos veces.
+            //   3. "Editar Fondo" se apagaba despues de quitar el fondo, porque
+            //      el grupo seguia publicando al original oculto como dueno.
+            //
+            // El recorte va DIRECTO a la capa de diseno, como estaba antes de
+            // tocar nada. Es una pieza publica normal: se selecciona con una
+            // sola caja y se arrastra arrastrando.
             try {
-                wrapper = nueva.parent;
-                if (wrapper && wrapper.data && wrapper.data.mockupContainment) {
-                    wrapper.data.publicOwner = nueva;
-                    wrapper.data.publicOwnerId = nueva.id;
-                    wrapper.data.transformOwnerId = nueva.id;
-                    wrapper.data.label = nueva.name || wrapper.data.label;
-                    nueva.data = { ...(nueva.data || {}), publicOwner: true, ownerId: nueva.id };
-                }
+                const capa = paper.project.layers?.find(l => l.name === 'designLayer')
+                    || paper.project.activeLayer;
+                if (capa && capa.addChild) capa.addChild(nueva);
+                else if (nueva.parent === null) paper.project.activeLayer.addChild(nueva);
             } catch (e) { ESTADO.ultimoError = e; }
 
             // Red de seguridad: la posicion nunca debe quedar en NaN. Sin
@@ -1087,16 +1067,9 @@
             // La seleccion la arma la APP, no este archivo.
                 //
                 // MEDIDO: si ademas se marca `nueva.selected = true` aqui,
-                // quedan DOS cajas de seleccion: la del grupo de contencion
-                // (198x99, el producto entero) y la del recorte (49x37). Con
-                // dos cajas el arrastre no sabe cual mover y el cliente reporto
-                // que no se puede arrastrar la imagen sin fondo.
-                //
-                // El diseno de la app es que un contenido dentro de un
-                // mockup se selecciona por su GRUPO: una sola caja, la del
-                // producto, y arrastrar mueve el recorte con el. Ademas la app
-                // vuelve a seleccionar el grupo en su propio sincronizador, asi
-                // que desmarcarlo desde aqui no servia de nada (medido).
+                // La seleccion la arma la APP, no este archivo.
+                // Con el recorte directo en la capa, `_getSelectableItem`
+                // devuelve el recorte mismo y queda UNA sola caja.
                 try {
                     paper.project.deselectAll();
                     if (typeof window.selectItem === 'function') window.selectItem(nueva);
