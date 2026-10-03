@@ -11,7 +11,7 @@ Saneado conforme a la Ley del Efecto Rebote para desactivar dobles bindings en e
 y unificar IDs interactivos en inglés Figma/Canva Style.
 ========================================================================= */
 
-import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts } from "./textToolbar.js";
+import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts, textFontSize, isTextOwner } from "./textToolbar.js";
 import { scaleImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector } from "./ungroupRoutes.js";
@@ -283,7 +283,11 @@ function getSelectedFontFamily() {
     if (!window.selectedItem) return "Arial";
     const target = window.selectedItem.data?.clipGroup ? getPublicOwner(window.selectedItem) : window.selectedItem;
     if (!target) return "Arial";
-    return target.fontFamily || "Arial";
+    /* Un grupo curvado o espaciado guarda la fuente en data.*: leer la
+       propiedad daba undefined y el desplegable caia en "Arial", que no era la
+       fuente que el cliente tinha elegido. */
+    if (isPointText(target)) return target.fontFamily || "Arial";
+    return target.data?.fontFamily || "Arial";
 }
 
 function renderFontList(fonts, container) {
@@ -320,12 +324,28 @@ function renderFontList(fonts, container) {
 
 function applyFontFamily(item, family) {
     const target = item.data?.clipGroup ? getPublicOwner(item) : item;
-    if (target && isPointText(target)) {
+    if (!target) return;
+
+    if (isPointText(target)) {
         target.fontFamily = family;
         try {
             const ready = document.fonts?.load?.(`16px "${family}"`);
             if (ready?.then) ready.then(() => paper.view.update()).catch(() => {});
         } catch (e) {}
+        paper.view.update();
+        return;
+    }
+
+    /* Texto curvado o espaciado: los glifos estan HORNEADOS como geometria,
+       asi que cambiar la propiedad no llega a la pantalla. Hay que reconstruir.
+
+       Antes esta rama no existia: applyFontFamily solo aceptaba PointText, asi
+       que cambiar la fuente de un texto curvado no hacia absolutamente nada
+       y el desplegable de fuentes seguia mostrando la fuente nueva mientras el
+       texto se quedaba con la vieja. */
+    if (target.data?.isCurvedGroup === true || target.data?.isSpacedGroup === true) {
+        target.data = { ...(target.data || {}), fontFamily: family };
+        window.rebuildEKKOTextOwner?.(target);
         paper.view.update();
     }
 }
@@ -470,23 +490,34 @@ function dispatchTextCurve(options = {}) {
     const item = window.selectedItem || window.selectedItems?.[0];
     if (!item) return;
     const slider = document.querySelector('#ctxTextCurvature input[type=range]');
-    const radiusInput = document.getElementById('ctxCurveRadius') || document.getElementById('objCurveRadius');
-    const spacingInput = document.getElementById('ctxTextSpacing') || document.getElementById('objTextSpacing');
-    const radius = Number(options.radius ?? radiusInput?.value ?? item.data?.radius ?? 0) || 0;
-    const spacing = Number(options.hspace ?? spacingInput?.value ?? item.data?.hspace ?? 0) || 0;
+    /* La fuente de verdad de un campo numerico es el campo que el cliente esta
+       TOCANDO, no el que aparece primero en una busqueda por ID.
+
+       Antes se resolvia con `ctxCurveRadius || objCurveRadius`, y como el
+       primero existe SIEMPRE en el DOM (vive dentro de #ctxTextControls, que
+       solo esta oculto con .hidden), el `||` nunca llegaba al campo de la barra
+       superior. El listener de change si se registraba en los dos, asi que el
+       evento disparaba y el valor se leia del input equivocado: se escribia un
+       radio y la curvatura salia con el anterior.
+
+       Por eso el radio y el espaciado llegan como argumento desde el listener,
+       que si sabe que input se toco. Si la llamada viene de un boton (sin
+       argumento) se cae a data.*, que es el estado real del objeto. */
+    const radius = Number(options.radius ?? item.data?.radius ?? 0) || 0;
+    const hspace = Number(options.hspace ?? item.data?.hspace ?? 0) || 0;
     let curvature = Number(options.curvature ?? slider?.value ?? item.data?.curvature ?? 0) || 0;
-    if (radius > 0) curvature = Math.max(0.1, Math.min(100, 10000 / radius)) * (curvature < 0 ? -1 : 1);
-    Promise.resolve(applyTextCurve(item, curvature, { radius: radius || undefined, hspace: spacing })) .then(() => {
+    if (radius > 0) curvature = Math.max(0.1, Math.min(100, 10000 / Math.abs(radius))) * (curvature < 0 ? -1 : 1);
+    Promise.resolve(applyTextCurve(item, curvature, { radius: radius || undefined, hspace })) .then(() => {
         window.updateSelectionBox?.(window.selectedItem || item);
         window.updateContextualMenu?.(window.selectedItem || item);
         if (typeof paper !== "undefined") paper.view?.update?.();
     });
 }
-function dispatchTextSpacing() {
+function dispatchTextSpacing(value = undefined) {
     const item = window.selectedItem || window.selectedItems?.[0];
     if (!item) return;
-    const value = Number(document.getElementById('ctxTextSpacing')?.value ?? document.getElementById('objTextSpacing')?.value ?? item.data?.hspace ?? 0) || 0;
-    Promise.resolve(applyTextSpacing(item, value)).then(() => {
+    const hspace = Number(value ?? item.data?.hspace ?? 0) || 0;
+    Promise.resolve(applyTextSpacing(item, hspace)).then(() => {
         window.updateSelectionBox?.(window.selectedItem || item);
         window.updateContextualMenu?.(window.selectedItem || item);
     });
@@ -632,13 +663,21 @@ export function initContextualMenu() {
     setClick('btnTopTextCurve', dispatchTextCurve);
     setClick('btnCtxTextSpacing', dispatchTextSpacing);
     setClick('btnTopTextSpacing', dispatchTextSpacing);
+    /* Cada listener pasa el valor del input QUE EL CLIENTE TOCO. Antes ambos
+       inputs llamaban a un despachador sin argumentos, que volvia a leer el
+       campo oculto de la barra flotante: escribir en el campo de la barra
+       superior no cambiaba nada. */
     ['ctxCurveRadius', 'objCurveRadius'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener('change', () => dispatchTextCurve({ radius: el.value }));
+        if (!el || el.dataset.textCurveOwner) return;
+        el.dataset.textCurveOwner = '1';
+        el.addEventListener('change', () => dispatchTextCurve({ radius: el.value }));
     });
     ['ctxTextSpacing', 'objTextSpacing'].forEach(id => {
         const el = document.getElementById(id);
-        if (el) el.addEventListener('change', dispatchTextSpacing);
+        if (!el || el.dataset.textSpacingOwner) return;
+        el.dataset.textSpacingOwner = '1';
+        el.addEventListener('change', () => dispatchTextSpacing(el.value));
     });
 
     setClick('btnCtxScaleDown', () => {
@@ -735,6 +774,35 @@ function setTextCurveVisibility(visible) {
     });
 }
 
+/**
+ * Refresca data-ekko-texto, que es lo que decide si la barra superior muestra
+ * los campos de tamano, radio y espaciado.
+ *
+ * POR QUE HACE FALTA LLAMARLO DESDE ACA
+ * rotationController.syncSelection es quien escribe ese atributo, y solo lo
+ * hace cuando HAY seleccion: la rama de "nada seleccionado" es la que se
+ * ejecuta al commitear una seleccion, y _deselectItem de selection.js no pasa
+ * por ahi. Resultado: se deseleccionaba y el atributo se quedaba en "si", con
+ * los controles de texto a la vista encima de un vector o una imagen.
+ *
+ * Se usa el predicado canonico de textToolbar, no una copia: que la negrita, la
+ * fuente y estos campos pregunten lo mismo es justamente lo que mantiene la
+ * barra coherente.
+ */
+function refreshTextControlsVisibility() {
+    const raw = window.selectedItem ||
+        (Array.isArray(window.selectedItems) && window.selectedItems.length
+            ? window.selectedItems[window.selectedItems.length - 1]
+            : null);
+    if (!raw) {
+        document.getElementById("topBar")?.setAttribute("data-ekko-texto", "no");
+        return;
+    }
+    const target = raw.data?.clipGroup ? getPublicOwner(raw) : raw;
+    const isText = isTextOwner(target);
+    document.getElementById("topBar")?.setAttribute("data-ekko-texto", isText ? "si" : "no");
+}
+
 function isCurveTextTarget(target) {
     if (!target || target.data?.mockup || target.data?.isMask || target.data?.isFusion ||
         target.data?.fusionId || target.data?.clipGroup || isRaster(target)) return false;
@@ -744,6 +812,8 @@ function isCurveTextTarget(target) {
 export function updateContextualMenu(item) {
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
+
+    refreshTextControlsVisibility();
 
     if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
         setTextCurveVisibility(false);
@@ -808,7 +878,11 @@ export function updateContextualMenu(item) {
             setTextCurveVisibility(true);
             const fontTrigger = document.querySelector('.selected-font-trigger span');
             if (fontTrigger) fontTrigger.textContent = getSelectedFontFamily();
-            window.EKKO_ROTATION_CONTROLLER?.syncFontSizeInputs?.(target.fontSize || 42);
+            /* textFontSize lee el cuerpo desde donde ESTE owner lo guarde. Con un
+               grupo curvado, target.fontSize era undefined y el campoMostraba
+               siempre 42. */
+            const size = textFontSize(target);
+            if (size) window.EKKO_ROTATION_CONTROLLER?.syncFontSizeInputs?.(size);
         } else if (isRaster(target)) {
             const imgCtrl = document.getElementById('ctxImageControls');
             if (imgCtrl) imgCtrl.classList.remove('hidden');
@@ -867,6 +941,9 @@ export function updateContextualMenu(item) {
 }
 
 export function hideContextualMenu() {
+    /* Sin seleccion no hay texto: los controles de texto de la barra superior
+       tienen que irse con ella. Ver refreshTextControlsVisibility. */
+    refreshTextControlsVisibility();
     const toolbar = document.getElementById("contextual-toolbar");
     if (toolbar) {
         toolbar.classList.remove('active');
