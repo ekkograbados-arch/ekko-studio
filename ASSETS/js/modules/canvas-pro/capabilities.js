@@ -373,7 +373,15 @@ export const TOOLS = {
   // para el cliente. CONTORNO ES EL BORDE, y es una sola cosa. De donde sale
   // ese borde (silueta o caja) lo decide la app sola mirando la imagen, asi
   // que acá no hay una entrada aparte: solo `outline`.
-  removeBg:      { label: "Quitar Fondo",  active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
+  // "Quitar Fondo" se apaga en cuanto la imagen ya no tiene fondo:Offering
+    // otra vez no haria nada, y lo que tiene sentido ahi es
+    // "Editar Fondo". MEDIDO: con la imagen ya recortada seguian los dos
+    // botones a la vez, que es lo que el cliente reporto como incoherente.
+    removeBg: {
+        label: "Quitar Fondo",
+        active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER)
+            && !s.list.every(e => e.owner?.data?.quitarFondoIA === true)
+    },
   traceImage:    { label: "Trazar Imagen", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
 
   // --- Editar Fondo: el pincel de retoque (borrar / restaurar).
