@@ -1430,3 +1430,45 @@ body.ekko-modo-retoque #contextual-toolbar { display: none !important; }
     border-radius: 50%;
     background: currentColor;
 }
+
+/* ============================================================================
+   EKKO-STUDIO-INTEGRATED-2026-10-03: text-controls-visibility-v1
+
+   QUE ARREGLA
+   rotationController.js escribe el atributo `data-ekko-texto` en #topBar
+   ("si" / "no") cada vez que cambia la seleccion, y su propio comentario dice
+   que "la hoja de estilos decide que se ve". NO habia ninguna regla. grep de
+   `data-ekko-texto` en todo el repositorio: una sola aparicion, la del JS.
+
+   Resultado: los campos "Tamano", "Radio", "Espacio" y el boton "Espaciado" de
+   la barra superior quedaban visibles SIEMPRE, incluso con una imagen o un
+   vector seleccionado. Es exactamente lo que se veia en la web desplegada.
+
+   POR QUE CSS Y NO JAVASCRIPT
+   El atributo ya lo pone quien sabe la verdad (el dueno de la seleccion). Lo
+   que faltaba era el que consume. Agregar la regla aqui deja cada cosa en su
+   sitio en vez de meter una segunda pasada de visibilidad en el puente de
+   comandos, que ya tiene bastante.
+
+   POR QUE :has() Y NO UN data-atributO EN EL HTML
+   Los campos viven dentro de <label class="toolbar-number-label">, asi que
+   ocultar solo el input dejaria la palabra "Tamano" colgando. :has() sube al
+   label y lo oculta entero, sin tocar index.html (que es un archivo de una
+   sola linea muy densa y que ademas se esta tocando en paralelo por el trabajo
+   sobre Quitar Fondo). Soportado en todos los navegadores actuales desde 2023.
+
+   NOTA DE ESPECIFICIDAD
+   Estas reglas van con !important para igualar al resto de los controles por
+   data-fusion-btn. NO chocan con `body.ekko-modo-retoque #topBar` (el modo
+   pincel de Quitar Fondo): esas ocultan el PADRE y estas apuntan a los HIJOS,
+   asi que cuando el padre esta oculto los hijos no se ven igual.
+   ========================================================================== */
+
+/* Sin texto seleccionado: se ocultan los controles que solo el texto usa.
+   Ancho, Alto, Rotacion y el bloqueo de proporcion NO se tocan: son de todos. */
+#topBar[data-ekko-texto="no"] .size-control-group > *:has(#objFontSize),
+#topBar[data-ekko-texto="no"] .size-control-group > *:has(#objCurveRadius),
+#topBar[data-ekko-texto="no"] .size-control-group > *:has(#objTextSpacing),
+#topBar[data-ekko-texto="no"] #btnTopTextSpacing {
+    display: none !important;
+}
