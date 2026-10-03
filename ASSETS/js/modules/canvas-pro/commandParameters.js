@@ -75,6 +75,57 @@ export const PARAM_SPECS = Object.freeze({
     },
 
     /* ------------------------------------------------------------------
+       EDITAR RECORTE = lo que abre el boton "Editar Fondo".
+
+       Este bloque faltaba, y por eso la barra emergente no mostraba nada
+       al abrirla desde ese boton: el panel se busca por el nombre del
+       comando y, sin entrada, se abria vacio. El cliente lo reporto como
+       "la barra emergente no funciona".
+
+       La barra NO duplica los controles del panel: solo ofrece lo que son
+       acciones y no valores. Duplicar los dos lleva a que se desincronicen.
+       ------------------------------------------------------------------ */
+    editCutout: {
+        etiqueta: "Editar Recorte",
+        // Sin `parametros`: todo lo de esta pantalla son acciones, no valores.
+        // El interruptor de "ver lo quitado" va como accion y no como
+        // parametro porque el motor de la barra solo sabe pintar rangos y
+        // segmentos; un "toggle" aca se renderizaba como un range vacio.
+        // El control de verdad, con su estado, es el del panel.
+        acciones: [
+            {
+                id: "verQuitado", etiqueta: "Ver lo quitado",
+                ejecutar: () => {
+                    const api = window.EKKO?.BackgroundRemover;
+                    if (!api) return false;
+                    const e = api.estadoRetoque?.();
+                    return api.verLoQuitado(!(e && e.verQuitado));
+                }
+            },
+            {
+                id: "asistido", etiqueta: "Asistido",
+                ejecutar: () => window.EKKO?.BackgroundRemover?.modoAsistido()
+            },
+            {
+                id: "manual", etiqueta: "Manual",
+                ejecutar: () => window.EKKO?.BackgroundRemover?.modoManual()
+            },
+            {
+                id: "borrar", etiqueta: "Borrar",
+                ejecutar: () => window.EKKO?.BackgroundRemover?.elegirPincel('borrar')
+            },
+            {
+                id: "restaurar", etiqueta: "Restaurar",
+                ejecutar: () => window.EKKO?.BackgroundRemover?.elegirPincel('restaurar')
+            },
+            {
+                id: "deshacer", etiqueta: "Volver al resultado de la IA",
+                ejecutar: () => window.EKKO?.BackgroundRemover?.deshacerRetoque()
+            }
+        ]
+    },
+
+    /* ------------------------------------------------------------------
        CONTORNO = una linea sobre el BORDE EXTERIOR de la pieza, y nada de
        lo de adentro. Un clic y ya esta aplicada; este panel es solo para
        ajustarla despues. Trazar es OTRA herramienta y no comparte nada con
