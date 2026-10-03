@@ -13,6 +13,168 @@ import { textToCompoundPath, getBuiltinFontCatalog } from "./fontToPath.js";
 import { stampDesignItem } from "./fusionCore.js";
 import { buildContourRelations, applyContourRecord } from "./holeSemantics.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { notice } from "./ekkoNotice.js";
+
+/* =========================================================================
+   ESTADO DE TEXTO: TRES REPRESENTACIONES, UN SOLO DESPACH
+   ---------------------------------------------------------------------------
+   Un texto de EKKO vive en una de tres formas, y cada una guarda sus
+   atributos en un sitio distinto:
+
+     PointText          -> propiedad directa (fontSize, fontFamily, ...)
+     grupo curvado      -> data.textString + data.fontSize + data.curvature
+     grupo espaciado    -> data.textString + data.fontSize + data.hspace
+
+   Antes cada funcion de formato (negrita, cursiva, fuente, tamano,
+   espaciado) resolvia sola cual era el caso, y todas resolvian "PointText" o
+   buscaban hijos PointText. El grupo curvado tiene hijos COMPOUNDPATH porque
+   sus glifos van horneados, y el grupo espaciado tiene PointText sueltos: por
+   eso la negrita no aplicaba al texto curvado, cambiar la fuente no hacia
+   nada, y al curvar un texto espaciado se curvaba una unica letra.
+
+   Los helpers de esta seccion son el UNICO lugar que sabe como se
+   reconstruye cada representacion. rotationController (tamano) y
+   contextualMenu (fuente) los usan por la via publica para no duplicar el
+   despacho.
+
+   Nota de contencion: nada de esto toca isFusionReceptor. Un texto ya
+   vectorizado es otra especie (data.isTextVector) y no pasa por aqui, asi que
+   la fusion de una imagen dentro de una letra sigue intacta.
+   ========================================================================= */
+
+/** Resuelve el owner de TEXTO de una seleccion, sea cual sea su forma. */
+function resolveTextTarget(item) {
+    const owner = getPublicOwner(item) || item;
+    if (!owner || owner.data?.locked) return null;
+    if (isTextOwner(owner)) return owner;
+    return findTextTarget(owner);
+}
+
+/**
+ * Predicado canonico: "este owner es texto".
+ *
+ * Vive aca porque textToolbar es el modulo de texto, y lo consumen el
+ * resolutor, rotationController (por window, para no abrir un ciclo de imports
+ * con fusionController) y contextualMenu. Que los tres pregunten lo mismo es lo
+ * que evita que la negrita aparezca para un vector o que los campos de tamano
+ * se activen con una imagen.
+ */
+export function isTextOwner(item) {
+    if (!item) return false;
+    const data = item.data || {};
+    if (data.isText === true || data.isCurvedGroup === true || data.isSpacedGroup === true) return true;
+    return item.className === "PointText";
+}
+
+function isGroupedText(owner) {
+    return !!(owner && (owner.data?.isCurvedGroup === true || owner.data?.isSpacedGroup === true));
+}
+
+/** Cuerpo del texto en unidades de lienzo, venga de donde venga. */
+export function textFontSize(owner) {
+    if (!owner) return null;
+    if (owner.className === "PointText" && Number(owner.fontSize) > 0) return Number(owner.fontSize);
+    const size = Number(owner.data?.fontSize);
+    return Number.isFinite(size) && size > 0 ? size : null;
+}
+
+/**
+ * Escribe un atributo de fuente en CUALQUIER representacion de texto.
+ *
+ * Un PointText lo guarda en la propiedad y se redibuja solo. Un grupo curvado
+ * o espaciado lo guarda en data.* y ademas tiene que RECONSTRUIRSE, porque sus
+ * glifos ya son geometria horneada: cambiar la propiedad sola no llega a la
+ * pantalla.
+ */
+function setFontAttribute(owner, key, value) {
+    if (!owner) return;
+    if (!isGroupedText(owner)) {
+        owner[key] = value;
+        paper.view.update();
+        return;
+    }
+    owner.data = { ...(owner.data || {}), [key]: value };
+    window.rebuildEKKOTextOwner?.(owner);
+    paper.view.update();
+}
+
+/**
+ * Reconstruye un owner de texto en la misma forma que tenia.
+ *
+ * Es el unico camino de reconstruccion: lo usan la negrita, la cursiva, el
+ * tamano de fuente, el espaciado y la curvatura, para que no se desincronicen.
+ *
+ * @param {paper.Item} owner  grupo curvado o espaciado
+ * @param {Object}   [patch]  { curvature, radius, hspace } para forzar valores
+ * @returns {paper.Item|null} el owner plano, o la promesa del reconstruido
+ */
+export function rebuildEKKOTextOwner(owner, patch = {}) {
+    if (!owner) return null;
+    if (!isGroupedText(owner)) return owner;
+
+    const data = owner.data || {};
+    const curvature = patch.curvature !== undefined
+        ? Number(patch.curvature) || 0
+        : Number(data.curvature) || 0;
+    const hspace = patch.hspace !== undefined
+        ? Number(patch.hspace) || 0
+        : Number(data.hspace) || 0;
+    const radius = patch.radius !== undefined
+        ? Number(patch.radius) || 0
+        : Number(data.radius) || 0;
+
+    // restoreFlatText lee data.textString y deja un PointText limpio en el
+    // MISMO indice del mismo padre, asi que el objeto no se mueve de lugar.
+    const flat = restoreFlatText(owner, owner);
+    if (!flat) return null;
+    flat.visible = true;
+
+    // applyTextCurve y applyTextSpacing solo saben publicar el owner nuevo si la
+    // seleccion apunta al objeto que van a reemplazar. Por eso se les entrega
+    // la seleccion antes de llamarlos, en vez de rehacer su logica aqui.
+    handOffSelection(owner, flat);
+
+    if (Math.abs(curvature) >= 0.1) {
+        const promesa = applyTextCurve(flat, curvature, {
+            skipHistory: true,
+            radius: radius || undefined,
+            hspace
+        });
+        return (promesa && typeof promesa.then === "function")
+            ? promesa.catch(() => null)
+            : null;
+    }
+    if (hspace) {
+        const promesa = applyTextSpacing(flat, hspace);
+        return (promesa && typeof promesa.then === "function")
+            ? promesa.catch(() => null)
+            : null;
+    }
+    window.updateSelectionBox?.(flat);
+    return flat;
+}
+
+/**
+ * Entrega la seleccion al texto plano para que la reconstruccion pueda
+ * publicarla.
+ *
+ * Solo se toca cuando la seleccion era el propio owner agrupado, que es el
+ * unico caso que queda colgando: si era el wrapper de contencion, ese wrapper
+ * no se mueve y hay que dejar la seleccion exactamente como estaba.
+ */
+function handOffSelection(owner, flat) {
+    if (!owner || window.selectedItem !== owner) return;
+    if (typeof window.selectItem === "function") window.selectItem(flat);
+}
+
+if (typeof window !== "undefined") {
+    // Superficie publica: rotationController y contextualMenu reconstruyen y
+    // consulta desde aca en vez de importar este modulo, para no abrir un ciclo
+    // de imports con fusionController.
+    window.rebuildEKKOTextOwner = rebuildEKKOTextOwner;
+    window.EKKO_TEXT_IS_OWNER = isTextOwner;
+    window.EKKO_TEXT_FONT_SIZE = textFontSize;
+}
 
 let loadedFontsCache = [];
 
@@ -161,6 +323,24 @@ export async function applyTextCurve(item, curvature, options = {}) {
         item.data.fillColor = fillColor;
         item.data.fontWeight = fontWeight;
         item.data.fontStyle = fontStyle;
+    } else if (item.data?.isSpacedGroup) {
+        /* Un grupo con espaciado YA tiene el string guardado en
+           data.textString, asi que la curva se aplica al TEXTO COMPLETO y no a
+           uno de sus hijos.
+
+           Antes se tomaba el primer PointText encontrado con find(), de modo
+           que al curvar un texto con espaciado (cuyos hijos son PointText
+           sueltos, uno por letra) se curvaba UNICAMENTE la primera letra y el
+           resto quedaba recto. Reconstruir desde el string es la unica forma
+           de que la curva aplique al conjunto. */
+        rebuildEKKOTextOwner(item, {
+            curvature: numericCurvature,
+            radius: Number(options.radius) || undefined,
+            hspace: options.hspace !== undefined ? Number(options.hspace) : undefined
+        });
+        window.updateSelectionBox?.(window.selectedItem);
+        paper.view.update();
+        return;
     } else {
         const textChild = item.children.map(getPublicOwner).filter(Boolean).find(c => c instanceof paper.PointText || c.data?.isCurvedGroup);
         if (textChild) {
@@ -246,7 +426,20 @@ export async function applyTextCurve(item, curvature, options = {}) {
     targetItem.remove();
 
     if (window.selectedItem === targetItem) {
-        window.commitSelection?.(curvedGroup, window.selectedItems);
+        /* La lista se pasa EXPLICITA, no como window.selectedItems.
+
+           commitSelectionContext(items, primary) resuelve el primario DENTRO de
+           la lista: si el primario no esta en ella, se queda con el ultimo
+           elemento de la lista. Al pasar window.selectedItems, que en este
+           punto todavia es [targetItem] —el objeto que recien se elimino de la
+           escena—, el primario caia en el texto viejo y la seleccion quedaba
+           colgando de un owner que ya no existia: la caja se quedaba pegada a
+           un punto fantasma y todo comando posterior (negrita, fuente, tamano)
+           caia sobre un objeto invisible.
+
+           weldText, mas abajo en este mismo archivo, ya lo hacia bien con
+           commitSelection(resultPath, [resultPath]). Esta era la excepcion. */
+        window.commitSelection?.(curvedGroup, [curvedGroup]);
         window.updateSelectionBox(curvedGroup);
     }
     paper.view.update();
@@ -268,6 +461,18 @@ export function restoreFlatText(item, curvedGroup) {
     delete flatText.data.isTextVector;
     delete flatText.data.curvature;
     delete flatText.data.radius;
+    /* Un texto plano no es un grupo: ni curvado ni espaciado. Antes solo se
+       limpiaba isCurvedGroup, asi que al aplanar un texto con espaciado el
+       PointText nuevo conservaba isSpacedGroup, y al volver a curvarlo el
+       grupo resultante llevaba las dos marcas a la vez. applyTextCurve y
+       applyTextSpacing decide por la primera que encuentran, asi que el
+       resultado era correcto por casualidad y no por diseno. */
+    delete flatText.data.isSpacedGroup;
+    /* El subrayado es una linea aparte que cuelga del grupo. Si el owner que
+       se aplana venia de ahi, el PointText plano se encontraria con una marca
+       de subrayado sin la linea que la respalda. rebuildEKKOTextOwner rechaza
+       esa combinacion antes de llegar aca; esto es la red de seguridad. */
+    delete flatText.data.isUnderlinedGroup;
 
     const parent = curvedGroup.parent;
     if (parent) {
@@ -309,18 +514,30 @@ export function drawBlueCurveHandle(group) {
 }
 
 export function applyTextSpacing(item, hspace) {
-    if (!item || item.data?.locked) return;
+    const owner = resolveTextTarget(item);
+    if (!owner) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
-    let target = item;
-    if (item.data?.clipGroup) {
-        target = getPublicOwner(item);
+    /* Un owner agrupado (curvado o espaciado) se reconstruye SIEMPRE desde el
+       string, nunca letra por letra. Antes cada caso hacia su propio camino: el
+       curvado re-curvaba en el sitio y el espaciado se aplanaba a mano, dos
+       rutas que podian discordar. rebuildEKKOTextOwner conserva la curvatura
+       que ya tuviera, asi que cambiar el espaciado de un texto curvado lo
+       mantiene curvado. */
+    if (isGroupedText(owner)) {
+        rebuildEKKOTextOwner(owner, { hspace });
+        paper.view.update();
+        return;
+    }
+    if (!(owner instanceof paper.PointText)) {
+        paper.view.update();
+        return;
     }
 
-    if (target instanceof paper.PointText) {
+    const target = owner;
+    {
         target.data = target.data || {};
-        target.data.hspace = hspace;
-        const content = target.content;
+        target.data.hspace = hspace;        const content = target.content;
         const fontSize = target.fontSize;
         const fontFamily = target.fontFamily;
         const fillColor = target.fillColor;
@@ -365,16 +582,13 @@ export function applyTextSpacing(item, hspace) {
         }
         target.remove();
 
-        if (window.selectedItem === item) {
-            window.commitSelection?.(spacedGroup, window.selectedItems);
+        if (window.selectedItem === item || window.selectedItem === target) {
+            /* Ver la nota de applyTextCurve: la lista va explicita. Pasar
+               window.selectedItems dejaba la seleccion apuntando al PointText
+               recien eliminado. */
+            window.commitSelection?.(spacedGroup, [spacedGroup]);
             window.updateSelectionBox(spacedGroup);
         }
-    } else if (target.data?.isCurvedGroup) {
-        target.data.hspace = hspace;
-        applyTextCurve(target, target.data.curvature);
-    } else if (target.data?.isSpacedGroup) {
-        const flat = restoreFlatText(item, target);
-        applyTextSpacing(flat, hspace);
     }
     paper.view.update();
 }
@@ -670,70 +884,44 @@ export async function convertTextToVector(item = null) {
 }
 
 export function toggleBold(item) {
-    if (!item || item.data?.locked) return;
+    const owner = resolveTextTarget(item);
+    if (!owner) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-
-    let target = item;
-    if (item.data?.clipGroup) {
-        target = getPublicOwner(item);
-    }
-
-    const toggleBoldState = (txtItem) => {
-        const currentWeight = txtItem.fontWeight || "normal";
-        txtItem.fontWeight = currentWeight === "bold" ? "normal" : "bold";
-    };
-
-    if (target instanceof paper.PointText) {
-        toggleBoldState(target);
-    } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-        const currentWeight = target.data.fontWeight || "normal";
-        const newWeight = currentWeight === "bold" ? "normal" : "bold";
-        target.data.fontWeight = newWeight;
-        target.children.forEach(child => {
-            if (child instanceof paper.PointText) {
-                child.fontWeight = newWeight;
-            }
-        });
-    }
-    paper.view.update();
+    const current = (owner.className === "PointText" ? owner.fontWeight : owner.data?.fontWeight) || "normal";
+    setFontAttribute(owner, "fontWeight", current === "bold" ? "normal" : "bold");
 }
 
 export function toggleItalic(item) {
-    if (!item || item.data?.locked) return;
+    const owner = resolveTextTarget(item);
+    if (!owner) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
-
-    let target = item;
-    if (item.data?.clipGroup) {
-        target = getPublicOwner(item);
-    }
-
-    const toggleItalicState = (txtItem) => {
-        const currentStyle = txtItem.fontStyle || "normal";
-        txtItem.fontStyle = currentStyle === "italic" ? "normal" : "italic";
-    };
-
-    if (target instanceof paper.PointText) {
-        toggleItalicState(target);
-    } else if (target.data?.isCurvedGroup || target.data?.isSpacedGroup) {
-        const currentStyle = target.data.fontStyle || "normal";
-        const newStyle = currentStyle === "italic" ? "normal" : "italic";
-        target.data.fontStyle = newStyle;
-        target.children.forEach(child => {
-            if (child instanceof paper.PointText) {
-                child.fontStyle = newStyle;
-            }
-        });
-    }
-    paper.view.update();
+    const current = (owner.className === "PointText" ? owner.fontStyle : owner.data?.fontStyle) || "normal";
+    setFontAttribute(owner, "fontStyle", current === "italic" ? "normal" : "italic");
 }
 
 export function toggleUnderline(item) {
-    if (!item || item.data?.locked) return;
+    /* Un grupo YA subrayado se quita antes de resolver el texto de adentro.
+       Si se buscara primero el PointText hijo, el comando volveria a subrayar
+       POR DENTRO en vez de sacar el subrayado de afuera, y cada pulsacion
+       anidaba un grupo nuevo. El orden importa: primero se pregunta si ya esta
+       subrayado, despues se resuelve el texto. */
+    const owner = getPublicOwner(item) || item;
+    if (!owner || owner.data?.locked) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
 
-    let target = item;
-    if (item.data?.clipGroup) {
-        target = getPublicOwner(item);
+    const target = (owner instanceof paper.Group && owner.data?.isUnderlinedGroup)
+        ? owner
+        : resolveTextTarget(owner);
+    if (!target) return;
+
+    /* Subrayar un owner agrupado (curvado o espaciado) obligaria a recalcular
+       la linea cada vez que cambiaran la fuente, el cuerpo o el espaciado, y el
+       grupo quedaria a medias: una linea vieja apuntando a una geometria que ya
+       no existe. Se avisa en vez de construir eso. Es el unico caso que
+       rebuildEKKOTextOwner no sabe deshacer. */
+    if (isGroupedText(target)) {
+        notice("El subrayado no se aplica a texto curvado ni espaciado.", { kind: "warn" });
+        return;
     }
 
     if (target instanceof paper.Group && target.data?.isUnderlinedGroup) {
@@ -745,21 +933,37 @@ export function toggleUnderline(item) {
             parent.insertChild(index, originalText);
             line.remove();
             target.remove();
-            if (window.selectedItem === item) {
-                window.commitSelection?.(originalText, window.selectedItems);
+            if (window.selectedItem === item || window.selectedItem === target) {
+                window.commitSelection?.(originalText, [originalText]);
                 window.updateSelectionBox(originalText);
             }
         }
     } else {
+        /* La linea del subrayado es GEOMETRIA, no un trazo.
+
+           Antes era un Path.Line con strokeWidth 2 / paper.view.zoom. Eso hacia
+           dos cosas malas a la vez: el grosor cambiaba cada vez que el cliente
+           hacia zoom, de modo que el SVG grabado no era determinista; y en el
+           laser un trazo es una linea de corte, no un subrayado grabado. El
+           grosor ademas era FIJO en 2 unidades, asi que un texto de 12 y otro
+           de 200 salian con el mismo rayado.
+
+           Ahora es un rectangulo relleno, con grosor y separacion
+           proporcionales al cuerpo. Su Y se apoya en bounds.bottom, que en
+           Paper.js ya incluye las colas de g j p q y, asi que la linea queda
+           debajo del texto mas bajo: que es lo que se espera de un subrayado. */
         const bounds = target.bounds;
-        const y = bounds.bottom + 2;
-        const underlineLine = new paper.Path.Line({
-            from: new paper.Point(bounds.left, y),
-            to: new paper.Point(bounds.right, y),
-            strokeColor: target.fillColor || target.strokeColor || new paper.Color(0),
-            strokeWidth: 2 / paper.view.zoom
+        const size = textFontSize(target) || 42;
+        const grosor = Math.max(0.4, size * 0.055);
+        const separacion = size * 0.12;
+        const top = bounds.bottom + separacion * 0.25;
+        const underlineLine = new paper.Path.Rectangle({
+            rectangle: new paper.Rectangle(bounds.left, top, bounds.width, grosor),
+            fillColor: target.fillColor || target.strokeColor || new paper.Color(0),
+            strokeColor: null,
+            strokeWidth: 0
         });
-        underlineLine.data = { isUnderlineLine: true };
+        underlineLine.data = { isUnderlineLine: true, isUnderlineGeometry: true };
 
         const group = new paper.Group();
         group.data = { ...target.data, isUnderlinedGroup: true };
@@ -771,8 +975,8 @@ export function toggleUnderline(item) {
         group.addChild(target);
         group.addChild(underlineLine);
 
-        if (window.selectedItem === item) {
-            window.commitSelection?.(group, window.selectedItems);
+        if (window.selectedItem === item || window.selectedItem === target) {
+            window.commitSelection?.(group, [group]);
             window.updateSelectionBox(group);
         }
     }
