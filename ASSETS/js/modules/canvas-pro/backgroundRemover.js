@@ -30,6 +30,14 @@
             try { console.info('[EKKO RECORTE]', mensaje); } catch (_) {}
             return false;
         }
+        // El mismo aviso no se repite en cadena. MEDIDO: en modo Asistido, con
+        // "Borrar" activo y el cursor sobre el fondo, el cliente recibia cuatro
+        // avisos iguales apilados y eso tapa el lienzo. Uno alcanza: el motivo
+        // ya quedo dicho.
+        const ahora = Date.now();
+        if (avisar._ultimo === mensaje && (ahora - avisar._cuando) < 2500) return false;
+        avisar._ultimo = mensaje;
+        avisar._cuando = ahora;
         try { fn(mensaje, opciones || {}); return true; }
         catch (_) { return false; }
     }
@@ -960,7 +968,16 @@
 
             // El Raster nuevo se crea desde la URL, no desde un canvas, para
             // que Paper no intente hornear la imagen.
+            //
+            // Se deja que Paper lo inserte en la capa activa. Con
+            // `{ insert: false }` el item nace SIN proyecto y su `position` sale
+            // en NaN de origen, y no se deja ni reasignar a mano (medido): sin
+            // posicion no hay recorte visible, ni pincel, ni exportacion. La
+            // contencion del mockup se resuelve DESPUES, moviendo el item ya
+            // transformado al grupo del original: al moverlo, la posicion se
+            // conserva (medido).
             const nueva = new paper.Raster(lienzo.toDataURL('image/png'));
+            nueva.applyMatrix = false;
             nueva.data = { ...(raster.data || {}), quitarFondoIA: true, source: raster.data?.source || 'user-image' };
 
             // Esperar a que la imagen exista ANTES de aplicar la transformacion.
@@ -975,25 +992,86 @@
                 setTimeout(fin, 8000);
             });
 
+            nueva.opacity = opaOriginal;
+            nueva.name = (nomOriginal || 'Imagen') + ' sin fondo';
+
+            // La transformacion se aplica UNA sola vez, propiedad por propiedad,
+            // y ANTES de mover el item al grupo de contencion.
+            //
+            // Primero: aplicar `matrix = raster.matrix.clone()` y despues
+            // `position` hacia que el desplazamiento y la escala entraran dos
+            // veces (medido: escala 5,05 contra 0,20 de la foto), y por eso el
+            // pincel apuntaba a coordenadas negativas y no pintaba nada.
             try {
-                // La transformacion se aplica UNA sola vez, propiedad por
-                // propiedad. Antes se hacia `matrix = raster.matrix.clone()` y
-                // despues `position = posOriginal`: el desplazamiento entraba
-                // dos veces y la escala tambien, porque el Raster nuevo nace a
-                // escala 1 con su propia matriz y clonar la del original la
-                // multiplicaba encima.
-                //
-                // Medido: el recorte quedaba con escala 5.05 contra 0.20 de la
-                // foto (5 veces mas grande y corrido), y por eso el pincel
-                // apuntaba a coordenadas negativas y no pintaba nada.
-                nueva.applyMatrix = false;
                 nueva.scaling = escOriginal.clone();
                 nueva.rotation = rotOriginal;
                 nueva.position = posOriginal.clone();
-            } catch (_) {}
+            } catch (e) { ESTADO.ultimoError = e; }
 
-            nueva.opacity = opaOriginal;
-            nueva.name = (nomOriginal || 'Imagen') + ' sin fondo';
+            // --- CONTENCION DEL MOCKUP ---
+            //
+            // El recorte tiene que quedar dentro del MISMO grupo que el
+            // original. Si no, se dibuja fuera del producto: el cliente lo
+            // reporto como "la imagen queda por fuera de la contencion del
+            // mockup".
+            //
+            // No alcanza con llamar a ensureContainedDesignItem al final: si el
+            // item no esta ya dentro de un grupo, esa funcion lo envuelve en uno
+            // NUEVO y lo manda a designLayer por debajo del mockup, con lo que
+            // el recorte se separa del resto del diseno. Primero se coloca
+            // junto al original y despues se verifica la contencion.
+            let padreOk = false;
+            try {
+                const padre = raster.parent;
+                if (padre && padre.insertChild) {
+                    padre.insertChild(raster.index + 1, nueva);
+                    padreOk = true;
+                }
+            } catch (e) {
+                ESTADO.ultimoError = e;
+            }
+            if (!padreOk) {
+                // El original no estaba en ningun grupo: se usa la ruta
+                // canonica del resto de la app, que crea la contencion si hace
+                // falta y es un no-op cuando no hay mockup.
+                try {
+                    if (typeof window.ensureContainedDesignItem === 'function') {
+                        window.ensureContainedDesignItem(nueva);
+                    }
+                } catch (e) { ESTADO.ultimoError = e; }
+            }
+
+            // El grupo de contencion sigue publicando al ORIGINAL como dueño.
+            // Eso hay que corregirlo, porque el recorte es ahora la pieza
+            // publica y el original queda solo como copia oculta del "deshacer".
+            //
+            // MEDIDO: sin esto, `getPublicOwner` resolvia al original (oculto,
+            // sin la marca `quitarFondoIA`), y el boton "Editar Fondo" se
+            // apagaba despues de quitar el fondo. Es el mismo mecanismo que
+            // usa el resto de la app: el wrapper declara su publicOwner.
+            try {
+                const wrapper = nueva.parent;
+                if (wrapper && wrapper.data && wrapper.data.mockupContainment) {
+                    wrapper.data.publicOwner = nueva;
+                    wrapper.data.publicOwnerId = nueva.id;
+                    wrapper.data.transformOwnerId = nueva.id;
+                    wrapper.data.label = nueva.name || wrapper.data.label;
+                    nueva.data = { ...(nueva.data || {}), publicOwner: true, ownerId: nueva.id };
+                }
+            } catch (e) { ESTADO.ultimoError = e; }
+
+            // Red de seguridad: la posicion nunca debe quedar en NaN. Sin
+            // posicion no hay recorte visible, ni pincel, ni exportacion, y el
+            // cliente no ve nada mas que un producto vacio. MEDIDO: asi fue
+            // como se rompio al meter el recorte dentro de la contencion.
+            try {
+                if (!Number.isFinite(nueva.position.x) || !Number.isFinite(nueva.position.y)) {
+                    const seguro = raster.position;
+                    if (Number.isFinite(seguro.x) && Number.isFinite(seguro.y)) {
+                        nueva.position = seguro.clone();
+                    }
+                }
+            } catch (e) { ESTADO.ultimoError = e; }
 
             // El original se oculta, no se borra: deshacer es un clic.
             raster.visible = false;
@@ -1352,12 +1430,26 @@
         const panel = document.getElementById('panel-editar-recorte');
         if (panel) panel.style.display = 'block';
         RETOQUE.activo = true;
-        // Se dibuja la capa si el cliente la habia dejado encendida antes de
-        // cerrar: abrir y ver un panel que dice "ver lo quitado" apagado con la
-        // capa puesta (o al reves) es la clase de incoherencia que hace que
-        // "no funcione".
+
+        // La transparencia de lo quitado se ENCIENDE SOLA al entrar a editar.
+        //
+        // Se habia implementado como un interruptor que el cliente tenia que
+        // encontrar y activar, y eso no era lo pedido: lo que quiere ver es
+        // QUE quito la automatica, sin tener que pedirlo. El interruptor se
+        // queda para poder apagarla (a veces estorba al pintar), pero nace
+        // encendida.
+        RETOQUE.verQuitado = true;
         const vq = document.getElementById('ver-quitado');
-        if (vq) vq.checked = RETOQUE.verQuitado;
+        if (vq) vq.checked = true;
+
+        // La tira de parametros y el panel son dos formas de la misma tarea.
+        // Dejarlas las dos en pantalla era la incoherencia que reporto el
+        // cliente: se veian duplicados los mismos botones y ademas la tira
+        // tapaba el artwork. Al abrir el panel, la tira se cierra.
+        try {
+            if (typeof window.EKKO_PARAMETROS?.cerrar === 'function') window.EKKO_PARAMETROS.cerrar();
+        } catch (_) {}
+
         marcarPincelActivo();
         dibujarCapaQuitado();
         return true;
@@ -1470,18 +1562,27 @@
     function actualizarCursor(ev) {
         const cur = document.getElementById('cursor-pincel');
         if (!cur) return;
-        const usar = RETOQUE.activo && RETOQUE.manual;
-        if (!usar) { cur.style.display = 'none'; return; }
+        // Se muestra en LOS DOS MODOS. Antes solo aparecia en Manual, asi que
+        // en Asistido el cliente no tenia ninguna referencia de que herramenta
+        // estaba activa ni de cuan fina seria la pasada: lo reporto como "el
+        // puntero aun no se colorea ni se muestra el tamano del pincel".
+        if (!RETOQUE.activo) { cur.style.display = 'none'; cur.dataset.visible = ''; return; }
         const esc = escalaMascaraAPantalla();
-        const d = Math.max(10, RETOQUE.radio * esc * 2);
+        const d = Math.max(12, RETOQUE.radio * esc * 2);
         cur.style.width = d + 'px';
         cur.style.height = d + 'px';
         cur.dataset.modo = RETOQUE.modo;
         if (ev) {
             cur.style.left = ev.clientX + 'px';
             cur.style.top = ev.clientY + 'px';
+            cur.style.display = 'block';
+            cur.dataset.visible = '1';
+            cur.dataset.tam = String(Math.round(RETOQUE.radio));
+            // En Asistido el radio es el alcance de la seleccion, no el ancho
+            // de un pincel. Decirlo evita que se piense que se va a pintar un
+            // circulo de ese tamaño.
+            cur.dataset.modoVisual = RETOQUE.manual ? 'pincel' : 'asistido';
         }
-        if (!cur.dataset.visible) { cur.dataset.visible = '1'; cur.style.display = 'block'; }
     }
 
     /**
@@ -1898,9 +1999,11 @@
 
         window.addEventListener('pointermove', (ev) => {
             if (!RETOQUE.activo || !sobreLienzo(ev)) return;
-            if (RETOQUE.manual) actualizarCursor(ev);
-            else actualizarCursor(null);
-            if (!pintando) return;
+            // El cursor se mueve en LOS DOS modos. Antes en Asistido se llamaba
+            // con null, sin el evento, y eso hacia que nunca recibiera posicion:
+            // el circulo quedaba oculto y el cliente se quedaba sin puntero de referencia.
+            actualizarCursor(ev);
+            if (!pintando || !RETOQUE.manual) return;
             ev.preventDefault();
             ev.stopPropagation();
             pintarEn(ev);
