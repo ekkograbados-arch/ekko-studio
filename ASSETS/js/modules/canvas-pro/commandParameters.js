@@ -75,55 +75,24 @@ export const PARAM_SPECS = Object.freeze({
     },
 
     /* ------------------------------------------------------------------
-       EDITAR RECORTE = lo que abre el boton "Editar Fondo".
+       EDITAR RECORTE: DELIBERADAMENTE SIN ENTRADA AQUI.
 
-       Este bloque faltaba, y por eso la barra emergente no mostraba nada
-       al abrirla desde ese boton: el panel se busca por el nombre del
-       comando y, sin entrada, se abria vacio. El cliente lo reporto como
-       "la barra emergente no funciona".
+       Antes hubo un bloque `editCutout` en este archivo y fue un error. La barra
+       de este modulo la dibuja el boton ▾, y al pulsar "Editar Fondo" se
+       abria UNA BARRA DE PARAMETROS con los mismos botones que ya tiene la
+       barra de edicion: dos "Editar Recorte" en pantalla a la vez, una arriba
+       y otra abajo, con los mismos comandos.
 
-       La barra NO duplica los controles del panel: solo ofrece lo que son
-       acciones y no valores. Duplicar los dos lleva a que se desincronicen.
+       MEDIDO en el navegador, con la app servida en local y pulsando el boton
+       de verdad: las dos barras visibles a la vez, la de parametros arriba y la
+       de edicion abajo. Eso es lo que el cliente venia reportando como
+       "no interactua como se esperaria".
+
+       Editar Recorte no tiene parametros: sus controles son herramientas, y
+       viven en la barra de edicion (#barra-editar-recorte), que reemplaza a la
+       barra contextual. Si falta la entrada, el boton ▾ no abre nada, que es
+       lo correcto: no hay ningun valor que ajustar.
        ------------------------------------------------------------------ */
-    editCutout: {
-        etiqueta: "Editar Recorte",
-        // Sin `parametros`: todo lo de esta pantalla son acciones, no valores.
-        // El interruptor de "ver lo quitado" va como accion y no como
-        // parametro porque el motor de la barra solo sabe pintar rangos y
-        // segmentos; un "toggle" aca se renderizaba como un range vacio.
-        // El control de verdad, con su estado, es el del panel.
-        acciones: [
-            {
-                id: "verQuitado", etiqueta: "Ver lo quitado",
-                ejecutar: () => {
-                    const api = window.EKKO?.BackgroundRemover;
-                    if (!api) return false;
-                    const e = api.estadoRetoque?.();
-                    return api.verLoQuitado(!(e && e.verQuitado));
-                }
-            },
-            {
-                id: "asistido", etiqueta: "Asistido",
-                ejecutar: () => window.EKKO?.BackgroundRemover?.modoAsistido()
-            },
-            {
-                id: "manual", etiqueta: "Manual",
-                ejecutar: () => window.EKKO?.BackgroundRemover?.modoManual()
-            },
-            {
-                id: "borrar", etiqueta: "Borrar",
-                ejecutar: () => window.EKKO?.BackgroundRemover?.elegirPincel('borrar')
-            },
-            {
-                id: "restaurar", etiqueta: "Restaurar",
-                ejecutar: () => window.EKKO?.BackgroundRemover?.elegirPincel('restaurar')
-            },
-            {
-                id: "deshacer", etiqueta: "Volver al resultado de la IA",
-                ejecutar: () => window.EKKO?.BackgroundRemover?.deshacerRetoque()
-            }
-        ]
-    },
 
     /* ------------------------------------------------------------------
        CONTORNO = una linea sobre el BORDE EXTERIOR de la pieza, y nada de
