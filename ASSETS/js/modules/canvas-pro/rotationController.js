@@ -4,6 +4,55 @@ import {
   transformPublicItem, resolvePublicTransformOwner
 } from "./fusionController.js";
 const normalize = value => ((Number(value) || 0) % 360 + 360) % 360;
+
+/* =========================================================================
+   TEXTO: DUENO UNICO DEL TAMANO DE FUENTE
+   ---------------------------------------------------------------------------
+   El tamano de fuente aparece en DOS superficies (la barra superior y la barra
+   flotante) y el texto vive en TRES representaciones (PointText, grupo curvado,
+   grupo espaciado). Antes esta seccion:
+
+     - escribia solo en ctxFontSize y no en objFontSize, asi que el campo de la
+       barra superior era un input MUERTO: no tenia ni un listener en todo el
+       repositorio (grep: una sola aparicion, la del HTML);
+     - reconocia texto unicamente con `className === "PointText"`, asi que con
+       texto curvado o espaciado no encontraba dueno, no escribia el valor, y el
+       campo se quedaba en 42.
+
+   Los helpers de abajo son la UNICA lectura de "hay texto aqui y de que
+   tamano". No importan textToolbar a proposito: textToolbar no depende de este
+   modulo, pero fusionController si, y un import cruzando los dos abriria un
+   ciclo. La reconstruccion del owner va por la superficie publica que
+   textToolbar publica en window.
+   ========================================================================= */
+const FONT_SIZE_IDS = ["ctxFontSize", "objFontSize"];
+
+/* El predicado canonico vive en textToolbar, que es el modulo de texto. Se
+   consulta por la superficie publica porque importar textToolbar desde aca
+   abriria un ciclo: textToolbar baja por fusionCore y fusionController, que es
+   justo lo que este modulo importa. La copia local de abajo solo se usa si el
+   modulo de texto todavia no se registro. */
+function isTextOwner(item) {
+  const canonico = window.EKKO_TEXT_IS_OWNER;
+  if (typeof canonico === "function") return !!canonico(item);
+  if (!item) return false;
+  const data = item.data || {};
+  if (data.isText || data.isCurvedGroup === true || data.isSpacedGroup === true) return true;
+  return item.className === "PointText";
+}
+
+/**
+ * Cuerpo del texto en unidades de lienzo, venga de la representacion que
+ * venga. Devuelve null cuando el owner no es texto, para que el llamador no
+ * tenga que distinguir "no hay texto" de "el texto mide cero".
+ */
+function readFontSize(owner) {
+  if (!isTextOwner(owner)) return null;
+  if (owner.className === "PointText" && Number(owner.fontSize) > 0) return Number(owner.fontSize);
+  const value = Number((owner.data || {}).fontSize);
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
 // Paper's globalMatrix is the transform actually rendered for the public owner.
 // data.rotation remains synchronized metadata, never the transform authority.
 function worldRotation(item) {
@@ -47,8 +96,11 @@ function updatePopup(value, event) {
 function hidePopup() { const p = popup(); if (p) { p.classList.remove("is-visible", "is-snap", "is-non-snap"); p.textContent = ""; } }
 function owner(entry) { return resolvePublicTransformOwner(entry); }
 function syncFontSizeInputs(value) {
-  const shown = String(Math.round(Math.max(5, Math.min(250, Number(value) || 42))));
-  ["ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
+  const size = Math.max(5, Math.min(250, Number(value) || 42));
+  const shown = String(Math.round(size));
+  /* Las DOS superficies. Antes solo ctxFontSize, y por eso el campo de la barra
+     superior no se actualizaba nunca al seleccionar otro texto. */
+  FONT_SIZE_IDS.forEach(id => { const input = document.getElementById(id); if (input) input.value = shown; });
 }
 export const rotationController = {
   startPointer(event, ctx = {}) {
@@ -95,7 +147,8 @@ export const rotationController = {
     const owners = selected().map(owner).filter(Boolean);
     if (!owners.length) {
       ["ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input) { input.value = ""; input.disabled = true; } });
-      ["ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+      FONT_SIZE_IDS.forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
+      document.getElementById("topBar")?.setAttribute("data-ekko-texto", "no");
       window.updateSelectionInfo?.();
       return;
     }
@@ -107,8 +160,14 @@ export const rotationController = {
       const input = document.getElementById(id);
       if (input) { input.value = shown; input.disabled = false; }
     });
-    const textOwner = owners.find(value => value.className === "PointText");
-    if (textOwner) syncFontSizeInputs(textOwner.fontSize);
+    /* Cualquier representacion de texto cuenta, no solo PointText. Con texto
+       curvado o espaciado el find anterior no encontraba nada, asi que el campo
+       de tamano quedaba con el valor viejo y el atributo de la barra superior
+       decia que no habia texto. */
+    const textOwner = owners.find(isTextOwner) || null;
+    const size = textOwner ? readFontSize(textOwner) : null;
+    if (size) syncFontSizeInputs(size);
+    else FONT_SIZE_IDS.forEach(id => { const input = document.getElementById(id); if (input) input.value = ""; });
     // La barra superior reserva espacio para tamano de fuente, radio de
     // curvatura y espaciado. Eso solo le sirve al cliente cuando hay TEXTO
     // seleccionado; con otra cosa esas cajas quedan vacias y empujan las
@@ -151,14 +210,37 @@ export const rotationController = {
   },
   applyFontSize(value) {
     const size = Math.max(5, Math.min(250, Number(value) || 42));
-    const targets = selected().map(owner).filter(item => item?.className === "PointText"); if (!targets.length) return;
-    window.beginHistoryTransaction?.("text-size"); targets.forEach(item => { item.fontSize = size; item.data = { ...(item.data || {}), fontSize: size }; });
-    window.commitHistoryTransaction?.("text-size"); syncFontSizeInputs(size); window.paper?.view?.update?.(); notifyTransformObservers({ type: "text-size", size });
+    /* Las TRES representaciones, no solo PointText. Antes el filtro
+       `item?.className === "PointText"` descartaba los grupos curvos y
+       espaciados, con lo cual el campo de tamano no tenia efecto sobre ellos. */
+    const targets = selected().map(owner).filter(isTextOwner);
+    if (!targets.length) return;
+    window.beginHistoryTransaction?.("text-size");
+    targets.forEach(item => {
+      /* Se escribe en la propiedad Y en data.*. El PointText lee la propiedad;
+         los grupos curvan y espaciado reconstruyen desde data.fontSize. */
+      if (item.className === "PointText") item.fontSize = size;
+      item.data = { ...(item.data || {}), fontSize: size };
+    });
+    window.commitHistoryTransaction?.("text-size");
+    /* Un owner agrupado tiene los glifos HORNEADOS: cambiar data.fontSize sola
+       no llega a la pantalla. Hay que reconstruirlo, y el dueno de esa
+       reconstruccion es textToolbar (window.rebuildEKKOTextOwner). El PointText
+       se redibuja solo, asi que se deja fuera. */
+    targets.forEach(item => {
+      if (item.className === "PointText") return;
+      window.rebuildEKKOTextOwner?.(item);
+    });
+    syncFontSizeInputs(size);
+    window.paper?.view?.update?.();
+    notifyTransformObservers({ type: "text-size", size });
   }
 };
 function bind() {
   ["ctxRotation"].forEach(id => { const input = document.getElementById(id); if (input && !input.dataset.rotationOwner) { input.dataset.rotationOwner = "1"; input.addEventListener("change", () => rotationController.applyManual(input.value)); } });
-  ["ctxFontSize"].forEach(id => { const input = document.getElementById(id); if (input && !input.dataset.fontSizeOwner) { input.dataset.fontSizeOwner = "1"; input.addEventListener("change", () => rotationController.applyFontSize(input.value)); } });
+  /* objFontSize entra en la lista. No tenia listener en NINGUN punto del
+     repositorio: el campo "Tamano" de la barra superior era un input muerto. */
+  FONT_SIZE_IDS.forEach(id => { const input = document.getElementById(id); if (input && !input.dataset.fontSizeOwner) { input.dataset.fontSizeOwner = "1"; input.addEventListener("change", () => rotationController.applyFontSize(input.value)); } });
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bind, { once: true }); else bind();
 window.EKKO_ROTATION_CONTROLLER = rotationController;
