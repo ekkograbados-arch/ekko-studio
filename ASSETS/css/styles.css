@@ -1303,180 +1303,104 @@ body,
 }
 
 /* =========================================================================
-   EKKO STUDIO — EDITAR RECORTE (Quitar Fondo > Editar Fondo)
-   Estructura calcada de "Edit Cutout" de PhotoRoom: como elegir la zona
-   (Asistido/Manual), que hacer (Borrar/Restaurar), tamaño del pincel, ver lo
-   que ya se quito, y cerrar.
+   EKKO STUDIO - EDITAR RECORTE (Quitar Fondo > Editar Fondo)
 
-   Todo con prefijo `ekko-recorte` a proposito: no reutiliza `.ekko-seg` de las
-   pestanas porque esas son de otro tema, y compartirlas haria que un cambio en
-   las pestanas rompiera este panel (o al reves).
+   Reemplaza la barra contextual: misma banda, misma posicion, mismo aspecto.
+   Antes era un panel flotante pegado al lienzo por la derecha, que tapaba la
+   foto mientras la barra contextual seguia abierta con los mismos botones.
+
+   Estructura de "Edit Cutout" de PhotoRoom: como elegir la zona
+   (Asistido/Manual), que hacer (Borrar/Restaurar), tamano del pincel,
+   ver lo que se quito, y cerrar (Deshacer/Listo).
    ========================================================================= */
 
-.ekko-recorte {
-    position: fixed;
-    top: 60px;
-    right: 20px;
-    width: 268px;
-    padding: 14px;
-    /* Por encima de la barra contextual (--ekko-floating-z: 10100).
-       MEDIDO: con z-index 100 el panel quedaba DEBAJO de la barra y esta se
-       comia los clics: Playwright reportaba "subtree intercepts pointer
-       events" sobre los botones. Para el cliente era lo mismo: el panel se
-       veia pero no respondia a nada, que es exactamente la sensacion de
-       "los pinceles no se ven / no funciona". */
-    z-index: 10200;
-    border: 1px solid rgba(255, 255, 255, .12);
-    border-radius: 12px;
-    background: #1e242c;
-    color: #e8edf2;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
-    font: 400 13px/1.45 system-ui, "Segoe UI", sans-serif;
-}
-
-.ekko-recorte__cab {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding-bottom: 10px;
-    margin-bottom: 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, .10);
-}
-.ekko-recorte__titulo { font-size: 14px; font-weight: 700; letter-spacing: .2px; }
-.ekko-recorte__cerrar {
-    appearance: none;
-    width: 26px; height: 26px;
-    border: none;
-    border-radius: 6px;
-    background: transparent;
-    color: #93a1ad;
-    font-size: 13px;
-    cursor: pointer;
-}
-.ekko-recorte__cerrar:hover { background: rgba(255, 255, 255, .08); color: #fff; }
-
-.ekko-recorte__grupo { margin-bottom: 14px; }
-.ekko-recorte__et {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: .06em;
-    text-transform: uppercase;
-    color: #8fa0ae;
-}
-.ekko-recorte__ayuda {
-    margin: 7px 0 0;
-    font-size: 11.5px;
-    line-height: 1.4;
-    color: #93a1ad;
-}
-.ekko-recorte__ayuda b { color: #dbe4ec; font-weight: 600; }
-
-/* Segmentado: el estado activo tiene que verse de una, porque la pregunta
-   real del cliente era "cual borro y cual restauro". */
-.ekko-recorte__seg {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 6px;
-}
-.ekko-recorte__segb {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 10px 6px;
-    border: 1.5px solid rgba(255, 255, 255, .14);
-    border-radius: 9px;
-    background: #262d36;
-    color: #b9c5d0;
-    font: 600 12.5px/1 system-ui, "Segoe UI", sans-serif;
-    cursor: pointer;
-    transition: background .12s ease, border-color .12s ease, color .12s ease;
-}
-.ekko-recorte__segb:hover { background: #2f3742; color: #fff; }
-.ekko-recorte__segb:focus-visible { outline: 2px solid #7aa7ff; outline-offset: 2px; }
-
-/* Punto de color de cada herramienta: el mismo rojo/verde que el cursor. */
-.ekko-recorte__pt {
-    width: 9px; height: 9px;
-    border-radius: 50%;
-    background: #6b7785;
-    flex: none;
-}
-.ekko-recorte__segb--borrar.is-activo,
-.ekko-recorte__segb--borrar[aria-pressed="true"] {
-    background: #4a1f22; border-color: #ef5350; color: #ffd9d7;
-}
-.ekko-recorte__segb--borrar.is-activo .ekko-recorte__pt { background: #ef5350; }
-.ekko-recorte__segb--restaurar.is-activo,
-.ekko-recorte__segb--restaurar[aria-pressed="true"] {
-    background: #16341f; border-color: #4caf7d; color: #d6f5e3;
-}
-.ekko-recorte__segb--restaurar.is-activo .ekko-recorte__pt { background: #4caf7d; }
-
-.ekko-recorte__segb.is-activo {
-    border-color: #7aa7ff;
-    background: #23303f;
-    color: #fff;
-}
-
-#grupo-tamano input[type="range"] { width: 100%; accent-color: #7aa7ff; cursor: pointer; }
-#valor-tamano-pincel { color: #fff; font-variant-numeric: tabular-nums; }
-
-/* Interruptor de "ver lo quitado" */
-.ekko-recorte__int {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 4px 0 14px;
-    padding: 9px 11px;
-    border: 1px solid rgba(255, 255, 255, .10);
-    border-radius: 9px;
-    background: #262d36;
-    font-size: 12.5px;
-    cursor: pointer;
-    user-select: none;
-}
-.ekko-recorte__int input { position: absolute; opacity: 0; pointer-events: none; }
-.ekko-recorte__pista {
-    position: relative;
-    width: 34px; height: 19px;
-    flex: none;
-    border-radius: 999px;
-    background: #3c4652;
-    transition: background .14s ease;
-}
-.ekko-recorte__bola {
+#barra-editar-recorte {
     position: absolute;
-    top: 2px; left: 2px;
-    width: 15px; height: 15px;
-    border-radius: 50%;
-    background: #cfd8e0;
-    transition: transform .14s ease;
+    left: 10px;
+    right: 0;
+    /* El `top` lo copia en runtime del de la barra contextual, que lo calcula
+       por JS. Hardcodearlo dejaba la barra en otro lado que las herramientas
+       que reemplaza. */
+    top: 12px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--ekko-hud-bg, #1e242c);
+    border: 1.5px solid var(--ekko-hud-border, rgba(255,255,255,.16));
+    box-shadow: var(--ekko-hud-shadow, 0 10px 26px rgba(38,52,61,.26));
+    border-radius: 10px;
+    z-index: var(--ekko-floating-z, 10100);
+    box-sizing: border-box;
+    font-size: 12px;
+    color: var(--ekko-text-main, #e8edf2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    flex-wrap: wrap;
 }
-.ekko-recorte__int input:checked + .ekko-recorte__pista { background: #7aa7ff; }
-.ekko-recorte__int input:checked + .ekko-recorte__pista .ekko-recorte__bola {
-    transform: translateX(15px);
-    background: #fff;
-}
-.ekko-recorte__int input:focus-visible + .ekko-recorte__pista { outline: 2px solid #7aa7ff; outline-offset: 2px; }
+#barra-editar-recorte.ekko-visible { display: flex !important; }
 
-.ekko-recorte__acc { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.ekko-recorte__btn {
-    padding: 10px;
-    border: 1px solid rgba(255, 255, 255, .14);
-    border-radius: 9px;
-    background: #262d36;
-    color: #dbe4ec;
-    font: 600 12.5px/1 system-ui, "Segoe UI", sans-serif;
+.ekko-br__titulo { font-weight: 700; font-size: 13px; letter-spacing: .2px; }
+.ekko-br__sep { width: 1px; height: 20px; background: rgba(255,255,255,.16); flex: none; }
+
+.ekko-br__seg { display: inline-flex; border-radius: 8px; overflow: hidden; }
+.ekko-br__b {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border: none;
+    border-left: 1.5px solid rgba(255,255,255,.14);
+    background: transparent;
+    color: var(--ekko-text-secondary, #b9c5d0);
+    font: 600 12px/1 system-ui, "Segoe UI", sans-serif;
     cursor: pointer;
+    white-space: nowrap;
+    transition: background .12s ease, color .12s ease;
 }
-.ekko-recorte__btn:hover { background: #2f3742; }
-.ekko-recorte__btn:focus-visible { outline: 2px solid #7aa7ff; outline-offset: 2px; }
-.ekko-recorte__btn--ok { background: #7aa7ff; border-color: #7aa7ff; color: #0d1420; }
-.ekko-recorte__btn--ok:hover { background: #96b9ff; }
+.ekko-br__seg .ekko-br__b:first-child { border-left: none; }
+.ekko-br__b:hover { background: rgba(255,255,255,.10); color: #fff; }
+.ekko-br__b:focus-visible { outline: 2px solid #7aa7ff; outline-offset: -2px; }
 
+/* El estado activo tiene que verse de una: la pregunta real del cliente era
+   "cual borro y cual restauro". Mismo color que el cursor sobre el lienzo. */
+.ekko-br__pt { width: 9px; height: 9px; border-radius: 50%; background: #6b7785; flex: none; }
+.ekko-br__b--borrar.is-activo { background: #4a1f22; color: #ffd9d7; }
+.ekko-br__b--borrar.is-activo .ekko-br__pt { background: #ef5350; }
+.ekko-br__b--restaurar.is-activo { background: #16341f; color: #d6f5e3; }
+.ekko-br__b--restaurar.is-activo .ekko-br__pt { background: #4caf7d; }
+.ekko-br__b.is-activo { background: #23303f; color: #fff; }
+.ekko-br__b--check.is-activo { background: #23303f; color: #fff; }
+
+.ekko-br__tam {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--ekko-text-secondary, #b9c5d0);
+    font-weight: 600;
+}
+.ekko-br__tam[hidden] { display: none !important; }
+.ekko-br__tam input[type="range"] { width: 110px; accent-color: #7aa7ff; cursor: pointer; }
+.ekko-br__num { min-width: 20px; color: #fff; font-variant-numeric: tabular-nums; }
+
+.ekko-br__b--ok { background: #7aa7ff; color: #0d1420; }
+.ekko-br__b--ok:hover { background: #96b9ff; color: #0d1420; }
+
+/* VISTA DE EDICION: la foto a pantalla completa y solo las herramientas. El
+   cliente lo pidio asi; antes seguia viendose el resto del producto y los
+   paneles, que para retocar el pelo sobran y estorban.
+
+   Se ocultan TODAS las superficies de panel declaradas por la app
+   (`[data-panel-surface]`), no solo #topBar y #leftSidebar. MEDIDO: la barra
+   de Alineacion/Centros/Distribucion (`#pro-layout-toolbar`,
+   data-panel-surface="top") se montaba ENCIMA de la barra de editar y se
+   comia los clics: el boton "Listo" no se podia pulsar. Con el selector
+   generico no vuelve a pasar con ningun panel nuevo. */
+body.ekko-modo-retoque [data-panel-surface],
+body.ekko-modo-retoque #leftSidebar,
+body.ekko-modo-retoque #topBar,
+body.ekko-modo-retoque .panel-recovery-dock { display: none !important; }
+body.ekko-modo-retoque #contextual-toolbar { display: none !important; }
 /* Cursor del pincel sobre el lienzo.
    El color dice la herramienta (rojo = Borrar, verde = Restaurar), igual que
    los botones del panel. Con el contorno solido se marca el ancho real del
