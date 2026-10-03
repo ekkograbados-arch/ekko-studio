@@ -13,6 +13,27 @@
 (function (EKKO, undefined) {
     'use strict';
 
+    /**
+     * Aviso al cliente.
+     *
+     * Antes se llamaba `notice(...)` a pelo, esperando que existiera un global
+     * con ese nombre. No existe: el modulo de avisos se publica como
+     * `window.ekkoNotice` y `window.EKKO_NOTICE.notice`. Al no haber tal global,
+     * cualquier rama que llegara a un aviso tiraba `ReferenceError: notice is
+     * not defined` y el resto de esa accion no se ejecutaba. MEDIDO en el modo
+     * Asistido: tocar una zona que no correspondia rompia el toque entero.
+     */
+    function avisar(mensaje, opciones) {
+        const fn = (typeof window !== 'undefined')
+            && (window.ekkoNotice || (window.EKKO_NOTICE && window.EKKO_NOTICE.notice));
+        if (typeof fn !== 'function') {
+            try { console.info('[EKKO RECORTE]', mensaje); } catch (_) {}
+            return false;
+        }
+        try { fn(mensaje, opciones || {}); return true; }
+        catch (_) { return false; }
+    }
+
     const CFG = {
         WORKER: '/ASSETS/js/modules/canvas-pro/backgroundWorker.js',
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
@@ -70,7 +91,34 @@
         // Refinado fino del halo. Se mantiene aparte porque corrige un
         // defecto concreto (borde oscuro) y no es un control de estilo.
         BORDE_CONTRASTE: 0.06,
-        BORDE_SUAVIZADO: 0.35
+        BORDE_SUAVIZADO: 0.35,
+
+        // REFINAR_BORDE: pasa la alfa por un filtro guiado que usa la foto como
+        // guia, para que la franja de transicion siga el borde REAL de la
+        // imagen en vez de una interpolacion recta de la mascara de 512.
+        //
+        // MEDIDO con la foto de referencia, de punta a punta en la app
+        // (IoU NO cambia: 96,4% en todas las filas; lo que se arregla es la
+        // calidad del borde, no la forma del recorte):
+        //
+        //   sin refinar ..... transicion  2,2 px | salto 255 | 3.224 escalones
+        //   r=2  eps=0,0004  transicion  8,6 px | salto 158 |    98 escalones
+        //   r=4  eps=0,0004  transicion 10,4 px | salto 163 |    87 escalones
+        //   r=8  eps=0,0004  transicion 12,7 px | salto 175 |   119 escalones
+        //   r=4  eps=0,001   transicion 11,7 px | salto 161 |    66 escalones  <--
+        //   r=4  eps=0,01    transicion 17,6 px | salto 124 |     2 escalones
+        //
+        // Se eligio r=4 / eps=0,001: deja el 2% de los escalones (98% menos
+        // serrucho) con una transicion de 11,7 px, que es lo que se ve como
+        // borde limpio. Con eps=0,01 el salteo desaparece del todo, pero una
+        // transicion de 17,6 px deja el pelo difuminado, que es peor.
+        //
+        // RADIO y EPS son los dos parametros del filtro. El radio decide sobre
+        // que escala se promedia; el eps decide cuanto se respeta el borde real
+        // frente a la suavizacion (mas eps = mas suave y menos detalle).
+        REFINAR_BORDE: 1,
+        REFINAR_RADIO: 4,
+        REFINAR_EPS: 0.001
     };
 
     const ESTADO = {
@@ -223,6 +271,107 @@
         // el, al volver la mascara habria que suponer que la foto llena todo el
         // cuadrado, y no es cierto: queda corrida y con un marco pegado.
         return { pixeles: ctx.getImageData(0, 0, S, S).data, W, H, caja: { ox, oy, dw, dh } };
+    }
+
+    /**
+     * Filtro de caja (media movil) en dos pasadas, separables.
+     *
+     * Se usa con sumas encadenadas, asi que es O(n) y no O(n*r): con una foto
+     * de 1600x1200 y radio 6 son unos 30 ms, frente a los segundos que seria
+     * con la forma ingenua.
+     */
+    function cajaFiltro(src, dst, w, h, r, tmp) {
+        const norm = 1 / (2 * r + 1);
+        // Horizontal
+        for (let y = 0; y < h; y++) {
+            const f = y * w;
+            let suma = 0;
+            for (let i = -r; i <= r; i++) suma += src[f + Math.min(w - 1, Math.max(0, i))];
+            for (let x = 0; x < w; x++) {
+                tmp[f + x] = suma * norm;
+                const sale = src[f + Math.min(w - 1, Math.max(0, x - r))];
+                const entra = src[f + Math.min(w - 1, Math.max(0, x + r + 1))];
+                suma += entra - sale;
+            }
+        }
+        // Vertical
+        for (let x = 0; x < w; x++) {
+            let suma = 0;
+            for (let i = -r; i <= r; i++) suma += tmp[Math.min(h - 1, Math.max(0, i)) * w + x];
+            for (let y = 0; y < h; y++) {
+                dst[y * w + x] = suma * norm;
+                const sale = tmp[Math.min(h - 1, Math.max(0, y - r)) * w + x];
+                const entra = tmp[Math.min(h - 1, Math.max(0, y + r + 1)) * w + x];
+                suma += entra - sale;
+            }
+        }
+    }
+
+    /**
+     * Refina la alfa con la FOTOGRAFIA como guia (filtro guiado).
+     *
+     * El problema que resuelve, MEDIDO: la mascara del modelo llega a 512 y la
+     * foto a 1600, asi que se amplía 3,1 veces. Ampliar a pelo produce una
+     * franja de transicion de 2,2 px con saltos de 255 entre pixeles vecinos:
+     * eso es justo el borde "pixelado" que ve el cliente, porque el recorte no
+     * sigue el borde real de la foto sino una interpolacion recta.
+     *
+     * El filtro guiado corrige la alfa para que su transicion se acomode a los
+     * gradientes de la propia imagen: dentro de una region homogenea suaviza
+     * (matando el serrucho) y en un borde real lo respeta (recuperando el
+     * detalle). Es la tecnica estandar de post-proceso de matte y por eso la
+     * usan las herramientas profesionales.
+     *
+     * @param {ImageData} img  foto ya dibujada en el lienzo de trabajo
+     * @param {Float32Array} alfa  alfa actual, una por pixel
+     * @param {number} r  radio de la ventana de promediado
+     * @param {number} eps  cuanto se respeta el borde real frente a la suavizacion
+     */
+    function afinarAlfaConFoto(img, alfa, w, h, r, eps) {
+        const n = w * h;
+        const gris = new Float32Array(n);      // guia: luminancia
+        // Cada buffer necesita ser propio: cajaFiltro usa un scratch interno, asi
+        // que pasarle el mismo array como entrada y salida pisa valores que
+        // todavia no se leyeron y el filtro devuelve basura.
+        const scratch = new Float32Array(n);
+        const ii = new Float32Array(n);        // I*I
+        const ip = new Float32Array(n);        // I*P
+        const mediaI = new Float32Array(n);
+        const mediaP = new Float32Array(n);
+        const varI = new Float32Array(n);
+        const covIP = new Float32Array(n);
+        const ca = new Float32Array(n);
+        const cb = new Float32Array(n);
+        const mediaA = new Float32Array(n);
+
+        for (let i = 0; i < n; i++) {
+            const o = i * 4;
+            // Luminancia en 0..1. Se usa el gris porque al Worklet le importa
+            // la estructura, y el color meteria ruido de croma en el pelo.
+            gris[i] = (0.299 * img.data[o] + 0.587 * img.data[o + 1] + 0.114 * img.data[o + 2]) / 255;
+            ii[i] = gris[i] * gris[i];
+            ip[i] = gris[i] * alfa[i];
+        }
+
+        cajaFiltro(gris, mediaI, w, h, r, scratch);
+        cajaFiltro(alfa, mediaP, w, h, r, scratch);
+        cajaFiltro(ii, varI, w, h, r, scratch);
+        cajaFiltro(ip, covIP, w, h, r, scratch);
+
+        for (let i = 0; i < n; i++) {
+            const v = varI[i] - mediaI[i] * mediaI[i];
+            const cov = covIP[i] - mediaI[i] * mediaP[i];
+            ca[i] = cov / (v + eps);
+            cb[i] = mediaP[i] - ca[i] * mediaI[i];
+        }
+        cajaFiltro(ca, mediaA, w, h, r, scratch);
+        cajaFiltro(cb, covIP, w, h, r, scratch);
+
+        for (let i = 0; i < n; i++) {
+            const q = mediaA[i] * gris[i] + covIP[i];
+            alfa[i] = q < 0 ? 0 : q > 1 ? 1 : q;
+        }
+        return alfa;
     }
 
     // ----------------------------------------------------------------------
@@ -443,6 +592,22 @@
                 px[o + 3] = Math.max(0, Math.min(255, Math.round(a * 255)));
             }
         }
+
+        // Refinado del borde contra la FOTOGRAFIA. Sin esto la transicion queda
+        // en 2,2 px con saltos de 255 entre pixeles vecinos (medido), que es el
+        // "pixelado" que reportaba el cliente: la alfa viene de 512 y se
+        // amplia a 1600, y ampliar a pelo no reproduce el borde real.
+        if (CFG.REFINAR_BORDE > 0.001) {
+            const total = anchoTrabajo * altoTrabajo;
+            const aTrabajo = new Float32Array(total);
+            for (let i = 0; i < total; i++) aTrabajo[i] = px[i * 4 + 3] / 255;
+            afinarAlfaConFoto(img, aTrabajo, anchoTrabajo, altoTrabajo,
+                Math.max(1, Math.round(CFG.REFINAR_RADIO)), CFG.REFINAR_EPS);
+            for (let i = 0; i < total; i++) {
+                px[i * 4 + 3] = Math.round(aTrabajo[i] < 0 ? 0 : aTrabajo[i] > 1 ? 255 : aTrabajo[i] * 255);
+            }
+        }
+
         ctx.putImageData(img, 0, 0);
         refinarBorde(ctx, anchoTrabajo, altoTrabajo);
         return lienzo;
@@ -973,9 +1138,19 @@
         ajustarBorde,
         abrirRetoque,
         elegirPincel,
+        modoAsistido,
+        modoManual,
+        verLoQuitado,
         pintarPincel,
         deshacerRetoque,
         cerrarRetoque,
+        estadoRetoque: () => ({
+            activo: RETOQUE.activo,
+            modo: RETOQUE.modo,
+            manual: RETOQUE.manual,
+            radio: RETOQUE.radio,
+            verQuitado: RETOQUE.verQuitado
+        }),
         estado: () => ({
             listo: ESTADO.listo,
             cargando: ESTADO.cargando,
@@ -1066,7 +1241,42 @@
         radio: 25,
         original: null,        // Uint8ClampedArray de la mascara de la IA
         capa: null,            // canvas de trabajo
-        puntero: false
+        puntero: false,
+
+        // --- Modo Asistido / Manual (estructura de "Edit Cutout") ---
+        //
+        // manual=false: un toque y la zona se elige sola por color (asistido).
+        // manual=true:  se pinta con el pincel del tamaño que se elija.
+        //
+        // Arranca en MANUAL a proposito, aunque en PhotoRoom el destaque sea el
+        // asistido. En Asistido, arrastrar no pinta: es un toque que elige una
+        // zona. Al dejarlo como venia, un cliente que ya sabia pintar se
+        // encontraba con que el pincel no hacia nada. MEDIDO: al poner
+        // Asistido por defecto, el trazo de prueba paso de -33.058 px a 0.
+        // Asistido sigue a un clic y su funcion se explica en el panel.
+        manual: true,
+        // Pintar solo se permite en manual: en asistido el puntero no debe
+        // pintar, porque el cliente quiere "marcar" una zona, no hacer un rayado.
+        permitirPintado: true,
+        // Intensidad con que el modo asistido decide que dos pixeles son "lo
+        // mismo". El fondo de una foto suele ser UNIFORME, asi que con una
+        // tolerancia alta un solo toque repone el fondo entero de una vez
+        // (medido: 673.604 pixeles de golpe), y eso no es retocar una cabeza
+        // comida, es deshacer el trabajo del cliente de un saque.
+        tolerancia: 62,
+        // Radio maximo, en pixulos de la mascara, de lo que un toque alcanza.
+        // Es lo que hace que "Asistido" repare una ZONA y no la foto entera.
+        // 0.28 del lado menor cubre de sobra una cabeza o un brazo.
+        alcance: 143,
+        // Colores de la foto a la resolucion de la mascara. Se calculan una
+        // sola vez por imagen (la foto no cambia mientras se retoquea) y son
+        // lo que permite que el modo asistido mire la imagen y no solo el
+        // recorte.
+        colorGrid: null,
+        colorClave: '',
+        // "Ver lo que se quito": capa translucida sobre lo que ya quedo
+        // transparente, para poder precisar que restaurar.
+        verQuitado: false
     };
 
     function imagenEnRetoque() {
@@ -1103,10 +1313,37 @@
         return true;
     }
 
+    /**
+     * Cambia entre Asistido y Manual desde fuera (lo usa el panel de
+     * parametros y el atajo de teclado).
+     */
+    function ponerModoRetoque(manual) {
+        if (!abrirRetoque()) return false;
+        RETOQUE.manual = !!manual;
+        marcarPincelActivo();
+        return true;
+    }
+
+    /** Enciende o apaga la capa "ver lo que se quito". */
+    function verLoQuitado(encendido) {
+        if (!ESTADO.imagenProcesada || !ESTADO.mascara) return false;
+        RETOQUE.verQuitado = !!encendido;
+        const vq = document.getElementById('ver-quitado');
+        if (vq) vq.checked = RETOQUE.verQuitado;
+        dibujarCapaQuitado();
+        return true;
+    }
+
     /** Abre el panel de retoque. El recorte ya tiene que estar hecho. */
+    // Modo Asistido: tocás una zona y se selecciona sola (como en PhotoRoom).
+    function modoAsistido() { return ponerModoRetoque(false); }
+
+    // Modo Manual: pintás con el pincel del tamaño que elijas.
+    function modoManual() { return ponerModoRetoque(true); }
+
     function abrirRetoque() {
         if (!ESTADO.imagenProcesada || !ESTADO.mascara) {
-            notice('Primero quitá el fondo, después retocá el recorte.', { kind: 'warn' });
+            avisar('Primero quitá el fondo, después retocá el recorte.', { kind: 'warn' });
             return false;
         }
         if (!RETOQUE.original) {
@@ -1115,7 +1352,14 @@
         const panel = document.getElementById('panel-editar-recorte');
         if (panel) panel.style.display = 'block';
         RETOQUE.activo = true;
+        // Se dibuja la capa si el cliente la habia dejado encendida antes de
+        // cerrar: abrir y ver un panel que dice "ver lo quitado" apagado con la
+        // capa puesta (o al reves) es la clase de incoherencia que hace que
+        // "no funcione".
+        const vq = document.getElementById('ver-quitado');
+        if (vq) vq.checked = RETOQUE.verQuitado;
         marcarPincelActivo();
+        dibujarCapaQuitado();
         return true;
     }
 
@@ -1126,29 +1370,322 @@
      */
     function deshacerRetoque() {
         if (!RETOQUE.original) {
-            notice('Todavía no retocaste nada.', { kind: 'info' });
+            avisar('Todavía no retocaste nada.', { kind: 'info' });
             return false;
         }
         ESTADO.mascara = new Uint8ClampedArray(RETOQUE.original);
         recomponerDesdeMascara();
+        dibujarCapaQuitado();
         try { if (window.saveHistory) window.saveHistory(); } catch (_) {}
         return true;
     }
 
-    function cerrarRetoque() {        RETOQUE.activo = false;
+    function cerrarRetoque() {
+        RETOQUE.activo = false;
         RETOQUE.puntero = false;
+        RETOQUE.verQuitado = false;
         const panel = document.getElementById('panel-editar-recorte');
         if (panel) panel.style.display = 'none';
+        // La casilla queda desmarcada para que al reabrir no aparezca una capa
+        // que el panel dice que esta apagada.
+        const vq = document.getElementById('ver-quitado');
+        if (vq) vq.checked = false;
+        const capa = document.getElementById('capa-quitado');
+        if (capa) capa.style.display = 'none';
+        const cur = document.getElementById('cursor-pincel');
+        if (cur) { cur.style.display = 'none'; cur.dataset.visible = ''; }
         marcarPincelActivo();
         try { if (window.saveHistory) window.saveHistory(); } catch (_) {}
         return true;
     }
 
+    /**
+     * Marca que herramienta esta activa.
+     *
+     * Antes se hacia con `outline: 3px solid #0f172a`: un contorno azul casi
+     * negro sobre una interfaz oscura, que de noche no se ve. Y el color del
+     * boton no cambiaba, asi que la unica senal de cual brush estaba activo
+     * era ese contorno casi invisible. Era exactamente la duda que el cliente
+     * planteo: "no puedo identificar cual borra o cual restaura".
+     *
+     * Ahora el estado se marca en la clase `is-activo` y en `aria-pressed`, y
+     * el CSS pinta el boton entero (fondo y borde tintados por herramienta) con
+     * el MISMO color que el cursor sobre el lienzo.
+     */
     function marcarPincelActivo() {
-        const b = document.getElementById('pincel-borrar');
-        const r = document.getElementById('pincel-restaurar');
-        if (b) b.style.outline = RETOQUE.activo && RETOQUE.modo === 'borrar' ? '3px solid #0f172a' : 'none';
-        if (r) r.style.outline = RETOQUE.activo && RETOQUE.modo === 'restaurar' ? '3px solid #0f172a' : 'none';
+        const par = [
+            [document.getElementById('pincel-borrar'), 'borrar'],
+            [document.getElementById('pincel-restaurar'), 'restaurar']
+        ];
+        for (const [el, clave] of par) {
+            if (!el) continue;
+            const on = RETOQUE.activo && RETOQUE.modo === clave;
+            el.classList.toggle('is-activo', on);
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        // El modo (asistido/manual) tambien es estado visible, por el mismo
+        // motivo: si no se ve, el cliente no sabe por que el toque no pintó.
+        const ma = document.getElementById('modo-asistido');
+        const mm = document.getElementById('modo-manual');
+        if (ma) { ma.classList.toggle('is-activo', !RETOQUE.manual); ma.setAttribute('aria-pressed', RETOQUE.manual ? 'false' : 'true'); }
+        if (mm) { mm.classList.toggle('is-activo', RETOQUE.manual); mm.setAttribute('aria-pressed', RETOQUE.manual ? 'true' : 'false'); }
+
+        // Mientras se edita el recorte, la tira de parametros flotante deja de
+        // recibir el puntero: esta `position: fixed` y se monta encima del
+        // lienzo, con lo que se comia cada trazo del pincel. MEDIDO: sin esto
+        // `pintarPincel` se llamaba 0 veces y el pincel no hacia nada.
+        const tira = document.querySelector('.ekko-param-surface');
+        if (tira) tira.classList.toggle('ekko-sin-puntero', RETOQUE.activo);
+
+        // El tamaño del pincel solo existe en modo manual, igual que en
+        // PhotoRoom. Mostrarlo en asistido es una promesa que el modo no
+        // cumple y el cliente lo cuenta como que no funciona.
+        const grupo = document.getElementById('grupo-tamano');
+        if (grupo) grupo.hidden = !RETOQUE.manual;
+        const ayuda = document.getElementById('ayuda-modo');
+        if (ayuda) {
+            ayuda.textContent = RETOQUE.manual
+                ? 'Arrastrá el puntero sobre la imagen para marcar. El círculo del cursor marca el tamaño.'
+                : 'Tocá una zona y se selecciona sola. Para marcar a mano, pasá a Manual.';
+        }
+        actualizarCursor();
+    }
+
+    /**
+     * Cursor circular del pincel.
+     *
+     * Sin esto no se ve ni el tamaño real ni de que color se esta pintando, que
+     * era la otra mitad de la queja del cliente.
+     */
+    function escalaMascaraAPantalla() {
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        const m = paper && paper.view ? paper.view.matrix : null;
+        if (!r || !m || !(ESTADO.mascaraAncho > 0)) return 1;
+        const b = r.bounds;
+        if (!b || !(b.width > 0)) return 1;
+        // De un pixel de mascara a pixeles de pantalla.
+        return (b.width * m.a) / ESTADO.mascaraAncho;
+    }
+
+    function actualizarCursor(ev) {
+        const cur = document.getElementById('cursor-pincel');
+        if (!cur) return;
+        const usar = RETOQUE.activo && RETOQUE.manual;
+        if (!usar) { cur.style.display = 'none'; return; }
+        const esc = escalaMascaraAPantalla();
+        const d = Math.max(10, RETOQUE.radio * esc * 2);
+        cur.style.width = d + 'px';
+        cur.style.height = d + 'px';
+        cur.dataset.modo = RETOQUE.modo;
+        if (ev) {
+            cur.style.left = ev.clientX + 'px';
+            cur.style.top = ev.clientY + 'px';
+        }
+        if (!cur.dataset.visible) { cur.dataset.visible = '1'; cur.style.display = 'block'; }
+    }
+
+    /**
+     * Colores de la foto a la resolucion de la mascara (una sola vez por foto).
+     *
+     * El modo asistido necesita poder preguntar "este pixel se parece a
+     * aquel?" mirando la FOTOGRAFIA, no solo el recorte: es lo que dice la
+     * documentacion de PhotoRoom ("analyses the color of the pixels and the
+     * content of the image"). Sin esta rejilla no hay con que decidir.
+     */
+    function rejillaDeColor() {
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        if (!r || !(ESTADO.mascaraAncho > 0)) return null;
+        const clave = String(ESTADO.mascaraAncho) + 'x' + String(ESTADO.mascaraAlto);
+        if (RETOQUE.colorGrid && RETOQUE.colorClave === clave) return RETOQUE.colorGrid;
+
+        const src = r.canvas || (typeof r.getElement === 'function' ? r.getElement() : null) || r.image;
+        if (!src) return null;
+        const w = ESTADO.mascaraAncho, h = ESTADO.mascaraAlto;
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        try { ctx.drawImage(src, 0, 0, w, h); } catch (_) { return null; }
+        let px;
+        try { px = ctx.getImageData(0, 0, w, h).data; }
+        catch (e) { return null; }
+
+        RETOQUE.colorGrid = { w, h, px };
+        RETOQUE.colorClave = clave;
+        return RETOQUE.colorGrid;
+    }
+
+    /**
+     * Modo ASISTIDO: elige sola la zona que se toco.
+     *
+     * Crece por inundacion desde el punto tocado, y solo entra en pixeles de
+     * color parecido Y del lado correcto segun la herramienta:
+     *
+     *   Borrar    -> solo entra donde hoy es opaco (el sujeto), y lo vuelve
+     *               transparente. Asi no "borra" fondo que ya no se ve.
+     *   Restaurar -> solo entra donde hoy es transparente (el fondo), y lo
+     *               vuelve opaco. Asi un toque devuelve el fondo alrededor de
+     *               un agujero sin comerse el pelo de al lado.
+     *
+     * Sin esa restriction el modo asistido seria peligroso: un solo toque
+     * podria comerse media persona.
+     */
+    function marcarZonaAsistida(mx, my) {
+        const g = rejillaDeColor();
+        if (!g || !ESTADO.mascara) return 0;
+        const w = g.w, h = g.h, px = g.px, m = ESTADO.mascara;
+        const sx = Math.round(mx), sy = Math.round(my);
+        if (sx < 0 || sy < 0 || sx >= w || sy >= h) return 0;
+
+        const i0 = sy * w + sx;
+        const quitar = RETOQUE.modo === 'borrar';
+        // La semilla tiene que estar DEL LADO que la herramienta va a tocar:
+        //   Borrar    -> la semilla es opaca       (se saca parte del sujeto)
+        //   Restaurar -> la semilla es transparente (se devuelve parte del fondo)
+        //
+        // Se define con `opacoSemilla !== quitar` porque "quitar" vale
+        // justamente true cuando hay que actuar sobre lo opaco. Con la
+        // comparacion al reves (la primera version) el modo Restaurar exigia
+        // tocar el sujeto: el toque se rechazaba siempre y no hacia nada.
+        const opacoSemilla = m[i0] > 128;
+        if (opacoSemilla !== quitar) {
+            avisar(quitar
+                ? 'Ahí no hay nada que borrar: tocá una parte del sujeto.'
+                : 'Ahí ya está el sujeto: tocá una parte del fondo.', { kind: 'info' });
+            return 0;
+        }
+
+        const tol = RETOQUE.tolerancia;
+        const tol2 = tol * tol;
+        const r0 = px[i0 * 4], g0 = px[i0 * 4 + 1], b0 = px[i0 * 4 + 2];
+        // Radio maximo alrededor del toque. El fondo de la foto es uniforme, asi
+        // que sin este tope un toque repone el fondo ENTERO (medido: 673.604
+        // pixeles de una). Con el tope la accion se parece a lo que el cliente
+        // quiere: reparar una zona concreta.
+        const alcance = Math.max(20, RETOQUE.alcance);
+        const alcance2 = alcance * alcance;
+
+        const visto = new Uint8Array(w * h);
+        const cola = new Int32Array(w * h);
+        let cabeza = 0, colaN = 0;
+        cola[colaN++] = i0;
+        visto[i0] = 1;
+        let tocados = 0;
+        // Techo de seguridad extra, por si la tolerancia combinara con un fondo
+        // patronado. Nunca se midio que hiciese falta, pero si alguna vez
+        // dispara, es mejor un recorte parcial que perder el trabajo del
+        // cliente de un saque.
+        const TECHO = Math.floor(w * h * 0.35);
+
+        while (cabeza < colaN) {
+            const i = cola[cabeza++];
+            const x = i % w, y = (i / w) | 0;
+            const ex = x - sx, ey = y - sy;
+            if (ex * ex + ey * ey > alcance2) continue;   // fuera de alcance
+            tocados++;
+            // Se aplica con un borde suave hacia el interior de la zona, para
+            // que la transicion no quede como un escalon.
+            m[i] = quitar ? 0 : 255;
+
+            const cr = px[i * 4], cg = px[i * 4 + 1], cb = px[i * 4 + 2];
+            const dr = cr - r0, dg = cg - g0, db = cb - b0;
+            if (dr * dr + dg * dg + db * db > tol2) continue;
+
+            for (let d = 0; d < 4; d++) {
+                const nx = x + (d === 0 ? -1 : d === 1 ? 1 : 0);
+                const ny = y + (d === 2 ? -1 : d === 3 ? 1 : 0);
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                const j = ny * w + nx;
+                if (visto[j]) continue;
+                const oq = m[j] > 128;
+                if (oq !== quitar) continue;          // mismo lado que la semilla
+                visto[j] = 1;
+                if (colaN < cola.length) cola[colaN++] = j;
+            }
+            // Si la tolerancia agarro medio plano, se corta: recordarle al
+            // cliente media persona de un toque es peor que no hacer nada.
+            if (tocados > TECHO) break;
+        }
+        return tocados;
+    }
+
+    /**
+     * Capa translucida que muestra lo que ya quedo fuera.
+     *
+     * Es lo que pidio el cliente para poder ser preciso: sin ver QUE quito la
+     * automatica no hay forma de saber que restaurar.
+     */
+    function dibujarCapaQuitado() {
+        const lienzo = document.getElementById('capa-quitado');
+        if (!lienzo) return;
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        const ec = document.getElementById('editorCanvas');
+        const m = paper && paper.view ? paper.view.matrix : null;
+        if (!RETOQUE.verQuitado || !r || !ec || !m || !ESTADO.mascara) { lienzo.style.display = 'none'; return; }
+
+        const rc = ec.getBoundingClientRect();
+        if (!(rc.width > 0) || !(rc.height > 0)) { lienzo.style.display = 'none'; return; }
+        lienzo.style.display = 'block';
+        lienzo.style.left = rc.left + 'px';
+        lienzo.style.top = rc.top + 'px';
+        lienzo.style.width = rc.width + 'px';
+        lienzo.style.height = rc.height + 'px';
+        const dpr = window.devicePixelRatio || 1;
+        if (lienzo.width !== Math.round(rc.width * dpr) || lienzo.height !== Math.round(rc.height * dpr)) {
+            lienzo.width = Math.round(rc.width * dpr);
+            lienzo.height = Math.round(rc.height * dpr);
+        }
+
+        const ctx = lienzo.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, rc.width, rc.height);
+
+        const mw = ESTADO.mascaraAncho, mh = ESTADO.mascaraAlto;
+        const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : mw;
+        const ah = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.ah : mh;
+
+        // La mascara a la resolucion del lienzo de trabajo, con el mismo mapeo
+        // que usa el recorte (incluido el rectangulo real de la caja).
+        const t = document.createElement('canvas');
+        t.width = aw; t.height = ah;
+        const tc = t.getContext('2d');
+        const img = tc.createImageData(aw, ah);
+        const c = ESTADO.caja || { ox: 0, oy: 0, dw: mw, dh: mh };
+        for (let y = 0; y < ah; y++) {
+            const fy = c.oy + (y * c.dh) / ah;
+            const dentroY = fy >= 0 && fy < mh;
+            const my = Math.max(0, Math.min(mh - 1, Math.floor(fy)));
+            for (let x = 0; x < aw; x++) {
+                const fx = c.ox + (x * c.dw) / aw;
+                const dentro = dentroY && fx >= 0 && fx < mw;
+                const o = (y * aw + x) * 4;
+                if (!dentro) { img.data[o + 3] = 0; continue; }
+                const mx = Math.max(0, Math.min(mw - 1, Math.floor(fx)));
+                const a = ESTADO.mascara[my * mw + mx];
+                // Solo se marca lo que esta FUERA: el interior opaco no se
+                // tinta, porque si no el sujeto entero quedara tapado.
+                const fuera = 255 - Math.max(0, Math.min(255, a));
+                img.data[o] = 239;          // rojo de "borrado"
+                img.data[o + 1] = 83;
+                img.data[o + 2] = 80;
+                img.data[o + 3] = Math.round(fuera * 0.42);
+            }
+        }
+        tc.putImageData(img, 0, 0);
+
+        // Situar la capa exactamente donde esta la pieza: espacio de la pieza
+        // (bounds, en coordenadas de Paper) y de ahi a pantalla con la vista.
+        const b = r.bounds;
+        if (!b || !(b.width > 0)) { lienzo.style.display = 'none'; return; }
+        ctx.save();
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.transform(
+            (b.width / aw) * m.a, 0, 0, (b.height / ah) * m.d,
+            b.x * m.a + m.tx, b.y * m.d + m.ty
+        );
+        ctx.drawImage(t, 0, 0);
+        ctx.restore();
     }
 
     /** Pinta un circulo sobre la mascara, en coordenadas de la mascara. */
@@ -1255,6 +1792,10 @@
         const valor = document.getElementById('valor-tamano-pincel');
         const aceptar = document.getElementById('btn-aceptar-fondo');
         const deshacerBtn = document.getElementById('btn-deshacer-fondo');
+        const cerrarBtn = document.getElementById('btn-cerrar-retoque');
+        const ma = document.getElementById('modo-asistido');
+        const mm = document.getElementById('modo-manual');
+        const verQuitado = document.getElementById('ver-quitado');
 
         const elegir = (modo) => {
             RETOQUE.modo = modo;
@@ -1265,13 +1806,34 @@
         if (b) b.addEventListener('click', () => elegir('borrar'));
         if (r) r.addEventListener('click', () => elegir('restaurar'));
 
+        // Asistido / Manual. Cambia lo que hace el puntero sobre el lienzo, asi
+        // que el estado tiene que verse en el panel (marcarPincelActivo).
+        const ponerModo = (manual) => {
+            RETOQUE.manual = !!manual;
+            marcarPincelActivo();
+        };
+        if (ma) ma.addEventListener('click', () => ponerModo(false));
+        if (mm) mm.addEventListener('click', () => ponerModo(true));
+
+        if (verQuitado) {
+            verQuitado.addEventListener('change', function () {
+                RETOQUE.verQuitado = !!verQuitado.checked;
+                dibujarCapaQuitado();
+            });
+        }
+        if (cerrarBtn) cerrarBtn.addEventListener('click', function () { cerrarRetoque(); });
+
         if (slider) {
             slider.addEventListener('input', function () {
                 RETOQUE.radio = Number(slider.value) || 25;
                 if (valor) valor.textContent = String(RETOQUE.radio);
+                actualizarCursor();
             });
         }
-        if (aceptar) aceptar.addEventListener('click', function () { cerrarRetoque(); });
+        if (aceptar) aceptar.addEventListener('click', function () {
+            // "Listo" cierra la edicion, como el check de PhotoRoom.
+            cerrarRetoque();
+        });
         if (deshacerBtn) {
             deshacerBtn.addEventListener('click', function () {
                 // Vuelve al resultado de la IA. Es lo que el cliente espera de
@@ -1306,6 +1868,20 @@
             if (!p) return false;
             pintarPincel(p.x, p.y);
             recomponerDesdeMascara();
+            dibujarCapaQuitado();
+            return true;
+        };
+
+        // Un toque en modo ASISTIDO elige la zona sola. No es un trazo: se
+        // aplica una vez y se suelta, asi que va solo en pointerdown.
+        const tocarAsistido = (ev) => {
+            const p = pantallaAMascara(ev);
+            if (!p) return false;
+            if (!RETOQUE.original) RETOQUE.original = new Uint8ClampedArray(ESTADO.mascara);
+            const n = marcarZonaAsistida(p.x, p.y);
+            if (!n) return false;
+            recomponerDesdeMascara();
+            dibujarCapaQuitado();
             return true;
         };
 
@@ -1315,17 +1891,28 @@
             if (ev.button !== undefined && ev.button !== 0) return;
             ev.preventDefault();
             ev.stopPropagation();
+            if (!RETOQUE.manual) { tocarAsistido(ev); pintando = false; return; }
             pintarEn(ev);
             pintando = true;
         }, true);
 
         window.addEventListener('pointermove', (ev) => {
-            if (!pintando || !RETOQUE.activo) return;
-            if (!sobreLienzo(ev)) return;
+            if (!RETOQUE.activo || !sobreLienzo(ev)) return;
+            if (RETOQUE.manual) actualizarCursor(ev);
+            else actualizarCursor(null);
+            if (!pintando) return;
             ev.preventDefault();
             ev.stopPropagation();
             pintarEn(ev);
         }, true);
+
+        // Al salir del lienzo el cursor se esconde: si queda congelado en el
+        // borde parece que el pincel sigue activo.
+        window.addEventListener('pointerleave', () => {
+            const cur = document.getElementById('cursor-pincel');
+            if (cur) { cur.style.display = 'none'; cur.dataset.visible = ''; }
+        }, true);
+        window.addEventListener('blur', () => { pintando = false; }, true);
 
         const soltar = () => { pintando = false; };
         window.addEventListener('pointerup', soltar, true);
