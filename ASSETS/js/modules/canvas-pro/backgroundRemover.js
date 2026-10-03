@@ -1502,6 +1502,24 @@
         document.body.classList.add('ekko-modo-retoque');
         entrarEnVistaCompleta();
 
+        // La tira de parametros se cierra. MEDIDO en el navegador: al pasar
+        // de "Quitar Fondo" a "Editar Fondo" se quedaban las dos barras a la
+        // vez, la de parametros abajo y la de edicion arriba.
+        //
+        // El cierre va en un turno siguiente a proposito: el boton dispara su
+        // cadena de manejadores DESPUES de este retorno, y si se cierra ahora
+        // el mismo boton la vuelve a abrir. Cerrando en el siguiente turno se
+        // gana esa carrera.
+        try {
+            setTimeout(() => {
+                try {
+                    if (typeof window.EKKO_PARAMETROS?.cerrar === 'function') {
+                        window.EKKO_PARAMETROS.cerrar();
+                    }
+                } catch (_) {}
+            }, 0);
+        } catch (_) {}
+
         // La transparencia de lo quitado se ENCIENDE SOLA al entrar a editar.
         // Antes era un interruptor que el cliente tenia que encontrar y
         // activar, y no era lo pedido: lo que quiere ver es QUE quito la
@@ -1818,13 +1836,24 @@
                 if (!dentro) { img.data[o + 3] = 0; continue; }
                 const mx = Math.max(0, Math.min(mw - 1, Math.floor(fx)));
                 const a = ESTADO.mascara[my * mw + mx];
-                // Solo se marca lo que esta FUERA: el interior opaco no se
-                // tinta, porque si no el sujeto entero quedara tapado.
-                const fuera = 255 - Math.max(0, Math.min(255, a));
+                // Solo se marca lo que esta FUERA de verdad.
+                //
+                // MEDIDO: antes se tintaba con `255 - alfa`, es decir cualquier
+                // pixel con algo de traslucidez. En una foto de personas eso es
+                // TODO: el pelo y los bordes blandos tienen alfa parcial y el
+                // sujeto entero salia teñido de rosa. Lo que sirve para decidir
+                // es separar "fuera" de "dentro": se pinta la zona claramente
+                // transparente y la franja suave aparece apenas, para no
+                // mentir sobre el borde fino.
+                const fuera = a <= 24 ? 1 : (a >= 96 ? 0 : (96 - a) / 72 * 0.45);
                 img.data[o] = 239;          // rojo de "borrado"
                 img.data[o + 1] = 83;
                 img.data[o + 2] = 80;
-                img.data[o + 3] = Math.round(fuera * 0.42);
+                // Tinte SUAVE a proposito. MEDIDO en el navegador: con opacidad
+                // alta la zona quitada se veia como un bloque rosa solido que
+                // tapaba la foto entera, y no informaba de nada. Con un
+                // velo bajo se ve que hay algo retirado sin perder el dibujo.
+                img.data[o + 3] = Math.round(fuera * 34);
             }
         }
         tc.putImageData(img, 0, 0);
