@@ -1477,7 +1477,11 @@ body,
 .ekko-recorte__btn--ok { background: #7aa7ff; border-color: #7aa7ff; color: #0d1420; }
 .ekko-recorte__btn--ok:hover { background: #96b9ff; }
 
-/* Cursor del pincel sobre el lienzo */
+/* Cursor del pincel sobre el lienzo.
+   El color dice la herramienta (rojo = Borrar, verde = Restaurar), igual que
+   los botones del panel. Con el contorno solido se marca el ancho real del
+   pincel; en modo Asistido el circulo marca el ALCANCE de la seleccion, asi
+   que va punteado para que no se lea como un pincel de ese tamaño. */
 .ekko-recorte__cursor {
     position: fixed;
     z-index: 10300;
@@ -1486,7 +1490,19 @@ body,
     border: 2px solid #ef5350;
     box-shadow: 0 0 0 1.5px rgba(0, 0, 0, .55), inset 0 0 0 1.5px rgba(0, 0, 0, .35);
     transform: translate(-50%, -50%);
-    transition: border-color .12s ease;
+    transition: border-color .12s ease, border-style .12s ease;
 }
-.ekko-recorte__cursor[data-modo="restaurar"] { border-color: #4caf7d; }
-.ekko-recorte__cursor[data-modo="borrar"] { border-color: #ef5350; }
+.ekko-recorte__cursor[data-modo="restaurar"] { border-color: #4caf7d; color: #4caf7d; }
+.ekko-recorte__cursor[data-modo="borrar"] { border-color: #ef5350; color: #ef5350; }
+.ekko-recorte__cursor[data-modo-visual="asistido"] { border-style: dashed; }
+/* El circulo tapa el pelo justo donde se va a trabajar. Con un hueco en el
+   centro se ve la foto y a la vez se sabe donde cae el centro. */
+.ekko-recorte__cursor::after {
+    content: "";
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 4px; height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    background: currentColor;
+}
