@@ -970,7 +970,7 @@
             // NO SE CREA UNA IMAGEN NUEVA: se le cambia el CONTENIDO a la que ya
             // esta ahi. Este es el cambio de fondo del asunto.
             //
-            // MEDIDO, y explica TODO lo que报告中 el cliente:
+            // MEDIDO, y explica TODO lo que reporto el cliente:
             //
             //   - Una imagen CARGADA, con fondo, se arrastra y se recorta contra
             //     el mockup sin problema, porque la app ya la mete dentro del
@@ -1009,12 +1009,31 @@
             if (!ESTADO.urlOriginal) ESTADO.urlOriginal = elemento.src;
             ESTADO.rasterOriginal = raster;
 
+            // Copia de los pixeles ORIGINALES en un lienzo aparte.
+            //
+            // MEDIDO, y es la causa de fondo de dos sintomas:
+            //   1. `imagenOriginal` e `imagenProcesada` son el MISMO item: el
+            //      recorte se hizo cambiando `source` en el sitio, asi que
+            //      cuando se relee el "original" ya no queda nada de la foto,
+            //      solo el recorte. Por eso la ventana no podia mostrar la zona
+            //      quitada desvanecida (no hay pixeles que mostrar) y `Restaurar`
+            //      no podia devolver lo que ya se habia borrado de verdad.
+            //   2. Sin esta copia no hay de donde sacar los pixeles para
+            //      recomponer, y `Deshacer` tampoco tendria sentido.
+            // Se hace ANTES del cambio de `source`, que es el ultimo momento en
+            // que el item todavia tiene la foto entera.
+            try {
+                const w0 = elemento.naturalWidth || elemento.width || 0;
+                const h0 = elemento.naturalHeight || elemento.height || 0;
+                if (w0 > 0 && h0 > 0) {
+                    const orig = document.createElement('canvas');
+                    orig.width = w0; orig.height = h0;
+                    orig.getContext('2d').drawImage(elemento, 0, 0, w0, h0);
+                    ESTADO.lienzoOriginal = orig;
+                }
+            } catch (e) { ESTADO.ultimoError = e; }
+
             raster.source = salida.toDataURL('image/png');
-            raster.data = {
-                ...(raster.data || {}),
-                quitarFondoIA: true,
-                source: raster.data?.source || 'user-image'
-            };
             if (nomOriginal) raster.name = nomOriginal;
 
             // Se espera a que la imagen nueva este cargada antes de seguir.
@@ -1028,7 +1047,7 @@
                 setTimeout(fin, 8000);
             });
 
-            const nueva = raster;
+            let nueva = raster;
             ESTADO.imagenProcesada = nueva;
             ESTADO.listo = true;
 
@@ -1047,9 +1066,50 @@
             // tamano. La seleccion sigue siendo la misma pieza de antes.
 
             informar('listo', 1, 1, 'Fondo eliminado');
+
+            // La marca se pone AL FINAL, despues de toda la logica de seleccion.
+            //
+            // MEDIDO: puesta antes, se perdia. Al cambiar `source` y al correr la
+            // sincronizacion de seleccion, `data` volvia a quedar en
+            // `{locked, label, rotation}` sin la marca, y entonces:
+            //   - el boton "Editar Fondo" no abria nada (su guarda lee la marca)
+            //   - la piramide mostraba los dos botones a la vez
+            // El contenido de `data` lo tocan varios modulos de la app, asi que
+            // la ultima palabra la tiene esta linea, aqui al final.
             if (typeof window.saveHistory === 'function') {
                 try { window.saveHistory(); } catch (_) {}
             }
+
+            // ...y la marca va DESPUES de saveHistory, sobre el item que QUEDO en la
+            // escena, no sobre la referencia que acá tenemos.
+            //
+            // MEDIDO: saveHistory rehidrata la escena y deja un item NUEVO
+            // (el anterior queda desconectado). Marcando la referencia vieja la
+            // marca se perdia y "Editar Fondo" no abria nada. Por eso primero se
+            // localiza el item vivo.
+            try {
+                let vivo = null;
+                const sel = window.selectedItem
+                    || (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+                if (sel && sel.className === 'Raster') vivo = sel;
+                if (!vivo) {
+                    const buscar = it => {
+                        if (vivo) return;
+                        if (it && it.className === 'Raster' && it.visible !== false && it.project) vivo = it;
+                        (it.children || []).forEach(buscar);
+                    };
+                    (paper.project.layers || []).forEach(l => l.children.forEach(buscar));
+                }
+                if (!vivo) vivo = raster;
+                vivo.data = {
+                    ...(vivo.data || {}),
+                    quitarFondoIA: true,
+                    source: 'user-image'
+                };
+                ESTADO.rasterOriginal = vivo;
+                nueva = vivo;
+            } catch (e) { ESTADO.ultimoError = e; }
+
             return nueva;
         } catch (e) {
             ESTADO.ultimoError = e;
@@ -1105,6 +1165,43 @@
      * ajuste es practicamente instantaneo: el cliente mueve el control y ve el
      * resultado al momento.
      */
+    /**
+     * Localiza el item que REALMENTE esta en el lienzo.
+     *
+     * MEDIDO, y fue un fallo silencioso de tres pasos:
+     *   1. `saveHistory()` rehidrata la escena y deja un item NUEVO. La
+     *      referencia que guardamos en `ESTADO.imagenProcesada` queda
+     *      DESCONECTADA: sigue viva como objeto, pero ya no esta en el proyecto.
+     *   2. `ajustarBorde()` escribia el recorte sobre esa referencia muerta.
+     *   3. El pincel pintaba la mascara, `recomponerDesdeMascara()` no daba
+     *      ningun error, y la foto del mockup no cambiaba NADA. El cliente veia
+     *      el panel abierto y ningun efecto, igual que antes.
+     *
+     * Se busca primero el raster marcado como recorte y, si no, el primero
+     * vivo. Nunca se devuelve una referencia que haya quedado suelta.
+     */
+    function resolverItemVivo() {
+        try {
+            const sel = window.selectedItem
+                || (Array.isArray(window.selectedItems)
+                    ? window.selectedItems[window.selectedItems.length - 1] : null);
+            if (sel && sel.className === 'Raster' && sel.project) return sel;
+
+            let marcado = null, primero = null;
+            const buscar = (it) => {
+                if (it && it.className === 'Raster' && it.project) {
+                    if (!primero) primero = it;
+                    if (!marcado && it.data && it.data.quitarFondoIA) marcado = it;
+                }
+                (it.children || []).forEach(buscar);
+            };
+            (paper.project.layers || []).forEach(l => l.children.forEach(buscar));
+            return marcado || primero || ESTADO.imagenProcesada || null;
+        } catch (_) {
+            return ESTADO.imagenProcesada || null;
+        }
+    }
+
     function ajustarBorde(clave, valor) {
         const v = Math.max(0, Math.min(1, Number(valor)));
         // 'recomponer' no cambia ningun parametro: es la via para que el retoque
@@ -1120,11 +1217,22 @@
         if (!ESTADO.mascara || !ESTADO.imagenOriginal || !ESTADO.imagenProcesada) return false;
 
         const original = ESTADO.imagenOriginal;
-        const elemento = original.getElement && original.getElement();
-        if (!elemento) return false;
+        const elemento = original && original.getElement && original.getElement();
+        // Se recompone desde la COPIA de la original, no desde el item. El item
+        // ya tiene el recorte puesto (el cambio fue en el sitio), asi que leerlo
+        // como original no solo no restaura: no puede, los pixeles no estan.
+        // Ver la nota de `ESTADO.lienzoOriginal` en `quitarFondo`.
+        const fuente = ESTADO.lienzoOriginal || elemento;
+        if (!fuente) return false;
 
         const { aw, ah } = ESTADO.lienzoTrabajo;
-        const procesada = ESTADO.imagenProcesada;
+        // El destino es el item VIVO, no la referencia guardada: ver
+        // `resolverItemVivo`. Ademas se refresca la referencia para que las
+        // siguientes llamadas no vuelvan a la pieza suelta.
+        const procesada = resolverItemVivo();
+        if (!procesada) return false;
+        ESTADO.imagenProcesada = procesada;
+        ESTADO.rasterOriginal = procesada;
 
         // Serializado: arrastrar el control dispara decenas de eventos y cada
         // uno recomponia a la vez. Con una foto grande eso congelaba el lienzo
@@ -1138,7 +1246,7 @@
             ESTADO.recomponiendo = true;
             try {
                 const lienzo = componerRecorte(
-                    ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, elemento, aw, ah,
+                    ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, fuente, aw, ah,
                     ESTADO.caja);
                 const url = lienzo.toDataURL('image/png');
 
@@ -1309,7 +1417,7 @@
         colorClave: '',
         // "Ver lo que se quito": capa translucida sobre lo que ya quedo
         // transparente, para poder precisar que restaurar.
-        verQuitado: false
+        verQuitado: false,
     };
 
     function imagenEnRetoque() {
@@ -1414,6 +1522,188 @@
     // Modo Manual: pintás con el pincel del tamaño que elijas.
     function modoManual() { return ponerModoRetoque(true); }
 
+    /**
+     * Dibuja el lienzo de la ventana de Editar Fondo.
+     *
+     * Se ve la foto con la zona QUITADA desvanecida y el sujeto normal. Es lo
+     * que pedia el cliente: saber de un vistazo que quedo fuera, sin un velo de
+     * color encima que tape el dibujo (lo que se intento antes y quedo mal: un
+     * bloque opaco que ocultaba la foto entera).
+     *
+     * El lienzo es PROPIO de la ventana y no toca el lienzo del editor: asi el
+     * recorte nunca se mueve del mockup mientras se retoca.
+     */
+    function pintarLienzoVentana() {
+        const cv = document.getElementById('lienzo-editar-fondo');
+        if (!cv) return;
+        const ancho = cv.clientWidth, alto = cv.clientHeight;
+        if (!(ancho > 0) || !(alto > 0)) return;
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        if (cv.width !== Math.round(ancho * dpr) || cv.height !== Math.round(alto * dpr)) {
+            cv.width = Math.round(ancho * dpr);
+            cv.height = Math.round(alto * dpr);
+        }
+        const ctx = cv.getContext('2d');
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, ancho, alto);
+
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        if (!r) return;
+
+        // Se dibuja la foto ORIGINAL, no el recorte.
+        //
+        // MEDIDO: con el recorte como fondo de contexto, la zona quitada ya no
+        // tiene pixeles (es transparente) y se veia el fondo oscuro de la
+        // ventana. El cliente pedia ver la foto con lo quitado DESVANECIDO, no
+        // un agujero. Con la original de fondo, lo que quedo fuera se ve
+        // apagado y el sujeto, arriba, con su color natural.
+        const ref = ESTADO.imagenOriginal || r;
+        const src = ESTADO.lienzoOriginal || (ref.getElement && ref.getElement());
+        if (!src) return;
+
+        const natW = src.naturalWidth || src.width;
+        const natH = src.naturalHeight || src.height;
+        const mw = ESTADO.mascaraAncho, mh = ESTADO.mascaraAlto;
+        if (!(natW > 0) || !(natH > 0)) return;
+
+        // Encajar la imagen en el lienzo de la ventana, centrada.
+        const esc = Math.min(ancho / natW, alto / natH);
+        const w = natW * esc, h = natH * esc;
+        const ox = (ancho - w) / 2, oy = (alto - h) / 2;
+
+        // La caja se calcula ANTES de cualquier salida por la mascara. MEDIDO:
+        // con la salida de `!ESTADO.mascara` antes de esta linea, la caja nunca
+        // se guardaba, `pantallaAMascara` devolvia null y el pincel NO PINTABA
+        // sin dar ningun error. Es el mapeo que necesita el trazo.
+        ESTADO.ventanaCaja = { ox, oy, w, h, esc, natW, natH };
+
+        if (!(mw > 0) || !(mh > 0) || !ESTADO.mascara) return;
+
+        // COMO SE MUESTRA LA FOTO: son DOS capas, y solo dos.
+        //
+        //   1) la foto ORIGINAL entera, a pleno color, siempre debajo
+        //   2) el sujeto recortado por la mascara, encima
+        //
+        // Asi lo que no se borro SE VE (esta en la capa 1), y lo que se borro
+        // deja de estar en la capa 2. Es lo que hace PhotoRoom: en su pantalla
+        // la habitacion se ve entera y luminosa, con las personas encima.
+        //
+        // MEDIDO, lo que NO hay que hacer:
+        //   - foto al 22%: se leia "el fondo sigue ahi, solo que oscuro".
+        //   - solo el recorte: lo que no se borro desaparecia, al reves de lo
+        //     que tiene que pasar.
+        //   - foto entera MAS un agujero encima: la habitacion queda oscura y
+        //     el recorte parece no haberse hecho. El agujero no va, la foto de
+        //     abajo ya esta y no hay que perforarla.
+
+        // COMO SE MUESTRA LA FOTO — esto es lo que costo entender:
+        //
+        // Lo que se QUITO se ve BLANCO. Lo que se MANTIENE va en su color.
+        //
+        // No es un hueco, no es transparente, no es un contorno: es la foto
+        // entera con la zona quitada lavada a blanco. Asi se lee de un vistazo
+        // que se saco y que se dejo, que es lo que pidio el cliente y lo que
+        // hace PhotoRoom (por eso alla la habitacion se ve blanquisima).
+        //
+        // MEDIDO, lo que se intento y NO era:
+        //   - solo el recorte sobre fondo oscuro: lo que no se borro desaparecia.
+        //   - la foto al 22%: se leia "el fondo sigue ahi, solo que oscuro".
+        //   - un contorno rojo/verde: invention del agente, el cliente lo veto.
+
+        // Capa 1: la foto original, a pleno color.
+        ctx.drawImage(src, ox, oy, w, h);
+
+        // La mascara viene del cuadrado de entrada: el rectangulo real que la
+        // foto ocupa dentro de ese cuadrado hay que respetarlo.
+        const c = ESTADO.caja;
+        const hayRecorte = !!(c && (c.ox !== 0 || c.oy !== 0 || c.dw !== mw || c.dh !== mh));
+
+        // MEDIDO, y era un error invisible: la mascara es un Float32Array en
+        // escala 0..1 (min -6e-8, max 1, promedio 0.21). Asignarla tal cual a un
+        // Uint8ClampedArray la redondea a 1, o sea alfa 1, y el sujeto se
+        // dibujaba PRACTICAMENTE INVISIBLE. Hay que pasar de 0..1 a 0..255.
+        // `componerRecorte` ya lo hace por su lado, que es por eso que el
+        // recorte del mockup siempre sale bien.
+        const a255 = (a) => {
+            const v = Math.round(a * 255);
+            return v < 0 ? 0 : v > 255 ? 255 : v;
+        };
+
+
+        // Capa 2: lo que se QUITO se ve, pero mas o menos apagado segun la
+        // herramienta activa. NUNCA blanco: si lo quitado fuera blanco, al
+        // cliente le desaparece justo lo que quiere recuperar.
+        //
+        // MEDIDO, y fue el error de fondo:
+        //   - velo blanco siempre: las sillas y las mesas NO se veian, yRestore-
+        //     rarlas era adivinar a ciegas. El cliente lo dijo: "si no veo
+        //     donde estan, no puedo ir adivinando con cada clic".
+        //   - velo blanco solo en Asistido: mismo problema.
+        //
+        // Con la herramienta:
+        //   - RESTAURAR activo -> sin velo. La zona quitada se ve a pleno
+        //     color, para poder apuntarle y recuperarla.
+        //   - BORRAR activo -> velo fuerte, la zona quitada queda como
+        //     fantasma y se ve de una vez donde esta el recorte.
+        // Con la herramienta:
+        //   - RESTAURAR -> velo MEDIO (0.35). La zona quitada se sigue viendo para
+        //     poder apuntarle a una silla, pero ya no se confunde con la foto
+        //     original con fondo. MEDIDO: con 0.15 el cliente reporto que se
+        //     confundia con la foto original; con 0 no habia señal de que se
+        //     restaurara. 0.35 es el punto medio entre las dos.
+        //   - BORRAR -> velo fuerte (0.78), la zona quitada queda fantasma.
+        const fuerza = RETOQUE.modo === 'restaurar' ? 0.35 : 0.78;
+        const blanco = document.createElement('canvas');
+        blanco.width = mw; blanco.height = mh;
+        const bctx = blanco.getContext('2d');
+        const bimg = bctx.createImageData(mw, mh);
+        const bd = bimg.data;
+        for (let i = 0, n = mw * mh; i < n; i++) {
+            const v = Math.round((255 - a255(ESTADO.mascara[i])) * fuerza);
+            const j = i * 4;
+            bd[j] = 255; bd[j + 1] = 255; bd[j + 2] = 255; bd[j + 3] = v;
+        }
+        bctx.putImageData(bimg, 0, 0);
+
+        if (hayRecorte) {
+            const bNat = document.createElement('canvas');
+            bNat.width = natW; bNat.height = natH;
+            bNat.getContext('2d').drawImage(blanco, c.ox, c.oy, c.dw, c.dh, 0, 0, natW, natH);
+            ctx.drawImage(bNat, ox, oy, w, h);
+        } else {
+            ctx.drawImage(blanco, ox, oy, w, h);
+        }
+
+        // La caja se vuelve a guardar con las medidas naturales incluidas. La
+        // asignacion de arriba (antes de la salida por la mascara) queda
+        // pisada por esta, asi que tiene que llevar los mismos datos.
+        ESTADO.ventanaCaja = { ox, oy, w, h, esc, natW, natH };
+    }
+
+    /**
+     * "Listo": aplica lo editado a la imagen del mockup y cierra la ventana.
+     *
+     * La ventana edita la MASCARA. Al confirmar se recompone el contenido del
+     * MISMO item que ya esta dentro del mockup: mismo id, mismo padre, misma
+     * transformacion. Por eso el recorte no se mueve nunca del producto y el
+     * arrastre sigue funcionando (ver la nota de arquitectura en quitarFondo).
+     */
+    function confirmarEdicion() {
+        try {
+            recomponerDesdeMascara();
+        } catch (e) {
+            ESTADO.ultimoError = e;
+        }
+        cerrarRetoque();
+        // NO se guarda historia aqui a proposito: se conserva lo que hacia antes
+        // (cerrar y ya). `quitarFondo` guarda su propio historial, asi que el
+        // recorte por IA sigue siendo un paso de undo, y dentro de la ventana
+        // el deshacer del recorte lo da el boton `Deshacer`, que es lo que el
+        // cliente espera de el. Guardar ademas rehidrata la escena, y dentro de
+        // una ventana que esta por cerrarse conviene no tocar la escena.
+        return true;
+    }
+
     function abrirRetoque() {
         if (!ESTADO.imagenProcesada || !ESTADO.mascara) {
             avisar('Primero quitá el fondo, después retocá el recorte.', { kind: 'warn' });
@@ -1422,9 +1712,9 @@
         if (!RETOQUE.original) {
             RETOQUE.original = new Uint8ClampedArray(ESTADO.mascara);
         }
-        const barra = document.getElementById('barra-editar-recorte');
-        if (!barra) {
-            avisar('No se encontró la barra de editar.', { kind: 'error' });
+        const ventana = document.getElementById('ventana-editar-fondo');
+        if (!ventana) {
+            avisar('No se encontró la ventana de editar.', { kind: 'error' });
             return false;
         }
         RETOQUE.activo = true;
@@ -1432,27 +1722,11 @@
         // La barra REEMPLAZA a la contextual: ocupa su misma banda y se queda
         // sola. Antes convivan las dos con los mismos botones duplicados, y la
         // contextual seguia apareciendo encima.
-        //
-        // La barra tiene que quedar SIEMPRE junto a la barra contextual, no dentro
-        // del contenedor del lienzo: si comparten padre comparten tambien el
-        // bloque que posiciona los absolutos, y el `top` que calcula la app
-        // para la contextual sirve para las dos.
-        //
-        // MEDIDO: con la barra dentro de #canvasContainer quedava 140 px mas
-        // arriba y 260 px a la derecha (exactamente el offset del contenedor).
-        // Ningun ajuste de `top` lo arregla: son containing blocks distintos.
-        try {
-            const ctx = document.getElementById('contextual-toolbar');
-            if (ctx && ctx.parentElement && barra.parentElement !== ctx.parentElement) {
-                ctx.parentElement.insertBefore(barra, ctx.nextSibling);
-            }
-            if (ctx) {
-                const top = parseFloat(getComputedStyle(ctx).top);
-                if (Number.isFinite(top)) barra.style.top = top + 'px';
-            }
-        } catch (_) {}
-        barra.style.display = 'flex';
-        barra.classList.add('ekko-visible');
+        // La ventana es a pantalla completa: lienzo a la izquierda, panel a la
+        // derecha. Reemplaza por completo a la barra contextual, asi que nunca
+        // hay dos superficies con los mismos botones a la vez.
+        ventana.style.display = 'grid';
+        ventana.classList.add('vf-visible');
 
         // Vista de edicion: la foto a pantalla completa y solo las
         // herramientas. Es lo que pidio el cliente; antes seguian viéndose el
@@ -1488,7 +1762,8 @@
         if (vq) vq.setAttribute('aria-pressed', 'true');
 
         marcarPincelActivo();
-        dibujarCapaQuitado();
+        try { pintarLienzoVentana(); }
+        catch (e) { ESTADO.ultimoError = e; try { console.warn('[EKKO RECORTE] no se pudo pintar la ventana:', e); } catch (_) {} }
         return true;
     }
 
@@ -1513,10 +1788,9 @@
         RETOQUE.activo = false;
         RETOQUE.puntero = false;
         RETOQUE.verQuitado = false;
-        const barra = document.getElementById('barra-editar-recorte');
-        if (barra) { barra.style.display = 'none'; barra.classList.remove('ekko-visible'); }
+        const vf = document.getElementById('ventana-editar-fondo');
+        if (vf) { vf.style.display = 'none'; vf.classList.remove('vf-visible'); }
         document.body.classList.remove('ekko-modo-retoque');
-        salirDeVistaCompleta();
         const vq = document.getElementById('ver-quitado');
         if (vq) { vq.setAttribute('aria-pressed', 'false'); vq.classList.remove('is-activo'); }
         const capa = document.getElementById('capa-quitado');
@@ -1566,20 +1840,25 @@
         const tira = document.querySelector('.ekko-param-surface');
         if (tira) tira.classList.toggle('ekko-sin-puntero', RETOQUE.activo);
 
-        // El tamaño del pincel solo existe en modo manual, igual que en
-        // PhotoRoom. Mostrarlo en asistido es una promesa que el modo no
-        // cumple y el cliente lo cuenta como que no funciona.
+        // El tamaño del pincel se ve SIEMPRE, en los dos modos. MEDIDO: antes solo
+        // aparecia en Manual y el cliente lo pidió así: en Asistido
+        // también se pincel, y sin el control no se sabe qué tan fina va a ser
+        // la pasada.
         const grupo = document.getElementById('grupo-tamano');
-        if (grupo) grupo.hidden = !RETOQUE.manual;
-        actualizarCursor();
+        if (grupo) grupo.hidden = false;
+
+        // La ayuda tiene que explicar el modo que esta activo. MEDIDO: el texto
+        // se quedaba siempre en el de Asistido y en Manual el cliente leia que
+        // los objetos se detectaban solos, que es justo lo que ese modo no hace.
+        const ayuda = document.getElementById('ayuda-modo');
+        if (ayuda) {
+            ayuda.textContent = RETOQUE.manual
+                ? 'Pinta lo que quieras quitar. Usa Restaurar para volver atrás.'
+                : 'Los objetos se detectan automáticamente para hacerla más fácil.';
+        }
     }
 
-    /**
-     * Cursor circular del pincel.
-     *
-     * Sin esto no se ve ni el tamaño real ni de que color se esta pintando, que
-     * era la otra mitad de la queja del cliente.
-     */
+    /** De un pixel de la mascara a pixeles de pantalla. */
     function escalaMascaraAPantalla() {
         const r = imagenEnRetoque() || ESTADO.imagenProcesada;
         const m = paper && paper.view ? paper.view.matrix : null;
@@ -1598,8 +1877,18 @@
         // estaba activa ni de cuan fina seria la pasada: lo reporto como "el
         // puntero aun no se colorea ni se muestra el tamano del pincel".
         if (!RETOQUE.activo) { cur.style.display = 'none'; cur.dataset.visible = ''; return; }
-        const esc = escalaMascaraAPantalla();
-        const d = Math.max(12, RETOQUE.radio * esc * 2);
+        const esc = ESTADO.ventanaCaja ? (ESTADO.ventanaCaja.esc || 1) : escalaMascaraAPantalla();
+        // El numero del control es el DIAMETRO del pincel, que es como lo piensa
+            // cualquiera. MEDIDO: antes `radio` era el radio, y con 25 el
+            // circulo pintado media 32 px de ancho: el numero no correspondia
+            // con lo que se veía. Ahora `radio` es el diametro.
+            //
+            // Y en ASISTIDO el circulo NO se muestra: ahi no se pinta con el
+            // pincel sino que se toca una zona y se selecciona sola, asi que
+            // un circulo del tamaño del pincel mentia. MEDIDO: con el mismo
+            // circulo en los dos modos, el cliente no notaba diferencia entre
+            // Asistido y Manual.
+            const d = RETOQUE.manual ? Math.max(12, RETOQUE.radio * esc) : 10;
         cur.style.width = d + 'px';
         cur.style.height = d + 'px';
         cur.dataset.modo = RETOQUE.modo;
@@ -1680,7 +1969,12 @@
         // justamente true cuando hay que actuar sobre lo opaco. Con la
         // comparacion al reves (la primera version) el modo Restaurar exigia
         // tocar el sujeto: el toque se rechazaba siempre y no hacia nada.
-        const opacoSemilla = m[i0] > 128;
+        // La mascara es un Float32Array en escala 0..1, asi que el umbral es 0.5.
+// MEDIDO: decia `m[i0] > 128`, que con valores de 0 a 1 SIEMPRE da false. En
+// Borrar eso hacia que el assisted saliera siempre por el aviso y no hiciera
+// NADA, y el cliente reportaba que no notaba diferencia entre Manual y
+// Asistido: en realidad Asistido con Borrar estaba roto.
+        const opacoSemilla = m[i0] > 0.5;
         if (opacoSemilla !== quitar) {
             avisar(quitar
                 ? 'Ahí no hay nada que borrar: tocá una parte del sujeto.'
@@ -1718,7 +2012,10 @@
             tocados++;
             // Se aplica con un borde suave hacia el interior de la zona, para
             // que la transicion no quede como un escalon.
-            m[i] = quitar ? 0 : 255;
+            // La mascara va de 0 a 1. MEDIDO: se escribia `quitar ? 0 : 255`, y un 255
+              // en una mascara de 0..1 rompe la cuenta de todas partes (el velo
+              // lo saturaba y el resto la leia mal).
+              m[i] = quitar ? 0 : 1;
 
             const cr = px[i * 4], cg = px[i * 4 + 1], cb = px[i * 4 + 2];
             const dr = cr - r0, dg = cg - g0, db = cb - b0;
@@ -1730,7 +2027,10 @@
                 if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
                 const j = ny * w + nx;
                 if (visto[j]) continue;
-                const oq = m[j] > 128;
+                // Umbral 0.5 porque la mascara es 0..1. MEDIDO: decia `> 128`, que siempre
+                  // daba false, y entonces la region nunca crecia: el assisted
+                  // solo tocaba el pixel de la semilla y no se veia NADA.
+                  const oq = m[j] > 0.5;
                 if (oq !== quitar) continue;          // mismo lado que la semilla
                 visto[j] = 1;
                 if (colaN < cola.length) cola[colaN++] = j;
@@ -1849,7 +2149,11 @@
     function pintarPincel(mx, my) {
         const { w, h } = { w: ESTADO.mascaraAncho, h: ESTADO.mascaraAlto };
         if (!(w > 0) || !(h > 0)) return;
-        const r = RETOQUE.radio;
+        // `RETOQUE.radio` es el DIAMETRO que muestra el control, y la mascara
+        // trabaja con radios: se divide por dos. MEDIDO: sin esto, poner 25
+        // pintaba un circulo de 50 px de ancho (2 x 25) y el cliente reportaba
+        // que "el tamaño del pincel no corresponde al que se habia configurado".
+        const r = Math.max(1, RETOQUE.radio / 2);
         const quitar = RETOQUE.modo === 'borrar';
         const x0 = Math.max(0, Math.floor(mx - r)), x1 = Math.min(w, Math.ceil(mx + r));
         const y0 = Math.max(0, Math.floor(my - r)), y1 = Math.min(h, Math.ceil(my + r));
@@ -1898,12 +2202,50 @@
         if (!(natW > 0) || !(natH > 0)) return null;
         if (!(ESTADO.mascaraAncho > 0) || !(ESTADO.mascaraAlto > 0)) return null;
 
+        // La ventana tiene su propio lienzo y su propia caja: se lee de ahi, no de
+        // `paper.view`. MEDIDO: usar la del editor mandaba el trazo a cualquier
+        // lado, porque la ventana esta en otro sistema de coordenadas.
+        const cv = document.getElementById('lienzo-editar-fondo');
+        const caja = ESTADO.ventanaCaja;
+        if (!cv || !caja || !caja.esc) return null;
+
+        // Pantalla -> pixel de la foto dentro de la ventana.
+        const rc = cv.getBoundingClientRect();
+        const fx = (ev.clientX - rc.left - caja.ox) / caja.esc;
+        const fy = (ev.clientY - rc.top - caja.oy) / caja.esc;
+        if (!isFinite(fx) || !isFinite(fy)) return null;
+
+        // El limite se mide contra el TAMAÑO NATURAL de la foto, no contra
+        // `caja.w/h` (que es el ancho en pantalla).
+        //
+        // MEDIDO: `fx` ya viene en pixeles naturales, pero se comparaba con el
+        // ancho mostrado. Con una foto de 1200 px dibujada a 216 de ancho, todo
+        // lo que pasaba de x=238 se rechazaba y el pincel NO PINTABA NADA, sin
+        // dar ningun error. Era el mismo problema de unidades que YA se habia
+        // resuelto una vez para `paper.view` (ver la nota de esta funcion).
+        if (fx < -natW * 0.1 || fx > natW * 1.1 || fy < -natH * 0.1 || fy > natH * 1.1) return null;
+
+        // Pixel de la foto -> coordenada de la MASCARA, respetando el
+        // rectangulo real que la foto ocupa dentro del cuadrado de entrada.
+        const c = ESTADO.caja || { ox: 0, oy: 0, dw: ESTADO.mascaraAncho, dh: ESTADO.mascaraAlto };
+        const nat = imagenEnRetoque() || ESTADO.imagenProcesada;
+        const el = nat && (nat.canvas || (nat.getElement && nat.getElement()));
+        const nW = el ? (el.naturalWidth || el.width) : 0;
+        const nH = el ? (el.naturalHeight || el.height) : 0;
+        if (!(nW > 0) || !(nH > 0)) return null;
+        const mx = c.ox + (fx / nW) * c.dw;
+        const my = c.oy + (fy / nH) * c.dh;
+        if (!isFinite(mx) || !isFinite(my)) return null;
+        return { x: mx, y: my };
+    }
+
+    /** Version vieja, solo para el lienzo del editor. Ya no se usa para pintar. */
+    function pantallaAMascaraEditor(ev) {
+        if (!paper.view) return null;
         const cv = document.getElementById('editorCanvas');
-        if (!cv || !paper.view) return null;
+        if (!cv) return null;
         const rc = cv.getBoundingClientRect();
         const m = paper.view.matrix;
-
-        // Pantalla -> espacio del lienzo.
         const lx = (ev.clientX - rc.left - m.tx) / m.a;
         const ly = (ev.clientY - rc.top - m.ty) / m.d;
         if (!isFinite(lx) || !isFinite(ly)) return null;
@@ -1939,9 +2281,9 @@
     }
 
     function conectarRetoque() {
-        const barra = document.getElementById('barra-editar-recorte');
-        if (!barra || barra.__ekkoConectado) return;
-        barra.__ekkoConectado = true;
+        const vf = document.getElementById('ventana-editar-fondo');
+        if (!vf || vf.__ekkoConectado) return;
+        vf.__ekkoConectado = true;
 
         const b = document.getElementById('pincel-borrar');
         const r = document.getElementById('pincel-restaurar');
@@ -1958,6 +2300,11 @@
             RETOQUE.activo = true;
             marcarPincelActivo();
             actualizarCursor();
+            // El fondo se ve mas o menos apagado segun la herramienta, asi que
+            // al cambiarla hay que repintar. MEDIDO: sin esto el fondo se
+            // quedaba siempre apagado y en Restaurar no se veian las sillas
+            // que hay que recuperar.
+            try { pintarLienzoVentana(); } catch (_) {}
         };
         if (b) b.addEventListener('click', () => elegir('borrar'));
         if (r) r.addEventListener('click', () => elegir('restaurar'));
@@ -1981,6 +2328,8 @@
                 verQuitado.setAttribute('aria-pressed', RETOQUE.verQuitado ? 'true' : 'false');
                 verQuitado.classList.toggle('is-activo', RETOQUE.verQuitado);
                 dibujarCapaQuitado();
+                try { pintarLienzoVentana(); } catch (_) {}
+                marcarPincelActivo();
             });
         }
 
@@ -1992,8 +2341,8 @@
             });
         }
         if (aceptar) aceptar.addEventListener('click', function () {
-            // "Listo" cierra la edicion, como el check de PhotoRoom.
-            cerrarRetoque();
+            // "Listo": aplica lo editado a la foto del mockup y cierra.
+            confirmarEdicion();
         });
         if (deshacerBtn) {
             deshacerBtn.addEventListener('click', function () {
@@ -2006,18 +2355,21 @@
             });
         }
 
-        // El pincel se pinta arrastrando sobre el lienzo.
+        // El pincel se pinta arrastrando sobre el lienzo de la VENTANA.
         //
         // OJO con donde se escucha. Se midio que el manejador de eventos de
         // EKKO detiene la propagacion en un ancestro del lienzo: el evento
         // llegaba a `document` pero NUNCA al `canvas`. Con el listener en el
-        // lienzo el pincel no recibia nada y abrir el panel no producia
+        // lienzo el pincel no recibia nada y abrir la ventana no producia
         // ningun efecto visible.
         //
         // Por eso se escucha en `window` en fase de captura, que es lo
-        // PRIMERO que se ejecuta en toda la cadena. Se filtra por objetivo
-        // para no secuestrar clics que no son del lienzo.
-        const canvas = document.getElementById('editorCanvas');
+        // PRIMERO que se ejecuta en toda la cadena.
+        //
+        // MEDIDO: la ventana ahora es el lienzo PROPIO que se pinta. Antes se
+        // pintaba sobre `editorCanvas`, el lienzo del editor, y con la ventana
+        // abierta encima el trazo caia en la foto de fondo y no en nada.
+        const canvas = document.getElementById('lienzo-editar-fondo');
         let pintando = false;
 
         const sobreLienzo = (ev) => {
@@ -2028,8 +2380,7 @@
             const p = pantallaAMascara(ev);
             if (!p) return false;
             pintarPincel(p.x, p.y);
-            recomponerDesdeMascara();
-            dibujarCapaQuitado();
+            pintarLienzoVentana();
             return true;
         };
 
@@ -2041,8 +2392,7 @@
             if (!RETOQUE.original) RETOQUE.original = new Uint8ClampedArray(ESTADO.mascara);
             const n = marcarZonaAsistida(p.x, p.y);
             if (!n) return false;
-            recomponerDesdeMascara();
-            dibujarCapaQuitado();
+            pintarLienzoVentana();
             return true;
         };
 
