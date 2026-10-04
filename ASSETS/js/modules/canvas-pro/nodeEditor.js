@@ -340,19 +340,14 @@ export async function enterNodeEditMode(item) {
         }
 
         // The standalone curved-text handle is outside nodeHandlesGroup.
-        // Resolve it by curveOwnerId so node editing does not swallow the drag.
-        const curveHandle = window._ekkoCurveHandle;
-        if (curveHandle && curveHandle.project && curveHandle.data?.curveOwnerId) {
-            const hitCurve = curveHandle.hitTest?.(event.point, { fill: true, stroke: true, tolerance: 12 / paper.view.zoom });
-            if (hitCurve) {
-                const owner = paper.project.getItem({ id: curveHandle.data.curveOwnerId });
-                if (owner) {
-                    isDraggingHandle = true;
-                    activeHandleData = { curveOwnerId: owner.id, startPoint: event.point.clone(), startCurvature: Number(owner.data?.curvature) || 20 };
-                    if (typeof window.saveHistory === 'function') window.saveHistory();
-                    return;
-                }
-            }
+        // Se delega al dueno unico (EKKO_TEXT_BEND en textToolbar): este modulo
+        // no guarda la referencia del owner porque applyTextCurve lo reemplaza
+        // en cada reconstruccion y la referencia quedaba desconectada. Tampoco
+        // inventa curvatura inicial: el signo lo decide la direccion del arrastre.
+        if (window.EKKO_TEXT_BEND?.hitTest?.(event.point)) {
+            window.EKKO_TEXT_BEND.begin(event.point);
+            if (typeof window.saveHistory === 'function') window.saveHistory();
+            return;
         }
 
         if (nodeHandlesGroup) {
@@ -416,15 +411,11 @@ export async function enterNodeEditMode(item) {
     };
 
     nodeEditTool.onMouseDrag = (event) => {
-        if (isDraggingHandle && activeHandleData?.curveOwnerId) {
-            const owner = paper.project.getItem({ id: activeHandleData.curveOwnerId });
-            if (owner && typeof window.applyTextCurve === 'function') {
-                const deltaY = event.point.y - activeHandleData.startPoint.y;
-                const sign = activeHandleData.startCurvature < 0 ? -1 : 1;
-                const curvature = Math.max(-100, Math.min(100, sign * (Math.abs(activeHandleData.startCurvature) - deltaY * 0.2)));
-                window.applyTextCurve(owner, curvature, { skipHistory: true });
-            }
-            paper.view.update();
+        /* Curvatura delegada al dueno unico. El owner se resuelve adentro desde
+           la seleccion actual en cada frame: guardar la referencia aqui la
+           dejaba desconectada desde el segundo frame. */
+        if (window.EKKO_TEXT_BEND?.isBending?.()) {
+            window.EKKO_TEXT_BEND.update(event.point);
             return;
         }
 
@@ -505,6 +496,12 @@ export async function enterNodeEditMode(item) {
     };
 
     nodeEditTool.onMouseUp = (event) => {
+        /* Si se estaba curvando texto, cierra el arrastre por el dueno unico
+           (un solo paso de historial) en vez de seguir la ruta de nodos. */
+        if (window.EKKO_TEXT_BEND?.isBending?.()) {
+            window.EKKO_TEXT_BEND.end();
+            return;
+        }
         if (isDraggingNode || isDraggingHandle) {
             isDraggingNode = false;
             isDraggingHandle = false;
