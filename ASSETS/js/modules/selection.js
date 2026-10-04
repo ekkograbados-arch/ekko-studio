@@ -769,6 +769,20 @@ const _initSelectionTool = function() {
       if (window.fusionEditActive || window._fusionEditState) return;
       let point = null;
       try { point = paper.view.getEventPoint(event); } catch (e) { return; }
+
+      /* Doble clic sobre el tirador de curvatura: el texto vuelve a recto.
+         Va PRIMERO, antes del hit-test de objetos: el punto esta fuera de la
+         caja de seleccion y findItemAtPoint no lo encuentra (devuelve null y el
+         `if (!hit) return` de abajo saldria antes de llegar al chequeo). */
+      if (point && window.EKKO_TEXT_BEND?.hitTest?.(point)) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.dragging = false;
+        window._mouseDragOccurred = false;
+        window.EKKO_TEXT_BEND.clear();
+        return;
+      }
+
       const hit = point ? findItemAtPoint(point) : null;
       if (!hit) return;
 
@@ -779,11 +793,21 @@ const _initSelectionTool = function() {
         try { fusion = window.findSmartFusionContainer(hit); } catch (e) { fusion = null; }
       }
 
-      const target = getPublicOwner(fusion || hit);
+      let target = getPublicOwner(fusion || hit);
+      // getPublicOwner devuelve el hit mas profundo; para texto curvado o
+      // espaciado ese hit es un CompoundPath de glifo, pero el que se edita es
+      // su grupo ancestro con data.isCurvedGroup. Se busca el primer owner de
+      // texto en la cadena hacia arriba.
+      for (let it = target; it && it !== paper.project; it = it.parent) {
+        if (it.data?.isCurvedGroup === true || it.data?.isSpacedGroup === true ||
+            it.className === 'PointText') { target = it; break; }
+      }
       const isText = target && (target.className === 'PointText' || target instanceof paper.PointText);
+      const esGrupoTextoDblClick = target && (target.data?.isCurvedGroup === true || target.data?.isSpacedGroup === true);
+
       // Un vector normal nunca entra a nodos por doble clic. La edición de
       // nodos se inicia exclusivamente desde el comando Editar Nodos.
-      if (!fusion && !isText) return;
+      if (!fusion && !isText && !esGrupoTextoDblClick) return;
       event.preventDefault();
       event.stopPropagation();
       window.dragging = false;
@@ -799,6 +823,12 @@ const _initSelectionTool = function() {
           window.deselectItem();
           window.selectItem(hit);
           window.startTextEditing(target);
+        } else if (esGrupoTextoDblClick && typeof window.editGroupText === 'function') {
+          // Texto curvado/espaciado: sigue siendo "texto", se edita por doble
+          // clic como en Word y en LightBurn. NO se convierte a vector.
+          window.deselectItem();
+          window.selectItem(target);
+          window.editGroupText(target);
         }
       } catch (e) {
         console.error('[EKKO DBLCLICK ERROR]', e);
@@ -842,17 +872,14 @@ const _initSelectionTool = function() {
 
     // Curved-text handle is a real interaction target, not a decorative
     // overlay. Route it by semantic curveOwnerId before selection hit-tests.
-    const curveHandle = window._ekkoCurveHandle;
-    if (curveHandle && curveHandle.project && curveHandle.data?.curveOwnerId) {
-      const hitCurve = curveHandle.hitTest?.(event.point, { fill: true, stroke: true, tolerance: 12 / paper.view.zoom });
-      if (hitCurve) {
-        const owner = paper.project.getItem({ id: curveHandle.data.curveOwnerId });
-        if (owner) {
-          window._ekkoCurveDrag = { owner, startPoint: event.point.clone(), startCurvature: Number(owner.data?.curvature) || 20 };
-          window.saveHistory?.();
-          return;
-        }
-      }
+    // El dueno de la logique es textToolbar (EKKO_TEXT_BEND): el NO guarda una
+    // referencia al owner porque applyTextCurve lo reemplaza en cada
+    // reconstruccion y la referencia quedaba desconectada de la escena.
+    const bendOwner = window.EKKO_TEXT_BEND?.hitTest?.(event.point);
+    if (bendOwner) {
+      window.EKKO_TEXT_BEND.begin(event.point);
+      window.saveHistory?.();
+      return;
     }
 
     // 1. Hit-test exclusivo para tiradores de la caja de selección
@@ -1018,13 +1045,12 @@ const _initSelectionTool = function() {
       return;
     }
 
-    if (window._ekkoCurveDrag) {
-      const drag = window._ekkoCurveDrag;
-      const deltaY = event.point.y - drag.startPoint.y;
-      const sign = drag.startCurvature < 0 ? -1 : 1;
-      const curvature = Math.max(-100, Math.min(100, sign * (Math.abs(drag.startCurvature) - deltaY * 0.2)));
-      window.applyTextCurve?.(drag.owner, curvature, { skipHistory: true });
-      paper.view.update();
+    /* Curvatura por arrastre. El owner se resuelve DENTRO de textToolbar, desde
+       la seleccion actual, porque applyTextCurve genera un owner nuevo en cada
+       frame: guardar la referencia aqui la dejaba desconectada desde el segundo
+       frame. Ademas se reconstruye una sola vez por frame, no por evento. */
+    if (window.EKKO_TEXT_BEND?.isBending?.()) {
+      window.EKKO_TEXT_BEND.update(event.point);
       return;
     }
 
@@ -1193,11 +1219,10 @@ const _initSelectionTool = function() {
     }
     if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
 
-    if (window._ekkoCurveDrag) {
-      window._ekkoCurveDrag = null;
-      window.updateSelectionBox?.(window.selectedItem);
-      window.updateContextualMenu?.(window.selectedItem);
-      paper.view.update();
+    if (window.EKKO_TEXT_BEND?.isBending?.()) {
+      // endBend() deja un solo paso de historial para todo el arrastre y
+      // vuelve a dibujar el tirador sobre el owner que quedo.
+      window.EKKO_TEXT_BEND.end();
       return;
     }
 
@@ -1332,6 +1357,15 @@ const _initSelectionTool = function() {
     if (window.resizeActive) return;
 
     let hitResult = null;
+    /* Cursor de curvatura sobre el tirador. LightBurn cambia el cursor a un
+       gesto de doblar cuando el puntero esta sobre el punto azul; sin esto el
+       cliente no tiene forma de saber que el punto se agarra. Va antes que los
+       tiradores de caja porque el punto esta por FUERA de la caja y el hit-test
+       de la seleccion no lo alcanza. */
+    if (window.EKKO_TEXT_BEND?.hitTest?.(event.point)) {
+      canvas.style.cursor = 'ns-resize';
+      return;
+    }
     if (window.selectionBoxGroup) {
       hitResult = window.selectionBoxGroup.hitTest(event.point, {
         fill: true,
