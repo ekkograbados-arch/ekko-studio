@@ -147,7 +147,7 @@ export function startTextEditing(textItem) {
             } else {
                 textItem.content = val;
                 textItem.visible = true; // Hacerlo visible de nuevo
-                
+
                 // Actualizar curvatura si aplica, o simplemente actualizar la caja de selección
                 if (textItem.data?.isCurvedGroup || textItem.data?.curvature) {
                     const curvature = textItem.data.curvature || 0;
@@ -166,9 +166,16 @@ export function startTextEditing(textItem) {
                 window.updateSelectionBox(textItem.parent && textItem.parent.data?.clipGroup ? textItem.parent : textItem);
             }
         }
-        
+
         if (area.parentNode) {
             area.parentNode.removeChild(area);
+        }
+        /* Enganche para quien edita un grupo curvado/espaciado por la via de un
+           PointText temporal: guarda el texto y sale sin esperar el rebuild. */
+        if (textItem.data?.isTempEditorMock || textItem.data?.editHostOwnerId) {
+            if (typeof window.textEditOnComplete === 'function') {
+                window.textEditOnComplete(textItem, save);
+            }
         }
         paper.view.update();
     }
