@@ -1474,3 +1474,7 @@ body,
 #topBar[data-ekko-texto="no"] #btnTopTextSpacing {
     display: none !important;
 }
+
+/* EKKO-STUDIO-INTEGRATED-2026-10-04: lectura de angulo de curvado (lienzo + barras). */
+.toolbar-angle-readout { display:inline-block; min-width:44px; text-align:center; font-weight:700; font-size:12px; color:#0f172a; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; padding:3px 6px; }
+#ekkoBendPopup { position:fixed; z-index:10000; display:none; padding:4px 10px; border-radius:6px; background:#263747; color:#fff; font:600 13px sans-serif; pointer-events:none; white-space:nowrap; }
