@@ -28,7 +28,8 @@ function isSemanticOwner(item) {
     data.geomBase || data.semanticKind === "solid" ||
     data.semanticKind === "hole" || data.isHole === true ||
     data.isSolidShape === true || data.isTextVector === true ||
-    data.isSmartFusion === true
+    data.isSmartFusion === true || data.isCurvedGroup === true ||
+    data.isSpacedGroup === true
   );
 }
 
