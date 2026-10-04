@@ -398,60 +398,62 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <button id="panelRecoveryDock" type="button" class="panel-recovery-dock" title="Mostrar herramientas" aria-label="Mostrar herramientas">☰ Mostrar herramientas</button>
 
             <!-- ==============================================================
-                 EDITAR RECORTE
+            <!-- ==============================================================
+                 VENTANA: EDITAR FONDO
                  ------------------------------------------------------------
-                 Va en el MISMO lugar que la barra contextual y la reemplaza
-                 mientras se edita. Antes era un panel flotante pegado al
-                 lienzo por la derecha: tapaba la foto y, ademas, la barra
-                 contextual seguia abierta al mismo tiempo con los mismos
-                 botones duplicados.
+                 Panel vertical a la derecha, como el "Editar recorte" de
+                 PhotoRoom. Antes era una tira horizontal que cruzaba el lienzo
+                 de lado a lado y tapaba la foto.
 
-                 Estructura de "Edit Cutout" de PhotoRoom:
-                     Asistido / Manual   <- como se elige la zona
-                     Borrar / Restaurar   <- que se le hace
-                     Tamano del pincel    <- solo en Manual
-                     Ver lo que se quito  <- capa de lo transparente
-                     Deshacer / Listo     <- cerrar la edicion
+                 La ventana edita la MASCARA, no la imagen: al confirmar se
+                 recompone el contenido del item que ya esta dentro del mockup,
+                 asi que el recorte nunca se mueve del producto.
+
+                 Los controles se agregan en pasos:
+                   Paso 1  panel + lienzo
+                   Paso 2  cursor y tamano (rueda, arrastre, numero)
+                   Paso 3  zoom de la ventana y vista en vivo
+                   Paso 4  cerrar y aplicar
                  ============================================================== -->
-            <div id="barra-editar-recorte" style="display:none;">
-                <span class="ekko-br__titulo">Editar recorte</span>
-                <span class="ekko-br__sep"></span>
+            <div id="ventana-editar-fondo" style="display:none;">
 
-                <div class="ekko-br__seg" role="group" aria-label="Como elegir la zona">
-                    <button type="button" id="modo-asistido" class="ekko-br__b is-activo" aria-pressed="true" title="Toca una zona y se selecciona sola (A)">
-                        <i class="fas fa-magic" aria-hidden="true"></i> Asistido
-                    </button>
-                    <button type="button" id="modo-manual" class="ekko-br__b" aria-pressed="false" title="Pinta con el pincel (M)">
-                        <i class="fas fa-paint-brush" aria-hidden="true"></i> Manual
-                    </button>
-                </div>
+                <canvas id="lienzo-editar-fondo" class="vfond__lienzo" role="img"
+                        aria-label="Lienzo de edicion del recorte"></canvas>
 
-                <div class="ekko-br__seg" role="group" aria-label="Que hacer">
-                    <button type="button" id="pincel-borrar" data-ekko-command="pincelBorrar" class="ekko-br__b ekko-br__b--borrar is-activo" aria-pressed="true" title="Sacar lo que marques (B)">
-                        <span class="ekko-br__pt" aria-hidden="true"></span> Borrar
-                    </button>
-                    <button type="button" id="pincel-restaurar" data-ekko-command="pincelRestaurar" class="ekko-br__b ekko-br__b--restaurar" aria-pressed="false" title="Devolver lo que marques (R)">
-                        <span class="ekko-br__pt" aria-hidden="true"></span> Restaurar
-                    </button>
-                </div>
+                <aside class="vfond__panel">
+                    <h2 class="vfond__titulo">Editar Fondo</h2>
 
-                <label class="ekko-br__tam" id="grupo-tamano" hidden>
-                    <span>Tamano</span>
-                    <input type="range" id="slider-tamano-pincel" min="4" max="120" value="25" step="1">
-                    <span id="valor-tamano-pincel" class="ekko-br__num">25</span>
-                </label>
+                    <div class="vfond__acciones">
+                        <button type="button" id="pincel-borrar"
+                                class="vfond__redondo vf--borrar is-activo" aria-pressed="true" title="Sacar lo que marques (B)">
+                            <span class="vfond__aro"><i class="fas fa-eraser"></i></span>
+                            <span class="vfond__nombre">Borrar</span>
+                        </button>
+                        <button type="button" id="pincel-restaurar"
+                                class="vfond__redondo vf--restaurar" aria-pressed="false" title="Devolver lo que marques (R)">
+                            <span class="vfond__aro"><i class="fas fa-paint-brush"></i></span>
+                            <span class="vfond__nombre">Restaurar</span>
+                        </button>
+                    </div>
 
+                    <div class="vfond__seg" role="group" aria-label="Como elegir la zona">
+                        <button type="button" id="modo-asistido" class="vfond__segb is-activo" aria-pressed="true" title="Toca una zona y se selecciona sola (A)">Asistido</button>
+                        <button type="button" id="modo-manual" class="vfond__segb" aria-pressed="false" title="Pinta con el pincel (M)">Manual</button>
+                    </div>
 
-                <span class="ekko-br__sep"></span>
+                    <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automáticamente para hacerla más fácil.</p>
 
-                <button type="button" data-ekko-command="deshacerRetoque" id="btn-deshacer-fondo" class="ekko-br__b" title="Volver al resultado de la IA">
-                    <i class="fas fa-undo" aria-hidden="true"></i> Deshacer
-                </button>
-                <button type="button" data-ekko-command="aceptarRetoque" id="btn-aceptar-fondo" class="ekko-br__b ekko-br__b--ok" title="Terminar (Esc)">
-                    <i class="fas fa-check" aria-hidden="true"></i> Listo
-                </button>
+                    <div class="vfond__bloque" id="grupo-tamano" hidden>
+                        <div class="vfond__et">Tamaño del pincel <span id="valor-tamano-pincel" class="vfond__num">25</span></div>
+                        <input type="range" id="slider-tamano-pincel" min="1" max="120" value="25" step="1" aria-label="Tamaño del pincel">
+                    </div>
+
+                    <div class="vfond__pie">
+                        <button type="button" id="btn-deshacer-fondo" class="vfond__btn">↶ Deshacer</button>
+                        <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">✓ Listo</button>
+                    </div>
+                </aside>
             </div>
-
             <!-- Cursor del pincel: sigue al puntero y se colorea segun la
                  herramienta, para ver QUE se esta por hacer sin mirar la barra. -->
             <div id="cursor-pincel" class="ekko-recorte__cursor" style="display:none;"></div>
