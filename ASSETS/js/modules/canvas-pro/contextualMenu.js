@@ -489,65 +489,52 @@ export function ungroupSelectedItem() {
 function dispatchTextCurve(options = {}) {
     const item = window.selectedItem || window.selectedItems?.[0];
     if (!item) return;
+
+    const explicito = options.radius !== undefined || options.curvature !== undefined ||
+        options.hspace !== undefined;
+    /* Sin argumentos es el BOTON: alterna el MODO, nunca la geometria.
+       - Modo activo para esto -> salir (se conserva la curva tal cual esta).
+       - Si no -> entrar (el texto sigue como esta: recto sigue recto).
+       Curvar "solo con dar clic" era ilogico: el boton es la puerta, no el arco. */
+    if (!explicito) {
+        if (window.EKKO_TEXT_BEND?.isMode?.(item)) {
+            window.EKKO_TEXT_BEND.exitMode();
+            window.updateSelectionBox?.(window.selectedItem || item);
+            window.updateContextualMenu?.(window.selectedItem || item);
+        } else {
+            window.EKKO_TEXT_BEND?.enterMode?.(item);
+        }
+        if (typeof paper !== "undefined") paper.view?.update?.();
+        return;
+    }
+
+    /* Con argumentos (slider, radio, numero): aplicar y ENTRAR al modo, para
+       que el punto quede disponible para seguir trabajando. */
     const slider = document.querySelector('#ctxTextCurvature input[type=range]');
-
-    /* La fuente de verdad de un campo numerico es el campo que el cliente esta
-       TOCANDO, no el que aparece primero en una busqueda por ID.
-
-       Antes se resolvia con `ctxCurveRadius || objCurveRadius`, y como el
-       primero existe SIEMPRE en el DOM (vive dentro de #ctxTextControls, que
-       solo esta oculto con .hidden), el `||` nunca llegaba al campo de la barra
-       superior. El listener de change si se registraba en los dos, asi que el
-       evento disparaba y el valor se leia del input equivocado: se escribia un
-       radio y la curvatura salia con el anterior. Por eso el radio llega como
-       argumento desde el listener, que si sabe que input se toco. */
     const hspace = Number(options.hspace ?? item.data?.hspace ?? 0) || 0;
     const valorSlider = Number(slider?.value ?? 0) || 0;
     const radioDelObjeto = Number(item.data?.radius ?? 0) || 0;
-    const yaCurvo = item.data?.isCurvedGroup === true;
 
     let radius;
     let curvature;
 
     if (options.radius !== undefined) {
-        /* El cliente escribio un radio en alguno de los dos campos. Manda ese. */
         radius = Number(options.radius) || 0;
         curvature = Number(options.curvature ?? item.data?.curvature ?? 0) || 0;
     } else if (valorSlider !== 0) {
-        /* Movio el slider de curvatura. El radio es el que ya tenia el objeto. */
         radius = radioDelObjeto;
         curvature = valorSlider;
     } else {
-        /* Ni slider ni radio: solo aprieto el boton. */
-        if (yaCurvo) {
-            /* MEDIDO: antes el segundo clic NO aplanaba. data.radius queda
-               guardado en el objeto, asi que el segundo clic volvia a curvar con
-               el radio anterior y el texto no cambiaba nunca de forma. Un boton
-               que hace siempre lo mismo no es un boton. Aplanar es lo que ya
-               hace applyTextCurve con curvatura cero. */
-            radius = 0;
-            curvature = 0;
-        } else {
-            /* UN CLIC CONCURVE.
-               MEDIDO: con el slider en 0 y sin radio escrito, "Curvar Texto" no
-               hacia NADA. El cliente aprieta, no ve cambio, y las herramientas de
-               texto curvado (negrita, fuente y tamano sobre glifos horneados)
-               quedan inalcanzables salvo que sepa que existe un radio escondido.
-               En LightBurn el equivalente es agarrar el tirador azul y arrastrar,
-               que es discoverible.
-
-               El radio por defecto sale del ANCHO del propio texto: un arco suave
-               que siempre se ve bien, sea cual sea el tamaño de la palabra. */
-            const ancho = Number(item.bounds?.width) || 0;
-            radius = ancho > 0 ? Math.max(60, Math.round(ancho * 1.2)) : 240;
-            curvature = 0;
-        }
+        radius = Number(item.data?.radius ?? 0) || 0;
+        curvature = Number(options.curvature ?? item.data?.curvature ?? 0) || 0;
     }
 
-    if (radius > 0) curvature = Math.max(0.1, Math.min(100, 10000 / Math.abs(radius))) * (curvature < 0 ? -1 : 1);
+    if (radius > 0) curvature = Math.max(0.1, Math.min(359, 10000 / Math.abs(radius))) * (curvature < 0 ? -1 : 1);
+    window.EKKO_TEXT_BEND?.enterMode?.(item);
     Promise.resolve(applyTextCurve(item, curvature, { radius: radius || undefined, hspace })) .then(() => {
         window.updateSelectionBox?.(window.selectedItem || item);
         window.updateContextualMenu?.(window.selectedItem || item);
+        window.EKKO_TEXT_BEND?.syncInputs?.();
         if (typeof paper !== "undefined") paper.view?.update?.();
     });
 }
@@ -699,6 +686,9 @@ export function initContextualMenu() {
 
     setClick('btnCtxTextCurve', dispatchTextCurve);
     setClick('btnTopTextCurve', dispatchTextCurve);
+    setClick('btnCtxRotateLetters', () => {
+        if (typeof window.toggleRotateLetters === 'function') window.toggleRotateLetters();
+    });
     setClick('btnCtxTextSpacing', dispatchTextSpacing);
     setClick('btnTopTextSpacing', dispatchTextSpacing);
     /* Cada listener pasa el valor del input QUE EL CLIENTE TOCO. Antes ambos
@@ -834,11 +824,23 @@ function refreshTextControlsVisibility() {
             : null);
     if (!raw) {
         document.getElementById("topBar")?.setAttribute("data-ekko-texto", "no");
+        /* Sin seleccion no hay modo: el punto y las guias se van con ella. */
+        window.EKKO_TEXT_BEND?.exitMode?.();
+        window.EKKO_TEXT_BEND?.sync?.();
         return;
     }
     const target = raw.data?.clipGroup ? getPublicOwner(raw) : raw;
     const isText = isTextOwner(target);
     document.getElementById("topBar")?.setAttribute("data-ekko-texto", isText ? "si" : "no");
+    /* El modo pertenece a un solo owner: al seleccionar OTRO objeto se sale,
+       conservando su geometria. Asi el punto solo aparece tras apretar Curvar
+       sobre lo seleccionado. */
+    if (!window.EKKO_TEXT_BEND?.isMode?.(target)) {
+        window.EKKO_TEXT_BEND?.exitMode?.();
+    }
+    /* El tirador de curvatura se sincroniza con la seleccion, no con el comando.
+       Este es el unico lugar donde se decide si el punto esta o no. */
+    window.EKKO_TEXT_BEND?.sync?.();
 }
 
 function isCurveTextTarget(target) {
