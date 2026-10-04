@@ -180,7 +180,11 @@ export function getPublicOwners(items, visited = new Set()) {
     if (!owner || path.has(owner) || isMockupOrMask(owner) || isContainmentWrapper(owner)) return;
     const data = dataOf(owner);
     const hasSemanticGeometry = !!data.geomBase || data.semanticKind === 'solid' ||
-      data.semanticKind === 'hole' || data.isHole === true || data.isSolidShape === true;
+      data.semanticKind === 'hole' || data.isHole === true || data.isSolidShape === true ||
+      /* Texto curvado/espaciado es UNA pieza de texto: sin este flag, el
+         colector descendia a los paths de cada letra y un clic seleccionaba
+         una sola letra (el "texto se vectorizo"). */
+      data.isCurvedGroup === true || data.isSpacedGroup === true;
     // A regular imported/user group is a selection/transform container, not a
     // closed vector owner. Marquee and geometry consumers must descend to its
     // public children instead of collapsing the result to the group.
