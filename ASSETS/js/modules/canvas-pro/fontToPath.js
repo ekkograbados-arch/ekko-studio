@@ -285,5 +285,11 @@ export async function textToCompoundPath(textItem) {
 }
 
 if (typeof window !== "undefined") {
-    window.EKKO_FONT_TO_PATH = { textToCompoundPath, resolveFontFile, getBuiltinFontCatalog };
+    window.EKKO_FONT_TO_PATH = { textToCompoundPath, resolveFontFile, getBuiltinFontCatalog, loadFont };
 }
+
+/* loadFont se expone para el reparto de glifos sobre el arco: medir el avance
+   REAL de cada letra es lo que hace que salgan bien espacuradas en vez de
+   estimadas con largo * 0.6. La fuente ya estaba cacheada y parseada; solo se
+   publica. */
+export { loadFont };
