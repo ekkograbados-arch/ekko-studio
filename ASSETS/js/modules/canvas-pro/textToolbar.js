@@ -9,7 +9,7 @@ para eliminar por completo el delay de red de 2 minutos.
 // 🚀 SILENCIADOR DE CONSOLA GLOBAL: Mantener la consola limpia de logs informativos o repetitivos
 
 
-import { textToCompoundPath, getBuiltinFontCatalog } from "./fontToPath.js";
+import { textToCompoundPath, getBuiltinFontCatalog, loadFont } from "./fontToPath.js";
 import { stampDesignItem } from "./fusionCore.js";
 import { buildContourRelations, applyContourRecord } from "./holeSemantics.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
@@ -125,7 +125,7 @@ export function rebuildEKKOTextOwner(owner, patch = {}) {
 
     // restoreFlatText lee data.textString y deja un PointText limpio en el
     // MISMO indice del mismo padre, asi que el objeto no se mueve de lugar.
-    const flat = restoreFlatText(owner, owner);
+    const flat = restoreFlatText(owner, owner, true);
     if (!flat) return null;
     flat.visible = true;
 
@@ -133,6 +133,9 @@ export function rebuildEKKOTextOwner(owner, patch = {}) {
     // seleccion apunta al objeto que van a reemplazar. Por eso se les entrega
     // la seleccion antes de llamarlos, en vez de rehacer su logica aqui.
     handOffSelection(owner, flat);
+    /* El modo curva sigue al texto plano intermedio: las reconstrucciones de
+       abajo publican el owner final y transfieren desde aca. */
+    transferCurveMode(owner, flat);
 
     if (Math.abs(curvature) >= 0.1) {
         const promesa = applyTextCurve(flat, curvature, {
@@ -174,7 +177,46 @@ if (typeof window !== "undefined") {
     window.rebuildEKKOTextOwner = rebuildEKKOTextOwner;
     window.EKKO_TEXT_IS_OWNER = isTextOwner;
     window.EKKO_TEXT_FONT_SIZE = textFontSize;
+    window.toggleRotateLetters = toggleRotateLetters;
+    window.editGroupText = editGroupText;
+    /* Sello de version del modulo de texto. Si en la consola del cliente este
+       valor no coincide con el del paquete entregado, esta probando codigo
+       viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
+    window.EKKO_TEXT_BUILD = "20261004-modo-curva-v2";
+    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+       mantener su propia logica de arrastre: asi el unico dueno de "como se
+       curva un texto" es este modulo. */
+    window.EKKO_TEXT_BEND = {
+        sync: syncCurveHandle,
+        hitTest: bendHitTest,
+        begin: beginBend,
+        update: updateBend,
+        end: endBend,
+        clear: clearBend,
+        isBending,
+        radiusOf: curvatureToRadius,
+        guides: drawCurveGuides,
+        enterMode: enterCurveMode,
+        exitMode: exitCurveMode,
+        isMode: isCurveMode,
+        syncInputs: syncBendInputs,
+        handle: () => window._ekkoCurveHandle || null
+    };
+    /* Las guias y el tirador se despegan del texto cuando el cliente lo mueve,
+       escala o rota: quedan clavados en el lugar anterior. El controlador de
+       transformaciones avisa de cada gesto, asi que se redibujan ahi, una vez
+       por frame. MEDIDO: sin esto, mover el texto curvo dejaba el arco magenta
+       flotando lejos de las letras. */
+    window.EKKO_FUSION_CONTROLLER?.addTransformObserver?.(() => {
+        if (guiaFrame) return;
+        if (!isCurveMode(window.selectedItem)) return;
+        guiaFrame = requestAnimationFrame(() => {
+            guiaFrame = null;
+            syncCurveHandle();
+        });
+    });
 }
+let guiaFrame = null;
 
 let loadedFontsCache = [];
 
@@ -274,10 +316,39 @@ export async function loadDynamicFonts() {
 }
 
 /**
+ * Puerta de entrada SERIALIZADA a la curvatura. Todo el que curva (arrastre,
+ * sliders, numeros, codigo) pasa por aca: si hay un rebuild en vuelo, el pedido
+ * se encola y solo corre el ultimo. Sin esto, dos rebuilds encimados dejaban
+ * dos grupos vivos (duplicado).
+ */
+export function applyTextCurve(item, curvature, options = {}) {
+    return new Promise((resolver) => {
+        /* Coalescencia solo entre curvas: si lo ultimo encolado es una curva,
+           se actualiza en el lugar (el ultimo valor manda) y este pedido espera
+           con los demas. Si es una soldadura, se encola detras (orden real). */
+        const top = curvaCola[curvaCola.length - 1];
+        if (top && !top.soldar) {
+            top.item = item;
+            top.curvatura = curvature;
+            top.opciones = options || {};
+            top.espera.push(resolver);
+        } else {
+            curvaCola.push({ item, curvatura: curvature, opciones: options || {}, espera: [resolver] });
+        }
+        bombearCarril();
+    });
+}
+
+/**
  * Aplica deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
  */
-export async function applyTextCurve(item, curvature, options = {}) {
+async function applyTextCurveRun(item, curvature, options = {}) {
     if (!item || item.data?.locked) return;
+    /* Sin padre no hay nada que reconstruir: Paper conserva `.project` despues
+       de remove() (solo quita parent), asi que chequear project no alcanza. Un
+       pedido viejo sobre un objeto ya eliminado generaba basura invisible
+       (grupos sueltos sin padre) o, peor, grupos duplicados en escena. */
+    if (!item.parent) return null;
     if (!options.skipHistory && typeof window.saveHistory === 'function') window.saveHistory();
     const numericCurvature = Number(curvature) || 0;
 
@@ -289,7 +360,10 @@ export async function applyTextCurve(item, curvature, options = {}) {
            contencion, o cuando venia de otra ruta, la seleccion se quedaba
            colgando del grupo ya removido y el texto plano quedaba sin poder
            editar. Se resuelve el owner publico para no depender de cual de los
-           dos este seleccionado. */
+           dos este seleccionado.
+           Aplanar tambien SALE del modo curva: sin curva no hay nada que
+           ajustar con el punto. */
+        exitCurveMode();
         if (item.data?.isCurvedGroup) {
             const owner = getPublicOwner(item) || item;
             const flatText = restoreFlatText(item, item);
@@ -386,51 +460,178 @@ export async function applyTextCurve(item, curvature, options = {}) {
     const charCount = textString.length;
     if (charCount === 0) return;
 
-    const signedRadius = Number(options.radius) || (10000 / numericCurvature);
-    const radius = Math.abs(signedRadius) * (numericCurvature < 0 ? -1 : 1);
-    const centerPoint = targetItem.bounds.center.clone();
-    const arcCenter = new paper.Point(centerPoint.x, centerPoint.y + radius);
-    const textWidth = textString.length * fontSize * 0.6 +
-        Math.max(0, textString.length - 1) * (Number(options.hspace ?? targetItem.data?.hspace ?? 0) * fontSize * 0.02);
-    const totalAngleRad = textWidth / radius;
-    const totalAngleDeg = totalAngleRad * (180 / Math.PI);
-    const startAngle = -90 - (totalAngleDeg / 2);
-    const angleStep = totalAngleDeg / (charCount - 1 || 1);
+    /* MEDIDAS REALES DE LOS GLIFOS.
+       Antes el ancho del texto se estimaba con `largo * fontSize * 0.6`, una
+       aproximacion que no tiene en cuenta el ancho de cada letra: "il" ocupaba
+       lo mismo que "MM". Por eso unas letras quedaban pegadas y otras
+       separadas, y el espaciado era incontrolable. getAdvanceWidth da el avance
+       real de cada glifo. */
+    const size = Number(fontSize) || 42;
+    const hspace = Number(options.hspace ?? targetItem.data?.hspace ?? 0) || 0;
+    const fuente = await loadFont(fontFamily).catch(() => null);
+    const chars = Array.from(textString);
+    const medidas = chars.map((ch) => {
+        let advance = size * 0.6;
+        try { advance = fuente?.getAdvanceWidth ? fuente.getAdvanceWidth(ch, size) : advance; } catch (_) {}
+        return Math.abs(Number(advance) || size * 0.6);
+    });
 
-    // Curved text must be geometry, not a group of PointText objects. Build each
-    // glyph through the same OpenType path converter used by Text to Vector,
-    // then map its world geometry into the eventual parent's local space.
-    const parent = targetItem.parent;
-    const toParent = (point) => parent?.globalToLocal ? parent.globalToLocal(point) : point;
-    const worldToParent = (() => {
-        if (!parent?.globalToLocal) return null;
-        const o = parent.globalToLocal(new paper.Point(0, 0));
-        const x = parent.globalToLocal(new paper.Point(1, 0)).subtract(o);
-        const y = parent.globalToLocal(new paper.Point(0, 1)).subtract(o);
-        return new paper.Matrix(x.x, x.y, y.x, y.y, o.x, o.y);
-    })();
+    // Longitud total del arco: suma de avances reales mas el espaciado pedido.
+    const espacioPorPar = hspace * size * 0.02;
+    const longitudTotal = medidas.reduce((a, b) => a + b, 0) + Math.max(0, charCount - 1) * espacioPorPar;
 
+    /* EL ANGULO ES EL VALOR MAESTRO.
+       radio = longitud del arco / angulo. El cliente escribe el angulo (0 a 359)
+       y el radio sale solo. Si mas adelante se toca el radio, el angulo se
+       recalcula con esta misma formula: los dos nunca pueden discordar. */
+    const theta = Math.abs(numericCurvature) * (Math.PI / 180);
+    const haciaArriba = numericCurvature >= 0;
+    const signo = haciaArriba ? 1 : -1;
+    const radio = theta > 1e-6 ? (longitudTotal / theta) : Infinity;
+
+    /* ANCLA EN MARCO OWNER-LOCAL.
+       Los hijos del grupo se posicionan en marco local puro del arco (sin
+       mapear por la matriz del texto), y la matriz del texto se transfiere
+       ENTERA al grupo nuevo al publicar. Asi la salida es M·(arco + ancla):
+         - rebuilds con mismos parametros: mismos numeros -> salida
+           bit-identica, cero deriva al arrastrar;
+         - el cliente MOVIO el texto: la traslacion viaja en la matriz
+           transferida -> el arco viaja rigido con el objeto;
+         - el cliente ROTO el texto: la rotacion viaja igual -> gira rigido.
+       El ancla se guarda (data.bendAnchorLocal) con el id del padre
+       (data.bendAnchorParent): mientras el padre sea el mismo se reutiliza.
+       Solo se recalcula en la primera curva o si el objeto cambio de padre.
+       La version anterior mapeaba por la matriz (que incluye la posicion
+       fresca del PointText temporal, distinta en cada rebuild) y por eso el
+       texto trepaba frame a frame. */
+    const padreTarget = targetItem.parent;
+    const padreId = padreTarget?.id ?? null;
+    let anclaLocal = null;
+    const anclaGuardada = targetItem.data?.bendAnchorLocal;
+    const padreGuardado = targetItem.data?.bendAnchorParent;
+    if (Array.isArray(anclaGuardada) && anclaGuardada.length === 2 &&
+        anclaGuardada.every((n) => Number.isFinite(n)) &&
+        padreGuardado != null && padreGuardado === padreId) {
+        anclaLocal = new paper.Point(anclaGuardada[0], anclaGuardada[1]);
+    } else {
+        // Primera curva o reparentado: el punto del marco local que hoy cae
+        // sobre el centro visible del texto (matriz completa invertida: el
+        // ancla debe cumplir M·A = C).
+        try {
+            const cPadre = padreTarget
+                ? padreTarget.globalToLocal(targetItem.bounds.center)
+                : targetItem.bounds.center.clone();
+            const inv = targetItem.matrix?.inverted?.() || new paper.Matrix();
+            anclaLocal = cPadre.transform(inv);
+        } catch (_) {
+            anclaLocal = new paper.Point(0, 0);
+        }
+    }
+
+    let acumulado = -longitudTotal / 2;
     for (let i = 0; i < charCount; i++) {
-        const char = textString[i];
-        const angle = startAngle + (i * angleStep);
-        const angleRad = angle * (Math.PI / 180);
-        const point = new paper.Point(arcCenter.x + radius * Math.cos(angleRad), arcCenter.y + radius * Math.sin(angleRad));
-        const temp = new paper.PointText({ insert: false, point, content: char, fontSize, fontFamily,
-            fillColor, fontWeight, fontStyle, justification: "center" });
-        temp.rotate(angle + 90, temp.point);
+        const char = chars[i];
+        const advance = medidas[i];
+        const centroGlifo = acumulado + advance / 2;
+        acumulado += advance + (i < charCount - 1 ? espacioPorPar : 0);
+
+        // Punto sobre la circunferencia, medido desde el mas cercano al medio.
+        const phi = radio < Infinity ? centroGlifo / radio : 0;
+        const xLocal = radio < Infinity ? radio * Math.sin(phi) : centroGlifo;
+        const yLocal = radio < Infinity ? signo * radio * (1 - Math.cos(phi)) : 0;
+
+        const temp = new paper.PointText({
+            insert: false,
+            point: new paper.Point(0, 0),
+            content: char,
+            fontSize: size,
+            fontFamily,
+            fillColor,
+            fontWeight,
+            fontStyle,
+            justification: "left"
+        });
         const glyph = await textToCompoundPath(temp);
         temp.remove();
         if (!glyph) continue;
         glyph.fillRule = "evenodd";
-        if (worldToParent) glyph.transform(worldToParent);
+
+        /* Geometria HORNEADA, no en matriz.
+           textToCompoundPath devuelve el glifo con applyMatrix=false (la matriz
+           la aplica el llamador una sola vez). Si se deja asi, cada glifo lleva
+           su posicion y su giro en glyph.matrix, y todo lo que lee geometria
+           clonando sin matriz (flattenIdentityClone, que usa la caja de
+           seleccion, el alineado y las cotas) pierde la transformacion: la caja
+           salia del tamano de un glifo sin girar en vez del texto curvado.
+           Con applyMatrix=true, los translate/rotate de abajo se hornean en los
+           segmentos y el glifo queda como cualquier otro vector de la app
+           (matriz identidad, geometria final). Los movimientos/rotados reales
+           van por la matriz del DUENO (fusionController), que sigue intacta. */
+        glyph.applyMatrix = true;
+
+        // Centrar el glifo sobre su avance, girarlo para que quede tangente a
+        // la circunferencia y ubicarlo en el marco local del grupo.
+        glyph.translate(new paper.Point(-advance / 2, 0));
+        /* MODO DE GIRO DE LAS LETRAS (el "candado").
+           paper.rotate() recibe GRADOS, no radianes (asi se fue el angulo: se
+           pasaba phi en radianes y cada letra giraba ~1° en lugar de los 50° que
+           correspondian). En el modo "letra vertical" (candado CERRADO) no se
+           gira la letra: se apoya en la linea de curvado y sigue vertical. En el
+           modo LightBurn (candado ABIERTO) se gira para quedar perpendicular al
+           radio, que es lo que hace LightBurn.
+           El modo se guarda en data.rotateLetters: true = como LightBurn. */
+        const girar = options.rotateLetters !== undefined
+            ? !!options.rotateLetters
+            : (targetItem.data?.rotateLetters !== false);
+        if (radio < Infinity && girar) {
+            glyph.rotate(signo * phi * (180 / Math.PI), new paper.Point(0, 0));
+        }
+        /* Posicion final en marco OWNER-LOCAL: ancla + arco. Sin mapear por la
+           matriz del texto: esa matriz se transfiere ENTERA al grupo al
+           publicar, y mapear tambien aca la aplicaria dos veces. */
+        const posLocal = new paper.Point(xLocal, yLocal).add(anclaLocal);
+        glyph.translate(posLocal);
         curvedGroup.addChild(glyph);
     }
+
+    /* Las guias se dibujan EN VIVO desde los glifos (drawCurveGuides), no desde
+       vertices guardados: la app mueve grupos a veces por matriz y a veces por
+       hijos (duplicar, alinear, position=), asi que ningun marco guardado
+       sobrevive a todos los flujos. Solo se guardan los escalares del estado
+       para sliders y diagnostico. */
+    curvedGroup.data.bendAngle = numericCurvature;
+    curvedGroup.data.bendRadius = radio < Infinity ? radio : null;
+    curvedGroup.data.bendSign = radio < Infinity ? signo : 0;
+    curvedGroup.data.bendLength = longitudTotal;
+    curvedGroup.data.bendAnchorLocal = [anclaLocal.x, anclaLocal.y];
+    curvedGroup.data.bendAnchorParent = padreId;
+
+    /* Las guias las dibuja syncCurveHandle() al final (grupo ya en escena y
+       seleccionado): ver drawCurveGuides(). */
 
     curvedGroup.data.fillRule = "evenodd";
     curvedGroup.data.isTextVector = false;
     delete curvedGroup.data.isTextVector;
-    drawBlueCurveHandle(curvedGroup);
 
+    /* El tirador NO se dibuja aqui. Antes se hacia antes de insertar el grupo en
+       la escena, con lo cual el punto quedaba anclado a un owner que todavia no
+       estaba en el lienzo. Se dibuja al final, cuando el owner ya vive y la
+       seleccion ya lo publico: ver syncCurveHandle() al final de esta funcion. */
+
+    const parent = targetItem.parent;
+    /* La matriz del texto (rotacion/escala/posicion del cliente) se transfiere
+       ENTERA al grupo: los hijos estan en marco local puro y es esta matriz la
+       que los lleva al lugar correcto. Sin esto, curvar un texto rotado lo
+       enderezaba.
+       OJO: con applyMatrix=true (default del Group), asignar .matrix HORNEA la
+       transformacion en los hijos y resetea a identidad: la transferencia se
+       evaporaba y el ancla quedaba huerfana (el texto teleportaba al origen en
+       el segundo rebuild). Por eso applyMatrix=false ANTES de asignar, igual
+       que hace fusionController para todos los owners publicos. */
+    try {
+        curvedGroup.applyMatrix = false;
+        if (targetItem.matrix) curvedGroup.matrix = targetItem.matrix.clone();
+    } catch (_) {}
     if (parent) {
         const index = parent.children.indexOf(targetItem);
         parent.insertChild(index, curvedGroup);
@@ -451,13 +652,103 @@ export async function applyTextCurve(item, curvature, options = {}) {
 
            weldText, mas abajo en este mismo archivo, ya lo hacia bien con
            commitSelection(resultPath, [resultPath]). Esta era la excepcion. */
+        /* El modo sigue al owner nuevo ANTES del commit: commitSelection
+           refresca el menu en forma sincronica, y ese refresh saldria del modo
+           si el id todavia apuntara al owner viejo. */
+        transferCurveMode(targetItem, curvedGroup);
         window.commitSelection?.(curvedGroup, [curvedGroup]);
         window.updateSelectionBox(curvedGroup);
+    }
+    /* El tirador se dibuja al final, cuando el owner ya esta en la escena y la
+       seleccion lo apunta. syncCurveHandle() es idempotente: si el punto ya
+       apunta a este owner no lo vuelve a crear, asi que durante un arrastre no
+       parpadea. */
+    syncCurveHandle();
+    paper.view.update();
+}
+
+/**
+ * Alterna el modo de giro de las letras al curvar.
+ *
+ * Cerradura (candado CERRADO): la letra queda vertical pero apoyada sobre la
+ * linea de curvado, que se arquea. Es la forma extrema de "apoyar el texto en el
+ * piso curvo": cada glifo mantiene su eje vertical propio.
+ *
+ * Candado ABIERTO (por defecto): cada letra se gira para quedar PERPENDICULAR a
+ * la linea del radio, que es exactamente como lo hace LightBurn.
+ *
+ * En ambos casos la linea de curvado y el espaciado son los mismos; solo cambia
+ * la orientacion de cada glifo.
+ */
+/* Edita un texto CURVADO o ESPACIADO como si fuera texto normal.
+   Se crea un PointText temporal con las mismas propiedades, se abre el editor
+   inline sobre él (se oculta el grupo), y al confirmar se escribe el nuevo
+   string en data.textString y se reconstruye la curvatura. El grupo nunca se
+   convierte en vector: sigue siendo "texto curvado", como en Word o en
+   LightBurn. */
+export function editGroupText(owner) {
+    if (!owner || owner.data?.locked) return;
+    const data = owner.data || {};
+    if (typeof window.startTextEditing !== 'function') return;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+
+    const mock = new paper.PointText({
+        point: owner.bounds.center,
+        content: data.textString || '',
+        fontSize: data.fontSize || 42,
+        fontFamily: data.fontFamily,
+        fillColor: data.fillColor,
+        fontWeight: data.fontWeight,
+        fontStyle: data.fontStyle,
+        justification: 'center'
+    });
+    mock.data = { isTempEditorMock: true, editHostOwnerId: owner.id };
+
+    const parent = owner.parent || paper.project.activeLayer;
+    parent.addChild(mock);
+    const visibleAntes = owner.visible;
+    owner.visible = false;
+
+    window.textEditOnComplete = (temp, saved) => {
+        window.textEditOnComplete = null;
+        owner.visible = visibleAntes;
+        try { temp.remove(); } catch (_) {}
+        const text = saved ? String(temp.content || '').trim() : '';
+        if (saved && text) {
+            owner.data = { ...(owner.data || {}), textString: text };
+            rebuildEKKOTextOwner(owner, {});
+        } else if (saved && !text) {
+            owner.remove();
+            if (typeof window.deselectItem === 'function') window.deselectItem();
+            return;
+        }
+        if (typeof window.updateSelectionBox === 'function') window.updateSelectionBox(owner);
+        paper.view.update();
+    };
+    window.startTextEditing(mock);
+}
+
+export function toggleRotateLetters() {
+    const owner = resolveTextTarget(window.selectedItem || window.selectedItems?.[0]);
+    if (!owner) return;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+    const actual = owner.data?.rotateLetters !== false;
+    const siguiente = !actual;
+    owner.data = { ...(owner.data || {}), rotateLetters: siguiente };
+    if (owner.className !== "PointText") {
+        /* Ya curvado: rebuild sin pedir estado de nuevo; el modo se toma de
+           owner.data porque applyTextCurve lo lee cuando no viene en options. */
+        rebuildEKKOTextOwner(owner, { skipHistory: true });
+    } else {
+        const angulo = Number(owner.data?.curvature) || 0;
+        if (Math.abs(angulo) >= 0.1) {
+            applyTextCurve(owner, angulo, { skipHistory: true });
+        }
     }
     paper.view.update();
 }
 
-export function restoreFlatText(item, curvedGroup) {
+export function restoreFlatText(item, curvedGroup, keepAnchor = false) {
     const textStr = curvedGroup.data.textString || "Texto";
     const flatText = new paper.PointText({
         point: curvedGroup.bounds.bottomCenter,
@@ -473,6 +764,15 @@ export function restoreFlatText(item, curvedGroup) {
     delete flatText.data.isTextVector;
     delete flatText.data.curvature;
     delete flatText.data.radius;
+    /* La matriz del grupo (rotacion/escala del cliente) pasa al texto plano.
+       Sin esto, cada rebuild perdia la rotacion: el arco se reconstruia sin
+       girar aunque el cliente lo hubiera rotado antes de curvar. La posicion
+       (point) se mantiene donde estaba: solo viaja la orientacion. */
+    try {
+        if (curvedGroup.matrix && !curvedGroup.matrix.isIdentity()) {
+            flatText.matrix = curvedGroup.matrix.clone();
+        }
+    } catch (_) {}
     /* Un texto plano no es un grupo: ni curvado ni espaciado. Antes solo se
        limpiaba isCurvedGroup, asi que al aplanar un texto con espaciado el
        PointText nuevo conservaba isSpacedGroup, y al volver a curvarlo el
@@ -480,6 +780,14 @@ export function restoreFlatText(item, curvedGroup) {
        applyTextSpacing decide por la primera que encuentran, asi que el
        resultado era correcto por casualidad y no por diseno. */
     delete flatText.data.isSpacedGroup;
+    /* El ancla solo sobrevive si se va a re-curvar enseguida (rebuild): un
+       aplanado definitivo la borra, asi que si el cliente mueve el texto
+       recto y vuelve a curvar, el arco se centra donde esta ahora y no salta
+       al pasado. */
+    if (!keepAnchor) {
+        delete flatText.data.bendAnchorLocal;
+        delete flatText.data.bendAnchorParent;
+    }
     /* El subrayado es una linea aparte que cuelga del grupo. Si el owner que
        se aplana venia de ahi, el PointText plano se encontraria con una marca
        de subrayado sin la linea que la respalda. rebuildEKKOTextOwner rechaza
@@ -491,12 +799,15 @@ export function restoreFlatText(item, curvedGroup) {
         const index = parent.children.indexOf(curvedGroup);
         parent.insertChild(index, flatText);
     }
-    removeCurveHandle();
+    /* El tirador no se borra aca. Se rehace al final contra el owner que quedo
+       vivo. Borrarlo solo dejaba el texto plano sin punto para arrastrar, que es
+       justo el estado en el que mas hace falta. */
     curvedGroup.remove();
     return flatText;
 }
 
 function removeCurveHandle() {
+    removeCurveGuides();
     const handle = typeof window !== 'undefined' ? window._ekkoCurveHandle : null;
     if (handle?.project) {
         try { handle.remove(); } catch (e) {}
@@ -504,25 +815,673 @@ function removeCurveHandle() {
     if (typeof window !== 'undefined') window._ekkoCurveHandle = null;
 }
 
+/* Las guias comparten el ciclo de vida del tirador: se dibujan y se borran
+   juntas, y solo existen si el texto esta curvado (ver syncCurveHandle). */
+function removeCurveGuides() {
+    const guias = typeof window !== 'undefined' ? window._ekkoCurveGuides : null;
+    if (Array.isArray(guias)) {
+        guias.forEach(g => { try { if (g?.project) g.remove(); } catch (_) {} });
+    }
+    if (typeof window !== 'undefined') window._ekkoCurveGuides = null;
+}
+
+/**
+ * Dibuja las guias de curvado en la capa de overlay, ajustadas EN VIVO a los
+ * glifos: circulo por los centros del primer/medio/ultimo glifo.
+ *
+ * No usa vertices guardados a proposito: la app transforma grupos a veces por
+ * matriz y a veces por hijos (duplicar, alinear, position=), y ningun marco
+ * guardado sobrevive a todos los flujos. El ajuste en vivo siempre coincide
+ * con lo que se ve, ante cualquier transformacion.
+ *
+ * Casi-recto (radio enorme): se dibuja la cuerda recta y no hay linea de
+ * radio (no hay centro). Un solo glifo: solo el eje.
+ */
+export function drawCurveGuides(owner) {
+    removeCurveGuides();
+    if (!owner?.project) return null;
+    const size = Number(owner.data?.fontSize) || Number(owner.fontSize) || 42;
+    const alcance = Math.max(size * 3, 120);
+    const capa = bendHandleLayer();
+    const creadas = [];
+    const armar = (vertices, estilo) => {
+        if (!Array.isArray(vertices) || vertices.length < 2) return null;
+        const trazo = new paper.Path({ insert: false });
+        vertices.forEach(p => trazo.add(p));
+        trazo.strokeColor = estilo.color;
+        /* Grosor fijo en proyecto, igual que el punto: escala con el zoom. */
+        trazo.strokeWidth = estilo.ancho;
+        if (estilo.dash) trazo.dashArray = estilo.dash;
+        trazo.data = { isBendGuide: true, isHandle: true, noOutput: true,
+            curveOwnerId: owner.id };
+        capa.addChild(trazo);
+        creadas.push(trazo);
+        return trazo;
+    };
+    const guardar = () => {
+        if (typeof window !== 'undefined') window._ekkoCurveGuides = creadas;
+        return creadas;
+    };
+    /* Regla uniforme: bounds.center esta en marco del PADRE del item medido,
+       asi que se mapea con ESE padre. Para glifos el padre es el grupo (lleva
+       la rotacion/posicion); para texto recto es la capa o el wrapper. */
+    const aProyecto = (it) => {
+        if (!it) return null;
+        try {
+            const c = it.bounds.center.clone();
+            const mp = it.parent;
+            return mp?.localToGlobal ? mp.localToGlobal(c) : c;
+        } catch (_) { return null; }
+    };
+
+    /* Texto RECTO en modo: guias de referencia rectas (el radio es recto en
+       principio). Eje por el medio perpendicular al texto, y linea base
+       horizontal a lo largo del texto. Todo mapeado a proyecto (ver abajo). */
+    if (owner.className === "PointText" && !owner.data?.isCurvedGroup) {
+        let dir;
+        try {
+            const m = owner.globalMatrix || owner.matrix;
+            dir = new paper.Point(m.a, m.b);
+        } catch (_) { dir = new paper.Point(1, 0); }
+        if (dir.length < 1e-6) dir = new paper.Point(1, 0);
+        dir = dir.normalize();
+        const normal = new paper.Point(-dir.y, dir.x);
+        let mid;
+        try {
+            mid = aProyecto(owner);
+            if (!mid) return guardar();
+        }
+        catch (_) { return guardar(); }
+        const medioAncho = (Number(owner.bounds.width) || size * 2) / 2;
+        /* El ancho en marco padre escala por la matriz al pasar a proyecto:
+           se mide con dos puntos para no asumir escala 1. */
+        let anchoProy = medioAncho;
+        try {
+            if (owner.parent?.localToGlobal) {
+                const a = owner.parent.localToGlobal(new paper.Point(-medioAncho, 0));
+                const b = owner.parent.localToGlobal(new paper.Point(medioAncho, 0));
+                anchoProy = a.getDistance(b) / 2;
+            }
+        } catch (_) {}
+        armar([mid.add(normal.multiply(-alcance)), mid.add(normal.multiply(alcance))],
+            { color: 'rgba(37,99,235,0.55)', ancho: 1.5, dash: [4, 4] });
+        armar([mid.add(dir.multiply(-anchoProy)), mid.add(dir.multiply(anchoProy))],
+            { color: 'rgba(214,0,127,0.45)', ancho: 1.8 });
+        return guardar();
+    }
+
+    const glifos = Array.from(owner.children || []).filter(c =>
+        c && !c.data?.isBendGuide && (c.className === "CompoundPath" || c.className === "Path"));
+    if (!glifos.length) return guardar();
+
+    const c0 = aProyecto(glifos[0]);
+    const c1 = aProyecto(glifos[glifos.length - 1]);
+    if (!c0 || !c1) return null;
+    const midCuerda = c0.add(c1).divide(2);
+
+    // Eje del tirador: perpendicular a la cuerda por el medio. Es la recta por
+    // la que se mueve el punto azul.
+    let direccion = c1.subtract(c0);
+    if (direccion.length < 1e-6) {
+        try {
+            const m = owner.globalMatrix || owner.matrix;
+            direccion = new paper.Point(m.a, m.b);
+        } catch (_) { direccion = new paper.Point(1, 0); }
+        if (direccion.length < 1e-6) direccion = new paper.Point(1, 0);
+    }
+    direccion = direccion.normalize();
+    const normal = new paper.Point(-direccion.y, direccion.x);
+    armar([midCuerda.add(normal.multiply(-alcance)), midCuerda.add(normal.multiply(alcance))],
+        { color: 'rgba(37,99,235,0.55)', ancho: 1.5, dash: [4, 4] });
+
+    if (glifos.length < 2) {
+        return guardar();
+    }
+
+    // Ajuste de circulo por primer/medio/ultimo glifo (ya en proyecto).
+    const cm = aProyecto(glifos[Math.floor(glifos.length / 2)]) || midCuerda;
+    const centroArco = circuncentro(c0, cm, c1);
+    if (!centroArco || centroArco.radio > 1e6) {
+        // Casi recto: la cuerda ES la linea de curvado; no hay centro ni radio.
+        armar([c0, c1], { color: 'rgba(214,0,127,0.45)', ancho: 1.8 });
+    } else {
+        const C = centroArco.punto;
+        const R = centroArco.radio;
+        const ang = (p) => Math.atan2(p.y - C.y, p.x - C.x);
+        let a0 = ang(c0), a1 = ang(c1), am = ang(cm);
+        // Recorrer de a0 a a1 pasando por am (el lado correcto del circulo).
+        const TAU = Math.PI * 2;
+        const norm = (a) => ((a % TAU) + TAU) % TAU;
+        let n0 = norm(a0), n1 = norm(a1), nm = norm(am);
+        const vaPorDerecha = ((nm - n0 + TAU) % TAU) <= ((n1 - n0 + TAU) % TAU);
+        const pasos = 32;
+        const pts = [];
+        for (let j = 0; j <= pasos; j++) {
+            const t = vaPorDerecha
+                ? n0 + (((n1 - n0 + TAU) % TAU) * j) / pasos
+                : n0 - (((n0 - n1 + TAU) % TAU) * j) / pasos;
+            pts.push(new paper.Point(C.x + R * Math.cos(t), C.y + R * Math.sin(t)));
+        }
+        armar(pts, { color: 'rgba(214,0,127,0.65)', ancho: 1.8 });
+        // Linea del radio: del centro al medio del arco.
+        const medioArco = pts[Math.floor(pts.length / 2)];
+        armar([C, medioArco], { color: 'rgba(5,150,105,0.75)', ancho: 1.6, dash: [6, 4] });
+    }
+    return guardar();
+}
+
+/* Circuncentro de tres puntos. null si son colineales. */
+function circuncentro(p0, p1, p2) {
+    const d = 2 * (p0.x * (p1.y - p2.y) + p1.x * (p2.y - p0.y) + p2.x * (p0.y - p1.y));
+    if (Math.abs(d) < 1e-9) return null;
+    const q0 = p0.x * p0.x + p0.y * p0.y;
+    const q1 = p1.x * p1.x + p1.y * p1.y;
+    const q2 = p2.x * p2.x + p2.y * p2.y;
+    const cx = (q0 * (p1.y - p2.y) + q1 * (p2.y - p0.y) + q2 * (p0.y - p1.y)) / d;
+    const cy = (q0 * (p2.x - p1.x) + q1 * (p0.x - p2.x) + q2 * (p1.x - p0.x)) / d;
+    const punto = new paper.Point(cx, cy);
+    return { punto, radio: punto.getDistance(p0) };
+}
+
+/* =========================================================================
+   TIRADOR DE CURVATURA — ESTILO LIGHTBURN
+   ---------------------------------------------------------------------------
+   LightBurn: se selecciona un texto, aparece un punto azul, se arrastra hacia
+   arriba o abajo y el texto se arquea. Doble clic en el punto y vuelve a recto.
+
+   MEDIDO, lo que hacia EKKO antes:
+
+     - El punto SOLO se creaba cuando el texto ya estaba curvado. Con texto plano
+       no habia NADA que agarrar, que es justo el gesto con el que se empieza. No
+       se podia entrar al estado curvo arrastrando: habia que apretar el boton.
+     - El arrastre guardaba una referencia de Paper al owner. applyTextCurve
+       REEMPLAZA el owner (saca el viejo y mete el nuevo), asi que desde el
+       segundo frame la referencia estaba desconectada de la escena y el arrastre
+       no continuaba. Verificado: owner_en_escena = false tras 5 frames.
+     - applyTextCurve es async (una pasada de OpenType por glifo) y el arrastre lo
+       llamaba en cada evento: docenas de reconstrucciones encimadas y el texto se
+       atrasaba respecto del puntero.
+
+   La solucion es NO guardar el owner. Durante el arrastre manda el VALOR de la
+   curvatura y el owner se resuelve SIEMPRE desde la seleccion actual, que es la
+   unica referencia que sobrevive porque applyTextCurve la publica. Ademas se
+   coalesce a una reconstruccion por frame.
+   ========================================================================= */
+
+/** Radio del arco, en unidades de lienzo, que corresponde a una curvatura. */
+export function curvatureToRadius(curvature) {
+    const c = Math.abs(Number(curvature) || 0);
+    if (c < 0.001) return Infinity;
+    return 10000 / c;
+}
+
+function bendHandleLayer() {
+    return paper.project.layers?.find(layer => layer.data?.isOverlayLayer) || paper.project.activeLayer;
+}
+
+/**
+ * Crea el tirador para el owner dado.
+ *
+ * El tirador es OVERLAY: vive en la capa de overlays y nunca es hijo del texto,
+ * para no contaminar los bounds, el hit-test ni el export.
+ */
 export function drawBlueCurveHandle(group) {
     removeCurveHandle();
+    if (!group || !group.bounds) return null;
 
-    // El handle es overlay de edición, no geometría del texto. Mantenerlo
-    // fuera del curvedGroup evita contaminar bounds, restauración y exportación.
     const bounds = group.bounds;
-    const handlePoint = new paper.Point(bounds.center.x, bounds.bottom + 15);
+    /* Radio FIJO EN PROYECTO: el punto escala con el zoom (al acercar se agranda,
+       al alejar se achica), como el resto de la geometria. Pedido del cliente:
+       con tamano fijo en pantalla el punto quedaba desproporcionado respecto
+       del texto al hacer zoom. */
+    const radio = 7;
+    const separacion = 20;
     const handle = new paper.Path.Circle({
-        center: handlePoint,
-        radius: 6 / paper.view.zoom,
+        center: new paper.Point(bounds.center.x, bounds.bottom + separacion),
+        radius: radio,
         fillColor: '#00d2ff',
         strokeColor: '#007bff',
-        strokeWidth: 1.5 / paper.view.zoom
+        strokeWidth: 1.5
     });
-    handle.data = { isCurveHandle: true, isHandle: true, curveOwnerId: group.id };
-    const overlayLayer = paper.project.layers?.find(layer => layer.data?.isOverlayLayer) || paper.project.activeLayer;
-    overlayLayer.addChild(handle);
+    handle.data = {
+        isCurveHandle: true,
+        isHandle: true,
+        isBendHandle: true,
+        curveOwnerId: group.id
+    };
+    bendHandleLayer().addChild(handle);
     handle.bringToFront();
     if (typeof window !== 'undefined') window._ekkoCurveHandle = handle;
+    return handle;
+}
+
+/**
+ * Deja el tirador como corresponde: si hay texto seleccionado el punto esta; si
+ * no, no esta.
+ *
+ * Se llama en cada cambio de seleccion. Antes el punto solo aparecia sobre texto
+ * ya curvado, y el gesto de LightBurn (agarrar el punto y arrastrar) no existia.
+ */
+export function syncCurveHandle() {
+    /* Id obsoleto: el owner salio de escena sin pasar por aplanar (borrado,
+       deshacer, vectorizado). Sin esta limpieza el modo quedaria apuntando a
+       un id muerto. */
+    if (typeof window !== 'undefined' && window._ekkoCurveModeOwnerId != null) {
+        let vivo = null;
+        try { vivo = paper.project.getItem({ id: window._ekkoCurveModeOwnerId }); } catch (_) {}
+        if (!vivo || !vivo.project) window._ekkoCurveModeOwnerId = null;
+    }
+    const raw = window.selectedItem ||
+        (Array.isArray(window.selectedItems) && window.selectedItems.length
+            ? window.selectedItems[window.selectedItems.length - 1]
+            : null);
+    const owner = raw?.data?.clipGroup ? (getPublicOwner(raw) || raw) : raw;
+    if (!isTextOwner(owner)) {
+        removeCurveHandle();
+        return null;
+    }
+    /* El punto existe SOLO dentro del modo curva (ver MODO CURVA arriba).
+       Ni en texto recto sin modo, ni al re-seleccionar sin haber apretado el
+       boton. */
+    if (!isCurveMode(owner)) {
+        removeCurveHandle();
+        return null;
+    }
+    /* ORDEN IMPORTANTE: primero el tirador, despues las guias.
+       drawBlueCurveHandle() arranca con removeCurveHandle(), y ese tambien
+       borra las guias (comparten ciclo de vida). Al revés, las guias se
+       creaban y se eliminaban en el mismo frame y nunca se veian
+       (medido: _ekkoCurveGuides vacio con el punto azul dibujado). */
+    const handle = drawBlueCurveHandle(owner);
+    drawCurveGuides(owner);
+    return handle;
+}
+
+/** Devuelve el owner si el punto agarra el tirador; null si no. */
+export function bendHitTest(point) {
+    const handle = window._ekkoCurveHandle;
+    if (!handle?.project || !point) return null;
+    const owner = paper.project.getItem({ id: handle.data.curveOwnerId });
+    if (!owner) return null;
+    /* El radio se lee de los BOUNDS, no de handle.radius.
+       MEDIDO: paper.Path.Circle no guarda `radius` como propiedad (el circulo
+       son 4 segmentos), asi que handle.radius es undefined. Con el undefined la
+       tolerancia salia NaN y hitTest devolvia null SIEMPRE: el punto azul se
+       veia pero era imposible de agarrar con el mouse. Los bounds no dependen de
+       como se haya construido la figura. */
+    const radio = (Number(handle.bounds?.width) || 12) / 2;
+    const tolerance = Math.max(14 / paper.view.zoom, radio * 2.2);
+    const hit = handle.hitTest(point, { fill: true, stroke: true, tolerance });
+    return hit ? owner : null;
+}
+
+/* =========================================================================
+   MODO CURVA
+   ---------------------------------------------------------------------------
+   El punto azul y las guias existen SOLO dentro del modo curva, que se entra
+   con el boton "Curvar Texto". El boton NUNCA modifica la geometria: con texto
+   recto entra al modo y el texto sigue recto (angulo 0, guias rectas de
+   referencia); con texto ya curvado entra al modo con los valores actuales.
+   El segundo clic sale del modo conservando la curva. Aplanar es doble clic en
+   el punto o angulo 0: eso tambien sale del modo.
+
+   Sin modo no hay punto, y sin punto no hay gesto indefinido: antes el punto
+   aparecia sobre texto recto y arrastrarlo empezaba una curva que nadie pidio.
+   ========================================================================= */
+
+/** Activa el modo curva para el owner dado. No toca la geometria. */
+export function enterCurveMode(owner) {
+    let o = owner || window.selectedItem ||
+        (Array.isArray(window.selectedItems) && window.selectedItems.length
+            ? window.selectedItems[window.selectedItems.length - 1] : null);
+    /* En productos con mockup la seleccion es el wrapper de contencion, no el
+       texto: se resuelve el owner publico, que es el que lleva el id del modo
+       y el que dibuja el punto. */
+    if (o?.data?.clipGroup) o = getPublicOwner(o) || o;
+    if (!isTextOwner(o)) return false;
+    /* Sin saveHistory a proposito: entrar al modo no cambia geometria, y un
+       paso de historial sin cambios haria que Ctrl+Z pareciera no hacer nada. */
+    if (typeof window !== 'undefined') window._ekkoCurveModeOwnerId = o.id;
+    syncCurveHandle();
+    syncBendInputs();
+    window.updateSelectionBox?.(window.selectedItem || o);
+    window.updateContextualMenu?.(window.selectedItem || o);
+    if (typeof paper !== "undefined") paper.view?.update?.();
+    return true;
+}
+
+/** Sale del modo curva conservando la geometria tal cual esta. */
+export function exitCurveMode() {
+    if (typeof window !== 'undefined') window._ekkoCurveModeOwnerId = null;
+    removeCurveHandle();
+    if (typeof paper !== "undefined") paper.view?.update?.();
+}
+
+/** true si el modo curva esta activo para ese owner. */
+export function isCurveMode(owner) {
+    if (typeof window === 'undefined') return false;
+    const id = window._ekkoCurveModeOwnerId;
+    if (id == null || !owner) return false;
+    const o = owner.data?.clipGroup ? (getPublicOwner(owner) || owner) : owner;
+    return o.id === id;
+}
+
+/** El modo sigue al owner cuando una reconstruccion lo reemplaza. */
+function transferCurveMode(oldOwner, newOwner) {
+    if (typeof window === 'undefined') return;
+    if (window._ekkoCurveModeOwnerId != null && oldOwner &&
+        window._ekkoCurveModeOwnerId === oldOwner.id && newOwner) {
+        window._ekkoCurveModeOwnerId = newOwner.id;
+    }
+}
+
+let bendState = null;
+let bendPending = null;
+let bendFrame = null;
+
+const BEND_MAX = 359;
+const BEND_SENS_MIN_ANCHO = 90; // textos mas chicos que esto usan esta base (evita tirador imposible de afinar)
+
+/**
+ * Comienza el arrastre. NO guarda el owner a proposito: se resuelve en cada
+ * frame desde la seleccion, que es lo unico que sobrevive a la reconstruccion.
+ */
+export function beginBend(point) {
+    let owner = window.selectedItem;
+    if (owner?.data?.clipGroup) owner = getPublicOwner(owner) || owner;
+    if (!isTextOwner(owner)) {
+        /* Fallback: el modo curva recuerda a que owner pertenece el tirador.
+           Si la seleccion se perdio (p.ej. quedo en una letra interna), igual
+           se puede arrancar el arrastre en vez de cortar la interaccion. */
+        const modoId = window._ekkoCurveModeOwnerId;
+        if (modoId != null) {
+            const layer = paper.project.layers?.find(l => l.name === "designLayer") || paper.project.activeLayer;
+            const candidato = layer?.children?.find?.(c => c.id === modoId);
+            if (candidato && isTextOwner(candidato)) {
+                window.selectItem?.(candidato);
+                owner = candidato;
+            }
+        }
+    }
+    if (!isTextOwner(owner)) return false;
+    const curvaturaInicial = Number(owner.data?.curvature) || 0;
+    const ancho = Number(owner.bounds?.width) || 0;
+    bendState = {
+        inicioY: point.y,
+        inicioX: point.x,
+        ultimoX: point.x,
+        ultimoY: point.y,
+        curvaturaInicial,
+        // Sensibilidad RELATIVA al texto: arrastrar el ancho completo = 180°.
+        // Asi un texto de 10mm y uno de 100mm se sienten igual.
+        sens: 180 / Math.max(ancho, BEND_SENS_MIN_ANCHO),
+        // El signo lo fija la PRIMERA direccion del arrastre cuando el texto
+        // arranca recto. Antes se usaba `|| 20`, que inventaba una curvatura
+        // inicial: desde texto plano, arrastrar hacia abajo no producia nada
+        // util porque el signo ya venia fijado en positivo.
+        movido: false
+    };
+    window.dragging = false;
+    window._mouseDragOccurred = true;
+    return true;
+}
+
+/** Mueve el ancla del arco siguiendo al dedo (solo vertical, 1:1 en proyecto).
+ *  El punto medio del texto baja/sube con el tirador en vez de quedar clavado.
+ *  El delta se mapea con la parte LINEAL de la matriz (sin traslacion): mapear
+ *  con la matriz completa sumaba cientos de unidades por frame y el texto
+ *  teleportaba (medido: -1681px en 6 frames). */
+function moverAncla(owner, dyProyecto) {
+    if (!owner || !dyProyecto) return;
+    const d = owner.data?.bendAnchorLocal;
+    if (!Array.isArray(d) || d.length !== 2) return;
+    try {
+        const m = owner.matrix;
+        let dx = 0, dy = dyProyecto;
+        if (m) {
+            const det = m.a * m.d - m.b * m.c;
+            if (Math.abs(det) > 1e-9) {
+                dx = (m.d * 0 - m.c * dyProyecto) / det;
+                dy = (-m.b * 0 + m.a * dyProyecto) / det;
+            }
+        }
+        const a = new paper.Point(d[0], d[1]).add(new paper.Point(dx, dy));
+        owner.data = { ...(owner.data || {}), bendAnchorLocal: [a.x, a.y] };
+    } catch (_) {}
+}
+
+/* Carril SERIALIZADO de operaciones geometricas de texto, GLOBAL.
+   MEDIDO: 6 applyTextCurve concurrentes dejaban 6 grupos huerfanos en escena
+   (el "texto duplicado"): cada rebuild eliminaba al anterior... que ya no
+   estaba, asi que el remove() no eliminaba nada y todos quedaban vivos.
+   Y vectorizar mientras un rebuild volaba dejaba el vector sin seleccion.
+   Aca hay maximo UN trabajo en vuelo y una COLA en orden (no se pierde nada:
+   cada pedido resuelve su promesa). Las curvas se coalescen (solo el ultimo
+   valor); la soldadura siempre corre (es final). */
+let curvaEnVuelo = null;
+const curvaCola = [];
+
+function bombearCarril() {
+    if (curvaEnVuelo) return;
+    const trabajo = curvaCola.shift();
+    if (!trabajo) return;
+    /* Si el item quedo sin padre (un rebuild anterior lo reemplazo mientras
+       este pedido esperaba), se redirige a la seleccion viva en vez de
+       descartar: si no, un slider movido rapido terminaba en un valor viejo
+       porque los pedidos intermedios caian sobre objetos muertos. Solo si hay
+       seleccion en escena; si no, se descarta sin ruido. No aplica a soldadura:
+       vectorizar un objeto muerto no tiene sentido. */
+    if (!trabajo.soldar && !trabajo.item?.parent) {
+        const sel = window.selectedItem;
+        if (!sel?.parent) return;
+        trabajo.item = sel;
+    }
+    curvaEnVuelo = Promise.resolve()
+        .then(() => trabajo.soldar
+            ? weldTextRun(trabajo.item)
+            : applyTextCurveRun(trabajo.item, trabajo.curvatura, trabajo.opciones))
+        .catch(() => null)
+        .then((salida) => {
+            trabajo.espera.forEach((resolver) => { try { resolver(salida); } catch (_) {} });
+            curvaEnVuelo = null;
+            if (curvaCola.length) bombearCarril();
+        });
+}
+
+function carrilVacio() {
+    return (curvaEnVuelo || Promise.resolve()).then(() => {
+        if (curvaCola.length) return carrilVacio();
+        return null;
+    });
+}
+
+/* (Eliminada la bomba anterior: el carril global bombearCarril la reemplaza.
+   Quedaba como codigo muerto que referenciaba bendFlying, ya borrado.) */
+
+/** Traduce la posicion del puntero a curvatura objetivo. */
+export function updateBend(point) {
+    if (!bendState) return false;
+    const deltaY = point.y - bendState.inicioY;
+    const deltaX = point.x - bendState.inicioX;
+    const distancia = Math.sqrt(deltaY * deltaY + deltaX * deltaX);
+    if (distancia > 1) bendState.movido = true;
+
+    /* Angulo CONTINUO desde el desplazamiento neto: bajar el dedo (deltaY>0,
+       Y crece hacia abajo) resta angulo (convexo), subirlo lo suma (concavo).
+       Asi el signo siempre coincide con el lado donde esta el dedo, incluso si
+       cruza al otro lado a mitad del arrastre o si ajusta una curva existente.
+       Antes el signo se fijaba una vez y un cruce de lado daba el arco al reves. */
+    const angulo = Math.max(-BEND_MAX, Math.min(BEND_MAX,
+        bendState.curvaturaInicial - deltaY * bendState.sens));
+    // seguirY: lo que se movio el dedo desde el ultimo evento (1:1).
+    const seguirY = point.y - bendState.ultimoY;
+    bendState.ultimoX = point.x;
+    bendState.ultimoY = point.y;
+    bendPending = { valor: angulo, seguirY };
+
+    /* El carril global (ver bombearCarril) serializa los rebuilds: por mas
+       rapido que lleguen los eventos, nunca hay dos reconstrucciones
+       superpuestas (eso dejaba grupos duplicados). Aca solo se coalesce a un
+       pedido por frame. */
+    if (bendFrame) return true;
+    bendFrame = requestAnimationFrame(() => {
+        bendFrame = null;
+        const trabajo = bendPending;
+        bendPending = null;
+        if (!trabajo) return;
+        const owner = window.selectedItem;
+        if (!isTextOwner(owner)) return;
+        if (trabajo.seguirY) moverAncla(owner, trabajo.seguirY);
+        Promise.resolve(applyTextCurve(owner, trabajo.valor, { skipHistory: true }))
+            .then(() => {
+                syncCurveHandle();
+                syncBendInputs();
+                paper.view.update();
+            })
+            .catch(() => null);
+    });
+    return true;
+}
+
+/** Cierra el arrastre y deja un solo paso de historial. */
+export function endBend() {
+    if (bendFrame) {
+        cancelAnimationFrame(bendFrame);
+        bendFrame = null;
+    }
+    if (!bendState && !bendPending && !curvaEnVuelo) return false;
+    const movido = bendState ? bendState.movido : true;
+    // El ultimo estado pedido SI se aplica: si no, el texto quedaria un frame
+    // atras del dedo al soltar.
+    const ultimo = bendPending;
+    bendState = null;
+    bendPending = null;
+    window._ekkoCurveDrag = null;
+    ocultarPopupBend();
+    const cerrar = () => {
+        if (movido && typeof window.saveHistory === 'function') window.saveHistory();
+        syncCurveHandle();
+        syncBendInputs();
+        window.updateSelectionBox?.(window.selectedItem);
+        window.updateContextualMenu?.(window.selectedItem);
+        paper.view.update();
+    };
+    if (ultimo) {
+        const owner = window.selectedItem;
+        if (isTextOwner(owner)) {
+            if (ultimo.seguirY) moverAncla(owner, ultimo.seguirY);
+            // Por el carril normal: se encola ultimo y corre en orden.
+            curvaCola.push({ item: owner, curvatura: ultimo.valor,
+                opciones: { skipHistory: true }, espera: [] });
+            bombearCarril();
+        }
+    }
+    carrilVacio().then(cerrar);
+    return movido;
+}
+
+/* ---------------------------------------------------------------------------
+   LECTURA DE ANGULO EN VIVO: lienzo + barra + panel.
+   Mientras se curva, el cliente ve cuantos grados lleva en tres lados a la vez:
+   un popup junto al tirador (como el de rotacion), el slider y los campos de
+   ambas barras. Sin esto curva a ciegas.
+   --------------------------------------------------------------------------- */
+
+function popupBend() {
+    if (typeof document === "undefined") return null;
+    let p = document.getElementById("ekkoBendPopup");
+    if (p && p.isConnected) return p;
+    p = document.createElement("div");
+    p.id = "ekkoBendPopup";
+    p.setAttribute("aria-live", "polite");
+    p.style.cssText = [
+        "position:fixed", "z-index:10000", "display:none",
+        "padding:4px 10px", "border-radius:6px",
+        "background:#263747", "color:#fff", "font:600 13px sans-serif",
+        "pointer-events:none", "white-space:nowrap"
+    ].join(";");
+    document.body.appendChild(p);
+    return p;
+}
+
+/** Muestra el angulo junto al tirador. Resalta multiplos de 45° como Rotar. */
+export function mostrarPopupBend(grados) {
+    const p = popupBend();
+    if (!p) return;
+    const g = Math.round(Number(grados) || 0);
+    p.textContent = `${g}°`;
+    const esSnap = Math.abs(((g % 45) + 45) % 45) < 1e-6;
+    p.style.background = esSnap ? "#168447" : "#263747";
+    const h = typeof window !== "undefined" ? window._ekkoCurveHandle : null;
+    try {
+        if (h?.bounds) {
+            const v = paper.view.projectToView(h.bounds.center);
+            const r = paper.view.element.getBoundingClientRect();
+            p.style.left = `${Math.round(r.left + v.x + 16)}px`;
+            p.style.top = `${Math.round(r.top + v.y - 14)}px`;
+        }
+    } catch (_) {}
+    p.style.display = "block";
+}
+
+export function ocultarPopupBend() {
+    const p = typeof document !== "undefined" ? document.getElementById("ekkoBendPopup") : null;
+    if (p) p.style.display = "none";
+}
+
+/** Escribe el angulo en el slider y en ambas barras + popup. */
+export function syncBendInputs(angulo) {
+    let g = Number(angulo);
+    if (!Number.isFinite(g)) {
+        const sel = window.selectedItem;
+        const o = sel?.data?.clipGroup && typeof getPublicOwner === "function"
+            ? (getPublicOwner(sel) || sel) : sel;
+        g = Number(o?.data?.curvature) || 0;
+    }
+    g = Math.max(-359, Math.min(359, Math.round(g)));
+    const slider = document.querySelector('#ctxTextCurvature input[type=range]');
+    if (slider && document.activeElement !== slider) slider.value = String(g);
+    ["ctxBendAngleVal", "objBendAngleVal"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = `${g}°`;
+    });
+    // Radio derivado (mismo que guarda el owner): para que la barra muestre
+    // valores coherentes con lo que se ve.
+    try {
+        const sel = window.selectedItem;
+        const o = sel?.data?.clipGroup && typeof getPublicOwner === "function"
+            ? (getPublicOwner(sel) || sel) : sel;
+        const L = Number(o?.data?.bendLength) || 0;
+        const t = Math.abs(g) * (Math.PI / 180);
+        const r = t > 1e-6 && L > 0 ? Math.round(L / t) : 0;
+        ["ctxCurveRadius", "objCurveRadius"].forEach(id => {
+            const el = document.getElementById(id);
+            /* Con angulo 0 no hay radio: se VACIA en vez de dejar el valor viejo
+               (mostrar "76" con "0°" es incoherente). */
+            if (el && document.activeElement !== el) el.value = r > 0 ? String(r) : "";
+        });
+    } catch (_) {}
+    if (isBending()) mostrarPopupBend(g);
+}
+
+/** Doble clic en el tirador: el texto vuelve a recto. Es lo que hace LightBurn. */
+export function clearBend() {
+    const owner = window.selectedItem;
+    if (!isTextOwner(owner)) return false;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+    /* Aplanar sale del modo (ver rama de aplanado en applyTextCurve). */
+    exitCurveMode();
+    window.applyTextCurve?.(owner, 0, { skipHistory: true });
+    syncCurveHandle();
+    syncBendInputs(0);
+    window.updateSelectionBox?.(window.selectedItem);
+    window.updateContextualMenu?.(window.selectedItem);
+    paper.view.update();
+    return true;
+}
+
+export function isBending() {
+    return !!bendState;
 }
 
 export function applyTextSpacing(item, hspace) {
@@ -620,6 +1579,8 @@ export function applyTextSpacing(item, hspace) {
             /* Ver la nota de applyTextCurve: la lista va explicita. Pasar
                window.selectedItems dejaba la seleccion apuntando al PointText
                recien eliminado. */
+            /* Modo antes del commit (mismo motivo que en applyTextCurve). */
+            transferCurveMode(target, spacedGroup);
             window.commitSelection?.(spacedGroup, [spacedGroup]);
             window.updateSelectionBox(spacedGroup);
         }
@@ -637,6 +1598,10 @@ export function applyTextSpacing(item, hspace) {
  */
 function flattenGlyphContours(node, out = []) {
     if (!node) return out;
+    /* Las guias de curvado (eje del tirador y linea base arqueada) son overlay:
+       NO son contornos de glifo. Sin este filtro, al vectorizar un texto curvo
+       la linea superpuesta al texto se clasificaba como si fuera un agujero. */
+    if (node.data && (node.data.isBendGuide || node.data.isHandle)) return out;
     if (node.className === "CompoundPath") {
         Array.from(node.children || []).forEach(child => flattenGlyphContours(child, out));
         return out;
@@ -665,7 +1630,17 @@ function findTextTarget(item) {
     return null;
 }
 
-export async function weldText(item) {
+/* weldText por el carril: vectorizar mientras un rebuild vuela corrompia la
+   seleccion (el vector quedaba huerfano de seleccion). El carril distingue el
+   tipo de trabajo: curva o soldadura. */
+export function weldText(item) {
+    return new Promise((resolver) => {
+        curvaCola.push({ soldar: true, item, espera: [resolver] });
+        bombearCarril();
+    });
+}
+
+async function weldTextRun(item) {
     const describe = (value) => value ? {
         className: value.className || value.constructor?.name || null,
         id: value.id ?? null,
@@ -746,6 +1721,21 @@ export async function weldText(item) {
     diag.resolution = window._ekkoFontResolution || null;
     diag.phase = "weldText:converted";
     diag.convertedClass = converted?.className || converted?.constructor?.name || null;
+    /* Las guias de curvado (eje, linea base, linea de radio) son OVERLAY de
+       edicion: viven como hijas del grupo curvado pero NO son geometria. Si
+       viajan al resultado, la normalizacion de estilo de mas abajo (fillRule +
+       fill negro + stroke null sobre el grupo, que Paper propaga a los hijos)
+       repinta la guia abierta del arco: un path abierto con fill se cierra
+       implicito y rellena la region de la cuerda. MEDIDO: un disco negro solido
+       bajo el texto, que ademas contaminaba bounds, hit-test y export.
+       El exportador ya las purga por isHandle; aca se hace lo mismo. */
+    if (converted && converted.children) {
+        Array.from(converted.children).forEach(child => {
+            if (child?.data?.isBendGuide === true) {
+                try { child.remove(); } catch (_) {}
+            }
+        });
+    }
     const usable = converted?.children?.length
         ? Array.from(converted.children).filter(Boolean)
         : (converted ? [converted] : []);
@@ -885,6 +1875,27 @@ export async function weldText(item) {
     resultPath.data = { ...(resultPath.data || {}), source: "text-vector", role: "letter",
         isTextVector: true, isFusionReceptor: true, hasInternalHoles: true,
         fillRule: "evenodd", geomBase: resultPath.data.geomBase };
+    /* Un vector es geometria FINAL, no texto editable: se borran las marcas de
+       texto curvado/espaciado que venian por el spread del clon.
+       MEDIDO: al vectorizar un texto curvo, el resultado conservaba
+       isCurvedGroup:true. Con eso el motor de capacidades lo clasificaba como
+       TEXT (ofrecia herramientas de texto sobre un vector), el tirador se
+       dibujaba sobre el vector, y "Curvar Texto" lo reemplazaba por texto
+       regenerado via restoreFlatText, destruyendo el vector (y con el,
+       cualquier edicion de nodos que tuviera). data.textString SI se conserva:
+       es metadata del origen, no una orden. */
+    delete resultPath.data.isCurvedGroup;
+    delete resultPath.data.isSpacedGroup;
+    delete resultPath.data.curvature;
+    delete resultPath.data.radius;
+    delete resultPath.data.hspace;
+    delete resultPath.data.bendAngle;
+    delete resultPath.data.bendRadius;
+    delete resultPath.data.bendSign;
+    delete resultPath.data.bendLength;
+    delete resultPath.data.bendAnchorLocal;
+    delete resultPath.data.bendAnchorParent;
+    delete resultPath.data.rotateLetters;
 
     // Si el PointText original vivía dentro de un wrapper de contención,
     // actualizar el owner público antes de eliminar el objeto original.
