@@ -1,1 +1,330 @@
+/* =========================================================================
+   EKKO STUDIO — SISTEMA DE INTERFAZ
+   -------------------------------------------------------------------------
+   Este archivo es el unico lugar donde se decide como se VE la aplicacion.
+   Colores, bordes, sombras, tipografia, transiciones, iconos: todo sale de
+   aca. Si hay que cambiar la estetica, se cambia aca y en ningun otro lado.
 
+   COMO ESTA ORGANIZADO, de mas general a mas especifico:
+
+     1. COLOR        la paleta, con nombres, no con numeros sueltos
+     2. FORMA        radios, bordes, sombras
+     3. TIPOGRAFIA   familias y tamanos
+     4. MOVIMIENTO   cuanto dura y con que curva
+     5. COMPONENTES  el comportamiento de la cinta, las barras y los botones
+
+   LA REGLA QUE MANIJO TODO: una herramienta solo aparece si tiene sentido
+   para la seleccion actual. Eso no lo decide el CSS, lo decide
+   capabilities.js, que mira que objeto esta seleccionado y que puede
+   hacerse con el. El CSS solo dibuja lo que el motor ya decidio.
+   ========================================================================= */
+
+
+/* -------------------------------------------------------------------------
+   1. COLOR
+   -------------------------------------------------------------------------
+   La paleta viene del abecedario de EKKO Studio: una serie de colores vivos
+   que van del rosa al violeta pasando por naranja, amarillo, turquesa y azul.
+   Son los colores de la marca.
+
+   OJO con la diferencia entre los dos usos:
+
+     - Los colores de MARCA (rosa, naranja, turquesa, violeta) son para
+      ijs la identidad: logo, acentos, lo que el cliente tiene que reconocer
+       como EKKO. Se usan poco, para que signifiquen algo.
+     - Los colores de TRABAJO son los de la interfaz: gris claro, gris medio,
+       gris oscuro. Son los que se ven todos los dias, y por eso son
+       apagados a proposito: una interfaz de trabajo se mira mucho tiempo y
+       un color fuerte en cada boton cansa.
+
+   Por eso la barra hoy es gris y no de colores: es una mesa de trabajo. El
+   color entra cuando algo tiene que destacar de verdad.
+   ------------------------------------------------------------------------- */
+
+:root {
+    /* --- La marca. Poco uso, mucho significado --- */
+    --ekko-marca-rosa: #ff2ea6;
+    --ekko-marca-naranja: #f7903c;
+    --ekko-marca-amarillo: #f5c518;
+    --ekko-marca-turquesa: #35c4c8;
+    --ekko-marca-azul: #4d8fd6;
+    --ekko-marca-violeta: #7b4fbf;
+
+    /* --- Los colores de trabajo. Los que se ven todos los dias --- */
+    --ekko-bg-panel: #ffffff;
+    --ekko-bg-workspace: #cbd5e1;
+    --ekko-panel-main: #d9e2e8;
+    --ekko-panel-secondary: #d1dce3;
+    --ekko-panel-floating: #bdcbd4;
+    --ekko-canvas-bg: #cbd5e1;
+
+    /* --- Textura y bordes --- */
+    --ekko-border: #91a1ad;
+    --ekko-border-color: #cbd5e1;
+    --ekko-border-strong: #718491;
+
+    /* --- Letras --- */
+    --ekko-text-dark: #1e293b;
+    --ekko-text-main: #26343d;
+    --ekko-text-secondary: #5d6c76;
+    --ekko-text-muted: #64748b;
+    --ekko-text-light: #f4f7f8;
+
+    /* --- Botones: el azul acero que ya venia, ahora con nombre --- */
+    --ekko-accent-main: #405d6d;
+    --ekko-accent-hover: #526f80;
+    --ekko-accent-active: #314a5a;
+
+    /* --- Avisos. Son los unicos colores que interrompen lo gris --- */
+    --ekko-fusion-fuchsia: #ff2ea6;
+    --ekko-fusion-cyan: #00e5ff;
+    --ekko-ok: #15803d;
+    --ekko-aviso: #b45309;
+    --ekko-error: #b91c1c;
+
+    /* --- El candado de proporcion, que tiene que leerse de un vistazo ---
+       Cerrado es azul (traba). Abierto es neutro (no traba). Un color por
+       estado, para que el boton se entienda sin leer nada. */
+    --ekko-lock-on-bg: #e0f2fe;
+    --ekko-lock-on-fg: #075985;
+    --ekko-lock-off-bg: #ffffff;
+    --ekko-lock-off-fg: #475569;
+}
+
+
+/* -------------------------------------------------------------------------
+   2. FORMA
+   -------------------------------------------------------------------------
+   Radios y bordes. Todos con el mismo criterio: las esquinas son
+   redondeadas pero no redondas. Un radio grande se ve informal; uno
+   chico se ve rigido. El actual es el punto medio.
+   ------------------------------------------------------------------------- */
+
+:root {
+    --ekko-r-chico: 4px;      /* campos de numero, chips */
+    --ekko-r-medio: 6px;      /* botones de la cinta */
+    --ekko-grande: 8px;       /* paneles, cajas de dialogo */
+    --ekko-redondo: 10px;     /* ventanas flotantes */
+    --ekko-pill: 999px;       /* etiquetas redondas */
+
+    --ekko-b-fino: 1px;
+    --ekko-b-medio: 1.5px;
+    --ekko-b-grueso: 2px;
+
+    /* Sombras. Cuanto mas alto el elemento, mas sombra: da la sensacion de
+       que esta por encima, sin necesidad de un borde negro. */
+    --ekko-sombra-baja: 0 1px 2px rgba(15, 23, 42, .06);
+    --ekko-sombra-media: 0 4px 12px rgba(15, 23, 42, .16);
+    --ekko-sombra-alta: 0 14px 34px rgba(15, 23, 42, .22);
+    --ekko-sombra-hud: 0 8px 24px rgba(15, 23, 42, .12);
+
+    /* Medidas fijas. Cambiar aca cambia el tamano de toda la app. */
+    --ekko-topbar-height: 52px;   /* la cinta: una fila de botones */
+    --ekko-sidebar-width: 220px;
+    --ekko-hud-height: 40px;      /* la barra emergente de abajo */
+
+    /* Capas. El numero define quien esta arriba de quien. */
+    --ekko-panel-z: 1000;
+    --ekko-hud-z: 10100;
+    --ekko-floating-z: 2147483000;
+}
+
+
+/* -------------------------------------------------------------------------
+   3. TIPOGRAFIA
+   -------------------------------------------------------------------------
+   La interfaz usa una sans commun y legible. La tipografia de marca
+   (Trelew) NO va en los botones: sus letras son muy grandes de contraste y
+   a 12 px pesan de mas. Trelew es la del logo y se reserva para el.
+
+   Un solo tamano para todos los botones: 12 px. Es el limite en el que un
+   cliente mayor todavia lee sin forzar la vista, y con 12 px la cinta entera
+   entra en una fila.
+   ------------------------------------------------------------------------- */
+
+:root {
+    --ekko-familia: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --ekko-familia-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+
+    /* Sizes */
+    --ekko-t-micro: 9px;      /* el numero de un atajo */
+    --ekko-t-chico: 10px;     /* unidades, "mm" */
+    --ekko-t-menu: 11px;      /* etiquetas de grupo */
+    --ekko-t-normal: 12px;    /* botones, campos */
+    --ekko-t-medio: 13px;     /* texto de la app */
+    --ekko-t-grande: 15px;    /* titulos de panel */
+    --ekko-t-titulo: 18px;    /* dialogos */
+
+    --ekko-pes-normal: 400;
+    --ekko-pes-medio: 500;
+    --ekko-pes-fuerte: 600;
+
+    --ekko-alto-linea: 1.35;  /* interlineado de los botones */
+    --ekko-alto-linea-texto: 1.5;
+}
+
+
+/* -------------------------------------------------------------------------
+   4. MOVIMIENTO
+   -------------------------------------------------------------------------
+   Cuanto tarda una cosa en aparecer y con que curva. Todas las transiciones
+   de la app usan los mismos tres tiempos: rapido para lo que pasa mientras
+   se trabaja, medio para aparecer, lento para lo que el cliente decide.
+
+   El criterio: nada de la interfaz tarda mas de 200 ms. Una animacion larga
+   en un editor se siente como que la maquina no le hace caso.
+   ------------------------------------------------------------------------- */
+
+:root {
+    --ekko-t-rapido: 90ms;
+    --ekko-t-medio: 150ms;
+    --ekko-t-lento: 220ms;
+
+    /* La curva: arranca rapido y frena. Es la que se siente natural. */
+    --ekko-curva: cubic-bezier(.32, .72, .28, 1);
+    --ekko-curva-entrada: cubic-bezier(.16, 1, .3, 1);   /* algo que aparece */
+    --ekko-curva-salida: cubic-bezier(.4, 0, 1, 1);      /* algo que se va */
+}
+
+
+/* -------------------------------------------------------------------------
+   5. COMPONENTES
+   -------------------------------------------------------------------------
+   El comportamiento visual de las piezas que se mueven con la seleccion.
+   ------------------------------------------------------------------------- */
+
+/* --- El boton de la cinta ---
+   Tres estados y ninguno mas: normal, al pasar el mouse, al apretar.
+   Los colores salen de las variables de arriba, no de numeros. */
+.ekko-cinta-boton {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: var(--ekko-b-fino) solid var(--ekko-border-color);
+    border-radius: var(--ekko-r-medio);
+    background: var(--ekko-panel-secondary);
+    color: var(--ekko-text-main);
+    font-family: var(--ekko-familia);
+    font-size: var(--ekko-t-normal);
+    font-weight: var(--ekko-pes-medio);
+    line-height: var(--ekko-t-alto-linea);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background var(--ekko-t-rapido) var(--ekko-curva),
+                border-color var(--ekko-t-rapido) var(--ekko-curva),
+                transform var(--ekko-t-rapido) var(--ekko-curva),
+                box-shadow var(--ekko-t-rapido) var(--ekko-curva);
+}
+
+.ekko-cinta-boton:hover {
+    background: var(--ekko-panel-main);
+    border-color: var(--ekko-border);
+    box-shadow: var(--ekko-sombra-baja);
+}
+
+.ekko-cinta-boton:active { transform: translateY(1px); }
+
+.ekko-cinta-boton[disabled],
+.ekko-cinta-boton[aria-disabled="true"] {
+    opacity: .45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* El boton que esta activo en este momento, dentro de su pestana. */
+.ekko-cinta-boton.is-activo {
+    background: var(--ekko-accent-main);
+    border-color: var(--ekko-accent-active);
+    color: var(--ekko-text-light);
+}
+
+/* --- El candado de proporcion ---
+   Cerrado y abierto se distinguen por el color, no por un texto al lado.
+   Cerrado es azul porque traba; abierto es neutro porque no traba. */
+.ekko-candado {
+    width: 30px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: var(--ekko-b-fino) solid var(--ekko-border);
+    border-radius: var(--ekko-r-chico);
+    background: var(--ekko-lock-off-bg);
+    color: var(--ekko-lock-off-fg);
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background var(--ekko-t-rapido) var(--ekko-curva),
+                color var(--ekko-t-rapido) var(--ekko-curva),
+                border-color var(--ekko-t-rapido) var(--ekko-curva);
+}
+
+.ekko-candado[aria-pressed="true"] {
+    background: var(--ekko-lock-on-bg);
+    color: var(--ekko-lock-on-fg);
+    border-color: var(--ekko-lock);
+}
+
+/* --- La pastilla de la pestana activa --- */
+.ekko-pastilla-activa {
+    background: var(--ekko-accent-main);
+    color: var(--ekko-text-light);
+}
+
+/* --- Un campo de numero: ancho y alto, rotacion, proporcion --- */
+.ekko-campo {
+    padding: 3px 4px;
+    border: var(--ekko-b-fino) solid var(--ekko-border-color);
+    border-radius: var(--ekko-r-chico);
+    background: var(--ekko-bg-panel);
+    color: var(--ekko-text-dark);
+    font-family: var(--ekko-familia-mono);
+    font-size: var(--ekko-t-normal);
+    text-align: right;
+    transition: border-color var(--ekko-t-rapido) var(--ekko-curva),
+                box-shadow var(--ekko-t-rapido) var(--ekko-curva);
+}
+
+.ekko-campo:focus {
+    outline: none;
+    border-color: var(--ekko-accent-main);
+    box-shadow: 0 0 0 3px rgba(64, 93, 109, .18);
+}
+
+/* --- El aviso que sale abajo: entra suave y se va mas lento --- */
+.ekko-aviso {
+    animation: ekkoEntra var(--ekko-t-lento) var(--ekko-curva-entrada);
+}
+
+@keyframes ekkoEntra {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* --- La cinta cuando la seleccion cambia ---
+   Los botones que no corresponden a lo seleccionado se van y los que
+   aparecen entran. El cambio se nota, pero no distrae: 150 ms. */
+#topBar .ekko-cinta-boton[hidden] { display: none; }
+/* -------------------------------------------------------------------------
+   COMO SE DIBUJA UN ICONO
+   -------------------------------------------------------------------------
+   Los iconos son SVG sueltos que se cargan con <use>, y por eso toman el
+   color del boton: el atributo currentColor de cada icono vale lo que valga
+   el color del texto. Asi el mismo icono sirve en el boton normal, en el
+   apagado y en el activo, sin tres versiones distintas.
+   ------------------------------------------------------------------------- */
+
+.ekko-ic {
+    width: 1.15em;
+    height: 1.15em;
+    flex: 0 0 auto;
+    display: inline-block;
+    vertical-align: -.18em;
+    /* El trazo se ve mas fino cuando el icono achica, y esta correccion lo
+       deja siempre con el mismo peso visual que el texto que tiene al lado. */
+    stroke-width: 2.2;
+}
+
+.ekko-ic--grande { width: 1.5em; height: 1.5em; }
