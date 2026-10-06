@@ -1395,15 +1395,38 @@ function subtractiveOverlapsBoundary(geometry, boundary) {
 
 
 
+/* El color con el que se ve el lienzo de verdad.
+   Se lee del DOM en el momento en que hace falta, no como un valor fijo: si
+   el fondo del lienzo cambia, el perforado tiene que cambiar con el o se
+   veria un rectangulo del color viejo tapando el dibujo.
+
+   Se prueba primero el elemento del lienzo y, si no esta, la variable de
+   estilo; el ultimo recurso es el gris que usa la app. */
+function colorDelLienzo() {
+    const respaldo = new paper.Color('#cbd5e1');
+    try {
+        const fondo = typeof paper !== 'undefined' && paper.view && paper.view.element
+            ? paper.view.element
+            : (typeof document !== 'undefined' ? document.getElementById('editorCanvas') : null);
+        if (fondo) {
+            const css = typeof getComputedStyle === 'function' ? getComputedStyle(fondo) : null;
+            const color = css && css.backgroundColor;
+            if (color && color !== 'transparent' && color !== 'rgba(0, 0, 0, 0)') {
+                // paper.Color no tiene isValid: se prueba dejando que toCSS
+                // devuelva algo. Si el color se lee mal y el perforado se
+                // queda con el respaldo, se ve un parche del color viejo
+                // tapando el dibujo.
+                const c = new paper.Color(color);
+                const cssDelColor = c.toCSS();
+                if (cssDelColor && cssDelColor !== 'rgba(0, 0, 0, 0)') return c;
+            }
+        }
+    } catch (_) { /* se usa el respaldo */ }
+    return respaldo;
+}
+
 function applyHoleVisualStyle(item) {
     if (!item) return;
-    /* Una pieza DESCOMPUESTA es un hueco que ya no le resta a nadie: esta
-       sola en la capa. Sin contorno el cliente ve el cuerpo negro de la letra
-       a traves del hueco y Cree que esta relleno, que es exactamente lo que
-       pasaba con las aperturas de la B. Se le dibuja el contorno, igual que
-       a un calado. Los huecos que siguen dentro de un solido conservan el
-       modo sin pintura, porque alla si se ven por lo que restan. */
-    const suelto = item.data?.decomposedLayer === true;
     /*
      * A real hole is a semantic cutter, never a painted contour.
      *
@@ -1443,12 +1466,27 @@ function applyHoleVisualStyle(item) {
         node.children?.forEach(clearPaint);
     };
     clearPaint(item);
-    if (suelto) {
-        item.fillColor = null;
-        item.strokeColor = item.data?.originalStrokeColor?.clone?.()
-            || new paper.Color('#111827');
-        item.strokeWidth = Number(item.data?.originalStrokeWidth || 1);
+
+    /* Una pieza DESCOMPUESTA es un hueco que ya no le resta a nadie: queda
+       sola en la capa y su CSG no corre. Un hueco real es una PERFORACION,
+       asi que tiene que dejar ver el lienzo a traves de el, perforando lo que
+       este por debajo segun el orden de apilamiento.
+
+       Sin esto, el cliente ve el cuerpo negro de la letra a traves del hueco
+       y cree que esta relleno: eso pasaba con las aperturas de la B.
+
+       No se le dibuja contorno porque un hueco real no tiene borde: se
+       rellena con el color del lienzo, que es lo que hace que se vea el
+       fondo y no el material de abajo.
+
+       Los huecos que siguen DENTRO de un solido conservan el modo sin
+       pintura: alla el relleno par-impar del compuesto ya hace el trabajo. */
+    if (item.data?.decomposedLayer === true) {
+        item.fillColor = colorDelLienzo();
+        item.strokeColor = null;
+        item.strokeWidth = 0;
     }
+
     csgTraceEvent(activeCSGTracePass, 'hole-visual-style', {
         owner: csgItemSnapshot(item), before,
         after: {
@@ -2091,7 +2129,6 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             compound.data.originalStrokeColor = single.data?.originalStrokeColor?.clone?.() || rootTarget.data?.originalStrokeColor?.clone?.() || null;
             compound.data.originalStrokeWidth = single.data?.originalStrokeWidth || rootTarget.data?.originalStrokeWidth || 0;
             applyHoleVisualStyle(compound);
-
         } else {
             compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
             compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
@@ -2217,7 +2254,6 @@ nodes.sort((a, b) => {
             compoundItem.data.originalStrokeColor = node.path.data?.originalStrokeColor?.clone?.() || null;
             compoundItem.data.originalStrokeWidth = node.path.data?.originalStrokeWidth || 0;
             applyHoleVisualStyle(compoundItem);
-
         } else {
             compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
             compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
@@ -2292,39 +2328,3 @@ nodes.sort((a, b) => {
                 window.EKKO_DIAG?.logEvent?.("decompose.silhouette-rejected", {
                     scaleX, scaleY, driftX, driftY
                 });
-                console.warn("[EKKO DESCOMPONER] Se cancelo: la silueta habria cambiado", { scaleX, scaleY, driftX, driftY });
-                return null;
-            }
-        }
-    }
-
-    rootTarget.remove();
-
-    if (targetLayer) {
-        recalculateDynamicSubtractions(targetLayer);
-    }
-
-    return { handled: true, simple: false, items: finalDeliveredItems };
-}
-
-export function geometricUngroupCompound(item) {
-    return decomposeByContainmentHierarchy(item);
-}
-
-export function geometricUngroupOneLevel(group) {
-    return decomposeByContainmentHierarchy(group);
-}
-
-if (typeof window !== 'undefined') {
-    // Query/explicit opt-in creates the public collector immediately; normal
-    // studio loads leave no trace object and execute the original route.
-    csgTraceForCurrentPass();
-    window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
-    window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
-    window.geometricUngroupCompound = decomposeByContainmentHierarchy;
-    window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
-    window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
-    window.isContainedIn = isContainedIn;
-    window.EKKO_INSTALL_OWNER_GEOMETRY = installOwnerGeometry;
-}
-
