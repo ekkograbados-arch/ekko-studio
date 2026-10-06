@@ -89,8 +89,27 @@ function esContenedor(entry) {
   const owner = entry.owner;
   if (!owner) return false;
   if (owner.className === "Group") return true;
-  return entry.species === SPECIES.VECTOR && owner.data?.decomposedLayer !== true &&
-    !!(owner.data?.svgSourceGroup || owner.data?.fromSvgImport || owner.data?.importedGroup);
+  if (entry.species !== SPECIES.VECTOR) return false;
+  const data = owner.data || {};
+
+  // Una pieza ya descompuesta no vuelve a contenedor.
+  if (data.decomposedLayer === true) return false;
+
+  // Grupo importado de un SVG: se abre en sus partes.
+  if (data.svgSourceGroup || data.fromSvgImport || data.importedGroup) return true;
+
+  /* Un objeto COMPUESTO se puede descomponer solo cuando sus contornos
+     tienen la topologia guardada: el pipeline de texto a vector escribe
+     data.contours con el rol de cada uno (outer / hole), asi que la pieza
+     que sale sabe si era solido o de que color.
+
+     Se mira el ORIGEN y no la sola presencia de contours: un QR tambien los
+     tiene, pero sus 120 modulos separados no significan nada, y una
+     conversion de imagen idem. Solo el texto vectorizado gana. */
+  if (owner.className === "CompoundPath" && data.source === "text-vector") {
+    return Array.isArray(data.contours) && data.contours.length > 0;
+  }
+  return false;
 }
 
 /** Un grupo es un envoltorio: cuenta que cosa de diseno tiene adentro. */
@@ -203,6 +222,51 @@ export function isProductElement(item) {
   return owner === window.currentMockup || owner === window.clipMask;
 }
 
+/**
+ * CUANTOS CONTORNOS DE CADA TIPO TRAE ADENTRO UN OBJETO.
+ *
+ * Un objeto compuesto puede ser solido y hueco AL MISMO TIEMPO: la O de una
+ * letra es un contorno exterior y uno interior, dentro del mismo objeto.
+ *
+ * Preguntar solo "¿que rol tiene este objeto?" no alcanza, porque un objeto
+ * solo puede responder una cosa. fontToPath.js ya etiqueta cada contorno
+ * (outer / hole) y deja hasInternalHoles en el compuesto; aca se leen esos
+ * datos para que el motor vea la topologia real.
+ *
+ * Un objeto sin contornos registrados cuenta por su propio rol, como antes:
+ * un rectangulo es un solido, un circulo suelto puede ser un hueco.
+ */
+function contarContornos(entry) {
+  const conteo = { solidos: 0, huecos: 0 };
+  const owner = entry && entry.owner;
+  if (!owner) return conteo;
+  try {
+    const data = owner.data || {};
+
+    // 1) el registro que deja el pipeline de texto a vector
+    if (Array.isArray(data.contours) && data.contours.length) {
+      for (const c of data.contours) {
+        if (c.originalIsHole === true || c.isHole === true) conteo.huecos++;
+        else conteo.solidos++;
+      }
+      return conteo;
+    }
+
+    // 2) si vino de otro lado, los sub-contornos pueden llevar la marca
+    if (owner.className === "CompoundPath" && Array.isArray(owner.children)) {
+      for (const c of owner.children) {
+        const cd = (c && c.data) || {};
+        if (cd.originalIsHole === true || cd.contourRole === "hole") conteo.huecos++;
+        else conteo.solidos++;
+      }
+      return conteo;
+    }
+  } catch (_) {
+    return { solidos: 0, huecos: 0 };
+  }
+  return conteo;
+}
+
 /** Desglose de una seleccion, listo para decidir. */
 export function describeSelection(selection) {
   const list = (Array.isArray(selection) ? selection : [])
@@ -223,6 +287,18 @@ export function describeSelection(selection) {
   const solids = list.filter(e => e.role === ROLE.SOLID);
   const holes = list.filter(e => e.role === ROLE.HOLE);
 
+  /* CONTORNOS INTERNOS. Un CompoundPath con 5 exteriores y 6 huecos es un
+     objeto, pero TOPOLOGICAMENTE tiene 5 solidos y 6 huecos. Antes se contaba
+     el rol del objeto y salia 1 solido 0 huecos, que escondia herramientas
+     que si correspondian (invertir solidos y huecos, rellenar). */
+  const conteos = list.map(contarContornos);
+  const nSolidos = conteos.reduce((n, c) => n + c.solidos, 0);
+  const nHuecos = conteos.reduce((n, c) => n + c.huecos, 0);
+  /* Un objeto SIN contornos registrados conserva el conteo por su rol, para
+     que un rectangulo suelto siga siendo 1 solido y no 0. */
+  const solidosEfectivos = nSolidos > 0 ? nSolidos : solids.length;
+  const huecosEfectivos = nHuecos > 0 ? nHuecos : holes.length;
+
   /* PROPIEDADES, no especies. Una fusion es un vector con una imagen
      adentro; una linea de corte es un vector. Ninguna de las dos cambia lo
      que el objeto es, solo lo que se le puede hacer. */
@@ -237,14 +313,25 @@ export function describeSelection(selection) {
     speciesCount: species.size,
     solids,
     holes,
+    /* Los conteos con la topologia interna ya mirada. Los arreglos de arriba se
+       dejan como estaban porque otras partes los leen por OBJETO. */
+    solidosContados: solidosEfectivos,
+    huecosContados: huecosEfectivos,
     fusions,
     cutLines,
     allSameSpecies: list.length > 0 && species.size <= 1,
-    allSolid: list.length > 0 && list.every(e => e.role === ROLE.SOLID),
-    allHole: list.length > 0 && list.every(e => e.role === ROLE.HOLE),
-    hasSolid: solids.length > 0,
-    hasHole: holes.length > 0,
-    mixedRoles: solids.length > 0 && holes.length > 0,
+    allSolid: list.length > 0 && huecosEfectivos === 0 && solidosEfectivos > 0,
+    allHole: list.length > 0 && solidosEfectivos === 0 && huecosEfectivos > 0,
+    hasSolid: solidosEfectivos > 0,
+    hasHole: huecosEfectivos > 0,
+    mixedRoles: solidosEfectivos > 0 && huecosEfectivos > 0,
+    /* Un hueco que es un OBJETO suelto, no un contorno por dentro de otro.
+       La diferencia importa: una letra con la O se cala bien (hay que cortar
+       el contorno de afuera y el de adentro, y eso es justamente un calado),
+       pero calar un objeto que SOLO es un hueco si que seria un absurdo.
+       Por eso Calado mira esto y no hasHole. */
+    hasHoleObject: holes.length > 0,
+    hasSolidObject: solids.length > 0,
     /* Un grupo con varias especies adentro. Hay que desagruparlo antes de
        operar: no se le puede aplicar nada a "un vector con una imagen y un
        texto adentro" sin saber primero cual es cual. */
@@ -330,9 +417,11 @@ export const TOOLS = {
   // --- Roles solido/hueco (edicion de UN objeto: con varios se ocultan) ---
   calado: {
     label: "Calar",
-    // Todo vector cerrado puede calarse. Solo si NO hay huecos en la
-    // seleccion: calar un hueco seria un absurdo.
-    active: s => s.count === 1 && s.onlyVectorish && s.hasSolid && !s.hasHole
+    // Todo vector cerrado puede calarse. Solo se bloquea si hay un hueco que
+    // sea un OBJETO suelto: calar un objeto que solo es un hueco seria un
+    // absurdo. Un hueco por DENTRO (la apertura de una letra) NO bloquea:
+    // cortar el contorno de afuera y el de adentro es justamente el calado.
+    active: s => s.count === 1 && s.onlyVectorish && s.hasSolid && !s.hasHoleObject
   },
   rellenar: {
     label: "Rellenar",
