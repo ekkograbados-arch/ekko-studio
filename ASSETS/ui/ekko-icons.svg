@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ==========================================================================
+   EKKO STUDIO - ICONOS
+  ==========================================================================
+  Sprite SVG con un icono por herramienta. Se usan asi:
+
+      <svg class="ekko-ic"><use href="ASSETS/ui/ekko-icons.svg#ekko-cargar"/></svg>
+
+  POR QUE PROPIOS Y NO UNA LIBRERIA:
+
+  Font Awesome dejaba cuatro pares de herramientas con el MISMO icono, y ahi
+  el cliente no puede saber cual esta pulsando:
+
+      font               -> Agregar Texto      y  Texto a Vector
+      vector-square      -> Descomponer       y  Contorno
+      wand-magic-sparkles-> Fusionar           y  Quitar Fondo
+      object-ungroup     -> Calado             y  Desagrupar
+
+  Con un icono por herramienta eso no puede pasar: cada silueta es una sola
+  y pertenece a una sola operacion.
+
+  ESTILO, para que el set se vea uno solo:
+
+      - Cuadrado de 24 x 24, con margen: todos pesan igual.
+      - Trazo de 2.2 con terminal redondeado, la misma linea de las letras
+        del abecedario de EKKO Studio. Nada de trazos finos de libreria.
+      - Nada de texto, nada de letras dentro del icono, salvo la "A" de
+        Texto, que es la forma universal de escribir.
+      - currentColor: el icono toma el color del boton, y por eso anda en
+        hover, apagado y activo sin ningun color propio.
+
+  DOS REGLAS QUE ESTE ARCHIVO CUMPLE SIEMPRE:
+
+      1. NINGUNA variable de CSS. El sprite tiene que poder abrirse solo,
+         sin depender de que se haya cargado ekko-ui.css. Por eso donde
+         hacia falta "tapar" algo, se dibuja con arcos en vez de con un
+         relleno del color del fondo.
+      2. NINGUN icono se repite. Si dos herramientas se parecen, se cambia
+         una de las dos, nunca se comparten.
+
+  Para agregar uno nuevo: copiar un <symbol> mas abajo y le puse el #id.
+  ==========================================================================
+-->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+
+  <!-- ===================================================================
+       CREAR
+       =================================================================== -->
+
+  <!-- Cargar: flecha entrando en una bandeja -->
+  <symbol id="ekko-cargar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+    <path d="M12 3v11"/>
+    <path d="M8 7l4-4 4 4"/>
+  </symbol>
+
+  <!-- Texto: la letra A, la forma mas universal para escribir -->
+  <symbol id="ekko-texto" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 19l6.5-15h3L20 19"/>
+    <path d="M7.2 12.5h9.6"/>
+  </symbol>
+
+  <!-- QR: las tres esquinas de localizador, que es lo que distingue a un QR -->
+  <symbol id="ekko-qr" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.6"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.6"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.6"/>
+    <path d="M14 14h3v3h-3z"/>
+    <path d="M20 14v3M14 20h3"/>
+  </symbol>
+
+  <!-- ===================================================================
+       FUSION: el par. Dos flechas que entran y dos que salen, la misma
+       forma del reves. Con solo ver cual flecha mira se sabe cual es cual.
+       =================================================================== -->
+
+  <!-- Fusionar: dos cosas que entran y quedan en una sola -->
+  <symbol id="ekko-fusionar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 8.5L7.5 12l-5 3.5"/>
+    <path d="M21.5 8.5L16.5 12l5 3.5"/>
+    <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>
+  </symbol>
+
+  <!-- Separar: la fusion desarmandose, el camino inverso -->
+  <symbol id="ekko-separar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>
+    <path d="M5.5 12h-3M21.5 12h-3"/>
+    <path d="M4.5 9.5L2 12l2.5 2.5"/>
+    <path d="M19.5 9.5L22 12l-2.5 2.5"/>
+  </symbol>
+
+  <!-- ===================================================================
+       CALADOS
+       =================================================================== -->
+
+  <!-- Calado: el contorno por fuera, la forma por dentro -->
+  <symbol id="ekko-calado" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="3"/>
+    <rect x="8.5" y="8.5" width="7" height="7" rx="1.6"/>
+  </symbol>
+
+  <!-- Rellenar: la misma figura, pero pintada -->
+  <symbol id="ekko-rellenar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="18" height="18" rx="3"/>
+    <rect x="8.5" y="8.5" width="7" height="7" rx="1.6" fill="currentColor" stroke="none"/>
+  </symbol>
+
+  <!-- Solidos y huecos: el signo de cambio, con un anillo lleno y uno vacio.
+       El signo dice "intercambia" y los anillos dicen "que se intercambia". -->
+  <symbol id="ekko-solidos-huecos" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="7.5" cy="12" r="4.5" fill="currentColor" stroke="none"/>
+    <circle cx="16.5" cy="12" r="4.5"/>
+  </symbol>
+
+  <!-- ===================================================================
+       ESTRUCTURA
+       =================================================================== -->
+
+  <!-- Agrupar: tres cosas entrando en una caja, la mas nueva tapada -->
+  <symbol id="ekko-agrupar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.4" opacity=".45"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.4" opacity=".45"/>
+    <path d="M14.5 18.5h7M18 15v7"/>
+  </symbol>
+
+  <!-- Desagrupar: las tres cosas sueltas, y la caja que ya no esta -->
+  <symbol id="ekko-desagrupar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.4"/>
+    <path d="M15 18.5h6M18 15.5v6" opacity=".45" stroke-dasharray="2 2"/>
+  </symbol>
+
+  <!-- Descomponer: un todo que se parte en capas sueltas -->
+  <symbol id="ekko-descomponer" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l8 4.5-8 4.5-8-4.5z"/>
+    <path d="M4 12l8 4.5 8-4.5" opacity=".55"/>
+    <path d="M4 16.5L12 21l8-4.5" opacity=".3"/>
+  </symbol>
+
+  <!-- ===================================================================
+       GEOMETRIA
+       =================================================================== -->
+
+  <!-- Editar nodos: la curva con los puntos donde se la puede doblar -->
+  <symbol id="ekko-nodos" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 18C4 9 10 5 20 5" stroke-width="1.8"/>
+    <path d="M4 18L12 8.2" stroke-width="1.2" opacity=".4"/>
+    <circle cx="4" cy="18" r="2.2" fill="currentColor" stroke="none"/>
+    <circle cx="12" cy="8.2" r="2.2"/>
+    <circle cx="20" cy="5" r="2.2" fill="currentColor" stroke="none"/>
+  </symbol>
+
+  <!-- Contorno: solo el borde. El detalle que se dibuja es el filo, asi que
+       el globo con la linea de corte es la silueta que mejor lo dice. -->
+  <symbol id="ekko-contorno" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="9"/>
+    <path d="M3 12h18" stroke-width="1.3" opacity=".5"/>
+    <path d="M12 3c2.6 2.5 3.6 5.6 3.6 9s-1 6.5-3.6 9c-2.6-2.5-3.6-5.6-3.6-9s1-6.5 3.6-9z"
+          stroke-width="1.3" opacity=".5"/>
+  </symbol>
+
+  <!-- Texto a Vector: la letra que se convierte en forma, con la flecha de
+       "pasa a ser". La A sola ya la usa Agregar Texto. -->
+  <symbol id="ekko-vectorizar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 17l3.6-9h1.8L12 17"/>
+    <path d="M4.6 13.7h6.2"/>
+    <path d="M14.5 12h6M18.5 9.5L21 12l-2.5 2.5"/>
+  </symbol>
+
+  <!-- ===================================================================
+       ORGANIZAR
+       =================================================================== -->
+
+  <!-- Alinear: tres barras pegadas a una misma guia vertical.
+       Si las barras tocaran la guia, seria "partir"; que no la toquen, y
+       esten todas iguales al margen, es lo que significa alinear. -->
+  <symbol id="ekko-alinear" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.5 2.5v19" opacity=".45" stroke-width="1.4" stroke-dasharray="3 2.5"/>
+    <path d="M6.5 7h13M6.5 12h8M6.5 17h11"/>
+  </symbol>
+
+  <!-- Distribuir: tres cosas iguales con dos ticks abajo que dicen
+       "los espacios del medio son iguales". -->
+  <symbol id="ekko-distribuir" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.5" y="6" width="5" height="8" rx="1.3"/>
+    <rect x="9.5" y="6" width="5" height="8" rx="1.3"/>
+    <rect x="16.5" y="6" width="5" height="8" rx="1.3"/>
+    <path d="M2 17.5h20" stroke-width="1.3" opacity=".5"/>
+    <path d="M7.5 15.5v4M16.5 15.5v4" stroke-width="1.3" opacity=".5"/>
+  </symbol>
+
+  <!-- ===================================================================
+       DIBUJAR
+
+       Las cuatro de dibujar. SeSvuelven asi:
+
+       Corte        tijera partiendo la linea, con el corte marcado por el
+                    hueco que dejan las hojas
+       Lineas       dos rectas con sus extremos, en angulos distintos
+       Formas       las tres figuras basicas: cuadro, circulo y triangulo
+       Lapiz        el lapiz tipico, con la linea ondulada que deja abajo
+       =================================================================== -->
+
+  <!-- Corte: tijera partiendo una linea. El hueco en el medio de la linea es
+       lo que dice "corte": sin ese hueco seria solo una tijera. -->
+  <symbol id="ekko-corte" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M7.5 4.5l9.5 11.5"/>
+    <path d="M16.5 4.5L7 16"/>
+    <circle cx="17.2" cy="17.2" r="2.7"/>
+    <circle cx="6.8" cy="17.2" r="2.7"/>
+    <path d="M2 11h5M17 11h5" stroke-dasharray="2.4 2" opacity=".5" stroke-width="1.6"/>
+  </symbol>
+
+  <!-- Lineas: dos rectas con sus extremos marcados, en angulos distintos.
+       Los extremos pleinos dicen "esto se dibuja con un click". -->
+  <symbol id="ekko-lineas" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 18.5L13 4.5"/>
+    <circle cx="3" cy="18.5" r="2.3" fill="currentColor" stroke="none"/>
+    <circle cx="13" cy="4.5" r="2.3" fill="currentColor" stroke="none"/>
+    <path d="M8.5 21h12.5" stroke-width="1.8" opacity=".5"/>
+  </symbol>
+
+  <!-- Formas: las tres figuras basicas, que es lo que el cliente elige -->
+  <symbol id="ekko-formas" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.5" y="3" width="8" height="7.5" rx="1.5"/>
+    <circle cx="18" cy="6.75" r="3.75"/>
+    <path d="M6 21.5l6-8 6 8z"/>
+  </symbol>
+
+  <!-- Lapiz: dibujando a mano. La onda de abajo es lo que escribe el
+       lapiz; sin ella seria el mismo icono de editar. -->
+  <symbol id="ekko-lapiz" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 19.5c2.4 0 2.4-3 4.8-3s2.4 3 4.8 3 2.4-3 4.8-3 2.4 3 4.8 3" stroke-width="1.8"/>
+    <path d="M14.2 4.2l5.6 5.6-6.8 6.8-6.2 1.4 1.4-6.2z" stroke-width="2"/>
+    <path d="M12.6 5.8l5.6 5.6" stroke-width="1.4" opacity=".55"/>
+  </symbol>
+
+  <!-- ===================================================================
+       IMAGEN
+       =================================================================== -->
+
+  <!-- Quitar Fondo: la imagen entera, con el marco punteado que es lo que se
+       va. El punteado dice "esto desaparece"; lo de adentro se conserva. -->
+  <symbol id="ekko-quitar-fondo" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="4" width="18" height="16" rx="2.5"
+          stroke-dasharray="3 2.6" opacity=".5" stroke-width="1.8"/>
+    <path d="M5.5 17L10.5 9.5l3.4 4.3L16 11l2.5 6z"/>
+  </symbol>
+
+  <!-- Trazar: la foto a la izquierda, y a la derecha el contorno que sale
+       de ella. La flecha en el medio dice "de aqui sale eso". -->
+  <symbol id="ekko-trazar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.5" y="6.5" width="8" height="8" rx="1.4"
+          stroke-dasharray="2.4 2" opacity=".5" stroke-width="1.8"/>
+    <path d="M3.8 13.2L6 10l2 2.6 1.2-1.6" stroke-width="1.6" opacity=".8"/>
+    <path d="M12.5 10.5h3.5" stroke-width="1.8"/>
+    <path d="M14.8 9l1.6 1.5-1.6 1.5" stroke-width="1.8"/>
+    <path d="M18 6.5c1.6 1.6 1.6 3.2 0 4.8s-1.6 3.2 0 4.8" stroke-width="1.8"/>
+  </symbol>
+
+  <!-- Editar imagen: el lapiz entrando por la esquina del marco.
+       Todo con trazo, sin relleno: relleno se convierte en una mancha negra al
+       achicarse y a 13 px deja de leerse. -->
+  <symbol id="ekko-editar-imagen" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 8.5V5.5a2 2 0 0 1 2-2h3"/>
+    <path d="M21 8.5V5.5a2 2 0 0 0-2-2h-3"/>
+    <path d="M3 15.5v3a2 2 0 0 0 2 2h3"/>
+    <path d="M14.6 4.6l4.8 4.8-8.6 8.6-5.6 1.8 1.8-5.6z" stroke-width="2"/>
+    <path d="M12.9 6.3l4.8 4.8" stroke-width="1.5" opacity=".55"/>
+  </symbol>
+
+  <!-- Curvar Texto: la flecha que entra recta y sale doblada. Es el signo
+       universal de "curvar", y se lee aunque no se lea la palabra. -->
+  <symbol id="ekko-curvar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 7.5h9.5a5 5 0 0 1 0 10H8"/>
+    <path d="M10.5 14.5L8 17.5l2.5 3"/>
+  </symbol>
+
+  <!-- ===================================================================
+       BOOLEANAS
+
+       Las cuatro son el mismo dibujo base: dos circulos que se pisan. Lo
+       que cambia es que parte queda marcada. Asi el cliente las separa por
+       el lugar, no por tener que acordarse de cual era cual:
+
+           Union        los dos circulos enteros + la luna pintada
+           Interseccion los dos circulos apagados  + la luna pintada
+           Diferencia   un circulo pintado + el otro apagado
+           Restar       solo la luna menos, en forma de media luna
+
+       Ninguna "tapa" con el color del fondo: eso rompe en cuanto el
+       boton cambia de color.
+       =================================================================== -->
+
+  <!-- Union: los dos circulos enteros y la parte que comparten pintada -->
+  <symbol id="ekko-union" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="8.5" cy="12" r="5.5"/>
+    <circle cx="15.5" cy="12" r="5.5"/>
+    <path d="M12 7.76A5.5 5.5 0 0 1 12 16.24 5.5 5.5 0 0 1 12 7.76z"
+          fill="currentColor" stroke="none"/>
+  </symbol>
+
+  <!-- Interseccion: solo se ve la parte que comparten. Los dos circulos
+       quedan apagados, porque lo que se conserva es la luna, no ellos. -->
+  <symbol id="ekko-interseccion" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="8.5" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/>
+    <circle cx="15.5" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/>
+    <path d="M12 7.76A5.5 5.5 0 0 1 12 16.24 5.5 5.5 0 0 1 12 7.76z"
+          fill="currentColor" stroke="none"/>
+  </symbol>
+
+  <!-- Diferencia: queda uno entero, y el otro se ve apagado porque
+       desaparece. El que sobrevive va pintado. -->
+  <symbol id="ekko-diferencia" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="9" cy="12" r="5.5" fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/>
+  </symbol>
+
+  <!-- Restar: el resultado de quitar, dibujado. Es la media luna que queda
+       del primer circulo cuando le come el segundo. Sin luna tapada, sin
+       relleno del fondo: solo dos arcos. -->
+  <symbol id="ekko-restar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 7.39A5.5 5.5 0 1 0 12 16.61 5.5 5.5 0 0 1 12 7.39z"
+          fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="12" r="5.5" opacity=".35" stroke-width="1.6"/>
+  </symbol>
+
+  <!-- ===================================================================
+       CONTROL
+       =================================================================== -->
+
+  <!-- Auditar: la lupa revisando una lista -->
+  <symbol id="ekko-auditar" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M13 4.5h7M13 9h7M13 13.5h4" opacity=".5" stroke-width="1.6"/>
+    <circle cx="7.5" cy="16.5" r="4.5"/>
+    <path d="M10.8 19.8L14 23"/>
+  </symbol>
+
+  <!-- Ajustar vista: el encuadre de lo que esta en pantalla -->
+  <symbol id="ekko-vista" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 8V5a2 2 0 0 1 2-2h3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3"/>
+    <circle cx="12" cy="12" r="3.2"/>
+  </symbol>
+
+  <!-- Reglas: la medida con sus numeros -->
+  <symbol id="ekko-reglas" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 8h19v3.5h-19z"/>
+    <path d="M6 11.5v3.5M9.5 11.5v2.2M13 11.5v3.5M16.5 11.5v2.2M20 11.5v3.5" stroke-width="1.5"/>
+  </symbol>
+
+  <!-- Guias: la cruz de lineas que sujetan el dibujo. El circulo es la
+       pieza que queda atrapada en el cruce. -->
+  <symbol id="ekko-guias" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 2.5v5.5M12 16v5.5M2.5 12h5.5M16 12h5.5"
+          stroke-dasharray="2.6 2.2" opacity=".55" stroke-width="1.8"/>
+    <circle cx="12" cy="12" r="3.4"/>
+  </symbol>
+
+  <!-- Deshacer y rehacer: las flechas del historial -->
+  <symbol id="ekko-deshacer" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 10h11a5 5 0 0 1 0 10h-6"/>
+    <path d="M8 6L4 10l4 4"/>
+  </symbol>
+
+  <symbol id="ekko-rehacer" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 10H9a5 5 0 0 0 0 10h6"/>
+    <path d="M16 6l4 4-4 4"/>
+  </symbol>
+
+  <!-- Flecha simple, para las barras de desplazamiento -->
+  <symbol id="ekko-flecha" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M5 12h14M13 6l6 6-6 6"/>
+  </symbol>
+
+</svg>

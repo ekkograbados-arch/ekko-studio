@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EKKO Studio - Iconos (antes de subirlos)</title>
+<style>
+/* ------------------------------------------------------------------------
+   Pagina de trabajo, no parte de la aplicacion.
+
+   Esta pagina se GENERA con  node ASSETS/ui/actualizar-iconos.mjs
+   Los iconos van incrustados en el HTML, sin JavaScript: por eso no puede
+   quedar en blanco. Para cambiar algo, se cambia el sprite y se corre el
+   comando otra vez.
+   ------------------------------------------------------------------------ */
+
+body {
+  margin: 0; padding: 24px 28px 60px;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: #ffffff; color: #26343d;
+}
+
+/* El oscuro importa: el icono toma el color del boton, asi que hay que
+   ver que se lea en las dos superficies. Con :has() no hace falta JS. */
+body:has(#oscuro:checked) { background: #0d0d20; color: #e8edf2; }
+body:has(#oscuro:checked) .sub,
+body:has(#oscuro:checked) h2,
+body:has(#oscuro:checked) .uso,
+body:has(#oscuro:checked) .id { color: #94a3b8; }
+body:has(#oscuro:checked) .barra { border-color: #24304a; }
+body:has(#oscuro:checked) .celda { border-color: #24304a; background: #141a33; }
+body:has(#oscuro:checked) .demo { background: #1d2749; border-color: #33415c; color: #e8edf2; }
+body:has(#oscuro:checked) .resumen { background: #141a33; }
+
+h1 { font-size: 19px; margin: 0 0 4px; }
+.sub { color: #5d6c76; margin: 0 0 18px; font-size: 13px; max-width: 70ch; }
+code { background: #f1f5f9; padding: 1px 5px; border-radius: 3px; font-size: 12px; }
+body:has(#oscuro:checked) code { background: #1d2749; }
+
+.barra {
+  display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #dde5ea;
+}
+.barra label { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; cursor: pointer; }
+.barra input[type=checkbox] { width: 15px; height: 15px; cursor: pointer; accent-color: #405d6d; }
+.barra .cuenta { font-size: 12px; color: #5d6c76; }
+body:has(#oscuro:checked) .barra .cuenta { color: #94a3b8; }
+
+.resumen {
+  margin: 0 0 22px; padding: 11px 15px; border-radius: 8px;
+  background: #f1f5f9; font-size: 12.5px;
+}
+.resumen ul { margin: 6px 0 0; padding-left: 20px; }
+.resumen li { margin: 3px 0; }
+.resumen .mal { color: #b91c1c; }
+.resumen .nota { color: #8a6d1f; }
+.resumen .ok { color: #15803d; }
+
+.celda {
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+  padding: 12px 6px 10px; border: 1px solid #dde5ea;
+  border-radius: 8px; background: #f7fafb;
+}
+.grande { width: 54px; height: 54px; line-height: 0; }
+
+/* boton de mentira: mismo padding y misma fuente que los de la cinta */
+.demo {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border: 1px solid #cbd5e1; border-radius: 6px;
+  background: #d1dce3; color: #26343d;
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.uso { font-size: 11px; color: #5d6c76; text-align: center; line-height: 1.3; }
+.id { font-size: 10px; color: #94a3b8; font-family: ui-monospace, Consolas, monospace; }
+.nuevo { border-color: #f5c518; box-shadow: 0 0 0 2px rgba(245, 197, 24, .25); }
+
+.rejilla {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+}
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+     color: #5d6c76; margin: 30px 0 12px; }
+</style>
+</head>
+<body>
+
+<h1>EKKO Studio &mdash; iconos de la marca</h1>
+<p class="sub">
+  Cada icono sale en grande para revisar el dibujo y al lado, dentro de un boton
+  con el mismo padding y la misma fuente que los de la cinta, al tamano real
+  (13.8&nbsp;px). Ese segundo es el que importa: un icono puede verse bien en
+  grande y ser ilegible en un boton.
+  Para cambiar algo: se edita <code>ekko-icons.svg</code> y se corre
+  <code>node ASSETS/ui/actualizar-iconos.mjs</code>.
+</p>
+
+<div class="barra">
+  <label><input type="checkbox" id="oscuro"> Ver en oscuro</label>
+  <span class="cuenta">35 iconos &middot; 28 herramientas en la cinta</span>
+</div>
+
+<div class="resumen">
+  <span class="ok">Sin problemas: cada herramienta tiene su icono y ninguno se repite.</span>
+  <ul>
+      <li class="nota">7 icono(s) dibujados sin boton todavia: ekko-corte, ekko-lineas, ekko-formas, ekko-lapiz, ekko-deshacer, ekko-rehacer, ekko-flecha</li>
+  </ul>
+</div>
+
+<h2>En la cinta ahora (28)</h2>
+<div class="rejilla">
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+    <path d="M12 3v11"/>
+    <path d="M8 7l4-4 4 4"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>
+    <path d="M12 3v11"/>
+    <path d="M8 7l4-4 4 4"/></g></svg>Cargar Imagen / SVG</span><div class="uso">Cargar Imagen / SVG</div><div class="id">ekko-cargar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19l6.5-15h3L20 19"/>
+    <path d="M7.2 12.5h9.6"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19l6.5-15h3L20 19"/>
+    <path d="M7.2 12.5h9.6"/></g></svg>Agregar Texto</span><div class="uso">Agregar Texto</div><div class="id">ekko-texto</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.6"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.6"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.6"/>
+    <path d="M14 14h3v3h-3z"/>
+    <path d="M20 14v3M14 20h3"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.6"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.6"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.6"/>
+    <path d="M14 14h3v3h-3z"/>
+    <path d="M20 14v3M14 20h3"/></g></svg>QR</span><div class="uso">QR</div><div class="id">ekko-qr</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8.5L7.5 12l-5 3.5"/>
+    <path d="M21.5 8.5L16.5 12l5 3.5"/>
+    <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8.5L7.5 12l-5 3.5"/>
+    <path d="M21.5 8.5L16.5 12l5 3.5"/>
+    <circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/></g></svg>Fusionar</span><div class="uso">Fusionar</div><div class="id">ekko-fusionar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>
+    <path d="M5.5 12h-3M21.5 12h-3"/>
+    <path d="M4.5 9.5L2 12l2.5 2.5"/>
+    <path d="M19.5 9.5L22 12l-2.5 2.5"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4" fill="currentColor" stroke="none"/>
+    <path d="M5.5 12h-3M21.5 12h-3"/>
+    <path d="M4.5 9.5L2 12l2.5 2.5"/>
+    <path d="M19.5 9.5L22 12l-2.5 2.5"/></g></svg>Quitar Fusion</span><div class="uso">Quitar Fusion</div><div class="id">ekko-separar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/>
+    <rect x="8.5" y="8.5" width="7" height="7" rx="1.6"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/>
+    <rect x="8.5" y="8.5" width="7" height="7" rx="1.6"/></g></svg>Calado</span><div class="uso">Calado</div><div class="id">ekko-calado</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/>
+    <rect x="8.5" y="8.5" width="7" height="7" rx="1.6" fill="currentColor" stroke="none"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/>
+    <rect x="8.5" y="8.5" width="7" height="7" rx="1.6" fill="currentColor" stroke="none"/></g></svg>Rellenar</span><div class="uso">Rellenar</div><div class="id">ekko-rellenar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="12" r="4.5" fill="currentColor" stroke="none"/>
+    <circle cx="16.5" cy="12" r="4.5"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="12" r="4.5" fill="currentColor" stroke="none"/>
+    <circle cx="16.5" cy="12" r="4.5"/></g></svg>Solidos / Huecos</span><div class="uso">Solidos / Huecos</div><div class="id">ekko-solidos-huecos</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.4" opacity=".45"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.4" opacity=".45"/>
+    <path d="M14.5 18.5h7M18 15v7"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.4" opacity=".45"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.4" opacity=".45"/>
+    <path d="M14.5 18.5h7M18 15v7"/></g></svg>Agrupar</span><div class="uso">Agrupar</div><div class="id">ekko-agrupar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.4"/>
+    <path d="M15 18.5h6M18 15.5v6" opacity=".45" stroke-dasharray="2 2"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="14" y="3" width="7" height="7" rx="1.4"/>
+    <rect x="3" y="14" width="7" height="7" rx="1.4"/>
+    <path d="M15 18.5h6M18 15.5v6" opacity=".45" stroke-dasharray="2 2"/></g></svg>Desagrupar</span><div class="uso">Desagrupar</div><div class="id">ekko-desagrupar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5-8 4.5-8-4.5z"/>
+    <path d="M4 12l8 4.5 8-4.5" opacity=".55"/>
+    <path d="M4 16.5L12 21l8-4.5" opacity=".3"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.5-8 4.5-8-4.5z"/>
+    <path d="M4 12l8 4.5 8-4.5" opacity=".55"/>
+    <path d="M4 16.5L12 21l8-4.5" opacity=".3"/></g></svg>Descomponer Vector</span><div class="uso">Descomponer Vector</div><div class="id">ekko-descomponer</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18C4 9 10 5 20 5" stroke-width="1.8"/>
+    <path d="M4 18L12 8.2" stroke-width="1.2" opacity=".4"/>
+    <circle cx="4" cy="18" r="2.2" fill="currentColor" stroke="none"/>
+    <circle cx="12" cy="8.2" r="2.2"/>
+    <circle cx="20" cy="5" r="2.2" fill="currentColor" stroke="none"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18C4 9 10 5 20 5" stroke-width="1.8"/>
+    <path d="M4 18L12 8.2" stroke-width="1.2" opacity=".4"/>
+    <circle cx="4" cy="18" r="2.2" fill="currentColor" stroke="none"/>
+    <circle cx="12" cy="8.2" r="2.2"/>
+    <circle cx="20" cy="5" r="2.2" fill="currentColor" stroke="none"/></g></svg>Editar Nodos</span><div class="uso">Editar Nodos</div><div class="id">ekko-nodos</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>
+    <path d="M3 12h18" stroke-width="1.3" opacity=".5"/>
+    <path d="M12 3c2.6 2.5 3.6 5.6 3.6 9s-1 6.5-3.6 9c-2.6-2.5-3.6-5.6-3.6-9s1-6.5 3.6-9z"
+          stroke-width="1.3" opacity=".5"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/>
+    <path d="M3 12h18" stroke-width="1.3" opacity=".5"/>
+    <path d="M12 3c2.6 2.5 3.6 5.6 3.6 9s-1 6.5-3.6 9c-2.6-2.5-3.6-5.6-3.6-9s1-6.5 3.6-9z"
+          stroke-width="1.3" opacity=".5"/></g></svg>Contorno</span><div class="uso">Contorno</div><div class="id">ekko-contorno</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l3.6-9h1.8L12 17"/>
+    <path d="M4.6 13.7h6.2"/>
+    <path d="M14.5 12h6M18.5 9.5L21 12l-2.5 2.5"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l3.6-9h1.8L12 17"/>
+    <path d="M4.6 13.7h6.2"/>
+    <path d="M14.5 12h6M18.5 9.5L21 12l-2.5 2.5"/></g></svg>Texto a Vector</span><div class="uso">Texto a Vector</div><div class="id">ekko-vectorizar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 2.5v19" opacity=".45" stroke-width="1.4" stroke-dasharray="3 2.5"/>
+    <path d="M6.5 7h13M6.5 12h8M6.5 17h11"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 2.5v19" opacity=".45" stroke-width="1.4" stroke-dasharray="3 2.5"/>
+    <path d="M6.5 7h13M6.5 12h8M6.5 17h11"/></g></svg>Alinear</span><div class="uso">Alinear</div><div class="id">ekko-alinear</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="5" height="8" rx="1.3"/>
+    <rect x="9.5" y="6" width="5" height="8" rx="1.3"/>
+    <rect x="16.5" y="6" width="5" height="8" rx="1.3"/>
+    <path d="M2 17.5h20" stroke-width="1.3" opacity=".5"/>
+    <path d="M7.5 15.5v4M16.5 15.5v4" stroke-width="1.3" opacity=".5"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="5" height="8" rx="1.3"/>
+    <rect x="9.5" y="6" width="5" height="8" rx="1.3"/>
+    <rect x="16.5" y="6" width="5" height="8" rx="1.3"/>
+    <path d="M2 17.5h20" stroke-width="1.3" opacity=".5"/>
+    <path d="M7.5 15.5v4M16.5 15.5v4" stroke-width="1.3" opacity=".5"/></g></svg>Distribuir</span><div class="uso">Distribuir</div><div class="id">ekko-distribuir</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"
+          stroke-dasharray="3 2.6" opacity=".5" stroke-width="1.8"/>
+    <path d="M5.5 17L10.5 9.5l3.4 4.3L16 11l2.5 6z"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"
+          stroke-dasharray="3 2.6" opacity=".5" stroke-width="1.8"/>
+    <path d="M5.5 17L10.5 9.5l3.4 4.3L16 11l2.5 6z"/></g></svg>Quitar Fondo</span><div class="uso">Quitar Fondo</div><div class="id">ekko-quitar-fondo</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="8" height="8" rx="1.4"
+          stroke-dasharray="2.4 2" opacity=".5" stroke-width="1.8"/>
+    <path d="M3.8 13.2L6 10l2 2.6 1.2-1.6" stroke-width="1.6" opacity=".8"/>
+    <path d="M12.5 10.5h3.5" stroke-width="1.8"/>
+    <path d="M14.8 9l1.6 1.5-1.6 1.5" stroke-width="1.8"/>
+    <path d="M18 6.5c1.6 1.6 1.6 3.2 0 4.8s-1.6 3.2 0 4.8" stroke-width="1.8"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6.5" width="8" height="8" rx="1.4"
+          stroke-dasharray="2.4 2" opacity=".5" stroke-width="1.8"/>
+    <path d="M3.8 13.2L6 10l2 2.6 1.2-1.6" stroke-width="1.6" opacity=".8"/>
+    <path d="M12.5 10.5h3.5" stroke-width="1.8"/>
+    <path d="M14.8 9l1.6 1.5-1.6 1.5" stroke-width="1.8"/>
+    <path d="M18 6.5c1.6 1.6 1.6 3.2 0 4.8s-1.6 3.2 0 4.8" stroke-width="1.8"/></g></svg>Trazar Imagen</span><div class="uso">Trazar Imagen</div><div class="id">ekko-trazar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5V5.5a2 2 0 0 1 2-2h3"/>
+    <path d="M21 8.5V5.5a2 2 0 0 0-2-2h-3"/>
+    <path d="M3 15.5v3a2 2 0 0 0 2 2h3"/>
+    <path d="M14.6 4.6l4.8 4.8-8.6 8.6-5.6 1.8 1.8-5.6z" stroke-width="2"/>
+    <path d="M12.9 6.3l4.8 4.8" stroke-width="1.5" opacity=".55"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5V5.5a2 2 0 0 1 2-2h3"/>
+    <path d="M21 8.5V5.5a2 2 0 0 0-2-2h-3"/>
+    <path d="M3 15.5v3a2 2 0 0 0 2 2h3"/>
+    <path d="M14.6 4.6l4.8 4.8-8.6 8.6-5.6 1.8 1.8-5.6z" stroke-width="2"/>
+    <path d="M12.9 6.3l4.8 4.8" stroke-width="1.5" opacity=".55"/></g></svg>Editar Imagen</span><div class="uso">Editar Imagen</div><div class="id">ekko-editar-imagen</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 7.5h9.5a5 5 0 0 1 0 10H8"/>
+    <path d="M10.5 14.5L8 17.5l2.5 3"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 7.5h9.5a5 5 0 0 1 0 10H8"/>
+    <path d="M10.5 14.5L8 17.5l2.5 3"/></g></svg>Curvar Texto</span><div class="uso">Curvar Texto</div><div class="id">ekko-curvar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="12" r="5.5"/>
+    <circle cx="15.5" cy="12" r="5.5"/>
+    <path d="M12 7.76A5.5 5.5 0 0 1 12 16.24 5.5 5.5 0 0 1 12 7.76z"
+          fill="currentColor" stroke="none"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="12" r="5.5"/>
+    <circle cx="15.5" cy="12" r="5.5"/>
+    <path d="M12 7.76A5.5 5.5 0 0 1 12 16.24 5.5 5.5 0 0 1 12 7.76z"
+          fill="currentColor" stroke="none"/></g></svg>Union</span><div class="uso">Union</div><div class="id">ekko-union</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/>
+    <circle cx="15.5" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/>
+    <path d="M12 7.76A5.5 5.5 0 0 1 12 16.24 5.5 5.5 0 0 1 12 7.76z"
+          fill="currentColor" stroke="none"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/>
+    <circle cx="15.5" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/>
+    <path d="M12 7.76A5.5 5.5 0 0 1 12 16.24 5.5 5.5 0 0 1 12 7.76z"
+          fill="currentColor" stroke="none"/></g></svg>Interseccion</span><div class="uso">Interseccion</div><div class="id">ekko-interseccion</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="5.5" fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="5.5" fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="12" r="5.5" opacity=".3" stroke-width="1.6"/></g></svg>Diferencia</span><div class="uso">Diferencia</div><div class="id">ekko-diferencia</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7.39A5.5 5.5 0 1 0 12 16.61 5.5 5.5 0 0 1 12 7.39z"
+          fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="12" r="5.5" opacity=".35" stroke-width="1.6"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7.39A5.5 5.5 0 1 0 12 16.61 5.5 5.5 0 0 1 12 7.39z"
+          fill="currentColor" stroke="none"/>
+    <circle cx="15" cy="12" r="5.5" opacity=".35" stroke-width="1.6"/></g></svg>Restar</span><div class="uso">Restar</div><div class="id">ekko-restar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4.5h7M13 9h7M13 13.5h4" opacity=".5" stroke-width="1.6"/>
+    <circle cx="7.5" cy="16.5" r="4.5"/>
+    <path d="M10.8 19.8L14 23"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4.5h7M13 9h7M13 13.5h4" opacity=".5" stroke-width="1.6"/>
+    <circle cx="7.5" cy="16.5" r="4.5"/>
+    <path d="M10.8 19.8L14 23"/></g></svg>Auditar Vectores</span><div class="uso">Auditar Vectores</div><div class="id">ekko-auditar</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8V5a2 2 0 0 1 2-2h3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3"/>
+    <circle cx="12" cy="12" r="3.2"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8V5a2 2 0 0 1 2-2h3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M21 16v3a2 2 0 0 1-2 2h-3"/>
+    <circle cx="12" cy="12" r="3.2"/></g></svg>Ajustar Vista</span><div class="uso">Ajustar Vista</div><div class="id">ekko-vista</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8h19v3.5h-19z"/>
+    <path d="M6 11.5v3.5M9.5 11.5v2.2M13 11.5v3.5M16.5 11.5v2.2M20 11.5v3.5" stroke-width="1.5"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8h19v3.5h-19z"/>
+    <path d="M6 11.5v3.5M9.5 11.5v2.2M13 11.5v3.5M16.5 11.5v2.2M20 11.5v3.5" stroke-width="1.5"/></g></svg>Reglas</span><div class="uso">Reglas</div><div class="id">ekko-reglas</div></div>
+  <div class="celda"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5v5.5M12 16v5.5M2.5 12h5.5M16 12h5.5"
+          stroke-dasharray="2.6 2.2" opacity=".55" stroke-width="1.8"/>
+    <circle cx="12" cy="12" r="3.4"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5v5.5M12 16v5.5M2.5 12h5.5M16 12h5.5"
+          stroke-dasharray="2.6 2.2" opacity=".55" stroke-width="1.8"/>
+    <circle cx="12" cy="12" r="3.4"/></g></svg>Guias</span><div class="uso">Guias</div><div class="id">ekko-guias</div></div>
+</div>
+
+<h2>Dibujados, todavia sin boton (7)</h2>
+<div class="rejilla">
+  <div class="celda nuevo"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4.5l9.5 11.5"/>
+    <path d="M16.5 4.5L7 16"/>
+    <circle cx="17.2" cy="17.2" r="2.7"/>
+    <circle cx="6.8" cy="17.2" r="2.7"/>
+    <path d="M2 11h5M17 11h5" stroke-dasharray="2.4 2" opacity=".5" stroke-width="1.6"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4.5l9.5 11.5"/>
+    <path d="M16.5 4.5L7 16"/>
+    <circle cx="17.2" cy="17.2" r="2.7"/>
+    <circle cx="6.8" cy="17.2" r="2.7"/>
+    <path d="M2 11h5M17 11h5" stroke-dasharray="2.4 2" opacity=".5" stroke-width="1.6"/></g></svg>Corte de lineas</span><div class="uso">Corte de lineas</div><div class="id">ekko-corte</div></div>
+  <div class="celda nuevo"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18.5L13 4.5"/>
+    <circle cx="3" cy="18.5" r="2.3" fill="currentColor" stroke="none"/>
+    <circle cx="13" cy="4.5" r="2.3" fill="currentColor" stroke="none"/>
+    <path d="M8.5 21h12.5" stroke-width="1.8" opacity=".5"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18.5L13 4.5"/>
+    <circle cx="3" cy="18.5" r="2.3" fill="currentColor" stroke="none"/>
+    <circle cx="13" cy="4.5" r="2.3" fill="currentColor" stroke="none"/>
+    <path d="M8.5 21h12.5" stroke-width="1.8" opacity=".5"/></g></svg>Lineas</span><div class="uso">Lineas</div><div class="id">ekko-lineas</div></div>
+  <div class="celda nuevo"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="8" height="7.5" rx="1.5"/>
+    <circle cx="18" cy="6.75" r="3.75"/>
+    <path d="M6 21.5l6-8 6 8z"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3" width="8" height="7.5" rx="1.5"/>
+    <circle cx="18" cy="6.75" r="3.75"/>
+    <path d="M6 21.5l6-8 6 8z"/></g></svg>Formas preestablecidas</span><div class="uso">Formas preestablecidas</div><div class="id">ekko-formas</div></div>
+  <div class="celda nuevo"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 19.5c2.4 0 2.4-3 4.8-3s2.4 3 4.8 3 2.4-3 4.8-3 2.4 3 4.8 3" stroke-width="1.8"/>
+    <path d="M14.2 4.2l5.6 5.6-6.8 6.8-6.2 1.4 1.4-6.2z" stroke-width="2"/>
+    <path d="M12.6 5.8l5.6 5.6" stroke-width="1.4" opacity=".55"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 19.5c2.4 0 2.4-3 4.8-3s2.4 3 4.8 3 2.4-3 4.8-3 2.4 3 4.8 3" stroke-width="1.8"/>
+    <path d="M14.2 4.2l5.6 5.6-6.8 6.8-6.2 1.4 1.4-6.2z" stroke-width="2"/>
+    <path d="M12.6 5.8l5.6 5.6" stroke-width="1.4" opacity=".55"/></g></svg>Lapiz a mano</span><div class="uso">Lapiz a mano</div><div class="id">ekko-lapiz</div></div>
+  <div class="celda nuevo"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h11a5 5 0 0 1 0 10h-6"/>
+    <path d="M8 6L4 10l4 4"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h11a5 5 0 0 1 0 10h-6"/>
+    <path d="M8 6L4 10l4 4"/></g></svg>Deshacer</span><div class="uso">Deshacer</div><div class="id">ekko-deshacer</div></div>
+  <div class="celda nuevo"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10H9a5 5 0 0 0 0 10h6"/>
+    <path d="M16 6l4 4-4 4"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10H9a5 5 0 0 0 0 10h6"/>
+    <path d="M16 6l4 4-4 4"/></g></svg>Rehacer</span><div class="uso">Rehacer</div><div class="id">ekko-rehacer</div></div>
+  <div class="celda nuevo"><div class="grande"><svg class="" viewBox="0 0 24 24" width="54" height="54" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></g></svg></div><span class="demo"><svg class="" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" role="img"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></g></svg>Flecha</span><div class="uso">Flecha</div><div class="id">ekko-flecha</div></div>
+</div>
+
+</body>
+</html>
