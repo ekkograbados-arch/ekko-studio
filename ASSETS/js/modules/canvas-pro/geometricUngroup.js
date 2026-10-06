@@ -2328,3 +2328,39 @@ nodes.sort((a, b) => {
                 window.EKKO_DIAG?.logEvent?.("decompose.silhouette-rejected", {
                     scaleX, scaleY, driftX, driftY
                 });
+                console.warn("[EKKO DESCOMPONER] Se cancelo: la silueta habria cambiado", { scaleX, scaleY, driftX, driftY });
+                return null;
+            }
+        }
+    }
+
+    rootTarget.remove();
+
+    if (targetLayer) {
+        recalculateDynamicSubtractions(targetLayer);
+    }
+
+    return { handled: true, simple: false, items: finalDeliveredItems };
+}
+
+export function geometricUngroupCompound(item) {
+    return decomposeByContainmentHierarchy(item);
+}
+
+export function geometricUngroupOneLevel(group) {
+    return decomposeByContainmentHierarchy(group);
+}
+
+if (typeof window !== 'undefined') {
+    // Query/explicit opt-in creates the public collector immediately; normal
+    // studio loads leave no trace object and execute the original route.
+    csgTraceForCurrentPass();
+    window.recalculateDynamicSubtractions = recalculateDynamicSubtractions;
+    window.decomposeByContainmentHierarchy = decomposeByContainmentHierarchy;
+    window.geometricUngroupCompound = decomposeByContainmentHierarchy;
+    window.geometricUngroupOneLevel = decomposeByContainmentHierarchy;
+    window.getGlobalUnsubtractedPath = getGlobalUnsubtractedPath;
+    window.isContainedIn = isContainedIn;
+    window.EKKO_INSTALL_OWNER_GEOMETRY = installOwnerGeometry;
+}
+
