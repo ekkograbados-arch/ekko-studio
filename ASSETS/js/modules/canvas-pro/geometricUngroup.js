@@ -1397,6 +1397,13 @@ function subtractiveOverlapsBoundary(geometry, boundary) {
 
 function applyHoleVisualStyle(item) {
     if (!item) return;
+    /* Una pieza DESCOMPUESTA es un hueco que ya no le resta a nadie: esta
+       sola en la capa. Sin contorno el cliente ve el cuerpo negro de la letra
+       a traves del hueco y Cree que esta relleno, que es exactamente lo que
+       pasaba con las aperturas de la B. Se le dibuja el contorno, igual que
+       a un calado. Los huecos que siguen dentro de un solido conservan el
+       modo sin pintura, porque alla si se ven por lo que restan. */
+    const suelto = item.data?.decomposedLayer === true;
     /*
      * A real hole is a semantic cutter, never a painted contour.
      *
@@ -1436,6 +1443,12 @@ function applyHoleVisualStyle(item) {
         node.children?.forEach(clearPaint);
     };
     clearPaint(item);
+    if (suelto) {
+        item.fillColor = null;
+        item.strokeColor = item.data?.originalStrokeColor?.clone?.()
+            || new paper.Color('#111827');
+        item.strokeWidth = Number(item.data?.originalStrokeWidth || 1);
+    }
     csgTraceEvent(activeCSGTracePass, 'hole-visual-style', {
         owner: csgItemSnapshot(item), before,
         after: {
@@ -2078,6 +2091,7 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
             compound.data.originalStrokeColor = single.data?.originalStrokeColor?.clone?.() || rootTarget.data?.originalStrokeColor?.clone?.() || null;
             compound.data.originalStrokeWidth = single.data?.originalStrokeWidth || rootTarget.data?.originalStrokeWidth || 0;
             applyHoleVisualStyle(compound);
+
         } else {
             compound.fillColor = rootTarget.fillColor || single.fillColor || new paper.Color('#111827');
             compound.strokeColor = rootTarget.strokeColor || single.strokeColor || null;
@@ -2203,6 +2217,7 @@ nodes.sort((a, b) => {
             compoundItem.data.originalStrokeColor = node.path.data?.originalStrokeColor?.clone?.() || null;
             compoundItem.data.originalStrokeWidth = node.path.data?.originalStrokeWidth || 0;
             applyHoleVisualStyle(compoundItem);
+
         } else {
             compoundItem.fillColor = node.path.data?.originalFillColor || rootTarget.fillColor || new paper.Color('#111827');
             compoundItem.strokeColor = node.path.data?.originalStrokeColor || rootTarget.strokeColor || null;
