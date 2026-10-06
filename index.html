@@ -13,7 +13,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <!-- FontAwesome para los íconos de la barra flotante -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Enlace canónico a la hoja de estilos externa -->
-    <link rel="stylesheet" href="ASSETS/css/styles.css">
+    <link rel="stylesheet" href="ASSETS/ui/ekko-ui.css">
+<link rel="stylesheet" href="ASSETS/css/styles.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <style>
     /* Quitar Fondo: tanto "Quitar Fondo" como "Editar Fondo" ya existen y los
@@ -200,93 +201,93 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
         <div id="topBar" data-panel="top" data-panel-mode="expanded">
             <div class="top-group">
                 <button class="btn-action" onclick="openAssetLoader()">
-                    <i class="fas fa-upload"></i> Cargar Imagen / SVG
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-cargar"></use></svg> Cargar Imagen / SVG
                 </button>
                 <button class="btn-action" id="btnAddText">
-                    <i class="fas fa-font"></i> Agregar Texto
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-texto"></use></svg> Agregar Texto
                 </button>
                 <button class="btn-action" id="btnAddQR">
-                    <i class="fas fa-qrcode"></i> QR
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-qr"></use></svg> QR
                 </button>
             </div>
 
             <div class="top-group">
                 <button data-fusion-btn="fusion" class="btn-action" data-ekko-command="performSmartFusion">
-                    <i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-fusionar"></use></svg> Fusionar
                 </button>
                 <button data-fusion-btn="unfusion" class="btn-action" data-ekko-command="releaseSmartFusion">
-                    <i class="fas fa-unlink"></i> Quitar Fusión
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-separar"></use></svg> Quitar Fusión
                 </button>
                 <button id="proBtnCalado" data-fusion-btn="calado" class="btn-action" onclick="convertSelectionToCalado()" title="Convertir vector en calado">
-                    <i class="fas fa-object-ungroup" style="color:#334155;"></i> Calado
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-calado"></use></svg> Calado
                 </button>
                 <button id="proBtnRellenar" data-fusion-btn="rellenar" data-ekko-command="rellenar" class="btn-action" title="Rellenar hueco">
-                    <i class="fas fa-fill-drip" style="color:#334155;"></i> Rellenar
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-rellenar"></use></svg> Rellenar
                 </button>
-                    <button id="proBtnSolidHole" data-fusion-btn="solidHole" data-ekko-command="solidHole" class="btn-action" title="Intercambiar solidos y huecos reales"><i class="fas fa-right-left"></i> Sólidos ⇄ Huecos</button>
+                    <button id="proBtnSolidHole" data-fusion-btn="solidHole" data-ekko-command="solidHole" class="btn-action" title="Intercambiar solidos y huecos reales"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-solidos-huecos"></use></svg> Sólidos ⇄ Huecos</button>
                 <button id="proBtnUngroup" data-fusion-btn="ungroup" data-ekko-command="ungroup" class="btn-action">
-                    <i class="fas fa-object-ungroup"></i> Desagrupar
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-desagrupar"></use></svg> Desagrupar
                 </button>
                 <button id="proBtnDecomposeVector" data-fusion-btn="decomposeVector" data-ekko-command="decomposeVector" class="btn-action" title="Descomponer vector">
-                    <i class="fas fa-vector-square"></i> Descomponer Vector
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-descomponer"></use></svg> Descomponer Vector
                 </button>
                 <button data-fusion-btn="editNodes" class="btn-action" onclick="toggleNodeEditMode()">
-                    <i class="fas fa-bezier-curve"></i> Editar Nodos
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-nodos"></use></svg> Editar Nodos
                 </button>
                 <button id="proBtnTextToVector" data-fusion-btn="textToVector" class="btn-action" onclick="convertTextToVector()" title="Convertir texto a vector">
-                    <i class="fas fa-font"></i> Texto a Vector
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-vectorizar"></use></svg> Texto a Vector
                 </button>
             </div>
 
             <div class="top-group">
                 <button data-fusion-btn="removeBg" class="btn-action" onclick="removeBackground()">
-                    <i class="fas fa-wand-magic-sparkles"></i> Quitar Fondo
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-quitar-fondo"></use></svg> Quitar Fondo
                 </button>
                 <button data-fusion-btn="traceImage" class="btn-action" data-ekko-command="traceImage">
-                    <i class="fas fa-magic"></i> Trazar Imagen
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-trazar"></use></svg> Trazar Imagen
                 </button>
                 <button data-fusion-btn="editFusionImage" class="btn-action" onclick="enterFusionEditMode()">
-                    <i class="fas fa-pen-to-square"></i> Editar Imagen
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-editar-imagen"></use></svg> Editar Imagen
                 </button>
             </div>
 
             <div class="top-group">
                 <button data-fusion-btn="group" class="btn-action" onclick="groupSelectedItems()">
-                    <i class="fas fa-object-group"></i> Agrupar
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-agrupar"></use></svg> Agrupar
                 </button>
                 <button data-fusion-btn="align" class="btn-action" onclick="alignSelection()">
-                    <i class="fas fa-align-justify"></i> Alinear
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-alinear"></use></svg> Alinear
                 </button>
                 <button data-fusion-btn="distribute" class="btn-action" onclick="distributeSelection()">
-                    <i class="fas fa-arrows-alt"></i> Distribuir
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-distribuir"></use></svg> Distribuir
                 </button>
                 <button data-fusion-btn="outline" class="btn-action" data-ekko-command="contorno">
-                    <i class="fas fa-vector-square"></i> Contorno
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-contorno"></use></svg> Contorno
                 </button>
             </div>
 
             <div class="top-group">
-                <button class="btn-action" id="btnAuditVectors" title="Auditar vectores, huecos reales y líneas de corte"><i class="fas fa-clipboard-check"></i> Auditar Vectores</button>
+                <button class="btn-action" id="btnAuditVectors" title="Auditar vectores, huecos reales y líneas de corte"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-auditar"></use></svg> Auditar Vectores</button>
                  <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
-                    <i class="fas fa-expand"></i> Ajustar Vista
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-vista"></use></svg> Ajustar Vista
                 </button>
                 <button data-fusion-btn="rulers" class="btn-action" onclick="toggleRulers()">
-                    <i class="fas fa-ruler-combined"></i> Reglas
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-reglas"></use></svg> Reglas
                 </button>
                 <button data-fusion-btn="guides" class="btn-action" onclick="toggleGuides()">
-                    <i class="fas fa-th"></i> Guías
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-guias"></use></svg> Guías
                 </button>
             </div>
 
             <div class="top-group" id="topBooleanGroup" aria-label="Operaciones booleanas">
-                <button class="btn-action" id="proBtnBooleanUnion" data-ekko-command="booleanUnion" title="Unir formas en una sola"><i class="fas fa-plus-square"></i> Unión</button>
-                <button class="btn-action" id="proBtnBooleanSubtract" data-ekko-command="booleanSubtract" title="Restar la forma de encima de la de abajo"><i class="fas fa-minus-square"></i> Restar</button>
-                <button class="btn-action" id="proBtnBooleanIntersect" data-ekko-command="booleanIntersect" title="Conservar solo la parte común"><i class="fas fa-object-intersect"></i> Intersección</button>
-                <button class="btn-action" id="proBtnBooleanDifference" data-ekko-command="booleanDifference" title="Conservar lo que queda al restar en ambos sentidos"><i class="fas fa-not-equal"></i> Diferencia</button>
+                <button class="btn-action" id="proBtnBooleanUnion" data-ekko-command="booleanUnion" title="Unir formas en una sola"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-union"></use></svg> Unión</button>
+                <button class="btn-action" id="proBtnBooleanSubtract" data-ekko-command="booleanSubtract" title="Restar la forma de encima de la de abajo"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-restar"></use></svg> Restar</button>
+                <button class="btn-action" id="proBtnBooleanIntersect" data-ekko-command="booleanIntersect" title="Conservar solo la parte común"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-interseccion"></use></svg> Intersección</button>
+                <button class="btn-action" id="proBtnBooleanDifference" data-ekko-command="booleanDifference" title="Conservar lo que queda al restar en ambos sentidos"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-diferencia"></use></svg> Diferencia</button>
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
-            <button id="btnTopTextCurve" class="btn-action" title="Curvar texto"><i class="fas fa-bezier-curve"></i> Curvar Texto</button>
+            <button id="btnTopTextCurve" class="btn-action" title="Curvar texto"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-curvar"></use></svg> Curvar Texto</button>
             <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
                 <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
                 <button id="topPanelOverflow" type="button" class="panel-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
