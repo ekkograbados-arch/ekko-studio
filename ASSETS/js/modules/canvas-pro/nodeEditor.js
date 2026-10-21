@@ -295,9 +295,12 @@ export async function enterNodeEditMode(item) {
     
     nodeEditTool.onMouseDown = (event) => {
         if (isAddNodeActive) {
+            /* El modo permanece ACTIVO hasta Esc o botón (como LightBurn):
+               antes cualquier clic despegado lo apagaba en silencio y el
+               usuario creía que la herramienta no funcionaba. */
             const targetPaths = getTargetPaths(activeNodeItem);
             let nearestLoc = null;
-            let minDistance = 10 / paper.view.zoom;
+            let minDistance = 15 / paper.view.zoom;
             for (const path of targetPaths) {
                 const loc = path.getNearestLocation(event.point);
                 if (loc) {
@@ -309,32 +312,37 @@ export async function enterNodeEditMode(item) {
                 }
             }
             if (nearestLoc) {
-                if (typeof window.saveHistory === 'function') window.saveHistory();
-                const path = nearestLoc.path;
-                const index = nearestLoc.index;
-                const insertedSeg = path.insert(index + 1, nearestLoc.point);
-                // Nuevo nodo = esquina viva (sin smooth automático).
-                // El usuario presiona 'S' si quiere suavizar después.
-                
-                syncGeometryToGeomBase(activeNodeItem);
-                safeRecalculateSubtractions();
-                
-                selectedNodes.clear();
-                const globalIdx = findGlobalIdxForSegment(path, index + 1);
-                if (globalIdx !== -1) {
-                    selectedNodes.add(globalIdx);
+                /* Guardia anti-duplicado: si el clic cayó sobre/muy cerca de
+                   un nodo existente, no inserta nada (antes metía un nodo
+                   invisible en el mismo punto y parecía que nada pasó). */
+                let cercaNodoExistente = false;
+                for (const p of targetPaths) {
+                    for (const s of p.segments) {
+                        if (p.localToGlobal(s.point).getDistance(event.point) < 6 / paper.view.zoom) {
+                            cercaNodoExistente = true;
+                            break;
+                        }
+                    }
+                    if (cercaNodoExistente) break;
                 }
-                drawNodeHandles();
+                if (!cercaNodoExistente) {
+                    if (typeof window.saveHistory === 'function') window.saveHistory();
+                    const path = nearestLoc.path;
+                    const index = nearestLoc.index;
+                    path.insert(index + 1, nearestLoc.point);
+                    // Nuevo nodo = esquina viva (sin smooth automático).
+                    // El usuario presiona 'S' si quiere suavizar después.
+                    syncGeometryToGeomBase(activeNodeItem);
+                    safeRecalculateSubtractions();
+                    selectedNodes.clear();
+                    const globalIdx = findGlobalIdxForSegment(path, index + 1);
+                    if (globalIdx !== -1) {
+                        selectedNodes.add(globalIdx);
+                    }
+                    drawNodeHandles();
+                }
             }
-            isAddNodeActive = false;
-            const btnAddNode = document.getElementById('btnCtxAddNode');
-            if (btnAddNode) {
-                btnAddNode.classList.remove('active');
-                btnAddNode.style.backgroundColor = '';
-            }
-            if (paper.view && paper.view.element) {
-                paper.view.element.style.cursor = 'default';
-            }
+            paper.view.update();
             return;
         }
 
@@ -523,7 +531,7 @@ export async function enterNodeEditMode(item) {
             btnAddNode = document.createElement('button');
             btnAddNode.className = 'toolbar-btn';
             btnAddNode.id = 'btnCtxAddNode';
-            btnAddNode.title = 'Añadir puntos de anclaje haciendo clic en el contorno';
+            btnAddNode.title = 'Añadir puntos: clic en el contorno (repetible). Botón o Esc para salir';
             btnAddNode.style.cssText = 'color: #0284c7; background: #f0f9ff; border-color: #e0f2fe; font-weight: bold; margin-right: 8px;';
             btnAddNode.innerHTML = '<i class="fas fa-plus-circle"></i> Añadir Nodo';
             btnAddNode.onclick = () => {
@@ -1026,30 +1034,31 @@ export function makeSelectedNodesSmooth() {
         path.segments.forEach(seg => {
             if (selectedNodes.has(curGlobal)) {
                 // S = revelar manijas (revelar antenitas), NO igualarlas.
-                // Si no tiene manijas (esquina), crear manijas pequeñas siguiendo la curva.
-                // Si ya tiene manijas, no tocarlas (LightBurn: S = revelar, no igualar).
-                const hasHandles = !seg.handleIn.isZero() || !seg.handleOut.isZero();
-                if (!hasHandles) {
-                    // Esquina viva -> revelar manijas pequeñas siguiendo la dirección de la curva
-                    // Paper.js smooth() las haría simétricas; hacemos custom para que sean independientes.
+                // - Esquina sin antenas: revela ambas, pequeñas, siguiendo la curva.
+                // - Nodo con UNA sola antena (típico en trazos vectorizados):
+                //   revela SOLAMENTE la que falta, sin tocar la existente.
+                // - Nodo con las dos: no tocarlas (LightBurn: S = revelar, no igualar).
+                const faltaIn = seg.handleIn.isZero();
+                const faltaOut = seg.handleOut.isZero();
+                if (faltaIn || faltaOut) {
                     const prevSeg = seg.previous;
                     const nextSeg = seg.next;
                     if (prevSeg && nextSeg) {
                         const dirIn = seg.point.subtract(prevSeg.point).normalize(10);
                         const dirOut = nextSeg.point.subtract(seg.point).normalize(10);
-                        seg.handleIn = dirIn.multiply(-1);
-                        seg.handleOut = dirOut;
+                        if (faltaIn) seg.handleIn = dirIn.multiply(-1);
+                        if (faltaOut) seg.handleOut = dirOut;
                     } else if (prevSeg) {
                         const dir = seg.point.subtract(prevSeg.point).normalize(10);
-                        seg.handleIn = dir.multiply(-1);
-                        seg.handleOut = dir;
+                        if (faltaIn) seg.handleIn = dir.multiply(-1);
+                        if (faltaOut) seg.handleOut = dir;
                     } else if (nextSeg) {
                         const dir = nextSeg.point.subtract(seg.point).normalize(10);
-                        seg.handleIn = dir.multiply(-1);
-                        seg.handleOut = dir;
+                        if (faltaIn) seg.handleIn = dir.multiply(-1);
+                        if (faltaOut) seg.handleOut = dir;
                     }
                 }
-                // Si ya tiene manijas, NO tocarlas (LightBurn: S = revelar, no igualar)
+                // Si ya tiene las dos manijas, NO tocarlas (LightBurn: S = revelar, no igualar)
             }
             curGlobal++;
         });
@@ -1083,6 +1092,23 @@ export function makeSelectedNodesCorner() {
 function handleNodeKeydown(e) {
     if (e.key === 'Enter' || e.key === 'Escape') {
         e.preventDefault();
+        /* Esc primero apaga el modo Añadir Nodo (como LightBurn); sólo un
+           segundo Esc sale del editor de nodos. stopPropagation evita que el
+           Escape genérico de zoomYShortcuts (en window) también salga. */
+        if (isAddNodeActive) {
+            isAddNodeActive = false;
+            const btnAddNodeEsc = document.getElementById('btnCtxAddNode');
+            if (btnAddNodeEsc) {
+                btnAddNodeEsc.classList.remove('active');
+                btnAddNodeEsc.style.backgroundColor = '';
+            }
+            if (paper.view && paper.view.element) {
+                paper.view.element.style.cursor = 'default';
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
         exitNodeEditMode();
         return;
     }
