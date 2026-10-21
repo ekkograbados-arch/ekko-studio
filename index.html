@@ -447,12 +447,33 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automáticamente para hacerla más fácil.</p>
 
                     <div class="vfond__bloque" id="grupo-tamano" hidden>
-                        <div class="vfond__et">Tamaño del pincel <span id="valor-tamano-pincel" class="vfond__num">25</span></div>
+                        <div class="vfond__et">Tamaño del pincel
+                            <span class="vfond__num">
+                                <input type="number" id="input-tamano-pincel" min="1" max="120" step="1" value="25"
+                                       aria-label="Tamaño del pincel en píxeles de la pantalla"> px
+                            </span>
+                        </div>
                         <input type="range" id="slider-tamano-pincel" min="1" max="120" value="25" step="1" aria-label="Tamaño del pincel">
+                        <p class="vfond__pista">El número es el diámetro del pincel, igual que el círculo del puntero</p>
+                    </div>
+
+                    <!-- Zoom de la ventana: la rueda lo hace, y con Alt +
+                         arrastrar se desplaza. Es para trabajar detalle fino. -->
+                    <div class="vfond__bloque vfond__zoom">
+                        <div class="vfond__et">Zoom <span id="valor-zoom-ventana" class="vfond__num">100%</span></div>
+                        <div class="vfond__zoomfila">
+                            <button type="button" id="zoom-menos" class="vfond__zoombtn" title="Alejar">&minus;</button>
+                            <button type="button" id="zoom-100" class="vfond__zoombtn vfond__zoombtn--texto" title="Volver al 100%">100%</button>
+                            <button type="button" id="zoom-mas" class="vfond__zoombtn" title="Acercar">+</button>
+                        </div>
+                        <p class="vfond__pista">Rueda para acercar · Alt + arrastrar para mover</p>
                     </div>
 
                     <div class="vfond__pie">
-                        <button type="button" id="btn-deshacer-fondo" class="vfond__btn">↶ Deshacer</button>
+                        <div class="vfond__piefila">
+                            <button type="button" id="btn-deshacer-fondo" class="vfond__btn" title="Deshacer el último paso (Ctrl+Z)">↶ Deshacer</button>
+                            <button type="button" id="btn-rehacer-fondo" class="vfond__btn" title="Rehacer el paso deshecho (Ctrl+Y)">↷ Rehacer</button>
+                        </div>
                         <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">✓ Listo</button>
                     </div>
                 </aside>
