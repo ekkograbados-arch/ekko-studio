@@ -38,6 +38,7 @@ let activeHandleData = null;
 let dragStartPoint = null;
 let marqueeRect = null;
 let isAddNodeActive = false;
+let canvasDblClickHandler = null;
 let previousTool = null;
 let nodeEditTool = null;
 let disabledClipGroups = [];
@@ -298,50 +299,7 @@ export async function enterNodeEditMode(item) {
             /* El modo permanece ACTIVO hasta Esc o botón (como LightBurn):
                antes cualquier clic despegado lo apagaba en silencio y el
                usuario creía que la herramienta no funcionaba. */
-            const targetPaths = getTargetPaths(activeNodeItem);
-            let nearestLoc = null;
-            let minDistance = 15 / paper.view.zoom;
-            for (const path of targetPaths) {
-                const loc = path.getNearestLocation(event.point);
-                if (loc) {
-                    const dist = event.point.getDistance(loc.point);
-                    if (dist < minDistance) {
-                        minDistance = dist;
-                        nearestLoc = loc;
-                    }
-                }
-            }
-            if (nearestLoc) {
-                /* Guardia anti-duplicado: si el clic cayó sobre/muy cerca de
-                   un nodo existente, no inserta nada (antes metía un nodo
-                   invisible en el mismo punto y parecía que nada pasó). */
-                let cercaNodoExistente = false;
-                for (const p of targetPaths) {
-                    for (const s of p.segments) {
-                        if (p.localToGlobal(s.point).getDistance(event.point) < 6 / paper.view.zoom) {
-                            cercaNodoExistente = true;
-                            break;
-                        }
-                    }
-                    if (cercaNodoExistente) break;
-                }
-                if (!cercaNodoExistente) {
-                    if (typeof window.saveHistory === 'function') window.saveHistory();
-                    const path = nearestLoc.path;
-                    const index = nearestLoc.index;
-                    path.insert(index + 1, nearestLoc.point);
-                    // Nuevo nodo = esquina viva (sin smooth automático).
-                    // El usuario presiona 'S' si quiere suavizar después.
-                    syncGeometryToGeomBase(activeNodeItem);
-                    safeRecalculateSubtractions();
-                    selectedNodes.clear();
-                    const globalIdx = findGlobalIdxForSegment(path, index + 1);
-                    if (globalIdx !== -1) {
-                        selectedNodes.add(globalIdx);
-                    }
-                    drawNodeHandles();
-                }
-            }
+            tryInsertNodeAt(event.point);
             paper.view.update();
             return;
         }
@@ -531,7 +489,7 @@ export async function enterNodeEditMode(item) {
             btnAddNode = document.createElement('button');
             btnAddNode.className = 'toolbar-btn';
             btnAddNode.id = 'btnCtxAddNode';
-            btnAddNode.title = 'Añadir puntos: clic en el contorno (repetible). Botón o Esc para salir';
+            btnAddNode.title = 'Añadir puntos: clic en el contorno con este modo activo, o doble clic directo en cualquier momento. Esc para salir';
             btnAddNode.style.cssText = 'color: #0284c7; background: #f0f9ff; border-color: #e0f2fe; font-weight: bold; margin-right: 8px;';
             btnAddNode.innerHTML = '<i class="fas fa-plus-circle"></i> Añadir Nodo';
             btnAddNode.onclick = () => {
@@ -603,9 +561,22 @@ export async function enterNodeEditMode(item) {
             exitNodeEditMode();
         }
     };
+    /* Doble clic directo sobre el contorno = agregar nodo en ese punto, sin
+       activar ningún modo (como Inkscape/Photoshop). Usa el mismo motor
+       tryInsertNodeAt que el modo Añadir Nodo, así las dos vías son idénticas. */
+    const handleNodeDoubleClick = (e) => {
+        if (!window.nodeEditMode || !activeNodeItem) return;
+        const rect = canvasEl.getBoundingClientRect();
+        if (!paper.view || !paper.view.viewToProject) return;
+        const projectPoint = paper.view.viewToProject(new paper.Point(e.clientX - rect.left, e.clientY - rect.top));
+        if (isAddNodeActive) return; // el modo Añadir ya maneja sus clics
+        if (tryInsertNodeAt(projectPoint)) e.preventDefault();
+    };
     if (canvasEl) {
         canvasEl.addEventListener('contextmenu', handleNodeContextMenu);
+        canvasEl.addEventListener('dblclick', handleNodeDoubleClick);
     }
+    canvasDblClickHandler = handleNodeDoubleClick;
     window._handleNodeContextMenu = handleNodeContextMenu;
 
     const btnTopNodes = document.getElementById('proBtnEditNodes');
@@ -686,6 +657,11 @@ export function exitNodeEditMode(skipSelect = false) {
         if (handleNodeContextMenu) {
             canvasEl.removeEventListener('contextmenu', handleNodeContextMenu);
             delete window._handleNodeContextMenu;
+        }
+        /* Duplico la limpieza para el doble clic de nodo (la vía 2). */
+        if (canvasDblClickHandler) {
+            canvasEl.removeEventListener('dblclick', canvasDblClickHandler);
+            canvasDblClickHandler = null;
         }
     }
 
@@ -796,6 +772,57 @@ function findGlobalIdxForSegment(path, localIdx) {
         globalPointIdx += p.segments.length;
     }
     return -1;
+}
+
+/* Un solo motor de inserción, usado por DOS vías con el mismo resultado:
+   (a) modo Añadir Nodo activo + clic en el contorno (botón),
+   (b) doble clic directo sobre el contorno, sin modo alguno (Inkscape/Photoshop). */
+function tryInsertNodeAt(projectPoint) {
+    if (!window.nodeEditMode || !activeNodeItem) return false;
+    const targetPaths = getTargetPaths(activeNodeItem);
+    let nearestLoc = null;
+    let minDistance = 15 / paper.view.zoom;
+    for (const path of targetPaths) {
+        const loc = path.getNearestLocation(projectPoint);
+        if (loc) {
+            const dist = projectPoint.getDistance(loc.point);
+            if (dist < minDistance) {
+                minDistance = dist;
+                nearestLoc = loc;
+            }
+        }
+    }
+    if (!nearestLoc) return false;
+    /* Guardia anti-duplicado: si el punto cayó sobre/muy cerca de un nodo
+       existente, no inserta nada (antes metía un nodo invisible en el mismo
+       punto y parecía que nada había pasado). */
+    let cercaNodoExistente = false;
+    for (const p of targetPaths) {
+        for (const s of p.segments) {
+            if (p.localToGlobal(s.point).getDistance(projectPoint) < 6 / paper.view.zoom) {
+                cercaNodoExistente = true;
+                break;
+            }
+        }
+        if (cercaNodoExistente) break;
+    }
+    if (cercaNodoExistente) return false;
+    if (typeof window.saveHistory === 'function') window.saveHistory();
+    const path = nearestLoc.path;
+    const index = nearestLoc.index;
+    path.insert(index + 1, nearestLoc.point);
+    // Nodo nuevo = esquina viva (sin smooth automático).
+    // El usuario presiona 'S' si quiere suavizar después.
+    syncGeometryToGeomBase(activeNodeItem);
+    safeRecalculateSubtractions();
+    selectedNodes.clear();
+    const globalIdx = findGlobalIdxForSegment(path, index + 1);
+    if (globalIdx !== -1) {
+        selectedNodes.add(globalIdx);
+    }
+    drawNodeHandles();
+    paper.view.update();
+    return true;
 }
 
 export function updateNodeHandlesScale() {
