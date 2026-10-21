@@ -102,6 +102,7 @@ const COMMAND_HANDLERS = Object.freeze({
     pincelBorrar: () => setPincel("borrar"),
     pincelRestaurar: () => setPincel("restaurar"),
     deshacerRetoque: () => EKKO.BackgroundRemover?.deshacerRetoque?.(),
+    rehacerRetoque: () => EKKO.BackgroundRemover?.rehacerRetoque?.(),
     aceptarRetoque: () => EKKO.BackgroundRemover?.cerrarRetoque(),
 });
 
