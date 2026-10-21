@@ -313,9 +313,8 @@ export async function enterNodeEditMode(item) {
                 const path = nearestLoc.path;
                 const index = nearestLoc.index;
                 const insertedSeg = path.insert(index + 1, nearestLoc.point);
-                if (insertedSeg && typeof insertedSeg.smooth === 'function') {
-                    insertedSeg.smooth(); // Automatically smooth newly added nodes so they have antenitas!
-                }
+                // Nuevo nodo = esquina viva (sin smooth automático).
+                // El usuario presiona 'S' si quiere suavizar después.
                 
                 syncGeometryToGeomBase(activeNodeItem);
                 safeRecalculateSubtractions();
@@ -425,16 +424,14 @@ export async function enterNodeEditMode(item) {
                 const seg = targetPath.segments[activeHandleData.localIdx];
                 const globalPt = targetPath.localToGlobal(seg.point);
                 const tangentVector = targetPath.globalToLocal(event.point).subtract(targetPath.globalToLocal(globalPt));
+                // Manijas independientes por defecto; solo simétricas con Alt/Option
+                const symmetric = event.modifiers.alt || event.modifiers.option;
                 if (activeHandleData.handleType === 'in') {
                     seg.handleIn = tangentVector;
-                    if (!event.modifiers.alt && !event.modifiers.option) {
-                        seg.handleOut = tangentVector.multiply(-1);
-                    }
+                    if (symmetric) seg.handleOut = tangentVector.multiply(-1);
                 } else if (activeHandleData.handleType === 'out') {
                     seg.handleOut = tangentVector;
-                    if (!event.modifiers.alt && !event.modifiers.option) {
-                        seg.handleIn = tangentVector.multiply(-1);
-                    }
+                    if (symmetric) seg.handleIn = tangentVector.multiply(-1);
                 }
             }
             syncGeometryToGeomBase(activeNodeItem);
@@ -1030,7 +1027,31 @@ export function makeSelectedNodesSmooth() {
     paths.forEach(path => {
         path.segments.forEach(seg => {
             if (selectedNodes.has(curGlobal)) {
-                seg.smooth();
+                // S = revelar manijas (revelar antenitas), NO igualarlas.
+                // Si no tiene manijas (esquina), crear manijas pequeñas siguiendo la curva.
+                // Si ya tiene manijas, no tocarlas (LightBurn: S = revelar, no igualar).
+                const hasHandles = !seg.handleIn.isZero() || !seg.handleOut.isZero();
+                if (!hasHandles) {
+                    // Esquina viva -> revelar manijas pequeñas siguiendo la dirección de la curva
+                    // Paper.js smooth() las haría simétricas; hacemos custom para que sean independientes.
+                    const prevSeg = seg.previous;
+                    const nextSeg = seg.next;
+                    if (prevSeg && nextSeg) {
+                        const dirIn = seg.point.subtract(prevSeg.point).normalize(10);
+                        const dirOut = nextSeg.point.subtract(seg.point).normalize(10);
+                        seg.handleIn = dirIn.multiply(-1);
+                        seg.handleOut = dirOut;
+                    } else if (prevSeg) {
+                        const dir = seg.point.subtract(prevSeg.point).normalize(10);
+                        seg.handleIn = dir.multiply(-1);
+                        seg.handleOut = dir;
+                    } else if (nextSeg) {
+                        const dir = nextSeg.point.subtract(seg.point).normalize(10);
+                        seg.handleIn = dir.multiply(-1);
+                        seg.handleOut = dir;
+                    }
+                }
+                // Si ya tiene manijas, NO tocarlas (LightBurn: S = revelar, no igualar)
             }
             curGlobal++;
         });
