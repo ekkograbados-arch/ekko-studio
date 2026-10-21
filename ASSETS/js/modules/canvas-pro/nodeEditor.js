@@ -383,16 +383,9 @@ export async function enterNodeEditMode(item) {
                         }
                     }
                     
-                    // Automatically smooth the selected node if it currently has no handles (corner), revealing its antenitas!
-                    const targetPath = paper.project.getItem({ id: hitData.pathId });
-                    if (targetPath && targetPath.segments && targetPath.segments[hitData.localIdx]) {
-                        const seg = targetPath.segments[hitData.localIdx];
-                        if (seg.handleIn.isZero() && seg.handleOut.isZero()) {
-                            seg.smooth();
-                            syncGeometryToGeomBase(activeNodeItem);
-                            safeRecalculateSubtractions();
-                        }
-                    }
+                    // Crueldad eliminada: el clic solo SELECCIONA. Suavizar
+                    // explícitamente es la tecla S (revela antenitas), nunca
+                    // un efecto lateral del clic. Esquinas permanecen esquinas.
                     
                     drawNodeHandles();
                 }
@@ -460,32 +453,20 @@ export async function enterNodeEditMode(item) {
             });
 
             if (nodeHandlesGroup) {
-                let hasAutoSmooth = false;
                 nodeHandlesGroup.children.forEach(handle => {
                     if (handle.data?.isNodeHandle) {
                         if (rect.contains(handle.position)) {
                             if (!selectedNodes.has(handle.data.globalIdx)) {
+                                // La marquesina solo SELECCIONA: nunca muestra
+                                // manijas ni suaviza esquinas por su cuenta.
+                                // La tecla S sigue siendo el único camino a las antenas.
                                 selectedNodes.add(handle.data.globalIdx);
-                                // Automatically smooth on marquee select to reveal antenitas
-                                const targetPath = paper.project.getItem({ id: handle.data.pathId });
-                                if (targetPath && targetPath.segments && targetPath.segments[handle.data.localIdx]) {
-                                    const seg = targetPath.segments[handle.data.localIdx];
-                                    if (seg.handleIn.isZero() && seg.handleOut.isZero()) {
-                                        if (typeof window.saveHistory === 'function') window.saveHistory();
-                                        seg.smooth();
-                                        hasAutoSmooth = true;
-                                    }
-                                }
                             }
                         } else if (!event.modifiers.shift) {
                             selectedNodes.delete(handle.data.globalIdx);
                         }
                     }
                 });
-                if (hasAutoSmooth) {
-                    syncGeometryToGeomBase(activeNodeItem);
-                    safeRecalculateSubtractions();
-                }
             }
             drawNodeHandles();
             paper.view.update();
