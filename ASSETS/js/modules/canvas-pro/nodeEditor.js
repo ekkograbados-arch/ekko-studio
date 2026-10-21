@@ -353,7 +353,7 @@ export async function enterNodeEditMode(item) {
             const hitResult = nodeHandlesGroup.hitTest(event.point, {
                 fill: true,
                 stroke: true,
-                tolerance: 10 / paper.view.zoom,
+                tolerance: 12 / paper.view.zoom,
                 match: (hit) => hit.item.data && (hit.item.data.isNodeHandle || hit.item.data.isCurveHandle)
             });
 
@@ -366,7 +366,10 @@ export async function enterNodeEditMode(item) {
                 dragStartPoint = event.point.clone();
                 if (hitData.isCurveHandle) {
                     isDraggingHandle = true;
-                    activeHandleData = hitData;
+                    /* Referencia cacheada: durante el arrastre el recálculo
+                       CSG puede incongelar/re-materializar el dueno y variar su
+                       id. Con esta copia la antena sigue viva hasta el mouseUp. */
+                    activeHandleData = { ...hitData, cachedPath: paper.project.getItem({ id: hitData.pathId }) || null };
                 } else if (hitData.isNodeHandle) {
                     isDraggingNode = true;
                     window.isDraggingNode = true;
@@ -412,7 +415,13 @@ export async function enterNodeEditMode(item) {
         }
 
         if (isDraggingHandle && activeHandleData) {
-            const targetPath = paper.project.getItem({ id: activeHandleData.pathId });
+            /* Resolución resistente: el CSG puede re-materializar el dueno a
+               mitad del arrastre y cambiar su id; la referencia cacheada en el
+               mousedown mantiene viva la antena. */
+            const targetPath = paper.project.getItem({ id: activeHandleData.pathId })
+                || (activeHandleData.cachedPath && activeHandleData.cachedPath.parent
+                    ? activeHandleData.cachedPath
+                    : null);
             if (targetPath && targetPath.segments && targetPath.segments[activeHandleData.localIdx]) {
                 const seg = targetPath.segments[activeHandleData.localIdx];
                 const globalPt = targetPath.localToGlobal(seg.point);
@@ -427,8 +436,10 @@ export async function enterNodeEditMode(item) {
                     if (symmetric) seg.handleIn = tangentVector.multiply(-1);
                 }
             }
-            syncGeometryToGeomBase(activeNodeItem);
-            safeRecalculateSubtractions();
+            /* El costo pesado NO corre por frame: syncGeometryToGeomBase y el
+               recálculo CSG de perforados se hacen UNA VEZ en el mouseUp.
+               Ponerlos acá re-ejecutaba todas las booleanas en cada movimiento
+               del mouse: en objetos con huecos el arrastre se congelaba. */
             drawNodeHandles();
             paper.view.update();
             return;
@@ -487,6 +498,12 @@ export async function enterNodeEditMode(item) {
             window.isDraggingNode = false;
             if (typeof window.saveHistory === 'function') window.saveHistory();
             syncGeometryToGeomBase(activeNodeItem);
+            /* Pago único del costo pesado al terminar el arrastre: una sola
+               sincronización de geomBase y un solo recálculo del perforado con
+               la curva final. Es lo que hace que las antenas se sientan fluidas
+               como en LightBurn en vez de congelarse. */
+            safeRecalculateSubtractions();
+            drawNodeHandles();
         }
         if (marqueeRect) {
             marqueeRect.remove();
@@ -819,10 +836,10 @@ export function drawNodeHandles() {
 
                     const dotIn = new paper.Path.Circle({
                         center: globalIn,
-                        radius: 3.5 / zoom,
+                        radius: 5 / zoom,
                         fillColor: '#ffffff',
                         strokeColor: '#0284c7',
-                        strokeWidth: 1 / zoom,
+                        strokeWidth: 1.25 / zoom,
                         data: {
                             isCurveHandle: true,
                             handleType: 'in',
@@ -845,10 +862,10 @@ export function drawNodeHandles() {
 
                     const dotOut = new paper.Path.Circle({
                         center: globalOut,
-                        radius: 3.5 / zoom,
+                        radius: 5 / zoom,
                         fillColor: '#ffffff',
                         strokeColor: '#0284c7',
-                        strokeWidth: 1 / zoom,
+                        strokeWidth: 1.25 / zoom,
                         data: {
                             isCurveHandle: true,
                             handleType: 'out',
