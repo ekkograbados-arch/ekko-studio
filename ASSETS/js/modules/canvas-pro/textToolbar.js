@@ -183,7 +183,7 @@ if (typeof window !== "undefined") {
     /* Sello de version del modulo de texto. Si en la consola del cliente este
        valor no coincide con el del paquete entregado, esta probando codigo
        viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
-    window.EKKO_TEXT_BUILD = "20261022-espaciado-universal";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+    window.EKKO_TEXT_BUILD = "20261022-centro-fijo";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
        mantener su propia logica de arrastre: asi el unico dueno de "como se
        curva un texto" es este modulo. */
     window.EKKO_TEXT_BEND = {
@@ -215,8 +215,20 @@ if (typeof window !== "undefined") {
             syncCurveHandle();
         });
     });
+    /* El grupo espaciado movido/escalado invalida su geomBase sellada (la
+       firma de matriz cambia): re-estampar para que el texto siga
+       seleccionable con un clic. */
+    window.EKKO_FUSION_CONTROLLER?.addTransformObserver?.(() => {
+        if (guiaBaseFrame) return;
+        if (!(window.selectedItem?.data?.isSpacedGroup)) return;
+        guiaBaseFrame = requestAnimationFrame(() => {
+            guiaBaseFrame = null;
+            reestamparBaseEspaciadoPorEstado();
+        });
+    });
 }
 let guiaFrame = null;
+let guiaBaseFrame = null;
 
 let loadedFontsCache = [];
 
@@ -1555,12 +1567,29 @@ export function applyTextSpacing(item, hspace, opts = {}) {
         const fontWeight = target.fontWeight;
         const fontStyle = target.fontStyle;
 
+        /* EL TAMANO REAL VIVE EN DOS LADOS.
+           El texto del cliente puede llevar su agrandado en la MATRIZ PROPIA
+           del PointText (texto escalado con las manijas en versiones viejas,
+           o datos legados): el campo fontSize queda crudo (42) y la escala
+           vive aparte (scaling 2.4 = la palabra se ve 2.4 veces mas grande).
+           Si el espaciado rehace las letras leyendo solo fontSize, cada letra
+           nace al tamano crudo: el texto "se achica completamente" respecto
+           del original (reproducido: proporcion 0.42 con escala 2.4). El motor
+           de curvado evita esto porque transfiere la matriz entera al grupo
+           curvado; el espaciado la HORNEA en el tamano efectivo de las letras
+           (fontSize * escala), que es como luego la leen los rebuilds
+           (data.fontSize), y asi el tamano vuelve al que se veia. */
+        const matrizPropia = (target.matrix && !target.matrix.isIdentity()) ? target.matrix : null;
+        const factorEscalaPropia = matrizPropia ? matrizPropia.scaling.x : 1;
+        const fontSizeEfectivo = fontSize * factorEscalaPropia;
+        const escNoUniforme = matrizPropia && Math.abs(matrizPropia.scaling.x - matrizPropia.scaling.y) > matrizPropia.scaling.x * 0.01;
+
         const spacedGroup = new paper.Group();
         spacedGroup.data = {
             ...target.data,
             isSpacedGroup: true,
             textString: content,
-            fontSize: fontSize,
+            fontSize: fontSizeEfectivo,
             fontFamily: fontFamily,
             fillColor: fillColor,
             fontWeight: fontWeight,
@@ -1569,22 +1598,68 @@ export function applyTextSpacing(item, hspace, opts = {}) {
         };
 
         let currentX = target.bounds.left;
-        const y = target.point.y;
+        /* La linea de base tambien viaja escalada: point.y del original esta
+           en su marco propio; en el marco del padre donde nacen las letras
+           hay que pasarla por la matriz (con matriz identidad, transform es
+           identidad). */
+        const y = matrizPropia ? matrizPropia.transform(target.point).y : target.point.y;
+        /* EL CENTRO DEL TEXTO NO SE MUEVE. Las letras se reparten de izquierda
+           a derecha, y ese reparto crece solo hacia la derecha: con el ancla en
+           el borde izquierdo, espaciar "corria" la palabra lateralmente y con
+           espaciado grande las letras terminaban en otro lado del diseNo
+           (espaciar debe abrir las letras hacia AMBOS lados, como en Word,
+           Canva o LightBurn). Se mide el centro de tinta original y al final el
+           reparto entero se corre para recalar su centro en el mismo lugar. */
+        const centroOriginal = target.bounds.center.x;
 
         for (let i = 0; i < content.length; i++) {
             const char = content[i];
             const charText = new paper.PointText({
                 point: new paper.Point(currentX, y),
                 content: char,
-                fontSize: fontSize,
+                fontSize: fontSizeEfectivo,
                 fontFamily: fontFamily,
                 fillColor: fillColor,
                 fontWeight: fontWeight,
                 fontStyle: fontStyle
             });
+            /* Escala vertical faltante en el caso no-uniforme (sx != sy): el
+               tamano ya horneo sx; sy/sx completa la vertical sin mover el
+               ancla (escala alrededor del punto de linea de base, como hacia
+               la matriz propia del texto original). */
+            if (escNoUniforme) {
+                try { charText.matrix = charText.matrix.preConcatenated(new paper.Matrix(1, 0, 0, matrizPropia.scaling.y / matrizPropia.scaling.x, 0, 0)); } catch (_) {}
+            }
             spacedGroup.addChild(charText);
-            currentX += charText.bounds.width + (hspace * fontSize * 0.02);
+            currentX += charText.bounds.width + (hspace * fontSizeEfectivo * 0.02);
         }
+
+        /* Recalcar el centro: el reparto crecio solo hacia la derecha; se
+           corre el bloque entero para que el centro de tinta quede donde
+           estaba el del texto original. Con esto cada rebuild corta el
+           rompimiento acumulado: el aplanado del ciclo siguiente re-encuentra
+           el mismo centro. */
+        try {
+            const letras = spacedGroup.children;
+            if (letras.length) {
+                const spanIzq = letras[0].bounds.left;
+                const spanDer = letras[letras.length - 1].bounds.right;
+                const delta = centroOriginal - (spanIzq + spanDer) / 2;
+                if (Math.abs(delta) > 0.001) {
+                    letras.forEach(l => { try { l.translate(delta, 0); } catch (e2) {} });
+                }
+            }
+        } catch (_) {}
+
+        /* GEOMETRIA SELLADA PARA EL HIT-TEST. Sin geomBase, el colector de
+           geometria aplana CADA letra a su marco propio y todas quedan apiladas
+           en (0,0): el clic sobre el grupo espaciado no encuentra nada y el
+           texto se vuelve INSELECCIONABLE apenas se deselecciona (bug del hueso
+           "SARA"). Los grupos curvados no sufren esto porque arrastran su
+           geomBase desde el arco. La copia lleva firma de matriz: si el cliente
+           mueve o escala el grupo, el observador de transformaciones la
+           re-estampa (reestamparBaseEspaciadoPorEstado). */
+        estamparBaseEspaciado(spacedGroup);
 
         const parent = target.parent;
         if (parent) {
@@ -1604,6 +1679,38 @@ export function applyTextSpacing(item, hspace, opts = {}) {
         }
     }
     paper.view.update();
+}
+
+/* ==================== GEOMETRIA SELLADA DEL GRUPO ESPACIADO ====================
+
+   El colector de geometria de selection (getOwnerLocalGeometry) aplana los
+   hijos de un grupo a marcos individuales; con letras eso APILA todas las
+   letras en (0,0), el hit-test del grupo fracasa y el texto deja de poder
+   volverse a seleccionar con un clic. El grupo curvado evita el problema
+   llevando data.geomBase (la copia sellada que consumen los hits); al grupo
+   espaciado le faltaba ese sello. estamparBaseEspaciado lo deja en cada
+   creacion/rebuild, y marca con que matriz fue sellado: si el cliente mueve
+   o escala el grupo, reestamparBaseEspaciadoPorEstado (llamado desde el
+   observador de transformaciones) renueva la copia. */
+
+function estamparBaseEspaciado(grupo) {
+    if (!grupo) return;
+    try {
+        if (grupo.data.geomBase) { try { grupo.data.geomBase.remove(); } catch (e) {} }
+        grupo.data.geomBase = grupo.clone({ insert: false });
+        grupo.data.__geomMatriz = grupo.matrix ? String(grupo.matrix) : "";
+    } catch (_) {}
+}
+
+function reestamparBaseEspaciadoPorEstado() {
+    const item = typeof window !== "undefined" ? window.selectedItem : null;
+    if (!item || !item.children || !item.children.length) return;
+    if (!item.data || !item.data.isSpacedGroup) return;
+    try {
+        const firma = item.matrix ? String(item.matrix) : "";
+        if (item.data.__geomMatriz === firma) return;
+        estamparBaseEspaciado(item);
+    } catch (_) {}
 }
 
 /* ==================== ESPACIADO SIN CONVERSION ====================
@@ -1678,16 +1785,31 @@ function distribuirPiezas(piezas, gap, opts) {
     if (cajas.length < 2) return null;
     if (!opts.skipHistory && typeof window.saveHistory === 'function') window.saveHistory();
     cajas.sort((a, b) => a.b.left - b.b.left);
+    /* El conjunto no se corre: el CENTRO del conjunto se mantiene donde esta
+       y las piezas se abren a ambos lados (espaciar no debe desplazar el
+       grupo tal cual las palabras). Primero se computan los desplazamientos,
+       y despues se recala el bloque entero al centro original. */
+    const centroOriginal = (cajas[0].b.left + cajas[cajas.length - 1].b.right) / 2;
+    const movimientos = cajas.map(() => 0);
     let cursorDerecho = null;
-    for (const caja of cajas) {
+    for (let i = 0; i < cajas.length; i++) {
+        const caja = cajas[i];
         if (cursorDerecho === null) { cursorDerecho = caja.b.right; continue; }
         const faltante = cursorDerecho + gap - caja.b.left;
         if (Math.abs(faltante) > 0.01) {
-            moverConDeltaMundo(caja.p, faltante, 0);
+            movimientos[i] = faltante;
             cursorDerecho += gap + caja.b.width;
         } else {
             cursorDerecho = caja.b.right;
         }
+    }
+    const izquierdaIdeal = cajas[0].b.left;
+    const ultima = cajas[cajas.length - 1];
+    const derechaIdeal = ultima.b.left + movimientos[movimientos.length - 1] + ultima.b.width;
+    const delta = centroOriginal - (izquierdaIdeal + derechaIdeal) / 2;
+    for (let i = 0; i < cajas.length; i++) {
+        const total = movimientos[i] + delta;
+        if (Math.abs(total) > 0.01) moverConDeltaMundo(cajas[i].p, total, 0);
     }
     paper.view.update();
     return cajas.map(c => c.p);
@@ -1755,28 +1877,54 @@ function distribuirLetrasVector(owner, gap, opts) {
     if (letras.length < 2) return null;
     if (!opts.skipHistory && typeof window.saveHistory === 'function') window.saveHistory();
     letras.sort((a, b) => a.b.left - b.b.left);
+    /* El CENTRO del texto vectorizado no se corre (mismo canon que el texto
+       vivo): se computan los desplazamientos y despues se recalca todo al
+       centro de tinta original. */
+    const centroOriginal = (letras[0].b.left + letras[letras.length - 1].b.right) / 2;
+    const movimientos = letras.map(() => 0);
     let cursorDerecho = null;
-    for (const letra of letras) {
+    for (let i = 0; i < letras.length; i++) {
+        const letra = letras[i];
         if (cursorDerecho === null) { cursorDerecho = letra.b.right; continue; }
         const faltante = cursorDerecho + gap - letra.b.left;
         if (Math.abs(faltante) > 0.01) {
-            /* Los contornos viven en el espacio del compuesto: el delta mundo
-               se convierte a ese marco con la matriz del compuesto. En el caso
-               Grupo cada "contorno" es el hijo entero, y moverConDeltaMundo ya
-               resuelve la conversion por su cuenta. */
-            if (letra.contornos.length === 1 && letra.contornos[0] instanceof paper.Item) {
-                moverConDeltaMundo(letra.contornos[0], faltante, 0);
-            } else {
-                const p0 = owner.globalToLocal(new paper.Point(0, 0));
-                const p1 = owner.globalToLocal(new paper.Point(faltante, 0));
-                const local = new paper.Point(p1.x - p0.x, 0);
-                for (const c of letra.contornos) c.translate(local);
-            }
+            movimientos[i] = faltante;
             cursorDerecho += gap + letra.b.width;
         } else {
             cursorDerecho = letra.b.right;
         }
     }
+    const izquierdaIdeal = letras[0].b.left;
+    const ultima = letras[letras.length - 1];
+    const derechaIdeal = ultima.b.left + movimientos[movimientos.length - 1] + ultima.b.width;
+    const delta = centroOriginal - (izquierdaIdeal + derechaIdeal) / 2;
+    for (let i = 0; i < letras.length; i++) {
+        const total = movimientos[i] + delta;
+        if (Math.abs(total) <= 0.01) continue;
+        /* Los contornos viven en el espacio del compuesto: el delta mundo
+           se convierte a ese marco con la matriz del compuesto. En el caso
+           Grupo cada "contorno" es el hijo entero, y moverConDeltaMundo ya
+           resuelve la conversion por su cuenta. */
+        if (letras[i].contornos.length === 1 && letras[i].contornos[0] instanceof paper.Item) {
+            moverConDeltaMundo(letras[i].contornos[0], total, 0);
+        } else {
+            const p0 = owner.globalToLocal(new paper.Point(0, 0));
+            const p1 = owner.globalToLocal(new paper.Point(total, 0));
+            const local = new paper.Point(p1.x - p0.x, 0);
+            for (const c of letras[i].contornos) c.translate(local);
+        }
+    }
+    /* We moved contornos EN SITIO: el sello geomBase del vector (si lo
+       arrastraba del weld) queda caduco. Se re-estampa con la geometría
+       actual para que el hit-test y el CSG posterior sigan leyendo la forma
+       real (mismo patrón de imageTracer: stamping = clone sin insertar). */
+    try {
+        if (owner.data && owner.data.geomBase) {
+            const viejo = owner.data.geomBase;
+            owner.data.geomBase = owner.clone({ insert: false });
+            if (viejo) { try { viejo.remove(); } catch (e2) {} }
+        }
+    } catch (_) {}
     paper.view.update();
     return letras;
 }
