@@ -786,14 +786,27 @@ export function tryInsertNodeAt(projectPoint) {
     let nearestLoc = null;
     let minDistance = 15 / paper.view.zoom;
     for (const path of targetPaths) {
-        const loc = path.getNearestLocation(projectPoint);
-        if (loc) {
-            const dist = projectPoint.getDistance(loc.point);
-            if (dist < minDistance) {
-                minDistance = dist;
-                nearestLoc = loc;
+        /* getNearestLocation trabaja en el marco LOCAL del path. En vectores
+           planos (matriz identidad) el marco local coincide con el global y
+           pasaba cualquier coordenada. En letras de texto arco cada glifo
+           lleva rotacion/traslacion propia: sin convertir el marco, el punto
+           global se leia como local y la distancia daba absurdas: el motor
+           salia sin insertar, en silencio (precisamente el bug del usuario).
+           Convertimos ida y vuelta: la busqueda en local, la distancia en
+           global, donde vive la tolerancia de 15/zoom en pixeles de pantalla. */
+        let loc = null;
+        try {
+            const localPoint = path.globalToLocal ? path.globalToLocal(projectPoint) : projectPoint;
+            loc = path.getNearestLocation(localPoint);
+            if (loc) {
+                const globalHit = path.localToGlobal ? path.localToGlobal(loc.point) : loc.point;
+                const dist = projectPoint.getDistance(globalHit);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    nearestLoc = loc;
+                }
             }
-        }
+        } catch (err) { /* path sin marco: sigo con el siguiente */ }
     }
     if (!nearestLoc) return false;
     /* Guardia anti-duplicado: SOLO bloquea el clic que cae encima del dot de
@@ -814,6 +827,10 @@ export function tryInsertNodeAt(projectPoint) {
     if (typeof window.saveHistory === 'function') window.saveHistory();
     const path = nearestLoc.path;
     const index = nearestLoc.index;
+    /* nearestLoc.point vive en el marco LOCAL del path: el marco correcto
+       para insertar (la geometria interna del path siempre es local). Para
+       vectores planos es identico al punto global de antes; para letras de
+       arco es periferica la diferencia. */
     path.insert(index + 1, nearestLoc.point);
     // Nodo nuevo = esquina viva (sin smooth automático).
     // El usuario presiona 'S' si quiere suavizar después.
