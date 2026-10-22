@@ -181,9 +181,19 @@
         // La salida cruda del modelo. Guardarla es lo que hace la edicion no
         // destructiva: reajustar el borde o retoquear despues solo recompone
         // esta mascara, sin volver a pasar por la red neuronal.
-        mascara: null,        // Float32Array de alfa, 320x320
+        mascara: null,        // Float32Array de alfa. 320x320 del modelo o la de trabajo ya final
         mascaraAncho: 0,
         mascaraAlto: 0,
+        // `true` cuando `mascara` YA es la alfa final a resolucion de trabajo:
+        // paso por solidificado, perfil y filtro guiado una sola vez. Mientras
+        // este en true, recomponer NO vuelve a erosionar ni a filtrar toda la
+        // mascara, porque eso cambiaba el contorno entero con cada trazo (ver
+        // `mascaraATrabajo`).
+        mascaraFinal: false,
+        // Alfa final de la IA a resolucion de trabajo. Se guarda al recortar
+        // para que, al reabrir el retoque, Deshacer siga teniendo el estado 0
+        // sin volver a correr el post-proceso.
+        alfaIA: null,
         lienzoTrabajo: null,  // { aw, ah }
         ultimoError: null,
         oyentes: new Set()
@@ -707,7 +717,7 @@
         return salida;
     }
 
-    function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja) {
+    function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja, yaFinal) {
         const lienzo = document.createElement('canvas');
         lienzo.width = anchoTrabajo;
         lienzo.height = altoTrabajo;
@@ -727,7 +737,14 @@
         const escalaY = c.dh / altoTrabajo;
 
         // Interior solido + franja del modelo intacta (ver solidificarInterior).
-        let base = CFG.SOLIDIFICAR
+        //
+        // SOLO en el primer procesado. MEDIDO con `banco-manual.mjs`: al
+        // recomponer despues de CADA trazo, la erosion se aplicaba a toda la
+        // mascara y un toque de pincel cambiaba 41.679 px repartidos por todo
+        // el contorno aunque solo se hubiera pintado un circulo. El cliente lo
+        // describio como "el manual funciona como asistido". Si la mascara ya
+        // es la final (`yaFinal`), lo pintado tiene que mandar tal cual.
+        let base = (!yaFinal && CFG.SOLIDIFICAR)
             ? solidificarInterior(alfa, mw, mh, CFG.SOLIDIFICAR_RADIO)
             : alfa;
 
@@ -773,7 +790,7 @@
         // en 2,2 px con saltos de 255 entre pixeles vecinos (medido), que es el
         // "pixelado" que reportaba el cliente: la alfa viene de 512 y se
         // amplia a 1600, y ampliar a pelo no reproduce el borde real.
-        if (CFG.REFINAR_BORDE > 0.001) {
+        if (!yaFinal && CFG.REFINAR_BORDE > 0.001) {
             const total = anchoTrabajo * altoTrabajo;
             const aTrabajo = new Float32Array(total);
             for (let i = 0; i < total; i++) aTrabajo[i] = px[i * 4 + 3] / 255;
@@ -785,7 +802,7 @@
         }
 
         ctx.putImageData(img, 0, 0);
-        refinarBorde(ctx, anchoTrabajo, altoTrabajo);
+        if (!yaFinal) refinarBorde(ctx, anchoTrabajo, altoTrabajo);
         return lienzo;
     }
 
@@ -961,8 +978,9 @@
         }
     }
 
-    function componerRecorte(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja) {
-        const lienzo = aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja);
+    function componerRecorte(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja, yaFinal) {
+        const lienzo = aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja, yaFinal);
+        if (yaFinal) return lienzo;
         if (CFG.MATTING <= 0.001 && CFG.AFINADO <= 0.001) return lienzo;
         try {
             const ctx = lienzo.getContext('2d', { willReadFrequently: true });
@@ -1141,6 +1159,10 @@
             ESTADO.mascara = r.alfa;
             ESTADO.mascaraAncho = r.w;
             ESTADO.mascaraAlto = r.h;
+            // Otra foto: la copia "original" del retoque ya no sirve.
+            RETOQUE.original = null;
+            RETOQUE.capasClave = '';
+            RETOQUE.capasSucias = true;
             ESTADO.lienzoTrabajo = { aw, ah };
             // El rectangulo que la foto ocupa dentro de la entrada se guarda para
             // que todo recorte posterior (ajustar el borde, pincel) siga con la
@@ -1158,7 +1180,21 @@
             }
             ESTADO.caja = caja;
 
-            const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah, caja);
+            const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah, caja, false);
+
+            // La mascara recien guardada es la CRUDA del modelo: la final
+            // (solidificada + filtro guiado) se calcula al componer. Se guarda
+            // aqui a resolucion de trabajo para que el retoque arranque ya con
+            // esa alfa y no tenga que reprocesarla (ver `mascaraATrabajo`).
+            ESTADO.mascaraFinal = false;
+            ESTADO.alfaIA = null;
+            try {
+                const aLienzo = lienzo.getContext('2d', { willReadFrequently: true })
+                    .getImageData(0, 0, aw, ah).data;
+                const alfaIA = new Float32Array(aw * ah);
+                for (let i = 0; i < alfaIA.length; i++) alfaIA[i] = aLienzo[i * 4 + 3] / 255;
+                ESTADO.alfaIA = alfaIA;
+            } catch (_) { /* sin alfaIA el retoque la recalcula al abrir */ }
 
             // ==================================================================
             // NO SE CREA UNA IMAGEN NUEVA: se le cambia el CONTENIDO a la que ya
@@ -1328,6 +1364,10 @@
         ESTADO.rasterOriginal = null;
         ESTADO.urlOriginal = null;
         ESTADO.mascara = null;
+        ESTADO.mascaraFinal = false;
+        ESTADO.alfaIA = null;
+        RETOQUE.capasClave = '';
+        RETOQUE.capasSucias = true;
         ESTADO.listo = false;
         if (r) {
             try {
@@ -1441,7 +1481,7 @@
             try {
                 const lienzo = componerRecorte(
                     ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, fuente, aw, ah,
-                    ESTADO.caja);
+                    ESTADO.caja, ESTADO.mascaraFinal);
                 const url = lienzo.toDataURL('image/png');
 
                 // Se reasigna la fuente de la MISMA pieza ya colocada, sin
@@ -1493,7 +1533,7 @@
             // Historial: `pasos` es cuantos estados hay y `paso` en cual se
             // esta. Deshacer se puede mientras `paso > 0` y Rehacer mientras
             // `paso < pasos - 1`.
-            pasos: HISTORIAL.estados.length,
+            pasos: HISTORIAL.pasos.length + 1,
             paso: HISTORIAL.indice
         }),
         // LECTURA DEL DIAGNOSTICO. SOLO LEE, no escribe nada.
@@ -1680,6 +1720,20 @@
         // "Ver lo que se quito": capa translucida sobre lo que ya quedo
         // transparente, para poder precisar que restaurar.
         verQuitado: false,
+        // Capas CACHEADAS de la vista previa, a resolucion de trabajo:
+        //   `capaRecorte` = foto con la alfa aplicada (lo que queda)
+        //   `capaVelo`    = blanco con alfa (1 - alfa) (lo que se quito)
+        //
+        // Antes la vista se armaba de dos maneras: durante el arrastre con la
+        // mascara cruda y al soltar con la composicion refinada. Ese cambio de
+        // camino hacia que TODO el contorno se redibujara al soltar un punto,
+        // y el cliente lo leia como "el manual restaura/borra cosas que no
+        // pinte". Con las capas cacheadas la vista es SIEMPRE la misma; el
+        // pincel solo actualiza su circulo (ver `pintarPincel`).
+        capaRecorte: null,
+        capaVelo: null,
+        capasClave: '',
+        capasSucias: true,
         // Zoom PROPIO de la ventana de edicion. No toca `paper.view` a
         // proposito: si tocara el del editor se moveria todo el mockup y se
         // romperia el encuadre. El tamanio del pincel ya se ajusta con su
@@ -1696,17 +1750,27 @@
      * por vez. EKKO solo tenia un boton que volvia de golpe al recorte de la
      * IA, asi que un trazo mal dado obligaba a perder todos los anteriores.
      *
-     * Como funciona: cada estado es una copia de la mascara. La mascara mide
-     * 512x512 (Float32Array, 1 MB), asi que una copia es barata; se guardan
-     * hasta LIMITE_PASOS y se tiran los MAS VIEJOS cuando se pasa de memoria.
+     * COMO SE GUARDA (esto cambio con el retoque a resolucion de trabajo):
      *
-     * El paso 0 es SIEMPRE el recorte que dio la IA (ver `historialReiniciar`),
-     * asi que apretando Deshacer las veces necesarias se llega a la IA igual
-     * que antes: no se pierde el comportamiento que el cliente ya conocia.
+     *   Antes cada paso era una copia completa de la mascara. Con la mascara
+     *   de 320 (0,4 MB) eso era barato, pero ahora la mascara es la de trabajo
+     *   (900x1600 = 5,8 MB) y 40 copias serian 230 MB: en la maquina del
+     *   cliente se comia la memoria. Ahora cada paso guarda SOLO el recuadro
+     *   que cambio, con sus valores antes y despues. Un trazo ocupa unos pocos
+     *   KB y se conservan los 40 pasos de siempre.
+     *
+     *   `base` es el estado 0 (la IA ya procesada) y `pasos[k]` es la
+     *   transicion del estado k al k+1:
+     *     - Deshacer desde j aplica `pasos[j-1].antes`
+     *     - Rehacer desde j aplica `pasos[j].despues`
+     *   Al pasarse de memoria se tira el paso MAS VIEJO, pero su efecto se
+     *   absorbe en `base`, asi que el estado 0 sigue siendo coherente.
      */
     const HISTORIAL = {
-        estados: [],
-        indice: -1,
+        base: null,           // Float32Array: estado 0
+        pasos: [],            // [{ x0, y0, w, h, antes, despues }]
+        indice: 0,            // estado actual (0 = base)
+        ultimo: null,         // copia de la mascara en el estado actual
         LIMITE_PASOS: 40,
         LIMITE_BYTES: 48 * 1024 * 1024,
     };
@@ -1742,6 +1806,16 @@
         RETOQUE.modo = modo === 'restaurar' ? 'restaurar' : 'borrar';
         RETOQUE.activo = true;
         marcarPincelActivo();
+        // El velo de "lo quitado" tiene distinta fuerza segun la herramienta
+        // (0,78 Borrar / 0,58 Restaurar). El boton de la ventana ya repintaba,
+        // pero este camino (el que usa el panel flotante) NO lo hacia: al
+        // cambiar de pincel desde el panel, el fondo se quedaba con la fuerza
+        // anterior hasta el siguiente trazo. Se repinta aca tambien.
+        try { pintarLienzoVentana(); }
+        catch (e) {
+            ESTADO.ultimoError = e;
+            console.warn('[EKKO RETOQUE] no se pudo repintar al elegir pincel:', e);
+        }
         return true;
     }
 
@@ -1860,6 +1934,96 @@
         actualizarCursor();
     }
 
+    /**
+     * Clave de validez de las capas cacheadas. Si cambia el tamaño de la
+     * mascara o del lienzo, hay que reconstruirlas.
+     */
+    function claveCapas() {
+        const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : 0;
+        const ah = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.ah : 0;
+        return aw + 'x' + ah + '|' + ESTADO.mascaraAncho + 'x' + ESTADO.mascaraAlto +
+            '|' + (ESTADO.mascaraFinal ? 'final' : 'modelo');
+    }
+
+    /**
+     * Reconstruye las DOS capas de la vista previa a resolucion de trabajo:
+     *
+     *   capaRecorte = foto con la alfa aplicada (lo que queda)
+     *   capaVelo    = blanco con alfa (1 - alfa) (lo que se quito)
+     *
+     * Se recalcula al abrir, al deshacer y al soltar el pincel. Mientras se
+     * arrastra NO se reconstruye: `pintarPincel` actualiza solo su circulo.
+     */
+    function reconstruirCapas() {
+        const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : 0;
+        const ah = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.ah : 0;
+        if (!(aw > 0) || !(ah > 0) || !ESTADO.mascara) return false;
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        const ref = ESTADO.imagenOriginal || r;
+        const src = ESTADO.lienzoOriginal || (ref && ref.getElement && ref.getElement());
+        if (!src) return false;
+        try {
+            const recorte = componerRecorte(
+                ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto,
+                src, aw, ah, ESTADO.caja, ESTADO.mascaraFinal);
+            const rd = recorte.getContext('2d', { willReadFrequently: true })
+                .getImageData(0, 0, aw, ah).data;
+            const velo = document.createElement('canvas');
+            velo.width = aw; velo.height = ah;
+            const vctx = velo.getContext('2d');
+            const vi = vctx.createImageData(aw, ah);
+            const vd = vi.data;
+            for (let i = 0, n = aw * ah; i < n; i++) {
+                const j = i * 4;
+                vd[j] = 255; vd[j + 1] = 255; vd[j + 2] = 255;
+                vd[j + 3] = 255 - rd[j + 3];
+            }
+            vctx.putImageData(vi, 0, 0);
+            RETOQUE.capaRecorte = recorte;
+            RETOQUE.capaVelo = velo;
+            RETOQUE.capasClave = claveCapas();
+            RETOQUE.capasSucias = false;
+            return true;
+        } catch (e) {
+            ESTADO.ultimoError = e;
+            RETOQUE.capaRecorte = null;
+            RETOQUE.capaVelo = null;
+            return false;
+        }
+    }
+
+    /**
+     * Actualiza en las capas cacheadas SOLO el recuadro que acaba de pintar el
+     * pincel. La alfa del recorte y la del velo salen del mismo valor de
+     * mascara, asi que siguen coincidiendo con una reconstruccion completa.
+     */
+    function actualizarCapasEn(x0, y0, x1, y1) {
+        const capa = RETOQUE.capaRecorte, velo = RETOQUE.capaVelo;
+        const w = ESTADO.mascaraAncho, h = ESTADO.mascaraAlto;
+        if (!capa || !velo || RETOQUE.capasSucias) return;
+        if (capa.width !== w || capa.height !== h) return;
+        if (velo.width !== w || velo.height !== h) return;
+        const bw = x1 - x0, bh = y1 - y0;
+        if (!(bw > 0) || !(bh > 0)) return;
+        try {
+            const cctx = capa.getContext('2d', { willReadFrequently: true });
+            const vctx = velo.getContext('2d', { willReadFrequently: true });
+            const ci = cctx.getImageData(x0, y0, bw, bh);
+            const vi = vctx.getImageData(x0, y0, bw, bh);
+            for (let y = 0; y < bh; y++) {
+                for (let x = 0; x < bw; x++) {
+                    const a = ESTADO.mascara[(y0 + y) * w + (x0 + x)];
+                    const av = Math.max(0, Math.min(255, Math.round(a * 255)));
+                    const o = (y * bw + x) * 4;
+                    ci.data[o + 3] = av;
+                    vi.data[o + 3] = 255 - av;
+                }
+            }
+            cctx.putImageData(ci, x0, y0);
+            vctx.putImageData(vi, x0, y0);
+        } catch (e) { ESTADO.ultimoError = e; }
+    }
+
     function pintarLienzoVentana(refinado) {
         const cv = document.getElementById('lienzo-editar-fondo');
         if (!cv) return;
@@ -1950,103 +2114,33 @@
         // Capa 1: la foto original, a pleno color.
         ctx.drawImage(src, ox, oy, w, h);
 
-        // La mascara viene del cuadrado de entrada: el rectangulo real que la
-        // foto ocupa dentro de ese cuadrado hay que respetarlo.
-        const c = ESTADO.caja;
-        const hayRecorte = !!(c && (c.ox !== 0 || c.oy !== 0 || c.dw !== mw || c.dh !== mh));
+        // Capas 2 y 3: el velo de lo quitado y el recorte, SIEMPRE desde las
+        // mismas capas cacheadas a resolucion de trabajo. Asi el arrastre y el
+        // "soltar" muestran exactamente lo mismo: antes el arrastre usaba la
+        // mascara cruda y al soltar se cambiaba a la composicion refinada, y
+        // ese cambio redibujaba todo el contorno aunque se hubiera pintado un
+        // solo punto (el cliente lo leyo como "el manual funciona como asistido").
+        const cacheValida = !refinado
+            && RETOQUE.capaRecorte && RETOQUE.capaVelo
+            && !RETOQUE.capasSucias
+            && RETOQUE.capasClave === claveCapas();
+        if (!cacheValida && !reconstruirCapas()) return;
 
-        // MEDIDO, y era un error invisible: la mascara es un Float32Array en
-        // escala 0..1 (min -6e-8, max 1, promedio 0.21). Asignarla tal cual a un
-        // Uint8ClampedArray la redondea a 1, o sea alfa 1, y el sujeto se
-        // dibujaba PRACTICAMENTE INVISIBLE. Hay que pasar de 0..1 a 0..255.
-        // `componerRecorte` ya lo hace por su lado, que es por eso que el
-        // recorte del mockup siempre sale bien.
-        const a255 = (a) => {
-            const v = Math.round(a * 255);
-            return v < 0 ? 0 : v > 255 ? 255 : v;
-        };
-
-
-        // Capa 2 y 3: el recorte. Con `refinado` se usa la MISMA composicion que
-        // genera el resultado final, o sea la que ya pasa el filtro guiado.
-        //
-        // MEDIDO, y es lo que reporto el cliente: al pintar se veia "muy
-        // pixelado". Motivo: mientras se arrastra el pincel la vista usaba la
-        // mascara CRUDA de 512, sin refinar; el refinado recien se aplicaba al
-        // recomponer (al presionar Listo). O sea, el pincel SI usa el mismo
-        // concepto que la quitar-fondo original, pero la vista previa no.
-        // Durante el arrastre se usa la mascara cruda para que responder al
-        // instante; al SOLTAR se repinta refinado, que es lo que se ve al final.
-        let alfaRecorte = null;
-        let recorteYaDibujado = null;
-        if (refinado) {
-            recorteYaDibujado = componerRecorte(
-                ESTADO.mascara, mw, mh, src, natW, natH, ESTADO.caja);
-            try {
-                const rd = recorteYaDibujado.getContext('2d', { willReadFrequently: true })
-                    .getImageData(0, 0, natW, natH).data;
-                alfaRecorte = rd;
-            } catch (_) { recorteYaDibujado = null; }
-        }
-        //
-        // MEDIDO, y fue el error de fondo:
-        //   - velo blanco siempre: las sillas y las mesas NO se veian, yRestore-
-        //     rarlas era adivinar a ciegas. El cliente lo dijo: "si no veo
-        //     donde estan, no puedo ir adivinando con cada clic".
-        //   - velo blanco solo en Asistido: mismo problema.
-        //
-        // Con la herramienta:
-        //   - RESTAURAR -> velo MEDIO FUERTE (0.58). El cliente lo pidió dos veces:
-        //     con 0.15 se confundía con la foto original con fondo y con 0.35
-        //     "casi no se nota". Tiene que destacar como en Borrar, pero sin
-        //     tapar tanto que no se pueda apuntarle a una silla.
-        //   - BORRAR -> velo fuerte (0.78), la zona quitada queda fantasma.
+        // Fuerza del velo por herramienta:
+        //   RESTAURAR -> 0.58 (destacar sin tapar las sillas que hay que recuperar)
+        //   BORRAR    -> 0.78 (la zona quitada queda fantasma)
         const fuerza = RETOQUE.modo === 'restaurar' ? 0.58 : 0.78;
-        const blanco = document.createElement('canvas');
-        const blancoCtx = blanco.getContext('2d');
-        if (alfaRecorte) {
-            // Con el recorte refinado: el velo sale de la MISMA alfa que va a
-            // quedar en la foto final, así lo que se ve es lo que se guarda.
-            blanco.width = natW; blanco.height = natH;
-            const bi = blancoCtx.createImageData(natW, natH);
-            const bd = bi.data;
-            for (let i = 0, n = natW * natH; i < n; i++) {
-                const v = Math.round((255 - alfaRecorte[i * 4 + 3]) * fuerza);
-                const j = i * 4;
-                bd[j] = 255; bd[j + 1] = 255; bd[j + 2] = 255; bd[j + 3] = v;
-            }
-            blancoCtx.putImageData(bi, 0, 0);
-            ctx.drawImage(blanco, ox, oy, w, h);
-            ctx.drawImage(recorteYaDibujado, ox, oy, w, h);
-            ESTADO.ventanaCaja = { ox, oy, w, h, esc, natW, natH };
-            return;
-        }
+        // Orden de dibujo: foto original, sujeto recortado y ENCIMA el velo de
+        // lo quitado. El velo va arriba a proposito: asi lo que se pinta se ve
+        // con la misma fuerza en el centro y en el borde difuminado, y el
+        // circulo pintado coincide con el anillo del cursor. Si el sujeto
+        // tapara el velo (orden inverso), el borde suave del pincel se veria
+        // mucho mas chico de lo que se pinto.
+        ctx.drawImage(RETOQUE.capaRecorte, ox, oy, w, h);
+        ctx.globalAlpha = fuerza;
+        ctx.drawImage(RETOQUE.capaVelo, ox, oy, w, h);
+        ctx.globalAlpha = 1;
 
-        // Camino rápido: la máscara cruda, que es lo que se puede dibujar en
-        // cada cuadro mientras se arrastra el pincel.
-        blanco.width = mw; blanco.height = mh;
-        const bctx = blancoCtx;
-        const bimg = bctx.createImageData(mw, mh);
-        const bd = bimg.data;
-        for (let i = 0, n = mw * mh; i < n; i++) {
-            const v = Math.round((255 - a255(ESTADO.mascara[i])) * fuerza);
-            const j = i * 4;
-            bd[j] = 255; bd[j + 1] = 255; bd[j + 2] = 255; bd[j + 3] = v;
-        }
-        bctx.putImageData(bimg, 0, 0);
-
-        if (hayRecorte) {
-            const bNat = document.createElement('canvas');
-            bNat.width = natW; bNat.height = natH;
-            bNat.getContext('2d').drawImage(blanco, c.ox, c.oy, c.dw, c.dh, 0, 0, natW, natH);
-            ctx.drawImage(bNat, ox, oy, w, h);
-        } else {
-            ctx.drawImage(blanco, ox, oy, w, h);
-        }
-
-        // La caja se vuelve a guardar con las medidas naturales incluidas. La
-        // asignacion de arriba (antes de la salida por la mascara) queda
-        // pisada por esta, asi que tiene que llevar los mismos datos.
         ESTADO.ventanaCaja = { ox, oy, w, h, esc, natW, natH };
     }
 
@@ -2074,6 +2168,68 @@
         return true;
     }
 
+    /**
+     * Lleva la mascara del modelo a la RESOLUCION DE TRABAJO, ya procesada.
+     *
+     * Por que: el pincel escribia sobre la grilla del modelo (320x320) y la
+     * ventana la estiraba a 900x1600. A zoom alto cada pixel de mascara son
+     * ~7 px de pantalla, y el trazo se ve escalonado: es el "muy pixelado" que
+     * reporto el cliente. Ademas, al recomponer se volvian a aplicar la
+     * erosion de `solidificarInterior` y el filtro guiado a TODA la mascara en
+     * cada toque, de modo que pintar un punto cambiaba el contorno entero.
+     *
+     * Solucion: se corre el post-proceso UNA vez (el mismo que produce el
+     * recorte final) y se conserva su alfa a tamano de trabajo. Desde ahi:
+     *   - el pincel pinta pixel a pixel de la foto (sin escalera)
+     *   - recomponer no erosiona ni filtra: lo unico que cambia es lo pintado
+     *
+     * El estado 0 del historial es `ESTADO.alfaIA` (la IA ya procesada), para
+     * que Deshacer siga llegando al recorte original al reabrir la ventana.
+     */
+    function mascaraATrabajo() {
+        const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : 0;
+        const ah = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.ah : 0;
+        if (!ESTADO.mascara || !(aw > 0) || !(ah > 0)) return false;
+        if (ESTADO.mascaraFinal && ESTADO.mascaraAncho === aw && ESTADO.mascaraAlto === ah) {
+            return true;
+        }
+
+        // Camino rapido: la alfa final de la IA ya se guardo al recortar.
+        if (ESTADO.alfaIA && ESTADO.alfaIA.length === aw * ah) {
+            ESTADO.mascara = new Float32Array(ESTADO.alfaIA);
+            ESTADO.mascaraAncho = aw;
+            ESTADO.mascaraAlto = ah;
+            ESTADO.caja = { ox: 0, oy: 0, dw: aw, dh: ah };
+            ESTADO.mascaraFinal = true;
+            return true;
+        }
+
+        // Si no hay alfa guardada (por ejemplo, se reabrio una sesion vieja),
+        // se procesa ahora. Es el unico momento caro; despues todo es local.
+        const fuente = ESTADO.lienzoOriginal ||
+            (ESTADO.imagenOriginal && ESTADO.imagenOriginal.getElement &&
+                ESTADO.imagenOriginal.getElement());
+        if (!fuente) return false;
+        try {
+            const lienzo = componerRecorte(
+                ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto,
+                fuente, aw, ah, ESTADO.caja, false);
+            const px = lienzo.getContext('2d', { willReadFrequently: true })
+                .getImageData(0, 0, aw, ah).data;
+            const alfa = new Float32Array(aw * ah);
+            for (let i = 0; i < alfa.length; i++) alfa[i] = px[i * 4 + 3] / 255;
+            ESTADO.mascara = alfa;
+            ESTADO.mascaraAncho = aw;
+            ESTADO.mascaraAlto = ah;
+            ESTADO.caja = { ox: 0, oy: 0, dw: aw, dh: ah };
+            ESTADO.mascaraFinal = true;
+        } catch (e) {
+            ESTADO.ultimoError = e;
+            return false;
+        }
+        return true;
+    }
+
     function abrirRetoque() {
         // El zoom de la ventana arranca limpio en cada apertura.
         RETOQUE.zoomVentana = 1;
@@ -2087,6 +2243,13 @@
             // `RETOQUE.original`. Con Uint8ClampedArray la copia redondeaba la
             // mascara entera a 0/1.
             RETOQUE.original = new Float32Array(ESTADO.mascara);
+        }
+        // La mascara de retoque pasa a la resolucion de trabajo, ya procesada:
+        // el pincel deja de pintar sobre la grilla de 320 (que se veia
+        // escalonada) y recomponer deja de alterar el contorno entero.
+        if (!mascaraATrabajo()) {
+            avisar('No se pudo preparar la máscara para editar.', { kind: 'error' });
+            return false;
         }
         // El historial arranca en el recorte de la IA: Deshacer y Rehacer
         // trabajan sobre este retoque, no sobre la escena del editor.
@@ -2147,31 +2310,87 @@
     }
 
     /**
+     * Recorta el rectangulo que cambio entre dos mascaras.
+     *
+     * Devuelve `{ x0, y0, w, h, antes, despues }` con SOLO ese recuadro, o
+     * `null` si no cambio ningun pixel. Es lo que mantiene barato el historial
+     * a resolucion de trabajo: un trazo guarda su circulo, no 1,4 M de pixeles.
+     */
+    function historialRegion(antes, despues) {
+        const w = ESTADO.mascaraAncho, h = ESTADO.mascaraAlto;
+        if (!antes || !despues || antes.length !== despues.length) return null;
+        if (antes.length !== w * h) return null;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (let y = 0; y < h; y++) {
+            const f = y * w;
+            for (let x = 0; x < w; x++) {
+                if (antes[f + x] === despues[f + x]) continue;
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+        }
+        if (x1 < 0) return null;
+        const cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+        const a = new Float32Array(cw * ch);
+        const d = new Float32Array(cw * ch);
+        for (let y = 0; y < ch; y++) {
+            const src = (y0 + y) * w + x0;
+            a.set(antes.subarray(src, src + cw), y * cw);
+            d.set(despues.subarray(src, src + cw), y * cw);
+        }
+        return { x0, y0, w: cw, h: ch, antes: a, despues: d };
+    }
+
+    function historialBytes() {
+        let b = HISTORIAL.base ? HISTORIAL.base.byteLength : 0;
+        for (const p of HISTORIAL.pasos) b += p.antes.byteLength + p.despues.byteLength;
+        return b;
+    }
+
+    /**
+     * Tira el paso mas viejo SIN perder el estado 0: su efecto se aplica a
+     * `base`, que pasa a representar el estado siguiente. Asi se puede seguir
+     * deshaciendo hasta el nuevo estado 0 sin guardar copias completas.
+     */
+    function historialAbsorberPrimero() {
+        if (!HISTORIAL.pasos.length || HISTORIAL.indice <= 0) return;
+        const p = HISTORIAL.pasos.shift();
+        const w = ESTADO.mascaraAncho;
+        for (let y = 0; y < p.h; y++) {
+            HISTORIAL.base.set(
+                p.despues.subarray(y * p.w, y * p.w + p.w),
+                (p.y0 + y) * w + p.x0);
+        }
+        HISTORIAL.indice -= 1;
+    }
+
+    /**
      * Deja el historial en el estado actual.
      *
-     * El paso 0 es SIEMPRE el recorte de la IA. Si la ventana se vuelve a abrir
-     * despues de haber retocado y presionado Listo, la mascara actual puede ser
-     * distinta de la de la IA: en ese caso entra como paso 1, para que Deshacer
-     * siga llevando a la IA y no a un punto intermedio.
+     * El paso 0 es SIEMPRE el recorte de la IA ya procesado
+     * (`ESTADO.alfaIA`). Si la ventana se vuelve a abrir despues de haber
+     * retocado y presionado Listo, la mascara actual puede ser distinta de la
+     * de la IA: en ese caso entra como paso 1, para que Deshacer siga llevando
+     * a la IA y no a un punto intermedio.
      */
     function historialReiniciar() {
-        HISTORIAL.estados = [];
-        HISTORIAL.indice = -1;
-        if (!ESTADO.mascara || !(ESTADO.mascara.length > 0)) return;
-        const base = (RETOQUE.original && RETOQUE.original.length === ESTADO.mascara.length)
-            ? RETOQUE.original
-            : ESTADO.mascara;
-        HISTORIAL.estados.push(new Float32Array(base));
+        HISTORIAL.pasos = [];
         HISTORIAL.indice = 0;
-        if (base !== ESTADO.mascara) {
-            let igual = true;
-            for (let i = 0; i < ESTADO.mascara.length; i++) {
-                if (ESTADO.mascara[i] !== base[i]) { igual = false; break; }
-            }
-            if (!igual) {
-                HISTORIAL.estados.push(new Float32Array(ESTADO.mascara));
-                HISTORIAL.indice = 1;
-            }
+        HISTORIAL.base = null;
+        HISTORIAL.ultimo = null;
+        if (!ESTADO.mascara || !(ESTADO.mascara.length > 0)) return;
+        const aw = ESTADO.mascaraAncho, ah = ESTADO.mascaraAlto;
+        const baseIA = (ESTADO.alfaIA && ESTADO.alfaIA.length === aw * ah)
+            ? ESTADO.alfaIA
+            : ESTADO.mascara;
+        HISTORIAL.base = new Float32Array(baseIA);
+        HISTORIAL.ultimo = new Float32Array(ESTADO.mascara);
+        const paso = historialRegion(HISTORIAL.base, ESTADO.mascara);
+        if (paso) {
+            HISTORIAL.pasos.push(paso);
+            HISTORIAL.indice = 1;
         }
         actualizarBotonesRetoque();
     }
@@ -2182,39 +2401,64 @@
      */
     function historialAnotar() {
         if (!ESTADO.mascara || !(ESTADO.mascara.length > 0)) return;
+        if (!HISTORIAL.base) {
+            HISTORIAL.base = new Float32Array(ESTADO.mascara);
+            HISTORIAL.ultimo = new Float32Array(ESTADO.mascara);
+            HISTORIAL.pasos = [];
+            HISTORIAL.indice = 0;
+            actualizarBotonesRetoque();
+            return;
+        }
         // Si se habia deshecho, lo que estaba "adelante" se descarta: no se
         // puede rehacer sobre una rama nueva (es el comportamiento de Photoshop).
-        if (HISTORIAL.indice < HISTORIAL.estados.length - 1) {
-            HISTORIAL.estados.length = HISTORIAL.indice + 1;
+        if (HISTORIAL.indice < HISTORIAL.pasos.length) {
+            HISTORIAL.pasos.length = HISTORIAL.indice;
         }
-        HISTORIAL.estados.push(new Float32Array(ESTADO.mascara));
-        HISTORIAL.indice = HISTORIAL.estados.length - 1;
-        // Recorte por memoria: se tiran los MAS VIEJOS, nunca el actual.
-        let bytes = 0;
-        for (const e of HISTORIAL.estados) bytes += e.byteLength;
-        while (HISTORIAL.estados.length > 2
-            && (HISTORIAL.estados.length > HISTORIAL.LIMITE_PASOS || bytes > HISTORIAL.LIMITE_BYTES)) {
-            const fuera = HISTORIAL.estados.shift();
-            bytes -= fuera.byteLength;
-            HISTORIAL.indice -= 1;
+        const paso = historialRegion(HISTORIAL.ultimo, ESTADO.mascara);
+        if (!paso) {
+            // El trazo no cambio ningun pixel (por ejemplo un toque fuera del
+            // sujeto): no se anota un paso vacio.
+            actualizarBotonesRetoque();
+            return;
+        }
+        HISTORIAL.pasos.push(paso);
+        HISTORIAL.indice = HISTORIAL.pasos.length;
+        HISTORIAL.ultimo.set(ESTADO.mascara);
+        // Recorte por memoria: se tiran los MAS VIEJOS, nunca el actual y
+        // nunca el estado 0.
+        while (HISTORIAL.pasos.length > 1
+            && (HISTORIAL.pasos.length + 1 > HISTORIAL.LIMITE_PASOS
+                || historialBytes() > HISTORIAL.LIMITE_BYTES)) {
+            historialAbsorberPrimero();
         }
         actualizarBotonesRetoque();
     }
 
     /** Lleva la mascara al paso `i` del historial y repinta. */
     function historialIr(i) {
-        if (!ESTADO.mascara || !HISTORIAL.estados.length) return false;
-        const destino = HISTORIAL.estados[i];
-        if (!destino) return false;
+        if (!ESTADO.mascara || !HISTORIAL.base) return false;
+        if (i < 0 || i > HISTORIAL.pasos.length) return false;
         if (i === HISTORIAL.indice) return false;
-        // Se copia al array actual cuando el tamaño coincide, para no dejar
-        // colgadas las referencias que ya apuntan a `ESTADO.mascara`.
-        if (ESTADO.mascara.length === destino.length) {
-            ESTADO.mascara.set(destino);
+        const w = ESTADO.mascaraAncho;
+        const escribir = (vals, paso) => {
+            for (let y = 0; y < paso.h; y++) {
+                ESTADO.mascara.set(
+                    vals.subarray(y * paso.w, y * paso.w + paso.w),
+                    (paso.y0 + y) * w + paso.x0);
+            }
+        };
+        if (i < HISTORIAL.indice) {
+            for (let k = HISTORIAL.indice; k > i; k--) {
+                escribir(HISTORIAL.pasos[k - 1].antes, HISTORIAL.pasos[k - 1]);
+            }
+            if (i === 0) ESTADO.mascara.set(HISTORIAL.base);
         } else {
-            ESTADO.mascara = new Float32Array(destino);
+            for (let k = HISTORIAL.indice; k < i; k++) {
+                escribir(HISTORIAL.pasos[k].despues, HISTORIAL.pasos[k]);
+            }
         }
         HISTORIAL.indice = i;
+        HISTORIAL.ultimo.set(ESTADO.mascara);
         recomponerDesdeMascara();
         dibujarCapaQuitado();
         try { pintarLienzoVentana(true); } catch (_) {}
@@ -2228,7 +2472,7 @@
         const d = document.getElementById('btn-deshacer-fondo');
         const r = document.getElementById('btn-rehacer-fondo');
         if (d) d.disabled = !(HISTORIAL.indice > 0);
-        if (r) r.disabled = !(HISTORIAL.indice >= 0 && HISTORIAL.indice < HISTORIAL.estados.length - 1);
+        if (r) r.disabled = !(HISTORIAL.indice < HISTORIAL.pasos.length);
     }
 
     /**
@@ -2238,7 +2482,7 @@
      * vuelve a correr la inferencia.
      */
     function deshacerRetoque() {
-        if (!HISTORIAL.estados.length) {
+        if (!HISTORIAL.base) {
             avisar('Todavía no retocaste nada.', { kind: 'info' });
             return false;
         }
@@ -2251,8 +2495,8 @@
 
     /** "Rehacer": vuelve al paso que se acaba de deshacer. */
     function rehacerRetoque() {
-        if (!HISTORIAL.estados.length) return false;
-        if (HISTORIAL.indice >= HISTORIAL.estados.length - 1) {
+        if (!HISTORIAL.base) return false;
+        if (HISTORIAL.indice >= HISTORIAL.pasos.length) {
             avisar('No hay nada para rehacer.', { kind: 'info' });
             return false;
         }
@@ -2495,11 +2739,13 @@
         const tolLocal = Math.max(20, tol * 0.7);
         const tolLocal2 = tolLocal * tolLocal;
         const r0 = px[i0 * 4], g0 = px[i0 * 4 + 1], b0 = px[i0 * 4 + 2];
-        // Radio maximo alrededor del toque. El fondo de la foto es uniforme, asi
-        // que sin este tope un toque repone el fondo ENTERO (medido: 673.604
-        // pixeles de una). Con el tope la accion se parece a lo que el cliente
-        // quiere: reparar una zona concreta.
-        const alcance = Math.max(20, RETOQUE.alcance);
+        // Radio maximo alrededor del toque, PROPORCIONAL al lado de la mascara.
+        //
+        // MEDIDO: la mascara del retoque ya no es la del modelo (320) sino la
+        // de TRABAJO (900x1600). El tope fijo de 143 px que se midio con 512
+        // cubriria 1/6 del lado y el asistido quedaria inutil; 0.28 del lado
+        // menor es exactamente la misma zona que se midio entonces.
+        const alcance = Math.max(24, Math.round(Math.min(w, h) * 0.28));
         const alcance2 = alcance * alcance;
 
         const visto = new Uint8Array(w * h);
@@ -2741,6 +2987,9 @@
                     : Math.min(1, a + (1 - a) * suave);
             }
         }
+        // La vista previa se actualiza SOLO en este recuadro: lo que no se
+        // pinto no cambia ni un pixel. Es lo que separa Manual de Asistido.
+        actualizarCapasEn(x0, y0, x1, y1);
     }
 
     /**
@@ -2997,6 +3246,9 @@
             if (!RETOQUE.original) RETOQUE.original = new Float32Array(ESTADO.mascara);
             const n = marcarZonaAsistida(p.x, p.y);
             if (!n) return false;
+            // El asistido cambia una zona entera: las capas cacheadas ya no
+            // valen y se reconstruyen al repintar.
+            RETOQUE.capasSucias = true;
             // Un toque en Asistido no tiene arrastre: se puede refinar de una.
             pintarLienzoVentana(true);
             // Un toque = un paso de historial, igual que un trazo.
@@ -3035,12 +3287,10 @@
         }, true);
         window.addEventListener('blur', () => { pintando = false; }, true);
 
-        // Al SOLTAR se repinta la vista REFINADA, que es la que pasa el filtro guiado
-        // contra la foto. MEDIDO: mientras se arrastra el pincel hay que ir
-        // rapido y se usa la mascara cruda de 512, que se ve pixelada; al soltar
-        // se muestra la misma composicion que va a quedar guardada. El cliente
-        // reporto que al borrar y restaurar "se veia muy pixelado", y la causa
-        // era que nunca se le mostraba el refinado, solo la mascara bruta.
+        // Al SOLTAR ya no hay que cambiar de camino de dibujo: durante el
+        // arrastre las capas cacheadas se actualizan solo en el circulo
+        // pintado, y son las mismas que se usan al soltar y al guardar. Antes
+        // se repintaba "refinado" de golpe y eso redibujaba todo el contorno.
         const soltar = () => {
             const huboTrazo = pintando;
             pintando = false;
@@ -3049,14 +3299,11 @@
             // vez de trazo a trazo, que es lo util (y lo que hacen PhotoRoom y
             // Photoshop).
             if (huboTrazo) historialAnotar();
-            try { pintarLienzoVentana(true); }
+            try { pintarLienzoVentana(); }
             catch (e) {
-                // MEDIDO: este catch mudo hacia que la vista cayera a la mascara
-                // CRUDA de 512 y el borde saliera escalonado sin decir nada. Es
-                // el mismo error de siempre: un error tragado no se puede ver.
+                // Un error tragado no se puede ver: se guarda y se avisa.
                 ESTADO.ultimoError = e;
-                console.warn('[EKKO RETOQUE] fallo el repintado refinado:', e);
-                try { pintarLienzoVentana(); } catch (_) {}
+                console.warn('[EKKO RETOQUE] fallo el repintado:', e);
             }
         };
         window.addEventListener('pointerup', soltar, true);
