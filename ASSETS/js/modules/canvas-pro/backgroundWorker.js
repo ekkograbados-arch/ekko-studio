@@ -22,18 +22,27 @@
 // setModeloUrl() almandar "preparar", que es donde vive CFG.MODELO: cambiar la
 // config surte efecto de verdad y el worker no queda atado a una sola URL.
 const MODELOS = {
-    // MODNet: el modelo que se usa. Entrena para retrato, y su salida suave es
-    // justamente lo que hace falta en la cabeza y el pelo, que es donde el
-    // modelo anterior fallaba. MEDIDO contra la foto de referencia del
-    // cliente, de punta a punta dentro de la app:
+    // Silueta humana (u2net_human_seg): entrenado sobre PERSONAS, no sobre
+    // "objeto que resalta". MEDIDO con la foto de referencia (dos niñas
+    // sentadas en el suelo): es el unico que QUITA EL SUELO y las sombras
+    // entre y debajo de las piernas, que es el defecto que reporto el cliente.
     //
-    //   u2net 320 (antes) ....... IoU 71,4%   sujeto faltante 7,6%
-    //   MODNet 512 (este) ....... IoU 96,4%   sujeto faltante 0,4%
+    //   MODNet 512 ..... deja el suelo entre las piernas (alfa 1,0 ahi)
+    //   human_seg 320 .. suelo fuera, contorno correcto
     //
-    // Pesa 6,3 MB (contra 42 MB) y usa la misma normalizacion ImageNet que ya
-    // tenia el worker, asi que el preprocesado no cambio. Su grafo tiene 24
-    // nodos Concat y NINGUNO con mas de 8 entradas: es exactamente lo que hacia
-    // imposible a BiRefNet en WebGPU.
+    // Contras medidos: 168 MB (contra 6,3) y ~7,9 s a 320 con UN hilo en un
+    // i7-7500U; con 4 hilos en el despliegue baja a ~2-3 s. El peso se paga
+    // una sola vez: el modelo queda en IndexedDB para siempre.
+    humano: {
+        url: '/modelos/u2net_human_seg.onnx',
+        id: 'humanseg-320',
+        tam: 320,
+        etiqueta: 'Silueta humana',
+        soloWasm: true
+    },
+    // MODNet: respaldo rapido (6,3 MB). Resuelve bien el pelo en retratos, pero
+    // con personas de cuerpo entero se traga el suelo. Se usa solo si el de
+    // silueta humana no esta desplegado o no se puede descargar.
     modnet: {
         url: '/modelos/modnet.onnx',
         id: 'modnet-q512',
@@ -70,10 +79,11 @@ const MODELOS = {
     }
 };
 
-// Modelo en uso. Arranca en MODNet, que es el que mejor recorte da medido (ver
-// MODELOS.modnet). El de alta queda en la lista pero deshabilitado, asi que
-// nunca se pide.
-const MODELO_POR_DEFECTO = 'modnet';
+// Modelo en uso. Arranca en la silueta humana, que es la que resuelve el
+// recorte que pidio el cliente. Si no esta desplegada o falla, se baja sola
+// al siguiente de la cadena (ver ORDEN_MODELOS), sin que el cliente vea error.
+const MODELO_POR_DEFECTO = 'humano';
+const ORDEN_MODELOS = ['humano', 'modnet', 'silueta'];
 let MODELO_ACTUAL = MODELO_POR_DEFECTO;
 let TAM_ENTRADA = MODELOS[MODELO_ACTUAL].tam;
 const MEDIA = [0.485, 0.456, 0.406];
@@ -108,6 +118,24 @@ function reportar(tipo, carga, total, detalle) {
     self.postMessage({ tipo, carga, total, detalle: detalle || '' });
 }
 
+/**
+ * Cantidad de hilos de WASM.
+ *
+ * Estaba fijada en 1 a mano con un comentario que decia que el hosting no manda
+ * las cabeceras COOP/COEP. Es falso: vercel.json SI las manda, asi que en el
+ * despliegue real la pagina queda aislada, SharedArrayBuffer existe y el motor
+ * podia estar usando todos los nucleos. En un servidor de pruebas sin esas
+ * cabeceras no hay SharedArrayBuffer y se usa 1, que es lo unico que funciona.
+ *
+ * Es justo lo que permite pagar la entrada mas grande (512x896 en vez de un
+ * cuadrado de 512) sin que el recorte tarde mas.
+ */
+function hilosWasm() {
+    if (typeof SharedArrayBuffer === 'undefined') return 1;
+    const nucleos = (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 1;
+    return Math.max(1, Math.min(4, nucleos));
+}
+
 async function cargarOrt() {
     if (ortCargado) return ortCargado;
     ortCargado = (async () => {
@@ -120,10 +148,7 @@ async function cargarOrt() {
             try {
                 importScripts(CDN + 'ort.webgpu.min.js');
                 if (self.ort) {
-                    // Un SOLO hilo: los hilos multiples exigen SharedArrayBuffer,
-                    // que a su vez exige cabeceras COOP/COEP que el hosting no
-                    // envia, y ort aborta con "previous call to initWasm() failed".
-                    self.ort.env.wasm.numThreads = 1;
+                    self.ort.env.wasm.numThreads = hilosWasm();
                     self.ort.env.wasm.wasmPaths = CDN;
                     self.ort.env.logLevel = 'error';
                     return self.ort;
@@ -133,7 +158,7 @@ async function cargarOrt() {
 
         importScripts(CDN + 'ort.min.js');
         if (!self.ort) throw new Error('No se pudo cargar el motor de IA');
-        self.ort.env.wasm.numThreads = 1;
+        self.ort.env.wasm.numThreads = hilosWasm();
         self.ort.env.wasm.wasmPaths = CDN;
         self.ort.env.logLevel = 'error';
         return self.ort;
@@ -247,6 +272,34 @@ let falloAltaDefinicion = false;
  * recorte igual sale, con el modelo de 320, que es peor pero usable, y el
  * cliente cierra el detalle fino con el pincel.
  */
+/**
+ * Baja al SIGUIENTE modelo de la cadena (humano → modnet → silueta).
+ *
+ * Es lo que hace que cambiar de modelo no pueda romper "Quitar Fondo": si el
+ * de silueta humana no esta desplegado todavia (404) o la descarga falla, el
+ * cliente igual obtiene un recorte, con el siguiente de la lista, sin errores
+ * ni avisos tecnicos.
+ *
+ * Devuelve false si ya no hay a donde bajar.
+ */
+function bajarDeModelo() {
+    const i = ORDEN_MODELOS.indexOf(MODELO_ACTUAL);
+    for (let k = i + 1; k < ORDEN_MODELOS.length; k++) {
+        const clave = ORDEN_MODELOS[k];
+        if (!MODELOS[clave] || MODELOS[clave].DESHABILITADO) continue;
+        MODELO_ACTUAL = clave;
+        TAM_ENTRADA = MODELOS[clave].tam;
+        sesion = null;
+        self.postMessage({
+            tipo: 'nota',
+            detalle: 'usando recorte ' + (MODELOS[clave].etiqueta || clave),
+            lado: TAM_ENTRADA
+        });
+        return true;
+    }
+    return false;
+}
+
 async function obtenerSesion(forzarWasm = false) {
     if (sesion && !forzarWasm) return sesion;
     const ort = await cargarOrt();
@@ -263,16 +316,9 @@ async function obtenerSesion(forzarWasm = false) {
         buf = await obtenerBufferModelo(MODELO_ACTUAL);
     } catch (e) {
         // El modelo preferido NO esta desplegado todavia (404) o la descarga
-        // fallo. No es un error para el cliente: se cae al estandar, que es el
-        // que siempre estuvo disponible. Sin esto, subir BiRefNet rompia
-        // Quitar Fondo por completo hasta que estuviera desplegado.
-        if (MODELO_ACTUAL !== 'silueta') {
-            falloAltaDefinicion = true;
-            MODELO_ACTUAL = 'silueta';
-            TAM_ENTRADA = MODELOS.silueta.tam;
-            self.postMessage({ tipo: 'nota', detalle: 'usando recorte estandar', lado: MODELOS.silueta.tam });
-            return obtenerSesion(forzarWasm);
-        }
+        // fallo. No es un error para el cliente: se cae al siguiente de la
+        // cadena, que es el que siempre estuvo disponible.
+        if (bajarDeModelo()) return obtenerSesion(forzarWasm);
         throw e;
     }
 
@@ -316,9 +362,19 @@ async function obtenerSesion(forzarWasm = false) {
 
 
 // --- Preprocesado ---------------------------------------------------------
-function construirTensor(ort, pixeles) {
-    // pixeles: Uint8ClampedArray RGBA de 320x320 ya escalado.
-    const n = TAM_ENTRADA * TAM_ENTRADA;
+/**
+ * Construye el tensor con el TAMAÑO QUE LLEGA, no con un cuadrado fijo.
+ *
+ * La foto viaja con su aspecto real (medido: MODNet acepta 384x1024 o
+ * 512x768 y devuelve la alfa del mismo tamaño), asi que el tensor puede ser
+ * 512x896. Antes se deducia el lado con sqrt(pixeles/4), que solo es cierto
+ * para un cuadrado: con 512x896 daba 677, no coincidia con TAM_ENTRADA y se
+ * reescalaba a 512x512, aplastando la foto y devolviendo la mascara torcida.
+ */
+function construirTensor(ort, pixeles, ancho, alto) {
+    const w = Math.max(32, Math.round(ancho || TAM_ENTRADA));
+    const h = Math.max(32, Math.round(alto || TAM_ENTRADA));
+    const n = w * h;
     const data = new Float32Array(3 * n);
     for (let i = 0; i < n; i++) {
         const o = i * 4;
@@ -326,7 +382,7 @@ function construirTensor(ort, pixeles) {
         data[i + n] = (pixeles[o + 1] / 255 - MEDIA[1]) / DESV[1];
         data[i + 2 * n] = (pixeles[o + 2] / 255 - MEDIA[2]) / DESV[2];
     }
-    return new ort.Tensor('float32', data, [1, 3, TAM_ENTRADA, TAM_ENTRADA]);
+    return new ort.Tensor('float32', data, [1, 3, h, w]);
 }
 
 /**
@@ -401,13 +457,13 @@ self.onmessage = async (ev) => {
         try {
             const ort = await cargarOrt();
             const pixeles = new Uint8ClampedArray(d.pixeles);
-            // Si el buffer NO viene al tamano que pide el modelo, construir el
-            // tensor a pelo lo leeria fuera de rango y devolveria NaN en todo el
-            // tensor: el recorte saldria vacio, sin error y sin aviso. Se
-            // reescala, que ademas es lo correcto.
-            const ladoRecibido = Math.round(Math.sqrt(pixeles.length / 4));
-            const tensor = ladoRecibido === TAM_ENTRADA
-                ? construirTensor(ort, pixeles)
+            // Tamaño REAL del tensor que manda el hilo principal. La foto va con
+            // su aspecto (512x896, 384x1024...), asi que no se puede deducir.
+            const anchoEntrada = Math.max(32, Math.round(d.anchoEntrada || TAM_ENTRADA));
+            const altoEntrada = Math.max(32, Math.round(d.altoEntrada || TAM_ENTRADA));
+            const cabeExacto = pixeles.length === anchoEntrada * altoEntrada * 4;
+            const tensor = cabeExacto
+                ? construirTensor(ort, pixeles, anchoEntrada, altoEntrada)
                 : construirTensorEscalada(ort, pixeles, TAM_ENTRADA);
 
             let salida = null;
@@ -425,12 +481,7 @@ self.onmessage = async (ev) => {
                 //    pincel. El cliente no ve ningun error.
                 // b) Dispositivo WebGPU perdido con un modelo que ya funciona
                 //    en CPU: se reintenta en CPU una vez.
-                if (MODELO_ACTUAL !== 'silueta') {
-                    falloAltaDefinicion = true;
-                    MODELO_ACTUAL = 'silueta';
-                    TAM_ENTRADA = MODELOS.silueta.tam;
-                    sesion = null;
-                    self.postMessage({ tipo: 'nota', detalle: 'usando recorte estandar', lado: MODELOS.silueta.tam });
+                if (bajarDeModelo()) {
                     // Hay que rehacer el tensor: cambio el tamano de entrada.
                     const pix2 = new Uint8ClampedArray(d.pixeles);
                     const t2 = await construirTensorEscalada(ort, pix2);
