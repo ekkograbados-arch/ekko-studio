@@ -175,6 +175,7 @@ if (typeof window !== "undefined") {
     // consulta desde aca en vez de importar este modulo, para no abrir un ciclo
     // de imports con fusionController.
     window.rebuildEKKOTextOwner = rebuildEKKOTextOwner;
+    window.applyObjectSpacing = applyObjectSpacing;
     window.EKKO_TEXT_IS_OWNER = isTextOwner;
     window.EKKO_TEXT_FONT_SIZE = textFontSize;
     window.toggleRotateLetters = toggleRotateLetters;
@@ -182,8 +183,7 @@ if (typeof window !== "undefined") {
     /* Sello de version del modulo de texto. Si en la consola del cliente este
        valor no coincide con el del paquete entregado, esta probando codigo
        viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
-    window.EKKO_TEXT_BUILD = "20261004-modo-curva-v2";
-    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+    window.EKKO_TEXT_BUILD = "20261022-espaciado-universal";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
        mantener su propia logica de arrastre: asi el unico dueno de "como se
        curva un texto" es este modulo. */
     window.EKKO_TEXT_BEND = {
@@ -750,8 +750,27 @@ export function toggleRotateLetters() {
 
 export function restoreFlatText(item, curvedGroup, keepAnchor = false) {
     const textStr = curvedGroup.data.textString || "Texto";
+    /* EL ANCLA ES LA LINEA BASE, NO EL BORDE INFERIOR. bottomCenter del grupo
+       cae por debajo de la linea base (el renglon reserva descuento para la
+       g, la j, la coma), y cada ciclo de espaciar -> aplanar -> volver a
+       espaciar bajaba el texto ese descuento OTRA VEZ: arrastrar la barra de
+       espaciado lo "corrria" hacia abajo en vivo. Para un grupo espaciado el
+       renglon verdadero esta guardado en las letras mismas: los hijos son
+       PointText con la linea base en su point.y. El centro horizontal sale
+       del recorrido de la primera a la ultima letra. */
+    let ancla = null;
+    try {
+        if (curvedGroup.data.isSpacedGroup && !curvedGroup.data.isCurvedGroup) {
+            const letras = (curvedGroup.children || []).filter(c => c.className === "PointText");
+            if (letras.length) {
+                const x0 = letras[0].bounds.left;
+                const x1 = letras[letras.length - 1].bounds.right;
+                ancla = new paper.Point((x0 + x1) / 2, letras[0].point.y);
+            }
+        }
+    } catch (_) {}
     const flatText = new paper.PointText({
-        point: curvedGroup.bounds.bottomCenter,
+        point: ancla || curvedGroup.bounds.bottomCenter,
         content: textStr,
         fontSize: curvedGroup.data.fontSize || 42,
         fontFamily: curvedGroup.data.fontFamily || "Arial",
@@ -1587,8 +1606,182 @@ export function applyTextSpacing(item, hspace, opts = {}) {
     paper.view.update();
 }
 
+/* ==================== ESPACIADO SIN CONVERSION ====================
+
+   El mismo control "Espaciado" tiene que responder segun lo que haya
+   seleccionado, como en LightBurn, Canva u Office: nunca convierte nada.
+   Tres modos:
+   1) Multiples objetos seleccionados: se reparten horizontalmente con un
+      hueco uniforme en pixeles de mundo (canon de Canva: "esparcir").
+   2) Un texto YA vectorizado: sus glifos (hijos del Grupo, o contornos
+      agrupados en letras dentro de un CompoundPath) se vuelean a repartir
+      sin tocar su forma. Ganancia o perdida de hueco, cero reconstruccion:
+      el texto sigue siendo exactamente el mismo vector.
+   3) Todo lo demas baja a applyTextSpacing, que sigue siendo el unico
+      camino del texto vivo, y no vectoriza. */
+
+export function applyObjectSpacing(items, gapPx, opts = {}) {
+    const gap = Number(gapPx) || 0;
+    let piezas = Array.isArray(items) ? items.filter(Boolean) : (items ? [items] : []);
+    piezas = piezas.filter(p => p && !p.data?.isSelectionBox);
+    if (!piezas.length) return null;
+    if (piezas.length > 1) return distribuirPiezas(piezas, gap, opts);
+    return distribuirLetrasVector(piezas[0], gap, opts);
+}
+
+/* bounds de una pieza en PIXELES DE MUNDO. item.bounds vive en el espacio
+   del padre (incluye la matriz propia, no la de los ancestros), asi que
+   basta subir cada esquina con la matriz completa del padre. */
+function boundsEnMundo(pieza) {
+    try {
+        const b = pieza.bounds;
+        if (!b) return null;
+        const parent = pieza.parent;
+        const a = (parent && parent.localToGlobal) ? parent.localToGlobal(b.topLeft) : b.topLeft;
+        const c = (parent && parent.localToGlobal) ? parent.localToGlobal(b.bottomRight) : b.bottomRight;
+        const minx = Math.min(a.x, c.x), maxx = Math.max(a.x, c.x);
+        const miny = Math.min(a.y, c.y), maxy = Math.max(a.y, c.y);
+        return new paper.Rectangle(minx, miny, maxx - minx, maxy - miny);
+    } catch (e) {
+        try { return pieza.bounds.clone(); } catch (e2) { return null; }
+    }
+}
+
+/* Mueve una pieza por un delta expresado en pixeles DE MUNDO. translate()
+   interpreta el delta en el espacio local de la pieza, y globalToLocal ya
+   sabe deshacer la escala, la rotacion y la traslacion de toda la cadena
+   de ancestros: convierto dos puntos y difiero (medido: 50px de mundo
+   sobre un compuesto con escala 2 bajan a delta local 25). */
+function moverConDeltaMundo(pieza, dx, dy) {
+    if (!dx && !dy) return;
+    const d = new paper.Point(dx, dy);
+    try {
+        const p0 = pieza.globalToLocal(new paper.Point(0, 0));
+        const p1 = pieza.globalToLocal(d);
+        pieza.translate(new paper.Point(p1.x - p0.x, p1.y - p0.y));
+    } catch (e) {
+        pieza.translate(d);
+    }
+}
+
+/* Distribucion horizontal generica: queda fija la pieza que arranca mas
+   a la izquierda, y cada siguiente se corre para que el hueco entre
+   cajas sea exactamente `gap`. Es absolute: llamarla dos veces con el
+   mismo hueco no acumula desvios, siempre re-calza desde las cajas
+   reales de ese instante. */
+function distribuirPiezas(piezas, gap, opts) {
+    const cajas = [];
+    for (const p of piezas) {
+        const b = boundsEnMundo(p);
+        if (b) cajas.push({ p, b });
+    }
+    if (cajas.length < 2) return null;
+    if (!opts.skipHistory && typeof window.saveHistory === 'function') window.saveHistory();
+    cajas.sort((a, b) => a.b.left - b.b.left);
+    let cursorDerecho = null;
+    for (const caja of cajas) {
+        if (cursorDerecho === null) { cursorDerecho = caja.b.right; continue; }
+        const faltante = cursorDerecho + gap - caja.b.left;
+        if (Math.abs(faltante) > 0.01) {
+            moverConDeltaMundo(caja.p, faltante, 0);
+            cursorDerecho += gap + caja.b.width;
+        } else {
+            cursorDerecho = caja.b.right;
+        }
+    }
+    paper.view.update();
+    return cajas.map(c => c.p);
+}
+
+/* Agrupa los contornos de un CompoundPath en LETRAS. Dentro del compuesto
+   una "O" son dos lazos (cono del contorno externo y hueco); el hueco
+   siempre se solapa en horizontal con su letra, y las letras vecinas no
+   se tocan salvo en script muy enlazado. Recorrido por bordes ordenados:
+   todo contorno que empiece antes de cerrarse el racimo actual le pertenece. */
+function racimosDeContornos(compuesto) {
+    const lazos = [];
+    for (const c of (compuesto.children || [])) {
+        const b = c.bounds ? c.bounds.clone() : null;
+        if (b && b.width > 0 && b.height > 0) lazos.push({ c, b });
+    }
+    if (!lazos.length) return [];
+    lazos.sort((a, b) => a.b.left - b.b.left);
+    const racimos = [];
+    for (const lazo of lazos) {
+        const ultimo = racimos[racimos.length - 1];
+        if (ultimo && lazo.b.left < ultimo.b.right) {
+            ultimo.contornos.push(lazo.c);
+            const minx = Math.min(ultimo.b.left, lazo.b.left);
+            const miny = Math.min(ultimo.b.top, lazo.b.top);
+            const maxx = Math.max(ultimo.b.right, lazo.b.right);
+            const maxy = Math.max(ultimo.b.bottom, lazo.b.bottom);
+            ultimo.b = new paper.Rectangle(minx, miny, maxx - minx, maxy - miny);
+        } else {
+            racimos.push({ contornos: [lazo.c], b: lazo.b.clone() });
+        }
+    }
+    return racimos;
+}
+
+function distribuirLetrasVector(owner, gap, opts) {
+    /* Solo para texto vectorizado: un vector cualquiera (un hueso, un corazon,
+       aro) no tiene "letras" que separar, y separar sus contornos los
+       desarmaria. No pasa nada y no se avisa: la barra sigue viva para el
+       texto justo al lado. */
+    if (!owner.data?.isTextVector) return null;
+    const letras = [];
+    if (owner.className === "CompoundPath") {
+        /* Los lazos miden en el marco del compuesto; para que el hueco pedido
+           sean pixeles de Mundo (el compuesto puede estar escalado), cada
+           racimo se sube a mundo con la matriz completa del compuesto. En
+           mundos con escala 2, un hueco 30 de barra pasa a ser 30 de lienzo,
+           no 60. */
+        for (const r of racimosDeContornos(owner)) {
+            const a = owner.localToGlobal(new paper.Point(r.b.left, r.b.top));
+            const c = owner.localToGlobal(new paper.Point(r.b.right, r.b.bottom));
+            const minx = Math.min(a.x, c.x), maxx = Math.max(a.x, c.x);
+            const miny = Math.min(a.y, c.y), maxy = Math.max(a.y, c.y);
+            letras.push({ contornos: r.contornos, b: new paper.Rectangle(minx, miny, maxx - minx, maxy - miny) });
+        }
+    } else if (owner.children && owner.children.length) {
+        for (const hijo of owner.children) {
+            if (!hijo.bounds) continue;
+            if (hijo.data && (hijo.data.isSelectionBox || hijo.data.isBendGuide ||
+                hijo.data.isHandle || hijo.data.isUnderlineLine)) continue;
+            const b = boundsEnMundo(hijo);
+            if (b && b.width > 0 && b.height > 0) letras.push({ contornos: [hijo], b });
+        }
+    }
+    if (letras.length < 2) return null;
+    if (!opts.skipHistory && typeof window.saveHistory === 'function') window.saveHistory();
+    letras.sort((a, b) => a.b.left - b.b.left);
+    let cursorDerecho = null;
+    for (const letra of letras) {
+        if (cursorDerecho === null) { cursorDerecho = letra.b.right; continue; }
+        const faltante = cursorDerecho + gap - letra.b.left;
+        if (Math.abs(faltante) > 0.01) {
+            /* Los contornos viven en el espacio del compuesto: el delta mundo
+               se convierte a ese marco con la matriz del compuesto. En el caso
+               Grupo cada "contorno" es el hijo entero, y moverConDeltaMundo ya
+               resuelve la conversion por su cuenta. */
+            if (letra.contornos.length === 1 && letra.contornos[0] instanceof paper.Item) {
+                moverConDeltaMundo(letra.contornos[0], faltante, 0);
+            } else {
+                const p0 = owner.globalToLocal(new paper.Point(0, 0));
+                const p1 = owner.globalToLocal(new paper.Point(faltante, 0));
+                const local = new paper.Point(p1.x - p0.x, 0);
+                for (const c of letra.contornos) c.translate(local);
+            }
+            cursorDerecho += gap + letra.b.width;
+        } else {
+            cursorDerecho = letra.b.right;
+        }
+    }
+    paper.view.update();
+    return letras;
+}
+
 /**
- * Devuelve la lista REAL de contornos de un owner de texto vectorizado.
  *
  * Un CompoundPath se abre: de el salen sus Paths hijos, que son los lazos. Un
  * Group se recorre: sus hijos pueden ser CompoundPath (un glifo) y se abren
