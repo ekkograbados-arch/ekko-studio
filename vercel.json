@@ -10,6 +10,10 @@
                          "destination":  "https://huggingface.co/Xenova/modnet/resolve/main/onnx/model_quantized.onnx"
                      },
                      {
+                         "source":  "/modelos/u2net_human_seg.onnx",
+                         "destination":  "https://huggingface.co/skillsafe-ai/u2net-human-seg/resolve/main/u2net_human_seg.onnx"
+                     },
+                     {
                          "source":  "/modelos/silueta.onnx",
                          "destination":  "https://huggingface.co/tomjackson2023/rembg/resolve/main/silueta.onnx"
                      }
