@@ -322,7 +322,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button id="btnSizeLockContext" type="button" class="toolbar-btn size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="width:30px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:15px;">🔒</button>
                     <label class="toolbar-number-label" title="Alto real en milímetros">Alto <input id="ctxHeight" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
                     <label class="toolbar-number-label" title="Ángulo de rotación en grados; Mixto indica ángulos diferentes">Rot <input id="ctxRotation" type="text" inputmode="decimal" class="toolbar-input-number" placeholder="°"></label>
-                        <label class="toolbar-number-label" title="Tamaño de fuente en puntos">Tamano <input id="objFontSize" type="number" min="5" max="250" step="1" class="toolbar-input-number" placeholder="pt" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Radio de curvatura del texto">Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" class="toolbar-input-number" placeholder="radio" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Ángulo de curvado en grados">Ángulo <span id="objBendAngleVal" class="toolbar-angle-readout">0°</span></label>                         <label class="toolbar-number-label" title="Espaciado entre letras">Espacio <input id="objTextSpacing" type="number" step="0.1" value="0" class="toolbar-input-number" placeholder="0" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <button id="btnTopTextSpacing" class="toolbar-btn" title="Aplicar espaciado al texto"><i class="fas fa-arrows-left-right"></i> Espaciado</button>
+                        <label class="toolbar-number-label" title="Tamaño de fuente en puntos">Tamano <input id="objFontSize" type="number" min="5" max="250" step="1" class="toolbar-input-number" placeholder="pt" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Radio de curvatura del texto">Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" class="toolbar-input-number" placeholder="radio" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Ángulo de curvado en grados">Ángulo <span id="objBendAngleVal" class="toolbar-angle-readout">0°</span></label>                         <label class="toolbar-number-label" title="Espaciado entre letras">Espacio <input id="objTextSpacing" type="number" step="0.1" value="0" class="toolbar-input-number" placeholder="0" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <div id="objTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: arrastrá y el texto se reacomoda en vivo" style="padding:0 6px;"><input type="range" min="0" max="100" step="0.5" value="0"><span id="objSpacingVal" class="toolbar-angle-readout">0</span></div>                         <button id="btnTopTextSpacing" class="toolbar-btn" title="Aplica el espaciado escrito en el campo"><i class="fas fa-arrows-left-right"></i> Espaciado</button>
                 </div>
                 <div class="toolbar-divider"></div>
                 <!-- FUSIÓN → BOTONES PRINCIPALES -->
@@ -379,8 +379,12 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <span id="ctxBendAngleVal" class="toolbar-angle-readout" title="Ángulo de curvado">0°</span>
                     </div>
                     <label class="toolbar-number-label">Radio <input id="ctxCurveRadius" type="number" min="1" step="1" value="" placeholder="10000" class="toolbar-input-number"></label>
+                    <div id="ctxTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: arrastrá y el texto se reacomoda en vivo">
+                        <i class="fas fa-arrows-left-right"></i> <input type="range" min="0" max="100" step="0.5" value="0">
+                        <span id="ctxSpacingVal" class="toolbar-angle-readout" title="Espaciado actual">0</span>
+                    </div>
                     <label class="toolbar-number-label">Espacio <input id="ctxTextSpacing" type="number" step="0.1" value="0" class="toolbar-input-number"></label>
-                    <button class="toolbar-btn" id="btnCtxTextSpacing" title="Aplicar espaciado">Espaciado</button>
+                    <button class="toolbar-btn" id="btnCtxTextSpacing" title="Aplica el espaciado escrito en el campo">Espaciado</button>
                     <button class="toolbar-btn" id="btnCtxRotateLetters" title="Orientación de las letras al curvar (como en LightBurn o vertical sobre la línea)"><i class="fas fa-sync-alt"></i> Girar letras</button>
                 </div>
                 <!-- CONTROL IMAGEN -->
@@ -444,37 +448,15 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <button type="button" id="modo-manual" class="vfond__segb" aria-pressed="false" title="Pinta con el pincel (M)">Manual</button>
                     </div>
 
-                    <p class="vfond__ayuda" id="ayuda-modo">Toca una zona y se detecta sola. Los cuadros muestran lo que está quitado.</p>
+                    <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automáticamente para hacerla más fácil.</p>
 
                     <div class="vfond__bloque" id="grupo-tamano" hidden>
-                        <div class="vfond__et">Tamaño del pincel
-                            <span class="vfond__num">
-                                <input type="number" id="input-tamano-pincel" min="1" max="120" step="1" value="25"
-                                       aria-label="Tamaño del pincel en píxeles de la pantalla"> px
-                            </span>
-                        </div>
+                        <div class="vfond__et">Tamaño del pincel <span id="valor-tamano-pincel" class="vfond__num">25</span></div>
                         <input type="range" id="slider-tamano-pincel" min="1" max="120" value="25" step="1" aria-label="Tamaño del pincel">
-                        <p class="vfond__pista">El número es el diámetro del pincel, igual que el círculo del puntero</p>
-                    </div>
-
-                    <!-- Zoom de la ventana: la rueda lo hace, y con Alt,
-                         espacio o botón central + arrastrar se desplaza. Es
-                         para trabajar detalle fino (pelos, bordes). -->
-                    <div class="vfond__bloque vfond__zoom">
-                        <div class="vfond__et">Zoom <span id="valor-zoom-ventana" class="vfond__num">100%</span></div>
-                        <div class="vfond__zoomfila">
-                            <button type="button" id="zoom-menos" class="vfond__zoombtn" title="Alejar">&minus;</button>
-                            <button type="button" id="zoom-100" class="vfond__zoombtn vfond__zoombtn--texto" title="Volver al encaje">100%</button>
-                            <button type="button" id="zoom-mas" class="vfond__zoombtn" title="Acercar">+</button>
-                        </div>
-                        <p class="vfond__pista">Rueda: zoom hasta 2400% · Espacio o Alt + arrastrar: mover</p>
                     </div>
 
                     <div class="vfond__pie">
-                        <div class="vfond__piefila">
-                            <button type="button" id="btn-deshacer-fondo" class="vfond__btn" title="Deshacer el último paso (Ctrl+Z)">↶ Deshacer</button>
-                            <button type="button" id="btn-rehacer-fondo" class="vfond__btn" title="Rehacer el paso deshecho (Ctrl+Y)">↷ Rehacer</button>
-                        </div>
+                        <button type="button" id="btn-deshacer-fondo" class="vfond__btn">↶ Deshacer</button>
                         <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">✓ Listo</button>
                     </div>
                 </aside>
