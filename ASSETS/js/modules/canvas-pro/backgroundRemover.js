@@ -3,8 +3,10 @@
    -------------------------------------------------------------------------
    Nada sale del equipo: el modelo y la imagen se procesan en el navegador.
 
-   Modelo: silueta.onnx (42 MB, Apache-2.0 — uso comercial permitido).
-   Se descarga una vez y queda en caché (IndexedDB) para siempre.
+   Modelo: u2net_human_seg (168 MB, Apache-2.0) entrenado en SILUETAS DE
+   PERSONAS. Se descarga una vez y queda en cache (IndexedDB) para siempre.
+   Respaldo automatico: MODNet (6,3 MB) y despues el modelo estandar, por si el
+   de silueta humana no esta desplegado o la descarga falla.
 
    El recorte es geometría real: la imagen conserva su transformación
    exacta y la máscara se aplica como canal alfa, nunca como un color.
@@ -46,32 +48,44 @@
         WORKER: '/ASSETS/js/modules/canvas-pro/backgroundWorker.js',
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
 
-        // Modelo usado. MODNet: entrenado para retrato, 6,3 MB, entrada 512.
+        // Modelo usado: SILUETA HUMANA (u2net_human_seg).
         //
-        // Se eligio MEDIDO, no por sabor: contra la foto de referencia del
-        // cliente, de punta a punta dentro de la app, IoU 96,4% con 0,4% de
-        // sujeto faltante, frente al 71,4% y 7,6% del modelo anterior. El pelo
-        // y la cabeza, que es lo que el cliente reportaba roto, es justamente
-        // lo que MODNet hace bien.
+        // MEDIDO con la foto de referencia del cliente: es el unico que quita
+        // el suelo y las sombras entre las piernas. MODNet, que es retrato,
+        // deja esa zona como sujeto (alfa 1,0) y de ahi venia el "deja partes
+        // del suelo" del reporte.
         //
-        // El worker tiene su propio respaldo: si este no se descarga, baja al
-        // estandar por su cuenta (ver obtenerSesion).
-        MODELO_CLAVE: 'modnet',
+        // Pesa 168 MB y se descarga UNA vez (queda en IndexedDB). El worker
+        // tiene su propia cadena de respaldo: si este no esta desplegado o
+        // falla, baja solo a MODNet (6,3 MB) y despues al estandar, sin que el
+        // cliente vea ningun error.
+        MODELO_CLAVE: 'humano',
 
         MAX_LADO: 2600,        // techo de trabajo: memoria y tiempo razonables
 
-        // Lado de la entrada del modelo.
-//
-// MEDIDO: no se puede subir. La exportacion de MODNet tiene la entrada FIJA en
-// 320x320, y cualquier otro lado da "invalid dimensions for input": con 768 la
-// inferencia no termina nunca. El limite de resolucion del recorte no es del
-// filtro, es del modelo: la alfa sale de 320 y el borde mas fino que se puede
-// sacar son 3 px.
+        // Lado CORTO de la entrada del modelo.
         //
-        // Si alguna vez se cambia el modelo, este es el lugar. Con una
-        // exportacion de eje dinamico se podria probar 768 o 1024, con mas
-        // detalle en el pelo, a costa de tiempo en CPU (aqui no hay WebGPU).
+        // MEDIDO: la version anterior de este comentario decia que MODNet tenia
+        // la entrada fija en 320 y que cualquier otro tamaño fallaba. Es falso.
+        // Probado contra modnet.onnx: 384x1024, 512x768, 640x640 y 288x512
+        // devuelven una alfa del MISMO tamaño que la entrada. Solo hay que
+        // respetar que los lados sean multiplos de 32 (con 512x900 el grafo
+        // falla en un Concat).
+        //
+        // Por eso la foto ya NO se mete en un cuadrado con marco: se pasa con
+        // su aspecto real y este valor es el lado corto. En una foto vertical
+        // de 900x1600 eso da 512 de ancho real (antes 288 tras el marco), o
+        // sea 1,8 veces mas detalle en el borde con el mismo modelo.
         LADO_ENTRADA: 512,
+
+        // Tope del lado LARGO de la entrada. Evita que una foto muy alargada
+        // (un banner, una tira) dispare el tiempo: el detalle extra no se ve
+        // pero la factura de CPU si. Debe ser multiplo de 32.
+        LADO_MAX: 896,
+
+        // Encuadre de la entrada: cuadrado (lo que espera MODNet) o aspecto
+        // real de la foto. Ver `encuadre()` para las dos medidas.
+        ENTRADA_CUADRADA: true,
 
         // --- Perfil del recorte (lo que manipulan los sliders) ---
         // BORDE y SUAVIZADO trabajan sobre TODA la mascara, no sobre una
@@ -83,6 +97,20 @@
         // bajarlo recorta mas. SUAVIZADO ensancha la transicion: mas suave.
         BORDE: 0.5,
         SUAVIZADO: 0.2,
+
+        // PERFIL: si se aplica la curva de BORDE/SUAVIZADO sobre el alfa del
+        // modelo. MEDIDO: con la curva activa el alfa queda casi binaria
+        // (39% en 0 y 55% en 1), o sea que el matiz suave del pelo -que el
+        // modelo SI entrega- se convierte en un recorte de tijera. Es
+        // justamente lo que el cliente describe como "grotesco".
+        PERFIL: false,
+
+        // SOLIDIFICAR: pone el INTERIOR del sujeto en alfa 1 sin tocar la
+        // franja del borde. MEDIDO: sin esto el cuerpo queda a 0,7-0,9 y se ve
+        // traslucido; con la curva de antes se arreglaba el cuerpo pero se
+        // comia el pelo. Esto arregla las dos cosas a la vez.
+        SOLIDIFICAR: true,
+        SOLIDIFICAR_RADIO: 2,      // px de MASCARA (~6 px de foto en 1600)
 
         // MATTING: cuanto se deja que la FOTOGRAFIA real resuelva la franja
         // dudosa del recorte.
@@ -225,8 +253,10 @@
                 } else if (d.tipo === 'nota') {
                     // Aviso interno del worker (por ejemplo: bajo al modelo
                     // estandar porque el de alta no entra en memoria). Se
-                    // registra el lado de entrada para escalar bien.
-                    if (d.lado) window.__EKKO_LADO_ENTRADA = d.lado;
+                    // registra el lado del modelo como REFERENCIA: la config
+                    // manda, porque MODNet acepta cualquier tamaño multiplo de
+                    // 32 (medido). Antes esto pisaba la config y no habia forma
+                    // de probar otra resolucion.
                     ESTADO.ladoEntrada = d.lado || ESTADO.ladoEntrada;
                 } else {
                     informar(d.tipo, d.carga || 0, d.total || 0, d.detalle || '');
@@ -253,45 +283,91 @@
     }
 
     // ----------------------------------------------------------------------
-    // Escalado al tamaño que pide el modelo, conservando el aspecto
+    // Encuadre de la entrada del modelo
     // ----------------------------------------------------------------------
+    /**
+     * MEDIDO en la foto de referencia (dos niñas sentadas en el suelo), y las
+     * dos cosas a la vez, que es lo que obliga a elegir:
+     *
+     *   cuadrado 512 (288 px utiles de ancho)
+     *       -> silueta correcta: quita el suelo y las sombras.
+     *       -> borde pobre: la alfa se estira 3,1 veces hasta la foto.
+     *
+     *   aspecto real 512x896 (512 px utiles de ancho)
+     *       -> pelo y contornos notablemente mas nitidos.
+     *       -> el modelo se TRAGA el suelo y las sombras (alfa media 0,68
+     *          contra 0,33): deja de decidir bien que es fondo.
+     *
+     * MODNet esta entrenado con recortes CUADRADOS de retrato; sacarlo de ese
+     * encuadre afina el borde y arruina la decision de fondo. Por eso el
+     * encuadre es configurable y el que se usa es el cuadrado, que es el que
+     * respeta la silueta, que es lo primero que pidio el cliente.
+     */
+    function encuadre(W, H, lado, cuadrado) {
+        const base = Math.max(32, Math.round((lado || 512) / 32) * 32);
+        if (cuadrado) {
+            // Encajar SIN deformar: si el modelo ve un sujeto estirado, el
+            // recorte sale torcido.
+            const escala = Math.min(base / W, base / H);
+            const dw = Math.max(1, Math.round(W * escala));
+            const dh = Math.max(1, Math.round(H * escala));
+            return {
+                w: base, h: base,
+                ox: Math.round((base - dw) / 2),
+                oy: Math.round((base - dh) / 2),
+                dw, dh
+            };
+        }
+        const largo = Math.max(W, H), chico = Math.min(W, H);
+        let lg = Math.round((base * largo / chico) / 32) * 32;
+        // Tope de memoria/tiempo: por encima de esto el detalle extra no se
+        // nota en pantalla pero el tiempo se dispara en equipos sin hilos.
+        const tope = Math.max(base, Math.floor(CFG.LADO_MAX / 32) * 32);
+        if (lg > tope) lg = tope;
+        if (lg < base) lg = base;
+        return W >= H
+            ? { w: lg, h: base, ox: 0, oy: 0, dw: lg, dh: base }
+            : { w: base, h: lg, ox: 0, oy: 0, dw: base, dh: lg };
+    }
+
     function prepararEntrada(imagen, lado) {
         const W = imagen.naturalWidth || imagen.width;
         const H = imagen.naturalHeight || imagen.height;
         if (!W || !H) throw new Error('La imagen no tiene dimensiones');
 
-        const S = lado || 320;
-        // Encajar en un cuadrado SIN deformar: si el modelo ve un sujeto
-        // estirado, el recorte sale torcido.
-        const escala = Math.min(S / W, S / H);
-        const dw = Math.max(1, Math.round(W * escala));
-        const dh = Math.max(1, Math.round(H * escala));
-        const ox = (S - dw) / 2;
-        const oy = (S - dh) / 2;
-
+        const c = encuadre(W, H, lado || 512, CFG.ENTRADA_CUADRADA);
         const lienzo = document.createElement('canvas');
-        lienzo.width = S; lienzo.height = S;
+        lienzo.width = c.w; lienzo.height = c.h;
         const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
 
-        // El relleno NO es negro. MEDIDO con MODNet: con marco negro el recorte
-        // cae a IoU 89,5% y el modelo clasifica parte del marco como sujeto
-        // (2,6% de pixeles de sobra). Con el color medio de la propia foto sube
-        // a 95,5%: el marco se camufla con el fondo real y deja de existir.
-        const tonal = document.createElement('canvas');
-        tonal.width = 8; tonal.height = 8;
-        const tc = tonal.getContext('2d', { willReadFrequently: true });
-        tc.drawImage(imagen, 0, 0, 8, 8);
-        const d8 = tc.getImageData(0, 0, 8, 8).data;
-        let tr = 0, tg = 0, tb = 0;
-        for (let i = 0; i < 64; i++) { tr += d8[i * 4]; tg += d8[i * 4 + 1]; tb += d8[i * 4 + 2]; }
-        ctx.fillStyle = `rgb(${tr >> 6},${tg >> 6},${tb >> 6})`;
-        ctx.fillRect(0, 0, S, S);
-        ctx.drawImage(imagen, ox, oy, dw, dh);
+        // Si sobra marco, NO va negro. MEDIDO con MODNet: con marco negro el
+        // recorte cae a IoU 89,5% y el modelo clasifica parte del marco como
+        // sujeto (2,6% de pixeles de sobra). Con el color medio de la propia
+        // foto sube a 95,5%: el marco se camufla con el fondo real.
+        if (c.ox || c.oy) {
+            const tonal = document.createElement('canvas');
+            tonal.width = 8; tonal.height = 8;
+            const tc = tonal.getContext('2d', { willReadFrequently: true });
+            tc.drawImage(imagen, 0, 0, 8, 8);
+            const d8 = tc.getImageData(0, 0, 8, 8).data;
+            let tr = 0, tg = 0, tb = 0;
+            for (let i = 0; i < 64; i++) { tr += d8[i * 4]; tg += d8[i * 4 + 1]; tb += d8[i * 4 + 2]; }
+            ctx.fillStyle = `rgb(${tr >> 6},${tg >> 6},${tb >> 6})`;
+            ctx.fillRect(0, 0, c.w, c.h);
+        }
+        ctx.drawImage(imagen, c.ox, c.oy, c.dw, c.dh);
 
-        // Se devuelve el rectangulo que ocupa la foto DENTRO del cuadrado. Sin
-        // el, al volver la mascara habria que suponer que la foto llena todo el
-        // cuadrado, y no es cierto: queda corrida y con un marco pegado.
-        return { pixeles: ctx.getImageData(0, 0, S, S).data, W, H, caja: { ox, oy, dw, dh } };
+        // Se devuelve el rectangulo que ocupa la foto DENTRO de la entrada. Sin
+        // el, al volver la mascara habria que suponer que la foto llena todo,
+        // y no es cierto: queda corrida y con un marco pegado.
+        return {
+            pixeles: ctx.getImageData(0, 0, c.w, c.h).data,
+            W, H,
+            caja: { ox: c.ox, oy: c.oy, dw: c.dw, dh: c.dh },
+            lado: { w: c.w, h: c.h }
+        };
     }
 
     /**
@@ -483,6 +559,15 @@
     }
 
     function perfilarValor(v) {
+        // Modo matiz: NO hay curva. BORDE desplaza la opacidad (expande o
+        // contrae) y el pelo fino sigue siendo fino: un mechon a 0,3 sigue a
+        // 0,3 y no salta a 0 o 1 como hacia la curva.
+        if (CFG.PERFIL === false) {
+            const d = (CFG.BORDE - 0.5) * 0.6;     // -0.3 .. +0.3
+            if (d === 0) return v;
+            const r = v + d;
+            return r <= 0 ? 0 : r >= 1 ? 1 : r;
+        }
         if (v <= 0) return 0;
         if (v >= 1) return 1;
         const x = v * (PERFIL_TAM - 1);
@@ -567,6 +652,61 @@
         }
     }
 
+    /**
+     * Solidifica el INTERIOR del sujeto sin tocar la franja del borde.
+     *
+     * MEDIDO con MODNet: el modelo entrega el cuerpo a 0,7-0,9 en varias zonas
+     * (las piernas, sobre todo), y eso en pantalla se ve traslucido: se cuela
+     * el fondo a traves de la persona. La tentacion es subir el contraste del
+     * alfa, y es justo lo que estaba pasando: al endurecerlo se llevaba por
+     * delante el pelo, que es donde el alfa ES suave a proposito.
+     *
+     * La solucion no es de color ni de valor, es de GEOMETRIA: se erosiona la
+     * silueta unos pixeles y ahi dentro el alfa pasa a 1. La franja exterior
+     * (pelo, contornos) se queda tal cual la entrego el modelo.
+     *
+     * El radio se mide en pixeles de MASCARA, no de foto: 2 px de 512 son ~6 px
+     * en una foto de 1600, que es mas que suficiente para el cuerpo y mucho
+     * menos que cualquier mechon de pelo.
+     */
+    function solidificarInterior(alfa, w, h, radio) {
+        const n = w * h;
+        const r = Math.max(1, Math.round(radio || 2));
+
+        // 1 = dentro de la silueta (alfa >= 0.5).
+        const dentro = new Uint8Array(n);
+        for (let i = 0; i < n; i++) dentro[i] = alfa[i] >= 0.5 ? 1 : 0;
+
+        // Erosion separable (min-filtro): si algun vecino del radio esta
+        // fuera, el pixel queda fuera. Se hace en dos pasadas O(n*r) con
+        // ventana deslizante, pero con r<=3 es despreciable.
+        const tmp = new Uint8Array(n);
+        for (let y = 0; y < h; y++) {
+            const f = y * w;
+            for (let x = 0; x < w; x++) {
+                let v = 1;
+                const x0 = Math.max(0, x - r), x1 = Math.min(w - 1, x + r);
+                for (let k = x0; k <= x1; k++) { if (!dentro[f + k]) { v = 0; break; } }
+                tmp[f + x] = v;
+            }
+        }
+        const nucleo = new Uint8Array(n);
+        for (let x = 0; x < w; x++) {
+            for (let y = 0; y < h; y++) {
+                let v = 1;
+                const y0 = Math.max(0, y - r), y1 = Math.min(h - 1, y + r);
+                for (let k = y0; k <= y1; k++) { if (!tmp[k * w + x]) { v = 0; break; } }
+                nucleo[y * w + x] = v;
+            }
+        }
+
+        // Copia con el nucleo a 1. No se toca `alfa` (es la mascara guardada:
+        // de ella dependen el pincel y deshacer).
+        const salida = new Float32Array(alfa);
+        for (let i = 0; i < n; i++) if (nucleo[i]) salida[i] = 1;
+        return salida;
+    }
+
     function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja) {
         const lienzo = document.createElement('canvas');
         lienzo.width = anchoTrabajo;
@@ -586,6 +726,21 @@
         const escalaX = c.dw / anchoTrabajo;
         const escalaY = c.dh / altoTrabajo;
 
+        // Interior solido + franja del modelo intacta (ver solidificarInterior).
+        let base = CFG.SOLIDIFICAR
+            ? solidificarInterior(alfa, mw, mh, CFG.SOLIDIFICAR_RADIO)
+            : alfa;
+
+        // SUAVIZADO, ahora de verdad: un desenfoque del alfa (en pixeles de
+        // mascara), no un remapeo de valores. Antes "suavizar" cambiaba la
+        // curva y con ella el matiz del pelo; esto solo ablanda el contorno.
+        const radioSuave = Math.round((CFG.SUAVIZADO || 0) * 2);
+        if (radioSuave > 0) {
+            const destino = new Float32Array(base.length);
+            cajaFiltro(base, destino, mw, mh, radioSuave, new Float32Array(base.length));
+            base = destino;
+        }
+
         // Muestreo bilineal de la máscara: evita el serrucho de un nearest.
         const fila = new Float32Array(anchoTrabajo);
         for (let y = 0; y < altoTrabajo; y++) {
@@ -599,8 +754,8 @@
                 if (!dentroY || !dentroX) { fila[x] = 0; continue; }
                 const fxc = Math.max(0, Math.min(mw - 1, fx));
                 const x0 = Math.floor(fxc), x1 = Math.min(mw - 1, x0 + 1), tx = fxc - x0;
-                const a = alfa[y0 * mw + x0], b = alfa[y0 * mw + x1];
-                const cc = alfa[y1 * mw + x0], d = alfa[y1 * mw + x1];
+                const a = base[y0 * mw + x0], b = base[y0 * mw + x1];
+                const cc = base[y1 * mw + x0], d = base[y1 * mw + x1];
                 fila[x] = (a * (1 - tx) + b * tx) * (1 - ty) + (cc * (1 - tx) + d * tx) * ty;
             }
             // La curva se calcula UNA vez por ajuste, no por pixel: el perfil se
@@ -944,27 +1099,19 @@
             await obtenerWorker();
             await enviar({ accion: 'preparar', modeloClave: CFG.MODELO_CLAVE }, 'listo');
 
-            // El lado de entrada lo decide el modelo que este activo. El worker
-            // avisa cual quedo si tuvo que bajar al estandar por falta de memoria.
-            // El lado de entrada lo DECIDE el worker, que es quien sabe que modelo quedo
-            // activo (puede haber bajado al estandar). Antes se adivinaba aqui
-            // con un 320 fijo y, con un modelo que pide 512, se mandaba un buffer
-            // de 320: el recorte salia vacio sin dar ningun error.
-            // El lado de entrada del modelo.
-//
-// MEDIDO: con 512 la salida cruda del modelo es de 320, y el borde sale con un
-// escalon de 3 px: el cliente lo reporto como "se ve muy pixelado". La red es
-// completamente convolucional, asi que acepta entradas mas grandes y el borde
-// sale mas fino, pero corre en CPU y cada aumento multiplica el tiempo.
-// Este valor es el que se puede medir: 512 / 768 / 1024.
-        const ladoModelo = CFG.LADO_ENTRADA || window.__EKKO_LADO_ENTRADA || 512;
+            // Lado de entrada: lo decide el MODELO ACTIVO (el worker avisa en
+            // `preparar`, incluido el respaldo si tuvo que bajar). El override
+            // `__EKKO_LADO_ENTRADA` queda para medir otra resolucion a mano.
+            const ladoModelo = window.__EKKO_LADO_ENTRADA || ESTADO.ladoEntrada || CFG.LADO_ENTRADA || 512;
             const entrada = prepararEntrada(elemento, ladoModelo);
             informar('inferir', 0, 0, 'analizando la imagen…');
             const r = await enviar({
                 accion: 'inferir',
                 pixeles: entrada.pixeles.buffer,
                 ancho: entrada.W,
-                alto: entrada.H
+                alto: entrada.H,
+                anchoEntrada: entrada.lado.w,
+                altoEntrada: entrada.lado.h
             });
 
             // Limitar el lado largo: por encima de ~2600 px el coste de
@@ -973,18 +1120,45 @@
             const aw = Math.max(1, Math.round(entrada.W * esc));
             const ah = Math.max(1, Math.round(entrada.H * esc));
 
+            // La alfa del modelo deberia venir en 0..1. MEDIDO: en la foto de
+            // referencia llegaban 6900 valores fuera de ese rango (negativos y
+            // mayores que 1). Un solo valor fuera de rango rompe el filtro
+            // guiado, que supone 0..1, y deja manchas y halos: el borde se ve
+            // "sucio" sin que se entienda por que. Se acota aqui, una vez.
+            let ajustados = 0;
+            for (let i = 0; i < r.alfa.length; i++) {
+                const v = r.alfa[i];
+                if (v !== v) { r.alfa[i] = 0; ajustados++; }        // NaN
+                else if (v < 0) { r.alfa[i] = 0; ajustados++; }
+                else if (v > 1) { r.alfa[i] = 1; ajustados++; }
+            }
+            if (ajustados) {
+                console.info('[EKKO RECORTE] alfa acotada a 0..1:', ajustados, 'valores');
+            }
+
             // La mascara cruda se conserva antes de refinar: es lo que permite
             // reajustar el borde y retocar despues sin volver a inferir.
             ESTADO.mascara = r.alfa;
             ESTADO.mascaraAncho = r.w;
             ESTADO.mascaraAlto = r.h;
             ESTADO.lienzoTrabajo = { aw, ah };
-            // El rectangulo que la foto ocupa dentro del cuadrado de entrada se
-            // guarda para que todo recorte posterior (ajustar el borde, pincel)
-            // siga con la misma correspondencia y no se vuelva a correr.
-            ESTADO.caja = entrada.caja;
+            // El rectangulo que la foto ocupa dentro de la entrada se guarda para
+            // que todo recorte posterior (ajustar el borde, pincel) siga con la
+            // misma correspondencia y no se vuelva a correr.
+            //
+            // Se reescala si el worker devolvio otra resolucion (por ejemplo al
+            // caer al modelo de respaldo): la caja esta en unidades de ENTRADA
+            // y la mascara puede llegar a otro tamaño.
+            const caja = {
+                ox: entrada.caja.ox, oy: entrada.caja.oy,
+                dw: entrada.caja.dw, dh: entrada.caja.dh
+            };
+            if (r.w && r.h && (r.w !== entrada.lado.w || r.h !== entrada.lado.h)) {
+                caja.dw = r.w; caja.dh = r.h; caja.ox = 0; caja.oy = 0;
+            }
+            ESTADO.caja = caja;
 
-            const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah, entrada.caja);
+            const lienzo = componerRecorte(r.alfa, r.w, r.h, elemento, aw, ah, caja);
 
             // ==================================================================
             // NO SE CREA UNA IMAGEN NUEVA: se le cambia el CONTENIDO a la que ya
