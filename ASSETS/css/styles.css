@@ -1015,7 +1015,12 @@ body,
     border-radius: 11px;
     box-shadow: 0 14px 34px rgba(15, 23, 42, .22);
     font-size: 12px;
-    z-index: 9600;
+    /* MEDIDO con clics reales: la barra contextual vive en 10100 y su caja
+       (aunque parezca terminar antes) se come los clics sobre este panel.
+       El resultado era "los sliders no hacen nada": el clic nunca llegaba al
+       input. 10150 lo deja por encima de la barra y por debajo de la ventana
+       de Editar Fondo (10200), que tiene que taparlo mientras se retoca. */
+    z-index: 10150;
     max-width: min(720px, 94vw);
     cursor: grab;
 }
