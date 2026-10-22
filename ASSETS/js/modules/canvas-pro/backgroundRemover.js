@@ -574,6 +574,9 @@
         // 0,3 y no salta a 0 o 1 como hacia la curva.
         if (CFG.PERFIL === false) {
             const d = (CFG.BORDE - 0.5) * 0.6;     // -0.3 .. +0.3
+            // El interior opaco se respeta: bajar BORDE cierra el CONTORNO,
+            // no deja el cuerpo a 70% (el cliente lo ve como "me come el torso").
+            if (d < 0 && v >= 0.999) return v;
             if (d === 0) return v;
             const r = v + d;
             return r <= 0 ? 0 : r >= 1 ? 1 : r;
@@ -748,14 +751,34 @@
             ? solidificarInterior(alfa, mw, mh, CFG.SOLIDIFICAR_RADIO)
             : alfa;
 
-        // SUAVIZADO, ahora de verdad: un desenfoque del alfa (en pixeles de
-        // mascara), no un remapeo de valores. Antes "suavizar" cambiaba la
-        // curva y con ella el matiz del pelo; esto solo ablanda el contorno.
-        const radioSuave = Math.round((CFG.SUAVIZADO || 0) * 2);
-        if (radioSuave > 0) {
-            const destino = new Float32Array(base.length);
-            cajaFiltro(base, destino, mw, mh, radioSuave, new Float32Array(base.length));
-            base = destino;
+        // Continuo y en 2D. Antes el radio era Math.round(SUAVIZADO*2): TODO lo
+        // que estaba por debajo del 25% (incluido el 20% por defecto) valia 0 px,
+        // o sea el slider no hacia nada. Y el desenfoque se aplicaba sobre una
+        // sola dimension, asi que el corte de arriba/abajo no se suavizaba.
+        // Ahora: desenfoque 1-2 px en las dos direcciones con mezcla fraccionaria.
+        const brutoSuave = Math.max(0, (CFG.SUAVIZADO || 0) * 2);
+        if (brutoSuave > 0.001 && mw > 1 && mh > 1) {
+            const nMaskS = mw * mh;
+            const tmpS1 = new Float32Array(nMaskS);
+            const tmpS2 = new Float32Array(nMaskS);
+            cajaFiltro(base, tmpS1, mw, mh, 1, tmpS2);
+            const pasoS1 = tmpS1;
+            let desdeS = base, hastaS = pasoS1, kS = Math.min(1, brutoSuave);
+            if (brutoSuave > 1.001) {
+                const tmpS3 = new Float32Array(nMaskS);
+                const tmpS4 = new Float32Array(nMaskS);
+                desdeS = pasoS1;
+                cajaFiltro(pasoS1, tmpS3, mw, mh, 1, tmpS4);
+                hastaS = tmpS3;
+                kS = Math.min(1, brutoSuave - 1);
+            }
+            if (kS >= 0.999) {
+                base = hastaS;
+            } else {
+                const salidaS = new Float32Array(nMaskS);
+                for (let iSm = 0; iSm < nMaskS; iSm++) salidaS[iSm] = desdeS[iSm] + (hastaS[iSm] - desdeS[iSm]) * kS;
+                base = salidaS;
+            }
         }
 
         // Muestreo bilineal de la máscara: evita el serrucho de un nearest.
