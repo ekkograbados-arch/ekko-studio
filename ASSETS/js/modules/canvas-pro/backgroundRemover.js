@@ -112,24 +112,19 @@
         SOLIDIFICAR: true,
         SOLIDIFICAR_RADIO: 2,      // px de MASCARA (~6 px de foto en 1600)
 
-        // MATTING: cuanto se deja que la FOTOGRAFIA real resuelva la franja
-        // dudosa del recorte.
+        // FILO: ancho de la franja de transicion, en unidades de alfa (0..1),
+        // que se aplica al FINAL del recorte.
         //
-        // DESACTIVADO (0) a proposito, y medido con la foto de referencia:
-        //   MATTING 0  -> IoU 71.4%, transicion 8758 px
-        //   MATTING 55 -> IoU 71.4%, transicion 8458 px
-        // No mejora nada y solo endurece el borde.
+        // MEDIDO con la foto de referencia: el modelo entrega una franja
+        // blanda de ~31 px a 900x1600 y de ~60 px a 3200 px, porque la mascara
+        // de 320 se estira con la foto. Esa franja es el "borron" que el
+        // cliente ve alrededor del sujeto: no es pelo, es neblina.
         //
-        // El motivo es tecnico, no una mania: el matteado por color compara
-        // contra el COLOR MEDIO del sujeto. En una foto con varias personas y
-        // ropa de color intenso (vestido azul, pelo castano oscuro), el medio
-        // lo domina el azul, el pelo queda lejos de esa referencia y nunca se
-        // recupera. Sirve para un sujeto monocromo; aqui no.
-        //
-        // Queda el codigo porque sirve para fotos de un solo color, y el
-        // slider "Pelo" existe para que el cliente lo pruebe y lo vea por si
-        // mismo. En 0 = solo el modelo, que es el estado recomendado.
-        MATTING: 0,
+        // Aqui se vuelve a decidir el borde con un smoothstep estrecho: el
+        // sujeto queda opaco, el fondo transparente y la transicion mide
+        // 2-4 px REALES sin importar el tamano de la foto. No inventa detalle
+        // (el modelo no lo tiene), pero deja de inventar niebla.
+        FILO: 0.08,
 
         // AFINADO: segunda pasada que solo pica el ultimo pixel del borde para
         // quitar el halo oscuro. Antes se llamaba igual y se confundian: el pelo
@@ -755,7 +750,10 @@
         // que estaba por debajo del 25% (incluido el 20% por defecto) valia 0 px,
         // o sea el slider no hacia nada. Y el desenfoque se aplicaba sobre una
         // sola dimension, asi que el corte de arriba/abajo no se suavizaba.
-        // Ahora: desenfoque 1-2 px en las dos direcciones con mezcla fraccionaria.
+        //
+        // Ahora redondea la FORMA del contorno (0-2 px de mascara) y el filo se
+        // vuelve a definir despues con `definirFilo`: el resultado es un borde
+        // limpio y redondeado, no una mancha difusa.
         const brutoSuave = Math.max(0, (CFG.SUAVIZADO || 0) * 2);
         if (brutoSuave > 0.001 && mw > 1 && mh > 1) {
             const nMaskS = mw * mh;
@@ -825,8 +823,75 @@
         }
 
         ctx.putImageData(img, 0, 0);
-        if (!yaFinal) refinarBorde(ctx, anchoTrabajo, altoTrabajo);
+        if (!yaFinal) {
+            refinarBorde(ctx, anchoTrabajo, altoTrabajo);
+            // Ultimo paso, y el que arregla el "borron": la franja blanda del
+            // modelo se re-decide con un escalon estrecho. Ver CFG.FILO.
+            definirFilo(ctx, anchoTrabajo, altoTrabajo, CFG.FILO);
+        }
         return lienzo;
+    }
+
+    /**
+     * Deja el borde DEFINIDO: opaco por dentro, transparente por fuera y una
+     * transicion de pocos pixeles.
+     *
+     * El modelo entrega el alfa con una rampa muy ancha (medido: 31 px en una
+     * foto de 900x1600, 60 px en una de 3200). Esa rampa no es detalle real:
+     * es la mascara de 320 estirada. Al grabarla se ve como un halo gris
+     * alrededor de todo el sujeto.
+     *
+     * `ancho` es la franja en unidades de alfa. 0.08 deja ~2-4 px reales, que
+     * es lo que necesita un corte limpio sin escalones visibles. Si `ancho` es
+     * 0 no se toca nada (se conserva el alfa tal cual).
+     */
+    function definirFilo(ctx, W, H, ancho) {
+        if (!(ancho > 0.001)) return;
+        const d = ctx.getImageData(0, 0, W, H);
+        const p = d.data;
+        const n = W * H;
+        const semi = ancho * 0.5;
+        const lo = 0.5 - semi;
+        const inv = 1 / ancho;
+        for (let i = 0; i < n; i++) {
+            const o = i * 4 + 3;
+            const a = p[o];
+            if (a === 0 || a === 255) continue;       // interior y fondo no se tocan
+            let t = (a / 255 - lo) * inv;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            p[o] = Math.round(t * t * (3 - 2 * t) * 255);
+        }
+        ctx.putImageData(d, 0, 0);
+    }
+
+    /**
+     * Entrega el recorte a la resolucion NATURAL de la foto, sin remuestrear
+     * el color.
+     *
+     * MEDIDO: antes se componia a resolucion de trabajo (techo 2600 px) y se
+     * estiraba al tamano natural. En una foto de 3200x2133 eso dejaba solo el
+     * 30,33% de los pixeles opacos identicos al original (delta medio 0,83,
+     * maximo 10): la foto se veia lavada y el grabado perdia detalle.
+     *
+     * Aqui el RGB sale de la foto ORIGINAL dibujada a su tamano natural (1:1,
+     * sin escalar) y del lienzo de trabajo solo se toma el ALFA. Resultado:
+     * color byte a byte igual al original y borde a resolucion completa.
+     */
+    function componerCalidad(lienzo, imagen, anchoTrabajo, altoTrabajo) {
+        const W = imagen.naturalWidth || imagen.width || 0;
+        const H = imagen.naturalHeight || imagen.height || 0;
+        if (!(W > 0) || !(H > 0)) return lienzo;
+        if (W === anchoTrabajo && H === altoTrabajo) return lienzo;
+        const fin = document.createElement('canvas');
+        fin.width = W;
+        fin.height = H;
+        const c = fin.getContext('2d');
+        c.drawImage(imagen, 0, 0, W, H);            // color original, 1:1
+        c.globalCompositeOperation = 'destination-in';
+        c.imageSmoothingEnabled = true;
+        c.imageSmoothingQuality = 'high';
+        c.drawImage(lienzo, 0, 0, W, H);            // solo aporta el alfa
+        return fin;
     }
 
     /**
@@ -837,174 +902,10 @@
      * donde la foto de alta resolucion se usa para recuperar el detalle que
      * el modelo de 320 perdio.
      */
-    /**
-     * MATTING POR COLORES DE LA FOTOGRAFIA
-     *
-     * El modelo entrega la mascara a 320x320 y al ampliarla el pelo fino ya se
-     * perdio: por eso la cabeza de la nina se veia cortada (el pelo oscuro cae
-     * sobre un fondo oscuro y el modelo no sabe cual de los dos es pelo).
-     *
-     * Ningun ajuste de umbral recupera eso, porque el dato no esta. Lo que si
-     * esta a resolucion completa es la PROPIA FOTOGRAFIA. Este paso usa esa
-     * informacion para rehacer SOLO la franja donde el modelo duda:
-     *
-     *   - El interior opaco (alfa > 0.9) no se toca: el modelo esta seguro y
-     *     la foto no aporta nada mejor ahi.
-     *   - El fondo limpio (alfa < 0.1) tampoco: ya es transparente.
-     *   - La franja intermedia (0.1..0.9) es la zona de decision. Ahi se
-     *     compara el color del pixel con los colores dominantes del sujeto y
-     *     del fondo, y se corrige el alfa hacia el lado que corresponda.
-     *
-     * Asi el pelo se conserva porque se parece al sujeto, y el fondo se
-     * conserva transparente porque se parece al fondo. La diferencia con un
-     * guided filter a secas es que NO se toca el interior ni el exterior: antes
-     * se empujaba toda la mascara hacia el color del fondo y el recorte
-     * empeoraba (medido: los pixeles de borde nitidos bajaron de 4135 a 3229).
-     */
-    function mattearConFoto(px, alfaTrabajo, W, H, fuerza) {
-        if (fuerza <= 0.001) return;
-        const total = W * H;
-
-        // Luminancia media de lo que el modelo considero sujeto y fondo.
-        // Se mide sobre las zonas en las que NO duda, para que la referencia no
-        // este contaminada por la propia franja que queremos corregir.
-        let sFondo = 0, nFondo = 0, sSujeto = 0, nSujeto = 0;
-        const rF = [0, 0, 0], rS = [0, 0, 0];
-        for (let i = 0; i < total; i++) {
-            const a = alfaTrabajo[i];
-            const o = i * 4;
-            if (a < 0.08) { rF[0] += px[o]; rF[1] += px[o+1]; rF[2] += px[o+2]; nFondo++; }
-            else if (a > 0.92) { rS[0] += px[o]; rS[1] += px[o+1]; rS[2] += px[o+2]; nSujeto++; }
-        }
-        if (nFondo < 64 || nSujeto < 64) return;   // escena no separable
-        rF[0] /= nFondo; rF[1] /= nFondo; rF[2] /= nFondo;
-        rS[0] /= nSujeto; rS[1] /= nSujeto; rS[2] /= nSujeto;
-        sFondo = (rF[0] + rF[1] + rF[2]) / 3;
-        sSujeto = (rS[0] + rS[1] + rS[2]) / 3;
-        const sepL = Math.abs(sSujeto - sFondo);
-
-        // Encuadre: el modelo solo vio 320 px, asi que el sujeto en la foto
-        // grande estarappedido en una regionmucho mas pequena que la imagen.
-        // Medimos la caja real del sujeto sobre la propia imagen de trabajo.
-        let minX = W, maxX = 0, minY = H, maxY = 0, nCaja = 0;
-        const EPO = W * H / 4096;                   // muestra ~4096 pixeles
-        const paso = Math.max(1, Math.floor(Math.sqrt(EPO)));
-        for (let y = 0; y < H; y += paso) {
-            for (let x = 0; x < W; x += paso) {
-                if (alfaTrabajo[y * W + x] > 0.5) {
-                    nCaja++;
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
-                }
-            }
-        }
-        if (nCaja < 16) return;
-
-        // Padding proporcional: el sujeto suele tocar el borde de su caja.
-        const pad = Math.max(6, Math.round(Math.max(maxX - minX, maxY - minY) * 0.04));
-        minX = Math.max(0, minX - pad); maxX = Math.min(W - 1, maxX + pad);
-        minY = Math.max(0, minY - pad); maxY = Math.min(H - 1, maxY + pad);
-        const anchoCaja = maxX - minX, altoCaja = maxY - minY;
-        if (anchoCaja < 8 || altoCaja < 8) return;
-
-        const k = Math.min(1, fuerza * 1.5);
-        // RECUPERACION: el modelo marco como fondo (alfa casi 0) zonas que en
-        // realidad son sujeto. Es el caso de la cabeza de la nina: pelo oscuro
-        // sobre fondo oscuro, el modelo no lo vio y lo corto. El paso anterior
-        // no puede recuperarlo porque solo trabaja donde el modelo DUDABA
-        // (0.1..0.9); aqui ya estaba en 0.
-        //
-        // Solo se recupera lo que la foto dice claramente que es sujeto: un
-        // pixel totalmente transparente cuyo color este muy cerca del color
-        // medio del sujeto, Y que tenga un vecino opaco cerca (si no, se
-        // pegaria fondo lejano con un color parecido). Es conservador a
-        // proposito: perder pelo es un defecto muy visible.
-        const radioBusqueda = Math.max(3, Math.round(Math.min(anchoCaja, altoCaja) * 0.06));
-        const umbralColor = 0.16 + (1 - fuerza) * 0.2;   // fuerza alta = mas exquisito
-
-        // Hay un pixel que el modelo SI conserva como sujeto cerca de este?
-        const cercano = (x, y) => {
-            for (let dy = -radioBusqueda; dy <= radioBusqueda; dy += 2) {
-                const yy = y + dy;
-                if (yy < 0 || yy >= H) continue;
-                for (let dx = -radioBusqueda; dx <= radioBusqueda; dx += 2) {
-                    const xx = x + dx;
-                    if (xx < 0 || xx >= W) continue;
-                    if (alfaTrabajo[yy * W + xx] > 0.6) return true;
-                }
-            }
-            return false;
-        };
-
-        for (let y = minY; y <= maxY; y++) {
-            for (let x = minX; x <= maxX; x++) {
-                const i = y * W + x;
-                const a = alfaTrabajo[i];
-                const o = i * 4;
-                const R = px[o], G = px[o+1], B = px[o+2];
-                const lum = (R * 0.299 + G * 0.587 + B * 0.114) / 255;
-
-                // --- Recuperacion de sujeto que el modelo mato ---
-                if (a <= 0.1) {
-                    if (fuerza < 0.25) continue;
-                    const ds = Math.sqrt(
-                        (R - rS[0]) * (R - rS[0]) +
-                        (G - rS[1]) * (G - rS[1]) +
-                        (B - rS[2]) * (B - rS[2])) / 441.67;
-                    const df = Math.sqrt(
-                        (R - rF[0]) * (R - rF[0]) +
-                        (G - rF[1]) * (G - rF[1]) +
-                        (B - rF[2]) * (B - rF[2])) / 441.67;
-                    // Claramente mas parecido al sujeto que al fondo...
-                    if (ds > umbralColor || ds >= df) continue;
-                    // ...y pegado a algo que el modelo SI conservo como sujeto.
-                    if (!cercano(x, y)) continue;
-                    // Recuperacion gradual: en el borde de la zona recuperada
-                    // el alfa entra suave, para que no aparezca un escalon.
-                    alfaTrabajo[i] = Math.min(1, fuerza * 1.15);
-                    continue;
-                }
-                if (a >= 0.9) continue;      // el modelo ya decidio opaco
-
-                // Distancia normalizada a los colores de referencia.
-                const dS = Math.sqrt(
-                    (R - rS[0]) * (R - rS[0]) +
-                    (G - rS[1]) * (G - rS[1]) +
-                    (B - rS[2]) * (B - rS[2])) / 441.67;
-                const dF = Math.sqrt(
-                    (R - rF[0]) * (R - rF[0]) +
-                    (G - rF[1]) * (G - rF[1]) +
-                    (B - rF[2]) * (B - rF[2])) / 441.67;
-
-                // Pertenencia al sujeto segun el color: 1 = sujeto, 0 = fondo.
-                let porColor;
-                const total2 = dS + dF;
-                if (total2 < 1e-4) porColor = a;         // caso degenerado
-                else porColor = dF / total2;             // cuanto mas lejos del fondo, mas sujeto
-
-                // El pelo es oscuro sobre fondo oscuro: la luminancia sola no
-                // alcanza, por eso se usa la distancia de color completa. Solo
-                // si la escena tiene poco contraste de luminancia se recurre a
-                // ella, porque ahi el color no aporta y la luminancia si.
-                if (sepL < 0.045) {
-                    porColor = (lum - sFondo) / (sepL || 1);
-                    porColor = porColor < 0 ? 0 : porColor > 1 ? 1 : porColor;
-                }
-
-                // Correccion suave: solo se acerca al veredicto del color, sin
-                // sustituirlo. Asi una zona dudosa por color NO fuerza el corte.
-                const corregido = a + (porColor - a) * k;
-                alfaTrabajo[i] = corregido < 0 ? 0 : corregido > 1 ? 1 : corregido;
-            }
-        }
-    }
-
     function componerRecorte(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja, yaFinal) {
         const lienzo = aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja, yaFinal);
         if (yaFinal) return lienzo;
-        if (CFG.MATTING <= 0.001 && CFG.AFINADO <= 0.001) return lienzo;
+        if (CFG.AFINADO <= 0.001) return lienzo;
         try {
             const ctx = lienzo.getContext('2d', { willReadFrequently: true });
             const img = ctx.getImageData(0, 0, anchoTrabajo, altoTrabajo);
@@ -1013,12 +914,7 @@
             const aTrabajo = new Float32Array(total);
             for (let i = 0; i < total; i++) aTrabajo[i] = px[i * 4 + 3] / 255;
 
-            // Primero el matteado por color, que es el que recupera el pelo;
-            // despues el afilado fino del halo, que solo pica la ultima franja.
-            mattearConFoto(px, aTrabajo, anchoTrabajo, altoTrabajo, CFG.MATTING);
-            if (CFG.AFINADO > 0.001) {
-                afinarConFoto(px, aTrabajo, anchoTrabajo, altoTrabajo, CFG.AFINADO);
-            }
+            afinarConFoto(px, aTrabajo, anchoTrabajo, altoTrabajo, CFG.AFINADO);
 
             for (let i = 0; i < total; i++) {
                 const v = aTrabajo[i];
@@ -1244,18 +1140,11 @@
             // El lienzo se entrega al tamano NATURAL del elemento original. Si se
             // entregara al tamano de trabajo, al cambiar el source el item
             // cambiaria de tamano y con el se moveria la caja de seleccion.
-            const natW = elemento.naturalWidth || elemento.width || 0;
-            const natH = elemento.naturalHeight || elemento.height || 0;
-            let salida = lienzo;
-            if (natW > 0 && natH > 0 && (natW !== aw || natH !== ah)) {
-                salida = document.createElement('canvas');
-                salida.width = natW;
-                salida.height = natH;
-                const sctx = salida.getContext('2d');
-                sctx.imageSmoothingEnabled = true;
-                sctx.imageSmoothingQuality = 'high';
-                sctx.drawImage(lienzo, 0, 0, natW, natH);
-            }
+            //
+            // El color NO se estira: `componerCalidad` dibuja la foto original
+            // 1:1 y solo le aplica el alfa. Antes se estiraba el lienzo de
+            // trabajo y una foto de 3200 px perdia el 70% de sus pixeles.
+            const salida = componerCalidad(lienzo, elemento, aw, ah);
 
             // Se guarda la fuente original para el "deshacer": volver a ponerla
             // devuelve la foto con su fondo, sin tocar nada mas.
@@ -1505,7 +1394,9 @@
                 const lienzo = componerRecorte(
                     ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, fuente, aw, ah,
                     ESTADO.caja, ESTADO.mascaraFinal);
-                const url = lienzo.toDataURL('image/png');
+                // Mismo criterio que al recortar: al mover un slider el color
+                // se toma de la foto original, no del lienzo de trabajo.
+                const url = componerCalidad(lienzo, fuente, aw, ah).toDataURL('image/png');
 
                 // Se reasigna la fuente de la MISMA pieza ya colocada, sin
                 // quitarla del proyecto ni crear otra. Si se creara una nueva,
