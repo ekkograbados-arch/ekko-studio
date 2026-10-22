@@ -40,17 +40,9 @@ export const PARAM_SPECS = Object.freeze({
             {
                 id: "suavizado",
                 etiqueta: "Suavizar",
-                ayuda: "Difumina la transicion del recorte. Poco = borde nitido; mucho = borde fino y natural.",
+                ayuda: "Pule el contorno para que no tenga dientes de sierra, sin difuminarlo. Poco = copia el modelo; mucho = contorno redondeado y limpio.",
                 tipo: "range", min: 0, max: 100, paso: 1,
                 claveCfg: "SUAVIZADO",
-                disponible: () => !!(window.EKKO && window.EKKO.BackgroundRemover)
-            },
-            {
-                id: "matting",
-                etiqueta: "Pelo",
-                ayuda: "Recupera el pelo fino y los bordes suaves usando la foto original. Subelo si el recorte se ve comido.",
-                tipo: "range", min: 0, max: 100, paso: 1,
-                claveCfg: "MATTING",
                 disponible: () => !!(window.EKKO && window.EKKO.BackgroundRemover)
             }
         ],
@@ -63,13 +55,6 @@ export const PARAM_SPECS = Object.freeze({
         alAplicar: (clave, valor) => {
             const api = window.EKKO?.BackgroundRemover;
             if (!api) return;
-            // 'matting' no es un ajuste de borde sino del paso de matteado por
-            // color, asi que va por su propia clave en la configuracion.
-            if (clave === 'matting') {
-                api.config.MATTING = Math.max(0, Math.min(1, valor / 100));
-                api.ajustarBorde('recomponer', 0);
-                return;
-            }
             api.ajustarBorde(clave, valor / 100);
         }
     },
