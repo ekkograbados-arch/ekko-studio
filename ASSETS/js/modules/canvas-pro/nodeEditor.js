@@ -6,7 +6,7 @@ Descripción:
     para EKKO Studio basado en Paper.js.
     
     Asegura la preservación absoluta de las atenciones a atajos de teclado (D, S, L, I, M),
-    conversión automática de PointText a curvas, marquesina de selección y desprendimiento de sub-trazados.
+    conversión automática de PointText a curvas y marquesina de selección.
     
     Reprogramado de forma canónica conforme al Pacto de Estabilidad del Bloque D para
     garantizar reactividad reactiva CSG en tiempo real ante cualquier movimiento de nodo,
@@ -20,7 +20,6 @@ import { textToCompoundPath } from "./fontToPath.js";
 import { interactionOwner } from "./interactionOwner.js";
 import { getPublicOwner } from "./designGeometry.js";
 import { setSemanticKind, semanticKind, VECTOR_KIND } from "./vectorSemantics.js";
-import { notice } from "./ekkoNotice.js";
 
 // Única resolución de owner público. Los wrappers de contención y máscaras
 // no deben convertirse en el objeto de edición de nodos.
@@ -549,20 +548,6 @@ export async function enterNodeEditMode(item) {
                 }
             };
             parentControls.insertBefore(btnAddNode, parentControls.firstChild);
-        }
-
-        let btnDetach = document.getElementById('btnCtxDetachSubpath');
-        if (!btnDetach) {
-            btnDetach = document.createElement('button');
-            btnDetach.className = 'toolbar-btn';
-            btnDetach.id = 'btnCtxDetachSubpath';
-            btnDetach.title = 'Separar el trazado secundario de los nodos seleccionados';
-            btnDetach.style.cssText = 'color: #7c3aed; background: #f5f3ff; border-color: #ddd6fe; font-weight: bold; margin-right: 8px;';
-            btnDetach.innerHTML = '<i class="fas fa-project-diagram"></i> Desprender Trazo';
-            btnDetach.onclick = () => {
-                detachSelectedSubpaths();
-            };
-            parentControls.insertBefore(btnDetach, parentControls.firstChild.nextSibling);
         }
 
         let btnSmooth = document.getElementById('btnCtxSmooth');
@@ -1124,81 +1109,6 @@ export function deleteSelectedNodes() {
     paper.view.update();
 }
 
-/**
- * Desprende los sub-trazados que corresponden a los nodos seleccionados.
- */
-export function detachSelectedSubpaths() {
-    if (!activeNodeItem || selectedNodes.size === 0) return;
-    const target = getContentItem(activeNodeItem);
-    const isCP = target && (target.className === 'CompoundPath' || (typeof paper !== 'undefined' && paper.CompoundPath && target instanceof paper.CompoundPath));
-    if (!target || !isCP) {
-        notice("Esta acción solo es válida para calados o trazados compuestos (CompoundPath).", { kind: "warn" });
-        return;
-    }
-
-    const paths = getTargetPaths(activeNodeItem);
-    const subPathsToDetach = [];
-    let curGlobal = 0;
-
-    paths.forEach(path => {
-        let hasSelectedNodeInPath = false;
-        path.segments.forEach(() => {
-            if (selectedNodes.has(curGlobal)) {
-                hasSelectedNodeInPath = true;
-            }
-            curGlobal++;
-        });
-        if (hasSelectedNodeInPath) {
-            subPathsToDetach.push(path);
-        }
-    });
-
-    if (subPathsToDetach.length === 0) return;
-    if (typeof window.saveHistory === 'function') window.saveHistory();
-
-    const parent = activeNodeItem.parent || paper.project.activeLayer;
-    const extractedItems = [];
-
-    subPathsToDetach.forEach(subPath => {
-        const clone = subPath.clone({ insert: false });
-        let newItem;
-        if (activeNodeItem.data?.clipGroup && typeof window.clipItem === 'function') {
-            newItem = window.clipItem(clone);
-            parent.addChild(newItem);
-        } else {
-            newItem = clone;
-            parent.addChild(newItem);
-        }
-
-        syncGeometryToGeomBase(newItem);
-        const detachedKind = typeof subPath.data?.originalIsHole === "boolean"
-            ? (subPath.data.originalIsHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID)
-            : (semanticKind(activeNodeItem) || VECTOR_KIND.SOLID);
-        setSemanticKind(newItem, detachedKind);
-        newItem.data = {
-            ...(newItem.data || {}),
-            locked: false,
-            label: "Trazado Desprendido"
-        };
-        extractedItems.push(newItem);
-        subPath.remove();
-    });
-
-    if (target.children.length === 0) {
-        activeNodeItem.remove();
-    } else {
-        syncGeometryToGeomBase(activeNodeItem);
-    }
-
-    exitNodeEditMode();
-    if (typeof window.deselectItem === 'function') window.deselectItem();
-    safeRecalculateSubtractions();
-
-    if (extractedItems.length > 0 && typeof window.selectItem === 'function') {
-        window.selectItem(extractedItems[0]);
-    }
-}
-
 export function makeSelectedNodesSmooth() {
     if (selectedNodes.size === 0 || !activeNodeItem) return;
     if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -1330,7 +1240,6 @@ if (typeof window !== 'undefined') {
     window.drawNodeHandles = drawNodeHandles;
     window.makeSelectedNodesSmooth = makeSelectedNodesSmooth;
     window.makeSelectedNodesCorner = makeSelectedNodesCorner;
-    window.detachSelectedSubpaths = detachSelectedSubpaths;
     window.deleteSelectedNodes = deleteSelectedNodes;
     window.moveSelectedNodesByDelta = moveSelectedNodesByDelta;
     window.syncGeometryToGeomBase = syncGeometryToGeomBase;
