@@ -35,6 +35,11 @@ let selectedNodes = new Set();
 let isDraggingNode = false;
 let isDraggingHandle = false;
 let activeHandleData = null;
+/* Refs O(1) de las antenas dibujadas por drawNodeHandles: durante el
+   arrastre NO se re-crea todo el grupo (cientos de dots por frame se
+   comian los frames y el borde parecia congelarse hasta soltar). Solo se
+   reposicionan la linea y el dot de la antena agarrada. */
+let handleOverlayRefs = [];
 let dragStartPoint = null;
 let marqueeRect = null;
 let isAddNodeActive = false;
@@ -316,12 +321,35 @@ export async function enterNodeEditMode(item) {
         }
 
         if (nodeHandlesGroup) {
-            const hitResult = nodeHandlesGroup.hitTest(event.point, {
-                fill: true,
-                stroke: true,
-                tolerance: 12 / paper.view.zoom,
-                match: (hit) => hit.item.data && (hit.item.data.isNodeHandle || hit.item.data.isCurveHandle)
-            });
+            /* hitTest propio item por item. El hitTest grupal con `match`
+               de paper evalua SOLO el primer candidato: si ese candidato es
+               la linea fina de otra antena (sin data), se rechaza y paras
+               sin seguir: la antena no enganchaba aunque el clic cayera
+               encima del dot (propio del bug reportado). Aca se escanean
+               solo los dots de nodos/antenas y gana el mas cercano. */
+            let hitResult = null;
+            let mejorDist = Infinity;
+            const tolHandles = 12 / paper.view.zoom;
+            for (const item of nodeHandlesGroup.children) {
+                const d = item.data;
+                if (!d || (!d.isNodeHandle && !d.isCurveHandle) || !item.visible) continue;
+                try {
+                    if (!item.bounds.expand(tolHandles).contains(event.point)) continue;
+                    const h = item.hitTest(event.point, {
+                        fill: true,
+                        stroke: true,
+                        segments: true,
+                        tolerance: tolHandles
+                    });
+                    if (h) {
+                        const distReal = event.point.getDistance(item.position);
+                        if (distReal < mejorDist) {
+                            mejorDist = distReal;
+                            hitResult = h;
+                        }
+                    }
+                } catch (err) { /* item sin geometria: sigo */ }
+            }
 
             if (hitResult) {
                 const hitData = hitResult.item.data;
@@ -401,12 +429,24 @@ export async function enterNodeEditMode(item) {
                     seg.handleOut = tangentVector;
                     if (symmetric) seg.handleIn = tangentVector.multiply(-1);
                 }
+                /* Overlay O(1): mueve SOLO la linea y el dot de la antena
+                   agarrada. Reconstruir el grupo entero por frame (cientos
+                   de paths) comia los frames y el borde se veia congelado
+                   hasta soltar: este es el fix de la fluidez. El transporte
+                   del seg al item sigue pasando aqui arriba: el borde del
+                   vector ya se repaintia en vivo con paper. */
+                let overlayOk = actualizarOverlayAntena(activeHandleData.handleType, activeHandleData.localIdx, activeHandleData.pathId);
+                if (symmetric) {
+                    const otra = activeHandleData.handleType === 'in' ? 'out' : 'in';
+                    overlayOk = actualizarOverlayAntena(otra, activeHandleData.localIdx, activeHandleData.pathId) && overlayOk;
+                }
+                if (!overlayOk) drawNodeHandles();   // antena nacida en el aire: un draw completo
+                else if (nodeHandlesGroup) nodeHandlesGroup.bringToFront();
             }
             /* El costo pesado NO corre por frame: syncGeometryToGeomBase y el
                recálculo CSG de perforados se hacen UNA VEZ en el mouseUp.
                Ponerlos acá re-ejecutaba todas las booleanas en cada movimiento
                del mouse: en objetos con huecos el arrastre se congelaba. */
-            drawNodeHandles();
             paper.view.update();
             return;
         }
@@ -774,6 +814,50 @@ function findGlobalIdxForSegment(path, localIdx) {
     return -1;
 }
 
+/* Antenas nacientes CORTAS y proporcionales. La longitud se define en
+   unidades GLOBALES (pixeles de proyecto) y se convierte al marco LOCAL del
+   path, porque el 10 fijo solia quedar excesivo: en letras de arco con su
+   propia escala la longitud visual era otra. Fin de antena objetivo:
+   un tercio de la distancia al vecino mas cercano, tope 22. */
+function nacerAntenasSuaves(path, seg) {
+    if (!path || !seg || typeof paper === 'undefined') return;
+    const prev = seg.previous;
+    const next = seg.next;
+    if (!prev && !next) return;
+    const puntoRef = seg.point;
+    const lenLocalProPorDir = dirLocalUnit => {
+        try {
+            const a = path.localToGlobal(puntoRef);
+            const b = path.localToGlobal(puntoRef.add(dirLocalUnit));
+            const unitG = a.getDistance(b);
+            if (unitG > 1e-6) return wantGlobal / unitG;
+        } catch (err) {}
+        return 10;
+    };
+    const dPrevG = prev ? path.localToGlobal(puntoRef).getDistance(path.localToGlobal(prev.point)) : null;
+    const dNextG = next ? path.localToGlobal(puntoRef).getDistance(path.localToGlobal(next.point)) : null;
+    let wantGlobal;
+    if (dPrevG != null && dNextG != null) wantGlobal = Math.min(dPrevG, dNextG) * 0.33;
+    else if (dPrevG != null) wantGlobal = dPrevG * 0.33;
+    else wantGlobal = dNextG * 0.33;
+    wantGlobal = Math.min(wantGlobal, 22);
+    if (!seg.handleIn.isZero() && !seg.handleOut.isZero()) return;   // ya tiene antenas: S no las iguala
+    if (prev && next) {
+        const dirIn = puntoRef.subtract(prev.point).normalize(1);
+        const dirOut = next.point.subtract(puntoRef).normalize(1);
+        if (seg.handleIn.isZero()) seg.handleIn = dirIn.multiply(-lenLocalProPorDir(dirIn));
+        if (seg.handleOut.isZero()) seg.handleOut = dirOut.multiply(lenLocalProPorDir(dirOut));
+    } else if (prev) {
+        const dir = puntoRef.subtract(prev.point).normalize(1);
+        if (seg.handleIn.isZero()) seg.handleIn = dir.multiply(-lenLocalProPorDir(dir));
+        if (seg.handleOut.isZero()) seg.handleOut = dir.multiply(lenLocalProPorDir(dir));
+    } else if (next) {
+        const dir = next.point.subtract(puntoRef).normalize(1);
+        if (seg.handleIn.isZero()) seg.handleIn = dir.multiply(-lenLocalProPorDir(dir));
+        if (seg.handleOut.isZero()) seg.handleOut = dir.multiply(lenLocalProPorDir(dir));
+    }
+}
+
 /* Un solo motor de inserción, usado por TRES vías con el mismo resultado:
    (a) modo Añadir Nodo activo + clic en el contorno (botón),
    (b) doble clic directo sobre el contorno, dentro del editor de nodos,
@@ -832,8 +916,15 @@ export function tryInsertNodeAt(projectPoint) {
        vectores planos es identico al punto global de antes; para letras de
        arco es periferica la diferencia. */
     path.insert(index + 1, nearestLoc.point);
-    // Nodo nuevo = esquina viva (sin smooth automático).
-    // El usuario presiona 'S' si quiere suavizar después.
+    /* Antenas de arranque (nodo suave desde el borde): el usuario pidio
+       ajustar la antena con precision al soltar el clic, así que el nodo
+       nace con antenas CORTAS proporcionales a los vecinos (en unidades
+       GLOBALES, convertidas al marco local: en letras de arco la escala
+       del glifo variaba la longitud visual). Con tecla C quedan como
+       esquina viva; con S se recalibran. */
+    try {
+        nacerAntenasSuaves(path, path.segments[index + 1]);
+    } catch (err) { /* sin vecinos: nodo sencillo */ }
     /* Índice global del nodo nuevo, calculado POR POSICIÓN y no por
        identidad: syncGeometryToGeomBase + el recálculo CSG pueden
        re-materializar los hijos del compuesto y los clones nuevos ya no
@@ -863,6 +954,27 @@ export function updateNodeHandlesScale() {
     if (window.paper && paper.view) paper.view.update();
 }
 
+/* Reposiciona SOLO la antena agarrada (linea + dot) sobre el overlay ya
+   dibujado, sin reconstruir el grupo entero. Devuelve false si la antena
+   no estaba dibujada (nacio en el air): el llamador hace un draw completo
+   una sola vez. */
+function actualizarOverlayAntena(handleType, localIdx, pathId) {
+    const ref = handleOverlayRefs.find(r =>
+        r.tipo === handleType && r.localIdx === localIdx && r.pathId === pathId);
+    if (!ref || !ref.line || !ref.dot) return false;
+    const path = paper.project.getItem({ id: pathId });
+    if (!path || !path.segments || !path.segments[localIdx]) return false;
+    const seg = path.segments[localIdx];
+    const handle = handleType === 'in' ? seg.handleIn : seg.handleOut;
+    if (!handle) return false;
+    const gp = path.localToGlobal(seg.point);
+    const gHandle = path.localToGlobal(seg.point.add(handle));
+    ref.line.segments[0].point = gp;
+    ref.line.segments[1].point = gHandle;
+    ref.dot.position = gHandle;
+    return true;
+}
+
 /**
  * Dibuja los tiradores visuales de cada segmento y sus tiradores Bézier sobre el lienzo.
  */
@@ -870,6 +982,7 @@ export function drawNodeHandles() {
     if (nodeHandlesGroup) {
         nodeHandlesGroup.remove();
     }
+    handleOverlayRefs = [];
 
     const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
     nodeHandlesGroup = new paper.Group();
@@ -915,6 +1028,7 @@ export function drawNodeHandles() {
                         }
                     });
                     nodeHandlesGroup.addChild(dotIn);
+                    handleOverlayRefs.push({ tipo: 'in', localIdx, pathId: path.id, line: lineIn, dot: dotIn });
                 }
 
                 if (segment.handleOut && !segment.handleOut.isZero()) {
@@ -941,6 +1055,7 @@ export function drawNodeHandles() {
                         }
                     });
                     nodeHandlesGroup.addChild(dotOut);
+                    handleOverlayRefs.push({ tipo: 'out', localIdx, pathId: path.id, line: lineOut, dot: dotOut });
                 }
             }
 
@@ -1097,27 +1212,14 @@ export function makeSelectedNodesSmooth() {
                 // - Nodo con UNA sola antena (típico en trazos vectorizados):
                 //   revela SOLAMENTE la que falta, sin tocar la existente.
                 // - Nodo con las dos: no tocarlas (LightBurn: S = revelar, no igualar).
+                // La longitud ya no es el 10 fijo que quedaba excesivo en
+                // glifos escalados: nacerAntenasSuaves la calibra en unidades
+                // globales (un tercio del vecino mas cercano, tope 22).
                 const faltaIn = seg.handleIn.isZero();
                 const faltaOut = seg.handleOut.isZero();
                 if (faltaIn || faltaOut) {
-                    const prevSeg = seg.previous;
-                    const nextSeg = seg.next;
-                    if (prevSeg && nextSeg) {
-                        const dirIn = seg.point.subtract(prevSeg.point).normalize(10);
-                        const dirOut = nextSeg.point.subtract(seg.point).normalize(10);
-                        if (faltaIn) seg.handleIn = dirIn.multiply(-1);
-                        if (faltaOut) seg.handleOut = dirOut;
-                    } else if (prevSeg) {
-                        const dir = seg.point.subtract(prevSeg.point).normalize(10);
-                        if (faltaIn) seg.handleIn = dir.multiply(-1);
-                        if (faltaOut) seg.handleOut = dir;
-                    } else if (nextSeg) {
-                        const dir = nextSeg.point.subtract(seg.point).normalize(10);
-                        if (faltaIn) seg.handleIn = dir.multiply(-1);
-                        if (faltaOut) seg.handleOut = dir;
-                    }
+                    try { nacerAntenasSuaves(path, seg); } catch (err) { /* sin vecinos */ }
                 }
-                // Si ya tiene las dos manijas, NO tocarlas (LightBurn: S = revelar, no igualar)
             }
             curGlobal++;
         });
