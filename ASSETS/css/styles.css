@@ -1309,9 +1309,11 @@ body,
    PhotoRoom. Antes era una tira horizontal que cruzaba el lienzo y tapaba la
    foto.
 
-   El lienzo de la ventana dibuja la foto con lo QUITADO desvanecido: el
-   cliente ve de un vistazo que region quedo fuera, sin ningun velo de color
-   encima que tape el dibujo.
+   El lienzo de la ventana dibuja la foto con lo QUITADO como un TABLERO DE
+   TRANSPARENCIA (cuadros) y un fantasma tenue de la foto original. Es la
+   misma senal que usan PhotoRoom y Photoshop: cuadros = no hay imagen. El
+   sujeto que queda se ve a color pleno, asi que se lee de un vistazo que se
+   quito y que se restauro, sin parches blancos ni negros.
    ========================================================================= */
 
 #ventana-editar-fondo {
@@ -1332,6 +1334,9 @@ body,
     height: 100%;
     min-width: 0;
     min-height: 0;
+    /* Mismo fondo neutro que pinta el lienzo: evita un parpadeo oscuro antes
+       del primer cuadro y deja claro que el marco NO es parte de la foto. */
+    background: #0e1218;
     /* el puntero dibuja su propio cursor: el del navegador estorba */
     cursor: none;
     touch-action: none;
