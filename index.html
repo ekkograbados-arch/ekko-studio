@@ -444,7 +444,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <button type="button" id="modo-manual" class="vfond__segb" aria-pressed="false" title="Pinta con el pincel (M)">Manual</button>
                     </div>
 
-                    <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automáticamente para hacerla más fácil.</p>
+                    <p class="vfond__ayuda" id="ayuda-modo">Toca una zona y se detecta sola. Los cuadros muestran lo que está quitado.</p>
 
                     <div class="vfond__bloque" id="grupo-tamano" hidden>
                         <div class="vfond__et">Tamaño del pincel
@@ -457,16 +457,17 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <p class="vfond__pista">El número es el diámetro del pincel, igual que el círculo del puntero</p>
                     </div>
 
-                    <!-- Zoom de la ventana: la rueda lo hace, y con Alt +
-                         arrastrar se desplaza. Es para trabajar detalle fino. -->
+                    <!-- Zoom de la ventana: la rueda lo hace, y con Alt,
+                         espacio o botón central + arrastrar se desplaza. Es
+                         para trabajar detalle fino (pelos, bordes). -->
                     <div class="vfond__bloque vfond__zoom">
                         <div class="vfond__et">Zoom <span id="valor-zoom-ventana" class="vfond__num">100%</span></div>
                         <div class="vfond__zoomfila">
                             <button type="button" id="zoom-menos" class="vfond__zoombtn" title="Alejar">&minus;</button>
-                            <button type="button" id="zoom-100" class="vfond__zoombtn vfond__zoombtn--texto" title="Volver al 100%">100%</button>
+                            <button type="button" id="zoom-100" class="vfond__zoombtn vfond__zoombtn--texto" title="Volver al encaje">100%</button>
                             <button type="button" id="zoom-mas" class="vfond__zoombtn" title="Acercar">+</button>
                         </div>
-                        <p class="vfond__pista">Rueda para acercar · Alt + arrastrar para mover</p>
+                        <p class="vfond__pista">Rueda: zoom hasta 2400% · Espacio o Alt + arrastrar: mover</p>
                     </div>
 
                     <div class="vfond__pie">
