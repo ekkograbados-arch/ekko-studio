@@ -538,17 +538,69 @@ function dispatchTextCurve(options = {}) {
         if (typeof paper !== "undefined") paper.view?.update?.();
     });
 }
-function dispatchTextSpacing(value = undefined) {
-    const item = window.selectedItem || window.selectedItems?.[0];
-    if (!item) return;
-    const hspace = Number(value ?? item.data?.hspace ?? 0) || 0;
-    Promise.resolve(applyTextSpacing(item, hspace)).then(() => {
-        window.updateSelectionBox?.(window.selectedItem || item);
-        window.updateContextualMenu?.(window.selectedItem || item);
-    });
-}
-window.dispatchTextCurve = dispatchTextCurve;
-window.dispatchTextSpacing = dispatchTextSpacing;
+    /* El onclick de DOM pasa el EVENTO como primer argumento: el despachador
+       viejo lo tomaba como si fuera el valor escrito y Number(evento) caia
+       en 0, asi que el boton "Espaciado" IGNORABA el campo y aplicaba 0.
+       Ahora se descartan objetos (eventos) y solo se aceptan numeros/strings. */
+    function dispatchTextSpacing(value = undefined, opts = {}) {
+        const item = window.selectedItem || window.selectedItems?.[0];
+        if (!item) return;
+        if (value && typeof value !== 'number' && typeof value !== 'string') value = undefined;
+        const hspace = Number(value ?? item.data?.hspace ?? 0) || 0;
+        Promise.resolve(applyTextSpacing(item, hspace, opts)).then(() => {
+            window.updateSelectionBox?.(window.selectedItem || item);
+            window.updateContextualMenu?.(window.selectedItem || item);
+            try { syncTextSpacingInputs(hspace); } catch (e) {}
+        });
+    }
+    /* Espejo de UI: numero, slider y lectura quedan con el mismo valor.
+       El campo que el usuario esta editando activamente no se toca. */
+    function syncTextSpacingInputs(valor) {
+        const v = String(Number(valor) || 0);
+        ['ctxTextSpacing', 'objTextSpacing'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el && document.activeElement !== el) el.value = v;
+        });
+        ['ctxTextSpacingSlider', 'objTextSpacingSlider'].forEach(id => {
+            const caja = document.getElementById(id);
+            if (!caja) return;
+            const rango = caja.querySelector('input[type=range]');
+            if (rango && document.activeElement !== rango) rango.value = v;
+        });
+        ['ctxSpacingVal', 'objSpacingVal'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = v;
+        });
+    }
+    /* ESPACIADO EN TIEMPO REAL: la primera modificacion de la rafaga guarda
+       UNA entrada de historial (estado previo); los ticks siguientes
+       aplican sin historial y se resuelven a UNA aplicacion por frame
+       (requestAnimationFrame), para que arrastrar el slider o escribir no
+       inunde el historial ni reconstruya dos veces por frame. */
+    let spacingBurst = false;
+    let spacingPend = null;
+    let spacingRaf = 0;
+    function liveTextSpacing(valor) {
+        const item = window.selectedItem || window.selectedItems?.[0];
+        if (!item) return;
+        if (!spacingBurst) {
+            if (typeof window.saveHistory === 'function') window.saveHistory();
+            spacingBurst = true;
+        }
+        spacingPend = valor;
+        if (spacingRaf) return;
+        spacingRaf = requestAnimationFrame(() => {
+            spacingRaf = 0;
+            const v = spacingPend;
+            spacingPend = null;
+            if (v === null || v === undefined) return;
+            dispatchTextSpacing(v, { skipHistory: true });
+        });
+    }
+    window.dispatchTextCurve = dispatchTextCurve;
+    window.dispatchTextSpacing = dispatchTextSpacing;
+    window.syncTextSpacingInputs = syncTextSpacingInputs;
+    window.liveTextSpacing = liveTextSpacing;
 
 export function initContextualMenu() {
     const canvasEl = document.getElementById("editorCanvas");
@@ -705,7 +757,21 @@ export function initContextualMenu() {
         const el = document.getElementById(id);
         if (!el || el.dataset.textSpacingOwner) return;
         el.dataset.textSpacingOwner = '1';
-        el.addEventListener('change', () => dispatchTextSpacing(el.value));
+        /* VIVO: 'input' dispara con cada tecla; 'change' solo cierra la
+           rafaga de historial (el estado previo ya habia quedado guardado
+           en el primer input del arranque). */
+        el.addEventListener('input', () => liveTextSpacing(el.value));
+        el.addEventListener('change', () => { spacingBurst = false; });
+    });
+    /* Barras deslizantes del espaciado (contexto y cinta superior) */
+    ['ctxTextSpacingSlider', 'objTextSpacingSlider'].forEach(id => {
+        const caja = document.getElementById(id);
+        if (!caja || caja.dataset.textSpacingOwner) return;
+        caja.dataset.textSpacingOwner = '1';
+        const rango = caja.querySelector('input[type=range]');
+        if (!rango) return;
+        rango.addEventListener('input', () => liveTextSpacing(rango.value));
+        rango.addEventListener('change', () => { spacingBurst = false; });
     });
 
     setClick('btnCtxScaleDown', () => {
