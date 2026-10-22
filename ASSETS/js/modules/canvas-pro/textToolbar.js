@@ -1768,19 +1768,49 @@ async function weldTextRun(item) {
         if (target.matrix && resultPath.matrix) resultPath.matrix = target.matrix.clone();
     }
 
-    // Calibración final contra la geometría visual del PointText. Esto evita
-    // que una matriz del clipGroup, un fallback previo o las métricas de un
-    // glifo en mayúscula/minúscula reduzcan la selección al vectorizar.
+    /* CALIBRACION REPARADA (fix "el texto se distorsiona al vectorizar").
+       El bug: target.bounds del PointText mide la CAJA METRICA (asc + desc,
+       alto fijo por fontSize, p.ej. 204 px @170 sea cual sea la letra),
+       mientras que el trazo OpenType mide la TINTA real del glifo. El
+       codigo anterior escalaba X e Y POR SEPARADO (sx, sy) para calzar la
+       tinta en esa caja: estiraba la letra en Y y la comprimia en X
+       (script: la S crecia ~13% de alto y perdia ~10% de ancho; 'gj' ~24%).
+       La forma de la letra es sagrada para grabado: ya NO se escala nada.
+       La posicion SI se mantiene: el render OpenType sale en coords locales
+       con el ancla duplicada (glifo en 0,0 + matriz del target), y se
+       alinea el centro de TINTA del trazo con el centro de TINTA del
+       texto dibujado, medido con canvas measureText (actualBoundingBox*),
+       que es la tinta real y no la caja metrica. Asia quoi: el vector
+       queda exactamente donde estaba la letra, con su proporcion exacta. */
     const beforeNormalize = resultPath.bounds.clone();
-    if (referenceBounds && beforeNormalize.width > 0 && beforeNormalize.height > 0) {
-        const sx = referenceBounds.width / beforeNormalize.width;
-        const sy = referenceBounds.height / beforeNormalize.height;
-        // Paper.js interpreta position/translate de forma local al parent.
-        // Convertir directamente a position global desplaza el texto cuando
-        // el owner vive dentro de clipGroup. Escalamos y luego trasladamos con
-        // delta global convertido al sistema local del parent.
-        resultPath.scale(sx, sy);
-        const globalDelta = referenceBounds.center.subtract(resultPath.bounds.center);
+    let inkCenterGlobal = null;
+    try {
+        const c2d = document.createElement('canvas').getContext('2d');
+        if (c2d && typeof c2d.measureText === 'function') {
+            const j = String(target.justification || 'left');
+            c2d.textAlign = (j === 'center' || j === 'middle') ? 'center' : (j === 'right' ? 'right' : 'left');
+            const pesoTexto = target.fontWeight ? (target.fontWeight + ' ') : '';
+            c2d.font = pesoTexto + (Number(target.fontSize) || 42) + 'px "' + target.fontFamily + '"';
+            const mInk = c2d.measureText(target.content || '');
+            if (mInk && mInk.actualBoundingBoxAscent !== undefined) {
+                const anchoInk = (mInk.actualBoundingBoxRight + mInk.actualBoundingBoxLeft) || 0;
+                const altoInk = (mInk.actualBoundingBoxAscent + mInk.actualBoundingBoxDescent);
+                const desplazX = anchoInk ? (mInk.actualBoundingBoxRight - mInk.actualBoundingBoxLeft) / 2 : 0;
+                /* El ancla del basline es el ORIGEN local (0,0) del PointText:
+                   paper expresa target.point EN GLOBAL y ademas la matriz del
+                   item ya la lleva, asi que usar target.point + localToGlobal
+                   duplicaba el offset (+400,+300 en el caso de prueba) y el
+                   translate se volvia no-op contra el centro actual. */
+                const centroInkLocal = new paper.Point(
+                    desplazX,
+                    -mInk.actualBoundingBoxAscent + altoInk / 2
+                );
+                inkCenterGlobal = target.localToGlobal(centroInkLocal);
+            }
+        }
+    } catch (inkErr) { inkCenterGlobal = null; }
+    if (inkCenterGlobal && beforeNormalize.width > 0 && beforeNormalize.height > 0) {
+        const globalDelta = inkCenterGlobal.subtract(resultPath.bounds.center);
         const ownerParent = resultPath.parent;
         if (ownerParent?.globalToLocal && resultPath.localToGlobal) {
             const globalOrigin = resultPath.localToGlobal(new paper.Point(0, 0));
@@ -1792,10 +1822,14 @@ async function weldTextRun(item) {
             resultPath.translate(globalDelta);
         }
         diag.geometry = {
-            reference: { width: referenceBounds.width, height: referenceBounds.height, center: referenceBounds.center },
             before: { width: beforeNormalize.width, height: beforeNormalize.height },
             after: { width: resultPath.bounds.width, height: resultPath.bounds.height },
-            scale: { x: sx, y: sy }
+            inkCenter: { x: inkCenterGlobal.x, y: inkCenterGlobal.y }
+        };
+    } else {
+        diag.geometry = {
+            before: { width: beforeNormalize.width, height: beforeNormalize.height },
+            inkCenter: null
         };
     }
     // Snapshot the calibrated geometry in the same local space as the public
