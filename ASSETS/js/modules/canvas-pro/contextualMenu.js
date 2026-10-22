@@ -11,7 +11,7 @@ Saneado conforme a la Ley del Efecto Rebote para desactivar dobles bindings en e
 y unificar IDs interactivos en inglés Figma/Canva Style.
 ========================================================================= */
 
-import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, loadDynamicFonts, textFontSize, isTextOwner } from "./textToolbar.js";
+import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, applyObjectSpacing, loadDynamicFonts, textFontSize, isTextOwner } from "./textToolbar.js";
 import { scaleImage, bringImageForward, sendImageBackward, bringImageToFront, sendImageToBack } from "./imageToolbar.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector } from "./ungroupRoutes.js";
@@ -547,6 +547,18 @@ function dispatchTextCurve(options = {}) {
         if (!item) return;
         if (value && typeof value !== 'number' && typeof value !== 'string') value = undefined;
         const hspace = Number(value ?? item.data?.hspace ?? 0) || 0;
+        /* RUTEO POR SELECCION (misma barra, tres motores, nunca convierte):
+           - varias piezas seleccionadas: se reparten horizontalmente.
+           - texto ya vectorizado: sus glifos se reacomodan en sitio.
+           - texto vivo: applyTextSpacing (grupo de letras, sin vectorizar). */
+        const multi = window.selectedItems && window.selectedItems.length > 1 ? window.selectedItems.filter(p => p && !p.data?.isSelectionBox) : null;
+        if ((multi && multi.length > 1) || (!multi && item.data?.isTextVector)) {
+            const objetivo = multi && multi.length > 1 ? multi : item;
+            Promise.resolve(applyObjectSpacing(objetivo, hspace, opts)).then(() => {
+                window.updateSelectionBox?.(window.selectedItem || item);
+            });
+            return;
+        }
         Promise.resolve(applyTextSpacing(item, hspace, opts)).then(() => {
             window.updateSelectionBox?.(window.selectedItem || item);
             window.updateContextualMenu?.(window.selectedItem || item);
@@ -603,6 +615,45 @@ function dispatchTextCurve(options = {}) {
     window.liveTextSpacing = liveTextSpacing;
 
 export function initContextualMenu() {
+    /* RUEDA DEL MOUSE EN TODAS LAS CAJAS NUMERICAS. En Canva, Office y
+       LightBurn cualquier casillero numérico responde a la rueda: un paso
+       por muesca (shift = diez pasos). Un solo listener delegado cubre TODAS
+       las cajas presentes y futuras. El 'input' dispara la respuesta en vivo
+       de cada herramienta; el 'change' llega recien cuando la rueda para
+       250 ms, para que no se inunden ni el historial ni los caminos de
+       commit. */
+    if (!window.__ekkoWheelNumbers) {
+        window.__ekkoWheelNumbers = true;
+        document.addEventListener('wheel', (evento) => {
+            const caja = evento.target && evento.target.closest
+                ? evento.target.closest('input[type=number], input.toolbar-input-number')
+                : null;
+            if (!caja || caja.disabled || caja.readOnly) return;
+            evento.preventDefault();
+            evento.stopPropagation();
+            const pasoBase = Math.abs(Number(caja.step)) || 0;
+            /* MUESCA VISIBLE: la rueda mueve de a ENTEROS (o el paso del campo
+               si es mayor). Con el paso crudo (0.01 mm) una muesca no se ve y
+               el cliente cree que la rueda no anda. Fino: Alt = un PASO del
+               campo; grueso: Shift = diez muescas. */
+            const paso = evento.altKey ? (pasoBase || 1) : Math.max(pasoBase, 1);
+            const multiplicador = evento.shiftKey ? 10 : 1;
+            const actual = parseFloat(String(caja.value).replace(',', '.')) || 0;
+            const dir = evento.deltaY < 0 ? 1 : -1;
+            let nuevo = actual + dir * paso * multiplicador;
+            const min = caja.min !== undefined && caja.min !== '' && !isNaN(parseFloat(caja.min)) ? parseFloat(caja.min) : null;
+            const max = caja.max !== undefined && caja.max !== '' && !isNaN(parseFloat(caja.max)) ? parseFloat(caja.max) : null;
+            if (min !== null) nuevo = Math.max(min, nuevo);
+            if (max !== null) nuevo = Math.min(max, nuevo);
+            nuevo = Math.round(nuevo * 10000) / 10000;
+            caja.value = nuevo;
+            caja.dispatchEvent(new Event('input', { bubbles: true }));
+            clearTimeout(caja.__ekkoWheelTimer);
+            caja.__ekkoWheelTimer = setTimeout(() => {
+                caja.dispatchEvent(new Event('change', { bubbles: true }));
+            }, 250);
+        }, { passive: false });
+    }
     const canvasEl = document.getElementById("editorCanvas");
     if (canvasEl) {
         canvasEl.addEventListener("contextmenu", (e) => {
