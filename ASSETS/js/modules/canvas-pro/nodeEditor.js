@@ -774,10 +774,13 @@ function findGlobalIdxForSegment(path, localIdx) {
     return -1;
 }
 
-/* Un solo motor de inserción, usado por DOS vías con el mismo resultado:
+/* Un solo motor de inserción, usado por TRES vías con el mismo resultado:
    (a) modo Añadir Nodo activo + clic en el contorno (botón),
-   (b) doble clic directo sobre el contorno, sin modo alguno (Inkscape/Photoshop). */
-function tryInsertNodeAt(projectPoint) {
+   (b) doble clic directo sobre el contorno, dentro del editor de nodos,
+   (c) doble clic sobre un vector SIN editor abierto: entra al editor y agrega
+       el nodo en ese punto (Inkscape/Photoshop). La delega selection.js
+       tras resolver el hit del doble clic. */
+export function tryInsertNodeAt(projectPoint) {
     if (!window.nodeEditMode || !activeNodeItem) return false;
     const targetPaths = getTargetPaths(activeNodeItem);
     let nearestLoc = null;
@@ -1200,4 +1203,5 @@ if (typeof window !== 'undefined') {
     window.deleteSelectedNodes = deleteSelectedNodes;
     window.moveSelectedNodesByDelta = moveSelectedNodesByDelta;
     window.syncGeometryToGeomBase = syncGeometryToGeomBase;
+    window.tryInsertNodeAt = tryInsertNodeAt;
 }
