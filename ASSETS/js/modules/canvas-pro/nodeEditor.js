@@ -796,13 +796,14 @@ export function tryInsertNodeAt(projectPoint) {
         }
     }
     if (!nearestLoc) return false;
-    /* Guardia anti-duplicado: si el punto cayó sobre/muy cerca de un nodo
-       existente, no inserta nada (antes metía un nodo invisible en el mismo
-       punto y parecía que nada había pasado). */
+    /* Guardia anti-duplicado: SOLO bloquea el clic que cae encima del dot de
+       un nodo existente (radio del dot + margen mínimo = 4/zoom). Antes era
+       6/zoom y en vectores densos (texto vectorizado: nodos cada pocos px)
+       se comía casi cualquier doble clic válido: parecía que no hacía nada. */
     let cercaNodoExistente = false;
     for (const p of targetPaths) {
         for (const s of p.segments) {
-            if (p.localToGlobal(s.point).getDistance(projectPoint) < 6 / paper.view.zoom) {
+            if (p.localToGlobal(s.point).getDistance(projectPoint) < 4 / paper.view.zoom) {
                 cercaNodoExistente = true;
                 break;
             }
@@ -816,10 +817,21 @@ export function tryInsertNodeAt(projectPoint) {
     path.insert(index + 1, nearestLoc.point);
     // Nodo nuevo = esquina viva (sin smooth automático).
     // El usuario presiona 'S' si quiere suavizar después.
+    /* Índice global del nodo nuevo, calculado POR POSICIÓN y no por
+       identidad: syncGeometryToGeomBase + el recálculo CSG pueden
+       re-materializar los hijos del compuesto y los clones nuevos ya no
+       coinciden con la referencia vieja (el verde quedaba blanco en texto
+       vectorizado, donde ese recálculo corre siempre). */
+    const receiveIdx = targetPaths.indexOf(path);
+    let globalIdx = -1;
+    if (receiveIdx !== -1) {
+        globalIdx = 0;
+        for (let i = 0; i < receiveIdx; i++) globalIdx += targetPaths[i].segments.length;
+        globalIdx += index + 1;
+    }
     syncGeometryToGeomBase(activeNodeItem);
     safeRecalculateSubtractions();
     selectedNodes.clear();
-    const globalIdx = findGlobalIdxForSegment(path, index + 1);
     if (globalIdx !== -1) {
         selectedNodes.add(globalIdx);
     }
