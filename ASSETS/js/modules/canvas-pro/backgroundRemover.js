@@ -1530,6 +1530,10 @@
             manual: RETOQUE.manual,
             radio: RETOQUE.radio,
             verQuitado: RETOQUE.verQuitado,
+            // Zoom de la ventana (1 = encaje; 24 = maximo) y desplazamiento.
+            // Se expone para poder MEDIRLO en los bancos, no para la UI.
+            zoom: RETOQUE.zoomVentana || 1,
+            pan: { ...(RETOQUE.panVentana || { x: 0, y: 0 }) },
             // Historial: `pasos` es cuantos estados hay y `paso` en cual se
             // esta. Deshacer se puede mientras `paso > 0` y Rehacer mientras
             // `paso < pasos - 1`.
@@ -1581,6 +1585,8 @@
                 lienzoTrabajo: ESTADO.lienzoTrabajo ? { ...ESTADO.lienzoTrabajo } : null,
                 caja: ESTADO.caja ? { ...ESTADO.caja } : null,
                 ventanaCaja: ESTADO.ventanaCaja ? { ...ESTADO.ventanaCaja } : null,
+                zoomVentana: RETOQUE.zoomVentana || 1,
+                panVentana: { ...(RETOQUE.panVentana || { x: 0, y: 0 }) },
                 ultimoError: ESTADO.ultimoError ? String(ESTADO.ultimoError && ESTADO.ultimoError.message || ESTADO.ultimoError) : null
             };
         },
@@ -1668,6 +1674,14 @@
        Por eso "Deshacer" devuelve la mascara original: el cliente puede
        retocar, arrepentirse y volver al resultado de la IA sin recalcular.
        ===================================================================== */
+
+    // Zoom de la ventana de edicion, RELATIVO AL ENCAJE (zoom 1 = la foto
+    // entra completa). 24x deja cada pixel de la foto en ~15 px de pantalla
+    // con la foto de referencia: suficiente para pelo y detalles minimos.
+    // Antes el techo era 8x y el cliente no llegaba al detalle.
+    const ZOOM_MIN = 1;
+    const ZOOM_MAX = 24;
+
     const RETOQUE = {
         activo: false,
         modo: 'borrar',        // 'borrar' quita, 'restaurar' devuelve
@@ -1720,18 +1734,20 @@
         // "Ver lo que se quito": capa translucida sobre lo que ya quedo
         // transparente, para poder precisar que restaurar.
         verQuitado: false,
-        // Capas CACHEADAS de la vista previa, a resolucion de trabajo:
+        // Capa CACHEADAS de la vista previa, a resolucion de trabajo:
         //   `capaRecorte` = foto con la alfa aplicada (lo que queda)
-        //   `capaVelo`    = blanco con alfa (1 - alfa) (lo que se quito)
         //
         // Antes la vista se armaba de dos maneras: durante el arrastre con la
         // mascara cruda y al soltar con la composicion refinada. Ese cambio de
         // camino hacia que TODO el contorno se redibujara al soltar un punto,
         // y el cliente lo leia como "el manual restaura/borra cosas que no
-        // pinte". Con las capas cacheadas la vista es SIEMPRE la misma; el
+        // pinte". Con la capa cacheada la vista es SIEMPRE la misma; el
         // pincel solo actualiza su circulo (ver `pintarPincel`).
+        //
+        // El "velo blanco" que habia antes se elimino: ahora lo quitado se
+        // muestra con el tablero de transparencia + un fantasma de la foto
+        // original, que es la senal universal de "aca no hay imagen".
         capaRecorte: null,
-        capaVelo: null,
         capasClave: '',
         capasSucias: true,
         // Zoom PROPIO de la ventana de edicion. No toca `paper.view` a
@@ -1806,11 +1822,11 @@
         RETOQUE.modo = modo === 'restaurar' ? 'restaurar' : 'borrar';
         RETOQUE.activo = true;
         marcarPincelActivo();
-        // El velo de "lo quitado" tiene distinta fuerza segun la herramienta
-        // (0,78 Borrar / 0,58 Restaurar). El boton de la ventana ya repintaba,
-        // pero este camino (el que usa el panel flotante) NO lo hacia: al
-        // cambiar de pincel desde el panel, el fondo se quedaba con la fuerza
-        // anterior hasta el siguiente trazo. Se repinta aca tambien.
+        // Se repinta al cambiar de herramienta para que el cursor y la vista
+        // queden sincronizados. El boton de la ventana ya lo hacia, pero este
+        // camino (el que usa el panel flotante) NO: al cambiar de pincel desde
+        // el panel, la vista se quedaba con el estado anterior hasta el
+        // siguiente trazo.
         try { pintarLienzoVentana(); }
         catch (e) {
             ESTADO.ultimoError = e;
@@ -1888,22 +1904,12 @@
     function modoManual() { return ponerModoRetoque(true); }
 
     /**
-     * Dibuja el lienzo de la ventana de Editar Fondo.
-     *
-     * Se ve la foto con la zona QUITADA desvanecida y el sujeto normal. Es lo
-     * que pedia el cliente: saber de un vistazo que quedo fuera, sin un velo de
-     * color encima que tape el dibujo (lo que se intento antes y quedo mal: un
-     * bloque opaco que ocultaba la foto entera).
-     *
-     * El lienzo es PROPIO de la ventana y no toca el lienzo del editor: asi el
-     * recorte nunca se mueve del mockup mientras se retoca.
-     */
-    /**
      * Zoom de la ventana de edicion.
      *
-     * La rueda hace zoom y el arrastre con Alt desplaza. El zoom ancla en el
-     * punto donde esta el puntero, que es lo que se necesita paradetail fino:
-     * uno acerca justo la zona que quiere corregir.
+     * La rueda hace zoom y el arrastre con Alt, con el boton central o con
+     * ESPACIO apretado desplaza. El zoom ancla en el punto donde esta el
+     * puntero, que es lo que se necesita para detalle fino: uno acerca justo
+     * la zona que quiere corregir.
      *
      * No toca `paper.view`: el encuadre del editor y del mockup queda intacto.
      */
@@ -1913,7 +1919,7 @@
         if (!cv || !caja || !caja.esc) return;
         const pan = RETOQUE.panVentana || { x: 0, y: 0 };
         const antes = RETOQUE.zoomVentana || 1;
-        const despues = Math.max(1, Math.min(8, antes * factor));
+        const despues = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, antes * factor));
         if (despues === antes) return;
         const rc = cv.getBoundingClientRect();
         // Punto de la imagen bajo el puntero, para que no se mueva al zoomear.
@@ -1946,10 +1952,12 @@
     }
 
     /**
-     * Reconstruye las DOS capas de la vista previa a resolucion de trabajo:
+     * Reconstruye la capa cacheada de la vista previa a resolucion de trabajo:
      *
      *   capaRecorte = foto con la alfa aplicada (lo que queda)
-     *   capaVelo    = blanco con alfa (1 - alfa) (lo que se quito)
+     *
+     * El resto de la vista (tablero de transparencia + fantasma de la foto)
+     * se dibuja directo en `pintarLienzoVentana`: no hace falta otra capa.
      *
      * Se recalcula al abrir, al deshacer y al soltar el pincel. Mientras se
      * arrastra NO se reconstruye: `pintarPincel` actualiza solo su circulo.
@@ -1963,67 +1971,105 @@
         const src = ESTADO.lienzoOriginal || (ref && ref.getElement && ref.getElement());
         if (!src) return false;
         try {
-            const recorte = componerRecorte(
+            RETOQUE.capaRecorte = componerRecorte(
                 ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto,
                 src, aw, ah, ESTADO.caja, ESTADO.mascaraFinal);
-            const rd = recorte.getContext('2d', { willReadFrequently: true })
-                .getImageData(0, 0, aw, ah).data;
-            const velo = document.createElement('canvas');
-            velo.width = aw; velo.height = ah;
-            const vctx = velo.getContext('2d');
-            const vi = vctx.createImageData(aw, ah);
-            const vd = vi.data;
-            for (let i = 0, n = aw * ah; i < n; i++) {
-                const j = i * 4;
-                vd[j] = 255; vd[j + 1] = 255; vd[j + 2] = 255;
-                vd[j + 3] = 255 - rd[j + 3];
-            }
-            vctx.putImageData(vi, 0, 0);
-            RETOQUE.capaRecorte = recorte;
-            RETOQUE.capaVelo = velo;
             RETOQUE.capasClave = claveCapas();
             RETOQUE.capasSucias = false;
             return true;
         } catch (e) {
             ESTADO.ultimoError = e;
             RETOQUE.capaRecorte = null;
-            RETOQUE.capaVelo = null;
             return false;
         }
     }
 
     /**
-     * Actualiza en las capas cacheadas SOLO el recuadro que acaba de pintar el
-     * pincel. La alfa del recorte y la del velo salen del mismo valor de
-     * mascara, asi que siguen coincidiendo con una reconstruccion completa.
+     * Actualiza en la capa cacheada SOLO el recuadro que acaba de pintar el
+     * pincel. La alfa sale del mismo valor de mascara, asi que sigue
+     * coincidiendo con una reconstruccion completa.
      */
     function actualizarCapasEn(x0, y0, x1, y1) {
-        const capa = RETOQUE.capaRecorte, velo = RETOQUE.capaVelo;
+        const capa = RETOQUE.capaRecorte;
         const w = ESTADO.mascaraAncho, h = ESTADO.mascaraAlto;
-        if (!capa || !velo || RETOQUE.capasSucias) return;
+        if (!capa || RETOQUE.capasSucias) return;
         if (capa.width !== w || capa.height !== h) return;
-        if (velo.width !== w || velo.height !== h) return;
         const bw = x1 - x0, bh = y1 - y0;
         if (!(bw > 0) || !(bh > 0)) return;
         try {
             const cctx = capa.getContext('2d', { willReadFrequently: true });
-            const vctx = velo.getContext('2d', { willReadFrequently: true });
+
+            // El canvas 2D NO conserva el color de los pixeles transparentes:
+            // al consultarlos devuelve 0,0,0. Si solo se cambia la alfa al
+            // restaurar, lo restaurado sale NEGRO. MEDIDO en `banco-vista`:
+            // el punto restaurado daba (0,0,0) en vez del color de la foto.
+            //
+            // Se repinta el RGB desde la foto ORIGINAL en el recuadro del
+            // pincel antes de aplicar la alfa. Es barato (el recuadro es el
+            // circulo pintado) y el RGB del recorte es la misma foto: el
+            // matteado y el refinado solo tocan la alfa.
+            const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+            const ref = ESTADO.imagenOriginal || r;
+            const src = ESTADO.lienzoOriginal || (ref && ref.getElement && ref.getElement());
+            const natW = src && (src.naturalWidth || src.width);
+            const natH = src && (src.naturalHeight || src.height);
+            if (src && natW > 0 && natH > 0) {
+                cctx.drawImage(
+                    src,
+                    (x0 / w) * natW, (y0 / h) * natH,
+                    (bw / w) * natW, (bh / h) * natH,
+                    x0, y0, bw, bh);
+            }
+
             const ci = cctx.getImageData(x0, y0, bw, bh);
-            const vi = vctx.getImageData(x0, y0, bw, bh);
             for (let y = 0; y < bh; y++) {
                 for (let x = 0; x < bw; x++) {
                     const a = ESTADO.mascara[(y0 + y) * w + (x0 + x)];
                     const av = Math.max(0, Math.min(255, Math.round(a * 255)));
                     const o = (y * bw + x) * 4;
                     ci.data[o + 3] = av;
-                    vi.data[o + 3] = 255 - av;
                 }
             }
             cctx.putImageData(ci, x0, y0);
-            vctx.putImageData(vi, x0, y0);
         } catch (e) { ESTADO.ultimoError = e; }
     }
 
+    // Tablero de transparencia de la ventana: cuadros claros, como el fondo
+    // de Photoshop. Se genera UNA vez y se reutiliza; cada cuadro mide
+    // TABLERO_CELDA px de PANTALLA, no de imagen, asi no cambia con el zoom.
+    const TABLERO_CELDA = 10;
+    const FANTASMA_ALFA = 0.38;
+    let tableroCanvas = null;
+    let tableroPatron = null;
+    let tableroPatronCtx = null;
+    function patronTablero(ctx) {
+        if (!tableroCanvas) {
+            tableroCanvas = document.createElement('canvas');
+            tableroCanvas.width = TABLERO_CELDA * 2;
+            tableroCanvas.height = TABLERO_CELDA * 2;
+            const g = tableroCanvas.getContext('2d');
+            g.fillStyle = '#e8ecf1';
+            g.fillRect(0, 0, TABLERO_CELDA * 2, TABLERO_CELDA * 2);
+            g.fillStyle = '#c6ccd4';
+            g.fillRect(0, 0, TABLERO_CELDA, TABLERO_CELDA);
+            g.fillRect(TABLERO_CELDA, TABLERO_CELDA, TABLERO_CELDA, TABLERO_CELDA);
+        }
+        if (!tableroPatron || tableroPatronCtx !== ctx) {
+            tableroPatron = ctx.createPattern(tableroCanvas, 'repeat');
+            tableroPatronCtx = ctx;
+        }
+        return tableroPatron;
+    }
+
+    /**
+     * Dibuja la vista de edicion:
+     *   fondo neutro en toda la ventana,
+     *   tablero de transparencia + fantasma de la foto SOLO dentro de la foto,
+     *   y encima el recorte real.
+     *
+     * El lienzo es PROPIO de la ventana y no toca `paper.view`: el encuadre
+     * del editor y del mockup queda intacto mientras se retoca.
+     */
     function pintarLienzoVentana(refinado) {
         const cv = document.getElementById('lienzo-editar-fondo');
         if (!cv) return;
@@ -2036,7 +2082,12 @@
         }
         const ctx = cv.getContext('2d');
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, ancho, alto);
+        // Fondo NEUTRO de toda la ventana. Antes se limpiaba y quedaba a la
+        // vista el fondo del editor: al hacer zoom se veia NEGRO alrededor de
+        // la foto y el cliente lo confundia con "lo que borre". Ahora el
+        // unico negro es el marco, siempre igual.
+        ctx.fillStyle = '#0e1218';
+        ctx.fillRect(0, 0, ancho, alto);
 
         const r = imagenEnRetoque() || ESTADO.imagenProcesada;
         if (!r) return;
@@ -2080,66 +2131,75 @@
 
         if (!(mw > 0) || !(mh > 0) || !ESTADO.mascara) return;
 
-        // COMO SE MUESTRA LA FOTO: son DOS capas, y solo dos.
+        // COMO SE MUESTRA LA FOTO (esto es lo que se lee de un vistazo):
         //
-        //   1) la foto ORIGINAL entera, a pleno color, siempre debajo
-        //   2) el sujeto recortado por la mascara, encima
+        //   - Lo que se MANTIENE: color pleno.
+        //   - Lo que se QUITO: TABLERO DE TRANSPARENCIA (cuadros) + un
+        //     fantasma tenue de la foto original.
         //
-        // Asi lo que no se borro SE VE (esta en la capa 1), y lo que se borro
-        // deja de estar en la capa 2. Es lo que hace PhotoRoom: en su pantalla
-        // la habitacion se ve entera y luminosa, con las personas encima.
+        // El tablero es la senal universal de "aca no hay imagen" (PhotoRoom,
+        // Photoshop). El fantasma deja ver que hay debajo para poder
+        // restaurar sin adivinar. Antes se lavaba la zona quitada con blanco:
+        // eso producia un parche blanco, y cuando el zoom dejaba ver el fondo
+        // de la ventana aparecia negro. Ninguno de los dos decia "transparente".
+        // Solo se dibuja la parte VISIBLE de la foto.
         //
-        // MEDIDO, lo que NO hay que hacer:
-        //   - foto al 22%: se leia "el fondo sigue ahi, solo que oscuro".
-        //   - solo el recorte: lo que no se borro desaparecia, al reves de lo
-        //     que tiene que pasar.
-        //   - foto entera MAS un agujero encima: la habitacion queda oscura y
-        //     el recorte parece no haberse hecho. El agujero no va, la foto de
-        //     abajo ya esta y no hay que perforarla.
+        // MEDIDO: a 24x el rectangulo de destino mide ~13500x24000 px. Con
+        // `drawImage(src, ox, oy, w, h)` el navegador recorria la foto entera
+        // en cada movimiento y el paneo costaba 49 ms (20 fps). Recortando al
+        // area visible, el destino baja a 1332x1000 y el paneo queda fluido.
+        const dx0 = Math.max(ox, 0);
+        const dy0 = Math.max(oy, 0);
+        const dx1 = Math.min(ox + w, ancho);
+        const dy1 = Math.min(oy + h, alto);
+        if (!(dx1 > dx0) || !(dy1 > dy0)) return;   // la foto quedo fuera
+        const dw = dx1 - dx0, dh = dy1 - dy0;
+        const sx = ((dx0 - ox) / w) * natW;
+        const sy = ((dy0 - oy) / h) * natH;
+        const sw = (dw / w) * natW;
+        const sh = (dh / h) * natH;
 
-        // COMO SE MUESTRA LA FOTO — esto es lo que costo entender:
-        //
-        // Lo que se QUITO se ve BLANCO. Lo que se MANTIENE va en su color.
-        //
-        // No es un hueco, no es transparente, no es un contorno: es la foto
-        // entera con la zona quitada lavada a blanco. Asi se lee de un vistazo
-        // que se saco y que se dejo, que es lo que pidio el cliente y lo que
-        // hace PhotoRoom (por eso alla la habitacion se ve blanquisima).
-        //
-        // MEDIDO, lo que se intento y NO era:
-        //   - solo el recorte sobre fondo oscuro: lo que no se borro desaparecia.
-        //   - la foto al 22%: se leia "el fondo sigue ahi, solo que oscuro".
-        //   - un contorno rojo/verde: invention del agente, el cliente lo veto.
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(ox, oy, w, h);
+        ctx.clip();
 
-        // Capa 1: la foto original, a pleno color.
-        ctx.drawImage(src, ox, oy, w, h);
+        // 1) Tablero de transparencia, solo dentro de la foto. Los cuadros
+        //    miden siempre lo mismo en pantalla, aunque se haga zoom.
+        ctx.fillStyle = patronTablero(ctx);
+        ctx.fillRect(dx0, dy0, dw, dh);
 
-        // Capas 2 y 3: el velo de lo quitado y el recorte, SIEMPRE desde las
-        // mismas capas cacheadas a resolucion de trabajo. Asi el arrastre y el
-        // "soltar" muestran exactamente lo mismo: antes el arrastre usaba la
-        // mascara cruda y al soltar se cambiaba a la composicion refinada, y
-        // ese cambio redibujaba todo el contorno aunque se hubiera pintado un
-        // solo punto (el cliente lo leyo como "el manual funciona como asistido").
+        // 2) Fantasma de la foto ORIGINAL. Va siempre debajo del recorte: en
+        //    el sujeto opaco no se ve (lo tapa) y en lo quitado deja ver el
+        //    pelo/fondo que se puede devolver.
+        ctx.globalAlpha = FANTASMA_ALFA;
+        ctx.drawImage(src, sx, sy, sw, sh, dx0, dy0, dw, dh);
+        ctx.globalAlpha = 1;
+
+        // 3) El recorte real, con su alfa. Es la unica capa que se cachea, a
+        //    resolucion de trabajo, para que el arrastre y el "soltar"
+        //    muestren exactamente lo mismo.
         const cacheValida = !refinado
-            && RETOQUE.capaRecorte && RETOQUE.capaVelo
+            && RETOQUE.capaRecorte
             && !RETOQUE.capasSucias
             && RETOQUE.capasClave === claveCapas();
-        if (!cacheValida && !reconstruirCapas()) return;
+        if (!cacheValida && !reconstruirCapas()) { ctx.restore(); return; }
+        const capa = RETOQUE.capaRecorte;
+        if (!capa) { ctx.restore(); return; }
+        // La capa de trabajo ocupa el MISMO rectangulo que la foto, pero a su
+        // propia resolucion: se recorta con la misma proporcion.
+        const csx = (sx / natW) * capa.width;
+        const csy = (sy / natH) * capa.height;
+        const csw = (sw / natW) * capa.width;
+        const csh = (sh / natH) * capa.height;
+        ctx.drawImage(capa, csx, csy, csw, csh, dx0, dy0, dw, dh);
 
-        // Fuerza del velo por herramienta:
-        //   RESTAURAR -> 0.58 (destacar sin tapar las sillas que hay que recuperar)
-        //   BORRAR    -> 0.78 (la zona quitada queda fantasma)
-        const fuerza = RETOQUE.modo === 'restaurar' ? 0.58 : 0.78;
-        // Orden de dibujo: foto original, sujeto recortado y ENCIMA el velo de
-        // lo quitado. El velo va arriba a proposito: asi lo que se pinta se ve
-        // con la misma fuerza en el centro y en el borde difuminado, y el
-        // circulo pintado coincide con el anillo del cursor. Si el sujeto
-        // tapara el velo (orden inverso), el borde suave del pincel se veria
-        // mucho mas chico de lo que se pinto.
-        ctx.drawImage(RETOQUE.capaRecorte, ox, oy, w, h);
-        ctx.globalAlpha = fuerza;
-        ctx.drawImage(RETOQUE.capaVelo, ox, oy, w, h);
-        ctx.globalAlpha = 1;
+        ctx.restore();
+
+        // Borde fino: separa la foto del fondo neutro cuando se hace zoom.
+        ctx.strokeStyle = 'rgba(255,255,255,.14)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(ox + 0.5, oy + 0.5, w - 1, h - 1);
 
         ESTADO.ventanaCaja = { ox, oy, w, h, esc, natW, natH };
     }
@@ -2231,9 +2291,18 @@
     }
 
     function abrirRetoque() {
+        const ventana = document.getElementById('ventana-editar-fondo');
+        // Si YA esta abierto, no se reinicia NADA: ni zoom, ni paneo, ni
+        // historial. MEDIDO: `elegirPincel()` (el camino del panel flotante)
+        // llamaba a esta funcion y al cambiar de herramienta se perdia el
+        // zoom y el paneo, el historial volvia al recorte de la IA y el
+        // cartel quedaba en 2400% mientras la foto volvia al encaje.
+        if (RETOQUE.activo && ventana && ventana.classList.contains('vf-visible')) return true;
         // El zoom de la ventana arranca limpio en cada apertura.
         RETOQUE.zoomVentana = 1;
         RETOQUE.panVentana = { x: 0, y: 0 };
+        const etZoom = document.getElementById('valor-zoom-ventana');
+        if (etZoom) etZoom.textContent = '100%';
         if (!ESTADO.imagenProcesada || !ESTADO.mascara) {
             avisar('Primero quitá el fondo, después retocá el recorte.', { kind: 'warn' });
             return false;
@@ -2254,7 +2323,6 @@
         // El historial arranca en el recorte de la IA: Deshacer y Rehacer
         // trabajan sobre este retoque, no sobre la escena del editor.
         historialReiniciar();
-        const ventana = document.getElementById('ventana-editar-fondo');
         if (!ventana) {
             avisar('No se encontró la ventana de editar.', { kind: 'error' });
             return false;
@@ -2572,8 +2640,8 @@
         const ayuda = document.getElementById('ayuda-modo');
         if (ayuda) {
             ayuda.textContent = RETOQUE.manual
-                ? 'Pinta lo que quieras quitar. Usa Restaurar para volver atrás.'
-                : 'Los objetos se detectan automáticamente para hacerla más fácil.';
+                ? 'Pinta para quitar. Con Restaurar vuelve lo que se ve bajo los cuadros.'
+                : 'Toca una zona y se detecta sola. Los cuadros muestran lo que está quitado.';
         }
     }
 
@@ -3148,7 +3216,7 @@
         const zCien = document.getElementById('zoom-100');
         const zValor = document.getElementById('valor-zoom-ventana');
         const ponZoom = (z) => {
-            RETOQUE.zoomVentana = Math.max(1, Math.min(8, z));
+            RETOQUE.zoomVentana = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
             if (zValor) zValor.textContent = Math.round(RETOQUE.zoomVentana * 100) + '%';
             try { pintarLienzoVentana(); } catch (_) {}
             actualizarCursor();
@@ -3224,6 +3292,40 @@
         const canvas = document.getElementById('lienzo-editar-fondo');
         let pintando = false;
 
+        // ESPACIO + arrastrar = mover la foto, como en Photoshop. Se declara
+        // aca porque lo consultan el pincel (para no pintar mientras se
+        // navega) y el manejo de paneo. Con 24x de zoom, moverse es tan
+        // importante como acercarse.
+        let espacio = false;
+        let ratonDentro = false;
+        const enCampo = (t) => {
+            const n = (t && (t.tagName || '')).toUpperCase();
+            return n === 'INPUT' || n === 'TEXTAREA' || !!(t && t.isContentEditable);
+        };
+        const mostrarCursorPincel = (visible) => {
+            const cur = document.getElementById('cursor-pincel');
+            if (!cur) return;
+            cur.style.display = visible ? 'block' : 'none';
+            cur.dataset.visible = visible ? '1' : '';
+        };
+        window.addEventListener('keydown', (ev) => {
+            if (!RETOQUE.activo || enCampo(ev.target)) return;
+            if (ev.code === 'Space' || ev.key === ' ') {
+                espacio = true;
+                // Sin esto, el navegador baja la pagina con la barra espaciadora.
+                ev.preventDefault();
+                mostrarCursorPincel(false);
+            }
+        }, true);
+        window.addEventListener('keyup', (ev) => {
+            if (ev.code === 'Space' || ev.key === ' ') {
+                espacio = false;
+                // Si el puntero sigue sobre la foto, el anillo vuelve sin
+                // esperar a que el cliente mueva el mouse.
+                if (RETOQUE.activo && ratonDentro) mostrarCursorPincel(true);
+            }
+        }, true);
+
         const sobreLienzo = (ev) => {
             try { return !!(canvas && canvas.contains(ev.target)); }
             catch (_) { return false; }
@@ -3259,6 +3361,10 @@
         window.addEventListener('pointerdown', (ev) => {
             if (!RETOQUE.activo) return;
             if (!sobreLienzo(ev)) return;
+            // Alt, ESPACIO o boton central son NAVEGACION, no pincel. MEDIDO:
+            // sin esta salida, Alt+arrastrar pintaba un punto al empezar a
+            // mover, porque los dos manejadores se disparan en el mismo evento.
+            if (ev.altKey || espacio || ev.button === 1) return;
             if (ev.button !== undefined && ev.button !== 0) return;
             ev.preventDefault();
             ev.stopPropagation();
@@ -3268,11 +3374,12 @@
         }, true);
 
         window.addEventListener('pointermove', (ev) => {
-            if (!RETOQUE.activo || !sobreLienzo(ev)) return;
+            ratonDentro = sobreLienzo(ev);
+            if (!RETOQUE.activo || !ratonDentro) return;
             // El cursor se mueve en LOS DOS modos. Antes en Asistido se llamaba
             // con null, sin el evento, y eso hacia que nunca recibiera posicion:
             // el circulo quedaba oculto y el cliente se quedaba sin puntero de referencia.
-            actualizarCursor(ev);
+            if (!espacio) actualizarCursor(ev);
             if (!pintando || !RETOQUE.manual) return;
             ev.preventDefault();
             ev.stopPropagation();
@@ -3282,10 +3389,10 @@
         // Al salir del lienzo el cursor se esconde: si queda congelado en el
         // borde parece que el pincel sigue activo.
         window.addEventListener('pointerleave', () => {
-            const cur = document.getElementById('cursor-pincel');
-            if (cur) { cur.style.display = 'none'; cur.dataset.visible = ''; }
+            ratonDentro = false;
+            mostrarCursorPincel(false);
         }, true);
-        window.addEventListener('blur', () => { pintando = false; }, true);
+        window.addEventListener('blur', () => { pintando = false; espacio = false; }, true);
 
         // Al SOLTAR ya no hay que cambiar de camino de dibujo: durante el
         // arrastre las capas cacheadas se actualizan solo en el circulo
@@ -3334,12 +3441,14 @@
             zoomEn(ev, ev.deltaY < 0 ? 1.15 : 1 / 1.15);
         }, { capture: true, passive: false });
 
-        // Con Alt apretado, el arrastre desplaza en vez de pintar. Asi el
-        // pincel y la navegacion no se pisan.
+        // Navegacion: Alt + arrastrar (el atajo que ya existia), ESPACIO +
+        // arrastrar (como Photoshop) y boton central. Asi el pincel y el
+        // desplazamiento no se pisan.
         let desplazando = false;
         let desde = null;
         window.addEventListener('pointerdown', (ev) => {
-            if (!RETOQUE.activo || !ev.altKey) return;
+            if (!RETOQUE.activo) return;
+            if (!(ev.altKey || espacio || ev.button === 1)) return;
             const cv = document.getElementById('lienzo-editar-fondo');
             if (!cv) return;
             const rc = cv.getBoundingClientRect();
@@ -3349,13 +3458,21 @@
             desde = { x: ev.clientX, y: ev.clientY, px: (RETOQUE.panVentana||{x:0}).x, py: (RETOQUE.panVentana||{y:0}).y };
             ev.preventDefault();
             ev.stopPropagation();
+            // El boton central, sin esto, activa el autoscroll del navegador.
+            if (ev.button === 1) {
+                const cur = document.getElementById('cursor-pincel');
+                if (cur) mostrarCursorPincel(false);
+            }
         }, true);
         window.addEventListener('pointermove', (ev) => {
             if (!desplazando || !desde) return;
             RETOQUE.panVentana = { x: desde.px + (ev.clientX - desde.x), y: desde.py + (ev.clientY - desde.y) };
             pintarLienzoVentana();
         }, true);
-        window.addEventListener('pointerup', () => { desplazando = false; desde = null; }, true);
+        window.addEventListener('pointerup', () => {
+            desplazando = false; desde = null;
+            if (RETOQUE.activo && ratonDentro && !espacio) mostrarCursorPincel(true);
+        }, true);
 
         // Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y): deshacer y rehacer, como en
         // Photoshop. Va en su PROPIO listener porque el de abajo ignora a
