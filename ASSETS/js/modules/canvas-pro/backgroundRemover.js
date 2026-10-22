@@ -569,6 +569,13 @@
         // 0,3 y no salta a 0 o 1 como hacia la curva.
         if (CFG.PERFIL === false) {
             const d = (CFG.BORDE - 0.5) * 0.6;     // -0.3 .. +0.3
+            // El fondo NO se inventa. MEDIDO con clics reales: sin esta linea,
+            // Borde al 96% sumaba 0,276 tambien a los pixeles que estaban en 0.
+            // En la recomposicion normal `definirFilo` borraba ese velo, pero
+            // al confirmar Editar Fondo (`yaFinal`) ese paso no corre: el PNG
+            // guardado quedaba con TODO el fondo a alfa 70/255 (un velo gris
+            // que el cliente ve como "volvio el fondo").
+            if (v <= 0) return 0;
             // El interior opaco se respeta: bajar BORDE cierra el CONTORNO,
             // no deja el cuerpo a 70% (el cliente lo ve como "me come el torso").
             if (d < 0 && v >= 0.999) return v;
@@ -754,28 +761,30 @@
         // Ahora redondea la FORMA del contorno (0-2 px de mascara) y el filo se
         // vuelve a definir despues con `definirFilo`: el resultado es un borde
         // limpio y redondeado, no una mancha difusa.
-        const brutoSuave = Math.max(0, (CFG.SUAVIZADO || 0) * 2);
-        if (brutoSuave > 0.001 && mw > 1 && mh > 1) {
-            const nMaskS = mw * mh;
-            const tmpS1 = new Float32Array(nMaskS);
-            const tmpS2 = new Float32Array(nMaskS);
-            cajaFiltro(base, tmpS1, mw, mh, 1, tmpS2);
-            const pasoS1 = tmpS1;
-            let desdeS = base, hastaS = pasoS1, kS = Math.min(1, brutoSuave);
-            if (brutoSuave > 1.001) {
-                const tmpS3 = new Float32Array(nMaskS);
-                const tmpS4 = new Float32Array(nMaskS);
-                desdeS = pasoS1;
-                cajaFiltro(pasoS1, tmpS3, mw, mh, 1, tmpS4);
-                hastaS = tmpS3;
-                kS = Math.min(1, brutoSuave - 1);
-            }
-            if (kS >= 0.999) {
-                base = hastaS;
-            } else {
-                const salidaS = new Float32Array(nMaskS);
-                for (let iSm = 0; iSm < nMaskS; iSm++) salidaS[iSm] = desdeS[iSm] + (hastaS[iSm] - desdeS[iSm]) * kS;
-                base = salidaS;
+        if (!yaFinal) {
+            const brutoSuave = Math.max(0, (CFG.SUAVIZADO || 0) * 2);
+            if (brutoSuave > 0.001 && mw > 1 && mh > 1) {
+                const nMaskS = mw * mh;
+                const tmpS1 = new Float32Array(nMaskS);
+                const tmpS2 = new Float32Array(nMaskS);
+                cajaFiltro(base, tmpS1, mw, mh, 1, tmpS2);
+                const pasoS1 = tmpS1;
+                let desdeS = base, hastaS = pasoS1, kS = Math.min(1, brutoSuave);
+                if (brutoSuave > 1.001) {
+                    const tmpS3 = new Float32Array(nMaskS);
+                    const tmpS4 = new Float32Array(nMaskS);
+                    desdeS = pasoS1;
+                    cajaFiltro(pasoS1, tmpS3, mw, mh, 1, tmpS4);
+                    hastaS = tmpS3;
+                    kS = Math.min(1, brutoSuave - 1);
+                }
+                if (kS >= 0.999) {
+                    base = hastaS;
+                } else {
+                    const salidaS = new Float32Array(nMaskS);
+                    for (let iSm = 0; iSm < nMaskS; iSm++) salidaS[iSm] = desdeS[iSm] + (hastaS[iSm] - desdeS[iSm]) * kS;
+                    base = salidaS;
+                }
             }
         }
 
@@ -798,11 +807,14 @@
             }
             // La curva se calcula UNA vez por ajuste, no por pixel: el perfil se
             // consulta por indice, asi el recorte es idempotente.
-            perfilarMascara(alfa, CFG.BORDE, CFG.SUAVIZADO);
+            if (!yaFinal) perfilarMascara(alfa, CFG.BORDE, CFG.SUAVIZADO);
 
             for (let x = 0; x < anchoTrabajo; x++) {
                 const o = (y * anchoTrabajo + x) * 4;
-                const a = perfilarValor(fila[x]);
+                // Con la mascara ya final (retoque) lo pintado manda tal cual:
+                // no se vuelve a aplicar Borde/Suavizar por segunda vez. Antes
+                // eso cambiaba todo el contorno al pulsar Listo.
+                const a = yaFinal ? fila[x] : perfilarValor(fila[x]);
                 px[o + 3] = Math.max(0, Math.min(255, Math.round(a * 255)));
             }
         }
@@ -2157,8 +2169,11 @@
      *   - el pincel pinta pixel a pixel de la foto (sin escalera)
      *   - recomponer no erosiona ni filtra: lo unico que cambia es lo pintado
      *
-     * El estado 0 del historial es `ESTADO.alfaIA` (la IA ya procesada), para
-     * que Deshacer siga llegando al recorte original al reabrir la ventana.
+     * El estado 0 del historial es la mascara ACTUAL ya procesada (no
+     * `alfaIA`): Deshacer devuelve al recorte que el cliente ve en el lienzo,
+     * con el perfil Borde/Suavizar actual. Usar `alfaIA` creaba un paso
+     * fantasma al abrir con los sliders movidos y ademas el paso 0 revertia
+     * el ajuste a 50/20.
      */
     function mascaraATrabajo() {
         const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : 0;
@@ -2168,16 +2183,13 @@
             return true;
         }
 
-        // Camino rapido: la alfa final de la IA ya se guardo al recortar.
-        if (ESTADO.alfaIA && ESTADO.alfaIA.length === aw * ah) {
-            ESTADO.mascara = new Float32Array(ESTADO.alfaIA);
-            ESTADO.mascaraAncho = aw;
-            ESTADO.mascaraAlto = ah;
-            ESTADO.caja = { ox: 0, oy: 0, dw: aw, dh: ah };
-            ESTADO.mascaraFinal = true;
-            return true;
-        }
-
+        // MEDIDO con clics reales: el camino rapido copiaba `alfaIA`, que es la
+        // alfa del perfil con el que se recorto (Borde/Suavizar de ese momento).
+        // Si el cliente movia los sliders, Editar Fondo abria con el perfil
+        // VIEJO y al pulsar Listo el recorte cambiaba solo (195.281 opacos
+        // volvian a 181.910). Ahora se reconstruye con el perfil ACTUAL:
+        // `componerRecorte(..., false)` es exactamente lo que se ve en el lienzo.
+        //
         // Si no hay alfa guardada (por ejemplo, se reabrio una sesion vieja),
         // se procesa ahora. Es el unico momento caro; despues todo es local.
         const fuente = ESTADO.lienzoOriginal ||
@@ -2351,11 +2363,12 @@
     /**
      * Deja el historial en el estado actual.
      *
-     * El paso 0 es SIEMPRE el recorte de la IA ya procesado
-     * (`ESTADO.alfaIA`). Si la ventana se vuelve a abrir despues de haber
-     * retocado y presionado Listo, la mascara actual puede ser distinta de la
-     * de la IA: en ese caso entra como paso 1, para que Deshacer siga llevando
-     * a la IA y no a un punto intermedio.
+     * El paso 0 es la mascara con la que se ABRE la ventana: el recorte
+     * ACTUAL, ya con el perfil Borde/Suavizar que el cliente ve en el lienzo.
+     * No se usa `alfaIA` porque es el perfil del momento de Quitar Fondo: si
+     * despues movio los sliders, Deshacer lo devolveria a un recorte que ya
+     * no ve. Al abrir, base y actual son la misma mascara, asi que no hay
+     * paso inicial (pasos = 0, paso = 0).
      */
     function historialReiniciar() {
         HISTORIAL.pasos = [];
@@ -2363,17 +2376,8 @@
         HISTORIAL.base = null;
         HISTORIAL.ultimo = null;
         if (!ESTADO.mascara || !(ESTADO.mascara.length > 0)) return;
-        const aw = ESTADO.mascaraAncho, ah = ESTADO.mascaraAlto;
-        const baseIA = (ESTADO.alfaIA && ESTADO.alfaIA.length === aw * ah)
-            ? ESTADO.alfaIA
-            : ESTADO.mascara;
-        HISTORIAL.base = new Float32Array(baseIA);
+        HISTORIAL.base = new Float32Array(ESTADO.mascara);
         HISTORIAL.ultimo = new Float32Array(ESTADO.mascara);
-        const paso = historialRegion(HISTORIAL.base, ESTADO.mascara);
-        if (paso) {
-            HISTORIAL.pasos.push(paso);
-            HISTORIAL.indice = 1;
-        }
         actualizarBotonesRetoque();
     }
 
@@ -2489,6 +2493,10 @@
         RETOQUE.activo = false;
         RETOQUE.puntero = false;
         RETOQUE.verQuitado = false;
+        // Al abrir la ventana el lienzo se acerca al recorte (entrarEnVistaCompleta).
+        // Faltaba volver: el cliente cerraba Editar Fondo y el editor quedaba
+        // con un zoom que no eligio. Se devuelve la vista exacta que tenia.
+        salirDeVistaCompleta();
         const vf = document.getElementById('ventana-editar-fondo');
         if (vf) { vf.style.display = 'none'; vf.classList.remove('vf-visible'); }
         document.body.classList.remove('ekko-modo-retoque');
