@@ -183,7 +183,7 @@ if (typeof window !== "undefined") {
     /* Sello de version del modulo de texto. Si en la consola del cliente este
        valor no coincide con el del paquete entregado, esta probando codigo
        viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
-    window.EKKO_TEXT_BUILD = "20261022-centro-fijo";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+    window.EKKO_TEXT_BUILD = "20261022-baseline-fija";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
        mantener su propia logica de arrastre: asi el unico dueno de "como se
        curva un texto" es este modulo. */
     window.EKKO_TEXT_BEND = {
@@ -1598,11 +1598,16 @@ export function applyTextSpacing(item, hspace, opts = {}) {
         };
 
         let currentX = target.bounds.left;
-        /* La linea de base tambien viaja escalada: point.y del original esta
-           en su marco propio; en el marco del padre donde nacen las letras
-           hay que pasarla por la matriz (con matriz identidad, transform es
-           identidad). */
-        const y = matrizPropia ? matrizPropia.transform(target.point).y : target.point.y;
+        /* LA LINEA DE BASE NO SE TRANSFORMA.
+           point.y de un PointText ya esta en el marco del padre (la posicion
+           del texto vive DENTRO de su propia matriz como translate, igual
+           que la posicion de cualquier item): pasarla por la matriz la
+           DOBLE-APLICA y la baseline duplicaba su distancia al origen en cada
+           rebuild (250 -> 500 -> ...; el "texto desaparece por fuera del
+           mockup" al volver el espaciado a cero). La matriz solo se consulta
+           para la ESCALA (matrix.scaling excluye la translacion), que es la
+           que hornea el tamano efectivo de las letras. */
+        const y = target.point.y;
         /* EL CENTRO DEL TEXTO NO SE MUEVE. Las letras se reparten de izquierda
            a derecha, y ese reparto crece solo hacia la derecha: con el ancla en
            el borde izquierdo, espaciar "corria" la palabra lateralmente y con
