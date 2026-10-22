@@ -805,9 +805,10 @@ const _initSelectionTool = function() {
       const isText = target && (target.className === 'PointText' || target instanceof paper.PointText);
       const esGrupoTextoDblClick = target && (target.data?.isCurvedGroup === true || target.data?.isSpacedGroup === true);
 
-      // Un vector normal nunca entra a nodos por doble clic. La edición de
-      // nodos se inicia exclusivamente desde el comando Editar Nodos.
-      if (!fusion && !isText && !esGrupoTextoDblClick) return;
+      // Fusión y texto conservan su doble clic propio (edición interna / texto).
+      // Un VECTOR normal ahora SÍ entra por doble clic: abre el editor de
+      // nodos y, si el doble clic cayó sobre el borde, agrega el nodo en ese
+      // punto (Inkscape/Photoshop). Sin abrir el editor a mano ni botones.
       event.preventDefault();
       event.stopPropagation();
       window.dragging = false;
@@ -829,6 +830,20 @@ const _initSelectionTool = function() {
           window.deselectItem();
           window.selectItem(target);
           window.editGroupText(target);
+        } else if (!window.nodeEditMode && typeof window.enterNodeEditMode === 'function') {
+          // VECTOR: el doble clic abre el editor de nodos y, si el punto cayó
+          // sobre el borde (tolerancia del propio tryInsertNodeAt), agrega el
+          // nodo exacto ahí. La inserción corre tras entrar al editor.
+          // NOTA: dentro del editor de nodos dblclick lo atiende nodeEditor
+          // (su handler inserta el nodo) — aquí solo la entrada en frío.
+          const owner = getPublicOwner(hit) || hit;
+          window.deselectItem();
+          window.selectItem(owner);
+          Promise.resolve(window.enterNodeEditMode(owner))
+            .then(() => {
+              if (typeof window.tryInsertNodeAt === 'function') window.tryInsertNodeAt(point);
+            })
+            .catch(err => console.error('[EKKO NODES-DBL]', err));
         }
       } catch (e) {
         console.error('[EKKO DBLCLICK ERROR]', e);
