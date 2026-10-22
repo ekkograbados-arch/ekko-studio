@@ -148,7 +148,7 @@ export function rebuildEKKOTextOwner(owner, patch = {}) {
             : null;
     }
     if (hspace) {
-        const promesa = applyTextSpacing(flat, hspace);
+        const promesa = applyTextSpacing(flat, hspace, { skipHistory: !!patch.skipHistory });
         return (promesa && typeof promesa.then === "function")
             ? promesa.catch(() => null)
             : null;
@@ -1484,7 +1484,7 @@ export function isBending() {
     return !!bendState;
 }
 
-export function applyTextSpacing(item, hspace) {
+export function applyTextSpacing(item, hspace, opts = {}) {
     const owner = resolveTextTarget(item);
     if (!owner) return;
     const valor = Number(hspace) || 0;
@@ -1499,7 +1499,7 @@ export function applyTextSpacing(item, hspace) {
        que no hacer nada. */
     if (valor === 0) {
         if (isGroupedText(owner)) {
-            if (typeof window.saveHistory === 'function') window.saveHistory();
+            if (!opts.skipHistory && typeof window.saveHistory === 'function') window.saveHistory();
             rebuildEKKOTextOwner(owner, { hspace: 0 });
         } else {
             owner.data = { ...(owner.data || {}), hspace: 0 };
@@ -1508,16 +1508,15 @@ export function applyTextSpacing(item, hspace) {
         return;
     }
 
-    if (typeof window.saveHistory === 'function') window.saveHistory();
-
     /* Un owner agrupado (curvado o espaciado) se reconstruye SIEMPRE desde el
        string, nunca letra por letra. Antes cada caso hacia su propio camino: el
        curvado re-curvaba en el sitio y el espaciado se aplanaba a mano, dos
        rutas que podian discordar. rebuildEKKOTextOwner conserva la curvatura
        que ya tuviera, asi que cambiar el espaciado de un texto curvado lo
        mantiene curvado. */
+    if (typeof window.saveHistory === 'function' && !opts.skipHistory) window.saveHistory();
     if (isGroupedText(owner)) {
-        rebuildEKKOTextOwner(owner, { hspace: valor });
+        rebuildEKKOTextOwner(owner, { hspace: valor, skipHistory: !!opts.skipHistory });
         paper.view.update();
         return;
     }
