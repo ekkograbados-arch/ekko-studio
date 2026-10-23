@@ -2787,12 +2787,16 @@
         // medio, con el control en el mismo lugar). O sea que el pincel se
         // mide en pixeles de pantalla, no de imagen.
         //
-        // Y en ASISTIDO el circulo NO se muestra: ahi no se pinta con el
-        // pincel sino que se toca una zona y se selecciona sola, asi que
-        // un circulo del tamaño del pincel mentia. MEDIDO: con el mismo
-        // circulo en los dos modos, el cliente no notaba diferencia entre
-        // Asistido y Manual.
-        const d = RETOQUE.manual ? Math.max(4, RETOQUE.radio) : 10;
+        // Y en ASISTIDO el anillo mide Y representa el ALCANCE del toque: es
+        // una zona que se detecta sola dentro de un radio, no una pasada de
+        // pincel, asi que el anillo muestra el DIAMETRO del alcance en
+        // pantalla (2 x radio, el mismo valor que usa marcarZonaAsistida via
+        // factorPantallaAMascara). El CSS lo dibuja PUNTEADO
+        // ([data-modo-visual="asistido"]) para que no se confunda con el
+        // pincel manual. Antes era un punto fijo de 10 px: el cliente veia un
+        // "pincel chico" y el toque cubria un circulo enorme (44 veces mayor,
+        // medido) - reportado 2026-10-23.
+        const d = RETOQUE.manual ? Math.max(4, RETOQUE.radio) : Math.max(12, RETOQUE.radio * 2);
         cur.style.width = d + 'px';
         cur.style.height = d + 'px';
         cur.dataset.modo = RETOQUE.modo;
@@ -2897,13 +2901,21 @@
         const tolLocal = Math.max(20, tol * 0.7);
         const tolLocal2 = tolLocal * tolLocal;
         const r0 = px[i0 * 4], g0 = px[i0 * 4 + 1], b0 = px[i0 * 4 + 2];
-        // Radio maximo alrededor del toque, PROPORCIONAL al lado de la mascara.
+        // Radio maximo alrededor del toque = EL CONTROL DEL PINCEL.
         //
-        // MEDIDO: la mascara del retoque ya no es la del modelo (320) sino la
-        // de TRABAJO (900x1600). El tope fijo de 143 px que se midio con 512
-        // cubriria 1/6 del lado y el asistido quedaria inutil; 0.28 del lado
-        // menor es exactamente la misma zona que se midio entonces.
-        const alcance = Math.max(24, Math.round(Math.min(w, h) * 0.28));
+        // El alcance se mide como el pincel manual: el radio que muestra el
+        // control en PIXELES DE PANTALLA, convertido a pixeles de mascara con
+        // factorPantallaAMascara (el mismo factor de pintarPincel), y un tope
+        // de seguridad a media foto. Antes era un valor fijo (0.28 del lado
+        // menor: hasta ~485 px en una foto de 3200) y el anillo del cursor en
+        // Asistido no lo representaba por nada: "el pincel se ve pequeno pero
+        // pinta un circulo enorme". Reportado 2026-10-23. Lo que ve es lo
+        // que hace: el anillo en pantalla muestra ESE alcance (ver
+        // actualizarCursor).
+        const factorP = factorPantallaAMascara();
+        const alcance = Math.max(4, Math.min(
+            Math.round((RETOQUE.radio || 0) * (factorP > 0 ? factorP : 1)),
+            (Math.min(w, h) / 2) | 0));
         const alcance2 = alcance * alcance;
 
         const visto = new Uint8Array(w * h);
@@ -2924,20 +2936,23 @@
             const ex = x - sx, ey = y - sy;
             if (ex * ex + ey * ey > alcance2) continue;   // fuera de alcance
             tocados++;
-            // Se aplica con un borde suave hacia el interior de la zona, para
-            // que la transicion no quede como un escalon.
-            // Se aplica con una RAMPA hacia el interior de la zona.
-              //
-              // MEDIDO: antes se escribia 0 o 1 seco. Sobre la grilla de 512 eso
-              // deja una escalera, y el cliente reporto que Asistido dejaba
-              // "lineas de borde". Con un escalon real en la mascara el filtro
-              // guiado no tiene gradiente con que trabajar y no lo puede
-              // suavizar: el pixelado se ve.
-              const dBorde = Math.sqrt(ex * ex + ey * ey) / alcance;
-              const dentro = Math.max(0, Math.min(1, (1 - dBorde) / 0.18));
-              const rampa = dentro * dentro * (3 - 2 * dentro);
-              const actual = m[i];
-              m[i] = quitar ? actual * (1 - rampa) : Math.min(1, actual + (1 - actual) * rampa);
+            // Relleno BINARIO. La region se llena entera: restaurar manda
+            // alfa 1, borrar manda alfa 0.
+            //
+            // Por que ya no hay rampa radial: la suavizacion del borde la
+            // hace el AEROGRAFO (aerografoNatural) al volver al lienzo, y el
+            // corte limpio (contornoLimpio) re-umbraliza en 0,5 la mascara
+            // al recomponer. La rampa vieja dejaba alfas intermedios (0,1 a
+            // 0,5) en una franja ancha del borde de la zona: fraccion del
+            // anillo que luego se cortaba y quedaba como una LINEA, con
+            // transparencias que no existian para nada (reportado
+            // 2026-10-23: en una chapita de grabado laser esas transparencias
+            // inventaban punteado). Ademas la rampa se media desde el TOQUE
+            // y no desde el BERRETE real de la zona, o sea el borde quedaba
+            // como un circulo grande:
+            //   MEDIDO con el tap cerca del sujeto (grande 3200x2133):
+            //   efecto 449x452 px de pantalla con un anillo de 10 px.
+            m[i] = quitar ? 0 : 1;
 
             // Dos comparaciones, y la segunda es la importante:
             //
