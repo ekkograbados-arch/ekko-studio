@@ -521,6 +521,12 @@ function dispatchTextCurve(options = {}) {
     if (options.radius !== undefined) {
         radius = Number(options.radius) || 0;
         curvature = Number(options.curvature ?? item.data?.curvature ?? 0) || 0;
+    } else if (options.curvature !== undefined) {
+        /* El llamador (slider) ya trae el valor: no se lee el slider, que
+           podria estar desactualizado si el cliente escribio en la caja de
+           texto o movio la rueda. */
+        curvature = Number(options.curvature) || 0;
+        radius = radioDelObjeto;
     } else if (valorSlider !== 0) {
         radius = radioDelObjeto;
         curvature = valorSlider;
@@ -1144,7 +1150,7 @@ if (typeof window !== 'undefined') {
     if (!curveSlider) return;
     bound = true;
     curveSlider.addEventListener('input', () => {
-      try { const sel = window.selectedItem || window.selectedItems?.[0]; if (sel) window.dispatchTextCurve?.(); } catch (e) {}
+      try { const sel = window.selectedItem || window.selectedItems?.[0]; if (sel) window.dispatchTextCurve?.({ curvature: Number(curveSlider.value) || 0 }); } catch (e) {}
     });
     clearInterval(iv);
   }, 200);
