@@ -154,6 +154,14 @@
         GEO: true,
         GEO_NUCLEO: 0.6,
         GEO_UMBRAL: 0.2,
+        // Radio de la APERTURA MORFOLOGICA que limpiaba lo AGREGADO por la
+        // geodesia (v11.29). Erosionar y re-dilatar ese conjunto con este
+        // radio borra los fragmentos delgados (pliegues y lineas de sombra
+        // que quedaban pintados como garabatos negros finos, "puntitos que
+        // no estan en la foto", reportado 2026-10-23) y deja intactas las
+        // islas anchas: con radio 2 sobrevive todo lo que tenga 5 px de
+        // mascara o mas de grosor, y las tapas miden 30-80 px.
+        GEO_GROSOR: 2,
 
         // FILO: ancho de la franja de transicion, en unidades de alfa (0..1),
         // que se aplica al FINAL del recorte.
@@ -870,11 +878,59 @@
             for (let k = 0; k < usados; k++) suma[isla[k]] = 1;
         }
 
-        // 3) Copia: los pixels geodesicos suben a sujeto pleno (mismo criterio
-        //    de pintura BINARIA que el Asistido: el borde lo refina despues el
-        //    filo y el contorno limpio de siempre).
+        // 3) Lo AGREGADO (suma con alfa < 0.5) pasa por una APERTURA
+        //    MORFOLOGICA de radio CFG.GEO_GROSOR: erosion + dilatacion con el
+        //    mismo disco. La apertura borra del agregado todo lo que no
+        //    alberga un disco de ese radio: los pliegues y las lineas de
+        //    sombra delgados (que quedaban pintados como garabatos finos
+        //    negros, "puntitos que no estan en la foto", reportado
+        //    2026-10-23) desaparecen, y las islas anchas se conservan casi
+        //    iguales (solo se les redondean los cachos). El conjunto que ya
+        //    era opaco (alfa >= 0.5) NO entra en el filtro: morderlo podria
+        //    comerse pelo fino que el modelo ya separaba bien.
+        const grosor = Math.max(1, CFG.GEO_GROSOR | 0);
+        const DX = [], DY = [];
+        for (let dy = -grosor; dy <= grosor; dy++)
+            for (let dx = -grosor; dx <= grosor; dx++)
+                if (dx * dx + dy * dy <= grosor * grosor) { DX.push(dx); DY.push(dy); }
+        const agregado = new Uint8Array(n);
+        for (let i = 0; i < n; i++) if (suma[i] && alfa[i] < 0.5) agregado[i] = 1;
+        // Erosion: el pixel sobrevive si TODO el disco cabe dentro del agregado.
+        const erosion = new Uint8Array(n);
+        for (let i = 0; i < n; i++) {
+            if (!agregado[i]) continue;
+            const x = i % w, y = (i / w) | 0;
+            let ok = 1;
+            for (let k = 1; k < DX.length; k++) {
+                const xx = x + DX[k], yy = y + DY[k];
+                if (xx < 0 || xx >= w || yy < 0 || yy >= h || !agregado[yy * w + xx]) { ok = 0; break; }
+            }
+            if (ok) erosion[i] = 1;
+        }
+        // Dilatacion con el mismo disco: las islas que sobrevivieron recobran
+        // su cuerpo original (solo quedan los rincones redondeados).
+        const abierto = new Uint8Array(n);
+        for (let i = 0; i < n; i++) {
+            if (!erosion[i]) continue;
+            const x = i % w, y = (i / w) | 0;
+            for (let k = 0; k < DX.length; k++) {
+                const xx = x + DX[k], yy = y + DY[k];
+                if (xx < 0 || xx >= w || yy < 0 || yy >= h) continue;
+                abierto[yy * w + xx] = 1;
+            }
+        }
+
+        // 4) Copia (mismo contrato que solidificarInterior): los pixels
+        //    geodesicos que sobrevivieron al filtro suben a sujeto pleno;
+        //    los delgados vuelven a su alfa original (< 0.5, o sea quedan
+        //    transparentes). El borde lo refina despues el filo y el
+        //    contorno limpio de siempre.
         const salida = new Float32Array(alfa);
-        for (let i = 0; i < n; i++) if (suma[i]) salida[i] = 1;
+        for (let i = 0; i < n; i++) {
+            if (!suma[i]) continue;
+            if (alfa[i] < 0.5 && !abierto[i]) continue;   // agregado delgado: fuera
+            salida[i] = 1;
+        }
         return salida;
     }
 
@@ -1961,9 +2017,10 @@
         // (medido: 673.604 pixeles de golpe), y eso no es retocar una cabeza
         // comida, es deshacer el trabajo del cliente de un saque.
         tolerancia: 62,
-        // Radio maximo, en pixulos de la mascara, de lo que un toque alcanza.
-        // Es lo que hace que "Asistido" repare una ZONA y no la foto entera.
-        // 0.28 del lado menor cubre de sobra una cabeza o un brazo.
+        // RETIRADO (v11.29): el alcance del toque vivo ahora es
+        // `RETOQUE.radio` (la ventana de muestreo del color); la zona
+        // detectada ya no depende de un disco de radio fijo. El campo queda
+        // para no romper lecturas viejas, pero nadie lo usa.
         alcance: 143,
         // Colores de la foto a la resolucion de la mascara. Se calculan una
         // sola vez por imagen (la foto no cambia mientras se retoquea) y son
@@ -2877,7 +2934,7 @@
         if (ayuda) {
             ayuda.textContent = RETOQUE.manual
                 ? 'Pinta para quitar. Con Restaurar vuelve lo que se ve bajo los cuadros.'
-                : 'Toca una zona y se detecta sola. Los cuadros muestran lo que está quitado.';
+                : 'Tocá una zona y se detecta sola por colores similares: crece hasta el borde real. El círculo es la ventana de donde se toma el color.';
         }
     }
 
@@ -2933,15 +2990,21 @@
         // medio, con el control en el mismo lugar). O sea que el pincel se
         // mide en pixeles de pantalla, no de imagen.
         //
-        // Y en ASISTIDO el anillo mide Y representa el ALCANCE del toque: es
-        // una zona que se detecta sola dentro de un radio, no una pasada de
-        // pincel, asi que el anillo muestra el DIAMETRO del alcance en
-        // pantalla (2 x radio, el mismo valor que usa marcarZonaAsistida via
-        // factorPantallaAMascara). El CSS lo dibuja PUNTEADO
-        // ([data-modo-visual="asistido"]) para que no se confunda con el
-        // pincel manual. Antes era un punto fijo de 10 px: el cliente veia un
-        // "pincel chico" y el toque cubria un circulo enorme (44 veces mayor,
-        // medido) - reportado 2026-10-23.
+        // Y en ASISTIDO el anillo mide Y representa LA VENTANA DE MUESTREO del
+        // color (v11.29): el radio del pincel ya no acota la zona detectada,
+        // es la zona de la que se toma el color dominante (marcarZonaAsistida
+        // usa exactamente este diametro via factorPantallaAMascara). El CSS lo
+        // dibuja PUNTEADO ([data-modo-visual="asistido"]) para que no se
+        // confunda con el pincel manual. Antes era un punto fijo de 10 px: el
+        // cliente veia un "pincel chico" y el toque cubria un circulo enorme
+        // (44 veces mayor, medido) - reportado 2026-10-23.
+        //
+        // Con la semantica v11.29 la zona detectada NO depende del tamano:
+        // crece por colores similares hasta el borde real; el tamano solo
+        // elige LA VENTANA DE MUESTREO (interferencia real, como el borrador
+        // del fondo de Photoshop): un pincel chico muestrea una zona fina para
+        // detalles, uno grande toma el color de una zona amplia cuando no se
+        // sabe bien donde cae el toque.
         const d = RETOQUE.manual ? Math.max(4, RETOQUE.radio) : Math.max(12, RETOQUE.radio * 2);
         cur.style.width = d + 'px';
         cur.style.height = d + 'px';
@@ -2952,9 +3015,9 @@
             cur.style.display = 'block';
             cur.dataset.visible = '1';
             cur.dataset.tam = String(Math.round(RETOQUE.radio));
-            // En Asistido el radio es el alcance de la seleccion, no el ancho
-            // de un pincel. Decirlo evita que se piense que se va a pintar un
-            // circulo de ese tamaño.
+            // En Asistido el radio es la VENTANA DE MUESTREO del color, no el
+            // ancho de un pincel ni el alcance de la zona detectada. Decirlo
+            // evita que se piense que se va a pintar un circulo de ese tamaño.
             cur.dataset.modoVisual = RETOQUE.manual ? 'pincel' : 'asistido';
         }
     }
@@ -2992,10 +3055,13 @@
     }
 
     /**
-     * Modo ASISTIDO: elige sola la zona que se toco.
+     * Modo ASISTIDO: elige sola la zona que se toco (v11.29).
      *
-     * Crece por inundacion desde el punto tocado, y solo entra en pixeles de
-     * color parecido Y del lado correcto segun la herramienta:
+     * El color base se MUESTREA en la ventana del pincel (color dominante de
+     * la ventana, contando solo el lado que la herramienta actua) y desde ahi
+     * crece por inundacion POR COLORES SIMILARES, sin tope de radio, hasta el
+     * borde real. Solo entra en pixeles de color parecido Y del lado correcto
+     * segun la herramienta:
      *
      *   Borrar    -> solo entra donde hoy es opaco (el sujeto), y lo vuelve
      *               transparente. Asi no "borra" fondo que ya no se ve.
@@ -3003,8 +3069,9 @@
      *               vuelve opaco. Asi un toque devuelve el fondo alrededor de
      *               un agujero sin comerse el pelo de al lado.
      *
-     * Sin esa restriction el modo asistido seria peligroso: un solo toque
-     * podria comerse media persona.
+     * Si la zona supera el 35% de la foto (TECHO), el toque SE DESCARTA
+     * completo y se avisa: mejor no hacer nada que recortar media foto al
+     * azar.
      */
     function marcarZonaAsistida(mx, my) {
         const g = rejillaDeColor();
@@ -3013,7 +3080,8 @@
         const sx = Math.round(mx), sy = Math.round(my);
         if (sx < 0 || sy < 0 || sx >= w || sy >= h) return 0;
 
-        const i0 = sy * w + sx;
+        const toque = sy * w + sx;
+        let i0 = toque;
         const quitar = RETOQUE.modo === 'borrar';
         // La semilla tiene que estar DEL LADO que la herramienta va a tocar:
         //   Borrar    -> la semilla es opaca       (se saca parte del sujeto)
@@ -3028,7 +3096,10 @@
 // Borrar eso hacia que el assisted saliera siempre por el aviso y no hiciera
 // NADA, y el cliente reportaba que no notaba diferencia entre Manual y
 // Asistido: en realidad Asistido con Borrar estaba roto.
-        const opacoSemilla = m[i0] > 0.5;
+        // El lado lo decide EL PIXEL TOCADO (la promesa de la herramienta: el
+        // toque nomina la zona); el COLOR de la semilla se muestrea despues en
+        // la ventana del pincel, que puede no coincidir con el pixel literal.
+        const opacoSemilla = m[toque] > 0.5;
         if (opacoSemilla !== quitar) {
             avisar(quitar
                 ? 'Ahí no hay nada que borrar: tocá una parte del sujeto.'
@@ -3046,23 +3117,85 @@
         // frenando en los bordes reales, que son saltos mucho mas grandes.
         const tolLocal = Math.max(20, tol * 0.7);
         const tolLocal2 = tolLocal * tolLocal;
-        const r0 = px[i0 * 4], g0 = px[i0 * 4 + 1], b0 = px[i0 * 4 + 2];
-        // Radio maximo alrededor del toque = EL CONTROL DEL PINCEL.
+        // v11.29: SEMILLA = COLOR DOMINANTE DE LA VENTANA DEL PINCEL, y la
+        // region ya no la acota el pincel.
         //
-        // El alcance se mide como el pincel manual: el radio que muestra el
-        // control en PIXELES DE PANTALLA, convertido a pixeles de mascara con
-        // factorPantallaAMascara (el mismo factor de pintarPincel), y un tope
-        // de seguridad a media foto. Antes era un valor fijo (0.28 del lado
-        // menor: hasta ~485 px en una foto de 3200) y el anillo del cursor en
-        // Asistido no lo representaba por nada: "el pincel se ve pequeno pero
-        // pinta un circulo enorme". Reportado 2026-10-23. Lo que ve es lo
-        // que hace: el anillo en pantalla muestra ESE alcance (ver
-        // actualizarCursor).
+        // Antes la semilla era el pixel literal del toque y ese era el origen
+        // del defecto que reporto el cliente ("puntitos negros que no estan
+        // en la imagen", 2026-10-23): tocar un pliegue oscuro de la caja
+        // tomaba el color de la linea, la region crecia SOLO por la linea
+        // (colores parecidos) y quedaba pintado un garabato delgado que no
+        // esta en la foto. Ademas la region quedaba limitada a un disco de
+        // 2 x radio, asi que con el pincel grande el toque parecia un trazo
+        // Manual ("si aumento el tamano se comporta como si fuera manual",
+        // 2026-10-23).
+        //
+        // Nuevo contrato, como el borrador del fondo de Photoshop:
+        //   - El radio del pincel = LA VENTANA DE MUESTREO del color. Esa es
+        //     su interferencia real: define DE DONDE se toma el color base.
+        //   - La region crece POR COLORES SIMILARES hasta el borde real, sin
+        //     tope de radio.
+        //   - El anillo del cursor ES esa ventana (ver actualizarCursor).
         const factorP = factorPantallaAMascara();
-        const alcance = Math.max(4, Math.min(
+        const ventana = Math.max(1, Math.min(
             Math.round((RETOQUE.radio || 0) * (factorP > 0 ? factorP : 1)),
             (Math.min(w, h) / 2) | 0));
-        const alcance2 = alcance * alcance;
+        const vent2 = ventana * ventana;
+
+        // Color dominante de la ventana: cubetas de 4 bits por canal (16
+        // niveles, 16x16x16 cubetas). Solo cuentan los pixels DEL LADO que la
+        // herramienta actua: al tocar Borrar dentro del sujeto, el fondo que
+        // entra en la ventana no puede ganar la votacion, y viceversa.
+        let r0 = px[toque * 4], g0 = px[toque * 4 + 1], b0 = px[toque * 4 + 2];
+        {
+            const cub = new Uint32Array(4096);
+            for (let dy = -ventana; dy <= ventana; dy++) {
+                const yy = sy + dy;
+                if (yy < 0 || yy >= h) continue;
+                for (let dx = -ventana; dx <= ventana; dx++) {
+                    const xx = sx + dx;
+                    if (xx < 0 || xx >= w || dx * dx + dy * dy > vent2) continue;
+                    const j = yy * w + xx;
+                    if ((m[j] > 0.5) !== quitar) continue;
+                    cub[((px[j * 4] >> 4) << 8) | ((px[j * 4 + 1] >> 4) << 4) | (px[j * 4 + 2] >> 4)]++;
+                }
+            }
+            let top = -1, topN = 0;
+            for (let k = 0; k < 4096; k++) if (cub[k] > topN) { topN = cub[k]; top = k; }
+            if (topN > 0) {
+                // Color medio de la cubeta dominante (suaviza la cuantizacion)
+                // y, de paso, el ARRANQUE del flood: el pixel de la cubeta
+                // dominante mas cercano al toque. Con el toque sobre el
+                // pliegue, ese arranque cae dentro de la tapa.
+                let sr = 0, sg = 0, sb = 0, cn = 0;
+                let mejorD2 = Infinity;
+                for (let dy = -ventana; dy <= ventana; dy++) {
+                    const yy = sy + dy;
+                    if (yy < 0 || yy >= h) continue;
+                    for (let dx = -ventana; dx <= ventana; dx++) {
+                        const xx = sx + dx;
+                        if (xx < 0 || xx >= w || dx * dx + dy * dy > vent2) continue;
+                        const j = yy * w + xx;
+                        if ((m[j] > 0.5) !== quitar) continue;
+                        const k = ((px[j * 4] >> 4) << 8) | ((px[j * 4 + 1] >> 4) << 4) | (px[j * 4 + 2] >> 4);
+                        if (k !== top) continue;
+                        sr += px[j * 4]; sg += px[j * 4 + 1]; sb += px[j * 4 + 2]; cn++;
+                        const d2t = dx * dx + dy * dy;
+                        if (d2t < mejorD2) { mejorD2 = d2t; i0 = j; }
+                    }
+                }
+                r0 = Math.round(sr / cn);
+                g0 = Math.round(sg / cn);
+                b0 = Math.round(sb / cn);
+            }
+            // (topN 0 es imposible: el pixel tocado es del lado correcto y
+            // esta en la ventana, asi que su cubeta vale al menos 1.)
+
+            // La region crece DESDE el arranque sin tope de radio: no hay
+            // ninguna comparacion contra la distancia al toque dentro del
+            // flood (esa era la linea `alcance2`). El limite real son los
+            // bordes de color y el techo de abajo.
+        }
 
         const visto = new Uint8Array(w * h);
         const cola = new Int32Array(w * h);
@@ -3070,51 +3203,52 @@
         cola[colaN++] = i0;
         visto[i0] = 1;
         let tocados = 0;
-        // Techo de seguridad extra, por si la tolerancia combinara con un fondo
-        // patronado. Nunca se midio que hiciese falta, pero si alguna vez
-        // dispara, es mejor un recorte parcial que perder el trabajo del
-        // cliente de un saque.
+        // Lo pintado queda anotado para poder DESCARTAR el toque completo si
+        // la zona supera el techo (con el tope de radio esto no pasaba con
+        // fondos grandes; ahora la region puede crecer libre).
+        const pintados = [];
+        // Techo de seguridad: como maximo 35% de la foto por toque. Si la
+        // zona supera el techo NO se pinta nada y se avisa: un recorte
+        // parcial de media foto es peor que no hacer nada ("recordarle al
+        // cliente media persona de un toque es peor que no hacer nada").
         const TECHO = Math.floor(w * h * 0.35);
 
         while (cabeza < colaN) {
             const i = cola[cabeza++];
             const x = i % w, y = (i / w) | 0;
-            const ex = x - sx, ey = y - sy;
-            if (ex * ex + ey * ey > alcance2) continue;   // fuera de alcance
-            tocados++;
-            // Relleno BINARIO. La region se llena entera: restaurar manda
-            // alfa 1, borrar manda alfa 0.
-            //
-            // Por que ya no hay rampa radial: la suavizacion del borde la
-            // hace el AEROGRAFO (aerografoNatural) al volver al lienzo, y el
-            // corte limpio (contornoLimpio) re-umbraliza en 0,5 la mascara
-            // al recomponer. La rampa vieja dejaba alfas intermedios (0,1 a
-            // 0,5) en una franja ancha del borde de la zona: fraccion del
-            // anillo que luego se cortaba y quedaba como una LINEA, con
-            // transparencias que no existian para nada (reportado
-            // 2026-10-23: en una chapita de grabado laser esas transparencias
-            // inventaban punteado). Ademas la rampa se media desde el TOQUE
-            // y no desde el BERRETE real de la zona, o sea el borde quedaba
-            // como un circulo grande:
-            //   MEDIDO con el tap cerca del sujeto (grande 3200x2133):
-            //   efecto 449x452 px de pantalla con un anillo de 10 px.
-            m[i] = quitar ? 0 : 1;
 
-            // Dos comparaciones, y la segunda es la importante:
+            // 1) EL COLOR MANDA ANTES DE PINTAR (v11.29): un pixel fuera de la
+            //    tolerancia contra la semilla NO se pinta y NO deja pasar
+            //    caminos. Antes el orden era pintar-primero: un camino de
+            //    pequeños pasos parecidos (un pliegue) se pintaba entero aunque
+            //    no se pareciera en nada al color de la zona, y con el tope de
+            //    radio el conjunto quedaba restringido a un disco que escondia
+            //    el desmadre. Ahora la region es EXACTAMENTE "los colores
+            //    similares al dominante conectados sin cruzar un borde", que es
+            //    el criterio que el cliente describe ("restaura y quita segun
+            //    el criterio de colores similares").
             //
-            //   1) contra la SEMILLA: mantiene la zona parecida a lo que se toco.
-            //   2) contra el VECINO INMEDIATO: no deja que la region se escape a
-            //     .traves de un borde real.
-            //
-            // MEDIDO: antes solo comparaba contra la semilla, y por eso un toque
-            // en el blanco del vestido se iba para arriba: toda la ropa clara,
-            // el cardigan y la pared entran en la misma region por ser del mismo
-            // color. El cliente reporto justo eso ("borra para arriba"). Es lo
-            // que PhotoRoom llama "toda el area COHERENTE con tu toque": la
-            // coherencia la da no saltar un borde, no Parecerse a un color.
+            //    La comparacion contra la semilla sigue siendo la que evita el
+            //    desparramo largo ("borra para arriba", MEDIDO 2026-10: un
+            //    toque en el blanco del vestido iba para arriba por crecer solo
+            //    contra la semilla; la coherencia local la frena en los bordes
+            //    reales), y la local es la que no deja cruzar un borde.
             const cr = px[i * 4], cg = px[i * 4 + 1], cb = px[i * 4 + 2];
             const dr = cr - r0, dg = cg - g0, db = cb - b0;
             if (dr * dr + dg * dg + db * db > tol2) continue;
+
+            // 2) Relleno BINARIO (solo si el color pasa): restaurar manda
+            //    alfa 1, borrar manda alfa 0.
+            //
+            //    Sin rampa radial: la suavizacion del borde la hace el
+            //    AEROGRAFO (aerografoNatural) al volver al lienzo y el corte
+            //    limpio re-umbraliza en 0,5 al recomponer. La rampa vieja
+            //    dejaba alfas intermedios en una franja ancha del borde, que
+            //    luego se cortaban y quedaban como lineas con transparencias
+            //    inventadas (chapita de grabado laser, reportado 2026-10-23).
+            m[i] = quitar ? 0 : 1;
+            pintados.push(i);
+            tocados++;
 
             for (let d = 0; d < 4; d++) {
                 const nx = x + (d === 0 ? -1 : d === 1 ? 1 : 0);
@@ -3122,8 +3256,9 @@
                 if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
                 const j = ny * w + nx;
                 if (visto[j]) continue;
-                // No se entra a un vecino que se parece al actual: eso es un
-                // borde, y cruzar bordes es lo que hacia subir la region.
+                // Coherencia LOCAL: no se entra a un vecino que se despega del
+                // actual. Ese salto es un borde real, y cruzar bordes es lo
+                // que hacia que la region subiera por la ropa.
                 const nr = px[j * 4], ng = px[j * 4 + 1], nb = px[j * 4 + 2];
                 const lr = nr - cr, lg = ng - cg, lb = nb - cb;
                 if (lr * lr + lg * lg + lb * lb > tolLocal2) continue;
@@ -3136,9 +3271,14 @@
                 visto[j] = 1;
                 if (colaN < cola.length) cola[colaN++] = j;
             }
-            // Si la tolerancia agarro medio plano, se corta: recordarle al
-            // cliente media persona de un toque es peor que no hacer nada.
-            if (tocados > TECHO) break;
+            // Supero el techo: se DESCARTA el toque completo (v11.29). Con la
+            // region libre de radio esto pasa con fondos enormes; dejar un
+            // recorte parcial gigante es lo que el cliente llama imprecision.
+            if (tocados > TECHO) {
+                for (let p = 0; p < pintados.length; p++) m[pintados[p]] = quitar ? 1 : 0;
+                avisar('La zona detectada es demasiado grande para un toque: usá el pincel Manual o bajá la tolerancia.', { kind: 'info' });
+                return 0;
+            }
         }
         return tocados;
     }
