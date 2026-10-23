@@ -76,6 +76,24 @@ const MODELOS = {
         tam: 320,
         etiqueta: 'Estandar',
         DESHABILITADO: false
+    },
+    // ISNet general de rembg (isnet-general-use.onnx, 178 MB, entrada 1024).
+    // PROBADO en el caso del gato en la caja (no esta desplegado, por eso
+    // esta apagado): con la normalizacion de ImageNet sale descalibrado y
+    // con la suya (0.5 / 1.0) es lo mejor de la casa en la TAPA CENTRAL (alfa
+    // cruda 0,51 contra 0,18 del human_seg), pero no resuelve por si solo el
+    // caso: pierde el interior de la caja y la franja inferior (135.484 px de
+    // silueta perdida) y consume 24-47 s por foto a 1024 en CPU. Pendiente
+    // para una v11.29: o se despliega el archivo en /modelos/isnet.onnx con
+    // rewrite en vercel.json, o se queda como referencia de laboratorio.
+    isnet: {
+        url: '/modelos/isnet.onnx',
+        id: 'isnet-general',
+        tam: 1024,
+        etiqueta: 'Objetos compuestos',
+        media: [0.5, 0.5, 0.5],
+        desv: [1, 1, 1],
+        DESHABILITADO: true
     }
 };
 
@@ -376,11 +394,17 @@ function construirTensor(ort, pixeles, ancho, alto) {
     const h = Math.max(32, Math.round(alto || TAM_ENTRADA));
     const n = w * h;
     const data = new Float32Array(3 * n);
+    // Cada modelo puede traer su propia media/desvio (MODELOS[clave].media /
+    // .desv). ImageNet es la de los u2net; ISNet de rembg se entreno con
+    // 0.5/1.0, con otra la mascara sale descalibrada (medido en el gato).
+    const modelo = MODELOS[MODELO_ACTUAL] || {};
+    const media = modelo.media || MEDIA;
+    const desv = modelo.desv || DESV;
     for (let i = 0; i < n; i++) {
         const o = i * 4;
-        data[i] = (pixeles[o] / 255 - MEDIA[0]) / DESV[0];
-        data[i + n] = (pixeles[o + 1] / 255 - MEDIA[1]) / DESV[1];
-        data[i + 2 * n] = (pixeles[o + 2] / 255 - MEDIA[2]) / DESV[2];
+        data[i] = (pixeles[o] / 255 - media[0]) / desv[0];
+        data[i + n] = (pixeles[o + 1] / 255 - media[1]) / desv[1];
+        data[i + 2 * n] = (pixeles[o + 2] / 255 - media[2]) / desv[2];
     }
     return new ort.Tensor('float32', data, [1, 3, h, w]);
 }
@@ -415,12 +439,21 @@ function construirTensorEscalada(ort, pixeles, tam) {
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(tmp, 0, 0, t, t);
 
+    // Cada modelo puede traer su propia media/desvio en el catalogo
+    // (MODELOS[clave].media / .desv). Sin ella se usa la de ImageNet, que
+    // es la de los u2net. ISNet de rembg se entreno con 0.5/1.0: con la
+    // de ImageNet el contraste se duplica y la mascara sale descalibrada
+    // (medido en el caso del gato en la caja).
+    const modelo = MODELOS[MODELO_ACTUAL] || {};
+    const media = modelo.media || MEDIA;
+    const desv = modelo.desv || DESV;
+
     const px = ctx.getImageData(0, 0, t, t).data;
     for (let i = 0; i < n; i++) {
         const o = i * 4;
-        data[i] = (px[o] / 255 - MEDIA[0]) / DESV[0];
-        data[i + n] = (px[o + 1] / 255 - MEDIA[1]) / DESV[1];
-        data[i + 2 * n] = (px[o + 2] / 255 - MEDIA[2]) / DESV[2];
+        data[i] = (px[o] / 255 - media[0]) / desv[0];
+        data[i + n] = (px[o + 1] / 255 - media[1]) / desv[1];
+        data[i + 2 * n] = (px[o + 2] / 255 - media[2]) / desv[2];
     }
     return new ort.Tensor('float32', data, [1, 3, t, t]);
 }
