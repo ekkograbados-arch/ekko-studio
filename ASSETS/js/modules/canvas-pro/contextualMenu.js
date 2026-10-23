@@ -535,7 +535,21 @@ function dispatchTextCurve(options = {}) {
         curvature = Number(options.curvature ?? item.data?.curvature ?? 0) || 0;
     }
 
-    if (radius > 0) curvature = Math.max(0.1, Math.min(359, 10000 / Math.abs(radius))) * (curvature < 0 ? -1 : 1);
+    /* EL RADIO HEREDADO NO PISA EL ANGULO ARRASTRADO.
+       Antes, si el objeto ya tenia data.radius (curva previa o radio
+       escrito a mano), la linea de abajo REESCRIBIA el angulo con
+       10000/radio: arrastrar la barra de curvatura sobre un texto ya
+       curvado hacia poco o nada, porque el radio viejo devolvia el angulo
+       viejo. El radio solo manda cuando el CLIENTE lo escribio ahora
+       (options.radius), que es el unico caso en que es la entrada. */
+    /* El ANGULO EXPLICITO le gana al radio. Si el cliente puso 360 (virola)
+       y ademas hay un radio en la caja o heredado, el radio NO vuelve a
+       calcular el angulo: el radio es pista de forma, no una orden. Solo
+       manda el radio cuando el cliente lo escribio y NO escribio angulo
+       (porque ahi no hay otra forma de saber que queria). */
+    if (options.radius !== undefined && options.curvature === undefined && radius > 0) {
+        curvature = Math.max(0.1, 10000 / Math.abs(radius)) * (curvature < 0 ? -1 : 1);
+    }
     window.EKKO_TEXT_BEND?.enterMode?.(item);
     Promise.resolve(applyTextCurve(item, curvature, { radius: radius || undefined, hspace })) .then(() => {
         window.updateSelectionBox?.(window.selectedItem || item);
