@@ -625,6 +625,13 @@ export function initContextualMenu() {
     if (!window.__ekkoWheelNumbers) {
         window.__ekkoWheelNumbers = true;
         document.addEventListener('wheel', (evento) => {
+            /* UN SOLO DUEÑO DE LA RUEDA. La experiencia de entrada unificada
+               (experienciaInput.js) maneja la rueda para todos los campos y
+               barras con las mismas reglas (muesca, Shift x10, Alt fino,
+               espejo de pares). Este receptor queda apagado desde que esa
+               capa existe: dos canales sumaban el valor DOS veces con reglas
+               distintas y confundian al cliente. */
+            if (window.EKKO_INPUT_HANDLES_WHEEL) return;
             const caja = evento.target && evento.target.closest
                 ? evento.target.closest('input[type=number], input.toolbar-input-number')
                 : null;
