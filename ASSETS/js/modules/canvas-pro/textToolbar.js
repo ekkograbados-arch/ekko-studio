@@ -183,7 +183,7 @@ if (typeof window !== "undefined") {
     /* Sello de version del modulo de texto. Si en la consola del cliente este
        valor no coincide con el del paquete entregado, esta probando codigo
        viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
-    window.EKKO_TEXT_BUILD = "20261022-baseline-fija";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+    window.EKKO_TEXT_BUILD = "20261023-conmutatividad";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
        mantener su propia logica de arrastre: asi el unico dueno de "como se
        curva un texto" es este modulo. */
     window.EKKO_TEXT_BEND = {
@@ -468,6 +468,17 @@ async function applyTextCurveRun(item, curvature, options = {}) {
         isTextVector: false,
         preserveCompoundTopology: true
     };
+    /* CONMUTATIVIDAD ESPACIADO/CURVAR: el sello geomBase del owner anterior
+       vive en el marco del owner ANTERIOR (matriz propia excluida), y este
+       grupo hereda OTRA matriz (la del texto plano, que lleva su posicion).
+       Conservarlo hacia la caja de seleccion producia DOBLE TRASLACION: el
+       texto se veia en su lugar pero la caja se corria al doble de la
+       distancia, y solo en el orden espaciar->curvar (el orden inverso no
+       arrastra sello). Sin el sello, getOwnerLocalGeometry desciende a los
+       hijos (marco local puro) y el resultado es identico venga el cliente
+       de un orden o del otro. */
+    delete curvedGroup.data.geomBase;
+    delete curvedGroup.data.__geomMatriz;
 
     const charCount = textString.length;
     if (charCount === 0) return;
@@ -795,6 +806,14 @@ export function restoreFlatText(item, curvedGroup, keepAnchor = false) {
     delete flatText.data.isTextVector;
     delete flatText.data.curvature;
     delete flatText.data.radius;
+    /* CONMUTATIVIDAD ESPACIADO/CURVAR: el plano NO hereda el sello geomBase
+       del grupo. Ese sello vive en el marco del grupo (matriz propia
+       excluida), y el PointText guarda su posicion EN la matriz propia (ver
+       mas abajo): conservarlo hacia la caja de seleccion producia doble
+       traslacion al curvar un texto espaciado (la caja se corria al doble
+       de la distancia). Un PointText plano se hit-testea bien sin sello. */
+    delete flatText.data.geomBase;
+    delete flatText.data.__geomMatriz;
     /* La matriz del grupo (rotacion/escala del cliente) pasa al texto plano.
        Sin esto, cada rebuild perdia la rotacion: el arco se reconstruia sin
        girar aunque el cliente lo hubiera rotado antes de curvar. La posicion
