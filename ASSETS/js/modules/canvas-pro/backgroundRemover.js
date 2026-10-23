@@ -126,6 +126,35 @@
         SOLIDIFICAR: true,
         SOLIDIFICAR_RADIO: 2,      // px de MASCARA (~6 px de foto en 1600)
 
+        // GEO: expansion geodesica de la mascara (v11.28).
+        //
+        // DEFECTO medido con la foto del cliente (gato negro dentro de una caja
+        // de carton con corbata): u2net_human_seg ve las TAPAS DE LA CAJA con
+        // alfa suave (0,35 la tapa derecha, 0,18 la central) pero el recorte
+        // binario en 0,5 las borra: quedan como "partes transparentes que
+        // evidentemente son parte de la silueta" (57.072 px de silueta
+        // perdida, las dos islas mas grandes son tapas de 292x377 y 112x173).
+        //
+        // El arreglo NO baja el umbral global: la misma foto tiene la
+        // ZAPATILLA del pie con alfa 0,72 que hay que dejar fuera, y un
+        // umbral bajo para las tapas la incluiria.
+        //
+        // Lo que hace: toma la isla mas grande de la mascara FUERTE (alfa >=
+        // GEO_NUCLEO, seguro sujeto) y le SUYME toda isla de la mascara de
+        // alfa >= GEO_UMBRAL que la TOQUE (que se alcanza sin saltar huecos):
+        // las tapas tocan al cuerpo de la caja por el pliegue, la zapatilla
+        // queda separada por la franja del modelo. Es el mismo criterio
+        // geodesico del Asistido ("todo lo coherente con el toque sin cruzar
+        // un borde real"), pero la coherencia la da el alfa del modelo.
+        //
+        // MEDIDO en la sonda (alfa crudo, isla de pulse que toca el nucleo):
+        //   T=0.12: FALTAN 57k -> 16k  (las dos tapas completas)
+        //   T=0.20: FALTAN 57k -> 18k
+        //   T=0.30: FALTAN 57k -> 24k  (la tapa central queda a medias)
+        GEO: true,
+        GEO_NUCLEO: 0.6,
+        GEO_UMBRAL: 0.2,
+
         // FILO: ancho de la franja de transicion, en unidades de alfa (0..1),
         // que se aplica al FINAL del recorte.
         //
@@ -736,6 +765,119 @@
         return salida;
     }
 
+    /**
+     * Expansion geodesica de la mascara (CFG.GEO, v11.28).
+     *
+     * u2net_human_seg entrega alfas BAJAS en partes que claramente son del
+     * sujeto cuando el sujeto no es una persona (las tapas de carton de una
+     * caja: alfa 0,18-0,35). El corte binario en 0,5 las mata y el cliente ve
+     * "partes transparentes que evidentemente son de la silueta".
+     *
+     * No basta con bajar el umbral: en la misma foto hay fondo con alfa mas
+     * alta que esas partes (una zapatilla a 0,72 junto a tapas a 0,35). La
+     * senal que separa una cosa de otra es la CONECTIVIDAD, no la magnitud:
+     *   tapas  -> quedan unidas al cuerpo del sujeto por el pliegue (alfa se
+     *             mantiene por encima de GEO_UMBRAL en todo el camino);
+     *   fondo   -> solo queda pegado al sujeto con un salto (el camino a traves
+     *             de la imagen del fondo tiene alfa < GEO_UMBRAL en su puente).
+     *
+     * Devuelve una COPIA (mismo contrato que solidificarInterior): la mascara
+     * original es la que guarda el pincel/deshacer y nadie la debe pisar.
+     */
+    function expandirGeodesica(alfa, w, h) {
+        const n = w * h;
+        const nucleo = CFG.GEO_NUCLEO;   // alfa minima de un pixel "sujeto seguro"
+        const umbral = CFG.GEO_UMBRAL;   // alfa minima para cruzar de vecino a vecino
+
+        // 1) Islas del nucleo. El ANCLA es la mas grande: en la foto del gato
+        //    es el cuerpo del gato con el frente de la caja (~480k px contra
+        //    ~4k px de la zapatilla). Las demas islas del nucleo NO se
+        //    tocan: si el recorte de antes estaba bien, esto no lo cambia.
+        const fuerte = new Uint8Array(n);
+        for (let i = 0; i < n; i++) if (alfa[i] >= nucleo) fuerte[i] = 1;
+        let anclaN = 0, anclaSemilla = -1;
+        const vistoF = new Uint8Array(n);
+        const pilaF = [];
+        for (let i = 0; i < n; i++) {
+            if (!fuerte[i] || vistoF[i]) continue;
+            pilaF.length = 0;
+            pilaF.push(i); vistoF[i] = 1;
+            let r0 = 0, mien = [], miembro = 0;
+            // Flood-fill sobre un buffer desechable: cada isla se guarda en
+            // `mien` solo mientras compite por ser la mas grande, y el tamano
+            // manda antes que el contenido.
+            while (r0 < pilaF.length) {
+                const o = pilaF[r0++];
+                miembro++;
+                const qx = o % w;
+                if (qx > 0 && fuerte[o - 1] && !vistoF[o - 1]) { vistoF[o - 1] = 1; pilaF.push(o - 1); }
+                if (qx < w - 1 && fuerte[o + 1] && !vistoF[o + 1]) { vistoF[o + 1] = 1; pilaF.push(o + 1); }
+                if (o >= w && fuerte[o - w] && !vistoF[o - w]) { vistoF[o - w] = 1; pilaF.push(o - w); }
+                if (o + w < n && fuerte[o + w] && !vistoF[o + w]) { vistoF[o + w] = 1; pilaF.push(o + w); }
+                mien.push(o);
+            }
+            if (miembro > anclaN) { anclaN = miembro; anclaSemilla = i; }
+        }
+        if (anclaSemilla < 0) return new Float32Array(alfa); // no hay sujeto claro
+
+        // La isla ancla se repinta a partir de su semilla en un Uint8Array
+        // propio: es el test barato de "toca al nucleo" del pase geodesico.
+        const ancla = new Uint8Array(n);
+        {
+            const cola = [anclaSemilla];
+            ancla[anclaSemilla] = 1;
+            for (let r = 0; r < cola.length; r++) {
+                const o = cola[r];
+                const qx = o % w;
+                if (qx > 0 && fuerte[o - 1] && !ancla[o - 1]) { ancla[o - 1] = 1; cola.push(o - 1); }
+                if (qx < w - 1 && fuerte[o + 1] && !ancla[o + 1]) { ancla[o + 1] = 1; cola.push(o + 1); }
+                if (o >= w && fuerte[o - w] && !ancla[o - w]) { ancla[o - w] = 1; cola.push(o - w); }
+                if (o + w < n && fuerte[o + w] && !ancla[o + w]) { ancla[o + w] = 1; cola.push(o + w); }
+            }
+        }
+
+        // 2) Islas de alfa >= umbral. La isla ya es geodesica: se avanza de
+        //    vecino a vecino SOLO con alfa >= umbral, o sea el puente nunca
+        //    baja. La que contenga un pixel del ANCLA entra entera en el
+        //    sujeto; las demas (la zapatilla, islas sueltas) se quedan como
+        //    estaban.
+        const visto2 = new Uint8Array(n);
+        const suma = new Uint8Array(n);
+        const isla = new Int32Array(n);
+        for (let i = 0; i < n; i++) {
+            if (visto2[i]) continue;
+            visto2[i] = 1;
+            if (alfa[i] < umbral) continue;   // fuera del rango de crecimiento
+            let usados = 0, tocaAncla = ancla[i] === 1;
+            isla[usados++] = i;
+            for (let r = 0; r < usados; r++) {
+                const o = isla[r];
+                const qx = o % w;
+                for (let d = 0; d < 4; d++) {
+                    let j = -1;
+                    if (d === 0 && qx > 0) j = o - 1;
+                    else if (d === 1 && qx < w - 1) j = o + 1;
+                    else if (d === 2 && o >= w) j = o - w;
+                    else if (d === 3 && o + w < n) j = o + w;
+                    if (j < 0 || visto2[j]) continue;
+                    if (alfa[j] < umbral) continue;   // el puente nunca baja
+                    visto2[j] = 1;
+                    if (ancla[j]) tocaAncla = true;
+                    isla[usados++] = j;
+                }
+            }
+            if (!tocaAncla) continue;
+            for (let k = 0; k < usados; k++) suma[isla[k]] = 1;
+        }
+
+        // 3) Copia: los pixels geodesicos suben a sujeto pleno (mismo criterio
+        //    de pintura BINARIA que el Asistido: el borde lo refina despues el
+        //    filo y el contorno limpio de siempre).
+        const salida = new Float32Array(alfa);
+        for (let i = 0; i < n; i++) if (suma[i]) salida[i] = 1;
+        return salida;
+    }
+
     function aplicarMascara(alfa, mw, mh, imagen, anchoTrabajo, altoTrabajo, caja, yaFinal) {
         const lienzo = document.createElement('canvas');
         lienzo.width = anchoTrabajo;
@@ -763,9 +905,13 @@
         // el contorno aunque solo se hubiera pintado un circulo. El cliente lo
         // describio como "el manual funciona como asistido". Si la mascara ya
         // es la final (`yaFinal`), lo pintado tiene que mandar tal cual.
-        let base = (!yaFinal && CFG.SOLIDIFICAR)
-            ? solidificarInterior(alfa, mw, mh, CFG.SOLIDIFICAR_RADIO)
-            : alfa;
+        let base = alfa;
+        if (!yaFinal) {
+            // GEO primero (agrega partes conectadas) y despues la solidificacion
+            // de siempre, que erosiona y rellena el interior sobre el resultado.
+            if (CFG.GEO) base = expandirGeodesica(base, mw, mh);
+            if (CFG.SOLIDIFICAR) base = solidificarInterior(base, mw, mh, CFG.SOLIDIFICAR_RADIO);
+        }
 
         // SUAVIZADO ya NO redondea la mascara aca (0-2 px al 20% = invisible,
         // medido con sonda-pixelo: la banda solo crecia de 1,46 a 1,74 px del
