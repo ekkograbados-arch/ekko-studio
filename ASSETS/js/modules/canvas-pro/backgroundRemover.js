@@ -88,15 +88,29 @@
         ENTRADA_CUADRADA: true,
 
         // --- Perfil del recorte (lo que manipulan los sliders) ---
-        // BORDE y SUAVIZADO trabajan sobre TODA la mascara, no sobre una
-        // franja. Antes solo se tocaba la banda de transicion de 1-2 px, y
-        // en pantalla eso era indistinguible: el cliente movía el control y
-        // no veía nada, parecia un boton muerto.
+        // BORDE sigue el criterio de siempre: mas valor = conserva mas sujeto.
+        // SUAVIZADO ya NO es el desenfoque de la mascara (0-2 px, que no hacia
+        // nada visible): desde la fase F2 es el AEROGRAFO HACIA AFUERA.
         //
-        // 0.50 = neutro. Subir BORDE conserva mas sujeto (baja el recorte);
-        // bajarlo recorta mas. SUAVIZADO ensancha la transicion: mas suave.
+        //   0   = corte duro pegado a la silueta, SIN escalon (el nucleo lo deja
+        //         limpio `contornoLimpio`) y SIN difusion.
+        //   100 = difusion fuerte hacia afuera, radio = SUAV_MAX (5%) del lado
+        //         menor de la foto. Eligio el cliente mirando la lamina
+        //         comparativa (5% gano sobre 1-2-3%).
+        //
+        // El interior queda 100% opaco SIEMPRE y el color del anillo difuso es
+        // el de los pixeles ORIGINALES de la foto (la "combinación con el
+        // fondo que se quito" la trae la propia foto: el RGB nunca se
+        // remuestrea). El radio se aplica al final, sobre el alfa natural: el
+        // refilado inicial no puede anularlo.
+        //
+        // 0.20 sigue siendo el valor de arranque: con la medida nueva es una
+        // difusion suave de ~1% del lado menor, solo estetica.
         BORDE: 0.5,
         SUAVIZADO: 0.2,
+
+        // Radio MAXIMO del aerografo como fraccion del lado MENOR de la foto.
+        SUAV_MAX: 0.05,
 
         // PERFIL: si se aplica la curva de BORDE/SUAVIZADO sobre el alfa del
         // modelo. MEDIDO: con la curva activa el alfa queda casi binaria
@@ -753,40 +767,12 @@
             ? solidificarInterior(alfa, mw, mh, CFG.SOLIDIFICAR_RADIO)
             : alfa;
 
-        // Continuo y en 2D. Antes el radio era Math.round(SUAVIZADO*2): TODO lo
-        // que estaba por debajo del 25% (incluido el 20% por defecto) valia 0 px,
-        // o sea el slider no hacia nada. Y el desenfoque se aplicaba sobre una
-        // sola dimension, asi que el corte de arriba/abajo no se suavizaba.
-        //
-        // Ahora redondea la FORMA del contorno (0-2 px de mascara) y el filo se
-        // vuelve a definir despues con `definirFilo`: el resultado es un borde
-        // limpio y redondeado, no una mancha difusa.
-        if (!yaFinal) {
-            const brutoSuave = Math.max(0, (CFG.SUAVIZADO || 0) * 2);
-            if (brutoSuave > 0.001 && mw > 1 && mh > 1) {
-                const nMaskS = mw * mh;
-                const tmpS1 = new Float32Array(nMaskS);
-                const tmpS2 = new Float32Array(nMaskS);
-                cajaFiltro(base, tmpS1, mw, mh, 1, tmpS2);
-                const pasoS1 = tmpS1;
-                let desdeS = base, hastaS = pasoS1, kS = Math.min(1, brutoSuave);
-                if (brutoSuave > 1.001) {
-                    const tmpS3 = new Float32Array(nMaskS);
-                    const tmpS4 = new Float32Array(nMaskS);
-                    desdeS = pasoS1;
-                    cajaFiltro(pasoS1, tmpS3, mw, mh, 1, tmpS4);
-                    hastaS = tmpS3;
-                    kS = Math.min(1, brutoSuave - 1);
-                }
-                if (kS >= 0.999) {
-                    base = hastaS;
-                } else {
-                    const salidaS = new Float32Array(nMaskS);
-                    for (let iSm = 0; iSm < nMaskS; iSm++) salidaS[iSm] = desdeS[iSm] + (hastaS[iSm] - desdeS[iSm]) * kS;
-                    base = salidaS;
-                }
-            }
-        }
+        // SUAVIZADO ya NO redondea la mascara aca (0-2 px al 20% = invisible,
+        // medido con sonda-pixelo: la banda solo crecia de 1,46 a 1,74 px del
+        // 0 al 100). Su efecto real, el AEROGRAFO hacia afuera, vive en
+        // `componerCalidad` -> `aerografoNatural`.
+        // El redondeo del contorno lo hace `contornoLimpio` al final de esta
+        // funcion, con un radio a la medida de la grilla del modelo.
 
         // Muestreo bilineal de la máscara: evita el serrucho de un nearest.
         const fila = new Float32Array(anchoTrabajo);
@@ -841,6 +827,12 @@
             // modelo se re-decide con un escalon estrecho. Ver CFG.FILO.
             definirFilo(ctx, anchoTrabajo, altoTrabajo, CFG.FILO);
         }
+        // F2: corte limpio SIEMPRE, tambien en la recomposicion del pincel:
+        // el contorno sale de la isofota 0.5 del campo suavizado, pegado a la
+        // misma silueta y sin la sierra de la grilla del modelo. La difusion
+        // de Suavizar NO vive aca: vive en `componerCalidad`, para que
+        // `ESTADO.mascara` siga siendo nucleo puro y el historial no derive.
+        contornoLimpio(ctx, anchoTrabajo, altoTrabajo, escalaX, escalaY);
         return lienzo;
     }
 
@@ -876,6 +868,149 @@
         ctx.putImageData(d, 0, 0);
     }
 
+    // -------------------------------------------------------------------------
+    // F2 — CORTE LIMPIO: el contorno deja de seguir la grilla del modelo.
+    // -------------------------------------------------------------------------
+
+    /**
+     * Tres pasadas de `cajaFiltro` en ping-pong sobre un campo de alfa.
+     * Con radio 1-2 equivalen a un desenfoque de sigma ~1,4-2,5 px, y cuestan
+     * O(n) por la ventana deslizante (el mismo truco de `cajaFiltro`).
+     * Modifica `alfa` (queda como dato intermedio) y devuelve el resultado.
+     */
+    function desenfoque3(alfa, w, h, r) {
+        const n = w * h;
+        const tA = new Float32Array(n);
+        const tB = new Float32Array(n);
+        cajaFiltro(alfa, tB, w, h, r, tA);
+        cajaFiltro(tB, alfa, w, h, r, tA);
+        cajaFiltro(alfa, tB, w, h, r, tA);
+        return tB;
+    }
+
+    /**
+     * Distancia de cada pixel al nucleo (chamfer 3x4, dos pasadas, O(n)).
+     * Devuelve 0 dentro del nucleo y la distancia en pixeles hacia el pixel
+     * del nucleo mas cercano. Es la base del aerografo: el anillo difuso se
+     * apoya en la geometria REAL del contorno. Un desenfoque simetrico del
+     * alfa moveria el borde para adentro y aclararia el cuerpo.
+     */
+    function distanciaANucleo(nucleo, w, h) {
+        const n = w * h;
+        const dist = new Float32Array(n);
+        const INF = 1e9;
+        for (let i = 0; i < n; i++) dist[i] = nucleo[i] ? 0 : INF;
+        for (let y = 0; y < h; y++) {
+            const f = y * w;
+            for (let x = 0; x < w; x++) {
+                const i = f + x;
+                if (dist[i] === 0) continue;
+                let v = dist[i];
+                if (x > 0) v = Math.min(v, dist[i - 1] + 1);
+                if (y > 0) {
+                    v = Math.min(v, dist[i - w] + 1);
+                    if (x > 0) v = Math.min(v, dist[i - w - 1] + 1.4142);
+                    if (x < w - 1) v = Math.min(v, dist[i - w + 1] + 1.4142);
+                }
+                dist[i] = v;
+            }
+        }
+        for (let y = h - 1; y >= 0; y--) {
+            const f = y * w;
+            for (let x = w - 1; x >= 0; x--) {
+                const i = f + x;
+                if (dist[i] === 0) continue;
+                let v = dist[i];
+                if (x < w - 1) v = Math.min(v, dist[i + 1] + 1);
+                if (y < h - 1) {
+                    v = Math.min(v, dist[i + w] + 1);
+                    if (x < w - 1) v = Math.min(v, dist[i + w + 1] + 1.4142);
+                    if (x > 0) v = Math.min(v, dist[i + w - 1] + 1.4142);
+                }
+                dist[i] = v;
+            }
+        }
+        return dist;
+    }
+
+    /**
+     * F2 — deja el borde como la ISOFOTA 0.5 del campo de alfa suavizado a la
+     * escala de la grilla del modelo.
+     *
+     * Por que: el modelo entrega su alfa en una grilla de ~512 lados que se
+     * estira hasta la resolucion de trabajo. En una foto de 3200 px cada
+     * celda son ~5-10 px reales y el borde sale a saltos (la "sierra" que ve
+     * el cliente en el corte duro). Suavizando el CAMPO de alfa con un radio
+     * a la medida de esa celda y volviendo a umbralizar en 0.5, el contorno
+     * queda continuo, pegado a la MISMA silueta y sin niebla inventada.
+     * MEDIDO en lamina: 59 -> 10 escalones a 3200 y 18 -> 8 a 1200, con la
+     * zona lisa del cuerpo y el fondo intactos.
+     *
+     * Queda 0/255 duro: es el corte que despues permite el trazado del
+     * contorno (estilo LightBurn) sin mas preproceso.
+     *
+     * @param {CanvasRenderingContext2D} ctx  lienzo de trabajo con la alfa ya puesta
+     * @param {number} W H  resolucion de trabajo
+     * @param {number} escalaX escalaY  pixeles de MASCARA por pixel de trabajo;
+     *                                  1/escala = tamano de la celda del modelo
+     */
+    function contornoLimpio(ctx, W, H, escalaX, escalaY) {
+        const n = W * H;
+        const d = ctx.getImageData(0, 0, W, H);
+        const p = d.data;
+        const alfa = new Float32Array(n);
+        for (let i = 0; i < n; i++) alfa[i] = p[i * 4 + 3] / 255;
+
+        // Celda del modelo en pixeles de TRABAJO: la mascara cubre c.dw px de
+        // mascara sobre anchoTrabajo px de trabajo, o sea que una celda cubre
+        // 1/escalaX px de trabajo. Radio de caja = celda/3 (sigma resultante
+        // ~celda*0.5, igual que en la lamina aprobada), parejo en ambos ejes.
+        const celda = ((escalaX > 0.001 ? 1 / escalaX : 2) +
+            (escalaY > 0.001 ? 1 / escalaY : 2)) / 2;
+        const r = Math.max(1, Math.min(5, Math.round(celda / 3)));
+        const campo = desenfoque3(alfa, W, H, r);
+
+        // La isofota 0.5 ES el nuevo borde: nucleo duro, sin banda.
+        for (let i = 0; i < n; i++) p[i * 4 + 3] = campo[i] >= 0.5 ? 255 : 0;
+        ctx.putImageData(d, 0, 0);
+    }
+
+    /**
+     * AEROGRAFO HACIA AFUERA (Suavizar). Vive en la composicion final y a
+     * resolucion NATURAL, no en la mascara guardada.
+     *
+     * Semantica acordada con el cliente: 0 = sin difusion (queda el nucleo
+     * duro del F2) y el radio maximo (Suavizar 100) es SUAV_MAX = 5% del
+     * LADO MENOR de la foto. La caida es suave (smoothstep) desde el
+     * contorno hacia afuera, el interior queda 100% opaco y el RGB no se
+     * toca: los tonos del anillo salen de la foto original ("combinacion
+     * con el fondo que se quito"), no de material inventado.
+     *
+     * @param {HTMLCanvasElement} mascara  canvas natural con el nucleo
+     * @param {number} W H  resolucion natural
+     * @param {number} radio  radio del anillo en px naturales
+     */
+    function aerografoNatural(mascara, W, H, radio) {
+        if (!(radio >= 1.5)) return;
+        const d = mascara.getContext('2d', { willReadFrequently: true })
+            .getImageData(0, 0, W, H);
+        const p = d.data;
+        const n = W * H;
+        const nucleo = new Uint8Array(n);
+        let hay = false;
+        for (let i = 0; i < n; i++) {
+            if (p[i * 4 + 3] >= 128) { nucleo[i] = 1; hay = true; }
+        }
+        if (!hay) return;
+        const dist = distanciaANucleo(nucleo, W, H);
+        for (let i = 0; i < n; i++) {
+            if (nucleo[i]) { p[i * 4 + 3] = 255; continue; }
+            const t = dist[i] / radio;
+            p[i * 4 + 3] = t >= 1 ? 0 : Math.round(255 * (1 - t * t * (3 - 2 * t)));
+        }
+        mascara.getContext('2d').putImageData(d, 0, 0);
+    }
+
     /**
      * Entrega el recorte a la resolucion NATURAL de la foto, sin remuestrear
      * el color.
@@ -893,16 +1028,49 @@
         const W = imagen.naturalWidth || imagen.width || 0;
         const H = imagen.naturalHeight || imagen.height || 0;
         if (!(W > 0) || !(H > 0)) return lienzo;
-        if (W === anchoTrabajo && H === altoTrabajo) return lienzo;
+
+        // 1) La mascara del nucleo pasa a resolucion natural. SIEMPRE una
+        // copia, incluso cuando coincide el tamano: el lienzo de trabajo es la
+        // fuente el pincel y de Deshacer, no puede quedar con el pintado del
+        // aerografo adentro (esa fuga fue la causa de que el recorte cambiara
+        // solo al reabrir). Si hay reescala, el alfa del nucleo se amplia
+        // bilineal ('high'): al corte duro le agrega un antialias de 1-2 px
+        // reales SIN mover el contorno.
+        let mascara = lienzo;
+        try {
+            const mc = document.createElement('canvas');
+            mc.width = W;
+            mc.height = H;
+            const cm = mc.getContext('2d');
+            if (W === anchoTrabajo && H === altoTrabajo) {
+                cm.drawImage(lienzo, 0, 0);
+            } else {
+                cm.imageSmoothingEnabled = true;
+                cm.imageSmoothingQuality = 'high';
+                cm.drawImage(lienzo, 0, 0, W, H);
+            }
+            mascara = mc;
+        } catch (e) {
+            ESTADO.ultimoError = e;
+        }
+
+        // 2) AEROGRAFO (Suavizar) hacia afuera, en pixeles NATURALES:
+        // radio = SUAVIZADO * SUAV_MAX (5%) * lado menor de la foto.
+        const menor = Math.min(W, H);
+        aerografoNatural(mascara, W, H, (CFG.SUAVIZADO || 0) * CFG.SUAV_MAX * menor);
+
+        // 3) Color original 1:1 + alfa. El RGB no se remuestrea nunca: los
+        // tonos del anillo difuso vienen de la foto, no de una interpolacion.
         const fin = document.createElement('canvas');
         fin.width = W;
         fin.height = H;
-        const c = fin.getContext('2d');
+        const c = fin.getContext('2d', { willReadFrequently: true });
         c.drawImage(imagen, 0, 0, W, H);            // color original, 1:1
         c.globalCompositeOperation = 'destination-in';
         c.imageSmoothingEnabled = true;
         c.imageSmoothingQuality = 'high';
-        c.drawImage(lienzo, 0, 0, W, H);            // solo aporta el alfa
+        c.drawImage(mascara, 0, 0, W, H);           // solo aporta el alfa
+        c.globalCompositeOperation = 'source-over';
         return fin;
     }
 
