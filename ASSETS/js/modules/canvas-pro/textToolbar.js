@@ -183,7 +183,7 @@ if (typeof window !== "undefined") {
     /* Sello de version del modulo de texto. Si en la consola del cliente este
        valor no coincide con el del paquete entregado, esta probando codigo
        viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
-    window.EKKO_TEXT_BUILD = "20261023-conmutatividad";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+    window.EKKO_TEXT_BUILD = "20261023-virola";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
        mantener su propia logica de arrastre: asi el unico dueno de "como se
        curva un texto" es este modulo. */
     window.EKKO_TEXT_BEND = {
@@ -500,8 +500,40 @@ async function applyTextCurveRun(item, curvature, options = {}) {
     });
 
     // Longitud total del arco: suma de avances reales mas el espaciado pedido.
-    const espacioPorPar = hspace * size * 0.02;
-    const longitudTotal = medidas.reduce((a, b) => a + b, 0) + Math.max(0, charCount - 1) * espacioPorPar;
+    /* ESPACIADO NEGATIVO = JUNTAR LETRAS.
+       El cliente necesita juntar letras para despues SOLDAR el conjunto
+       (soldadura de trazos) o para cerrar una virola. Antes estaba
+       prohibido por dos topes: el clamp Math.max(0, ...) de la suma, y el
+       hecho de que el hueco negativo podia dejar el texto del revés. Se
+       admite hasta -60% del avance promedio: mas alla las letras se
+       cruzarian tanto que el orden visual se perderia. */
+    const avancePromedio = medidas.length
+        ? medidas.reduce((a, b) => a + b, 0) / medidas.length
+        : size * 0.6;
+    const minHspace = -Math.round((avancePromedio * 0.6) / (size * 0.02));
+    const hspaceSeguro = Math.max(minHspace, hspace);
+    /* Radio del producto para el anillo: manda el que el cliente haya
+       escrito (options.radius); si no, el que derive el propio arco. */
+    const radioAnillo = Math.abs(Number(options.radius) || 0) || Math.abs(Number(targetItem.data?.radius) || 0);
+    /* CIERRE DE ANILLO (VIROLA).
+       Con 360 el texto tiene que cerrar la circunferencia del producto: el
+       hueco sobrante se REPARTE entre los pares en vez de dejar un escalon
+       al final. El criterio es el de LightBurn: primero el radio del
+       producto (o el que ya derive el arco) y despues la cuenta de huecos,
+       que para anillo cerrado es N (uno por letra, incluido el que cierra
+       entre la ultima y la primera), no N-1. */
+    const esAnillo = Math.abs(Math.abs(numericCurvature) - 360) < 0.5;
+    let espacioPorPar;
+    let longitudTotal;
+    if (esAnillo && radioAnillo > 0) {
+        const circunferencia = 2 * Math.PI * radioAnillo;
+        const sumaAvances = medidas.reduce((a, b) => a + b, 0);
+        espacioPorPar = charCount > 0 ? (circunferencia - sumaAvances) / charCount : 0;
+        longitudTotal = circunferencia;
+    } else {
+        espacioPorPar = hspaceSeguro * size * 0.02;
+        longitudTotal = Math.max(1, medidas.reduce((a, b) => a + b, 0) + (charCount - 1) * espacioPorPar);
+    }
 
     /* EL ANGULO ES EL VALOR MAESTRO.
        radio = longitud del arco / angulo. El cliente escribe el angulo (0 a 359)
@@ -556,7 +588,14 @@ async function applyTextCurveRun(item, curvature, options = {}) {
         const char = chars[i];
         const advance = medidas[i];
         const centroGlifo = acumulado + advance / 2;
-        acumulado += advance + (i < charCount - 1 ? espacioPorPar : 0);
+        /* EN EL ANILLO EL ULTIMO PAR TAMBIEN CUENTA.
+           En arco abierto hay N-1 huecos. En anillo cerrado (virola) el
+           hueco entre la ULTIMA y la PRIMERA letra existe de verdad: es el
+           que cierra la circunferencia. Sin este termino el texto dejaba un
+           escalon al final y el anillo no cerraba. Como longitudTotal ya es
+           la circunferencia exacta, el final de la ultima letra cae justo
+           donde empezo la primera. */
+        acumulado += advance + (i < charCount - 1 || esAnillo ? espacioPorPar : 0);
 
         // Punto sobre la circunferencia, medido desde el mas cercano al medio.
         const phi = radio < Infinity ? centroGlifo / radio : 0;
