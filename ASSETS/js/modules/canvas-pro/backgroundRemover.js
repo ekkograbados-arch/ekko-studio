@@ -236,6 +236,12 @@
         // mascara, porque eso cambiaba el contorno entero con cada trazo (ver
         // `mascaraATrabajo`).
         mascaraFinal: false,
+        // Sello de la foto en curso. Cada `quitarFondo` lo incrementa y las
+        // claves de las caches del retoque (rejilla de color, capas) lo
+        // incluyen: su clave era solo el TAMANO de la mascara y con dos fotos
+        // que miden igual la segunda reutilizaba los colores de la primera
+        // (region borrada de 143.918 px donde no era, reportado 2026-10-24).
+        tokenImagen: 0,
         // Alfa final de la IA a resolucion de trabajo. Se guarda al recortar
         // para que, al reabrir el retoque, Deshacer siga teniendo el estado 0
         // sin volver a correr el post-proceso.
@@ -1464,6 +1470,22 @@
             RETOQUE.original = null;
             RETOQUE.capasClave = '';
             RETOQUE.capasSucias = true;
+            // Y NADA de la foto anterior puede sobrevivir al cambio:
+            //   - La rejilla de color del Asistido tenia por clave el TAMANO
+            //     de la mascara: dos fotos de la misma dimension (dos
+            //     productos cuadrados, por ejemplo) compartian rejilla y el
+            //     flood mordia con los COLORES de la foto anterior. Medido
+            //     (banco V7): un toque de 143.918 px pantalla (429x612) con
+            //     el anillo de 120 px en el pelaje de la cara del gato: es
+            //     el "borra la cara y el tamano no coincide" del cliente
+            //     (2026-10-24). La rejilla se descarta al cambiar de foto.
+            //   - La caja de la ventana es de la foto anterior: si un toque
+            //     llegara antes del primer repintado, `pantallaAMascara`
+            //     mejor devuelve null a pintar con geometria viciada.
+            RETOQUE.colorGrid = null;
+            RETOQUE.colorClave = '';
+            ESTADO.ventanaCaja = null;
+            ESTADO.tokenImagen = (ESTADO.tokenImagen || 0) + 1;
             ESTADO.lienzoTrabajo = { aw, ah };
             // El rectangulo que la foto ocupa dentro de la entrada se guarda para
             // que todo recorte posterior (ajustar el borde, pincel) siga con la
@@ -2244,7 +2266,7 @@
     function claveCapas() {
         const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : 0;
         const ah = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.ah : 0;
-        return aw + 'x' + ah + '|' + ESTADO.mascaraAncho + 'x' + ESTADO.mascaraAlto +
+        return ESTADO.tokenImagen + '@' + aw + 'x' + ah + '|' + ESTADO.mascaraAncho + 'x' + ESTADO.mascaraAlto +
             '|' + (ESTADO.mascaraFinal ? 'final' : 'modelo');
     }
 
@@ -2958,11 +2980,13 @@
         const caja = ESTADO.ventanaCaja;
         if (!caja || !(caja.esc > 0)) return 0;
         const c = ESTADO.caja || { ox: 0, oy: 0, dw: ESTADO.mascaraAncho, dh: ESTADO.mascaraAlto };
-        const nat = imagenEnRetoque() || ESTADO.imagenProcesada;
-        const el = nat && (nat.canvas || (nat.getElement && nat.getElement()));
-        const nW = el ? (el.naturalWidth || el.width) : 0;
-        if (!(nW > 0) || !(c.dw > 0)) return 0;
-        return c.dw / (nW * caja.esc);
+        // La escala es la de la foto DIBUJADA en la ventana: ventanaCaja la
+        // guarda y pantallaAMascara usa la misma. Antes se le preguntaba el
+        // tamano natural al item SELECCIONADO del mockup: si la seleccion era
+        // otra pieza, el factor mezclaba las geometrias de dos fotos y el
+        // radio pintado y el anillo dejaban de coincidir.
+        if (!(caja.natW > 0) || !(c.dw > 0)) return 0;
+        return c.dw / (caja.natW * caja.esc);
     }
 
     function actualizarCursor(ev) {
@@ -3033,10 +3057,21 @@
     function rejillaDeColor() {
         const r = imagenEnRetoque() || ESTADO.imagenProcesada;
         if (!r || !(ESTADO.mascaraAncho > 0)) return null;
-        const clave = String(ESTADO.mascaraAncho) + 'x' + String(ESTADO.mascaraAlto);
+        // La clave identifica la FOTO, no solo el tamano: la mascara de dos
+        // productos cuadrados mide lo mismo y la rejilla de uno PODIA
+        // sobrevivir al otro. Medido (banco V7, 2026-10-24): con la rejilla
+        // de la foto anterior, un toque en el pelaje borro 143.918 px en un
+        // range de 429x612 con el anillo de 120 px en la cara del gato.
+        const clave = ESTADO.tokenImagen + '@' +
+            String(ESTADO.mascaraAncho) + 'x' + String(ESTADO.mascaraAlto);
         if (RETOQUE.colorGrid && RETOQUE.colorClave === clave) return RETOQUE.colorGrid;
 
-        const src = r.canvas || (typeof r.getElement === 'function' ? r.getElement() : null) || r.image;
+        // La rejilla describe la foto que la mascara esta procesando: sale de
+        // la copia a tamano natural de Esa foto (lienzoOriginal). Antes salia
+        // del item seleccionado del mockup, que puede ser otra pieza o el
+        // recorte ya aplicado (con alfa y transparencia) despues de Listo.
+        const src = ESTADO.lienzoOriginal ||
+            (r.canvas || (typeof r.getElement === 'function' ? r.getElement() : null) || r.image);
         if (!src) return null;
         const w = ESTADO.mascaraAncho, h = ESTADO.mascaraAlto;
         const cv = document.createElement('canvas');
@@ -3467,24 +3502,18 @@
      * item), que puede traer escala, rotacion y traslacion.
      */
     function pantallaAMascara(ev) {
-        // Se puede estar retocando una imagen que ya no es la ultima procesada:
-        // se resuelve desde la seleccion para no pintar sobre la pieza
-        // equivocada cuando el cliente retoca dos fotos seguidas.
-        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
-        if (!r) return null;
-        const src = r.canvas || (typeof r.getElement === 'function' ? r.getElement() : null) || r.image;
-        if (!src) return null;
-        const natW = src.naturalWidth || src.width || 1;
-        const natH = src.naturalHeight || src.height || 1;
-        if (!(natW > 0) || !(natH > 0)) return null;
-        if (!(ESTADO.mascaraAncho > 0) || !(ESTADO.mascaraAlto > 0)) return null;
-
-        // La ventana tiene su propio lienzo y su propia caja: se lee de ahi, no de
-        // `paper.view`. MEDIDO: usar la del editor mandaba el trazo a cualquier
-        // lado, porque la ventana esta en otro sistema de coordenadas.
-        const cv = document.getElementById('lienzo-editar-fondo');
+        // Un solo origen de verdad: la caja de la VENTANA. Es la geoemetria de
+        // lo que se ve (la foto dibujada con su zoom y paneo). Antes el limite
+        // y el mapeo se resolvian contra el item SELECCIONADO del mockup: al
+        // agregar otra imagen la seleccion puede referir una pieza con otras
+        // dimensiones naturales, y el guard (cmp contra la foto seleccionada)
+        // y el mapeo (cmp contra la caja de otra foto) salian de DOS fotos
+        // distintas: el trazo caia donde no era y el circle pinted no medía
+        // lo que decia el anillo (reporte del cliente 2026-10-24).
         const caja = ESTADO.ventanaCaja;
-        if (!cv || !caja || !caja.esc) return null;
+        if (!caja || !caja.esc) return null;
+        const cv = document.getElementById('lienzo-editar-fondo');
+        if (!cv) return null;
 
         // Pantalla -> pixel de la foto dentro de la ventana.
         const rc = cv.getBoundingClientRect();
@@ -3492,26 +3521,23 @@
         const fy = (ev.clientY - rc.top - caja.oy) / caja.esc;
         if (!isFinite(fx) || !isFinite(fy)) return null;
 
-        // El limite se mide contra el TAMAÑO NATURAL de la foto, no contra
-        // `caja.w/h` (que es el ancho en pantalla).
+        // El limite se mide contra el TAMANO NATURAL de la foto dibujada (la
+        // que guarda la caja), no contra `caja.w/h` (que es el ancho en
+        // pantalla).
         //
         // MEDIDO: `fx` ya viene en pixeles naturales, pero se comparaba con el
         // ancho mostrado. Con una foto de 1200 px dibujada a 216 de ancho, todo
         // lo que pasaba de x=238 se rechazaba y el pincel NO PINTABA NADA, sin
         // dar ningun error. Era el mismo problema de unidades que YA se habia
         // resuelto una vez para `paper.view` (ver la nota de esta funcion).
-        if (fx < -natW * 0.1 || fx > natW * 1.1 || fy < -natH * 0.1 || fy > natH * 1.1) return null;
+        if (fx < -caja.natW * 0.1 || fx > caja.natW * 1.1 || fy < -caja.natH * 0.1 || fy > caja.natH * 1.1) return null;
 
         // Pixel de la foto -> coordenada de la MASCARA, respetando el
         // rectangulo real que la foto ocupa dentro del cuadrado de entrada.
         const c = ESTADO.caja || { ox: 0, oy: 0, dw: ESTADO.mascaraAncho, dh: ESTADO.mascaraAlto };
-        const nat = imagenEnRetoque() || ESTADO.imagenProcesada;
-        const el = nat && (nat.canvas || (nat.getElement && nat.getElement()));
-        const nW = el ? (el.naturalWidth || el.width) : 0;
-        const nH = el ? (el.naturalHeight || el.height) : 0;
-        if (!(nW > 0) || !(nH > 0)) return null;
-        const mx = c.ox + (fx / nW) * c.dw;
-        const my = c.oy + (fy / nH) * c.dh;
+        if (!(caja.natW > 0) || !(caja.natH > 0)) return null;
+        const mx = c.ox + (fx / caja.natW) * c.dw;
+        const my = c.oy + (fy / caja.natH) * c.dh;
         if (!isFinite(mx) || !isFinite(my)) return null;
         return { x: mx, y: my };
     }
