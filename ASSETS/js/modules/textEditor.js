@@ -123,6 +123,85 @@ export function startTextEditing(textItem) {
     area.select();
 
     let closed = false;
+    /* SESION SUSPENDIDA = EL CLIENTE ESTA MANOJANDO LA CAJA.
+       Mientras escribe, el textarea tiene el foco y el texto en el canvas
+       esta oculto (para no ver doble recuadro). Pero el cliente necesita
+       agrandar el texto con los tiradores o arrastrarlo SIN aceptar la
+       edicion, y despues seguir escribiendo. Antes cualquier mousedown
+       fuera del textarea cerraba la sesion: agarrar un tirador aceptaba el
+       texto a la fuerza y ya no se podia seguir editando.
+       La sesion ahora se SUSPENDE (no se cierra): el texto se muestra, el
+       textarea se esconde y el lienzo recibe el puntero. Al soltar, la
+       sesion se reanuda con el caret donde estaba. Es conmutativo: da lo
+       mismo escribir y luego escalar que escalar y luego escribir. */
+    let suspended = false;
+    let caretStart = 0;
+    let caretEnd = 0;
+
+    function mostrarTextoEnCanvas() {
+        textItem.visible = true;
+        area.style.display = "none";
+        try { paper.view.update(); } catch (_) {}
+    }
+
+    function mostrarTextarea() {
+        textItem.visible = false;
+        area.style.display = "";
+        syncEditorSizeAndPosition();
+        try { paper.view.update(); } catch (_) {}
+    }
+
+    function suspend() {
+        if (closed || suspended) return;
+        suspended = true;
+        caretStart = area.selectionStart ?? 0;
+        caretEnd = area.selectionEnd ?? caretStart;
+        publishTextEditorState("transforming", textItem, area.value);
+        /* CEDER EL PUNTERO AL LIENZO.
+           Mientras el dueño de la interaccion es "text-edit", selection.js
+           hace `canHandle("select")` -> false y IGNORA el mousedown: los
+           tiradores no responden. Hay que liberar el modo para que la caja
+           de seleccion vuelva a tomar el puntero. La sesion de edicion no
+           se pierde: vive en este closure, no en interactionOwner. */
+        try { interactionOwner.release("text-edit"); } catch (_) {}
+        mostrarTextoEnCanvas();
+    }
+
+    function resume() {
+        if (closed || !suspended) return;
+        suspended = false;
+        /* Reclamar de nuevo: sin esto, cualquier tecla o herramienta seguira
+           creyendo que manda la seleccion y el textarea quedaria a medio usar. */
+        try { interactionOwner.claim("text-edit", { owner: "textEditor" }); } catch (_) {}
+        publishTextEditorState("editing", textItem, area.value);
+        mostrarTextarea();
+        area.focus();
+        try { area.setSelectionRange(caretStart, caretEnd); } catch (_) {}
+    }
+
+    /* El puntero esta SOBRE la pieza o sobre su caja de seleccion?
+       Se usa bounds y no hitTest porque mientras se escribe el texto esta
+       invisible, y hitTest sobre un item invisible no responde. Bounds si
+       sigue valiendo: la geometria no desaparece, solo no se dibuja. */
+    function punteroSobreLaPieza(punto) {
+        const tol = 12 / (paper.view?.zoom || 1);
+        const candidatos = [window.selectedItem, textItem].filter(Boolean);
+        for (const it of candidatos) {
+            try {
+                const b = it.bounds;
+                if (b && b.expand(tol).contains(punto)) return true;
+            } catch (_) {}
+        }
+        try {
+            if (window.selectionBoxGroup && window.selectionBoxGroup.hitTest(punto)) return true;
+        } catch (_) {}
+        return false;
+    }
+
+    function puntoDelEvento(e) {
+        const r = canvas.getBoundingClientRect();
+        return paper.view.viewToProject(new paper.Point(e.clientX - r.left, e.clientY - r.top));
+    }
 
     function finish(save = true) {
         if (closed) return;
@@ -130,8 +209,9 @@ export function startTextEditing(textItem) {
         interactionOwner.release("text-edit");
         publishTextEditorState(save ? "confirmed" : "cancelled", textItem, save ? area.value.trim() : originalContent);
         
-        // Remover el detector de clics externos global
-        document.removeEventListener("mousedown", handleOutsideClick);
+        // Remover los detectores de clics externos globales (mismo orden de fases)
+        if (typeof removerCaptura === 'function') removerCaptura();
+        document.removeEventListener("mouseup", handleCanvasMouseUp);
         if (save) {
             const val = area.value.trim();
             if (val === "") {
@@ -205,19 +285,69 @@ export function startTextEditing(textItem) {
         }
     });
 
-        // Guardar cambios al hacer clic fuera del área de texto (blur)
-    area.addEventListener("blur", () => finish(true), { once: true });
+        /* EL BLUR NO CIERRA LA SESION, SOLO LA SUSPENDE.
+           Esconder el textarea (al agarrar un tirador) dispara blur
+           automaticamente. Si ahi se cerrara, el tirador aceptaria el texto
+           por la fuerza. El blur solo avisa: el cierre lo decide el
+           mousedown de abajo. */
+    area.addEventListener("blur", () => {
+        if (closed || suspended) return;
+        /* Blur sin suspension = el foco se fue a un panel de la interfaz
+           (cinta, sidebar). Ahi si se acepta, igual que en Canva. */
+        finish(true);
+    });
 
-    // Detector de clics externos global para guardar en caliente (Soporta clic izquierdo y derecho)
+    /* Detector de clics externos global.
+       Tres destinos, tres destinos distintos:
+         - sobre la pieza o su caja de seleccion -> SUSPENDE (seguir editando)
+         - sobre el lienzo vacio -> acepta y listo
+         - sobre un panel de la interfaz -> acepta */
     const handleOutsideClick = (e) => {
-        if (e.target !== area) {
-            finish(true);
+        if (closed || suspended) return;
+        if (e.target === area) return;
+        if (e.target === canvas) {
+            try {
+                if (punteroSobreLaPieza(puntoDelEvento(e))) {
+                    suspend();
+                    return;
+                }
+            } catch (_) {}
         }
+        finish(true);
     };
 
     // Retrasar el registro ligeramente para evitar que el doble clic que abrió el editor lo cierre de inmediato
+    /* EL ORDEN DE LAS FASES NO ES CAPRICHO, ES EL CERROJO.
+       - pointerdown y mousedown en CAPTURA: corren ANTES de los listeners
+         del lienzo. paper.js 0.12.x prefiere Pointer Events, y el navegador
+         dispara `pointerdown` ANTES que `mousedown`: si la suspension
+         escuchara solo mousedown, selection.js consultaria el modo
+         (linea 877) ANTES de que se libere "text-edit" y el tirador nunca
+         se agarra. Se escuchan los dos tipos; suspend() es idempotente.
+       - mouseup en BURBUJA: corre DESPUES del onMouseUp de selection.js
+         (linea 1235 vuelve a exigir `canHandle("select")`). Si reanudara
+         la sesion antes, el escalado no terminaria de cerrar (ni historial
+         ni banderas ni caja). Respetando el orden, cada motor recibe el
+         evento en el estado que necesita. */
+    const registrarCaptura = () => {
+        document.addEventListener("pointerdown", handleOutsideClick, true);
+        document.addEventListener("mousedown", handleOutsideClick, true);
+    };
     setTimeout(() => {
-        document.addEventListener("mousedown", handleOutsideClick);
+        registrarCaptura();
+        document.addEventListener("mouseup", handleCanvasMouseUp);
+    }, 50);
+
+    /* AL SOLTAR EL PUNTERO VOLVER A EDITAR.
+       El tirador o el arrastre ya hicieron su trabajo: la sesion se
+       reanuda con el caret donde estaba, para que el cliente siga
+       escribiendo sin tener que volver a abrir el editor. */
+    const handleCanvasMouseUp = () => {
+        if (closed || !suspended) return;
+        setTimeout(() => { if (!closed) resume(); }, 0);
+    };
+    setTimeout(() => {
+        document.addEventListener("mouseup", handleCanvasMouseUp);
     }, 50);
 }
 
