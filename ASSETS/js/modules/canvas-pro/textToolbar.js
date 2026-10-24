@@ -170,6 +170,126 @@ function handOffSelection(owner, flat) {
     if (typeof window.selectItem === "function") window.selectItem(flat);
 }
 
+/* =========================================================================
+   TAMANO DE TEXTO: HORNEADO Y LECTURA EN VIVO
+   ---------------------------------------------------------------------------
+   Al escalar texto con tiradores el motor solo multiplica la matriz: fontSize
+   queda en su base y el campo "Tamano" mentia (mostraba 42 aunque el texto se
+   viera al doble). Dos son las piezas que faltaban:
+
+     1. LECTURA EN VIVO (observer de "scale", mas abajo): durante el arrastre
+        el campo muestra base x escala, asi el cliente ve el pt crecer mientras
+        tira. Ancho/Alto ya iban en vivo por updateSelectionInfo.
+     2. HORNEADO AL SOLTAR (window.EKKO_TEXT_BAKE_TAMANO, llamado por
+        selection.js en onMouseUp antes de saveHistory): la escala de la matriz
+        pasa a fontSize (el pt pasa a la fuente de verdad), la matriz queda
+        como T·R limpia y los grupos curvados/espaciados se reconstruyen con
+        el nuevo base. Sin esto, cada edicion posterior de texto nacia del
+        base viejo y "volviera" al tamano chico.
+
+   Solo se hornea cuando la escala es UNIFORME: si ancho y alto crecieron
+   distinto no existe un unico pt que represente la pieza, se actualizan los
+   campos y no se toca la matriz (la pieza conservaria su no uniformidad).
+   Un texto espejado (escala negativa) conserva su espejo: el signo queda en
+   la matriz, el pt usa el valor absoluto. */
+const TEXTO_PT_MIN = 5;
+const TEXTO_PT_MAX = 250;
+
+function esTextoHorneable(item) {
+    if (!item) return false;
+    if (item.className === "PointText") return true;
+    const d = item.data || {};
+    return Boolean(d.isText || d.isCurvedGroup === true || d.isSpacedGroup === true);
+}
+
+function tamanoBaseDeTexto(item) {
+    if (item.className === "PointText" && Number(item.fontSize) > 0) return Number(item.fontSize);
+    const value = Number((item.data || {}).fontSize);
+    return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function tamanoEfectivoDeTexto(item) {
+    const base = tamanoBaseDeTexto(item);
+    if (base == null) return null;
+    try {
+        const m = item.globalMatrix || item.matrix;
+        const sy = m ? Number(m.scaling && m.scaling.y) : 1;
+        if (Number.isFinite(sy) && sy > 0) return base * sy;
+    } catch (_) {}
+    return base;
+}
+
+function pintarTamanoDeLista() {
+    const lista = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+        ? window.selectedItems
+        : (window.selectedItem ? [window.selectedItem] : []);
+    for (const item of lista) {
+        if (!esTextoHorneable(item)) continue;
+        const efectivo = tamanoEfectivoDeTexto(item);
+        if (efectivo != null) window.EKKO_ROTATION_CONTROLLER?.syncFontSizeInputs?.(efectivo);
+    }
+}
+
+function hornearTamanoDeTexto(items) {
+    const fuente = (Array.isArray(items) && items.length)
+        ? items
+        : (Array.isArray(window.selectedItems) && window.selectedItems.length
+            ? window.selectedItems
+            : (window.selectedItem ? [window.selectedItem] : []));
+    let horneados = 0;
+    fuente.forEach(item => {
+        if (!esTextoHorneable(item)) return;
+        const base = tamanoBaseDeTexto(item);
+        if (base == null) return;
+        const m = item.matrix; /* la PROPIA: la que el resize multiplico y la que se resetea */
+        try {
+            const s = m.scaling || { x: 1, y: 1 };
+            const sx = Number(s.x) || 1;
+            const sy = Number(s.y) || 1;
+            const cos = Math.cos(Math.atan2(m.b, m.a));
+            const sin = Math.sin(Math.atan2(m.b, m.a));
+            const tx = m.tx;
+            const ty = m.ty;
+            /* Uniformidad con 1% de tolerancia; los tiradores de esquina con
+               proporción bloqueada producen escalas identicas de facto. */
+            const uniforme = Math.abs(Math.abs(sx) - Math.abs(sy)) <= Math.abs(sy) * 0.01 + 1e-9;
+            if (!uniforme || Math.abs(Math.abs(sy) - 1) <= 1e-9) {
+                /* No hornea: o la pieza no es uniforme (no hay un unico pt) o
+                   la matriz ya esta limpia. Solo refresco el campo. */
+                pintarTamanoDeLista();
+                return;
+            }
+            const nuevo = Math.max(TEXTO_PT_MIN, Math.min(TEXTO_PT_MAX, Math.round(base * Math.abs(sy) * 2) / 2));
+            if (item.className === "PointText") item.fontSize = nuevo;
+            /* data.fontSize siempre, reflejo del nuevo base para las demas
+               superficies (grupo curvado/espaciado reconstruyen desde aca). */
+            item.data = { ...(item.data || {}), fontSize: nuevo };
+            /* Matriz queda T·R: la escala se fue al pt. El signo guarda el
+               espejo si lo hubiera. */
+            const signx = sx < 0 ? -1 : 1;
+            const signy = sy < 0 ? -1 : 1;
+            item.matrix = new paper.Matrix(cos * signx, sin * signx, -sin * signy, cos * signy, tx, ty);
+            horneados++;
+            /* PointText se redibuja solo; los grupos hornean glifos y el dueno
+               de esa reconstruccion es rebuildEKKOTextOwner. */
+            if (item.className !== "PointText") {
+                try { window.rebuildEKKOTextOwner?.(item); } catch (err) {}
+            }
+        } catch (err) {
+            pintarTamanoDeLista();
+            return;
+        }
+    });
+    if (horneados) {
+        window.paper?.view?.update?.();
+        window.updateSelectionBox?.(window.selectedItem);
+        window.updateSelectionInfo?.();
+    }
+    pintarTamanoDeLista();
+    return horneados;
+}
+
+let tamanoLiveFrame = null;
 if (typeof window !== "undefined") {
     // Superficie publica: rotationController y contextualMenu reconstruyen y
     // consulta desde aca en vez de importar este modulo, para no abrir un ciclo
@@ -183,7 +303,7 @@ if (typeof window !== "undefined") {
     /* Sello de version del modulo de texto. Si en la consola del cliente este
        valor no coincide con el del paquete entregado, esta probando codigo
        viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
-    window.EKKO_TEXT_BUILD = "20261023-virola";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+    window.EKKO_TEXT_BUILD = "20261024-tamano-vivo";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
        mantener su propia logica de arrastre: asi el unico dueno de "como se
        curva un texto" es este modulo. */
     window.EKKO_TEXT_BEND = {
@@ -226,6 +346,25 @@ if (typeof window !== "undefined") {
             reestamparBaseEspaciadoPorEstado();
         });
     });
+    /* Tamano (pt) EN VIVO durante el escalado con tiradores. selection.js
+       notifica type:"scale" en cada paso del arrastre; aca se pinta el pt
+       efectivo (base x escala de la matriz) en ctxFontSize/objFontSize, en la
+       misma superficies que ya usan la barra superior y la emergente. El
+       horneado real ocurre al soltar, en onMouseUp de selection.js via
+       window.EKKO_TEXT_BAKE_TAMANO; el observer solo hace que el campo NO
+       mienta mientras se tira. MEDIDO: sin esto el campo quedaba travado en
+       42 pt aunque el altoPx duplicara. */
+    window.EKKO_FUSION_CONTROLLER?.addTransformObserver?.((payload) => {
+        if (payload?.type !== "scale") return;
+        if (tamanoLiveFrame) return;
+        tamanoLiveFrame = requestAnimationFrame(() => {
+            tamanoLiveFrame = null;
+            try { pintarTamanoDeLista(); } catch (err) {}
+        });
+    });
+    /* Superficie para selection.js: hornear el tamano de letra al terminar un
+       resize (antes de saveHistory, para que el snapshot ya salga horneado). */
+    window.EKKO_TEXT_BAKE_TAMANO = hornearTamanoDeTexto;
 }
 let guiaFrame = null;
 let guiaBaseFrame = null;
