@@ -66,6 +66,10 @@ export function startTextEditing(textItem) {
 
     // 3. Función interna para sincronizar posición, tamaño y caret con los bounds reales del lienzo
     function syncEditorSizeAndPosition() {
+        /* Lienzo medido FRESCO: con un rect capturado al abrir la sesion, el
+           vigilante de zoom sincronizaba respecto a la pantalla de antes si
+           la ventana o un panel se movieron mientras se editaba. */
+        const rect = canvas.getBoundingClientRect();
         const zoom = paper.view.zoom;
         const bounds = textItem.bounds;
         
@@ -295,6 +299,100 @@ export function startTextEditing(textItem) {
         /* Blur sin suspension = el foco se fue a un panel de la interfaz
            (cinta, sidebar). Ahi si se acepta, igual que en Canva. */
         finish(true);
+    });
+
+    /* =========================================================================
+       ZOOM CON LA SESION VIVA
+       -------------------------------------------------------------------------
+       Las letras que se ven mientras se escribe son del TEXTAREA (el texto del
+       lienzo esta oculto). La caja de seleccion es geometria del lienzo en
+       coordenadas mundiales: al hacer zoom se acomoda sola. El textarea NO: su
+       posicion y su alto/fecha se calcularon una vez, asi que despues del zoom
+       las letras quedaban en la pantalla de antes y separadas de la caja.
+       MEDIDO: con zoom x1.2 el cuadrado bajo unos 50px y el texto quedo arriba.
+
+       Tres piezas:
+        1. RUEDA sobre el textarea -> ahora hace zoom igual que en el lienzo
+           (se re-expide al canvas, que es el dueno del control de zoom
+           LightBurn). Antes el textarea se comia la rueda: ni zoom ni caret.
+        2. VIGILANTE por frame: si el zoom de la vista o el rectangulo del
+           lienzo cambiaron, re-sincroniza posicion/tamano del textarea. Cubre
+           rueda sobre el lienzo, Ctrl+rueda desde el textarea, y el deslizar
+           de paneles que muevan el canvas.
+        3. CURSOR DE TRANSFORMACION sobre el textarea: el cambio de cursor vive
+           en selectTool.onMouseMove del lienzo, que no corre mientras el
+           puntero esta sobre el textarea. Con esto, pasar por encima de un
+           tirador mientras se escribe muestra el mismo cursor que en la caja.
+       ========================================================================= */
+
+    /* 1. La rueda sobre las letras ya no muere: zoom con el mismo gesto. */
+    area.addEventListener("wheel", (e) => {
+        if (closed) return;
+        e.preventDefault();
+        e.stopPropagation();
+        /* offsetX/offsetY son relativos al TARGET: al re-expedir sobre el
+           canvas quedan relativos al lienzo, que es lo que espera el control
+           de zoom relativo al cursor. */
+        canvas.dispatchEvent(new WheelEvent("wheel", {
+            bubbles: true, cancelable: true,
+            clientX: e.clientX, clientY: e.clientY,
+            deltaX: e.deltaX, deltaY: e.deltaY, deltaZ: e.deltaZ, deltaMode: e.deltaMode
+        }));
+    }, { passive: false });
+
+    /* 2. Vigilante: el zoom (o un lienzo que corrio) re-acomoda el textarea. */
+    let ultimoZoom = paper.view ? paper.view.zoom : 1;
+    let ultimoRect = canvas.getBoundingClientRect();
+    const vigilancia = () => {
+        if (closed) return;
+        try {
+            if (suspended) {
+                /* Sin textarea visible no hay nada que acomodar; solo se
+                   actualizan las referencias para no falsar el proximo mundo. */
+                ultimoZoom = paper.view ? paper.view.zoom : ultimoZoom;
+            } else {
+                const v = paper.view ? paper.view.zoom : ultimoZoom;
+                const r = canvas.getBoundingClientRect();
+                const movio = Math.abs(r.left - ultimoRect.left) > 0.5
+                    || Math.abs(r.top - ultimoRect.top) > 0.5
+                    || Math.abs(r.width - ultimoRect.width) > 0.5
+                    || Math.abs(r.height - ultimoRect.height) > 0.5;
+                if (v !== ultimoZoom || movio) {
+                    ultimoZoom = v;
+                    ultimoRect = r;
+                    syncEditorSizeAndPosition();
+                } else {
+                    ultimoRect = r;
+                }
+            }
+        } catch (_) {}
+        requestAnimationFrame(vigilancia);
+    };
+    requestAnimationFrame(vigilancia);
+
+    /* 3. Cursor de transformacion: misma logica que el pasaje a traves, para
+       que el cursor que se muestra prometa EXACTAMENTE lo que el clic hara.
+       Orden: tirador de curvatura -> tiradores/borde de caja -> caret. */
+    area.addEventListener("pointermove", (e) => {
+        if (closed || suspended) return;
+        let cur = "text";
+        try {
+            const punto = puntoDelEvento(e);
+            if (window.EKKO_TEXT_BEND && typeof window.EKKO_TEXT_BEND.hitTest === "function" && window.EKKO_TEXT_BEND.hitTest(punto)) {
+                cur = "ns-resize";
+            } else {
+                const golpe = window.selectionBoxGroup && window.selectionBoxGroup.hitTest(punto, {
+                    fill: true, stroke: true, segments: true,
+                    tolerance: 10 / (paper.view?.zoom || 1)
+                });
+                if (golpe) {
+                    const d = golpe.item.data || {};
+                    const mapa = { rot: "grab", tl: "nwse-resize", br: "nwse-resize", tr: "nesw-resize", bl: "nesw-resize", t: "ns-resize", b: "ns-resize", l: "ew-resize", r: "ew-resize" };
+                    cur = d.isHandle ? (mapa[d.handleType] || "move") : "move";
+                }
+            }
+        } catch (_) {}
+        area.style.cursor = cur;
     });
 
     /* Detector de clics externos global.
