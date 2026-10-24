@@ -298,13 +298,48 @@ export function startTextEditing(textItem) {
     });
 
     /* Detector de clics externos global.
-       Tres destinos, tres destinos distintos:
-         - sobre la pieza o su caja de seleccion -> SUSPENDE (seguir editando)
+       Cuatro destinos, cuatro caminos distintos:
+         - sobre el textarea PERO cayendo en un tirador o en el borde de la
+           caja -> SALVA AL LIENZO (pasaje a traves). Sin esto el textarea,
+           que tapa el texto con un margen de 8px al costado y 4px arriba y
+           abajo, se comeria los clics de las esquinas: agarrar un tirador
+           mientras se escribe seria imposible (no interactua).
+         - sobre el lienzo, sobre la pieza o su caja -> SUSPENDE (seguir editando)
          - sobre el lienzo vacio -> acepta y listo
          - sobre un panel de la interfaz -> acepta */
+    const reexpedirAlLienzo = (e) => {
+        /* El evento original salio del textarea: el lienzo nunca lo vio.
+           Se re-dispacha IGUAL sobre el canvas para que el tool lo procese. */
+        setTimeout(() => {
+            if (closed || !suspended) return;
+            const datos = { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: e.button ?? 0, buttons: e.type === 'pointerup' || e.type === 'mouseup' ? 0 : 1 };
+            if (e.type === 'pointerdown' || e.type === 'pointerup' || e.type === 'pointermove') {
+                canvas.dispatchEvent(new PointerEvent(e.type, { ...datos, pointerId: e.pointerId ?? 1, pointerType: e.pointerType ?? 'mouse', isPrimary: e.isPrimary ?? true }));
+            } else {
+                canvas.dispatchEvent(new MouseEvent(e.type, datos));
+            }
+        }, 0);
+    };
     const handleOutsideClick = (e) => {
         if (closed || suspended) return;
-        if (e.target === area) return;
+        if (e.target === area) {
+            try {
+                /* ¿El punto cae sobre la caja de seleccion (borde o tiradores)?
+                   hitTest del grupo de caja; el interior del rectangulo no
+                   marca porque no tiene relleno, pero los tiradores si
+                   (blanco con borde). */
+                const punto = puntoDelEvento(e);
+                const golpe = window.selectionBoxGroup && window.selectionBoxGroup.hitTest(punto, {
+                    fill: true, stroke: true, segments: true,
+                    tolerance: 10 / (paper.view?.zoom || 1)
+                });
+                if (golpe) {
+                    suspend();
+                    reexpedirAlLienzo(e);
+                }
+            } catch (_) {}
+            return;
+        }
         if (e.target === canvas) {
             try {
                 if (punteroSobreLaPieza(puntoDelEvento(e))) {
