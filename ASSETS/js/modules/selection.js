@@ -1336,6 +1336,12 @@ const _initSelectionTool = function() {
     if (window.rotationActive) rotationController.endPointer("committed");
     if (window.resizeActive || window.dragging) {
       finalizeTransformTransaction("committed");
+      /* Al escalar TEXTO con tiradores el crecimiento se quedó en la matriz y
+         fontSize (Tamano) seguía mostrando el valor base. Aquí se HORNESA: la
+         escala de la matriz pasa a fontSize, la matriz queda T·R y los grupos
+         curvados/espaciados se reconstruyen. Debe correr ANTES de saveHistory
+         para que el snapshot de historial ya salga con el pt horneado. */
+      try { window.EKKO_TEXT_BAKE_TAMANO?.(); } catch (e) {}
       if (typeof window.saveHistory === 'function') window.saveHistory();
       if (typeof window.commitHistoryTransaction === 'function') window.commitHistoryTransaction("transform");
 
