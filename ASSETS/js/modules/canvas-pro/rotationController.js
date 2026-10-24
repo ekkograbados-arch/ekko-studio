@@ -48,9 +48,24 @@ function isTextOwner(item) {
  */
 function readFontSize(owner) {
   if (!isTextOwner(owner)) return null;
-  if (owner.className === "PointText" && Number(owner.fontSize) > 0) return Number(owner.fontSize);
-  const value = Number((owner.data || {}).fontSize);
-  return Number.isFinite(value) && value > 0 ? value : null;
+  const base = owner.className === "PointText" && Number(owner.fontSize) > 0
+    ? Number(owner.fontSize)
+    : Number((owner.data || {}).fontSize);
+  if (!(Number.isFinite(base) && base > 0)) return null;
+  /* El tamano VISIBLE es base x escala de la matriz: al escalar con tiradores
+     la matriz crece y fontSize queda en su valor base mientras no se hornee.
+     Si el campo mostrara solo base, mentiria durante y despues del arrastre.
+     FALLAS EVITADAS: esta funcion es SOLO LECTURA (se usa en syncSelection
+     para pintar ctxFontSize/objFontSize, y ahora devuelve el pt que se ve en
+     pantalla); la escritura/horneado vive en textToolbar
+     (window.EKKO_TEXT_BAKE_TAMANO). El getter .scaling ya dice 1 para una
+     matriz de rotacion pura, asi que rotar no cambia la lectura. */
+  try {
+    const m = owner.globalMatrix || owner.matrix;
+    const sy = m ? Number(m.scaling && m.scaling.y) : 1;
+    if (Number.isFinite(sy) && sy > 0 && Math.abs(sy - 1) > 1e-6) return base * sy;
+  } catch (_) {}
+  return base;
 }
 
 // Paper's globalMatrix is the transform actually rendered for the public owner.
