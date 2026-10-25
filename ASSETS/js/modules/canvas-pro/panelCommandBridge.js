@@ -752,14 +752,22 @@ function applyCommandVisibility() {
         allowed.delete("booleanDifference");
     }
     const elements = getSharedCommandElements();
+    elements.forEach(element => { element.dataset.commandSurface = "shared"; });
 
-    elements.forEach(element => {
-        const command = element.dataset.fusionBtn;
-        const show = allowed.has(command);
-        element.dataset.commandSurface = "shared";
-        element.classList.toggle("ekko-command-hidden", !show);
-        element.style.display = show ? "" : "none";
-    });
+    /* UN SOLO ESCRITOR. Este módulo conserva el CÁLCULO (allowed +
+       EKKO_COMMAND_STATE, que otros módulos leen), pero la pintada de
+       display/clase la hace ui/ribbonRenderer.js, que es la única autoridad
+       de #topBar y #contextual-toolbar. */
+    if (window.EKKO_RIBBON && typeof window.EKKO_RIBBON.renderNow === "function") {
+        window.EKKO_RIBBON.renderNow();
+    } else {
+        // Respaldo: solo si el renderer todavía no cargó.
+        elements.forEach(element => {
+            const show = allowed.has(element.dataset.fusionBtn);
+            element.classList.toggle("ekko-command-hidden", !show);
+            element.style.display = show ? "" : "none";
+        });
+    }
 
     window.EKKO_COMMAND_STATE = {
         context: selection.context,
