@@ -1,0 +1,165 @@
+/* =========================================================================
+   EKKO STUDIO — CINTA · ESTADOS DE BOTÓN (Fase 0/1)
+
+   El contrato de familias vive en ui/toolbarManifest.js; acá solo se DIBUJA
+   lo que el renderer ya decidió. Ninguna regla de visibilidad en CSS:
+   si el CSS escondiera algo con !important, ganaría al motor y el botón no
+   aparecería nunca (error ya vivido con Quitar/Editar Fondo).
+
+     .ekko-locked          -> familia P: bloqueada, con el motivo en el tooltip
+     .ekko-command-hidden  -> el renderer la manda a display:none
+   ========================================================================= */
+
+/* --- Familia P: se ve, pero no se apreta. El motivo va en el title native. --- */
+[data-fusion-btn].ekko-locked {
+    opacity: 0.42;
+    filter: grayscale(0.65);
+    cursor: not-allowed;
+    border-style: dashed !important;
+    transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+[data-fusion-btn].ekko-locked:hover,
+[data-fusion-btn].ekko-locked:focus-visible {
+    opacity: 0.78;
+    filter: none;
+    outline: 1px dashed #94a3b8;
+    outline-offset: 1px;
+}
+
+/* El botón bloqueado no rebota ni se presiona. */
+[data-fusion-btn].ekko-locked:active {
+    transform: none;
+}
+
+/* Accesibilidad: el estado se anuncia además del title. */
+[data-fusion-btn].ekko-locked::after {
+    content: "";
+    position: absolute;
+}
+
+/* -----------------------------------------------------------------------
+   FASE 2 — CUERPO DE CINTA
+   Dos filas: pestañas contextuales arriba, grupos con título abajo.
+   La etiqueta del grupo queda DEBAJO de sus botones (estilo Office).
+   ----------------------------------------------------------------------- */
+
+/* La barra pasa a medir su contenido: dos filas no caben en 52px fijos.
+   Se limita a NO-compacto para no pisar los modos contraído/oculto. */
+#topBar:not(.is-compact):not(.collapsed):not(.hidden) {
+    height: auto !important;
+    min-height: 52px !important;
+    flex-wrap: wrap;
+    justify-content: flex-start !important;
+    align-content: flex-start;
+    row-gap: 0;
+    padding-bottom: 3px;
+}
+
+/* La tira de pestañas (panelCoordinator) ocupa el ancho completo. */
+#topBar #ekkoTopContextSurface {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.ekko-ribbon-body {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    width: 100%;
+    min-width: 0;
+}
+
+.ekko-ribbon-group {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-width: 0;
+    padding: 0 7px 1px;
+    border-right: 1px solid rgba(46, 58, 89, 0.14);
+    box-sizing: border-box;
+    /* Aparición del grupo cuando la selección lo trae: la cinta se arma
+       sola en vez de aparecer de golpe. */
+    animation: ekko-group-in 0.18s ease both;
+}
+
+.ekko-ribbon-group:first-child { padding-left: 0; }
+
+@keyframes ekko-group-in {
+    from { opacity: 0; transform: translateY(-3px); }
+    to   { opacity: 1; transform: none; }
+}
+
+.ekko-ribbon-group-body {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 30px;
+    overflow: hidden;
+    max-height: 46px;
+    opacity: 1;
+    transition: max-height 0.22s ease, opacity 0.16s ease;
+}
+
+.ekko-ribbon-group-head {
+    order: 2;                       /* el título queda debajo de los botones */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    font-size: 9.5px;
+    line-height: 1.2;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #5b6b7c;
+    cursor: pointer;
+    user-select: none;
+    padding-top: 1px;
+    white-space: nowrap;
+}
+
+.ekko-ribbon-group-head::before {
+    content: "\25BE";
+    font-size: 7px;
+    opacity: 0.55;
+    transition: transform 0.18s ease;
+}
+
+.ekko-ribbon-group.is-collapsed .ekko-ribbon-group-head::before {
+    transform: rotate(-90deg);
+}
+
+.ekko-ribbon-group.is-collapsed .ekko-ribbon-group-body {
+    max-height: 0;
+    opacity: 0;
+    min-height: 0;
+}
+
+/* Grupo sin botones visibles: desaparece del todo (cero huecos muertos). */
+.ekko-ribbon-group.is-empty {
+    display: none;
+}
+
+.ekko-ribbon-group-head:hover { color: #1d4ed8; }
+.ekko-ribbon-group-head:focus-visible {
+    outline: 1px solid #1d4ed8;
+    outline-offset: 1px;
+    border-radius: 3px;
+}
+
+/* Modo compacto / barra contraída: se comporta como antes. */
+#topBar.is-compact .ekko-ribbon-body,
+#topBar.collapsed .ekko-ribbon-body {
+    display: none;
+}
+
+/* Movimiento reducido: la cinta debe respetar la preferencia del sistema. */
+@media (prefers-reduced-motion: reduce) {
+    [data-fusion-btn].ekko-locked,
+    .ekko-ribbon-group,
+    .ekko-ribbon-group-body,
+    .ekko-ribbon-group-head::before {
+        animation: none !important;
+        transition: none !important;
+    }
+}
