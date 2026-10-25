@@ -66,15 +66,27 @@ function syncToolbar(toolbarId, set) {
   const tb = document.getElementById(toolbarId);
   if (!tb) return;
   const permitidos = new Set([...(set.show || []), ...(set.hide || [])].filter(Boolean));
+  const resaltar = Array.isArray(set.highlight) ? set.highlight : [];
+
+  /* UN SOLO ESCRITOR. Este módulo ya NO escribe style.display: lo delega en
+     ui/ribbonRenderer.js. Sin eso, esta pasada (que además IGNORA la pestaña
+     activa) volvía a mostrar botones que panelCommandBridge acababa de ocultar
+     y era justo el síntoma de "botones que reaparecen solos".
+     Aca solo queda el resaltado, que es puramente visual. */
+  if (window.EKKO_RIBBON && typeof window.EKKO_RIBBON.renderNow === 'function') {
+    tb.querySelectorAll('[data-fusion-btn]').forEach(btn => {
+      btn.classList.toggle('highlight', resaltar.includes(btn.dataset.fusionBtn));
+    });
+    window.EKKO_RIBBON.renderNow();
+    return;
+  }
+
+  /* Respaldo: solo si el renderer todavía no cargó. */
   tb.querySelectorAll('[data-fusion-btn]').forEach(btn => {
     const name = btn.dataset.fusionBtn;
-    // Autoritativo: un boton se muestra solo si el motor lo habilito.
-    // Antes se calculaba debeMostrar y nunca se usaba, por eso la barra
-    // conservaba herramientas que debian desaparecer.
     const debeMostrar = permitidos.has(name);
-    const debeResaltar = !!set.highlight && set.highlight.includes(name);
     btn.style.display = debeMostrar ? '' : 'none';
-    btn.classList.toggle('highlight', debeResaltar);
+    btn.classList.toggle('highlight', resaltar.includes(name));
   });
 }
 
