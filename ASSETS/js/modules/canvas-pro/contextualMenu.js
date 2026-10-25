@@ -936,14 +936,22 @@ function getUnifiedScreenBounds(item) {
 
 function setTextCurveVisibility(visible) {
     // Both surfaces are one command: never leave a stale top button or popup control.
+    /* VISIBILIDAD: la decide ui/ribbonRenderer.js (familia P, regla `curvar`
+       del manifiesto), igual que el resto de los botones de las dos barras.
+       Aca solo se mantiene el aria-hidden y queda un respaldo por si la
+       cinta todavía no cargó. */
+    const hayRenderer = !!(window.EKKO_RIBBON && typeof window.EKKO_RIBBON.refresh === "function");
     const ids = ['btnTopTextCurve', 'btnCtxTextCurve'];
     ids.forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
-        el.style.display = visible ? 'inline-flex' : 'none';
-        el.classList.toggle('hidden', !visible);
         el.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        if (!hayRenderer) {
+            el.style.display = visible ? 'inline-flex' : 'none';
+            el.classList.toggle('hidden', !visible);
+        }
     });
+    if (hayRenderer) window.EKKO_RIBBON.refresh();
 }
 
 /**
@@ -1020,10 +1028,9 @@ export function updateContextualMenu(item) {
     hideSubgroup('ctxVectorControls');
     setTextCurveVisibility(false);
 
-    const btnTrace = document.getElementById('btnCtxTrace');
-    if (btnTrace) btnTrace.style.display = 'none';
-    const btnDecompose = document.getElementById('btnCtxDecomposeVector');
-    if (btnDecompose) btnDecompose.style.display = 'none';
+    /* VISIBILIDAD: la decide ui/ribbonRenderer.js (un solo escritor).
+       Antes este módulo escribía style.display de btnCtxTrace y
+       btnCtxDecomposeVector con criterio propio y pisaba al motor. */
 
     const selectedCount = window.selectedItems ? window.selectedItems.length : 0;
     if (selectedCount > 1) {
@@ -1034,23 +1041,8 @@ export function updateContextualMenu(item) {
 
         if (allVectors) {
             const vecCtrl = document.getElementById('ctxVectorControls');
-            if (vecCtrl) {
-                vecCtrl.classList.remove('hidden');
-                const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
-                if (btnEditNodes) btnEditNodes.style.display = 'none';
-            }
-
-            // UNIFICACIÓN CANÓNICA 10.3: Se usa estrictamente el ID unificado en inglés, sin alias obsoletos en español.
-            const btnGroup = document.getElementById('btnCtxGroup');
-            if (btnGroup) {
-                btnGroup.classList.remove('hidden');
-                btnGroup.style.display = 'inline-block';
-            }
-
-            const btnUngroup = document.getElementById('btnCtxUngroup');
-            if (btnUngroup) {
-                btnUngroup.style.display = 'none';
-            }
+            if (vecCtrl) vecCtrl.classList.remove('hidden');
+            /* Agrupar/Desagrupar los pinta el manifiesto. */
         }
     } else {
         const target = item.data?.clipGroup ? getPublicOwner(item) : item;
@@ -1070,36 +1062,13 @@ export function updateContextualMenu(item) {
         } else if (isRaster(target)) {
             const imgCtrl = document.getElementById('ctxImageControls');
             if (imgCtrl) imgCtrl.classList.remove('hidden');
-            if (btnTrace) {
-                btnTrace.classList.remove('hidden');
-                btnTrace.style.display = 'inline-flex';
-            }
+            /* Trazar lo pinta el manifiesto (familia P, con motivo). */
         } else if (isPath(target) || isCompoundPath(target) || isGroup(target) || isSymbolItem(target) || isShape(target)) {
             const vecCtrl = document.getElementById('ctxVectorControls');
-            if (vecCtrl) {
-                vecCtrl.classList.remove('hidden');
-                const btnEditNodes = document.getElementById('btnCtxEditNodes') || document.getElementById('btnCtxNodeEdit');
-                if (btnEditNodes) {
-                    const canEdit = !isGroup(target) && !isSymbolItem(target);
-                    btnEditNodes.style.display = canEdit ? 'inline-block' : 'none';
-                }
-            }
-
-            // UNIFICACIÓN CANÓNICA 10.3: Se usan estrictamente los IDs unificados en inglés, sin alias obsoletos en español.
-            const btnGroup = document.getElementById('btnCtxGroup');
-            if (btnGroup) {
-                btnGroup.classList.add('hidden');
-                btnGroup.style.display = 'none';
-            }
-
-            const btnUngroup = document.getElementById('btnCtxUngroup');
-            if (btnUngroup) {
-                const canUngroup = isGroup(target) || isSymbolItem(target);
-                btnUngroup.style.display = canUngroup ? 'inline-block' : 'none';
-            }
-            if (btnDecompose) {
-                btnDecompose.style.display = canDecomposeVector(target) ? 'inline-block' : 'none';
-            }
+            if (vecCtrl) vecCtrl.classList.remove('hidden');
+            /* Nodos, Agrupar, Desagrupar y Descomponer: los pinta el manifiesto
+               (ui/ribbonRenderer.js). Este módulo ya no escribe display de
+               botones: solo decide qué subgrupo de PARÁMETROS se muestra. */
         }
     }
 
