@@ -14,6 +14,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Enlace canónico a la hoja de estilos externa -->
     <link rel="stylesheet" href="ASSETS/ui/ekko-ui.css">
+    <!-- ESTADOS DE LA CINTA: dibuja lo que el manifiesto ya decidió.
+         No contiene reglas de visibilidad a propósito. -->
+    <link rel="stylesheet" href="ASSETS/ui/ekko-ribbon.css">
 <link rel="stylesheet" href="ASSETS/css/styles.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <style>
@@ -267,7 +270,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div class="top-group">
-                <button class="btn-action" id="btnAuditVectors" title="Auditar vectores, huecos reales y líneas de corte"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-auditar"></use></svg> Auditar Vectores</button>
+                <button class="btn-action" id="btnAuditVectors" data-fusion-btn="audit" title="Auditar vectores, huecos reales y líneas de corte"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-auditar"></use></svg> Auditar Vectores</button>
                  <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-vista"></use></svg> Ajustar Vista
                 </button>
@@ -287,7 +290,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
-            <button id="btnTopTextCurve" class="btn-action" title="Curvar texto"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-curvar"></use></svg> Curvar Texto</button>
+            <button id="btnTopTextCurve" data-fusion-btn="curvar" class="btn-action" title="Curvar texto"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-curvar"></use></svg> Curvar Texto</button>
             <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
                 <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
                 <button id="topPanelOverflow" type="button" class="panel-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
@@ -374,7 +377,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
                     <button class="toolbar-btn" id="btnCtxUnderline" title="Subrayado"><i class="fas fa-underline"></i></button>
                     <button class="toolbar-btn" id="btnCtxWeld" title="Soldar Texto"><i class="fas fa-object-ungroup"></i></button>
-                    <button class="toolbar-btn" id="btnCtxTextCurve" title="Curvar texto"><i class="fas fa-bezier-curve"></i> Curvar Texto</button>
+                    <button data-fusion-btn="curvar" class="toolbar-btn" id="btnCtxTextCurve" title="Curvar texto"><i class="fas fa-bezier-curve"></i> Curvar Texto</button>
                     <div id="ctxTextCurvature" class="toolbar-slider-container" title="Curvatura de texto: el angulo es el valor maestro. 360 cierra el anillo (virola completa)">
                         <i class="fas fa-heading"></i> <input type="range" min="-360" max="360" step="0.5" value="0">
                         <span id="ctxBendAngleVal" class="toolbar-angle-readout" title="Ángulo de curvado">0°</span>
@@ -491,6 +494,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
 <script type="module" src="ASSETS/js/modules/canvas-pro/qrDialog.js"></script>
 <script type="module" src="ASSETS/js/modules/canvas-pro/qrVector.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/commandParameters.js"></script>
+    <!-- ===== CINTA · FASE 0/1: manifiesto + store + ÚNICO escritor ===== -->
+    <script type="module" src="ASSETS/js/modules/canvas-pro/ui/ribbonRenderer.js"></script>
+    <!-- ===== CINTA · FASE 2: grupos con título colapsables ===== -->
+    <script type="module" src="ASSETS/js/modules/canvas-pro/ui/ribbonLayout.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/projectIO.js"></script>
 
     <script type="module" src="ASSETS/js/modules/canvas-pro/experienciaInput.js"></script>
