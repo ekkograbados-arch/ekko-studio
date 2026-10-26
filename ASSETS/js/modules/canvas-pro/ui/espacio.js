@@ -8,14 +8,16 @@
    Contrato:
    · El botón NO lleva data-fusion-btn: el renderer/manifiesto no lo
      gobierna y nunca lo oculta.
-   · Persistencia: localStorage['ekko-modo-interfaz'] = 'claro'|'oscuro'.
-   · Sin valor guardado → respeta prefers-color-scheme del sistema.
+   · Persistencia: localStorage['ekko-modo-interfaz-v2'] = 'claro'|'oscuro'.
+   · Sin valor guardado → SIEMPRE inicia en modo claro (la referencia
+     visual de la piel es el lock screen luminoso; se dejó de seguir
+     prefers-color-scheme para que la primera impresión sea controlada).
    ========================================================================= */
 
 (function() {
     'use strict';
 
-    const CLAVE = 'ekko-modo-interfaz';
+    const CLAVE = 'ekko-modo-interfaz-v2';
     const BOTON_ID = 'btnModoTema';
 
     // El SVG va inline para heredar currentColor del chip y no depender
@@ -28,11 +30,6 @@
             const v = localStorage.getItem(CLAVE);
             return (v === 'claro' || v === 'oscuro') ? v : null;
         } catch (e) { return null; }
-    }
-
-    function modoDelSistema() {
-        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
-            ? 'oscuro' : 'claro';
     }
 
     function aplicar(modo) {
@@ -71,15 +68,7 @@
 
     function arrancar() {
         crearBoton();                                       // primero el botón…
-        aplicar(modoGuardado() || modoDelSistema());        // …así nace con ícono/title
-        const sys = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
-        // Si el usuario nunca eligió, seguir al sistema en vivo.
-        if (sys && !modoGuardado()) {
-            sys.addEventListener('change', function(ev) {
-                if (!modoGuardado()) aplicar(ev.matches ? 'oscuro' : 'claro');
-            });
-        }
-        crearBoton();
+        aplicar(modoGuardado() || 'claro');                 // …así nace con ícono/title
     }
 
     if (document.readyState === 'loading') {
