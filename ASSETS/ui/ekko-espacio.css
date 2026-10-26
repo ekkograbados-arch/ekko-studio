@@ -25,7 +25,7 @@
     --esp-acento-suave: rgba(0, 122, 255, 0.14);
 
     /* Vidrio cálido (champán) — translúcido para que el wallpaper asome */
-    --esp-vidrio: rgba(253, 249, 244, 0.50);
+    --esp-vidrio: rgba(253, 249, 244, 0.46);
     --esp-vidrio-fuerte: rgba(255, 252, 247, 0.78);
     --esp-borde-vidrio: rgba(255, 255, 255, 0.78);
     --esp-borde-interior: rgba(120, 90, 70, 0.10);
@@ -38,13 +38,13 @@
     --esp-frostado: rgba(255, 255, 255, 0.92);
     --esp-texto-sobre-frostado: #2b241f;
 
-    --esp-titulo: #a4907f;
+    --esp-titulo: #9a8b81;
     --esp-texto: var(--ekko-text-main, #26343d);
     --esp-texto-suave: var(--ekko-text-secondary, #5d6c76);
 
-    --esp-pelota-1: #e9c4ac;                     /* durazno */
-    --esp-pelota-2: #d8c2be;                     /* rosa pálido */
-    --esp-pelota-3: #bfa499;                     /* taupe */
+    --esp-pelota-1: #b8a89f;                     /* greige plata */
+    --esp-pelota-2: #8a6d61;                     /* cacao medio */
+    --esp-pelota-3: #a08780;                     /* malva */
 
     --esp-sombra: 0 12px 38px rgba(112, 80, 58, 0.18), 0 2px 8px rgba(112, 80, 58, 0.08);
     --esp-sombra-flotante: 0 22px 52px rgba(112, 80, 58, 0.20), 0 4px 12px rgba(112, 80, 58, 0.10);
@@ -58,39 +58,42 @@
 }
 
 /* ------------------------------------------------------------------
-   1-B. FONDO CON CURVAS (wallpaper iOS de la referencia IMG_4173):
-        LA BASE cuelga gris azulado (#cbd5e1) con background-color
-        !important que no puedo pisar — así que el PRIMER piso cálido
-        va como ÚLTIMA capa del background-image (opaco, la tapa).
-        Las capas radiales encima son los "pétalos" grandes: anchos,
-        suaves y anclados a la caja de cada elemento (sin attachment
-        fixed, que era lo que los desfasaba respecto de los bordes).
-        La capa opaca + radiales se repiten en body y #workspace; el
-        panel izquierdo respira este piso porque su backdrop ES body.
+   1-B. FONDO CON CURVAS — traducción directa de IMG_4173:
+        plata neutra arriba → caramelo/brown profundo al medio →
+        malva polvoriento abajo. Los "pétalos" son ANILLOS elípticos
+        (halo de luz que dibuja el borde de la curva) + cuerpos suaves:
+        eso da el efecto de capas de vidrio/seda difuminadas, no un
+        gradiente plano durazno. El piso vertical opaco (última capa)
+        tapa el gris azulado de la base.
+        body y #workspace comparten la escena; el panel izquierdo
+        respira este piso (su backdrop es body) y suma un baño propio.
    ------------------------------------------------------------------ */
 body,
 #workspace {
     background-image:
-        radial-gradient(115% 85% at 88% -10%, rgba(163, 150, 142, 0.88), transparent 60%),
-        radial-gradient(80% 60% at -8% 6%, rgba(240, 226, 214, 0.85), transparent 58%),
-        radial-gradient(52% 70% at 6% 42%, rgba(219, 192, 176, 0.70), transparent 62%),
-        radial-gradient(62% 88% at 36% 26%, rgba(197, 166, 148, 0.60), transparent 62%),
-        radial-gradient(72% 95% at 86% 58%, rgba(88, 63, 53, 0.50), transparent 56%),
-        radial-gradient(88% 66% at 28% 104%, rgba(198, 156, 142, 0.75), transparent 60%),
-        radial-gradient(58% 48% at 62% 88%, rgba(221, 189, 175, 0.70), transparent 60%),
-        linear-gradient(168deg, #f2e9e2 0%, #e9dbd1 30%, #dcc7bb 56%, #cdb2a5 79%, #b7968a 100%);
+        /* Anillos = bordes iluminados de los pétalos */
+        radial-gradient(85% 52% at 30% 32%, transparent 55%, rgba(230, 225, 222, 0.55) 63%, rgba(230, 225, 222, 0.07) 72%, transparent 80%),
+        radial-gradient(70% 45% at 66% 18%, transparent 50%, rgba(219, 215, 213, 0.50) 60%, rgba(219, 215, 213, 0.06) 70%, transparent 78%),
+        radial-gradient(95% 62% at 76% 62%, transparent 52%, rgba(221, 210, 203, 0.45) 60%, rgba(221, 210, 203, 0.05) 70%, transparent 78%),
+        radial-gradient(58% 36% at 16% 76%, transparent 46%, rgba(229, 219, 211, 0.45) 57%, rgba(229, 219, 211, 0.05) 66%, transparent 74%),
+        /* Cuerpos: capas de seda (caramelo profundo al medio, malva abajo) */
+        radial-gradient(75% 46% at 42% 26%, rgba(163, 147, 139, 0.32), transparent 68%),
+        radial-gradient(84% 55% at 80% 48%, rgba(114, 87, 74, 0.40), transparent 66%),
+        radial-gradient(92% 56% at 28% 86%, rgba(164, 132, 121, 0.45), transparent 70%),
+        /* Piso vertical sedoso y OPACO */
+        linear-gradient(176deg, #dcd9d8 0%, #d0c9c6 16%, #b9aba3 30%, #9c8177 44%, #7d6055 56%, #6f534a 66%, #856760 80%, #a6887f 92%, #b2938b 100%);
 }
 body[data-modo="oscuro"],
 body[data-modo="oscuro"] #workspace {
     background-image:
-        radial-gradient(115% 85% at 88% -10%, rgba(112, 92, 82, 0.50), transparent 60%),
-        radial-gradient(80% 60% at -8% 6%, rgba(150, 122, 104, 0.38), transparent 58%),
-        radial-gradient(52% 70% at 6% 42%, rgba(120, 95, 82, 0.35), transparent 62%),
-        radial-gradient(62% 88% at 36% 26%, rgba(96, 74, 62, 0.40), transparent 62%),
-        radial-gradient(72% 95% at 86% 58%, rgba(28, 18, 15, 0.55), transparent 56%),
-        radial-gradient(88% 66% at 28% 104%, rgba(124, 88, 72, 0.42), transparent 60%),
-        radial-gradient(58% 48% at 62% 88%, rgba(104, 76, 62, 0.35), transparent 60%),
-        linear-gradient(168deg, #221a15 0%, #1d1613 34%, #191310 62%, #140f0c 100%);
+        radial-gradient(85% 52% at 30% 32%, transparent 55%, rgba(176, 168, 163, 0.16) 63%, rgba(176, 168, 163, 0.02) 72%, transparent 80%),
+        radial-gradient(70% 45% at 66% 18%, transparent 50%, rgba(160, 152, 148, 0.14) 60%, rgba(160, 152, 148, 0.02) 70%, transparent 78%),
+        radial-gradient(95% 62% at 76% 62%, transparent 52%, rgba(190, 172, 160, 0.14) 60%, rgba(190, 172, 160, 0.02) 70%, transparent 78%),
+        radial-gradient(58% 36% at 16% 76%, transparent 46%, rgba(182, 168, 158, 0.13) 57%, rgba(182, 168, 158, 0.02) 66%, transparent 74%),
+        radial-gradient(75% 46% at 42% 26%, rgba(64, 54, 49, 0.45), transparent 68%),
+        radial-gradient(84% 55% at 80% 48%, rgba(24, 16, 12, 0.55), transparent 66%),
+        radial-gradient(92% 56% at 28% 86%, rgba(88, 62, 53, 0.40), transparent 70%),
+        linear-gradient(176deg, #2a2625 0%, #242020 16%, #1e1a18 32%, #17120f 48%, #120d0b 60%, #171110 72%, #221a17 86%, #2b211d 100%);
 }
 
 /* ------------------------------------------------------------------
@@ -867,4 +870,30 @@ body[data-modo="oscuro"] #editorCanvas {
     #topBar::after {
         filter: none !important;
     }
+}
+
+/* ------------------------------------------------------------------
+   13. BAÑO SEDOSO DEL PANEL LATERAL — tinte interno por-columna sobre
+       el vidrio (como los widgets iOS): plata arriba, hongo al medio,
+       malva abajo. Va como background-image (único ganador de la
+       cascada por cargar al final) y se apila encima del backdrop:
+       el "varios difuminados" de la referencia.
+   ------------------------------------------------------------------ */
+#leftSidebar {
+    background-image: linear-gradient(178deg,
+        rgba(228, 223, 221, 0.55) 0%,
+        rgba(216, 205, 199, 0.50) 26%,
+        rgba(178, 154, 143, 0.42) 48%,
+        rgba(126, 100, 90, 0.40) 66%,
+        rgba(152, 122, 112, 0.44) 84%,
+        rgba(176, 144, 134, 0.50) 100%) !important;
+}
+body[data-modo="oscuro"] #leftSidebar {
+    background-image: linear-gradient(178deg,
+        rgba(74, 63, 58, 0.35) 0%,
+        rgba(58, 47, 43, 0.32) 30%,
+        rgba(41, 33, 29, 0.30) 52%,
+        rgba(30, 23, 20, 0.32) 70%,
+        rgba(54, 41, 36, 0.34) 86%,
+        rgba(66, 51, 45, 0.36) 100%) !important;
 }
