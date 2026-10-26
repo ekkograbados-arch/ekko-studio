@@ -193,7 +193,14 @@ function handOffSelection(owner, flat) {
    Un texto espejado (escala negativa) conserva su espejo: el signo queda en
    la matriz, el pt usa el valor absoluto. */
 const TEXTO_PT_MIN = 5;
-const TEXTO_PT_MAX = 250;
+/* Tope de seguridad del pt horneado. Antes era 250 y el cliente lo alcanzaba
+   al agrandar un texto sobre un mockup grande: durante el arrastre la caja
+   crecia sin limite y AL SOLTAR el horneado recortaba a 250, asi que la caja
+   saltaba y se achicaba de golpe (medido: 920 -> 533 unidades, 431 -> 250 pt).
+   Repetir el gesto desplazaba el texto hasta sacarlo del mockup. El limite
+   ahora es generoso (2000 pt ~ 70 cm de em) y selection.js lo aplica TAMBIEN
+   en vivo, de modo que el arrastre y el resultado final coinciden. */
+const TEXTO_PT_MAX = 2000;
 
 function esTextoHorneable(item) {
     if (!item) return false;
@@ -289,6 +296,48 @@ function hornearTamanoDeTexto(items) {
     return horneados;
 }
 
+/* Limite VIVO del escalado de texto.
+   El horneado al soltar recorta el pt a [TEXTO_PT_MIN, TEXTO_PT_MAX] usando
+   base x escala de la matriz PROPIA. Si el arrastre no respeta esos topes, la
+   caja crece mas de lo que el horneado permite y al soltar pega un salto hacia
+   abajo (achique). selection.js pide estos limites UNA VEZ al agarrar el
+   tirador y los aplica al factor acumulado de las esquinas, que es la unica
+   ruta que hornea: asi el arrastre se detiene exactamente donde terminara la
+   pieza y no hay salto. Devuelve factores acumulativos respecto del estado
+   actual (1 = sin cambio). */
+function limitesEscalaTexto(items) {
+    const lista = (Array.isArray(items) ? items : [items]).filter(Boolean);
+    let min = 0;
+    let max = Infinity;
+    /* Cada entrada de resizeTargets puede ser el wrapper seleccionado
+       ({item}) y/o el dueno real transformado ({target}); el horneado actua
+       sobre selectedItems, asi que se miran ambos. */
+    const candidatos = [];
+    lista.forEach(entry => {
+        [entry && entry.target, entry && entry.item, entry].forEach(c => {
+            if (c && !candidatos.includes(c)) candidatos.push(c);
+        });
+    });
+    candidatos.forEach(item => {
+        if (!esTextoHorneable(item)) return;
+        const base = tamanoBaseDeTexto(item);
+        if (base == null) return;
+        let actual = 1;
+        try {
+            const s = item.matrix && item.matrix.scaling;
+            const sy = s ? Math.abs(Number(s.y)) : 1;
+            if (Number.isFinite(sy) && sy > 0) actual = sy;
+        } catch (_) {}
+        const ptActual = base * actual;
+        if (!(ptActual > 0)) return;
+        min = Math.max(min, TEXTO_PT_MIN / ptActual);
+        max = Math.min(max, TEXTO_PT_MAX / ptActual);
+    });
+    if (!Number.isFinite(max) || max <= 0) max = Infinity;
+    if (min > max) min = max;
+    return { min, max };
+}
+
 let tamanoLiveFrame = null;
 if (typeof window !== "undefined") {
     // Superficie publica: rotationController y contextualMenu reconstruyen y
@@ -303,7 +352,7 @@ if (typeof window !== "undefined") {
     /* Sello de version del modulo de texto. Si en la consola del cliente este
        valor no coincide con el del paquete entregado, esta probando codigo
        viejo (cache o Vercel sin actualizar). Se actualiza en cada entrega. */
-    window.EKKO_TEXT_BUILD = "20261024-tamano-vivo";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
+    window.EKKO_TEXT_BUILD = "20261026-escala-sin-salto";    /* Superficie del tirador de curvatura. selection.js la consulta en vez de
        mantener su propia logica de arrastre: asi el unico dueno de "como se
        curva un texto" es este modulo. */
     window.EKKO_TEXT_BEND = {
@@ -365,6 +414,9 @@ if (typeof window !== "undefined") {
     /* Superficie para selection.js: hornear el tamano de letra al terminar un
        resize (antes de saveHistory, para que el snapshot ya salga horneado). */
     window.EKKO_TEXT_BAKE_TAMANO = hornearTamanoDeTexto;
+    /* Superficie para selection.js: topes vivos del escalado (ver
+       limitesEscalaTexto). Evitan el salto/achique al soltar el tirador. */
+    window.EKKO_TEXT_LIMITES_ESCALA = limitesEscalaTexto;
 }
 let guiaFrame = null;
 let guiaBaseFrame = null;
