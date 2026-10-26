@@ -17,35 +17,66 @@
    ========================================================================= */
 
 /* ------------------------------------------------------------------
-   1. TOKENS DE LA PIEL (claro)
+   1. TOKENS DE LA PIEL (claro) — idioma iOS "liquid glass":
+      vidrio lechoso cálido, bordes blancos con brillo, sombras difusas.
    ------------------------------------------------------------------ */
 :root {
-    --esp-acento: #007aff;
+    --esp-acento: #007aff;                       /* azul iOS: solo funcionales (foco, sliders) */
     --esp-acento-suave: rgba(0, 122, 255, 0.14);
 
-    --esp-vidrio: rgba(255, 255, 255, 0.55);
-    --esp-vidrio-fuerte: rgba(255, 255, 255, 0.72);
-    --esp-borde-vidrio: rgba(255, 255, 255, 0.65);
-    --esp-borde-interior: rgba(15, 23, 42, 0.08);
+    /* Vidrio cálido (champán) */
+    --esp-vidrio: rgba(253, 249, 244, 0.62);
+    --esp-vidrio-fuerte: rgba(255, 252, 247, 0.80);
+    --esp-borde-vidrio: rgba(255, 255, 255, 0.75);
+    --esp-borde-interior: rgba(120, 90, 70, 0.10);
+    --esp-brillo-top: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 
-    --esp-hover: rgba(15, 23, 42, 0.06);
-    --esp-activo: var(--esp-acento-suave);
+    --esp-hover: rgba(122, 88, 66, 0.08);
+    --esp-activo: rgba(255, 255, 255, 0.45);
 
-    --esp-titulo: #8fa5b3;
+    /* Blanco esmerilado con texto oscuro = estado activo (Spotify del mock) */
+    --esp-frostado: rgba(255, 255, 255, 0.92);
+    --esp-texto-sobre-frostado: #2b241f;
+
+    --esp-titulo: #a4907f;
     --esp-texto: var(--ekko-text-main, #26343d);
     --esp-texto-suave: var(--ekko-text-secondary, #5d6c76);
 
-    --esp-pelota-1: #6db9ff;
-    --esp-pelota-2: #7dfad6;
-    --esp-pelota-3: #c39bff;
+    --esp-pelota-1: #e9c4ac;                     /* durazno */
+    --esp-pelota-2: #d8c2be;                     /* rosa pálido */
+    --esp-pelota-3: #bfa499;                     /* taupe */
 
-    --esp-sombra: 0 10px 34px rgba(15, 23, 42, 0.16), 0 2px 8px rgba(15, 23, 42, 0.08);
-    --esp-sombra-flotante: 0 18px 44px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.10);
+    --esp-sombra: 0 12px 38px rgba(112, 80, 58, 0.18), 0 2px 8px rgba(112, 80, 58, 0.08);
+    --esp-sombra-flotante: 0 22px 52px rgba(112, 80, 58, 0.20), 0 4px 12px rgba(112, 80, 58, 0.10);
     --esp-radio-pastilla: 26px;
 
     /* Movimiento */
     --esp-tiempo: 0.28s;
     --esp-curva: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* ------------------------------------------------------------------
+   1-B. FONDO CON CURVAS (wallpaper iOS) — visible en las junturas entre
+        tarjetas y DEBAJO del vidrio del panel de productos (su backdrop).
+        Solo background-image: el color base sigue siendo var(--ekko-*).
+   ------------------------------------------------------------------ */
+body,
+#workspace {
+    background-image:
+        radial-gradient(110% 80% at 88% -12%, rgba(219, 171, 150, 0.55), transparent 62%),
+        radial-gradient(95% 75% at -12% 18%, rgba(235, 199, 180, 0.50), transparent 66%),
+        radial-gradient(85% 65% at 48% 118%, rgba(146, 116, 104, 0.38), transparent 72%),
+        radial-gradient(60% 45% at 30% 55%, rgba(255, 248, 240, 0.35), transparent 70%);
+    background-attachment: fixed;
+}
+body[data-modo="oscuro"],
+body[data-modo="oscuro"] #workspace {
+    background-image:
+        radial-gradient(110% 80% at 88% -12%, rgba(139, 93, 70, 0.30), transparent 62%),
+        radial-gradient(95% 75% at -12% 18%, rgba(104, 74, 58, 0.28), transparent 66%),
+        radial-gradient(85% 65% at 48% 118%, rgba(58, 45, 40, 0.35), transparent 72%),
+        radial-gradient(60% 45% at 30% 55%, rgba(96, 74, 62, 0.22), transparent 70%);
+    background-attachment: fixed;
 }
 
 /* ------------------------------------------------------------------
@@ -94,25 +125,29 @@ body[data-modo="oscuro"] {
     --ekko-lock-off-bg: rgba(255, 255, 255, 0.06);
     --ekko-lock-off-fg: #a7a7b6;
 
-    /* Tokens propios de la piel en oscuro. OJO: los tokens DERIVADOS
-       (--esp-texto usa var(--ekko-text-main)) se calculan en :root y quedan
-       congelados al valor claro — hay que re-declararlos acá directamente. */
-    --esp-texto: #e9e9f2;
-    --esp-texto-suave: #a7a7b6;
+    /* Tokens propios de la piel en oscuro — cálido profundo, no azulado.
+       OJO: los tokens DERIVADOS (--esp-texto usa var(--ekko-text-main))
+       se calculan en :root y quedan congelados al valor claro — hay que
+       re-declararlos acá directamente. */
+    --esp-vidrio: rgba(28, 23, 20, 0.62);
+    --esp-vidrio-fuerte: rgba(34, 28, 24, 0.82);
+    --esp-borde-vidrio: rgba(255, 255, 255, 0.14);
+    --esp-borde-interior: rgba(255, 255, 255, 0.08);
+    --esp-brillo-top: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    --esp-hover: rgba(255, 236, 220, 0.09);
+    --esp-activo: rgba(255, 255, 255, 0.22);
+    --esp-frostado: rgba(255, 253, 250, 0.94);
+    --esp-texto-sobre-frostado: #241f1b;
+    --esp-texto: #ece7e2;
+    --esp-texto-suave: #b3a79e;
+    --esp-titulo: #9b8d82;
+    --esp-pelota-1: #8a5f4a;
+    --esp-pelota-2: #6d564d;
+    --esp-pelota-3: #574440;
+    --esp-sombra: 0 12px 36px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.35);
+    --esp-sombra-flotante: 0 22px 52px rgba(0, 0, 0, 0.55), 0 4px 14px rgba(0, 0, 0, 0.40);
     --esp-acento: #0a84ff;
     --esp-acento-suave: rgba(10, 132, 255, 0.18);
-    --esp-vidrio: rgba(26, 26, 33, 0.55);
-    --esp-vidrio-fuerte: rgba(30, 30, 38, 0.78);
-    --esp-borde-vidrio: rgba(255, 255, 255, 0.12);
-    --esp-borde-interior: rgba(255, 255, 255, 0.08);
-    --esp-hover: rgba(255, 255, 255, 0.09);
-    --esp-activo: rgba(10, 132, 255, 0.25);
-    --esp-titulo: #9295a8;
-    --esp-pelota-1: #0a84ff;
-    --esp-pelota-2: #00e5b0;
-    --esp-pelota-3: #6e56cf;
-    --esp-sombra: 0 12px 36px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.35);
-    --esp-sombra-flotante: 0 20px 48px rgba(0, 0, 0, 0.55), 0 4px 14px rgba(0, 0, 0, 0.40);
 }
 
 /* ------------------------------------------------------------------
@@ -131,7 +166,7 @@ body[data-modo="oscuro"] {
     background: var(--esp-vidrio) !important;
     border: 1px solid var(--esp-borde-vidrio) !important;
     border-radius: var(--esp-radio-pastilla) !important;
-    box-shadow: var(--esp-sombra) !important;
+    box-shadow: var(--esp-brillo-top), var(--esp-sombra) !important;
     -webkit-backdrop-filter: blur(22px) saturate(180%) !important;
     backdrop-filter: blur(22px) saturate(180%) !important;
     transition:
@@ -215,7 +250,7 @@ body[data-modo="oscuro"] {
     color: var(--esp-texto-suave) !important;
     background: transparent !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: 999px !important;
     transition: background-color 0.18s ease, color 0.18s ease;
 }
 .product-panel-top-toggle:hover {
@@ -263,7 +298,7 @@ body[data-modo="oscuro"] {
     background: var(--esp-vidrio) !important;
     border: 1px solid var(--esp-borde-vidrio) !important;
     border-radius: 18px !important;
-    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.10) !important;
+    box-shadow: var(--esp-brillo-top), 0 6px 22px rgba(112, 80, 58, 0.12) !important;
     -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
     backdrop-filter: blur(18px) saturate(160%) !important;
     transition:
@@ -281,7 +316,7 @@ body[data-modo="oscuro"] {
 #topBar + #pro-layout-toolbar .pro-btn {
     background: transparent !important;
     border: 1px solid transparent !important;
-    border-radius: 10px !important;
+    border-radius: 999px !important;
     color: var(--esp-texto) !important;
     transition:
         background-color 0.18s ease,
@@ -324,7 +359,7 @@ body[data-modo="oscuro"] {
     border: 1px solid var(--esp-borde-vidrio) !important;
     border-right: 1px solid var(--esp-borde-vidrio) !important;
     border-radius: 18px !important;
-    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.10) !important;
+    box-shadow: var(--esp-brillo-top), 0 6px 22px rgba(112, 80, 58, 0.12) !important;
     -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
     backdrop-filter: blur(18px) saturate(160%) !important;
     transition:
@@ -367,7 +402,7 @@ body[data-modo="oscuro"] {
 #leftSidebar .vista-btn {
     background: transparent !important;
     border: 1px solid transparent !important;
-    border-radius: 12px !important;
+    border-radius: 999px !important;
     color: var(--esp-texto) !important;
     box-shadow: none !important;
     transition:
@@ -419,13 +454,14 @@ body[data-modo="oscuro"] {
 }
 
 /* ------------------------------------------------------------------
-   6. CHIPS DE VIDRIO — botones de la cápsula y de la barra emergente
+   6. CHIPS DE VIDRIO — botones de la cápsula y de la barra emergente.
+      Geometría iOS: estadio (casi circular), hover lechoso.
    ------------------------------------------------------------------ */
 #topBar .btn-action,
 #contextual-toolbar .toolbar-btn {
     background: transparent !important;
     border: 1px solid transparent !important;
-    border-radius: 14px !important;
+    border-radius: 999px !important;
     color: var(--esp-texto) !important;
     font-weight: 500 !important;
     transition:
@@ -443,6 +479,25 @@ body[data-modo="oscuro"] {
 #topBar .btn-action:active,
 #contextual-toolbar .toolbar-btn:active {
     transform: translateY(0) scale(0.97);
+}
+
+/* ACTIVO = blanco esmerilado con texto oscuro (la receta iOS: el chip
+   resalta como botón físico debajo del vidrio). Aplica a pestañas,
+   toggles y chips con estado en las tres superficies. */
+.ekko-context-tab.is-active,
+#topBar .btn-action.active,
+#topBar .btn-action.is-on,
+#topBar .btn-action[aria-pressed="true"],
+#topBar + #pro-layout-toolbar .pro-btn.active,
+#pro-layout-toolbar .pro-btn.is-on,
+#leftSidebar .tab-btn.active,
+#leftSidebar .product-btn.active,
+#leftSidebar .vista-btn.active {
+    background: var(--esp-frostado) !important;
+    border-color: var(--esp-borde-vidrio) !important;
+    color: var(--esp-texto-sobre-frostado) !important;
+    box-shadow: var(--esp-brillo-top), 0 2px 10px rgba(112, 80, 58, 0.18) !important;
+    transform: none;
 }
 
 /* Íconos del HUD/cápsula HEREDAN el color del chip para que texto e icons
@@ -475,7 +530,7 @@ body[data-modo="oscuro"] {
 
 /* Botones pequeños cuadrados (candados, tamaños) siguen legibles */
 #contextual-toolbar .toolbar-btn:has(svg.ekko-ic:only-child) {
-    border-radius: 10px !important;
+    border-radius: 999px !important;
 }
 
 /* ------------------------------------------------------------------
@@ -485,7 +540,7 @@ body[data-modo="oscuro"] {
     border-radius: 24px !important;
     background: var(--esp-vidrio-fuerte) !important;
     border: 1px solid var(--esp-borde-vidrio) !important;
-    box-shadow: var(--esp-sombra-flotante) !important;
+    box-shadow: var(--esp-brillo-top), var(--esp-sombra-flotante) !important;
     padding: 6px 12px !important;
     gap: 6px !important;
     -webkit-backdrop-filter: blur(26px) saturate(180%) !important;
@@ -569,7 +624,7 @@ body[data-modo="oscuro"] #topBar .toolbar-input-number {
 #contextual-toolbar .selected-font-trigger {
     background: transparent !important;
     border: 1px solid var(--esp-borde-interior) !important;
-    border-radius: 12px !important;
+    border-radius: 999px !important;
     color: var(--esp-texto) !important;
     transition: background-color 0.18s ease, border-color 0.18s ease;
 }
@@ -583,7 +638,7 @@ body[data-modo="oscuro"] #topBar .toolbar-input-number {
     background: var(--esp-hover) !important;
     color: var(--esp-texto-suave) !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: 999px !important;
     transition: background-color 0.18s ease, color 0.18s ease;
 }
 #contextual-toolbar .panel-overflow-btn:hover {
@@ -605,7 +660,7 @@ body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
    NO dentro de #topBar: selector por su envoltorio real. Marca verde ambos modos. */
 #ekkoDownloadWrap #btnEkkoDownload,
 #topBar #btnEkkoDownload {
-    border-radius: 14px !important;
+    border-radius: 999px !important;
     background: linear-gradient(180deg, #1ba155, #15803d) !important;
     border: 1px solid rgba(21, 128, 61, 0.45) !important;
     box-shadow: 0 4px 14px rgba(21, 128, 61, 0.35) !important;
@@ -626,7 +681,7 @@ body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
     background: var(--esp-hover) !important;
     color: var(--esp-texto-suave) !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: 999px !important;
     padding: 4px 8px !important;
     transition: background-color 0.18s ease, color 0.18s ease;
 }
@@ -641,7 +696,7 @@ body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
 .panel-icon-btn {
     background: transparent !important;
     border: none !important;
-    border-radius: 10px !important;
+    border-radius: 999px !important;
     color: var(--esp-texto-suave) !important;
     transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
 }
