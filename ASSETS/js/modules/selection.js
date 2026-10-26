@@ -955,6 +955,13 @@ const _initSelectionTool = function() {
       window.resizeAnchor = window.getOppositePoint(window.resizeInitialBounds, window.resizeHandleType);
       window.resizeLastScaleX = 1.0;
       window.resizeLastScaleY = 1.0;
+      /* Topes vivos del texto (pt): se leen UNA vez, antes de transformar.
+         Ver limitesEscalaTexto en textToolbar. Sin esto, agrandar el texto
+         mas alla del tope horneable hacia crecer la caja y al soltar el
+         horneado la achicaba de golpe ("salta y se achica"), desplazando la
+         pieza hasta sacarla del mockup. */
+      try { window.resizeLimiteEscala = window.EKKO_TEXT_LIMITES_ESCALA?.(window.resizeTargets) || null; }
+      catch (e) { window.resizeLimiteEscala = null; }
       beginTransformTransaction("scale", window.resizeTargets, event.point);
       return;
     }
@@ -1125,6 +1132,19 @@ const _initSelectionTool = function() {
 
       if (Math.abs(factorX) < 0.01) factorX = 0.01;
       if (Math.abs(factorY) < 0.01) factorY = 0.01;
+
+      /* Tope vivo de texto: la esquina (unica ruta que hornea el pt al soltar)
+         se detiene en el mismo rango que aplicara el horneado. Se limita el
+         factor ACUMULADO (no el paso) para que al volver el puntero el texto
+         siga exactamente al tirador, sin deriva. */
+      const limTexto = window.resizeLimiteEscala;
+      if (isCorner && !isAltPressed && limTexto && Number.isFinite(limTexto.max)) {
+        const signoX = factorX < 0 ? -1 : 1;
+        const signoY = factorY < 0 ? -1 : 1;
+        const magnitud = Math.max(limTexto.min || 0, Math.min(limTexto.max, Math.abs(factorX)));
+        factorX = signoX * magnitud;
+        factorY = signoY * magnitud;
+      }
 
       const stepScaleX = factorX / window.resizeLastScaleX;
       const stepScaleY = factorY / window.resizeLastScaleY;
@@ -1356,6 +1376,7 @@ const _initSelectionTool = function() {
     window._ekkoSkipFusionCSGRecalc = false;
     window.dragging = false;
     window.resizeActive = false;
+    window.resizeLimiteEscala = null;
     window.rotationActive = false;
     window.isRotationSnapped = false;
     window.rotationTargets = [];
