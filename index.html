@@ -18,6 +18,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
          No contiene reglas de visibilidad a propósito. -->
     <link rel="stylesheet" href="ASSETS/ui/ekko-ribbon.css">
 <link rel="stylesheet" href="ASSETS/css/styles.css">
+    <!-- ESTÉTICA ESPACIAL: vidrio esmerilado + claro/oscuro.
+         Carga ÚLTIMA a propósito: en empate de !important gana la última hoja.
+         No contiene reglas de visibilidad (contrato: ui/ribbonRenderer.js). -->
+    <link rel="stylesheet" href="ASSETS/ui/ekko-espacio.css">
     <link rel="icon" type="image/png" href="/logo.png">
     <style>
     /* Quitar Fondo: tanto "Quitar Fondo" como "Editar Fondo" ya existen y los
@@ -501,6 +505,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <script type="module" src="ASSETS/js/modules/canvas-pro/projectIO.js"></script>
 
     <script type="module" src="ASSETS/js/modules/canvas-pro/experienciaInput.js"></script>
+
+    <!-- ESTÉTICA ESPACIAL: dueño del data-modo de <body> y del botón de tema.
+         No toca visibilidad de botones (el único escritor sigue siendo ribbonRenderer). -->
+    <script type="module" src="ASSETS/js/modules/canvas-pro/ui/espacio.js"></script>
 
 
 
