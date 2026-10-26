@@ -24,10 +24,10 @@
     --esp-acento: #007aff;                       /* azul iOS: solo funcionales (foco, sliders) */
     --esp-acento-suave: rgba(0, 122, 255, 0.14);
 
-    /* Vidrio cálido (champán) */
-    --esp-vidrio: rgba(253, 249, 244, 0.62);
-    --esp-vidrio-fuerte: rgba(255, 252, 247, 0.80);
-    --esp-borde-vidrio: rgba(255, 255, 255, 0.75);
+    /* Vidrio cálido (champán) — translúcido para que el wallpaper asome */
+    --esp-vidrio: rgba(253, 249, 244, 0.50);
+    --esp-vidrio-fuerte: rgba(255, 252, 247, 0.78);
+    --esp-borde-vidrio: rgba(255, 255, 255, 0.78);
     --esp-borde-interior: rgba(120, 90, 70, 0.10);
     --esp-brillo-top: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 
@@ -48,7 +48,9 @@
 
     --esp-sombra: 0 12px 38px rgba(112, 80, 58, 0.18), 0 2px 8px rgba(112, 80, 58, 0.08);
     --esp-sombra-flotante: 0 22px 52px rgba(112, 80, 58, 0.20), 0 4px 12px rgba(112, 80, 58, 0.10);
-    --esp-radio-pastilla: 26px;
+    --esp-sombra-suave: 0 6px 22px rgba(112, 80, 58, 0.14);
+    --esp-sombra-chip: 0 2px 10px rgba(112, 80, 58, 0.18);
+    --esp-radio-pastilla: 28px;
 
     /* Movimiento */
     --esp-tiempo: 0.28s;
@@ -56,27 +58,39 @@
 }
 
 /* ------------------------------------------------------------------
-   1-B. FONDO CON CURVAS (wallpaper iOS) — visible en las junturas entre
-        tarjetas y DEBAJO del vidrio del panel de productos (su backdrop).
-        Solo background-image: el color base sigue siendo var(--ekko-*).
+   1-B. FONDO CON CURVAS (wallpaper iOS de la referencia IMG_4173):
+        LA BASE cuelga gris azulado (#cbd5e1) con background-color
+        !important que no puedo pisar — así que el PRIMER piso cálido
+        va como ÚLTIMA capa del background-image (opaco, la tapa).
+        Las capas radiales encima son los "pétalos" grandes: anchos,
+        suaves y anclados a la caja de cada elemento (sin attachment
+        fixed, que era lo que los desfasaba respecto de los bordes).
+        La capa opaca + radiales se repiten en body y #workspace; el
+        panel izquierdo respira este piso porque su backdrop ES body.
    ------------------------------------------------------------------ */
 body,
 #workspace {
     background-image:
-        radial-gradient(110% 80% at 88% -12%, rgba(219, 171, 150, 0.55), transparent 62%),
-        radial-gradient(95% 75% at -12% 18%, rgba(235, 199, 180, 0.50), transparent 66%),
-        radial-gradient(85% 65% at 48% 118%, rgba(146, 116, 104, 0.38), transparent 72%),
-        radial-gradient(60% 45% at 30% 55%, rgba(255, 248, 240, 0.35), transparent 70%);
-    background-attachment: fixed;
+        radial-gradient(115% 85% at 88% -10%, rgba(163, 150, 142, 0.88), transparent 60%),
+        radial-gradient(80% 60% at -8% 6%, rgba(240, 226, 214, 0.85), transparent 58%),
+        radial-gradient(52% 70% at 6% 42%, rgba(219, 192, 176, 0.70), transparent 62%),
+        radial-gradient(62% 88% at 36% 26%, rgba(197, 166, 148, 0.60), transparent 62%),
+        radial-gradient(72% 95% at 86% 58%, rgba(88, 63, 53, 0.50), transparent 56%),
+        radial-gradient(88% 66% at 28% 104%, rgba(198, 156, 142, 0.75), transparent 60%),
+        radial-gradient(58% 48% at 62% 88%, rgba(221, 189, 175, 0.70), transparent 60%),
+        linear-gradient(168deg, #f2e9e2 0%, #e9dbd1 30%, #dcc7bb 56%, #cdb2a5 79%, #b7968a 100%);
 }
 body[data-modo="oscuro"],
 body[data-modo="oscuro"] #workspace {
     background-image:
-        radial-gradient(110% 80% at 88% -12%, rgba(139, 93, 70, 0.30), transparent 62%),
-        radial-gradient(95% 75% at -12% 18%, rgba(104, 74, 58, 0.28), transparent 66%),
-        radial-gradient(85% 65% at 48% 118%, rgba(58, 45, 40, 0.35), transparent 72%),
-        radial-gradient(60% 45% at 30% 55%, rgba(96, 74, 62, 0.22), transparent 70%);
-    background-attachment: fixed;
+        radial-gradient(115% 85% at 88% -10%, rgba(112, 92, 82, 0.50), transparent 60%),
+        radial-gradient(80% 60% at -8% 6%, rgba(150, 122, 104, 0.38), transparent 58%),
+        radial-gradient(52% 70% at 6% 42%, rgba(120, 95, 82, 0.35), transparent 62%),
+        radial-gradient(62% 88% at 36% 26%, rgba(96, 74, 62, 0.40), transparent 62%),
+        radial-gradient(72% 95% at 86% 58%, rgba(28, 18, 15, 0.55), transparent 56%),
+        radial-gradient(88% 66% at 28% 104%, rgba(124, 88, 72, 0.42), transparent 60%),
+        radial-gradient(58% 48% at 62% 88%, rgba(104, 76, 62, 0.35), transparent 60%),
+        linear-gradient(168deg, #221a15 0%, #1d1613 34%, #191310 62%, #140f0c 100%);
 }
 
 /* ------------------------------------------------------------------
@@ -129,7 +143,7 @@ body[data-modo="oscuro"] {
        OJO: los tokens DERIVADOS (--esp-texto usa var(--ekko-text-main))
        se calculan en :root y quedan congelados al valor claro — hay que
        re-declararlos acá directamente. */
-    --esp-vidrio: rgba(28, 23, 20, 0.62);
+    --esp-vidrio: rgba(28, 23, 20, 0.48);
     --esp-vidrio-fuerte: rgba(34, 28, 24, 0.82);
     --esp-borde-vidrio: rgba(255, 255, 255, 0.14);
     --esp-borde-interior: rgba(255, 255, 255, 0.08);
@@ -146,6 +160,8 @@ body[data-modo="oscuro"] {
     --esp-pelota-3: #574440;
     --esp-sombra: 0 12px 36px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.35);
     --esp-sombra-flotante: 0 22px 52px rgba(0, 0, 0, 0.55), 0 4px 14px rgba(0, 0, 0, 0.40);
+    --esp-sombra-suave: 0 6px 22px rgba(0, 0, 0, 0.42);
+    --esp-sombra-chip: 0 2px 10px rgba(0, 0, 0, 0.45);
     --esp-acento: #0a84ff;
     --esp-acento-suave: rgba(10, 132, 255, 0.18);
 }
@@ -167,8 +183,8 @@ body[data-modo="oscuro"] {
     border: 1px solid var(--esp-borde-vidrio) !important;
     border-radius: var(--esp-radio-pastilla) !important;
     box-shadow: var(--esp-brillo-top), var(--esp-sombra) !important;
-    -webkit-backdrop-filter: blur(22px) saturate(180%) !important;
-    backdrop-filter: blur(22px) saturate(180%) !important;
+    -webkit-backdrop-filter: blur(28px) saturate(180%) !important;
+    backdrop-filter: blur(28px) saturate(180%) !important;
     transition:
         background-color var(--esp-tiempo) ease,
         box-shadow var(--esp-tiempo) ease,
@@ -298,9 +314,9 @@ body[data-modo="oscuro"] {
     background: var(--esp-vidrio) !important;
     border: 1px solid var(--esp-borde-vidrio) !important;
     border-radius: 18px !important;
-    box-shadow: var(--esp-brillo-top), 0 6px 22px rgba(112, 80, 58, 0.12) !important;
-    -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
-    backdrop-filter: blur(18px) saturate(160%) !important;
+    box-shadow: var(--esp-brillo-top), var(--esp-sombra-suave) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(160%) !important;
+    backdrop-filter: blur(22px) saturate(160%) !important;
     transition:
         background-color var(--esp-tiempo) ease,
         box-shadow var(--esp-tiempo) ease,
@@ -359,9 +375,9 @@ body[data-modo="oscuro"] {
     border: 1px solid var(--esp-borde-vidrio) !important;
     border-right: 1px solid var(--esp-borde-vidrio) !important;
     border-radius: 18px !important;
-    box-shadow: var(--esp-brillo-top), 0 6px 22px rgba(112, 80, 58, 0.12) !important;
-    -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
-    backdrop-filter: blur(18px) saturate(160%) !important;
+    box-shadow: var(--esp-brillo-top), var(--esp-sombra-suave) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(160%) !important;
+    backdrop-filter: blur(22px) saturate(160%) !important;
     transition:
         background-color var(--esp-tiempo) ease,
         box-shadow var(--esp-tiempo) ease,
@@ -447,7 +463,7 @@ body[data-modo="oscuro"] {
     border: 1px solid var(--esp-borde-vidrio) !important;
     border-left: 1px solid var(--esp-borde-vidrio) !important;
     border-radius: 0 12px 12px 0 !important;
-    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14) !important;
+    box-shadow: var(--esp-sombra-suave) !important;
     -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
     backdrop-filter: blur(14px) saturate(160%) !important;
     color: var(--esp-texto-suave) !important;
@@ -496,7 +512,7 @@ body[data-modo="oscuro"] {
     background: var(--esp-frostado) !important;
     border-color: var(--esp-borde-vidrio) !important;
     color: var(--esp-texto-sobre-frostado) !important;
-    box-shadow: var(--esp-brillo-top), 0 2px 10px rgba(112, 80, 58, 0.18) !important;
+    box-shadow: var(--esp-brillo-top), var(--esp-sombra-chip) !important;
     transform: none;
 }
 
@@ -656,18 +672,29 @@ body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
     color: #4ade80 !important;
 }
 
-/* Botón primario verde (Descargar) — vive en #ekkoDownloadWrap (fixed),
-   NO dentro de #topBar: selector por su envoltorio real. Marca verde ambos modos. */
+/* Botón primario (Descargar) — vive en #ekkoDownloadWrap (fixed), NO
+   dentro de #topBar: selector por su envoltorio real. Con la reformulación
+   líquida pierde el verde y entra a la familia: píldora esmerilada con
+   texto oscuro (el botón Spotify de la referencia). Se APILA sobre el
+   botón de tema: píldora arriba (y≈12) y 🌙 debajo (y≈44) pegados a la
+   esquina derecha, como la pila de botones del lock screen. */
+#ekkoDownloadWrap {
+    top: 12px !important;
+    right: 14px !important;
+    left: auto !important;
+    bottom: auto !important;
+}
 #ekkoDownloadWrap #btnEkkoDownload,
 #topBar #btnEkkoDownload {
     border-radius: 999px !important;
-    background: linear-gradient(180deg, #1ba155, #15803d) !important;
-    border: 1px solid rgba(21, 128, 61, 0.45) !important;
-    box-shadow: 0 4px 14px rgba(21, 128, 61, 0.35) !important;
-    color: #ffffff !important;
+    background: var(--esp-frostado) !important;
+    border: 1px solid var(--esp-borde-vidrio) !important;
+    box-shadow: var(--esp-brillo-top), var(--esp-sombra-flotante) !important;
+    color: var(--esp-texto-sobre-frostado) !important;
+    font-weight: 600 !important;
 }
 #ekkoDownloadWrap #btnEkkoDownload:hover {
-    background: linear-gradient(180deg, #23b161, #189b46) !important;
+    background: #ffffff !important;
     transform: translateY(-1px);
 }
 #ekkoDownloadWrap #btnEkkoDownload:active {
@@ -709,7 +736,9 @@ body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
 }
 
 /* El botón de tema vive en la cola de la tira de pestañas: del label a la
-   derecha del todo, chico y silencioso (posición del "Cambiar Tema" del mock). */
+   derecha del todo, chico y silencioso. Con el cluster de Descargar se lo
+   baja 27px para que la píldora esmerilada quepa ENCIMA de él (pila al
+   estilo de la foto: Spotify arriba, linterna abajo). */
 #ekkoTopContextSurface #btnModoTema {
     margin-left: auto !important;
     border-radius: 999px !important;
@@ -719,6 +748,8 @@ body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
     align-items: center;
     justify-content: center;
     color: var(--esp-texto-suave) !important;
+    position: relative !important;
+    top: 27px !important;
 }
 #ekkoTopContextSurface #btnModoTema:hover {
     color: var(--esp-acento) !important;
@@ -728,7 +759,7 @@ body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
    9. MENÚ DE DESCARGA (dropdown de la cápsula) — barrido modo oscuro
    ------------------------------------------------------------------ */
 body[data-modo="oscuro"] #ekkoDownloadMenu {
-    background: #1e1e26 !important;
+    background: #221b16 !important;
     border-color: rgba(255, 255, 255, 0.14) !important;
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55) !important;
 }
@@ -756,7 +787,7 @@ body[data-modo="oscuro"] #ekkoDownloadMenu button[disabled] {
         oscuro. El JS inyecta hoja normal; el !important de autor gana.
    ------------------------------------------------------------------ */
 body[data-modo="oscuro"] #contextual-toolbar .custom-font-dropdown {
-    background: #1e1e26 !important;
+    background: #221b16 !important;
     border-color: rgba(255, 255, 255, 0.14) !important;
     box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55) !important;
 }
