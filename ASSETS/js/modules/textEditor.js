@@ -116,7 +116,10 @@ export function startTextEditing(textItem) {
     area.style.overflow = "hidden";
     area.style.whiteSpace = "pre"; // Preserva saltos de línea sin auto-ajustes forzados
     area.style.boxSizing = "border-box";
-    area.style.zIndex = "10000000"; // Queda por encima de la barra de herramientas flotante
+    area.style.zIndex = "9000"; /* Por debajo de la barra emergente (20000000
+       en contextualMenu.js) y de los paneles: mientras se escribe cerca del
+       borde superior el textarea JAMAS tapa la barra. Sigue por encima del
+       lienzo y de la geometria de seleccion, que es lo que necesita. */
 
     // Inicializar posición y tamaño
     syncEditorSizeAndPosition();
@@ -396,27 +399,54 @@ export function startTextEditing(textItem) {
     });
 
     /* Detector de clics externos global.
-       Cuatro destinos, cuatro caminos distintos:
+       Cinco destinos, cinco caminos distintos:
          - sobre el textarea PERO cayendo en un tirador o en el borde de la
            caja -> SALVA AL LIENZO (pasaje a traves). Sin esto el textarea,
            que tapa el texto con un margen de 8px al costado y 4px arriba y
            abajo, se comeria los clics de las esquinas: agarrar un tirador
            mientras se escribe seria imposible (no interactua).
+         - sobre un FONDO de panel (no un control) con un tirador debajo ->
+           pasaje a traves IGUAL que arriba: la barra emergente puede quedar
+           fisicamente encima de un tirador (texto cerca del borde superior,
+           sello medido en produccion 2026-10-24: tirador TL bajo la barra no
+           se podia arrastrar MIENTRAS parpadeaba el caret; el clic del
+           cliente caia en la barra y cortaba la sesion). Un clic sobre un
+           CONTROL del panel (boton, campo, slider) NO se roba: es intencion
+           de usar el panel, no de transformar.
          - sobre el lienzo, sobre la pieza o su caja -> SUSPENDE (seguir editando)
          - sobre el lienzo vacio -> acepta y listo
          - sobre un panel de la interfaz -> acepta */
     const reexpedirAlLienzo = (e) => {
-        /* El evento original salio del textarea: el lienzo nunca lo vio.
-           Se re-dispacha IGUAL sobre el canvas para que el tool lo procese. */
+        /* El evento original salio de la interfaz: el lienzo nunca lo vio.
+           Se re-dispacha el PAR pointer+mouse del gesto. POR QUE EL PAR:
+           paper.js 0.12.17 elige su familia de eventos UNA VEZ al arrancar,
+           segun navigator.pointerEnabled: donde existe, escucha SOLO
+           pointerdown/move/up; en los navegadores modernos (Chrome, Edge,
+           Firefox: pointerEnabled no existe desde hace anos) escucha SOLO
+           mousedown/move/up. MEDIDO en produccion 2026-10-26 (canario en
+           View._handleMouseEvent): con pointerEnabled=false, pointerdown
+           pelado = silencio, mousedown pelado = procesa. Enviar los dos no
+           duplica el gesto: la familia que no corresponde muere en el
+           registro de paper. */
         setTimeout(() => {
             if (closed || !suspended) return;
-            const datos = { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: e.button ?? 0, buttons: e.type === 'pointerup' || e.type === 'mouseup' ? 0 : 1 };
-            if (e.type === 'pointerdown' || e.type === 'pointerup' || e.type === 'pointermove') {
-                canvas.dispatchEvent(new PointerEvent(e.type, { ...datos, pointerId: e.pointerId ?? 1, pointerType: e.pointerType ?? 'mouse', isPrimary: e.isPrimary ?? true }));
-            } else {
-                canvas.dispatchEvent(new MouseEvent(e.type, datos));
-            }
+            const gesto = /down/.test(e.type) ? "down" : (/up/.test(e.type) ? "up" : "move");
+            const datos = { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: e.button ?? 0, buttons: gesto === "up" ? 0 : 1 };
+            canvas.dispatchEvent(new PointerEvent("pointer" + gesto, { ...datos, pointerId: e.pointerId ?? 1, pointerType: e.pointerType ?? "mouse", isPrimary: e.isPrimary ?? true }));
+            canvas.dispatchEvent(new MouseEvent("mouse" + gesto, datos));
         }, 0);
+    };
+    /* ¿El nodo tocado es un control de la interfaz (boton, campo, slider)?
+       Un clic sobre un CONTROL es intencion de usar el panel; un clic sobre
+       el fondo de un panel puede estar tapando un tirador. */
+    const esControlDeInterfaz = (nodo) => {
+        while (nodo && nodo !== document.body) {
+            const tag = (nodo.tagName || "").toLowerCase();
+            if (tag === "button" || tag === "input" || tag === "select" || tag === "label" || tag === "a" || tag === "option") return true;
+            if (nodo.getAttribute && nodo.getAttribute("role") === "button") return true;
+            nodo = nodo.parentElement;
+        }
+        return false;
     };
     const handleOutsideClick = (e) => {
         if (closed || suspended) return;
@@ -437,6 +467,33 @@ export function startTextEditing(textItem) {
                 }
             } catch (_) {}
             return;
+        }
+        if (e.target !== canvas) {
+            /* FONDO DE PANEL CON TIRADOR DEBAJO -> pasaje a traves.
+               Solo si NO es un control interactivo: si camino sobre un boton
+               o un campo, el cliente quiso usar el panel, y ahi no se roba el
+               clic. Solo tiradores (isHandle), no el borde completo: asi un
+               boton cerca del borde de la caja conserva su funcion normal. */
+            if (!esControlDeInterfaz(e.target)) {
+                try {
+                    const punto = puntoDelEvento(e);
+                    const golpe = window.selectionBoxGroup && window.selectionBoxGroup.hitTest(punto, {
+                        fill: true, stroke: true, segments: true,
+                        tolerance: 10 / (paper.view?.zoom || 1),
+                        match: (hit) => Boolean(hit && hit.item && hit.item.data && hit.item.data.isHandle)
+                    });
+                    if (golpe) {
+                        /* La barra NO ve este clic: si el fondo del panel
+                           mueve la barra al arrastrar (contextualMenu.js lo
+                           hace), moveria la barra en vez de escalar el texto. */
+                        e.preventDefault();
+                        e.stopPropagation();
+                        suspend();
+                        reexpedirAlLienzo(e);
+                        return;
+                    }
+                } catch (_) {}
+            }
         }
         if (e.target === canvas) {
             try {
@@ -468,6 +525,36 @@ export function startTextEditing(textItem) {
     };
     setTimeout(() => {
         registrarCaptura();
+        /* EL PUNTERO CRUZA PANELES DURANTE EL ARRASTRE SUSPENDIDO.
+           El tirador queda debajo de la barra: el gesto nace sobre la barra y
+           el puntero sigue por su encima. Los moves que quedan sobre la barra
+           nunca llegan al lienzo y el escalado se congelaria hasta volver.
+           Con la sesion suspendida y una transformacion activa, cada move
+           desde cualquier elemento NO lienzo se re-expide al lienzo; el up
+           tambien, para que el gesto termine bien aunque se suelte sobre el
+           panel. ESPEJO tipo-por-tipo (pointer entra -> pointer sale, mouse
+           entra -> mouse sale): el navegador envida pointermove Y mousemove
+           del mismo gesto, y paper solo procesa UNA de las dos familias
+           (ver reexpedirAlLienzo), asi que sale un paso por frame. */
+        const arrastreEnCurso = () => Boolean(window.resizeActive || window.dragging || window.rotationActive);
+        const reexpedirPunteroDuranteArrastre = (e) => {
+            if (closed || !suspended || !arrastreEnCurso()) return;
+            if (e.target === canvas) return;
+            const gesto = /down/.test(e.type) ? "down" : (/up/.test(e.type) ? "up" : "move");
+            const datos = { bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: e.button ?? 0, buttons: gesto === "up" ? 0 : (e.buttons ?? 1) };
+            if (String(e.type).indexOf("pointer") === 0) {
+                canvas.dispatchEvent(new PointerEvent(e.type, { ...datos, pointerId: e.pointerId ?? 1, pointerType: e.pointerType ?? "mouse", isPrimary: e.isPrimary ?? true }));
+            } else {
+                canvas.dispatchEvent(new MouseEvent(e.type, datos));
+            }
+        };
+        document.addEventListener("pointermove", reexpedirPunteroDuranteArrastre, true);
+        document.addEventListener("mousemove", reexpedirPunteroDuranteArrastre, true);
+        document.addEventListener("pointerup", reexpedirPunteroDuranteArrastre, true);
+        document.addEventListener("mouseup", reexpedirPunteroDuranteArrastre, true);
+        /* mouseup en CAPTURA ademas del de burbuja: si un panel corta la
+           propagacion del mouseup, la reanudacion no se pierde. */
+        document.addEventListener("mouseup", handleCanvasMouseUp, true);
         document.addEventListener("mouseup", handleCanvasMouseUp);
     }, 50);
 
@@ -479,9 +566,6 @@ export function startTextEditing(textItem) {
         if (closed || !suspended) return;
         setTimeout(() => { if (!closed) resume(); }, 0);
     };
-    setTimeout(() => {
-        document.addEventListener("mouseup", handleCanvasMouseUp);
-    }, 50);
 }
 
 // Registrar globalmente para asegurar visibilidad en modules/selection.js
