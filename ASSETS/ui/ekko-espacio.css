@@ -1,0 +1,784 @@
+/* =========================================================================
+   EKKO STUDIO — ESTÉTICA ESPACIAL (vidrio esmerilado · claro/oscuro)
+
+   Mock de referencia: ASSETS/ui/preview.html
+   Este archivo viste la plataforma: superficie, vidrio, radios, chips,
+   tema claro/oscuro y movimiento. CONTRATO:
+
+   · NO decide visibilidad. Ningún display/hidden ni opacidad ligada al
+     estado de selección: eso es exclusivo de ui/ribbonRenderer.js
+     (UN SOLO ESCRITOR). CSS que decide visibilidad = botón que jamás
+     aparece (error ya vivido con Quitar/Editar Fondo).
+   · Carga DESPUÉS de ASSETS/css/styles.css: en empate de !important
+     gana la última hoja — así se pinta por encima sin editar la base.
+   · El modo oscuro NO pisa reglas sueltas: RE-DECLARA las mismas
+     variables --ekko-* que ekko-ui.css y styles.css ya consumen,
+     y aparte barre los colores hardcodeados de superficies compartidas.
+   ========================================================================= */
+
+/* ------------------------------------------------------------------
+   1. TOKENS DE LA PIEL (claro)
+   ------------------------------------------------------------------ */
+:root {
+    --esp-acento: #007aff;
+    --esp-acento-suave: rgba(0, 122, 255, 0.14);
+
+    --esp-vidrio: rgba(255, 255, 255, 0.55);
+    --esp-vidrio-fuerte: rgba(255, 255, 255, 0.72);
+    --esp-borde-vidrio: rgba(255, 255, 255, 0.65);
+    --esp-borde-interior: rgba(15, 23, 42, 0.08);
+
+    --esp-hover: rgba(15, 23, 42, 0.06);
+    --esp-activo: var(--esp-acento-suave);
+
+    --esp-titulo: #8fa5b3;
+    --esp-texto: var(--ekko-text-main, #26343d);
+    --esp-texto-suave: var(--ekko-text-secondary, #5d6c76);
+
+    --esp-pelota-1: #6db9ff;
+    --esp-pelota-2: #7dfad6;
+    --esp-pelota-3: #c39bff;
+
+    --esp-sombra: 0 10px 34px rgba(15, 23, 42, 0.16), 0 2px 8px rgba(15, 23, 42, 0.08);
+    --esp-sombra-flotante: 0 18px 44px rgba(15, 23, 42, 0.18), 0 4px 12px rgba(15, 23, 42, 0.10);
+    --esp-radio-pastilla: 26px;
+
+    /* Movimiento */
+    --esp-tiempo: 0.28s;
+    --esp-curva: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* ------------------------------------------------------------------
+   2. MODO OSCURO — re-declaración de TODAS las --ekko-* de la base
+      (no se edita ekko-ui.css ni styles.css; la cascada hace el resto)
+   ------------------------------------------------------------------ */
+body[data-modo="oscuro"] {
+    /* Superficies */
+    --ekko-bg-workspace: #0f0f14;
+    --ekko-bg-panel: #17171d;
+    --ekko-panel-main: #1b1b22;
+    --ekko-panel-secondary: #202028;
+    --ekko-panel-floating: #26262f;
+    --ekko-canvas-bg: #0f0f14;
+
+    /* Bordes */
+    --ekko-border: #34343f;
+    --ekko-border-color: rgba(255, 255, 255, 0.12);
+    --ekko-border-strong: #494956;
+
+    /* Texto */
+    --ekko-text-main: #e9e9f2;
+    --ekko-text-dark: #e9e9f2;
+    --ekko-text-secondary: #a7a7b6;
+    --ekko-text-muted: #8b8b9c;
+    --ekko-text-light: #101015;
+
+    /* HUD de la barra emergente */
+    --ekko-hud-bg: rgba(23, 23, 30, 0.72);
+    --ekko-hud-shadow: 0 14px 44px rgba(0, 0, 0, 0.50), 0 2px 10px rgba(0, 0, 0, 0.40);
+    --ekko-hud-border: rgba(255, 255, 255, 0.16);
+
+    /* Acento */
+    --ekko-accent-main: #0a84ff;
+    --ekko-accent-hover: #3fa2ff;
+    --ekko-accent-active: #0071e3;
+
+    /* Semánticos, aclarados para fondo oscuro */
+    --ekko-ok: #4ade80;
+    --ekko-aviso: #fbbf24;
+    --ekko-error: #f87171;
+
+    /* Candados */
+    --ekko-lock-on-bg: rgba(10, 132, 255, 0.22);
+    --ekko-lock-on-fg: #79c0ff;
+    --ekko-lock-off-bg: rgba(255, 255, 255, 0.06);
+    --ekko-lock-off-fg: #a7a7b6;
+
+    /* Tokens propios de la piel en oscuro. OJO: los tokens DERIVADOS
+       (--esp-texto usa var(--ekko-text-main)) se calculan en :root y quedan
+       congelados al valor claro — hay que re-declararlos acá directamente. */
+    --esp-texto: #e9e9f2;
+    --esp-texto-suave: #a7a7b6;
+    --esp-acento: #0a84ff;
+    --esp-acento-suave: rgba(10, 132, 255, 0.18);
+    --esp-vidrio: rgba(26, 26, 33, 0.55);
+    --esp-vidrio-fuerte: rgba(30, 30, 38, 0.78);
+    --esp-borde-vidrio: rgba(255, 255, 255, 0.12);
+    --esp-borde-interior: rgba(255, 255, 255, 0.08);
+    --esp-hover: rgba(255, 255, 255, 0.09);
+    --esp-activo: rgba(10, 132, 255, 0.25);
+    --esp-titulo: #9295a8;
+    --esp-pelota-1: #0a84ff;
+    --esp-pelota-2: #00e5b0;
+    --esp-pelota-3: #6e56cf;
+    --esp-sombra: 0 12px 36px rgba(0, 0, 0, 0.50), 0 2px 8px rgba(0, 0, 0, 0.35);
+    --esp-sombra-flotante: 0 20px 48px rgba(0, 0, 0, 0.55), 0 4px 14px rgba(0, 0, 0, 0.40);
+}
+
+/* ------------------------------------------------------------------
+   3. CÁPSULA DE VIDRIO — barra superior
+      In-flow (sin riesgo de layout): margen + radio + vidrio + pelotas.
+   ------------------------------------------------------------------ */
+#topBar {
+    position: relative;
+    isolation: isolate;              /* las pelotas quedan dentro de la cápsula */
+    margin: 10px 10px 8px !important;
+    height: auto !important;         /* la cinta crece: pestañas + grupos */
+    min-height: 52px !important;
+    padding: 4px 12px 8px !important;
+    /* OJO: no se toca display/flex-direction/justify/gap — el wrap de la base
+       es el MEcanismo real de filas de la cinta; la piel solo viste. */
+    background: var(--esp-vidrio) !important;
+    border: 1px solid var(--esp-borde-vidrio) !important;
+    border-radius: var(--esp-radio-pastilla) !important;
+    box-shadow: var(--esp-sombra) !important;
+    -webkit-backdrop-filter: blur(22px) saturate(180%) !important;
+    backdrop-filter: blur(22px) saturate(180%) !important;
+    transition:
+        background-color var(--esp-tiempo) ease,
+        box-shadow var(--esp-tiempo) ease,
+        border-color var(--esp-tiempo) ease;
+}
+
+/* Pelotas de color detrás del contenido (mock: ambient blobs).
+   Con isolation:isolate, el z:-1 las deja sobre el fondo de la cápsula y
+   bajo TODO el contenido, sin necesidad de tocar los hijos. */
+#topBar::before,
+#topBar::after {
+    content: "";
+    position: absolute;
+    z-index: -1;                     /* sobre el fondo de la cápsula, bajo todo el contenido */
+    border-radius: 50%;
+    filter: blur(34px);
+    pointer-events: none;
+    opacity: 0.55;
+}
+#topBar::before {
+    width: 220px;
+    height: 220px;
+    left: 18%;
+    top: -90px;
+    background: radial-gradient(circle at 35% 35%, var(--esp-pelota-1), transparent 68%);
+}
+#topBar::after {
+    width: 260px;
+    height: 260px;
+    right: 8%;
+    bottom: -120px;
+    background: radial-gradient(circle at 55% 55%, var(--esp-pelota-2), transparent 66%);
+}
+
+/* ------------------------------------------------------------------
+   4. PESTAÑAS CONTEXTUALES (tira superior) — control segmentado
+   ------------------------------------------------------------------ */
+#ekkoTopContextSurface,
+.ekko-top-context-surface {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 18px !important;
+    padding: 2px !important;
+    align-self: center !important;
+}
+
+.ekko-top-context-tabs {
+    gap: 4px !important;
+}
+
+.ekko-context-tab {
+    border: none !important;
+    background: transparent !important;
+    color: var(--esp-texto-suave) !important;
+    border-radius: 999px !important;
+    padding: 4px 14px !important;
+    font-weight: 500 !important;
+    transition:
+        background-color 0.18s ease,
+        color 0.18s ease,
+        transform 0.18s ease;
+}
+.ekko-context-tab:hover {
+    background: var(--esp-hover) !important;
+    color: var(--esp-texto) !important;
+}
+.ekko-context-tab.is-active {
+    background: var(--esp-activo) !important;
+    color: var(--esp-acento) !important;
+    box-shadow: inset 0 0 0 1px var(--esp-borde-vidrio) !important;
+}
+
+.ekko-top-context-label {
+    color: var(--esp-texto-suave) !important;
+}
+
+.product-panel-top-toggle {
+    color: var(--esp-texto-suave) !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 10px !important;
+    transition: background-color 0.18s ease, color 0.18s ease;
+}
+.product-panel-top-toggle:hover {
+    background: var(--esp-hover) !important;
+    color: var(--esp-texto) !important;
+}
+
+/* ------------------------------------------------------------------
+   5. GRUPOS DE LA CINTA — títulos suaves, cuerpo transparente
+   ------------------------------------------------------------------ */
+.ekko-ribbon-group {
+    background: transparent !important;
+    border: none !important;
+}
+.ekko-ribbon-group + .ekko-ribbon-group {
+    border-left: 1px solid var(--esp-borde-interior) !important;
+}
+.ekko-ribbon-group-head {
+    color: var(--esp-titulo) !important;
+    letter-spacing: 0.06em !important;
+    font-weight: 600 !important;
+    border-radius: 8px !important;
+    transition: color 0.18s ease;
+}
+.ekko-ribbon-group-head:hover {
+    color: var(--esp-acento) !important;
+}
+.ekko-ribbon-group-title {
+    font-size: 9.5px !important;
+}
+.ekko-ribbon-group.is-collapsed .ekko-ribbon-group-head::before {
+    /* el chevron gira según estado: ya lo maneja ekko-ribbon.css */
+}
+
+/* ------------------------------------------------------------------
+   5-B. PANEL DE DISEÑADOR (#pro-layout-toolbar) — segunda capa de vidrio
+        En la base es "extensión de la cinta" con fondo #f8fafc duro;
+        aquí pasa a tarjeta flotante apilada bajo la cápsula (mock).
+        NO se toca su maquinaria de visibilidad (is-compact/is-hidden).
+   ------------------------------------------------------------------ */
+#topBar + #pro-layout-toolbar {
+    margin: 0 10px 8px !important;
+    min-height: 38px !important;
+    padding: 5px 12px !important;
+    background: var(--esp-vidrio) !important;
+    border: 1px solid var(--esp-borde-vidrio) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.10) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
+    backdrop-filter: blur(18px) saturate(160%) !important;
+    transition:
+        background-color var(--esp-tiempo) ease,
+        box-shadow var(--esp-tiempo) ease,
+        border-color var(--esp-tiempo) ease;
+}
+#topBar + #pro-layout-toolbar .pro-group {
+    border-right: 1px solid var(--esp-borde-interior) !important;
+}
+#topBar + #pro-layout-toolbar .pro-label {
+    color: var(--esp-titulo) !important;
+    font-weight: 600 !important;
+}
+#topBar + #pro-layout-toolbar .pro-btn {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 10px !important;
+    color: var(--esp-texto) !important;
+    transition:
+        background-color 0.18s ease,
+        transform 0.18s var(--esp-curva),
+        color 0.18s ease,
+        border-color 0.18s ease;
+}
+#topBar + #pro-layout-toolbar .pro-btn:hover {
+    background: var(--esp-hover) !important;
+    transform: translateY(-1px);
+}
+#topBar + #pro-layout-toolbar .pro-btn:active {
+    transform: translateY(0) scale(0.97);
+}
+#topBar + #pro-layout-toolbar .pro-btn.active {
+    background: var(--esp-activo) !important;
+    color: var(--esp-acento) !important;
+    box-shadow: inset 0 0 0 1px var(--esp-borde-vidrio) !important;
+}
+#topBar + #pro-layout-toolbar .pro-btn:focus-visible {
+    outline: 2px solid var(--esp-acento) !important;
+    outline-offset: 2px !important;
+}
+
+/* ------------------------------------------------------------------
+   5-C. PANEL DE PRODUCTOS (#leftSidebar) — columna de vidrio, familia
+        cápsula. Misma lógica que la cápsula: margen, radio, vidrio.
+        NO se toca la maquinaria de colapso del envoltorio (width/opacity
+        de #productPanelWrap): el ancho interno se ajusta DENTRO del slot.
+   ------------------------------------------------------------------ */
+#leftSidebar {
+    /* 250px visibles dentro del slot de 260px del envoltorio: el margen
+       izquierdo crea el aire de cápsula SIN mover el layout del workspace */
+    width: calc(var(--ekko-sidebar-width) - 10px) !important;
+    min-width: calc(var(--ekko-sidebar-width) - 10px) !important;
+    max-width: calc(var(--ekko-sidebar-width) - 10px) !important;
+    margin: 10px 0 10px 10px !important;
+    height: calc(100vh - 20px) !important;
+    background: var(--esp-vidrio) !important;
+    border: 1px solid var(--esp-borde-vidrio) !important;
+    border-right: 1px solid var(--esp-borde-vidrio) !important;
+    border-radius: 18px !important;
+    box-shadow: 0 6px 22px rgba(15, 23, 42, 0.10) !important;
+    -webkit-backdrop-filter: blur(18px) saturate(160%) !important;
+    backdrop-filter: blur(18px) saturate(160%) !important;
+    transition:
+        background-color var(--esp-tiempo) ease,
+        box-shadow var(--esp-tiempo) ease,
+        border-color var(--esp-tiempo) ease !important;
+}
+
+/* Header del panel: transparente, separador sutil interior */
+#leftSidebarHeader {
+    background: transparent !important;
+    border-bottom: 1px solid var(--esp-borde-interior) !important;
+    padding: 6px 14px !important;
+}
+#leftSidebar .panel-title {
+    color: var(--esp-titulo) !important;
+    font-size: 10.5px !important;
+    letter-spacing: 0.08em !important;
+}
+
+/* Secciones y subtítulos: misma voz que los heads de la cinta */
+#leftSidebar .sidebar-section {
+    border-bottom: 1px solid var(--esp-borde-interior) !important;
+    padding: 12px 14px !important;
+}
+#leftSidebar .sidebar-section:last-child {
+    border-bottom: none !important;
+}
+#leftSidebar .sidebar-title {
+    color: var(--esp-titulo) !important;
+    font-weight: 600 !important;
+    font-size: 10.5px !important;
+    letter-spacing: 0.08em !important;
+}
+
+/* Chips del catálogo (categorías / productos / vistas): familia chip */
+#leftSidebar .tab-btn,
+#leftSidebar .cat-btn,
+#leftSidebar .product-btn,
+#leftSidebar .vista-btn {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 12px !important;
+    color: var(--esp-texto) !important;
+    box-shadow: none !important;
+    transition:
+        background-color 0.18s ease,
+        transform 0.18s var(--esp-curva),
+        color 0.18s ease,
+        border-color 0.18s ease,
+        box-shadow 0.18s ease !important;
+}
+#leftSidebar .tab-btn:hover,
+#leftSidebar .cat-btn:hover,
+#leftSidebar .product-btn:hover,
+#leftSidebar .vista-btn:hover {
+    background: var(--esp-hover) !important;
+    border-color: transparent !important;
+    color: var(--esp-texto) !important;
+    box-shadow: none !important;
+    transform: translateY(-1px);
+}
+#leftSidebar .tab-btn:active,
+#leftSidebar .product-btn:active,
+#leftSidebar .vista-btn:active {
+    transform: translateY(0) scale(0.97);
+}
+#leftSidebar .tab-btn.active,
+#leftSidebar .product-btn.active,
+#leftSidebar .vista-btn.active {
+    background: var(--esp-activo) !important;
+    border-color: transparent !important;
+    color: var(--esp-acento) !important;
+    box-shadow: inset 0 0 0 1px var(--esp-borde-vidrio) !important;
+}
+#leftSidebar .tab-btn:focus-visible,
+#leftSidebar .product-btn:focus-visible {
+    outline: 2px solid var(--esp-acento) !important;
+    outline-offset: 2px !important;
+}
+
+/* Manija de reapertura (panel colapsado): pestaña de vidrio pegada al borde */
+.product-panel-handle {
+    background: var(--esp-vidrio-fuerte) !important;
+    border: 1px solid var(--esp-borde-vidrio) !important;
+    border-left: 1px solid var(--esp-borde-vidrio) !important;
+    border-radius: 0 12px 12px 0 !important;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14) !important;
+    -webkit-backdrop-filter: blur(14px) saturate(160%) !important;
+    backdrop-filter: blur(14px) saturate(160%) !important;
+    color: var(--esp-texto-suave) !important;
+}
+
+/* ------------------------------------------------------------------
+   6. CHIPS DE VIDRIO — botones de la cápsula y de la barra emergente
+   ------------------------------------------------------------------ */
+#topBar .btn-action,
+#contextual-toolbar .toolbar-btn {
+    background: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 14px !important;
+    color: var(--esp-texto) !important;
+    font-weight: 500 !important;
+    transition:
+        background-color 0.18s ease,
+        transform 0.18s var(--esp-curva),
+        color 0.18s ease,
+        border-color 0.18s ease,
+        box-shadow 0.18s ease;
+}
+#topBar .btn-action:hover,
+#contextual-toolbar .toolbar-btn:hover {
+    background: var(--esp-hover) !important;
+    transform: translateY(-1px);
+}
+#topBar .btn-action:active,
+#contextual-toolbar .toolbar-btn:active {
+    transform: translateY(0) scale(0.97);
+}
+
+/* Íconos del HUD/cápsula HEREDAN el color del chip para que texto e icons
+   sea legible en ambos temas (los inline #334155/#475569/#64748b vuelan
+   invisibles sobre oscuro). Las excepciones de marca se re-fuerzan abajo. */
+#topBar .btn-action > i.fas,
+#topBar .btn-action > i.far,
+#contextual-toolbar .toolbar-btn > i.fas,
+#contextual-toolbar .toolbar-btn > i.far {
+    color: inherit !important;
+}
+/* Excepciones de marca (inline): fucsia de fusión */
+#topBar .btn-action [style*="#ff2ea6"],
+#contextual-toolbar .toolbar-btn [style*="#ff2ea6"],
+#pro-layout-toolbar .pro-btn [style*="#ff2ea6"] {
+    color: #ff2ea6 !important;
+}
+#topBar .btn-action:focus-visible,
+#contextual-toolbar .toolbar-btn:focus-visible,
+.ekko-context-tab:focus-visible {
+    outline: 2px solid var(--esp-acento) !important;
+    outline-offset: 2px !important;
+}
+
+/* Íconos heredan color del chip (los svg usan currentColor via CSS) */
+#topBar .btn-action svg.ekko-ic,
+#contextual-toolbar .toolbar-btn svg.ekko-ic {
+    color: inherit;
+}
+
+/* Botones pequeños cuadrados (candados, tamaños) siguen legibles */
+#contextual-toolbar .toolbar-btn:has(svg.ekko-ic:only-child) {
+    border-radius: 10px !important;
+}
+
+/* ------------------------------------------------------------------
+   7. BARRA EMERGENTE — píldora flotante de vidrio
+   ------------------------------------------------------------------ */
+#contextual-toolbar {
+    border-radius: 24px !important;
+    background: var(--esp-vidrio-fuerte) !important;
+    border: 1px solid var(--esp-borde-vidrio) !important;
+    box-shadow: var(--esp-sombra-flotante) !important;
+    padding: 6px 12px !important;
+    gap: 6px !important;
+    -webkit-backdrop-filter: blur(26px) saturate(180%) !important;
+    backdrop-filter: blur(26px) saturate(180%) !important;
+    transition:
+        background-color var(--esp-tiempo) ease,
+        box-shadow var(--esp-tiempo) ease,
+        border-color var(--esp-tiempo) ease;
+}
+
+/* Divisor vertical sutil entre grupos de la píldora */
+#contextual-toolbar .toolbar-divider {
+    background: var(--esp-borde-interior) !important;
+    width: 1px !important;
+}
+
+/* ------------------------------------------------------------------
+   8. CONTROLES DENTRO DE LAS SUPERFICIES DE VIDRIO
+      (barridos de colores hardcodeados + acento)
+   ------------------------------------------------------------------ */
+#contextual-toolbar .toolbar-input-number,
+#contextual-toolbar .toolbar-select,
+#topBar .toolbar-select {
+    background: transparent !important;
+    border: 1px solid var(--esp-borde-interior) !important;
+    border-radius: 8px !important;
+    color: var(--esp-texto) !important;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+#contextual-toolbar .toolbar-input-number:focus,
+#contextual-toolbar .toolbar-select:focus,
+#topBar .toolbar-select:focus {
+    border-color: var(--esp-acento) !important;
+    outline: none !important;
+}
+
+/* El borde inline #cbd5e1 de inputs del HUD cae con !important de autor */
+#contextual-toolbar .toolbar-input-number {
+    border-color: var(--esp-borde-interior) !important;
+}
+
+/* En oscuro los campos internos necesitan más presencia (fondo duro casi
+   no distingue cuadro de texto). */
+body[data-modo="oscuro"] #contextual-toolbar .toolbar-input-number,
+body[data-modo="oscuro"] #contextual-toolbar .toolbar-select,
+body[data-modo="oscuro"] #topBar .toolbar-select,
+body[data-modo="oscuro"] #contextual-toolbar .toolbar-number-label,
+body[data-modo="oscuro"] #contextual-toolbar .toolbar-angle-readout {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    color: var(--ekko-text-main) !important;
+}
+body[data-modo="oscuro"] #topBar .toolbar-input-number {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    color: var(--ekko-text-main) !important;
+}
+
+#contextual-toolbar input[type="range"],
+#topBar input[type="range"],
+.toolbar-slider-container input[type="range"] {
+    accent-color: var(--esp-acento);
+}
+
+#contextual-toolbar .toolbar-number-label,
+#contextual-toolbar .toolbar-angle-readout,
+.toolbar-slider-container {
+    color: var(--esp-texto-suave) !important;
+}
+#contextual-toolbar .toolbar-angle-readout {
+    background: transparent !important;
+}
+
+/* Chips con estado ON de candados (usa variables de la base) */
+#contextual-toolbar .size-lock-btn.is-on,
+#contextual-toolbar [class*="-lock"].is-on {
+    box-shadow: inset 0 0 0 1px var(--esp-borde-vidrio) !important;
+}
+
+/* Trigger del selector de fuente: chip de vidrio (era #fff duro) */
+#contextual-toolbar .selected-font-trigger {
+    background: transparent !important;
+    border: 1px solid var(--esp-borde-interior) !important;
+    border-radius: 12px !important;
+    color: var(--esp-texto) !important;
+    transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+#contextual-toolbar .selected-font-trigger:hover {
+    background: var(--esp-hover) !important;
+    border-color: var(--esp-borde-vidrio) !important;
+}
+
+/* Botón ⋮ de desborde dentro del HUD (0.22 blanca dura) */
+#contextual-toolbar .panel-overflow-btn {
+    background: var(--esp-hover) !important;
+    color: var(--esp-texto-suave) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    transition: background-color 0.18s ease, color 0.18s ease;
+}
+#contextual-toolbar .panel-overflow-btn:hover {
+    background: var(--esp-activo) !important;
+    color: var(--esp-acento) !important;
+}
+
+/* Botón "Listo" del HUD: verde de marca sobre vidrio (ambos modos) */
+#contextual-toolbar #btnCtxExitNodeEdit {
+    background: rgba(34, 197, 94, 0.16) !important;
+    border-color: rgba(34, 197, 94, 0.35) !important;
+    color: #16a34a !important;
+}
+body[data-modo="oscuro"] #contextual-toolbar #btnCtxExitNodeEdit {
+    color: #4ade80 !important;
+}
+
+/* Botón primario verde (Descargar) — vive en #ekkoDownloadWrap (fixed),
+   NO dentro de #topBar: selector por su envoltorio real. Marca verde ambos modos. */
+#ekkoDownloadWrap #btnEkkoDownload,
+#topBar #btnEkkoDownload {
+    border-radius: 14px !important;
+    background: linear-gradient(180deg, #1ba155, #15803d) !important;
+    border: 1px solid rgba(21, 128, 61, 0.45) !important;
+    box-shadow: 0 4px 14px rgba(21, 128, 61, 0.35) !important;
+    color: #ffffff !important;
+}
+#ekkoDownloadWrap #btnEkkoDownload:hover {
+    background: linear-gradient(180deg, #23b161, #189b46) !important;
+    transform: translateY(-1px);
+}
+#ekkoDownloadWrap #btnEkkoDownload:active {
+    transform: translateY(0) scale(0.97);
+}
+
+/* Toggles ⋮⋮⋮ (inline en HTML): chip de vidrio en ambos modos */
+#toggleTopBar,
+#toggleContextBar,
+#toggleProductPanel {
+    background: var(--esp-hover) !important;
+    color: var(--esp-texto-suave) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 4px 8px !important;
+    transition: background-color 0.18s ease, color 0.18s ease;
+}
+#toggleTopBar:hover,
+#toggleContextBar:hover,
+#toggleProductPanel:hover {
+    background: var(--esp-activo) !important;
+    color: var(--esp-acento) !important;
+}
+
+/* Botones de icono del panel superior (compactar, desbordar, тему) */
+.panel-icon-btn {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 10px !important;
+    color: var(--esp-texto-suave) !important;
+    transition: background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+.panel-icon-btn:hover {
+    background: var(--esp-hover) !important;
+    color: var(--esp-texto) !important;
+}
+.panel-icon-btn:active {
+    transform: scale(0.94);
+}
+
+/* El botón de tema vive en la cola de la tira de pestañas: del label a la
+   derecha del todo, chico y silencioso (posición del "Cambiar Tema" del mock). */
+#ekkoTopContextSurface #btnModoTema {
+    margin-left: auto !important;
+    border-radius: 999px !important;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--esp-texto-suave) !important;
+}
+#ekkoTopContextSurface #btnModoTema:hover {
+    color: var(--esp-acento) !important;
+}
+
+/* ------------------------------------------------------------------
+   9. MENÚ DE DESCARGA (dropdown de la cápsula) — barrido modo oscuro
+   ------------------------------------------------------------------ */
+body[data-modo="oscuro"] #ekkoDownloadMenu {
+    background: #1e1e26 !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55) !important;
+}
+body[data-modo="oscuro"] #ekkoDownloadMenu button {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: var(--ekko-text-main) !important;
+}
+body[data-modo="oscuro"] #ekkoDownloadMenu button b {
+    color: var(--ekko-text-main) !important;
+}
+body[data-modo="oscuro"] #ekkoDownloadMenu span {
+    color: var(--ekko-text-muted) !important;
+}
+body[data-modo="oscuro"] #ekkoDownloadMenu button[disabled] {
+    color: var(--ekko-text-muted) !important;
+    opacity: 0.6 !important;
+}
+#ekkoDownloadMenu {
+    border-radius: 14px !important;
+    transition: background-color 0.2s ease;
+}
+
+/* ------------------------------------------------------------------
+   9-B. DROPDOWN DE FUENTES (inyectado por contextualMenu.js) — barrido
+        oscuro. El JS inyecta hoja normal; el !important de autor gana.
+   ------------------------------------------------------------------ */
+body[data-modo="oscuro"] #contextual-toolbar .custom-font-dropdown {
+    background: #1e1e26 !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55) !important;
+}
+body[data-modo="oscuro"] .font-dropdown-item {
+    color: var(--ekko-text-main) !important;
+    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+body[data-modo="oscuro"] .font-name-label {
+    color: var(--ekko-text-muted) !important;
+}
+body[data-modo="oscuro"] .font-dropdown-item:hover {
+    background: rgba(10, 132, 255, 0.18) !important;
+}
+#contextual-toolbar .custom-font-dropdown {
+    border-radius: 14px !important;
+}
+
+/* ------------------------------------------------------------------
+   10. VISOR #selectionInfo y sueltos de la cápsula
+   ------------------------------------------------------------------ */
+#selectionInfo {
+    border-radius: 999px !important;
+    background: transparent !important;
+    border: none !important;
+    color: var(--esp-texto) !important;
+    font-weight: 500 !important;
+    transition: color var(--esp-tiempo) ease;
+}
+#topBar.is-compact #selectionInfo {
+    background: var(--esp-vidrio-fuerte) !important;
+    border: 1px solid var(--esp-borde-vidrio) !important;
+}
+
+/* ------------------------------------------------------------------
+   11. MESA DE DISEÑO — modo oscuro (variables ya la pintan)
+   ------------------------------------------------------------------ */
+body[data-modo="oscuro"] body,
+body[data-modo="oscuro"] #workspace,
+body[data-modo="oscuro"] #canvasContainer,
+body[data-modo="oscuro"] #editorCanvas {
+    /* la base ya usa var(--ekko-canvas-bg): no hay que re-pisar */
+}
+
+/* ------------------------------------------------------------------
+   12. MOVIMIENTO — transiciones de aparición suaves en las dos
+       superficies (solo transform/shadow/color: nada de visibilidad)
+   ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: no-preference) {
+    #topBar,
+    #contextual-toolbar {
+        animation: esp-aparecer 0.5s var(--esp-curva) both;
+    }
+}
+@keyframes esp-aparecer {
+    from {
+        opacity: 0.001;   /* solo la primera vez que CSS pinta la página */
+        transform: translateY(-6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+@supports (animation-timeline: view()) { /* no-op: guarda futura */ }
+
+@media (prefers-reduced-motion: reduce) {
+    #topBar,
+    #contextual-toolbar,
+    #topBar .btn-action,
+    #contextual-toolbar .toolbar-btn,
+    .ekko-context-tab,
+    .panel-icon-btn {
+        animation: none !important;
+        transition: none !important;
+    }
+    #topBar::before,
+    #topBar::after {
+        filter: none !important;
+    }
+}
