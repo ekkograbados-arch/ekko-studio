@@ -181,9 +181,18 @@ export function startTextEditing(textItem) {
            creyendo que manda la seleccion y el textarea quedaria a medio usar. */
         try { interactionOwner.claim("text-edit", { owner: "textEditor" }); } catch (_) {}
         publishTextEditorState("editing", textItem, area.value);
+        /* Enfocar un textarea ENORME (texto escalado sobre un mockup grande)
+           hace que el navegador desplace la pagina para mostrar el caret: el
+           lienzo se movia solo al soltar el tirador y parecia que la caja
+           "saltaba". La vista se restaura acto seguido. */
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
         mostrarTextarea();
         area.focus();
         try { area.setSelectionRange(caretStart, caretEnd); } catch (_) {}
+        if (window.scrollX !== scrollX || window.scrollY !== scrollY) {
+            window.scrollTo(scrollX, scrollY);
+        }
     }
 
     /* El puntero esta SOBRE la pieza o sobre su caja de seleccion?
