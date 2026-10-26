@@ -31,6 +31,34 @@ function markMockupMask(mask) {
   return mask;
 }
 
+/* Un mockup solo puede recortar mientras siga siendo parte VIVA del proyecto.
+ * Al cambiar de producto la capa se vacia y las referencias viejas quedan
+ * colgadas (item.project sigue apuntando al proyecto, pero item.layer es null).
+ * Si las usataramos, todo objeto nuevo se recortaria con la silueta del
+ * producto anterior: el clasico "hueco con forma de chapita" que aparecia en
+ * LIENZO al cargar objetos despues de visitar una chapita. */
+function isAttachedToProject(item) {
+  if (!item || typeof paper === "undefined" || !paper.project) return false;
+  try {
+    return item.project === paper.project && !!item.layer;
+  } catch (e) {
+    return false;
+  }
+}
+
+function hasLiveMockup() {
+  return !!(isAttachedToProject(window.currentMockup) && window.clipMask);
+}
+
+/* LIENZO, hojas A4, placas y mesas son superficies libres: no tienen silueta
+ * recortable. El sufijo se decide por ruta, igual que el modo infinito. */
+function isFreeCanvasPath(svgPath) {
+  var path = typeof svgPath === "string" ? svgPath.toLowerCase() : "";
+  return !path || path.indexOf("a4") !== -1 || path.indexOf("lienzo") !== -1 ||
+    path.indexOf("placa") !== -1 || path.indexOf("mesa") !== -1 ||
+    path.indexOf("horizontal") !== -1;
+}
+
 function collectPaths(item, paths) {
   paths = paths || [];
   if (item instanceof paper.Path || item instanceof paper.CompoundPath) {
@@ -185,24 +213,34 @@ function convertAllShapesToPaths(item) {
 
 export function loadMockup(svgPath) {
   var token = ++window.loadToken;
+  var freeCanvas = isFreeCanvasPath(svgPath);
 
   // 🚀 PRESERVACIÓN DE ELEMENTOS DEL USUARIO DURANTE LA CARGA ASÍNCRONA
   // ⚡ CORRECCIÓN CRÍTICA: Solo preservamos elementos si se trata exactamente del mismo producto/superficie (recarga o refresh).
   // Si estamos cambiando a otro producto o superficie diferente (currentPath !== svgPath), NO preservamos los elementos,
   // permitiendo que el lienzo cargue limpio como corresponde de forma totalmente independiente.
+  // La ruta anterior se lee ANTES de invalidar referencias, porque es la
+  // única forma de reconocer una recarga del mismo producto.
+  var previousPath = window.currentMockup && window.currentMockup.data ? window.currentMockup.data.svgPath : null;
+  var sameProductReload = previousPath === svgPath;
   var userItems = [];
-  if (typeof paper !== "undefined" && paper.project && paper.project.activeLayer) {
-    var currentPath = window.currentMockup && window.currentMockup.data ? window.currentMockup.data.svgPath : null;
-    if (currentPath === svgPath) {
-      paper.project.activeLayer.children.forEach(function(c) {
-        if (c && c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) {
-          // No guardar elementos de mockup o de interfaz
-        } else if (c) {
-          userItems.push(c);
-        }
-      });
-    }
+  if (typeof paper !== "undefined" && paper.project && paper.project.activeLayer && sameProductReload) {
+    paper.project.activeLayer.children.forEach(function(c) {
+      if (c && c.data && (c.data.mockup || c.data.isMask || c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide || c.data.isMeasurement || c.data.isTracePreview)) {
+        // No guardar elementos de mockup o de interfaz
+      } else if (c) {
+        userItems.push(c);
+      }
+    });
   }
+
+  // Invalidar YA las referencias del producto anterior. Si la carga falla
+  // (por ejemplo el SVG de LIENZO viene vacio) estas referencias quedan
+  // colgadas y `clipItem` recortaria todo objeto nuevo con la silueta anterior.
+  window.currentMockup = null;
+  window.grabArea = null;
+  window.clipMask = null;
+  window.infiniteCanvasMode = freeCanvas;
 
   // Remover temporalmente del lienzo para que no los borre removeChildren()
   userItems.forEach(function(c) {
@@ -211,12 +249,34 @@ export function loadMockup(svgPath) {
 
   paper.project.activeLayer.removeChildren();
 
+  // Devolver los objetos preservados y dejar el lienzo libre cuando el SVG no
+  // existe, viene vacio o no se puede interpretar (LIENZO GENERAL hoy es 0 B).
+  function failMockupLoad() {
+    window.currentMockup = null;
+    window.grabArea = null;
+    window.clipMask = null;
+    window.infiniteCanvasMode = freeCanvas;
+    var layer = paper.project && paper.project.activeLayer;
+    if (layer) {
+      userItems.forEach(function(c) {
+        if (!c) return;
+        try { layer.addChild(c); } catch (e) {}
+      });
+    }
+    if (typeof window.updateSelectionInfo === "function") window.updateSelectionInfo();
+    if (paper.view) paper.view.update();
+  }
+
+  try {
   paper.project.importSVG(svgPath, function (item) {
     if (token !== window.loadToken) {
       if (item) item.remove();
       return;
     }
-    if (!item) return;
+    if (!item) {
+      failMockupLoad();
+      return;
+    }
 
     item = convertAllShapesToPaths(item);
     var bounds = item.bounds;
@@ -259,9 +319,9 @@ export function loadMockup(svgPath) {
     if (typeof window.updateSelectionInfo === "function") window.updateSelectionInfo();
     item.bringToFront();
 
-    // Activar modo infinito inteligente: si es una plantilla de hoja A4 o mesa, desactivamos el clipping mask
-    var isA4 = svgPath && (svgPath.toLowerCase().indexOf("a4") !== -1 || svgPath.toLowerCase().indexOf("lienzo") !== -1 || svgPath.toLowerCase().indexOf("placa") !== -1 || svgPath.toLowerCase().indexOf("mesa") !== -1 || svgPath.toLowerCase().indexOf("horizontal") !== -1);
-    window.infiniteCanvasMode = isA4;
+    // Modo lienzo libre (A4, mesa, placa, LIENZO): la silueta no recorta.
+    // Se usa la intencion calculada al inicio, aunque la carga haya tardado.
+    window.infiniteCanvasMode = freeCanvas;
 
     // Recoger ítems que se hayan creado en paralelo durante la carga asíncrona de este SVG
     var itemsCreatedDuringLoad = [];
@@ -303,6 +363,33 @@ export function loadMockup(svgPath) {
 
     paper.view.update();
   });
+  } catch (error) {
+    // ImportSVG tambien puede fallar de forma sincrona (archivo corrupto).
+    if (token === window.loadToken) {
+      failMockupLoad();
+      console.warn("[EKKO MOCKUP] No se pudo cargar el mockup:", error);
+    }
+  }
+}
+
+/* Repara escenas viejas: un clipGroup de mockup guardado dentro de un producto
+ * sin mockup (por ejemplo una escena de LIENZO contaminada desde una chapita)
+ * sigue recortando aunque ya no exista silueta. Se desactiva el recorte y se
+ * retira la mascara muerta, conservando el objeto y su posicion. */
+function releaseOrphanContainment() {
+  if (typeof paper === "undefined" || !paper.project) return;
+  var layers = paper.project.layers || [];
+  for (var i = 0; i < layers.length; i++) {
+    var children = (layers[i].children || []).slice();
+    for (var j = 0; j < children.length; j++) {
+      var group = children[j];
+      if (!group || !group.data || !group.data.clipGroup || !group.data.mockupContainment) continue;
+      if (group.clipped) group.clipped = false;
+      (group.children || []).slice().forEach(function(child) {
+        if (child && child.data && child.data.isMask) child.remove();
+      });
+    }
+  }
 }
 
 export function restoreMockupReferences() {
@@ -351,6 +438,7 @@ export function restoreMockupReferences() {
     window.currentMockup = null;
     window.grabArea = null;
     window.clipMask = null;
+    releaseOrphanContainment();
   }
 }
 
@@ -363,7 +451,7 @@ export function restoreMockupReferences() {
  * infinito no puede convertir una restauración en un elemento suelto.
  */
 export function createMockupContainmentGroup(item) {
-  if (!item || !window.clipMask || !paper || !paper.project) return item;
+  if (!item || !hasLiveMockup() || !paper || !paper.project) return item;
 
   // Si ya está contenido, devuelve el wrapper y nunca lo vuelve a envolver.
   let parent = item.parent;
@@ -404,7 +492,7 @@ export function createMockupContainmentGroup(item) {
  * A diferencia de clipItem(), esta API nunca deja pasar infiniteCanvasMode.
  */
 export function ensureMockupContainment(item) {
-  if (!item || !window.currentMockup || !window.clipMask) return item;
+  if (!item || !hasLiveMockup()) return item;
   let parent = item.parent;
   while (parent && parent !== paper.project) {
     if (parent.data?.clipGroup && parent.data?.mockupContainment) return parent;
@@ -436,6 +524,6 @@ window.clipItem = function(item) {
   // dejaba piezas sueltas FUERA del mockup.
   // Sin mockup no hay nada que recortar, asi que la edicion libre (el caso del
   // lienzo sin producto) sigue funcionando exactamente igual.
-  if (!window.clipMask || !window.currentMockup) return item;
+  if (!hasLiveMockup()) return item;
   return createMockupContainmentGroup(item);
 };
