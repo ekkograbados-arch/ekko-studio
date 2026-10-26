@@ -60,40 +60,61 @@
 /* ------------------------------------------------------------------
    1-B. FONDO CON CURVAS — traducción directa de IMG_4173:
         plata neutra arriba → caramelo/brown profundo al medio →
-        malva polvoriento abajo. Los "pétalos" son ANILLOS elípticos
-        (halo de luz que dibuja el borde de la curva) + cuerpos suaves:
-        eso da el efecto de capas de vidrio/seda difuminadas, no un
-        gradiente plano durazno. El piso vertical opaco (última capa)
-        tapa el gris azulado de la base.
+        malva polvoriento abajo. CALIDAD iOS: difuminados con
+        recorridos LARGOS y 4+ paradas (kill de banding) y pétalos con
+        rim-light: anillos elípticos de luz que dibujan la curva.
+        El piso vertical opaco (última capa) tapa el gris de la base.
         body y #workspace comparten la escena; el panel izquierdo
-        respira este piso (su backdrop es body) y suma un baño propio.
+        respira este piso (su backdrop es body) y suma su baño propio.
    ------------------------------------------------------------------ */
 body,
 #workspace {
     background-image:
-        /* Anillos = bordes iluminados de los pétalos */
-        radial-gradient(85% 52% at 30% 32%, transparent 55%, rgba(230, 225, 222, 0.55) 63%, rgba(230, 225, 222, 0.07) 72%, transparent 80%),
-        radial-gradient(70% 45% at 66% 18%, transparent 50%, rgba(219, 215, 213, 0.50) 60%, rgba(219, 215, 213, 0.06) 70%, transparent 78%),
-        radial-gradient(95% 62% at 76% 62%, transparent 52%, rgba(221, 210, 203, 0.45) 60%, rgba(221, 210, 203, 0.05) 70%, transparent 78%),
-        radial-gradient(58% 36% at 16% 76%, transparent 46%, rgba(229, 219, 211, 0.45) 57%, rgba(229, 219, 211, 0.05) 66%, transparent 74%),
-        /* Cuerpos: capas de seda (caramelo profundo al medio, malva abajo) */
-        radial-gradient(75% 46% at 42% 26%, rgba(163, 147, 139, 0.32), transparent 68%),
-        radial-gradient(84% 55% at 80% 48%, rgba(114, 87, 74, 0.40), transparent 66%),
-        radial-gradient(92% 56% at 28% 86%, rgba(164, 132, 121, 0.45), transparent 70%),
-        /* Piso vertical sedoso y OPACO */
-        linear-gradient(176deg, #dcd9d8 0%, #d0c9c6 16%, #b9aba3 30%, #9c8177 44%, #7d6055 56%, #6f534a 66%, #856760 80%, #a6887f 92%, #b2938b 100%);
+        /* Anillos rim-lit (borde iluminado de cada pétalo) */
+        radial-gradient(92% 56% at 34% 30%, rgba(236, 233, 231, 0) 60%, rgba(236, 233, 231, 0.50) 71%, rgba(236, 233, 231, 0.26) 77%, rgba(236, 233, 231, 0.06) 84%, rgba(236, 233, 231, 0) 92%),
+        radial-gradient(108% 64% at 30% 88%, rgba(224, 205, 196, 0) 58%, rgba(224, 205, 196, 0.55) 71%, rgba(224, 205, 196, 0.26) 79%, rgba(224, 205, 196, 0.07) 87%, rgba(224, 205, 196, 0) 94%),
+        radial-gradient(82% 50% at 82% 56%, rgba(170, 133, 115, 0) 56%, rgba(170, 133, 115, 0.38) 67%, rgba(170, 133, 115, 0.17) 75%, rgba(170, 133, 115, 0.04) 83%, rgba(170, 133, 115, 0) 91%),
+        radial-gradient(66% 40% at 14% 12%, rgba(234, 231, 229, 0) 55%, rgba(234, 231, 229, 0.42) 68%, rgba(234, 231, 229, 0.16) 78%, rgba(234, 231, 229, 0) 90%),
+        /* Cuerpos: capas de seda suaves (caramelo al medio, malva abajo) */
+        radial-gradient(98% 62% at 74% 52%, rgba(62, 45, 39, 0) 42%, rgba(62, 45, 39, 0.20) 58%, rgba(62, 45, 39, 0.38) 68%, rgba(62, 45, 39, 0.16) 80%, rgba(62, 45, 39, 0) 93%),
+        radial-gradient(88% 54% at 30% 90%, rgba(172, 134, 122, 0) 52%, rgba(172, 134, 122, 0.28) 70%, rgba(172, 134, 122, 0.10) 82%, rgba(172, 134, 122, 0) 94%),
+        radial-gradient(78% 48% at 44% 24%, rgba(178, 162, 155, 0) 48%, rgba(178, 162, 155, 0.24) 64%, rgba(178, 162, 155, 0.08) 78%, rgba(178, 162, 155, 0) 92%),
+        /* Piso vertical sedoso y OPACO — muchas paradas suaves */
+        linear-gradient(177deg,
+            #dedbd9 0%,
+            #d5cfcc 9%,
+            #cbc3bf 19%,
+            #bcaaa2 30%,
+            #a3897e 42%,
+            #867366 52%,
+            #6f5348 63%,
+            #68493f 70%,
+            #7f6055 80%,
+            #9d7f74 90%,
+            #ab8d84 100%);
 }
 body[data-modo="oscuro"],
 body[data-modo="oscuro"] #workspace {
     background-image:
-        radial-gradient(85% 52% at 30% 32%, transparent 55%, rgba(176, 168, 163, 0.16) 63%, rgba(176, 168, 163, 0.02) 72%, transparent 80%),
-        radial-gradient(70% 45% at 66% 18%, transparent 50%, rgba(160, 152, 148, 0.14) 60%, rgba(160, 152, 148, 0.02) 70%, transparent 78%),
-        radial-gradient(95% 62% at 76% 62%, transparent 52%, rgba(190, 172, 160, 0.14) 60%, rgba(190, 172, 160, 0.02) 70%, transparent 78%),
-        radial-gradient(58% 36% at 16% 76%, transparent 46%, rgba(182, 168, 158, 0.13) 57%, rgba(182, 168, 158, 0.02) 66%, transparent 74%),
-        radial-gradient(75% 46% at 42% 26%, rgba(64, 54, 49, 0.45), transparent 68%),
-        radial-gradient(84% 55% at 80% 48%, rgba(24, 16, 12, 0.55), transparent 66%),
-        radial-gradient(92% 56% at 28% 86%, rgba(88, 62, 53, 0.40), transparent 70%),
-        linear-gradient(176deg, #2a2625 0%, #242020 16%, #1e1a18 32%, #17120f 48%, #120d0b 60%, #171110 72%, #221a17 86%, #2b211d 100%);
+        radial-gradient(92% 56% at 34% 30%, rgba(184, 176, 171, 0) 60%, rgba(184, 176, 171, 0.14) 71%, rgba(184, 176, 171, 0.07) 77%, rgba(184, 176, 171, 0.02) 84%, rgba(184, 176, 171, 0) 92%),
+        radial-gradient(108% 64% at 30% 88%, rgba(196, 178, 168, 0) 58%, rgba(196, 178, 168, 0.15) 71%, rgba(196, 178, 168, 0.07) 79%, rgba(196, 178, 168, 0.02) 87%, rgba(196, 178, 168, 0) 94%),
+        radial-gradient(82% 50% at 82% 56%, rgba(196, 156, 128, 0) 56%, rgba(196, 156, 128, 0.12) 67%, rgba(196, 156, 128, 0.05) 75%, rgba(196, 156, 128, 0.01) 83%, rgba(196, 156, 128, 0) 91%),
+        radial-gradient(66% 40% at 14% 12%, rgba(200, 195, 192, 0) 55%, rgba(200, 195, 192, 0.12) 68%, rgba(200, 195, 192, 0.05) 78%, rgba(200, 195, 192, 0) 90%),
+        radial-gradient(98% 62% at 74% 52%, rgba(10, 6, 4, 0) 42%, rgba(10, 6, 4, 0.25) 58%, rgba(10, 6, 4, 0.45) 68%, rgba(10, 6, 4, 0.18) 80%, rgba(10, 6, 4, 0) 93%),
+        radial-gradient(88% 54% at 30% 90%, rgba(94, 66, 56, 0) 52%, rgba(94, 66, 56, 0.28) 70%, rgba(94, 66, 56, 0.10) 82%, rgba(94, 66, 56, 0) 94%),
+        radial-gradient(78% 48% at 44% 24%, rgba(70, 60, 55, 0) 48%, rgba(70, 60, 55, 0.26) 64%, rgba(70, 60, 55, 0.08) 78%, rgba(70, 60, 55, 0) 92%),
+        linear-gradient(177deg,
+            #2b2827 0%,
+            #272423 9%,
+            #221e1d 19%,
+            #1b1716 30%,
+            #171210 42%,
+            #130f0d 52%,
+            #100c0a 63%,
+            #140e0c 70%,
+            #1f1916 80%,
+            #291f1b 90%,
+            #31261f 100%);
 }
 
 /* ------------------------------------------------------------------
@@ -880,20 +901,106 @@ body[data-modo="oscuro"] #editorCanvas {
        el "varios difuminados" de la referencia.
    ------------------------------------------------------------------ */
 #leftSidebar {
+    margin-right: 14px !important;
     background-image: linear-gradient(178deg,
         rgba(228, 223, 221, 0.55) 0%,
-        rgba(216, 205, 199, 0.50) 26%,
-        rgba(178, 154, 143, 0.42) 48%,
-        rgba(126, 100, 90, 0.40) 66%,
-        rgba(152, 122, 112, 0.44) 84%,
+        rgba(222, 213, 207, 0.53) 14%,
+        rgba(216, 205, 199, 0.51) 26%,
+        rgba(200, 180, 171, 0.48) 38%,
+        rgba(178, 154, 143, 0.44) 48%,
+        rgba(126, 100, 90, 0.42) 66%,
+        rgba(152, 122, 112, 0.45) 84%,
         rgba(176, 144, 134, 0.50) 100%) !important;
 }
 body[data-modo="oscuro"] #leftSidebar {
     background-image: linear-gradient(178deg,
         rgba(74, 63, 58, 0.35) 0%,
+        rgba(66, 55, 50, 0.34) 14%,
         rgba(58, 47, 43, 0.32) 30%,
+        rgba(49, 39, 35, 0.31) 44%,
         rgba(41, 33, 29, 0.30) 52%,
         rgba(30, 23, 20, 0.32) 70%,
         rgba(54, 41, 36, 0.34) 86%,
         rgba(66, 51, 45, 0.36) 100%) !important;
+}
+
+/* ------------------------------------------------------------------
+   14. LETRAS VIDRIO — los titulares display con el grabado de los
+       dígitos del reloj iOS (blanco translúcido + brillo superior +
+       sombra inferior cálida = el texto parece soplado en el vidrio).
+       Va en los caps de secciones (cinta + panel); el texto funcional
+       queda sólido para legibilidad. El hover de la cinta conserva su
+       azul funcional (el color del activo manda ahí).
+   ------------------------------------------------------------------ */
+.ekko-ribbon-group-head:not(:hover),
+#leftSidebar .panel-title,
+#leftSidebar .sidebar-title {
+    color: rgba(255, 255, 255, 0.90) !important;
+    text-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.55),
+        0 -1px 1px rgba(88, 62, 48, 0.28),
+        0 2px 6px rgba(88, 62, 48, 0.16) !important;
+}
+body[data-modo="oscuro"] .ekko-ribbon-group-head:not(:hover),
+body[data-modo="oscuro"] #leftSidebar .panel-title,
+body[data-modo="oscuro"] #leftSidebar .sidebar-title {
+    color: rgba(255, 255, 255, 0.88) !important;
+    text-shadow:
+        0 -1px 1px rgba(255, 232, 214, 0.10),
+        0 2px 8px rgba(0, 0, 0, 0.45) !important;
+}
+
+/* ------------------------------------------------------------------
+   15. LIENZO FLOTANTE — propuesta "estudio de diseño": el canvas deja
+       de ser un cuadro pegado y pasa a ser un OBJETO que posa sobre
+       el wallpaper: esquinas squircle, sombra profunda difusa y borde
+       de vidrio fino. Las reglas mm son canvas DOM aparte (#ekko-ruler-*,
+       pintan ticks sobre fondo transparente) → se vuelven tiras de vidrio.
+       El REFIT del papel viene del ResizeObserver de editor.js ✓.
+   ------------------------------------------------------------------ */
+#canvasContainer {
+    border-radius: 26px !important;
+    overflow: hidden !important;
+    border: 1px solid rgba(255, 255, 255, 0.55) !important;
+    box-shadow:
+        0 26px 64px rgba(112, 80, 58, 0.20),
+        0 6px 18px rgba(112, 80, 58, 0.10) !important;
+    transition: box-shadow var(--esp-tiempo) ease, border-color var(--esp-tiempo) ease !important;
+}
+body[data-modo="oscuro"] #canvasContainer {
+    border-color: rgba(255, 255, 255, 0.10) !important;
+    box-shadow:
+        0 26px 64px rgba(0, 0, 0, 0.55),
+        0 6px 18px rgba(0, 0, 0, 0.35) !important;
+}
+#ekko-ruler-top,
+#ekko-ruler-left,
+#ekko-ruler-corner {
+    background: rgba(236, 231, 227, 0.55) !important;
+    border: none !important;
+    -webkit-backdrop-filter: blur(6px) !important;
+    backdrop-filter: blur(6px) !important;
+    transition: background-color var(--esp-tiempo) ease !important;
+}
+#ekko-ruler-corner {
+    background: rgba(236, 231, 227, 0.68) !important;
+}
+body[data-modo="oscuro"] #ekko-ruler-top,
+body[data-modo="oscuro"] #ekko-ruler-left,
+body[data-modo="oscuro"] #ekko-ruler-corner {
+    background: rgba(38, 30, 26, 0.55) !important;
+}
+
+/* ------------------------------------------------------------------
+   16. TIPOGRAFÍA DEL CHROME — pila San Francisco (iOS/Apple): on Mac
+       coge la SF system; en Windows cae a Segoe UI Variable/Segoe —
+       misma letra limpia y variable. SOLO superficies de la piel: el
+       texto pintado por Paper.js en el lienzo no se toca.
+   ------------------------------------------------------------------ */
+#topBar,
+#leftSidebar,
+#contextual-toolbar,
+#pro-layout-toolbar,
+#ekkoDownloadWrap {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
 }
