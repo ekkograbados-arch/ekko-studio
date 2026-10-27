@@ -1217,6 +1217,10 @@ function getSceneKey(product, surface) {
 
 function saveCurrentScene() {
   if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
+  // Nunca guardar una escena con la carga de un producto a medias: al cambiar
+  // de categoria y tocar un producto rapido, el lienzo todavia esta vacio y
+  // esa "escena vacia" quedaba cacheada, dejando el producto en blanco.
+  if (window.mockupLoadInFlightToken != null) return;
   const idx = toolState.currentSurface || 0;
   const surface = toolState.currentProduct.superficies[idx];
   if (!surface) return;
