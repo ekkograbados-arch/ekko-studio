@@ -58,27 +58,33 @@
 }
 
 /* ------------------------------------------------------------------
-   1-B. FONDO CON CURVAS — traducción directa de IMG_4173:
-        plata neutra arriba → caramelo/brown profundo al medio →
-        malva polvoriento abajo. CALIDAD iOS: difuminados con
-        recorridos LARGOS y 4+ paradas (kill de banding) y pétalos con
-        rim-light: anillos elípticos de luz que dibujan la curva.
-        El piso vertical opaco (última capa) tapa el gris de la base.
-        body y #workspace comparten la escena; el panel izquierdo
-        respira este piso (su backdrop es body) y suma su baño propio.
+   1-B. FONDO CON CURVAS — traducción de IMG_4173 (v2.6, esmalte):
+        la referencia no son anillos sueltos: cada pétalo es una capa
+        de ESMALTE = núcleo iluminado + rim vivo + SOMBRA glaseada
+        apenas fuera del borde. Y entre las cúpulas corre un ABANICO
+        de blancos/grises/celestes plateados que SIEMPRAN profundidad.
+        Piso vertical opaco al fondo (11 paradas, kill de banding).
+        body y #workspace comparten la escena.
    ------------------------------------------------------------------ */
 body,
 #workspace {
     background-image:
-        /* Anillos rim-lit (borde iluminado de cada pétalo) */
-        radial-gradient(92% 56% at 34% 30%, rgba(236, 233, 231, 0) 60%, rgba(236, 233, 231, 0.50) 71%, rgba(236, 233, 231, 0.26) 77%, rgba(236, 233, 231, 0.06) 84%, rgba(236, 233, 231, 0) 92%),
-        radial-gradient(108% 64% at 30% 88%, rgba(224, 205, 196, 0) 58%, rgba(224, 205, 196, 0.55) 71%, rgba(224, 205, 196, 0.26) 79%, rgba(224, 205, 196, 0.07) 87%, rgba(224, 205, 196, 0) 94%),
-        radial-gradient(82% 50% at 82% 56%, rgba(170, 133, 115, 0) 56%, rgba(170, 133, 115, 0.38) 67%, rgba(170, 133, 115, 0.17) 75%, rgba(170, 133, 115, 0.04) 83%, rgba(170, 133, 115, 0) 91%),
-        radial-gradient(66% 40% at 14% 12%, rgba(234, 231, 229, 0) 55%, rgba(234, 231, 229, 0.42) 68%, rgba(234, 231, 229, 0.16) 78%, rgba(234, 231, 229, 0) 90%),
-        /* Cuerpos: capas de seda suaves (caramelo al medio, malva abajo) */
+        /* Rims vivos: el borde iluminado del esmalte */
+        radial-gradient(92% 56% at 34% 30%, rgba(238, 237, 235, 0) 56%, rgba(240, 240, 240, 0.58) 68%, rgba(240, 240, 240, 0.28) 76%, rgba(240, 240, 240, 0.07) 85%, rgba(240, 240, 240, 0) 93%),
+        radial-gradient(82% 50% at 82% 56%, rgba(200, 168, 148, 0) 56%, rgba(200, 168, 148, 0.42) 67%, rgba(200, 168, 148, 0.20) 75%, rgba(200, 168, 148, 0.05) 83%, rgba(200, 168, 148, 0) 91%),
+        radial-gradient(66% 40% at 14% 12%, rgba(242, 242, 242, 0) 55%, rgba(242, 242, 242, 0.46) 68%, rgba(242, 242, 242, 0.18) 78%, rgba(242, 242, 242, 0) 90%),
+        radial-gradient(108% 64% at 30% 88%, rgba(230, 210, 202, 0) 58%, rgba(230, 210, 202, 0.55) 71%, rgba(230, 210, 202, 0.26) 79%, rgba(230, 210, 202, 0.07) 87%, rgba(230, 210, 202, 0) 94%),
+        /* Sombras glaseadas JUSTO fuera de cada rim (prolongador de esmalte) */
+        radial-gradient(92% 56% at 34% 30%, rgba(96, 78, 68, 0) 44%, rgba(96, 78, 68, 0.14) 56%, rgba(96, 78, 68, 0.26) 63%, rgba(96, 78, 68, 0.09) 72%, rgba(96, 78, 68, 0) 82%),
+        radial-gradient(108% 64% at 30% 88%, rgba(70, 52, 44, 0) 46%, rgba(70, 52, 44, 0.12) 58%, rgba(70, 52, 44, 0.24) 65%, rgba(70, 52, 44, 0.08) 74%, rgba(70, 52, 44, 0) 84%),
+        /* Cuerpos: capas de seda (caramelo al medio, malva abajo) */
         radial-gradient(98% 62% at 74% 52%, rgba(62, 45, 39, 0) 42%, rgba(62, 45, 39, 0.20) 58%, rgba(62, 45, 39, 0.38) 68%, rgba(62, 45, 39, 0.16) 80%, rgba(62, 45, 39, 0) 93%),
         radial-gradient(88% 54% at 30% 90%, rgba(172, 134, 122, 0) 52%, rgba(172, 134, 122, 0.28) 70%, rgba(172, 134, 122, 0.10) 82%, rgba(172, 134, 122, 0) 94%),
         radial-gradient(78% 48% at 44% 24%, rgba(178, 162, 155, 0) 48%, rgba(178, 162, 155, 0.24) 64%, rgba(178, 162, 155, 0.08) 78%, rgba(178, 162, 155, 0) 92%),
+        /* Abanico celeste-gris: reflejos fríos entre las cúpulas */
+        radial-gradient(64% 42% at 58% 16%, rgba(216, 229, 238, 0.50) 0%, rgba(206, 221, 232, 0.32) 30%, rgba(198, 214, 224, 0.10) 58%, rgba(198, 214, 224, 0) 80%),
+        radial-gradient(58% 38% at 38% 56%, rgba(212, 226, 236, 0) 42%, rgba(212, 226, 236, 0.30) 60%, rgba(212, 226, 236, 0.10) 74%, rgba(212, 226, 236, 0) 90%),
+        radial-gradient(40% 26% at 88% 30%, rgba(222, 232, 238, 0) 40%, rgba(222, 232, 238, 0.24) 62%, rgba(222, 232, 238, 0) 84%),
         /* Piso vertical sedoso y OPACO — muchas paradas suaves */
         linear-gradient(177deg,
             #dedbd9 0%,
@@ -100,9 +106,16 @@ body[data-modo="oscuro"] #workspace {
         radial-gradient(108% 64% at 30% 88%, rgba(196, 178, 168, 0) 58%, rgba(196, 178, 168, 0.15) 71%, rgba(196, 178, 168, 0.07) 79%, rgba(196, 178, 168, 0.02) 87%, rgba(196, 178, 168, 0) 94%),
         radial-gradient(82% 50% at 82% 56%, rgba(196, 156, 128, 0) 56%, rgba(196, 156, 128, 0.12) 67%, rgba(196, 156, 128, 0.05) 75%, rgba(196, 156, 128, 0.01) 83%, rgba(196, 156, 128, 0) 91%),
         radial-gradient(66% 40% at 14% 12%, rgba(200, 195, 192, 0) 55%, rgba(200, 195, 192, 0.12) 68%, rgba(200, 195, 192, 0.05) 78%, rgba(200, 195, 192, 0) 90%),
+        /* Glaseados fríos: la sombra del esmalte en modo noche */
+        radial-gradient(92% 56% at 34% 30%, rgba(0, 0, 0, 0) 44%, rgba(0, 0, 0, 0.22) 56%, rgba(0, 0, 0, 0.40) 63%, rgba(0, 0, 0, 0.14) 72%, rgba(0, 0, 0, 0) 82%),
+        radial-gradient(108% 64% at 30% 88%, rgba(0, 0, 0, 0) 46%, rgba(0, 0, 0, 0.18) 58%, rgba(0, 0, 0, 0.34) 65%, rgba(0, 0, 0, 0.12) 74%, rgba(0, 0, 0, 0) 84%),
         radial-gradient(98% 62% at 74% 52%, rgba(10, 6, 4, 0) 42%, rgba(10, 6, 4, 0.25) 58%, rgba(10, 6, 4, 0.45) 68%, rgba(10, 6, 4, 0.18) 80%, rgba(10, 6, 4, 0) 93%),
         radial-gradient(88% 54% at 30% 90%, rgba(94, 66, 56, 0) 52%, rgba(94, 66, 56, 0.28) 70%, rgba(94, 66, 56, 0.10) 82%, rgba(94, 66, 56, 0) 94%),
         radial-gradient(78% 48% at 44% 24%, rgba(70, 60, 55, 0) 48%, rgba(70, 60, 55, 0.26) 64%, rgba(70, 60, 55, 0.08) 78%, rgba(70, 60, 55, 0) 92%),
+        /* Abanico celeste plateado sombreando la noche */
+        radial-gradient(64% 42% at 58% 16%, rgba(180, 198, 210, 0.10) 0%, rgba(170, 190, 204, 0.07) 30%, rgba(164, 184, 198, 0.03) 58%, rgba(164, 184, 198, 0) 80%),
+        radial-gradient(58% 38% at 38% 56%, rgba(176, 194, 206, 0) 42%, rgba(176, 194, 206, 0.09) 60%, rgba(176, 194, 206, 0.04) 74%, rgba(176, 194, 206, 0) 90%),
+        radial-gradient(40% 26% at 88% 30%, rgba(184, 200, 210, 0) 40%, rgba(184, 200, 210, 0.08) 62%, rgba(184, 200, 210, 0) 84%),
         linear-gradient(177deg,
             #2b2827 0%,
             #272423 9%,
@@ -846,13 +859,24 @@ body[data-modo="oscuro"] .font-dropdown-item:hover {
 }
 
 /* ------------------------------------------------------------------
-   11. MESA DE DISEÑO — modo oscuro (variables ya la pintan)
+   11. EL PAPEL — el color real del lienzo v2.5:
+       editor.js:250 inyecta al final un <style> con
+       `#editorCanvas { background-color:#e2e8f0 !important }` (slate
+       azulado). Con orden no se gana, pero con ESPECIFICIDAD sí:
+       `body #editorCanvas` = (0,1,1) y vence al (0,1,0) inyectado,
+       sin tocar el core. El lienzo es transparente por pintura (no
+       hay fillRect de fondo en el JS): cambiar su fondo CSS es seguro
+       para el arte.
+       Claro = marfil cálido (coherente con la foto, adiós slate).
+       Oscuro = espresso de la piel (#221b16, la tinta de los HUD).
    ------------------------------------------------------------------ */
-body[data-modo="oscuro"] body,
-body[data-modo="oscuro"] #workspace,
-body[data-modo="oscuro"] #canvasContainer,
-body[data-modo="oscuro"] #editorCanvas {
-    /* la base ya usa var(--ekko-canvas-bg): no hay que re-pisar */
+body #editorCanvas,
+body #canvasContainer {
+    background-color: #f0e9e2 !important;
+}
+body[data-modo="oscuro"] #editorCanvas,
+body[data-modo="oscuro"] #canvasContainer {
+    background-color: #221b16 !important;
 }
 
 /* ------------------------------------------------------------------
@@ -903,9 +927,9 @@ body[data-modo="oscuro"] #editorCanvas {
 #leftSidebar {
     margin-right: 14px !important;
     background-image: linear-gradient(178deg,
-        rgba(228, 223, 221, 0.55) 0%,
-        rgba(222, 213, 207, 0.53) 14%,
-        rgba(216, 205, 199, 0.51) 26%,
+        rgba(211, 224, 232, 0.42) 0%,
+        rgba(226, 222, 220, 0.52) 11%,
+        rgba(214, 204, 198, 0.50) 25%,
         rgba(200, 180, 171, 0.48) 38%,
         rgba(178, 154, 143, 0.44) 48%,
         rgba(126, 100, 90, 0.42) 66%,
@@ -914,11 +938,11 @@ body[data-modo="oscuro"] #editorCanvas {
 }
 body[data-modo="oscuro"] #leftSidebar {
     background-image: linear-gradient(178deg,
-        rgba(74, 63, 58, 0.35) 0%,
-        rgba(66, 55, 50, 0.34) 14%,
-        rgba(58, 47, 43, 0.32) 30%,
-        rgba(49, 39, 35, 0.31) 44%,
-        rgba(41, 33, 29, 0.30) 52%,
+        rgba(72, 82, 90, 0.20) 0%,
+        rgba(74, 63, 58, 0.34) 12%,
+        rgba(66, 55, 50, 0.34) 26%,
+        rgba(58, 47, 43, 0.32) 42%,
+        rgba(49, 39, 35, 0.31) 52%,
         rgba(30, 23, 20, 0.32) 70%,
         rgba(54, 41, 36, 0.34) 86%,
         rgba(66, 51, 45, 0.36) 100%) !important;
@@ -951,14 +975,18 @@ body[data-modo="oscuro"] #leftSidebar .sidebar-title {
 }
 
 /* ------------------------------------------------------------------
-   15. LIENZO FLOTANTE — propuesta "estudio de diseño": el canvas deja
-       de ser un cuadro pegado y pasa a ser un OBJETO que posa sobre
-       el wallpaper: esquinas squircle, sombra profunda difusa y borde
-       de vidrio fino. Las reglas mm son canvas DOM aparte (#ekko-ruler-*,
-       pintan ticks sobre fondo transparente) → se vuelven tiras de vidrio.
+   15. LIENZO FLOTANTE — el canvas objeta: esquinas squircle, sombra
+       profunda difusa, borde de vidrio fino y AIRE propio (la sonda
+       midió el contenedor pegado al borde derecho/inferior de la
+       ventana: gutter 0 → "cuadro pegado"). Márgenes = autoflotante.
+       Las reglas mm son canvas DOM aparte (#ekko-ruler-*, pintan
+       ticks transparentes): de día son banda entera con hairline
+       cálido; de noche se invierten (ticks #475569 → arena claro
+       sobre espresso, banda invisible: legibles literalmente).
        El REFIT del papel viene del ResizeObserver de editor.js ✓.
    ------------------------------------------------------------------ */
 #canvasContainer {
+    margin: 0 20px 26px 6px !important;
     border-radius: 26px !important;
     overflow: hidden !important;
     border: 1px solid rgba(255, 255, 255, 0.55) !important;
@@ -976,19 +1004,30 @@ body[data-modo="oscuro"] #canvasContainer {
 #ekko-ruler-top,
 #ekko-ruler-left,
 #ekko-ruler-corner {
-    background: rgba(236, 231, 227, 0.55) !important;
-    border: none !important;
+    background: rgba(250, 246, 242, 0.92) !important;
     -webkit-backdrop-filter: blur(6px) !important;
     backdrop-filter: blur(6px) !important;
     transition: background-color var(--esp-tiempo) ease !important;
 }
+#ekko-ruler-top {
+    border-bottom: 1px solid rgba(126, 96, 78, 0.28) !important;
+}
+#ekko-ruler-left {
+    border-right: 1px solid rgba(126, 96, 78, 0.28) !important;
+}
 #ekko-ruler-corner {
-    background: rgba(236, 231, 227, 0.68) !important;
+    background: rgba(250, 246, 242, 0.96) !important;
+    border-bottom: 1px solid rgba(126, 96, 78, 0.28) !important;
+    border-right: 1px solid rgba(126, 96, 78, 0.28) !important;
 }
 body[data-modo="oscuro"] #ekko-ruler-top,
 body[data-modo="oscuro"] #ekko-ruler-left,
 body[data-modo="oscuro"] #ekko-ruler-corner {
-    background: rgba(38, 30, 26, 0.55) !important;
+    background: transparent !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    border: none !important;
+    filter: invert(1) !important;
 }
 
 /* ------------------------------------------------------------------
