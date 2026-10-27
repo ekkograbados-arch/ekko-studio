@@ -583,7 +583,7 @@ const ENGINE_TO_LEGACY = Object.freeze({
 
 export function legacyNamesFor(selection) {
   const selectionList = (Array.isArray(selection) ? selection : []).filter(Boolean);
-  if (!selectionList.length) return ["zoom", "rulers", "guides", "measurements"];
+  if (!selectionList.length) return ALWAYS_TOOLS;
   const enabled = new Set(resolveToolNames(selectionList));
   const names = [];
   Object.entries(ENGINE_TO_LEGACY).forEach(([tool, legacy]) => {
