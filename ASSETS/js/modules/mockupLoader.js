@@ -214,6 +214,7 @@ function convertAllShapesToPaths(item) {
 export function loadMockup(svgPath) {
   var token = ++window.loadToken;
   var freeCanvas = isFreeCanvasPath(svgPath);
+  window.mockupLoadInFlightToken = token;
 
   // 🚀 PRESERVACIÓN DE ELEMENTOS DEL USUARIO DURANTE LA CARGA ASÍNCRONA
   // ⚡ CORRECCIÓN CRÍTICA: Solo preservamos elementos si se trata exactamente del mismo producto/superficie (recarga o refresh).
@@ -252,6 +253,7 @@ export function loadMockup(svgPath) {
   // Devolver los objetos preservados y dejar el lienzo libre cuando el SVG no
   // existe, viene vacio o no se puede interpretar (LIENZO GENERAL hoy es 0 B).
   function failMockupLoad() {
+    window.mockupLoadInFlightToken = null;
     window.currentMockup = null;
     window.grabArea = null;
     window.clipMask = null;
@@ -362,6 +364,7 @@ export function loadMockup(svgPath) {
     });
 
     paper.view.update();
+    window.mockupLoadInFlightToken = null;
   });
   } catch (error) {
     // ImportSVG tambien puede fallar de forma sincrona (archivo corrupto).
