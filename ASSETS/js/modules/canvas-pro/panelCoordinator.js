@@ -40,6 +40,11 @@ function loadPanelState() {
     ["topPanel", "floatingBar", "productPanel", "activeTab"].forEach(key => {
         if (typeof saved[key] === "string") panelState[key] = saved[key];
     });
+    // Estado guardado corrupto o de una version vieja: volver a fabrica en
+    // vez de dejar la interfaz en un modo que no existe.
+    if (!["expanded", "compact", "hidden"].includes(panelState.topPanel)) panelState.topPanel = "expanded";
+    if (!["auto", "visible", "hidden"].includes(panelState.floatingBar)) panelState.floatingBar = "auto";
+    if (!["visible", "hidden"].includes(panelState.productPanel)) panelState.productPanel = "visible";
     if (panelState.activeTab !== "auto" && !TABS[panelState.activeTab]) panelState.activeTab = "auto";
 }
 
@@ -253,12 +258,19 @@ function renderPanelState() {
         }
     }
 
-    const allHidden = panelState.topPanel === "hidden" &&
-        panelState.floatingBar === "hidden" &&
+    // SALIDA DE EMERGENCIA: el dock "Mostrar herramientas" debe aparecer en
+    // CUALQUIER estado que deje al cliente sin boton de retorno visible.
+    // Antes solo aparecia con los tres paneles ocultos a la vez; si se ocultaba
+    // solo el panel superior (o la barra emergente), sus propios botones
+    // desaparecian DENTRO del panel oculto y ninguna recarga lo devolvia: el
+    // estado quedaba persistido en localStorage sin salida. Un clic en el dock
+    // restaura todo a los valores normales.
+    const sinVolverAtras = panelState.topPanel !== "expanded" ||
+        panelState.floatingBar === "hidden" ||
         panelState.productPanel === "hidden";
 
     if (el.recovery) {
-        el.recovery.classList.toggle("is-visible", allHidden);
+        el.recovery.classList.toggle("is-visible", sinVolverAtras);
     }
 }
 
