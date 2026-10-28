@@ -133,10 +133,18 @@ window.removeBackground = function() {
  */
 window.abrirEditorFondo = function() {
   const api = window.EKKO?.BackgroundRemover;
-  const selected = window.selectedItem ||
-    (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
-  const target = getPublicOwner(selected);
-  const esRecorte = !!(api?.abrirRetoque && target?.data?.quitarFondoIA);
+  /* Visibilidad (2026-10-28): la decide capabilities (el UNICO decididor) y
+     aca solo se re-pregunta lo mismo antes de abrir la ventana. Ahora
+     alcanza con AL MENOS un recorte en la seleccion, la marca puede vivir
+     en el raster DENTRO de un envoltorio, y abrirRetoque abre ese recorte
+     (imagenEnRetoque): una lectura directa de data se la perdia. */
+  const seleccion = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? window.selectedItems
+    : (window.selectedItem ? [window.selectedItem] : []);
+  const motor = window.EKKO_CAPABILITIES;
+  const esRecorte = !(api?.abrirRetoque) ? false
+    : (motor?.isToolEnabled ? motor.isToolEnabled('editCutout', seleccion)
+      : seleccion.some(it => !!(it && it.data && it.data.quitarFondoIA === true)));
   if (esRecorte) return api.abrirRetoque();
   console.warn('[EKKO Editar Fondo] Primero quitá el fondo: el pincel corrige un recorte que ya existe.');
   return false;
@@ -1217,10 +1225,6 @@ function getSceneKey(product, surface) {
 
 function saveCurrentScene() {
   if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
-  // Nunca guardar una escena con la carga de un producto a medias: al cambiar
-  // de categoria y tocar un producto rapido, el lienzo todavia esta vacio y
-  // esa "escena vacia" quedaba cacheada, dejando el producto en blanco.
-  if (window.mockupLoadInFlightToken != null) return;
   const idx = toolState.currentSurface || 0;
   const surface = toolState.currentProduct.superficies[idx];
   if (!surface) return;
