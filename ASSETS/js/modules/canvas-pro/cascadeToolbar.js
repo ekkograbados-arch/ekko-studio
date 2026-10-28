@@ -8,24 +8,30 @@
      toolbarStore.js + toolbarManifest.js + capabilities.js. ESE NIVEL YA
      EXISTE: este prototipo NO lo duplica y no toca style.display.
    - La pestaña activa la lee toolbarStore desde window.EKKO_PANEL_STATE
-     (panelCoordinator). Los chips del nivel 0 escriben AHI y piden
+     (panelCoordinator). Los chips de la tira escriben AHI y piden
      window.EKKO_RIBBON.refresh(): una sola fuente de verdad.
    - commandParameters.js ya abre automaticamente su panel (#ekkoParamSurface)
-     al pulsar un boton con parametros: el nivel 2 de este prototipo solo lo
+     al pulsar un boton con parametros: el panel de opciones de este prototipo solo lo
      RE-ANCLA debajo del boton pulsado (se despliega hacia abajo, pegado a
      su herramienta).
 
    ESTRUCTURA que aporta este modulo:
-     NIVEL 0  Tira de inicio: cluster fijo (Descargar incrustado, modo
-              claro/oscuro, contraer/expandir, producto activo) + pestañas
-              de contexto (Inicio/Imagen/Texto/Vector/...) + flechas
-              DESVANECIDAS que desplazan solo con hover (sin clic).
-     NIVEL 1  Fila de herramientas: LOS BOTONES REALES del topBar,
-              re-parentados (nunca clonados): el motor, el historial y el
-              panel de parametros siguen escuchando al mismo nodo. Las mas
-              usadas de cada contexto se adelantan (recientes por peso:
-              frecuencia x recencia, memorizadas en localStorage).
-     NIVEL 2  Re-anclaje del panel de parametros bajo el boton pulsado.
+     TIRA (fila 1)  Cluster de creacion (Cargar / Agregar Texto / QR) + el
+                    UNICO boton de panel de productos (a la izquierda de
+                    "Inicio", con ‹ / › segun este oculto o visible) +
+                    pestañas de contexto (Inicio/Imagen/Texto/Vector/...) +
+                    estado, chevron contraer/expandir y DESCARGAR al extremo
+                    derecho. Flechas DESVANECIDAS que desplazan solo con
+                    hover (sin clic).
+     HERRAMIENTAS (fila 2)  LOS BOTONES REALES del topBar, re-parentados
+                    (nunca clonados): el motor, el historial y el panel de
+                    parametros siguen escuchando al mismo nodo. Las mas
+                    usadas de cada contexto se adelantan (recientes por peso:
+                    frecuencia x recencia, memorizadas en localStorage). Al
+                    extremo derecho, el boton de modo claro/oscuro, con el
+                    lenguaje visual de ESTA fila.
+     PANEL DE PARAMETROS  Re-anclaje del panel de opciones bajo el boton
+                    pulsado.
 
    ACTIVACION: ?cascade=1 memoriza el prototipo, ?cascade=0 lo apaga, o
    localStorage ekko.cascadePrototype="1". Sin flag el modulo no carga y la
@@ -140,8 +146,10 @@ function estilos() {
             display: flex !important;
         }
         /* Los modos del coordinador siguen mandando: en compacto queda solo
-           la tira de inicio; en oculto, el chip de rescate ya conocido. */
-        #topBar.ekko-cascade.is-compact { height: auto !important; overflow: hidden !important; }
+           la tira de inicio; en oculto, el chip de rescate ya conocido.
+           overflow VISIBLE: el menu de Descargar cuelga de la tira y no puede
+           recortarse contra los 34px de la barra contraida. */
+        #topBar.ekko-cascade.is-compact { height: auto !important; overflow: visible !important; }
         #topBar.ekko-cascade.is-compact .ekko-tools-shell { display: none !important; }
 
         /* Sistemas de facto afuera de la cascada */
@@ -149,14 +157,36 @@ function estilos() {
         #topBar.ekko-cascade #topPanelControls,
         #topBar.ekko-cascade #topPanelOverflow { display: none !important; }
         #topBar.ekko-cascade .ekko-overflowed { display: inline-flex !important; }
+        /* La cinta con titulos de ribbonLayout es OTRO sistema de la misma
+           informacion: en la cascada sus botones ya fueron aplanados a la fila
+           2, asi que el esqueleto se oculta (los grupos vacios quedarian como
+           huecos muertos entre la tira y las herramientas). */
+        #topBar.ekko-cascade .ekko-ribbon-body { display: none !important; }
 
         /* Conchas: las flechas viven aqui (position:relative), no dentro del
            scroller, para quedar clavadas al borde visible. */
         .ekko-cascade-shell { position: relative; min-width: 0; }
-        .ekko-tabs-shell { flex: 1 1 auto; display: flex; min-width: 0; }
-        .ekko-tools-shell { width: 100%; }
+        .ekko-tabs-shell { flex: 1 1 auto; display: flex; align-items: center; min-width: 0; }
+        /* La concha de herramientas es FLEX: adentro vive la fila que
+           scrollea y, clavado a la derecha, el boton de modo claro/oscuro. */
+        .ekko-tools-shell { width: 100%; display: flex; align-items: center; gap: 6px; }
+        .ekko-tools-shell #ekkoCascadeTools { flex: 1 1 auto; min-width: 0; }
+        /* El boton de la derecha no puede pisar a la flecha de desplazamiento:
+           la flecha se corre a su izquierda. */
+        .ekko-tools-shell .ekko-pan-der { right: 96px; }
 
-        /* --- NIVEL 0 --- */
+        /* El UNICO control del panel de productos: siempre a la IZQUIERDA de
+           "Inicio", en la tira. Mismo lenguaje que el chevron de la barra
+           superior: un boton fijo que cambia el glifo (‹ oculto / › visible
+           por el lado que abre) y el tooltip. panelCoordinator se ocupa de
+           invertir ambos; aca solo se le da lugar. */
+        #ekkoCascadeStrip #productPanelTopToggle {
+            display: inline-flex !important;
+            flex: 0 0 auto;
+            margin-right: 6px;
+        }
+
+        /* --- TIRA (fila 1) --- */
         #ekkoCascadeStrip {
             display: flex;
             align-items: center;
@@ -185,25 +215,69 @@ function estilos() {
             white-space: nowrap;
         }
         .ekko-strip-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
-        /* Descargar integra la FILA (nivel 1), al final del flujo; su menu
-           cuelga del boton (relative) y ya no flota con estilos inline. */
-        #ekkoCascadeTools #ekkoDownloadWrap { position: relative !important; display: inline-flex; }
+        /* Descargar vive en la TIRA (fila 1), al extremo derecho: su menu
+           cuelga del boton con position:relative.
+           ekko-espacio.css todavia fija al boton en la esquina con !important
+           (era la pila flotante anterior: top:12px lo empujaba fuera de la
+           fila y la pastilla esmerilada le robaba el molde de la tira). Se le
+           responde con la misma moneda y aqui gana por especificidad: dos ids
+           contra uno. */
+        #ekkoCascadeStrip #ekkoDownloadWrap {
+            position: relative !important;
+            top: auto !important;
+            right: auto !important;
+            left: auto !important;
+            bottom: auto !important;
+            display: inline-flex !important;
+        }
+        #ekkoCascadeStrip #ekkoDownloadMenu { z-index: 260; }
 
-        /* --- BOTONES DE INICIO (nivel 0): llenos y de acento. El lenguaje
-               visual DEBE distinguirse de la fila de herramientas (nivel 1),
+        /* El chip de rescate del coordinador esta fijo en la esquina superior
+           derecha; con la tira armada esa esquina la ocupa Descargar y se
+           montaban uno sobre otro. Se estaciona en el aire libre entre la tira
+           (fila 1) y las herramientas (fila 2). Sigue en el body, afuera de
+           todo panel, asi conserva su funcion cuando la barra se oculta. */
+        body[data-ekko-cascade="1"] #ekkoPanelAnchor { top: 56px !important; }
+
+        /* --- BOTONES DE LA TIRA (fila 1): llenos y de acento. El lenguaje
+               visual DEBE distinguirse de la fila de herramientas (fila 2),
                que sigue luciendo fantasma sobre la barra. --- */
-        #ekkoCascadeCluster button.ekko-ini-btn,
-        #ekkoCascadeTools button.ekko-ini-btn {
+        #ekkoCascadeStrip button.ekko-ini-btn {
             display: inline-flex; align-items: center; gap: 6px;
             background: #ff2ea6; color: #fff; border: none;
             padding: 7px 14px; border-radius: 8px;
             font-size: 12.5px; font-weight: 700; cursor: pointer;
             white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.3);
         }
-        #ekkoCascadeCluster button.ekko-ini-btn:hover,
-        #ekkoCascadeTools button.ekko-ini-btn:hover { background: #ff51b6; color: #fff; }
-        #ekkoCascadeCluster button.ekko-ini-btn .ekko-ic,
-        #ekkoCascadeTools button.ekko-ini-btn .ekko-ic { width: 15px; height: 15px; }
+        #ekkoCascadeStrip button.ekko-ini-btn:hover { background: #ff51b6; color: #fff; }
+        #ekkoCascadeStrip button.ekko-ini-btn .ekko-ic { width: 15px; height: 15px; }
+        /* Descargar entra en la tira con el MOLDE EXACTO de la fila 1: es un
+           .btn-action mas, asi que padding, peso y tipografia los decide la
+           misma regla que viste a sus vecinos (Cargar / Agregar Texto / QR).
+           Lo unico propio es el verde, que es el color semantico de la salida
+           y el de su menu.
+           Los !important son obligados: ekko-espacio.css fija la pastilla
+           esmerilada (radio 999) sobre todo #topBar .btn-action. Entre dos
+           !important decide la especificidad, y aca ganan tres ids contra uno.
+           El borde transparente existe para que la caja mida lo mismo que sus
+           vecinos (ellos llevan 1px de vidrio): sin el, el boton salia 5px mas
+           bajo y la tira se veia descuadrada. */
+        #ekkoCascadeStrip #ekkoDownloadWrap #btnEkkoDownload {
+            background: #15803d !important;
+            border: 1px solid transparent !important;
+            border-radius: 12px !important;
+            color: #fff !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+            /* 15px es la caja que ocupa el svg .ekko-ic de los vecinos; el
+               <i> de Font Awesome mide 12 y el boton salia 3px mas bajo. */
+            line-height: 15px;
+        }
+        #ekkoCascadeStrip #ekkoDownloadWrap #btnEkkoDownload:hover,
+        #ekkoCascadeStrip #ekkoDownloadWrap button.ekko-ini-btn:hover {
+            background: #166534 !important;
+            color: #fff !important;
+            transform: none;
+        }
         .ekko-util-cluster { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
         #ekkoCascadeCluster #ekkoCascadeProducto { margin-left: 0; }
         /* El texto de estado no puede apabullar a las pestañas: se trunca. */
@@ -215,23 +289,37 @@ function estilos() {
             white-space: nowrap;
         }
 
-        /* Contraer/Expandir con PALABRA: el chevron solitario no da la senal
-           de estado. El glifo lo invierte panelCoordinator; el texto va por
-           CSS para no duplicar logica ni tocar el modo sin prototipo. */
-        #ekkoCascadeCluster #topPanelCompact {
+        /* Contraer/Expandir SOLO con el chevron: ⌃ contrae, ⌄ expande. El
+           glifo y el tooltip los invierte panelCoordinator ("Contraer panel
+           superior" / "Expandir panel superior"): la palabra escrita en la
+           tira repetia lo que el puntero ya avisa. */
+        #ekkoCascadeStrip #topPanelCompact {
             display: inline-flex !important;
-            align-items: center; gap: 5px; white-space: nowrap;
+            align-items: center; justify-content: center;
+            gap: 0; white-space: nowrap;
+            min-width: 34px; padding: 5px 9px;
         }
-        #topBar.ekko-cascade:not(.is-compact) #topPanelCompact::after { content: "Contraer panel"; }
-        #topBar.ekko-cascade.is-compact #topPanelCompact::after { content: "Expandir panel"; }
+
+        /* Modo claro/oscuro: vive en la FILA DE HERRAMIENTAS (fila 2), clavado
+           a la derecha. No se le pinta una piel propia: se le da la clase
+           .btn-action, que es EXACTAMENTE lo que usan los botones de esa fila,
+           asi hereda el molde del skin activo (vidrio esmerilado con
+           ekko-espacio.css, fantasma sin el) y se ve como un par mas. Pintarlo
+           a mano lo dejaba ilegible de dia (texto claro sobre barra clara).
+           No es una herramienta de objeto, por eso la regla "sin seleccion" no
+           lo alcanza: vive fuera de #ekkoCascadeTools, como hermano de la fila. */
+        #btnEkkoTema {
+            flex: 0 0 auto;
+            display: inline-flex; align-items: center; gap: 5px;
+            white-space: nowrap;
+        }
 
         /* --- SIN SELECCION: no aparecen las herramientas. La cascada
                empieza en la tira; la fila nace con el objeto:
                cargar -> seleccionar -> trabajar. --- */
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools .btn-action { display: none !important; }
-        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools #btnEkkoDownload { display: inline-flex !important; }
 
-        /* --- NIVEL 2 COLOR: la capa de opciones se abre un escalon MAS
+        /* --- PANEL DE OPCIONES: la capa de opciones se abre un escalon MAS
                CLARO que la barra: se lee como "opciones de la herramienta",
                una capa por encima, y no como otra fila. --- */
         #ekkoParamSurface {
@@ -272,7 +360,7 @@ function estilos() {
             font-weight: 600;
         }
 
-        /* --- NIVEL 1: fila de herramientas (botones reales) --- */
+        /* --- FILA DE HERRAMIENTAS (fila 2): botones reales --- */
         #ekkoCascadeTools {
             display: flex;
             align-items: center;
@@ -352,10 +440,10 @@ function estilos() {
             border-color: #b9c5d6 !important;
             box-shadow: 0 14px 34px rgba(15,23,42,0.16) !important;
         }
-        body[data-ekko-theme="claro"] #ekkoCascadeCluster button.ekko-ini-btn,
-        body[data-ekko-theme="claro"] #ekkoCascadeTools button.ekko-ini-btn { background: #d61d8c; }
-        body[data-ekko-theme="claro"] #ekkoCascadeCluster button.ekko-ini-btn:hover,
-        body[data-ekko-theme="claro"] #ekkoCascadeTools button.ekko-ini-btn:hover { background: #bd1478; }
+        body[data-ekko-theme="claro"] #ekkoCascadeStrip button.ekko-ini-btn { background: #d61d8c; }
+        body[data-ekko-theme="claro"] #ekkoCascadeStrip button.ekko-ini-btn:hover { background: #bd1478; }
+        /* Descargar NO se re-pinta de día: su verde es semántico y la regla
+           base de la tira ya lo fija con !important para ambos temas. */
     `;
     document.head.appendChild(st);
 }
@@ -416,8 +504,8 @@ function montarStrip() {
 
     // "Donde empieza el proyecto": Cargar Imagen/SVG, Agregar Texto y QR son
     // acciones de CREACION, no herramientas de objeto. Viven en la tira
-    // (nivel 0) con lenguaje visual propio de botones primarios; la fila
-    // (nivel 1) queda solo para trabajar sobre objetos que YA existen.
+    // (fila 1) con lenguaje visual propio de botones primarios; la fila de
+    // herramientas (fila 2) queda solo para trabajar sobre objetos YA existentes.
     // Regla segura: .btn-action SIN data-fusion-btn y SIN data-ekko-command
     // (las booleanas llevan data-ekko-command: no entran, trato comun).
     Array.from(topBar.querySelectorAll("button.btn-action")).forEach(b => {
@@ -427,11 +515,74 @@ function montarStrip() {
         cluster.appendChild(b);
     });
 
-    // Modo claro / oscuro (nuevo)
+    // Contraer / Expandir: el MISMO boton del coordinador, siempre en la
+    // tira. Solo el chevron (⌃ contrae / ⌄ expande): el nombre completo vive
+    // en el tooltip que escribe panelCoordinator.
+    const compacto = document.getElementById("topPanelCompact");
+    if (compacto) compacto.classList.add("ekko-strip-btn");
+
+    // Estado de la seleccion (el texto de ayuda historico)
+    const info = document.getElementById("selectionInfo");
+
+    // Producto activo
+    const prod = document.createElement("span");
+    prod.id = "ekkoCascadeProducto";
+    pintarProducto(prod);
+
+    // DERECHA de la tira, en este orden: estado, producto activo, chevron de
+    // la barra y, AL EXTREMO, Descargar. El modo claro/oscuro NO esta aca:
+    // bajó a la fila de herramientas (montarFila).
+    const util = document.createElement("div");
+    util.className = "ekko-util-cluster";
+    if (info) util.appendChild(info);
+    util.appendChild(prod);
+    if (compacto) util.appendChild(compacto);
+
+    const desc = document.getElementById("ekkoDownloadWrap");
+    if (desc) {
+        // Adueno del boton: su CSS inline (position:fixed / top / right) lo
+        // dejaba flotando sobre el lienzo; dentro de la tira solo cuelga el
+        // menu.
+        desc.style.cssText = "";
+        const boton = document.getElementById("btnEkkoDownload");
+        if (boton) boton.classList.add("ekko-ini-btn");
+        util.appendChild(desc);
+    }
+
+    strip.appendChild(cluster);
+
+    const tabsShell = document.createElement("div");
+    tabsShell.className = "ekko-cascade-shell ekko-tabs-shell";
+
+    // EL control del panel de productos: UN solo boton, siempre en el mismo
+    // lugar, a la IZQUIERDA de "Inicio". Es el mismo nodo que usa
+    // panelCoordinator (por eso no se crea aca, se re-usa): el coordinador le
+    // cambia el glifo ‹ / › y el tooltip en cada estado, igual que hace con el
+    // chevron de la barra superior.
+    const toggleProductos = document.getElementById("productPanelTopToggle");
+    if (toggleProductos) tabsShell.appendChild(toggleProductos);
+
+    tabsBox = document.createElement("div");
+    tabsBox.id = "ekkoCascadeTabs";
+    tabsShell.appendChild(tabsBox);
+    strip.appendChild(tabsShell);
+
+    // Las utilidades van al EXTREMO derecho de la tira (fuera del cluster):
+    // IZQUIERDA = crear el proyecto, CENTRO = contextos, DERECHA = estado.
+    strip.appendChild(util);
+
+    topBar.insertBefore(strip, topBar.firstChild);
+    armarPan(tabsShell, tabsBox);
+}
+
+/* Modo claro / oscuro: boton propio de la fila de herramientas (fila 2),
+   clavado a la derecha de esa fila. */
+function crearBotonTema() {
     const tema = document.createElement("button");
     tema.type = "button";
-    tema.className = "ekko-strip-btn";
     tema.id = "btnEkkoTema";
+    // .btn-action = el molde vivo de la fila 2 (lo que el skin activo pinte).
+    tema.className = "btn-action";
     const pintarTema = () => {
         const modo = (localStorage.getItem("ekko.cascade.tema") || "oscuro");
         document.body.dataset.ekkoTheme = modo;
@@ -444,44 +595,7 @@ function montarStrip() {
         pintarTema();
     });
     pintarTema();
-
-    // Contraer / Expandir: el MISMO boton del coordinador, siempre en la
-    // tira; el glifo lo invierte panelCoordinator y la palabra va por CSS.
-    const compacto = document.getElementById("topPanelCompact");
-    if (compacto) compacto.classList.add("ekko-strip-btn");
-
-    // Estado de la seleccion (el texto de ayuda historico)
-    const info = document.getElementById("selectionInfo");
-
-    // Producto activo
-    const prod = document.createElement("span");
-    prod.id = "ekkoCascadeProducto";
-    pintarProducto(prod);
-
-    // Las utilidades se separan a la derecha para dejar la lectura clara:
-    // IZQUIERDA = crear el proyecto, DERECHA = estado y control de paneles.
-    const util = document.createElement("div");
-    util.className = "ekko-util-cluster";
-    if (info) util.appendChild(info);
-    util.appendChild(prod);
-    util.appendChild(tema);
-    if (compacto) util.appendChild(compacto);
-
-    strip.appendChild(cluster);
-
-    const tabsShell = document.createElement("div");
-    tabsShell.className = "ekko-cascade-shell ekko-tabs-shell";
-    tabsBox = document.createElement("div");
-    tabsBox.id = "ekkoCascadeTabs";
-    tabsShell.appendChild(tabsBox);
-    strip.appendChild(tabsShell);
-
-    // Las utilidades van al EXTREMO derecho de la tira (fuera del cluster):
-    // IZQUIERDA = crear el proyecto, CENTRO = contextos, DERECHA = estado.
-    strip.appendChild(util);
-
-    topBar.insertBefore(strip, topBar.firstChild);
-    armarPan(tabsShell, tabsBox);
+    return tema;
 }
 
 function pintarProducto(prod) {
@@ -498,7 +612,7 @@ function pintarProducto(prod) {
     prod.textContent = esLibre ? "▣ Lienzo libre" : `▣ ${nombre}`;
 }
 
-/* Pestañas de contexto: chips del NIVEL 0. Escriben EKKO_PANEL_STATE y le
+/* Pestañas de contexto: chips de la TIRA. Escriben EKKO_PANEL_STATE y le
    piden el render a la cinta (una sola fuente de verdad, cero conflicto). */
 function renderTabs() {
     if (!tabsBox) return;
@@ -550,28 +664,33 @@ function montarFila() {
     // recientes exige un mismo contenedor flex). Son los nodos REALES:
     // ribbonRenderer y commandParameters siguen encontrandolos dentro de
     // #topBar, asi que el contrato no cambia nada.
-    const grupos = Array.from(topBar.querySelectorAll("div.top-group"));
-    grupos.forEach(g => {
+    //
+    // Hay dos generaciones de contenedor en el repo: los .top-group historicos
+    // y los .ekko-ribbon-group-body que arma ribbonLayout.js. Como el layout de
+    // la cinta corre antes que esta tira, los botones YA estan agrupados con
+    // titulo: si solo se miran los .top-group la fila nace vacia y arriba
+    // quedan tres filas (tira + cinta + cascaron de herramientas). Se aplanan
+    // las dos y la cinta se oculta por CSS (.ekko-ribbon-body).
+    Array.from(topBar.querySelectorAll("div.top-group")).forEach(g => {
         Array.from(g.children).forEach(h => fila.appendChild(h));
         g.remove();
     });
+    Array.from(topBar.querySelectorAll(".ekko-ribbon-group-body")).forEach(g => {
+        Array.from(g.children).forEach(h => fila.appendChild(h));
+    });
+    // Los sueltos de la cinta (btnTopTextCurve viaja sin manifiesto).
+    Array.from(topBar.querySelectorAll(".ekko-ribbon-body > button")).forEach(b => fila.appendChild(b));
     Array.from(topBar.children).forEach(h => {
         if (h === strip || h === shell) return;
         if (["ekkoTopContextSurface", "topPanelControls"].includes(h.id)) return;
         if (h.tagName === "BUTTON") fila.appendChild(h);
     });
 
-    // Descargar integrado en la FILA (nivel 1): es el paso de salida del
-    // flujo de trabajo. Se limpia el CSS inline del boton flotante
-    // (position:fixed / top / right) que lo empujaba por debajo del nivel 0;
-    // su menu sigue anclado al boton (el relative lo pone el CSS de abajo).
-    const desc = document.getElementById("ekkoDownloadWrap");
-    if (desc) {
-        desc.style.cssText = "";
-        const db = document.getElementById("btnEkkoDownload");
-        if (db) db.classList.add("ekko-ini-btn");
-        fila.appendChild(desc);
-    }
+    // Descargar NO baja a esta fila: vive en la tira (fila 1) al extremo
+    // derecho. Lo monta montarStrip().
+    // Modo claro/oscuro: SI, a esta fila, clavado a la derecha y vistiendo
+    // como un boton mas de la fila.
+    shell.appendChild(crearBotonTema());
 
     if (topBar.firstChild !== strip) topBar.insertBefore(strip, topBar.firstChild);
 
@@ -591,11 +710,6 @@ function refrescarFila() {
         base.forEach(b => fila.appendChild(b));
         fila.dataset.ordenPrevia = forma;
     }
-
-    // Descargar SIEMPRE al final de la fila (paso de salida del flujo);
-    // sin seleccion es lo unico que queda visible en el nivel 1.
-    const descFila = fila.querySelector(":scope > #ekkoDownloadWrap");
-    if (descFila) fila.appendChild(descFila);
 
     const prod = document.getElementById("ekkoCascadeProducto");
     if (prod) pintarProducto(prod);
@@ -641,9 +755,8 @@ function vigilarEstados() {
 /* ------------------------------------------------------------------ */
 function refrescarDocumento() {
     // Sin seleccion, las herramientas de objeto NO se muestran: el flujo
-    // empieza en la tira (cargar / crear). La fila queda solo con Descargar
-    // (la salida del trabajo) y el resto nace con el objeto; la cinta
-    // decide los estados como siempre.
+    // empieza en la tira (cargar / crear) y el resto nace con el objeto; la
+    // cinta decide los estados como siempre.
     topBar.classList.toggle("ekko-sin-seleccion", !seleccionActual().length);
     // Guardia de orden: ningun motor debe poder desmontar la estructura
     // (la tira vive SIEMPRE al frente de la cascada).
@@ -700,6 +813,9 @@ export function initCascadeToolbar() {
     iniciado = true;
     topBar = top;
     topBar.classList.add("ekko-cascade");
+    // El chip de rescate vive en el BODY, fuera de la barra: la tira necesita
+    // marcar el estado desde ahi para poder apartarlo de su esquina.
+    document.body.dataset.ekkoCascade = "1";
 
     estilos();
     montarStrip();
