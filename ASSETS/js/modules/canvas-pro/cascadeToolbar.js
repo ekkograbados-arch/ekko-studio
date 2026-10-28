@@ -1,600 +1,704 @@
 /* =========================================================================
-   EKKO STUDIO â€” PANEL COORDINATOR / FASE 0
-   Coordina exclusivamente la interfaz de paneles.
-   No modifica geometrÃ­a, Paper.js, mockups ni productos.
+   EKKO CASCADA — PROTOTIPO FASE 1 (alineado a la cinta del remoto)
+   -------------------------------------------------------------------------
+   RELACION CON EL MOTOR REAL (verificado en GitHub):
 
-   Superficies coordinadas:
-   - #topBar
-   - #pro-layout-toolbar
-   - #contextual-toolbar
-   - #productPanelWrap
-   - #panelRecoveryDock
-========================================================================= */
+   - La decision de QUE boton se ve, se BLOQUEA (família P, "enseña la
+     piramide") o se oculta la escribe SOLO ui/ribbonRenderer.js, consumiendo
+     toolbarStore.js + toolbarManifest.js + capabilities.js. ESE NIVEL YA
+     EXISTE: este prototipo NO lo duplica y no toca style.display.
+   - La pestaña activa la lee toolbarStore desde window.EKKO_PANEL_STATE
+     (panelCoordinator). Los chips del nivel 0 escriben AHI y piden
+     window.EKKO_RIBBON.refresh(): una sola fuente de verdad.
+   - commandParameters.js ya abre automaticamente su panel (#ekkoParamSurface)
+     al pulsar un boton con parametros: el nivel 2 de este prototipo solo lo
+     RE-ANCLA debajo del boton pulsado (se despliega hacia abajo, pegado a
+     su herramienta).
+
+   ESTRUCTURA que aporta este modulo:
+     NIVEL 0  Tira de inicio: cluster fijo (Descargar incrustado, modo
+              claro/oscuro, contraer/expandir, producto activo) + pestañas
+              de contexto (Inicio/Imagen/Texto/Vector/...) + flechas
+              DESVANECIDAS que desplazan solo con hover (sin clic).
+     NIVEL 1  Fila de herramientas: LOS BOTONES REALES del topBar,
+              re-parentados (nunca clonados): el motor, el historial y el
+              panel de parametros siguen escuchando al mismo nodo. Las mas
+              usadas de cada contexto se adelantan (recientes por peso:
+              frecuencia x recencia, memorizadas en localStorage).
+     NIVEL 2  Re-anclaje del panel de parametros bajo el boton pulsado.
+
+   ACTIVACION: ?cascade=1 memoriza el prototipo, ?cascade=0 lo apaga, o
+   localStorage ekko.cascadePrototype="1". Sin flag el modulo no carga y la
+   app se comporta exactamente igual que hoy.
+   ========================================================================= */
 
 import { TABS, detectTab, tabsForSelection } from "./capabilities.js";
 
-const STORAGE_KEY = "ekko.panels.v1";
+let iniciado = false;
+let topBar = null;
+let strip = null;
+let tabsBox = null;
+let fila = null;
+let superficieN2 = null;
 
-const panelState = {
-    topPanel: "expanded",       // expanded | compact | hidden
-    floatingBar: "auto",        // auto | visible | hidden
-    productPanel: "visible",    // visible | hidden
-    // "auto" = no se recorta nada (interseccion completa, comportamiento
-    // previo). Un id de TABS = el usuario eligio ese grupo a proposito.
-    activeTab: "auto",
-    currentSelection: null,
-    currentContext: "none",
-    menu: null,
-    initialized: false
-};
+const RAIZ_ORDEN = { base: 0, image: 1, vector: 2, text: 3, multiple: 4, fusion: 5 };
+const LLAVE_RECENTES = "ekko.cascade.recientes.v1";
 
-/* --- Persistencia: el cliente configura los paneles una vez y los mantiene.
-   Sin esto, recargar devolvia todo a los valores de fabrica. --- */
-function loadPanelState() {
-    let raw = null;
-    try { raw = localStorage.getItem(STORAGE_KEY); } catch (_) { return; }
-    if (!raw) return;
-    let saved;
-    try { saved = JSON.parse(raw); } catch (_) { return; }
-    if (!saved || typeof saved !== "object") return;
-    ["topPanel", "floatingBar", "productPanel", "activeTab"].forEach(key => {
-        if (typeof saved[key] === "string") panelState[key] = saved[key];
-    });
-    // Estado guardado corrupto o de una version vieja: volver a fabrica en
-    // vez de dejar la interfaz en un modo que no existe.
-    if (!["expanded", "compact", "hidden"].includes(panelState.topPanel)) panelState.topPanel = "expanded";
-    if (!["auto", "visible", "hidden"].includes(panelState.floatingBar)) panelState.floatingBar = "auto";
-    if (!["visible", "hidden"].includes(panelState.productPanel)) panelState.productPanel = "visible";
-    if (panelState.activeTab !== "auto" && !TABS[panelState.activeTab]) panelState.activeTab = "auto";
+/* ------------------------------------------------------------------ */
+/* Pestaña activa: UNA sola fuente — panelCoordinator (EKKO_PANEL_STATE) */
+/* ------------------------------------------------------------------ */
+function pestañaActual() {
+    const t = window.EKKO_PANEL_STATE && window.EKKO_PANEL_STATE.activeTab;
+    return (t && t !== "auto") ? t : "auto";
 }
 
-function savePanelState() {
-    // Coalescente: applyPanelState se dispara en cada cambio de seleccion y
-    // no tiene sentido escribir en localStorage en cada raf.
-    if (savePanelState.__pending) return;
-    savePanelState.__pending = true;
-    setTimeout(() => {
-        savePanelState.__pending = false;
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({
-                topPanel: panelState.topPanel,
-                floatingBar: panelState.floatingBar,
-                productPanel: panelState.productPanel,
-                activeTab: panelState.activeTab
-            }));
-        } catch (_) {}
-    }, 150);
-}
-
-function byId(id) {
-    return document.getElementById(id);
-}
-
-function hasSelection(item = null) {
-    if (item) return true;
-    if (window.selectedItems && window.selectedItems.length > 0) return true;
-    return !!window.selectedItem;
-}
-
-function getElements() {
-    return {
-        top: byId("topBar"),
-        pro: byId("pro-layout-toolbar"),
-        floating: byId("contextual-toolbar"),
-        products: byId("productPanelWrap"),
-        recovery: byId("panelRecoveryDock")
-    };
-}
-
-function getContentTarget(item) {
-    if (!item) return null;
-    if (item.data && item.data.clipGroup && item.children) {
-        return item.children.find(child => !child.clipMask && !(child.data && (child.data.isMask || child.data.wasClipMask))) || item;
-    }
-    return item;
-}
-
-function resolveContext(item = null) {
-    const selected = window.selectedItems && window.selectedItems.length
-        ? window.selectedItems
-        : (item ? [item] : (window.selectedItem ? [window.selectedItem] : []));
-
-    if (selected.length > 1) return "multiple";
-    const target = getContentTarget(selected[0]);
-    if (!target) return "none";
-
-    if ((target.data && target.data.isSmartFusion) ||
-        (typeof window.findSmartFusionContainer === "function" && window.findSmartFusionContainer(target))) {
-        return "fusion";
-    }
-
-    if (target.className === "Raster") return "image";
-    if (target.className === "PointText" || (target.data && (target.data.isText || target.data.isCurvedGroup || target.data.isSpacedGroup))) return "text";
-    if (["Path", "CompoundPath", "Group", "Shape", "SymbolItem", "PlacedSymbol"].includes(target.className)) return "vector";
-    return "none";
-}
-
-const CONTEXT_LABELS = {
-    none: "Inicio",
-    image: "Imagen",
-    text: "Texto",
-    vector: "Vector",
-    multiple: "SelecciÃ³n mÃºltiple",
-    fusion: "FusiÃ³n"
-};
-
-function ensureContextSurface() {
-    const top = byId("topBar");
-    if (!top) return null;
-    let surface = byId("ekkoTopContextSurface");
-    if (surface) return surface;
-
-    surface = document.createElement("div");
-    surface.id = "ekkoTopContextSurface";
-    surface.className = "ekko-top-context-surface";
-    surface.setAttribute("role", "tablist");
-    surface.innerHTML = `
-        <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">â€¹</button>
-        <div id="ekkoTopContextTabs" class="ekko-top-context-tabs"></div>
-        <span id="ekkoTopContextLabel" class="ekko-top-context-label"></span>
-    `;
-    top.insertBefore(surface, top.firstChild);
-    return surface;
-}
-
-/**
- * Chip de panel oculto: UN SOLO control, el mismo chevron de la barra,
- * resurgiendo flotante en la esquina superior derecha cuando el panel
- * superior esta OCULTO. El chevron apunta hacia abajo ("abrir el panel");
- * clic devuelve la barra a expandido. SIN menu de tres puntos aca: los
- * tres puntos verticales son y solo son "Mas herramientas"
- * (toolbarOverflow.js, al estilo Word/Office); las opciones de paneles
- * viven en su propio lugar (boton de la barra emergente) y el chevron
- * invertido es la unica salida de emergencia necesaria.
- * Se construye en JS (con sus estilos) para no depender de HTML/CSS del
- * servidor y para que exista SIEMPRE que se necesite.
- */
-function ensurePanelAnchor() {
-    let wrap = byId("ekkoPanelAnchor");
-    if (wrap) return wrap;
-
-    if (!byId("ekkoPanelAnchorStyles")) {
-        const style = document.createElement("style");
-        style.id = "ekkoPanelAnchorStyles";
-        style.textContent = `
-            #ekkoPanelAnchor {
-                position: fixed;
-                top: 10px;
-                right: 14px;
-                z-index: calc(var(--ekko-floating-z, 10100) + 10);
-                display: none;
-                align-items: center;
-                padding: 5px 8px;
-                border-radius: 8px;
-                background: rgba(15, 23, 42, 0.88);
-                border: 1px solid rgba(255, 255, 255, 0.22);
-                box-shadow: 0 8px 22px rgba(15, 23, 42, 0.35);
-            }
-            #ekkoPanelAnchor.is-visible { display: inline-flex; }
-            .panel-anchor-btn {
-                background: transparent;
-                border: 0;
-                color: #e2e8f0;
-                font-size: 15px;
-                line-height: 1;
-                padding: 2px 4px;
-                cursor: pointer;
-            }
-            .panel-anchor-btn:hover { background: rgba(255, 255, 255, 0.16); color: #fff; border-radius: 5px; }
-        `;
-        document.head.appendChild(style);
-    }
-
-    wrap = document.createElement("div");
-    wrap.id = "ekkoPanelAnchor";
-    wrap.setAttribute("role", "button");
-    wrap.setAttribute("aria-label", "Expandir panel superior");
-    wrap.innerHTML = `
-        <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorExpand" title="Expandir panel superior" aria-label="Expandir panel superior">⌄</button>
-    `;
-    document.body.appendChild(wrap);
-
-    byId("ekkoPanelAnchorExpand").addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.topPanel = "expanded";
-        applyPanelState();
-    });
-
-    return wrap;
-}
-
-function renderContextSurface() {
-    const surface = ensureContextSurface();
-    if (!surface) return;
-
-    const tabs = byId("ekkoTopContextTabs");
-    const label = byId("ekkoTopContextLabel");
-    const context = panelState.currentContext || "none";
-
-    const selection = panelState.currentSelection
-        ? [panelState.currentSelection]
-        : ((window.selectedItems && window.selectedItems.length)
-            ? window.selectedItems
-            : (window.selectedItem ? [window.selectedItem] : []));
-
-    // Solo se ofrecen pestanas que tienen herramientas para ESTA seleccion.
-    // Con una imagen el cliente ve Inicio e Imagen; Texto y Vector ni aparecen.
-    const available = tabsForSelection(selection);
-    const detected = detectTab(selection);
-
-    // La pestana resaltada es la que el motor dedujo de la seleccion.
-    // Si el usuario aplico una a mano, esa manda.
-    const highlighted = panelState.activeTab !== "auto" ? panelState.activeTab : detected;
-
-    // Si la preferencia activa no aparece en la lista natural, se agrega para
-    // que el cliente pueda verla y desactivarla. Si no, quedaria filtrando en
-    // silencio sin ninguna pista de como volver al automatico.
-    if (panelState.activeTab !== "auto" && !available.includes(panelState.activeTab)) {
-        available.push(panelState.activeTab);
-    }
-
-    if (tabs) {
-        tabs.innerHTML = "";
-        available.forEach(id => {
-            const def = TABS[id];
-            if (!def) return;
-            const tab = document.createElement("button");
-            tab.type = "button";
-            tab.className = "ekko-context-tab" + (id === highlighted ? " is-active" : "");
-            if (panelState.activeTab !== "auto" && id === panelState.activeTab) {
-                tab.classList.add("is-manual");
-            }
-            tab.dataset.context = id;
-            tab.setAttribute("role", "tab");
-            tab.setAttribute("aria-selected", id === highlighted ? "true" : "false");
-            tab.textContent = def.label;
-            tab.title = panelState.activeTab === id
-                ? `${def.label} â€” pulsalo de nuevo para ver todas las herramientas`
-                : `Mostrar herramientas de ${def.label.toLowerCase()}`;
-            tab.addEventListener("click", () => {
-                // Segundo clic sobre la misma pestana = volver al automatico.
-                panelState.activeTab = (panelState.activeTab === id) ? "auto" : id;
-                savePanelState();
-                applyPanelState();
-                refreshSharedCommands();
-            });
-            tabs.appendChild(tab);
-        });
-    }
-
-    const def = TABS[highlighted];
-    if (label) {
-        const contextLabel = CONTEXT_LABELS[context] || CONTEXT_LABELS.none;
-        label.textContent = panelState.activeTab === "auto"
-            ? `Contexto: ${contextLabel}`
-            : `Contexto: ${contextLabel} Â· ${def ? def.label : ""}`;
-    }
-    surface.dataset.context = context;
-    surface.dataset.activeTab = panelState.activeTab;
-}
-
-function applyPanelState() {
-    renderPanelState();
-    savePanelState();
-}
-
-function renderPanelState() {
-    const el = getElements();
-    renderContextSurface();
-
-    if (el.top) {
-        el.top.classList.toggle("is-expanded", panelState.topPanel === "expanded");
-        el.top.classList.toggle("is-compact", panelState.topPanel === "compact");
-        el.top.classList.toggle("is-hidden", panelState.topPanel === "hidden");
-        el.top.dataset.panelMode = panelState.topPanel;
-    }
-
-    // La barra profesional dinÃ¡mica es una extensiÃ³n del panel superior.
-    if (el.pro) {
-        el.pro.classList.toggle("is-compact", panelState.topPanel === "compact");
-        el.pro.classList.toggle("is-hidden", panelState.topPanel === "hidden");
-        el.pro.dataset.panelSurface = "top";
-    }
-
-    const floatingShouldShow = panelState.floatingBar === "visible" ||
-        (panelState.floatingBar === "auto" && hasSelection(panelState.currentSelection));
-
-    if (el.floating) {
-        el.floating.classList.toggle("is-visible", floatingShouldShow);
-        el.floating.classList.toggle("is-hidden", panelState.floatingBar === "hidden");
-        el.floating.dataset.panelMode = panelState.floatingBar;
-    }
-
-    if (el.products) {
-        const hidden = panelState.productPanel === "hidden";
-        el.products.classList.toggle("is-collapsed", hidden);
-        el.products.dataset.panelMode = hidden ? "hidden" : "visible";
-
-        const topToggle = byId("productPanelTopToggle");
-        if (topToggle) {
-            topToggle.textContent = hidden ? "â€º" : "â€¹";
-            topToggle.title = hidden ? "Mostrar panel de productos" : "Ocultar panel de productos";
-            topToggle.setAttribute("aria-label", topToggle.title);
-            topToggle.dataset.panelState = hidden ? "hidden" : "visible";
-        }
-    }
-
-    // SALIDA DE EMERGENCIA SIN TEXTO: cuando el panel superior esta OCULTO,
-    // un chip minimalista fijo en la esquina superior derecha muestra EL MISMO
-    // control de la barra: chevron invertido ("abrir el panel") + opciones de
-    // paneles. En compacto no aparece porque los controles de la propia barra
-    // siguen visibles en la tira de 34px. Sustituye al dock con texto
-    // "Mostrar herramientas" (que queda dormido en el HTML) y elimina la
-    // trampa en la que los botones de retorno vivian DENTRO del panel que se
-    // ocultaba.
-    const anchor = ensurePanelAnchor();
-    if (anchor) {
-        anchor.classList.toggle("is-visible", panelState.topPanel === "hidden");
-    }
-
-    // El chevron de la propia barra tambien se invierte en compacto: mismo
-    // lenguaje visual en ambos controles.
-    const compactBtn = byId("topPanelCompact");
-    if (compactBtn) {
-        const contraido = panelState.topPanel !== "expanded";
-        compactBtn.textContent = contraido ? "⌄" : "⌃";
-        compactBtn.title = contraido ? "Expandir panel superior" : "Contraer panel superior";
-        compactBtn.setAttribute("aria-label", compactBtn.title);
-    }
-}
-
-function closeMenu() {
-    if (panelState.menu) {
-        panelState.menu.remove();
-        panelState.menu = null;
-    }
-}
-
-function addMenuButton(menu, label, callback) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.textContent = label;
-    button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        callback();
-        closeMenu();
-    });
-    menu.appendChild(button);
-}
-
-function openVisibilityMenu(anchor) {
-    closeMenu();
-
-    const menu = document.createElement("div");
-    menu.id = "ekko-panel-visibility-menu";
-    menu.className = "panel-visibility-menu";
-    menu.setAttribute("role", "menu");
-
-    addMenuButton(menu, "Panel superior: expandido", () => {
-        panelState.topPanel = "expanded";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Panel superior: compacto", () => {
-        panelState.topPanel = "compact";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Ocultar panel superior", () => {
-        panelState.topPanel = "hidden";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Barra emergente: automÃ¡tica", () => {
-        panelState.floatingBar = "auto";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Mostrar barra emergente", () => {
-        panelState.floatingBar = "visible";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Ocultar barra emergente", () => {
-        panelState.floatingBar = "hidden";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Mostrar panel de productos", () => {
-        panelState.productPanel = "visible";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Ocultar panel de productos", () => {
-        panelState.productPanel = "hidden";
-        applyPanelState();
-    });
-
-    addMenuButton(menu, "Restaurar todos los paneles", () => {
-        panelState.topPanel = "expanded";
-        panelState.floatingBar = "auto";
-        panelState.productPanel = "visible";
-        applyPanelState();
-    });
-
-    document.body.appendChild(menu);
-    panelState.menu = menu;
-
-    const rect = anchor.getBoundingClientRect();
-    const menuWidth = 230;
-    const left = Math.max(8, Math.min(window.innerWidth - menuWidth - 8, rect.right - menuWidth));
-    const top = Math.min(window.innerHeight - 12, rect.bottom + 8);
-
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
-}
-
-function refreshSharedCommands() {
-    if (typeof window.refreshEKKOSharedCommands === "function") {
-        window.refreshEKKOSharedCommands();
-    } else if (typeof window.refreshAllToolbars === "function") {
-        window.refreshAllToolbars();
-    }
-}
-
-/**
- * La pestana activa es una PREFERENCIA del cliente, no un estado derivado de
- * la seleccion. Por eso NO se recalcula aqui al seleccionar otra cosa: si se
- * hiciera, el grupo que el cliente eligio se perderia en cuanto tocara un
- * objeto de otro tipo, y no sobreviviria a la recarga.
- *
- * Es seguro que el filtro sobreviva: legacyNamesForTab() siempre recorta por
- * la interseccion real de capacidades, asi que una pestana "Imagen" con un
- * vector seleccionado muestra solo las herramientas universales. Nunca aparece
- * un boton que el objeto no soporta.
- */
-
-function wrapContextualMenuAPI() {
-    const update = window.updateContextualMenu;
-    if (typeof update === "function" && !update.__ekkoPanelWrapped) {
-        const wrappedUpdate = function (item) {
-            const result = update.apply(this, arguments);
-            panelState.currentSelection = item || window.selectedItem || null;
-            panelState.currentContext = resolveContext(panelState.currentSelection);
-            applyPanelState();
-            refreshSharedCommands();
-            return result;
-        };
-        wrappedUpdate.__ekkoPanelWrapped = true;
-        window.updateContextualMenu = wrappedUpdate;
-    }
-
-    const hide = window.hideContextualMenu;
-    if (typeof hide === "function" && !hide.__ekkoPanelWrapped) {
-        const wrappedHide = function () {
-            const result = hide.apply(this, arguments);
-            panelState.currentSelection = null;
-            panelState.currentContext = "none";
-            // activeTab NO se toca aqui: es una preferencia del cliente sobre
-            // la barra, no un estado derivado de lo que hay seleccionado.
-            applyPanelState();
-            refreshSharedCommands();
-            return result;
-        };
-        wrappedHide.__ekkoPanelWrapped = true;
-        window.hideContextualMenu = wrappedHide;
-    }
-}
-
-function bindPanelControls() {
-    const topCompact = byId("topPanelCompact");
-    // topPanelOverflow (los tres puntos de la barra superior) NO se vincula
-    // aca: es exclusivamente el boton "Mas herramientas" de toolbarOverflow.js
-    // (estilo Word/Office), que ademas corta los demas listeners del mismo
-    // clic con stopImmediatePropagation en fase captura. Cualquier binding
-    // de paneles a ese boton es codigo muerto y confunde el semantico:
-    // tres puntos = herramientas, nunca = ocultar paneles.
-    const floatingOverflow = byId("floatingPanelOverflow");
-    const topProductToggle = byId("productPanelTopToggle");
-    const hideProducts = byId("btnHideProductPanel");
-    const productHandle = byId("productPanelHandle");
-    const recovery = byId("panelRecoveryDock");
-
-    topCompact?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.topPanel = panelState.topPanel === "compact" ? "expanded" : "compact";
-        applyPanelState();
-    });
-
-    floatingOverflow?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openVisibilityMenu(floatingOverflow);
-    });
-
-    topProductToggle?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.productPanel = panelState.productPanel === "hidden" ? "visible" : "hidden";
-        applyPanelState();
-    });
-
-    hideProducts?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.productPanel = "hidden";
-        applyPanelState();
-    });
-
-    productHandle?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.productPanel = "visible";
-        applyPanelState();
-    });
-
-    recovery?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.topPanel = "expanded";
-        panelState.floatingBar = "auto";
-        panelState.productPanel = "visible";
-        applyPanelState();
-    });
-
-    document.addEventListener("click", (event) => {
-        if (panelState.menu && !panelState.menu.contains(event.target) &&
-            !event.target.closest("[data-panel-menu='visibility']")) {
-            closeMenu();
-        }
-    });
-
-    window.addEventListener("resize", () => {
-        closeMenu();
-        applyPanelState();
-    });
-}
-
-export function setSelectionContext(item = null) {
-    panelState.currentSelection = item;
-    panelState.currentContext = resolveContext(item);
-    applyPanelState();
-    refreshSharedCommands();
-}
-
-export function getPanelState() {
-    return { ...panelState, menu: null };
-}
-
-export function initPanelCoordinator() {
-    if (panelState.initialized) return;
-    panelState.initialized = true;
-
-    loadPanelState();
-    wrapContextualMenuAPI();
-    ensureContextSurface();
-    bindPanelControls();
-    applyPanelState();
-
-    window.EKKO_PANEL_STATE = panelState;
-    window.setEKKOSelectionContext = setSelectionContext;
-    window.getEKKOPanelState = getPanelState;
-
-    // PROTOTIPO CASCADA (Fase 1): activo solo con ?cascade=1 en la URL, o
-    // con ekko.cascadePrototype="1" en localStorage. ?cascade=0 desactiva.
-    // Dinamico y condicional: sin flag, este modulo no carga NADA nuevo y
-    // la app se comporta exactamente como siempre.
+function persistirTab(nuevo) {
+    // El coordinador persiste en su ciclo; el prototipo acompaña con la
+    // misma clave para que la eleccion sobreviva a la recarga.
     try {
-        const flag = new URLSearchParams(location.search).get("cascade");
-        if (flag === "1") localStorage.setItem("ekko.cascadePrototype", "1");
-        if (flag === "0") localStorage.setItem("ekko.cascadePrototype", "0");
-        if (localStorage.getItem("ekko.cascadePrototype") === "1") {
-            import("./cascadeToolbar.js")
-                .then(m => m.initCascadeToolbar?.())
-                .catch(err => console.warn("[EKKO CASCADA] no se pudo iniciar:", err));
+        const estado = JSON.parse(localStorage.getItem("ekko.panels.v1") || "{}");
+        estado.activeTab = nuevo;
+        localStorage.setItem("ekko.panels.v1", JSON.stringify(estado));
+    } catch (_) {}
+}
+
+function elegirPestaña(id) {
+    const ahora = pestañaActual();
+    const nuevo = (ahora === id) ? "auto" : id;   // 2.º clic = volver a auto
+    if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = nuevo;
+    persistirTab(nuevo);
+    window.EKKO_RIBBON && window.EKKO_RIBBON.refresh && window.EKKO_RIBBON.refresh();
+    renderTabs();
+    refrescarFila();
+}
+
+/* ------------------------------------------------------------------ */
+/* Selección (mismas fuentes que el store de la cinta)                  */
+/* ------------------------------------------------------------------ */
+function seleccionActual() {
+    const sel = [];
+    if (window.selectedItems && window.selectedItems.length) sel.push(...window.selectedItems.filter(Boolean));
+    else if (window.selectedItem) sel.push(window.selectedItem);
+    return sel;
+}
+
+function contextoActual() {
+    const manual = pestañaActual();
+    if (manual !== "auto" && TABS[manual]) return manual;
+    const via = (window.EKKO_RIBBON_STATE && window.EKKO_RIBBON_STATE.detectedTab) || detectTab(seleccionActual()) || "base";
+    return via;
+}
+
+function nombreComando(btn) {
+    return btn.dataset.fusionBtn || btn.dataset.ekkoCommand || null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Recientes por contexto: frecuencia x recencia                        */
+/* ------------------------------------------------------------------ */
+function leerRecientes() {
+    try { return JSON.parse(localStorage.getItem(LLAVE_RECENTES) || "{}") || {}; } catch (_) { return {}; }
+}
+
+function registrarUso(comando) {
+    if (!comando) return;
+    // Solo herramientas con contrato real (data-fusion-btn) alimentan los
+    // recientes: los botones permanentes (Cargar/Texto/QR) no compiten.
+    const contexto = contextoActual();
+    const datos = leerRecientes();
+    const lista = datos[contexto] || [];
+    const i = lista.findIndex(e => e.c === comando);
+    if (i >= 0) { lista[i].count = (lista[i].count || 1) + 1; lista[i].ts = Date.now(); }
+    else lista.push({ c: comando, count: 1, ts: Date.now() });
+    lista.sort((a, b) => (b.count * Math.exp(-(Date.now() - b.ts) / 86400000)) -
+                          (a.count * Math.exp(-(Date.now() - a.ts) / 86400000)));
+    datos[contexto] = lista.slice(0, 6);
+    try { localStorage.setItem(LLAVE_RECENTES, JSON.stringify(datos)); } catch (_) {}
+    refrescarFila();
+}
+
+function rangoReciente(comando) {
+    const lista = leerRecientes()[contextoActual()] || [];
+    const i = lista.findIndex(e => e.c === comando);
+    return i < 0 ? 99 : i;
+}
+
+/* ------------------------------------------------------------------ */
+/* Estilos                                                              */
+/* ------------------------------------------------------------------ */
+function estilos() {
+    if (document.getElementById("ekkoCascadeStyles")) return;
+    const st = document.createElement("style");
+    st.id = "ekkoCascadeStyles";
+    st.textContent = `
+        /* --- Estructura: topBar a columna (tira + fila de herramientas) --- */
+        #topBar.ekko-cascade {
+            flex-direction: column !important;
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            display: flex !important;
+        }
+        /* Los modos del coordinador siguen mandando: en compacto queda solo
+           la tira de inicio; en oculto, el chip de rescate ya conocido. */
+        #topBar.ekko-cascade.is-compact { height: auto !important; overflow: hidden !important; }
+        #topBar.ekko-cascade.is-compact .ekko-tools-shell { display: none !important; }
+
+        /* Sistemas de facto afuera de la cascada */
+        #topBar.ekko-cascade #ekkoTopContextSurface,
+        #topBar.ekko-cascade #topPanelControls,
+        #topBar.ekko-cascade #topPanelOverflow { display: none !important; }
+        #topBar.ekko-cascade .ekko-overflowed { display: inline-flex !important; }
+
+        /* Conchas: las flechas viven aqui (position:relative), no dentro del
+           scroller, para quedar clavadas al borde visible. */
+        .ekko-cascade-shell { position: relative; min-width: 0; }
+        .ekko-tabs-shell { flex: 1 1 auto; display: flex; min-width: 0; }
+        .ekko-tools-shell { width: 100%; }
+
+        /* --- NIVEL 0 --- */
+        #ekkoCascadeStrip {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            position: relative;
+            padding: 4px 2px 0 2px;
+        }
+        #ekkoCascadeCluster {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 0 0 auto;
+        }
+        .ekko-strip-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.14);
+            color: #e2e8f0;
+            padding: 5px 10px;
+            border-radius: 7px;
+            font-size: 12.5px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .ekko-strip-btn:hover { background: rgba(255,255,255,0.13); color: #fff; }
+        /* Descargar integra la FILA (nivel 1), al final del flujo; su menu
+           cuelga del boton (relative) y ya no flota con estilos inline. */
+        #ekkoCascadeTools #ekkoDownloadWrap { position: relative !important; display: inline-flex; }
+
+        /* --- BOTONES DE INICIO (nivel 0): llenos y de acento. El lenguaje
+               visual DEBE distinguirse de la fila de herramientas (nivel 1),
+               que sigue luciendo fantasma sobre la barra. --- */
+        #ekkoCascadeCluster button.ekko-ini-btn,
+        #ekkoCascadeTools button.ekko-ini-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: #ff2ea6; color: #fff; border: none;
+            padding: 7px 14px; border-radius: 8px;
+            font-size: 12.5px; font-weight: 700; cursor: pointer;
+            white-space: nowrap; box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+        }
+        #ekkoCascadeCluster button.ekko-ini-btn:hover,
+        #ekkoCascadeTools button.ekko-ini-btn:hover { background: #ff51b6; color: #fff; }
+        #ekkoCascadeCluster button.ekko-ini-btn .ekko-ic,
+        #ekkoCascadeTools button.ekko-ini-btn .ekko-ic { width: 15px; height: 15px; }
+        .ekko-util-cluster { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+        #ekkoCascadeCluster #ekkoCascadeProducto { margin-left: 0; }
+
+        /* Contraer/Expandir con PALABRA: el chevron solitario no da la senal
+           de estado. El glifo lo invierte panelCoordinator; el texto va por
+           CSS para no duplicar logica ni tocar el modo sin prototipo. */
+        #ekkoCascadeCluster #topPanelCompact {
+            display: inline-flex !important;
+            align-items: center; gap: 5px; white-space: nowrap;
+        }
+        #topBar.ekko-cascade:not(.is-compact) #topPanelCompact::after { content: "Contraer panel"; }
+        #topBar.ekko-cascade.is-compact #topPanelCompact::after { content: "Expandir panel"; }
+
+        /* --- SIN SELECCION: no aparecen las herramientas. La cascada
+               empieza en la tira; la fila nace con el objeto:
+               cargar -> seleccionar -> trabajar. --- */
+        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools .btn-action { display: none !important; }
+        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools #btnEkkoDownload { display: inline-flex !important; }
+
+        /* --- NIVEL 2 COLOR: la capa de opciones se abre un escalon MAS
+               CLARO que la barra: se lee como "opciones de la herramienta",
+               una capa por encima, y no como otra fila. --- */
+        #ekkoParamSurface {
+            background: #33415e !important;
+            border-color: rgba(255,255,255,0.32) !important;
+            color: #eef2f9 !important;
+            box-shadow: 0 14px 34px rgba(0,0,0,0.45) !important;
+        }
+        #ekkoCascadeProducto {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11.5px;
+            color: rgba(226,232,240,0.75);
+            border: 1px dashed rgba(255,255,255,0.18);
+            border-radius: 999px;
+            padding: 3px 10px;
+            white-space: nowrap;
+        }
+        #ekkoCascadeTabs { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+        #ekkoCascadeTabs::-webkit-scrollbar { display: none; }
+        .ekko-cascade-tab {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid transparent;
+            color: rgba(226,232,240,0.8);
+            font-size: 12.5px;
+            padding: 5px 12px;
+            border-radius: 999px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .ekko-cascade-tab:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        .ekko-cascade-tab.is-activa {
+            background: rgba(255,46,166,0.16);
+            border-color: rgba(255,46,166,0.55);
+            color: #fff;
+            font-weight: 600;
+        }
+
+        /* --- NIVEL 1: fila de herramientas (botones reales) --- */
+        #ekkoCascadeTools {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            width: 100%;
+            overflow-x: auto;
+            scrollbar-width: none;
+            padding: 4px 2px 2px 2px;
+        }
+        #ekkoCascadeTools::-webkit-scrollbar { display: none; }
+        #ekkoCascadeTools .btn-action { flex: 0 0 auto; }
+
+        /* La familia P del renderer YA bloquea con motivo; aca se garantiza
+           un lenguaje visual minimo aunque styles.css aun no lo traiga. */
+        button[data-fusion-btn].ekko-locked {
+            opacity: 0.38;
+            filter: grayscale(0.5);
+            cursor: not-allowed;
+        }
+        button[data-fusion-btn].ekko-locked:hover { background: rgba(255,255,255,0.06); color: inherit; }
+
+        /* --- Flechas desvanecidas de desplazamiento automatico --- */
+        .ekko-pan-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(15,23,42,0.55);
+            color: rgba(226,232,240,0.7);
+            font-size: 13px;
+            line-height: 1;
+            cursor: default;
+            opacity: 0;
+            transition: opacity .18s ease;
+            z-index: 5;
+            pointer-events: none;
+            user-select: none;
+        }
+        .ekko-pan-btn.ekko-op { opacity: 0.55; pointer-events: auto; }
+        .ekko-pan-btn.ekko-op:hover, .ekko-pan-btn:hover { opacity: 1; color: #fff; }
+        .ekko-pan-izq { left: 4px; }
+        .ekko-pan-der { right: 4px; }
+
+        /* --- Modo claro del prototipo (se pule con la aprobacion) --- */
+        body[data-ekko-theme="claro"] #topBar,
+        body[data-ekko-theme="claro"] #contextual-toolbar,
+        body[data-ekko-theme="claro"] .ekko-param-surface {
+            background: #f6f7fb !important;
+            color: #16181d !important;
+            border-color: #d7dee8 !important;
+        }
+        body[data-ekko-theme="claro"] .btn-action,
+        body[data-ekko-theme="claro"] .toolbar-btn,
+        body[data-ekko-theme="claro"] .ekko-strip-btn,
+        body[data-ekko-theme="claro"] .ekko-cascade-tab {
+            background: #ffffff;
+            color: #243044;
+            border-color: #d7dee8;
+        }
+        body[data-ekko-theme="claro"] .btn-action:hover,
+        body[data-ekko-theme="claro"] .toolbar-btn:hover {
+            background: #eef2f7;
+            color: #111;
+        }
+        body[data-ekko-theme="claro"] #selectionInfo { color: #47536b !important; }
+        body[data-ekko-theme="claro"] #ekkoCascadeProducto { color: #47536b; border-color: #c3ccda; }
+        body[data-ekko-theme="claro"] .ekko-pan-btn {
+            background: rgba(255,255,255,0.85); color: #47536b; border-color: #c3ccda;
+        }
+        body[data-ekko-theme="claro"] button[data-fusion-btn].ekko-locked { opacity: 0.45; }
+        body[data-ekko-theme="claro"] #canvasContainer { background: #e9edf4; }
+        body[data-ekko-theme="claro"] #ekkoParamSurface {
+            background: #ffffff !important;
+            border-color: #b9c5d6 !important;
+            box-shadow: 0 14px 34px rgba(15,23,42,0.16) !important;
+        }
+        body[data-ekko-theme="claro"] #ekkoCascadeCluster button.ekko-ini-btn,
+        body[data-ekko-theme="claro"] #ekkoCascadeTools button.ekko-ini-btn { background: #d61d8c; }
+        body[data-ekko-theme="claro"] #ekkoCascadeCluster button.ekko-ini-btn:hover,
+        body[data-ekko-theme="claro"] #ekkoCascadeTools button.ekko-ini-btn:hover { background: #bd1478; }
+    `;
+    document.head.appendChild(st);
+}
+
+/* ------------------------------------------------------------------ */
+/* Flechas desvanecidas: desplazan con solo hover, sin clic             */
+/* ------------------------------------------------------------------ */
+function armarPan(host, scroller) {
+    const izq = document.createElement("button");
+    izq.type = "button";
+    izq.className = "ekko-pan-btn ekko-pan-izq";
+    izq.textContent = "‹";
+    izq.title = "Desplazá el puntero aquí";
+    const der = document.createElement("button");
+    der.type = "button";
+    der.className = "ekko-pan-btn ekko-pan-der";
+    der.textContent = "›";
+    der.title = "Desplazá el puntero aquí";
+    // Hermanas del scroller (no hijos): queda clavadas al borde visible.
+    host.appendChild(izq);
+    host.appendChild(der);
+
+    let raf = null;
+    const desplazar = (haciaIzq) => {
+        if (raf) return;
+        const paso = () => {
+            scroller.scrollLeft += haciaIzq ? -5 : 5;
+            raf = requestAnimationFrame(paso);
+        };
+        raf = requestAnimationFrame(paso);
+    };
+    const parar = () => { if (raf) { cancelAnimationFrame(raf); raf = null; } };
+    izq.addEventListener("pointerenter", () => desplazar(true));
+    der.addEventListener("pointerenter", () => desplazar(false));
+    [izq, der].forEach(b => b.addEventListener("pointerleave", parar));
+
+    const visibilidad = () => {
+        const max = scroller.scrollWidth - scroller.clientWidth;
+        const hay = max > 2;
+        izq.classList.toggle("ekko-op", hay && scroller.scrollLeft > 2);
+        der.classList.toggle("ekko-op", hay && scroller.scrollLeft < max - 2);
+    };
+    scroller.addEventListener("scroll", visibilidad, { passive: true });
+    new ResizeObserver(visibilidad).observe(scroller);
+    new MutationObserver(() => visibilidad()).observe(scroller, { childList: true, subtree: true });
+    visibilidad();
+}
+
+/* ------------------------------------------------------------------ */
+/* Nivel 0: tira de inicio                                              */
+/* ------------------------------------------------------------------ */
+function montarStrip() {
+    strip = document.createElement("div");
+    strip.id = "ekkoCascadeStrip";
+
+    const cluster = document.createElement("div");
+    cluster.id = "ekkoCascadeCluster";
+
+    // "Donde empieza el proyecto": Cargar Imagen/SVG, Agregar Texto y QR son
+    // acciones de CREACION, no herramientas de objeto. Viven en la tira
+    // (nivel 0) con lenguaje visual propio de botones primarios; la fila
+    // (nivel 1) queda solo para trabajar sobre objetos que YA existen.
+    // Regla segura: .btn-action SIN data-fusion-btn y SIN data-ekko-command
+    // (las booleanas llevan data-ekko-command: no entran, trato comun).
+    Array.from(topBar.querySelectorAll("button.btn-action")).forEach(b => {
+        if (b.dataset.fusionBtn || b.dataset.ekkoCommand) return;
+        if (b.closest("#ekkoDownloadWrap")) return;
+        b.classList.add("ekko-ini-btn");
+        cluster.appendChild(b);
+    });
+
+    // Modo claro / oscuro (nuevo)
+    const tema = document.createElement("button");
+    tema.type = "button";
+    tema.className = "ekko-strip-btn";
+    tema.id = "btnEkkoTema";
+    const pintarTema = () => {
+        const modo = (localStorage.getItem("ekko.cascade.tema") || "oscuro");
+        document.body.dataset.ekkoTheme = modo;
+        tema.textContent = modo === "claro" ? "🌙 Oscuro" : "☀ Claro";
+        tema.title = "Modo claro / oscuro";
+    };
+    tema.addEventListener("click", () => {
+        const modo = (localStorage.getItem("ekko.cascade.tema") || "oscuro") === "claro" ? "oscuro" : "claro";
+        try { localStorage.setItem("ekko.cascade.tema", modo); } catch (_) {}
+        pintarTema();
+    });
+    pintarTema();
+
+    // Contraer / Expandir: el MISMO boton del coordinador, siempre en la
+    // tira; el glifo lo invierte panelCoordinator y la palabra va por CSS.
+    const compacto = document.getElementById("topPanelCompact");
+    if (compacto) compacto.classList.add("ekko-strip-btn");
+
+    // Estado de la seleccion (el texto de ayuda historico)
+    const info = document.getElementById("selectionInfo");
+
+    // Producto activo
+    const prod = document.createElement("span");
+    prod.id = "ekkoCascadeProducto";
+    pintarProducto(prod);
+
+    // Las utilidades se separan a la derecha para dejar la lectura clara:
+    // IZQUIERDA = crear el proyecto, DERECHA = estado y control de paneles.
+    const util = document.createElement("div");
+    util.className = "ekko-util-cluster";
+    if (info) util.appendChild(info);
+    util.appendChild(prod);
+    util.appendChild(tema);
+    if (compacto) util.appendChild(compacto);
+
+    strip.appendChild(cluster);
+
+    const tabsShell = document.createElement("div");
+    tabsShell.className = "ekko-cascade-shell ekko-tabs-shell";
+    tabsBox = document.createElement("div");
+    tabsBox.id = "ekkoCascadeTabs";
+    tabsShell.appendChild(tabsBox);
+    strip.appendChild(tabsShell);
+
+    // Las utilidades van al EXTREMO derecho de la tira (fuera del cluster):
+    // IZQUIERDA = crear el proyecto, CENTRO = contextos, DERECHA = estado.
+    strip.appendChild(util);
+
+    topBar.insertBefore(strip, topBar.firstChild);
+    armarPan(tabsShell, tabsBox);
+}
+
+function pintarProducto(prod) {
+    let nombre = "";
+    try {
+        const ruta = window.currentMockup && window.currentMockup.data && window.currentMockup.data.svgPath;
+        if (ruta) {
+            const base = String(ruta).split("/").pop().replace(/\.svg$/i, "");
+            nombre = base.replace(/[-–]+/g, " ").replace(/\s+/g, " ").trim()
+                .toLowerCase().replace(/(^|\s)\S/g, t => t.toUpperCase());
         }
     } catch (_) {}
-
-    console.log("%c[EKKO PANELS] Coordinador de paneles inicializado.", "color:#2563eb;font-weight:bold;");
+    const esLibre = !nombre || /lienzo/i.test(nombre);
+    prod.textContent = esLibre ? "▣ Lienzo libre" : `▣ ${nombre}`;
 }
 
-if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", initPanelCoordinator, { once: true });
-} else {
-    initPanelCoordinator();
+/* Pestañas de contexto: chips del NIVEL 0. Escriben EKKO_PANEL_STATE y le
+   piden el render a la cinta (una sola fuente de verdad, cero conflicto). */
+function renderTabs() {
+    if (!tabsBox) return;
+    const sel = seleccionActual();
+    const disponibles = tabsForSelection(sel.length ? sel : null);
+    const manual = pestañaActual();
+    const detectada = detectTab(sel.length ? sel : null) || "base";
+    const activa = manual !== "auto" ? manual : detectada;
+
+    if (manual !== "auto" && !disponibles.includes(manual)) disponibles.push(manual);
+    if (!disponibles.includes("base")) disponibles.unshift("base");
+
+    tabsBox.innerHTML = "";
+    disponibles.sort((a, b) => (RAIZ_ORDEN[a] ?? 99) - (RAIZ_ORDEN[b] ?? 99));
+    disponibles.forEach(id => {
+        const def = TABS[id];
+        if (!def) return;
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "ekko-cascade-tab" + (id === activa ? " is-activa" : "");
+        b.textContent = def.label;
+        b.title = (manual === id)
+            ? `${def.label} — pulsalo de nuevo para volver al automático`
+            : `Ver herramientas de ${def.label.toLowerCase()}`;
+        b.addEventListener("click", () => elegirPestaña(id));
+        tabsBox.appendChild(b);
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/* Nivel 1: fila de herramientas (botones REALES re-parentados)         */
+/* ------------------------------------------------------------------ */
+function montarFila() {
+    const shell = document.createElement("div");
+    shell.className = "ekko-cascade-shell ekko-tools-shell";
+    fila = document.createElement("div");
+    fila.id = "ekkoCascadeTools";
+    shell.appendChild(fila);
+    topBar.appendChild(shell);
+
+    // Aplanar: los botones pasan directo a la fila (el reordenamiento por
+    // recientes exige un mismo contenedor flex). Son los nodos REALES:
+    // ribbonRenderer y commandParameters siguen encontrandolos dentro de
+    // #topBar, asi que el contrato no cambia nada.
+    const grupos = Array.from(topBar.querySelectorAll("div.top-group"));
+    grupos.forEach(g => {
+        Array.from(g.children).forEach(h => fila.appendChild(h));
+        g.remove();
+    });
+    Array.from(topBar.children).forEach(h => {
+        if (h === strip || h === shell) return;
+        if (["ekkoTopContextSurface", "topPanelControls"].includes(h.id)) return;
+        if (h.tagName === "BUTTON") fila.appendChild(h);
+    });
+
+    // Descargar integrado en la FILA (nivel 1): es el paso de salida del
+    // flujo de trabajo. Se limpia el CSS inline del boton flotante
+    // (position:fixed / top / right) que lo empujaba por debajo del nivel 0;
+    // su menu sigue anclado al boton (el relative lo pone el CSS de abajo).
+    const desc = document.getElementById("ekkoDownloadWrap");
+    if (desc) {
+        desc.style.cssText = "";
+        const db = document.getElementById("btnEkkoDownload");
+        if (db) db.classList.add("ekko-ini-btn");
+        fila.appendChild(desc);
+    }
+
+    if (topBar.firstChild !== strip) topBar.insertBefore(strip, topBar.firstChild);
+
+    armarPan(shell, fila);
+}
+
+/* Recientes: UNICAMENTE reordenamiento; el display lo decide la cinta. */
+function refrescarFila() {
+    if (!fila) return;
+    const firmas = Array.from(fila.querySelectorAll("button"))
+        .filter(b => !b.classList.contains("ekko-pan-btn") && nombreComando(b));
+    const forma = firmas.map(b => `${b.id || ""}#${nombreComando(b)}`).join("|");
+    const previa = fila.dataset.ordenPrevia || "";
+    if (forma !== previa) {
+        const base = firmas.slice();
+        base.sort((a, b) => rangoReciente(nombreComando(a)) - rangoReciente(nombreComando(b)));
+        base.forEach(b => fila.appendChild(b));
+        fila.dataset.ordenPrevia = forma;
+    }
+
+    // Descargar SIEMPRE al final de la fila (paso de salida del flujo);
+    // sin seleccion es lo unico que queda visible en el nivel 1.
+    const descFila = fila.querySelector(":scope > #ekkoDownloadWrap");
+    if (descFila) fila.appendChild(descFila);
+
+    const prod = document.getElementById("ekkoCascadeProducto");
+    if (prod) pintarProducto(prod);
+}
+
+/* ------------------------------------------------------------------ */
+/* Nivel 2: re-anclar el panel de parametros bajo el boton pulsado      */
+/* (commandParameters.js ya lo abre automaticamente; aqui solo cambia   */
+/*  el lugar: debajo de la herramienta, como pide el concepto)          */
+/* ------------------------------------------------------------------ */
+function vigilarNivel2() {
+    superficieN2 = document.getElementById("ekkoParamSurface");
+    if (!superficieN2) {
+        new MutationObserver((_, obs) => {
+            const s = document.getElementById("ekkoParamSurface");
+            if (s) { obs.disconnect(); superficieN2 = s; vigilarEstados(); }
+        }).observe(document.body, { childList: true, subtree: true });
+        return;
+    }
+    vigilarEstados();
+}
+
+function vigilarEstados() {
+    if (!superficieN2) return;
+    let abiertoPrevio = superficieN2.dataset.comando || null;
+    new MutationObserver(() => {
+        const visible = superficieN2.style.display !== "none";
+        const comando = superficieN2.dataset.comando || null;
+        if (!visible || !comando) { abiertoPrevio = null; return; }
+        if (abiertoPrevio === comando) return;
+        abiertoPrevio = comando;
+        const btn = fila && fila.querySelector(`[data-fusion-btn="${comando}"]`);
+        if (!btn) return;
+        const r = btn.getBoundingClientRect();
+        const w = superficieN2.offsetWidth || 420;
+        superficieN2.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + "px";
+        superficieN2.style.top = Math.round(r.bottom + 10) + "px";
+    }).observe(superficieN2, { attributeFilter: ["style", "data-comando", "class"], attributes: true, childList: true });
+}
+
+/* ------------------------------------------------------------------ */
+/* Refresco + orden de listeners (mi documento corre DESPUES del motor)  */
+/* ------------------------------------------------------------------ */
+function refrescarDocumento() {
+    // Sin seleccion, las herramientas de objeto NO se muestran: el flujo
+    // empieza en la tira (cargar / crear). La fila queda solo con Descargar
+    // (la salida del trabajo) y el resto nace con el objeto; la cinta
+    // decide los estados como siempre.
+    topBar.classList.toggle("ekko-sin-seleccion", !seleccionActual().length);
+    renderTabs();
+    refrescarFila();
+}
+
+function enlazar() {
+    // Recientes: captura, sin frenar nada; los botones bloqueados (P) no
+    // disparan click, asi que solo el uso REAL alimenta la lista.
+    document.addEventListener("click", (ev) => {
+        if (!ev.target.closest) return;
+        const dentro = ev.target.closest("#ekkoCascadeTools");
+        if (!dentro) return;
+        const btn = ev.target.closest("button");
+        if (!btn) return;
+        registrarUso(nombreComando(btn));
+    }, true);
+
+    // Despues de CUALQUIER refresco de la cinta/puentes, actualizo tabs y MRU.
+    ["refreshEKKORibbon", "refreshEKKOSharedCommands", "refreshAllToolbars", "refreshSharedCommands"].forEach(n => {
+        const previo = window[n];
+        if (typeof previo !== "function") return;
+        window[n] = function () {
+            const r = previo.apply(this, arguments);
+            setTimeout(refrescarDocumento, 0);
+            return r;
+        };
+    });
+    document.addEventListener("ekko:seleccion-cambio", () => refrescarDocumento());
+
+    // Solamente childList: el renderer cambia atributos (no hijos), asi que
+    // mis reordenamientos no generan bucle (y la firma del orden freno igual).
+    let timer = null;
+    new MutationObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(refrescarDocumento, 120);
+    }).observe(topBar, { childList: true, subtree: true });
+
+    window.addEventListener("resize", () => refrescarDocumento());
+}
+
+/* ------------------------------------------------------------------ */
+export function initCascadeToolbar() {
+    if (iniciado) return;
+    const top = document.getElementById("topBar");
+    if (!top || document.getElementById("ekkoCascadeStrip")) return;
+    if (!window.EKKO_PANEL_STATE) {
+        // Sin el estado vivo del coordinador no hay fuente unica: no arranco.
+        console.warn("[EKKO CASCADA] Requiere panelCoordinator con EKKO_PANEL_STATE.");
+        return;
+    }
+    iniciado = true;
+    topBar = top;
+    topBar.classList.add("ekko-cascade");
+
+    estilos();
+    montarStrip();
+    montarFila();
+    refrescarDocumento();
+    vigilarNivel2();
+    enlazar();
+
+    window.EKKO_RIBBON && window.EKKO_RIBBON.refresh && window.EKKO_RIBBON.refresh();
+
+    window.__EKKO_CASCADA = {
+        activo: true,
+        refrescar: refrescarDocumento,
+        reiniciarRecientes() {
+            try { localStorage.removeItem(LLAVE_RECENTES); } catch (_) {}
+            refrescarFila();
+        }
+    };
+    console.log("%c[EKKO CASCADA] Prototipo activo (?cascade=1). Tira/estructura montada; decision de botones delegada a la cinta (un solo escritor).", "color:#7c3aed;font-weight:bold;");
 }
