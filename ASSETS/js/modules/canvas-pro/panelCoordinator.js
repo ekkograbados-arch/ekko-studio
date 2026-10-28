@@ -142,6 +142,72 @@ function ensureContextSurface() {
     return surface;
 }
 
+/**
+ * Chip de panel oculto: UN SOLO control, el mismo chevron de la barra,
+ * resurgiendo flotante en la esquina superior derecha cuando el panel
+ * superior esta OCULTO. El chevron apunta hacia abajo ("abrir el panel");
+ * clic devuelve la barra a expandido. SIN menu de tres puntos aca: los
+ * tres puntos verticales son y solo son "Mas herramientas"
+ * (toolbarOverflow.js, al estilo Word/Office); las opciones de paneles
+ * viven en su propio lugar (boton de la barra emergente) y el chevron
+ * invertido es la unica salida de emergencia necesaria.
+ * Se construye en JS (con sus estilos) para no depender de HTML/CSS del
+ * servidor y para que exista SIEMPRE que se necesite.
+ */
+function ensurePanelAnchor() {
+    let wrap = byId("ekkoPanelAnchor");
+    if (wrap) return wrap;
+
+    if (!byId("ekkoPanelAnchorStyles")) {
+        const style = document.createElement("style");
+        style.id = "ekkoPanelAnchorStyles";
+        style.textContent = `
+            #ekkoPanelAnchor {
+                position: fixed;
+                top: 10px;
+                right: 14px;
+                z-index: calc(var(--ekko-floating-z, 10100) + 10);
+                display: none;
+                align-items: center;
+                padding: 5px 8px;
+                border-radius: 8px;
+                background: rgba(15, 23, 42, 0.88);
+                border: 1px solid rgba(255, 255, 255, 0.22);
+                box-shadow: 0 8px 22px rgba(15, 23, 42, 0.35);
+            }
+            #ekkoPanelAnchor.is-visible { display: inline-flex; }
+            .panel-anchor-btn {
+                background: transparent;
+                border: 0;
+                color: #e2e8f0;
+                font-size: 15px;
+                line-height: 1;
+                padding: 2px 4px;
+                cursor: pointer;
+            }
+            .panel-anchor-btn:hover { background: rgba(255, 255, 255, 0.16); color: #fff; border-radius: 5px; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    wrap = document.createElement("div");
+    wrap.id = "ekkoPanelAnchor";
+    wrap.setAttribute("role", "button");
+    wrap.setAttribute("aria-label", "Expandir panel superior");
+    wrap.innerHTML = `
+        <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorExpand" title="Expandir panel superior" aria-label="Expandir panel superior">⌄</button>
+    `;
+    document.body.appendChild(wrap);
+
+    byId("ekkoPanelAnchorExpand").addEventListener("click", (event) => {
+        event.stopPropagation();
+        panelState.topPanel = "expanded";
+        applyPanelState();
+    });
+
+    return wrap;
+}
+
 function renderContextSurface() {
     const surface = ensureContextSurface();
     if (!surface) return;
@@ -258,19 +324,27 @@ function renderPanelState() {
         }
     }
 
-    // SALIDA DE EMERGENCIA: el dock "Mostrar herramientas" debe aparecer en
-    // CUALQUIER estado que deje al cliente sin boton de retorno visible.
-    // Antes solo aparecia con los tres paneles ocultos a la vez; si se ocultaba
-    // solo el panel superior (o la barra emergente), sus propios botones
-    // desaparecian DENTRO del panel oculto y ninguna recarga lo devolvia: el
-    // estado quedaba persistido en localStorage sin salida. Un clic en el dock
-    // restaura todo a los valores normales.
-    const sinVolverAtras = panelState.topPanel !== "expanded" ||
-        panelState.floatingBar === "hidden" ||
-        panelState.productPanel === "hidden";
+    // SALIDA DE EMERGENCIA SIN TEXTO: cuando el panel superior esta OCULTO,
+    // un chip minimalista fijo en la esquina superior derecha muestra EL MISMO
+    // control de la barra: chevron invertido ("abrir el panel") + opciones de
+    // paneles. En compacto no aparece porque los controles de la propia barra
+    // siguen visibles en la tira de 34px. Sustituye al dock con texto
+    // "Mostrar herramientas" (que queda dormido en el HTML) y elimina la
+    // trampa en la que los botones de retorno vivian DENTRO del panel que se
+    // ocultaba.
+    const anchor = ensurePanelAnchor();
+    if (anchor) {
+        anchor.classList.toggle("is-visible", panelState.topPanel === "hidden");
+    }
 
-    if (el.recovery) {
-        el.recovery.classList.toggle("is-visible", sinVolverAtras);
+    // El chevron de la propia barra tambien se invierte en compacto: mismo
+    // lenguaje visual en ambos controles.
+    const compactBtn = byId("topPanelCompact");
+    if (compactBtn) {
+        const contraido = panelState.topPanel !== "expanded";
+        compactBtn.textContent = contraido ? "⌄" : "⌃";
+        compactBtn.title = contraido ? "Expandir panel superior" : "Contraer panel superior";
+        compactBtn.setAttribute("aria-label", compactBtn.title);
     }
 }
 
@@ -414,7 +488,12 @@ function wrapContextualMenuAPI() {
 
 function bindPanelControls() {
     const topCompact = byId("topPanelCompact");
-    const topOverflow = byId("topPanelOverflow");
+    // topPanelOverflow (los tres puntos de la barra superior) NO se vincula
+    // aca: es exclusivamente el boton "Mas herramientas" de toolbarOverflow.js
+    // (estilo Word/Office), que ademas corta los demas listeners del mismo
+    // clic con stopImmediatePropagation en fase captura. Cualquier binding
+    // de paneles a ese boton es codigo muerto y confunde el semantico:
+    // tres puntos = herramientas, nunca = ocultar paneles.
     const floatingOverflow = byId("floatingPanelOverflow");
     const topProductToggle = byId("productPanelTopToggle");
     const hideProducts = byId("btnHideProductPanel");
@@ -425,11 +504,6 @@ function bindPanelControls() {
         event.stopPropagation();
         panelState.topPanel = panelState.topPanel === "compact" ? "expanded" : "compact";
         applyPanelState();
-    });
-
-    topOverflow?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openVisibilityMenu(topOverflow);
     });
 
     floatingOverflow?.addEventListener("click", (event) => {
@@ -500,6 +574,21 @@ export function initPanelCoordinator() {
     window.EKKO_PANEL_STATE = panelState;
     window.setEKKOSelectionContext = setSelectionContext;
     window.getEKKOPanelState = getPanelState;
+
+    // PROTOTIPO CASCADA (Fase 1): activo solo con ?cascade=1 en la URL, o
+    // con ekko.cascadePrototype="1" en localStorage. ?cascade=0 desactiva.
+    // Dinamico y condicional: sin flag, este modulo no carga NADA nuevo y
+    // la app se comporta exactamente como siempre.
+    try {
+        const flag = new URLSearchParams(location.search).get("cascade");
+        if (flag === "1") localStorage.setItem("ekko.cascadePrototype", "1");
+        if (flag === "0") localStorage.setItem("ekko.cascadePrototype", "0");
+        if (localStorage.getItem("ekko.cascadePrototype") === "1") {
+            import("./cascadeToolbar.js")
+                .then(m => m.initCascadeToolbar?.())
+                .catch(err => console.warn("[EKKO CASCADA] no se pudo iniciar:", err));
+        }
+    } catch (_) {}
 
     console.log("%c[EKKO PANELS] Coordinador de paneles inicializado.", "color:#2563eb;font-weight:bold;");
 }
