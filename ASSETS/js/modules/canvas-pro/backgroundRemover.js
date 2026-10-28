@@ -242,6 +242,12 @@
         // que miden igual la segunda reutilizaba los colores de la primera
         // (region borrada de 143.918 px donde no era, reportado 2026-10-24).
         tokenImagen: 0,
+        // Clave de la SESION de edicion en curso (v11.31). Cada foto procesada
+        // guarda su propio paquete de estado y esta clave dice cual esta
+        // cargado: "Editar fondo" edita la foto SELECCIONADA, no la ultima
+        // procesada (reporte 2026-10-24: procesa dos fotos, pulsa Editar
+        // fondo sobre la primera y la ventana abria la segunda).
+        claveSesion: null,
         // Alfa final de la IA a resolucion de trabajo. Se guarda al recortar
         // para que, al reabrir el retoque, Deshacer siga teniendo el estado 0
         // sin volver a correr el post-proceso.
@@ -1650,9 +1656,18 @@
                 vivo.data = {
                     ...(vivo.data || {}),
                     quitarFondoIA: true,
-                    source: 'user-image'
+                    source: 'user-image',
+                    // Clave de la SESION de edicion de ESTA foto (v11.31): el
+                    // paquete completo de estado vive en el modulo con esta
+                    // clave, asi "Editar fondo" abre ESTA foto aunque otra
+                    // haya sido la ultima en procesarse.
+                    ekkoFondoClave: 'F' + (++SECUENCIA)
                 };
                 ESTADO.rasterOriginal = vivo;
+                ESTADO.claveSesion = vivo.data.ekkoFondoClave;
+                // El paquete inicial de esta foto: el ESTADO ya es de ella.
+                sesionGuardar();
+                sesionRecortar();
                 nueva = vivo;
             } catch (e) { ESTADO.ultimoError = e; }
 
@@ -1674,9 +1689,15 @@
                 r.source = ESTADO.urlOriginal;
                 r.data = { ...(r.data || {}) };
                 delete r.data.quitarFondoIA;
+                // La sesion de edicion de esta foto deja de existir: sin la
+                // marca, Editar Fondo no la abre. El paquete se retira (v11.31).
+                const claveVieja = r.data.ekkoFondoClave;
+                delete r.data.ekkoFondoClave;
+                if (claveVieja) SESIONES.delete(claveVieja);
             } catch (_) {}
         }
         ESTADO.imagenProcesada = null;
+        ESTADO.claveSesion = null;
         ESTADO.rasterOriginal = null;
         ESTADO.urlOriginal = null;
         ESTADO.mascara = null;
@@ -1737,16 +1758,21 @@
                     ? window.selectedItems[window.selectedItems.length - 1] : null);
             if (sel && sel.className === 'Raster' && sel.project) return sel;
 
-            let marcado = null, primero = null;
+            let marcado = null, enSesion = null, primero = null;
             const buscar = (it) => {
                 if (it && it.className === 'Raster' && it.project) {
                     if (!primero) primero = it;
                     if (!marcado && it.data && it.data.quitarFondoIA) marcado = it;
+                    // Con varias fotos procesadas, distingue la de la SESION
+                    // en curso: la reidratacion puede dejar varias marcadas
+                    // y escribir el recorte en la equivocada (v11.31).
+                    if (!enSesion && it.data && it.data.ekkoFondoClave
+                        && it.data.ekkoFondoClave === ESTADO.claveSesion) enSesion = it;
                 }
                 (it.children || []).forEach(buscar);
             };
             (paper.project.layers || []).forEach(l => l.children.forEach(buscar));
-            return marcado || primero || ESTADO.imagenProcesada || null;
+            return enSesion || marcado || primero || ESTADO.imagenProcesada || null;
         } catch (_) {
             return ESTADO.imagenProcesada || null;
         }
@@ -1856,7 +1882,10 @@
             // esta. Deshacer se puede mientras `paso > 0` y Rehacer mientras
             // `paso < pasos - 1`.
             pasos: HISTORIAL.pasos.length + 1,
-            paso: HISTORIAL.indice
+            paso: HISTORIAL.indice,
+            // Sesion de edicion en curso (v11.31): sirve para medir en los
+            // bancos que "Editar fondo" abrio la foto SELECCIONADA.
+            sesionClave: ESTADO.claveSesion
         }),
         // LECTURA DEL DIAGNOSTICO. SOLO LEE, no escribe nada.
         //
@@ -2114,17 +2143,34 @@
         const seleccion = Array.isArray(window.selectedItems) && window.selectedItems.length
             ? window.selectedItems
             : (window.selectedItem ? [window.selectedItem] : []);
+        // v11.32 (2026-10-28): EL RECORTE YA HECHO GANA. La barra muestra
+        // "Editar Fondo" si AL MENOS un seleccionado tiene recorte, y con
+        // una seleccion mixta (1 recorte + 1 imagen con fondo) ESTA funcion
+        // debe devolver el marcado, no el primer raster crudo: antes el
+        // pincel se frenaba en el sin recorte y abrirRetoque sacaba el
+        // aviso equivocado. Sin recorte en la seleccion queda el primer
+        // raster: abrirRetoque lo rechaza con su aviso, igual que siempre.
+        let primero = null;
+        let marcado = null;
+        const tomar = r => {
+            if (!r || !r.project) return;
+            if (!primero) primero = r;
+            if (!marcado && r.data && r.data.quitarFondoIA) marcado = r;
+        };
         for (const item of seleccion) {
-            try { if (item instanceof paper.Raster) return item; } catch (_) {}
+            if (marcado) break;
+            try { if (item instanceof paper.Raster) tomar(item); } catch (_) {}
+            if (marcado) break;
             // La app envuelve la pieza: se baja hasta el Raster de adentro.
             const pila = item && item.children ? [...item.children] : [];
             while (pila.length) {
                 const c = pila.shift();
-                try { if (c instanceof paper.Raster) return c; } catch (_) { continue; }
+                try { if (c instanceof paper.Raster) tomar(c); } catch (_) { continue; }
+                if (marcado) break;
                 if (c && c.children) pila.push(...c.children);
             }
         }
-        return ESTADO.imagenProcesada || null;
+        return marcado || primero || ESTADO.imagenProcesada || null;
     }
 
     /**
@@ -2609,6 +2655,90 @@
         return true;
     }
 
+    /**
+     * SESION DE EDICION POR IMAGEN (v11.31).
+     *
+     * Hasta v11.30 el modulo tenia UNA sola sesion de retoque (el estado de
+     * la ULTIMA foto procesada) y "Editar fondo" abria siempre esa ultima:
+     * el cliente procesa dos fotos, pulsa "Editar fondo" sobre la primera
+     * (seleccionada) y la ventana abria la segunda: retocaba sin saberlo la
+     * otra foto (reporte 2026-10-24, con capturas).
+     *
+     * La clave vive en `data.ekkoFondoClave` (texto simple, sobrevive a
+     * saveHistory y a la rehidratacion de la escena, igual que la marca
+     * `quitarFondoIA`); el paquete pesado (mascaras, lienzos) vive aqui en el
+     * modulo, por eso cada foto procesada tiene su entrada.
+     */
+    const SESIONES = new Map();   // clave (string) -> paquete de estado
+    let SECUENCIA = 0;            // claves unicas por corrida de quitarFondo
+    const SESION_TOPE = 8;        // fotos con sesion viva al mismo tiempo
+
+    function sesionClaveDe(item) {
+        return (item && item.data && item.data.ekkoFondoClave) || null;
+    }
+
+    function sesionCapturar() {
+        return {
+            mascara: ESTADO.mascara,
+            mascaraAncho: ESTADO.mascaraAncho,
+            mascaraAlto: ESTADO.mascaraAlto,
+            mascaraFinal: ESTADO.mascaraFinal,
+            alfaIA: ESTADO.alfaIA,
+            caja: ESTADO.caja,
+            lienzoOriginal: ESTADO.lienzoOriginal,
+            lienzoTrabajo: ESTADO.lienzoTrabajo,
+            urlOriginal: ESTADO.urlOriginal
+        };
+    }
+
+    function sesionGuardar() {
+        // Guarda el estado ACTUAL como paquete de la sesion en curso (se
+        // llama al cerrar la ventana y al terminar quitarFondo).
+        if (!ESTADO.claveSesion) return;
+        if (SESIONES.size >= SESION_TOPE && !SESIONES.has(ESTADO.claveSesion)) {
+            SESIONES.delete(SESIONES.keys().next().value);
+        }
+        SESIONES.set(ESTADO.claveSesion, sesionCapturar());
+    }
+
+    function sesionRecortar() {
+        // Huerfanos: reprocesar una foto cambia la clave en `data` y el
+        // paquete viejo quedaria sin dueno.
+        while (SESIONES.size > SESION_TOPE) {
+            SESIONES.delete(SESIONES.keys().next().value);
+        }
+    }
+
+    function sesionCargar(clave, item) {
+        const paquete = SESIONES.get(clave);
+        if (!paquete) return false;
+        // Las referencias SIEMPRE vienen del item vivo que pide la sesion:
+        // las guardadas pueden quedar desconectadas tras saveHistory (ver
+        // `resolverItemVivo`).
+        ESTADO.imagenProcesada = item;
+        ESTADO.imagenOriginal = item;
+        ESTADO.rasterOriginal = item;
+        ESTADO.mascara = paquete.mascara;
+        ESTADO.mascaraAncho = paquete.mascaraAncho;
+        ESTADO.mascaraAlto = paquete.mascaraAlto;
+        ESTADO.mascaraFinal = paquete.mascaraFinal;
+        ESTADO.alfaIA = paquete.alfaIA;
+        ESTADO.caja = paquete.caja;
+        ESTADO.lienzoOriginal = paquete.lienzoOriginal;
+        ESTADO.lienzoTrabajo = paquete.lienzoTrabajo;
+        ESTADO.urlOriginal = paquete.urlOriginal;
+        ESTADO.claveSesion = clave;
+        // De la foto ANTERIOR nada puede quedar en caches del retoque:
+        RETOQUE.colorGrid = null;
+        RETOQUE.colorClave = '';
+        RETOQUE.capasClave = '';
+        RETOQUE.capasSucias = true;
+        RETOQUE.original = null;
+        ESTADO.ventanaCaja = null;
+        ESTADO.tokenImagen = (ESTADO.tokenImagen || 0) + 1;
+        return true;
+    }
+
     function abrirRetoque() {
         const ventana = document.getElementById('ventana-editar-fondo');
         // Si YA esta abierto, no se reinicia NADA: ni zoom, ni paneo, ni
@@ -2622,6 +2752,43 @@
         RETOQUE.panVentana = { x: 0, y: 0 };
         const etZoom = document.getElementById('valor-zoom-ventana');
         if (etZoom) etZoom.textContent = '100%';
+        // QUE imagen se edita (v11.31): la SELECCIONADA si tiene recorte
+        // guardado; sin seleccion, la ultima procesada. ANTES se abria
+        // SIEMPRE la ultima procesada: el cliente procesa dos fotos, pulsa
+        // "Editar fondo" sobre la primera (seleccionada) y la ventana abria
+        // la segunda: retocaba sin saberlo la otra foto (reporte 2026-10-24).
+        const rSel = imagenEnRetoque();
+        const sinSeleccion = !window.selectedItem
+            && !(Array.isArray(window.selectedItems) && window.selectedItems.length);
+        if (rSel && !sinSeleccion) {
+            if (!(rSel.data && rSel.data.quitarFondoIA)) {
+                // Seleccion sin recorte: NO abrir otra foto por debajo, eso
+                // era exactamente el reporte del cliente.
+                avisar('La imagen seleccionada todavía no tiene fondo quitado. Procesála primero.', { kind: 'warn' });
+                return false;
+            }
+            const claveSel = sesionClaveDe(rSel);
+            if (!claveSel) {
+                // Marca sin sesion: solo pasa tras recargar la pagina (el
+                // paquete vive en memoria del modulo). Nunca abrir "otra foto
+                // por debajo" en silencio: eso era el reporte del cliente.
+                avisar('No hay sesión de edición para esta imagen. Quitá el fondo de nuevo para retocarla.', { kind: 'warn' });
+                return false;
+            }
+            if (claveSel !== ESTADO.claveSesion) {
+                if (!SESIONES.has(claveSel)) {
+                    // La pagina se recargo: el paquete vive en memoria del
+                    // modulo y no sobrevive a eso, por mucho que la marca
+                    // siga en el item.
+                    avisar('La edicion de esta imagen se perdió al recargar la página. Quitá el fondo de nuevo para retocarla.', { kind: 'warn' });
+                    return false;
+                }
+                if (!sesionCargar(claveSel, rSel)) {
+                    avisar('Primero quitá el fondo, después retocá el recorte.', { kind: 'warn' });
+                    return false;
+                }
+            }
+        }
         if (!ESTADO.imagenProcesada || !ESTADO.mascara) {
             avisar('Primero quitá el fondo, después retocá el recorte.', { kind: 'warn' });
             return false;
@@ -2900,6 +3067,10 @@
         const cur = document.getElementById('cursor-pincel');
         if (cur) { cur.style.display = 'none'; cur.dataset.visible = ''; }
         marcarPincelActivo();
+        // La sesion de la foto que se cierra queda guardada: reabrirla mas
+        // tarde (o editar otra y volver a esta) conserva su mascara y sus
+        // retoques (v11.31). Sirve para el cierre por Listo y por la X.
+        if (ESTADO.claveSesion) sesionGuardar();
         try { if (window.saveHistory) window.saveHistory(); } catch (_) {}
         return true;
     }
