@@ -77,6 +77,40 @@ function ownerOf(item) {
 }
 
 /**
+ * ¿ESTA SELECCION LLEVA ARRIBA UN RECORTE hecho por Quitar Fondo?
+ *
+ * La marca `quitarFondoIA` la escribe backgroundRemover en el `data` del
+ * RASTER vivo (no del envoltorio). `ownerOf` resuelve el envoltorio
+ * publico, pero sobre un wrapper de contencion de mockup puede terminar
+ * en el GRUPO que tiene el raster adentro, y leer `owner.data` directo
+ * pierde la marca.
+ *
+ * El propio modulo ya resuelve este problema por su lado (resolverImagen,
+ * imagenEnRetoque): aca se usa la MISMA idea para que la regla de la barra
+ * y el comportamiento del modulo no discrepen. 2026-10-28.
+ */
+function llevaRecorte(entry) {
+  if (!entry || typeof entry !== "object") return false;
+  const esMarcado = it => !!(it && it.className === "Raster"
+    && it.data && it.data.quitarFondoIA === true);
+  if (esMarcado(entry.owner) || esMarcado(entry.item)) return true;
+  /* Wrapper: el raster marcado vive adentro. Busqueda por niveles, igual
+     que resolverImagen en backgroundRemover. */
+  const raices = [entry.owner, entry.item].filter(r =>
+    r && typeof r === "object" && Array.isArray(r.children));
+  for (const raiz of raices) {
+    const pila = [...raiz.children];
+    while (pila.length) {
+      const c = pila.shift();
+      if (!c) continue;
+      if (esMarcado(c)) return true;
+      if (Array.isArray(c.children)) pila.push(...c.children);
+    }
+  }
+  return false;
+}
+
+/**
  * Un objeto es CONTENEDOR si al apretar Descomponer se lo puede partir en
  * varias piezas y trabajar con cada una por separado.
  *
@@ -462,14 +496,14 @@ export const TOOLS = {
   // para el cliente. CONTORNO ES EL BORDE, y es una sola cosa. De donde sale
   // ese borde (silueta o caja) lo decide la app sola mirando la imagen, asi
   // que acá no hay una entrada aparte: solo `outline`.
-  // "Quitar Fondo" se apaga en cuanto la imagen ya no tiene fondo:Offering
-    // otra vez no haria nada, y lo que tiene sentido ahi es
-    // "Editar Fondo". MEDIDO: con la imagen ya recortada seguian los dos
-    // botones a la vez, que es lo que el cliente reporto como incoherente.
+  // "Quitar Fondo" se apaga en cuanto la imagen ya no tiene fondo: ofrecerlo
+  // otra vez no haria nada, y lo que tiene sentido ahi es
+  // "Editar Fondo". MEDIDO: con la imagen ya recortada seguian los dos
+  // botones a la vez, que es lo que el cliente reporto como incoherente.
     removeBg: {
         label: "Quitar Fondo",
         active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER)
-            && !s.list.every(e => e.owner?.data?.quitarFondoIA === true)
+            && !llevaRecorte(s.list[0])
     },
   traceImage:    { label: "Trazar Imagen", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
 
@@ -480,8 +514,14 @@ export const TOOLS = {
   //     queda oculto y no hay forma de abrir el pincel sin recorte. ---
   editCutout: {
     label: "Editar Fondo",
-    active: s => s.count > 0 && s.list.length > 0 &&
-      s.list.every(e => e.owner?.data?.quitarFondoIA === true)
+    // ALCANCE (2026-10-28): AL MENOS un recorte listo (`some`). Antes se
+    // exigia que TODOS (`every`): con una seleccion mixta (1 recorte + 1
+    // imagen con fondo) este boton desaparecia... y "Quitar Fondo" tambien
+    // (exige UNA sola), dejando la barra sin NINGUNA herramienta de imagen,
+    // sin salida. Photoshop es por capa: la mascara de cada recorte se
+    // edita por su lado, y esta regla adopta ese modelo. La ventana de
+    // retoque abre el recorte marcado de la seleccion (imagenEnRetoque).
+    active: s => s.list.some(llevaRecorte)
   },
 
   // --- Texto (edicion de UN texto: con varios se oculta) ---
@@ -583,7 +623,7 @@ const ENGINE_TO_LEGACY = Object.freeze({
 
 export function legacyNamesFor(selection) {
   const selectionList = (Array.isArray(selection) ? selection : []).filter(Boolean);
-  if (!selectionList.length) return ALWAYS_TOOLS;
+  if (!selectionList.length) return ["zoom", "rulers", "guides", "measurements"];
   const enabled = new Set(resolveToolNames(selectionList));
   const names = [];
   Object.entries(ENGINE_TO_LEGACY).forEach(([tool, legacy]) => {
@@ -619,7 +659,7 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
      justamente lo que hace falta para poder seguir trabajando. */
 export const TABS = Object.freeze({
   base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
-  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "traceImage", "outline", "fusion"] },
+  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
   multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements"] }
