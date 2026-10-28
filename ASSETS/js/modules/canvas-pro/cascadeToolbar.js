@@ -166,7 +166,11 @@ function estilos() {
         /* Conchas: las flechas viven aqui (position:relative), no dentro del
            scroller, para quedar clavadas al borde visible. */
         .ekko-cascade-shell { position: relative; min-width: 0; }
-        .ekko-tabs-shell { flex: 1 1 auto; display: flex; align-items: center; min-width: 0; }
+        /* La concha de pestanas NO se estira: ahora abre la tira (esta primero
+           que la creacion), y si absorbiera el espacio libre empujaria a
+           "Cargar Imagen / SVG" contra el centro. Solo encoge cuando no
+           entran las pestanas, y ahi aparecen las flechas. */
+        .ekko-tabs-shell { flex: 0 1 auto; display: flex; align-items: center; min-width: 0; }
         /* La concha de herramientas es FLEX: adentro vive la fila que
            scrollea y, clavado a la derecha, el boton de modo claro/oscuro. */
         .ekko-tools-shell { width: 100%; display: flex; align-items: center; gap: 6px; }
@@ -177,12 +181,17 @@ function estilos() {
 
         /* El UNICO control del panel de productos: siempre a la IZQUIERDA de
            "Inicio", en la tira. Mismo lenguaje que el chevron de la barra
-           superior: un boton fijo que cambia el glifo (‹ oculto / › visible
-           por el lado que abre) y el tooltip. panelCoordinator se ocupa de
-           invertir ambos; aca solo se le da lugar. */
+           superior: un boton fijo que cambia el glifo (‹ / › segun el lado por
+           donde abre) y el tooltip. panelCoordinator invierte ambos; aca solo
+           se le da lugar y el tamano del chevron, para que los dos "portones"
+           de la interfaz se lean de la misma familia. */
         #ekkoCascadeStrip #productPanelTopToggle {
             display: inline-flex !important;
             flex: 0 0 auto;
+            align-items: center;
+            justify-content: center;
+            min-width: 34px;
+            height: 30px;
             margin-right: 6px;
         }
 
@@ -238,6 +247,14 @@ function estilos() {
            (fila 1) y las herramientas (fila 2). Sigue en el body, afuera de
            todo panel, asi conserva su funcion cuando la barra se oculta. */
         body[data-ekko-cascade="1"] #ekkoPanelAnchor { top: 56px !important; }
+        /* ... y el revive › del panel de productos SOBRA en la cascada: ese
+           panel se abre y se cierra desde UN unico lugar (el boton a la
+           izquierda de "Inicio"), que esta visible incluso en modo compacto.
+           Dos puertas para el mismo panel confunden al cliente. El chip
+           conserva ⌄ (barra superior oculta) y ≡ (barra emergente oculta),
+           que si no se pierden: al ocultar la barra se oculta tambien la tira
+           y quedaria sin salida. */
+        body[data-ekko-cascade="1"] #ekkoPanelAnchorProducts { display: none !important; }
 
         /* --- BOTONES DE LA TIRA (fila 1): llenos y de acento. El lenguaje
                visual DEBE distinguirse de la fila de herramientas (fila 2),
@@ -549,8 +566,11 @@ function montarStrip() {
         util.appendChild(desc);
     }
 
-    strip.appendChild(cluster);
-
+    /* El ORDEN de la tira sigue el flujo de lectura: primero la PUERTA del
+       panel de productos y "Inicio" (donde se esta parado), despues la
+       CREACION (Cargar / Agregar Texto / QR) y al fondo las utilidades. La
+       puerta abre la tira porque el panel que gobierna esta pegado al borde
+       izquierdo de la ventana: es lo primero que toca la mano. */
     const tabsShell = document.createElement("div");
     tabsShell.className = "ekko-cascade-shell ekko-tabs-shell";
 
@@ -565,10 +585,13 @@ function montarStrip() {
     tabsBox = document.createElement("div");
     tabsBox.id = "ekkoCascadeTabs";
     tabsShell.appendChild(tabsBox);
+
     strip.appendChild(tabsShell);
+    strip.appendChild(cluster);
 
     // Las utilidades van al EXTREMO derecho de la tira (fuera del cluster):
-    // IZQUIERDA = crear el proyecto, CENTRO = contextos, DERECHA = estado.
+    // IZQUIERDA = la puerta del panel y "Inicio", CENTRO = crear el proyecto,
+    // DERECHA = estado, chevron y Descargar.
     strip.appendChild(util);
 
     topBar.insertBefore(strip, topBar.firstChild);
@@ -763,6 +786,20 @@ function refrescarDocumento() {
     if (topBar.firstChild !== strip) topBar.insertBefore(strip, topBar.firstChild);
     renderTabs();
     refrescarFila();
+    limpiarAncla();
+}
+
+/* El chip de rescate del coordinador se muestra si ALGUNA capa quedo oculta.
+   En la cascada la puerta del panel de productos vive en la tira (siempre
+   visible, tambien en compacto), asi que su revive › esta oculto por CSS y el
+   chip podia quedar flotando VACIO en la esquina. Si no le queda ningun boton
+   con funcion, se va. */
+function limpiarAncla() {
+    const anchor = document.getElementById("ekkoPanelAnchor");
+    if (!anchor || !anchor.classList.contains("is-visible")) return;
+    const util = [...anchor.querySelectorAll(".panel-anchor-btn")].some(b =>
+        b.id !== "ekkoPanelAnchorProducts" && getComputedStyle(b).display !== "none");
+    if (!util) anchor.classList.remove("is-visible");
 }
 
 function enlazar() {
@@ -788,6 +825,14 @@ function enlazar() {
         };
     });
     document.addEventListener("ekko:seleccion-cambio", () => refrescarDocumento());
+
+    // El chip de rescate esta en el BODY (fuera de la barra), asi que el
+    // observador de #topBar no lo ve: se vigila aparte para que nunca flote
+    // vacio. Es idempotente: al quitarle is-visible vuelve a entrar, ve que ya
+    // no esta visible y sale sin tocar nada.
+    const ancla = document.getElementById("ekkoPanelAnchor");
+    if (ancla) new MutationObserver(limpiarAncla)
+        .observe(ancla, { attributes: true, attributeFilter: ["class", "style"] });
 
     // Solamente childList: el renderer cambia atributos (no hijos), asi que
     // mis reordenamientos no generan bucle (y la firma del orden freno igual).
