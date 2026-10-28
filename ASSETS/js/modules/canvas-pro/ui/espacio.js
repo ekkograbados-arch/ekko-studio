@@ -8,10 +8,9 @@
    Contrato:
    · El botón NO lleva data-fusion-btn: el renderer/manifiesto no lo
      gobierna y nunca lo oculta.
-   · Persistencia: localStorage['ekko-modo-interfaz-v2'] = 'claro'|'oscuro'.
-   · Sin valor guardado → SIEMPRE inicia en modo claro (la referencia
-     visual de la piel es el lock screen luminoso; se dejó de seguir
-     prefers-color-scheme para que la primera impresión sea controlada).
+   · Arranque SIEMPRE en modo claro (v2.9): la primera impresión es la
+     del lock screen luminoso, en cada visita. El modo elegido con el
+     botón vive solo mientras dura la página (no se persiste).
    ========================================================================= */
 
 (function() {
@@ -25,13 +24,6 @@
     const ICONO_LUNA  = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M21 14.2A9.2 9.2 0 0 1 9.8 3 9.2 9.2 0 1 0 21 14.2Z"/></svg>';
     const ICONO_SOL   = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="12" cy="12" r="4.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></g></svg>';
 
-    function modoGuardado() {
-        try {
-            const v = localStorage.getItem(CLAVE);
-            return (v === 'claro' || v === 'oscuro') ? v : null;
-        } catch (e) { return null; }
-    }
-
     function aplicar(modo) {
         document.body.dataset.modo = modo;
         const btn = document.getElementById(BOTON_ID);
@@ -44,8 +36,7 @@
 
     function alternar() {
         const nuevo = document.body.dataset.modo === 'oscuro' ? 'claro' : 'oscuro';
-        aplicar(nuevo);
-        try { localStorage.setItem(CLAVE, nuevo); } catch (e) { /* sin storage: la sesión vive */ }
+        aplicar(nuevo);                 // el modo no se persiste: vive la sesión
     }
 
     function crearBoton() {
@@ -68,7 +59,8 @@
 
     function arrancar() {
         crearBoton();                                       // primero el botón…
-        aplicar(modoGuardado() || 'claro');                 // …así nace con ícono/title
+        try { localStorage.removeItem(CLAVE); } catch (e) { /* sin storage */ }
+        aplicar('claro');                                   // …y SIEMPRE nace claro
     }
 
     if (document.readyState === 'loading') {
