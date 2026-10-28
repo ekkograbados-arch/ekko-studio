@@ -147,10 +147,36 @@
     border-radius: 3px;
 }
 
-/* Modo compacto / barra contraída: se comporta como antes. */
+/* Modo compacto / barra contraída: se comporta como antes, PERO el cuerpo de
+   la cinta no puede ocultarse entero: el chevron de EXPANDIR (y el menu de
+   paneles) vive adentro, re-parentado por ribbonLayout. Se cierran los
+   grupos de herramientas y el cuerpo se clava arriba a la derecha, dentro de
+   los 34px de la tira (en compacto la barra no envuelve y la superficie de
+   pestañas se come el ancho: el cuerpo quedaba aplastado a 0px y sus botones
+   se salian de la barra). */
 #topBar.is-compact .ekko-ribbon-body,
 #topBar.collapsed .ekko-ribbon-body {
-    display: none;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    position: absolute;
+    top: 2px;
+    /* 122px = los ~99px del boton fijo "Descargar" (right:14px en
+       ekko-espacio.css) + su aire. Pegado al borde, el chevron de expandir
+       nacía encima del boton de descarga. */
+    right: 122px;
+    width: auto;
+    min-height: 0;
+    z-index: 4;
+}
+
+#topBar.is-compact .ekko-ribbon-body > .ekko-ribbon-group,
+#topBar.collapsed .ekko-ribbon-body > .ekko-ribbon-group,
+#topBar.is-compact .ekko-ribbon-body > #selectionInfo,
+#topBar.collapsed .ekko-ribbon-body > #selectionInfo,
+#topBar.is-compact .ekko-ribbon-body > #btnTopTextCurve,
+#topBar.collapsed .ekko-ribbon-body > #btnTopTextCurve {
+    display: none !important;
 }
 
 /* Movimiento reducido: la cinta debe respetar la preferencia del sistema. */
