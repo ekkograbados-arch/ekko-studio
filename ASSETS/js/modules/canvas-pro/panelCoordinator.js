@@ -119,8 +119,8 @@ const CONTEXT_LABELS = {
     image: "Imagen",
     text: "Texto",
     vector: "Vector",
-    multiple: "SelecciÃ³n mÃºltiple",
-    fusion: "FusiÃ³n"
+    multiple: "Selección múltiple",
+    fusion: "Fusión"
 };
 
 function ensureContextSurface() {
@@ -134,7 +134,7 @@ function ensureContextSurface() {
     surface.className = "ekko-top-context-surface";
     surface.setAttribute("role", "tablist");
     surface.innerHTML = `
-        <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">â€¹</button>
+        <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">‹</button>
         <div id="ekkoTopContextTabs" class="ekko-top-context-tabs"></div>
         <span id="ekkoTopContextLabel" class="ekko-top-context-label"></span>
     `;
@@ -169,6 +169,7 @@ function ensurePanelAnchor() {
                 z-index: calc(var(--ekko-floating-z, 10100) + 10);
                 display: none;
                 align-items: center;
+                gap: 2px;
                 padding: 5px 8px;
                 border-radius: 8px;
                 background: rgba(15, 23, 42, 0.88);
@@ -193,15 +194,33 @@ function ensurePanelAnchor() {
     wrap = document.createElement("div");
     wrap.id = "ekkoPanelAnchor";
     wrap.setAttribute("role", "button");
-    wrap.setAttribute("aria-label", "Expandir panel superior");
+    wrap.setAttribute("aria-label", "Controles de panel");
     wrap.innerHTML = `
         <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorExpand" title="Expandir panel superior" aria-label="Expandir panel superior">⌄</button>
+        <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorProducts" title="Mostrar panel de productos" aria-label="Mostrar panel de productos">›</button>
+        <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorFloating" title="Mostrar barra emergente" aria-label="Mostrar barra emergente">≡</button>
     `;
     document.body.appendChild(wrap);
 
     byId("ekkoPanelAnchorExpand").addEventListener("click", (event) => {
         event.stopPropagation();
         panelState.topPanel = "expanded";
+        applyPanelState();
+    });
+
+    // REVERSIBILIDAD: estos tres reviveadores viven EN EL BODY, afuera de
+    // todo panel que se pueda ocultar. Aunque el cliente esconda el panel
+    // de productos o la barra emergente (cuyos propios botones quedan
+    // dentro y desaparecen), SIEMPRE hay un camino de vuelta visible aqui.
+    byId("ekkoPanelAnchorProducts").addEventListener("click", (event) => {
+        event.stopPropagation();
+        panelState.productPanel = "visible";
+        applyPanelState();
+    });
+
+    byId("ekkoPanelAnchorFloating").addEventListener("click", (event) => {
+        event.stopPropagation();
+        panelState.floatingBar = "auto";
         applyPanelState();
     });
 
@@ -254,7 +273,7 @@ function renderContextSurface() {
             tab.setAttribute("aria-selected", id === highlighted ? "true" : "false");
             tab.textContent = def.label;
             tab.title = panelState.activeTab === id
-                ? `${def.label} â€” pulsalo de nuevo para ver todas las herramientas`
+                ? `${def.label} — pulsalo de nuevo para ver todas las herramientas`
                 : `Mostrar herramientas de ${def.label.toLowerCase()}`;
             tab.addEventListener("click", () => {
                 // Segundo clic sobre la misma pestana = volver al automatico.
@@ -317,7 +336,7 @@ function renderPanelState() {
 
         const topToggle = byId("productPanelTopToggle");
         if (topToggle) {
-            topToggle.textContent = hidden ? "â€º" : "â€¹";
+            topToggle.textContent = hidden ? "›" : "‹";
             topToggle.title = hidden ? "Mostrar panel de productos" : "Ocultar panel de productos";
             topToggle.setAttribute("aria-label", topToggle.title);
             topToggle.dataset.panelState = hidden ? "hidden" : "visible";
@@ -334,7 +353,19 @@ function renderPanelState() {
     // ocultaba.
     const anchor = ensurePanelAnchor();
     if (anchor) {
-        anchor.classList.toggle("is-visible", panelState.topPanel === "hidden");
+        // REVERSIBLE SIEMPRE: el chip aparece si ALGUNA de las tres capas
+        // quedo oculta, y cada reviveador solo se ve para la capa que
+        // efectivamente esta oculta (el resto no muestra boton fantasma).
+        const topOculto = panelState.topPanel === "hidden";
+        const productosOcultos = panelState.productPanel === "hidden";
+        const emergenteOculta = panelState.floatingBar === "hidden";
+        anchor.classList.toggle("is-visible", topOculto || productosOcultos || emergenteOculta);
+        const ex = byId("ekkoPanelAnchorExpand");
+        if (ex) ex.style.display = topOculto ? "" : "none";
+        const pr = byId("ekkoPanelAnchorProducts");
+        if (pr) pr.style.display = productosOcultos ? "" : "none";
+        const fl = byId("ekkoPanelAnchorFloating");
+        if (fl) fl.style.display = emergenteOculta ? "" : "none";
     }
 
     // El chevron de la propia barra tambien se invierte en compacto: mismo
@@ -390,7 +421,7 @@ function openVisibilityMenu(anchor) {
         applyPanelState();
     });
 
-    addMenuButton(menu, "Barra emergente: automÃ¡tica", () => {
+    addMenuButton(menu, "Barra emergente: automática", () => {
         panelState.floatingBar = "auto";
         applyPanelState();
     });
