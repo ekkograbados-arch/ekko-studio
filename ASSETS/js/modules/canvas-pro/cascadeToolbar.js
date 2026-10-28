@@ -206,6 +206,14 @@ function estilos() {
         #ekkoCascadeTools button.ekko-ini-btn .ekko-ic { width: 15px; height: 15px; }
         .ekko-util-cluster { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
         #ekkoCascadeCluster #ekkoCascadeProducto { margin-left: 0; }
+        /* El texto de estado no puede apabullar a las pestañas: se trunca. */
+        .ekko-util-cluster #selectionInfo,
+        .ekko-util-cluster #ekkoCascadeProducto {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
 
         /* Contraer/Expandir con PALABRA: el chevron solitario no da la senal
            de estado. El glifo lo invierte panelCoordinator; el texto va por
@@ -518,6 +526,13 @@ function renderTabs() {
         b.addEventListener("click", () => elegirPestaña(id));
         tabsBox.appendChild(b);
     });
+
+    // La pestaña Inicio SIEMPRE queda a la izquierda de todo (y la activa a
+    // la vista): si el ancho desplazo los chips, se vuelve al inicio y se
+    // centra la activa. La tira no puede arrancar con la Inicio oculta.
+    tabsBox.scrollLeft = 0;
+    const activo = tabsBox.querySelector(".is-activa");
+    if (activo && activo.scrollIntoView) activo.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 /* ------------------------------------------------------------------ */
@@ -630,6 +645,9 @@ function refrescarDocumento() {
     // (la salida del trabajo) y el resto nace con el objeto; la cinta
     // decide los estados como siempre.
     topBar.classList.toggle("ekko-sin-seleccion", !seleccionActual().length);
+    // Guardia de orden: ningun motor debe poder desmontar la estructura
+    // (la tira vive SIEMPRE al frente de la cascada).
+    if (topBar.firstChild !== strip) topBar.insertBefore(strip, topBar.firstChild);
     renderTabs();
     refrescarFila();
 }
