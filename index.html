@@ -54,31 +54,31 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <label style="display:flex;gap:4px;align-items:center;">Vista
                     <select id="ekkoDownloadViews" style="max-width:130px;padding:3px 4px;border:1px solid #d7dee8;border-radius:6px;font-size:12px;"></select>
                 </label>
-                <label style="display:flex;gap:4px;align-items:center;" title="Incluye el contorno del producto en un grupo separado">
+                <label style="display:flex;gap:4px;align-items:center;" title="Agrega el borde del producto como guía para alinear el diseño (no se graba)">
                     <input type="checkbox" id="ekkoDownloadMockup"> Contorno
                 </label>
             </div>
             <button type="button" onclick="window.__ekkoDownloadSVG?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                 <i class="fas fa-bezier-curve" style="color:#15803d;"></i>
-                <span><b>SVG grabado</b> <span style="color:#64748b;">(sin doble quemado)</span></span>
+                <span><b>SVG para grabar</b> <span style="color:#64748b;">(LightBurn, sin doble quemado)</span></span>
             </button>
-            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">TRABAJO · RE-EDITABLE</div>
+            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">TU TRABAJO · PARA SEGUIR EDITANDO</div>
             <button type="button" onclick="window.__ekkoDownloadProject?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#eff6ff;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                 <i class="fas fa-file-export" style="color:#1d4ed8;"></i>
-                <span><b>Proyecto EKKO</b> <span style="color:#64748b;">(todas las vistas)</span></span>
+                <span><b>Proyecto EKKO (.ekko)</b> <span style="color:#64748b;">(solo se abre en EKKO)</span></span>
             </button>
             <button type="button" onclick="window.__ekkoOpenProject?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
                 <i class="fas fa-folder-open" style="color:#475569;"></i>
                 <span><b>Abrir proyecto…</b></span>
             </button>
-            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">CLIENTE</div>
+            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">PARA COMPARTIR · APLANADO CON MARCA DE AGUA</div>
             <button type="button" onclick="window.__ekkoDownloadSketch?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#fefce8;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                 <i class="fas fa-image" style="color:#a16207;"></i>
-                <span><b>Boceto PNG</b> <span style="color:#64748b;">(con marca de agua)</span></span>
+                <span><b>Imagen PNG</b> <span style="color:#64748b;">(aplanada, con marca de agua)</span></span>
             </button>
-            <button type="button" disabled title="Próximamente" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;font-size:13px;color:#94a3b8;cursor:not-allowed;text-align:left;margin-top:4px;">
+            <button type="button" onclick="window.__ekkoDownloadSketchPDF?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
                 <i class="fas fa-file-pdf"></i>
-                <span><b>PDF cliente</b> <span>· Próximamente</span></span>
+                <span><b>PDF cliente</b> <span style="color:#64748b;">(aplanado, con marca de agua)</span></span>
             </button>
         </div>
     </div>
@@ -150,6 +150,11 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             const menu = document.getElementById("ekkoDownloadMenu");
             if (menu) menu.hidden = true;
             if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.downloadSketchPNG();
+        };
+        window.__ekkoDownloadSketchPDF = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.downloadSketchPDF();
         };
         document.addEventListener("click", function(event) {
             const wrap = document.getElementById("ekkoDownloadWrap");
