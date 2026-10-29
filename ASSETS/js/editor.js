@@ -108,19 +108,27 @@ window.traceRaster = function(item = null) {
   return iniciarTrazado(target);
 };
 
+/* "Quitar Fondo" sobre TODA la seleccion.
+   LOTE (2026-10-29): antes se leia UNA sola pieza (`selectedItem` o el ultimo
+   de `selectedItems`) y con dos imagenes cargadas la barra ni siquiera ofrecia
+   el boton. Cada foto se procesa de a una y queda con su propio recorte y su
+   propia sesion, asi que despues "Editar Fondo" abre la que el cliente elija,
+   sin orden. */
 window.removeBackground = function() {
   const api = window.EKKO?.BackgroundRemover;
-  const selected = window.selectedItem ||
-    (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
-  const target = getPublicOwner(selected);
-  if (api?.quitarFondo && target instanceof paper.Raster) {
-    return api.quitarFondo(target).catch((err) => {
-      console.warn('[EKKO Quitar Fondo]', err);
-      return null;
-    });
+  const seleccion = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+    ? window.selectedItems
+    : (window.selectedItem ? [window.selectedItem] : []);
+  if (!api?.loteQuitarFondo || !seleccion.length) {
+    console.warn('[EKKO Quitar Fondo] Selecciona una imagen raster antes de usar la herramienta.');
+    return null;
   }
-  console.warn('[EKKO Quitar Fondo] Selecciona una imagen raster antes de usar la herramienta.');
-  return null;
+  const owners = getPublicOwners(seleccion);
+  const objetivos = (owners && owners.length) ? owners : seleccion;
+  return api.loteQuitarFondo(objetivos).catch((err) => {
+    console.warn('[EKKO Quitar Fondo]', err);
+    return null;
+  });
 };
 
 /**
