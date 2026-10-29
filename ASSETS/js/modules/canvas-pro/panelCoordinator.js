@@ -12,6 +12,12 @@
 ========================================================================= */
 
 import { TABS, detectTab, tabsForSelection } from "./capabilities.js";
+/* Import ESTATIC a proposito: los botones de Línea / Formas / Lápiz tienen que
+   estar en el primer bloque de #topBar ANTES de que ui/ribbonLayout.js arme la
+   cinta en su propio script (index.html lo carga después de este módulo). Si
+   fuera dinámico, la cinta ya estaría armada y los botones quedarían sueltos
+   fuera del grupo Crear. */
+import "./drawTools.js";
 
 const STORAGE_KEY = "ekko.panels.v1";
 
