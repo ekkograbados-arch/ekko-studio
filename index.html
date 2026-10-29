@@ -105,9 +105,25 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
         };
         window.__ekkoToggleDownloadMenu = function() {
             const menu = document.getElementById("ekkoDownloadMenu");
-            if (!menu) return;
-            if (menu.hidden) { try { window.__ekkoDownloadMenuViews(); } catch (_) {} }
-            menu.hidden = !menu.hidden;
+            const btn = document.getElementById("btnEkkoDownload");
+            if (!menu || !btn) return;
+            if (menu.hidden) {
+                try { window.__ekkoDownloadMenuViews(); } catch (_) {}
+                // SIEMPRE POR ENCIMA DE TODO (regla del cliente): el menu se
+                // despega del topBar y se ancla al body como capa fija. Dentro
+                // del topBar quedaba encapsulado en SU contexto de apilamiento
+                // y cualquier barra o regla lo tapaba por mas z-index propio.
+                document.body.appendChild(menu);
+                menu.style.position = "fixed";
+                menu.style.zIndex = "2147483000";
+                const rect = btn.getBoundingClientRect();
+                menu.style.top = (rect.bottom + 6) + "px";
+                menu.style.right = Math.max(8, window.innerWidth - rect.right) + "px";
+                menu.style.left = "auto";
+                menu.hidden = false;
+                return;
+            }
+            menu.hidden = true;
         };
         window.__ekkoDownloadReadOptions = function() {
             const select = document.getElementById("ekkoDownloadViews");
@@ -159,7 +175,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
         document.addEventListener("click", function(event) {
             const wrap = document.getElementById("ekkoDownloadWrap");
             const menu = document.getElementById("ekkoDownloadMenu");
-            if (wrap && menu && !menu.hidden && !wrap.contains(event.target)) menu.hidden = true;
+            if (wrap && menu && !menu.hidden && !wrap.contains(event.target) && !menu.contains(event.target)) {
+                menu.hidden = true;
+            }
+        });
+        window.addEventListener("resize", function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu && !menu.hidden) menu.hidden = true;
         });
     </script>
 
