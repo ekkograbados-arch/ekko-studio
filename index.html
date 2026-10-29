@@ -458,12 +458,162 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automáticamente para hacerla más fácil.</p>
 
                     <div class="vfond__bloque" id="grupo-tamano" hidden>
-                        <div class="vfond__et">Tamaño del pincel <span id="valor-tamano-pincel" class="vfond__num">25</span></div>
+                        <div class="vfond__et">Tamaño del pincel
+                            <span id="valor-tamano-pincel" class="vfond__num">
+                                <input id="input-tamano-pincel" type="number" min="1" max="120" step="1" value="25"
+                                       class="vfond__numinput" aria-label="Tamaño del pincel en píxeles"> px
+                            </span>
+                        </div>
                         <input type="range" id="slider-tamano-pincel" min="1" max="120" value="25" step="1" aria-label="Tamaño del pincel">
+                    </div>
+
+                    <!-- ==============================================================
+                         VISTA: QUE SE ESTA MIRANDO
+                         ------------------------------------------------------------
+                         Photoshop muestra la mascara en blanco y negro (Enter/Canal
+                         Quick Mask) y PhotoRoom permite volver a la foto para
+                         comparar. Antes EKKO solo podia ver el compuesto, y para
+                         saber SI el borde estaba bien habia que adivinar: el alfa
+                         suave se ve como "tal vez borrado" y como "tal vez pelo".
+
+                         El boton "Ver lo quitado" ya existia en el codigo pero NO
+                         existia en el HTML, así que nunca se pudo apretar. Va aqui,
+                         en la misma fila, para que las tres vistas y la capa roja
+                         sean un solo bloque de decision.
+                         ============================================================== -->
+                    <div class="vfond__seg" role="group" aria-label="Qué mostrar en el lienzo">
+                        <button type="button" id="vista-compuesto" class="vfond__segb is-activo" aria-pressed="true" title="El recorte sobre transparencia (C)">Compuesto</button>
+                        <button type="button" id="vista-mascara" class="vfond__segb" aria-pressed="false" title="La máscara en blanco y negro: blanco=queda, negro=se va (V)">Máscara</button>
+                        <button type="button" id="vista-original" class="vfond__segb" aria-pressed="false" title="La foto original para comparar (N)">Original</button>
+                    </div>
+
+                    <button type="button" id="ver-quitado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="Marcar en rojo lo que se quitó (T)">Ver lo quitado</button>
+
+                    <!-- Zoom de la ventana. El modulo ya manejaba estos ids y no
+                         existian en el HTML: el zoom hasta 24x era inalcanzable
+                         salvo con la rueda. -->
+                    <div class="vfond__zoomfila" role="group" aria-label="Zoom de la ventana">
+                        <button type="button" id="zoom-menos" class="vfond__zoombtn" title="Alejar">−</button>
+                        <input type="range" id="zoom-pista" class="vfond__pista" min="100" max="2400" step="5" value="100" aria-label="Zoom">
+                        <button type="button" id="zoom-mas" class="vfond__zoombtn" title="Acercar">+</button>
+                        <button type="button" id="zoom-100" class="vfond__zoombtn vfond__zoombtn--texto" title="Volver al 100% y centrar"><span id="valor-zoom-ventana">100%</span></button>
+                    </div>
+
+                    <!-- ==============================================================
+                         FONDO: REEMPLAZO
+                         ------------------------------------------------------------
+                         Lo que PhotoRoom llama "Background" y Photoshop resuelve
+                         con una capa debajo. Son objetos SEPARADOS del recorte: el
+                         arte nunca se aplasta. Cambiar el fondo no vuelve a correr
+                         la IA ni toca la mascara, y se puede quitar despues.
+
+                         La visibilidad de cada fila de controles la decide JS con
+                         el atributo `hidden`, nunca el CSS (contrato de la cinta).
+                         ============================================================== -->
+                    <div class="vfond__bloque" id="grupo-fondo">
+                        <div class="vfond__et">Fondo</div>
+                        <div class="vfond__seg vfond__seg--apilado" role="group" aria-label="Tipo de fondo">
+                            <button type="button" id="fondo-ninguno" class="vfond__segb is-activo" aria-pressed="true" title="Dejar la transparencia">Ninguno</button>
+                            <button type="button" id="fondo-color" class="vfond__segb" aria-pressed="false" title="Un color plano">Color</button>
+                            <button type="button" id="fondo-degradado" class="vfond__segb" aria-pressed="false" title="Dos colores">Degradado</button>
+                            <button type="button" id="fondo-desenfoque" class="vfond__segb" aria-pressed="false" title="Conservar el fondo de la foto, desenfocado">Desenfocar</button>
+                            <button type="button" id="fondo-imagen" class="vfond__segb" aria-pressed="false" title="Una imagen propia">Imagen</button>
+                        </div>
+
+                        <div class="vfond__fila" id="fondo-fila-color" hidden>
+                            <label class="vfond__miniet">Color</label>
+                            <input type="color" id="fondo-color-valor" class="vfond__color" value="#ffffff">
+                        </div>
+
+                        <div class="vfond__fila" id="fondo-fila-degradado" hidden>
+                            <label class="vfond__miniet">Degradado</label>
+                            <input type="color" id="fondo-deg-a" class="vfond__color" value="#f1f5f9">
+                            <input type="color" id="fondo-deg-b" class="vfond__color" value="#94a3b8">
+                        </div>
+                        <div class="vfond__fila" id="fondo-fila-degradadoAngulo" hidden>
+                            <label class="vfond__miniet">Ángulo</label>
+                            <input type="range" id="fondo-deg-angle" min="0" max="360" step="5" value="90" aria-label="Ángulo del degradado">
+                            <span class="vfond__num" id="fondo-deg-angle-val">90°</span>
+                        </div>
+
+                        <div class="vfond__fila" id="fondo-fila-desenfoque" hidden>
+                            <label class="vfond__miniet">Desenfoque</label>
+                            <input type="range" id="fondo-desenfoque-cant" min="2" max="60" step="1" value="18" aria-label="Cantidad de desenfoque">
+                            <span class="vfond__num" id="fondo-desenfoque-val">18</span>
+                        </div>
+
+                        <div class="vfond__fila" id="fondo-fila-imagen" hidden>
+                            <input type="file" id="fondo-imagen-archivo" accept="image/*" class="vfond__archivo">
+                            <div class="vfond__miniet" id="fondo-imagen-nombre">Sin imagen</div>
+                        </div>
+                        <div class="vfond__fila" id="fondo-fila-ajuste" hidden>
+                            <label class="vfond__miniet">Tamaño</label>
+                            <input type="range" id="fondo-imagen-escala" min="30" max="220" step="5" value="100" aria-label="Tamaño del fondo">
+                            <span class="vfond__num" id="fondo-imagen-escala-val">100%</span>
+                        </div>
+                        <div class="vfond__fila" id="fondo-fila-opacidad" hidden>
+                            <label class="vfond__miniet">Opacidad</label>
+                            <input type="range" id="fondo-opacidad" min="0" max="100" step="1" value="100" aria-label="Opacidad del fondo">
+                            <span class="vfond__num" id="fondo-opacidad-val">100%</span>
+                        </div>
+                    </div>
+
+                    <!-- ==============================================================
+                         SOMBRA DE CONTACTO
+                         ------------------------------------------------------------
+                         PhotoRoom la genera sola y es lo que hace que un recorte
+                         pegado a un fondo se vea puesto y no flotando. Se dibuja
+                         desde la MISMA mascara del recorte (no es un filtro de la
+                         foto): se aplasta, se desenfoca y se corre hacia un lado.
+                         ============================================================== -->
+                    <div class="vfond__bloque" id="grupo-sombra">
+                        <div class="vfond__et">Sombra de contacto</div>
+                        <div class="vfond__fila">
+                            <label class="vfond__miniet">Intensidad</label>
+                            <input type="range" id="sombra-opacidad" min="0" max="90" step="1" value="0" aria-label="Intensidad de la sombra">
+                            <span class="vfond__num" id="sombra-opacidad-val">0%</span>
+                        </div>
+                        <div class="vfond__fila">
+                            <label class="vfond__miniet">Dureza</label>
+                            <input type="range" id="sombra-suavidad" min="0" max="100" step="1" value="55" aria-label="Dureza de la sombra">
+                            <span class="vfond__num" id="sombra-suavidad-val">55</span>
+                        </div>
+                        <div class="vfond__fila">
+                            <label class="vfond__miniet">Dirección</label>
+                            <input type="range" id="sombra-direccion" min="0" max="360" step="5" value="180" aria-label="Dirección de la sombra">
+                            <span class="vfond__num" id="sombra-direccion-val">180°</span>
+                        </div>
+                        <div class="vfond__fila">
+                            <label class="vfond__miniet">Altura</label>
+                            <input type="range" id="sombra-aplastar" min="10" max="100" step="5" value="30" aria-label="Cuán achatada queda la sombra">
+                            <span class="vfond__num" id="sombra-aplastar-val">30%</span>
+                        </div>
+                    </div>
+
+                    <!-- ==============================================================
+                         SALIDA
+                         ------------------------------------------------------------
+                         PhotoRoom y Photoshop descargan un archivo; hasta ahora EKKO
+                         solo dejaba el recorte puesto en el lienzo. Para grabar a
+                         laser el archivo ES el resultado: el PNG con alfa es el
+                         recorte pelado y el JPG con fondo es la plancha que se
+                         entrega o se cotiza.
+
+                         Usan la mascara EN CURSO: no hace falta pulsar "Listo" para
+                         descargar, y descargar no cierra nada.
+                         ============================================================== -->
+                    <div class="vfond__bloque">
+                        <div class="vfond__et">Salida</div>
+                        <div class="vfond__piefila">
+                            <button type="button" id="btn-exportar-png" class="vfond__btn" title="El recorte solo, con transparencia, al tamaño real del arte">PNG sin fondo</button>
+                            <button type="button" id="btn-exportar-jpg" class="vfond__btn" title="El recorte aplastado sobre el fondo elegido, para entregar o cotizar">JPG con fondo</button>
+                        </div>
+                        <button type="button" id="exportar-ajustado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="El PNG deja de llevar el margen transparente: el archivo mide justo lo que el objeto">Recortar margen</button>
                     </div>
 
                     <div class="vfond__pie">
                         <button type="button" id="btn-deshacer-fondo" class="vfond__btn">↶ Deshacer</button>
+                        <button type="button" id="btn-rehacer-fondo" class="vfond__btn">Rehacer ↷</button>
                         <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">✓ Listo</button>
                     </div>
                 </aside>
@@ -471,11 +621,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <!-- Cursor del pincel: sigue al puntero y se colorea segun la
                  herramienta, para ver QUE se esta por hacer sin mirar la barra. -->
             <div id="cursor-pincel" class="ekko-recorte__cursor" style="display:none;"></div>
-
-            <!-- Capa "ver lo que se quito": superpone en rojo translucido todo
-                 lo que quedo transparente, para poder precisar que restaurar.
-                 Se dibuja aparte y NO toca el arte: es solo informacion. -->
-            <canvas id="capa-quitado" style="display:none; position:fixed; pointer-events:none; z-index:900;"></canvas>
             <!-- Contenedores de herramientas adicionales -->
             <div id="tabTextTools"></div>
             <div id="tabSvgTools"></div>
