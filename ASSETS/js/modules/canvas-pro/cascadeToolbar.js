@@ -67,7 +67,8 @@
    app se comporta exactamente igual que hoy.
    ========================================================================= */
 
-import { TABS, detectTab, tabsForSelection } from "./capabilities.js";
+import { TABS, SPECIES, detectTab, speciesOf, isProductElement } from "./capabilities.js";
+import { isContainmentWrapper } from "./designGeometry.js";
 
 let iniciado = false;
 let topBar = null;
@@ -103,12 +104,26 @@ function persistirTab(nuevo) {
 
 function elegirPestaña(id) {
     const ahora = pestañaActual();
-    const nuevo = (ahora === id) ? "auto" : id;   // 2.º clic = volver a auto
+    const nuevo = (ahora === id) ? "auto" : id;   // 2.º clic = volver a Inicio
+    if (nuevo !== "auto" && nuevo !== "base" && nuevo !== "multiple") apuntarEspecie(nuevo);
     if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = nuevo;
     persistirTab(nuevo);
     window.EKKO_RIBBON && window.EKKO_RIBBON.refresh && window.EKKO_RIBBON.refresh();
     renderTabs();
     refrescarFila();
+}
+
+/* Una pestana de especie sin objeto de esa especie apuntado no tiene nada que
+   mostrar en el nivel 2 (las herramientas trabajan SOBRE algo). Si en el lienzo
+   hay contenido de ese tipo y ninguno esta seleccionado, se apunta el primero
+   con la API publica del motor. Si ya hay algo de esa especie seleccionado, no
+   se toca nada: el cliente eligio cual. */
+function apuntarEspecie(tab) {
+    const sel = seleccionActual();
+    if (sel.some(it => TAB_DE_ESPECIE[speciesOf(it)] === tab)) return;
+    const objetivo = contenidoDelLienzo().objetivos.get(tab);
+    if (!objetivo) return;
+    if (typeof window.selectItem === "function") window.selectItem(objetivo);
 }
 
 /* ------------------------------------------------------------------ */
@@ -141,6 +156,57 @@ function especieDeLaSeleccion() {
     if (it.className === "PointText") return "text";
     if (it.className === "Raster" || (it.data && it.data.isRaster)) return "image";
     return det || "base";
+}
+
+/* ------------------------------------------------------------------ */
+/* Que HAY en el lienzo (ronda 7)                                       */
+/* ------------------------------------------------------------------ */
+/* tabsForSelection() mira solo lo seleccionado. El pedido del cliente es otro:
+   "si cargo una imagen tiene que aparecer la pestana Imagen al lado de Inicio,
+   segun se vayan cargando". O sea que la pestana nace con el OBJETO EN EL
+   LIENZO, no cuando el cliente lo apunta. Se recorre la CAPA de diseno y se
+   clasifica con el mismo motor (speciesOf), descartando la base del producto
+   (isProductElement): si no, el contorno de la chapa abriria una pestana
+   "Vector" en todo proyecto. El primero de cada tipo se guarda porque la
+   pestana de especie necesita un blanco real para que el nivel 2 tenga que
+   mostrar (ver elegirPestaña). */
+const TAB_DE_ESPECIE = { [SPECIES.RASTER]: "image", [SPECIES.TEXT]: "text", [SPECIES.VECTOR]: "vector" };
+function contenidoDelLienzo() {
+    const especies = new Set();
+    const objetivos = new Map();
+    const mockup = window.currentMockup;
+    /* MEDIDO (ronda 7): lo que carga el cliente NO esta dentro de currentMockup
+       (la chapa y sus trazos son parte del producto). Vive en la CAPA DE DISENO,
+       como hermano del mockup y envuelto en un clipGroup de contencion
+       (mockupLoader.createMockupContainmentGroup). La capa se toma con la misma
+       formula canonica del resto del codigo (editor.js:155) pero sobre el PROPIO
+       proyecto del mockup: window.paper.project puede apuntar a otro proyecto y
+       devolver una capa vacia. */
+    const proj = (mockup && mockup.project) || (window.paper && window.paper.project);
+    const capa = proj ? ((proj.layers || []).find(l => l && l.name === "designLayer") || proj.activeLayer) : null;
+    if (!capa) return { especies, objetivos };
+    const registrar = (tab, item) => {
+        especies.add(tab);
+        if (!objetivos.has(tab)) objetivos.set(tab, item);
+    };
+    const visitar = (n, prof) => {
+        if (!n || !n.children || prof > 4) return;
+        n.children.forEach(h => {
+            if (!h) return;
+            /* Un envoltorio de contencion NO es parte del producto: es una
+               indirection. designGeometry lo dice literalmente ("its public
+               child must remain selectable"), y ahi vive lo que el cliente
+               carga. Si se lo descarta como producto, el lienzo parece vacio y
+               no abre ninguna pestana — el bug que trajo la ronda 7. */
+            if (isContainmentWrapper(h)) { visitar(h, prof + 1); return; }
+            if (isProductElement(h)) return;          // chapa, mascaras, marcos
+            const tab = TAB_DE_ESPECIE[speciesOf(h)];
+            if (tab) { registrar(tab, h); return; }   // pieza: no se desarma
+            visitar(h, prof + 1);                      // contenedor: se mira adentro
+        });
+    };
+    visitar(capa, 0);
+    return { especies, objetivos };
 }
 
 function nombreComando(btn) {
@@ -910,6 +976,36 @@ function estilos() {
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action.ekko-es-heroes .ekko-ic {
             width: 16px; height: 16px;
         }
+        /* --- CREAR / CARGAR EN GRANDE (ronda 7, punto 3) ---
+               Medido sobre la captura del cliente: en reposo la cinta muestra
+               SOLO el grupo Crear (la regla .ekko-sin-seleccion de arriba) y
+               aun asi los tres botones ocupaban 156px de una fila de 1114 — el
+               espacio estaba ahi y la puerta del proyecto se veia como un pie
+               de pagina. Pasan a mosaico: alto entero de la banda, glifo de 22
+               y nombre de 12px. Y cuando la familia crezca (lineas y formas,
+               que siguen) y no entre, NO se achica el boton: la fila ya tiene
+               carretel (armarPan pone las flechas y se desliza). */
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group[data-group="creacion"] .ekko-ribbon-group-body {
+            gap: 10px;
+        }
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group[data-group="creacion"] .btn-action {
+            flex: 0 0 auto;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 3px;
+            height: 44px;
+            min-width: 92px;
+            max-width: 132px;
+            padding: 3px 10px !important;
+            font-size: 12px !important;
+            line-height: 1.15;
+            white-space: normal;
+            text-align: center;
+        }
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group[data-group="creacion"] .btn-action .ekko-ic {
+            width: 22px; height: 22px;
+        }
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action:hover {
             background: rgba(255,255,255,0.13) !important;
             color: #fff !important;
@@ -1080,6 +1176,13 @@ function estilos() {
 /* ------------------------------------------------------------------ */
 /* Flechas desvanecidas: desplazan con solo hover, sin clic             */
 /* ------------------------------------------------------------------ */
+/* Cada carretel anota su propia funcion de visibilidad. MEDIDO (ronda 7): con
+   la cinta desbordando (1868 de 1114) la › seguia invisible, porque el
+   desborde aparece al cambiar la clase .ekko-sin-seleccion del topBar — un
+   atributo AFUERA del scroller que ni el ResizeObserver (mismo tamano) ni el
+   MutationObserver (solo childList) ven. refrescarDocumento() las re-pregunta
+   a todas, que es justo cuando la fila cambia de contenido. */
+const losPanes = [];
 function armarPan(host, scroller) {
     const izq = document.createElement("button");
     izq.type = "button";
@@ -1118,7 +1221,18 @@ function armarPan(host, scroller) {
     scroller.addEventListener("scroll", visibilidad, { passive: true });
     new ResizeObserver(visibilidad).observe(scroller);
     new MutationObserver(() => visibilidad()).observe(scroller, { childList: true, subtree: true });
+    losPanes.push(() => {
+        if (!document.contains(scroller)) return false;   // se desmonto: se borra solo
+        visibilidad();
+        return true;
+    });
     visibilidad();
+}
+
+function refrescarPanes() {
+    for (let i = losPanes.length - 1; i >= 0; i--) {
+        if (!losPanes[i]()) losPanes.splice(i, 1);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1218,15 +1332,16 @@ function crearBotonTema() {
     tema.id = "btnEkkoTema";
     // .btn-action = el molde vivo de la fila 2 (lo que el skin activo pinte).
     tema.className = "btn-action";
-    /* El arranque es CLARO, no oscuro. ui/espacio.js ya nace en claro
-       (aplicar('claro'), linea 63) pero este boton leia su clave con default
-       "oscuro" y escribia data-modo, o sea que la pisaba en cada carga: la
-       plataforma abria de noche aunque el skin dijera de dia. El default ahora
-       coincide con el del skin; lo unico que puede cambiar el modo al arrancar
-       es una eleccion explicita del cliente guardada en la clave. */
-    const leerTema = () => (localStorage.getItem("ekko.cascade.tema") || "claro");
+    /* Arranque SIEMPRE claro y SIN MEMORIA (ronda 7, punto 1). El contrato del
+       skin es ese: ui/espacio.js:63 aplica 'claro' y ademas BORRA su clave en
+       cada carga — "el modo elegido vive solo mientras dura la pagina". La
+       ronda 6 guardaba la eleccion en ekko.cascade.tema, asi que un solo 🌙
+       tocado una vez hacia que TODAS las visitas siguientes abrieran de noche:
+       es exactamente lo que el cliente siguio viendo. Se borra la clave vieja y
+       el boton pasa a ser de sesion, como el del skin. */
+    try { localStorage.removeItem("ekko.cascade.tema"); } catch (_) {}
+    let modo = "claro";
     const pintarTema = () => {
-        const modo = leerTema();
         document.body.dataset.ekkoTheme = modo;
         // Y se escribe TAMBIEN el atributo del que es dueño ui/espacio.js
         // (data-modo), que es el que lee ekko-espacio.css. Sin esto el boton de
@@ -1238,8 +1353,7 @@ function crearBotonTema() {
         tema.title = "Modo claro / oscuro";
     };
     tema.addEventListener("click", () => {
-        const modo = leerTema() === "claro" ? "oscuro" : "claro";
-        try { localStorage.setItem("ekko.cascade.tema", modo); } catch (_) {}
+        modo = modo === "claro" ? "oscuro" : "claro";
         pintarTema();
     });
     pintarTema();
@@ -1265,13 +1379,31 @@ function pintarProducto(prod) {
 function renderTabs() {
     if (!tabsBox) return;
     const sel = seleccionActual();
-    const disponibles = tabsForSelection(sel.length ? sel : null);
+    /* Ronda 7, punto 4: a lo que dice la SELECCION se le suma lo que HAY en el
+       lienzo. Cargar una imagen ya abre su pestana al lado de Inicio, sin
+       necesidad de apuntarla.
+       tabsForSelection() NO sirve aca: cuando detecta "multiple" expande image +
+       vector + text por las dudas, y asi un texto + una imagen abrian una
+       pestana "Vector" que no tiene nada adentro. El pedido del cliente es otro
+       ("TEXTOS, IMAGEN Y VARIOS"): las pestanas de especie nacen de las PIEZAS
+       QUE EXISTEN, y "Varios" solo cuando lo seleccionado son varias piezas. */
+    const det = sel.length ? detectTab(sel) : null;
+    const deSeleccion = det === "multiple" ? ["multiple"]
+        : (det && det !== "base" ? [det] : []);
+    const { especies } = contenidoDelLienzo();
+    const disponibles = [...new Set([
+        "base",
+        ...deSeleccion,
+        ...especies
+    ])].filter(id => TABS[id]);
     const manual = pestañaActual();
-    const detectada = detectTab(sel.length ? sel : null) || "base";
-    const activa = manual !== "auto" ? manual : detectada;
 
-    if (manual !== "auto" && !disponibles.includes(manual)) disponibles.push(manual);
-    if (!disponibles.includes("base")) disponibles.unshift("base");
+    /* Ronda 7, punto 2: el REPOSO es Inicio. Antes, en "auto", se activaba la
+       pestana que deducía la selección, así que al elegir un objeto el panel
+       saltaba solo de pestaña y el cliente perdía de vista dónde estaba. Ahora
+       la activa es la que el cliente tocó; si no tocó ninguna, Inicio. */
+    const activa = manual !== "auto" ? manual : "base";
+    topBar.dataset.ekkoTab = activa;
 
     tabsBox.innerHTML = "";
     disponibles.sort((a, b) => (RAIZ_ORDEN[a] ?? 99) - (RAIZ_ORDEN[b] ?? 99));
@@ -1283,7 +1415,7 @@ function renderTabs() {
         b.className = "ekko-cascade-tab" + (id === activa ? " is-activa" : "");
         b.textContent = def.label;
         b.title = (manual === id)
-            ? `${def.label} — pulsalo de nuevo para volver al automático`
+            ? `${def.label} — pulsalo de nuevo para volver a Inicio`
             : `Ver herramientas de ${def.label.toLowerCase()}`;
         b.addEventListener("click", () => elegirPestaña(id));
         tabsBox.appendChild(b);
@@ -2026,12 +2158,22 @@ function refrescarDocumento() {
     // Sin seleccion, las herramientas de objeto NO se muestran: el flujo
     // empieza en la tira (cargar / crear) y el resto nace con el objeto; la
     // cinta decide los estados como siempre.
-    topBar.classList.toggle("ekko-sin-seleccion", !seleccionActual().length);
+    const sinSeleccion = !seleccionActual().length;
+    /* Ronda 7, punto 2: quedo el lienzo sin nada apuntado, se vuelve a Inicio.
+       Si no, la pestana que el cliente toco para un objeto sigue activa sobre
+       una cinta que ya no tiene ese objeto, y la barra parece rota. */
+    if (sinSeleccion && pestañaActual() !== "auto") {
+        if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = "auto";
+        persistirTab("auto");
+    }
+    topBar.classList.toggle("ekko-sin-seleccion", sinSeleccion);
     // Guardia de orden: ningun motor debe poder desmontar la estructura
     // (la tira vive SIEMPRE al frente de la cascada).
     if (topBar.firstChild !== strip) topBar.insertBefore(strip, topBar.firstChild);
     renderTabs();
     refrescarFila();
+    refrescarPanes();
+    requestAnimationFrame(refrescarPanes);
     limpiarAncla();
     // La barra emergente puede no existir todavia en el arranque (contextualMenu
     // la muda al body). Es idempotente: se monta la primera vez que aparece.
