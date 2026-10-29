@@ -1,10 +1,16 @@
-/* EKKO Studio — LÍNEAS y FORMAS (ronda 8)
+/* EKKO Studio — LÍNEAS y FORMAS (rondas 8 y 9)
  *
  * QUE APORTA
  * Tres herramientas nuevas en el grupo CREAR de la cinta: Línea, Formas
  * (Rectángulo / Círculo / Triángulo) y Lápiz. Son exactamente las tres que
  * estaban dibujadas como íconos (ekko-lineas, ekko-formas, ekko-lapiz en
  * ASSETS/ui/ekko-icons.svg) y "sin botón todavia" (ASSETS/ui/preview.html:105).
+ *
+ * RONDA 9 — LÍNEA COMO POLILÍNEA
+ * Línea dejó de ser un arrastre de dos puntos: ahora es polilínea como en
+ * AutoCAD (un clic por vértice, banda elástica al puntero) y cierra la silueta
+ * cuando el clic cae sobre el punto de arranque. Lápiz hace lo mismo: si se
+ * suelta sobre su propio arranque el camino queda closed, no corte abierto.
  *
  * QUE NO HACE
  * No inventa un motor de objetos paralelo. Un trazo terminado entra al proyecto
@@ -33,6 +39,15 @@ const UMBRAL_MINIMO = 2;     // un arrastre más chico fue un toque de más
 const TOLERANCIA_LAPIZ = 1.2;
 const COLOR_GUIA = "#e0245e"; // el rosa de las guías: avisa "esto todavía no es un objeto"
 
+/* Las dos tolerancias de la polilínea se miden en PÍXELES DE PANTALLA y se
+   pasan a unidades de proyecto con pxAProyecto(), porque un clic de 4px tiene
+   que ser "el mismo punto" tanto con zoom 1 como con zoom 8. Si quedaran en
+   unidades de proyecto, con zoom arriba el puntero "se volvería loco": el
+   punto de cierre casi imposible de agarrar y un simple temblor de la mano
+   agregando vértices fantasma. */
+const DIANA_PX = 9;    // radio del punto de inicio que deja cerrar la silueta
+const MISMO_PUNTO_PX = 3;  // dos clics más juntos que esto son un toque de más
+
 const FORMAS = {
     linea:     { label: "Línea",      cerrada: false },
     rect:      { label: "Rectángulo", cerrada: true },
@@ -47,6 +62,16 @@ let toolPrevio = null;
 let ancla = null;
 let preview = null;
 let puntosLapiz = [];
+/* Vértices ya confirmados de la polilínea (Línea, al modo AutoCAD). El ultimo
+   no está en la lista hasta que el usuario lo suelta o hace el siguiente clic;
+   la banda elástica lo dibuja aparte. */
+let puntosPolilinea = [];
+/* El punto REAL del último clic aceptado. Con Shift el vértice guardado puede
+   haber saltado a otra esquina, y el doble clic de remate cae sobre el cursor:
+   sin esta referencia ese segundo clic se leía como un vértice nuevo y la
+   polilínea terminaba con un tramo espurio de unos pocos píxeles. */
+let ultimaApuntada = null;
+let porDobleClic = null;
 let chip = null;
 
 /* ---------------------------------------------------------------- */
@@ -66,7 +91,12 @@ function estilos() {
            hijo nuestro dentro del grupo se perdería en el re-parenteo. */
         #ekkoFormasMenu {
             position: fixed;
-            z-index: 2400;
+            /* 20000100: arriba de la barra contextual del objeto (contextualMenu.js:249
+               la pone en 20000000) porque un desplegable recién abierto tiene que
+               tapar, pero debajo del menu de Descargar (2147483000, regla del cliente
+               de "siempre por encima de todo"). Con el 2400 de la primera version la
+               paleta quedaba escondida detras de esa barra. */
+            z-index: 20000100;
             display: none;
             gap: 4px;
             padding: 6px;
@@ -103,7 +133,9 @@ function estilos() {
         /* Aviso del modo activo, apoyado debajo de la barra superior. */
         #ekkoDibujandoChip {
             position: fixed;
-            z-index: 2450;
+            /* Un pelo debajo de la paleta y arriba de la barra contextual: es la
+               unica instruccion visible mientras se dibuja, no puede quedar tapada. */
+            z-index: 20000050;
             display: none;
             max-width: 340px;
             padding: 5px 10px;
@@ -180,6 +212,35 @@ function estiloGuia(camino) {
     return camino;
 }
 
+function pxAProyecto(px) {
+    return px / (paper.view.zoom || 1);
+}
+
+function anilloCierre(centro) {
+    /* La "diana": el blanco que hay que tocar para cerrar la silueta. Vive
+       adentro del grupo de preview, así se va solo cuando el trazo se compromete
+       o se cancela y nunca puede quedar como objeto fantasma. */
+    const anillo = new paper.Path.Circle({
+        center: centro, radius: pxAProyecto(DIANA_PX), insert: false
+    });
+    anillo.closed = true;
+    anillo.strokeColor = new paper.Color(COLOR_GUIA);
+    anillo.strokeWidth = 1 / (paper.view.zoom || 1);
+    anillo.dashArray = [];
+    return anillo;
+}
+
+function mismoPunto(a, b) {
+    return a.subtract(b).length < pxAProyecto(MISMO_PUNTO_PX);
+}
+
+/* Con 2 vértices "cerrar" sería volver sobre la misma recta: no hay área que
+   el láser pueda encerrar. La diana solo aparece — y solo escucha — desde 3. */
+function cercaDelInicio(punto) {
+    if (puntosPolilinea.length < 3) return false;
+    return punto.subtract(puntosPolilinea[0]).length <= pxAProyecto(DIANA_PX);
+}
+
 /* ---------------------------------------------------------------- */
 /* ACTIVAR / DESACTIVAR                                             */
 /* ---------------------------------------------------------------- */
@@ -214,6 +275,17 @@ function desactivar() {
     if (preview) { preview.remove(); preview = null; }
     ancla = null;
     puntosLapiz = [];
+    /* La polilínea en curso se descarta acá: desactivar() es Esc / el mismo
+       botón, y en las dos lecturas eso significa "cancelar", no "guardar lo
+       hecho". Para guardar se termina con doble clic, Enter o la diana. */
+    puntosPolilinea = [];
+    ultimaApuntada = null;
+    if (porDobleClic) {
+        if (paper && paper.view && paper.view.element) {
+            paper.view.element.removeEventListener("dblclick", porDobleClic);
+        }
+        porDobleClic = null;
+    }
     const menu = document.getElementById("ekkoFormasMenu");
     if (menu) menu.classList.remove("abierto");
 
@@ -243,17 +315,27 @@ function conShift(evento) {
         || (evento.event && evento.event.shiftKey)));
 }
 
-function crearPreview(evento) {
-    ancla = evento.point.clone();
-    puntosLapiz = [ancla];
-    preview = new paper.Group({ insert: false });
+function grupoPreview() {
+    const grupo = new paper.Group({ insert: false });
     /* El mismo traje de las guías inteligentes (canvasControlsIntegration.js:446):
        grupo efímero marcado de selección, que el resto del estudio ya sabe
        ignorar y que nunca llega al historial porque se suelta antes del alta. */
-    preview.data = { isSelectionBox: true, isDibujoPreview: true };
-    paper.project.activeLayer.addChild(preview);
-    preview.bringToFront();
-    if (activa !== "lapiz") preview.addChild(estiloGuia(trazar(activa, ancla, ancla, false)));
+    grupo.data = { isSelectionBox: true, isDibujoPreview: true };
+    paper.project.activeLayer.addChild(grupo);
+    grupo.bringToFront();
+    return grupo;
+}
+
+function limpiarPreview() {
+    if (preview) { preview.remove(); preview = null; }
+}
+
+function crearPreview(evento) {
+    ancla = evento.point.clone();
+    puntosLapiz = [ancla];
+    preview = grupoPreview();
+    if (activa === "lapiz") return;
+    preview.addChild(estiloGuia(trazar(activa, ancla, ancla, false)));
 }
 
 function dibujarPreview(evento) {
@@ -265,10 +347,131 @@ function dibujarPreview(evento) {
         puntosLapiz.push(evento.point.clone());
         preview.removeChildren();
         preview.addChild(estiloGuia(new paper.Path(puntosLapiz)));
+        if (lapizCercaDelInicio()) preview.addChild(anilloCierre(puntosLapiz[0]));
         return;
     }
     preview.removeChildren();
     preview.addChild(estiloGuia(trazar(activa, ancla, evento.point, shift)));
+}
+
+/* ---------------------------------------------------------------- */
+/* POLILÍNEA (Línea, al modo AutoCAD)                               */
+/* ---------------------------------------------------------------- */
+/* Línea dejó de ser "un arrastre, un segmento": ahora cada clic clava un
+   vértice y la banda elástica persigue al puntero, como en AutoCAD/LightBurn.
+   Tres salidas, y las tres son las que el usuario ya conoce:
+   - volver al punto de arranque y hacer clic => silueta CERRADA (lo que pidió);
+   - doble clic o Enter => termina ABIERTA (línea de corte);
+   - Esc o el mismo botón => cancela lo dibujado.
+   Rect/Círculo/Triángulo siguen con arrastrar-soltar: ahí el tamaño ES el
+   arrastre y no hay nada que encadenar. */
+
+function puntoLibre(evento) {
+    /* Shift en la polilínea es el Ortho de AutoCAD: el vértice se clava en 0°,
+       45° o 90° respecto del anterior, conservando el largo. Se calcula contra
+       el último vértice, no contra el origen, así cada tramo puede ir derecho. */
+    const ultimo = puntosPolilinea[puntosPolilinea.length - 1];
+    const punto = evento.point;
+    return (ultimo && conShift(evento)) ? extremoBloqueado(ultimo, punto) : punto;
+}
+
+function avisoPolilinea() {
+    const n = puntosPolilinea.length;
+    if (n < 3) {
+        aviso(`Polilínea · ${n} vértice${n === 1 ? "" : "s"} · clic para el siguiente · doble clic o Enter termina · Esc cancela`);
+    } else {
+        aviso(`Polilínea · ${n} vértices · clic en la diana de inicio cierra la silueta · doble clic o Enter termina · Esc cancela`);
+    }
+}
+
+function redibujarBanda(cursor, cierra) {
+    if (!preview) return;
+    preview.removeChildren();
+    const pts = puntosPolilinea.map(p => p.clone());
+    if (cierra) {
+        const contorno = estiloGuia(new paper.Path(pts));
+        contorno.closed = true;
+        preview.addChild(contorno);
+    } else {
+        if (cursor) pts.push(cursor.clone());
+        if (pts.length > 1) preview.addChild(estiloGuia(new paper.Path(pts)));
+    }
+    if (puntosPolilinea.length >= 3) preview.addChild(anilloCierre(puntosPolilinea[0]));
+    paper.view.update();
+}
+
+function polilineaEnCurso() {
+    return !!preview && puntosPolilinea.length >= 1;
+}
+
+function iniciarPolilinea(punto) {
+    ancla = punto.clone();
+    puntosPolilinea = [ancla];
+    ultimaApuntada = punto.clone();
+    preview = grupoPreview();
+    redibujarBanda(punto, false);
+}
+
+function agregarVertice(apuntado, libre) {
+    const ultimo = puntosPolilinea[puntosPolilinea.length - 1];
+    /* Las dos comparaciones: contra el último punto que el usuario tocó (es la
+       que neutraliza el segundo clic del doble clic) y contra el vértice ya
+       clavado (la que sirve sin Shift). */
+    if (ultimo && (mismoPunto(apuntado, ultimaApuntada || ultimo) || mismoPunto(libre, ultimo))) return false;
+    puntosPolilinea.push(libre.clone());
+    ultimaApuntada = apuntado.clone();
+    return true;
+}
+
+function clicPolilinea(evento) {
+    if (!preview) {
+        iniciarPolilinea(evento.point);
+        avisoPolilinea();
+        return;
+    }
+    /* La diana se prueba con el punto real del cursor: con Shift el vértice
+       puede saltar a otra esquina y el usuario seguiría apuntando al inicio. */
+    if (cercaDelInicio(evento.point)) { terminarPolilinea(true); return; }
+    agregarVertice(evento.point, puntoLibre(evento));
+    redibujarBanda(evento.point, false);
+    avisoPolilinea();
+}
+
+function soltarPolilinea(evento) {
+    if (!preview) return;
+    if (cercaDelInicio(evento.point)) { terminarPolilinea(true); return; }
+    /* Sirven los dos estilos de siempre: clic-clic (el vértice ya entró abajo)
+       y arrastrar-soltar (acá entra el punto de salida). El filtro de
+       mismoPunto evita que un mismo clic se cuente dos veces. */
+    agregarVertice(evento.point, puntoLibre(evento));
+    redibujarBanda(evento.point, false);
+    avisoPolilinea();
+}
+
+function seguirCursorPolilinea(evento) {
+    if (!preview) return;
+    const cierra = cercaDelInicio(evento.point);
+    redibujarBanda(cierra ? puntosPolilinea[puntosPolilinea.length - 1] : puntoLibre(evento), cierra);
+}
+
+function terminarPolilinea(cerrar) {
+    const pts = puntosPolilinea.map(p => p.clone());
+    limpiarPreview();
+    puntosPolilinea = [];
+    ancla = null;
+    if (pts.length < 2) { desactivar(); return; }
+    const camino = new paper.Path(pts);
+    if (cerrar) {
+        camino.closed = true;
+        darAlta(camino, "linea", true);
+        return;
+    }
+    if (camino.length < UMBRAL_MINIMO) {
+        camino.remove();
+        desactivar();
+        return;
+    }
+    darAlta(camino, "linea", false);
 }
 
 /* El alta, en el mismo orden que el QR (editor.js:2209-2235). */
@@ -287,30 +490,25 @@ function baseGeometrica(camino) {
     }
 }
 
-function comprometer(evento) {
-    const forma = activa;
-    const shift = conShift(evento);
-    const camino = forma === "lapiz"
-        ? (puntosLapiz.length > 1 ? new paper.Path(puntosLapiz) : null)
-        : trazar(forma, ancla, evento.point, shift);
+/* Lápiz: si al soltar el trazo cae sobre su propio arranque, lo que se quiere
+   es una silueta cerrada (contorno grabable o rellenable), no un contorno
+   abierto que la auditoría marque como línea de corte. */
+function lapizCercaDelInicio() {
+    if (puntosLapiz.length < 3) return false;
+    const primero = puntosLapiz[0];
+    return puntosLapiz[puntosLapiz.length - 1].subtract(primero).length <= pxAProyecto(DIANA_PX);
+}
 
-    if (preview) { preview.remove(); preview = null; }
-    ancla = null;
-    puntosLapiz = [];
-
-    if (!camino || camino.length < UMBRAL_MINIMO) {
-        /* Paper inserta el Path en la capa corriente al construirlo: si el
-           arrastre fue un toque de más, el hilo hay que cortarlo de ahí, si no
-           queda un trazo fantasma en el lienzo (medido en el arnés: sin este
-           remove el lienzo guardaba un Path de 1px y la cinta abría "Vector"). */
-        if (camino) camino.remove();
-        desactivar();
-        return;
-    }
-
+/* El alta, en el mismo orden que el QR (editor.js:2209-2235). Compartida por las
+   figuras de arrastre, la polilínea y el lápiz: los tres caminos entran por la
+   misma puerta y por eso se seleccionan, mueven, fusionan, auditan y exportan
+   igual que un SVG cargado. */
+function darAlta(camino, forma, cerrar) {
     /* El snapshot TIENE que tomarse con el trazo todavía afuera del proyecto:
        saveHistory guarda el JSON del lienzo, y si el objeto nuevo ya está
-       insertado, el Ctrl+Z lo devuelve sin estilos ni data (fantasma otra vez). */
+       insertado, el Ctrl+Z lo devuelve sin estilos ni data (fantasma otra vez).
+       Paper inserta el Path en la capa corriente al construirlo, de ahí el
+       remove() de entrada. */
     camino.remove();
     window.saveHistory?.();
 
@@ -318,15 +516,12 @@ function comprometer(evento) {
     camino.strokeColor = new paper.Color(0);
     camino.strokeWidth = GROSOR_TRAZO;
     camino.fillColor = null;
-    if (forma === "lapiz" && typeof camino.simplify === "function") {
-        camino.simplify(TOLERANCIA_LAPIZ);
-    }
-    camino.closed = !!meta.cerrada && forma !== "lapiz";
+    camino.closed = !!cerrar;
     camino.data = { locked: false, label: meta.label, sourcePaintMode: "stroke-only" };
     if (!camino.closed) {
         /* geometryAudit.js:30 marca "open-vector" a todo Path abierto, salvo que
-           declare que es línea de corte. Un trazo a mano o una recta SIEMPRE son
-           corte: el láser recorre el camino, no rellena nada. */
+           declare que es línea de corte. Un trazo a mano o una polilínea abierta
+           SIEMPRE son corte: el láser recorre el camino, no rellena nada. */
         camino.data.isCutLine = true;
     }
 
@@ -342,27 +537,88 @@ function comprometer(evento) {
     paper.view.update();
 }
 
+/* Figuras de arrastre (Rect/Círculo/Triángulo) y Lápiz: se comprometen al soltar. */
+function comprometer(evento) {
+    const forma = activa;
+    const cerrar = forma === "lapiz" ? lapizCercaDelInicio() : FORMAS[forma].cerrada;
+    const camino = forma === "lapiz"
+        ? (puntosLapiz.length > 1 ? new paper.Path(puntosLapiz) : null)
+        : trazar(forma, ancla, evento.point, conShift(evento));
+
+    limpiarPreview();
+    ancla = null;
+    puntosLapiz = [];
+
+    if (!camino || camino.length < UMBRAL_MINIMO) {
+        /* Paper inserta el Path en la capa corriente al construirlo: si el
+           arrastre fue un toque de más, el hilo hay que cortarlo de ahí, si no
+           queda un trazo fantasma en el lienzo (medido en el arnés: sin este
+           remove el lienzo guardaba un Path de 1px y la cinta abría "Vector"). */
+        if (camino) camino.remove();
+        desactivar();
+        return;
+    }
+
+    if (forma === "lapiz" && typeof camino.simplify === "function") {
+        camino.simplify(TOLERANCIA_LAPIZ);
+    }
+    darAlta(camino, forma, cerrar);
+}
+
 function activar(forma) {
     if (!window.paper || !paper.project || !FORMAS[forma]) return;
-    if (activa === forma) { desactivar(); return; }
-
-    if (!activa) {
-        toolPrevio = paper.tool || null;
-        if (!interactionOwner.claim("draw", { owner: "drawTools" })) return;
+    if (activa === forma) {
+        /* Volver a apretar Línea con la polilínea en curso NO la tira: remata
+           el trazo abierto, que es lo que hace el Enter y lo que espera el que
+           ya tiene los vértices puestos. Sin vértices, el botón apaga. */
+        if (forma === "linea" && polilineaEnCurso() && puntosPolilinea.length >= 2) {
+            terminarPolilinea(false);
+        } else {
+            desactivar();
+        }
+        return;
     }
+    /* Cambiar de herramienta con una ya activa: se limpia la sesión anterior
+       primero, si no el preview viejo (con sus vértices o su diana) queda
+       colgado en la capa como un trazo fantasma. */
+    if (activa) desactivar();
+
+    toolPrevio = paper.tool || null;
+    if (!interactionOwner.claim("draw", { owner: "drawTools" })) return;
     activa = forma;
 
     /* new Tool() ya deja su tool como el activo en Paper; por eso toolPrevio se
        Leyó ANTES de construirlo. */
     tool = new paper.Tool();
-    tool.onMouseDown = (evento) => { if (!paper.project) return; crearPreview(evento); };
-    tool.onMouseDrag = (evento) => { dibujarPreview(evento); };
-    tool.onMouseUp = (evento) => { comprometer(evento); };
+    if (forma === "linea") {
+        tool.onMouseDown = (evento) => { if (paper.project) clicPolilinea(evento); };
+        tool.onMouseDrag = (evento) => { seguirCursorPolilinea(evento); };
+        tool.onMouseUp = (evento) => { soltarPolilinea(evento); };
+        tool.onMouseMove = (evento) => { seguirCursorPolilinea(evento); };
+        /* Paper sintetiza su "doubleclick" sobre el mouseup y con eventos
+           sintéticos no siempre lo entrega; el dblclick del DOM es la misma
+           intención y llega siempre. El de la selección (selection.js:768) ya
+           se autocensura mientras el modo es "draw", así que no chocan. */
+        porDobleClic = (evento) => {
+            if (!polilineaEnCurso()) return;
+            evento.preventDefault?.();
+            terminarPolilinea(false);
+        };
+        if (paper.view.element) paper.view.element.addEventListener("dblclick", porDobleClic);
+    } else {
+        tool.onMouseDown = (evento) => { if (!paper.project) return; crearPreview(evento); };
+        tool.onMouseDrag = (evento) => { dibujarPreview(evento); };
+        tool.onMouseUp = (evento) => { comprometer(evento); };
+    }
     tool.activate();
 
     document.body.classList.add("ekko-dibujando");
     if (paper.view.element) paper.view.element.style.cursor = "crosshair";
-    aviso(`Arrastrá para dibujar ${FORMAS[forma].label.toLowerCase()} · Shift lo cuadra · Esc o el mismo botón termina`);
+    if (forma === "linea") {
+        aviso("Polilínea: clic en cada vértice · Shift lo clava en 0°, 45° o 90° · clic en la diana de inicio cierra la silueta · doble clic o Enter termina");
+    } else {
+        aviso(`Arrastrá para dibujar ${FORMAS[forma].label.toLowerCase()} · Shift lo cuadra · Esc o el mismo botón termina`);
+    }
     pintarBotones();
 }
 
@@ -371,6 +627,16 @@ function porTecla(evento) {
     if (evento.key === "Escape") {
         evento.stopPropagation();
         desactivar();
+        return;
+    }
+    /* Enter remata la polilínea, como en AutoCAD. Solo cuando ya hay trazo: sin
+       vértices no hay nada que guardar y el botón sigue esperando el primer
+       clic. */
+    if ((evento.key === "Enter" || evento.key === "Return")
+        && activa === "linea" && puntosPolilinea.length >= 2) {
+        evento.preventDefault();
+        evento.stopPropagation();
+        terminarPolilinea(false);
     }
 }
 
@@ -444,11 +710,13 @@ function crearBotones() {
     if (!caja || document.getElementById("btnEkkoLinea")) return !!document.getElementById("btnEkkoLinea");
 
     const linea = boton("btnEkkoLinea", "linea", "ekko-lineas", "Línea",
-        "Línea de corte: arrastrá de un punto a otro. Shift la deja en 0°, 45° o 90°.");
+        "Polilínea de corte: un clic por vértice. Volvé al inicio y hacé clic para "
+        + "cerrar la silueta. Doble clic o Enter termina; Shift clava cada tramo en 0°, 45° o 90°.");
     const formas = boton("btnEkkoFormas", "", "ekko-formas", "Formas",
         "Rectángulo, círculo o triángulo. Elegí la figura y arrastrá el tamaño en el lienzo.");
     const lapiz = boton("btnEkkoLapiz", "lapiz", "ekko-lapiz", "Lápiz",
-        "Dibujo a mano alzada; se simplifica solo para que el láser recorra menos puntos.");
+        "Dibujo a mano alzada; se simplifica solo para que el láser recorra menos puntos. "
+        + "Si soltás sobre el arranque, la silueta queda cerrada.");
 
     caja.appendChild(linea);
     caja.appendChild(formas);
