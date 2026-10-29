@@ -249,6 +249,21 @@
     <path d="M6 21.5l6-8 6 8z"/>
   </symbol>
 
+  <!-- Rect / Circulo / Triangulo: las tres piezas sueltas, una por boton del
+       menu de Formas. Mismo lenguaje de ekko-formas, una figura por glifo. -->
+  <symbol id="ekko-rect" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="5.5" width="18" height="13" rx="2"/>
+  </symbol>
+  <symbol id="ekko-circulo" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.5"/>
+  </symbol>
+  <symbol id="ekko-triangulo" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 4.5l8.5 15h-17z"/>
+  </symbol>
+
   <!-- Lapiz: dibujando a mano. La onda de abajo es lo que escribe el
        lapiz; sin ella seria el mismo icono de editar. -->
   <symbol id="ekko-lapiz" viewBox="0 0 24 24" fill="none" stroke="currentColor"
