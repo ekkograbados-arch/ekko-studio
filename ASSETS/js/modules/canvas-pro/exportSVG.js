@@ -184,12 +184,151 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
+    // 1b. HORNEADO DE RECORTE (contención del mockup y clips del diseño importado)
+    // La contención (el diseño dentro del producto y de sus huecos) se HORNEA
+    // antes de la purga: los hijos vectoriales se intersectan con la silueta
+    // (quedan contenidos y en vector para el láser) y los RASTER (fotos) se
+    // rasterizan CON el recorte incluido, así la foto queda dentro de su hueco
+    // igual que en la interfaz. Antes se quitaba la máscara sin hornear: la
+    // foto salía desclipeada y afuera del huesito en cada descarga.
+    // La capa entra al proyecto solo dentro de este bloque síncrono (rasterize
+    // lo exige): nunca llega a pintarse en pantalla.
+    try {
+        const capaActivaPrevia = paper.project.activeLayer;
+        let capaEnProyecto = false;
+        try { paper.project.addLayer(tempLayer); capaEnProyecto = true; } catch (_) {}
+
+        // Geometría en coordenadas de proyecto para booleanas fiables
+        // (mismo patrón que la unión anti doble-grabado del paso 5b).
+        const hornearWorld = (item) => {
+            const clone = item.clone({ insert: false });
+            try {
+                const matrix = item.globalMatrix?.clone?.() || clone.matrix?.clone?.();
+                clone.applyMatrix = false;
+                clone.matrix = new paper.Matrix();
+                if (matrix && !matrix.isIdentity()) clone.transform(matrix);
+                clone.applyMatrix = true;
+            } catch (_) {}
+            return clone;
+        };
+
+        const hornearGrupo = (grupo) => {
+            const hijos = grupo.children ? grupo.children.slice() : [];
+            const mascara = hijos.find(c => c.clipMask === true || c.data?.isMask === true || c.data?.wasClipMask === true) || null;
+            if (!mascara) return null;
+            const contenido = hijos.filter(c => c !== mascara);
+            if (!contenido.length) return null;
+
+            const parent = grupo.parent || tempLayer;
+            const idx = grupo.index;
+            const resultados = [];
+            const rasters = contenido.filter(c => c instanceof paper.Raster);
+            const vectores = contenido.filter(c => !(c instanceof paper.Raster));
+            const mascaraWorld = hornearWorld(mascara);
+
+            if (rasters.length) {
+                if (capaEnProyecto) {
+                    // Se rasteriza un CLON del grupo (máscara + fotos): el
+                    // recorte queda dentro de los píxeles y el original se
+                    // retira después. Resolución limitada para no explotar
+                    // la memoria con fotos grandes.
+                    try {
+                        const grupoRaster = grupo.clone();
+                        const limite = grupoRaster.bounds;
+                        const maxDim = Math.max(limite?.width || 1, limite?.height || 1, 1);
+                        const resolucion = Math.max(72, Math.min(300, (72 * 2000) / maxDim));
+                        const horneado = grupoRaster.rasterize(resolucion);
+                        if (horneado && Math.abs(horneado.width || 0) > 0) {
+                            try { horneado.remove(); } catch (_) {}
+                            parent.insertChild(idx, horneado);
+                            resultados.push(horneado);
+                        }
+                        try { grupoRaster.remove(); } catch (_) {}
+                    } catch (_) {
+                        // Sin rasterización posible: la foto queda como estaba
+                        // (sin recorte, comportamiento previo).
+                        rasters.forEach(r => resultados.push(hornearWorld(r)));
+                    }
+                } else {
+                    rasters.forEach(r => resultados.push(hornearWorld(r)));
+                }
+            }
+
+            vectores.forEach(v => {
+                // Intersección con la silueta: vector contenido (calidad
+                // láser intacta). Si la booleana no se puede, queda sin
+                // recorte (comportamiento previo).
+                const worldV = hornearWorld(v);
+                try {
+                    const recortado = worldV.intersect(mascaraWorld, { insert: false });
+                    const ok = recortado && typeof recortado.isEmpty === "function" && !recortado.isEmpty() &&
+                        Math.abs(recortado.area || 0) > 1e-9;
+                    if (ok) {
+                        resultados.push(recortado);
+                        try { worldV.remove(); } catch (_) {}
+                    } else {
+                        resultados.push(worldV);
+                    }
+                } catch (_) {
+                    resultados.push(worldV);
+                }
+            });
+
+            try { mascaraWorld.remove(); } catch (_) {}
+            // El grupo original se retira completo (máscara incluida) y los
+            // resultados ocupan su posición exacta en el apilado.
+            try { grupo.remove(); } catch (_) {}
+            resultados.forEach((r, i) => {
+                try { parent.insertChild(idx + i, r); } catch (_) { try { parent.addChild(r); } catch (_) {} }
+            });
+            return resultados.length;
+        };
+
+        // Varias pasadas: hornear un grupo puede dejar a la vista otros
+        // clipGroups anidados (se procesan en la pasada siguiente).
+        for (let pasada = 0; pasada < 5; pasada++) {
+            const pendientes = tempLayer.getItems({
+                match: function(item) {
+                    if (!(item instanceof paper.Group) || item.clipped !== true) return false;
+                    if (item.data?.isSmartFusion === true) return false;
+                    const fusionMasks = item.getItems?.({
+                        match: child => child.data?.isFusionMask === true
+                    }) || [];
+                    return fusionMasks.length === 0;
+                }
+            });
+            if (!pendientes.length) break;
+            pendientes.forEach(g => { try { hornearGrupo(g); } catch (_) {} });
+        }
+
+        try { if (capaEnProyecto) tempLayer.remove(); } catch (_) {}
+        // La capa activa queda como estaba: el editor nunca deja de apuntar
+        // a su capa de trabajo por culpa de la exportación.
+        try { if (capaActivaPrevia && capaActivaPrevia.project) capaActivaPrevia.activate(); } catch (_) {}
+    } catch (err) {
+        console.warn("[EKKO EXPORT] Horneado de contención incompleto:", err);
+    }
+
     // 2. PURGADO INICIAL DE ARTEFACTOS AUXILIARES Y ELEMENTOS NO GRABABLES
     // Elimina de inmediato mockups, fondos, guías inteligentes, cotas, reglas, marcas de agua y cajas de selección
+    // En el BOCETO el mockup real SI va (keepMockupImage): el cliente ve el
+    // producto tal cual la interfaz, con sus huecos como huecos. En el SVG de
+    // grabado se purga siempre: es referencia, no material.
+    const mockupProtegido = new Set();
+    if (options.keepMockupImage === true) {
+        tempLayer.getItems({ match: it => it?.data?.mockup === true }).forEach(m => {
+            (function marcar(nodo) {
+                if (!nodo) return;
+                mockupProtegido.add(nodo.id);
+                (nodo.children || []).forEach(marcar);
+            })(m);
+        });
+    }
     const artifactsToRemove = [];
     tempLayer.getItems({
         match: function(item) {
             const data = item.data || {};
+            if (mockupProtegido.has(item.id)) return false;
             return (
                 data.mockup === true ||
                 data.isMask === true ||
