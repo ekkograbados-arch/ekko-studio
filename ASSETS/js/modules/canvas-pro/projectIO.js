@@ -265,7 +265,9 @@ async function buildSketchCanvas() {
     const describe = api ? api.describe() : null;
     let svg = "";
     try {
-        svg = await prepareSVGForExport({ asString: true, includeMockup: false });
+        // includeMockup: el boceto muestra el PRODUCTO (contorno visible):
+        // el cliente tiene que ver sobre que chapa queda su diseño.
+        svg = await prepareSVGForExport({ asString: true, includeMockup: true });
     } catch (_) {
         svg = "";
     }
@@ -303,31 +305,29 @@ async function buildSketchCanvas() {
         console.warn("[EKKO SKETCH] No se pudo rasterizar el boceto.");
         return { ok: false, reason: "raster-failed" };
     }
-    // Marca de agua: logo + texto EKKO en diagonal + pie con producto/vista.
+    // Marca de agua: SOLO el logo EKKO (el del repositorio), repetido en
+    // diagonal y bien tenue + un pie pequeno con producto/vista/fecha. Antes
+    // un texto gigante dominaba la imagen y tapaba el diseño.
     try {
         ctx.save();
-        ctx.globalAlpha = 0.16;
+        ctx.globalAlpha = 0.13;
         const logo = await loadLogoImage();
-        const stepX = canvas.width / 3, stepY = canvas.height / 3;
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(-Math.PI / 6);
-        ctx.textAlign = "center";
-        ctx.fillStyle = "#0f172a";
-        ctx.font = `bold ${Math.round(canvas.width / 14)}px sans-serif`;
-        for (let ix = -1; ix <= 1; ix++) {
-            for (let iy = -1; iy <= 1; iy++) {
-                if (logo) {
-                    const logoW = stepX * 0.5;
-                    const logoH = logoW * (logo.height / Math.max(1, logo.width));
-                    ctx.drawImage(logo, ix * stepX - logoW / 2, iy * stepY - logoH / 2 - 14, logoW, logoH);
+        if (logo) {
+            const paso = Math.max(canvas.width, canvas.height) / 3;
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(-Math.PI / 6);
+            for (let ix = -1; ix <= 1; ix++) {
+                for (let iy = -1; iy <= 1; iy++) {
+                    const lw = paso * 0.42;
+                    const lh = lw * (logo.height / Math.max(1, logo.width));
+                    ctx.drawImage(logo, ix * paso - lw / 2, iy * paso - lh / 2, lw, lh);
                 }
-                ctx.fillText("EKKO STUDIO · BOCETO", ix * stepX, iy * stepY + 30);
             }
         }
         ctx.restore();
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = 0.55;
         ctx.fillStyle = "#64748b";
-        ctx.font = "16px sans-serif";
+        ctx.font = `bold ${Math.max(11, Math.round(canvas.width / 55))}px sans-serif`;
         ctx.textAlign = "left";
         const caption = `EKKO Studio · Boceto no válido para grabar · ${describe?.productName || ""} ${describe?.surfaceName || ""} · ${new Date().toLocaleDateString()}`;
         ctx.fillText(caption, 12, canvas.height - 12);
