@@ -1438,7 +1438,7 @@ body,
 .vfond__num input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
 /* Zoom de la ventana de edicion */
-.vfond__zoomfila { display: grid; grid-template-columns: 40px 1fr 40px; gap: 6px; }
+.vfond__zoomfila { display: grid; grid-template-columns: 40px 1fr 40px 68px; gap: 6px; align-items: center; }
 .vfond__zoombtn {
     padding: 9px 0; border: 1px solid rgba(255,255,255,.12); border-radius: 8px;
     background: #1e222a; color: #dbe4ec;
@@ -1448,6 +1448,66 @@ body,
 .vfond__zoombtn:focus-visible { outline: 2px solid #7aa7ff; outline-offset: 2px; }
 .vfond__zoombtn--texto { font-size: 12px; font-weight: 600; }
 .vfond__pista { margin: 2px 0 0; font-size: 11px; line-height: 1.4; color: #8b95a3; text-align: center; }
+/* El deslizador de zoom comparte clase con la pista de texto: son cosas
+   distintas y cada una necesita lo suyo. Sin `accent-color` el deslizador
+   quedaba gris sobre el panel oscuro y no se veia hasta donde estaba. */
+input.vfond__pista[type="range"] { margin: 0; width: 100%; accent-color: #6d5cf0; cursor: pointer; }
+
+/* ==========================================================================
+   FONDO Y SOMBRA DE CONTACTO
+   --------------------------------------------------------
+   Lo que PhotoRoom llama "Background". Son controles de la seccion Fondo de
+   la ventana de retoque. La visibilidad de cada fila la decide el JS con el
+   atributo `hidden`: por eso cada regla de display va acompañada de su
+   `[hidden]`, si no un `display:flex` ganaria y la fila quedaria visible
+   aunque el JS la hubiera apagado (contrato de la cinta).
+   ========================================================================== */
+.vfond__fila { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.vfond__fila[hidden] { display: none !important; }
+.vfond__miniet { font-size: 11px; font-weight: 600; color: #8b95a3; min-width: 62px; }
+.vfond__fila input[type="range"] { flex: 1 1 110px; min-width: 0; accent-color: #6d5cf0; cursor: pointer; }
+.vfond__fila .vfond__num { min-width: 42px; justify-content: flex-end; }
+
+.vfond__color {
+    width: 46px; height: 30px; padding: 0; cursor: pointer;
+    border: 1px solid rgba(255,255,255,.16); border-radius: 7px;
+    background: #1e222a;
+}
+.vfond__color::-webkit-color-swatch-wrapper { padding: 3px; }
+.vfond__color::-webkit-color-swatch { border: none; border-radius: 5px; }
+.vfond__color:focus-visible { outline: 2px solid #7aa7ff; outline-offset: 2px; }
+
+.vfond__archivo {
+    width: 100%; font: 400 11.5px/1.4 system-ui, "Segoe UI", sans-serif;
+    color: #b6c0cc;
+}
+.vfond__archivo::-webkit-file-upload-button {
+    margin-right: 8px; padding: 7px 10px;
+    border: 1px solid rgba(255,255,255,.12); border-radius: 8px;
+    background: #1e222a; color: #dbe4ec;
+    font: 600 11.5px/1 system-ui, "Segoe UI", sans-serif; cursor: pointer;
+}
+.vfond__archivo::-webkit-file-upload-button:hover { background: #262b35; }
+
+/* Los cinco tipos de fondo apilados de dos en dos: el panel mide 268 px y en
+   una fila "Desenfocar" y "Degradado" no caben legibles. El ultimo (Imagen)
+   ocupa la fila entera, porque es el boton que abre el selector de archivo. */
+.vfond__seg--apilado .vfond__segb { padding: 8px 6px; font-size: 12px; }
+.vfond__seg--apilado .vfond__segb:last-child { grid-column: 1 / -1; }
+
+/* "Ver lo quitado" y "Recortar margen" son botones que QUEDAN prendidos: el
+   estado se ve en el propio boton, no hay que adivinar. El color generico es
+   el morado de la app; "Ver lo quitado" se pinta rojo porque rojo es exactament
+   el color con el que marca lo que se fue. */
+.vfond__btn--ancho { width: 100%; }
+.vfond__btn[aria-pressed="true"] {
+    border-color: #6d5cf0; background: rgba(109,92,240,.16); color: #d7d2ff;
+}
+.vfond__btn[aria-pressed="true"]:hover { background: rgba(109,92,240,.24); }
+#ver-quitado[aria-pressed="true"] {
+    border-color: #ef5350; background: rgba(239,83,80,.14); color: #ff8a80;
+}
+#ver-quitado[aria-pressed="true"]:hover { background: rgba(239,83,80,.22); }
 
 .vfond__pie { margin-top: auto; display: grid; gap: 8px; }
 .vfond__piefila { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
