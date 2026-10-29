@@ -42,10 +42,15 @@ const ALMACEN = 'sesiones';
 // sesion de trabajo de un dia y no llena la cuota del navegador.
 //
 // El tope cuenta REGISTROS, no fotos: una foto puede ocupar dos (el paquete de
-// edicion y la eleccion de fondo, clave `...::fondo`). Con 8 fotos vivas al
-// mismo tiempo (`SESION_TOPE` en el modulo) son 16 registros, y 20 deja margen
-// para que la poda nunca expulse el paquete de una foto que sigue abierta.
-const TOPE = 20;
+// edicion y la eleccion de fondo, clave `...::fondo`).
+//
+// SUBIDO DE 20 A 80 (2026-10-29): "Quitar Fondo" ahora anda en LOTE, y con 20
+// registros recortar 12 fotos y ponerles fondo expulsaba la sesion de las
+// primeras antes de que el cliente las editara.
+// MEDIDO en el navegador: 20 registros pesan 2.261.406 B, ~113 KB por registro;
+// con 80 son ~9 MB. La poda ordena por `cuando` (cada guardado lo renueva), asi
+// que la foto que se esta editando es la ultima en irse.
+const TOPE = 80;
 
 let ultError = null;
 let promesaDb = null;
