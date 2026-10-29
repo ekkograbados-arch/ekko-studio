@@ -655,6 +655,21 @@ export async function prepareSVGForExport(options = {}) {
 
     let svgString = tempLayer.exportSVG(exportConfig);
 
+    // 8b. DESANIDADO + SIN RECORTE HEREDADO: Paper envuelve los items con
+    // clip en <svg> anidados SIN atributos de tamanio; el navegador los mide
+    // 100%x100% del lienzo y el render se rompe (visto en produccion con un
+    // diseño importado: contenido recortado y desplazado). El clip heredado
+    // del SVG del cliente ademas esconde geometria que en el lienzo se ve
+    // completa. Regla de la descarga: LO QUE SE VE EN EL LIENZO ES LO QUE
+    // SALE — se aplana la estructura y se eliminan los recortes.
+    if (typeof svgString === "string") {
+        svgString = svgString
+            .replace(/<svg[^>]*>/g, "")
+            .replace(/<\/svg>/g, "")
+            .replace(/<defs>\s*<clipPath[\s\S]*?<\/clipPath>\s*<\/defs>/g, "")
+            .replace(/\s*clip-path="[^"]*"/g, "");
+    }
+
     // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
     // Paper exporta la capa como fragmento <g> sin raíz <svg>; el antiguo
     // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdían.
