@@ -126,6 +126,25 @@ export async function prepareSVGForExport(options = {}) {
     const tempLayer = designLayer.clone({ insert: false });
     tempLayer.name = "designLayer";
 
+    // MARCO DE EXPORTACION: EL PRODUCTO, no el contenido. El SVG de grabado y
+    // el boceto tienen que conservar la posicion del diseño DENTRO del
+    // producto: asi LightBurn lo recibe 1:1 en su lugar y el boceto muestra el
+    // producto completo. Antes se exportaba con bounds:"content" y un texto
+    // solo salia como un archivo de 3 mm sin referencia alguna.
+    // Se capturan los limites del mockup ANTES del purgado, exista o no la
+    // opcion includeMockup (los limites se usan siempre; los PATHS del
+    // contorno se insertan solo si el llamador los pide).
+    let marcoProducto = null;
+    try {
+        const candidato = tempLayer.getItems({
+            match: item => item && (item.data?.mockup === true || item === window.currentMockup) &&
+                (item instanceof paper.Path || item instanceof paper.CompoundPath)
+        })?.[0] || window.clipMask || null;
+        if (candidato && candidato.bounds && candidato.bounds.width > 0 && candidato.bounds.height > 0) {
+            marcoProducto = candidato.bounds.clone();
+        }
+    } catch (_) { marcoProducto = null; }
+
     // Contorno del producto como grupo separado y fácilmente eliminable.
     // Se captura ANTES del purgado de artefactos. Solo se incluye si el
     // llamador lo pide (options.includeMockup): es referencia, no material.
@@ -617,9 +636,20 @@ export async function prepareSVGForExport(options = {}) {
     }
 
     // 8. EXPORTACIÓN NATIVA A SVG CON PRECISIÓN INDUSTRIAL
+    // El marco es el PRODUCTO (union con el contenido por si algo sobresale):
+    // la geometria no se traslada, solo cambia la ventana del viewBox.
+    let marcoFinal = null;
+    try {
+        const contenido = tempLayer.bounds;
+        if (marcoProducto && contenido && contenido.width > 0 && contenido.height > 0) {
+            marcoFinal = marcoProducto.unite(contenido);
+        } else {
+            marcoFinal = marcoProducto ? marcoProducto.clone() : null;
+        }
+    } catch (_) { marcoFinal = marcoProducto ? marcoProducto.clone() : null; }
     const exportConfig = {
         asString: true,
-        bounds: "content",
+        bounds: marcoFinal || "content",
         precision: precision
     };
 
@@ -631,7 +661,7 @@ export async function prepareSVGForExport(options = {}) {
     // Se construye la raíz explícitamente: width/height en mm y viewBox en
     // unidades de proyecto, de modo que 1 unidad = window.mmPerPaperUnit mm.
     if (typeof svgString === "string" && svgString.trim() !== "") {
-        const bounds = tempLayer.bounds;
+        const bounds = marcoFinal || tempLayer.bounds;
         const mmPerUnit = Number(window.mmPerPaperUnit) || 0;
         if (bounds && bounds.width > 0 && bounds.height > 0 && mmPerUnit > 0) {
             const num = value => Number.isFinite(value) ? value.toFixed(precision) : "0";
