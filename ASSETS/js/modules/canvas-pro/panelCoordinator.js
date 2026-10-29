@@ -143,17 +143,76 @@ function ensureContextSurface() {
 }
 
 /**
- * Chip de panel oculto: UN SOLO control, el mismo chevron de la barra,
- * resurgiendo flotante en la esquina superior derecha cuando el panel
- * superior esta OCULTO. El chevron apunta hacia abajo ("abrir el panel");
- * clic devuelve la barra a expandido. SIN menu de tres puntos aca: los
- * tres puntos verticales son y solo son "Mas herramientas"
- * (toolbarOverflow.js, al estilo Word/Office); las opciones de paneles
- * viven en su propio lugar (boton de la barra emergente) y el chevron
- * invertido es la unica salida de emergencia necesaria.
+ * Chip de panel oculto: revividores flotantes en la esquina superior derecha
+ * para las capas SUPERIORES (panel superior oculto -> chevron ⌄; barra
+ * emergente oculta -> ≡). El panel de productos NO va aca: su revividor es
+ * el pestillo del borde IZQUIERDO (ensureProductsAnchor), del mismo lado
+ * donde vive el panel. SIN menu de tres puntos aca: los tres puntos
+ * verticales son y solo son "Mas herramientas" (toolbarOverflow.js, al
+ * estilo Word/Office).
  * Se construye en JS (con sus estilos) para no depender de HTML/CSS del
  * servidor y para que exista SIEMPRE que se necesite.
  */
+/**
+ * Pestillo IZQUIERDO del panel de productos: cuando el cliente contrae el
+ * panel lateral, su propio boton de reapertura desaparece CON el panel (vive
+ * dentro de la superficie del topBar que la cascada oculta). Este pestillo
+ * vive EN EL BODY, pegado al borde izquierdo a media altura — exactamente
+ * del lado donde estaba el panel que se esconde, que es donde el cliente lo
+ * busca — y su unico trabajo es devolverlo: clic = productPanel "visible".
+ * No es un atajo decorativo: es el camino de vuelta garantizado
+ * (reversibilidad pedida expresamente).
+ */
+function ensureProductsAnchor() {
+    let latch = byId("ekkoPanelProductsAnchor");
+    if (latch) return latch;
+
+    if (!byId("ekkoPanelProductsAnchorStyles")) {
+        const style = document.createElement("style");
+        style.id = "ekkoPanelProductsAnchorStyles";
+        style.textContent = `
+            #ekkoPanelProductsAnchor {
+                position: fixed;
+                left: 0;
+                top: 50%;
+                transform: translateY(-50%);
+                z-index: calc(var(--ekko-floating-z, 10100) + 10);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                width: 26px;
+                height: 64px;
+                border: 1px solid rgba(255, 255, 255, 0.22);
+                border-left: 0;
+                border-radius: 0 10px 10px 0;
+                background: rgba(15, 23, 42, 0.88);
+                color: #e2e8f0;
+                font-size: 16px;
+                line-height: 1;
+                cursor: pointer;
+                box-shadow: 0 8px 22px rgba(15, 23, 42, 0.35);
+            }
+            #ekkoPanelProductsAnchor.is-visible { display: inline-flex; }
+            #ekkoPanelProductsAnchor:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    latch = document.createElement("button");
+    latch.type = "button";
+    latch.id = "ekkoPanelProductsAnchor";
+    latch.title = "Mostrar panel de productos";
+    latch.setAttribute("aria-label", "Mostrar panel de productos");
+    latch.textContent = "›";
+    latch.addEventListener("click", (event) => {
+        event.stopPropagation();
+        panelState.productPanel = "visible";
+        applyPanelState();
+    });
+    document.body.appendChild(latch);
+    return latch;
+}
+
 function ensurePanelAnchor() {
     let wrap = byId("ekkoPanelAnchor");
     if (wrap) return wrap;
@@ -197,7 +256,6 @@ function ensurePanelAnchor() {
     wrap.setAttribute("aria-label", "Controles de panel");
     wrap.innerHTML = `
         <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorExpand" title="Expandir panel superior" aria-label="Expandir panel superior">⌄</button>
-        <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorProducts" title="Mostrar panel de productos" aria-label="Mostrar panel de productos">›</button>
         <button type="button" class="panel-anchor-btn" id="ekkoPanelAnchorFloating" title="Mostrar barra emergente" aria-label="Mostrar barra emergente">≡</button>
     `;
     document.body.appendChild(wrap);
@@ -208,16 +266,10 @@ function ensurePanelAnchor() {
         applyPanelState();
     });
 
-    // REVERSIBILIDAD: estos tres reviveadores viven EN EL BODY, afuera de
-    // todo panel que se pueda ocultar. Aunque el cliente esconda el panel
-    // de productos o la barra emergente (cuyos propios botones quedan
-    // dentro y desaparecen), SIEMPRE hay un camino de vuelta visible aqui.
-    byId("ekkoPanelAnchorProducts").addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.productPanel = "visible";
-        applyPanelState();
-    });
-
+    // REVERSIBILIDAD: estos revividores viven EN EL BODY, afuera de todo
+    // panel que se pueda ocultar. El panel de productos tiene su PROPIO
+    // pestillo en el borde IZQUIERDO (ensureProductsAnchor): del mismo lado
+    // donde vive el panel, porque el cliente lo busca ahi, no en esta esquina.
     byId("ekkoPanelAnchorFloating").addEventListener("click", (event) => {
         event.stopPropagation();
         panelState.floatingBar = "auto";
@@ -353,19 +405,24 @@ function renderPanelState() {
     // ocultaba.
     const anchor = ensurePanelAnchor();
     if (anchor) {
-        // REVERSIBLE SIEMPRE: el chip aparece si ALGUNA de las tres capas
-        // quedo oculta, y cada reviveador solo se ve para la capa que
-        // efectivamente esta oculta (el resto no muestra boton fantasma).
+        // REVERSIBLE SIEMPRE: el chip aparece si alguna capa superior quedo
+        // oculta, y cada revividor solo se ve para la capa que efectivamente
+        // esta oculta (el resto no muestra boton fantasma). El panel de
+        // productos NO va aca: tiene su pestillo izquierdo propio (abajo).
         const topOculto = panelState.topPanel === "hidden";
-        const productosOcultos = panelState.productPanel === "hidden";
         const emergenteOculta = panelState.floatingBar === "hidden";
-        anchor.classList.toggle("is-visible", topOculto || productosOcultos || emergenteOculta);
+        anchor.classList.toggle("is-visible", topOculto || emergenteOculta);
         const ex = byId("ekkoPanelAnchorExpand");
         if (ex) ex.style.display = topOculto ? "" : "none";
-        const pr = byId("ekkoPanelAnchorProducts");
-        if (pr) pr.style.display = productosOcultos ? "" : "none";
         const fl = byId("ekkoPanelAnchorFloating");
         if (fl) fl.style.display = emergenteOculta ? "" : "none";
+    }
+
+    // Pestillo izquierdo del panel de productos: visible SOLO cuando el
+    // panel esta oculto. Es la unica salida de reversibilidad de ese panel.
+    const pestillo = ensureProductsAnchor();
+    if (pestillo) {
+        pestillo.classList.toggle("is-visible", panelState.productPanel === "hidden");
     }
 
     // El chevron de la propia barra tambien se invierte en compacto: mismo
