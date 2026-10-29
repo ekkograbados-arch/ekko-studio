@@ -606,15 +606,17 @@ export function initPanelCoordinator() {
     window.setEKKOSelectionContext = setSelectionContext;
     window.getEKKOPanelState = getPanelState;
 
-    // PROTOTIPO CASCADA (Fase 1): activo solo con ?cascade=1 en la URL, o
-    // con ekko.cascadePrototype="1" en localStorage. ?cascade=0 desactiva.
-    // Dinamico y condicional: sin flag, este modulo no carga NADA nuevo y
-    // la app se comporta exactamente como siempre.
+    /* LA CASCADA ES LA INTERFAZ, NO UN PROTOTIPO: arranca siempre, en cualquier
+       dispositivo. Antes vivia de la clave ekko.cascadePrototype en localStorage,
+       y localStorage es por navegador y por maquina: la misma URL mostraba dos
+       interfaces distintas segun donde se abriera, y un ?cascade=0 tocado una vez
+       dejaba una computadora atrasada para siempre (el "no veo cambios" entre PC).
+       Ahora la unica forma de apagarla es ?cascade=0 en la URL, y solo dura esa
+       carga. La clave vieja se borra para que ningun dispositivo quede atado a
+       una decision tomada hace rondas. */
     try {
-        const flag = new URLSearchParams(location.search).get("cascade");
-        if (flag === "1") localStorage.setItem("ekko.cascadePrototype", "1");
-        if (flag === "0") localStorage.setItem("ekko.cascadePrototype", "0");
-        if (localStorage.getItem("ekko.cascadePrototype") === "1") {
+        localStorage.removeItem("ekko.cascadePrototype");
+        if (new URLSearchParams(location.search).get("cascade") !== "0") {
             import("./cascadeToolbar.js")
                 .then(m => m.initCascadeToolbar?.())
                 .catch(err => console.warn("[EKKO CASCADA] no se pudo iniciar:", err));
