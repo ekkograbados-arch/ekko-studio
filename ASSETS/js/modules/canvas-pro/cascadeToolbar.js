@@ -128,10 +128,24 @@ function contextoActual() {
     return via;
 }
 
+/* Que ES lo que hay seleccionado, para la barra emergente. capabilities llama
+   "base" a todo lo que no le devuelve una especie clara (medido: un recorte de
+   la chapa, que es mockup de si mismo, dice base y la tira muestra solo
+   Inicio). La pestana puede decir Inicio, pero la barra igual tiene que dar
+   los iconos del objeto: se mira la clase real de Paper como red. */
+function especieDeLaSeleccion() {
+    const det = detectTab(seleccionActual());
+    if (det && det !== "base") return det;
+    const it = window.selectedItem;
+    if (!it) return "base";
+    if (it.className === "PointText") return "text";
+    if (it.className === "Raster" || (it.data && it.data.isRaster)) return "image";
+    return det || "base";
+}
+
 function nombreComando(btn) {
     return btn.dataset.fusionBtn || btn.dataset.ekkoCommand || null;
 }
-
 /* ------------------------------------------------------------------ */
 /* Recientes por contexto: frecuencia x recencia                        */
 /* ------------------------------------------------------------------ */
@@ -231,12 +245,6 @@ function estilos() {
             width: 100%;
             position: relative;
             padding: 4px 2px 0 2px;
-        }
-        #ekkoCascadeCluster {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            flex: 0 0 auto;
         }
         .ekko-strip-btn {
             display: inline-flex;
@@ -347,7 +355,6 @@ function estilos() {
             transform: none;
         }
         .ekko-util-cluster { margin-left: auto; display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
-        #ekkoCascadeCluster #ekkoCascadeProducto { margin-left: 0; }
         /* El texto de estado no puede apabullar a las pestañas: se trunca. */
         .ekko-util-cluster #selectionInfo,
         .ekko-util-cluster #ekkoCascadeProducto {
@@ -388,8 +395,13 @@ function estilos() {
                Ronda 5: se esconde el GRUPO ENTERO, no solo sus botones. Con
                .btn-action a display:none quedaban las 8 etiquetas de los grupos
                flotando solas sobre la banda vacia, que es justo el aspecto de
-               interfaz rota que el cliente no perdona. */
-        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > .ekko-ribbon-group { display: none !important; }
+               interfaz rota que el cliente no perdona.
+               Ronda 6: el grupo CREAR es la excepcion. Cargar / Agregar Texto /
+               QR ya no viven en la tira (mezclarse con las pestañas fue el
+               "no se entiende donde terminan las pestañas" del cliente) y son
+               justamente las acciones que SI tienen sentido sin seleccion:
+               es la manera de empezar. */
+        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > .ekko-ribbon-group:not([data-group="creacion"]) { display: none !important; }
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > button { display: none !important; }
 
         /* --- BARRA EMERGENTE en la cascada: una sola fila con las 5 mas
@@ -509,12 +521,14 @@ function estilos() {
                dice (175px -> 62px) y la regla de texto se re-escribe anclada al
                body con :has(), que es la única forma de gobernar las dos
                superficies desde un solo atributo del motor. */
-        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-group {
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-group,
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-group {
             display: inline-flex;
             align-items: center;
             gap: 5px;
         }
-        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-number-label {
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-number-label,
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-number-label {
             display: inline-flex;
             align-items: center;
             gap: 4px;
@@ -522,25 +536,117 @@ function estilos() {
             line-height: 1;
             white-space: nowrap;
         }
-        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-input-number {
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-input-number,
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-input-number {
             width: 62px !important;
             min-width: 0;
             padding: 3px 5px;
             font-size: 11px;
         }
-        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-slider-container {
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-slider-container,
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-slider-container {
             flex: 0 0 120px;
             width: 120px;
         }
-        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-angle-readout {
+        /* El slider en UNA linea (medido en shot-r6c-texto): el contenedor es un
+           <div> de bloque y el <input type=range> sin ancho propio mide ~129px
+           de Chrome, o sea mas que los 120px de la caja — el readout ("0°")
+           caia a la segunda linea y le pegaba encima de la etiqueta del grupo.
+           Flex + range elastico: icono, barra y valor comparten la linea. */
+        body[data-ekko-cascade="1"] :is(#contextual-toolbar, #ekkoCascadeTools) .toolbar-slider-container {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            height: 22px;
+        }
+        body[data-ekko-cascade="1"] :is(#contextual-toolbar, #ekkoCascadeTools) .toolbar-slider-container input[type="range"] {
+            flex: 1 1 auto;
+            min-width: 0;
+            width: auto;
+        }
+        body[data-ekko-cascade="1"] :is(#contextual-toolbar, #ekkoCascadeTools) .toolbar-slider-container .toolbar-angle-readout {
+            flex: 0 0 auto;
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-angle-readout,
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-angle-readout {
             font-size: 10.5px;
         }
-        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(#objFontSize),
-        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(#objCurveRadius),
-        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(#objTextSpacing),
-        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(.toolbar-angle-readout),
-        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar #objTextSpacingSlider {
+        /* El grupo Objeto de la cinta NO usa el molde de botones del resto: sus
+           hijos son campos, y column-wrap los apilaria de a dos por columna
+           dentro de los 44px. Aca van en una sola fila, centrados. */
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body {
+            flex-flow: row nowrap;
+            align-items: center;
+            height: 30px;
+            min-height: 30px;
+            max-height: none;
+            gap: 8px;
+        }
+        /* El grupo Objeto ABRIR la cinta, no cerrarla. Es lo unico que cambia
+           de verdad sobre lo seleccionado (medidas, fuente, tamano) y la cinta
+           desplaza: clavado al fondo, con un texto seleccionado el campo de la
+           fuente quedaba afuera de la ventana (medido: 1766px de contenido en
+           una fila de 1114). Orden -1 = primera columna, sin mover nodos. */
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] {
+            order: -1;
+        }
+        /* Ronda 6, punto 1: la TIPOGRAFIA pasa a tener UNA sola superficie en
+           cascada, que es #ctxTextControls: fuente, tamaño, negrita, curvar y
+           espaciado juntos en un bloque. El trío obj* de .size-control-group es
+           el espejo viejo del mismo valor (rotationController.js:28 y
+           contextualMenu.js:834-851 escriben Y escuchan en las dos ids, asi que
+           borrar una no apaga nada), y tener las dos series a la vez duplicaba
+           Tamano/Radio/Espacio y estiraba el grupo Objeto hasta 2078px.
+           Por eso los obj* salen SIEMPRE en cascada, no solo sin texto. */
+        body[data-ekko-cascade="1"] :is(#contextual-toolbar, #ekkoCascadeTools)
+            .size-control-group > :is(
+                label:has(#objFontSize),
+                label:has(#objCurveRadius),
+                label:has(#objTextSpacing),
+                label:has(.toolbar-angle-readout),
+                #objTextSpacingSlider) {
             display: none !important;
+        }
+        /* Los VALORES de texto afuera de la cinta cuando lo seleccionado no es
+           texto. Se decide por data-ekko-texto, que escribe
+           refreshTextControlsVisibility ANTES del early-return de
+           updateContextualMenu (linea 1008): con contenido mockup el motor ni
+           llega a tocar las clases de las cajas. */
+        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #ekkoCamposTexto {
+            display: none !important;
+        }
+        /* LAS CAJAS POR ESPECIE DE LA BARRA. #ctxTextControls (Negrita,
+           Cursiva, Subrayado, Soldar, Curvar, Girar letras) y #ctxImageControls
+           (Espejo H/V) nacen en el HTML con la clase .hidden y el motor NUNCA
+           se la saca sobre contenido real: updateContextualMenu sale temprano
+           para cualquier item con data.mockup — y todo lo que hay en la mesa
+           de EKKO lo trae heredado del grupo de la chapa — antes de llegar a
+           hideSubgroup/remove. O sea que en production estos seis iconos de
+           texto y los espejos jamas se vieron en la barra flotante.
+           En cascada la caja se enciende segun el tipo de objeto que la barra
+           ya calcula (data-ekko-especie = la pestana que deduce capabilities),
+           que es exactamente lo que esa clase queria decir.
+           #ctxNodeEditControls NO se toca: su estado es el modo de edicion de
+           nodos, no la especie, y ahi el motor si lo gobierna bien. */
+        body[data-ekko-cascade="1"] #contextual-toolbar[data-ekko-especie="text"] #ctxTextControls,
+        body[data-ekko-cascade="1"] #contextual-toolbar[data-ekko-especie="image"] #ctxImageControls {
+            display: flex !important;
+        }
+        /* El slider de espaciado y el campo "Espacio" de la cinta son el MISMO
+           valor (experienciaInput.js los espeja por id). En la cinta gana el
+           numero, que es el que se puede escribir con precision para soldar; el
+           slider baja de la barra para que la tira quede solo con iconos. */
+        body[data-ekko-cascade="1"] #ctxTextSpacingSlider {
+            display: none !important;
+        }
+        /* La caja de campos de texto vive ahora dentro de la banda de 30px de
+           la cinta: sin esto heredaria el display:block de .toolbar-subgroup y
+           cortaria la fila. */
+        #ekkoCamposTexto {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            height: 30px;
         }
 
         /* --- PANEL DE OPCIONES: la capa de opciones se abre un escalon MAS
@@ -661,6 +767,10 @@ function estilos() {
             white-space: nowrap;
         }
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools .ekko-fila-pista { display: block; }
+        /* La pista va DESPUES de Crear (ronda 6): con la cinta mostrando el
+           grupo de creacion, la frase de ayuda detras del boton es un pie de
+           pagina; adelante parecia que el boton era parte del aviso. */
+        #ekkoCascadeTools .ekko-fila-pista { order: 99; }
         body[data-modo="claro"] #ekkoCascadeTools .ekko-fila-pista { color: rgba(46,58,89,0.55); }
 
         /* --- CUERPO DEL GRUPO EN COLUMNA QUE ENVUELVE (el dibujo de Office) ---
@@ -711,6 +821,27 @@ function estilos() {
         #ekkoCascadeTools .ekko-ribbon-group:hover .ekko-ribbon-group-head::before { opacity: 0.75; }
         #ekkoCascadeTools .ekko-ribbon-group-head:hover { color: #ff2ea6; }
         body[data-modo="claro"] #ekkoCascadeTools .ekko-ribbon-group-head { color: #5b6b7c; }
+        /* MEDIDO (shot-r6d-texto): en modo claro los nombres de grupo —OBJETO,
+           CREAR, VISTA— salían BLANCOS sobre la banda clara, o sea invisibles,
+           y por eso "no se entiende dónde empieza y termina cada bloque". La
+           culpa no es de la cascada: ekko-espacio.css:1116 pinta el rótulo con
+           "color: rgba(255,255,255,.96) !important" y una sombra en relieve
+           pensada para el vidrio oscuro de noche. Acá se gana con la misma
+           arma (mas especificidad + !important) SOLO en claro: tinta neutra
+           legible y cero sombra, que sobre fondo claro ensucia. */
+        body[data-ekko-cascade="1"][data-modo="claro"] #ekkoCascadeTools .ekko-ribbon-group-head:not(:hover) {
+            color: #4d5f74 !important;
+            text-shadow: none !important;
+        }
+        /* Mismo origen, mismo bug: los títulos del panel izquierdo (PRODUCTOS,
+           CATEGORÍAS, VISTAS) usan la MISMA regla de ekko-espacio.css:1116 y en
+           claro quedaban blancos sobre fondo claro. Se corrige en cascada, que
+           es donde el modo claro ya es el arranque por defecto. */
+        body[data-ekko-cascade="1"][data-modo="claro"] #leftSidebar .panel-title,
+        body[data-ekko-cascade="1"][data-modo="claro"] #leftSidebar .sidebar-title {
+            color: #4d5f74 !important;
+            text-shadow: none !important;
+        }
 
 
         /* --- MOLDE PLANO DE LOS BOTONES (el aire de Word) ---
@@ -760,18 +891,24 @@ function estilos() {
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            gap: 3px;
+            gap: 2px;
             height: 44px;
             min-width: 52px;
-            max-width: 78px;
-            padding: 2px 7px !important;
-            font-size: 10.5px !important;
-            line-height: 1.08;
+            /* 96px y glifo de 16: la banda mide 44px y el cuerpo tiene
+               overflow hidden. Con glifo de 19 + 3px de hueco quedaban 22px
+               para el texto, o sea UNA linea de 10.5px — y "Cargar Imagen /
+               SVG" necesita dos, asi que el SVG se cortaba a la mitad (se veia
+               en la captura de la ronda 6). 44 - 16 - 2 - 4 de padding = 22px
+               = dos lineas justas. */
+            max-width: 96px;
+            padding: 2px 6px !important;
+            font-size: 10px !important;
+            line-height: 1.05;
             white-space: normal;
             text-align: center;
         }
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action.ekko-es-heroes .ekko-ic {
-            width: 19px; height: 19px;
+            width: 16px; height: 16px;
         }
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action:hover {
             background: rgba(255,255,255,0.13) !important;
@@ -991,20 +1128,21 @@ function montarStrip() {
     strip = document.createElement("div");
     strip.id = "ekkoCascadeStrip";
 
-    const cluster = document.createElement("div");
-    cluster.id = "ekkoCascadeCluster";
-
-    // "Donde empieza el proyecto": Cargar Imagen/SVG, Agregar Texto y QR son
-    // acciones de CREACION, no herramientas de objeto. Viven en la tira
-    // (fila 1) con lenguaje visual propio de botones primarios; la fila de
-    // herramientas (fila 2) queda solo para trabajar sobre objetos YA existentes.
-    // Regla segura: .btn-action SIN data-fusion-btn y SIN data-ekko-command
-    // (las booleanas llevan data-ekko-command: no entran, trato comun).
+    /* Ronda 6: la CREACION YA NO VIVE EN LA TIRA. Ronda 5 las tenia aca, y el
+       cliente lo leyó mal: "no se entiende dónde empiezan y terminan las
+       pestañas". Mezclar pestañas (Inicio / Texto = en qué contexto estoy
+       parado) con acciones (Cargar = qué hago) en la misma fila borra la
+       frontera. En Word la fila de pestañas son SOLO pestañas y toda acción
+       baja a la cinta, así que Cargar Imagen/SVG, Agregar Texto y QR se van al
+       grupo CREAR de la cinta (ui/ribbonLayout.js ya los agrupa ahí por ser el
+       bloque original de #topBar: basta con NO sacarlos). La tira pasa a ser
+       solo la puerta + las pestañas + las utilidades.
+       Regla segura: .btn-action SIN data-fusion-btn y SIN data-ekko-command
+       (las booleanas llevan data-ekko-command: no entran, trato común). */
     Array.from(topBar.querySelectorAll("button.btn-action")).forEach(b => {
         if (b.dataset.fusionBtn || b.dataset.ekkoCommand) return;
         if (b.closest("#ekkoDownloadWrap")) return;
-        b.classList.add("ekko-ini-btn");
-        cluster.appendChild(b);
+        b.dataset.ekkoCrear = "1";
     });
 
     // Contraer / Expandir: el MISMO boton del coordinador, siempre en la
@@ -1062,11 +1200,10 @@ function montarStrip() {
     tabsShell.appendChild(tabsBox);
 
     strip.appendChild(tabsShell);
-    strip.appendChild(cluster);
 
-    // Las utilidades van al EXTREMO derecho de la tira (fuera del cluster):
-    // IZQUIERDA = la puerta del panel y "Inicio", CENTRO = crear el proyecto,
-    // DERECHA = estado, chevron y Descargar.
+    // Las utilidades van al EXTREMO derecho de la tira: IZQUIERDA = la puerta
+    // del panel y "Inicio", DERECHA = estado, chevron y Descargar. Crear ya no
+    // pasa por aca (bajó a la cinta en la ronda 6).
     strip.appendChild(util);
 
     topBar.insertBefore(strip, topBar.firstChild);
@@ -1081,8 +1218,15 @@ function crearBotonTema() {
     tema.id = "btnEkkoTema";
     // .btn-action = el molde vivo de la fila 2 (lo que el skin activo pinte).
     tema.className = "btn-action";
+    /* El arranque es CLARO, no oscuro. ui/espacio.js ya nace en claro
+       (aplicar('claro'), linea 63) pero este boton leia su clave con default
+       "oscuro" y escribia data-modo, o sea que la pisaba en cada carga: la
+       plataforma abria de noche aunque el skin dijera de dia. El default ahora
+       coincide con el del skin; lo unico que puede cambiar el modo al arrancar
+       es una eleccion explicita del cliente guardada en la clave. */
+    const leerTema = () => (localStorage.getItem("ekko.cascade.tema") || "claro");
     const pintarTema = () => {
-        const modo = (localStorage.getItem("ekko.cascade.tema") || "oscuro");
+        const modo = leerTema();
         document.body.dataset.ekkoTheme = modo;
         // Y se escribe TAMBIEN el atributo del que es dueño ui/espacio.js
         // (data-modo), que es el que lee ekko-espacio.css. Sin esto el boton de
@@ -1094,7 +1238,7 @@ function crearBotonTema() {
         tema.title = "Modo claro / oscuro";
     };
     tema.addEventListener("click", () => {
-        const modo = (localStorage.getItem("ekko.cascade.tema") || "oscuro") === "claro" ? "oscuro" : "claro";
+        const modo = leerTema() === "claro" ? "oscuro" : "claro";
         try { localStorage.setItem("ekko.cascade.tema", modo); } catch (_) {}
         pintarTema();
     });
@@ -1325,6 +1469,7 @@ function sincronizarGrupoRecientes() {
    toggle() con la clase ya en su estado NO dispara registro de mutacion. */
 function pintarHeroes() {
     Array.from(fila.querySelectorAll(".ekko-ribbon-group")).forEach(g => {
+        if (g.dataset.group === GRUPO_OBJETO) return;   // no tiene botones-propios
         const cuerpo = g.querySelector(".ekko-ribbon-group-body");
         if (!cuerpo) return;
         const visibles = Array.from(cuerpo.children).filter(b => b.tagName === "BUTTON" && esVisible(b));
@@ -1332,11 +1477,148 @@ function pintarHeroes() {
     });
 }
 
+/* ------------------------------------------------------------------ */
+/* GRUPO "OBJETO": los CAMPOS NUMERICOS y tipograficos que la barra      */
+/* emergente arrastraba.                                                 */
+/*                                                                       */
+/* Ronda 6, con captura del cliente encima: la barra seguia "muy grande  */
+/* y se entiende poco". Medido sobre un texto seleccionado: 1300px y dos */
+/* filas, porque adentro de la barra viven .size-control-group (Ancho,   */
+/* Alto, Rot, Tamano, Radio, Angulo, Espacio) y #ctxTextControls (la     */
+/* fuente, el selector de tamano y DOS sliders). Los glifos — que son lo */
+/* que el cliente pidio ver — quedaban ahogados por los campos.          */
+/*                                                                       */
+/* La solucion no es esconder nada: es mudar los campos a la cinta, que */
+/* es el lugar donde el cliente ya los entiende (el panel superior). Se  */
+/* MOVEN los nodos reales, no se clonan: conservan id, sus listeners y — */
+/* lo importante — la visibilidad que el motor les escribe por clase     */
+/* (#ctxTextControls.hidden, data-ekko-texto). Un texto muestra fuente y */
+/* tamano; un vector, solo las medidas; sin seleccion, el grupo se va    */
+/* con is-empty.                                                          */
+/* ------------------------------------------------------------------ */
+const GRUPO_OBJETO = "objeto";
+/* A la cinta suben SOLO los VALORES del objeto. Las cajas de BOTONES del motor
+   (#ctxImageControls: Espejo H/V, #ctxNodeEditControls: Eliminar Nodo…) se
+   quedan en la barra emergente: son acciones sobre lo seleccionado, y la barra
+   es justamente la tira de iconos del objeto. Ronda 6 las estaba subiendo a
+   las dos por llevar .toolbar-subgroup, y quedaban botones sueltos dentro del
+   grupo "Objeto" de la cinta — nadie entiende eso. */
+const UNIDADES_CAMPO = u => !!(u.classList && (
+    u.classList.contains("size-control-group") || u.id === "ekkoCamposTexto"));
+
+/* #ctxTextControls (motor) es UNA caja que mezcla las dos cosas: seis botones
+   (Negrita, Cursiva, Subrayado, Soldar, Curvar, Girar letras) y los campos de
+   valor (fuente, tamaño, el slider de curvatura, radio, espacio). Se parte por
+   la mitad: los botones siguen en la barra emergente y los valores arman
+   #ekkoCamposTexto, que sube a la cinta como unidad. */
+const CAMPOS_DE_TEXTO = ["ctxFontSize", "ctxCurveRadius", "ctxTextSpacing", "ctxTextCurvature"];
+function esCampoDeTexto(n) {
+    if (!n || n.nodeType !== 1) return false;
+    if (n.id && CAMPOS_DE_TEXTO.includes(n.id)) return true;
+    if (n.classList && n.classList.contains("custom-font-dropdown")) return true;
+    return !!(n.querySelector && n.querySelector("#" + CAMPOS_DE_TEXTO.join(", #")));
+}
+
+function cajaCamposDeTexto() {
+    let caja = document.getElementById("ekkoCamposTexto");
+    if (!caja) {
+        caja = document.createElement("div");
+        caja.id = "ekkoCamposTexto";
+        caja.className = "toolbar-subgroup ekko-campos-texto";
+    }
+    const tc = document.getElementById("ctxTextControls");
+    if (tc) Array.from(tc.children).forEach(n => {
+        if (esCampoDeTexto(n) && n.parentElement !== caja) caja.appendChild(n);
+    });
+    /* #ctxFontSize llega SOLO (index.html:379 es un <input> suelto con title,
+       sin label), y en la cinta se veía un "42" flotando sin nombre. Los demás
+       valores ya vienen envueltos en <label class="toolbar-number-label">
+       ("Radio", "Espacio"), así que se etiqueta igual y en el mismo idioma
+       visual. El input se mueve DENTRO del label: los listeners que le puso
+       rotationController via getElementById quedan en la misma nodo. */
+    const tamano = caja.querySelector("#ctxFontSize");
+    if (tamano && !tamano.closest("label")) {
+        const etiqueta = document.createElement("label");
+        etiqueta.className = "toolbar-number-label";
+        etiqueta.appendChild(document.createTextNode("Tamaño "));
+        caja.insertBefore(etiqueta, tamano);
+        etiqueta.appendChild(tamano);
+    }
+    return caja;
+}
+
+function grupoObjeto() {
+    let g = fila.querySelector(`.ekko-ribbon-group[data-group="${GRUPO_OBJETO}"]`);
+    if (g) return g;
+    // Molde del motor (cuerpo + etiqueta debajo, plegable) escrito a mano:
+    // ribbonLayout solo construye los grupos del manifiesto.
+    g = document.createElement("div");
+    g.className = "ekko-ribbon-group";
+    g.dataset.group = GRUPO_OBJETO;
+    const cuerpo = document.createElement("div");
+    cuerpo.className = "ekko-ribbon-group-body";
+    const head = document.createElement("div");
+    head.className = "ekko-ribbon-group-head";
+    head.setAttribute("role", "button");
+    head.setAttribute("tabindex", "0");
+    head.setAttribute("aria-expanded", "true");
+    head.title = "Plegar / desplegar el grupo Objeto";
+    const title = document.createElement("span");
+    title.className = "ekko-ribbon-group-title";
+    title.textContent = "Objeto";
+    head.appendChild(title);
+    const toggle = () => {
+        const plegado = g.classList.toggle("is-collapsed");
+        head.setAttribute("aria-expanded", plegado ? "false" : "true");
+    };
+    head.addEventListener("click", toggle);
+    head.addEventListener("keydown", ev => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); }
+    });
+    g.appendChild(cuerpo);
+    g.appendChild(head);
+    // AL FINAL de la cinta: es el grupo de los VALORES, se lee despues de
+    // elegir la herramienta, no antes.
+    fila.appendChild(g);
+    return g;
+}
+
+function migrarCamposACinta() {
+    const fb = document.getElementById("contextual-toolbar");
+    const g = grupoObjeto();
+    const cuerpo = g.querySelector(".ekko-ribbon-group-body");
+    const unidades = fb ? [...fb.children].filter(UNIDADES_CAMPO) : [];
+    // Las medidas del objeto primero, y despues la caja de campos de texto: el
+    // orden de lectura es "cuanto mide" -> "que dice".
+    const aSubir = [...unidades, cajaCamposDeTexto()];
+    // Idempotente: appendChild sobre un nodo que ya esta ahi dispara al
+    // observador de #topBar igual, y de ahi naceria un bucle.
+    aSubir.forEach(u => {
+        if (u.parentElement !== cuerpo) cuerpo.appendChild(u);
+        // .ekko-fb-vacia la escribe refrescarBarraEmergente contando BOTONES;
+        // un grupo de campos no tiene botones propios y se quedaba con la clase
+        // puesta. Acá no significa nada: se suelta.
+        u.classList.remove("ekko-fb-vacia");
+    });
+    /* Si el grupo esta .is-empty, todo su contenido mide 0 px: medir el ancho
+       para decidir si vaciarlo es un huevo-gallina (una vez vacio, nunca
+       vuelve). Se lee la senal que el MOTOR usa para cada unidad: la clase
+       .hidden que el mismo escribe. Con el lienzo sin seleccion el grupo lo
+       esconde la regla .ekko-sin-seleccion de arriba, no esta. */
+    const sinTexto = (document.getElementById("topBar") || {}).getAttribute
+        && document.getElementById("topBar").getAttribute("data-ekko-texto") === "no";
+    const campoVivo = u => !u.classList.contains("hidden") && u.style.display !== "none"
+        && !(sinTexto && u.id === "ekkoCamposTexto");
+    const hay = [...cuerpo.children].some(campoVivo);
+    g.classList.toggle("is-empty", !hay);
+}
+
 /* Recientes: UNICAMENTE el reparto dentro de la cinta; el display lo decide el
    motor (ribbonRenderer) y el llenado de los grupos, ribbonLayout. */
 function refrescarFila() {
     if (!fila) return;
     adoptarGrupos();
+    migrarCamposACinta();
     const firmas = Array.from(fila.querySelectorAll("button"))
         .filter(b => !b.classList.contains("ekko-pan-btn") && nombreComando(b));
     const forma = firmas.map(b => `${b.id || ""}#${nombreComando(b)}`).join("|");
@@ -1390,9 +1672,15 @@ function refrescarFila() {
 /* herramienta muerta nueva.                                             */
 /* ------------------------------------------------------------------ */
 /* Con la barra SOLO DE ICONOS entran muchas mas acciones en el mismo aire
-   (medido: 90px por boton con nombre vs ~32px sin el). 7 es el punto donde el
-   atajo cubre el gesto mas repetido de cada contexto sin need de ⋯. */
-const FB_EN_VISTA = 7;
+   (medido: 90px por boton con nombre vs ~32px sin el). 9 cubre los iconos
+   PROPIOS del tipo seleccionado (un texto son 6: negrita, cursiva, subrayado,
+   soldar, curvar, girar letras) sin empujar Eliminar/Duplicar detras del ⋯. */
+const FB_EN_VISTA = 9;
+/* Las cajas de controles por especie (#ctxTextControls, #ctxImageControls,
+   #ctxNodeEditControls) NO existen para otro tipo de objeto: son la razon por
+   la que la barra aparecio. Van primero; los genericos (Eliminar, Duplicar,
+   al frente…) despues, ordenados por uso. */
+const ES_PROPIO_DE_LA_ESPECIE = u => /^(ctxText|ctxImage|ctxVector|ctxNodeEdit)Controls$/.test(u.id || "");
 
 function claveUso(btn) {
     // Las de la cinta tienen contrato (data-fusion-btn); las historicas de la
@@ -1489,6 +1777,10 @@ function montarBarraEmergente() {
 function refrescarBarraEmergente() {
     const fb = document.getElementById("contextual-toolbar");
     if (!fb || fb.dataset.ekkoCascadeFb !== "1") return;
+    // Senal de QUE tipo de objeto hay, para las cajas por especie de la barra
+    // (ver el bloque de CSS de #ctxTextControls). El observador de la barra solo
+    // mira class y style, asi que escribir este dataset no se realimenta.
+    fb.dataset.ekkoEspecie = especieDeLaSeleccion();
     const mas = document.getElementById("ekkoFbMas");
     // UNIDADES = los hijos DIRECTOS de la barra que agrupan botones: conviven
     // .toolbar-group (Eliminar, Fusionar, Tamano...) y .toolbar-subgroup
@@ -1514,6 +1806,7 @@ function refrescarBarraEmergente() {
     //    titulos y sus controles de tampon), nunca boton por boton: la
     //    estructura que escribe el motor se respeta.
     const mejorRango = u => {
+        if (ES_PROPIO_DE_LA_ESPECIE(u)) return -1;
         const rangos = botonesDe(u).filter(b => !ocultoPorElMotor(b)).map(b => rangoDe(claveUso(b)));
         return rangos.length ? Math.min(...rangos) : 999;
     };
@@ -1529,11 +1822,26 @@ function refrescarBarraEmergente() {
     // 2) Los primeros FB_EN_VISTA quedan a la vista; el resto espera detras
     //    del ⋯. toggle() sobre una clase que ya esta como se pide no genera
     //    registro de mutacion, asi que esta parte no puede realimentarse.
+    //
+    //    Se recorre el ORDEN ya aplicado (no el array viejo: despues del
+    //    appendChild de arriba el array `unidades` viene desfasado del DOM) y
+    //    se SALTEAN las unidades que el CSS tiene apagadas. Sin ese salto, un
+    //    texto y un vector se quedaban sin atajo: #ctxTextControls,
+    //    #ctxImageControls y #ctxNodeEditControls siguen vivas en la barra y
+    //    sus botones no estan "ocultos por el motor" (lo que el motor oculta es
+    //    la CAJA entera por CSS), asi que se comian los 9 huecos y no dejaba
+    //    ni Eliminar. Medido: barra de 110px con un vector, solo el ⋯.
     const expandida = fb.classList.contains("ekko-fb-expandida");
+    const cajaEncendida = u => getComputedStyle(u).display !== "none";
     let enVista = 0;
-    unidades.forEach(u => {
+    orden.forEach(u => {
         const botones = botonesDe(u);
         let utiles = 0;
+        if (!cajaEncendida(u)) {
+            botones.forEach(b => b.classList.remove("ekko-fb-extra"));
+            u.classList.toggle("ekko-fb-vacia", true);
+            return;
+        }
         botones.forEach(b => {
             if (ocultoPorElMotor(b)) { b.classList.remove("ekko-fb-extra"); return; }
             utiles++;
@@ -1591,6 +1899,10 @@ function anclarSobreSeleccion(fb) {
         if (!it || !it.bounds || it.visible === false) return;
         caja = caja ? caja.unite(it.bounds) : it.bounds.clone();
     });
+    // Ultimo recurso: si el item que se selecciono esta marcado invisible (se
+    // ve por otro lado, o el motor le dejo el flag), la barra igual tiene que
+    // plantarse en algo. Sin esto quedaba en 0/0 tapando la tira.
+    if (!caja && seleccion.bounds) caja = seleccion.bounds.clone();
     if (!caja) return;
 
     const marco = lienzo.getBoundingClientRect();
