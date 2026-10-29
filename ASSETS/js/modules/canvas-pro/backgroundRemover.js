@@ -12,6 +12,8 @@
    exacta y la máscara se aplica como canal alfa, nunca como un color.
    ========================================================================= */
 
+import * as FONDO from './fondoStore.js';
+
 (function (EKKO, undefined) {
     'use strict';
 
@@ -236,6 +238,18 @@
         // mascara, porque eso cambiaba el contorno entero con cada trazo (ver
         // `mascaraATrabajo`).
         mascaraFinal: false,
+        // Alfa CRUDA del modelo, en 8 bits, tal como salio de la red antes de
+        // cualquier post-proceso. Es la "receta" del recorte: con ella y la
+        // foto original se puede reconstruir la edicion entera despues de
+        // recargar (ver `sesionReconstruir`), y es lo unico que permite volver
+        // al recorte de la IA despues de retocar a mano.
+        //
+        // Se guarda en 8 bits y no en Float32 a proposito: la grilla llega a
+        // 896x512, que son 1,8 MB por foto en coma flotante y 458 KB en un
+        // canal. La perdida de precision es invisible (1/255 de alfa).
+        baseCruda: null,
+        baseAncho: 0,
+        baseAlto: 0,
         // Sello de la foto en curso. Cada `quitarFondo` lo incrementa y las
         // claves de las caches del retoque (rejilla de color, capas) lo
         // incluyen: su clave era solo el TAMANO de la mascara y con dos fotos
@@ -1472,6 +1486,21 @@
             ESTADO.mascara = r.alfa;
             ESTADO.mascaraAncho = r.w;
             ESTADO.mascaraAlto = r.h;
+            // Copia de 8 bits de la alfa cruda, ANTES de cualquier post-proceso.
+            try {
+                const nBase = r.alfa.length;
+                const crudo = new Uint8Array(nBase);
+                for (let i = 0; i < nBase; i++) {
+                    const v = r.alfa[i];
+                    crudo[i] = v <= 0 ? 0 : v >= 1 ? 255 : Math.round(v * 255);
+                }
+                ESTADO.baseCruda = crudo;
+                ESTADO.baseAncho = r.w;
+                ESTADO.baseAlto = r.h;
+            } catch (e) {
+                ESTADO.baseCruda = null;
+                ESTADO.ultimoError = e;
+            }
             // Otra foto: la copia "original" del retoque ya no sirve.
             RETOQUE.original = null;
             RETOQUE.capasClave = '';
@@ -1661,7 +1690,7 @@
                     // paquete completo de estado vive en el modulo con esta
                     // clave, asi "Editar fondo" abre ESTA foto aunque otra
                     // haya sido la ultima en procesarse.
-                    ekkoFondoClave: 'F' + (++SECUENCIA)
+                    ekkoFondoClave: BASE_CLAVE + (++SECUENCIA)
                 };
                 ESTADO.rasterOriginal = vivo;
                 ESTADO.claveSesion = vivo.data.ekkoFondoClave;
@@ -1693,7 +1722,11 @@
                 // marca, Editar Fondo no la abre. El paquete se retira (v11.31).
                 const claveVieja = r.data.ekkoFondoClave;
                 delete r.data.ekkoFondoClave;
-                if (claveVieja) SESIONES.delete(claveVieja);
+                if (claveVieja) {
+                    SESIONES.delete(claveVieja);
+                    // La sesion dejo de existir: el paquete en disco es basura.
+                    try { FONDO.borrar(claveVieja).catch(() => false); } catch (_) {}
+                }
             } catch (_) {}
         }
         ESTADO.imagenProcesada = null;
@@ -1868,6 +1901,25 @@
         deshacerRetoque,
         rehacerRetoque,
         cerrarRetoque,
+        // Salida profesional (PNG con alfa / JPG con fondo).
+        exportarRecorte,
+        // Lectura para el banco de medicion: cuanto mide el recorte final y
+        // cuanto mide SIN el margen transparente. No escribe nada.
+        medirRecorte: () => {
+            const c = lienzoRecorteFinal();
+            if (!c) return null;
+            const caja = cajaAlfa();
+            return {
+                ancho: c.width,
+                alto: c.height,
+                caja: caja ? {
+                    x0: Math.round(caja.x0 * c.width),
+                    y0: Math.round(caja.y0 * c.height),
+                    w: Math.max(1, Math.round((caja.x1 - caja.x0) * c.width)),
+                    h: Math.max(1, Math.round((caja.y1 - caja.y0) * c.height))
+                } : null
+            };
+        },
         estadoRetoque: () => ({
             activo: RETOQUE.activo,
             modo: RETOQUE.modo,
@@ -2098,6 +2150,25 @@
         capaRecorte: null,
         capasClave: '',
         capasSucias: true,
+        // --- Como se MUESTRA la edicion (no cambia el arte, solo el dibujo) ---
+        //   'compuesto' = tablero de transparencia + recorte: lo que se graba.
+        //   'mascara'   = la alfa en blanco y negro, como la mascara rapida de
+        //                 Photoshop (blanco = queda, negro = se va). Es la unica
+        //                 vista con la que se puede juzgar un pelo fino o un
+        //                 borde sucio, porque el ojo no tiene que adivinar la
+        //                 transparencia contra un cuadriculado.
+        //   'original'  = la foto sin recortar, para comparar A/B sin cerrar la
+        //                 ventana ni volver a quitar el fondo.
+        vista: 'compuesto',
+        // Capa de la vista 'mascara'. Se construye AL ENTRAR en esa vista y se
+        // descarta al salir: una capa mas a resolucion de trabajo (una 1600x1200
+        // son ~7,7 MB) no vale la pena mientras se trabaja en compuesto.
+        capaMascara: null,
+        mascaraClave: '',
+        // Clave de la sesion que se esta reconstruyendo desde el almacen. Dos
+        // clics seguidos en "Editar Fondo" disparian dos lecturas de la misma
+        // foto y la segunda abria la ventana con el estado a medio montar.
+        recargando: null,
         // Zoom PROPIO de la ventana de edicion. No toca `paper.view` a
         // proposito: si tocara el del editor se moveria todo el mockup y se
         // romperia el encuadre. El tamanio del pincel ya se ajusta con su
@@ -2152,8 +2223,20 @@
         // raster: abrirRetoque lo rechaza con su aviso, igual que siempre.
         let primero = null;
         let marcado = null;
+        // Un item de FONDO (el grupo que se inserta detras del recorte) nunca es
+        // la imagen que se edita: si el cliente lo tiene seleccionado, la
+        // ventana abriria el raster del fondo en vez del sujeto.
+        const esFondo = (it) => {
+            let n = it;
+            for (let i = 0; n && i < 4; i++) {
+                if (n.data && n.data.ekkoFondoPara) return true;
+                n = n.parent;
+            }
+            return false;
+        };
         const tomar = r => {
             if (!r || !r.project) return;
+            if (esFondo(r)) return;
             if (!primero) primero = r;
             if (!marcado && r.data && r.data.quitarFondoIA) marcado = r;
         };
@@ -2211,14 +2294,66 @@
         return true;
     }
 
-    /** Enciende o apaga la capa "ver lo que se quito". */
+    /** Enciende o apaga el tinte de lo que se quito. */
     function verLoQuitado(encendido) {
         if (!ESTADO.imagenProcesada || !ESTADO.mascara) return false;
         RETOQUE.verQuitado = !!encendido;
-        const vq = document.getElementById('ver-quitado');
-        if (vq) vq.checked = RETOQUE.verQuitado;
+        marcarVerQuitado();
         dibujarCapaQuitado();
         return true;
+    }
+
+    /** El boton de tinte refleja SIEMPRE el estado real, no al reves. */
+    function marcarVerQuitado() {
+        const vq = document.getElementById('ver-quitado');
+        if (!vq) return;
+        vq.classList.toggle('is-activo', !!RETOQUE.verQuitado);
+        vq.setAttribute('aria-pressed', RETOQUE.verQuitado ? 'true' : 'false');
+    }
+
+    /**
+     * Vista de la ventana: Compuesto / Mascara / Original.
+     *
+     * Es solo como se MUESTRA el estado, no el estado: el pincel, el historial
+     * y el recorte final son exactamente los mismos en las tres vistas. En
+     * Mascara se descarta la capa cacheada al salir, que es la unica que
+     * cuesta memoria.
+     */
+    function ponerVista(nueva) {
+        const vistas = ['compuesto', 'mascara', 'original'];
+        RETOQUE.vista = vistas.indexOf(nueva) >= 0 ? nueva : 'compuesto';
+        if (RETOQUE.vista !== 'mascara') {
+            RETOQUE.capaMascara = null;
+            RETOQUE.mascaraClave = '';
+        }
+        marcarVistaActiva();
+        try { pintarLienzoVentana(); }
+        catch (e) { ESTADO.ultimoError = e; }
+        return true;
+    }
+
+    function marcarVistaActiva() {
+        const botones = [
+            ['vista-compuesto', 'compuesto'],
+            ['vista-mascara', 'mascara'],
+            ['vista-original', 'original']
+        ];
+        for (const [id, clave] of botones) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            const on = RETOQUE.vista === clave;
+            el.classList.toggle('is-activo', on);
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+    }
+
+    /** Numbero de zoom de la ventana: el deslizador y el numero dicen lo mismo. */
+    function marcarZoom() {
+        const z = RETOQUE.zoomVentana || 1;
+        const et = document.getElementById('valor-zoom-ventana');
+        if (et) et.textContent = Math.round(z * 100) + '%';
+        const pista = document.getElementById('zoom-pista');
+        if (pista) pista.value = String(Math.round(z * 100));
     }
 
     /** Abre el panel de retoque. El recorte ya tiene que estar hecho. */
@@ -2300,8 +2435,7 @@
             };
             pintarLienzoVentana();
         }
-        const et = document.getElementById('valor-zoom-ventana');
-        if (et) et.textContent = Math.round(RETOQUE.zoomVentana * 100) + '%';
+        marcarZoom();
         actualizarCursor();
     }
 
@@ -2341,6 +2475,11 @@
                 src, aw, ah, ESTADO.caja, ESTADO.mascaraFinal);
             RETOQUE.capasClave = claveCapas();
             RETOQUE.capasSucias = false;
+            // La capa de mascara se descarta: su contenido sale de la MISMA
+            // `ESTADO.mascara`, asi que la vista la reconstruye sola si hace
+            // falta. Dejarla vieja mostraria una mascara que no coincide con
+            // el recorte que se esta viendo.
+            RETOQUE.capaMascara = null;
             return true;
         } catch (e) {
             ESTADO.ultimoError = e;
@@ -2396,7 +2535,81 @@
                 }
             }
             cctx.putImageData(ci, x0, y0);
+
+            // La capa de la vista Mascara se actualiza en el MISMO recuadro y
+            // con el MISMO valor de alfa, para que las dos vistas nunca se
+            // separen mientras se arrastra el pincel.
+            const cm = RETOQUE.capaMascara;
+            if (cm && RETOQUE.mascaraClave === claveCapas()
+                && cm.width === w && cm.height === h) {
+                try {
+                    const mctx = cm.getContext('2d', { willReadFrequently: true });
+                    const mi = mctx.createImageData(bw, bh);
+                    for (let y = 0; y < bh; y++) {
+                        for (let x = 0; x < bw; x++) {
+                            const a = ESTADO.mascara[(y0 + y) * w + (x0 + x)];
+                            const v = Math.max(0, Math.min(255, Math.round(a * 255)));
+                            const o = (y * bw + x) * 4;
+                            mi.data[o] = v; mi.data[o + 1] = v; mi.data[o + 2] = v;
+                            mi.data[o + 3] = 255;
+                        }
+                    }
+                    mctx.putImageData(mi, x0, y0);
+                } catch (_) { RETOQUE.capaMascara = null; }
+            }
         } catch (e) { ESTADO.ultimoError = e; }
+    }
+
+    /**
+     * Capa de la vista Mascara: la alfa actual como imagen en blanco y negro.
+     *
+     * Blanco = se queda, negro = se va. Es la lectura directa del borde: en
+     * compuesto el cuadriculado y el fantasma de la foto tapan la informacion
+     * que hace falta para decidir si un pelo quedo bien cortado.
+     *
+     * Se arma a la resolucion de `ESTADO.mascara`, que dentro de la ventana ya
+     * es la resolucion de trabajo (ver `mascaraATrabajo`), asi que ocupa el
+     * mismo rectangulo que `capaRecorte` y se mapea igual.
+     */
+    function reconstruirCapaMascara() {
+        const w = ESTADO.mascaraAncho, h = ESTADO.mascaraAlto;
+        if (!(w > 0) || !(h > 0) || !ESTADO.mascara) return null;
+        if (ESTADO.mascara.length !== w * h) return null;
+        try {
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d', { willReadFrequently: true });
+            const img = ctx.createImageData(w, h);
+            const d = img.data;
+            const m = ESTADO.mascara;
+            for (let i = 0, n = w * h; i < n; i++) {
+                const v = Math.max(0, Math.min(255, Math.round(m[i] * 255)));
+                const o = i * 4;
+                d[o] = v; d[o + 1] = v; d[o + 2] = v; d[o + 3] = 255;
+            }
+            ctx.putImageData(img, 0, 0);
+            RETOQUE.capaMascara = c;
+            RETOQUE.mascaraClave = claveCapas();
+            return c;
+        } catch (e) {
+            ESTADO.ultimoError = e;
+            RETOQUE.capaMascara = null;
+            return null;
+        }
+    }
+
+    // Lienzo auxiliar del tinte "ver lo quitado". Se reutiliza y se dimensiona
+    // al rectangulo VISIBLE de pantalla, no a la foto: a 24x el rectangulo de
+    // la foto seria de decenas de megapixeles.
+    let capaTinte = null;
+    function lienzoTinte(anchoPx, altoPx) {
+        const wPx = Math.max(1, Math.min(4096, Math.round(anchoPx)));
+        const hPx = Math.max(1, Math.min(4096, Math.round(altoPx)));
+        if (!capaTinte) capaTinte = document.createElement('canvas');
+        if (capaTinte.width !== wPx || capaTinte.height !== hPx) {
+            capaTinte.width = wPx; capaTinte.height = hPx;
+        }
+        return capaTinte;
     }
 
     // Tablero de transparencia de la ventana: cuadros claros, como el fondo
@@ -2529,35 +2742,102 @@
         ctx.rect(ox, oy, w, h);
         ctx.clip();
 
-        // 1) Tablero de transparencia, solo dentro de la foto. Los cuadros
-        //    miden siempre lo mismo en pantalla, aunque se haga zoom.
-        ctx.fillStyle = patronTablero(ctx);
-        ctx.fillRect(dx0, dy0, dw, dh);
+        const vista = RETOQUE.vista || 'compuesto';
+        // El recorte se mapea con la MISMA proporcion que la foto: la capa de
+        // trabajo ocupa el rectangulo del foto, pero a su propia resolucion.
+        const capaDe = (capa) => ({
+            sx: (sx / natW) * capa.width,
+            sy: (sy / natH) * capa.height,
+            sw: (sw / natW) * capa.width,
+            sh: (sh / natH) * capa.height
+        });
 
-        // 2) Fantasma de la foto ORIGINAL. Va siempre debajo del recorte: en
-        //    el sujeto opaco no se ve (lo tapa) y en lo quitado deja ver el
-        //    pelo/fondo que se puede devolver.
-        ctx.globalAlpha = FANTASMA_ALFA;
-        ctx.drawImage(src, sx, sy, sw, sh, dx0, dy0, dw, dh);
-        ctx.globalAlpha = 1;
+        if (vista === 'original') {
+            // A/B: la foto tal como entro, sin recorte. Comprobar el borde
+            // contra el original sin cerrar la ventana es lo que hace
+            // Photoshop con la vista de mascara; aca alcanza con dibujar la
+            // fuente que ya esta en memoria.
+            ctx.drawImage(src, sx, sy, sw, sh, dx0, dy0, dw, dh);
+        } else if (vista === 'mascara') {
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(dx0, dy0, dw, dh);
+            let cm = RETOQUE.capaMascara;
+            if (!cm || RETOQUE.mascaraClave !== claveCapas()) cm = reconstruirCapaMascara();
+            if (cm) {
+                const r = capaDe(cm);
+                ctx.drawImage(cm, r.sx, r.sy, r.sw, r.sh, dx0, dy0, dw, dh);
+            }
+        } else {
+            // 1) El fondo elegido, o el tablero de transparencia si no hay.
+            //
+            //    MEDIDO de diseno: la vista previa se arma con el MISMO lienzo
+            //    que se aplica a la escena (`lienzoFondoCompleto`), a escala del
+            //    rectangulo completo de la foto y recortando solo la parte
+            //    visible. Si se dibujara en el rectangulo visible, al hacer zoom
+            //    el degradado y la sombra se correrian del sujeto y el cliente
+            //    confirmaria un fondo que no es el que vio.
+            if (fondoActivo()) {
+                const lienzoPrev = fondoParaVista(w, h);
+                if (lienzoPrev) {
+                    ctx.drawImage(
+                        lienzoPrev,
+                        ((dx0 - ox) / w) * lienzoPrev.width,
+                        ((dy0 - oy) / h) * lienzoPrev.height,
+                        (dw / w) * lienzoPrev.width,
+                        (dh / h) * lienzoPrev.height,
+                        dx0, dy0, dw, dh);
+                } else {
+                    ctx.fillStyle = patronTablero(ctx);
+                    ctx.fillRect(dx0, dy0, dw, dh);
+                }
+            } else {
+                ctx.fillStyle = patronTablero(ctx);
+                ctx.fillRect(dx0, dy0, dw, dh);
+            }
 
-        // 3) El recorte real, con su alfa. Es la unica capa que se cachea, a
-        //    resolucion de trabajo, para que el arrastre y el "soltar"
-        //    muestren exactamente lo mismo.
-        const cacheValida = !refinado
-            && RETOQUE.capaRecorte
-            && !RETOQUE.capasSucias
-            && RETOQUE.capasClave === claveCapas();
-        if (!cacheValida && !reconstruirCapas()) { ctx.restore(); return; }
-        const capa = RETOQUE.capaRecorte;
-        if (!capa) { ctx.restore(); return; }
-        // La capa de trabajo ocupa el MISMO rectangulo que la foto, pero a su
-        // propia resolucion: se recorta con la misma proporcion.
-        const csx = (sx / natW) * capa.width;
-        const csy = (sy / natH) * capa.height;
-        const csw = (sw / natW) * capa.width;
-        const csh = (sh / natH) * capa.height;
-        ctx.drawImage(capa, csx, csy, csw, csh, dx0, dy0, dw, dh);
+            // 2) Fantasma de la foto ORIGINAL. Va siempre debajo del recorte: en
+            //    el sujeto opaco no se ve (lo tapa) y en lo quitado deja ver el
+            //    pelo/fondo que se puede devolver.
+            ctx.globalAlpha = FANTASMA_ALFA;
+            ctx.drawImage(src, sx, sy, sw, sh, dx0, dy0, dw, dh);
+            ctx.globalAlpha = 1;
+
+            // 3) El recorte real, con su alfa. Es la unica capa que se cachea, a
+            //    resolucion de trabajo, para que el arrastre y el "soltar"
+            //    muestren exactamente lo mismo.
+            const cacheValida = !refinado
+                && RETOQUE.capaRecorte
+                && !RETOQUE.capasSucias
+                && RETOQUE.capasClave === claveCapas();
+            if (!cacheValida && !reconstruirCapas()) { ctx.restore(); return; }
+            const capa = RETOQUE.capaRecorte;
+            if (!capa) { ctx.restore(); return; }
+            const r = capaDe(capa);
+            ctx.drawImage(capa, r.sx, r.sy, r.sw, r.sh, dx0, dy0, dw, dh);
+
+            // 4) Tinte "ver lo quitado": rojo SOLO donde el recorte es
+            //    transparente de verdad.
+            //
+            //    MEDIDO: el tinte anterior se calculaba con `255 - alfa` sobre
+            //    una rejilla propia y teñia tambien el pelo y el borde suave
+            //    (alfa parcial), que NO estan quitados; el cliente lo veto. El
+            //    recorte ya tiene el alfa final en su propio canal, asi que se
+            //    saca el tinte restandole esa capa a un rojo plano con
+            //    `destination-out`: lo que queda es exactamente el hueco.
+            if (RETOQUE.verQuitado) {
+                const t = lienzoTinte(dw, dh);
+                const tc = t.getContext('2d', { willReadFrequently: false });
+                tc.setTransform(1, 0, 0, 1, 0, 0);
+                tc.globalCompositeOperation = 'source-over';
+                tc.clearRect(0, 0, t.width, t.height);
+                tc.fillStyle = 'rgba(239,83,80,.45)';
+                tc.fillRect(0, 0, t.width, t.height);
+                tc.globalCompositeOperation = 'destination-out';
+                tc.drawImage(capa, r.sx, r.sy, r.sw, r.sh, 0, 0, t.width, t.height);
+                tc.globalCompositeOperation = 'source-over';
+                ctx.drawImage(t, 0, 0, t.width, t.height, dx0, dy0, dw, dh);
+            }
+        }
 
         ctx.restore();
 
@@ -2583,6 +2863,9 @@
         } catch (e) {
             ESTADO.ultimoError = e;
         }
+        // El fondo y la sombra se aplican dentro de `cerrarRetoque`, que es el
+        // unico camino de salida (Listo, la X y las teclas): si se hiciera aqui
+        // tambien, cada "Listo" hornearia el PNG del fondo dos veces.
         cerrarRetoque();
         // NO se guarda historia aqui a proposito: se conserva lo que hacia antes
         // (cerrar y ya). `quitarFondo` guarda su propio historial, asi que el
@@ -2670,6 +2953,13 @@
      * modulo, por eso cada foto procesada tiene su entrada.
      */
     const SESIONES = new Map();   // clave (string) -> paquete de estado
+    // La clave TAMBIEN es la clave en disco (IndexedDB) y el disco sobrevive a
+    // la pestana: si cada carga arrancara en F1, la foto de un proyecto nuevo
+    // pisaria la sesion guardada del proyecto anterior (mascara y fondo).
+    // MEDIDO (2026-10-29): tras recargar la pagina, la segunda foto salio F1
+    // otra vez. La base sale del reloj; el contador sigue incrementando dentro
+    // de la carga, como antes.
+    const BASE_CLAVE = 'F' + Date.now().toString(36);
     let SECUENCIA = 0;            // claves unicas por corrida de quitarFondo
     const SESION_TOPE = 8;        // fotos con sesion viva al mismo tiempo
 
@@ -2687,7 +2977,10 @@
             caja: ESTADO.caja,
             lienzoOriginal: ESTADO.lienzoOriginal,
             lienzoTrabajo: ESTADO.lienzoTrabajo,
-            urlOriginal: ESTADO.urlOriginal
+            urlOriginal: ESTADO.urlOriginal,
+            baseCruda: ESTADO.baseCruda,
+            baseAncho: ESTADO.baseAncho,
+            baseAlto: ESTADO.baseAlto
         };
     }
 
@@ -2699,6 +2992,10 @@
             SESIONES.delete(SESIONES.keys().next().value);
         }
         SESIONES.set(ESTADO.claveSesion, sesionCapturar());
+        // ...y en disco. Nadie espera el resultado: una foto de 4 MB tarda
+        // decenas de milisegundos en decodificarse y la interfaz no se puede
+        // cortar por guardar.
+        try { sesionPersistir(ESTADO.claveSesion).catch(() => false); } catch (_) {}
     }
 
     function sesionRecortar() {
@@ -2727,6 +3024,9 @@
         ESTADO.lienzoOriginal = paquete.lienzoOriginal;
         ESTADO.lienzoTrabajo = paquete.lienzoTrabajo;
         ESTADO.urlOriginal = paquete.urlOriginal;
+        ESTADO.baseCruda = paquete.baseCruda || null;
+        ESTADO.baseAncho = paquete.baseAncho || 0;
+        ESTADO.baseAlto = paquete.baseAlto || 0;
         ESTADO.claveSesion = clave;
         // De la foto ANTERIOR nada puede quedar en caches del retoque:
         RETOQUE.colorGrid = null;
@@ -2736,6 +3036,884 @@
         RETOQUE.original = null;
         ESTADO.ventanaCaja = null;
         ESTADO.tokenImagen = (ESTADO.tokenImagen || 0) + 1;
+        return true;
+    }
+
+    // ----------------------------------------------------------------------
+    // Persistencia de la sesion (IndexedDB). Ver el encabezado de fondoStore.js:
+    // lo que vive en la escena es solo la clave; lo pesado va aca.
+    // ----------------------------------------------------------------------
+
+    // URLs de objeto de las fotos originales recuperadas. Se conservan porque
+    // `deshacer()` vuelve a poner `raster.source` en la foto de origen, y una
+    // URL revocada deja el item roto.
+    const URLS_ORIG = new Map();
+
+    function imagenDesde(src) {
+        return new Promise((res, rej) => {
+            const img = new Image();
+            const t = setTimeout(() => rej(new Error('no cargo a tiempo')), 20000);
+            img.onload = () => { clearTimeout(t); res(img); };
+            img.onerror = () => { clearTimeout(t); rej(new Error('no se pudo leer la imagen guardada')); };
+            img.src = src;
+        });
+    }
+
+    function esperarElemento(el) {
+        if (el && el.complete && (el.naturalWidth || el.width) > 0) return Promise.resolve();
+        return new Promise(res => {
+            const t = setTimeout(res, 4000);
+            if (!el) { clearTimeout(t); res(); return; }
+            el.addEventListener('load', () => { clearTimeout(t); res(); }, { once: true });
+            el.addEventListener('error', () => { clearTimeout(t); res(); }, { once: true });
+        });
+    }
+
+    /** Parametros que producen ESTE recorte: la receta, no la foto. */
+    function paramsRecorte() {
+        return {
+            modelo: CFG.MODELO_CLAVE,
+            ladoEntrada: ESTADO.ladoEntrada || CFG.LADO_ENTRADA,
+            borde: CFG.BORDE,
+            suavizado: CFG.SUAVIZADO,
+            filo: CFG.FILO,
+            afinado: CFG.AFINADO,
+            geo: CFG.GEO ? 1 : 0,
+            solidificar: CFG.SOLIDIFICAR ? 1 : 0,
+            refinar: CFG.REFINAR_BORDE ? 1 : 0,
+            refinarRadio: CFG.REFINAR_RADIO,
+            contraste: CFG.BORDE_CONTRASTE
+        };
+    }
+
+    /**
+     * La alfa CRUDA del modelo como PNG de 8 bits (blanco = queda, negro = se va).
+     *
+     * Es el peso minimo posible: la grilla del modelo no pasa de 896x512 y un
+     * PNG de un canal de esos tamanos sale de 20-60 KB. Con eso, mas la foto
+     * original, la edicion se puede reconstruir entera despues de recargar.
+     */
+    function pngMascaraCruda(paquete) {
+        const w = paquete.baseAncho, h = paquete.baseAlto;
+        const crudo = paquete.baseCruda;
+        if (!crudo || !(w > 0) || !(h > 0) || crudo.length !== w * h) return null;
+        try {
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d');
+            const img = ctx.createImageData(w, h);
+            for (let i = 0, n = w * h; i < n; i++) {
+                const v = crudo[i];
+                const o = i * 4;
+                img.data[o] = v; img.data[o + 1] = v; img.data[o + 2] = v; img.data[o + 3] = 255;
+            }
+            ctx.putImageData(img, 0, 0);
+            return c.toDataURL('image/png');
+        } catch (e) { ESTADO.ultimoError = e; return null; }
+    }
+
+    async function mascaraCrudaDesdePng(dataUrl) {
+        if (!dataUrl) return null;
+        try {
+            const img = await imagenDesde(dataUrl);
+            const w = img.naturalWidth, h = img.naturalHeight;
+            if (!(w > 0) || !(h > 0)) return null;
+            const c = document.createElement('canvas');
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(img, 0, 0, w, h);
+            const px = ctx.getImageData(0, 0, w, h).data;
+            const out = new Uint8Array(w * h);
+            for (let i = 0, n = w * h; i < n; i++) out[i] = px[i * 4];
+            return { crudo: out, ancho: w, alto: h };
+        } catch (e) { ESTADO.ultimoError = e; return null; }
+    }
+
+    /**
+     * Escribe el paquete de la sesion en disco.
+     *
+     * Se llama al terminar `quitarFondo`, al cerrar la ventana y al cambiar el
+     * perfil: son los tres momentos en que el recorte queda definido. No bloquea
+     * la interfaz (nadie espera su resultado para pintar).
+     */
+    async function sesionPersistir(clave) {
+        const k = clave || ESTADO.claveSesion;
+        if (!k) return false;
+        const paquete = SESIONES.get(k) || (k === ESTADO.claveSesion ? sesionCapturar() : null);
+        if (!paquete || !paquete.mascara) return false;
+        const r = ESTADO.imagenProcesada || ESTADO.rasterOriginal;
+        const el = r && r.getElement && r.getElement();
+        if (!el) return false;
+        let original = null;
+        try {
+            // Los bytes EXACTOS de la importacion: `urlOriginal` es el data URL
+            // que leyo el FileReader, asi que fetch lo resuelve sin red.
+            const src = paquete.urlOriginal || ESTADO.urlOriginal;
+            if (src) original = await (await fetch(src)).blob();
+        } catch (e) { ESTADO.ultimoError = e; }
+        if (!original || !(original.size > 0)) return false;
+        const guardado = await FONDO.guardar(k, {
+            original,
+            basePng: pngMascaraCruda(paquete),
+            base: [paquete.baseAncho || 0, paquete.baseAlto || 0],
+            ancho: el.naturalWidth || el.width || 0,
+            alto: el.naturalHeight || el.height || 0,
+            params: paramsRecorte()
+        });
+        return !!guardado;
+    }
+
+    /**
+     * Reconstruye la sesion de una foto que ya no la tiene en memoria.
+     *
+     * Es el camino que antes terminaba en "La edicion de esta imagen se perdi6
+     * al recargar la pagina". Cambios de fondo respecto de `quitarFondo`:
+     *
+     *   - La mascara que se monta es la alfa ACTUAL del recorte (la del PNG del
+     *     item), no la cruda del modelo. MEDIDO: si se montara la cruda,
+     *     reabrir despues de recargar borraria los trazos del pincel, que es
+     *     justo el trabajo que el cliente hizo. Con `mascaraFinal = true` y la
+     *     resolucion de trabajo ya puesta, `mascaraATrabajo()` entra en su
+     *     camino rapido y no vuelve a erosionar ni a perfilar nada.
+     *   - La foto ORIGINAL sale del almacen: sin ella el pincel Restaurar no
+     *     tiene de donde tomar el color (el canvas 2D no conserva el RGB de los
+     *     pixeles transparentes). Si tampoco esta, se degrada a "solo borrar" y
+     *     se avisa, en vez de abrir una ventana que miente.
+     */
+    async function sesionReconstruir(clave, item) {
+        const paquete = await FONDO.leer(clave);
+        if (!paquete) return false;
+        const raster = resolverImagen(item) || item;
+        if (!raster || !raster.project) return false;
+        const el = raster.getElement && raster.getElement();
+        if (!el) return false;
+        await esperarElemento(el);
+        const W = el.naturalWidth || el.width || 0;
+        const H = el.naturalHeight || el.height || 0;
+        if (!(W > 0) || !(H > 0)) return false;
+
+        // El mismo techo de trabajo que en `quitarFondo`, para que la resolucion
+        // de la mascara reconstruida coincida con la de una sesion viva.
+        const esc = Math.min(1, CFG.MAX_LADO / Math.max(W, H));
+        const aw = Math.max(1, Math.round(W * esc));
+        const ah = Math.max(1, Math.round(H * esc));
+
+        let alfa = null;
+        try {
+            const t = document.createElement('canvas');
+            t.width = aw; t.height = ah;
+            const tc = t.getContext('2d', { willReadFrequently: true });
+            tc.drawImage(el, 0, 0, aw, ah);
+            const px = tc.getImageData(0, 0, aw, ah).data;
+            alfa = new Float32Array(aw * ah);
+            for (let i = 0, n = aw * ah; i < n; i++) alfa[i] = px[i * 4 + 3] / 255;
+        } catch (e) { ESTADO.ultimoError = e; return false; }
+        if (!alfa) return false;
+
+        let lienzoOriginal = null;
+        let urlOriginal = null;
+        let sinOriginal = false;
+        if (paquete.original && paquete.original.size > 0) {
+            try {
+                let url = URLS_ORIG.get(clave);
+                if (!url) { url = URL.createObjectURL(paquete.original); URLS_ORIG.set(clave, url); }
+                const img = await imagenDesde(url);
+                const o = document.createElement('canvas');
+                o.width = img.naturalWidth || W;
+                o.height = img.naturalHeight || H;
+                o.getContext('2d').drawImage(img, 0, 0, o.width, o.height);
+                lienzoOriginal = o;
+                urlOriginal = url;
+            } catch (e) { ESTADO.ultimoError = e; }
+        }
+        if (!lienzoOriginal) {
+            sinOriginal = true;
+            const o = document.createElement('canvas');
+            o.width = W; o.height = H;
+            o.getContext('2d').drawImage(el, 0, 0, W, H);
+            lienzoOriginal = o;
+            urlOriginal = el.src || null;
+        }
+
+        let base = null;
+        if (paquete.basePng) base = await mascaraCrudaDesdePng(paquete.basePng);
+
+        ESTADO.imagenProcesada = raster;
+        ESTADO.imagenOriginal = raster;
+        ESTADO.rasterOriginal = raster;
+        ESTADO.mascara = alfa;
+        ESTADO.mascaraAncho = aw;
+        ESTADO.mascaraAlto = ah;
+        ESTADO.mascaraFinal = true;
+        ESTADO.caja = { ox: 0, oy: 0, dw: aw, dh: ah };
+        ESTADO.lienzoTrabajo = { aw, ah };
+        ESTADO.lienzoOriginal = lienzoOriginal;
+        ESTADO.urlOriginal = urlOriginal;
+        ESTADO.alfaIA = new Float32Array(alfa);
+        ESTADO.baseCruda = base ? base.crudo : null;
+        ESTADO.baseAncho = base ? base.ancho : 0;
+        ESTADO.baseAlto = base ? base.alto : 0;
+        ESTADO.claveSesion = clave;
+        ESTADO.tokenImagen = (ESTADO.tokenImagen || 0) + 1;
+        // Nada de la foto anterior puede quedar en las caches (misma lista que
+        // `sesionCargar`, mas la capa de la vista Mascara).
+        RETOQUE.original = null;
+        RETOQUE.colorGrid = null;
+        RETOQUE.colorClave = '';
+        RETOQUE.capasClave = '';
+        RETOQUE.capasSucias = true;
+        RETOQUE.capaMascara = null;
+        RETOQUE.mascaraClave = '';
+        ESTADO.ventanaCaja = null;
+        SESIONES.set(clave, sesionCapturar());
+        sesionRecortar();
+        if (sinOriginal) {
+            avisar('No se encontró la foto original guardada: podés seguir borrando, pero no devolver zonas que ya estaban transparentes.', { kind: 'warn' });
+        }
+        return true;
+    }
+
+    /* =====================================================================
+       FONDO NUEVO Y SOMBRA DE CONTACTO (lo que hace PhotoRoom al final)
+       ---------------------------------------------------------------------
+       La eleccion de arquitectura, y es la que pidio el cliente: el fondo es
+       un OBJETO APARTE, no se hornea en el recorte.
+
+       Por que separado:
+         - El recorte conserva su alfa intacta. Cambiar el fondo cien veces
+           sigue dejando la misma imagen recortada, y "Quitar el fondo" vuelve
+           a la transparencia sin reprocesar nada.
+         - Para grabar a laser eso es fundamental: el sujeto tiene que seguir
+           siendo editable por su cuenta (contorno, calado, tamano real) y el
+           fondo es informacion de presentacion, no geometria del producto.
+         - Al ser vectores (rectangulo, degradado, elipse) el JSON de la escena
+             no crece: `exportJSON` guarda color y sueltos, no pixeles.
+             Solo el tipo "imagen" y "desenfocar" meten un Raster, y ese es el
+             mismo peso que tendria la foto si el cliente la importara a mano.
+
+       El objeto se arma SIEMPRE en el MISMO padre del recorte y justo detras
+       (`insertAbove` de nada / `insertBelow` del item), con la marca
+       `data.ekkoFondoPara = clave` para poder reemplazarlo sin duplicar.
+       ===================================================================== */
+
+    const FONDO_ESPEC = {
+        tipo: 'ninguno',
+        color: '#ffffff',
+        degA: '#f1f5f9',
+        degB: '#94a3b8',
+        degAngulo: 90,
+        desenfoque: 18,
+        imagen: null,          // { url, nombre }
+        escala: 100,           // % de cobertura de la imagen de fondo
+        opacidad: 100
+    };
+
+    const SOMBRA_ESPEC = {
+        opacidad: 0,           // 0 = sin sombra
+        suavidad: 55,          // 0 dura .. 100 muy difusa
+        direccion: 180,        // 180 = cae hacia abajo
+        aplastar: 30           // % de altura respecto del ancho
+    };
+
+    const TIPOS_FONDO = ['ninguno', 'color', 'degradado', 'desenfoque', 'imagen'];
+
+    // Copia de los valores de arranque. Sirve para volver de CERO una foto que
+    // nunca tuvo fondo: si solo se cambiara el tipo, quedaria puesto el
+    // degradado (o la sombra) elegido para la foto anterior.
+    const FONDO_CERO = { ...FONDO_ESPEC };
+    const SOMBRA_CERO = { ...SOMBRA_ESPEC };
+
+    /** Lee la eleccion guardada en el item, si es que ya tiene fondo. */
+    function leerEspec(item) {
+        const d = item && item.data && item.data.ekkoFondo;
+        if (!d) return false;
+        if (TIPOS_FONDO.indexOf(d.tipo) >= 0) FONDO_ESPEC.tipo = d.tipo;
+        if (typeof d.color === 'string') FONDO_ESPEC.color = d.color;
+        if (Array.isArray(d.deg)) {
+            FONDO_ESPEC.degA = d.deg[0] || FONDO_ESPEC.degA;
+            FONDO_ESPEC.degB = d.deg[1] || FONDO_ESPEC.degB;
+            FONDO_ESPEC.degAngulo = Number(d.deg[2]) || 0;
+        }
+        if (Number.isFinite(d.desenfoque)) FONDO_ESPEC.desenfoque = d.desenfoque;
+        if (d.imagen && d.imagen.url) FONDO_ESPEC.imagen = { url: d.imagen.url, nombre: d.imagen.nombre || 'imagen' };
+        if (Number.isFinite(d.escala)) FONDO_ESPEC.escala = d.escala;
+        if (Number.isFinite(d.opacidad)) FONDO_ESPEC.opacidad = d.opacidad;
+        const s = d.sombra;
+        if (s) {
+            if (Number.isFinite(s.opacidad)) SOMBRA_ESPEC.opacidad = s.opacidad;
+            if (Number.isFinite(s.suavidad)) SOMBRA_ESPEC.suavidad = s.suavidad;
+            if (Number.isFinite(s.direccion)) SOMBRA_ESPEC.direccion = s.direccion;
+            if (Number.isFinite(s.aplastar)) SOMBRA_ESPEC.aplastar = s.aplastar;
+        }
+        return true;
+    }
+
+    /** Lo que va en `data` del recorte: la receta, chica y sin pixeles. */
+    function especParaData() {
+        return {
+            v: 1,
+            tipo: FONDO_ESPEC.tipo,
+            color: FONDO_ESPEC.color,
+            deg: [FONDO_ESPEC.degA, FONDO_ESPEC.degB, FONDO_ESPEC.degAngulo],
+            desenfoque: FONDO_ESPEC.desenfoque,
+            escala: FONDO_ESPEC.escala,
+            opacidad: FONDO_ESPEC.opacidad,
+            imagen: FONDO_ESPEC.imagen ? { nombre: FONDO_ESPEC.imagen.nombre } : null,
+            sombra: { ...SOMBRA_ESPEC }
+        };
+    }
+
+    function fondoActivo() {
+        if (SOMBRA_ESPEC.opacidad > 0) return true;
+        if (FONDO_ESPEC.tipo === 'ninguno') return false;
+        // "Imagen" sin imagen todavia no es un fondo: tratandolo como fondo la
+        // ventana perderia el tablero de transparencia y la escena recibiria un
+        // PNG vacio.
+        if (FONDO_ESPEC.tipo === 'imagen') return !!(FONDO_ESPEC.imagen && FONDO_ESPEC.imagen.elemento);
+        return true;
+    }
+
+    /**
+     * Caja APRETADA del sujeto, en proporcion de la foto (0..1).
+     *
+     * Se necesita dos veces: para apoyar la sombra de contacto donde termina
+     * el objeto (no donde termina el rectangulo de la foto) y para el recorte
+     * de margen en la salida (paquete de exportacion).
+     */
+    function cajaAlfa() {
+        const w = ESTADO.mascaraAncho, h = ESTADO.mascaraAlto;
+        const m = ESTADO.mascara;
+        if (!m || !(w > 0) || !(h > 0)) return null;
+        let x0 = w, y0 = h, x1 = -1, y1 = -1;
+        for (let y = 0; y < h; y++) {
+            const fila = y * w;
+            for (let x = 0; x < w; x++) {
+                if (m[fila + x] < 0.5) continue;
+                if (x < x0) x0 = x;
+                if (x > x1) x1 = x;
+                if (y < y0) y0 = y;
+                if (y > y1) y1 = y;
+            }
+        }
+        if (x1 < x0 || y1 < y0) return null;
+        return { x0: x0 / w, y0: y0 / h, x1: (x1 + 1) / w, y1: (y1 + 1) / h };
+    }
+
+    /**
+     * Dibuja el fondo elegido en un lienzo.
+     *
+     * El MISMO codigo sirve para la vista previa de la ventana y para el
+     * raster que se aplica a la escena, asi que lo que se ve es lo que queda.
+     */
+    function pintarFondoEn(ctx, ancho, alto) {
+        const t = FONDO_ESPEC.tipo;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, Math.min(1, FONDO_ESPEC.opacidad / 100));
+        if (t === 'color') {
+            ctx.fillStyle = FONDO_ESPEC.color;
+            ctx.fillRect(0, 0, ancho, alto);
+        } else if (t === 'degradado') {
+            // El angulo se traduce a los dos extremos del eje, como el CSS.
+            const a = (FONDO_ESPEC.degAngulo * Math.PI) / 180;
+            const dx = Math.sin(a), dy = -Math.cos(a);
+            const g = ctx.createLinearGradient(
+                ancho / 2 - dx * ancho / 2, alto / 2 - dy * alto / 2,
+                ancho / 2 + dx * ancho / 2, alto / 2 + dy * alto / 2);
+            g.addColorStop(0, FONDO_ESPEC.degA);
+            g.addColorStop(1, FONDO_ESPEC.degB);
+            ctx.fillStyle = g;
+            ctx.fillRect(0, 0, ancho, alto);
+        } else if (t === 'desenfoque') {
+            const src = ESTADO.lienzoOriginal;
+            if (src) {
+                // `ctx.filter` esta soportado en Chrome, Firefox y Safari 16+.
+                // Sin soporte, el filtro se ignora y queda la foto nitida de
+                // fondo: peor que el desenfoque, pero no roto.
+                const radio = Math.max(1, (FONDO_ESPEC.desenfoque / 100) * Math.min(ancho, alto) * 0.12);
+                try { ctx.filter = 'blur(' + radio.toFixed(2) + 'px)'; } catch (_) {}
+                cubrir(ctx, src, ancho, alto, 100);
+                try { ctx.filter = 'none'; } catch (_) {}
+            } else {
+                ctx.fillStyle = FONDO_ESPEC.color;
+                ctx.fillRect(0, 0, ancho, alto);
+            }
+        } else if (t === 'imagen') {
+            const img = FONDO_ESPEC.imagen && FONDO_ESPEC.imagen.elemento;
+            if (img) cubrir(ctx, img, ancho, alto, FONDO_ESPEC.escala);
+        }
+        ctx.restore();
+    }
+
+    /** Dibuja `src` centrado y recortado al rectangulo, con un % de tamano. */
+    function cubrir(ctx, src, ancho, alto, escalaPct) {
+        const sw = src.naturalWidth || src.width || 0;
+        const sh = src.naturalHeight || src.height || 0;
+        if (!(sw > 0) || !(sh > 0) || !(ancho > 0) || !(alto > 0)) return;
+        const base = Math.max(ancho / sw, alto / sh);
+        const e = base * Math.max(0.1, (escalaPct || 100) / 100);
+        const dw = sw * e, dh = sh * e;
+        ctx.drawImage(src, (ancho - dw) / 2, (alto - dh) / 2, dw, dh);
+    }
+
+    /**
+     * Sombra de contacto, dibujada en el MISMO lienzo que el fondo.
+     *
+     * Geometria en unidades 0..1 del rectangulo de la foto, escalada al lienzo
+     * que se le pase: asi la vista previa de la pantalla y el objeto que queda
+     * en la escena salen del mismo calculo y con el mismo aspecto. Se apoya en
+     * la caja APRETADA del sujeto (`cajaAlfa`), no en el rectangulo: si no, la
+     * sombra flotaria en el aire cuando la foto tiene margen arriba y abajo.
+     *
+     * MEDIDO de diseño: la version vectorial (Path.Ellipse con degradado
+     * radial de Paper) depende del marco unitario del relleno, que no se
+     * comporta igual entre versiones, y el `shadowBlur` de canvas obliga a
+     * hornear un bitmap grande. Un raster chico con degradado radial propio es
+     * lo que mas se parece a PhotoRoom y lo mas predecible.
+     *
+     * Para grabar a laser la opacidad arranca en cero: si el cliente no la
+     * sube, no se agrega NADA y el recorte queda igual que hoy.
+     */
+    function pintarSombraEn(ctx, ancho, alto) {
+        const o = SOMBRA_ESPEC.opacidad;
+        if (!(o > 0) || !(ancho > 0) || !(alto > 0)) return;
+        const dentro = cajaAlfa();
+        const x0 = dentro ? dentro.x0 * ancho : 0;
+        const x1 = dentro ? dentro.x1 * ancho : ancho;
+        const y1 = dentro ? dentro.y1 * alto : alto;
+        const rx = Math.max(2, (x1 - x0) * 0.52);
+        const ry = Math.max(2, rx * Math.max(0.05, SOMBRA_ESPEC.aplastar / 100));
+        const ang = (SOMBRA_ESPEC.direccion * Math.PI) / 180;
+        const caida = rx * 0.18;
+        const cx = (x0 + x1) / 2 + Math.cos(ang) * caida;
+        const cy = y1 - ry * 0.35 + Math.abs(Math.sin(ang)) * caida * 0.4;
+        const alfa = Math.max(0, Math.min(0.9, o / 100));
+        // `suavidad` corre el nucleo opaco de la campana: 0 = borde duro,
+        // 100 = apenas un halo.
+        const nucleo = Math.max(0.04, Math.min(0.9, 1 - SOMBRA_ESPEC.suavidad / 100));
+        const g = ctx.createRadialGradient(cx, cy, Math.max(1, rx * 0.04), cx, cy, rx);
+        g.addColorStop(0, 'rgba(0,0,0,' + alfa.toFixed(3) + ')');
+        g.addColorStop(nucleo, 'rgba(0,0,0,' + (alfa * 0.55).toFixed(3) + ')');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(1, ry / rx);
+        ctx.translate(-cx, -cy);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(cx, cy, rx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    /** Fondo + sombra en un solo lienzo, listo para la escena o la ventana. */
+    function lienzoFondoCompleto(ancho, alto) {
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(ancho));
+        c.height = Math.max(1, Math.round(alto));
+        const ctx = c.getContext('2d');
+        pintarFondoEn(ctx, c.width, c.height);
+        pintarSombraEn(ctx, c.width, c.height);
+        return c;
+    }
+
+    // La vista previa del fondo se cachea: rehacer un lienzo con filtro de
+    // desenfoque en cada cuadro de un arrastre cuesta decenas de milisegundos,
+    // y el paneo con zoom se volveria a 20 fps (medido en otra ocasion por el
+    // mismo motivo).
+    let fondoVistaCache = null;
+
+    function fondoFirma() {
+        return [
+            FONDO_ESPEC.tipo, FONDO_ESPEC.color, FONDO_ESPEC.degA, FONDO_ESPEC.degB,
+            FONDO_ESPEC.degAngulo, FONDO_ESPEC.desenfoque, FONDO_ESPEC.escala,
+            FONDO_ESPEC.opacidad, (FONDO_ESPEC.imagen && FONDO_ESPEC.imagen.nombre) || '-',
+            SOMBRA_ESPEC.opacidad, SOMBRA_ESPEC.suavidad, SOMBRA_ESPEC.direccion,
+            SOMBRA_ESPEC.aplastar,
+            // La sombra se apoya en la caja del sujeto, que cambia con el
+            // pincel: la resolucion de la mascara entra en la firma.
+            ESTADO.mascaraAncho + 'x' + ESTADO.mascaraAlto
+        ].join('|');
+    }
+
+    /** Lienzo del fondo al tamano de PANTALLA de la foto, para la ventana. */
+    function fondoParaVista(anchoFoto, altoFoto) {
+        if (!(anchoFoto > 0) || !(altoFoto > 0)) return null;
+        const escala = Math.min(1, 2048 / Math.max(anchoFoto, altoFoto));
+        const pw = Math.max(1, Math.round(anchoFoto * escala));
+        const ph = Math.max(1, Math.round(altoFoto * escala));
+        const firma = fondoFirma() + '@' + pw + 'x' + ph;
+        if (fondoVistaCache && fondoVistaCache.firma === firma) return fondoVistaCache.lienzo;
+        const lienzo = lienzoFondoCompleto(pw, ph);
+        fondoVistaCache = { firma, lienzo };
+        return lienzo;
+    }
+
+    /**
+     * Crea o reemplaza el grupo de fondo del recorte en curso.
+     *
+     * Se llama al pulsar "Listo" y al cambiar cualquier control (para que la
+     * escena y la ventana no se lleven nunca con dos fondos distintos).
+     */
+    function aplicarFondoEnEscena() {
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        if (!r || !r.project || !paper || !paper.project) return false;
+        const clave = sesionClaveDe(r) || ESTADO.claveSesion;
+        if (!clave) return false;
+        // Primero se quita el grupo ANTERIOR de ESTA foto: si no, cada cambio de
+        // control agregaria un fondo encima del viejo.
+        quitarFondoEnEscena(clave);
+        // La receta vive en el item recortado, no en el grupo: el grupo es
+        // descartable (el cliente lo puede mover o borrar a mano) y la eleccion
+        // no se pierde.
+        try { r.data = { ...(r.data || {}), ekkoFondo: especParaData() }; } catch (e) { ESTADO.ultimoError = e; }
+        if (!fondoActivo()) return true;
+
+        const caja = r.getBounds();
+        if (!caja || !(caja.width > 0) || !(caja.height > 0)) return false;
+        if (![caja.x, caja.y, caja.width, caja.height].every(Number.isFinite)) return false;
+
+        const grupo = new paper.Group({ insertFirst: false });
+        grupo.name = 'ekko-fondo';
+        grupo.data = { ekkoFondoPara: clave, ekkoFondoTipo: FONDO_ESPEC.tipo, source: 'fondo-ia' };
+
+        // Resolucion del lienzo: PXELES, no unidades de proyecto. La capa de
+        // diseno trabaja en milimetros (MEDIDO: una foto de 640 px ocupaba 22
+        // unidades), asi que pedir el lienzo al tamano de la caja daba un fondo
+        // de 22x22 px: bien para un color plano, basura para degradado,
+        // desenfoque o imagen.
+        //
+        // El tope es 768 en el lado largo (no 2048): ESTE objeto vive en la
+        // escena, dentro del historial y del proyecto guardado, y un degradado
+        // de 1416 px pesaba 2 MB en base64 por cada cambio de control. La
+        // SALIDA se hornea aparte y a resolucion completa (exportarRecorte pide
+        // lienzoFondoCompleto al tamano natural de la foto), asi que el limite
+        // de la escena no le cuesta un pixel al archivo que se entrega.
+        const unidades = Math.max(caja.width, caja.height);
+        const pxLado = Math.max(256, Math.min(768, Math.max(r.width || 0, r.height || 0)));
+        const densidad = pxLado / unidades;
+        const lienzo = lienzoFondoCompleto(
+            Math.max(1, Math.round(caja.width * densidad)),
+            Math.max(1, Math.round(caja.height * densidad)));
+        let url;
+        try { url = lienzo.toDataURL('image/png'); }
+        catch (e) { ESTADO.ultimoError = e; return false; }
+
+        // El mismo patron con el que la app importa una imagen (editor.js):
+        // Raster por su 'source' y la colocacion en onLoad, porque el tamano real
+        // del item no existe hasta que la imagen termina de decodificar.
+        const rast = new paper.Raster({ source: url });
+        // MEDIDO (2026-10-29): el Raster NACE en la capa activa, asi que siempre
+        // tiene `parent`. Con `if (!rast.parent)` el raster nunca entraba al
+        // grupo: el grupo quedaba vacio (0x0) y el fondo flotaba suelto en la
+        // capa de diseno. Se agrega ya, antes de que decodifique.
+        try { grupo.addChild(rast); } catch (e) { ESTADO.ultimoError = e; }
+        const colocar = () => {
+            try {
+                rast.position = caja.center;
+                rast.opacity = Math.max(0, Math.min(1, FONDO_ESPEC.opacidad / 100));
+                if (paper.view) paper.view.update();
+            } catch (e) { ESTADO.ultimoError = e; }
+        };
+        rast.onLoad = colocar;
+        setTimeout(colocar, 0);
+
+        // Detras del recorte y en su MISMO padre: asi comparte la contencion y el
+        // recorte contra el mockup que la app ya hace con la pieza.
+        try {
+            const padre = r.parent;
+            if (padre && padre.addChild) {
+                const i = padre.children.indexOf(r);
+                padre.insertChild(Math.max(0, i), grupo);
+            } else {
+                grupo.insertBelow(r);
+            }
+        } catch (e) { ESTADO.ultimoError = e; }
+        try { if (paper.view) paper.view.update(); } catch (_) {}
+        return true;
+    }
+
+    /** Quita el grupo de fondo de una foto (o de todas, si no hay clave). */
+    function quitarFondoEnEscena(clave) {
+        try {
+            const capas = (paper.project && paper.project.layers) || [];
+            const pila = [];
+            for (const c of capas) pila.push(c);
+            let tocados = 0;
+            while (pila.length) {
+                const it = pila.pop();
+                if (!it) continue;
+                const d = it.data;
+                if (d && d.ekkoFondoPara && (!clave || d.ekkoFondoPara === clave)) {
+                    try { it.remove(); tocados++; continue; } catch (_) {}
+                }
+                if (it.children) for (const h of it.children) pila.push(h);
+            }
+            return tocados;
+        } catch (e) { ESTADO.ultimoError = e; return 0; }
+    }
+
+    /** Cambia el tipo de fondo desde la ventana (o desde fuera). */
+    function ponerTipoFondo(tipo) {
+        const t = TIPOS_FONDO.indexOf(tipo) >= 0 ? tipo : 'ninguno';
+        FONDO_ESPEC.tipo = t;
+        marcarTipoFondo();
+        try { pintarLienzoVentana(); } catch (_) {}
+        return true;
+    }
+
+    /** Mezcla cambios en la receta y refresca vista previa y escena. */
+    function cambiarFondo(cambios, sinAplicar) {
+        Object.assign(FONDO_ESPEC, cambios || {});
+        try { pintarLienzoVentana(); } catch (_) {}
+        if (!sinAplicar) { try { aplicarFondoEnEscena(); } catch (_) {} }
+        return true;
+    }
+
+    function cambiarSombra(cambios) {
+        Object.assign(SOMBRA_ESPEC, cambios || {});
+        try { aplicarFondoEnEscena(); } catch (_) {}
+        return true;
+    }
+
+    /** Estado visible de los botones de tipo y de las filas que corresponden. */
+    function marcarTipoFondo() {
+        const t = FONDO_ESPEC.tipo;
+        for (const id of TIPOS_FONDO) {
+            const el = document.getElementById('fondo-' + id);
+            if (!el) continue;
+            const on = t === id;
+            el.classList.toggle('is-activo', on);
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+        const ver = (id, on) => { const el = document.getElementById(id); if (el) el.hidden = !on; };
+        ver('fondo-fila-color', t === 'color');
+        ver('fondo-fila-degradado', t === 'degradado');
+        ver('fondo-fila-degradadoAngulo', t === 'degradado');
+        ver('fondo-fila-desenfoque', t === 'desenfoque');
+        ver('fondo-fila-imagen', t === 'imagen');
+        ver('fondo-fila-ajuste', t === 'imagen' || t === 'desenfoque');
+        ver('fondo-fila-opacidad', t !== 'ninguno');
+    }
+
+    /** Sincroniza los controles del panel con la receta (al abrir la ventana). */
+    function pintarControlesFondo() {
+        marcarTipoFondo();
+        const set = (id, valor) => { const el = document.getElementById(id); if (el) el.value = valor; };
+        const texto = (id, valor) => { const el = document.getElementById(id); if (el) el.textContent = valor; };
+        set('fondo-color-valor', FONDO_ESPEC.color);
+        set('fondo-deg-a', FONDO_ESPEC.degA);
+        set('fondo-deg-b', FONDO_ESPEC.degB);
+        set('fondo-deg-angle', String(FONDO_ESPEC.degAngulo));
+        texto('fondo-deg-angle-val', FONDO_ESPEC.degAngulo + '°');
+        set('fondo-desenfoque-cant', String(FONDO_ESPEC.desenfoque));
+        texto('fondo-desenfoque-val', String(FONDO_ESPEC.desenfoque));
+        set('fondo-imagen-escala', String(FONDO_ESPEC.escala));
+        texto('fondo-imagen-escala-val', FONDO_ESPEC.escala + '%');
+        set('fondo-opacidad', String(FONDO_ESPEC.opacidad));
+        texto('fondo-opacidad-val', FONDO_ESPEC.opacidad + '%');
+        const nombre = document.getElementById('fondo-imagen-nombre');
+        if (nombre) nombre.textContent = (FONDO_ESPEC.imagen && FONDO_ESPEC.imagen.nombre) || 'Sin imagen';
+        set('sombra-opacidad', String(SOMBRA_ESPEC.opacidad));
+        texto('sombra-opacidad-val', SOMBRA_ESPEC.opacidad + '%');
+        set('sombra-suavidad', String(SOMBRA_ESPEC.suavidad));
+        texto('sombra-suavidad-val', String(SOMBRA_ESPEC.suavidad));
+        set('sombra-direccion', String(SOMBRA_ESPEC.direccion));
+        texto('sombra-direccion-val', SOMBRA_ESPEC.direccion + '°');
+        set('sombra-aplastar', String(SOMBRA_ESPEC.aplastar));
+        texto('sombra-aplastar-val', SOMBRA_ESPEC.aplastar + '%');
+    }
+
+    /** Carga una imagen de fondo elegida por el cliente. */
+    async function cargarImagenFondo(archivo) {
+        if (!archivo) return false;
+        const url = await new Promise((res, rej) => {
+            const fr = new FileReader();
+            fr.onload = () => res(String(fr.result));
+            fr.onerror = () => rej(fr.error || new Error('no se pudo leer el archivo'));
+            fr.readAsDataURL(archivo);
+        });
+        const elemento = await imagenDesde(url);
+        FONDO_ESPEC.imagen = {
+            url,
+            nombre: archivo.name || 'imagen',
+            elemento
+        };
+        FONDO_ESPEC.tipo = 'imagen';
+        // La firma de la vista cacheada solo mira el NOMBRE del archivo: dos
+        // imágenes distintas con el mismo nombre darian la vuelta anterior.
+        fondoVistaCache = null;
+        marcarTipoFondo();
+        pintarControlesFondo();
+        try { aplicarFondoEnEscena(); } catch (_) {}
+        return true;
+    }
+
+    /** Clave del registro de fondo, emparejada con la clave de sesion. */
+    function fondoClave(clave) {
+        return String(clave) + '::fondo';
+    }
+
+    /**
+     * Guarda la eleccion de fondo de la foto en curso en IndexedDB.
+     *
+     * La receta va en `data` del recorte (chica, viaja con el proyecto), pero
+     * los PIXELES de una imagen de fondo no: un data URL dentro de `data`
+     * engordaria el `.ekko.json`. La imagen vive aqui, y al reabrir se recupera
+     * de la clave de sesion, que si esta en el proyecto.
+     */
+    function fondoPersistir() {
+        const k = ESTADO.claveSesion;
+        if (!k) return Promise.resolve(false);
+        const img = FONDO_ESPEC.imagen;
+        return FONDO.guardar(fondoClave(k), {
+            receta: especParaData(),
+            imagen: img && img.url ? { nombre: img.nombre || 'imagen', url: img.url } : null
+        }).catch((e) => { ESTADO.ultimoError = e; return false; });
+    }
+
+    /**
+     * Recupera la imagen de fondo despues de recargar o de abrir el proyecto
+     * en otra maquina: la receta dice "imagen" pero los pixeles no viajan en
+     * el JSON del proyecto.
+     */
+    async function fondoRestaurarImagen(clave) {
+        if (FONDO_ESPEC.tipo !== 'imagen') return false;
+        if (FONDO_ESPEC.imagen && FONDO_ESPEC.imagen.elemento) return false;
+        if (!clave) return false;
+        let guardado = null;
+        try { guardado = await FONDO.leer(fondoClave(clave)); } catch (_) { guardado = null; }
+        const url = guardado && guardado.imagen && guardado.imagen.url;
+        if (!url) return false;
+        try {
+            FONDO_ESPEC.imagen = {
+                url,
+                nombre: (guardado.imagen && guardado.imagen.nombre) || 'imagen',
+                elemento: await imagenDesde(url)
+            };
+        } catch (e) { ESTADO.ultimoError = e; return false; }
+        fondoVistaCache = null;
+        if (RETOQUE.activo) {
+            pintarControlesFondo();
+            try { pintarLienzoVentana(); } catch (_) {}
+        }
+        try { aplicarFondoEnEscena(); } catch (_) {}
+        return true;
+    }
+
+    /** Vuelve a la eleccion por defecto: fondo transparente, sin sombra. */
+    function fondoReiniciar() {
+        Object.assign(FONDO_ESPEC, FONDO_CERO);
+        Object.assign(SOMBRA_ESPEC, SOMBRA_CERO);
+        fondoVistaCache = null;
+    }
+
+    /* =========================================================================
+       SALIDA PROFESIONAL
+       --------------------------------------------------------
+       PhotoRoom y Photoshop terminan con UN ARCHIVO, no con un objeto suelto en
+       el lienzo. Para grabar a laser eso es lo que importa: el PNG con alfa es
+       el recorte limpio, y el JPG con fondo es lo que se entrega o se cotiza.
+
+       No tocan la escena: arman un lienzo aparte con la mascara EN CURSO, a la
+       resolucion natural del arte (la misma con la que el recorte vive en el
+       proyecto, ver `componerCalidad`). Por eso exportar nunca obliga a pulsar
+       "Listo", y "Listo" nunca exporta nada.
+       ========================================================================= */
+
+    /** El recorte actual, en un lienzo a resolucion natural. */
+    function lienzoRecorteFinal() {
+        if (!ESTADO.mascara || !ESTADO.lienzoTrabajo) return null;
+        const original = ESTADO.imagenOriginal;
+        const elemento = original && original.getElement && original.getElement();
+        const fuente = ESTADO.lienzoOriginal || elemento;
+        if (!fuente) return null;
+        const aw = ESTADO.lienzoTrabajo.aw, ah = ESTADO.lienzoTrabajo.ah;
+        if (!(aw > 0) || !(ah > 0)) return null;
+        const lienzo = componerRecorte(
+            ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, fuente, aw, ah,
+            ESTADO.caja, ESTADO.mascaraFinal);
+        return componerCalidad(lienzo, fuente, aw, ah);
+    }
+
+    /** Nombre de archivo derivado del item, sin caracteres que molestan. */
+    function nombreDelRecorte(ext) {
+        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
+        let base = (r && typeof r.name === 'string' && r.name.trim()) || '';
+        base = base.replace(/\.(png|jpe?g|webp|gif|bmp|svg)$/i, '').replace(/[^\w\-. ]+/g, '');
+        base = base.trim().replace(/\s+/g, '-').slice(0, 60);
+        if (!base) base = 'ekko-recorte';
+        return base + '-' + (ext === 'jpg' ? 'con-fondo' : 'sin-fondo') + '.' + ext;
+    }
+
+    function descargar(url, nombre) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = nombre;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        return true;
+    }
+
+    /**
+     * Exporta el recorte. `formato` es 'png' (alfa) o 'jpg' (plano con fondo).
+     *
+     * `ajustado` recorta el margen transparente del PNG: el objeto queda justo
+     * en el borde del archivo, que es lo que quiere el software de laser y lo
+     * que hace PhotoRoom al descargar. El JPG siempre conserva el encuadre de la
+     * foto, porque el fondo ocupa todo el cuadro.
+     */
+    function exportarRecorte(formato, ajustado) {
+        const recorte = lienzoRecorteFinal();
+        if (!recorte) {
+            avisar('No hay recorte que exportar todavía.', { kind: 'warn' });
+            return false;
+        }
+        const W = recorte.width, H = recorte.height;
+        let url = '', nombre = '';
+        // MEDIDO (2026-10-29): el tamaño final se avisaba leyendo `sw`/`sh`, que
+        // viven dentro del bloque del PNG. En 'png' el ReferenceError saltaba
+        // DESPUES de la descarga: el archivo salia bien, pero el aviso nunca
+        // aparecia y el click terminaba en error.
+        let anchoFinal = W, altoFinal = H;
+        try {
+            if (formato === 'jpg') {
+                const c = document.createElement('canvas');
+                c.width = W; c.height = H;
+                const g = c.getContext('2d');
+                // El JPEG no tiene canal alfa: lo que no se pinte sale negro.
+                // Sin fondo elegido se aplasta sobre blanco, que es la plancha
+                // que se entrega.
+                if (!fondoActivo()) { g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H); }
+                else g.drawImage(lienzoFondoCompleto(W, H), 0, 0, W, H);
+                g.drawImage(recorte, 0, 0, W, H);
+                url = c.toDataURL('image/jpeg', 0.92);
+                nombre = nombreDelRecorte('jpg');
+            } else {
+                const caja = ajustado ? cajaAlfa() : null;
+                let sx = 0, sy = 0, sw = W, sh = H;
+                if (caja) {
+                    sx = Math.floor(caja.x0 * W);
+                    sy = Math.floor(caja.y0 * H);
+                    sw = Math.max(1, Math.ceil((caja.x1 - caja.x0) * W));
+                    sh = Math.max(1, Math.ceil((caja.y1 - caja.y0) * H));
+                }
+                const c = document.createElement('canvas');
+                c.width = sw; c.height = sh;
+                const g = c.getContext('2d');
+                g.drawImage(recorte, sx, sy, sw, sh, 0, 0, sw, sh);
+                url = c.toDataURL('image/png');
+                nombre = nombreDelRecorte('png');
+                anchoFinal = sw; altoFinal = sh;
+            }
+        } catch (e) {
+            ESTADO.ultimoError = e;
+            avisar('El navegador no pudo generar ese archivo. Probá con "Listo" y exportá desde el editor.', { kind: 'error' });
+            return false;
+        }
+        descargar(url, nombre);
+        const lado = anchoFinal + '×' + altoFinal;
+        avisar('Descargando ' + nombre + ' (' + lado + ' px).', { kind: 'info' });
         return true;
     }
 
@@ -2750,8 +3928,14 @@
         // El zoom de la ventana arranca limpio en cada apertura.
         RETOQUE.zoomVentana = 1;
         RETOQUE.panVentana = { x: 0, y: 0 };
-        const etZoom = document.getElementById('valor-zoom-ventana');
-        if (etZoom) etZoom.textContent = '100%';
+        marcarZoom();
+        // La vista arranca en Compuesto en cada apertura. MEDIDO: dejar la
+        // ultima vista del cliente (por ejemplo Mascara) hacia que al volver a
+        // abrir "Editar Fondo" la foto se viera en blanco y negro y el aviso
+        // natural era "se rompio la imagen".
+        RETOQUE.vista = 'compuesto';
+        RETOQUE.capaMascara = null;
+        marcarVistaActiva();
         // QUE imagen se edita (v11.31): la SELECCIONADA si tiene recorte
         // guardado; sin seleccion, la ultima procesada. ANTES se abria
         // SIEMPRE la ultima procesada: el cliente procesa dos fotos, pulsa
@@ -2777,10 +3961,32 @@
             }
             if (claveSel !== ESTADO.claveSesion) {
                 if (!SESIONES.has(claveSel)) {
-                    // La pagina se recargo: el paquete vive en memoria del
-                    // modulo y no sobrevive a eso, por mucho que la marca
-                    // siga en el item.
-                    avisar('La edicion de esta imagen se perdió al recargar la página. Quitá el fondo de nuevo para retocarla.', { kind: 'warn' });
+                    // La pagina se recargo (o el modulo perdio la memoria).
+                    // Antes esto terminaba en un aviso de "edicion perdida" y
+                    // habia que volver a quitar el fondo: se perdia el recorte
+                    // de la IA y TODO el retoque a mano. Ahora el paquete esta
+                    // en IndexedDB y se reconstruye solo.
+                    //
+                    // `abrirRetoque` sigue siendo sincrona a proposito: la
+                    // llaman los botones, los atajos y el puente de comandos, y
+                    // todos miran su `true`/`false`. La reconstruccion va en un
+                    // `then` y reentra sola cuando termina; el `recargando`
+                    // corta la carrera de dos clics seguidos.
+                    if (RETOQUE.recargando === claveSel) return false;
+                    RETOQUE.recargando = claveSel;
+                    avisar('Recuperando la edición de esta imagen…', { kind: 'info' });
+                    sesionReconstruir(claveSel, rSel).then((ok) => {
+                        RETOQUE.recargando = null;
+                        if (!ok) {
+                            avisar('No se pudo recuperar la edición de esta imagen. El recorte sigue igual; volvé a quitar el fondo para retocarlo.', { kind: 'warn' });
+                            return;
+                        }
+                        try { abrirRetoque(); } catch (e) { ESTADO.ultimoError = e; }
+                    }).catch((e) => {
+                        RETOQUE.recargando = null;
+                        ESTADO.ultimoError = e;
+                        avisar('No se pudo recuperar la edición de esta imagen.', { kind: 'error' });
+                    });
                     return false;
                 }
                 if (!sesionCargar(claveSel, rSel)) {
@@ -2854,8 +4060,29 @@
         // activar, y no era lo pedido: lo que quiere ver es QUE quito la
         // automatica sin tener que pedirlo.
         RETOQUE.verQuitado = true;
-        const vq = document.getElementById('ver-quitado');
-        if (vq) vq.setAttribute('aria-pressed', 'true');
+        marcarVerQuitado();
+
+        // La seccion Fondo arranca con LO QUE YA TIENE esta foto, no con la
+        // eleccion de la foto anterior: si no, "Editar Fondo" mostraria un
+        // degradado puesto sobre una imagen que nunca lo tuvo.
+        const itemAbierto = imagenEnRetoque() || ESTADO.imagenProcesada;
+        if (!leerEspec(itemAbierto)) fondoReiniciar();
+        pintarControlesFondo();
+
+        // La receta vive en `data` del recorte, pero los pixeles de una imagen
+        // de fondo no: un data URL ahi pesaria medio proyecto. Se recuperan de
+        // IndexedDB con la clave de sesion, que si viaja en el proyecto.
+        if (FONDO_ESPEC.tipo === 'imagen' && !(FONDO_ESPEC.imagen && FONDO_ESPEC.imagen.elemento)) {
+            const claveAbierta = sesionClaveDe(itemAbierto) || ESTADO.claveSesion;
+            fondoRestaurarImagen(claveAbierta).then((ok) => {
+                if (ok || !RETOQUE.activo) return;
+                if (FONDO_ESPEC.tipo !== 'imagen') return;
+                FONDO_ESPEC.imagen = null;
+                ponerTipoFondo('ninguno');
+                try { aplicarFondoEnEscena(); } catch (_) {}
+                avisar('No se encontró la imagen de fondo de esta foto. Volvé a elegirla si la querías puesta.', { kind: 'warn' });
+            }).catch(() => {});
+        }
 
         marcarPincelActivo();
         try { pintarLienzoVentana(); }
@@ -3060,13 +4287,18 @@
         const vf = document.getElementById('ventana-editar-fondo');
         if (vf) { vf.style.display = 'none'; vf.classList.remove('vf-visible'); }
         document.body.classList.remove('ekko-modo-retoque');
-        const vq = document.getElementById('ver-quitado');
-        if (vq) { vq.setAttribute('aria-pressed', 'false'); vq.classList.remove('is-activo'); }
-        const capa = document.getElementById('capa-quitado');
-        if (capa) capa.style.display = 'none';
+        marcarVerQuitado();
+        RETOQUE.capaMascara = null;
+        RETOQUE.mascaraClave = '';
         const cur = document.getElementById('cursor-pincel');
         if (cur) { cur.style.display = 'none'; cur.dataset.visible = ''; }
         marcarPincelActivo();
+        // El fondo y la sombra se escriben en la escena AL CERRAR, por cualquier
+        // via (Listo, la X o el Esc). Los deslizadores solo repintan la ventana
+        // mientras se arrastran; si el ultimo movimiento no se soltaba con
+        // `change`, sin esto el editor quedaria con un fondo distinto del que el
+        // cliente vio hasta el ultimo pixel.
+        try { aplicarFondoEnEscena(); } catch (e) { ESTADO.ultimoError = e; }
         // La sesion de la foto que se cierra queda guardada: reabrirla mas
         // tarde (o editar otra y volver a esta) conserva su mascara y sus
         // retoques (v11.31). Sirve para el cierre por Listo y por la X.
@@ -3490,106 +4722,19 @@
     }
 
     /**
-     * La capa roja de "lo que se quito" SE ELIMINA. Estaba inventada aqui.
+     * Repinta la vista cuando cambia "ver lo quitado".
      *
-     * El cliente pidio "ver de forma transparente lo que se quito de fondo", y
-     * lo que quiso decir es que el recorte se ve TRANSPARENTE de verdad, no
-     * que hay que pintarlo de rojo. El recorte ya es transparente: superponer
-     * un velo encima solo tapa el dibujo.
-     *
-     * MEDIDO: la capa cubria la caja de seleccion ENTERA de rosa y el cliente
-     * la veto explicitamente. Ademas es falso: teñia de rojo tambien el pelo y
-     * los bordes suaves, que no estan quitados. FotoRoom no tiene ninguna capa
-     * de este tipo.
-     *
-     * Se conserva la funcion, apagada, para no romper las llamadas, pero ya no
-     * dibuja nada. Lo que se ve al editar el recorte es el recorte con su
-     * transparencia real.
+     * Antes existia una capa roja aparte sobre el editor (`#capa-quitado`), con
+     * su propia rejilla de tinte. MEDIDO: esa capa teñia de rojo tambien el
+     * pelo y el borde suave (que tienen alfa parcial y NO estan quitados) y
+     * cubria la caja de seleccion entera; el cliente la veto. El tinte ahora se
+     * dibuja DENTRO de la ventana de edicion, sacado del alfa real del recorte
+     * (ver `pintarLienzoVentana`), asi que marca exactamente el hueco.
      */
     function dibujarCapaQuitado() {
-        const lienzo = document.getElementById('capa-quitado');
-        if (!lienzo) return;
-        lienzo.style.display = 'none';
-        return;
-        /* eslint-disable no-unreachable */
-        const r = imagenEnRetoque() || ESTADO.imagenProcesada;
-        const ec = document.getElementById('editorCanvas');
-        const m = paper && paper.view ? paper.view.matrix : null;
-        if (!RETOQUE.verQuitado || !r || !ec || !m || !ESTADO.mascara) { lienzo.style.display = 'none'; return; }
-
-        const rc = ec.getBoundingClientRect();
-        if (!(rc.width > 0) || !(rc.height > 0)) { lienzo.style.display = 'none'; return; }
-        lienzo.style.display = 'block';
-        lienzo.style.left = rc.left + 'px';
-        lienzo.style.top = rc.top + 'px';
-        lienzo.style.width = rc.width + 'px';
-        lienzo.style.height = rc.height + 'px';
-        const dpr = window.devicePixelRatio || 1;
-        if (lienzo.width !== Math.round(rc.width * dpr) || lienzo.height !== Math.round(rc.height * dpr)) {
-            lienzo.width = Math.round(rc.width * dpr);
-            lienzo.height = Math.round(rc.height * dpr);
-        }
-
-        const ctx = lienzo.getContext('2d');
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.clearRect(0, 0, rc.width, rc.height);
-
-        const mw = ESTADO.mascaraAncho, mh = ESTADO.mascaraAlto;
-        const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : mw;
-        const ah = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.ah : mh;
-
-        // La mascara a la resolucion del lienzo de trabajo, con el mismo mapeo
-        // que usa el recorte (incluido el rectangulo real de la caja).
-        const t = document.createElement('canvas');
-        t.width = aw; t.height = ah;
-        const tc = t.getContext('2d');
-        const img = tc.createImageData(aw, ah);
-        const c = ESTADO.caja || { ox: 0, oy: 0, dw: mw, dh: mh };
-        for (let y = 0; y < ah; y++) {
-            const fy = c.oy + (y * c.dh) / ah;
-            const dentroY = fy >= 0 && fy < mh;
-            const my = Math.max(0, Math.min(mh - 1, Math.floor(fy)));
-            for (let x = 0; x < aw; x++) {
-                const fx = c.ox + (x * c.dw) / aw;
-                const dentro = dentroY && fx >= 0 && fx < mw;
-                const o = (y * aw + x) * 4;
-                if (!dentro) { img.data[o + 3] = 0; continue; }
-                const mx = Math.max(0, Math.min(mw - 1, Math.floor(fx)));
-                const a = ESTADO.mascara[my * mw + mx];
-                // Solo se marca lo que esta FUERA de verdad.
-                //
-                // MEDIDO: antes se tintaba con `255 - alfa`, es decir cualquier
-                // pixel con algo de traslucidez. En una foto de personas eso es
-                // TODO: el pelo y los bordes blandos tienen alfa parcial y el
-                // sujeto entero salia teñido de rosa. Lo que sirve para decidir
-                // es separar "fuera" de "dentro": se pinta la zona claramente
-                // transparente y la franja suave aparece apenas, para no
-                // mentir sobre el borde fino.
-                const fuera = a <= 24 ? 1 : (a >= 96 ? 0 : (96 - a) / 72 * 0.45);
-                img.data[o] = 239;          // rojo de "borrado"
-                img.data[o + 1] = 83;
-                img.data[o + 2] = 80;
-                // Tinte SUAVE a proposito. MEDIDO en el navegador: con opacidad
-                // alta la zona quitada se veia como un bloque rosa solido que
-                // tapaba la foto entera, y no informaba de nada. Con un
-                // velo bajo se ve que hay algo retirado sin perder el dibujo.
-                img.data[o + 3] = Math.round(fuera * 34);
-            }
-        }
-        tc.putImageData(img, 0, 0);
-
-        // Situar la capa exactamente donde esta la pieza: espacio de la pieza
-        // (bounds, en coordenadas de Paper) y de ahi a pantalla con la vista.
-        const b = r.bounds;
-        if (!b || !(b.width > 0)) { lienzo.style.display = 'none'; return; }
-        ctx.save();
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.transform(
-            (b.width / aw) * m.a, 0, 0, (b.height / ah) * m.d,
-            b.x * m.a + m.tx, b.y * m.d + m.ty
-        );
-        ctx.drawImage(t, 0, 0);
-        ctx.restore();
+        if (!RETOQUE.activo) return;
+        try { pintarLienzoVentana(); }
+        catch (e) { ESTADO.ultimoError = e; }
     }
 
     /** Pinta un circulo sobre la mascara, en coordenadas de la mascara. */
@@ -3795,32 +4940,169 @@
         if (ma) ma.addEventListener('click', () => ponerModo(false));
         if (mm) mm.addEventListener('click', () => ponerModo(true));
 
-        // "Ver lo quitado" es ahora un BOTON, no una casilla: la barra es un
-        // sitio plano y una casilla invisible obligaba a acertar el punto
-        // exacto.
+        // "Ver lo quitado" es un BOTON, no una casilla: la barra es un sitio
+        // plano y una casilla invisible obligaba a acertar el punto exacto.
         // Botones de zoom de la ventana.
         const zMas = document.getElementById('zoom-mas');
         const zMenos = document.getElementById('zoom-menos');
         const zCien = document.getElementById('zoom-100');
-        const zValor = document.getElementById('valor-zoom-ventana');
+        const zPista = document.getElementById('zoom-pista');
         const ponZoom = (z) => {
             RETOQUE.zoomVentana = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
-            if (zValor) zValor.textContent = Math.round(RETOQUE.zoomVentana * 100) + '%';
+            marcarZoom();
             try { pintarLienzoVentana(); } catch (_) {}
             actualizarCursor();
         };
         if (zMas) zMas.addEventListener('click', () => ponZoom((RETOQUE.zoomVentana || 1) * 1.35));
         if (zMenos) zMenos.addEventListener('click', () => ponZoom((RETOQUE.zoomVentana || 1) / 1.35));
         if (zCien) zCien.addEventListener('click', () => { RETOQUE.panVentana = { x: 0, y: 0 }; ponZoom(1); });
+        // El deslizador es el acceso directo al zoom: la rueda y los botones
+        // quedan lejos para un numero exacto, y el rango 100..2400 es el mismo
+        // techo que `ZOOM_MAX` (24x), así que no puede pedir mas de lo que el
+        // lienzo aguanta.
+        if (zPista) {
+            zPista.addEventListener('input', function () {
+                ponZoom((Number(zPista.value) || 100) / 100);
+            });
+        }
+
+        // Vistas: Compuesto / Mascara / Original.
+        const vistas = [
+            ['vista-compuesto', 'compuesto'],
+            ['vista-mascara', 'mascara'],
+            ['vista-original', 'original']
+        ];
+        for (const [id, clave] of vistas) {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', () => ponerVista(clave));
+        }
 
         if (verQuitado) {
             verQuitado.addEventListener('click', function () {
-                RETOQUE.verQuitado = !RETOQUE.verQuitado;
-                verQuitado.setAttribute('aria-pressed', RETOQUE.verQuitado ? 'true' : 'false');
-                verQuitado.classList.toggle('is-activo', RETOQUE.verQuitado);
-                dibujarCapaQuitado();
-                try { pintarLienzoVentana(); } catch (_) {}
+                verLoQuitado(!RETOQUE.verQuitado);
                 marcarPincelActivo();
+            });
+        }
+
+        // ===================================================================
+        // FONDO y SOMBRA DE CONTACTO (seccion "Fondo" de la ventana).
+        //
+        // Cada deslizador repinta la VISTA en `input` (el arrastre se ve al
+        // instante, como en PhotoRoom) y escribe el objeto de la escena en
+        // `change`, al soltar. Aplicar en cada pixel del arrastre crearia un
+        // PNG nuevo por cuadro y la ventana se congelaria.
+        // ===================================================================
+        const slidersDe = function (tabla, aplicar) {
+            for (const [id, idValor, campo, sufijo] of tabla) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                const etiqueta = document.getElementById(idValor);
+                const numero = function () {
+                    const min = Number(el.min), max = Number(el.max);
+                    const v = Number(el.value);
+                    if (!isFinite(v)) return 0;
+                    return Math.max(isFinite(min) ? min : 0, Math.min(isFinite(max) ? max : 100, v));
+                };
+                const escribir = function () {
+                    const n = numero();
+                    if (etiqueta) etiqueta.textContent = n + sufijo;
+                    aplicar(campo, n);
+                };
+                el.addEventListener('input', escribir);
+                el.addEventListener('change', escribir);
+            }
+        };
+
+        const SLIDERS_FONDO = [
+            ['fondo-deg-angle', 'fondo-deg-angle-val', 'degAngulo', '°'],
+            ['fondo-desenfoque-cant', 'fondo-desenfoque-val', 'desenfoque', ''],
+            ['fondo-imagen-escala', 'fondo-imagen-escala-val', 'escala', '%'],
+            ['fondo-opacidad', 'fondo-opacidad-val', 'opacidad', '%']
+        ];
+        // `true` = solo la vista previa de la ventana.
+        slidersDe(SLIDERS_FONDO, function (campo, valor) {
+            cambiarFondo({ [campo]: valor }, true);
+        });
+        const fondoAplicar = function () {
+            try { aplicarFondoEnEscena(); } catch (e) { ESTADO.ultimoError = e; }
+            fondoPersistir();
+        };
+        // Al soltar, la escena queda igual que la ventana.
+        for (const [id] of SLIDERS_FONDO) {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', fondoAplicar);
+        }
+
+        const SLIDERS_SOMBRA = [
+            ['sombra-opacidad', 'sombra-opacidad-val', 'opacidad', '%'],
+            ['sombra-suavidad', 'sombra-suavidad-val', 'suavidad', ''],
+            ['sombra-direccion', 'sombra-direccion-val', 'direccion', '°'],
+            ['sombra-aplastar', 'sombra-aplastar-val', 'aplastar', '%']
+        ];
+        slidersDe(SLIDERS_SOMBRA, function (campo, valor) {
+            Object.assign(SOMBRA_ESPEC, { [campo]: valor });
+            try { pintarLienzoVentana(); } catch (_) {}
+        });
+        for (const [id] of SLIDERS_SOMBRA) {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', function () {
+                try { cambiarSombra({}); } catch (e) { ESTADO.ultimoError = e; }
+                fondoPersistir();
+            });
+        }
+
+        const COLORES_FONDO = [
+            ['fondo-color-valor', 'color'],
+            ['fondo-deg-a', 'degA'],
+            ['fondo-deg-b', 'degB']
+        ];
+        for (const [id, campo] of COLORES_FONDO) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            el.addEventListener('input', function () { cambiarFondo({ [campo]: el.value }, true); });
+            el.addEventListener('change', function () { cambiarFondo({ [campo]: el.value }); fondoPersistir(); });
+        }
+
+        // Los cinco tipos de fondo son botones de eleccion unica.
+        for (const tipo of TIPOS_FONDO) {
+            const el = document.getElementById('fondo-' + tipo);
+            if (!el) continue;
+            el.addEventListener('click', function () {
+                ponerTipoFondo(tipo);
+                fondoAplicar();
+            });
+        }
+
+        const archivoFondo = document.getElementById('fondo-imagen-archivo');
+        if (archivoFondo) {
+            archivoFondo.addEventListener('change', function (ev) {
+                const f = ev.target && ev.target.files && ev.target.files[0];
+                if (!f) return;
+                cargarImagenFondo(f).then(function (ok) {
+                    if (ok) { fondoPersistir(); return; }
+                    avisar('No se pudo usar ese archivo. Probá con un PNG o un JPG.', { kind: 'warn' });
+                }).catch(function (e) {
+                    ESTADO.ultimoError = e;
+                    avisar('No se pudo cargar la imagen de fondo.', { kind: 'error' });
+                });
+            });
+        }
+
+        // ===================================================================
+        // SALIDA: los dos archivos se arman con la mascara EN CURSO. Descargar
+        // no cierra la ventana ni escribe en la escena, asi que el cliente puede
+        // sacar un PNG, seguir retocando y sacar otro.
+        // ===================================================================
+        const ajustado = document.getElementById('exportar-ajustado');
+        const quiereAjustado = () => !ajustado || ajustado.getAttribute('aria-pressed') !== 'false';
+        const png = document.getElementById('btn-exportar-png');
+        const jpg = document.getElementById('btn-exportar-jpg');
+        if (png) png.addEventListener('click', () => exportarRecorte('png', quiereAjustado()));
+        if (jpg) jpg.addEventListener('click', () => exportarRecorte('jpg', quiereAjustado()));
+        if (ajustado) {
+            ajustado.addEventListener('click', () => {
+                const prendido = ajustado.getAttribute('aria-pressed') !== 'true';
+                ajustado.setAttribute('aria-pressed', prendido ? 'true' : 'false');
             });
         }
 
@@ -4085,7 +5367,8 @@
         // B/R/A/M no debe insertar texto en el editor: se intercepta antes.
         //   B  Borrar          R  Restaurar
         //   A  Asistido       M  Manual
-        //   V  ver lo quitado  Esc  Listo
+        //   C  vista Compuesto  V  vista Mascara  N  vista Original (A/B)
+        //   T  tinte de lo quitado   Esc / Enter  Listo
         //   [  pincel mas fino   ]  pincel mas grueso  (como en Photoshop)
         window.addEventListener('keydown', (ev) => {
             if (!RETOQUE.activo) return;
@@ -4099,7 +5382,10 @@
                 r: () => { RETOQUE.modo = 'restaurar'; marcarPincelActivo(); },
                 a: () => { RETOQUE.manual = false; marcarPincelActivo(); },
                 m: () => { RETOQUE.manual = true; marcarPincelActivo(); },
-                v: () => { RETOQUE.verQuitado = !RETOQUE.verQuitado; marcarPincelActivo(); dibujarCapaQuitado(); },
+                v: () => ponerVista('mascara'),
+                c: () => ponerVista('compuesto'),
+                n: () => ponerVista('original'),
+                t: () => verLoQuitado(!RETOQUE.verQuitado),
                 '[': () => aplicarTamano(RETOQUE.radio - 1, 'teclado'),
                 ']': () => aplicarTamano(RETOQUE.radio + 1, 'teclado'),
                 escape: () => cerrarRetoque(),
