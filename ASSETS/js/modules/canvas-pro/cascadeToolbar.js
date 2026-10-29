@@ -23,42 +23,44 @@
                     estado, chevron contraer/expandir y DESCARGAR al extremo
                     derecho. Flechas DESVANECIDAS que desplazan solo con
                     hover (sin clic).
-     HERRAMIENTAS (fila 2)  LOS BOTONES REALES del topBar, re-parentados
-                    (nunca clonados): el motor, el historial y el panel de
-                    parametros siguen escuchando al mismo nodo. Las mas
-                    usadas de cada contexto se adelantan EN EL MOMENTO DEL USO
-                    (recientes por peso: frecuencia x recencia, memorizadas en
-                    localStorage; la firma comparada es conjunto + orden, si no
-                    la fila no se reordenaria hasta cambiar de objeto). Al
-                    extremo derecho, el boton de modo claro/oscuro, con el
-                    lenguaje visual de ESTA fila.
-     BARRA EMERGENTE   El mismo lenguaje, pero como ATAJO del objeto: una sola
-                    fila (nowrap) con las 5 herramientas mas usadas de ese
-                    contexto a la vista y ⋯ para desplegar el resto (medido:
-                    mostraba 19 botones de golpe). La rueda del mouse la
-                    desplaza en horizontal. Los grupos que escribe el motor se
-                    respetan: solo se reordenan y se esconden de mas.
+     HERRAMIENTAS (fila 2)  LA CINTA: los GRUPOS REALES que arma
+                    ui/ribbonLayout.js, adoptados completos (nunca clonados ni
+                    desarmados): cuerpo arriba, etiqueta de grupo DEBAJO y pelo
+                    vertical entre grupos. El motor sigue mandando que se ve
+                    (.is-empty del propio sync) y que se bloquea (familia P).
+                    Dentro de cada grupo, lo mas usado del contexto se adelanta.
+     SECTOR         Las 3 primeras recientes del contexto forman su PROPIO
+     "MAS USADAS"   GRUPO etiquetado "Más usadas", al arranque de la cinta. Son
+                    los BOTONES REALES mudados desde su grupo de origen, con
+                    vuelta garantizada cuando dejan del ranking: la cinta no se
+                    desarma y ningun control se duplica.
+     BOTON HEROE    En cada grupo, el primer boton visible se agiganta (icono
+                    arriba del nombre, 44px) y sus companeros quedan en pila de
+                    21px al lado: la jerarquia de Office, dicha con tamano y no
+                    con sombras.
+     BARRA EMERGENTE El mismo lenguaje, pero como ATAJO del objeto: una sola
+                    fila (nowrap), SOLO ICONOS (el nombre queda en la cinta y en
+                    el tooltip), las FB_EN_VISTA mas usadas a la vista y ⋯ para
+                    el resto (medido: mostraba 19 botones con texto de golpe).
+                    La rueda del mouse la desplaza en horizontal. Los grupos que
+                    escribe el motor se respetan: solo se reordenan y se esconden
+                    de mas.
      PANEL DE PARAMETROS (nivel 3)  commandParameters.js lo abre solo y lo
                     centra en el lienzo; aca se re-ancla como POPOVER debajo
                     de la fila de herramientas con un diente que apunta al
                     boton pulsado. Se vuelca hacia arriba si no entra, sigue
                     a su boton al scrollear o redimensionar, y se rinde si el
                     cliente lo arrastra del asa.
-     ALTURA FIJA    La banda de herramientas mide siempre 34px: seleccionar
-                    un objeto ya no corre el lienzo (~27px antes).
-     SECTOR         Las 3 primeras recientes de la fila 2 forman el sector
-     "MAS USADAS"   "mas usadas": quedan a la izquierda (scrollLeft 0), llevan
-                    un punto de acento y un cabello vertical las separa del
-                    resto. Son los BOTONES REALES marcados con una clase: no se
-                    duplica ningun control ni se agrega un panel nuevo.
-     PIEL PLANA     Nivel 0 (la tira) conserva el vidrio; la fila 2 se aplana
-                    como en Word/Office: sin textura, sin blur, sin las 6 capas
-                    de sombra por boton, radio chico, hover de relleno y el
-                    acento reservado al boton con estado. Las pestanas pasan de
-                    pastilla a solapa con la linea de acento abajo. El boton de
-                    tema de la cascada escribe ahora TAMBIEN data-modo (dueno de
-                    ekko-espacio.css), para que piel y prototipo no pinten cada
-                    uno en un modo distinto.
+     ALTURA FIJA    La banda de la cinta mide siempre 66px (44 de cuerpo +
+                    etiqueta): seleccionar un objeto ya no corre el lienzo.
+     PIEL PLANA     Nivel 0 (la tira) conserva el vidrio; la cinta y la barra
+                    emergente se aplanan como en Word/Office: sin textura, sin
+                    blur, sin las 6 capas de sombra por boton, radio chico,
+                    hover de relleno y el acento reservado al boton con estado.
+                    Las pestanas pasan de pastilla a solapa con la linea de
+                    acento abajo. El boton de tema de la cascada escribe ahora
+                    TAMBIEN data-modo (dueno de ekko-espacio.css), para que piel
+                    y prototipo no pinten cada uno en un modo distinto.
 
    ACTIVACION: ?cascade=1 memoriza el prototipo, ?cascade=0 lo apaga, o
    localStorage ekko.cascadePrototype="1". Sin flag el modulo no carga y la
@@ -273,6 +275,19 @@ function estilos() {
            (fila 1) y las herramientas (fila 2). Sigue en el body, afuera de
            todo panel, asi conserva su funcion cuando la barra se oculta. */
         body[data-ekko-cascade="1"] #ekkoPanelAnchor { top: 56px !important; }
+        /* Ronda 5.1: con la cinta armada el panel superior mide 114px de alto
+           (medido: top 10, bottom 124), asi que el chip estacionado en 56 caia
+           ENCIMA de los botones cuando lo que esta oculto es la barra emergente
+           y no el panel. 56px sigue siendo la respuesta cuando el panel esta
+           oculto o compacto — ahi no tiene nada arriba que esquivar. */
+        body[data-ekko-cascade="1"]:has(#topBar:not(.is-hidden):not(.is-compact)) #ekkoPanelAnchor {
+            top: 130px !important;
+        }
+        /* En compacto el panel mide 48px y termina en 58 (medido): el chip a 56
+           lo rozaba 2px. Se estaciona justo debajo. */
+        body[data-ekko-cascade="1"]:has(#topBar.is-compact) #ekkoPanelAnchor {
+            top: 64px !important;
+        }
         /* ... y el revive › del panel de productos SOBRA en la cascada: ese
            panel se abre y se cierra desde UN unico lugar (el boton a la
            izquierda de "Inicio"), que esta visible incluso en modo compacto.
@@ -281,6 +296,16 @@ function estilos() {
            que si no se pierden: al ocultar la barra se oculta tambien la tira
            y quedaria sin salida. */
         body[data-ekko-cascade="1"] #ekkoPanelAnchorProducts { display: none !important; }
+        /* ... y por la misma razon se apagan LOS OTROS dos portones del mismo
+           panel: el ‹ del encabezado de Productos (btnHideProductPanel, que
+           ademas es unidireccional: solo oculta, no devuelve) y el chip
+           "› Productos" que el coordinador muestra cuando el panel esta
+           escondido (productPanelHandle). Medido con la tira armada: ‹ en x=215
+           y la puerta real en x=285, los dos a la vista en el mismo instante.
+           En la cascada el panel de productos tiene UNA puerta, siempre en el
+           mismo lugar, y hace las dos cosas. */
+        body[data-ekko-cascade="1"] #btnHideProductPanel,
+        body[data-ekko-cascade="1"] #productPanelHandle { display: none !important; }
 
         /* --- BOTONES DE LA TIRA (fila 1): llenos y de acento. El lenguaje
                visual DEBE distinguirse de la fila de herramientas (fila 2),
@@ -358,9 +383,14 @@ function estilos() {
         }
 
         /* --- SIN SELECCION: no aparecen las herramientas. La cascada
-               empieza en la tira; la fila nace con el objeto:
-               cargar -> seleccionar -> trabajar. --- */
-        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools .btn-action { display: none !important; }
+               empieza en la tira; la cinta nace con el objeto:
+               cargar -> seleccionar -> trabajar.
+               Ronda 5: se esconde el GRUPO ENTERO, no solo sus botones. Con
+               .btn-action a display:none quedaban las 8 etiquetas de los grupos
+               flotando solas sobre la banda vacia, que es justo el aspecto de
+               interfaz rota que el cliente no perdona. */
+        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > .ekko-ribbon-group { display: none !important; }
+        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > button { display: none !important; }
 
         /* --- BARRA EMERGENTE en la cascada: una sola fila con las 5 mas
                usadas a la vista y ⋯ para el resto (medido: sin esto mostraba
@@ -393,6 +423,124 @@ function estilos() {
             font-size: 15px;
             line-height: 1;
             cursor: pointer;
+        }
+
+        /* --- BARRA EMERGENTE SOLO ICONOS (ronda 5) ---
+               El pedido fue literal: "resume todo a iconos que resuelvan de
+               manera intuitiva lo que el cliente puede hacer con un objeto
+               seleccionado". El texto NO se borra del DOM: soloIconos() lo
+               envuelve en .ekko-fb-txt y aca se esconde, asi que el nombre
+               sigue siendo el nombre accesible del boton y el tooltip (title,
+               que la app ya escribe en cada uno) lo devuelve al pasar el
+               puntero. La letra chica se deja cuando el glifo de 1-2 caracteres
+               es parte del significado (.ekko-queda: el + / - de Subir/Bajar
+               capa, que comparten icono). Medido: con el nombre a la vista cada
+               boton media ~90px; escondido pasa a ~32px, o sea 3 veces mas
+               acciones en el mismo aire.
+               Este hoja SOLO se inyecta con el prototipo armado (?cascade=1),
+               por eso la regla no necesita el guard body[data-ekko-cascade]. */
+        #contextual-toolbar .ekko-fb-txt { display: none !important; }
+        #contextual-toolbar .ekko-fb-txt.ekko-queda { display: inline !important; }
+        /* Cuadrados parejos: con el texto fuera, el boton se achica al glifo.
+           min-width + padding igual = la barra se lee como una hilera de
+           iconos, no como pastillas de ancho distinto. */
+        #contextual-toolbar.ekko-cascade-fb .toolbar-btn {
+            min-width: 32px;
+            justify-content: center;
+            height: 30px;
+            padding-left: 7px;
+            padding-right: 7px;
+            gap: 4px;
+            font-size: 12px;
+        }
+        /* El vidrio de la barra es el nivel del atajo; los botones de adentro
+           se aplanan (el mismo lenguaje de la cinta) para que el icono sea lo
+           unico que se mira. Medido en ekko-espacio.css: cada uno llevaba 6
+           capas de sombra y blur, que a 32px de ancho son todo ruido. */
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn {
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            border-radius: 7px !important;
+            box-shadow: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            transform: none !important;
+            color: rgba(226,232,240,0.9) !important;
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn:hover {
+            background: rgba(255,255,255,0.14) !important;
+            color: #fff !important;
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn.active,
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn.is-on,
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn[aria-pressed="true"] {
+            background: rgba(255,46,166,0.2) !important;
+            border-color: rgba(255,46,166,0.55) !important;
+            color: #fff !important;
+        }
+        /* De dia (tanto del skin data-modo como del botón de tema del
+           prototipo data-ekko-theme): tinta oscura sobre la barra clara. Sin
+           la segunda, los glifos quedaban gris clarisimo sobre blanco. */
+        body[data-modo="claro"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn,
+        body[data-ekko-theme="claro"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn {
+            color: #3d4c63 !important;
+        }
+        body[data-modo="claro"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn:hover,
+        body[data-ekko-theme="claro"] #contextual-toolbar.ekko-cascade-fb .toolbar-btn:hover {
+            background: rgba(15,23,42,0.08) !important;
+            color: #10182a !important;
+        }
+
+
+        /* --- CAMPOS DEL OBJETO DENTRO DE LA BARRA (ronda 5.1) ---
+               Medido en el arnés: la barra emergida medía 1500x113 y se veía
+               como un panel aplastado, no como el atajo del objeto. Dos causas,
+               las dos del propio motor:
+               1) .toolbar-group es un DIV sin regla (display:block), así que
+                  cada <label> cae en su propia línea y el ancho del grupo lo
+                  fija la barra entera en vez de fijarlo su contenido.
+               2) styles.css esconde los campos de TEXTO (Tamaño, Radio, Ángulo
+                  de curvado, Espacio) con el selector
+                  #topBar[data-ekko-texto="no"] .size-control-group > *:has(...).
+                  Por estar anclado a #topBar NO alcanza a la barra flotante:
+                  los seis campos de tipografía seguían a la vista sobre
+                  cualquier vector.
+               Acá el grupo pasa a fila, el cuadro numérico se achica a lo que
+               dice (175px -> 62px) y la regla de texto se re-escribe anclada al
+               body con :has(), que es la única forma de gobernar las dos
+               superficies desde un solo atributo del motor. */
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-number-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10.5px;
+            line-height: 1;
+            white-space: nowrap;
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-input-number {
+            width: 62px !important;
+            min-width: 0;
+            padding: 3px 5px;
+            font-size: 11px;
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-slider-container {
+            flex: 0 0 120px;
+            width: 120px;
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-angle-readout {
+            font-size: 10.5px;
+        }
+        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(#objFontSize),
+        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(#objCurveRadius),
+        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(#objTextSpacing),
+        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar .size-control-group > label:has(.toolbar-angle-readout),
+        body[data-ekko-cascade="1"]:has(#topBar[data-ekko-texto="no"]) #contextual-toolbar #objTextSpacingSlider {
+            display: none !important;
         }
 
         /* --- PANEL DE OPCIONES: la capa de opciones se abre un escalon MAS
@@ -469,53 +617,161 @@ function estilos() {
             background: #ff2ea6;
         }
 
-        /* --- FILA DE HERRAMIENTAS (fila 2): botones reales --- */
+        /* --- CINTA (fila 2): los GRUPOS REALES de ribbonLayout ---
+               Ronda 5: la fila deja de ser una bolsa de botones y vuelve a
+               ser una cinta. El motor (ui/ribbonLayout.js) ya arma UN
+               .ekko-ribbon-group por grupo del manifiesto, con su cuerpo y su
+               etiqueta DEBAJO (order:2) y su sync() enciende .is-empty; este
+               prototipo ADOPTA el nodo grupo entero, no lo desarma. Medido en
+               la cinta original: 8 grupos, etiquetas Crear / Imagen / Texto /
+               Estructura / Geometria / Composicion / Booleanas / Vista. */
         #ekkoCascadeTools {
             display: flex;
-            align-items: center;
-            gap: 6px;
+            align-items: flex-start;
+            gap: 0;
             width: 100%;
             overflow-x: auto;
             scrollbar-width: none;
             padding: 4px 2px 2px 2px;
             /* ALTURA FIJA (medido): sin esta reserva la banda media 6px con el
                lienzo vacio y 33px al seleccionar, asi que cada clic sobre un
-               objeto corria el canvas ~27px hacia abajo. La cinta de Word no se
-               achica al cambiar de objeto y aca tampoco: la geometria que no se
-               mueve es la que el cliente aprende a golpear de memoria.
-               box-sizing para que los 4+2 de padding no sumen extra. */
+               objeto corria el canvas ~27px hacia abajo. Con la cinta por
+               grupos pasa lo mismo pero mas fuerte (44 de cuerpo + 13 de
+               etiqueta): la banda SE RESERVA y no se arma al seleccionar. La
+               geometria que no se mueve es la que el cliente aprende a golpear
+               de memoria. 66 = 4 (padding) + 44 (cuerpo) + 2 + 13 (etiqueta)
+               + 3 de aire, con box-sizing para que el padding no sume extra. */
             box-sizing: border-box;
-            min-height: 34px;
+            min-height: 66px;
         }
         #ekkoCascadeTools::-webkit-scrollbar { display: none; }
+        #ekkoCascadeTools .ekko-ribbon-group { flex: 0 0 auto; }
         #ekkoCascadeTools .btn-action { flex: 0 0 auto; }
 
-        /* --- PIEL PLANA DE LA FILA 2 (el aire de Word) ---
+        /* La pista de la banda vacia: con el lienzo sin seleccion la cinta
+               no tiene herramientas de objeto (las esconde el motor de la
+               cascada), y un rectangulo de 66px sin nada se lee como "roto".
+               Una linea dice que falta: elegir un objeto. */
+        #ekkoCascadeTools .ekko-fila-pista {
+            display: none;
+            align-self: center;
+            font-size: 12px;
+            color: rgba(226,232,240,0.5);
+            padding: 0 6px;
+            white-space: nowrap;
+        }
+        #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools .ekko-fila-pista { display: block; }
+        body[data-modo="claro"] #ekkoCascadeTools .ekko-fila-pista { color: rgba(46,58,89,0.55); }
+
+        /* --- CUERPO DEL GRUPO EN COLUMNA QUE ENVUELVE (el dibujo de Office) ---
+               flex-flow: column wrap sobre un alto fijo de 44px: el boton
+               HEROE (44) ocupa su columna entero y los companeros (21 + 2 de
+               gap) se apilan de a dos por columna y siguen de largo en la
+               columna siguiente. Es exactamente el molde de Word/Office
+               (uno grande + pila de chicos) sin crear, clonar ni duplicar
+               ningun nodo: solo cambia como se reparten los que ya existen.
+               La guarda :not(.is-collapsed) es a propósito: deja que el
+               .is-collapsed del motor anime el max-height:0 de arriba abajo
+               (ekko-ribbon.css linea 132) sin que el alto fijo lo pele. */
+        #ekkoCascadeTools .ekko-ribbon-group:not(.is-collapsed) .ekko-ribbon-group-body {
+            display: flex;
+            flex-flow: column wrap;
+            align-items: flex-start;
+            align-content: center;
+            box-sizing: border-box;
+            height: 44px;
+            min-height: 44px;
+            max-height: 44px;
+            gap: 2px 6px;
+            width: max-content;
+        }
+
+        /* El pelo vertical que separa un grupo del siguiente: ekko-ribbon.css
+               ya lo pinta (border-right), pero con el gris del tema claro que
+               sobre la barra de noche desaparece. Se le cambia el tinte, no la
+               regla. El ultimo grupo no tiene borde: la tira de herramientas
+               ya cierra con el boton de tema. */
+        #ekkoCascadeTools .ekko-ribbon-group {
+            padding: 0 8px 0 6px;
+            border-right: 1px solid rgba(148,163,184,0.26);
+        }
+        #ekkoCascadeTools .ekko-ribbon-group:last-of-type { border-right-color: transparent; }
+        body[data-modo="claro"] #ekkoCascadeTools .ekko-ribbon-group { border-right-color: rgba(46,58,89,0.16); }
+
+        /* Etiqueta del grupo (arriba la gobierna el motor: es un boton con
+           title "Plegar / desplegar"). De noche el #5b6b7c del skin no se lee
+           sobre la barra; se sube la tinta y se baja el chevron de plegado a
+           un susurro que solo se ve cuando el puntero pasa por el grupo, para
+           que la cinta no parezca un teclado de ascensor. */
+        #ekkoCascadeTools .ekko-ribbon-group-head {
+            color: rgba(226,232,240,0.58);
+            font-size: 10px;
+        }
+        #ekkoCascadeTools .ekko-ribbon-group-head::before { opacity: 0.22; }
+        #ekkoCascadeTools .ekko-ribbon-group:hover .ekko-ribbon-group-head::before { opacity: 0.75; }
+        #ekkoCascadeTools .ekko-ribbon-group-head:hover { color: #ff2ea6; }
+        body[data-modo="claro"] #ekkoCascadeTools .ekko-ribbon-group-head { color: #5b6b7c; }
+
+
+        /* --- MOLDE PLANO DE LOS BOTONES (el aire de Word) ---
                Medido sobre ekko-espacio.css: cada boton de la fila llevaba 6
                capas de box-shadow, textura de ruido, blur y radio 12. Sobre la
                tira de inicio eso esta bien (es el nivel 0, la puerta), pero
-               repetido 19 veces en la fila de herramientas no deja leer NINGUN
-               nombre: parece un collar de cuentas, no un catalogo. Aca el
-               vidrio se queda arriba y la fila se aplana: fondo limpio, hover
-               solo de relleno, radio chico, y el color de acento reservado para
-               lo que tiene estado (toggle activo).
+               repetido 19 veces en la cinta no deja leer NINGUN nombre: parece
+               un collar de cuentas, no un catalogo. Aca el vidrio se queda
+               arriba y la cinta se aplana: fondo limpio, hover solo de relleno,
+               radio chico, y el color de acento reservado para lo que tiene
+               estado (toggle activo). La jerarquia NO la da la sombra: la da el
+               tamano (heroe 44 / companero 21) y el grupo con etiqueta.
                La especificidad es obligada: la piel pinta con !important desde
                #topBar .btn-action (1 id + 1 clase); esto es 2 ids + 2 clases y
                ademas el hoja va DESPUES en el head, asi gana en ambos casos. */
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action {
             background: transparent !important;
             border: 1px solid transparent !important;
-            border-radius: 6px !important;
+            border-radius: 5px !important;
             box-shadow: none !important;
             backdrop-filter: none !important;
             -webkit-backdrop-filter: none !important;
             transform: none !important;
-            padding: 0 8px !important;
-            height: 26px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            height: 21px;
+            padding: 0 5px !important;
             box-sizing: border-box;
-            font-size: 12px !important;
-            line-height: 24px;
-            color: rgba(226,232,240,0.88) !important;
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            line-height: 19px;
+            white-space: nowrap;
+            color: rgba(226,232,240,0.9) !important;
+        }
+        /* ICONO 13 sobre la misma linea del nombre (el companero de Word). */
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action .ekko-ic {
+            width: 13px; height: 13px;
+        }
+        /* --- BOTON HEROE DEL GRUPO (la jerarquia de Office) ---
+               El primer boton visible de cada grupo se agiganta: icono arriba,
+               nombre abajo (2 lineas si hace falta) y los 44px enteros de la
+               columna. Es lo primero que se busca con la mirada cuando el
+               grupo trae muchos comandos. Lo decide la cinta, no el azar: ver
+               pintarHeroes(). */
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action.ekko-es-heroes {
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 3px;
+            height: 44px;
+            min-width: 52px;
+            max-width: 78px;
+            padding: 2px 7px !important;
+            font-size: 10.5px !important;
+            line-height: 1.08;
+            white-space: normal;
+            text-align: center;
+        }
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action.ekko-es-heroes .ekko-ic {
+            width: 19px; height: 19px;
         }
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action:hover {
             background: rgba(255,255,255,0.13) !important;
@@ -536,7 +792,7 @@ function estilos() {
             color: #fff !important;
             box-shadow: none !important;
         }
-        /* De dia la misma fila, con tinta azul-gris sobre el vidrio claro. */
+        /* De dia la misma cinta, con tinta azul-gris sobre el vidrio claro. */
         body[data-modo="claro"] #topBar.ekko-cascade #ekkoCascadeTools .btn-action {
             color: #3d4c63 !important;
         }
@@ -547,40 +803,55 @@ function estilos() {
         body[data-modo="claro"] #topBar.ekko-cascade #ekkoCascadeTools .btn-action:active {
             background: rgba(15,23,42,0.14) !important;
         }
+        /* El boton de tema de la cascada NO vive dentro de #ekkoCascadeTools
+           (es hermano de la fila, para que la regla "sin seleccion" no lo
+           esconda), asi que el molde plano de arriba no lo alcanza. Se lo
+           vestido a mano con las mismas medidas del companero: si un vecino
+           de fila se ve plano y el de al lado esmerilado con 6 sombras, la
+           fila se lee desordenada. */
+        #ekkoToolsShell > #btnEkkoTema {
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            border-radius: 5px !important;
+            box-shadow: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            transform: none !important;
+            height: 26px;
+            padding: 0 8px !important;
+            font-size: 11.5px !important;
+            font-weight: 500 !important;
+            line-height: 24px;
+            color: rgba(226,232,240,0.9) !important;
+        }
+        #ekkoToolsShell > #btnEkkoTema:hover {
+            background: rgba(255,255,255,0.13) !important;
+            color: #fff !important;
+            transform: none !important;
+        }
+        body[data-modo="claro"] #ekkoToolsShell > #btnEkkoTema { color: #3d4c63 !important; }
+        body[data-modo="claro"] #ekkoToolsShell > #btnEkkoTema:hover {
+            background: rgba(15,23,42,0.08) !important;
+            color: #10182a !important;
+        }
 
-        /* --- SECTOR "MAS USADAS" (fila 2) ---
-               Los recientes ya ordenan la fila (los 3 de arriba quedan a la
-               izquierda y la fila arranca en scrollLeft 0). Faltaba que se
-               VIERA: un cabello vertical separa el sector del resto y cada
-               herramienta del sector lleva un punto de acento. No se duplica
-               ningun boton ni se agrega un panel: el mismo boton real, marcado.
-               .ekko-mru-corte nace oculto y solo respira cuando la fila tiene
-               sector (lo decide marcarSectorRecientes con la clase
-               .ekko-hay-recientes), para no flotar solo cuando no hay
-               seleccion y la cinta escondio todo. */
-        .ekko-mru-corte {
-            display: none;
-            flex: 0 0 1px;
-            width: 1px;
-            height: 18px;
-            align-self: center;
-            margin: 0 3px;
-            background: rgba(255,255,255,0.22);
+        /* --- GRUPO "MAS USADAS" (fila 2, el primero) ---
+               Los recientes dejan de ser puntitos repartidos por la cinta (en
+               la ronda 4 el sector se leia como ruido: 3 puntos sueltos entre
+               21 nombres) y pasan a ser UN GRUPO MAS, con su etiqueta abajo
+               como los demas. Adentro hay BOTONES REALES movidos desde su grupo
+               de origen, con vuelta garantizada: cuando una herramienta deja de
+               estar entre las 3 del contexto, regresa al grupo donde nacio
+               (ver sincronizarGrupoRecientes). No se duplica ningun control.
+               La etiqueta se pinta de acento para que el grupo se distinga del
+               catalogo sin necesidad de un panel nuevo. */
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="recientes"] .ekko-ribbon-group-head {
+            color: #ff2ea6;
         }
-        #ekkoCascadeTools.ekko-hay-recientes .ekko-mru-corte { display: block; }
-        body[data-modo="claro"] .ekko-mru-corte { background: rgba(15,23,42,0.22); }
-        #ekkoCascadeTools .btn-action.ekko-es-reciente { position: relative; }
-        #ekkoCascadeTools .btn-action.ekko-es-reciente::after {
-            content: "";
-            position: absolute;
-            top: 3px;
-            right: 3px;
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: #ff2ea6;
-            opacity: 0.85;
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="recientes"] {
+            border-right-color: rgba(255,46,166,0.35);
         }
+
 
         /* La familia P del renderer YA bloquea con motivo; aca se garantiza
            un lenguaje visual minimo aunque styles.css aun no lo traiga. */
@@ -883,35 +1154,47 @@ function renderTabs() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Nivel 1: fila de herramientas (botones REALES re-parentados)         */
+/* Nivel 1: la CINTA de herramientas (grupos REALES re-parentados)        */
 /* ------------------------------------------------------------------ */
 function montarFila() {
     const shell = document.createElement("div");
     shell.className = "ekko-cascade-shell ekko-tools-shell";
+    shell.id = "ekkoToolsShell";
     fila = document.createElement("div");
     fila.id = "ekkoCascadeTools";
     shell.appendChild(fila);
     topBar.appendChild(shell);
 
-    // Aplanar: los botones pasan directo a la fila (el reordenamiento por
-    // recientes exige un mismo contenedor flex). Son los nodos REALES:
-    // ribbonRenderer y commandParameters siguen encontrandolos dentro de
-    // #topBar, asi que el contrato no cambia nada.
+    // La pista de la banda vacia: con el lienzo sin seleccion la cinta no tiene
+    // herramientas de objeto y un rectangulo de 66px sin nada se lee "roto".
+    const pista = document.createElement("span");
+    pista.className = "ekko-fila-pista";
+    pista.textContent = "Elegi un objeto del lienzo para ver sus herramientas";
+    fila.appendChild(pista);
+
+    // LOS GRUPOS ENTEROS, no los botones sueltos (ronda 5). ui/ribbonLayout.js
+    // ya arma la cinta: un .ekko-ribbon-group por grupo del manifiesto, con su
+    // cuerpo, su etiqueta DEBAJO (order:2) y su cabeza clickeable para plegar.
+    // Adoptar el nodo grupo completo en vez de vaciar el cuerpo trae las tres
+    // cosas que la ronda 4 habia tirado por la borda al aplanar: la etiqueta de
+    // contexto, el pelo vertical entre grupos y — lo importante — que
+    // ribbonLayout.sync() siga decidiendo .is-empty (los grupos que la
+    // seleccion no usa desaparecen solos, sin huecos muertos). sync() mide
+    // g.el.isConnected y un grupo re-parentado DENTRO de #topBar sigue
+    // conectado: el motor no pierde el hilo de sus propios nodos.
     //
-    // Hay dos generaciones de contenedor en el repo: los .top-group historicos
-    // y los .ekko-ribbon-group-body que arma ribbonLayout.js. Como el layout de
-    // la cinta corre antes que esta tira, los botones YA estan agrupados con
-    // titulo: si solo se miran los .top-group la fila nace vacia y arriba
-    // quedan tres filas (tira + cinta + cascaron de herramientas). Se aplanan
-    // las dos y la cinta se oculta por CSS (.ekko-ribbon-body).
-    Array.from(topBar.querySelectorAll("div.top-group")).forEach(g => {
-        Array.from(g.children).forEach(h => fila.appendChild(h));
-        g.remove();
-    });
-    Array.from(topBar.querySelectorAll(".ekko-ribbon-group-body")).forEach(g => {
-        Array.from(g.children).forEach(h => fila.appendChild(h));
-    });
-    // Los sueltos de la cinta (btnTopTextCurve viaja sin manifiesto).
+    // El layout corre una sola vez (build se guarda con top.dataset.ekkoRibbon),
+    // o sea que la adopcion es estable: nadie vuelve a meter los grupos en el
+    // cascaron. Si el prototipo arrancara antes que el layout, se fuerza por su
+    // API publica antes de adoptar.
+    if (topBar.dataset.ekkoRibbon !== "1" && window.EKKO_RIBBON_LAYOUT) {
+        try { window.EKKO_RIBBON_LAYOUT.init(); } catch (_) {}
+    }
+    adoptarGrupos();
+
+    // Los sueltos SIN grupo: un boton sin entrada en el manifiesto quedaria
+    // afuera de la cinta y escondido por el display:none del cascaron. Suben a
+    // la fila igual, sin etiqueta, para no perder funciones.
     Array.from(topBar.querySelectorAll(".ekko-ribbon-body > button")).forEach(b => fila.appendChild(b));
     Array.from(topBar.children).forEach(h => {
         if (h === strip || h === shell) return;
@@ -930,79 +1213,170 @@ function montarFila() {
     armarPan(shell, fila);
 }
 
-/* Recientes: UNICAMENTE reordenamiento; el display lo decide la cinta. */
+/* Mueve los grupos de la cinta a la fila 2. Idempotente y barato: corre en
+   cada refresco y solo toca los nodos que todavia no estan en la fila (un
+   appendChild sobre un nodo que ya esta en su lugar IGUAL dispara al observer
+   de #topBar, y de ahi naceria un bucle). */
+function adoptarGrupos() {
+    const cascaron = topBar.querySelector(".ekko-ribbon-body");
+    if (!cascaron) return;
+    Array.from(cascaron.children).forEach(g => {
+        if (!g.classList || !g.classList.contains("ekko-ribbon-group")) return;
+        if (g.parentElement === fila) return;
+        fila.appendChild(g);
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/* GRUPO "MAS USADAS": un grupo MAS de la cinta, alimentado por los        */
+/* recientes del contexto. Son BOTONES REALES que se mudan desde su grupo   */
+/* de origen y VOLVEN a el cuando dejan de estar entre las primeras 3.      */
+/* ------------------------------------------------------------------ */
+const MRU_EN_GRUPO = 3;
+const GRUPO_RECIENTES = "recientes";
+
+function esVisible(btn) {
+    return !btn.classList.contains("ekko-command-hidden") && btn.style.display !== "none";
+}
+
+function grupoRecientes() {
+    let g = fila.querySelector(`.ekko-ribbon-group[data-group="${GRUPO_RECIENTES}"]`);
+    if (g) return g;
+    // El mismo molde del motor (cuerpo + cabeza con el titulo debajo, plegable),
+    // escrito a mano porque ribbonLayout solo construye los grupos del
+    // manifiesto. Se copian sus clases para heredar ekko-ribbon.css.
+    g = document.createElement("div");
+    g.className = "ekko-ribbon-group";
+    g.dataset.group = GRUPO_RECIENTES;
+    const cuerpo = document.createElement("div");
+    cuerpo.className = "ekko-ribbon-group-body";
+    const head = document.createElement("div");
+    head.className = "ekko-ribbon-group-head";
+    head.setAttribute("role", "button");
+    head.setAttribute("tabindex", "0");
+    head.setAttribute("aria-expanded", "true");
+    head.title = "Plegar / desplegar el grupo Más usadas";
+    const title = document.createElement("span");
+    title.className = "ekko-ribbon-group-title";
+    title.textContent = "Más usadas";
+    head.appendChild(title);
+    g.appendChild(cuerpo);
+    g.appendChild(head);
+    const plegar = () => {
+        const colapsado = g.classList.toggle("is-collapsed");
+        head.setAttribute("aria-expanded", colapsado ? "false" : "true");
+    };
+    head.addEventListener("click", plegar);
+    head.addEventListener("keydown", ev => {
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); plegar(); }
+    });
+    // Primero de todo: lo mas usado se ve sin scrollear.
+    fila.insertBefore(g, fila.firstChild);
+    return g;
+}
+
+/* 1) Los botones que ya no estan entre las MRU_EN_GRUPO del contexto vuelven a
+   su grupo de origen (data-casa, anotado al mudarlos). Sin eso la cinta se
+   desarmaria sola: "Contorno" desapareceria de Geometria para siempre.
+   2) Los recientes entran en orden de uso.
+   3) Grupo vacio = grupo que no existe (cero huecos muertos), con la MISMA
+   clase que usa el motor. Devuelve cuantos botones se movieron. */
+function sincronizarGrupoRecientes() {
+    if (!fila) return 0;
+    const cola = (leerRecientes()[contextoActual()] || []).map(e => e.c);
+    const g = grupoRecientes();
+    const cuerpo = g.querySelector(".ekko-ribbon-group-body");
+
+    const porComando = new Map();
+    Array.from(topBar.querySelectorAll("button[data-fusion-btn], button[data-ekko-command]")).forEach(b => {
+        const c = nombreComando(b);
+        if (c && !porComando.has(c)) porComando.set(c, b);
+    });
+    const queridos = cola.map(c => porComando.get(c)).filter(b => b && esVisible(b)).slice(0, MRU_EN_GRUPO);
+
+    let movidos = 0;
+    Array.from(cuerpo.children).forEach(b => {
+        if (b.tagName !== "BUTTON" || queridos.indexOf(b) >= 0) return;
+        const casa = b.dataset.casa;
+        b.removeAttribute("data-casa");
+        const destino = casa
+            ? topBar.querySelector(`.ekko-ribbon-group[data-group="${casa}"] > .ekko-ribbon-group-body`)
+            : null;
+        (destino || cuerpo).appendChild(b);
+        movidos++;
+    });
+    queridos.forEach(b => {
+        if (b.parentElement === cuerpo) return;
+        const casa = b.closest(".ekko-ribbon-group");
+        if (casa && casa.dataset.group !== GRUPO_RECIENTES) b.dataset.casa = casa.dataset.group;
+        movidos++;
+    });
+    // appendChild en el orden del ranking: cubre la entrada y el reorden
+    // dentro del sector (si no, al cambiar el ranking el grupo queda viejo).
+    queridos.forEach(b => cuerpo.appendChild(b));
+
+    const hay = Array.from(cuerpo.children).some(b => b.tagName === "BUTTON" && esVisible(b));
+    g.classList.toggle("is-empty", !hay);
+    return movidos;
+}
+
+/* El heroe de cada grupo: el PRIMER boton visible del cuerpo (el orden lo
+   escribe el manifiesto, asi que es estable y no salta con cada clic).
+   toggle() con la clase ya en su estado NO dispara registro de mutacion. */
+function pintarHeroes() {
+    Array.from(fila.querySelectorAll(".ekko-ribbon-group")).forEach(g => {
+        const cuerpo = g.querySelector(".ekko-ribbon-group-body");
+        if (!cuerpo) return;
+        const visibles = Array.from(cuerpo.children).filter(b => b.tagName === "BUTTON" && esVisible(b));
+        visibles.forEach((b, i) => b.classList.toggle("ekko-es-heroes", i === 0));
+    });
+}
+
+/* Recientes: UNICAMENTE el reparto dentro de la cinta; el display lo decide el
+   motor (ribbonRenderer) y el llenado de los grupos, ribbonLayout. */
 function refrescarFila() {
     if (!fila) return;
+    adoptarGrupos();
     const firmas = Array.from(fila.querySelectorAll("button"))
         .filter(b => !b.classList.contains("ekko-pan-btn") && nombreComando(b));
     const forma = firmas.map(b => `${b.id || ""}#${nombreComando(b)}`).join("|");
-    // La firma del ORDEN entra en la comparacion junto con la del CONJUNTO.
-    // Medido antes de esto: la guarda miraba solo el conjunto, así que usar una
-    // herramienta (mismo conjunto, orden nuevo) NO reordenaba nada y el sector
-    // de recientes se llenaba de puntos repartidos por toda la fila. Recien al
-    // cambiar de contexto, cuando el conjunto cambia, la fila se ordenaba.
     const cola = (leerRecientes()[contextoActual()] || []).map(e => e.c);
+    // La firma del ORDEN entra en la comparacion junto con la del CONJUNTO:
+    // medido en la ronda 4, la guarda miraba solo el conjunto, asi que usar una
+    // herramienta (mismo conjunto, orden nuevo) NO reordenaba nada.
     const previa = (fila.dataset.ordenPrevia || "").split("@");
     const cambioConjunto = forma !== previa[0];
     const colaNueva = cola.join(",");
     if (cambioConjunto || colaNueva !== previa[1]) {
         const rango = cmd => { const i = cola.indexOf(cmd); return i < 0 ? 99 : i; };
-        const base = firmas.slice();
-        // sort() es ESTABLE en los motores actuales: las no recientes conservan
-        // el orden que les dio la cinta, solo cambian las usadas.
-        base.sort((a, b) => rango(nombreComando(a)) - rango(nombreComando(b)));
-        base.forEach(b => fila.appendChild(b));
+        // Orden DENTRO de cada grupo por uso. Los grupos del catalogo NO se
+        // mueven: el orden del manifiesto es la direccion que el cliente
+        // memoriza ("Geometria esta despues de Estructura").
+        Array.from(fila.querySelectorAll(".ekko-ribbon-group-body")).forEach(cuerpo => {
+            const base = Array.from(cuerpo.children).filter(b => b.tagName === "BUTTON");
+            // sort() es ESTABLE en los motores actuales: las no recientes
+            // conservan el orden que les dio la cinta.
+            const orden = base.slice().sort((a, b) => rango(nombreComando(a)) - rango(nombreComando(b)));
+            if (orden.some((b, i) => b !== base[i])) orden.forEach(b => cuerpo.appendChild(b));
+        });
+        const movio = sincronizarGrupoRecientes();
+        // sync() del motor: un grupo que se vacio al mudar un boton a "Mas
+        // usadas" (o al cambiar de contexto) tiene que desaparecer con la misma
+        // regla que usa la cinta, no con una copia nuestra.
+        try { window.EKKO_RIBBON_LAYOUT && window.EKKO_RIBBON_LAYOUT.sync(); } catch (_) {}
         fila.dataset.ordenPrevia = forma + "@" + colaNueva;
-        // El golpe de scroll solo cuando cambia el OBJETO (conjunto nuevo). Al
-        // usar una herramienta la fila se reordena pero respeta dónde estabas
-        // mirando: saltar al arranque en cada clic es mareante.
-        if (cambioConjunto) fila.scrollLeft = 0;
+        // El golpe de scroll solo cuando cambia el OBJETO (conjunto nuevo) o
+        // cuando se rearmo el sector. Al usar una herramienta la cinta se
+        // reordena pero respeta donde estabas mirando: saltar al arranque en
+        // cada clic es mareante.
+        if (cambioConjunto || movio) fila.scrollLeft = 0;
+    } else {
+        sincronizarGrupoRecientes();
     }
+    pintarHeroes();
 
     const prod = document.getElementById("ekkoCascadeProducto");
     if (prod) pintarProducto(prod);
-    marcarSectorRecientes();
-}
-
-/* ------------------------------------------------------------------ */
-/* SECTOR "MAS USADAS" de la fila 2: marcar, no duplicar.                */
-/* ------------------------------------------------------------------ */
-const MRU_EN_SECTOR = 3;
-
-function marcarSectorRecientes() {
-    if (!fila) return;
-    // La cola se lee UNA vez: leerRecientes() parsea JSON de localStorage en
-    // cada llamada y esto corre por cada boton de la fila.
-    const claveRecientes = (leerRecientes()[contextoActual()] || [])
-        .slice(0, MRU_EN_SECTOR).map(e => e.c);
-    const botones = Array.from(fila.querySelectorAll("button"))
-        .filter(b => !b.classList.contains("ekko-pan-btn") && nombreComando(b));
-    let ultimo = null;
-    botones.forEach(b => {
-        const es = claveRecientes.indexOf(nombreComando(b)) >= 0;
-        // toggle() con la clase ya en su estado NO dispara registro de
-        // mutacion: esta pasada no puede realimentar al observador de #topBar.
-        b.classList.toggle("ekko-es-reciente", es);
-        if (es) ultimo = b;
-    });
-    const hay = !!ultimo && seleccionActual().length > 0;
-    fila.classList.toggle("ekko-hay-recientes", hay);
-
-    // El cabello va DESPUES del ultimo reciente. Solo se mueve si esta mal
-    // ubicado: insertBefore de un nodo que ya esta en su lugar IGUAL genera
-    // registro childList, y ahi el refresco se llamaria a si mismo.
-    let corte = fila.querySelector(".ekko-mru-corte");
-    if (hay) {
-        if (!corte) {
-            corte = document.createElement("div");
-            corte.className = "ekko-mru-corte";
-        }
-        if (corte.nextSibling !== ultimo.nextSibling) {
-            fila.insertBefore(corte, ultimo.nextSibling);
-        }
-    } else if (corte) {
-        corte.remove();
-    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1015,7 +1389,10 @@ function marcarSectorRecientes() {
 /* inline) siguen bloqueados por el motor, asi que no aparece ninguna    */
 /* herramienta muerta nueva.                                             */
 /* ------------------------------------------------------------------ */
-const FB_EN_VISTA = 5;
+/* Con la barra SOLO DE ICONOS entran muchas mas acciones en el mismo aire
+   (medido: 90px por boton con nombre vs ~32px sin el). 7 es el punto donde el
+   atajo cubre el gesto mas repetido de cada contexto sin need de ⋯. */
+const FB_EN_VISTA = 7;
 
 function claveUso(btn) {
     // Las de la cinta tienen contrato (data-fusion-btn); las historicas de la
@@ -1026,6 +1403,43 @@ function claveUso(btn) {
 function ocultoPorElMotor(btn) {
     return btn.classList.contains("ekko-command-hidden") || btn.style.display === "none";
 }
+
+/* SOLO ICONOS en la barra emergente (el pedido de la ronda 5: "resume todo a
+   iconos que resuelvan de manera intuitiva lo que el cliente puede hacer con
+   un objeto seleccionado"). No se toca el <i> ni el <svg>: se ENVUELVE el nodo
+   de texto del boton en un span para poder esconderlo con CSS sin borrar nada
+   — el nombre sigue en el DOM (accesibilidad) y en el tooltip.
+   Idempotente sin flags colgados: la pasada mira los hijos REALES, asi que si
+   el motor reescribe el innerHTML de un boton el texto se vuelve a envolver
+   solo (una bandera en dataset mentiria y dejaria el nombre a la vista). */
+function soloIconos(b) {
+    if (b.id === "ekkoFbMas") return;                 // el ⋯ no tiene glifo: es el glifo
+    const tieneGlifo = !!b.querySelector("i.fas, i.far, i.fab, i.fal, svg.ekko-ic");
+    // Un boton que nace SOLO con texto (el candado 🔒, "Listo ✔") ya es icono:
+    // esconderle el texto lo dejaria vacio.
+    if (!tieneGlifo) return;
+    if (!b.title) b.title = (b.textContent || "").trim();
+    Array.from(b.childNodes).forEach(n => {
+        if (n.nodeType === 1) {
+            // Glifos de 1-2 caracteres ("+" / "-" de Subir/Bajar capa): SON el
+            // significado. Sin ellos los dos botones comparten el mismo icono
+            // de capas y el cliente no tiene como distinguirlos.
+            if (n.classList && n.classList.contains("ekko-fb-txt")) {
+                n.classList.toggle("ekko-queda", n.textContent.trim().length <= 2);
+            }
+            return;
+        }
+        if (n.nodeType !== 3) return;
+        const txt = n.textContent.replace(/\s+/g, " ").trim();
+        if (!txt) return;                             // el espacio entre <i> y el nombre se queda
+        const span = document.createElement("span");
+        span.className = "ekko-fb-txt";
+        span.textContent = txt;
+        span.classList.toggle("ekko-queda", txt.length <= 2);
+        b.replaceChild(span, n);
+    });
+}
+
 
 function montarBarraEmergente() {
     const fb = document.getElementById("contextual-toolbar");
@@ -1083,10 +1497,14 @@ function refrescarBarraEmergente() {
     const unidades = [...fb.children].filter(c => c.classList &&
         (c.classList.contains("toolbar-group") || c.classList.contains("toolbar-subgroup")));
     const botonesDe = u => [...u.querySelectorAll(".toolbar-btn")].filter(b => b.id !== "ekkoFbMas");
+    // SOLO ICONOS: se aplica sobre TODOS los botones (tambien los que el motor
+    // ya tiene escondidos), asi cuando el ⋯ los muestra no vuelven con texto.
+    // Es idempotente y no mueve unidades: puede ir afuera del guarda de orden.
+    unidades.forEach(u => botonesDe(u).forEach(soloIconos));
+
     // La lista de recientes se lee UNA vez por refresco (son 40 botones y
     // leerRecientes() parsea JSON de localStorage en cada llamada).
-    const cola = leerRecientes()[contextoActual()] || [];
-    const rangoDe = clave => {
+    const cola = leerRecientes()[contextoActual()] || [];    const rangoDe = clave => {
         const i = cola.findIndex(e => e.c === clave);
         return i < 0 ? 99 : i;
     };
@@ -1125,6 +1543,68 @@ function refrescarBarraEmergente() {
         });
         u.classList.toggle("ekko-fb-vacia", utiles === 0);
     });
+
+    anclarSobreSeleccion(fb);
+}
+
+/* Atribulado al item sobre el que la barra esta plantada ahora mismo. Compara
+   por identidad (===), no por nombre: dos chapas iguales dan dos objetos. */
+let fbAncladoA = null;
+
+/* --- POSICION DE LA BARRA (ronda 5.1, medido) -----------------------------
+   contextualMenu.js:1008 sale temprano para CUALQUIER item cuyo data.mockup
+   sea verdad — y en EKKO todo lo que hay sobre la mesa vive dentro del grupo
+   de la chapa, que trae data.mockup=true heredado al hijo. Sale antes de
+   llegar al bloque de left/top (linea 1112), asi que la barra NUNCA se
+   posiciona: queda en su posicion estatica, que es la esquina superior
+   izquierda del body, encima de la tira de pestañas y de la cinta. Medido en
+   el arnes: left y top vacios con la barra visible. La app la muestra igual
+   porque panelCoordinator.js:327 la enciende por su cuenta con .is-visible
+   (modo auto), o sea el motor la pinta pero nadie la ubica.
+
+   Se la ubica aca con la MISMA formula del motor (centro arriba del objeto,
+   -14px) para que el cambio de mano no se note, con dos respetos:
+     · si el usuario la arrastró (window.customToolbarLeft, que escribe
+       makeToolbarDraggable), no se la toca nunca;
+     · si el objeto esta tan arriba que la barra no entra, baja en vez de
+       quedarse tapando la cinta (el motor la clava en top:10 ahi).
+   Idempotente: escribe left/top una vez por seleccion, y la comparacion de
+   fbAncladoA corta el bucle con el MutationObserver de arriba (que escucha
+   el atributo style). */
+function anclarSobreSeleccion(fb) {
+    if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) return;
+    if (!fb.classList.contains("is-visible") && !fb.classList.contains("active")) {
+        fbAncladoA = null;
+        return;
+    }
+    const seleccion = window.selectedItem || null;
+    if (!seleccion) { fbAncladoA = null; return; }
+    if (fbAncladoA === seleccion && fb.style.left && fb.style.top) return;
+
+    const paper = window.paper;
+    const lienzo = document.getElementById("editorCanvas");
+    if (!paper || !paper.view || !lienzo) return;
+
+    const varias = window.selectedItems && window.selectedItems.length > 1 ? window.selectedItems : [seleccion];
+    let caja = null;
+    varias.forEach(it => {
+        if (!it || !it.bounds || it.visible === false) return;
+        caja = caja ? caja.unite(it.bounds) : it.bounds.clone();
+    });
+    if (!caja) return;
+
+    const marco = lienzo.getBoundingClientRect();
+    const arriba = paper.view.projectToView(caja.topLeft);
+    const centro = paper.view.projectToView(caja.center);
+    const abajo = paper.view.projectToView(caja.bottomLeft);
+    const ancho = fb.offsetWidth || 320;
+    const alto = fb.offsetHeight || 44;
+    const x = Math.max(10, Math.min(window.innerWidth - ancho - 10, centro.x + marco.left - ancho / 2));
+    let y = arriba.y + marco.top - alto - 14;
+    if (y < 10) y = Math.min(window.innerHeight - alto - 10, abajo.y + marco.top + 14);
+    fb.style.left = Math.round(x) + "px";
+    fb.style.top = Math.round(Math.max(10, y)) + "px";
+    fbAncladoA = seleccion;
 }
 
 /* ------------------------------------------------------------------ */
