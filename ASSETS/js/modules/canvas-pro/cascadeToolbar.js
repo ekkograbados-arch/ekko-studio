@@ -340,8 +340,13 @@ function estilos() {
             left: auto !important;
             bottom: auto !important;
             display: inline-flex !important;
+            /* El menu desplegable cuelga del wrap: si el wrap no sube, el
+               menu vive encapsulado en SU contexto de apilamiento y pierde
+               contra reglas y barras por mas z-index propio que pida.
+               PELOTEO SIEMPRE ARRIBA DE TODO (regla del cliente). */
+            z-index: 2147483000 !important;
         }
-        #ekkoCascadeStrip #ekkoDownloadMenu { z-index: 260; }
+        #ekkoCascadeStrip #ekkoDownloadMenu { z-index: 2147483000; }
 
         /* El chip de rescate del coordinador esta fijo en la esquina superior
            derecha; con la tira armada esa esquina la ocupa Descargar y se
