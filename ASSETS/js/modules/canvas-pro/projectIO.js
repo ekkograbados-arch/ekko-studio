@@ -265,9 +265,11 @@ async function buildSketchCanvas() {
     const describe = api ? api.describe() : null;
     let svg = "";
     try {
-        // includeMockup: el boceto muestra el PRODUCTO (contorno visible):
-        // el cliente tiene que ver sobre que chapa queda su diseño.
-        svg = await prepareSVGForExport({ asString: true, includeMockup: true });
+        // El boceto es la captura fiel de la interfaz: el mockup real va
+        // incluido (los huecos del huesito son huecos también en el boceto)
+        // y el diseño queda contenido dentro del producto. Sin contorno
+        // azul: eso es del SVG de grabado, no del boceto.
+        svg = await prepareSVGForExport({ asString: true, includeMockup: false, keepMockupImage: true });
     } catch (_) {
         svg = "";
     }
