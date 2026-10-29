@@ -396,6 +396,14 @@ const ALL_SPECIES = [SPECIES.RASTER, SPECIES.VECTOR, SPECIES.TEXT, SPECIES.MIXED
  *   - Un objeto -> todo lo de su tipo queda visible.
  *   - Varios del mismo tipo -> agrupar, alinear y distribuir SI; editar NO.
  *     Por eso las herramientas de edicion exigen count === 1.
+ *   - Excepcion: QUITAR FONDO y EDITAR FONDO. MEDIDO (2026-10-29): con dos
+ *     imagenes cargadas el boton de Quitar Fondo desaparecia (exigia
+ *     count === 1) y no quedaba NINGUNA salida. No es una edicion geometrica
+ *     sobre un conjunto: es la MISMA operacion repetida por capa, como en
+ *     Photoshop o PhotoRoom. Cada foto conserva su recorte y su sesion
+ *     propios (marcas `quitarFondoIA` / `ekkoFondoClave` por item), asi que
+ *     el lote no mezcla nada y cada una se puede editar despues sola, en el
+ *     orden que el cliente quiera.
  *   - Fusionar -> SOLO si hay vector + imagen. Solo vectores o solo
  *     imagenes: no se fusiona. (La regla de `fusion` ya lo dice.)
  *   - Booleanas, descomponer, solidos/huecos y auditar son operaciones
@@ -502,8 +510,12 @@ export const TOOLS = {
   // botones a la vez, que es lo que el cliente reporto como incoherente.
     removeBg: {
         label: "Quitar Fondo",
-        active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER)
-            && !llevaRecorte(s.list[0])
+        // LOTE (2026-10-29): se ofrece con UNA o CON MUCHAS imagenes. Lo unico
+        // que importa es que TODO lo seleccionado sea imagen y que AL MENOS
+        // una todavia tenga fondo; las que ya esten recortadas se saltean en
+        // el lote, no se procesan dos veces.
+        active: s => s.speciesCount === 1 && s.species.has(SPECIES.RASTER)
+            && s.list.some(it => !llevaRecorte(it))
     },
   traceImage:    { label: "Trazar Imagen", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
 
@@ -662,7 +674,11 @@ export const TABS = Object.freeze({
   image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements"] }
+  /* "Varios" lleva tambien Quitar Fondo y Editar Fondo: con varias imagenes
+     apretadas la cinta cae aca (detectTab), y si no estaban blanqueadas el
+     boton no salia NI en Varios NI en Imagen. Se filtran igual por la regla
+     del motor, asi que con vectores o texto siguen sin aparecer. */
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
