@@ -26,12 +26,39 @@
      HERRAMIENTAS (fila 2)  LOS BOTONES REALES del topBar, re-parentados
                     (nunca clonados): el motor, el historial y el panel de
                     parametros siguen escuchando al mismo nodo. Las mas
-                    usadas de cada contexto se adelantan (recientes por peso:
-                    frecuencia x recencia, memorizadas en localStorage). Al
+                    usadas de cada contexto se adelantan EN EL MOMENTO DEL USO
+                    (recientes por peso: frecuencia x recencia, memorizadas en
+                    localStorage; la firma comparada es conjunto + orden, si no
+                    la fila no se reordenaria hasta cambiar de objeto). Al
                     extremo derecho, el boton de modo claro/oscuro, con el
                     lenguaje visual de ESTA fila.
-     PANEL DE PARAMETROS  Re-anclaje del panel de opciones bajo el boton
-                    pulsado.
+     BARRA EMERGENTE   El mismo lenguaje, pero como ATAJO del objeto: una sola
+                    fila (nowrap) con las 5 herramientas mas usadas de ese
+                    contexto a la vista y ⋯ para desplegar el resto (medido:
+                    mostraba 19 botones de golpe). La rueda del mouse la
+                    desplaza en horizontal. Los grupos que escribe el motor se
+                    respetan: solo se reordenan y se esconden de mas.
+     PANEL DE PARAMETROS (nivel 3)  commandParameters.js lo abre solo y lo
+                    centra en el lienzo; aca se re-ancla como POPOVER debajo
+                    de la fila de herramientas con un diente que apunta al
+                    boton pulsado. Se vuelca hacia arriba si no entra, sigue
+                    a su boton al scrollear o redimensionar, y se rinde si el
+                    cliente lo arrastra del asa.
+     ALTURA FIJA    La banda de herramientas mide siempre 34px: seleccionar
+                    un objeto ya no corre el lienzo (~27px antes).
+     SECTOR         Las 3 primeras recientes de la fila 2 forman el sector
+     "MAS USADAS"   "mas usadas": quedan a la izquierda (scrollLeft 0), llevan
+                    un punto de acento y un cabello vertical las separa del
+                    resto. Son los BOTONES REALES marcados con una clase: no se
+                    duplica ningun control ni se agrega un panel nuevo.
+     PIEL PLANA     Nivel 0 (la tira) conserva el vidrio; la fila 2 se aplana
+                    como en Word/Office: sin textura, sin blur, sin las 6 capas
+                    de sombra por boton, radio chico, hover de relleno y el
+                    acento reservado al boton con estado. Las pestanas pasan de
+                    pastilla a solapa con la linea de acento abajo. El boton de
+                    tema de la cascada escribe ahora TAMBIEN data-modo (dueno de
+                    ekko-espacio.css), para que piel y prototipo no pinten cada
+                    uno en un modo distinto.
 
    ACTIVACION: ?cascade=1 memoriza el prototipo, ?cascade=0 lo apaga, o
    localStorage ekko.cascadePrototype="1". Sin flag el modulo no carga y la
@@ -46,6 +73,10 @@ let strip = null;
 let tabsBox = null;
 let fila = null;
 let superficieN2 = null;
+// Anclaje del popover de parametros (nivel 3): que comando lo abrio y si el
+// cliente lo agarro del asa (ahi ya no lo vuelvo a mover).
+let anclaComando = null;
+let arrastrado = false;
 
 const RAIZ_ORDEN = { base: 0, image: 1, vector: 2, text: 3, multiple: 4, fusion: 5 };
 const LLAVE_RECENTES = "ekko.cascade.recientes.v1";
@@ -121,12 +152,7 @@ function registrarUso(comando) {
     datos[contexto] = lista.slice(0, 6);
     try { localStorage.setItem(LLAVE_RECENTES, JSON.stringify(datos)); } catch (_) {}
     refrescarFila();
-}
-
-function rangoReciente(comando) {
-    const lista = leerRecientes()[contextoActual()] || [];
-    const i = lista.findIndex(e => e.c === comando);
-    return i < 0 ? 99 : i;
+    refrescarBarraEmergente();
 }
 
 /* ------------------------------------------------------------------ */
@@ -336,6 +362,39 @@ function estilos() {
                cargar -> seleccionar -> trabajar. --- */
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools .btn-action { display: none !important; }
 
+        /* --- BARRA EMERGENTE en la cascada: una sola fila con las 5 mas
+               usadas a la vista y ⋯ para el resto (medido: sin esto mostraba
+               19 botones de golpe, y el cliente no sabe donde mirar). Es el
+               ATAJO del objeto; la cinta de arriba sigue siendo el catalogo.
+               No se fuerza la visibilidad de NADA: solo se ocultan de mas,
+               asi los bloqueos del motor (familia P) siguen mandando. --- */
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            scrollbar-width: none;
+            max-width: calc(100vw - 24px);
+        }
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb::-webkit-scrollbar { display: none; }
+        /* Los separadores son hijos de la barra, no de los grupos: al
+           reordenar los grupos por uso quedarian contando el orden viejo. En
+           la cascada el limite de un grupo lo marca su propio margen. */
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb { gap: 8px; }
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-cascade-fb .toolbar-divider { display: none !important; }
+        body[data-ekko-cascade="1"] #contextual-toolbar .toolbar-group { flex: 0 0 auto; }
+        body[data-ekko-cascade="1"] #contextual-toolbar .ekko-fb-extra,
+        body[data-ekko-cascade="1"] #contextual-toolbar .ekko-fb-vacia { display: none !important; }
+        /* Al desplegar, el ⋯ se queda y pasa a decir "mostrar menos". */
+        body[data-ekko-cascade="1"] #contextual-toolbar.ekko-fb-expandida .ekko-fb-extra { display: inline-flex !important; }
+        body[data-ekko-cascade="1"] #ekkoFbMas {
+            flex: 0 0 auto;
+            width: 30px;
+            height: 30px;
+            padding: 0;
+            font-size: 15px;
+            line-height: 1;
+            cursor: pointer;
+        }
+
         /* --- PANEL DE OPCIONES: la capa de opciones se abre un escalon MAS
                CLARO que la barra: se lee como "opciones de la herramienta",
                una capa por encima, y no como otra fila. --- */
@@ -344,6 +403,24 @@ function estilos() {
             border-color: rgba(255,255,255,0.32) !important;
             color: #eef2f9 !important;
             box-shadow: 0 14px 34px rgba(0,0,0,0.45) !important;
+        }
+        /* DIENTADO de Word: el panel de parametros (nivel 3) es un popover
+           pegado bajo la herramienta que lo abrio, no un panel flotando en el
+           medio del lienzo. La pestañita dice DE QUE boton colgo, que es justo
+           lo que se pierde cuando el panel vive centrado. --ekko-ancla-x lo
+           escribe la cascada con el centro del boton. */
+        #ekkoParamSurface.ekko-anclado::before {
+            content: "";
+            position: absolute;
+            top: -6px;
+            left: var(--ekko-ancla-x, 24px);
+            width: 12px;
+            height: 12px;
+            transform: rotate(45deg);
+            background: inherit;
+            border-left: 1px solid rgba(255,255,255,0.32);
+            border-top: 1px solid rgba(255,255,255,0.32);
+            border-radius: 3px 0 0 0;
         }
         #ekkoCascadeProducto {
             margin-left: auto;
@@ -365,16 +442,31 @@ function estilos() {
             color: rgba(226,232,240,0.8);
             font-size: 12.5px;
             padding: 5px 12px;
-            border-radius: 999px;
+            /* Word: la pestana NO es una pastilla, es una solapa plana con el
+               acento abajo. Radio 999 hacia de la tira un rosario de chips; el
+               borde inferior de 2px es lo que dice "esta capa esta abierta" y
+               ademas apunta hacia la fila de herramientas, que es lo gobierna. */
+            border-radius: 7px 7px 0 0;
+            position: relative;
             cursor: pointer;
             white-space: nowrap;
         }
         .ekko-cascade-tab:hover { color: #fff; background: rgba(255,255,255,0.1); }
         .ekko-cascade-tab.is-activa {
-            background: rgba(255,46,166,0.16);
-            border-color: rgba(255,46,166,0.55);
+            background: rgba(255,255,255,0.1);
+            border-color: transparent;
             color: #fff;
             font-weight: 600;
+        }
+        .ekko-cascade-tab.is-activa::after {
+            content: "";
+            position: absolute;
+            left: 8px;
+            right: 8px;
+            bottom: 0;
+            height: 2px;
+            border-radius: 2px 2px 0 0;
+            background: #ff2ea6;
         }
 
         /* --- FILA DE HERRAMIENTAS (fila 2): botones reales --- */
@@ -386,9 +478,109 @@ function estilos() {
             overflow-x: auto;
             scrollbar-width: none;
             padding: 4px 2px 2px 2px;
+            /* ALTURA FIJA (medido): sin esta reserva la banda media 6px con el
+               lienzo vacio y 33px al seleccionar, asi que cada clic sobre un
+               objeto corria el canvas ~27px hacia abajo. La cinta de Word no se
+               achica al cambiar de objeto y aca tampoco: la geometria que no se
+               mueve es la que el cliente aprende a golpear de memoria.
+               box-sizing para que los 4+2 de padding no sumen extra. */
+            box-sizing: border-box;
+            min-height: 34px;
         }
         #ekkoCascadeTools::-webkit-scrollbar { display: none; }
         #ekkoCascadeTools .btn-action { flex: 0 0 auto; }
+
+        /* --- PIEL PLANA DE LA FILA 2 (el aire de Word) ---
+               Medido sobre ekko-espacio.css: cada boton de la fila llevaba 6
+               capas de box-shadow, textura de ruido, blur y radio 12. Sobre la
+               tira de inicio eso esta bien (es el nivel 0, la puerta), pero
+               repetido 19 veces en la fila de herramientas no deja leer NINGUN
+               nombre: parece un collar de cuentas, no un catalogo. Aca el
+               vidrio se queda arriba y la fila se aplana: fondo limpio, hover
+               solo de relleno, radio chico, y el color de acento reservado para
+               lo que tiene estado (toggle activo).
+               La especificidad es obligada: la piel pinta con !important desde
+               #topBar .btn-action (1 id + 1 clase); esto es 2 ids + 2 clases y
+               ademas el hoja va DESPUES en el head, asi gana en ambos casos. */
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action {
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            border-radius: 6px !important;
+            box-shadow: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            transform: none !important;
+            padding: 0 8px !important;
+            height: 26px;
+            box-sizing: border-box;
+            font-size: 12px !important;
+            line-height: 24px;
+            color: rgba(226,232,240,0.88) !important;
+        }
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action:hover {
+            background: rgba(255,255,255,0.13) !important;
+            color: #fff !important;
+            transform: none !important;
+        }
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action:active {
+            transform: none !important;
+            background: rgba(255,255,255,0.2) !important;
+        }
+        /* Estado ON: en Word el boton presionado se rellena, no flota. Un solo
+           lenguaje de acento para toda la cascada (el mismo rosa de la tira). */
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action.active,
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action.is-on,
+        #topBar.ekko-cascade #ekkoCascadeTools .btn-action[aria-pressed="true"] {
+            background: rgba(255,46,166,0.2) !important;
+            border-color: rgba(255,46,166,0.55) !important;
+            color: #fff !important;
+            box-shadow: none !important;
+        }
+        /* De dia la misma fila, con tinta azul-gris sobre el vidrio claro. */
+        body[data-modo="claro"] #topBar.ekko-cascade #ekkoCascadeTools .btn-action {
+            color: #3d4c63 !important;
+        }
+        body[data-modo="claro"] #topBar.ekko-cascade #ekkoCascadeTools .btn-action:hover {
+            background: rgba(15,23,42,0.08) !important;
+            color: #10182a !important;
+        }
+        body[data-modo="claro"] #topBar.ekko-cascade #ekkoCascadeTools .btn-action:active {
+            background: rgba(15,23,42,0.14) !important;
+        }
+
+        /* --- SECTOR "MAS USADAS" (fila 2) ---
+               Los recientes ya ordenan la fila (los 3 de arriba quedan a la
+               izquierda y la fila arranca en scrollLeft 0). Faltaba que se
+               VIERA: un cabello vertical separa el sector del resto y cada
+               herramienta del sector lleva un punto de acento. No se duplica
+               ningun boton ni se agrega un panel: el mismo boton real, marcado.
+               .ekko-mru-corte nace oculto y solo respira cuando la fila tiene
+               sector (lo decide marcarSectorRecientes con la clase
+               .ekko-hay-recientes), para no flotar solo cuando no hay
+               seleccion y la cinta escondio todo. */
+        .ekko-mru-corte {
+            display: none;
+            flex: 0 0 1px;
+            width: 1px;
+            height: 18px;
+            align-self: center;
+            margin: 0 3px;
+            background: rgba(255,255,255,0.22);
+        }
+        #ekkoCascadeTools.ekko-hay-recientes .ekko-mru-corte { display: block; }
+        body[data-modo="claro"] .ekko-mru-corte { background: rgba(15,23,42,0.22); }
+        #ekkoCascadeTools .btn-action.ekko-es-reciente { position: relative; }
+        #ekkoCascadeTools .btn-action.ekko-es-reciente::after {
+            content: "";
+            position: absolute;
+            top: 3px;
+            right: 3px;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: #ff2ea6;
+            opacity: 0.85;
+        }
 
         /* La familia P del renderer YA bloquea con motivo; aca se garantiza
            un lenguaje visual minimo aunque styles.css aun no lo traiga. */
@@ -456,6 +648,18 @@ function estilos() {
             background: #ffffff !important;
             border-color: #b9c5d6 !important;
             box-shadow: 0 14px 34px rgba(15,23,42,0.16) !important;
+            /* TINTA DEL CONTENEDOR: la regla base fuerza #eef2f9 (blanco roto)
+               con !important para el modo noche, y el panel tiene texto PROPIO
+               heredado (la unidad "px" suelta dentro de
+               <label class="ekko-param">). Sin esta linea, de dia esa tinta
+               caia blanca sobre panel blanco: invisible. Gana por especificidad
+               (body[data] + id contra id) y los controles internos conservan
+               su color declarado, que ya es oscuro. */
+            color: #16181d !important;
+        }
+        body[data-ekko-theme="claro"] #ekkoParamSurface.ekko-anclado::before {
+            border-left-color: #b9c5d6;
+            border-top-color: #b9c5d6;
         }
         body[data-ekko-theme="claro"] #ekkoCascadeStrip button.ekko-ini-btn { background: #d61d8c; }
         body[data-ekko-theme="claro"] #ekkoCascadeStrip button.ekko-ini-btn:hover { background: #bd1478; }
@@ -609,6 +813,12 @@ function crearBotonTema() {
     const pintarTema = () => {
         const modo = (localStorage.getItem("ekko.cascade.tema") || "oscuro");
         document.body.dataset.ekkoTheme = modo;
+        // Y se escribe TAMBIEN el atributo del que es dueño ui/espacio.js
+        // (data-modo), que es el que lee ekko-espacio.css. Sin esto el boton de
+        // la cascada pintaba de dia la piel del prototipo sobre el vidrio de
+        // noche: dos sistemas de tema discutiendo en la misma pantalla y texto
+        // claro sobre barra clara. La puerta del tema es UNA y mueve los dos.
+        document.body.dataset.modo = modo;
         tema.textContent = modo === "claro" ? "🌙 Oscuro" : "☀ Claro";
         tema.title = "Modo claro / oscuro";
     };
@@ -726,22 +936,212 @@ function refrescarFila() {
     const firmas = Array.from(fila.querySelectorAll("button"))
         .filter(b => !b.classList.contains("ekko-pan-btn") && nombreComando(b));
     const forma = firmas.map(b => `${b.id || ""}#${nombreComando(b)}`).join("|");
-    const previa = fila.dataset.ordenPrevia || "";
-    if (forma !== previa) {
+    // La firma del ORDEN entra en la comparacion junto con la del CONJUNTO.
+    // Medido antes de esto: la guarda miraba solo el conjunto, así que usar una
+    // herramienta (mismo conjunto, orden nuevo) NO reordenaba nada y el sector
+    // de recientes se llenaba de puntos repartidos por toda la fila. Recien al
+    // cambiar de contexto, cuando el conjunto cambia, la fila se ordenaba.
+    const cola = (leerRecientes()[contextoActual()] || []).map(e => e.c);
+    const previa = (fila.dataset.ordenPrevia || "").split("@");
+    const cambioConjunto = forma !== previa[0];
+    const colaNueva = cola.join(",");
+    if (cambioConjunto || colaNueva !== previa[1]) {
+        const rango = cmd => { const i = cola.indexOf(cmd); return i < 0 ? 99 : i; };
         const base = firmas.slice();
-        base.sort((a, b) => rangoReciente(nombreComando(a)) - rangoReciente(nombreComando(b)));
+        // sort() es ESTABLE en los motores actuales: las no recientes conservan
+        // el orden que les dio la cinta, solo cambian las usadas.
+        base.sort((a, b) => rango(nombreComando(a)) - rango(nombreComando(b)));
         base.forEach(b => fila.appendChild(b));
-        fila.dataset.ordenPrevia = forma;
+        fila.dataset.ordenPrevia = forma + "@" + colaNueva;
+        // El golpe de scroll solo cuando cambia el OBJETO (conjunto nuevo). Al
+        // usar una herramienta la fila se reordena pero respeta dónde estabas
+        // mirando: saltar al arranque en cada clic es mareante.
+        if (cambioConjunto) fila.scrollLeft = 0;
     }
 
     const prod = document.getElementById("ekkoCascadeProducto");
     if (prod) pintarProducto(prod);
+    marcarSectorRecientes();
 }
 
 /* ------------------------------------------------------------------ */
-/* Nivel 2: re-anclar el panel de parametros bajo el boton pulsado      */
-/* (commandParameters.js ya lo abre automaticamente; aqui solo cambia   */
-/*  el lugar: debajo de la herramienta, como pide el concepto)          */
+/* SECTOR "MAS USADAS" de la fila 2: marcar, no duplicar.                */
+/* ------------------------------------------------------------------ */
+const MRU_EN_SECTOR = 3;
+
+function marcarSectorRecientes() {
+    if (!fila) return;
+    // La cola se lee UNA vez: leerRecientes() parsea JSON de localStorage en
+    // cada llamada y esto corre por cada boton de la fila.
+    const claveRecientes = (leerRecientes()[contextoActual()] || [])
+        .slice(0, MRU_EN_SECTOR).map(e => e.c);
+    const botones = Array.from(fila.querySelectorAll("button"))
+        .filter(b => !b.classList.contains("ekko-pan-btn") && nombreComando(b));
+    let ultimo = null;
+    botones.forEach(b => {
+        const es = claveRecientes.indexOf(nombreComando(b)) >= 0;
+        // toggle() con la clase ya en su estado NO dispara registro de
+        // mutacion: esta pasada no puede realimentar al observador de #topBar.
+        b.classList.toggle("ekko-es-reciente", es);
+        if (es) ultimo = b;
+    });
+    const hay = !!ultimo && seleccionActual().length > 0;
+    fila.classList.toggle("ekko-hay-recientes", hay);
+
+    // El cabello va DESPUES del ultimo reciente. Solo se mueve si esta mal
+    // ubicado: insertBefore de un nodo que ya esta en su lugar IGUAL genera
+    // registro childList, y ahi el refresco se llamaria a si mismo.
+    let corte = fila.querySelector(".ekko-mru-corte");
+    if (hay) {
+        if (!corte) {
+            corte = document.createElement("div");
+            corte.className = "ekko-mru-corte";
+        }
+        if (corte.nextSibling !== ultimo.nextSibling) {
+            fila.insertBefore(corte, ultimo.nextSibling);
+        }
+    } else if (corte) {
+        corte.remove();
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Nivel 1-b: la barra emergente es el ATAJO del objeto, no una copia    */
+/* de la cinta. Una sola fila, las FB_EN_VISTA mas usadas a la vista y   */
+/* ⋯ para el resto.                                                      */
+/*                                                                       */
+/* Acá NADIE fuerza la visibilidad de un boton: solo se esconden de mas. */
+/* Los que el motor bloquea (familia P, .ekko-command-hidden o display   */
+/* inline) siguen bloqueados por el motor, asi que no aparece ninguna    */
+/* herramienta muerta nueva.                                             */
+/* ------------------------------------------------------------------ */
+const FB_EN_VISTA = 5;
+
+function claveUso(btn) {
+    // Las de la cinta tienen contrato (data-fusion-btn); las historicas de la
+    // barra emergente solo id (btnCtxDelete...). Sin clave no hay recientes.
+    return nombreComando(btn) || (btn.id ? btn.id.toLowerCase() : null);
+}
+
+function ocultoPorElMotor(btn) {
+    return btn.classList.contains("ekko-command-hidden") || btn.style.display === "none";
+}
+
+function montarBarraEmergente() {
+    const fb = document.getElementById("contextual-toolbar");
+    if (!fb || fb.dataset.ekkoCascadeFb === "1") return;
+    fb.dataset.ekkoCascadeFb = "1";
+    fb.classList.add("ekko-cascade-fb");
+
+    const mas = document.createElement("button");
+    mas.type = "button";
+    mas.id = "ekkoFbMas";
+    mas.className = "toolbar-btn";
+    mas.textContent = "⋯";
+    mas.title = "Ver todas las herramientas de este objeto";
+    mas.addEventListener("click", (ev) => {
+        // makeToolbarDraggable mueve la barra con el mousedown sobre cualquier
+        // cosa que no sea BUTTON/INPUT: el stopPropagation evita que el clic
+        // en el ⋯ la arrastre.
+        ev.stopPropagation();
+        const expandida = fb.classList.toggle("ekko-fb-expandida");
+        mas.title = expandida ? "Mostrar solo las mas usadas"
+                              : "Ver todas las herramientas de este objeto";
+        refrescarBarraEmergente();
+    });
+    fb.appendChild(mas);
+
+    // Fila nowrap: la rueda desplaza en horizontal (AutoCAD) en vez de hacer
+    // zoom con la barra llena.
+    fb.addEventListener("wheel", (ev) => {
+        if (fb.scrollWidth <= fb.clientWidth) return;
+        if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) return;
+        fb.scrollLeft += ev.deltaY;
+        ev.preventDefault();
+    }, { passive: false });
+
+    // La barra vive en el body, fuera de #topBar: el observador general no la
+    // ve, y el motor la reescribe entera en cada cambio de seleccion.
+    let timer = null;
+    new MutationObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(refrescarBarraEmergente, 90);
+    }).observe(fb, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+
+    window.addEventListener("resize", refrescarBarraEmergente);
+    refrescarBarraEmergente();
+}
+
+function refrescarBarraEmergente() {
+    const fb = document.getElementById("contextual-toolbar");
+    if (!fb || fb.dataset.ekkoCascadeFb !== "1") return;
+    const mas = document.getElementById("ekkoFbMas");
+    // UNIDADES = los hijos DIRECTOS de la barra que agrupan botones: conviven
+    // .toolbar-group (Eliminar, Fusionar, Tamano...) y .toolbar-subgroup
+    // (Negrita/Cursiva, Eliminar Nodo, Salir de Edicion). Mirar solo los
+    // directos evita contar dos veces un subgroup que cuelga de un group.
+    const unidades = [...fb.children].filter(c => c.classList &&
+        (c.classList.contains("toolbar-group") || c.classList.contains("toolbar-subgroup")));
+    const botonesDe = u => [...u.querySelectorAll(".toolbar-btn")].filter(b => b.id !== "ekkoFbMas");
+    // La lista de recientes se lee UNA vez por refresco (son 40 botones y
+    // leerRecientes() parsea JSON de localStorage en cada llamada).
+    const cola = leerRecientes()[contextoActual()] || [];
+    const rangoDe = clave => {
+        const i = cola.findIndex(e => e.c === clave);
+        return i < 0 ? 99 : i;
+    };
+
+    // 1) Orden: cada unidad sube segun el mejor puesto de sus botones en los
+    //    recientes del contexto. Se mueven las unidades ENTERAS (con sus
+    //    titulos y sus controles de tampon), nunca boton por boton: la
+    //    estructura que escribe el motor se respeta.
+    const mejorRango = u => {
+        const rangos = botonesDe(u).filter(b => !ocultoPorElMotor(b)).map(b => rangoDe(claveUso(b)));
+        return rangos.length ? Math.min(...rangos) : 999;
+    };
+    const orden = unidades.slice().sort((a, b) => mejorRango(a) - mejorRango(b));
+    // appendChild sobre un nodo que ya esta en su lugar IGUAL dispara al
+    // observador childList: sin esta comparacion el refresco se llamaria a si
+    // mismo para siempre.
+    if (orden.some((u, i) => u !== unidades[i])) {
+        orden.forEach(u => fb.appendChild(u));
+        if (mas) fb.appendChild(mas);   // el ⋯ SIEMPRE al fondo
+    }
+
+    // 2) Los primeros FB_EN_VISTA quedan a la vista; el resto espera detras
+    //    del ⋯. toggle() sobre una clase que ya esta como se pide no genera
+    //    registro de mutacion, asi que esta parte no puede realimentarse.
+    const expandida = fb.classList.contains("ekko-fb-expandida");
+    let enVista = 0;
+    unidades.forEach(u => {
+        const botones = botonesDe(u);
+        let utiles = 0;
+        botones.forEach(b => {
+            if (ocultoPorElMotor(b)) { b.classList.remove("ekko-fb-extra"); return; }
+            utiles++;
+            const fuera = !expandida && enVista >= FB_EN_VISTA;
+            b.classList.toggle("ekko-fb-extra", fuera);
+            if (!fuera) enVista++;
+        });
+        u.classList.toggle("ekko-fb-vacia", utiles === 0);
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/* Nivel 3: el panel de parametros es un POPOVER colgado de la          */
+/* herramienta que lo abrio (commandParameters.js ya lo abre solo; aqui  */
+/* cambia el ancla y se lo sigue).                                       */
+/*                                                                       */
+/* Reglas:                                                              */
+/*  - Cae debajo de la FILA de herramientas (yugo fijo), no del boton:   */
+/*    si la fila scrolleo, el boton puede estar mas alto que la banda.   */
+/*  - Si no entra por abajo, abre por arriba. Nunca se sale de la        */
+/*    ventana.                                                           */
+/*  - Sigue a su boton cuando la fila scrollea o la ventana cambia de    */
+/*    tamano (el motor re-centra el panel en cada resize).               */
+/*  - Si el cliente lo ARRASTRA del asa, se rinde: queda donde lo puso   */
+/*    hasta que se cierre. Rebotar un panel que alguien movio a          */
+/*    proposito es la peor clase de bug de interfaz.                     */
 /* ------------------------------------------------------------------ */
 function vigilarNivel2() {
     superficieN2 = document.getElementById("ekkoParamSurface");
@@ -755,22 +1155,76 @@ function vigilarNivel2() {
     vigilarEstados();
 }
 
+function buscarBotonComando(comando) {
+    // Comparando el dataset en vez de armar un selector: el id del comando
+    // nunca tiene que poder romper una busqueda por como se escriba.
+    const botones = [...(fila ? fila.querySelectorAll("button") : []),
+                     ...(topBar ? topBar.querySelectorAll("button") : [])];
+    // Primero la fila 2; si el motor volvio a aplanar la cinta y el boton ya
+    // no esta ahi (paso en la ronda de la tira), igual lo encuentro en la barra.
+    return botones.find(b => b.dataset.fusionBtn === comando) ||
+           botones.find(b => b.dataset.ekkoCommand === comando) || null;
+}
+
+function anclarNivel3() {
+    if (!superficieN2) return;
+    const visible = superficieN2.style.display !== "none";
+    const comando = superficieN2.dataset.comando || null;
+    if (!visible || !comando) { arrastrado = false; return; }
+    // Cambio de herramienta = panel nuevo: vuelve a valer la ley del ancla,
+    // aunque el anterior lo hayan arrastrado.
+    if (comando !== anclaComando) { anclaComando = comando; arrastrado = false; }
+    if (arrastrado) return;
+
+    const btn = buscarBotonComando(comando);
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    // Boton oculto (el motor lo bloqueo o cambio el contexto a mitad del
+    // panel): NO lo persigo hasta la esquina 0,0. Queda donde estaba y la
+    // proxima mutacion lo re-intenta.
+    if (!r.width && !r.height) return;
+    const w = superficieN2.offsetWidth || 420;
+    const h = superficieN2.offsetHeight || 64;
+    const left = Math.round(Math.max(8, Math.min(window.innerWidth - w - 8, r.left)));
+    const base = fila && fila.offsetHeight > 0 ? fila.getBoundingClientRect().bottom : r.bottom;
+    const abajo = Math.round(base + 9);
+    const volcar = abajo + h > window.innerHeight - 8;
+    const top = volcar ? Math.max(8, Math.round(r.top - h - 9)) : abajo;
+    const izq = `${left}px`;
+    // Se compara contra la POSICION ACTUAL, no contra un recuerdo: el motor
+    // re-centra el panel en cada resize (commandParameters.js -> colocar()), y
+    // si solo mirara mi ultima escritura el popover se despegaria del boton
+    // nada mas achicar la ventana. Es idempotente: cuando ya esta en su lugar
+    // la comparacion falla y el observador no vuelve a entrar.
+    if (superficieN2.style.left === izq && superficieN2.style.top === `${top}px`) return;
+    superficieN2.style.left = izq;
+    superficieN2.style.top = `${top}px`;
+    // El diente apunta al centro del boton; con el panel ya colocado, la
+    // coordenada es relativa a la superficie. Se recorta a los bordes porque
+    // el panel puede estar desplazado a la izquierda del boton (clamp).
+    const diente = Math.round(r.left + r.width / 2 - left - 6);
+    superficieN2.style.setProperty("--ekko-ancla-x",
+        `${Math.max(12, Math.min(w - 24, diente))}px`);
+    superficieN2.classList.toggle("ekko-anclado", !volcar);
+}
+
 function vigilarEstados() {
     if (!superficieN2) return;
-    let abiertoPrevio = superficieN2.dataset.comando || null;
-    new MutationObserver(() => {
-        const visible = superficieN2.style.display !== "none";
-        const comando = superficieN2.dataset.comando || null;
-        if (!visible || !comando) { abiertoPrevio = null; return; }
-        if (abiertoPrevio === comando) return;
-        abiertoPrevio = comando;
-        const btn = fila && fila.querySelector(`[data-fusion-btn="${comando}"]`);
-        if (!btn) return;
-        const r = btn.getBoundingClientRect();
-        const w = superficieN2.offsetWidth || 420;
-        superficieN2.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left)) + "px";
-        superficieN2.style.top = Math.round(r.bottom + 10) + "px";
-    }).observe(superficieN2, { attributeFilter: ["style", "data-comando", "class"], attributes: true, childList: true });
+    // childList/subtree: el motor pinta los controles DESPUES de mostrar la
+    // superficie, y recien ahi el panel tiene su altura real (lo que decide
+    // si abre hacia abajo o se vuelca arriba).
+    new MutationObserver(anclarNivel3).observe(superficieN2, {
+        attributeFilter: ["style", "data-comando", "class"], attributes: true,
+        childList: true, subtree: true,
+    });
+    superficieN2.addEventListener("pointerdown", ev => {
+        if (ev.target.closest && ev.target.closest(".ekko-param-asa")) arrastrado = true;
+    }, true);
+    // La fila se desplaza con las flechas y la ventana cambia de tamano: en
+    // ambos casos el popover tiene que seguir a su boton.
+    if (fila) fila.addEventListener("scroll", anclarNivel3, { passive: true });
+    window.addEventListener("resize", anclarNivel3);
+    anclarNivel3();
 }
 
 /* ------------------------------------------------------------------ */
@@ -787,6 +1241,10 @@ function refrescarDocumento() {
     renderTabs();
     refrescarFila();
     limpiarAncla();
+    // La barra emergente puede no existir todavia en el arranque (contextualMenu
+    // la muda al body). Es idempotente: se monta la primera vez que aparece.
+    montarBarraEmergente();
+    refrescarBarraEmergente();
 }
 
 /* El chip de rescate del coordinador se muestra si ALGUNA capa quedo oculta.
@@ -804,14 +1262,15 @@ function limpiarAncla() {
 
 function enlazar() {
     // Recientes: captura, sin frenar nada; los botones bloqueados (P) no
-    // disparan click, asi que solo el uso REAL alimenta la lista.
+    // disparan click, asi que solo el uso REAL alimenta la lista. Las dos
+    // superficies de edicion (cinta y barra emergente) comparten la memoria.
     document.addEventListener("click", (ev) => {
         if (!ev.target.closest) return;
-        const dentro = ev.target.closest("#ekkoCascadeTools");
+        const dentro = ev.target.closest("#ekkoCascadeTools, #contextual-toolbar");
         if (!dentro) return;
         const btn = ev.target.closest("button");
-        if (!btn) return;
-        registrarUso(nombreComando(btn));
+        if (!btn || btn.id === "ekkoFbMas") return;   // el ⋯ no es una herramienta
+        registrarUso(claveUso(btn));
     }, true);
 
     // Despues de CUALQUIER refresco de la cinta/puentes, actualizo tabs y MRU.
