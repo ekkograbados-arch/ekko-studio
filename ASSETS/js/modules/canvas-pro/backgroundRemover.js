@@ -1749,6 +1749,123 @@ import * as FONDO from './fondoStore.js';
         informar('listo', 1, 1, 'Recorte deshecho');
     }
 
+    // ----------------------------------------------------------------------
+    // QUITAR FONDO EN LOTE
+    // ----------------------------------------------------------------------
+    /**
+     * El trabajo del boton cuando hay VARIAS imagenes apretadas.
+     *
+     * MEDIDO (2026-10-29): con dos imagenes seleccionadas el motor de la barra
+     * (capabilities) apagaba `removeBg` porque exigia `count === 1`, asi que el
+     * boton desaparecia y no habia ninguna salida. El cliente trabaja con
+     * varias fotos a la vez, y en Photoshop/PhotoRoom el recorte es POR CAPA:
+     * no hay ninguna razon para obligarlo a de-seleccionar.
+     *
+     * Se procesa de a UNA, en cadena (un modelo, una inferencia a la vez: de
+     * otra manera la memoria del navegador se cae con dos u2net corriendo
+     * juntos). Cada foto termina con sus propias marcas
+     * (`quitarFondoIA` + `ekkoFondoClave`) y su propia sesion guardada, asi
+     * que "Editar Fondo" abre despues la que el cliente elija, en cualquier
+     * orden.
+     *
+     * Como se lleva la cuenta: cada objetivo se marca con `data.ekkoLote` y en
+     * cada vuelta se BUSCA en la escena el item vivo que conserve la marca y
+     * aun no tenga recorte. No se recorre la lista de referencias que llego al
+     * principio porque el modulo trabaja cambiando el `source` del mismo item
+     * y guardando historial, y tras un guardado la referencia que se tiene en
+     * la mano puede haber quedado suelta (es la misma razon por la que
+     * `resolverItemVivo()` existe). La marca vive en `data`, que si sobrevive:
+     * MEDIDO, `data.ekkoPrueba` y `quitarFondoIA` seguian en el mismo item
+     * (id 66) despues de procesar la foto.
+     */
+    const LOTE = { activo: false };
+
+    function rasterDelLote(id) {
+        try {
+            const pila = (paper.project.layers || []).slice();
+            while (pila.length) {
+                const it = pila.shift();
+                if (!it) continue;
+                if (it.className === 'Raster' && it.data && it.data.ekkoLote === id
+                    && it.data.quitarFondoIA !== true) return it;
+                if (it.children) pila.push(...it.children);
+            }
+        } catch (_) { return null; }
+        return null;
+    }
+
+    /** Sobra cualquier marcador de lote: no es un estado permanente. */
+    function limpiarLote(id, tope) {
+        const vistos = new Set();
+        for (let k = 0; k < tope; k++) {
+            const sob = rasterDelLote(id);
+            if (!sob || vistos.has(sob.id)) return;
+            vistos.add(sob.id);
+            try { delete sob.data.ekkoLote; } catch (_) { return; }
+        }
+    }
+
+    async function loteQuitarFondo(items) {
+        // El mismo clic dispara dos caminos (el `onclick` de la barra y el
+        // listener propio del boton en la barra contextual). Sin este candado
+        // la foto se recorta DOS VECES: la segunda pasa la red sobre el recorte
+        // ya hecho y come borde. MEDIDO: los dos listeners viven en el DOM.
+        if (LOTE.activo) return null;
+
+        const raices = (Array.isArray(items) ? items : (items ? [items] : [])).filter(Boolean);
+        const objetivos = [];
+        const vistos = new Set();
+        let yaRecortadas = 0;
+        for (const raiz of raices) {
+            const r = resolverImagen(raiz);
+            if (!r || vistos.has(r.id)) continue;
+            vistos.add(r.id);
+            if (r.data && r.data.quitarFondoIA === true) { yaRecortadas++; continue; }
+            objetivos.push(r);
+        }
+
+        if (!objetivos.length) {
+            if (yaRecortadas) avisar('Estas imágenes ya tienen el fondo quitado. Para retocar el borde usá "Editar Fondo".');
+            else avisar('Seleccioná primero una imagen para quitarle el fondo.');
+            return null;
+        }
+
+        const idLote = 'LT' + Date.now().toString(36);
+        objetivos.forEach(r => { try { r.data = { ...(r.data || {}), ekkoLote: idLote }; } catch (_) {} });
+
+        if (objetivos.length > 1) avisar('Quitando el fondo a ' + objetivos.length + ' imágenes…');
+        LOTE.activo = true;
+        let hechos = 0, fallidos = 0;
+        try {
+            for (let n = 0; n < objetivos.length; n++) {
+                const vivo = rasterDelLote(idLote);
+                if (!vivo) break;
+                try {
+                    await quitarFondo(vivo, {});
+                    hechos++;
+                } catch (e) {
+                    fallidos++;
+                    ESTADO.ultimoError = e;
+                }
+                // La que quedo recortada se descarta sola (ya tiene
+                // `quitarFondoIA`). La que fallo se descarta a mano: si no,
+                // la proxima vuelta la vuelve a encontrar y el lote se queda
+                // reintentando la misma foto hasta agotarse.
+                try { if (vivo.data) delete vivo.data.ekkoLote; } catch (_) {}
+            }
+        } finally {
+            LOTE.activo = false;
+            limpiarLote(idLote, objetivos.length);
+        }
+
+        if (objetivos.length > 1) {
+            avisar(fallidos
+                ? 'Quité el fondo a ' + hechos + ' imágenes; ' + fallidos + ' no se pudo. Cada una se edita por su lado con "Editar Fondo".'
+                : 'Quité el fondo a ' + hechos + ' imágenes. Cada una se edita por su lado con "Editar Fondo".');
+        }
+        return { total: objetivos.length, hechos, fallidos, yaRecortadas };
+    }
+
     /** Descarga el modelo en segundo plano para que el primer uso sea rápido. */
     function precargar() {
         return (async () => {
@@ -1888,6 +2005,8 @@ import * as FONDO from './fondoStore.js';
 
     EKKO.BackgroundRemover = {
         quitarFondo,
+        // La seleccion completa en cadena (varias imagenes a la vez).
+        loteQuitarFondo,
         deshacer,
         precargar,
         alProgresar,
@@ -2043,15 +2162,20 @@ import * as FONDO from './fondoStore.js';
         });
 
         const ejecutar = async () => {
-            const sel = paper.project.selectedItems;
-            const img = sel.find(i => i instanceof paper.Raster);
-            if (!img) {
+            const sel = (paper.project.selectedItems || []).filter(Boolean);
+            if (!sel.length) {
                 aviso.textContent = '⚠️ Seleccioná primero una imagen';
                 aviso.style.display = 'block';
                 setTimeout(() => { aviso.style.display = 'none'; }, 2600);
                 return;
             }
-            try { await EKKO.BackgroundRemover.quitarFondo(img); }
+            // Toda la seleccion, no la primera imagen: con varias fotos el
+            // lote las recorta de a una (ver `loteQuitarFondo`). Antes este
+            // boton buscaba UN Raster y con dos imagenes cargadas solo
+            // procesaba la primera; ademas, si la eleccion era un grupo
+            // envoltorio, `instanceof paper.Raster` no daba ninguno y el boton
+            // avisaba "selecciona una imagen" aunque la hubiera.
+            try { await EKKO.BackgroundRemover.loteQuitarFondo(sel); }
             catch (_) { /* el aviso ya muestra el error */ }
         };
         if (btn) btn.addEventListener('click', ejecutar);
