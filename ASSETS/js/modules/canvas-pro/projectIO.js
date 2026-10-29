@@ -3,11 +3,16 @@
    Tres modos de salida sobre el mismo contrato semántico:
    1. GRABADO (SVG LightBurn): geometría final materializada, sin doble
       grabado por superposiciones. Solo él sale de prepareSVGForExport.
-   2. PROYECTO (.ekko.json): escenas Paper.js por vista + metadatos de
-      producto. Re-importable y totalmente re-editable (textos vivos,
-      fusiones, semántica). Nunca lleva marca de agua.
-   3. BOCETO (PNG cliente): raster del SVG de grabado + marca de agua
-      EKKO. Plano, no editable, apto para aprobar diseños.
+   2. PROYECTO (.ekko): escenas Paper.js por vista + metadatos de
+      producto, con FIRMA EKKO (cabecera + cuerpo codificado): solo EKKO
+      Studio lo abre — Photoshop u otra plataforma no reconocen el
+      formato y no pueden convertirlo en fuente editable. Re-importable
+      y totalmente re-editable (textos vivos, fusiones, semántica).
+      Nunca lleva marca de agua. El legado .ekko.json sin firma sigue
+      abriendo para no romper proyectos viejos.
+   3. BOCETO (PNG y PDF cliente): raster del SVG de grabado + marca de
+      agua EKKO (logo del repositorio). Aplanado, no editable, apto para
+      compartir y aprobar diseños. PNG y PDF salen de la MISMA imagen.
    La importación de proyecto reutiliza el flujo de vistas existente
    (EKKO_SCENE_STORE + rehydrateSceneRuntime): no se reimplementa nada.
    ========================================================================= */
@@ -16,6 +21,32 @@ import { prepareSVGForExport } from "./exportSVG.js";
 import { notice } from "./ekkoNotice.js";
 
 const PROJECT_FORMAT = "ekko-project/1";
+
+/* Firma del proyecto: el archivo .ekko lleva esta cabecera y su cuerpo va
+   codificado en base64. Objetivo definido con el dueño del producto: la
+   edición solo se abre en EKKO Studio — ninguna otra app lo reconoce ni
+   puede convertirlo en fuente editable para grabar en otro lado. */
+const PROJECT_MAGIC = "EKKO-PROYECTO-v1:";
+
+function encodeProjectEnvelope(envelope) {
+    const bytes = new TextEncoder().encode(JSON.stringify(envelope));
+    let binario = "";
+    const PASO = 0x8000; // por tramos: el spread de un buffer grande revienta la pila
+    for (let i = 0; i < bytes.length; i += PASO) {
+        binario += String.fromCharCode.apply(null, bytes.subarray(i, i + PASO));
+    }
+    return PROJECT_MAGIC + btoa(binario);
+}
+
+function decodeProjectText(text) {
+    const limpio = String(text || "").trim();
+    if (!limpio.startsWith(PROJECT_MAGIC)) return JSON.parse(limpio); // legado .ekko.json
+    const b64 = limpio.slice(PROJECT_MAGIC.length).replace(/\s+/g, "");
+    const binario = atob(b64);
+    const bytes = new Uint8Array(binario.length);
+    for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    return JSON.parse(new TextDecoder().decode(bytes));
+}
 
 function slugify(value) {
     return String(value || "diseno")
@@ -50,6 +81,7 @@ export async function exportViewsToSVG(surfaceNames = null, options = {}) {
     const before = api.describe();
     if (!before?.productId) {
         console.warn("[EKKO EXPORT] Seleccioná un producto para exportar.");
+        notice("Cargá un producto antes de descargar: elegilo en el panel de productos.", { kind: "warn" });
         return { ok: false, reason: "no-product" };
     }
     api.saveCurrent();
@@ -92,6 +124,18 @@ export async function exportViewsToSVG(surfaceNames = null, options = {}) {
         const back = describe.surfaces.find(surf => surf.index === describe.surfaceIndex);
         if (back) api.openSurface(describe.productId, back.name);
     } catch (_) {}
+    // Feedback humano (definido con el dueño): la descarga nunca termina en
+    // silencio — el cliente tiene que saber QUÉ se bajó y PARA QUÉ sirve.
+    const okList = results.filter(r => r.ok);
+    if (okList.length === 1) {
+        notice(`Descargado: ${okList[0].filename} — abrilo en LightBurn y grabá.`, { kind: "ok", ms: 6000 });
+    } else if (okList.length > 1) {
+        notice(`Descargadas ${okList.length} vistas de ${describe.productName}: un archivo por vista, listos para LightBurn.`, { kind: "ok", ms: 6000 });
+    } else if (results.some(r => r.reason === "export-empty")) {
+        notice("El diseño está vacío: agregá algo al lienzo antes de descargar.", { kind: "warn" });
+    } else {
+        notice("No se pudo generar el SVG de grabado. Probá de nuevo.", { kind: "error" });
+    }
     return { ok: results.some(r => r.ok), results };
 }
 
@@ -134,11 +178,16 @@ export function downloadProjectFile() {
     const built = buildProjectEnvelope();
     if (!built.ok || !built.envelope) {
         console.warn("[EKKO PROJECT] No hay vistas editadas para guardar en el proyecto.");
+        notice(built.reason === "no-product"
+            ? "Cargá un producto antes de guardar tu proyecto."
+            : "Todavía no hay nada editado para guardar: trabajá en alguna vista primero.", { kind: "warn" });
         return built;
     }
-    const text = JSON.stringify(built.envelope);
-    const filename = `ekko-${slugify(built.envelope.productName)}-proyecto.ekko.json`;
-    downloadBlob(new Blob([text], { type: "application/json;charset=utf-8" }), filename);
+    // .ekko firmado: solo EKKO Studio lo abre. Otras apps no reconocen el
+    // formato y no pueden convertirlo en fuente editable.
+    const filename = `ekko-${slugify(built.envelope.productName)}-proyecto.ekko`;
+    downloadBlob(new Blob([encodeProjectEnvelope(built.envelope)], { type: "application/octet-stream" }), filename);
+    notice(`Guardado: ${filename} (${built.envelope.views.length} vista${built.envelope.views.length === 1 ? "" : "s"}) — este archivo solo se abre en EKKO Studio.`, { kind: "ok", ms: 6000 });
     return { ok: true, filename, views: built.envelope.views.length };
 }
 
@@ -147,7 +196,8 @@ export async function openProjectFile(file) {
     if (!api) return { ok: false, reason: "scene-store-unavailable" };
     let envelope = null;
     try {
-        envelope = JSON.parse(await file.text());
+        // Acepta .ekko firmado y el legado .ekko.json sin firma.
+        envelope = decodeProjectText(await file.text());
     } catch (_) {
         return { ok: false, reason: "invalid-json" };
     }
@@ -167,19 +217,28 @@ export async function openProjectFile(file) {
         : envelope.views[0].surfaceName;
     const opened = api.openSurface(envelope.productId, targetSurface);
     if (!opened) return { ok: false, reason: "product-not-found" };
+    notice(`Proyecto abierto: ${envelope.productName || "sin nombre"} · ${envelope.views.length} vista${envelope.views.length === 1 ? "" : "s"}.`, { kind: "ok" });
     return { ok: true, product: envelope.productName, views: envelope.views.length, surface: targetSurface };
 }
 
 export function requestOpenProjectFile() {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".ekko.json,application/json";
+    input.accept = ".ekko,.ekko.json,application/json";
     input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
         const result = await openProjectFile(file);
         if (!result.ok) {
-            notice("No se pudo abrir el proyecto: " + (result.reason || "desconocido"), { kind: "error" });
+            // Errores en idioma de cliente: cada motivo con su frase.
+            const mensajes = {
+                "invalid-json": "Ese archivo no se entiende como proyecto EKKO.",
+                "not-an-ekko-project": "Ese archivo no es un proyecto EKKO: solo abren los .ekko guardados desde acá.",
+                "empty-project": "El proyecto está vacío: no tiene vistas guardadas.",
+                "product-not-found": "El producto de ese proyecto ya no está en el catálogo.",
+                "scene-store-unavailable": "El editor todavía está cargando. Probá de nuevo en unos segundos."
+            };
+            notice(mensajes[result.reason] || "No se pudo abrir el proyecto.", { kind: "error" });
         }
     };
     input.click();
@@ -197,7 +256,11 @@ async function loadLogoImage() {
     });
 }
 
-export async function downloadSketchPNG() {
+/* Cuerpo compartido del boceto: lienzo aplanado CON marca de agua (logo del
+   repositorio + texto EKKO en diagonal + pie con producto/vista/fecha). PNG
+   y PDF salen de EXACTAMENTE la misma imagen: lo que comparte el cliente
+   nunca es editable y siempre lleva la marca. */
+async function buildSketchCanvas() {
     const api = store();
     const describe = api ? api.describe() : null;
     let svg = "";
@@ -269,14 +332,83 @@ export async function downloadSketchPNG() {
         const caption = `EKKO Studio · Boceto no válido para grabar · ${describe?.productName || ""} ${describe?.surfaceName || ""} · ${new Date().toLocaleDateString()}`;
         ctx.fillText(caption, 12, canvas.height - 12);
     } catch (_) {}
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+    return { ok: true, canvas, describe };
+}
+
+export async function downloadSketchPNG() {
+    const built = await buildSketchCanvas();
+    if (!built.ok) return built;
+    const blob = await new Promise(resolve => built.canvas.toBlob(resolve, "image/png"));
     if (!blob) {
         console.warn("[EKKO SKETCH] No se pudo generar el PNG.");
         return { ok: false, reason: "png-failed" };
     }
-    const filename = `ekko-${slugify(describe?.productName)}-${slugify(describe?.surfaceName)}-boceto.png`;
+    const filename = `ekko-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-boceto.png`;
     downloadBlob(blob, filename);
+    notice(`Descargado: ${filename} — aplanado y con marca de agua.`, { kind: "ok" });
     return { ok: true, filename };
+}
+
+/* PDF cliente: la MISMA imagen del boceto (aplanada, con marca de agua)
+   incrustada en un PDF de una sola página. Sin librerías: el JPEG viaja con
+   la compresión DCTDecode nativa del formato PDF. */
+export async function downloadSketchPDF() {
+    const built = await buildSketchCanvas();
+    if (!built.ok) return built;
+    const jpeg = await new Promise(resolve => built.canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!jpeg) {
+        console.warn("[EKKO SKETCH PDF] No se pudo generar la imagen del PDF.");
+        return { ok: false, reason: "png-failed" };
+    }
+    const filename = `ekko-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-boceto.pdf`;
+    try {
+        const pdf = await jpegBlobToPdf(await jpeg.arrayBuffer(), built.canvas.width, built.canvas.height);
+        downloadBlob(pdf, filename);
+    } catch (err) {
+        console.warn("[EKKO SKETCH PDF] Fallo al armar el PDF:", err);
+        return { ok: false, reason: "pdf-failed" };
+    }
+    notice(`Descargado: ${filename} — aplanado y con marca de agua.`, { kind: "ok" });
+    return { ok: true, filename };
+}
+
+/* Armado mínimo de un PDF 1.4 (binario exacto: xref calculado a mano). Una
+   página con el JPEG a página completa: nada de capas ni texto editable. */
+async function jpegBlobToPdf(jpegBuffer, anchoPx, altoPx) {
+    const PT = 72 / 96; // 1 px de pantalla = 0.75 pt
+    const w = (anchoPx * PT).toFixed(2);
+    const h = (altoPx * PT).toFixed(2);
+    const jpeg = new Uint8Array(jpegBuffer);
+    const te = new TextEncoder();
+    const partes = [];
+    const offsets = [0, 0, 0, 0, 0];
+    let offset = 0;
+    const txt = (s) => te.encode(s);
+    const push = (chunk) => { partes.push(chunk); offset += chunk.length; };
+
+    push(txt("%PDF-1.4\n"));
+    offsets[0] = offset; push(txt("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"));
+    offsets[1] = offset; push(txt("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"));
+    offsets[2] = offset; push(txt(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`));
+    offsets[3] = offset;
+    push(txt(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${anchoPx} /Height ${altoPx} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`));
+    push(jpeg);
+    push(txt("\nendstream\nendobj\n"));
+    const contenido = `q ${w} 0 0 ${h} 0 0 cm /Im0 Do Q`;
+    offsets[4] = offset; push(txt(`5 0 obj\n<< /Length ${contenido.length} >>\nstream\n${contenido}\nendstream\nendobj\n`));
+
+    const inicioXref = offset;
+    let xref = "xref\n0 6\n0000000000 65535 f \n";
+    for (let i = 0; i < 5; i++) xref += String(offsets[i]).padStart(10, "0") + " 00000 n \n";
+    xref += `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${inicioXref}\n%%EOF`;
+    push(txt(xref));
+
+    let total = 0;
+    partes.forEach(p => { total += p.length; });
+    const salida = new Uint8Array(total);
+    let pos = 0;
+    partes.forEach(p => { salida.set(p, pos); pos += p.length; });
+    return new Blob([salida], { type: "application/pdf" });
 }
 
 if (typeof window !== "undefined") {
@@ -286,6 +418,7 @@ if (typeof window !== "undefined") {
         downloadProjectFile,
         openProjectFile,
         requestOpenProjectFile,
-        downloadSketchPNG
+        downloadSketchPNG,
+        downloadSketchPDF
     };
 }
