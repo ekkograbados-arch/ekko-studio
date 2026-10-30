@@ -555,6 +555,182 @@ function performBooleanOperation(operation) {
     return commitBooleanResult(keeper, ownsHistory);
 }
 
+/* =========================================================================
+   PREVISUALIZACIÓN DE BOOLEANAS AL PASAR EL PUNTERO
+   -------------------------------------------------------------------------
+   Los cuatro botones dicen "Unión / Restar / Intersección / Diferencia" pero
+   no dicen cómo queda la pieza: la única forma de saberlo era hacer clic,
+   mirar, y si no era, Ctrl+Z y probar de nuevo. El pedido textual fue "no se
+   puede hacer la previsualizacion dinamica al colocar el puntero sobre el
+   boton de las distintas opciones... sin la necesidad de hacer clic".
+
+   La previsualización NO toca la escena: se hornea una COPIA de cada operando
+   (`insert:false`, fuera del proyecto), se corre la misma operación sobre las
+   copias y el resultado se dibuja como fantasma rosa arriba de todo. No abre
+   transacción de historial, no modifica el documento y no deja nada si el
+   puntero se va. El fantasma lleva `isSelectionBox`, que es la marca que
+   exportSVG.js:336 ya descarta: jamás puede terminar en el archivo del láser.
+   ========================================================================= */
+const BOOLEAN_PREVIEW_SELECTOR = "[data-fusion-btn^='boolean'], [data-ekko-command^='boolean']";
+const BOOLEAN_PREVIEW_COMMANDS = Object.freeze({
+    booleanUnion: "union",
+    booleanSubtract: "subtract",
+    booleanIntersect: "intersect",
+    booleanDifference: "difference"
+});
+let booleanPreviewGroup = null;
+let booleanPreviewOperation = null;
+let booleanPreviewOwners = [];
+
+function clearBooleanPreview() {
+    booleanPreviewOperation = null;
+    booleanPreviewOwners = [];
+    if (!booleanPreviewGroup) return false;
+    const grupo = booleanPreviewGroup;
+    booleanPreviewGroup = null;
+    try { grupo.remove(); } catch (_) {}
+    paper.view?.update?.();
+    return true;
+}
+
+/* Misma operación que performBooleanOperation, pero sobre clones y sin
+   instalar nada: devuelve el contorno resultante en coordenadas de proyecto o
+   null si el kernel no produce geometría utilizable. */
+function buildBooleanPreview(operation) {
+    const spec = BOOLEAN_OPERATIONS[operation];
+    if (!spec || !window.paper || !paper.project) return null;
+    const owners = booleanOperandOwners();
+    if (owners.length < 2) return null;
+
+    const ordered = owners.slice().sort(compareBooleanStack);
+    const baked = ordered.map(bakeBooleanOperand);
+    const sourceArea = baked.reduce((total, geometry) => total + Math.abs(geometry?.area || 0), 0);
+    let result = baked[0];
+    let failure = null;
+
+    for (let i = 1; i < baked.length && !failure; i++) {
+        const subject = result;
+        let cutter = baked[i];
+        if (spec.oriented) {
+            try { cutter = normalizeSubtractiveOperand(cutter, subject); } catch (_) {}
+        }
+        try {
+            const next = spec.method === "difference"
+                ? booleanDifference(subject, cutter)
+                : subject[spec.method](cutter, { insert: false });
+            try { subject.remove(); } catch (_) {}
+            if (cutter !== baked[i]) { try { cutter.remove(); } catch (_) {} }
+            result = next;
+            if (!result) failure = "sin geometria";
+        } catch (_) {
+            failure = "kernel";
+        }
+    }
+
+    baked.forEach(geometry => {
+        if (geometry && geometry !== result) { try { geometry.remove(); } catch (_) {} }
+    });
+
+    /* Los mismos topes que la operación real: si la previsualización mostrara
+       un resultado que el clic después rechaza, mentiría. */
+    const resultArea = Math.abs(result?.area || 0);
+    if (failure || !result || resultArea <= BOOLEAN_MIN_AREA ||
+        resultArea > sourceArea * (1 + BOOLEAN_AREA_TOLERANCE) + BOOLEAN_MIN_AREA) {
+        try { result?.remove?.(); } catch (_) {}
+        return null;
+    }
+    return result;
+}
+
+function showBooleanPreview(operation) {
+    if (!operation) return false;
+    if (booleanPreviewOperation === operation && booleanPreviewGroup?.parent) return true;
+    clearBooleanPreview();
+    booleanPreviewOwners = booleanOperandOwners();
+    const result = buildBooleanPreview(operation);
+    if (!result) { booleanPreviewOwners = []; return false; }
+    const proj = paper.project;
+    const capa = (proj.layers || []).find(l => l && l.name === "designLayer") || proj.activeLayer;
+    if (!capa) { try { result.remove(); } catch (_) {} return false; }
+    const zoom = paper.view?.zoom || 1;
+    try {
+        const rosa = new paper.Color("#ff2ea6");
+        rosa.alpha = 0.22;
+        result.fillColor = rosa;
+        result.strokeColor = new paper.Color("#ff2ea6");
+        result.strokeWidth = 1.6 / zoom;
+        result.dashArray = [5 / zoom, 3 / zoom];
+        // Mismo criterio de relleno que el resultado real (performBooleanOperation
+        // también fija even-odd): si no, un hueco se vería relleno en el fantasma
+        // y vacío después del clic.
+        result.fillRule = "evenodd";
+    } catch (_) {}
+    const grupo = new paper.Group({ insert: false });
+    grupo.data = { isSelectionBox: true, isBooleanPreview: true, uiOnly: true, booleanOperation: operation };
+    grupo.addChild(result);
+    capa.addChild(grupo);
+    grupo.bringToFront();
+    booleanPreviewGroup = grupo;
+    booleanPreviewOperation = operation;
+    paper.view?.update?.();
+    return true;
+}
+
+function booleanButtonUsable(boton) {
+    if (!boton || boton.disabled) return false;
+    /* Ojo: `aria-disabled` NO sirve como guardia. La barra profesional lo deja
+       en "true" aunque EKKO_COMMAND_STATE dé las cuatro booleanas por
+       habilitadas, y ese botón igual responde al clic; mirarlo dejaba la
+       previsualización muerta en la superficie más usada. Las clases son las
+       que escribe ribbonRenderer.js. */
+    if (boton.classList.contains("ekko-locked") || boton.classList.contains("ekko-command-hidden")) return false;
+    if (boton.style && boton.style.display === "none") return false;
+    return true;
+}
+
+function booleanOperationOf(boton) {
+    const comando = boton.dataset.ekkoCommand || boton.dataset.fusionBtn || "";
+    return BOOLEAN_PREVIEW_COMMANDS[comando] || null;
+}
+
+function installBooleanPreview() {
+    if (window._ekkoBooleanPreviewInstalled) return;
+    window._ekkoBooleanPreviewInstalled = true;
+    /* Delegación en fase de captura: los botones se MUEVEN de barra (la cinta
+       re-parenta #topBar) y se clonan en el menú de herramientas, así que un
+       listener puesto en cada botón se perdería. */
+    document.addEventListener("pointerover", event => {
+        const boton = event.target?.closest?.(BOOLEAN_PREVIEW_SELECTOR);
+        const traza = { at: Date.now(), comando: null, operacion: null, usable: null, motivo: null };
+        window._ekkoBooleanPreviewLast = traza;
+        if (!boton) { traza.motivo = "sin-boton"; return; }
+        traza.comando = boton.dataset.ekkoCommand || boton.dataset.fusionBtn || null;
+        if (boton.contains(event.relatedTarget)) { traza.motivo = "mismo-boton"; return; }
+        traza.usable = booleanButtonUsable(boton);
+        if (!traza.usable) { traza.motivo = "boton-no-usable"; return; }
+        const operacion = booleanOperationOf(boton);
+        traza.operacion = operacion;
+        if (!operacion) { traza.motivo = "sin-operacion"; return; }
+        traza.motivo = showBooleanPreview(operacion) ? "mostrado" : "sin-resultado";
+    }, true);
+    document.addEventListener("pointerout", event => {
+        const boton = event.target?.closest?.(BOOLEAN_PREVIEW_SELECTOR);
+        if (!boton || boton.contains(event.relatedTarget)) return;
+        clearBooleanPreview();
+    }, true);
+    ["pointerdown", "wheel", "contextmenu", "keydown"].forEach(tipo => {
+        document.addEventListener(tipo, clearBooleanPreview, true);
+    });
+    window.addEventListener("blur", clearBooleanPreview);
+}
+
+window.EKKO_BOOLEAN_PREVIEW = Object.freeze({
+    show: showBooleanPreview,
+    clear: clearBooleanPreview,
+    build: buildBooleanPreview,
+    installed: () => !!window._ekkoBooleanPreviewInstalled
+});
+
 /**
  * <Solidos <-> Huecos>: intercambia el papel fisico de cada pieza.
  * Un solido pasa a perforar (hueco real) y un hueco pasa a material.
@@ -724,6 +900,14 @@ function getSharedCommandElements() {
 }
 
 function applyCommandVisibility() {
+    // Un fantasma de booleanas pertenece a los operandos con los que se armó:
+    // si la selección cambió, ya no describe nada y se retira.
+    if (booleanPreviewGroup) {
+        const actuales = booleanOperandOwners();
+        const mismo = actuales.length === booleanPreviewOwners.length &&
+            actuales.every(owner => booleanPreviewOwners.includes(owner));
+        if (!mismo) clearBooleanPreview();
+    }
     const selection = classifySelection();
     // El motor de capacidades es la unica autoridad de la barra.
     // La pestana de contexto activa RECORTA ese conjunto: nunca lo amplia,
@@ -839,6 +1023,7 @@ export function initPanelCommandBridge() {
 
     tagProfessionalButtons();
     installCommandDispatcher();
+    installBooleanPreview();
     observeProfessionalToolbar();
     wrapToolbarRefresh();
     applyCommandVisibility();
