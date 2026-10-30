@@ -27,7 +27,8 @@
  */
 
 import interactionOwner, { VALID_MODES } from "./interactionOwner.js";
-import { getOwnerLocalGeometry } from "./designGeometry.js";
+import { getOwnerLocalGeometry, getPublicOwner } from "./designGeometry.js";
+import { realGeometryIntersects } from "./vectorSemantics.js";
 
 /* "draw" no estaba en la lista. VALID_MODES es un Set exportado, así que la
    herramienta declara su propio modo acá en vez de tocar interactionOwner.js
@@ -73,6 +74,9 @@ let puntosPolilinea = [];
 let ultimaApuntada = null;
 let porDobleClic = null;
 let chip = null;
+let chipUnion = null;
+let chipUnionTimer = null;
+let unionPendiente = null;
 
 /* ---------------------------------------------------------------- */
 /* ESTILO                                                           */
@@ -147,6 +151,48 @@ function estilos() {
             pointer-events: none;
         }
         body.ekko-dibujando #ekkoDibujandoChip { display: block; }
+
+        /* Oferta de unión: aparece sola cuando la figura recién dibujada cruza
+           otro contorno. Es un botón de verdad (pointer-events), a diferencia
+           del aviso de dibujo, y vive en el mismo carril para que no haya que
+           buscarlo: el usuario ya se quejó de botones fuera de pantalla. */
+        #ekkoUnirChip {
+            position: fixed;
+            z-index: 20000060;
+            display: none;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 6px 5px 12px;
+            border-radius: 999px;
+            background: rgba(16,24,42,0.92);
+            color: #fff;
+            font-size: 11.5px;
+            line-height: 1.2;
+            box-shadow: 0 8px 20px rgba(15,23,42,0.22);
+        }
+        #ekkoUnirChip.abierto { display: inline-flex; }
+        #ekkoUnirChip .ekko-unir-texto { white-space: nowrap; }
+        #ekkoUnirChip button {
+            border: 0;
+            border-radius: 999px;
+            font-size: 11.5px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        #ekkoUnirChip .ekko-unir-hacer {
+            padding: 7px 12px;
+            background: #ff2ea6;
+            color: #fff;
+            font-weight: 600;
+        }
+        #ekkoUnirChip .ekko-unir-hacer:hover { background: #e31d91; }
+        #ekkoUnirChip .ekko-unir-cerrar {
+            padding: 6px 8px;
+            background: transparent;
+            color: rgba(255,255,255,0.7);
+            font-size: 13px;
+        }
+        #ekkoUnirChip .ekko-unir-cerrar:hover { color: #fff; }
     `;
     document.head.appendChild(s);
 }
@@ -255,6 +301,143 @@ function aviso(texto) {
     const caja = barra ? barra.getBoundingClientRect() : { bottom: 0, left: 0 };
     chip.style.top = `${Math.round(caja.bottom) + 8}px`;
     chip.style.left = `${Math.round(caja.left || 0) + 12}px`;
+}
+
+/* ---------------------------------------------------------------- */
+/* OFERTA DE UNIÓN (pegar tramos en UNA sola silueta)               */
+/* ---------------------------------------------------------------- */
+/* Unir ya existía en la cinta (grupo "booleanas", panelCommandBridge.js:400),
+   pero ese tramo de la cinta queda fuera de pantalla con la ventana normal
+   (medido: el botón "Unir formas en una sola" arranca en x≈1909 en 1520px).
+   El cliente pidió "pegar tramos" y no encontraba la acción, así que se ofrece
+   sola al lado de lo que acaba de dibujar. No hay motor nuevo: el chip llama
+   a la misma operación booleana de la cinta. */
+
+function esRuidoUnion(nodo) {
+    const data = (nodo && nodo.data) || {};
+    return !!(data.mockup || data.isMask || data.wasClipMask || nodo.clipMask
+        || data.isSelectionBox || data.isHandle || data.isCurveHandle
+        || data.isMeasurement || data.isSmartGuide || data.isNodeEditOverlay
+        || data.isTracePreview || data.isDibujoPreview || data.isHole || data.locked);
+}
+
+/* Siluetas cerradas de la capa de diseño, sin el trazo recién creado. */
+function contornosCerrados(excluir) {
+    const salida = [];
+    const capa = (paper.project.layers || []).find(l => l && l.name === "designLayer");
+    if (!capa) return salida;
+    const visitar = (nodo, profundidad) => {
+        if (!nodo || nodo === excluir || esRuidoUnion(nodo) || profundidad > 6) return;
+        if (nodo.className === "Path") {
+            /* Un trazo abierto es una línea de corte: no tiene área que unir. */
+            if (nodo.closed && (nodo.strokeColor || nodo.fillColor)) salida.push(nodo);
+            return;
+        }
+        if (nodo.className === "CompoundPath") return;
+        (nodo.children || []).forEach(h => visitar(h, profundidad + 1));
+    };
+    (capa.children || []).forEach(h => visitar(h, 0));
+    return salida;
+}
+
+function identidadUnion(m) {
+    if (!m) return true;
+    if (typeof m.isIdentity === "function") return m.isIdentity();
+    return m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1 && m.tx === 0 && m.ty === 0;
+}
+
+/* Copia en coordenadas de PROYECTO con todas las matrices de la cadena
+   horneadas: `getIntersections` y `intersect` de paper 0.12.17 ignoran la
+   matriz de los operandos (medido en la tijera, cutTool.js:162). */
+function copiaEnProyectoUnion(camino) {
+    if (!camino || camino.className !== "Path" || !camino.segments) return null;
+    const clon = new paper.Path({
+        segments: camino.segments.map(s => new paper.Segment(
+            s.point.clone(), s.handleIn.clone(), s.handleOut.clone())),
+        closed: camino.closed,
+        insert: false
+    });
+    for (let n = camino; n; n = n.parent) {
+        if (n.matrix && !identidadUnion(n.matrix)) clon.transform(n.matrix);
+    }
+    return clon;
+}
+
+function cerrarUnionChip() {
+    unionPendiente = null;
+    if (chipUnionTimer) { clearTimeout(chipUnionTimer); chipUnionTimer = null; }
+    if (chipUnion) chipUnion.classList.remove("abierto");
+}
+
+function mostrarUnionChip(dueno) {
+    if (!chipUnion) {
+        chipUnion = document.createElement("div");
+        chipUnion.id = "ekkoUnirChip";
+        chipUnion.innerHTML = `<span class="ekko-unir-texto"></span>
+            <button type="button" class="ekko-unir-hacer">Unir en una silueta</button>
+            <button type="button" class="ekko-unir-cerrar" aria-label="Cerrar">×</button>`;
+        chipUnion.querySelector(".ekko-unir-hacer")
+            .addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); unirPendiente(); });
+        chipUnion.querySelector(".ekko-unir-cerrar")
+            .addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); cerrarUnionChip(); });
+        document.body.appendChild(chipUnion);
+    }
+    const nombre = dueno?.data?.label || "otra forma";
+    chipUnion.querySelector(".ekko-unir-texto").textContent = `Se cruza con «${nombre}»`;
+    const barra = document.getElementById("topBar");
+    const caja = barra ? barra.getBoundingClientRect() : { bottom: 0, left: 0 };
+    chipUnion.style.top = `${Math.round(caja.bottom) + 8}px`;
+    chipUnion.style.left = `${Math.round(caja.left || 0) + 12}px`;
+    chipUnion.classList.add("abierto");
+    if (chipUnionTimer) clearTimeout(chipUnionTimer);
+    /* Se retira solo: la oferta no puede quedar tapando el lienzo ni competir
+       con el menú contextual del objeto. Doce segundos alcanzan para decidir. */
+    chipUnionTimer = setTimeout(cerrarUnionChip, 12000);
+}
+
+function unirPendiente() {
+    const par = unionPendiente;
+    cerrarUnionChip();
+    if (!par || par.length < 2) return;
+    if (!window.EKKO_BOOLEAN || typeof window.commitSelectionContext !== "function") return;
+    for (const dueno of par) {
+        if (!dueno || !dueno.parent) return;
+    }
+    try {
+        window.commitSelectionContext(par, par[0]);
+        window.EKKO_BOOLEAN.union();
+    } catch (error) {
+        console.warn("[EKKO DIBUJO] No se pudo unir en una silueta:", error);
+    }
+    paper.view.update();
+}
+
+/* Se ofrece solo cuando hay un cruce REAL: dos figuras lejanas no molestan. */
+function ofrecerUnion(camino, publico) {
+    cerrarUnionChip();
+    if (!camino || camino.className !== "Path" || !camino.closed) return;
+    if (!window.EKKO_BOOLEAN || typeof window.commitSelectionContext !== "function") return;
+    const mio = copiaEnProyectoUnion(camino);
+    if (!mio) return;
+    let candidato = null;
+    try {
+        for (const otro of contornosCerrados(camino)) {
+            if (!otro.visible) continue;
+            const suyo = copiaEnProyectoUnion(otro);
+            if (!suyo) continue;
+            const cruza = realGeometryIntersects(mio, suyo);
+            suyo.remove();
+            if (cruza) { candidato = otro; break; }
+        }
+    } finally {
+        mio.remove();
+    }
+    if (!candidato) return;
+    const dueno = getPublicOwner(candidato) || candidato;
+    const propio = publico || getPublicOwner(camino) || camino;
+    if (!dueno || !propio || dueno === propio) return;
+    unionPendiente = [propio, dueno];
+    mostrarUnionChip(dueno);
 }
 
 function pintarBotones() {
@@ -535,6 +718,7 @@ function darAlta(camino, forma, cerrar) {
     desactivar();
     window.selectItem?.(publico || camino);
     paper.view.update();
+    ofrecerUnion(camino, publico || camino);
 }
 
 /* Figuras de arrastre (Rect/Círculo/Triángulo) y Lápiz: se comprometen al soltar. */
@@ -567,6 +751,9 @@ function comprometer(evento) {
 
 function activar(forma) {
     if (!window.paper || !paper.project || !FORMAS[forma]) return;
+    /* Dibujar otra cosa cancela la oferta anterior: si no, el chip uniría una
+       silueta que el usuario ya dejó atrás. */
+    cerrarUnionChip();
     if (activa === forma) {
         /* Volver a apretar Línea con la polilínea en curso NO la tira: remata
            el trazo abierto, que es lo que hace el Enter y lo que espera el que
