@@ -57,6 +57,9 @@ export function isValidFusionReceptor(item) {
   const d = item.data || {};
   if (d.isFusionMask === true || d.isSmartFusion === true) return false;
   if (item.clipMask === true || d.wasClipMask === true) return false;
+  // Un contorno conservado ya es el marco de una fusion activa: recibir una
+  // segunda imagen lo convertiria en dos marcos y desalinearia el corte.
+  if (d.fusionCompanionOf) return false;
   if (d.isFusionReceptor || d.isHole === true || d.hasInternalHoles === true) return true;
   // Canva: cualquier contorno cerrado del cliente recibe la imagen, tenga o no
   // la marca isFusionReceptor y tenga o no relleno. Los unicos que quedan
