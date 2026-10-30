@@ -288,6 +288,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="removeBg" class="btn-action" onclick="removeBackground()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-quitar-fondo"></use></svg> Quitar Fondo
                 </button>
+                <button data-fusion-btn="editCutout" class="btn-action" data-ekko-command="abrirEditorFondo" title="Corregir a mano el recorte ya quitado (borrar o restaurar)">
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-lapiz"></use></svg> Editar Fondo
+                </button>
                 <button data-fusion-btn="traceImage" class="btn-action" data-ekko-command="traceImage">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-trazar"></use></svg> Trazar Imagen
                 </button>
@@ -475,6 +478,12 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <aside class="vfond__panel">
                     <h2 class="vfond__titulo">Editar Fondo</h2>
 
+                    <!-- TIRA DE LOTE: todas las fotos recortadas en la tanda, para
+                         pasar de una a otra sin cerrar la ventana ni volver a
+                         seleccionar en el lienzo. La pinta el modulo; con una
+                         sola foto no aparece. -->
+                    <div class="vfond__tira" id="tira-lote" role="group" aria-label="Fotos recortadas en esta tanda" hidden></div>
+
                     <div class="vfond__acciones">
                         <button type="button" id="pincel-borrar"
                                 class="vfond__redondo vf--borrar is-activo" aria-pressed="true" title="Sacar lo que marques (B)">
@@ -523,6 +532,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <button type="button" id="vista-compuesto" class="vfond__segb is-activo" aria-pressed="true" title="El recorte sobre transparencia (C)">Compuesto</button>
                         <button type="button" id="vista-mascara" class="vfond__segb" aria-pressed="false" title="La máscara en blanco y negro: blanco=queda, negro=se va (V)">Máscara</button>
                         <button type="button" id="vista-original" class="vfond__segb" aria-pressed="false" title="La foto original para comparar (N)">Original</button>
+                        <button type="button" id="vista-comparar" class="vfond__segb" aria-pressed="false" title="Recorte y original lado a lado, con una línea que se arrastra (Y)">Comparar</button>
                     </div>
 
                     <button type="button" id="ver-quitado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="Marcar en rojo lo que se quitó (T)">Ver lo quitado</button>
@@ -665,6 +675,16 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                          ============================================================== -->
                     <div class="vfond__bloque">
                         <div class="vfond__et">Salida</div>
+                        <!-- Vista previa del ARCHIVO (v11.36-D). Se arma con la
+                             misma funcion que exporta, asi que muestra el
+                             encuadre real: con margen, recortado o con el fondo
+                             elegido. Sin ella los botones descargaban a ciegas. -->
+                        <div class="vfond__salida" id="salida-vista" hidden>
+                            <div class="vfond__salida-caja">
+                                <img id="salida-mini" alt="Vista previa del archivo que se descarga">
+                            </div>
+                            <div class="vfond__salida-datos" id="salida-medida">—</div>
+                        </div>
                         <div class="vfond__piefila">
                             <button type="button" id="btn-exportar-png" class="vfond__btn" title="El recorte solo, con transparencia, al tamaño real del arte">PNG sin fondo</button>
                             <button type="button" id="btn-exportar-jpg" class="vfond__btn" title="El recorte aplastado sobre el fondo elegido, para entregar o cotizar">JPG con fondo</button>
