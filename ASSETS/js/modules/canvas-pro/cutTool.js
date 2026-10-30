@@ -136,6 +136,53 @@ function caminosDeDiseno() {
     return salida;
 }
 
+function identidad(m) {
+    if (!m) return true;
+    if (typeof m.isIdentity === "function") return m.isIdentity();
+    return m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1 && m.tx === 0 && m.ty === 0;
+}
+
+/* Un objeto ARRASTRADO no cambia sus segmentos: Paper guarda el desplazamiento
+   en la matriz del propio Path (medido: arrastrar un rectángulo deja
+   `Path.matrix = 1,0,55,35` y el Group padre en identidad). Los segmentos, los
+   offsets y `getNearestLocation` viven en coordenadas LOCALES; el evento del
+   Tool llega en coordenadas de PROYECTO. Sin esta conversión la tijera no
+   engancha el trazo donde se lo ve (medido: hover sobre el borde visible de un
+   rectángulo movido devolvía `pedazo: null`) y la guía se dibujaba corrida
+   exactamente el desplazamiento. */
+function aLocal(item, punto) {
+    let v = new paper.Point(punto.x, punto.y);
+    for (let n = item; n; n = n.parent) {
+        const m = n.matrix;
+        if (m && !identidad(m)) v = v.transform(m.inverted());
+    }
+    return v;
+}
+
+/* Copia un trazo en coordenadas de PROYECTO (todas las matrices de la cadena
+   horneadas). Hace falta porque `getIntersections` de paper 0.12.17 IGNORA la
+   matriz de los operandos: medido con un rectángulo movido y un círculo fijo,
+   devolvía 4 cruces en la posición vieja del rectángulo y 0 en la visible. */
+function copiaEnProyecto(camino) {
+    const clon = new paper.Path({
+        segments: camino.segments.map(s => new paper.Segment(
+            s.point.clone(), s.handleIn.clone(), s.handleOut.clone())),
+        closed: camino.closed,
+        insert: false
+    });
+    for (let n = camino; n; n = n.parent) {
+        if (n.matrix && !identidad(n.matrix)) clon.transform(n.matrix);
+    }
+    return clon;
+}
+
+function conMatriz(camino) {
+    for (let n = camino; n; n = n.parent) {
+        if (n.matrix && !identidad(n.matrix)) return true;
+    }
+    return false;
+}
+
 function vecinoBajoCursor(punto) {
     const tol = pxAProyecto(TOLERANCIA_PX);
     let mejor = null;
@@ -144,9 +191,12 @@ function vecinoBajoCursor(punto) {
         /* Un relleno sin trazo también es un contorno cortable. */
         if (!camino.visible || (!camino.strokeColor && !camino.fillColor)) continue;
         let loc = null;
-        try { loc = camino.getNearestLocation(punto); } catch (_) { loc = null; }
+        try { loc = camino.getNearestLocation(aLocal(camino, punto)); } catch (_) { loc = null; }
         if (!loc || !loc.curve) continue;
-        const distancia = loc.point.subtract(punto).length;
+        /* La tolerancia es en píxeles de pantalla: la distancia se mide en
+           PROYECTO. Si se midiera en local, un trazo escalado engancharía con
+           otra tolerancia que el resto. */
+        const distancia = aCapa(camino, loc.point).subtract(punto).length;
         if (distancia > tol) continue;
         if (!mejor || distancia < mejor.distancia) {
             mejor = { ...cand, loc, distancia };
@@ -167,17 +217,34 @@ function cortesDelCamino(camino) {
     /* Los cruces con los demás trazos del lienzo. Sin esto, cortar una línea
        que pasa por encima de otra exige agregar el nodo a mano primero. */
     const demas = caminosDeDiseno();
+    /* Las intersecciones se calculan con copias horneadas en PROYECTO y el
+       cruce se vuelve a proyectar sobre el trazo original para sacar SU
+       offset. Ver `copiaEnProyecto`: sin esto, un trazo movido corta en los
+       cruces de su posición vieja. */
+    const mio = conMatriz(camino) ? copiaEnProyecto(camino) : camino;
     for (const cand of demas) {
         const otro = cand.camino;
         if (otro === camino) continue;
+        const suyo = conMatriz(otro) ? copiaEnProyecto(otro) : otro;
         let sus = [];
-        try { sus = camino.getIntersections(otro) || []; } catch (_) { sus = []; }
+        try { sus = mio.getIntersections(suyo) || []; } catch (_) { sus = []; }
         for (const i of sus) {
             /* getIntersections devuelve las dos mitades del mismo cruce: la que
                está sobre `camino` es la que sirve acá. */
-            if (i.path === camino && typeof i.offset === "number") cortes.push(i.offset);
+            if (i.path !== mio) continue;
+            if (mio === camino) {
+                if (typeof i.offset === "number") cortes.push(i.offset);
+                continue;
+            }
+            /* Horneado: el offset de la copia no sirve si el trazo tiene
+               escala. Se lleva el punto a LOCAL y se pregunta al original. */
+            let loc = null;
+            try { loc = camino.getNearestLocation(aLocal(camino, i.point)); } catch (_) { loc = null; }
+            if (loc && typeof loc.offset === "number") cortes.push(loc.offset);
         }
+        if (suyo !== otro) suyo.remove();
     }
+    if (mio !== camino) mio.remove();
     return normalizarCortes(cortes, total, camino.closed);
 }
 
@@ -460,11 +527,16 @@ function eliminarAlCompleto(camino, owner) {
 /* ---------------------------------------------------------------- */
 /* INTERACCIÓN                                                      */
 /* ---------------------------------------------------------------- */
+function capaDeDiseno() {
+    const proj = paper.project;
+    return (proj.layers || []).find(l => l && l.name === "designLayer") || proj.activeLayer;
+}
+
 function guiaActiva() {
     if (guia) return guia;
     guia = new paper.Group({ insert: false });
     guia.data = { isSelectionBox: true, isDibujoPreview: true };
-    paper.project.activeLayer.addChild(guia);
+    capaDeDiseno().addChild(guia);
     guia.bringToFront();
     return guia;
 }
@@ -493,10 +565,15 @@ function marcarPedazo(punto) {
     if (!arco) return;
     resaltado = { camino: vecino.camino, owner: vecino.owner, ...pedazo };
     const grupo = guiaActiva();
-    grupo.addChild(estiloGuia(new paper.Path(arco.segs)));
+    /* La guía se dibuja con la MISMA proyección que los cortes
+       (`segmentosACapa`), no con los segmentos locales: si el trazo está
+       movido, rotado o adentro de un grupo transformado, así cae justo sobre
+       lo que se ve. Antes se armaba con `arco.segs` local y quedaba corrida. */
+    grupo.addChild(estiloGuia(new paper.Path(segmentosACapa(vecino.camino, arco.segs))));
     /* Los dos extremos del corte, para que se vea hasta dónde llega el pedazo. */
     [arco.segs[0], arco.segs[arco.segs.length - 1]].forEach(s => {
-        const marca = new paper.Path.Circle({ center: s.point, radius: pxAProyecto(DIANA_PX), insert: false });
+        const centro = aCapa(vecino.camino, s.point);
+        const marca = new paper.Path.Circle({ center: centro, radius: pxAProyecto(DIANA_PX), insert: false });
         marca.closed = true;
         marca.strokeColor = new paper.Color(COLOR_GUIA);
         marca.strokeWidth = 1 / paper.view.zoom;
