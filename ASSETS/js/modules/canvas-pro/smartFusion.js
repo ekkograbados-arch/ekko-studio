@@ -592,7 +592,11 @@ export function checkMagneticSnapping(rasterItem, mousePoint) {
   if (!rasterItem || !paper.project) return false;
   if (mousePoint) window._lastFusionMousePoint = mousePoint;
   const best = findBestSnapReceptor(rasterItem, mousePoint);
-  if (best) {
+  // El halo es una promesa: solo se enciende si el contrato de fusion va a
+  // aceptar este par. Antes se iluminaba tambien vectores que el drop iba a
+  // rechazar en silencio.
+  const contrato = best ? canFuse(rasterItem, best.item) : null;
+  if (best && contrato && contrato.ok) {
     drawFusionPreview(rasterItem, best);
     activeSnappedVector = best.item;
     activeSnappedRaster = rasterItem;
@@ -831,21 +835,26 @@ export function releaseSmartFusion(item = null) {
       }
     }
   } catch(e) {}
+  // Quitar Fusión devuelve las dos piezas tal como llegaron: el vector
+  // conserva su marca de receptor y la imagen sus datos de cliente
+  // (recorte, canvas original, ajustes). Pisar esos datos convertia la
+  // separación en una perdida silenciosa y bloqueaba volver a fusionar.
+  const vectorData = { ...(fusionGroup.data.originalVectorData?.data || {}) };
+  const rasterData = { ...(fusionGroup.data.originalRasterData?.data || {}) };
   restoredVector.data = {
-    ...(fusionGroup.data.originalVectorData?.data || {}),
+    ...vectorData,
     isHole: originalIsHole,
-    isFusionReceptor: originalIsHole,
     containmentScope: fusionGroup.data.containmentScope || null,
     containmentKey: fusionGroup.data.containmentKey || null,
     ownerContainmentKey: fusionGroup.data.ownerContainmentKey || null,
-    label: originalIsHole ? "Trazado Calado" : "Trazado Vectorial"
+    label: vectorData.label || (originalIsHole ? "Trazado Calado" : "Trazado Vectorial")
   };
   if (originalIsHole) {
     // Quitar Fusión restaura el hueco real con representación pública
     // visible/interactiva; data.isHole sigue gobernando exclusivamente el CSG.
     applyVisibleHoleStyle(restoredVector, restoredVector);
   }
-  restoredRaster.data = { label: "Imagen" };
+  restoredRaster.data = { ...rasterData, label: rasterData.label || "Imagen" };
 
   let finalVector = ensureContainedDesignItem(restoredVector);
   let finalRaster = ensureContainedDesignItem(restoredRaster);
