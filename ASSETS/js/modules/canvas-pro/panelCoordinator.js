@@ -19,6 +19,9 @@ import { TABS, detectTab, tabsForSelection } from "./capabilities.js";
    fuera dinámico, la cinta ya estaría armada y los botones quedarían sueltos
    fuera del grupo Crear. */
 import "./drawTools.js";
+/* Mismo motivo: el tile TIJERA tiene que existir antes de que ui/ribbonLayout.js
+   arme la cinta. */
+import "./cutTool.js";
 
 const STORAGE_KEY = "ekko.panels.v1";
 
