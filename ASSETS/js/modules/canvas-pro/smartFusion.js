@@ -32,7 +32,7 @@ import {
 import { ensureMockupContainment } from "../mockupLoader.js";
 import { isMockupOrMask } from "./designGeometry.js";
 import { getPublicOwner, getPublicOwners } from "./designGeometry.js";
-import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { setSemanticKind, VECTOR_KIND, isCutLine } from "./vectorSemantics.js";
 import { notice } from "./ekkoNotice.js";
 
 // Estado global del snapping magnético
@@ -297,7 +297,10 @@ function drawFusionPreview(rasterItem, receptor) {
     maskClone.data = {};
     maskClone.clipMask = true;
     maskClone.fillColor = null; maskClone.strokeColor = null;
-    const rasterClone = rasterItem.clone({ insert: false });
+    // La mascara va en coordenadas absolutas; el clon de la imagen tiene que
+    // usar el mismo espacio. Si la imagen vive dentro de un mockup escalado,
+    // un clon local encaja con la escala equivocada y el preview miente.
+    const rasterClone = getAbsoluteClone(rasterItem);
     const placement = calculateCoverPlacement(rasterClone, maskClone);
     if (placement && placement.scale > 0) {
       rasterClone.scale(placement.scale, rasterClone.bounds.center);
@@ -320,6 +323,195 @@ function clearFusionPreview(resetCursor = true) {
   activeSnappedVector = null;
   activeSnappedRaster = null;
   if (resetCursor && paper.view && paper.view.element) paper.view.element.style.cursor = 'default';
+}
+
+/* ------------------------------------------------------------------------
+   CONTORNOS CONSERVADOS (v11.39)
+   Cuando el receptor es un contorno (banda de "Contorno de imagen", trazo de
+   corte o linea de corte) la fusion NO lo consume: usa una COPIA como mascara
+   y el original queda en el lienzo, porque esa linea es justo la pieza que el
+   cliente manda a cortar o grabar. El contorno se enlaza a su fusion para
+   copiarle la transformacion global en cada frame; no se cambia la estructura
+   del grupo fusionado porque muchas rutas la leen por posicion de hijos.
+------------------------------------------------------------------------ */
+const fusionCompanions = new Map();
+let companionSyncHooked = false;
+
+function isContourReceptor(item) {
+  const owner = getPublicOwner(item) || item;
+  const data = owner?.data || {};
+  if (data.source === "image-outline" || data.isOutline === true) return true;
+  try { return isCutLine(owner); } catch (_) { return false; }
+}
+
+/* Paper hornea las transformaciones en la geometria (applyMatrix), asi que la
+   matriz del grupo no cambia al moverlo: la referencia tiene que ser la
+   geometria global de la mascara, no su matrix. */
+function fusionMaskOf(fusion) {
+  if (!fusion || !fusion.children) return null;
+  return fusion.children.find(c => c && (c.clipMask === true || c.data?.isFusionMask === true)) ||
+    fusion.children[0] || null;
+}
+
+/** Tres puntos globales no colineales de la geometria: encuadran traslacion,
+ *  rotacion y escala. El orden es estable porque la geometria no se edita. */
+function globalFramePoints(item) {
+  const puntos = [];
+  const visitar = nodo => {
+    if (!nodo) return;
+    const segmentos = nodo.segments;
+    if (segmentos && segmentos.length) {
+      let gm = null;
+      try { gm = nodo.globalMatrix || new paper.Matrix(); } catch (_) { gm = new paper.Matrix(); }
+      for (const seg of segmentos) {
+        if (!seg?.point) continue;
+        let p = null;
+        try { p = gm.transform(seg.point); } catch (_) { p = null; }
+        if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) puntos.push(p);
+      }
+    }
+    (nodo.children || []).forEach(visitar);
+  };
+  visitar(item);
+  if (puntos.length < 3) return null;
+  for (let i = 1; i < puntos.length - 1; i++) {
+    for (let j = i + 1; j < puntos.length; j++) {
+      const area = Math.abs(
+        (puntos[i].x - puntos[0].x) * (puntos[j].y - puntos[0].y) -
+        (puntos[j].x - puntos[0].x) * (puntos[i].y - puntos[0].y));
+      if (area > 1e-3) return [puntos[0], puntos[i], puntos[j]];
+    }
+  }
+  return null;
+}
+
+function sameFramePoints(a, b) {
+  if (!a || !b) return true;
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(a[i].x - b[i].x) > 0.01 || Math.abs(a[i].y - b[i].y) > 0.01) return false;
+  }
+  return true;
+}
+
+/** Matriz que lleva el marco `desde` al marco `hasta` (dos triangulos). */
+function frameDelta(desde, hasta) {
+  const u1 = desde[1].subtract(desde[0]);
+  const u2 = desde[2].subtract(desde[0]);
+  const v1 = hasta[1].subtract(hasta[0]);
+  const v2 = hasta[2].subtract(hasta[0]);
+  const U = new paper.Matrix(u1.x, u1.y, u2.x, u2.y, 0, 0);
+  const V = new paper.Matrix(v1.x, v1.y, v2.x, v2.y, 0, 0);
+  const Ui = U.inverted();
+  if (!Ui) return null;
+  const lineal = V.concatenate(Ui);
+  const t = hasta[0].subtract(lineal.transform(desde[0]));
+  return new paper.Matrix(lineal.a, lineal.b, lineal.c, lineal.d, t.x, t.y);
+}
+
+function findCompanionLine(fusionId) {
+  if (!fusionId) return null;
+  try {
+    const layer = paper.project?.layers?.find(l => l?.name === 'designLayer') || paper.project?.activeLayer;
+    const items = layer?.getItems?.({ match: it => it?.data?.fusionCompanionOf === fusionId }) || [];
+    return items[0] || null;
+  } catch (_) { return null; }
+}
+
+function findFusionByIdentity(fusionId) {
+  let found = null;
+  try {
+    paper.project?.getItems?.({
+      match: it => it?.data?.isSmartFusion === true && it?.data?.fusionId === fusionId
+    }).forEach(it => { if (!found) found = it; });
+  } catch (_) {}
+  return found;
+}
+
+function forgetCompanionMark(line) {
+  if (!line) return;
+  try {
+    const data = { ...(line.data || {}) };
+    delete data.fusionCompanionOf;
+    line.data = data;
+  } catch (_) {}
+}
+
+/** Unidad publica que cuelga directamente de la capa: contorno y fusion pueden
+ *  vivir dentro de envoltorios distintos, asi que el orden se ajusta arriba. */
+function topUnitUnder(item, layer) {
+  if (!item || !layer) return null;
+  let unit = item;
+  let parent = unit.parent || null;
+  while (parent && parent !== layer) {
+    unit = parent;
+    parent = parent.parent;
+  }
+  return parent === layer ? unit : null;
+}
+
+function registerFusionCompanion(fusionGroup, line) {
+  const id = fusionGroup?.data?.fusionId;
+  if (!id || !line) return null;
+  fusionCompanions.set(id, {
+    fusion: fusionGroup,
+    line,
+    ref: globalFramePoints(fusionMaskOf(fusionGroup))
+  });
+  if (!companionSyncHooked && paper?.view) {
+    try {
+      paper.view.on('frame', () => { try { syncFusionCompanions(); } catch (_) {} });
+      companionSyncHooked = true;
+    } catch (_) { companionSyncHooked = false; }
+  }
+  return fusionGroup;
+}
+
+/** Suelta el enlace y devuelve el contorno vivo, para que la liberacion lo
+ *  reutilice en vez de duplicar la linea. */
+function detachFusionCompanion(fusionGroup) {
+  const id = fusionGroup?.data?.fusionId;
+  const entry = id ? fusionCompanions.get(id) : null;
+  if (id) fusionCompanions.delete(id);
+  const line = (entry?.line?.parent ? entry.line : null) || findCompanionLine(id);
+  forgetCompanionMark(line);
+  return line || null;
+}
+
+/** Copia al contorno lo que la fusion se movio desde el ultimo frame. Se
+ *  aplica el DELTA: si el cliente corrio el contorno a mano, ese
+ *  desplazamiento relativo se conserva. */
+function syncFusionCompanions() {
+  if (!fusionCompanions.size) return;
+  for (const [id, entry] of Array.from(fusionCompanions.entries())) {
+    const line = entry.line;
+    if (!line || !line.parent) {
+      fusionCompanions.delete(id);
+      continue;
+    }
+    let fusion = entry.fusion;
+    if (!fusion || !fusion.parent) {
+      fusion = findFusionByIdentity(id);
+      if (!fusion) {
+        forgetCompanionMark(line);
+        fusionCompanions.delete(id);
+        continue;
+      }
+      entry.fusion = fusion;
+      entry.ref = globalFramePoints(fusionMaskOf(fusion));
+    }
+    const ahora = globalFramePoints(fusionMaskOf(fusion));
+    if (!ahora || !entry.ref || sameFramePoints(entry.ref, ahora)) continue;
+    const delta = frameDelta(entry.ref, ahora);
+    if (delta) {
+      try {
+        const parentMatrix = line.parent?.globalMatrix || new paper.Matrix();
+        line.transform(parentMatrix.inverted()
+          .concatenate(delta)
+          .concatenate(parentMatrix));
+      } catch (_) {}
+    }
+    entry.ref = ahora;
+  }
 }
 
 /* ------------------------------------------------------------------------
@@ -370,6 +562,9 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
   const originalIsHole = !!(vector.data && vector.data.isHole);
+  // Un contorno es la pieza de corte del cliente: se conserva en el lienzo y la
+  // fusion trabaja con una copia. Los huecos reales siguen el camino CSG.
+  const keepContour = mode !== 'calar' && !originalIsHole && isContourReceptor(vector);
   const fusionId = options && options.fusionId
     ? options.fusionId
     : ('fus_' + Date.now() + '_' + Math.floor(Math.random()*10000));
@@ -526,9 +721,13 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
 
   const vectorParent = vector.parent;
   const rasterParent = raster.parent;
-  vector.remove();
+  if (keepContour) {
+    vector.data = { ...(vector.data || {}), fusionCompanionOf: fusionId };
+  } else {
+    vector.remove();
+    cleanEmptyClipGroup(vectorParent);
+  }
   raster.remove();
-  cleanEmptyClipGroup(vectorParent);
   cleanEmptyClipGroup(rasterParent);
   absoluteVector.remove();
   absoluteRaster.remove();
@@ -550,6 +749,22 @@ export function applySmartFusion(vector, raster, mode = 'intersecar', options = 
   const designLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
   designLayer.addChild(finalItem);
   if (window.currentMockup) finalItem.insertBelow(window.currentMockup);
+
+  if (keepContour) {
+    fusionGroup.data = { ...(fusionGroup.data || {}), keptContour: true };
+    // El contorno va ARRIBA de la fusion: la imagen recortada le tapaba la
+    // mitad interior del trazo. Se compara la unidad publica de cada pieza
+    // porque contorno y fusion pueden vivir en envoltorios distintos.
+    try {
+      const unidadContorno = topUnitUnder(vector, designLayer);
+      const unidadFusion = topUnitUnder(finalItem, designLayer);
+      if (unidadContorno && unidadFusion && unidadContorno !== unidadFusion &&
+          unidadContorno.parent && unidadContorno.parent === unidadFusion.parent) {
+        unidadContorno.insertAbove(unidadFusion);
+      }
+    } catch (_) {}
+    registerFusionCompanion(fusionGroup, vector);
+  }
 
   // Registrar la fusión y derivar el hueco virtual desde su máscara actual.
   registerFusion(fusionGroup, {
@@ -828,7 +1043,12 @@ export function releaseSmartFusion(item = null) {
     removeFusionRecord(fusionGroup.data.fusionId);
   }
 
-  const restoredVector = fusionGroup.data.originalVectorData.clone();
+  // El contorno conservado se reutiliza tal cual: restaurar ademas el clon del
+  // snapshot dejaria dos lineas identicas una encima de otra.
+  const keptContour = fusionGroup.data.keptContour === true
+    ? detachFusionCompanion(fusionGroup)
+    : null;
+  const restoredVector = keptContour || fusionGroup.data.originalVectorData.clone();
   const restoredRaster = fusionGroup.data.originalRasterData.clone();
   const originalIsHole = !!(fusionGroup.data.originalIsHole);
   // Separar sin salto: aplicar a los snapshots originales la matriz actual
