@@ -52,6 +52,20 @@ export function setMeasurementsVisibility(visible) {
 }
 
 // Dibuja una línea de cota con flechas y texto en milímetros
+/* Normal de un borde que apunta HACIA AFUERA de la caja. Sin esto el
+   desplazamiento era fijo (`0, +15` y `+15, 0`): la cota horizontal caía 15px
+   por debajo del borde superior, es decir ADENTRO de cualquier caja más alta
+   que 30px (reportado con captura: "4,9 mm" escrito dentro del recuadro azul).
+   El signo se decide por geometría y no por el sentido del recorrido, así que
+   también funciona con objetos rotados o con la caja invertida. */
+function normalExterior(dir, medio, centro, alternativa) {
+    if (!(dir.length > 1e-9)) return alternativa.clone();
+    const n = dir.normalize().rotate(-90);
+    const hacia = medio.subtract(centro);
+    if (hacia.length > 1e-9 && n.dot(hacia) < 0) n.multiply(-1);
+    return n;
+}
+
 function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
     if (!window.paper || !measurementsGroup) return;
 
@@ -184,9 +198,16 @@ export function drawMeasurements() {
             const toWorld = point => matrix.transform(point);
             const tl = toWorld(local.topLeft), tr = toWorld(local.topRight);
             const br = toWorld(local.bottomRight), bl = toWorld(local.bottomLeft);
-            const offset = new paper.Point(0, offsetMm);
-            drawDimensionLine(tl, tr, offset, tl.getDistance(tr), "#007bff");
-            drawDimensionLine(tr, br, new paper.Point(offsetMm, 0), tr.getDistance(br), "#007bff");
+            /* Las dos cotas van SIEMPRE afuera de la caja, una por borde
+               (arriba y a la derecha). `centro` es el punto de fuga contra el
+               que se decide qué lado es "afuera". */
+            const centro = tl.add(br).multiply(0.5);
+            const nSup = normalExterior(
+                tr.subtract(tl), tl.add(tr).multiply(0.5), centro, new paper.Point(0, -1));
+            const nDer = normalExterior(
+                br.subtract(tr), tr.add(br).multiply(0.5), centro, new paper.Point(1, 0));
+            drawDimensionLine(tl, tr, nSup.multiply(offsetMm), tl.getDistance(tr), "#007bff");
+            drawDimensionLine(tr, br, nDer.multiply(offsetMm), tr.getDistance(br), "#007bff");
         } catch (e) {
             // An invalid transient owner is simply omitted from the overlay.
         } finally {
