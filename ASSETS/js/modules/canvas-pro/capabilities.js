@@ -482,6 +482,14 @@ export const TOOLS = {
     // Una imagen no tiene nodos, así que queda oculta.
     active: s => s.count === 1 && s.onlyVectorish
   },
+  cutSegment: {
+    label: "Tijera",
+    // La TIJERA opera sobre UNO o MUCHOS trazos a la vez: se apunta con el
+    // cursor al pedazo que se quiere afuera, así que una selección múltiple
+    // no la invalida (a diferencia de Editar Nodos, que abre un objeto).
+    // Con una imagen seleccionada no hay nada que cortar: se oculta.
+    active: s => s.count > 0 && s.onlyVectorish
+  },
   boolean: {
     label: "Booleanas",
     active: s => s.count >= 2 && s.onlyVectorish
@@ -618,6 +626,7 @@ const ENGINE_TO_LEGACY = Object.freeze({
   distribute: ["distribute", "distributeH", "distributeV"],
   decomposeVector: ["decomposeVector"],
   editNodes: ["editNodes"],
+  cutSegment: ["cutSegment"],
   outline: ["outline"],
   calado: ["calado"],
   rellenar: ["rellenar"],
@@ -672,7 +681,7 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
 export const TABS = Object.freeze({
   base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
   image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
-  vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
+  vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
   /* "Varios" lleva tambien Quitar Fondo y Editar Fondo: con varias imagenes
      apretadas la cinta cae aca (detectTab), y si no estaban blanqueadas el
