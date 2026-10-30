@@ -268,6 +268,17 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="editNodes" class="btn-action" onclick="toggleNodeEditMode()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-nodos"></use></svg> Editar Nodos
                 </button>
+                <!-- Ronda 10: la TIJERA al lado de Editar Nodos, en la misma banda
+                     de geometría. Va ACÁ y no en #contextual-toolbar porque en modo
+                     cascada ese grupo se oculta con .ekko-fb-vacia (display:none) y
+                     ribbonLayout solo re-parenta los botones que cuelgan de #topBar.
+                     Sin data-ekko-command: panelCommandBridge.js escucha en FASE
+                     CAPTURA, hace stopPropagation() y despacha solo los comandos que
+                     conoce; un comando nuevo se caería ahí y el onclick nunca llegaría
+                     (medido: clic al botón y el modo siguió en "select"). -->
+                <button id="proBtnTijera" data-fusion-btn="cutSegment" data-ekko-tijera="1" class="btn-action" onclick="window.EKKO_TIJERA?.toggle()" title="Tijera: clic en el pedazo de trazo que querés afuera. Shift + clic parte sin borrar.">
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-corte"></use></svg> Tijera
+                </button>
                 <button id="proBtnTextToVector" data-fusion-btn="textToVector" class="btn-action" onclick="convertTextToVector()" title="Convertir texto a vector">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-vectorizar"></use></svg> Texto a Vector
                 </button>
