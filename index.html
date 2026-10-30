@@ -367,7 +367,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button id="btnSizeLockContext" type="button" class="toolbar-btn size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="width:30px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:15px;">🔒</button>
                     <label class="toolbar-number-label" title="Alto real en milímetros">Alto <input id="ctxHeight" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
                     <label class="toolbar-number-label" title="Ángulo de rotación en grados; Mixto indica ángulos diferentes">Rot <input id="ctxRotation" type="text" inputmode="decimal" class="toolbar-input-number" placeholder="°"></label>
-                        <label class="toolbar-number-label" title="Tamaño de fuente en puntos">Tamano <input id="objFontSize" type="number" min="5" max="250" step="1" class="toolbar-input-number" placeholder="pt" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Radio de curvatura del texto">Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" class="toolbar-input-number" placeholder="radio" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Ángulo de curvado en grados">Ángulo <span id="objBendAngleVal" class="toolbar-angle-readout">0°</span></label>                         <div id="objTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: negativo junta las letras (p/ soldar), positivo abre">                             <i class="fas fa-arrows-left-right"></i> <input type="range" min="-100" max="400" step="0.5" value="0">                             <span id="objSpacingVal" class="toolbar-angle-readout">0</span>                         </div>                         <label class="toolbar-number-label">Espacio <input id="objTextSpacing" type="number" step="1" value="0" class="toolbar-input-number" title="Espacio entre letras: negativo junta (p/ soldar), positivo abre. Rueda, flechas o barra" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>
+                        <label class="toolbar-number-label" title="Tamaño de fuente en puntos">Tamano <input id="objFontSize" type="number" min="5" max="250" step="1" class="toolbar-input-number" placeholder="pt" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Radio de curvatura del texto">Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" class="toolbar-input-number" placeholder="radio" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <span class="toolbar-number-label" title="Ángulo de curvado en grados">Ángulo <span id="objBendAngleVal" class="toolbar-angle-readout">0°</span></span>                         <div id="objTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: negativo junta las letras (p/ soldar), positivo abre">                             <i class="fas fa-arrows-left-right"></i> <input type="range" min="-100" max="400" step="0.5" value="0">                             <span id="objSpacingVal" class="toolbar-angle-readout">0</span>                         </div>                         <label class="toolbar-number-label">Espacio <input id="objTextSpacing" type="number" step="1" value="0" class="toolbar-input-number" title="Espacio entre letras: negativo junta (p/ soldar), positivo abre. Rueda, flechas o barra" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>
 
                 </div>
                 <div class="toolbar-divider"></div>
@@ -542,7 +542,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <div class="vfond__bloque" id="grupo-borde">
                         <div class="vfond__et">Borde del recorte</div>
                         <div class="vfond__fila">
-                            <label class="vfond__miniet" id="etiqueta-halo">Halo</label>
+                            <label class="vfond__miniet" id="etiqueta-halo" for="borde-halo">Halo</label>
                             <input type="range" id="borde-halo" min="0" max="100" step="1" value="100"
                                    aria-labelledby="etiqueta-halo" title="Cuanto del color del fondo viejo se saca del borde. Sube si al cambiar de fondo queda un filete del color anterior; baja a 0 para dejar el color tal como esta en la foto.">
                             <span class="vfond__num" id="borde-halo-val">100%</span>
@@ -582,23 +582,23 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         </div>
 
                         <div class="vfond__fila" id="fondo-fila-color" hidden>
-                            <label class="vfond__miniet">Color</label>
+                            <label class="vfond__miniet" for="fondo-color-valor">Color</label>
                             <input type="color" id="fondo-color-valor" class="vfond__color" value="#ffffff">
                         </div>
 
                         <div class="vfond__fila" id="fondo-fila-degradado" hidden>
-                            <label class="vfond__miniet">Degradado</label>
+                            <label class="vfond__miniet" for="fondo-deg-a">Degradado</label>
                             <input type="color" id="fondo-deg-a" class="vfond__color" value="#f1f5f9">
-                            <input type="color" id="fondo-deg-b" class="vfond__color" value="#94a3b8">
+                            <input type="color" id="fondo-deg-b" class="vfond__color" value="#94a3b8" aria-label="Color final del degradado">
                         </div>
                         <div class="vfond__fila" id="fondo-fila-degradadoAngulo" hidden>
-                            <label class="vfond__miniet">Ángulo</label>
+                            <label class="vfond__miniet" for="fondo-deg-angle">Ángulo</label>
                             <input type="range" id="fondo-deg-angle" min="0" max="360" step="5" value="90" aria-label="Ángulo del degradado">
                             <span class="vfond__num" id="fondo-deg-angle-val">90°</span>
                         </div>
 
                         <div class="vfond__fila" id="fondo-fila-desenfoque" hidden>
-                            <label class="vfond__miniet">Desenfoque</label>
+                            <label class="vfond__miniet" for="fondo-desenfoque-cant">Desenfoque</label>
                             <input type="range" id="fondo-desenfoque-cant" min="2" max="60" step="1" value="18" aria-label="Cantidad de desenfoque">
                             <span class="vfond__num" id="fondo-desenfoque-val">18</span>
                         </div>
@@ -608,12 +608,12 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                             <div class="vfond__miniet" id="fondo-imagen-nombre">Sin imagen</div>
                         </div>
                         <div class="vfond__fila" id="fondo-fila-ajuste" hidden>
-                            <label class="vfond__miniet">Tamaño</label>
+                            <label class="vfond__miniet" for="fondo-imagen-escala">Tamaño</label>
                             <input type="range" id="fondo-imagen-escala" min="30" max="220" step="5" value="100" aria-label="Tamaño del fondo">
                             <span class="vfond__num" id="fondo-imagen-escala-val">100%</span>
                         </div>
                         <div class="vfond__fila" id="fondo-fila-opacidad" hidden>
-                            <label class="vfond__miniet">Opacidad</label>
+                            <label class="vfond__miniet" for="fondo-opacidad">Opacidad</label>
                             <input type="range" id="fondo-opacidad" min="0" max="100" step="1" value="100" aria-label="Opacidad del fondo">
                             <span class="vfond__num" id="fondo-opacidad-val">100%</span>
                         </div>
@@ -630,22 +630,22 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <div class="vfond__bloque" id="grupo-sombra">
                         <div class="vfond__et">Sombra de contacto</div>
                         <div class="vfond__fila">
-                            <label class="vfond__miniet">Intensidad</label>
+                            <label class="vfond__miniet" for="sombra-opacidad">Intensidad</label>
                             <input type="range" id="sombra-opacidad" min="0" max="90" step="1" value="0" aria-label="Intensidad de la sombra">
                             <span class="vfond__num" id="sombra-opacidad-val">0%</span>
                         </div>
                         <div class="vfond__fila">
-                            <label class="vfond__miniet">Dureza</label>
+                            <label class="vfond__miniet" for="sombra-suavidad">Dureza</label>
                             <input type="range" id="sombra-suavidad" min="0" max="100" step="1" value="55" aria-label="Dureza de la sombra">
                             <span class="vfond__num" id="sombra-suavidad-val">55</span>
                         </div>
                         <div class="vfond__fila">
-                            <label class="vfond__miniet">Dirección</label>
+                            <label class="vfond__miniet" for="sombra-direccion">Dirección</label>
                             <input type="range" id="sombra-direccion" min="0" max="360" step="5" value="180" aria-label="Dirección de la sombra">
                             <span class="vfond__num" id="sombra-direccion-val">180°</span>
                         </div>
                         <div class="vfond__fila">
-                            <label class="vfond__miniet">Altura</label>
+                            <label class="vfond__miniet" for="sombra-aplastar">Altura</label>
                             <input type="range" id="sombra-aplastar" min="10" max="100" step="5" value="30" aria-label="Cuán achatada queda la sombra">
                             <span class="vfond__num" id="sombra-aplastar-val">30%</span>
                         </div>
