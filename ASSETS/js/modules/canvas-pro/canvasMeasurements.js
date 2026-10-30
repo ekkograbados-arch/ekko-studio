@@ -66,6 +66,44 @@ function normalExterior(dir, medio, centro, alternativa) {
     return n;
 }
 
+/* Esquinas del tirador de rotar, en coordenadas de proyecto. El tirador vive
+   en el MISMO carril que la cota superior (centro del borde de arriba), así
+   que la cota tiene que pasar por encima de él. Se leen del grupo de selección
+   en vez de repetir "22 + 7.5": si mañana el tirador cambia de tamaño, la cota
+   lo sigue sola. */
+function puntosTiradorRotar() {
+    const puntos = [];
+    const grupo = window.selectionBoxGroup;
+    if (!grupo || !grupo.children) return puntos;
+    for (const hijo of grupo.children) {
+        if (hijo?.data?.handleType !== "rot") continue;
+        const caja = hijo.bounds;
+        if (!caja) continue;
+        puntos.push(caja.topLeft, caja.topRight, caja.bottomLeft, caja.bottomRight);
+    }
+    return puntos;
+}
+
+/* Cuánto sobresale el tirador por encima de ESTE borde. Los puntos que caen
+   lejos del tramo (otro objeto de una selección múltiple) no cuentan, y una
+   distancia mayor a 60 px tampoco: el tirador mide ~30, así que solo puede
+   pertenecer a este borde. */
+function holguraSobreBorde(puntos, desde, hasta, normal, zoom) {
+    const tramo = hasta.subtract(desde);
+    const largo = tramo.length;
+    if (!(largo > 1e-9) || !puntos.length) return 0;
+    const eje = tramo.divide(largo);
+    const medio = desde.add(hasta).multiply(0.5);
+    let maximo = 0;
+    for (const punto of puntos) {
+        const relativo = punto.subtract(medio);
+        if (Math.abs(relativo.dot(eje)) > largo / 2 + 10 / zoom) continue;
+        const distancia = relativo.dot(normal);
+        if (distancia > 0 && distancia <= 60 / zoom && distancia > maximo) maximo = distancia;
+    }
+    return maximo;
+}
+
 function drawDimensionLine(p1, p2, offsetVector, textValue, color = "#007bff") {
     if (!window.paper || !measurementsGroup) return;
 
@@ -163,6 +201,11 @@ export function drawMeasurements() {
 
     const zoom = paper.view.zoom;
     const offsetMm = 15 / zoom; // Distancia física de las cotas en pantalla respecto al objeto
+    /* La cota superior caía justo sobre el tirador de rotar: el texto se
+       escribía a 23 px del borde y el círculo del tirador ocupa de 14 a 29 px
+       (reportado con captura: el "10 mm" salía tapado por el tirador). Se mide
+       lo que sobresale el tirador y la cota se dibuja por encima de eso. */
+    const tiradorRotar = puntosTiradorRotar();
 
     // Mockup/product dimensions are reference metadata, never selection
     // measurements.  Excluding them prevents the product bounds from
@@ -206,7 +249,12 @@ export function drawMeasurements() {
                 tr.subtract(tl), tl.add(tr).multiply(0.5), centro, new paper.Point(0, -1));
             const nDer = normalExterior(
                 br.subtract(tr), tr.add(br).multiply(0.5), centro, new paper.Point(1, 0));
-            drawDimensionLine(tl, tr, nSup.multiply(offsetMm), tl.getDistance(tr), "#007bff");
+            const holgura = holguraSobreBorde(tiradorRotar, tl, tr, nSup, zoom);
+            // +6 px: el texto se escribe 8 px más afuera que la línea de cota y
+            // mide ~10 px de alto, así que este colchón lo deja entero por
+            // encima del tirador en vez de apoyado sobre su borde.
+            const offsetSup = Math.max(offsetMm, holgura + 6 / zoom);
+            drawDimensionLine(tl, tr, nSup.multiply(offsetSup), tl.getDistance(tr), "#007bff");
             drawDimensionLine(tr, br, nDer.multiply(offsetMm), tr.getDistance(br), "#007bff");
         } catch (e) {
             // An invalid transient owner is simply omitted from the overlay.
