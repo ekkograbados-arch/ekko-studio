@@ -44,6 +44,17 @@ export const PARAM_SPECS = Object.freeze({
                 tipo: "range", min: 0, max: 100, paso: 1,
                 claveCfg: "SUAVIZADO",
                 disponible: () => !!(window.EKKO && window.EKKO.BackgroundRemover)
+            },
+            {
+                // El id es `defringe` porque esa es la clave que acepta
+                // BackgroundRemover.ajustarBorde por `alAplicar`. "Halo" es lo
+                // que lee el cliente: el defecto se llama asi en el taller.
+                id: "defringe",
+                etiqueta: "Halo",
+                ayuda: "Saca el color del fondo viejo que quedó mezclado en el borde. No mueve la silueta: cambia el color de esa franja, para que no quede filete gris al poner otro fondo ni al grabar.",
+                tipo: "range", min: 0, max: 100, paso: 1,
+                claveCfg: "DEFRINGE",
+                disponible: () => !!(window.EKKO && window.EKKO.BackgroundRemover)
             }
         ],
         acciones: [
