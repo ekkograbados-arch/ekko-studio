@@ -106,6 +106,15 @@ export function enterFusionEditMode(fusionGroup = null) {
   editWrapper.clipped = true;
   editWrapper.data = { isFusionEditClip: true, fusionId: data.fusionId, locked: false };
   if (designLayer) designLayer.addChild(editWrapper);
+  // La mascara del proxy se clona en el espacio LOCAL de la fusion, pero el
+  // wrapper vive a nivel capa. Si la fusion esta dentro de un mockup con
+  // matriz propia, el recorte quedaba a la escala local (mockup 2x: la imagen
+  // se veia a la mitad) mientras el contorno cian si respetaba la matriz.
+  try {
+    const invWrapper = editWrapper.globalMatrix?.inverted?.() || new paper.Matrix();
+    editMask.applyMatrix = false;
+    editMask.matrix = invWrapper.concatenate(mask.globalMatrix);
+  } catch (_) {}
   // La matriz global del proxy reproduce la de la imagen interna para que no
   // haya ningun salto visual al entrar.
   try {
