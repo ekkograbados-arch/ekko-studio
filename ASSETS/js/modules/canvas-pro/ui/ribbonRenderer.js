@@ -97,6 +97,7 @@ function applyDecision(el, decision) {
   if (enabled) {
     el.classList.remove(CLASS_LOCKED);
     if (el.disabled) el.disabled = false;
+    el.removeAttribute("aria-disabled");
     el.setAttribute("title", el.getAttribute(ATTR_TITLE));
   } else {
     el.classList.add(CLASS_LOCKED);
