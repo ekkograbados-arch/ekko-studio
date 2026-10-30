@@ -527,6 +527,29 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
 
                     <button type="button" id="ver-quitado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="Marcar en rojo lo que se quitó (T)">Ver lo quitado</button>
 
+                    <!-- ==============================================================
+                         BORDE DEL RECORTE: HALO
+                         ------------------------------------------------------------
+                         El pixel de la franja sale de la camara MEZCLADO con el
+                         fondo de la foto. Al cambiar de fondo esa mezcla se ve
+                         como un filete del color viejo. "Halo" le devuelve el
+                         color del sujeto (propagacion desde el nucleo vecino, lo
+                         mismo que Photoshop llama Remove Color Matting).
+                         No mueve la silueta: es solo color. Va en la ventana y no
+                         solo en la tira de parametros porque la tira queda
+                         tapada por esta misma ventana.
+                         ============================================================== -->
+                    <div class="vfond__bloque" id="grupo-borde">
+                        <div class="vfond__et">Borde del recorte</div>
+                        <div class="vfond__fila">
+                            <label class="vfond__miniet" id="etiqueta-halo">Halo</label>
+                            <input type="range" id="borde-halo" min="0" max="100" step="1" value="100"
+                                   aria-labelledby="etiqueta-halo" title="Cuanto del color del fondo viejo se saca del borde. Sube si al cambiar de fondo queda un filete del color anterior; baja a 0 para dejar el color tal como esta en la foto.">
+                            <span class="vfond__num" id="borde-halo-val">100%</span>
+                        </div>
+                        <div class="vfond__miniet" id="halo-nota">Saca el tinte del fondo en toda la franja. Si el borde se ve plano, bajalo.</div>
+                    </div>
+
                     <!-- Zoom de la ventana. El modulo ya manejaba estos ids y no
                          existian en el HTML: el zoom hasta 24x era inalcanzable
                          salvo con la rueda. -->
