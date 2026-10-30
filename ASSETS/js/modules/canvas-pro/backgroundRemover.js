@@ -46,9 +46,23 @@ import * as FONDO from './fondoStore.js';
         catch (_) { return false; }
     }
 
+    // Carpeta de ESTE modulo resuelta desde su propia URL. Antes el worker se
+    // pedia como '/ASSETS/...' desde la raiz del dominio: correcto en Vercel,
+    // pero rompia (404 y "Fallo en el worker de IA") en cualquier montaje que
+    // no este en la raiz. Resolverlo asi no cambia nada en produccion y quita
+    // ese modo de falla de una vez.
+    const CARPETA_MODULO = (() => {
+        try { return new URL('.', import.meta.url).href; }
+        catch (_) { return '/ASSETS/js/modules/canvas-pro/'; }
+    })();
+
     const CFG = {
-        WORKER: '/ASSETS/js/modules/canvas-pro/backgroundWorker.js',
+        WORKER: CARPETA_MODULO + 'backgroundWorker.js',
         ORT: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.19.2/dist/ort.min.js',
+        // El motor se baja de un CDN publico. Si ese CDN no responde (bloqueo
+        // de red, extension, corte momentaneo) el recorte no puede caerse: se
+        // prueba el siguiente antes de dar error.
+        ORT_RESPALDO: ['https://unpkg.com/onnxruntime-web@1.19.2/dist/ort.min.js'],
 
         // Modelo usado: SILUETA HUMANA (u2net_human_seg).
         //
@@ -350,74 +364,159 @@ import * as FONDO from './fondoStore.js';
     function cargarOrt() {
         if (window.ort) return Promise.resolve(window.ort);
         if (ortPromesa) return ortPromesa;
-        ortPromesa = new Promise((resolve, reject) => {
+        const fuentes = [CFG.ORT].concat(CFG.ORT_RESPALDO || []);
+        ortPromesa = (async () => {
+            let ultimo = null;
+            for (const src of fuentes) {
+                try {
+                    await inyectarScript(src);
+                    if (window.ort) return window.ort;
+                    ultimo = new Error('ONNX Runtime no cargó');
+                } catch (e) { ultimo = e; }
+            }
+            throw ultimo || new Error('No hay conexión para descargar el motor');
+        })().catch(err => { ortPromesa = null; throw err; });
+        return ortPromesa;
+    }
+
+    function inyectarScript(src) {
+        return new Promise((resolve, reject) => {
             const s = document.createElement('script');
-            s.src = CFG.ORT;
+            s.src = src;
             s.async = true;
-            s.onload = () => window.ort
-                ? resolve(window.ort)
-                : reject(new Error('ONNX Runtime no cargó'));
+            s.onload = () => resolve();
             s.onerror = () => reject(new Error('No hay conexión para descargar el motor'));
             document.head.appendChild(s);
-        }).catch(err => { ortPromesa = null; throw err; });
-        return ortPromesa;
+        });
     }
 
     // ----------------------------------------------------------------------
     // Worker
     // ----------------------------------------------------------------------
+    /*
+     * Un worker de IA puede morir por muchos motivos ajenos al codigo: se
+     * queda sin memoria en una foto grande, el navegador lo mata al pasar la
+     * pestaña a segundo plano, o no puede cargar el motor desde el CDN.
+     *
+     * MEDIDO (2026-10-30, reproduce el reporte "no se quita"): cuando el
+     * worker muere, el anterior dejaba el objeto muerto guardado. A partir de
+     * ahi CADA clic volvia a mandarle el trabajo y esperaba una respuesta que
+     * nunca llegaba: ni error, ni aviso, ni progreso. La herramienta quedaba
+     * muda hasta recargar la pagina, y "Editar Fondo" tampoco servia porque
+     * nunca habia un recorte que editar.
+     *
+     * Ahora: al morir se descarta el worker, la peticion en curso se rechaza
+     * con un motivo legible y la siguiente vuelve a crearlo y a reintentar
+     * sola una vez. Si el worker deja de contestar sin error (cuelgue), un
+     * vigilante lo corta a los 3 minutos. Cualquier mensaje suyo corre el
+     * reloj, asi que la descarga de 168 MB no lo dispara.
+     */
+    let cola = Promise.resolve();
+    const ESPERA_MAX = 180000;
+
     function obtenerWorker() {
         if (ESTADO.worker) return Promise.resolve(ESTADO.worker);
-        return new Promise((resolve, reject) => {
-            let w;
-            try { w = new Worker(CFG.WORKER); }
-            catch (e) { return reject(new Error('Este navegador no soporta Web Workers')); }
+        let w;
+        try { w = new Worker(CFG.WORKER); }
+        catch (e) { return Promise.reject(new Error('Este navegador no soporta Web Workers')); }
 
-            let resolver = null;
-            let rechazar = null;
-            let esperaTipo = null;
+        w._puente = { actual: null };
+        w.onmessage = ev => recibir(w, ev.data || {});
+        w.onerror = ev => {
+            const detalle = (ev && ev.message) ? 'el motor de IA se cerró: ' + ev.message : 'falló el motor de IA';
+            matarWorker(w, new Error(detalle));
+        };
+        w.onmessageerror = () => matarWorker(w, new Error('el motor de IA devolvió una respuesta ilegible'));
+        ESTADO.worker = w;
+        return Promise.resolve(w);
+    }
 
-            w.onmessage = ev => {
-                const d = ev.data || {};
-                const esRespuesta = d.tipo === esperaTipo;
-                if (d.tipo === 'listo') ESTADO.listo = true;
+    function matarWorker(w, err) {
+        if (w && ESTADO.worker === w) ESTADO.worker = null;
+        if (err) err.motorMuerto = true;
+        const act = w && w._puente && w._puente.actual;
+        cerrarPeticion(w, err);
+        // Sin trabajo en curso no hay promesa que rechazar: el aviso igual
+        // tiene que salir, si no el motor queda muerto en silencio.
+        if (!act && err) informar('error', 0, 0, err.message);
+        try { if (w) w.terminate(); } catch (_) {}
+    }
 
-                if (esRespuesta && d.tipo === 'mascara') {
-                    if (resolver) { const r = resolver; resolver = null; rechazar = null; esperaTipo = null; r(d); }
-                } else if (d.tipo === 'error') {
-                    if (rechazar) { const r = rechazar; resolver = null; rechazar = null; esperaTipo = null; r(new Error(d.mensaje || 'Error del motor de IA')); }
-                } else if (esRespuesta) {
-                    if (resolver) { const r = resolver; resolver = null; rechazar = null; esperaTipo = null; r(d); }
-                } else if (d.tipo === 'nota') {
-                    // Aviso interno del worker (por ejemplo: bajo al modelo
-                    // estandar porque el de alta no entra en memoria). Se
-                    // registra el lado del modelo como REFERENCIA: la config
-                    // manda, porque MODNet acepta cualquier tamaño multiplo de
-                    // 32 (medido). Antes esto pisaba la config y no habia forma
-                    // de probar otra resolucion.
-                    ESTADO.ladoEntrada = d.lado || ESTADO.ladoEntrada;
-                } else {
-                    informar(d.tipo, d.carga || 0, d.total || 0, d.detalle || '');
-                }
-            };
-            w.onerror = () => {
-                if (rechazar) { const r = rechazar; resolver = null; rechazar = null; r(new Error('Fallo en el worker de IA')); }
-            };
+    function cerrarPeticion(w, err, dato) {
+        const puente = w && w._puente;
+        const act = puente && puente.actual;
+        if (!act) return;
+        puente.actual = null;
+        clearTimeout(act.reloj);
+        if (err) act.rechazar(err); else act.resolver(dato);
+    }
 
-            ESTADO.worker = w;
-            ESTADO._esperar = (mensaje, tipoRespuesta) => new Promise((res, rej) => {
-                resolver = res; rechazar = rej;
-                esperaTipo = tipoRespuesta || 'mascara';
-                w.postMessage(mensaje);
-            });
-            resolve(w);
+    function vigilar(w, act) {
+        clearTimeout(act.reloj);
+        act.reloj = setTimeout(() => {
+            matarWorker(w, new Error('el motor de IA dejó de responder'));
+        }, ESPERA_MAX);
+    }
+
+    function recibir(w, d) {
+        const puente = w._puente;
+        const act = puente && puente.actual;
+        if (d.tipo === 'listo') ESTADO.listo = true;
+        if (act) vigilar(w, act);
+        if (d.tipo === 'error') {
+            const err = new Error(d.mensaje || 'Error del motor de IA');
+            if (act) cerrarPeticion(w, err);
+            else informar('error', 0, 0, err.message);
+            return;
+        }
+        if (act && d.tipo === act.tipo) { cerrarPeticion(w, null, d); return; }
+        if (d.tipo === 'nota') {
+            // Aviso interno del worker (por ejemplo: bajo al modelo estandar
+            // porque el de alta no entra en memoria). Se registra el lado como
+            // REFERENCIA: la config manda (MODNet acepta multiplos de 32).
+            ESTADO.ladoEntrada = d.lado || ESTADO.ladoEntrada;
+            return;
+        }
+        informar(d.tipo, d.carga || 0, d.total || 0, d.detalle || '');
+    }
+
+    function pedir(w, msg, tipoRespuesta) {
+        return new Promise((resolver, rechazar) => {
+            const puente = w && w._puente;
+            if (!puente) return rechazar(new Error('El motor de IA no está disponible'));
+            const act = { tipo: tipoRespuesta || 'mascara', resolver, rechazar, reloj: null };
+            puente.actual = act;
+            vigilar(w, act);
+            try { w.postMessage(msg); }
+            catch (e) { matarWorker(w, new Error('No se pudo enviar el trabajo al motor de IA')); }
         });
     }
 
-    /** Envía un comando al worker y espera su respuesta correspondiente. */
-    async function enviar(msg, tipoRespuesta) {
-        await obtenerWorker();
-        return ESTADO._esperar(msg, tipoRespuesta);
+    /**
+     * Envía un comando al worker y espera su respuesta.
+     *
+     * En cola: el worker atiende de a UN trabajo. Dos pedidos superpuestos
+     * compartian el mismo punto de entrega de la respuesta, asi que la
+     * respuesta del primero podia resolver al segundo y dejar al primero
+     * esperando para siempre (el lote se quedaba trabado en la primera foto).
+     */
+    function enviar(msg, tipoRespuesta) {
+        const p = cola.then(() => enviarUno(msg, tipoRespuesta, true), () => enviarUno(msg, tipoRespuesta, true));
+        cola = p.catch(() => {});
+        return p;
+    }
+
+    async function enviarUno(msg, tipoRespuesta, reintentar) {
+        const w = await obtenerWorker();
+        try {
+            return await pedir(w, msg, tipoRespuesta);
+        } catch (e) {
+            if (e && e.motorMuerto && reintentar) {
+                informar('sesion', 0, 0, 'reiniciando el motor de IA…');
+                return enviarUno(msg, tipoRespuesta, false);
+            }
+            throw e;
+        }
     }
 
     // ----------------------------------------------------------------------
@@ -1673,6 +1772,30 @@ import * as FONDO from './fondoStore.js';
         return null;
     }
 
+    /**
+     * TODOS los Raster que cuelgan de una pieza.
+     *
+     * `resolverImagen` devuelve el primero y basta para "editar esta foto".
+     * Para el LOTE no alcanza: cuando el cliente carga varias fotos dentro de
+     * un mismo producto/grupo, la seleccion es el grupo y con el primero solo
+     * se recortaba UNA. En Photoshop/PhotoRoom el recorte es por capa, asi
+     * que el lote baja hasta cada raster.
+     */
+    function rastersDe(item) {
+        const salida = [];
+        if (!item) return salida;
+        try { if (item instanceof paper.Raster) { salida.push(item); return salida; } }
+        catch (_) { return salida; }
+        const pila = item.children ? [...item.children] : [];
+        while (pila.length) {
+            const c = pila.shift();
+            if (!c) continue;
+            try { if (c instanceof paper.Raster) { salida.push(c); continue; } } catch (_) { continue; }
+            if (c.children) pila.push(...c.children);
+        }
+        return salida;
+    }
+
     async function quitarFondo(raster, opciones = {}) {
         // Se acepta el envoltorio: el trabajo se hace sobre el Raster de adentro.
         const destino = resolverImagen(raster);
@@ -1923,22 +2046,26 @@ import * as FONDO from './fondoStore.js';
                 try { window.saveHistory(); } catch (_) {}
             }
 
-            // ...y la marca va DESPUES de saveHistory, sobre el item que QUEDO en la
-            // escena, no sobre la referencia que acá tenemos.
+            // ...y la marca va DESPUES de saveHistory, sobre la MISMA foto que
+            // se acaba de recortar.
             //
-            // MEDIDO: saveHistory rehidrata la escena y deja un item NUEVO
-            // (el anterior queda desconectado). Marcando la referencia vieja la
-            // marca se perdia y "Editar Fondo" no abria nada. Por eso primero se
-            // localiza el item vivo.
+            // MEDIDO (2026-10-30), con dos fotos dentro de un mismo grupo:
+            // antes se tomaba `window.selectedItem` y, si no era un Raster,
+            // "el primer Raster visible del proyecto". Como la seleccion
+            // publica de un grupo es el GRUPO, la marca caia en OTRA foto:
+            // el lote informaba "2 recortadas", las dos fotos quedaban
+            // recortadas de verdad (medido 82% y 42% de transparencia) pero
+            // SIN marca, y la que recibia la marca seguia con fondo. Efecto
+            // visible: "Editar Fondo" no abria lo que se acababa de recortar
+            // y "Quitar Fondo" se volvia a ofrecer. Se localiza por id; nunca
+            // se escribe la marca en una pieza que no sea esta.
             try {
-                let vivo = null;
-                const sel = window.selectedItem
-                    || (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
-                if (sel && sel.className === 'Raster') vivo = sel;
+                const idFoto = raster.id;
+                let vivo = (raster.project ? raster : null);
                 if (!vivo) {
                     const buscar = it => {
                         if (vivo) return;
-                        if (it && it.className === 'Raster' && it.visible !== false && it.project) vivo = it;
+                        if (it && it.className === 'Raster' && it.id === idFoto && it.project) vivo = it;
                         (it.children || []).forEach(buscar);
                     };
                     (paper.project.layers || []).forEach(l => l.children.forEach(buscar));
@@ -2072,18 +2199,28 @@ import * as FONDO from './fondoStore.js';
         // listener propio del boton en la barra contextual). Sin este candado
         // la foto se recorta DOS VECES: la segunda pasa la red sobre el recorte
         // ya hecho y come borde. MEDIDO: los dos listeners viven en el DOM.
-        if (LOTE.activo) return null;
+        if (LOTE.activo) {
+            // Antes volvia null en silencio: el cliente creia que el clic no
+            // habia entrado (es lo que se ve como "no hace nada").
+            avisar('Se está quitando el fondo. Esperá a que termine para volver a empezar.');
+            return null;
+        }
 
         const raices = (Array.isArray(items) ? items : (items ? [items] : [])).filter(Boolean);
         const objetivos = [];
         const vistos = new Set();
         let yaRecortadas = 0;
+        // Cada raiz aporta TODAS las fotos que tenga adentro (ver `rastersDe`):
+        // con varias imagenes dentro de un mismo grupo, resolver solo la
+        // primera dejaba al resto sin recortar y el cliente veia que "no se
+        // quita" salvo en una.
         for (const raiz of raices) {
-            const r = resolverImagen(raiz);
-            if (!r || vistos.has(r.id)) continue;
-            vistos.add(r.id);
-            if (r.data && r.data.quitarFondoIA === true) { yaRecortadas++; continue; }
-            objetivos.push(r);
+            for (const r of rastersDe(raiz)) {
+                if (!r || vistos.has(r.id)) continue;
+                vistos.add(r.id);
+                if (r.data && r.data.quitarFondoIA === true) { yaRecortadas++; continue; }
+                objetivos.push(r);
+            }
         }
 
         if (!objetivos.length) {
@@ -2383,6 +2520,50 @@ import * as FONDO from './fondoStore.js';
         config: CFG
     };
 
+    /**
+     * Estilos de la TIRA DE LOTE (v11.36-C).
+     *
+     * Van inyectados desde el modulo y no en `styles.css` a proposito:
+     * `styles.css` lo edita el cliente en paralelo y es un archivo espejo del
+     * guardia (se sobrescribe con la version del remoto). Lo que es de esta
+     * ventana viaja con la ventana.
+     */
+    function inyectarEstilosTira() {
+        if (document.getElementById('ekko-estilos-tira')) return;
+        const st = document.createElement('style');
+        st.id = 'ekko-estilos-tira';
+        st.textContent = [
+            '.vfond__tira{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:0 0 2px;scrollbar-width:thin}',
+            '.vfond__tira[hidden]{display:none !important}',
+            '.vfond__tira-item{flex:0 0 auto;width:46px;height:46px;padding:0;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:#1e222a;overflow:hidden;cursor:pointer}',
+            '.vfond__tira-item img{width:100%;height:100%;object-fit:cover;display:block}',
+            '.vfond__tira-item:hover{border-color:rgba(255,255,255,.34)}',
+            '.vfond__tira-item.is-activo{border-color:#6d5cf0;box-shadow:inset 0 0 0 2px rgba(109,92,240,.45)}',
+            '.vfond__tira-item:focus-visible{outline:2px solid #7aa7ff;outline-offset:1px}'
+        ].join('');
+        document.head.appendChild(st);
+    }
+
+    /** Estilos de la VISTA PREVIA DE SALIDA (v11.36-D). Mismo motivo que la
+        tira: `styles.css` es espejo del guardia y lo que es de esta ventana
+        viaja con la ventana. */
+    function inyectarEstilosSalida() {
+        if (document.getElementById('ekko-estilos-salida')) return;
+        const st = document.createElement('style');
+        st.id = 'ekko-estilos-salida';
+        st.textContent = [
+            '.vfond__salida{display:grid;gap:5px;margin:0 0 8px}',
+            '.vfond__salida[hidden]{display:none !important}',
+            '.vfond__salida-caja{display:grid;place-items:center;max-height:132px;overflow:hidden;' +
+                'border:1px solid rgba(255,255,255,.14);border-radius:8px;background-color:#20242c;' +
+                'background-image:conic-gradient(#2a2f38 0 25%,#20242c 0 50%,#2a2f38 0 75%,#20242c 0);' +
+                'background-size:16px 16px}',
+            '.vfond__salida-caja img{max-width:100%;max-height:132px;display:block}',
+            '.vfond__salida-datos{font:500 11px/1.3 system-ui,sans-serif;color:#9aa6b2;text-align:center}'
+        ].join('');
+        document.head.appendChild(st);
+    }
+
     // Botón contextual: sustituye el alert() por un mensaje en la barra.
     document.addEventListener('DOMContentLoaded', function () {
         const btn = document.getElementById('btnCtxRemoveBg');
@@ -2408,7 +2589,10 @@ import * as FONDO from './fondoStore.js';
                 aviso.textContent = '⚠️ ' + ev.detalle;
                 aviso.style.display = 'block';
                 if (barra) barra.style.display = 'none';
-                setTimeout(() => { aviso.style.display = 'none'; }, 5200);
+                // 9 s: con 5,2 s el mensaje se borraba antes de que el cliente
+                // -que en ese momento mira la foto, no el pie de pantalla-
+                // llegara a leerlo, y solo veia que "no paso nada".
+                setTimeout(() => { aviso.style.display = 'none'; }, 9000);
                 return;
             }
             if (ev.fase === 'listo') {
@@ -2549,7 +2733,16 @@ import * as FONDO from './fondoStore.js';
         //                 transparencia contra un cuadriculado.
         //   'original'  = la foto sin recortar, para comparar A/B sin cerrar la
         //                 ventana ni volver a quitar el fondo.
+        //   'comparar'  = las dos a la vez, separadas por una linea que el
+        //                 cliente arrastra (recorte a la izquierda, original a
+        //                 la derecha). Es el "swipe" de PhotoRoom / Lightroom.
         vista: 'compuesto',
+        // Posicion de esa linea, de 0 a 1 sobre el rectangulo de la FOTO (no
+        // sobre la ventana): asi no se mueve al hacer zoom ni al paneo.
+        split: 0.5,
+        // Espera de la miniatura de Salida: componer a resolucion natural en
+        // cada pointermove trabaria el pincel.
+        salidaTimer: 0,
         // Capa de la vista 'mascara'. Se construye AL ENTRAR en esa vista y se
         // descarta al salir: una capa mas a resolucion de trabajo (una 1600x1200
         // son ~7,7 MB) no vale la pena mientras se trabaja en compuesto.
@@ -2710,7 +2903,7 @@ import * as FONDO from './fondoStore.js';
      * cuesta memoria.
      */
     function ponerVista(nueva) {
-        const vistas = ['compuesto', 'mascara', 'original'];
+        const vistas = ['compuesto', 'mascara', 'original', 'comparar'];
         RETOQUE.vista = vistas.indexOf(nueva) >= 0 ? nueva : 'compuesto';
         if (RETOQUE.vista !== 'mascara') {
             RETOQUE.capaMascara = null;
@@ -2726,7 +2919,8 @@ import * as FONDO from './fondoStore.js';
         const botones = [
             ['vista-compuesto', 'compuesto'],
             ['vista-mascara', 'mascara'],
-            ['vista-original', 'original']
+            ['vista-original', 'original'],
+            ['vista-comparar', 'comparar']
         ];
         for (const [id, clave] of botones) {
             const el = document.getElementById(id);
@@ -3058,6 +3252,8 @@ import * as FONDO from './fondoStore.js';
         }
         const ctx = cv.getContext('2d');
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // En el comparador el puntero es la linea: se avisa con el cursor.
+        cv.style.cursor = ((RETOQUE.vista || 'compuesto') === 'comparar') ? 'ew-resize' : '';
         // Fondo NEUTRO de toda la ventana. Antes se limpiaba y quedaba a la
         // vista el fondo del editor: al hacer zoom se veia NEGRO alrededor de
         // la foto y el cliente lo confundia con "lo que borre". Ahora el
@@ -3235,16 +3431,151 @@ import * as FONDO from './fondoStore.js';
                 tc.globalCompositeOperation = 'source-over';
                 ctx.drawImage(t, 0, 0, t.width, t.height, dx0, dy0, dw, dh);
             }
+
+            // 5) COMPARADOR (v11.36-B). El recorte se dibuja igual que en
+            //    Compuesto y encima, a la DERECHA de la linea, va la foto
+            //    original a plena opacidad: a la izquierda se ve el resultado y
+            //    a la derecha lo que habia. El fantasma del paso 2 se tapa con
+            //    el original, asi que el lado derecho queda limpio.
+            //
+            //    La linea se guarda como fraccion del rectangulo de la FOTO y
+            //    no de la ventana: al hacer zoom o mover la foto, la division
+            //    sigue cortando el mismo punto de la imagen.
+            if (vista === 'comparar') {
+                const xs = ox + w * (RETOQUE.split ?? 0.5);
+                const xi = Math.max(dx0, Math.min(dx1, xs));
+                if (xi < dx1) {
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.rect(xi, dy0, dx1 - xi, dh);
+                    ctx.clip();
+                    // Mismo origen que la foto dibujada: la parte de `src` que
+                    // cae a la derecha, sin reescalar ni repetir.
+                    const px = ((xi - ox) / w) * natW;
+                    const py = ((dy0 - oy) / h) * natH;
+                    const pw = ((dx1 - xi) / w) * natW;
+                    const ph = ((dy1 - dy0) / h) * natH;
+                    ctx.drawImage(src, px, py, pw, ph, xi, dy0, dx1 - xi, dh);
+                    ctx.restore();
+                }
+            }
         }
 
         ctx.restore();
 
-        // Borde fino: separa la foto del fondo neutro cuando se hace zoom.
+        // La linea del comparador va FUERA del recorte de la foto: si se
+        // dibujara dentro, al hacer zoom la mitad se perderia contra el borde.
+        if ((vista === 'comparar')) {
+            const xs = ox + w * (RETOQUE.split ?? 0.5);
+            const y0 = Math.max(dy0, oy), y1 = Math.min(dy1, oy + h);
+            if (xs >= dx0 - 1 && xs <= dx1 + 1 && y1 > y0) {
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255,255,255,.92)';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(xs, y0);
+                ctx.lineTo(xs, y1);
+                ctx.stroke();
+
+                const cy = (y0 + y1) / 2;
+                ctx.beginPath();
+                ctx.arc(xs, cy, 12, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(17,24,39,.88)';
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = 'rgba(255,255,255,.92)';
+                ctx.stroke();
+
+                ctx.strokeStyle = 'rgba(255,255,255,.92)';
+                ctx.lineWidth = 2;
+                ctx.lineCap = 'round';
+                for (const s of [-1, 1]) {
+                    const bx = xs + s * 3;
+                    ctx.beginPath();
+                    ctx.moveTo(bx + s * 4, cy);
+                    ctx.lineTo(bx, cy - 4);
+                    ctx.moveTo(bx + s * 4, cy);
+                    ctx.lineTo(bx, cy + 4);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            }
+        }
         ctx.strokeStyle = 'rgba(255,255,255,.14)';
         ctx.lineWidth = 1;
         ctx.strokeRect(ox + 0.5, oy + 0.5, w - 1, h - 1);
 
         ESTADO.ventanaCaja = { ox, oy, w, h, esc, natW, natH };
+        // La vista previa de Salida se recalcula con retraso: pintar con el
+        // pincel dispara esto en cada pointermove.
+        miniSalidaProgramar();
+    }
+
+    /* =========================================================================
+       SALIDA CON MINIATURA REAL (v11.36-D)
+       --------------------------------------------------------
+       Los botones de Salida descargaban a ciegas. La ventana muestra el recorte
+       sobre transparencia, con el zoom y la vista que el cliente haya elegido,
+       asi que el archivo podia salir con otro encuadre (margen recortado) o
+       con el fondo encima y eso se descubria recien al abrir el PNG.
+
+       La miniatura se arma con la MISMA funcion que exporta
+       (`lienzoRecorteFinal`), no con una copia de lo que se ve: lo que muestra
+       el cuadro es el archivo. Sin fondo muestra el PNG (con o sin margen,
+       segun el boton); con fondo muestra el JPG, que es el encuadre completo.
+       ========================================================================= */
+
+    function miniSalidaProgramar(ms) {
+        clearTimeout(RETOQUE.salidaTimer);
+        const espera = ms === undefined ? 320 : ms;
+        RETOQUE.salidaTimer = setTimeout(() => {
+            RETOQUE.salidaTimer = 0;
+            try { pintarMiniSalida(); } catch (e) { ESTADO.ultimoError = e; }
+        }, espera);
+    }
+
+    function pintarMiniSalida() {
+        const caja = document.getElementById('salida-vista');
+        const img = document.getElementById('salida-mini');
+        const medida = document.getElementById('salida-medida');
+        if (!caja || !img || !medida) return;
+        if (!RETOQUE.activo) { caja.hidden = true; return; }
+        const recorte = lienzoRecorteFinal();
+        if (!recorte) { caja.hidden = true; return; }
+        const W = recorte.width, H = recorte.height;
+        const botonAjuste = document.getElementById('exportar-ajustado');
+        const ajustado = !botonAjuste || botonAjuste.getAttribute('aria-pressed') !== 'false';
+        const conFondo = fondoActivo();
+        // El JPG no se recorta nunca (el fondo ocupa todo el cuadro), asi que
+        // con fondo la miniatura muestra el encuadre completo.
+        let sx = 0, sy = 0, sw = W, sh = H;
+        const margen = (!conFondo && ajustado) ? cajaAlfa() : null;
+        if (margen) {
+            sx = Math.floor(margen.x0 * W);
+            sy = Math.floor(margen.y0 * H);
+            sw = Math.max(1, Math.ceil((margen.x1 - margen.x0) * W));
+            sh = Math.max(1, Math.ceil((margen.y1 - margen.y0) * H));
+        }
+        const lado = 264;               // 2x de los 132 px de presentacion
+        const esc = Math.min(lado / sw, lado / sh, 1);
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(sw * esc));
+        c.height = Math.max(1, Math.round(sh * esc));
+        const g = c.getContext('2d');
+        try {
+            if (conFondo) g.drawImage(lienzoFondoCompleto(sw, sh), 0, 0, c.width, c.height);
+            g.drawImage(recorte, sx, sy, sw, sh, 0, 0, c.width, c.height);
+        } catch (e) {
+            ESTADO.ultimoError = e;
+            caja.hidden = true;
+            return;
+        }
+        img.src = c.toDataURL('image/png');
+        img.alt = 'Vista previa del archivo: ' + sw + '×' + sh + ' px';
+        medida.textContent = conFondo
+            ? 'JPG ' + W + '×' + H + ' px · con fondo'
+            : 'PNG ' + sw + '×' + sh + ' px' + (ajustado ? ' · sin margen' : ' · con margen');
+        caja.hidden = false;
     }
 
     /**
@@ -3434,6 +3765,156 @@ import * as FONDO from './fondoStore.js';
         RETOQUE.original = null;
         ESTADO.ventanaCaja = null;
         ESTADO.tokenImagen = (ESTADO.tokenImagen || 0) + 1;
+        return true;
+    }
+
+    /**
+     * TIRA DE LOTE (v11.36-C).
+     *
+     * Toda foto recortada por la tanda queda con su propia sesion, pero hasta
+     * ahora solo habia dos formas de abrirlas: seleccionarla en el lienzo y
+     * pulsar "Editar Fondo", o cerrar y volver a entrar. Con una tanda de seis
+     * fotos eso es ir y venir. La tira muestra las que ya tienen recorte y
+     * cambia la ventana de foto sin cerrarla, como las pestanas de Photoshop.
+     */
+    function esRasterDeFondo(it) {
+        let n = it;
+        for (let i = 0; n && i < 4; i++) {
+            if (n.data && n.data.ekkoFondoPara) return true;
+            n = n.parent;
+        }
+        return false;
+    }
+
+    function fotosDelLote() {
+        const fotos = [];
+        const vistos = new Set();
+        try {
+            const pila = (paper.project.layers || []).slice();
+            while (pila.length) {
+                const it = pila.shift();
+                if (!it) continue;
+                if (it.className === 'Raster' && it.project && it.data
+                    && it.data.quitarFondoIA === true && !esRasterDeFondo(it)) {
+                    const clave = it.data.ekkoFondoClave;
+                    if (clave && !vistos.has(clave)) {
+                        vistos.add(clave);
+                        fotos.push({ clave, raster: it, nombre: it.name || '' });
+                    }
+                }
+                if (it.children) pila.push(...it.children);
+            }
+        } catch (_) { return []; }
+        return fotos;
+    }
+
+    /** Miniatura cuadrada de la foto ya recortada (fondo transparente incluido). */
+    function miniaturaDe(raster, lado) {
+        const n = Math.max(32, Number(lado) || 46);
+        try {
+            const el = raster.getElement && raster.getElement();
+            if (!el) return '';
+            const w = el.naturalWidth || el.width, h = el.naturalHeight || el.height;
+            if (!(w > 0) || !(h > 0)) return '';
+            const c = document.createElement('canvas');
+            c.width = n * 2; c.height = n * 2;
+            const g = c.getContext('2d');
+            const esc = Math.max((n * 2) / w, (n * 2) / h);
+            const dw = w * esc, dh = h * esc;
+            g.drawImage(el, ((n * 2) - dw) / 2, ((n * 2) - dh) / 2, dw, dh);
+            return c.toDataURL('image/png');
+        } catch (_) { return ''; }
+    }
+
+    function pintarTira() {
+        const tira = document.getElementById('tira-lote');
+        if (!tira) return;
+        const fotos = fotosDelLote();
+        // Con una sola foto no hay nada que elegir: la tira no existe.
+        if (fotos.length < 2) { tira.hidden = true; tira.textContent = ''; return; }
+        tira.hidden = false;
+        const hecho = [];
+        for (const f of fotos) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'vfond__tira-item' + (f.clave === ESTADO.claveSesion ? ' is-activo' : '');
+            b.title = f.nombre ? ('Editar ' + f.nombre) : 'Editar esta imagen';
+            const url = miniaturaDe(f.raster, 46);
+            if (url) {
+                const img = document.createElement('img');
+                img.alt = '';
+                img.src = url;
+                b.appendChild(img);
+            }
+            b.addEventListener('click', (ev) => {
+                ev.preventDefault();
+                ev.stopPropagation();
+                cambiarFotoDeRetoque(f.clave);
+            });
+            hecho.push(b);
+        }
+        tira.textContent = '';
+        hecho.forEach(b => tira.appendChild(b));
+    }
+
+    /**
+     * Cambia la foto que se esta retocando SIN cerrar la ventana.
+     *
+     * Lo editado de la foto actual se aplica ANTES de cambiar (`recomponer`):
+     * cambiar de foto no puede ser una forma silenciosa de perder el trazo.
+     */
+    function cambiarFotoDeRetoque(clave) {
+        if (!RETOQUE.activo) return false;
+        if (!clave || clave === ESTADO.claveSesion) return true;
+        try { recomponerDesdeMascara(); } catch (e) { ESTADO.ultimoError = e; }
+        // El paquete de la foto que se deja se guarda ANTES de cargar la otra:
+        // si solo lo guardara el cierre de la ventana, ir y volver en la tira
+        // devolveria la mascara de antes de los trazos.
+        sesionGuardar();
+        const foto = fotosDelLote().find(f => f.clave === clave);
+        if (!foto) return false;
+        if (!SESIONES.has(clave)) {
+            // La pagina se recargo: el paquete vive en IndexedDB. Se recupera y
+            // se vuelve a entrar sola, igual que en `abrirRetoque`.
+            if (RETOQUE.recargando === clave) return false;
+            RETOQUE.recargando = clave;
+            avisar('Recuperando la edición de esta imagen…', { kind: 'info' });
+            sesionReconstruir(clave, foto.raster).then((ok) => {
+                RETOQUE.recargando = null;
+                if (!ok) {
+                    avisar('No se pudo recuperar la edición de esta imagen.', { kind: 'warn' });
+                    return;
+                }
+                cambiarFotoDeRetoque(clave);
+            }).catch((e) => {
+                RETOQUE.recargando = null;
+                ESTADO.ultimoError = e;
+                avisar('No se pudo recuperar la edición de esta imagen.', { kind: 'error' });
+            });
+            return false;
+        }
+        if (!sesionCargar(clave, foto.raster)) return false;
+        // La ventana arranca limpia para la foto nueva: mismo zoom, misma
+        // vista y un historial propio, igual que al abrirla.
+        RETOQUE.zoomVentana = 1;
+        RETOQUE.panVentana = { x: 0, y: 0 };
+        marcarZoom();
+        RETOQUE.vista = 'compuesto';
+        RETOQUE.split = 0.5;
+        marcarVistaActiva();
+        RETOQUE.capasSucias = true;
+        RETOQUE.capaMascara = null;
+        RETOQUE.verQuitado = true;
+        marcarVerQuitado();
+        if (!mascaraATrabajo()) return false;
+        historialReiniciar();
+        if (!leerEspec(foto.raster)) fondoReiniciar();
+        pintarControlesFondo();
+        marcarPincelActivo();
+        actualizarBotonesRetoque();
+        try { pintarLienzoVentana(); } catch (e) { ESTADO.ultimoError = e; }
+        pintarTira();
+        try { if (typeof window.selectItem === 'function') window.selectItem(foto.raster); } catch (_) {}
         return true;
     }
 
@@ -4340,6 +4821,7 @@ import * as FONDO from './fondoStore.js';
         // abrir "Editar Fondo" la foto se viera en blanco y negro y el aviso
         // natural era "se rompio la imagen".
         RETOQUE.vista = 'compuesto';
+        RETOQUE.split = 0.5;
         RETOQUE.capaMascara = null;
         marcarVistaActiva();
         // QUE imagen se edita (v11.31): la SELECCIONADA si tiene recorte
@@ -4491,6 +4973,7 @@ import * as FONDO from './fondoStore.js';
         }
 
         marcarPincelActivo();
+        try { pintarTira(); } catch (e) { ESTADO.ultimoError = e; }
         try { pintarLienzoVentana(); }
         catch (e) { ESTADO.ultimoError = e; try { console.warn('[EKKO RECORTE] no se pudo pintar la ventana:', e); } catch (_) {} }
         return true;
@@ -5372,11 +5855,12 @@ import * as FONDO from './fondoStore.js';
             });
         }
 
-        // Vistas: Compuesto / Mascara / Original.
+        // Vistas: Compuesto / Mascara / Original / Comparar.
         const vistas = [
             ['vista-compuesto', 'compuesto'],
             ['vista-mascara', 'mascara'],
-            ['vista-original', 'original']
+            ['vista-original', 'original'],
+            ['vista-comparar', 'comparar']
         ];
         for (const [id, clave] of vistas) {
             const el = document.getElementById(id);
@@ -5550,6 +6034,9 @@ import * as FONDO from './fondoStore.js';
             ajustado.addEventListener('click', () => {
                 const prendido = ajustado.getAttribute('aria-pressed') !== 'true';
                 ajustado.setAttribute('aria-pressed', prendido ? 'true' : 'false');
+                // El encuadre del PNG cambia en el acto: la miniatura de Salida
+                // tiene que mostrar el archivo que se va a descargar.
+                miniSalidaProgramar(0);
             });
         }
 
@@ -5608,6 +6095,9 @@ import * as FONDO from './fondoStore.js';
         // abierta encima el trazo caia en la foto de fondo y no en nada.
         const canvas = document.getElementById('lienzo-editar-fondo');
         let pintando = false;
+        // Arrastre de la linea del comparador: en esa vista el clic mueve la
+        // division en vez de pintar, igual que el "swipe" de PhotoRoom.
+        let moviendoSplit = false;
 
         // ESPACIO + arrastrar = mover la foto, como en Photoshop. Se declara
         // aca porque lo consultan el pincel (para no pintar mientras se
@@ -5624,6 +6114,17 @@ import * as FONDO from './fondoStore.js';
             if (!cur) return;
             cur.style.display = visible ? 'block' : 'none';
             cur.dataset.visible = visible ? '1' : '';
+        };
+
+        /** Lleva la linea del comparador al puntero, sin salirse de la foto. */
+        const ponerSplitEn = (ev) => {
+            const caja = ESTADO.ventanaCaja;
+            const cv = document.getElementById('lienzo-editar-fondo');
+            if (!caja || !cv || !(caja.w > 0)) return;
+            const rc = cv.getBoundingClientRect();
+            const x = ev.clientX - rc.left;
+            RETOQUE.split = Math.max(0, Math.min(1, (x - caja.ox) / caja.w));
+            pintarLienzoVentana();
         };
         window.addEventListener('keydown', (ev) => {
             if (!RETOQUE.activo || enCampo(ev.target)) return;
@@ -5685,6 +6186,15 @@ import * as FONDO from './fondoStore.js';
             if (ev.button !== undefined && ev.button !== 0) return;
             ev.preventDefault();
             ev.stopPropagation();
+            // Comparador: el clic mueve la linea y NO pinta. Retocar en esta
+            // vista seria pintar a ciegas (media foto esta tapada por el
+            // original); para eso esta Compuesto.
+            if ((RETOQUE.vista || 'compuesto') === 'comparar') {
+                moviendoSplit = true;
+                mostrarCursorPincel(false);
+                ponerSplitEn(ev);
+                return;
+            }
             if (!RETOQUE.manual) { tocarAsistido(ev); pintando = false; return; }
             pintarEn(ev);
             pintando = true;
@@ -5693,6 +6203,12 @@ import * as FONDO from './fondoStore.js';
         window.addEventListener('pointermove', (ev) => {
             ratonDentro = sobreLienzo(ev);
             if (!RETOQUE.activo || !ratonDentro) return;
+            if (moviendoSplit) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                ponerSplitEn(ev);
+                return;
+            }
             // El cursor se mueve en LOS DOS modos. Antes en Asistido se llamaba
             // con null, sin el evento, y eso hacia que nunca recibiera posicion:
             // el circulo quedaba oculto y el cliente se quedaba sin puntero de referencia.
@@ -5716,6 +6232,7 @@ import * as FONDO from './fondoStore.js';
         // pintado, y son las mismas que se usan al soltar y al guardar. Antes
         // se repintaba "refinado" de golpe y eso redibujaba todo el contorno.
         const soltar = () => {
+            moviendoSplit = false;
             const huboTrazo = pintando;
             pintando = false;
             // Un trazo = UN paso de historial. Se anota al soltar y no en cada
@@ -5832,6 +6349,8 @@ import * as FONDO from './fondoStore.js';
                 v: () => ponerVista('mascara'),
                 c: () => ponerVista('compuesto'),
                 n: () => ponerVista('original'),
+                // 'y' como el antes/despues de Lightroom: entra y vuelve.
+                y: () => ponerVista((RETOQUE.vista || 'compuesto') === 'comparar' ? 'compuesto' : 'comparar'),
                 t: () => verLoQuitado(!RETOQUE.verQuitado),
                 '[': () => aplicarTamano(RETOQUE.radio - 1, 'teclado'),
                 ']': () => aplicarTamano(RETOQUE.radio + 1, 'teclado'),
@@ -5851,6 +6370,8 @@ import * as FONDO from './fondoStore.js';
     function arrancarRetoque() {
         try { conectarRetoque(); } catch (e) { console.warn('[EKKO RETOQUE] no se pudo conectar', e); }
     }
+    try { inyectarEstilosTira(); } catch (_) {}
+    try { inyectarEstilosSalida(); } catch (_) {}
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', arrancarRetoque, { once: true });
     } else {
