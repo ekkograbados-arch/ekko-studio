@@ -22,6 +22,9 @@ import "./drawTools.js";
 /* Mismo motivo: el tile TIJERA tiene que existir antes de que ui/ribbonLayout.js
    arme la cinta. */
 import "./cutTool.js";
+/* Niveles "Más usadas" y "Barra fija" (Word). Se engancha a #topBar y a la
+   banda #pro-layout-toolbar cuando ya están montadas; no arma botones. */
+import "./ribbonLevels.js";
 
 const STORAGE_KEY = "ekko.panels.v1";
 
