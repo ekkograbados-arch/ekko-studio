@@ -583,7 +583,13 @@ export function resolveToolNames(selection) {
      "Varios" admita otras cosas, porque Alinear o Distribuir sobre un grupo
      con imagen adentro no significan nada. */
   if (summary.hasMixed) {
-    return ["ungroup"].filter(name => TOOLS[name]?.active?.(summary));
+    /* Desagrupar es la unica salida OPERATIVA: un grupo mixto no se puede
+       trabajar hasta abrirse. Pero las herramientas de VISTA no operan sobre
+       la seleccion: zoom, reglas y guias tienen que seguir al alcance.
+       MEDIDO 2026-10-30: se iban con el grupo mixto y la barra quedaba sin
+       lupa ni reglas justo cuando hacen falta, para ver que hay adentro. */
+    return ["ungroup", "zoom", "rulers", "guides"]
+      .filter(name => TOOLS[name]?.always || TOOLS[name]?.active?.(summary));
   }
   return Object.entries(TOOLS)
     .filter(([, tool]) => {
