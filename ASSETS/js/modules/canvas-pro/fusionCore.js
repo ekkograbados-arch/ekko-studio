@@ -38,11 +38,15 @@ export function isValidFusionReceptor(item) {
   if (isProductElement(item)) return false;
   const d = item.data || {};
   if (d.isFusionMask === true || d.isSmartFusion === true) return false;
-  return !!(
-    d.isFusionReceptor ||
-    d.isHole === true ||
-    d.hasInternalHoles === true
-  );
+  if (item.clipMask === true || d.wasClipMask === true) return false;
+  if (d.isFusionReceptor || d.isHole === true || d.hasInternalHoles === true) return true;
+  // Canva: cualquier contorno cerrado con relleno recibe la imagen, tenga o no
+  // la marca isFusionReceptor (las formas dibujadas no la llevan). Un trazo de
+  // corte nace sin relleno y sigue sin recibir imagen: en el laser es una linea
+  // para cortar, no una silueta para rellenar con una foto.
+  const esCerrado = item.className === "CompoundPath" || item.className === "Shape" || item.closed === true;
+  if (!esCerrado) return false;
+  return item.fillColor != null || d.isSolidShape === true;
 }
 
 export function isFusionItem(item) {
