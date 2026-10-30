@@ -1605,3 +1605,13 @@ input.vfond__pista[type="range"] { margin: 0; width: 100%; accent-color: #6d5cf0
 /* EKKO-STUDIO-INTEGRATED-2026-10-04: lectura de angulo de curvado (lienzo + barras). */
 .toolbar-angle-readout { display:inline-block; min-width:44px; text-align:center; font-weight:700; font-size:12px; color:#0f172a; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:6px; padding:3px 6px; }
 #ekkoBendPopup { position:fixed; z-index:10000; display:none; padding:4px 10px; border-radius:6px; background:#263747; color:#fff; font:600 13px sans-serif; pointer-events:none; white-space:nowrap; }
+
+/* 2026-10-30 (v11.36): el pestillo izquierdo del panel de productos se cuela
+   en la purga de puertas duplicadas que hace cascadeToolbar (su regla oculta
+   #ekkoPanelAnchorProducts, un id que nadie crea) y el pestillo real del
+   coordinador se llama #ekkoPanelProductsAnchor. El cliente documento la
+   intencion en cascadeToolbar.js:370-387: UNA sola puerta para ese panel, el
+   toggle junto a "Inicio" (productPanelTopToggle), que abre Y cierra y sigue
+   visible hasta en modo compacto. Esta regla completa la purga por el lado
+   nuestro, sin tocar cascadeToolbar.js ni panelCoordinator.js. */
+body[data-ekko-cascade="1"] #ekkoPanelProductsAnchor { display: none !important; }
