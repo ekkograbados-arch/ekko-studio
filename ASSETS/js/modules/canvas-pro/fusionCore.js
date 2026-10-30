@@ -33,6 +33,24 @@ export function isClientDesignElement(item) {
   );
 }
 
+/* Un vector cerrado es cualquier contorno que encierra un area: un Path con
+   closed, un CompoundPath cuyos contornos cierran y una Shape (rect/elipse/
+   circulo). El relleno NO hace falta: el trazo dibujado encerrado se fusiona
+   igual que una silueta de SVG, como en Canva. Un contorno abierto (linea,
+   polilinea sin cerrar, arco) no encierra area y no puede recortar una foto. */
+export function isClosedVectorShape(item) {
+  if (!item) return false;
+  if (item.closed === true) return true;
+  if (item.className === "Shape") return true;
+  if (item.className === "CompoundPath") {
+    const hijos = (item.children || []).filter(Boolean);
+    if (!hijos.length) return false;
+    return hijos.every(hijo => hijo.closed === true ||
+      hijo.className === "CompoundPath" && isClosedVectorShape(hijo));
+  }
+  return false;
+}
+
 export function isValidFusionReceptor(item) {
   if (!item) return false;
   if (isProductElement(item)) return false;
@@ -40,13 +58,10 @@ export function isValidFusionReceptor(item) {
   if (d.isFusionMask === true || d.isSmartFusion === true) return false;
   if (item.clipMask === true || d.wasClipMask === true) return false;
   if (d.isFusionReceptor || d.isHole === true || d.hasInternalHoles === true) return true;
-  // Canva: cualquier contorno cerrado con relleno recibe la imagen, tenga o no
-  // la marca isFusionReceptor (las formas dibujadas no la llevan). Un trazo de
-  // corte nace sin relleno y sigue sin recibir imagen: en el laser es una linea
-  // para cortar, no una silueta para rellenar con una foto.
-  const esCerrado = item.className === "CompoundPath" || item.className === "Shape" || item.closed === true;
-  if (!esCerrado) return false;
-  return item.fillColor != null || d.isSolidShape === true;
+  // Canva: cualquier contorno cerrado del cliente recibe la imagen, tenga o no
+  // la marca isFusionReceptor y tenga o no relleno. Los unicos que quedan
+  // fuera son los abiertos, porque no encierran area para recortar.
+  return isClosedVectorShape(item);
 }
 
 export function isFusionItem(item) {
