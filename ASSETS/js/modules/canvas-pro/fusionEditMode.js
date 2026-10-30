@@ -54,7 +54,24 @@ export function syncEditGhost() {
   } catch (_) { return false; }
 }
 
-export function enterFusionEditMode(fusionGroup) {
+function resolveFusionFromSelection() {
+  const lista = Array.isArray(window.selectedItems) && window.selectedItems.length
+    ? window.selectedItems
+    : (window.selectedItem ? [window.selectedItem] : []);
+  for (const raw of lista) {
+    try {
+      const hallada = window.findSmartFusionContainer?.(raw) ||
+        (raw?.data?.isSmartFusion ? raw : null);
+      if (hallada?.data?.fusionId) return hallada;
+    } catch (_) {}
+  }
+  return null;
+}
+
+export function enterFusionEditMode(fusionGroup = null) {
+  // Botones de barra llaman sin argumento: la fusion se resuelve desde la
+  // seleccion, igual que el doble clic.
+  if (!fusionGroup?.data?.fusionId) fusionGroup = resolveFusionFromSelection();
   if (!fusionGroup?.data?.fusionId) return false;
   if (fusionEditActive) exitFusionEditMode(false);
 
@@ -194,6 +211,28 @@ export function exitFusionEditMode(accept = true) {
         if (typeof window.saveHistory === "function") window.saveHistory();
         const gInv = st.fusionGroup?.globalMatrix?.inverted?.() || new paper.Matrix();
         finalImage.matrix = gInv.concatenate(st.tempImage.globalMatrix);
+        // Las herramientas de imagen (quitar fondo, ajustes) trabajan sobre el
+        // proxy. Sin este traspaso, al aceptar solo viajaba la matriz y todo
+        // el trabajo de pixeles se perdia en silencio.
+        const matrizFinal = finalImage.matrix.clone();
+        const fuenteProxy = st.tempImage.image;
+        if (fuenteProxy && fuenteProxy !== finalImage.image) {
+          // Paper ignora un canvas asignado a .image; la via que usan las
+          // herramientas es .source (string), asi que se normaliza a eso.
+          let url = null;
+          try {
+            if (fuenteProxy.getContext && typeof fuenteProxy.toDataURL === "function") url = fuenteProxy.toDataURL("image/png");
+            else if (typeof st.tempImage.source === "string" && st.tempImage.source) url = st.tempImage.source;
+          } catch (_) { url = null; }
+          if (url) {
+            try { finalImage.source = url; } catch (_) {}
+          }
+          if (st.tempImage.imageData) finalImage.imageData = st.tempImage.imageData;
+        }
+        const datosProxy = { ...(st.tempImage.data || {}) };
+        delete datosProxy.isFusionEditProxy;
+        finalImage.data = { ...(finalImage.data || {}), ...datosProxy };
+        finalImage.matrix = matrizFinal;
       } else if (st.snapshot) {
         finalImage.position = st.snapshot.imagePosition.clone();
         finalImage.matrix = st.snapshot.imageMatrix.clone();
