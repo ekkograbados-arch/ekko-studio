@@ -145,6 +145,10 @@ export const BUTTONS = Object.freeze([
     reason: "Los nodos se editan sobre un vector cerrado, no sobre un grupo ni un símbolo"
   },
   {
+    tool: "cutSegment", family: FAMILY.P, group: "geometria", legacy: ["cutSegment"],
+    reason: "La tijera corta trazos: seleccioná al menos un vector"
+  },
+  {
     tool: "outline", family: FAMILY.P, group: "geometria", legacy: ["outline"],
     reason: "Seleccioná un solo objeto para darle contorno"
   },
