@@ -17,6 +17,7 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 import {
   isProductElement,
   isValidFusionReceptor,
+  isClosedVectorShape,
   findFusionVector,
   findFusionRaster,
   cloneAbsolute,
@@ -167,7 +168,22 @@ function getFusionReceptors() {
   const receptors = [];
   const seen = new Set();
 
-  candidates.forEach(display => {
+  // Un CompoundPath cerrado es UNA silueta: el colector publico desciende a sus
+  // contornos cuando no tiene semantica, y fusionar un solo contorno recortaria
+  // media figura (perdia el hueco del anillo o del texto). El receptor es el
+  // compuesto completo.
+  const anclarCompuesto = item => {
+    let cur = item;
+    while (cur && cur !== layer) {
+      if (cur !== item && cur.className === 'CompoundPath' && isClosedVectorShape(cur) &&
+          !isMockupOrProductElement(cur) && !cur.clipMask) return cur;
+      cur = cur.parent;
+    }
+    return item;
+  };
+
+  candidates.forEach(candidate => {
+    const display = anclarCompuesto(candidate);
     if (!display || seen.has(display)) return;
     seen.add(display);
     const data = display.data || {};
@@ -177,7 +193,9 @@ function getFusionReceptors() {
     if (display.clipMask || data.mockup || data.isMask || data.wasClipMask) return;
     if (isMockupOrProductElement(display)) return;
     if (display.className !== 'Path' && display.className !== 'CompoundPath' && display.className !== 'Shape') return;
-    if (!(display.closed || display.className === 'CompoundPath' || display.className === 'Shape')) return;
+    // Misma regla que el contrato: si canFuse lo acepta, el halo debe poder
+    // encenderse. Cualquier contorno cerrado sirve, tenga o no relleno.
+    if (!isValidFusionReceptor(display)) return;
 
     receptors.push({
       item: display,
@@ -988,6 +1006,10 @@ function isVectorDragCandidate(item) {
   // soltar: eso destruia el hueco en silencio y el solido quedaba macizo.
   if (item.data?.isHole === true) return false;
   try { if (isMockupOrMask(item)) return false; } catch (_) {}
+  // Mismo contrato que el drop imagen->vector: solo un contorno cerrado puede
+  // prometer fusion. Antes cualquier linea abierta encendia el halo y despues
+  // el drop la rechazaba en silencio.
+  if (!isValidFusionReceptor(item)) return false;
   return item.className === 'Path' || item.className === 'CompoundPath' || item.className === 'Shape';
 }
 
