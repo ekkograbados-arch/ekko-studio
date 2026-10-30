@@ -1393,7 +1393,15 @@ function renderTabs() {
        ("TEXTOS, IMAGEN Y VARIOS"): las pestanas de especie nacen de las PIEZAS
        QUE EXISTEN, y "Varios" solo cuando lo seleccionado son varias piezas. */
     const det = sel.length ? detectTab(sel) : null;
-    const deSeleccion = det === "multiple" ? ["multiple"]
+    /* Varias piezas IGUALES no son "Varios": son la pestaña de esa pieza.
+       "Varios" aparece solo cuando la seleccion mezcla especies. */
+    const deSeleccion = det === "multiple"
+        ? (() => {
+            const esp = new Set(sel.map(speciesOf).filter(Boolean));
+            if (esp.size > 1) return ["multiple"];
+            const unica = TAB_DE_ESPECIE[[...esp][0]];
+            return unica ? [unica] : [];
+        })()
         : (det && det !== "base" ? [det] : []);
     const { especies } = contenidoDelLienzo();
     const disponibles = [...new Set([
@@ -1513,7 +1521,11 @@ function adoptarGrupos() {
 /* recientes del contexto. Son BOTONES REALES que se mudan desde su grupo   */
 /* de origen y VOLVEN a el cuando dejan de estar entre las primeras 3.      */
 /* ------------------------------------------------------------------ */
-const MRU_EN_GRUPO = 3;
+/* "Más usadas" ya no vive en la fila de herramientas: es un NIVEL propio
+   debajo de la barra fija (ribbonLevels.js). Acá se deja en 0 para que este
+   grupo quede vacío y no mueva botones fuera de sus grupos. El registro de
+   recientes se sigue guardando: es la semilla del nivel nuevo. */
+const MRU_EN_GRUPO = 0;
 const GRUPO_RECIENTES = "recientes";
 
 function esVisible(btn) {
