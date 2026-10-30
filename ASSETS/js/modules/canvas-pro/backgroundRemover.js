@@ -114,6 +114,62 @@ import * as FONDO from './fondoStore.js';
         // Radio MAXIMO del aerografo como fraccion del lado MENOR de la foto.
         SUAV_MAX: 0.05,
 
+        // DEFECTO: en el borde de un recorte neuronal hay 1-2 px donde el
+        // pixel de la foto es una MEZCLA REAL de sujeto y fondo (eso hace la
+        // optica de la camara, no el modelo). Si ese pixel se guarda con su
+        // color y alfa suave, la mezcla se ve DOS veces: una en el pixel y
+        // otra al composicionar sobre el fondo nuevo. Resultado: halo gris
+        // alrededor del sujeto al cambiar de fondo y, para el grabado, una
+        // mordida sucia en el contorno de la pieza.
+        //
+        // `refinarBorde` NO lo resuelve: ese paso solo baja el ALFA, nunca
+        // toca el color.
+        //
+        // COMO SE RESUELVE: el color del pixel contaminado se REMPLAZA por el
+        // del nucleo opaco mas cercano (propagacion de 1 px por pasada), que
+        // es lo que hace Photoshop con "Remove Color Matting".
+        //
+        // POR QUE NO LA FORMULA DE DEZMEZCLA: la primera version intentaba
+        //     C = a*F + (1-a)*B   ->   F = (C - (1-a)*B) / a
+        // MEDIDO en el banco de 13 fotos (`sondaDesmecla`): en la franja de
+        // borde el factor t = (C-B)/(F-B) queda CASI CONSTANTE (0,38-0,43 en
+        // el caso 1; 0,64-0,73 en el 2; 0,11-0,17 en el 4) mientras la alfa
+        // real va de 0,16 a 0,83. O sea que la alfa del recorte (antialias +
+        // aerografo) NO representa la mezcla optica de ese pixel: dividir por
+        // esa alfa sobre-corrige. El banco lo confirmo: la contaminacion
+        // global bajo (0,1984 -> 0,1776) pero el salto local del halo subio
+        // 15,51 -> 25,57. Con propagacion el salto baja por construccion,
+        // porque el pixel contaminado pasa a tener el color de un vecino que
+        // NUNCA estuvo mezclado.
+        //
+        // 1 = al maximo, que es el valor por DEFECTO medido en el banco de 13
+        // fotos: el halo baja de 15,51 a 13,33 (salto de luminancia del borde
+        // contra su propio nucleo), la silueta queda byte a byte igual (alfa
+        // identica en los 13 casos) y solo se toca el 0,81% de los pixeles, con
+        // un corrimiento medio de 11/441. Con 0 el color queda tal como esta en
+        // la foto -la unica conducta hasta v11.34.
+        DEFRINGE: 1,
+        // Alfa minima (0-255) de la franja corregida. Abajo de eso el pixel es
+        // casi todo fondo: su color casi no se ve y propagarlo no aporta nada.
+        DEFRINGE_DESDE: 38,
+        // Alfa (0-255) a partir de la cual el pixel ya es NUCLEO: su color es
+        // el del sujeto, sin mezcla, y es la fuente que se propaga. 200 = 78%,
+        // donde el pixel de la foto todavia tiene un 22% de fondo pero el
+        // error es chico comparado con el halo que se quiere sacar.
+        DEFRINGE_HASTA: 200,
+        // Profundidad maxima de la propagacion, en pixeles. Cada pasada avanza
+        // un anillo de 1 px desde el nucleo. 12 cubre de sobra el antialias del
+        // modelo y un Suavizar moderado; mas alla, el pixel esta tan transparente
+        // que su color no se ve.
+        DEFRINGE_PASADAS: 12,
+        // Cuanto menos corrige un pixel cuanto mas lejos esta del nucleo. Con
+        // 0.75 la correccion vale 1, 0.75, 0.56, 0.42, 0.32...: el filete de
+        // mezcla (1-3 px) se saca entero y una transicion de 8 px o mas -que
+        // casi siempre es desenfoque real de la camara, no halo- queda casi
+        // como esta. MEDIDO en `cropsBorde`: con decaimiento 1 el caso 2 se
+        // volvia una mancha plana con escalones.
+        DEFRINGE_DECAY: 0.75,
+
         // PERFIL: si se aplica la curva de BORDE/SUAVIZADO sobre el alfa del
         // modelo. MEDIDO: con la curva activa el alfa queda casi binaria
         // (39% en 0 y 55% en 1), o sea que el matiz suave del pelo -que el
@@ -1240,6 +1296,203 @@ import * as FONDO from './fondoStore.js';
     }
 
     /**
+     * DEFRINGE por propagacion de color: el "Remove Color Matting" de
+     * Photoshop.
+     *
+     * Escribe en `src` (RGB de la foto original, opaca) y lee el alfa de
+     * `alpha`. NO toca el alfa: es correccion de color, la silueta queda byte
+     * a byte igual, y por eso el IoU medido contra la referencia del cliente
+     * no se mueve.
+     *
+     * COMO: los pixeles con alfa >= HASTA son NUCLEO y conservan su color de
+     * la foto. Desde el nucleo el color se propaga hacia afuera, un anillo de
+     * 1 px por pasada, hasta cubrir la franja (DESDE < alfa < HASTA) o llegar
+     * a PASADAS. Cada pixel toma el promedio de sus vecinos ya resueltos, asi
+     * que el color que arriba es siempre el de un pixel que nunca estuvo
+     * mezclado con el fondo de la foto.
+     *
+     * `intensidad` NO se aplica durante la propagacion (el frente necesita el
+     * color completo para seguir propagando bien): primero se guarda el color
+     * de la foto en la franja y al final se interpola
+     *     resultado = foto + intensidad * DECAIMIENTO^profundidad * (propagado - foto)
+     * de forma que 0 deja todo igual y 1 pone en la franja el color del nucleo.
+     * Nunca se inventa un color mas alla del nucleo: no hay overshoot, que es
+     * justamente el defecto que midio el banco con la formula de division por
+     * alfa.
+     *
+     * El factor por PROFUNDIDAD es lo que separa un halo de mezcla de un borde
+     * realmente suave. MEDIDO en el banco: el caso 1 (perro contra flores
+     * quemadas) tiene un halo de 4-6 px que a intensidad 1 desaparece; el caso
+     * 2 (loro con fondo fuera de foco) tiene 27 px de transicion que NO son
+     * mezcla, es desenfoque de la camara. Sin atenuacion, el caso 2 a
+     * intensidad 1 se convertia en una mancha plana con escalones a lo largo
+     * del diagonal. Con DECAIMIENTO 0.75 la correccion vale 1, 0.75, 0.56,
+     * 0.42... y a 8 px ya es un 8%: saca el filete y deja intacta la
+     * transicion suave.
+     *
+     * El frente avanza EXACTAMENTE 1 px por pasada: un pixel solo acepta el
+     * color de un vecino resuelto en una pasada ANTERIOR (`capa[j] <= pasada`),
+     * asi el orden del barrido no se nota en la imagen y no hace falta copiar
+     * el estado cada pasada (4 MB por pasada en una foto de 20 MP).
+     *
+     * @param {Uint8ClampedArray} src  RGB de la foto, 4 canales, opaco
+     * @param {Uint8Array|Uint8ClampedArray} alpha  alfa final de cada pixel
+     * @param {number[]} [cambiados]  salida: indices de pixel cuyo RGB cambio
+     * @returns {number} pixeles de la franja reasignados (0 = no hizo nada)
+     */
+    function defringue(src, alpha, W, H, intensidad, cambiados) {
+        if (!(intensidad > 0.001)) return 0;
+        const n = W * H;
+        const desde = CFG.DEFRINGE_DESDE;
+        const hasta = Math.max(desde + 8, CFG.DEFRINGE_HASTA);
+        const pasadas = Math.max(1, CFG.DEFRINGE_PASADAS | 0);
+        const decaimiento = Math.max(0.05, Math.min(1, CFG.DEFRINGE_DECAY || 0.75));
+
+        // 0 = fondo (no se toca), 1 = pendiente, 2 = nucleo fuente,
+        // 3 = ya recibio color propagado.
+        const estado = new Uint8Array(n);
+        // En que pasada se len cada pixel de la franja (0 = no llen). Es la
+        // profundidad desde el nucleo, y manda cuanto pesa la correccion.
+        const capa = new Uint8Array(n);
+        let pendientes = [];
+        for (let i = 0; i < n; i++) {
+            const a = alpha[i];
+            if (a >= hasta) estado[i] = 2;
+            else if (a > desde) { estado[i] = 1; pendientes.push(i); }
+        }
+        if (!pendientes.length) return 0;
+
+        // Color original de la franja, para la interpolacion final. La franja
+        // son miles de pixeles, no millones: caben tres arrays chicos.
+        const idx = Int32Array.from(pendientes);
+        const m = idx.length;
+        const oR = new Uint8Array(m), oG = new Uint8Array(m), oB = new Uint8Array(m);
+        for (let k = 0; k < m; k++) {
+            const p = idx[k] << 2;
+            oR[k] = src[p]; oG[k] = src[p + 1]; oB[k] = src[p + 2];
+        }
+
+        let rellenos = 0;
+        for (let pasada = 0; pasada < pasadas && pendientes.length; pasada++) {
+            const siguiente = [];
+            let nuevos = 0;
+            for (let k = 0, s = pendientes.length; k < s; k++) {
+                const i = pendientes[k];
+                const x = i % W;
+                // 4-conectividad: con diagonal el frente avanzaria 1,4 px por
+                // pasada y el promedio mezclaria dos profundidades distintas.
+                // `capa` es 1-based y `pasada` 0-based, entonces
+                // capa[j] <= pasada == "resuelto en una pasada ANTERIOR", que
+                // es lo que hace que el frente avance de a 1 px.
+                let sr = 0, sg = 0, sb = 0, c = 0;
+                if (x > 0) {
+                    const j = i - 1, e = estado[j];
+                    if (e === 2 || (e === 3 && capa[j] <= pasada)) { const p = j << 2; sr += src[p]; sg += src[p + 1]; sb += src[p + 2]; c++; }
+                }
+                if (x + 1 < W) {
+                    const j = i + 1, e = estado[j];
+                    if (e === 2 || (e === 3 && capa[j] <= pasada)) { const p = j << 2; sr += src[p]; sg += src[p + 1]; sb += src[p + 2]; c++; }
+                }
+                if (i >= W) {
+                    const j = i - W, e = estado[j];
+                    if (e === 2 || (e === 3 && capa[j] <= pasada)) { const p = j << 2; sr += src[p]; sg += src[p + 1]; sb += src[p + 2]; c++; }
+                }
+                if (i + W < n) {
+                    const j = i + W, e = estado[j];
+                    if (e === 2 || (e === 3 && capa[j] <= pasada)) { const p = j << 2; sr += src[p]; sg += src[p + 1]; sb += src[p + 2]; c++; }
+                }
+                if (c) {
+                    const p = i << 2;
+                    src[p] = sr / c; src[p + 1] = sg / c; src[p + 2] = sb / c;
+                    estado[i] = 3;
+                    capa[i] = pasada + 1;
+                    nuevos++;
+                } else {
+                    siguiente.push(i);
+                }
+            }
+            rellenos += nuevos;
+            pendientes = siguiente;
+            if (!nuevos) break;                 // isla de franja sin nucleo: ya no crece
+        }
+        if (!rellenos) return 0;
+
+        let cambios = 0;
+        for (let k = 0; k < m; k++) {
+            const i = idx[k];
+            if (estado[i] !== 3) continue;      // no le llego el frente: queda la foto
+            // La correccion decae con la profundidad: 1 px se corrige entero,
+            // 4 px se corrige un tercio. Ver el MEDIDO del caso 2 arriba.
+            const f = intensidad * Math.pow(decaimiento, capa[i] - 1);
+            if (!(f > 0.02)) continue;
+            const p = i << 2;
+            const r = oR[k] + f * (src[p] - oR[k]);
+            const g = oG[k] + f * (src[p + 1] - oG[k]);
+            const b = oB[k] + f * (src[p + 2] - oB[k]);
+            // Se compara contra el color DE LA FOTO (oR/oG/oB), no contra el
+            // propagado: con intensidad 1 el resultado ES el propagado y esa
+            // resta daria 0, dejando el pixel afuera de la copia al lienzo.
+            // MEDIDO en `prueba-defringe-node`: con la comparacion mala, al
+            // 100% el halo no se veia corregido en pantalla.
+            if (Math.abs(r - oR[k]) >= 0.5 || Math.abs(g - oG[k]) >= 0.5 ||
+                Math.abs(b - oB[k]) >= 0.5) {
+                cambios++;
+                if (cambiados) cambiados.push(i);
+            }
+            src[p] = r; src[p + 1] = g; src[p + 2] = b;
+        }
+        return cambios;
+    }
+
+    /**
+     * Aplica el defringe a un lienzo que YA tiene el alfa puesta.
+     *
+     * El RGB NO se lee de ese lienzo: un canvas 2D no conserva el color de los
+     * pixeles transparentes (ver `actualizarCapasEn`), y la franja contaminada
+     * es justamente la que tiene alfa intermedia. Entonces se redibuja la foto
+     * original opaca a la misma resolucion, de alli sale el color del nucleo
+     * que se propaga, y del lienzo se toma solo el alfa.
+     *
+     * Se copian de vuelta SOLO los pixeles que cambio `defringue`: el resto
+     * del RGB del lienzo ya viene de la misma foto y escribirlo de nuevo
+     * taparia cualquier otro tratamiento que se aplique despues.
+     *
+     * Se usa en los dos caminos que produce un recorte: la vista previa de la
+     * ventana (a resolucion de trabajo) y la salida final (a resolucion
+     * natural). Si solo estuviera en la salida, el control de la ventana no
+     * se veria nunca al moverlo.
+     */
+    function defringueEn(lienzo, foto, W, H, intensidad) {
+        if (!(intensidad > 0.001) || !(W > 0) || !(H > 0)) return false;
+        const lc = lienzo.getContext('2d', { willReadFrequently: true });
+        const dst = lc.getImageData(0, 0, W, H);
+        const base = document.createElement('canvas');
+        base.width = W;
+        base.height = H;
+        const bc = base.getContext('2d', { willReadFrequently: true });
+        bc.drawImage(foto, 0, 0, W, H);
+        const src = bc.getImageData(0, 0, W, H);
+        const alfa = new Uint8Array(W * H);
+        for (let i = 0, n = W * H; i < n; i++) alfa[i] = dst.data[i * 4 + 3];
+
+        const cambiados = [];
+        let tocados = 0;
+        try { tocados = defringue(src.data, alfa, W, H, intensidad, cambiados); }
+        catch (e) { ESTADO.ultimoError = e; return false; }
+        if (!tocados) return false;
+
+        // Solo RGB: el alfa del destino queda como estaba, que es lo que hace
+        // que la silueta no se mueva ni un pixel.
+        const d = dst.data, s = src.data;
+        for (let k = 0; k < cambiados.length; k++) {
+            const p = cambiados[k] << 2;
+            d[p] = s[p]; d[p + 1] = s[p + 1]; d[p + 2] = s[p + 2];
+        }
+        lc.putImageData(dst, 0, 0);
+        return true;
+    }
+
+    /**
      * Entrega el recorte a la resolucion NATURAL de la foto, sin remuestrear
      * el color.
      *
@@ -1299,6 +1552,15 @@ import * as FONDO from './fondoStore.js';
         c.imageSmoothingQuality = 'high';
         c.drawImage(mascara, 0, 0, W, H);           // solo aporta el alfa
         c.globalCompositeOperation = 'source-over';
+
+        // 4) DEFRINGE sobre la franja de borde, a resolucion natural y con el
+        // alfa ya puesta. Va aca y no mas arriba porque necesita las dos
+        // cosas a la vez: el color real de la foto (paso 3) y el alfa final
+        // (paso 2 + 3). A la par del `aerografoNatural` no se puede: todavia
+        // no existia el alfa definitivo.
+        try {
+            defringueEn(fin, imagen, W, H, CFG.DEFRINGE || 0);
+        } catch (e) { ESTADO.ultimoError = e; }
         return fin;
     }
 
@@ -1936,6 +2198,10 @@ import * as FONDO from './fondoStore.js';
         // actualizar lo que el cliente ve.
         if (clave === 'borde') CFG.BORDE = v;
         else if (clave === 'suavizado') CFG.SUAVIZADO = v;
+        // 'defringe' es color, no silueta: entra por la misma via porque se
+        // recompone el recorte entero y la salida tiene que salir con el
+        // borde desmechado. Ver `defringueEn`.
+        else if (clave === 'defringe') CFG.DEFRINGE = v;
         else if (clave !== 'recomponer') return false;
 
         // El valor SI se guarda aunque aun no haya recorte: asi el cliente ve
@@ -2570,8 +2836,11 @@ import * as FONDO from './fondoStore.js';
     function claveCapas() {
         const aw = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.aw : 0;
         const ah = ESTADO.lienzoTrabajo ? ESTADO.lienzoTrabajo.ah : 0;
+        // DEFRINGE entra en la clave porque cambia PIXELES de la capa, no solo
+        // la mascara: sin el numero, al mover el control "Halo" la capa cacheada
+        // seguiria mostrando el color viejo y el deslizador no daria senal.
         return ESTADO.tokenImagen + '@' + aw + 'x' + ah + '|' + ESTADO.mascaraAncho + 'x' + ESTADO.mascaraAlto +
-            '|' + (ESTADO.mascaraFinal ? 'final' : 'modelo');
+            '|' + (ESTADO.mascaraFinal ? 'final' : 'modelo') + '|d' + (CFG.DEFRINGE || 0);
     }
 
     /**
@@ -2597,6 +2866,11 @@ import * as FONDO from './fondoStore.js';
             RETOQUE.capaRecorte = componerRecorte(
                 ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto,
                 src, aw, ah, ESTADO.caja, ESTADO.mascaraFinal);
+            // La vista previa se defringe IGUAL que la salida. Sin esto el
+            // control "Halo" movia el numero y el cliente no veia nada en la
+            // ventana, que es exactamente el "control muerto" de la cinta.
+            try { defringueEn(RETOQUE.capaRecorte, src, aw, ah, CFG.DEFRINGE || 0); }
+            catch (e) { ESTADO.ultimoError = e; }
             RETOQUE.capasClave = claveCapas();
             RETOQUE.capasSucias = false;
             // La capa de mascara se descarta: su contenido sale de la MISMA
@@ -3200,6 +3474,7 @@ import * as FONDO from './fondoStore.js';
             ladoEntrada: ESTADO.ladoEntrada || CFG.LADO_ENTRADA,
             borde: CFG.BORDE,
             suavizado: CFG.SUAVIZADO,
+            defringe: CFG.DEFRINGE,
             filo: CFG.FILO,
             afinado: CFG.AFINADO,
             geo: CFG.GEO ? 1 : 0,
@@ -3845,6 +4120,13 @@ import * as FONDO from './fondoStore.js';
         texto('sombra-direccion-val', SOMBRA_ESPEC.direccion + '°');
         set('sombra-aplastar', String(SOMBRA_ESPEC.aplastar));
         texto('sombra-aplastar-val', SOMBRA_ESPEC.aplastar + '%');
+        // El halo no vive en una receta propia: es un parametro del motor
+        // (CFG.DEFRINGE) que aplica a TODA la edicion. Al abrir la ventana el
+        // deslizador tiene que mostrar el numero que el motor ya tiene puesto,
+        // no el 0 que dice el HTML.
+        const porcentajeHalo = Math.round(Math.max(0, Math.min(1, CFG.DEFRINGE || 0)) * 100);
+        set('borde-halo', String(porcentajeHalo));
+        texto('borde-halo-val', porcentajeHalo + '%');
     }
 
     /** Carga una imagen de fondo elegida por el cliente. */
@@ -5172,6 +5454,47 @@ import * as FONDO from './fondoStore.js';
             if (el) el.addEventListener('change', function () {
                 try { cambiarSombra({}); } catch (e) { ESTADO.ultimoError = e; }
                 fondoPersistir();
+            });
+        }
+
+        // ===================================================================
+        // HALO (defringe): el control de la ventana.
+        //
+        // En el arrastre solo se redibuja la VISTA de la ventana. Eso reconstruye
+        // la capa de trabajo (una fraccion del costo) y muestra el color nuevo
+        // donde el cliente lo esta juzgando, con el zoom puesto. Al soltar se
+        // recompone la pieza de la escena por el camino del motor
+        // (`ajustarBorde`), que ya tiene su cola serializada: si eso corriera en
+        // cada evento `input`, una foto grande congelaria el lienzo mientras se
+        // mueve el deslizador.
+        // ===================================================================
+        const halo = document.getElementById('borde-halo');
+        const haloValor = document.getElementById('borde-halo-val');
+        const haloNota = document.getElementById('halo-nota');
+        if (halo) {
+            const pintarHalo = function (porcentaje) {
+                if (haloValor) haloValor.textContent = porcentaje + '%';
+                if (haloNota) {
+                    haloNota.textContent = porcentaje === 0
+                        ? '0% deja el color tal como esta en la foto.'
+                        : porcentaje >= 90
+                            ? 'Saca el tinte del fondo en toda la franja. Si el borde se ve plano, bajalo.'
+                            : 'El borde toma el color real del sujeto, no el del fondo viejo.';
+                }
+            };
+            const leerHalo = function () {
+                const n = Math.max(0, Math.min(100, Math.round(Number(halo.value) || 0)));
+                pintarHalo(n);
+                return n;
+            };
+            halo.addEventListener('input', function () {
+                CFG.DEFRINGE = leerHalo() / 100;
+                // La clave de las capas incluye DEFRINGE, asi que esta pasada
+                // reconstruye la capa en vez de reutilizar la vieja.
+                try { pintarLienzoVentana(); } catch (e) { ESTADO.ultimoError = e; }
+            });
+            halo.addEventListener('change', function () {
+                ajustarBorde('defringe', leerHalo() / 100);
             });
         }
 
