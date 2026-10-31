@@ -472,6 +472,118 @@ export function abrirDriveProyectos() {
     return { ok: true };
 }
 
+/* ---------------- ENVIAR A GRABAR A: EKKO GRABADOS (botón del cliente) ---------------- */
+/* Fase 3: el cliente manda su trabajo con UN clic. Se genera UN solo SVG con
+   todas las vistas editadas del producto compuestas lado a lado en mm (cada
+   pieza con su translate, sin nested svg): el taller corta el lote completo
+   de una pasada. Sin marca de agua: el archivo viaja directo al dueño para
+   grabar, no es una previsualización. El archivo se descarga y se abre el
+   chat de WhatsApp con el mensaje prellenado: el navegador no puede adjuntar
+   solo, el cliente arrastra el archivo al chat. */
+function leerContactoTaller() {
+    // Escalable (fase 3b): un colega con grabadora propia configura su propio
+    // contacto desde el modo taller; sin configuración, el destino es EKKO.
+    try {
+        const crudo = localStorage.getItem("ekkoTallerContacto");
+        if (crudo) {
+            const parsed = JSON.parse(crudo);
+            if (parsed && /^\d{6,15}$/.test(String(parsed.whatsapp || ""))) {
+                return { whatsapp: parsed.whatsapp, nombre: String(parsed.nombre || "taller") };
+            }
+        }
+    } catch (_) {}
+    return EKKO_TALLER_CONTACTO;
+}
+
+async function construirSVGLote(surfaceNames = null) {
+    const api = store();
+    if (!api) return { ok: false, reason: "scene-store-unavailable" };
+    const before = api.describe();
+    if (!before?.productId) return { ok: false, reason: "no-product" };
+    api.saveCurrent();
+    const describe = api.describe();
+    const all = describe.surfaces || [];
+    const states = api.getAll() || {};
+    // Solo vistas con edición guardada (a menos que el taller pida vistas puntuales).
+    const candidatas = Array.isArray(surfaceNames) && surfaceNames.length
+        ? all.filter(surf => surfaceNames.includes(surf.name))
+        : all.filter(surf => surf.sceneKey && typeof states[surf.sceneKey] === "string" && states[surf.sceneKey].trim() !== "");
+    const piezas = [];
+    for (const target of candidatas) {
+        const opened = api.openSurface(describe.productId, target.name);
+        if (!opened) continue;
+        await new Promise(resolve => setTimeout(resolve, 60));
+        let svg = "";
+        try {
+            // El lote es para GRABAR: sin mockup, sin marca de agua. Una vista
+            // cuyo export sale vacío es una vista sin edición real: se salta.
+            svg = await prepareSVGForExport({ asString: true, includeMockup: false });
+        } catch (_) { svg = ""; }
+        if (!svg || svg.trim() === "") continue;
+        const vb = String((svg.match(/viewBox="([^"]+)"/) || [])[1] || "").trim().split(/\s+/).map(Number);
+        const wMM = parseFloat((svg.match(/width="([\d.]+)mm"/) || [])[1]);
+        const gInicio = svg.indexOf("<g");
+        const gFin = svg.lastIndexOf("</g>");
+        if (vb.length !== 4 || vb.some(v => !Number.isFinite(v)) || !Number.isFinite(wMM) || gInicio < 0 || gFin <= gInicio) continue;
+        piezas.push({ nombre: target.name, viewBox: vb, wMM, contenido: svg.slice(gInicio, gFin + 4) });
+        await new Promise(resolve => setTimeout(resolve, 120));
+    }
+    // Restaurar la vista original del cliente.
+    try {
+        const back = describe.surfaces.find(surf => surf.index === describe.surfaceIndex);
+        if (back) api.openSurface(describe.productId, back.name);
+    } catch (_) {}
+    if (!piezas.length) return { ok: false, reason: "no-editado" };
+    // Escala mm/unidad: la fija el editor según el producto; si no está, se
+    // deduce de la primera pieza (ancho mm / ancho en unidades).
+    const mmPorUnidad = Number(window.mmPerPaperUnit) || (piezas[0].wMM / piezas[0].viewBox[2]);
+    const SEPARACION_MM = 6; // aire entre piezas: el láser nunca pega dos productos
+    const sepUnidades = SEPARACION_MM / mmPorUnidad;
+    const grupos = [];
+    let cursor = 0; // en unidades del viewBox (papel)
+    let anchoTotal = 0, altoMax = 0;
+    piezas.forEach(p => {
+        const [vx, vy, vw, vh] = p.viewBox;
+        grupos.push(`<g data-ekko-vista="${p.nombre}" transform="translate(${(-vx + cursor).toFixed(4)},${(-vy).toFixed(4)})">${p.contenido}</g>`);
+        cursor += vw + sepUnidades;
+        anchoTotal += p.wMM;
+        altoMax = Math.max(altoMax, vh * mmPorUnidad);
+    });
+    anchoTotal += SEPARACION_MM * (piezas.length - 1);
+    const lote = `<svg xmlns="http://www.w3.org/2000/svg" width="${anchoTotal.toFixed(3)}mm" height="${altoMax.toFixed(3)}mm" viewBox="0 0 ${cursor - sepUnidades} ${altoMax / mmPorUnidad}">${grupos.join("")}</svg>`;
+    return { ok: true, lote, piezas: piezas.map(p => p.nombre), producto: describe.productName };
+}
+
+export async function enviarAGrabarEkkoGrabados(surfaceNames = null) {
+    const contacto = leerContactoTaller();
+    const api = store();
+    if (!api || !api.describe()?.productId) {
+        notice("Cargá un producto antes de enviar a grabar.", { kind: "warn" });
+        return { ok: false, reason: "no-product" };
+    }
+    const lote = await construirSVGLote(surfaceNames);
+    if (!lote.ok) {
+        notice(lote.reason === "no-editado"
+            ? "Todavía no hay nada editado para grabar: dibujá o escribí algo primero."
+            : "No se pudo preparar el envío. Probá de nuevo.", { kind: "warn", ms: 6000 });
+        return lote;
+    }
+    const filename = `ekko-grabado-${slugify(lote.producto)}-COMPLETO-${stamp()}.svg`;
+    downloadBlob(new Blob([lote.lote], { type: "image/svg+xml;charset=utf-8" }), filename);
+    const msg = [
+        `${contacto.nombre || "EKKO GRABADOS"} — pedido de grabado`,
+        `Producto: ${lote.producto}`,
+        `Piezas incluidas (1 archivo): ${lote.piezas.join(", ")}`,
+        `Archivo: ${filename} (ya descargado: adjuntalo en este chat)`,
+        `Fecha: ${new Date().toLocaleString()}`
+    ].join("\n");
+    setTimeout(() => {
+        try { window.open(`https://wa.me/${contacto.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank"); } catch (_) {}
+    }, 900);
+    notice(`Listo para enviar: ${filename} (${lote.piezas.length} pieza${lote.piezas.length === 1 ? "" : "s"} en un solo archivo). Adjuntalo en el chat de WhatsApp.`, { kind: "ok", ms: 9000 });
+    return { ok: true, filename, vistas: lote.piezas };
+}
+
 if (typeof window !== "undefined") {
     window.EKKO_PROJECT_IO = {
         exportViewsToSVG,
@@ -482,6 +594,7 @@ if (typeof window !== "undefined") {
         downloadSketchPNG,
         downloadSketchPDF,
         enviarGrabadoPorWhatsApp,
-        abrirDriveProyectos
+        abrirDriveProyectos,
+        enviarAGrabarEkkoGrabados
     };
 }
