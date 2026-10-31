@@ -11,10 +11,10 @@
                        data-fusion-btn ni data-ekko-command, así que ni el
                        renderer ni panelCommandBridge los tocan.
 
-   NIVEL "FIJA"        la banda #pro-layout-toolbar existente, re-estilada al
-                       formato de Word: iconos en fila y el nombre del grupo
-                       debajo. Se pliega a una línea. No duplica botones: los
-                       mismos botones de la banda se reacomodan.
+   NIVEL "FIJA"        la banda #pro-layout-toolbar existente, re-estilada a
+                       fichas: iconos en fila y el nombre del grupo debajo. Se
+                       pliega a una línea. No duplica botones: los mismos
+                       botones de la banda se reacomodan.
 
    Uso: este módulo solo LEE el DOM de la cinta y ejecuta los botones reales
    con click(). Nunca decide habilitado/bloqueado: eso sigue siendo de
@@ -29,7 +29,7 @@ const CFG_DEF = Object.freeze({
     n: 6,              // 5..9
     orden: "hibrido",  // hibrido | uso | reciente
     usadasArriba: false,
-    fijaWord: true,
+    fijaFichas: true,
     fijaPlegada: false,
     usadasPlegada: false
 });
@@ -53,7 +53,11 @@ function guardar(k, v) {
 }
 function cargarCfg() {
     const guardado = leer(LS_CFG, null);
-    cfg = { ...CFG_DEF, ...(guardado && typeof guardado === "object" ? guardado : {}) };
+    const viejo = (guardado && typeof guardado === "object") ? { ...guardado } : {};
+    // El ajuste se llamaba fijaWord en la ronda 14: se migra sin perderlo.
+    if ("fijaWord" in viejo && !("fijaFichas" in viejo)) viejo.fijaFichas = viejo.fijaWord;
+    delete viejo.fijaWord;
+    cfg = { ...CFG_DEF, ...viejo };
     cfg.n = Math.min(9, Math.max(5, +cfg.n || CFG_DEF.n));
     if (!["hibrido", "uso", "reciente"].includes(cfg.orden)) cfg.orden = CFG_DEF.orden;
 }
@@ -134,6 +138,27 @@ const NOMBRES = Object.freeze({
     "pro:proBtnQuitarFusion": "Quitar fusión"
 });
 
+/* En la ficha del nivel 4 entra un nombre, no una frase: "Descomponer Vector"
+   a 11 px mide 112 y se cortaba en "Descomponer Ve…". El tooltip conserva el
+   nombre completo del botón. */
+const CORTOS = Object.freeze({
+    "fb:decomposeVector": "Descomponer",
+    "fb:textToVector": "Texto a vector",
+    "fb:editFusionImage": "Editar imagen",
+    "fb:removeBg": "Quitar fondo",
+    "fb:editCutout": "Editar fondo",
+    "fb:traceImage": "Trazar",
+    "fb:booleanUnion": "Unión",
+    "fb:booleanSubtract": "Restar",
+    "fb:booleanIntersect": "Intersección",
+    "fb:booleanDifference": "Diferencia",
+    "fb:solidHole": "Sólidos ⇄ huecos",
+    "fb:cutSegment": "Tijera",
+    "fb:editNodes": "Editar nodos",
+    "fb:audit": "Auditar",
+    "fb:outline": "Contorno"
+});
+
 function claveDe(boton) {
     if (!boton) return null;
     if (boton.dataset.fusionBtn) return "fb:" + boton.dataset.fusionBtn;
@@ -177,8 +202,9 @@ function herramientas() {
         if (!k || mapa.has(k)) return;
         const enBanda = !!b.closest("#pro-layout-toolbar");
         const bruto = b.id ? "pro:" + b.id : "";
-        const label = (enBanda && NOMBRES[bruto]) || textoDe(b);
-        mapa.set(k, { clave: k, label, icon: iconoDe(b), titulo: b.getAttribute("title") || label });
+        const completo = (enBanda && NOMBRES[bruto]) || textoDe(b);
+        const label = (enBanda && NOMBRES[bruto]) || CORTOS[k] || textoDe(b);
+        mapa.set(k, { clave: k, label, completo, icon: iconoDe(b), titulo: b.getAttribute("title") || completo });
     });
     return mapa;
 }
@@ -300,12 +326,12 @@ function escapar(s) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Nivel FIJA: la banda existente en formato Word                       */
+/* Nivel FIJA: la banda existente en formato de fichas                  */
 /* ------------------------------------------------------------------ */
 function prepararBanda() {
     const banda = document.getElementById("pro-layout-toolbar");
     if (!banda) return;
-    if (!banda.dataset.ekkoWord) {
+    if (!banda.dataset.ekkoFichas) {
         // El grupo de "Opciones de Vista" mezcla vista y zoom: el zoom merece
         // su propio grupo para que el nombre quede debajo de sus botones.
         const zoom = banda.querySelector("#pro-zoom-reset");
@@ -323,7 +349,7 @@ function prepararBanda() {
             if (divisor) divisor.remove();
             banda.appendChild(grupo);
         }
-        // Word: el nombre del grupo va DEBAJO de sus iconos.
+        // El nombre del grupo va DEBAJO de sus iconos.
         banda.querySelectorAll(".pro-group").forEach(g => {
             const label = Array.from(g.children).find(c => c.classList.contains("pro-label"));
             if (label && g.lastElementChild !== label) g.appendChild(label);
@@ -341,10 +367,10 @@ function prepararBanda() {
             aplicar();
         });
         banda.appendChild(fold);
-        banda.dataset.ekkoWord = "1";
+        banda.dataset.ekkoFichas = "1";
     }
-    document.body.classList.toggle("ekko-fija-word", !!cfg.fijaWord);
-    document.body.classList.toggle("ekko-fija-plegada", !!cfg.fijaPlegada && !!cfg.fijaWord);
+    document.body.classList.toggle("ekko-fija-fichas", !!cfg.fijaFichas);
+    document.body.classList.toggle("ekko-fija-plegada", !!cfg.fijaPlegada && !!cfg.fijaFichas);
 }
 
 /* ------------------------------------------------------------------ */
@@ -386,7 +412,7 @@ function estilos() {
     .ekko-chip-ic{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;
         color:inherit;opacity:.82}
     .ekko-chip-ic svg{width:13px;height:13px}
-    .ekko-chip-tx{max-width:96px;overflow:hidden;text-overflow:ellipsis}
+    .ekko-chip-tx{max-width:108px;overflow:hidden;text-overflow:ellipsis}
     .ekko-chip-n{font-size:9.5px;min-width:15px;height:15px;padding:0 4px;display:inline-grid;place-items:center;
         background:rgba(120,120,140,.16);color:inherit;border-radius:9px;opacity:.9}
     .ekko-chip.is-off{opacity:.45}
@@ -402,32 +428,32 @@ function estilos() {
     body.ekko-usadas-plegada #ekkoNivelUsadas .ekko-niv-items{display:none}
     body.ekko-usadas-plegada #ekkoNivelUsadas{padding:2px 8px;min-height:20px}
 
-    /* ---------- barra fija en formato Word ----------
+    /* ---------- barra fija en formato de fichas ----------
        Ojo con la especificidad: ASSETS/css/styles.css y ekko-espacio.css ya
        pintan la banda con "#topBar + #pro-layout-toolbar .pro-btn" (dos ids).
        Por eso acá todo va con el mismo prefijo y una clase más. */
     /* Solo se toca el ORDEN: el vidrio, el borde y el tema los sigue pintando
        ekko-espacio.css (que ya tiene su versión oscura). */
-    body.ekko-fija-word #topBar + #pro-layout-toolbar{display:flex;align-items:flex-end;justify-content:flex-start;
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar{display:flex;align-items:flex-end;justify-content:flex-start;
         gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;height:auto;position:relative}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar::-webkit-scrollbar{height:0}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar{scrollbar-width:none}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-group{display:flex;flex-flow:row wrap;align-items:center;
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar::-webkit-scrollbar{height:0}
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar{scrollbar-width:none}
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-group{display:flex;flex-flow:row wrap;align-items:center;
         justify-content:flex-start;gap:1px;padding:2px 7px 1px;border-right:1px solid rgba(20,24,40,.09);
         border-radius:0;background:transparent;flex:none;max-width:224px}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-group:last-of-type{border-right:0}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-btn{display:inline-grid;place-items:center;width:27px;
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-group:last-of-type{border-right:0}
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-btn{display:inline-grid;place-items:center;width:27px;
         height:24px;min-height:0;padding:0;font-size:0 !important;line-height:1;background:transparent;border:1px solid transparent;
         border-radius:4px;color:#3d424d;margin:0 1px;box-shadow:none}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-btn>i{font-size:12.5px !important;margin:0}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-btn:hover{background:rgba(79,70,229,.08);
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-btn>i{font-size:12.5px !important;margin:0}
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-btn:hover{background:rgba(79,70,229,.08);
         border-color:rgba(79,70,229,.22);color:#3730c9}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-btn.active{background:rgba(79,70,229,.10);color:#3730c9}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-btn>span{display:none}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-label{flex-basis:100%;text-align:center;
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-btn.active{background:rgba(79,70,229,.10);color:#3730c9}
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-btn>span{display:none}
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-label{flex-basis:100%;text-align:center;
         font-size:8.4px !important;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:#8b8f9a;
         margin:3px 0 0;white-space:nowrap;order:99}
-    body.ekko-fija-word #topBar + #pro-layout-toolbar .pro-divider{width:1px;height:20px;
+    body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-divider{width:1px;height:20px;
         background:rgba(20,24,40,.10);margin:0 3px;align-self:center}
     .ekko-niv-fold{margin-left:auto;align-self:center;display:grid;place-items:center;width:22px;height:22px;
         border:1px solid transparent;border-radius:4px;background:transparent;color:#8b8f9a;cursor:pointer;flex:none}
@@ -437,26 +463,38 @@ function estilos() {
     body.ekko-fija-plegada #topBar + #pro-layout-toolbar .ekko-niv-fold .ekko-niv-chev{transform:rotate(-90deg)}
 
     /* ---------- editor ---------- */
-    .ekko-niv-modal{position:fixed;inset:0;background:rgba(18,20,28,.34);z-index:20000300;
-        display:flex;align-items:flex-start;justify-content:center;padding:64px 16px;overflow:auto}
-    .ekko-niv-panel{width:min(560px,100%);background:#fff;color:#22242a;border-radius:12px;
-        box-shadow:0 18px 60px rgba(10,14,30,.28);font:12.5px/1.45 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;overflow:hidden}
-    .ekko-niv-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid #e9eaee}
+    /* PANEL LATERAL, no modal a pantalla completa (ronda 15). El pedido del
+       cliente fue literal: "en desplegar nivel no sucede nada". No era el
+       clic: era que un velo cubria toda la app, asi que plegar o desplegar un
+       nivel cambiaba algo que quedaba TAPADO. Ahora el editor se ancla a la
+       derecha, debajo de la barra, sin velo: cada cambio se ve en el acto. */
+    .ekko-niv-modal{position:fixed;inset:0;z-index:20000300;display:flex;
+        align-items:flex-start;justify-content:flex-end;background:transparent;
+        padding:0;pointer-events:none;overflow:visible}
+    .ekko-niv-panel{pointer-events:auto;position:absolute;top:96px;right:12px;
+        width:min(392px,calc(100vw - 24px));max-height:calc(100vh - 132px);
+        display:flex;flex-direction:column;
+        background:#fff;color:#22242a;border-radius:12px;border:1px solid #e3e5ea;
+        box-shadow:0 18px 50px rgba(10,14,30,.22);
+        font:12.5px/1.45 "Segoe UI Variable","Segoe UI",system-ui,sans-serif;overflow:hidden}
+    .ekko-niv-head{display:flex;align-items:center;gap:10px;padding:11px 13px;border-bottom:1px solid #e9eaee;flex:none}
     .ekko-niv-head b{font-size:13.5px;font-weight:650}
-    .ekko-niv-head span{color:#71757e;font-size:11.5px}
+    .ekko-niv-head span{color:#71757e;font-size:11px}
     .ekko-niv-x{margin-left:auto;border:0;background:transparent;font-size:16px;color:#71757e;cursor:pointer;line-height:1}
-    .ekko-niv-body{padding:12px 14px;display:grid;gap:14px;max-height:min(60vh,520px);overflow:auto}
-    .ekko-niv-sec{border:1px solid #e9eaee;border-radius:9px;padding:10px 11px;display:grid;gap:8px}
+    .ekko-niv-body{padding:11px 13px;display:grid;gap:11px;overflow:auto;min-height:0}
+    .ekko-niv-sec{border:1px solid #e9eaee;border-radius:9px;padding:9px 10px;display:grid;gap:7px}
     .ekko-niv-sec>h4{margin:0;font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:#8b8f9a;font-weight:650}
-    .ekko-niv-linea{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-    .ekko-niv-linea>label{color:#4b4f59}
-    .ekko-niv-panel select,.ekko-niv-panel input[type=number]{font:inherit;font-size:12px;height:26px;padding:0 6px;
-        border:1px solid #dcdee3;border-radius:6px;background:#fff;color:#22242a}
+    .ekko-niv-linea{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    .ekko-niv-linea>label{color:#4b4f59;font-size:11.5px}
+    .ekko-niv-panel select,.ekko-niv-panel input[type=number]{font:inherit;font-size:11.5px;height:26px;padding:0 6px;
+        border:1px solid #dcdee3;border-radius:6px;background:#fff;color:#22242a;max-width:100%}
     .ekko-niv-b{border:1px solid #dcdee3;background:#fff;border-radius:6px;height:26px;padding:0 9px;font:inherit;
         font-size:11.5px;color:#22242a;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
     .ekko-niv-b:hover{background:#f3f4f7}
     .ekko-niv-b.warn{color:#b3261e;border-color:#f0c4c1}
     .ekko-niv-hint{color:#8b8f9a;font-size:11px}
+    .ekko-niv-estado{font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#4f46e5;
+        background:rgba(79,70,229,.10);border-radius:20px;padding:1px 7px}
     .ekko-niv-tabla{display:grid;gap:3px}
     .ekko-niv-fila{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;
         padding:3px 5px;border-radius:5px}
@@ -465,7 +503,7 @@ function estilos() {
     .ekko-niv-fila .ekko-chip-ic{color:#4b4f59}
     .ekko-niv-fila-nm{display:flex;align-items:center;gap:6px;min-width:0}
     .ekko-niv-fila-nm span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    body[data-modo="oscuro"] .ekko-niv-panel{background:#1d1f26;color:#e8e9ee}
+    body[data-modo="oscuro"] .ekko-niv-panel{background:#1d1f26;color:#e8e9ee;border-color:#31343d}
     body[data-modo="oscuro"] .ekko-niv-head,body[data-modo="oscuro"] .ekko-niv-sec{border-color:#31343d}
     body[data-modo="oscuro"] .ekko-niv-panel select,
     body[data-modo="oscuro"] .ekko-niv-panel input,
@@ -482,9 +520,8 @@ function abrirEditor() {
     if (!editor) {
         editor = document.createElement("div");
         editor.className = "ekko-niv-modal";
-        editor.innerHTML = '<div class="ekko-niv-panel" role="dialog" aria-modal="true" aria-label="Niveles de la barra"></div>';
+        editor.innerHTML = '<div class="ekko-niv-panel" role="dialog" aria-label="Niveles de la barra"></div>';
         editor.addEventListener("click", ev => {
-            if (ev.target === editor) cerrarEditor();
             const b = ev.target.closest("[data-niv-accion]");
             if (b) accionEditor(b.dataset.nivAccion, b.dataset.nivValor);
         });
@@ -492,9 +529,24 @@ function abrirEditor() {
     }
     editor.style.display = "flex";
     pintarEditor();
+    posicionarEditor();
 }
+
+/* Sin velo, clic afuera no llega al overlay (pointer-events:none): se cierra
+   con Esc o con la ✕. */
 function cerrarEditor() {
     if (editor) editor.style.display = "none";
+}
+
+/* El panel se cuelga DEBAJO de la barra, sobre la derecha: lo que se toca
+   arriba (plegar un nivel) tiene que verse mientras se toca. */
+function posicionarEditor() {
+    if (!editor || editor.style.display === "none") return;
+    const panel = editor.querySelector(".ekko-niv-panel");
+    const ancla = document.getElementById("ekkoNivelUsadas") || document.getElementById("pro-layout-toolbar");
+    if (!panel) return;
+    const y = ancla ? Math.round(ancla.getBoundingClientRect().bottom + 8) : 96;
+    panel.style.top = Math.max(8, y) + "px";
 }
 
 function pintarEditor() {
@@ -505,13 +557,42 @@ function pintarEditor() {
     panel.innerHTML = `
         <div class="ekko-niv-head">
             <b>Niveles de la barra</b>
-            <span>EKKO · se guarda solo</span>
-            <button class="ekko-niv-x" type="button" data-niv-accion="cerrar" title="Cerrar">✕</button>
+            <span>se guarda solo</span>
+            <button class="ekko-niv-x" type="button" data-niv-accion="cerrar" title="Cerrar (Esc)">✕</button>
         </div>
         <div class="ekko-niv-body">
 
             <div class="ekko-niv-sec">
-                <h4>Nivel Más usadas</h4>
+                <h4>Nivel 1 · Pestañas</h4>
+                <div class="ekko-niv-hint">Inicio es solo para <b>cargar y crear</b>. Al elegir un objeto se
+                    enciende sola la pestaña de su tipo —Imagen, Vector o Texto— con sus herramientas.</div>
+            </div>
+
+            <div class="ekko-niv-sec">
+                <h4>Nivel 2 · Herramientas</h4>
+                <div class="ekko-niv-hint">Las fichas del objeto elegido: icono arriba y nombre abajo. Con un
+                    objeto apuntado, Cargar y Crear se retiran de esta fila; vuelven al tocar Inicio.</div>
+            </div>
+
+            <div class="ekko-niv-sec">
+                <h4>Nivel 3 · Barra fija</h4>
+                <div class="ekko-niv-linea">
+                    <label>Mostrar</label>
+                    <select data-niv-campo="fijaFichas">
+                        <option value="1"${cfg.fijaFichas ? " selected" : ""}>iconos con el nombre debajo</option>
+                        <option value="0"${!cfg.fijaFichas ? " selected" : ""}>icono con el texto al lado</option>
+                    </select>
+                    <button class="ekko-niv-b" type="button" data-niv-accion="plegar-fija">
+                        ${cfg.fijaPlegada ? "Desplegar" : "Plegar"} la barra fija
+                    </button>
+                    <span class="ekko-niv-estado">${cfg.fijaPlegada ? "plegada" : "abierta"}</span>
+                </div>
+                <div class="ekko-niv-hint">Alinear, centrar, distribuir, organizar, vista y zoom: los mismos
+                    comandos de siempre, sin copias.</div>
+            </div>
+
+            <div class="ekko-niv-sec">
+                <h4>Nivel 4 · Más usadas</h4>
                 <div class="ekko-niv-linea">
                     <label>Cantidad</label>
                     <select data-niv-campo="n">
@@ -527,29 +608,15 @@ function pintarEditor() {
                 <div class="ekko-niv-linea">
                     <label>Posición</label>
                     <select data-niv-campo="usadasArriba">
-                        <option value="0"${!cfg.usadasArriba ? " selected" : ""}>abajo de todo (sobre el lienzo)</option>
+                        <option value="0"${!cfg.usadasArriba ? " selected" : ""}>abajo de la barra fija</option>
                         <option value="1"${cfg.usadasArriba ? " selected" : ""}>arriba de la barra fija</option>
                     </select>
                     <button class="ekko-niv-b" type="button" data-niv-accion="plegar-usadas">
-                        ${cfg.usadasPlegada ? "Desplegar" : "Plegar"} el nivel
+                        ${cfg.usadasPlegada ? "Desplegar" : "Plegar"} más usadas
                     </button>
+                    <span class="ekko-niv-estado">${cfg.usadasPlegada ? "plegado" : "abierto"}</span>
                 </div>
                 <div class="ekko-niv-hint">Se muestran las ${cfg.n} con más usos; cada vez que tocás una vuelve al primer lugar.</div>
-            </div>
-
-            <div class="ekko-niv-sec">
-                <h4>Nivel Barra fija</h4>
-                <div class="ekko-niv-linea">
-                    <label>Formato</label>
-                    <select data-niv-campo="fijaWord">
-                        <option value="1"${cfg.fijaWord ? " selected" : ""}>Word (iconos y nombre abajo)</option>
-                        <option value="0"${!cfg.fijaWord ? " selected" : ""}>original (con texto)</option>
-                    </select>
-                    <button class="ekko-niv-b" type="button" data-niv-accion="plegar-fija">
-                        ${cfg.fijaPlegada ? "Desplegar" : "Plegar"} la barra
-                    </button>
-                </div>
-                <div class="ekko-niv-hint">Son los mismos botones de siempre (alinear, centrar, organizar, vista): no hay copias.</div>
             </div>
 
             <div class="ekko-niv-sec">
@@ -558,7 +625,7 @@ function pintarEditor() {
                     ${ordenadas.length ? ordenadas.map(x => {
                         const dentro = conjunto.some(c => c.clave === x.clave);
                         return `<div class="ekko-niv-fila">
-                            <span class="ekko-niv-fila-nm"><span class="ekko-chip-ic">${x.info.icon}</span><span>${escapar(x.info.label)}</span></span>
+                            <span class="ekko-niv-fila-nm"><span class="ekko-chip-ic">${x.info.icon}</span><span>${escapar(x.info.completo || x.info.label)}</span></span>
                             <span class="n">${x.c}</span>
                             <button class="ekko-niv-b${dentro ? " warn" : ""}" type="button"
                                 data-niv-accion="sacar" data-niv-valor="${x.clave}"
@@ -639,13 +706,23 @@ function enlazar() {
         registrar(claveDe(b));
     }, true);
 
+    // El panel lateral no tiene velo: se cierra con Esc y sigue a la barra si
+    // la ventana cambia de alto o la fila se mueve.
+    document.addEventListener("keydown", ev => {
+        if (ev.key === "Escape" && editor && editor.style.display !== "none") {
+            ev.stopPropagation();
+            cerrarEditor();
+        }
+    }, true);
+    window.addEventListener("resize", posicionarEditor);
+
     document.addEventListener("change", ev => {
         const campo = ev.target.getAttribute && ev.target.getAttribute("data-niv-campo");
         if (!campo) return;
         if (campo === "n") cfg.n = Math.min(9, Math.max(5, +ev.target.value || 6));
         else if (campo === "orden") cfg.orden = ev.target.value;
         else if (campo === "usadasArriba") cfg.usadasArriba = ev.target.value === "1";
-        else if (campo === "fijaWord") cfg.fijaWord = ev.target.value === "1";
+        else if (campo === "fijaFichas") cfg.fijaFichas = ev.target.value === "1";
         guardar(LS_CFG, cfg);
         aplicar();
         pintarEditor();
