@@ -1,5 +1,6 @@
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { buildOutlineGeometry } from "./outlineGeometry.js";
+import { alphaSilhouetteContours } from "./contorno.js";
 import { cerrarParametros } from "./commandParameters.js";
 
 // --- ALGORITMO DE SEGUIMIENTO DE CONTORNOS (Moore-Neighbor Tracing con Curvas) ---
@@ -199,7 +200,9 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
 // de grises que se le pasa. Con niveles = 1 el resultado es identico al de
 // antes: no cambia nada para quien no toca el control.
 export function traceRasterBandas(imageData, { umbral = 128, corte = 0, niveles = 1, croquis = false } = {}) {
-  const n = Math.max(1, Math.min(6, Math.round(niveles) || 1));
+  // El panel ofrece Niveles 2-8: el tope acompana al panel (antes era 6 y
+  // en Lineas/Croquis los niveles 7-8 se perian en silencio).
+  const n = Math.max(1, Math.min(8, Math.round(niveles) || 1));
   const lo = Math.max(0, Math.min(255, corte));
   const hi = Math.max(0, Math.min(255, umbral));
   if (hi <= lo || n === 1) {
@@ -212,6 +215,297 @@ export function traceRasterBandas(imageData, { umbral = 128, corte = 0, niveles 
     bandas.push({ nivel: i, contours: traceRasterContours(imageData, t1, t0, croquis) });
   }
   return bandas;
+}
+
+// --- MODO COLOR: LA CALCOMANIA POR REGIONES ------------------------------
+// El concepto aprobado: Trazar separa la imagen en REGIONES de color y
+// entrega cada region como una pieza cerrada rellena. El anidado sale solo:
+// una region dentro de otra deja un hueco en la de afuera (mascara por
+// region + marching squares), y con fillRule evenodd el conjunto completa
+// la calcomania. Todo se entrega en NEGRO: es material para grabado laser.
+//
+// Pipeline (todo sobre una lectura de pixeles a <=480px):
+//   1. cuantizar a N colores (median cut sobre histograma de 5 bits)
+//   2. etiquetar cada pixel con su color mas cercano (alfa<=128 = vacio)
+//   3. filtro de motas: voto por mayoria 3x3, tantas pasadas como pida
+//   4. regiones = componentes conexas (4-conex) de cada etiqueta
+//   5. fusion de regiones chicas con la vecina de mayor contacto + tope
+//   6. loops por region con el stitcher de Contorno (mascara acolchada)
+// -------------------------------------------------------------------------
+
+const MAX_LADO_TRAZO = 480;
+const MAX_REGIONES = 48;
+
+/** Lectura de pixeles a resolucion de trabajo. Reusa el patron de Contorno:
+ *  canvas offscreen con willReadFrequently. */
+function leerPixeles(imgSource, maxLado = MAX_LADO_TRAZO) {
+  const w0 = imgSource.width || imgSource.naturalWidth || 0;
+  const h0 = imgSource.height || imgSource.naturalHeight || 0;
+  if (!(w0 > 0) || !(h0 > 0)) return null;
+  const escala = Math.min(1, maxLado / Math.max(w0, h0));
+  const w = Math.max(8, Math.round(w0 * escala));
+  const h = Math.max(8, Math.round(h0 * escala));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, w, h);
+  try { ctx.drawImage(imgSource, 0, 0, w, h); } catch (_) { return null; }
+  let data = null;
+  try { data = ctx.getImageData(0, 0, w, h).data; } catch (_) { return null; }
+  if (!data) return null;
+  return { data, w, h };
+}
+
+/** Paleta de N colores por median cut. Se trabaja sobre BUCKETS del
+ *  histograma (5 bits por canal) y no sobre pixeles: O(miles), no O(millones). */
+function paletaMedianCut(data, w, h, n) {
+  const hist = new Uint32Array(32768);
+  let total = 0;
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+    if (data[p + 3] <= 128) continue;
+    hist[((data[p] >> 3) << 10) | ((data[p + 1] >> 3) << 5) | (data[p + 2] >> 3)] += 1;
+    total += 1;
+  }
+  if (!total) return null;
+  const entradas = [];
+  for (let idx = 0; idx < 32768; idx++) {
+    const c = hist[idx];
+    if (!c) continue;
+    entradas.push({ r: (idx >> 10) & 31, g: (idx >> 5) & 31, b: idx & 31, n: c });
+  }
+  if (entradas.length <= n) {
+    return entradas.map(e => [e.r * 8 + 4, e.g * 8 + 4, e.b * 8 + 4]);
+  }
+  // Split recursivo: siempre se parte el grupo con mas (rango x peso) por su
+  // canal mas ancho, en la mediana PONDERADA por cantidad de pixeles.
+  let grupos = [entradas];
+  while (grupos.length < n) {
+    let mejor = -1, mejorScore = 0, mejorCanal = 0;
+    grupos.forEach((g, i) => {
+      if (g.length < 2) return;
+      let rmin = 31, rmax = 0, gmin = 31, gmax = 0, bmin = 31, bmax = 0, count = 0;
+      g.forEach(e => {
+        count += e.n;
+        if (e.r < rmin) rmin = e.r; if (e.r > rmax) rmax = e.r;
+        if (e.g < gmin) gmin = e.g; if (e.g > gmax) gmax = e.g;
+        if (e.b < bmin) bmin = e.b; if (e.b > bmax) bmax = e.b;
+      });
+      const rr = rmax - rmin, gr = gmax - gmin, br = bmax - bmin;
+      const canal = (rr >= gr && rr >= br) ? 0 : (gr >= br ? 1 : 2);
+      const rango = canal === 0 ? rr : (canal === 1 ? gr : br);
+      const score = rango * count;
+      if (score > mejorScore) { mejorScore = score; mejor = i; mejorCanal = canal; }
+    });
+    if (mejor < 0) break;
+    const g = grupos.splice(mejor, 1)[0];
+    const clave = e => mejorCanal === 0 ? e.r : (mejorCanal === 1 ? e.g : e.b);
+    g.sort((a, b) => clave(a) - clave(b));
+    let suma = 0;
+    g.forEach(e => { suma += e.n; });
+    let acc = 0, corte = g.length - 1;
+    for (let i = 0; i < g.length; i++) {
+      acc += g[i].n;
+      if (acc >= suma / 2) { corte = Math.min(g.length - 1, Math.max(1, i + 1)); break; }
+    }
+    grupos.push(g.slice(0, corte), g.slice(corte));
+  }
+  return grupos.map(g => {
+    let tr = 0, tg = 0, tb = 0, tt = 0;
+    g.forEach(e => { tr += e.r * e.n; tg += e.g * e.n; tb += e.b * e.n; tt += e.n; });
+    return [Math.round(tr / tt) * 8 + 4, Math.round(tg / tt) * 8 + 4, Math.round(tb / tt) * 8 + 4];
+  });
+}
+
+/** Etiqueta cada pixel con el color de la paleta mas cercano. -1 = vacio. */
+function etiquetarPorPaleta(data, w, h, paleta) {
+  const labels = new Int16Array(w * h).fill(-1);
+  const k = paleta.length;
+  for (let i = 0, p = 0; i < w * h; i++, p += 4) {
+    if (data[p + 3] <= 128) continue;
+    const r = data[p], g = data[p + 1], b = data[p + 2];
+    let mejor = 0, mejorD = Infinity;
+    for (let c = 0; c < k; c++) {
+      const dr = r - paleta[c][0], dg = g - paleta[c][1], db = b - paleta[c][2];
+      const d = dr * dr + dg * dg + db * db;
+      if (d < mejorD) { mejorD = d; mejor = c; }
+    }
+    labels[i] = mejor;
+  }
+  return labels;
+}
+
+/** Filtro de motas: voto por mayoria en la ventana 3x3 (el vacio tambien
+ *  vota). Empate o sin mayoria clara: el pixel se queda como esta. */
+function filtrarMotas(labels, w, h, passes) {
+  for (let pasada = 0; pasada < passes; pasada++) {
+    const copia = labels.slice();
+    for (let y = 0; y < h; y++) {
+      const y0 = Math.max(0, y - 1), y1 = Math.min(h - 1, y + 1);
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        const x0 = Math.max(0, x - 1), x1 = Math.min(w - 1, x + 1);
+        // etiquetas -1..7 -> indice 0..8
+        const conteo = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let total = 0;
+        for (let yy = y0; yy <= y1; yy++) {
+          for (let xx = x0; xx <= x1; xx++) {
+            const v = copia[yy * w + xx];
+            conteo[v + 1] += 1;
+            total += 1;
+          }
+        }
+        let mejorV = copia[i], mejorC = -1;
+        for (let v = 0; v < conteo.length; v++) {
+          if (conteo[v] > mejorC) { mejorC = conteo[v]; mejorV = v - 1; }
+        }
+        // Solo cambia con mayoria ESTRICTA (mas de la mitad de la ventana):
+        // asi el filtro limpia motas sin comerse detalles legitimos.
+        if (mejorV !== copia[i] && mejorC * 2 > total) labels[i] = mejorV;
+      }
+    }
+  }
+}
+
+/** Regiones = componentes conexas 4-conex de cada etiqueta. BFS con pila
+ *  plana: sin recursion, sin reflow. */
+function regionesDe(labels, w, h) {
+  const region = new Int32Array(w * h).fill(-1);
+  const tams = [];
+  const pila = new Int32Array(w * h);
+  for (let semilla = 0; semilla < w * h; semilla++) {
+    if (labels[semilla] < 0 || region[semilla] >= 0) continue;
+    const et = labels[semilla];
+    const id = tams.length;
+    let tope = 0;
+    pila[tope++] = semilla;
+    region[semilla] = id;
+    let tam = 0;
+    while (tope > 0) {
+      const j = pila[--tope];
+      tam += 1;
+      const x = j % w;
+      if (x > 0 && region[j - 1] < 0 && labels[j - 1] === et) { region[j - 1] = id; pila[tope++] = j - 1; }
+      if (x < w - 1 && region[j + 1] < 0 && labels[j + 1] === et) { region[j + 1] = id; pila[tope++] = j + 1; }
+      if (j >= w && region[j - w] < 0 && labels[j - w] === et) { region[j - w] = id; pila[tope++] = j - w; }
+      if (j < w * (h - 1) && region[j + w] < 0 && labels[j + w] === et) { region[j + w] = id; pila[tope++] = j + w; }
+    }
+    tams.push(tam);
+  }
+  return { region, tams };
+}
+
+/** Fusion de regiones chicas: cada una se absorbe por la vecina con la que
+ *  comparte mas borde. Un solo barrido de contactos + proceso de menor a
+ *  mayor, asi las cadenas de motas se absorben en cascada. */
+function fusionarChicas(region, tams, w, h, minArea) {
+  const n = tams.length;
+  if (!n) return;
+  // Contactos entre regiones vecinas (un solo barrido, derecha y abajo).
+  const contacto = new Map(); // id -> Map(vecino -> pixeles de borde)
+  const anotar = (a, b) => {
+    if (a === b) return;
+    let ma = contacto.get(a);
+    if (!ma) { ma = new Map(); contacto.set(a, ma); }
+    ma.set(b, (ma.get(b) || 0) + 1);
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const a = region[i];
+      if (a < 0) continue;
+      if (x < w - 1) { const b = region[i + 1]; if (b >= 0) { anotar(a, b); anotar(b, a); } }
+      if (y < h - 1) { const b = region[i + w]; if (b >= 0) { anotar(a, b); anotar(b, a); } }
+    }
+  }
+  const chicas = [];
+  for (let id = 0; id < n; id++) if (tams[id] > 0 && tams[id] < minArea) chicas.push(id);
+  chicas.sort((a, b) => tams[a] - tams[b]);
+  for (const id of chicas) {
+    if (tams[id] <= 0 || tams[id] >= minArea) continue; // ya fusionada o ya grande
+    const vecinos = contacto.get(id);
+    let mejor = -1, mejorC = 0;
+    if (vecinos) vecinos.forEach((c, v) => {
+      if (tams[v] > 0 && c > mejorC) { mejorC = c; mejor = v; }
+    });
+    if (mejor < 0) continue; // isla sin vecinos: se queda
+    // Reasignar todos los pixeles de la region id a mejor.
+    for (let i = 0; i < w * h; i++) if (region[i] === id) region[i] = mejor;
+    tams[mejor] += tams[id];
+    tams[id] = 0;
+  }
+  // Tope duro de regiones: si quedan demasiadas (fotos con dither), se
+  // absorben las mas chicas hasta volver al tope. El detalle progresivo lo
+  // dan los Niveles; este tope solo evita miles de islas inservibles.
+  let vivas = 0;
+  for (let id = 0; id < n; id++) if (tams[id] > 0) vivas++;
+  while (vivas > MAX_REGIONES) {
+    let chica = -1, chicaTam = Infinity;
+    for (let id = 0; id < n; id++) if (tams[id] > 0 && tams[id] < chicaTam) { chicaTam = tams[id]; chica = id; }
+    if (chica < 0) break;
+    const vecinos = contacto.get(chica);
+    let mejor = -1, mejorC = 0;
+    if (vecinos) vecinos.forEach((c, v) => {
+      if (tams[v] > 0 && c > mejorC) { mejorC = c; mejor = v; }
+    });
+    if (mejor < 0) break;
+    for (let i = 0; i < w * h; i++) if (region[i] === chica) region[i] = mejor;
+    tams[mejor] += tams[chica];
+    tams[chica] = 0;
+    vivas--;
+  }
+}
+
+/** Loops de una region: mascara binaria acolchada con un anillo vacio (asi
+ *  las regiones que tocan el borde de la imagen cierran bien) y el stitcher
+ *  de Contorno en modo grid. */
+function loopsDeRegion(region, tams, id, w, h) {
+  const wp = w + 2, hp = h + 2;
+  const mask = new Uint8Array(wp * hp); // 0 = vacio, ya acolchado
+  for (let y = 0; y < h; y++) {
+    const fila = (y + 1) * wp + 1;
+    for (let x = 0; x < w; x++) {
+      if (region[y * w + x] === id) mask[fila + x] = 255;
+    }
+  }
+  return alphaSilhouetteContours({ alpha: mask, width: wp, height: hp }, null, { enGrid: true })
+    .map(loop => loop.map(p => ({ x: p.x - 1, y: p.y - 1 }))); // quitar el acolchado
+}
+
+/** El pipeline completo del modo Color. Devuelve loops en coordenadas de
+ *  grid (nodo = centro del pixel) listos para mapear a la pieza. */
+function trazarRegiones(muestra, { niveles = 4, ruido = 1, silueta = false } = {}) {
+  const { data, w, h } = muestra;
+  let labels;
+  if (silueta) {
+    // SILUETA: una sola etiqueta. Todo lo opaco es una region; el hueco es
+    // el resto. El filtro de motas limpia el alfa granulado.
+    labels = new Int16Array(w * h).fill(-1);
+    for (let i = 0, p = 3; i < w * h; i++, p += 4) {
+      if (data[p] > 128) labels[i] = 0;
+    }
+  } else {
+    const paleta = paletaMedianCut(data, w, h, Math.max(2, Math.min(8, niveles)));
+    if (!paleta) return { loops: [], regiones: 0 };
+    labels = etiquetarPorPaleta(data, w, h, paleta);
+  }
+  filtrarMotas(labels, w, h, Math.max(0, Math.min(3, Math.round(ruido) || 0)));
+  const { region, tams } = regionesDe(labels, w, h);
+  let opaco = 0;
+  for (let i = 0; i < w * h; i++) if (labels[i] >= 0) opaco++;
+  // minArea: motas por debajo del 0.1% del area opaca (o de 8 pixeles en
+  // absolute) se funden con la vecina.
+  const minArea = Math.max(8, Math.round(opaco * 0.001));
+  fusionarChicas(region, tams, w, h, minArea);
+  const loops = [];
+  let regiones = 0;
+  for (let id = 0; id < tams.length; id++) {
+    if (tams[id] <= 0) continue;
+    const loopsRegion = loopsDeRegion(region, tams, id, w, h);
+    if (loopsRegion.length) { regiones++; loops.push(...loopsRegion); }
+  }
+  return { loops, regiones };
 }
 
 // --- PREVISUALIZACIÓN DE VECTORES EN TIEMPO REAL ---
@@ -287,7 +581,12 @@ function ensureMockupContainment(item) {
   return wrapped;
 }
 
-export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false, outlineWidth = 0, outlineSide = "center", niveles = 1) {
+// Cache del calco: los loops crudos (sin suavizar) dependen de TODO menos
+// de la Suavidad. Mover la Suavidad rehace solo los Path y los simplify,
+// que es lo barato; mover Niveles/Ruido/Detalle recalcula de verdad.
+const CACHE_TRAZO = { clave: null, loops: null };
+
+export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0, optimize = 0.2, sketchTrace = false, onlyOuter = false, outlineWidth = 0, outlineSide = "center", niveles = 4, modo = "color", ruido = 1) {
   if (tracePreviewGroup) {
     tracePreviewGroup.remove();
     tracePreviewGroup = null;
@@ -313,45 +612,81 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
 
     if (width <= 0 || height <= 0) return;
 
-    // RENDIMIENTO EXTREMO: Reducimos a 400px el canvas de lectura para velocidad instantánea
-    const previewCanvas = document.createElement('canvas');
-    previewCanvas.width = Math.min(width, 400);
-    previewCanvas.height = Math.round(height * (previewCanvas.width / width));
-
-    const pCtx = previewCanvas.getContext('2d');
-    pCtx.drawImage(imgSource, 0, 0, previewCanvas.width, previewCanvas.height);
-    const imageData = pCtx.getImageData(0, 0, previewCanvas.width, previewCanvas.height);
-
-    // Cada nivel traza su propia banda de grises; el calco final es la suma.
-    const contours = traceRasterBandas(imageData, {
-      umbral: threshold, corte: cutoff, niveles, croquis: sketchTrace
-    }).flatMap(b => b.contours);
     const bounds = raster.bounds;
+    const claseModo = ["color", "lineas", "croquis", "silueta"].includes(String(modo))
+      ? String(modo) : "color";
+
+    // Loops crudos en coordenadas de grid (nodo = centro del pixel). Cada
+    // modo los produce a su manera; el mapeo a la pieza es el mismo para
+    // todos, asi que la escala del raster (y su rotacion, via
+    // localToGlobal) se respeta igual que siempre.
+    let loops = null;
+    let muestra = null;
+    if (claseModo === "color" || claseModo === "silueta") {
+      muestra = leerPixeles(imgSource);
+      if (!muestra) {
+        console.warn("[EKKO TRAZO] la imagen no tiene pixeles legibles todavia");
+        return;
+      }
+      const clave = [claseModo, niveles, ruido, fuente.id, muestra.w, muestra.h].join("|");
+      if (CACHE_TRAZO.clave === clave && CACHE_TRAZO.loops) {
+        loops = CACHE_TRAZO.loops;
+      } else {
+        const resultado = trazarRegiones(muestra, {
+          niveles,
+          ruido,
+          silueta: claseModo === "silueta"
+        });
+        loops = resultado.loops;
+        CACHE_TRAZO.clave = clave;
+        CACHE_TRAZO.loops = loops;
+      }
+    } else {
+      // LINEAS / CROQUIS: el calco de siempre por bandas de gris.
+      muestra = leerPixeles(imgSource);
+      if (!muestra) {
+        console.warn("[EKKO TRAZO] la imagen no tiene pixeles legibles todavia");
+        return;
+      }
+      const clave = [claseModo, niveles, threshold, cutoff, fuente.id, muestra.w, muestra.h].join("|");
+      if (CACHE_TRAZO.clave === clave && CACHE_TRAZO.loops) {
+        loops = CACHE_TRAZO.loops;
+      } else {
+        const imageData = { data: muestra.data, width: muestra.w, height: muestra.h };
+        loops = traceRasterBandas(imageData, {
+          umbral: threshold, corte: cutoff, niveles, croquis: claseModo === "croquis"
+        }).flatMap(b => b.contours);
+        CACHE_TRAZO.clave = clave;
+        CACHE_TRAZO.loops = loops;
+      }
+    }
 
     const temporaryPaths = [];
 
-    contours.forEach(points => {
+    loops.forEach(points => {
       const pathPoints = points.map(p => {
-        // MAESTRÍA DE COBERTURA: Mapeo exacto basado en el centro de píxel (p.x + 0.5)
-        const pctX = (p.x + 0.5) / previewCanvas.width;
-        const pctY = (p.y + 0.5) / previewCanvas.height;
-        
-        // Mapear a coordenadas locales de Paper.js (que van desde -raster.width/2 hasta raster.width/2)
+        // Mapeo exacto basado en el centro de pixel (p.x + 0.5): el nodo del
+        // grid ES el centro del pixel, en los cuatro modos. Se divide por el
+        // tamano de la MUESTRA (el grid donde viven los loops, <=480px), no
+        // por el del raster: si la imagen venia mas grande, el grid es mas
+        // chico y dividir por el raster encogeria el calco.
+        const pctX = (p.x + 0.5) / muestra.w;
+        const pctY = (p.y + 0.5) / muestra.h;
+
+        // Mapear a coordenadas locales de Paper.js (que van desde
+        // -raster.width/2 hasta raster.width/2) y de ahi a global de forma
+        // matricial: respeta escala y rotacion sin gap.
         const localPoint = new paper.Point(
           (pctX - 0.5) * raster.width,
           (pctY - 0.5) * raster.height
         );
-        
-        // Convertir de local a global de forma matricial para máxima precisión sin gap
         if (typeof raster.localToGlobal === 'function') {
           return raster.localToGlobal(localPoint);
-        } else {
-          // Fallback robusto en caso de que Paper.js esté en un contexto limitado
-          return new paper.Point(
-            bounds.left + pctX * bounds.width,
-            bounds.top + pctY * bounds.height
-          );
         }
+        return new paper.Point(
+          bounds.left + pctX * bounds.width,
+          bounds.top + pctY * bounds.height
+        );
       });
 
       let path = new paper.Path({
@@ -378,25 +713,25 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
           path = outlined;
         }
       }
-      
+
       temporaryPaths.push(path);
     });
 
     // FILTRADO DE CONTORNO EXTERIOR (SILUETA):
     if (onlyOuter && temporaryPaths.length > 1) {
       temporaryPaths.sort((a, b) => Math.abs(b.area) - Math.abs(a.area));
-      
+
       const filteredPaths = [];
       temporaryPaths.forEach(path => {
         const isNested = filteredPaths.some(parentPath => {
           return parentPath.bounds.contains(path.bounds);
         });
-        
+
         if (!isNested) {
           filteredPaths.push(path);
         }
       });
-      
+
       filteredPaths.forEach(p => tracePreviewGroup.addChild(p));
     } else {
       temporaryPaths.forEach(p => tracePreviewGroup.addChild(p));
@@ -425,7 +760,8 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
 const TRAZO = {
   activo: false,
   raster: null,
-  opacidadOriginal: 1
+  opacidadOriginal: 1,
+  modo: "color"
 };
 
 /** Lee los controles del panel. Si el panel esta cerrado, valen los de fabrica. */
@@ -438,9 +774,17 @@ function leerControlesTrazo() {
     return Number.isFinite(v) ? v : fb;
   };
   const modoEl = typeof document !== "undefined" ? document.getElementById("traceModo") : null;
-  const modo = modoEl ? String(modoEl.value || "foto") : "foto";
+  const modoRaw = modoEl ? String(modoEl.value || "color") : "color";
+  // Modos: color (calcomania por regiones), lineas (calco por bandas de
+  // gris de siempre), croquis (bandas con umbral adaptativo), silueta (una
+  // sola pieza con todo lo opaco y sus huecos).
+  const modo = ["color", "lineas", "croquis", "silueta"].includes(modoRaw) ? modoRaw : "color";
+  const nivelesRaw = num("traceNiveles", 4);
+  const ruidoRaw = num("traceRuido", 1);
   return {
-    lineas: Math.max(1, Math.min(6, Math.round(num("traceLineas", 1)) || 1)),
+    modo,
+    niveles: Math.max(2, Math.min(8, Number.isFinite(nivelesRaw) ? Math.round(nivelesRaw) : 4)),
+    ruido: Math.max(0, Math.min(3, Number.isFinite(ruidoRaw) ? Math.round(ruidoRaw) : 1)),
     detalle: Math.max(0, Math.min(255, Math.round(num("traceUmbral", 128)))),
     // El panel muestra 0..100; el motor trabaja 0..1.333. 75 = 1.0, el valor
     // con el que el trazado salia bien en la ventana anterior.
@@ -489,7 +833,8 @@ export async function iniciarTrazado(raster) {
 export function trazoVivo() {
   if (!TRAZO.activo || !TRAZO.raster) return null;
   const c = leerControlesTrazo();
-  runTracePreview(TRAZO.raster, c.detalle, 0, c.suavidad, 0.2, c.croquis, false, 0, "center", c.lineas);
+  TRAZO.modo = c.modo;
+  runTracePreview(TRAZO.raster, c.detalle, 0, c.suavidad, 0.2, c.croquis, false, 0, "center", c.niveles, c.modo, c.ruido);
   return true;
 }
 
@@ -533,9 +878,10 @@ export function confirmarTrazado() {
       const clon = p.clone({ insert: false });
       // El calco se entrega como geometria rellena: no depende de
       // strokeWidth y queda disponible para Calado, Fusionar y nodos.
+      // NEGRO PURO: los vectores de Trazar siempre se entregan en #000000.
       clon.strokeColor = null;
       clon.strokeWidth = 0;
-      clon.fillColor = new paper.Color("#111827");
+      clon.fillColor = new paper.Color("#000000");
       setSemanticKind(clon, VECTOR_KIND.SOLID);
       clon.data = {
         ...(p.data || {}),
@@ -551,17 +897,23 @@ export function confirmarTrazado() {
 
     const grupo = new paper.CompoundPath({ insert: false });
     piezas.forEach(path => grupo.addChild(path));
+    // evenodd: con TODOS los loops (de todas las regiones) en un solo
+    // CompoundPath, el anidado sale solo: un loop dentro de otro agujerea a
+    // su madre, y un tercero dentro del hueco vuelve a rellenar. Es lo que
+    // completa la calcomania cuando una region esta dentro de otra.
+    grupo.fillRule = "evenodd";
     setSemanticKind(grupo, VECTOR_KIND.SOLID);
+    const nombreModo = ({ color: "Color", lineas: "Lineas", croquis: "Croquis", silueta: "Silueta" })[TRAZO.modo || "color"] || "Color";
     grupo.data = {
       locked: false,
-      label: "Imagen Vectorizada (" + (raster.data?.label || "Trazado") + ")",
+      label: "Vectorizado (" + nombreModo + ") - " + (raster.data?.label || "Trazado"),
       userImported: true,
       source: "image-trace",
       isSolidShape: true,
       isFusionReceptor: true,
       decomposedLayer: true
     };
-    grupo.fillColor = new paper.Color("#111827");
+    grupo.fillColor = new paper.Color("#000000");
     grupo.strokeColor = null;
     grupo.strokeWidth = 0;
     try { grupo.data.geomBase = grupo.clone({ insert: false }); } catch (_) {}
