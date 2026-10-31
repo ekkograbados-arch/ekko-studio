@@ -212,6 +212,43 @@ export async function prepareSVGForExport(options = {}) {
             return clone;
         };
 
+        // SILUETA DEL BOCETO CON TODAS LAS PERFORACIONES: en el lienzo el
+        // recorte del mockup deja fuera solo las perforaciones chicas (<15%
+        // del area). Regla del cliente: LOS HUECOS SIEMPRE SERAN HUECOS, por
+        // mas que sea un boceto — asi que el boceto recorta con la silueta
+        // completa (perforaciones grandes incluidas: aro del llavero, ranuras).
+        // El SVG de grabado sigue usando la contencion original (no se toca).
+        let siluetaSketch = null;
+        if (options.keepMockupImage === true && window.currentMockup) {
+            try {
+                const rutasMockup = [];
+                (function recolectar(nodo) {
+                    if (!nodo) return;
+                    if ((nodo instanceof paper.Path || nodo instanceof paper.CompoundPath) &&
+                        Math.abs(nodo.area || 0) > 0) rutasMockup.push(nodo);
+                    if (nodo.children) nodo.children.forEach(recolectar);
+                })(window.currentMockup);
+                rutasMockup.sort((a, b) => Math.abs(b.area || 0) - Math.abs(a.area || 0));
+                if (rutasMockup.length) {
+                    let acc = hornearWorld(rutasMockup[0]);
+                    for (let i = 1; i < rutasMockup.length; i++) {
+                        const agujero = hornearWorld(rutasMockup[i]);
+                        try {
+                            if (acc.bounds.contains(agujero.bounds.center)) {
+                                const restado = acc.subtract(agujero, { insert: false });
+                                if (restado && !restado.isEmpty() && Math.abs(restado.area || 0) > 1e-9) {
+                                    try { acc.remove(); } catch (_) {}
+                                    acc = restado;
+                                }
+                            }
+                        } catch (_) {}
+                        try { agujero.remove(); } catch (_) {}
+                    }
+                    siluetaSketch = acc;
+                }
+            } catch (_) { siluetaSketch = null; }
+        }
+
         const hornearGrupo = (grupo) => {
             const hijos = grupo.children ? grupo.children.slice() : [];
             const mascara = hijos.find(c => c.clipMask === true || c.data?.isMask === true || c.data?.wasClipMask === true) || null;
@@ -224,26 +261,48 @@ export async function prepareSVGForExport(options = {}) {
             const resultados = [];
             const rasters = contenido.filter(c => c instanceof paper.Raster);
             const vectores = contenido.filter(c => !(c instanceof paper.Raster));
-            const mascaraWorld = hornearWorld(mascara);
+            // En el boceto la contención usa la silueta COMPLETA (todas las
+            // perforaciones son huecos). En el grabado, la máscara propia del
+            // grupo, como siempre.
+            const usaSiluetaSketch = options.keepMockupImage === true && !!siluetaSketch;
+            const mascaraWorld = usaSiluetaSketch ? siluetaSketch : hornearWorld(mascara);
 
             if (rasters.length) {
                 if (capaEnProyecto) {
-                    // Se rasteriza un CLON del grupo (máscara + fotos): el
-                    // recorte queda dentro de los píxeles y el original se
-                    // retira después. Resolución limitada para no explotar
-                    // la memoria con fotos grandes.
+                    // Se rasteriza un grupo temporal (máscara + fotos): el
+                    // recorte queda dentro de los píxeles y la foto queda
+                    // contenida en su hueco, igual que en la interfaz.
                     try {
-                        const grupoRaster = grupo.clone();
-                        const limite = grupoRaster.bounds;
-                        const maxDim = Math.max(limite?.width || 1, limite?.height || 1, 1);
-                        const resolucion = Math.max(72, Math.min(300, (72 * 2000) / maxDim));
-                        const horneado = grupoRaster.rasterize(resolucion);
-                        if (horneado && Math.abs(horneado.width || 0) > 0) {
-                            try { horneado.remove(); } catch (_) {}
-                            parent.insertChild(idx, horneado);
-                            resultados.push(horneado);
+                        const rastersDentro = rasters.filter(r => {
+                            try {
+                                const rWorld = hornearWorld(r);
+                                const cruza = rWorld && mascaraWorld.bounds.intersects(rWorld.bounds);
+                                try { rWorld.remove(); } catch (_) {}
+                                return !!cruza;
+                            } catch (_) { return true; }
+                        });
+                        if (rastersDentro.length) {
+                            const grupoRaster = new paper.Group();
+                            try { parent.addChild(grupoRaster); } catch (_) {}
+                            grupoRaster.clipped = true;
+                            grupoRaster.addChild(hornearWorld(usaSiluetaSketch ? siluetaSketch : mascara));
+                            rastersDentro.forEach(r => grupoRaster.addChild(hornearWorld(r)));
+                            const limite = grupoRaster.bounds;
+                            const maxDim = Math.max(limite?.width || 1, limite?.height || 1, 1);
+                            const resolucion = Math.max(72, Math.min(300, (72 * 2000) / maxDim));
+                            const horneado = grupoRaster.rasterize(resolucion);
+                            if (horneado && Math.abs(horneado.width || 0) > 0) {
+                                try { horneado.remove(); } catch (_) {}
+                                parent.insertChild(idx, horneado);
+                                resultados.push(horneado);
+                                // La foto quedó horneada: los originales se
+                                // retiran (el contenido ya está en píxeles).
+                                rasters.forEach(r => { try { r.remove(); } catch (_) {} });
+                            }
+                            try { grupoRaster.remove(); } catch (_) {}
+                        } else {
+                            rasters.forEach(r => { try { r.remove(); } catch (_) {} });
                         }
-                        try { grupoRaster.remove(); } catch (_) {}
                     } catch (_) {
                         // Sin rasterización posible: la foto queda como estaba
                         // (sin recorte, comportamiento previo).
@@ -255,26 +314,42 @@ export async function prepareSVGForExport(options = {}) {
             }
 
             vectores.forEach(v => {
-                // Intersección con la silueta: vector contenido (calidad
-                // láser intacta). Si la booleana no se puede, queda sin
-                // recorte (comportamiento previo).
+                // Contención de vectores SIN romper contornos: las booleanas
+                // de Paper ignoran el relleno par-impar y rellenan los huecos
+                // de las letras (la "O" salía llena). Estrategia:
+                // 1) Ya está dentro del producto -> NO se toca.
+                // 2) Está afuera del producto -> no se exporta (contenido).
+                // 3) Cruza el borde -> intersección con control de área: la
+                //    intersección solo puede achicar; si el área crece, la
+                //    booleana rellenó huecos y se conserva el original.
                 const worldV = hornearWorld(v);
                 try {
-                    const recortado = worldV.intersect(mascaraWorld, { insert: false });
-                    const ok = recortado && typeof recortado.isEmpty === "function" && !recortado.isEmpty() &&
-                        Math.abs(recortado.area || 0) > 1e-9;
-                    if (ok) {
-                        resultados.push(recortado);
+                    const areaV = Math.abs(worldV.area || 0);
+                    let dentro = false;
+                    try { dentro = mascaraWorld.bounds.contains(worldV.bounds); } catch (_) { dentro = false; }
+                    let cruza = false;
+                    try { cruza = mascaraWorld.bounds.intersects(worldV.bounds); } catch (_) { cruza = false; }
+                    if (dentro) {
+                        resultados.push(worldV);
+                    } else if (!cruza) {
                         try { worldV.remove(); } catch (_) {}
                     } else {
-                        resultados.push(worldV);
+                        const recortado = worldV.intersect(mascaraWorld, { insert: false });
+                        const areaR = recortado ? Math.abs(recortado.area || 0) : 0;
+                        if (recortado && areaR > 1e-9 && areaR <= areaV * (1 + 1e-6)) {
+                            resultados.push(recortado);
+                            try { worldV.remove(); } catch (_) {}
+                        } else {
+                            try { recortado?.remove?.(); } catch (_) {}
+                            resultados.push(worldV);
+                        }
                     }
                 } catch (_) {
                     resultados.push(worldV);
                 }
             });
 
-            try { mascaraWorld.remove(); } catch (_) {}
+            if (!usaSiluetaSketch) { try { mascaraWorld.remove(); } catch (_) {} }
             // El grupo original se retira completo (máscara incluida) y los
             // resultados ocupan su posición exacta en el apilado.
             try { grupo.remove(); } catch (_) {}
@@ -301,6 +376,7 @@ export async function prepareSVGForExport(options = {}) {
             pendientes.forEach(g => { try { hornearGrupo(g); } catch (_) {} });
         }
 
+        try { if (siluetaSketch) siluetaSketch.remove(); } catch (_) {}
         try { if (capaEnProyecto) tempLayer.remove(); } catch (_) {}
         // La capa activa queda como estaba: el editor nunca deja de apuntar
         // a su capa de trabajo por culpa de la exportación.
