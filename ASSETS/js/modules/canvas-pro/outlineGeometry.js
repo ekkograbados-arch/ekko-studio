@@ -56,6 +56,75 @@ function dedupeClosed(points, tolerance = 1e-5) {
     return result;
 }
 
+/** Douglas-Peucker sobre un poligono cerrado.
+ *
+ *  POR QUE EXISTE: la silueta de una imagen sale del canal alfa con un punto
+ *  cada 0,06 unidades (miles de nodos para una pieza de 240). Correr un
+ *  offset de 12 unidades sobre esa nube de nodos es degenerado: cada par de
+ *  segmentos casi paralelos genera una interseccion de chaflan fuera de
+ *  lugar y la booleana devuelve cientos de esquirlas (medido: 164 subcaminos
+ *  y 161 esquirlas a grosor 24, 375 ms). Simplificar ANTES de offsetear es
+ *  lo que hace LightBurn: la tolerancia es una fraccion de la pieza (0,25%),
+ *  invisible al ojo y muy por debajo de lo que el laser resuelve. Medido con
+ *  la misma pieza: 5 subcaminos y 5 ms. */
+function simplifyClosed(points, tolerance) {
+    const source = points || [];
+    if (source.length < 5 || !(tolerance > 0)) return source;
+    // El ultimo punto de un loop cerrado repite el primero: DP trabaja sobre
+    // la polilinea sin ese duplicado y se lo vuelve a agregar al final.
+    const cerrado = source[0].getDistance(source[source.length - 1]) <= 1e-9;
+    const pts = cerrado ? source.slice(0, -1) : source.slice();
+    if (pts.length < 4) return source;
+    let lejos = 0, dmax = -1;
+    for (let i = 1; i < pts.length; i += 1) {
+        const d = pts[i].getDistance(pts[0]);
+        if (d > dmax) { dmax = d; lejos = i; }
+    }
+    const keep = new Uint8Array(pts.length);
+    keep[0] = 1;
+    keep[lejos] = 1;
+    const tramo = (a, b) => {
+        const pila = [[a, b]];
+        while (pila.length) {
+            const [i, j] = pila.pop();
+            if (j <= i + 1) continue;
+            const ax = pts[i].x, ay = pts[i].y;
+            const dx = pts[j].x - ax, dy = pts[j].y - ay;
+            const largo = Math.hypot(dx, dy) || 1;
+            let peor = -1, peorD = -1;
+            for (let k = i + 1; k < j; k += 1) {
+                const d = Math.abs((pts[k].x - ax) * dy - (pts[k].y - ay) * dx) / largo;
+                if (d > peorD) { peorD = d; peor = k; }
+            }
+            if (peorD > tolerance && peor > 0) { keep[peor] = 1; pila.push([i, peor], [peor, j]); }
+        }
+    };
+    tramo(0, lejos);
+    tramo(lejos, pts.length - 1);
+    const out = [];
+    for (let i = 0; i < pts.length; i += 1) if (keep[i]) out.push(pts[i]);
+    if (out.length < 3) return source;
+    if (cerrado) out.push(out[0]);
+    return out;
+}
+
+/** Tolerancia de simplificado previo al offset: 0,25% de la pieza. Una
+ *  silueta de 240 unidades se simplifica a ~0,6 unidades de error maximo;
+ *  una caja dibujada a mano no pierde ni una esquina. */
+function simplifyTolerance(points) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    (points || []).forEach(p => {
+        if (!p) return;
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+    });
+    const escala = Math.max(maxX - minX, maxY - minY);
+    if (!(escala > 0)) return 0;
+    return Math.max(0.1, escala / 400);
+}
+
 function samplePath(path, tolerance = 1.2) {
     if (!path || !Array.isArray(path.segments) || path.segments.length < 2) return [];
     if (path.closed !== true) return [];
@@ -158,7 +227,7 @@ function makeClosedPath(points) {
             insert: false,
             segments: clean,
             closed: true,
-            fillColor: new paper.Color("#111827"),
+            fillColor: new paper.Color("#000000"),
             strokeColor: null
         });
         path.applyMatrix = true;
@@ -185,7 +254,7 @@ function makeCompoundFromPaths(paths, fillRule = "evenodd") {
         }
     });
     compound.fillRule = fillRule;
-    compound.fillColor = new paper.Color("#111827");
+    compound.fillColor = new paper.Color("#000000");
     compound.strokeColor = null;
     return compound;
 }
@@ -254,8 +323,12 @@ function subtractPositiveParts(left, right) {
 /**
  * Create a closed outline in the same world/project space as `source`.
  * `side` is one of center, inside or outside and `width` is in Paper units.
+ * `scope` decide que contornos generan banda:
+ *   all   -> exterior + huecos + islas (comportamiento de siempre)
+ *   outer -> solo el contorno de mayor area (el borde externo)
+ *   holes -> todos menos el mayor (huecos e islas internas)
  */
-export function buildOutlineGeometry(source, width = 2, side = "center", radius = 0, smoothing = 0) {
+export function buildOutlineGeometry(source, width = 2, side = "center", radius = 0, smoothing = 0, scope = "all") {
     if (!source || typeof paper === "undefined") return null;
     const worldClone = source?.clone?.({ insert: false }) || null;
     const world = worldClone || source;
@@ -266,7 +339,29 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
         if (ownsWorld) world.remove?.();
         return null;
     }
+    const alcance = ["outer", "holes"].includes(String(scope || "").toLowerCase())
+        ? String(scope).toLowerCase() : "all";
+    // El filtro es por AREA: el contorno que encierra todo lo demas es el
+    // borde externo; el resto son huecos e islas. Con un solo contorno no hay
+    // nada que filtrar.
+    let contornosActivos = contours;
+    if (alcance !== "all" && contours.length > 1) {
+        let mayor = 0;
+        contours.forEach((c, i) => { if (c.area > contours[mayor].area) mayor = i; });
+        contornosActivos = alcance === "outer" ? [contours[mayor]] : contours.filter((c, i) => i !== mayor);
+    }
     const amount = Math.abs(Number(width) || 0);
+    // POLVO: un contorno cuya area no alcanza la superficie de la propia banda
+    // no deja tinta en el grabado (la banda se lo traga) y cada uno paga una
+    // booleana completa. Medido con el material recortado del cliente: una
+    // pieza de 39 loops, 36 de ellos polvo, tardaba 464 ms en el canal alfa;
+    // descartando el polvo, 31 ms con el mismo borde visible. El umbral es
+    // grosor al cuadrado: lo que abarca un trazo de ese ancho.
+    if (contornosActivos.length > 1 && amount > 0) {
+        const minimo = amount * amount;
+        const limpios = contornosActivos.filter(contour => contour.area >= minimo);
+        if (limpios.length) contornosActivos = limpios;
+    }
     if (amount <= EPSILON) {
         if (ownsWorld) world.remove?.();
         return null;
@@ -316,15 +411,22 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
         } catch (_) {}
 
         const records = [];
-        contours.forEach(contour => {
+        // CRITERIO PHOTOSHOP para el grosor, medido y aprobado: con Posicion
+        // Centro la banda ocupa el GROSOR completo (grosor/2 a cada lado del
+        // borde), igual que Exterior/Interior aplican el grosor hacia su lado.
+        // Antes Centro duplicaba: offsets a +-grosor producian una banda del
+        // doble del valor del control.
+        const medio = mode === "center" ? amount / 2 : amount;
+        contornosActivos.forEach(contour => {
             // El borde de trabajo es el original corrido por el Radio. El
             // engrosamiento se mide desde ahi, no desde el borde original.
+            const limpio = simplifyClosed(contour.points, simplifyTolerance(contour.points));
             const working = (Math.abs(offset) > EPSILON)
-                ? (offsetPolygon(contour.points, offset) || contour.points)
-                : contour.points;
+                ? (offsetPolygon(limpio, offset) || limpio)
+                : limpio;
             const base = track(makeClosedPath(working));
-            const firstOffset = track(makeClosedPath(offsetPolygon(working, amount)));
-            const secondOffset = track(makeClosedPath(offsetPolygon(working, -amount)));
+            const firstOffset = track(makeClosedPath(offsetPolygon(working, medio)));
+            const secondOffset = track(makeClosedPath(offsetPolygon(working, -medio)));
             if (!base || !firstOffset || !secondOffset) return;
             const expanded = areaMagnitude(firstOffset) >= areaMagnitude(secondOffset) ? firstOffset : secondOffset;
             const contracted = expanded === firstOffset ? secondOffset : firstOffset;
@@ -360,9 +462,32 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
             release(null);
             return null;
         }
+        // Limpieza de esquirlas: las booleanas de Paper dejan a veces subcaminos
+        // degenerados cuando la banda pasa cerca de esquinas en chaflan de un
+        // contorno con escalones de pixel. No se ven, no aportan nada al
+        // grabado y ensucian el export. El umbral escala con el grosor: una
+        // esquirla real mide menos que una fraccion de la banda (medido: 0,08
+        // por pieza a grosor 24), mientras que un fragmento legitimo siempre
+        // pesa al menos grosor x largo. Tambien se descarta lo minusculo en
+        // caja, aunque su area se haya calculado con error de redondeo.
+        if (result.className === "CompoundPath" && result.children?.length) {
+            const areaEsquirla = Math.max(0.01, amount * 0.4);
+            [...result.children].forEach(child => {
+                const box = child.bounds;
+                const area = Math.abs(Number(child.area) || 0);
+                const degenerado = area <= EPSILON ||
+                    (box && box.width < 1e-6 && box.height < 1e-6) ||
+                    (area < areaEsquirla && box && box.width < amount && box.height < amount);
+                if (degenerado) child.remove();
+            });
+            if (!result.children.length) {
+                release(null);
+                return null;
+            }
+        }
         try { result.applyMatrix = true; } catch (_) {}
         if (result.fillRule !== undefined) result.fillRule = "evenodd";
-        result.fillColor = new paper.Color("#111827");
+        result.fillColor = new paper.Color("#000000");
         result.strokeColor = null;
         result.strokeWidth = 0;
         // Suavidad: se aplica al final, sobre la geometria ya resuelta, para
@@ -375,6 +500,7 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
             outlineSide: mode,
             outlineRadius: offset,
             outlineSmoothing: smooth,
+            outlineScope: alcance,
             source: "vector-outline"
         };
         release(result);
@@ -530,13 +656,15 @@ export function createOwnerOutline(ownerLike, options = {}) {
     const sideControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSide")?.value : null;
     const radiusControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineRadius")?.value : null;
     const smoothingControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSmoothing")?.value : null;
-    const width = Number(options.width ?? widthControl ?? 2) || 2;
+    const scopeControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineScope")?.value : null;
+    const width = Number(options.width ?? widthControl ?? 1) || 1;
     const side = options.side ?? sideControl ?? "center";
     const radius = Number(options.radius ?? radiusControl ?? 0) || 0;
     const smoothing = Number(options.smoothing ?? smoothingControl ?? 0) || 0;
+    const scope = options.scope ?? scopeControl ?? "all";
     const source = options.restore ? null : toWorldGeometry(owner);
     if (!source) return null;
-    const result = buildOutlineGeometry(source, width, side, radius, smoothing);
+    const result = buildOutlineGeometry(source, width, side, radius, smoothing, scope);
     if (!result) return null;
     // buildOutlineGeometry returns a detached result; applyOutlineResult
     // installs a defensive copy, so keep it alive until that call returns.
@@ -563,10 +691,250 @@ export function toggleOwnerOutline(ownerLike, options = {}) {
     return createOwnerOutline(owner, options);
 }
 
+/**
+ * Refresca el anillo de un contorno de vector SIN toggle: la banda se
+ * reconstruye desde la forma original guardada (outlineSourceGeomBase) con
+ * los valores actuales del panel. Es lo que hace vivo al panel de Contorno
+ * para vectores y texto: mover Grosor/Radio/Suavidad/Lado rehace el anillo
+ * en el instante, igual que ya pasaba con los contornos de imagen.
+ */
+export function refreshOwnerOutline(ownerLike, options = {}) {
+    const owner = resolveVectorOwner(ownerLike);
+    if (!owner || !owner.parent || owner.data?.isOutline !== true) return null;
+    const snapshot = owner.data?.outlineSourceGeomBase;
+    if (!snapshot) return null;
+    const widthControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineWidth")?.value : null;
+    const sideControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSide")?.value : null;
+    const radiusControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineRadius")?.value : null;
+    const smoothingControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSmoothing")?.value : null;
+    const scopeControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineScope")?.value : null;
+    const width = Number(options.width ?? widthControl ?? 1) || 1;
+    const side = options.side ?? sideControl ?? "center";
+    const radius = Number(options.radius ?? radiusControl ?? 0) || 0;
+    const smoothing = Number(options.smoothing ?? smoothingControl ?? 0) || 0;
+    const scope = options.scope ?? scopeControl ?? "all";
+    // La fuente SIEMPRE es la forma original guardada, nunca la banda actual:
+    // construir sobre la banda apilaria anillos sobre anillos.
+    const world = snapshot.clone({ insert: false });
+    try {
+        world.applyMatrix = false;
+        world.transform(owner.globalMatrix || new paper.Matrix());
+        world.applyMatrix = true;
+    } catch (_) {}
+    const result = buildOutlineGeometry(world, width, side, radius, smoothing, scope);
+    world.remove?.();
+    if (!result) return null;
+    // Se reinstala la banda sin pasar por applyOutlineResult: ese camino
+    // pisaria outlineSourceGeomBase con la banda recien creada y el toggle
+    // ya no podria restaurar la forma original del cliente.
+    const installed = installOwnerGeometry(owner, result);
+    if (!installed) {
+        result.remove?.();
+        return null;
+    }
+    const local = localSnapshotFromWorld(result, installed);
+    if (local) {
+        installed.data.geomBase = local;
+        local.remove?.();
+    }
+    setSemanticKind(installed, VECTOR_KIND.SOLID);
+    installed.data = {
+        ...(installed.data || {}),
+        source: "vector-outline",
+        isOutline: true,
+        outlineSide: side,
+        outlineWidth: width,
+        outlineRadius: radius,
+        outlineSmoothing: smoothing,
+        outlineScope: scope,
+        // La forma original se preserva tal cual: el toggle sigue pudiendo
+        // devolverle al cliente su pieza de antes.
+        outlineSourceGeomBase: snapshot,
+        isFusionReceptor: true,
+        isCalado: false,
+        isHole: false,
+        csgMaterialized: false
+    };
+    installed.visible = true;
+    result.remove?.();
+    try { paper.view?.update?.(); } catch (_) {}
+    return installed;
+}
+
+/* ------------------------------------------------------------------
+   PREVIEW FLUIDO (fase C). Durante el arrastre de un control del panel
+   no se puede pagar el stitcher + booleanas en cada tick: el preview
+   pinta la linea central de la banda como trazo magenta (la misma
+   convencion "Magenta de LightBurn" del calco de imageTracer) y la
+   geometria real la entrega buildOutlineGeometry al soltar.
+
+   Misma algebra que el motor, en el mismo orden: primero el Radio corre
+   la linea, despues el Lado decide donde cae el centro del trazo y el
+   Grosor es el ancho del trazo. Con Centro el trazo va sobre el borde
+   corrido y cubre +-grosor/2, que es EXACTAMENTE la banda real del
+   criterio Photoshop. Con Exterior/Interior el trazo corre +-grosor/2
+   hacia su lado, tambien exacto. Lo unico que el preview no reproduce
+   es el recorte contra la pieza (esas son las booleanas caras).
+   ------------------------------------------------------------------ */
+
+const PREVIEW_COLOR = "#ff00ff"; // Magenta de LightBurn, como el calco.
+
+function modoDeSide(side) {
+    const modo = String(side || "").toLowerCase();
+    return ["inside", "outside"].includes(modo) ? modo : "center";
+}
+
+function alcanceDeScope(scope) {
+    const alcance = String(scope || "").toLowerCase();
+    return ["outer", "holes"].includes(alcance) ? alcance : "all";
+}
+
+function grupoDePreview() {
+    const grupo = new paper.Group({ insert: false });
+    grupo.applyMatrix = false;
+    // Mismas banderas que el preview del calco: para la app esto es un
+    // overlay de UI (no seleccionable, no exporta, no cuenta en capacidades).
+    grupo.data = { isOutlinePreview: true, isSelectionBox: true };
+    return grupo;
+}
+
+function trazoDeLoop(puntos, strokeW) {
+    const limpios = dedupeClosed(puntos);
+    if (limpios.length < 3) return null;
+    try {
+        const path = new paper.Path({
+            insert: false,
+            segments: limpios,
+            closed: true,
+            fillColor: null,
+            strokeColor: new paper.Color(PREVIEW_COLOR),
+            strokeWidth: Math.max(0.5, strokeW),
+            strokeJoin: "round",
+            strokeCap: "round"
+        });
+        path.applyMatrix = true;
+        return path;
+    } catch (_) { return null; }
+}
+
+/**
+ * Preview barato de la banda para geometria vectorial (o texto ya
+ * convertido). Devuelve un Group de trazos magenta SIN insertar; el que
+ * llama decide donde colgarlo y cuando quitarlo.
+ */
+export function previsualizarBanda(source, width = 2, side = "center", radius = 0, scope = "all") {
+    if (!source || typeof paper === "undefined") return null;
+    const amount = Math.abs(Number(width) || 0);
+    if (!(amount > EPSILON)) return null;
+    const mode = modoDeSide(side);
+    const offset = Number(radius) || 0;
+    const contours = collectContours(source);
+    if (!contours.length) return null;
+    const alcance = alcanceDeScope(scope);
+    let activos = contours;
+    if (alcance !== "all" && contours.length > 1) {
+        let mayor = 0;
+        contours.forEach((c, i) => { if (c.area > contours[mayor].area) mayor = i; });
+        activos = alcance === "outer" ? [contours[mayor]] : contours.filter((c, i) => i !== mayor);
+    }
+    // Mismo corte de polvo y misma pre-simplificacion que el motor real: si el
+    // preview mostrara lo que la banda final descarta, el cliente veria una
+    // linea magenta distinta de la que termina obteniendo.
+    if (activos.length > 1) {
+        const limpios = activos.filter(contour => contour.area >= amount * amount);
+        if (limpios.length) activos = limpios;
+    }
+    activos = activos.map(contour => ({ ...contour, points: simplifyClosed(contour.points, simplifyTolerance(contour.points)) }));
+    // El centro del trazo siempre cae a grosor/2 del borde de trabajo: el
+    // trazo mide `amount` de ancho, asi cubre exactamente [0, amount] del
+    // lado elegido. (En el motor real `medio` vale `amount` para
+    // outside/inside porque ahi construye el anillo simetrico completo y
+    // recorta despues; el preview no tiene ese paso.)
+    const medio = amount / 2;
+    const grupo = grupoDePreview();
+    activos.forEach(contour => {
+        const working = (Math.abs(offset) > EPSILON)
+            ? (offsetPolygon(contour.points, offset) || contour.points)
+            : contour.points;
+        // De que lado del contorno esta el material lo dice la pieza misma:
+        // el centroide de un borde exterior cae dentro de la pieza y el de un
+        // hueco, fuera de ella. Un contains por contorno es barato y no se
+        // equivoca de lado como una heuristica de winding.
+        let dir = 1;
+        try {
+            let suma = point(0, 0);
+            working.forEach(p => { suma = suma.add(p); });
+            const centro = suma.divide(working.length || 1);
+            dir = source.contains?.(centro) === true ? 1 : -1;
+        } catch (_) { dir = 1; }
+        const corrida = mode === "center" ? 0 : (mode === "outside" ? dir * medio : -dir * medio);
+        const linea = (Math.abs(corrida) > EPSILON)
+            ? (offsetPolygon(working, corrida) || working)
+            : working;
+        const trazo = trazoDeLoop(linea, amount);
+        if (trazo) grupo.addChild(trazo);
+    });
+    if (!grupo.children.length) { grupo.remove?.(); return null; }
+    return grupo;
+}
+
+/**
+ * Preview barato para las siluetas de imagen ya calicadas: loops en
+ * coordenadas de pieza (los que guarda el cache del vinculo). Misma regla
+ * de alcance que buildOutlineGeometry y misma algebra de radio/lado. La
+ * orientacion del calco es FIJA (opaco a la izquierda del recorrido), asi
+ * que el area con signo dice de que lado esta el material: negativa =
+ * borde externo, positiva = hueco. Ni una prueba de geometria.
+ */
+export function previsualizarBandaDeLoops(loops, width = 2, side = "center", radius = 0, scope = "all") {
+    if (!Array.isArray(loops) || !loops.length || typeof paper === "undefined") return null;
+    const amount = Math.abs(Number(width) || 0);
+    if (!(amount > EPSILON)) return null;
+    const mode = modoDeSide(side);
+    const offset = Number(radius) || 0;
+    const alcance = alcanceDeScope(scope);
+    let activos = loops;
+    if (alcance !== "all" && loops.length > 1) {
+        let mayor = 0;
+        loops.forEach((pts, i) => {
+            if (Math.abs(signedArea(pts)) > Math.abs(signedArea(loops[mayor]))) mayor = i;
+        });
+        activos = alcance === "outer" ? [loops[mayor]] : loops.filter((_, i) => i !== mayor);
+    }
+    // Mismo corte de polvo y la misma pre-simplificacion del motor real, para
+    // que la linea magenta sea exactamente la banda que va a salir.
+    if (activos.length > 1) {
+        const limpios = activos.filter(pts => Math.abs(signedArea(pts)) >= amount * amount);
+        if (limpios.length) activos = limpios;
+    }
+    activos = activos.map(pts => simplifyClosed(pts, simplifyTolerance(pts)));
+    // Mismo criterio: el centro del trazo va a grosor/2 del borde corrido.
+    const medio = amount / 2;
+    const grupo = grupoDePreview();
+    activos.forEach(pts => {
+        if (!Array.isArray(pts) || pts.length < 3) return;
+        const working = (Math.abs(offset) > EPSILON)
+            ? (offsetPolygon(pts, offset) || pts)
+            : pts;
+        const dir = signedArea(working) < 0 ? 1 : -1;
+        const corrida = mode === "center" ? 0 : (mode === "outside" ? dir * medio : -dir * medio);
+        const linea = (Math.abs(corrida) > EPSILON)
+            ? (offsetPolygon(working, corrida) || working)
+            : working;
+        const trazo = trazoDeLoop(linea, amount);
+        if (trazo) grupo.addChild(trazo);
+    });
+    if (!grupo.children.length) { grupo.remove?.(); return null; }
+    return grupo;
+}
+
 if (typeof window !== "undefined") {
     window.EKKO_OUTLINE_GEOMETRY = {
         buildOutlineGeometry,
         createOwnerOutline,
-        toggleOwnerOutline
+        toggleOwnerOutline,
+        refreshOwnerOutline,
+        previsualizarBanda,
+        previsualizarBandaDeLoops
     };
 }
