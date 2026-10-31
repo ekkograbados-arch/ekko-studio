@@ -158,6 +158,9 @@ export async function prepareSVGForExport(options = {}) {
             const source = mockup || window.clipMask;
             if (source) {
                 const outline = source.clone({ insert: false });
+                // Si el clon es un Path (sin hijos), el propio clon es el
+                // contorno: removerlo lo sacaría del grupo (bug medido).
+                const esContenedor = !!(outline.children && outline.children.length);
                 const flat = [];
                 (function collect(node) {
                     if (!node) return;
@@ -174,14 +177,73 @@ export async function prepareSVGForExport(options = {}) {
                         path.opacity = 1;
                         mockupOutline.addChild(path);
                     });
-                    try { outline.remove(); } catch (_) {}
-                } else {
-                    try { outline.remove(); } catch (_) {}
                 }
+                if (esContenedor) { try { outline.remove(); } catch (_) {} }
             }
         } catch (_) {
             mockupOutline = null;
         }
+    }
+
+    // CAPA DE CORTE PARA LIGHTBURN (options.includeCutLayer): contorno del
+    // producto y de cada perforación, trazo ROJO sin relleno. LightBurn lee
+    // cada color como capa: rojo = corte del producto, negro = grabado. Se
+    // captura ANTES de la purga (después el mockup ya no existe).
+    let capaCorte = null;
+    if (options.includeCutLayer === true) {
+        try {
+            // Fuente ÚNICA preferente: window.clipMask — ya ES la silueta exacta
+            // (contorno del producto + cada perforación como contorno hijo).
+            // Tomar TODOS los paths con data.mockup disparaba la duplicación en
+            // cascada: el CompoundPath y sus hijos coinciden a la vez, y el
+            // mockup trae dos juegos de rutas (medido: cada contorno x12).
+            let fuentes = null;
+            try {
+                if (window.clipMask && Math.abs(window.clipMask.area || 0) > 1) fuentes = [window.clipMask];
+            } catch (_) { fuentes = null; }
+            if (!fuentes) {
+                const candidatos = tempLayer.getItems({
+                    match: item => item && (item.data?.mockup === true || item === window.currentMockup) &&
+                        (item instanceof paper.Path || item instanceof paper.CompoundPath)
+                });
+                // solo candidatos TOPE: ninguno que sea hijo de otro candidato
+                const idsPadres = new Set();
+                candidatos.forEach(c => {
+                    let p = c.parent;
+                    while (p) { idsPadres.add(String(p.id)); p = p.parent; }
+                });
+                fuentes = candidatos.filter(c => !idsPadres.has(String(c.id)));
+            }
+            const contornos = [];
+            const contenedores = [];
+            fuentes.forEach(f => {
+                try {
+                    const clon = f.clone({ insert: false });
+                    const esContenedor = !!(clon.children && clon.children.length);
+                    (function recolectar(nodo) {
+                        if (!nodo) return;
+                        if (nodo instanceof paper.Path && Math.abs(nodo.area || 0) > 0) contornos.push(nodo);
+                        else if (nodo.children) nodo.children.forEach(recolectar);
+                    })(clon);
+                    // Solo se descarta el clon si era CONTENEDOR (sus hijos ya
+                    // se movieron al grupo). Si el clon ES el contorno, queda
+                    // vivo: removerlo vaciaba la capa de corte (bug medido).
+                    if (esContenedor) contenedores.push(clon);
+                } catch (_) {}
+            });
+            if (contornos.length) {
+                capaCorte = new paper.Group({ insert: false });
+                capaCorte.data = { id: "EKKO-corte", isCutLayer: true };
+                contornos.forEach(p => {
+                    p.fillColor = null;
+                    p.strokeColor = new paper.Color("#ff0000");
+                    p.strokeWidth = 0.5;
+                    p.opacity = 1;
+                    capaCorte.addChild(p);
+                });
+            }
+            contenedores.forEach(clon => { try { clon.remove(); } catch (_) {} });
+        } catch (_) { capaCorte = null; }
     }
 
     // 1b. HORNEADO DE RECORTE (contención del mockup y clips del diseño importado)
@@ -193,58 +255,120 @@ export async function prepareSVGForExport(options = {}) {
     // foto salía desclipeada y afuera del huesito en cada descarga.
     // La capa entra al proyecto solo dentro de este bloque síncrono (rasterize
     // lo exige): nunca llega a pintarse en pantalla.
+
+    // (función) Geometría en coordenadas de proyecto para booleanas fiables
+    // (mismo patrón que la unión anti doble-grabado del paso 5b). Vive a nivel
+    // de función: también la usa la contención final del boceto (4b) y el
+    // aplanado por apilado (7c).
+    const hornearWorld = (item) => {
+        const clone = item.clone({ insert: false });
+        try {
+            const matrix = item.globalMatrix?.clone?.() || clone.matrix?.clone?.();
+            clone.applyMatrix = false;
+            clone.matrix = new paper.Matrix();
+            if (matrix && !matrix.isIdentity()) clone.transform(matrix);
+            clone.applyMatrix = true;
+        } catch (_) {}
+        return clone;
+    };
+
+    /* Recorte booleano que PRESERVA los huecos (counters de letras, calados
+       internos): Paper.js aplica las booleanas con winding y IGNORA el
+       even-odd, así que intersectar/restar un CompoundPath entero rellena
+       sus huecos y el control de área termina conservando el original sin
+       recortar (el bug de la "Z" de ZARA fuera del producto con letras
+       llenas). Intersectando/restando HIJO POR HIJO —cada contorno no tiene
+       huecos internos, no hay nada que rellenar— y rearmando el compound con
+       evenodd, los huecos sobreviven al recorte. Devuelve PathItem o null. */
+    const booleanaPorHijos = (vector, herramienta, operacion) => {
+        if (!vector || !herramienta) return null;
+        const agregarPieza = (pieza, coleccion) => {
+            if (!pieza || pieza.isEmpty?.() || Math.abs(pieza.area || 0) <= 1e-9) return;
+            if (pieza.children && pieza.children.length) {
+                pieza.children.forEach(p => { if (p instanceof paper.Path) coleccion.push(p); });
+            } else if (pieza instanceof paper.Path) {
+                coleccion.push(pieza);
+            }
+        };
+        const piezas = [];
+        try {
+            if (vector.children && vector.children.length) {
+                vector.children.forEach(child => {
+                    try {
+                        if (operacion === "subtract") agregarPieza(child.subtract(herramienta, { insert: false }), piezas);
+                        else agregarPieza(child.intersect(herramienta, { insert: false }), piezas);
+                    } catch (_) {}
+                });
+            } else {
+                if (operacion === "subtract") agregarPieza(vector.subtract(herramienta, { insert: false }), piezas);
+                else agregarPieza(vector.intersect(herramienta, { insert: false }), piezas);
+            }
+        } catch (_) { return null; }
+        if (!piezas.length) return null;
+        const compound = new paper.CompoundPath({ insert: false, children: piezas });
+        compound.fillRule = "evenodd";
+        // ESTILO EXACTO del origen: un contorno sin relleno (el producto, los
+        // contornos de corte) DEBE seguir sin relleno — rellenarlo de negro
+        // pintaba el producto entero de negro en el boceto.
+        compound.fillColor = vector.fillColor || null;
+        compound.strokeColor = vector.strokeColor || null;
+        compound.strokeWidth = vector.strokeWidth || 0;
+        return compound;
+    };
+
+    // (hoisted) Silueta completa del producto con TODAS las perforaciones como
+    // huecos: la usa el horneado (1b), la contención final del boceto (4b) y
+    // el aplanado por apilado del grabado (7c).
+    let siluetaSketch = null;
     try {
         const capaActivaPrevia = paper.project.activeLayer;
         let capaEnProyecto = false;
         try { paper.project.addLayer(tempLayer); capaEnProyecto = true; } catch (_) {}
 
-        // Geometría en coordenadas de proyecto para booleanas fiables
-        // (mismo patrón que la unión anti doble-grabado del paso 5b).
-        const hornearWorld = (item) => {
-            const clone = item.clone({ insert: false });
-            try {
-                const matrix = item.globalMatrix?.clone?.() || clone.matrix?.clone?.();
-                clone.applyMatrix = false;
-                clone.matrix = new paper.Matrix();
-                if (matrix && !matrix.isIdentity()) clone.transform(matrix);
-                clone.applyMatrix = true;
-            } catch (_) {}
-            return clone;
-        };
-
-        // SILUETA DEL BOCETO CON TODAS LAS PERFORACIONES: en el lienzo el
+        // SILUETA COMPLETA CON TODAS LAS PERFORACIONES: en el lienzo el
         // recorte del mockup deja fuera solo las perforaciones chicas (<15%
         // del area). Regla del cliente: LOS HUECOS SIEMPRE SERAN HUECOS, por
         // mas que sea un boceto — asi que el boceto recorta con la silueta
         // completa (perforaciones grandes incluidas: aro del llavero, ranuras).
-        // El SVG de grabado sigue usando la contencion original (no se toca).
-        let siluetaSketch = null;
-        if (options.keepMockupImage === true && window.currentMockup) {
+        // PRIMERO window.clipMask: ES la silueta real (la armó mockupLoader
+        // con el producto y sus perforaciones como huecos). Sin máscara, se
+        // reconstruye desde los paths del mockup — solo restando contornos
+        // CHICOS contenidos (un segundo path casi del tamaño del producto
+        // convertía la silueta en un anillo y deglutía el diseño).
+        if ((options.keepMockupImage === true || options.stackFlatten === true)) {
             try {
-                const rutasMockup = [];
-                (function recolectar(nodo) {
-                    if (!nodo) return;
-                    if ((nodo instanceof paper.Path || nodo instanceof paper.CompoundPath) &&
-                        Math.abs(nodo.area || 0) > 0) rutasMockup.push(nodo);
-                    if (nodo.children) nodo.children.forEach(recolectar);
-                })(window.currentMockup);
-                rutasMockup.sort((a, b) => Math.abs(b.area || 0) - Math.abs(a.area || 0));
-                if (rutasMockup.length) {
-                    let acc = hornearWorld(rutasMockup[0]);
-                    for (let i = 1; i < rutasMockup.length; i++) {
-                        const agujero = hornearWorld(rutasMockup[i]);
-                        try {
-                            if (acc.bounds.contains(agujero.bounds.center)) {
-                                const restado = acc.subtract(agujero, { insert: false });
-                                if (restado && !restado.isEmpty() && Math.abs(restado.area || 0) > 1e-9) {
-                                    try { acc.remove(); } catch (_) {}
-                                    acc = restado;
+                const mascaraReal = window.clipMask || null;
+                if (mascaraReal && Math.abs(mascaraReal.area || 0) > 1) {
+                    siluetaSketch = hornearWorld(mascaraReal);
+                } else if (window.currentMockup) {
+                    const rutasMockup = [];
+                    (function recolectar(nodo) {
+                        if (!nodo) return;
+                        if ((nodo instanceof paper.Path || nodo instanceof paper.CompoundPath) &&
+                            Math.abs(nodo.area || 0) > 0) rutasMockup.push(nodo);
+                        if (nodo.children) nodo.children.forEach(recolectar);
+                    })(window.currentMockup);
+                    rutasMockup.sort((a, b) => Math.abs(b.area || 0) - Math.abs(a.area || 0));
+                    if (rutasMockup.length) {
+                        let acc = hornearWorld(rutasMockup[0]);
+                        for (let i = 1; i < rutasMockup.length; i++) {
+                            const agujero = hornearWorld(rutasMockup[i]);
+                            try {
+                                const esHueco = acc.bounds.contains(agujero.bounds) &&
+                                    agujero.bounds.width < acc.bounds.width * 0.9 &&
+                                    agujero.bounds.height < acc.bounds.height * 0.9;
+                                if (esHueco) {
+                                    const restado = acc.subtract(agujero, { insert: false });
+                                    if (restado && !restado.isEmpty() && Math.abs(restado.area || 0) > 1e-9) {
+                                        try { acc.remove(); } catch (_) {}
+                                        acc = restado;
+                                    }
                                 }
-                            }
-                        } catch (_) {}
-                        try { agujero.remove(); } catch (_) {}
+                            } catch (_) {}
+                            try { agujero.remove(); } catch (_) {}
+                        }
+                        siluetaSketch = acc;
                     }
-                    siluetaSketch = acc;
                 }
             } catch (_) { siluetaSketch = null; }
         }
@@ -255,6 +379,18 @@ export async function prepareSVGForExport(options = {}) {
             if (!mascara) return null;
             const contenido = hijos.filter(c => c !== mascara);
             if (!contenido.length) return null;
+
+            // El DIBUJO del mockup (producto, perforaciones) no se recorta con
+            // booleanas: ya es el producto. Solo el diseño del cliente pasa por
+            // la contención.
+            const esDelMockup = (item) => {
+                let p = item;
+                while (p) {
+                    if (p.data?.mockup === true || (window.currentMockup && p.id === window.currentMockup.id)) return true;
+                    p = p.parent;
+                }
+                return false;
+            };
 
             const parent = grupo.parent || tempLayer;
             const idx = grupo.index;
@@ -314,6 +450,12 @@ export async function prepareSVGForExport(options = {}) {
             }
 
             vectores.forEach(v => {
+                // El dibujo del mockup va ENTERO (ya es el producto): sin
+                // booleanas, sin cambios de estilo.
+                if (esDelMockup(v)) {
+                    resultados.push(hornearWorld(v));
+                    return;
+                }
                 // Contención de vectores SIN romper contornos: las booleanas
                 // de Paper ignoran el relleno par-impar y rellenan los huecos
                 // de las letras (la "O" salía llena). Estrategia:
@@ -334,7 +476,10 @@ export async function prepareSVGForExport(options = {}) {
                     } else if (!cruza) {
                         try { worldV.remove(); } catch (_) {}
                     } else {
-                        const recortado = worldV.intersect(mascaraWorld, { insert: false });
+                        // Intersección HIJO POR HIJO: la booleana de Paper
+                        // ignoraría el even-odd del compound y rellenaría los
+                        // counters (la "O" llena); así los huecos sobreviven.
+                        const recortado = booleanaPorHijos(worldV, mascaraWorld, "intersect");
                         const areaR = recortado ? Math.abs(recortado.area || 0) : 0;
                         if (recortado && areaR > 1e-9 && areaR <= areaV * (1 + 1e-6)) {
                             resultados.push(recortado);
@@ -376,7 +521,9 @@ export async function prepareSVGForExport(options = {}) {
             pendientes.forEach(g => { try { hornearGrupo(g); } catch (_) {} });
         }
 
-        try { if (siluetaSketch) siluetaSketch.remove(); } catch (_) {}
+        // La silueta sigue viva para la contención final del boceto (4b) y el
+        // aplanado del grabado (7c); ahí se limpia.
+        try { if (siluetaSketch && options.keepMockupImage !== true && options.stackFlatten !== true) siluetaSketch.remove(); } catch (_) {}
         try { if (capaEnProyecto) tempLayer.remove(); } catch (_) {}
         // La capa activa queda como estaba: el editor nunca deja de apuntar
         // a su capa de trabajo por culpa de la exportación.
@@ -508,6 +655,96 @@ export async function prepareSVGForExport(options = {}) {
                 item.remove();
             }
         }
+    }
+
+    // 4b. CONTENCIÓN FINAL DEL BOCETO (regla del cliente: TODO el diseño
+    // queda contenido dentro del mockup). El horneado 1b solo procesa
+    // clipGroups: el texto y las formas sueltas que cruzan el borde del
+    // producto quedaban AFUERA en el boceto (la "Z" de ZARA). Acá se recorta
+    // TODO lo que queda directo en la capa (texto ya vectorizado incluido),
+    // con booleana hijo-por-hijo para no perder los counters. El LIENZO
+    // general no tiene mockup: sin silueta este bloque no corre.
+    if (options.keepMockupImage === true && siluetaSketch) {
+        let capaEnProyecto4b = false;
+        try { paper.project.addLayer(tempLayer); capaEnProyecto4b = true; } catch (_) {}
+        try {
+            const piezaCruza = [];
+            tempLayer.getItems({
+                match: function(item) {
+                    if (item instanceof paper.PointText) return false;
+                    if (!(item instanceof paper.PathItem || item instanceof paper.Raster)) return false;
+                    if (item.data?.mockup === true || item.data?.isMockupOutline === true ||
+                        item.data?.isFusionMask === true || item.data?.isSmartFusion === true) return false;
+                    // solo piezas tope: jamás hijos de otro PathItem (los
+                    // counters de un compound se conservan con su padre).
+                    let p = item.parent;
+                    while (p && p !== tempLayer) {
+                        if (p instanceof paper.PathItem || p.clipped === true) return false;
+                        p = p.parent;
+                    }
+                    return true;
+                }
+            }).forEach(item => piezaCruza.push(item));
+
+            piezaCruza.forEach(item => {
+                try {
+                    const world = hornearWorld(item);
+                    if (!world) return;
+                    const areaV = Math.abs(world.area || 0);
+                    let dentro = false, cruza = false;
+                    try { dentro = siluetaSketch.bounds.contains(world.bounds); } catch (_) {}
+                    try { cruza = siluetaSketch.bounds.intersects(world.bounds); } catch (_) {}
+                    if (dentro) {
+                        try { world.remove(); } catch (_) {}
+                        return; // ya está contenido: no se toca
+                    }
+                    if (!cruza) {
+                        try { world.remove(); } catch (_) {}
+                        try { item.remove(); } catch (_) {}
+                        return; // afuera del producto: no se exporta
+                    }
+                    if (item instanceof paper.Raster) {
+                        // La foto se rasteriza CON la silueta: el recorte
+                        // queda dentro de los píxeles, igual que en la pantalla.
+                        const grupoRaster = new paper.Group();
+                        try { tempLayer.addChild(grupoRaster); } catch (_) {}
+                        grupoRaster.clipped = true;
+                        grupoRaster.addChild(siluetaSketch.clone({ insert: false }));
+                        grupoRaster.addChild(world);
+                        const limite = grupoRaster.bounds;
+                        const maxDim = Math.max(limite?.width || 1, limite?.height || 1, 1);
+                        const resolucion = Math.max(72, Math.min(300, (72 * 2000) / maxDim));
+                        const horneado = grupoRaster.rasterize(resolucion);
+                        try { grupoRaster.remove(); } catch (_) {}
+                        if (horneado && Math.abs(horneado.width || 0) > 0) {
+                            try { horneado.remove(); } catch (_) {}
+                            const parent = item.parent || tempLayer;
+                            const idx = item.index;
+                            try { item.remove(); } catch (_) {}
+                            parent.insertChild(idx, horneado);
+                        }
+                        return;
+                    }
+                    const recortado = booleanaPorHijos(world, siluetaSketch, "intersect");
+                    const areaR = recortado ? Math.abs(recortado.area || 0) : 0;
+                    try { world.remove(); } catch (_) {}
+                    if (recortado && areaR > 1e-9 && areaR <= areaV * (1 + 1e-6)) {
+                        const parent = item.parent || tempLayer;
+                        const idx = item.index;
+                        try { item.remove(); } catch (_) {}
+                        parent.insertChild(idx, recortado);
+                    } else {
+                        try { recortado?.remove?.(); } catch (_) {}
+                        // La booleana volvió a rellenar algo: se conserva el
+                        // original mejor que una letra mutilada.
+                    }
+                } catch (_) {}
+            });
+        } catch (err) {
+            console.warn("[EKKO EXPORT] Contención final del boceto incompleta:", err);
+        }
+        try { if (capaEnProyecto4b) tempLayer.remove(); } catch (_) {}
+        try { if (options.stackFlatten !== true) siluetaSketch.remove(); } catch (_) {}
     }
 
     // 5. MATERIALIZACIÓN BOOLEANA CSG EN LA CAPA CLONADA
@@ -858,6 +1095,83 @@ export async function prepareSVGForExport(options = {}) {
         } catch (_) {
             try { mockupOutline.remove(); } catch (_) {}
             mockupOutline = null;
+        }
+    }
+
+    // 7c. APLANADO POR APILADO PARA LIGHTBURN (options.stackFlatten):
+    // regla del dueño — se graba lo que SE VE. Cada pieza resta todo lo que
+    // está POR ENCIMA de ella (knock-out), así las capas de abajo no quedan
+    // grabadas debajo de las de arriba; y todo se contiene con la silueta del
+    // producto. Booleana hijo-por-hijo: los counters de las letras nunca se
+    // rellenan. Las piezas quedan en el mismo orden z (abajo → arriba).
+    if (options.stackFlatten === true) {
+        try {
+            const unidades = tempLayer.children.filter(it =>
+                (it instanceof paper.PathItem || it instanceof paper.Group) &&
+                !it.data?.mockup && !it.data?.isMockupOutline && !it.data?.isCutLayer &&
+                !it.data?.isFusionMask && !it.data?.isSmartFusion);
+            const worlds = unidades.map(u => hornearWorld(u));
+            for (let i = 0; i < unidades.length; i++) {
+                const unidad = unidades[i];
+                const world = worlds[i];
+                if (!world || !unidad) continue;
+                // 1) KNOCK-OUT: restar la unión de todo lo de arriba.
+                let cubierto = null;
+                for (let j = i + 1; j < unidades.length; j++) {
+                    const arriba = worlds[j];
+                    if (!arriba) continue;
+                    try { if (!world.bounds.intersects(arriba.bounds)) continue; } catch (_) { continue; }
+                    try {
+                        cubierto = cubierto ? cubierto.unite(arriba, { insert: false }) : arriba.clone({ insert: false });
+                    } catch (_) {}
+                }
+                let final = world;
+                if (cubierto) {
+                    const restado = booleanaPorHijos(final, cubierto, "subtract");
+                    try { cubierto.remove(); } catch (_) {}
+                    if (restado && Math.abs(restado.area || 0) > 1e-9 &&
+                        Math.abs(restado.area || 0) <= Math.abs(final.area || 0) * (1 + 1e-6)) {
+                        final = restado;
+                    }
+                }
+                // 2) CONTENCIÓN: intersección con la silueta del producto.
+                if (siluetaSketch) {
+                    let toca = false;
+                    try { toca = final.bounds.intersects(siluetaSketch.bounds); } catch (_) {}
+                    if (toca) {
+                        const contenido = booleanaPorHijos(final, siluetaSketch, "intersect");
+                        if (contenido && Math.abs(contenido.area || 0) > 1e-9 &&
+                            Math.abs(contenido.area || 0) <= Math.abs(final.area || 0) * (1 + 1e-6)) {
+                            final = contenido;
+                        } else {
+                            try { contenido?.remove?.(); } catch (_) {}
+                        }
+                    }
+                }
+                // 3) Reemplazo en la MISMA posición z (abajo → arriba).
+                try {
+                    const parent = unidad.parent || tempLayer;
+                    const idx = unidad.index;
+                    unidad.remove();
+                    parent.insertChild(idx, final);
+                } catch (_) {
+                    try { tempLayer.addChild(final); } catch (_) {}
+                }
+            }
+        } catch (err) {
+            console.warn("[EKKO EXPORT] Aplanado por apilado incompleto:", err);
+        }
+        try { if (siluetaSketch) siluetaSketch.remove(); } catch (_) {}
+    }
+
+    // 7d. CAPA DE CORTE (roja) al tope del apilado: LightBurn la lee como
+    // capa de corte separada del grabado negro.
+    if (capaCorte) {
+        try {
+            tempLayer.addChild(capaCorte);
+        } catch (_) {
+            try { capaCorte.remove(); } catch (_) {}
+            capaCorte = null;
         }
     }
 
