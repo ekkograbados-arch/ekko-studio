@@ -70,9 +70,29 @@ function store() {
     return (typeof window !== "undefined" && window.EKKO_SCENE_STORE) || null;
 }
 
+/* Estampilla en el nombre del archivo: fecha y hora de la descarga. Así los
+   archivos de distintos clientes y de distintas ediciones nunca se confunden
+   entre sí, ni en la carpeta de descargas ni en el Drive del taller. */
+function stamp() {
+    const d = new Date();
+    const p = n => String(n).padStart(2, "0");
+    return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+}
+
+/* El SVG de grabado es material de producción del TALLER: el cliente no lo
+   descarga. Solo se habilita en MODO TALLER (el dueño lo activa manteniendo
+   apretado el botón Descargar). */
+function esModoTaller() {
+    try { return localStorage.getItem("ekkoModoTaller") === "1"; } catch (_) { return false; }
+}
+
 /* ---------------- MODO GRABADO (multi-vista) ---------------- */
 
 export async function exportViewsToSVG(surfaceNames = null, options = {}) {
+    if (!esModoTaller()) {
+        notice("El SVG de grabado es del taller: mantené apretado el botón Descargar para activar el modo taller.", { kind: "warn", ms: 6000 });
+        return { ok: false, reason: "modo-cliente" };
+    }
     const api = store();
     if (!api) {
         console.warn("[EKKO EXPORT] El almacén de vistas no está disponible.");
@@ -111,7 +131,7 @@ export async function exportViewsToSVG(surfaceNames = null, options = {}) {
         }
         const report = (typeof window !== "undefined" && window.EKKO_EXPORT_LAST_REPORT) || null;
         if (svg && svg.trim() !== "") {
-            const filename = `ekko-${slugify(describe.productName)}-${slugify(target.name)}.svg`;
+            const filename = `ekko-grabado-${slugify(describe.productName)}-${slugify(target.name)}-${stamp()}.svg`;
             downloadBlob(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }), filename);
             results.push({ surface: target.name, ok: true, filename, report });
         } else {
@@ -185,7 +205,7 @@ export function downloadProjectFile() {
     }
     // .ekko firmado: solo EKKO Studio lo abre. Otras apps no reconocen el
     // formato y no pueden convertirlo en fuente editable.
-    const filename = `ekko-${slugify(built.envelope.productName)}-proyecto.ekko`;
+    const filename = `ekko-${slugify(built.envelope.productName)}-proyecto-${stamp()}.ekko`;
     downloadBlob(new Blob([encodeProjectEnvelope(built.envelope)], { type: "application/octet-stream" }), filename);
     notice(`Guardado: ${filename} (${built.envelope.views.length} vista${built.envelope.views.length === 1 ? "" : "s"}) — este archivo solo se abre en EKKO Studio.`, { kind: "ok", ms: 6000 });
     return { ok: true, filename, views: built.envelope.views.length };
@@ -224,7 +244,10 @@ export async function openProjectFile(file) {
 export function requestOpenProjectFile() {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".ekko,.ekko.json,application/json";
+    // Solo proyectos firmados EKKO: el selector ya no ofrece .ekko.json ni
+    // archivos sueltos. (El lector interno sigue tolerando el legado si un
+    // archivo viejo se arrastra, pero la carga normal es solo .ekko.)
+    input.accept = ".ekko";
     input.onchange = async () => {
         const file = input.files?.[0];
         if (!file) return;
@@ -345,7 +368,7 @@ export async function downloadSketchPNG() {
         console.warn("[EKKO SKETCH] No se pudo generar el PNG.");
         return { ok: false, reason: "png-failed" };
     }
-    const filename = `ekko-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-boceto.png`;
+    const filename = `ekko-boceto-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-${stamp()}.png`;
     downloadBlob(blob, filename);
     notice(`Descargado: ${filename} — aplanado y con marca de agua.`, { kind: "ok" });
     return { ok: true, filename };
@@ -362,7 +385,7 @@ export async function downloadSketchPDF() {
         console.warn("[EKKO SKETCH PDF] No se pudo generar la imagen del PDF.");
         return { ok: false, reason: "png-failed" };
     }
-    const filename = `ekko-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-boceto.pdf`;
+    const filename = `ekko-boceto-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-${stamp()}.pdf`;
     try {
         const pdf = await jpegBlobToPdf(await jpeg.arrayBuffer(), built.canvas.width, built.canvas.height);
         downloadBlob(pdf, filename);
@@ -413,6 +436,42 @@ async function jpegBlobToPdf(jpegBuffer, anchoPx, altoPx) {
     return new Blob([salida], { type: "application/pdf" });
 }
 
+/* ---------------- ENVÍO AL TALLER (solo modo taller) ---------------- */
+/* WhatsApp y Drive del taller, sin servidores y sin costo: el archivo se
+   descarga con nombre ordenado y se abre el chat / la carpeta para
+   adjuntarlo con un arrastre. El navegador solo no puede meter archivos
+   dentro de WhatsApp o Drive, pero deja todo listo a un paso. */
+const EKKO_TALLER_CONTACTO = {
+    whatsapp: "5492804719686",
+    drive: "https://drive.google.com/drive/folders/1Bt0BAnpn3WCMd9mUCAMnc5Bdg6DxJHqK"
+};
+
+export async function enviarGrabadoPorWhatsApp(surfaceNames = null, options = {}) {
+    const res = await exportViewsToSVG(surfaceNames, options);
+    if (!res.ok) return res;
+    const okList = (res.results || []).filter(r => r.ok);
+    let describe = null;
+    try { describe = store()?.describe?.() || null; } catch (_) {}
+    const msg = [
+        "EKKO Grabados — archivo para grabar",
+        `Producto: ${describe?.productName || "-"}`,
+        `Vistas: ${okList.map(r => r.surface).join(", ")}`,
+        `Archivos: ${okList.map(r => r.filename).join(", ")}`,
+        `Fecha: ${new Date().toLocaleString()}`
+    ].join("\n");
+    setTimeout(() => {
+        try { window.open(`https://wa.me/${EKKO_TALLER_CONTACTO.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank"); } catch (_) {}
+    }, 900);
+    notice("Grabado descargado y WhatsApp abierto: adjuntá el archivo SVG en el chat.", { kind: "ok", ms: 8000 });
+    return res;
+}
+
+export function abrirDriveProyectos() {
+    try { window.open(EKKO_TALLER_CONTACTO.drive, "_blank"); } catch (_) {}
+    notice("Drive abierto: arrastrá los archivos del cliente a PROYECTOS DE CLIENTES.", { kind: "info", ms: 7000 });
+    return { ok: true };
+}
+
 if (typeof window !== "undefined") {
     window.EKKO_PROJECT_IO = {
         exportViewsToSVG,
@@ -421,6 +480,8 @@ if (typeof window !== "undefined") {
         openProjectFile,
         requestOpenProjectFile,
         downloadSketchPNG,
-        downloadSketchPDF
+        downloadSketchPDF,
+        enviarGrabadoPorWhatsApp,
+        abrirDriveProyectos
     };
 }
