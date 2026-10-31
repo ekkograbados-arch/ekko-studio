@@ -764,13 +764,20 @@ export async function prepareSVGForExport(options = {}) {
     // 6. PURGADO DE CALADOS ACTIVOS (isHole)
     // Dado que el corte booleano ya fue materializado en la geometría de las masas sólidas inferiores,
     // se eliminan todas las entidades de calado interactivo para no generar líneas de corte duplicadas en LightBurn
+    // CRÍTICO (bug counters de letras): un HIJO de un CompoundPath es un contorno
+    // interno (el hueco real de una letra R, A, O...), NO un calado interactivo.
+    // La vectorización de texto marca esos hijos con isHole:true y la purga los
+    // borreaba uno por uno: las letras salían MACIZAS en el SVG de grabado y en
+    // el boceto PNG/PDF (que rasteriza este mismo SVG). Los calados reales
+    // siempre cuelgan de la capa o de un grupo, jamás de un CompoundPath.
     const holesToRemove = [];
     tempLayer.getItems({
         match: function(item) {
             return item.data &&
                 (item.data.isHole === true || item.data.isHoleController === true) &&
                 item.data.isFusionMask !== true &&
-                item.data.isSmartFusion !== true;
+                item.data.isSmartFusion !== true &&
+                !(item.parent && item.parent.className === "CompoundPath");
         }
     }).forEach(hole => holesToRemove.push(hole));
 
@@ -785,8 +792,12 @@ export async function prepareSVGForExport(options = {}) {
     const emptyItems = [];
     tempLayer.getItems({
         match: function(item) {
+            // Un contorno interno de un CompoundPath (counter de letra) jamás
+            // se evalúa ni se elimina por separado: si su compound tiene área,
+            // él pertenece a ese relleno con huecos (evenodd).
+            if (item.parent && item.parent.className === "CompoundPath") return false;
             if (item instanceof paper.PathItem) {
-                const segCount = item.segments ? item.segments.length : 
+                const segCount = item.segments ? item.segments.length :
                     (item.children ? item.children.reduce((acc, c) => acc + (c.segments ? c.segments.length : 0), 0) : 0);
                 const area = Math.abs(item.area || 0);
                 if (segCount < 2 || area < 1e-4) {
