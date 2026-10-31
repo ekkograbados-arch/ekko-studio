@@ -49,19 +49,33 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <i class="fas fa-download"></i> Descargar
         </button>
         <div id="ekkoDownloadMenu" hidden style="position:absolute;top:calc(100% + 6px);right:0;min-width:270px;background:#fff;border:1px solid #d7dee8;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.18);padding:6px;z-index:201;">
-            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">GRABADO · LIGHTBURN</div>
-            <div style="display:flex;gap:6px;padding:2px 10px 6px;align-items:center;font-size:12px;">
-                <label style="display:flex;gap:4px;align-items:center;">Vista
-                    <select id="ekkoDownloadViews" style="max-width:130px;padding:3px 4px;border:1px solid #d7dee8;border-radius:6px;font-size:12px;"></select>
-                </label>
-                <label style="display:flex;gap:4px;align-items:center;" title="Agrega el borde del producto como guía para alinear el diseño (no se graba)">
-                    <input type="checkbox" id="ekkoDownloadMockup"> Contorno
-                </label>
+            <div id="ekkoTallerSeccion" style="display:none;">
+                <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">GRABADO · LIGHTBURN · SOLO TALLER</div>
+                <div style="display:flex;gap:6px;padding:2px 10px 6px;align-items:center;font-size:12px;">
+                    <label style="display:flex;gap:4px;align-items:center;">Vista
+                        <select id="ekkoDownloadViews" style="max-width:130px;padding:3px 4px;border:1px solid #d7dee8;border-radius:6px;font-size:12px;"></select>
+                    </label>
+                    <label style="display:flex;gap:4px;align-items:center;" title="Agrega el borde del producto como guía para alinear el diseño (no se graba)">
+                        <input type="checkbox" id="ekkoDownloadMockup"> Contorno
+                    </label>
+                </div>
+                <button type="button" onclick="window.__ekkoDownloadSVG?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
+                    <i class="fas fa-bezier-curve" style="color:#15803d;"></i>
+                    <span><b>SVG para LightBurn</b> <span style="color:#64748b;">(grabado, 1:1 en mm)</span></span>
+                </button>
+                <button type="button" onclick="window.__ekkoEnviarWhatsApp?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
+                    <i class="fab fa-whatsapp" style="color:#25d366;"></i>
+                    <span><b>Enviar grabado por WhatsApp</b> <span style="color:#64748b;">(descarga + abre el chat)</span></span>
+                </button>
+                <button type="button" onclick="window.__ekkoAbrirDrive?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
+                    <i class="fab fa-google-drive" style="color:#1a73e8;"></i>
+                    <span><b>Abrir Drive EKKO</b> <span style="color:#64748b;">(PROYECTOS DE CLIENTES)</span></span>
+                </button>
+                <button type="button" onclick="window.__ekkoToggleModoTaller?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:7px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;text-align:left;margin-top:2px;">
+                    <i class="fas fa-lock-open"></i>
+                    <span>Salir del modo taller (volver a menú cliente)</span>
+                </button>
             </div>
-            <button type="button" onclick="window.__ekkoDownloadSVG?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
-                <i class="fas fa-bezier-curve" style="color:#15803d;"></i>
-                <span><b>SVG para grabar</b> <span style="color:#64748b;">(LightBurn, sin doble quemado)</span></span>
-            </button>
             <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">TU TRABAJO · PARA SEGUIR EDITANDO</div>
             <button type="button" onclick="window.__ekkoDownloadProject?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#eff6ff;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                 <i class="fas fa-file-export" style="color:#1d4ed8;"></i>
@@ -109,6 +123,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             if (!menu || !btn) return;
             if (menu.hidden) {
                 try { window.__ekkoDownloadMenuViews(); } catch (_) {}
+                try { window.__ekkoApplyModoTaller(); } catch (_) {}
                 // SIEMPRE POR ENCIMA DE TODO (regla del cliente): el menu se
                 // despega del topBar y se ancla al body como capa fija. Dentro
                 // del topBar quedaba encapsulado en SU contexto de apilamiento
@@ -124,6 +139,63 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 return;
             }
             menu.hidden = true;
+        };
+        /* MODO TALLER: el SVG de grabado es del dueño. Se activa manteniendo
+           apretado el botón Descargar ~1,2 s (el cliente no lo descubre) y
+           queda recordado en el navegador. */
+        window.__ekkoApplyModoTaller = function() {
+            let on = false;
+            try { on = localStorage.getItem("ekkoModoTaller") === "1"; } catch (_) {}
+            const seccion = document.getElementById("ekkoTallerSeccion");
+            if (seccion) seccion.style.display = on ? "" : "none";
+        };
+        window.__ekkoToggleModoTaller = function() {
+            let on = false;
+            try { on = localStorage.getItem("ekkoModoTaller") === "1"; } catch (_) {}
+            try { localStorage.setItem("ekkoModoTaller", on ? "0" : "1"); } catch (_) {}
+            window.__ekkoApplyModoTaller();
+            if (window.ekkoNotice) {
+                window.ekkoNotice(on
+                    ? "Modo taller desactivado: el menú queda en modo cliente (PNG/PDF con marca de agua)."
+                    : "Modo taller ACTIVADO: ya podés descargar el SVG para LightBurn y enviarlo por WhatsApp/Drive.",
+                    { kind: on ? "info" : "ok", ms: 6000 });
+            }
+        };
+        (function() {
+            const btn = document.getElementById("btnEkkoDownload");
+            if (!btn) return;
+            let timer = null;
+            const arrancar = () => {
+                if (timer) return;
+                timer = setTimeout(() => { timer = null; window.__ekkoToggleModoTaller?.(); }, 1200);
+            };
+            const soltar = () => { if (timer) { clearTimeout(timer); timer = null; } };
+            btn.addEventListener("mousedown", arrancar);
+            btn.addEventListener("touchstart", arrancar, { passive: true });
+            ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(ev => btn.addEventListener(ev, soltar));
+        })();
+        window.__ekkoEnviarWhatsApp = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            const io = window.EKKO_PROJECT_IO;
+            if (!io) return;
+            const opts = window.__ekkoDownloadReadOptions();
+            const store = window.EKKO_SCENE_STORE;
+            let surfaces = null;
+            if (opts.surfaces === "__all") {
+                try {
+                    const describe = store.describe();
+                    surfaces = (describe.surfaces || []).map(surf => surf.name);
+                } catch (_) { surfaces = null; }
+            } else {
+                surfaces = opts.surfaces;
+            }
+            io.enviarGrabadoPorWhatsApp(surfaces, { includeMockup: opts.includeMockup });
+        };
+        window.__ekkoAbrirDrive = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.abrirDriveProyectos();
         };
         window.__ekkoDownloadReadOptions = function() {
             const select = document.getElementById("ekkoDownloadViews");
