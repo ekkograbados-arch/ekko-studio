@@ -121,10 +121,14 @@ export async function exportViewsToSVG(surfaceNames = null, options = {}) {
         await new Promise(resolve => setTimeout(resolve, 60));
         let svg = "";
         try {
+            // Formato 1 del dueño: aplanado por apilado (lo de abajo no se
+            // graba debajo de lo de arriba) + capa de corte roja del producto.
             svg = await prepareSVGForExport({
                 asString: true,
                 uniteOverlaps: options.uniteOverlaps !== false,
-                includeMockup: options.includeMockup === true
+                includeMockup: options.includeMockup === true,
+                stackFlatten: true,
+                includeCutLayer: true
             });
         } catch (err) {
             svg = "";
@@ -515,9 +519,16 @@ async function construirSVGLote(surfaceNames = null) {
         await new Promise(resolve => setTimeout(resolve, 60));
         let svg = "";
         try {
-            // El lote es para GRABAR: sin mockup, sin marca de agua. Una vista
-            // cuyo export sale vacío es una vista sin edición real: se salta.
-            svg = await prepareSVGForExport({ asString: true, includeMockup: false });
+            // El lote es para GRABAR DIRECTO en LightBurn (formato 1 del dueño):
+            // aplanado por apilado (lo de abajo no se graba debajo de lo de
+            // arriba) + capa de corte roja con el contorno del producto. Una
+            // vista cuyo export sale vacío es una vista sin edición real: se salta.
+            svg = await prepareSVGForExport({
+                asString: true,
+                includeMockup: false,
+                stackFlatten: true,
+                includeCutLayer: true
+            });
         } catch (_) { svg = ""; }
         if (!svg || svg.trim() === "") continue;
         const vb = String((svg.match(/viewBox="([^"]+)"/) || [])[1] || "").trim().split(/\s+/).map(Number);
@@ -568,13 +579,18 @@ export async function enviarAGrabarEkkoGrabados(surfaceNames = null) {
             : "No se pudo preparar el envío. Probá de nuevo.", { kind: "warn", ms: 6000 });
         return lote;
     }
+    // FORMATO 2: el proyecto .ekko editable viaja SIEMPRE junto al SVG. Así
+    // el dueño (o el colega) corrige el diseño en EKKO Studio antes de
+    // reexportar a LightBurn, sin volver a pedirle nada al cliente.
+    const proyecto = downloadProjectFile();
     const filename = `ekko-grabado-${slugify(lote.producto)}-COMPLETO-${stamp()}.svg`;
     downloadBlob(new Blob([lote.lote], { type: "image/svg+xml;charset=utf-8" }), filename);
     const msg = [
         `${contacto.nombre || "EKKO GRABADOS"} — pedido de grabado`,
         `Producto: ${lote.producto}`,
-        `Piezas incluidas (1 archivo): ${lote.piezas.join(", ")}`,
-        `Archivo: ${filename} (ya descargado: adjuntalo en este chat)`,
+        `Piezas incluidas (1 archivo SVG listo para grabar): ${lote.piezas.join(", ")}`,
+        `Archivo SVG (formato 1): ${filename}`,
+        proyecto?.filename ? `Proyecto editable (formato 2): ${proyecto.filename}` : "Proyecto editable: (no se pudo generar)",
         `Fecha: ${new Date().toLocaleString()}`
     ].join("\n");
     setTimeout(() => {
