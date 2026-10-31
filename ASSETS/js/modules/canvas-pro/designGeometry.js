@@ -8,7 +8,7 @@
 const UI_FLAGS = [
   "isSelectionBox", "isHandle", "isNodeHandle", "isCurveHandle",
   "isNodeEditOverlay", "isSmartGuide", "isMeasurement", "isTracePreview",
-  "isFusionEditGhost"
+  "isFusionEditGhost", "isOutlinePreview"
 ];
 
 function dataOf(item) { return item && item.data ? item.data : {}; }
