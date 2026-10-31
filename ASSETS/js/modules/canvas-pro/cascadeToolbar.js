@@ -104,13 +104,34 @@ function persistirTab(nuevo) {
 
 function elegirPestaña(id) {
     const ahora = pestañaActual();
-    const nuevo = (ahora === id) ? "auto" : id;   // 2.º clic = volver a Inicio
+    /* El 2.º clic devuelve el control a la seleccion. Se compara contra la
+       pestaña que se ESTA VIENDO, no contra el estado guardado: desde la
+       ronda 15 la activa tambien puede venir de lo apuntado (estado "auto"
+       con un objeto elegido), y ahi "ahora" seguia siendo "auto". */
+    const viendo = (ahora !== "auto") ? ahora : tabDeLaSeleccion();
+    const nuevo = (viendo === id) ? "auto" : id;
     if (nuevo !== "auto" && nuevo !== "base" && nuevo !== "multiple") apuntarEspecie(nuevo);
     if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = nuevo;
     persistirTab(nuevo);
     window.EKKO_RIBBON && window.EKKO_RIBBON.refresh && window.EKKO_RIBBON.refresh();
     renderTabs();
     refrescarFila();
+}
+
+/* Que pestaña pide el objeto apuntado. Varias piezas de la MISMA especie son
+   la pestaña de esa especie; la mezcla de especies es "Varios". Sin objeto,
+   Inicio. */
+function tabDeLaSeleccion() {
+    const sel = seleccionActual();
+    if (!sel.length) return "base";
+    const det = detectTab(sel);
+    if (det === "multiple") {
+        const esp = new Set(sel.map(speciesOf).filter(Boolean));
+        if (esp.size > 1) return TABS.multiple ? "multiple" : "base";
+        const unica = TAB_DE_ESPECIE[[...esp][0]];
+        return unica && TABS[unica] ? unica : "base";
+    }
+    return det && TABS[det] ? det : "base";
 }
 
 /* Una pestana de especie sin objeto de esa especie apuntado no tiene nada que
@@ -474,6 +495,21 @@ function estilos() {
                es la manera de empezar. */
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > .ekko-ribbon-group:not([data-group="creacion"]) { display: none !important; }
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > button { display: none !important; }
+        /* Y al reves (ronda 15): con un objeto apuntado, CARGAR / CREAR se van.
+           Inicio es la puerta para empezar un proyecto, no una barra que
+           convive con las herramientas del objeto: medido con una imagen
+           seleccionada, el mosaico de Crear se quedaba con 763 px de una fila
+           de 906 y empujaba Quitar Fondo / Trazar / Fusionar fuera de la
+           pantalla. El cliente lo dijo literal: "selecciono una imagen y sigue
+           apareciendo erroneamente los botones de cargar y crear". */
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion) #ekkoCascadeTools > .ekko-ribbon-group[data-group="creacion"] { display: none !important; }
+        /* ...salvo que el cliente toque Inicio a proposito: Inicio ES el
+           hub de cargar/crear, asi que ahi la fila de Crear vuelve aunque
+           haya un objeto apuntado, y las herramientas del objeto se retiran
+           para no mezclar dos modos en la misma fila. La ocultacion de arriba
+           es solo para el modo automatico (la pestaña sigue al objeto). */
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="creacion"] { display: flex !important; }
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group:not([data-group="creacion"]):not([data-group="recientes"]) { display: none !important; }
 
         /* --- BARRA EMERGENTE en la cascada: una sola fila con las 5 mas
                usadas a la vista y ⋯ para el resto (medido: sin esto mostraba
@@ -1174,6 +1210,103 @@ function estilos() {
         body[data-ekko-theme="claro"] #ekkoCascadeStrip button.ekko-ini-btn:hover { background: #bd1478; }
         /* Descargar NO se re-pinta de día: su verde es semántico y la regla
            base de la tira ya lo fija con !important para ambos temas. */
+
+        /* ==================================================================
+           NIVEL 2 — FICHAS IGUALES (ronda 15)
+           ------------------------------------------------------------------
+           Antes cada grupo mezclaba UNA ficha grande (heroe) con botones de
+           una linea, asi que el mismo icono medía 16 o 13, el nombre caia a
+           distinta altura y "Quitar Fondo" (92) convivia con "Trazar Imagen"
+           (107). Sobre una fila de 906 px eso empujaba Cuatro de los cinco
+           grupos fuera de la ventana y el cliente lo resumio asi: "el nivel 2
+           se ve horrible y poco profesional".
+
+           Criterio nuevo: TODA herramienta de objeto es la MISMA ficha —
+           icono arriba, nombre debajo, 58x44, dos lineas de 10 px— y el molde
+           heroe desaparece. Un catalogo de fichas iguales se lee de un
+           vistazo y entra completo en 1308 px (medido: 1142 -> 872).
+           ================================================================== */
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group:not([data-group="creacion"]) .btn-action,
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group:not([data-group="creacion"]) .btn-action.ekko-es-heroes {
+            flex: 0 0 auto;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 2px;
+            height: 44px;
+            min-width: 58px;
+            max-width: 84px;
+            padding: 2px 5px !important;
+            font-size: 10px !important;
+            font-weight: 500 !important;
+            line-height: 1.06;
+            letter-spacing: 0;
+            white-space: normal;
+            text-align: center;
+            overflow-wrap: break-word;
+        }
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group:not([data-group="creacion"]) .btn-action .ekko-ic,
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group:not([data-group="creacion"]) .btn-action.ekko-es-heroes .ekko-ic {
+            width: 16px; height: 16px;
+            margin: 0;
+        }
+        /* Aire parejo entre fichas y entre grupos: el pelo vertical ya separa,
+           asi que el grupo no necesita 8 px de cada lado. */
+        #ekkoCascadeTools .ekko-ribbon-group { padding: 0 6px; }
+        #ekkoCascadeTools .ekko-ribbon-group:not(.is-collapsed) .ekko-ribbon-group-body { gap: 2px 4px; }
+        /* La etiqueta del grupo respira debajo de las fichas, sin competir. */
+        #ekkoCascadeTools .ekko-ribbon-group-head {
+            padding-top: 1px;
+            font-size: 9.5px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        /* Los campos del objeto, un poco mas juntos: 464 px de cuatro campos
+           eran el 51 % de la fila con una imagen apuntada. */
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body { gap: 5px; }
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-input-number { width: 54px !important; font-size: 10.5px; padding: 3px 4px; }
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .size-control-group label,
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .size-control-group span { font-size: 10.5px; }
+        /* De noche las etiquetas del bloque Objeto heredaban el #2E3A59 de
+           styles.css (#topBar lo fija con !important) y desaparecian sobre el
+           vidrio oscuro. Los botones ya traian su color; esto cubre lo que se
+           hereda: Ancho / Alto / Rot / Angulo y sus unidades. */
+        body[data-modo="oscuro"] #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"],
+        body[data-ekko-theme="oscuro"] #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] {
+            color: rgba(233,233,242,0.86);
+        }
+
+        /* LA PISTA (sin seleccion): una ficha corta al final de Crear. El texto
+           largo se cortaba contra el borde de la fila y parecia basura. */
+        #ekkoCascadeTools .ekko-fila-pista {
+            max-width: 132px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            padding: 0 4px;
+            font-size: 11px;
+        }
+
+        /* Crear: mismo alto y mismo aire entre fichas, un punto mas grande que
+           las de objeto porque es la puerta del proyecto. */
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group[data-group="creacion"] .ekko-ribbon-group-body { gap: 6px; }
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group[data-group="creacion"] .btn-action {
+            min-width: 88px;
+            max-width: 104px;
+            padding: 3px 7px !important;
+            font-size: 11px !important;
+        }
+        #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group[data-group="creacion"] .btn-action .ekko-ic {
+            width: 20px; height: 20px;
+        }
+
+        /* El grupo VISTA no se repite en el nivel 2: Ajustar Vista, Reglas y
+           Guias son exactamente los mismos comandos que ya estan en la banda
+           del nivel 3 (OPCIONES DE VISTA / ZOOM), dos centimetros mas abajo.
+           Medido con una imagen apuntada, ese grupo se llevaba 205 de los 906
+           px de la fila y empujaba lo que SI importa (Quitar Fondo, Trazar,
+           Fusionar, Contorno, Alinear) fuera de la ventana. Ronda 13 ya lo
+           habia contado: 26 funciones repetidas entre niveles. */
+        #topBar.ekko-cascade #ekkoCascadeTools > .ekko-ribbon-group[data-group="vista"] { display: none !important; }
     `;
     document.head.appendChild(st);
 }
@@ -1383,7 +1516,6 @@ function pintarProducto(prod) {
    piden el render a la cinta (una sola fuente de verdad, cero conflicto). */
 function renderTabs() {
     if (!tabsBox) return;
-    const sel = seleccionActual();
     /* Ronda 7, punto 4: a lo que dice la SELECCION se le suma lo que HAY en el
        lienzo. Cargar una imagen ya abre su pestana al lado de Inicio, sin
        necesidad de apuntarla.
@@ -1392,17 +1524,10 @@ function renderTabs() {
        pestana "Vector" que no tiene nada adentro. El pedido del cliente es otro
        ("TEXTOS, IMAGEN Y VARIOS"): las pestanas de especie nacen de las PIEZAS
        QUE EXISTEN, y "Varios" solo cuando lo seleccionado son varias piezas. */
-    const det = sel.length ? detectTab(sel) : null;
     /* Varias piezas IGUALES no son "Varios": son la pestaña de esa pieza.
        "Varios" aparece solo cuando la seleccion mezcla especies. */
-    const deSeleccion = det === "multiple"
-        ? (() => {
-            const esp = new Set(sel.map(speciesOf).filter(Boolean));
-            if (esp.size > 1) return ["multiple"];
-            const unica = TAB_DE_ESPECIE[[...esp][0]];
-            return unica ? [unica] : [];
-        })()
-        : (det && det !== "base" ? [det] : []);
+    const tabSel = tabDeLaSeleccion();
+    const deSeleccion = tabSel === "base" ? [] : [tabSel];
     const { especies } = contenidoDelLienzo();
     const disponibles = [...new Set([
         "base",
@@ -1411,12 +1536,19 @@ function renderTabs() {
     ])].filter(id => TABS[id]);
     const manual = pestañaActual();
 
-    /* Ronda 7, punto 2: el REPOSO es Inicio. Antes, en "auto", se activaba la
-       pestana que deducía la selección, así que al elegir un objeto el panel
-       saltaba solo de pestaña y el cliente perdía de vista dónde estaba. Ahora
-       la activa es la que el cliente tocó; si no tocó ninguna, Inicio. */
-    const activa = manual !== "auto" ? manual : "base";
+    /* Ronda 15: la pestaña SIGUE a lo que esta apuntado. Hasta la ronda 14 el
+       reposo era siempre Inicio y elegir un objeto no movia la tira, asi que
+       el cliente veia "Inicio" encendida mientras trabajaba sobre una imagen.
+       Ahora Inicio es solo la puerta de cargar/crear y, en cuanto hay un
+       objeto, se enciende la pestaña de su especie. La eleccion manual
+       (tocar una pestaña) sigue ganando; "auto" significa "segui al objeto". */
+    const activa = manual !== "auto" ? manual : tabSel;
+    if (!disponibles.includes(activa)) disponibles.push("base");
     topBar.dataset.ekkoTab = activa;
+    /* Quien encendio la pestaña: el objeto (auto) o un clic del cliente.
+       Inicio manual vuelve a mostrar Cargar/Crear aunque haya un objeto
+       apuntado; Inicio automatico (objeto sin especie) los deja ocultos. */
+    topBar.dataset.ekkoTabManual = manual !== "auto" ? manual : "";
 
     tabsBox.innerHTML = "";
     disponibles.sort((a, b) => (RAIZ_ORDEN[a] ?? 99) - (RAIZ_ORDEN[b] ?? 99));
@@ -1458,7 +1590,8 @@ function montarFila() {
     // herramientas de objeto y un rectangulo de 66px sin nada se lee "roto".
     const pista = document.createElement("span");
     pista.className = "ekko-fila-pista";
-    pista.textContent = "Elegi un objeto del lienzo para ver sus herramientas";
+    pista.textContent = "Elegí un objeto";
+    pista.title = "Elegí un objeto del lienzo para ver sus herramientas";
     fila.appendChild(pista);
 
     // LOS GRUPOS ENTEROS, no los botones sueltos (ronda 5). ui/ribbonLayout.js
