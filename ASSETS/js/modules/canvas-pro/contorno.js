@@ -95,15 +95,18 @@ function regenerarContorno(contorno, opciones = null) {
 
     const control = opciones || readOutlineControls();
     const sampled = sampleRasterAlpha(origen);
-    const bounds = ownerOf(origen)?.bounds?.clone?.() || origen?.bounds?.clone?.();
+    // La silueta sale de la matriz de la imagen, no de su caja del mundo: con
+    // la pieza girada o espejada la caja estira y no espeja (MEDIDO en
+    // siluetaDeImagen).
+    const bounds = origen?.bounds?.clone?.();
     if (!bounds) return null;
     // La silueta SIN filtrar alimenta el cache del preview (fase C): el
     // alcance se aplica aparte, con el valor de ahora, igual que hace
     // createRasterBorderContour al crear el contorno.
-    const todasSilueta = sampled ? alphaSilhouetteContours(sampled, bounds) : [];
+    const todasSilueta = siluetaDeImagen(origen, sampled);
     const loops = filtrarLoopsPorAlcance(todasSilueta, control.scope);
     if (vinculoPropio) {
-        vinculoPropio.silueta = todasSilueta.length ? todasSilueta : loopCaja(bounds);
+        vinculoPropio.silueta = todasSilueta.length ? todasSilueta : loopCajaImagen(origen) || loopCaja(bounds);
     }
 
     const base = new paper.CompoundPath({ insert: false });
@@ -113,9 +116,8 @@ function regenerarContorno(contorno, opciones = null) {
     if (loops.length) {
         loops.forEach(loop => base.addChild(new paper.Path({ segments: loop, closed: true, insert: false })));
     } else {
-        base.addChild(new paper.Path.Rectangle({
-            from: bounds.topLeft, to: bounds.bottomRight, closed: true, insert: false
-        }));
+        const caja = loopCajaImagen(origen) || loopCaja(bounds);
+        base.addChild(new paper.Path({ segments: caja, closed: true, insert: false }));
     }
 
     const width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
@@ -191,6 +193,66 @@ function loopCaja(bounds) {
         bounds.topLeft.clone(), bounds.bottomLeft.clone(),
         bounds.bottomRight.clone(), bounds.topRight.clone()
     ];
+}
+
+/* ------------------------------------------------------------------
+   MAPEO CON LA MATRIZ DE LA IMAGEN (no con su caja del mundo).
+   sampleRasterAlpha lee raster.canvas: los pixeles, que no saben nada de
+   giro, espejo ni escala. Antes la grilla se estiraba contra item.bounds,
+   que es la caja AABB del mundo: con la pieza girada la silueta sale
+   estirada a esa caja (mas grande que la imagen) y con espejo sale sin
+   espejar. MEDIDO contra los pixeles renderizados, grosor 12 Exterior:
+   sin girar error 2 px; giro 30 error 74 px; giro 90 error 59 px; espejo
+   error 54 px. En grabado laser eso es una mordida de 70 px fuera de la
+   pieza. Se mapea la grilla al rectangulo propio de la imagen y despues se
+   aplica la matriz global, que lleva posicion, escala, giro y espejo.
+   ------------------------------------------------------------------ */
+
+/** Caja de la imagen en SU propio espacio y la matriz que la lleva al lienzo.
+ *  El anclaje (centro o esquina) no se supone: se prueba cual de los dos
+ *  reproduce la caja del mundo, que es lo que Paper usa para pintar. */
+function mapeoDeImagen(origen) {
+    const w = Number(origen?.width), h = Number(origen?.height);
+    if (!(w > 0) || !(h > 0)) return null;
+    const matriz = origen.getGlobalMatrix?.();
+    const b = origen?.bounds;
+    if (!matriz || !b) return null;
+    const candidatos = [
+        new paper.Rectangle(-w / 2, -h / 2, w, h),
+        new paper.Rectangle(0, 0, w, h)
+    ];
+    const error = r => {
+        // Rectangle#transformed no existe en Paper 0.12.17: la caja transformada
+        // se saca de sus cuatro esquinas.
+        const esquinas = [r.topLeft, r.topRight, r.bottomRight, r.bottomLeft]
+            .map(p => new paper.Point(p.x, p.y).transform(matriz));
+        const xs = esquinas.map(p => p.x), ys = esquinas.map(p => p.y);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs);
+        const y0 = Math.min(...ys), y1 = Math.max(...ys);
+        return Math.abs(x0 - b.x) + Math.abs(y0 - b.y)
+            + Math.abs((x1 - x0) - b.width) + Math.abs((y1 - y0) - b.height);
+    };
+    return { caja: error(candidatos[0]) <= error(candidatos[1]) ? candidatos[0] : candidatos[1], matriz };
+}
+
+/** Silueta real de la imagen en coordenadas del lienzo. */
+function siluetaDeImagen(origen, sampled) {
+    const m = mapeoDeImagen(origen);
+    if (!m || !sampled) return [];
+    const loops = alphaSilhouetteContours(sampled, m.caja);
+    if (!loops.length) return loops;
+    return loops.map(loop => loop.map(p => new paper.Point(p.x, p.y).transform(m.matriz)));
+}
+
+/** La caja de la imagen como poligono YA girado/espejado: el respaldo cuando
+ *  no hay alfa que leer (JPG opaco), que con la caja AABB dibujaba un
+ *  rectangulo mas grande que la foto girada. */
+function loopCajaImagen(origen) {
+    const m = mapeoDeImagen(origen);
+    if (!m) return null;
+    const c = m.caja;
+    return [c.topLeft, c.bottomLeft, c.bottomRight, c.topRight]
+        .map(p => new paper.Point(p.x, p.y).transform(m.matriz));
 }
 
 /** Preview del anillo de vector/texto: trazo sobre la linea media de la
@@ -472,9 +534,12 @@ export function alphaSilhouetteContours(sampled, bounds, opciones = null) {
  * analiza tonos y copia el objeto entero; aqui solo se lee el limite.
  */
 function createRasterBorderContour(raster, options = {}) {
+    // La grilla de alfa es de la IMAGEN y se devuelve al lienzo con SU matriz
+    // (mapeoDeImagen): con la caja del dueno estiraba la silueta cuando el dueno
+    // es un grupo mas grande que la foto (+34% de ancho, 10 px de corrimiento)
+    // y con la caja AABB del mundo estiraba cualquier pieza girada.
     const owner = ownerOf(raster);
-    const bounds = owner?.bounds?.clone?.() || raster?.bounds?.clone?.();
-    if (!bounds) return null;
+    if (!raster?.bounds) return null;
 
     // REGENERAR, NUNCA DUPLICAR: si esta pieza ya tenia un contorno vivo se
     // retira antes de armar el nuevo, venga la llamada del panel, de la barra
@@ -494,7 +559,7 @@ function createRasterBorderContour(raster, options = {}) {
     const sampled = sampleRasterAlpha(raster);
     // La silueta SIN filtrar se guarda en el vinculo: el preview del panel
     // (fase C) la lee y aplica el alcance del momento sin recalcular nada.
-    const todasSilueta = sampled ? alphaSilhouetteContours(sampled, bounds) : [];
+    const todasSilueta = siluetaDeImagen(raster, sampled);
     const loops = filtrarLoopsPorAlcance(todasSilueta, options.scope);
     const origin = loops.length ? "image-silhouette" : "image-bounding";
 
@@ -507,10 +572,9 @@ function createRasterBorderContour(raster, options = {}) {
             compound.addChild(new paper.Path({ segments: loop, closed: true, insert: false }));
         });
     } else {
-        const frame = new paper.Path.Rectangle({
-            from: bounds.topLeft, to: bounds.bottomRight, closed: true, insert: false
-        });
-        compound.addChild(frame);
+        const caja = loopCajaImagen(raster);
+        if (!caja) return null;
+        compound.addChild(new paper.Path({ segments: caja, closed: true, insert: false }));
     }
 
     const width = Math.abs(Number(options.width) || 0) || 1;
@@ -567,7 +631,7 @@ function createRasterBorderContour(raster, options = {}) {
             VINCULOS.set(clave, {
                 contorno: outline,
                 origen: owner || raster,
-                silueta: todasSilueta.length ? todasSilueta : loopCaja(bounds)
+                silueta: todasSilueta.length ? todasSilueta : loopCajaImagen(raster)
             });
         }
     } catch (_) {}
@@ -899,6 +963,9 @@ function filtrarLoopsPorAlcance(loops, scope) {
  * detalle interno.
  */
 export async function aplicarContorno(items = null, options = {}) {
+  // El bus de transformaciones puede no haber cargado todavia cuando se
+  // importo este modulo; aplicar es el momento garantizado de engancharse.
+  asegurarSuscripcionTransform();
   const selection = (items || (Array.isArray(window.selectedItems) && window.selectedItems.length
     ? window.selectedItems
     : (window.selectedItem ? [window.selectedItem] : [])))
@@ -1018,6 +1085,167 @@ export async function aplicarContorno(items = null, options = {}) {
   return results;
 }
 
+/* ------------------------------------------------------------------
+   LA BANDA SIGUE A LA PIEZA. Un contorno es geometria calculada una vez:
+   si despues el cliente mueve, escala o gira la foto, la banda vieja se
+   queda donde estaba (medido en el editor: foto escalada al 60% y banda
+   conservando la caja de antes, o sea un borde grande y corrida alrededor
+   de la pieza). La app ya tiene un bus de transformaciones
+   (EKKO_FUSION_CONTROLLER.addTransformObserver) por donde pasan la cinta,
+   las medidas y la fusion. Aca se traslada la banda durante el arrastre,
+   que es barato y hace que siga a la pieza, y al soltar se RECALCULA desde
+   la silueta actual: escalar la banda al 60% dejaria de medir los 12 px
+   que pidio el cliente, y en grabado laser el grosor es una medida real.
+   ------------------------------------------------------------------ */
+let suscriptoTransform = false;
+let colaRecalculo = null;
+const pendientesRecalculo = new Set();
+
+function duenosTransformados(payload) {
+    const out = [];
+    const agregar = o => { if (o && !out.includes(o)) out.push(o); };
+    const entradas = payload?.transaction?.entries;
+    if (Array.isArray(entradas)) entradas.forEach(e => agregar(e?.owner));
+    if (out.length) return out;
+    // Los caminos numericos (caja de tamano, giro por angulo) no traen
+    // transaccion: la seleccion es lo que se esta transformando.
+    const seleccion = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+        ? window.selectedItems
+        : (window.selectedItem ? [window.selectedItem] : []);
+    seleccion.forEach(item => agregar(ownerOf(item) || item));
+    return out;
+}
+
+function valoresDelContorno(contorno) {
+    // La banda se rehace con LO QUE SE PIDIO PARA ESA PIEZA, no con lo que el
+    // panel muestra ahora: el panel puede estar cerrado, o mostrar otra pieza,
+    // y entonces readOutlineControls() daria el default (grosor 1, centro) y
+    // el contorno se desinflaria al mover la foto (medido: banda de 12 px
+    // Exterior que quedaba en 1 px Centro despues de un arrastre).
+    const d = contorno?.data || {};
+    return {
+        width: Number.isFinite(+d.outlineWidth) && +d.outlineWidth > 0 ? +d.outlineWidth : null,
+        radius: Number.isFinite(+d.outlineRadius) ? +d.outlineRadius : 0,
+        smoothing: Number.isFinite(+d.outlineSmoothing) ? +d.outlineSmoothing : 0,
+        side: ["inside", "outside", "center"].includes(String(d.outlineSide)) ? String(d.outlineSide) : "center",
+        scope: ["all", "outer", "holes"].includes(String(d.outlineScope)) ? String(d.outlineScope) : "all",
+        apply: d.outlineApply === "pieces" ? "pieces" : "together"
+    };
+}
+
+function recalcularPendientes() {
+    colaRecalculo = null;
+    const lista = Array.from(pendientesRecalculo);
+    pendientesRecalculo.clear();
+    let pinto = false;
+    lista.forEach(contorno => {
+        if (!contorno?.parent) return;
+        const guardado = valoresDelContorno(contorno);
+        // Si el contorno no tiene su grosor anotado (piezas de una sesion
+        // anterior), no se adivina: se deja como esta antes que achicarlo.
+        if (guardado.width === null) return;
+        const control = guardado;
+        const origen = vinculoDeContorno(contorno)?.origen;
+        try {
+            if (origen?.className === "Raster") regenerarContorno(contorno, control);
+            else if (origen) reconstruirContornoLinea(contorno, origen, control);
+            else refreshOwnerOutline(contorno, control);
+            // La huella se anota con la pieza YA reconstruida: es la referencia
+            // de la proxima lectura del vigia.
+            const vinculo = vinculoDeContorno(contorno);
+            if (vinculo?.origen) vinculo.senia = seniaDeOrigen(vinculo.origen);
+            pinto = true;
+        } catch (_) { /* una banda que no se pudo rehacer no corta la edicion */ }
+    });
+    // Se guarda historia despues del recalcular: si no, el Rehacer devuelve la
+    // pieza a su lugar pero la banda queda con la geometria nueva.
+    if (pinto) { window.saveHistory?.(); paper.view?.update?.(); }
+}
+
+function alTransformar(payload) {
+    try {
+        let toco = false;
+        duenosTransformados(payload).forEach(owner => {
+            const contorno = vinculoDeOrigen(owner)?.contorno;
+            if (!contorno || !contorno.parent) return;
+            pendientesRecalculo.add(contorno);
+            toco = true;
+            // En vivo solo traslacion. Escalar y girar cambian la silueta, y
+            // ahi lo unico honesto es recalcular (cae en el debounce).
+            const d = payload?.delta;
+            if (d && Number.isFinite(d.x) && Number.isFinite(d.y) && (d.x || d.y)) {
+                contorno.translate(new paper.Point(d.x, d.y));
+            }
+        });
+        if (!toco) return;
+        if (colaRecalculo) clearTimeout(colaRecalculo);
+        colaRecalculo = setTimeout(recalcularPendientes, 180);
+    } catch (_) { /* el observador nunca rompe la transformacion */ }
+}
+
+function asegurarSuscripcionTransform() {
+    asegurarVigia();
+    if (suscriptoTransform || typeof window === "undefined") return;
+    const controlador = window.EKKO_FUSION_CONTROLLER;
+    if (!controlador?.addTransformObserver) return;
+    controlador.addTransformObserver(alTransformar);
+    suscriptoTransform = true;
+}
+
+/* ------------------------------------------------------------------
+   VIGIA DE GEOMETRIA. El bus tiene 6 caminos publicados (arrastre, manija
+   de escala, giro, tamano numerico, angulo numerico, tamano de fuente),
+   pero el resto de la app mueve piezas directo con la API de Paper:
+   alinear, centrar, espejar, el auto-ajuste al cargar en el mockup y la
+   portada de una fusion. Medido: por ahi la banda quedaba vieja igual que
+   antes de este arreglo, que es exactamente la mancha gigante descolgada de
+   la foto. El vigia no depende de que cada llamador avise: compara la caja
+   actual de la pieza con la que tenia cuando se calculo su banda.
+   Exige dos lecturas iguales antes de rehacer, asi un arrastre en curso
+   (que cambia la caja en cada frame) no dispara la banda cara: primero se
+   estabiliza, despues se recalcula.
+   ------------------------------------------------------------------ */
+const VIGIA_CADA_MS = 350;
+let vigiaActivo = false;
+
+/** Huella barata de donde esta la pieza y como esta orientada. El signo del
+ *  determinante cambia con un espejo, que deja la misma caja pero silueta
+ *  distinta: sin eso, un espejado no se notaria. */
+function seniaDeOrigen(origen) {
+    const b = origen?.bounds;
+    if (!b) return null;
+    // La matriz global lleva posicion, escala, giro y espejo; la caja agrega el
+    // caso en que cambiao el tamano propio de la imagen con la misma matriz.
+    const v = origen.getGlobalMatrix?.().values || [];
+    const f = n => Number(n).toFixed(2);
+    return [b.x, b.y, b.width, b.height].map(f).join(",") + "|" +
+        (v.length === 6 ? v.map(f).join(",") : "-");
+}
+
+function vigilarBandas() {
+    if (!vigiaActivo) return;
+    try {
+        VINCULOS.forEach((vinculo, clave) => {
+            if (!vinculo?.contorno?.parent || !vinculo.origen?.parent) { VINCULOS.delete(clave); return; }
+            const senia = seniaDeOrigen(vinculo.origen);
+            if (!senia) return;
+            if (!vinculo.senia) { vinculo.senia = senia; return; }
+            if (senia === vinculo.senia) { vinculo.seniaAnterior = null; return; }
+            if (vinculo.seniaAnterior !== senia) { vinculo.seniaAnterior = senia; return; }
+            vinculo.seniaAnterior = null;
+            pendientesRecalculo.add(vinculo.contorno);
+        });
+        if (pendientesRecalculo.size) recalcularPendientes();
+    } catch (_) { /* el vigia tampoco rompe la edicion */ }
+    setTimeout(vigilarBandas, VIGIA_CADA_MS);
+}
+
+function asegurarVigia() {
+    if (vigiaActivo || typeof window === "undefined") return;
+    vigiaActivo = true;
+    setTimeout(vigilarBandas, VIGIA_CADA_MS);
+}
+
 if (typeof window !== "undefined") {
   window.aplicarContorno = aplicarContorno;
   window.createBoundingContour = createBoundingContour;
@@ -1032,4 +1260,8 @@ if (typeof window !== "undefined") {
   // Limpieza del preview para rutas ajenas al panel (por ejemplo, cerrar el
   // panel con un arrastre a medio hacer): sin trazo magenta residual.
   window.EKKO.quitarPreviewContorno = quitarPreview;
+  // Mejor esfuerzo: si el controlador de transformaciones ya cargo, se engancha
+  // ahora y la primera banda que se mueva no depende de que antes se haya
+  // aplicado un contorno.
+  asegurarSuscripcionTransform();
 }
