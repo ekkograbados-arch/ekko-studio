@@ -132,6 +132,29 @@ export const PARAM_SPECS = Object.freeze({
                 disponible: () => typeof window.aplicarContorno === "function"
             },
             {
+                id: "alcance", grupo: "Alcance", etiqueta: "",
+                ayuda: "Qué parte de la silueta se contornea. Borde + huecos rodea la figura y también sus agujeros internos; Solo borde ignora los agujeros; Solo huecos deja únicamente los contornos internos.",
+                tipo: "segmentos", domId: "ctxOutlineScope",
+                valorActual: "all",
+                opciones: [
+                    { valor: "all", etiqueta: "Borde + huecos", ayuda: "El contorno completo: el borde externo y también los bordes de los huecos." },
+                    { valor: "outer", etiqueta: "Solo borde", ayuda: "Únicamente el borde externo de la figura, sin entrar en los huecos." },
+                    { valor: "holes", etiqueta: "Solo huecos", ayuda: "Únicamente los contornos internos: huecos e islas." }
+                ],
+                disponible: () => typeof window.aplicarContorno === "function"
+            },
+            {
+                id: "aplicarA", grupo: "Alcance", etiqueta: "",
+                ayuda: "Con varios objetos seleccionados (o un grupo): un solo contorno alrededor de toda la silueta, o un contorno por cada pieza. Con imágenes en la selección se aplica por pieza.",
+                tipo: "segmentos", domId: "ctxOutlineApply",
+                valorActual: "together",
+                opciones: [
+                    { valor: "together", etiqueta: "Todo junto", ayuda: "Un solo contorno alrededor de la silueta de toda la selección." },
+                    { valor: "pieces", etiqueta: "Por pieza", ayuda: "Un contorno individual por cada objeto seleccionado." }
+                ],
+                disponible: () => typeof window.aplicarContorno === "function"
+            },
+            {
                 id: "posicion", grupo: "Posición", etiqueta: "",
                 ayuda: "De qué lado del borde va la línea.",
                 tipo: "segmentos", domId: "ctxOutlineSide",
@@ -149,7 +172,11 @@ export const PARAM_SPECS = Object.freeze({
         ],
         // Cada cambio rehace el contorno con el valor nuevo. El motor se
         // encarga de no crear uno duplicado: si ya existe, lo rehace.
-        alAplicar: () => window.EKKO?.contornoVivo?.()
+        // Durante el arrastre llega {preview:true}: el motor pinta un trazo
+        // barato y NO reconstruye la banda; al soltar llega "final" y recibe
+        // la geometria real.
+        alAplicar: (clave, valor, opciones) =>
+            window.EKKO?.contornoVivo?.(opciones?.preview ? "preview" : "final")
     },
 
     /* ------------------------------------------------------------------
@@ -161,21 +188,48 @@ export const PARAM_SPECS = Object.freeze({
 
        Un clic previsualiza el calco en magenta; "Aplicar trazado" lo
        entrega como vector. Cada control rehace la vista en vivo.
+
+       Modos: Color separa la imagen en regiones de color y entrega cada
+       una como pieza rellena (la calcomania); Lineas calca por bandas de
+       gris; Croquis usa umbral adaptativo (firmas, manuscritos); Silueta
+       entrega una sola pieza con todo lo opaco y sus huecos. Los controles
+       Niveles y Ruido aplican a todos; Detalle solo a Lineas y Croquis.
        ------------------------------------------------------------------ */
     traceImage: {
         etiqueta: "Trazar",
         parametros: [
             {
-                id: "lineas", grupo: "Trazado", etiqueta: "Cantidad de líneas",
-                ayuda: "Cuántas bandas de gris se calcan. Con 1 sale el dibujo base; sube para traer sombras, pelos y medios tonos.",
-                tipo: "range", min: 1, max: 6, paso: 1,
-                sufijo: "", domId: "traceLineas",
+                id: "modo", grupo: "Modo", etiqueta: "",
+                ayuda: "Color: regiones rellenas (calcomanía). Líneas: calco por bandas de gris. Croquis: firmas con luz dispareja. Silueta: una sola pieza con todo lo opaco.",
+                tipo: "segmentos", domId: "traceModo",
+                valorActual: "color",
+                opciones: [
+                    { valor: "color", etiqueta: "Color", ayuda: "Separa la imagen en regiones de color y entrega cada una rellena, con el anidado correcto. La calcomanía." },
+                    { valor: "lineas", etiqueta: "Líneas", ayuda: "Calca por bandas de gris, como lápiz. Para fotos e imágenes normales." },
+                    { valor: "croquis", etiqueta: "Croquis", ayuda: "Umbral adaptativo local. Para firmas o manuscritos en papel." },
+                    { valor: "silueta", etiqueta: "Silueta", ayuda: "Una sola pieza con todo lo opaco y sus huecos. Para pegatinas y plantillas." }
+                ],
+                disponible: () => typeof window.traceRaster === "function"
+            },
+            {
+                id: "niveles", grupo: "Trazado", etiqueta: "Niveles",
+                ayuda: "Cuántos colores separa el trazo (en Líneas: cuántas bandas de gris). Más niveles, más detalle; menos niveles, más limpio.",
+                tipo: "range", min: 2, max: 8, paso: 1,
+                sufijo: "", domId: "traceNiveles",
+                valorActual: 4,
+                disponible: () => typeof window.traceRaster === "function"
+            },
+            {
+                id: "ruido", grupo: "Trazado", etiqueta: "Ruido",
+                ayuda: "Limpia motas y granulado. 0 conserva cada píxel; 1 ya quita las manchas chicas; 3 limpia más fuerte (puede comer detalle fino).",
+                tipo: "range", min: 0, max: 3, paso: 1,
+                sufijo: "", domId: "traceRuido",
                 valorActual: 1,
                 disponible: () => typeof window.traceRaster === "function"
             },
             {
                 id: "detalle", grupo: "Trazado", etiqueta: "Detalle",
-                ayuda: "Hasta qué gris se calca. Sube para traer más dibujo interno; baja para quedarte con lo esencial.",
+                ayuda: "Solo afecta Líneas y Croquis: hasta qué gris se calca. Sube para traer más dibujo interno; baja para quedarte con lo esencial.",
                 tipo: "range", min: 0, max: 255, paso: 1,
                 sufijo: "", domId: "traceUmbral",
                 valorActual: 128,
@@ -187,17 +241,6 @@ export const PARAM_SPECS = Object.freeze({
                 tipo: "range", min: 0, max: 100, paso: 1,
                 sufijo: "", domId: "traceSuavidad",
                 valorActual: 75,
-                disponible: () => typeof window.traceRaster === "function"
-            },
-            {
-                id: "modo", grupo: "Modo", etiqueta: "",
-                ayuda: "Foto calca por niveles de gris; Croquis es para firmas o manuscritos con luz dispareja.",
-                tipo: "segmentos", domId: "traceModo",
-                valorActual: "foto",
-                opciones: [
-                    { valor: "foto", etiqueta: "Foto", ayuda: "Calca por niveles de gris. Para fotos e imágenes normales." },
-                    { valor: "croquis", etiqueta: "Croquis", ayuda: "Umbral adaptativo local. Para firmas o manuscritos en papel." }
-                ],
                 disponible: () => typeof window.traceRaster === "function"
             }
         ],
@@ -247,9 +290,11 @@ function crearAplicador(spec, comando) {
     // parecia un boton muerto.
     let valor = 0;
 
-    const aplicar = () => {
-        pendiente = null;
-        try { PARAM_SPECS[comando]?.alAplicar?.(spec.id, valor); }
+    const aplicar = (opciones = null) => {
+        // Aplicar cancela el tick de preview pendiente: el resultado FINAL
+        // manda y ningun preview viejo puede pisarlo despues.
+        if (pendiente) { cancelAnimationFrame(pendiente); pendiente = null; }
+        try { PARAM_SPECS[comando]?.alAplicar?.(spec.id, valor, opciones); }
         catch (e) {
             // Se avisa en rojo: un fallo aqui significa que el control va a
             // parecer muerto, y no puede volver a esconderse en silencio.
@@ -259,12 +304,16 @@ function crearAplicador(spec, comando) {
 
     const pedir = () => {
         if (pendiente) return;
-        pendiente = requestAnimationFrame(aplicar);
+        // Durante el arrastre el tick es PREVIEW: barato y repetible, una
+        // sola vez por fotograma. El resultado FINAL llega por aplicarAhora
+        // (al soltar, al confirmar el numero o al parar la rueda) y cancela
+        // el preview pendiente.
+        pendiente = requestAnimationFrame(() => aplicar({ preview: true }));
     };
 
     return {
         pedir,
-        aplicarAhora: aplicar,
+        aplicarAhora: () => aplicar(null),
         setValor: v => { valor = v; },
         obtener: () => valor
     };
@@ -617,6 +666,9 @@ export function cerrarParametros() {
     superficie.innerHTML = "";
     delete superficie.dataset.comando;
     comandoAbierto = null;
+    // Si el panel se cierra con un preview de contorno en pantalla (arrastre
+    // interrumpido), el trazo magenta no puede quedarse flotando: se limpia.
+    try { window.EKKO?.quitarPreviewContorno?.(); } catch (_) {}
 }
 
 export function alternarParametros(comando) {
