@@ -49,6 +49,14 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <i class="fas fa-download"></i> Descargar
         </button>
         <div id="ekkoDownloadMenu" hidden style="position:absolute;top:calc(100% + 6px);right:0;min-width:270px;background:#fff;border:1px solid #d7dee8;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.18);padding:6px;z-index:201;">
+            <!-- Fase 3: acción principal del CLIENTE — manda su trabajo al taller
+                 con UN clic: UN solo SVG con todas las piezas editadas + chat WhatsApp. -->
+            <div style="font-size:11px;color:#15803d;font-weight:bold;padding:4px 10px 2px;">MANDAR TU TRABAJO AL TALLER</div>
+            <button type="button" onclick="window.__ekkoEnviarAGrabar?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:10px;border:none;background:#15803d;color:#fff;border-radius:8px;cursor:pointer;font-size:13px;font-weight:bold;text-align:left;">
+                <i class="fab fa-whatsapp" style="font-size:16px;"></i>
+                <span>ENVIAR A GRABAR A:<br><span style="font-size:12px;">EKKO GRABADOS</span></span>
+            </button>
+            <div style="font-size:10px;color:#64748b;padding:3px 10px 4px;">Un solo archivo con todo lo que editaste. Se abre el chat para adjuntarlo.</div>
             <div id="ekkoTallerSeccion" style="display:none;">
                 <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">GRABADO · LIGHTBURN · SOLO TALLER</div>
                 <div style="display:flex;gap:6px;padding:2px 10px 6px;align-items:center;font-size:12px;">
@@ -174,6 +182,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             btn.addEventListener("touchstart", arrancar, { passive: true });
             ["mouseup", "mouseleave", "touchend", "touchcancel"].forEach(ev => btn.addEventListener(ev, soltar));
         })();
+        window.__ekkoEnviarAGrabar = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            const io = window.EKKO_PROJECT_IO;
+            if (!io || !io.enviarAGrabarEkkoGrabados) return;
+            io.enviarAGrabarEkkoGrabados();
+        };
         window.__ekkoEnviarWhatsApp = function() {
             const menu = document.getElementById("ekkoDownloadMenu");
             if (menu) menu.hidden = true;
