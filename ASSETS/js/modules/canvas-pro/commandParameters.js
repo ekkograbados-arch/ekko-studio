@@ -26,8 +26,20 @@
  *   claveCfg(id)    -> nombre de la propiedad real en BackgroundRemover.config
  */
 export const PARAM_SPECS = Object.freeze({
+    /* QUITAR FONDO: `inline: true` porque sus tres valores (Borde, Suavizar,
+       Halo) se dibujan DENTRO de la interfaz, no en el popover de arriba.
+       Medido con el popover abierto: era una caja [8,124,329,188] flotando
+       sobre el lienzo, y el cliente la leia como "otra ventana igual a la de
+       Editar Fondo" cuando son dos herramientas distintas.
+
+       `inline` = la declaracion sigue viva aca (unico lugar donde existen los
+       valores y su escala) y recorteParams.js la MONTA en el nivel 2 de la
+       cinta y en la barra emergente. Al clickear Quitar Fondo ya no se abre
+       nada: la tira aparece con el recorte, porque es el mismo objeto
+       seleccionado. */
     removeBg: {
         etiqueta: "Quitar Fondo",
+        inline: true,
         parametros: [
             {
                 id: "borde",
@@ -71,23 +83,24 @@ export const PARAM_SPECS = Object.freeze({
     },
 
     /* ------------------------------------------------------------------
-       EDITAR RECORTE: DELIBERADAMENTE SIN ENTRADA AQUI.
+       EDITAR FONDO: DELIBERADAMENTE SIN ENTRADA AQUI.
 
-       Antes hubo un bloque `editCutout` en este archivo y fue un error. La barra
-       de este modulo la dibuja el boton ▾, y al pulsar "Editar Fondo" se
-       abria UNA BARRA DE PARAMETROS con los mismos botones que ya tiene la
-       barra de edicion: dos "Editar Recorte" en pantalla a la vez, una arriba
-       y otra abajo, con los mismos comandos.
+       Es OTRA herramienta que Quitar Fondo y tiene su propia ventana
+       (#ventana-editar-fondo, el pincel de retoque sobre la mascara). Ahi
+       una ventana SI es correcta: se esta pintando encima del recorte.
 
-       MEDIDO en el navegador, con la app servida en local y pulsando el boton
-       de verdad: las dos barras visibles a la vez, la de parametros arriba y la
-       de edicion abajo. Eso es lo que el cliente venia reportando como
+       Antes hubo un bloque `editCutout` en este archivo y fue un error: al
+       pulsar "Editar Fondo" se abra ADEMAS la barra de parametros de arriba,
+       con los mismos comandos que ya tenia la ventana. MEDIDO en el
+       navegador, con la app servida en local y pulsando el boton de verdad:
+       dos superficies con "Editar Recorte" a la vez, una arriba y otra
+       abajo. Eso es lo que el cliente venia reportando como
        "no interactua como se esperaria".
 
-       Editar Recorte no tiene parametros: sus controles son herramientas, y
-       viven en la barra de edicion (#barra-editar-recorte), que reemplaza a la
-       barra contextual. Si falta la entrada, el boton ▾ no abre nada, que es
-       lo correcto: no hay ningun valor que ajustar.
+       Sin entrada aqui, el boton no abre ningun popover: sus controles viven
+       en su ventana. Y sus deslizadores de Borde/Halo escriben la MISMA
+       EKKO.BackgroundRemover.config que lee la tira del nivel 2, o sea que
+       las dos superficies no pueden discrepar.
        ------------------------------------------------------------------ */
 
     /* ------------------------------------------------------------------
@@ -280,8 +293,13 @@ function asegurarSuperficie() {
    `input` del raton la interfaz se congelaria y el control pareceria
    muerto: eso es exactamente lo que pasaba antes. Se aplica UNA vez por
    animacion, al soltar, al confirmar el numero y al parar la rueda.
+
+   Esta exportado porque los controles inline del nivel 2
+   (recorteParams.js) usan ESTA misma coalescencia: si cada superficie
+   tuviera la suya, la cinta y el popover podrian comportarse distinto con el
+   mismo deslizador.
    ------------------------------------------------------------------ */
-function crearAplicador(spec, comando) {
+export function crearAplicador(spec, comando) {
     let pendiente = null;
 
     // El valor vive AQUI, dentro del aplicador. Antes apply() leia una
@@ -672,6 +690,10 @@ export function cerrarParametros() {
 }
 
 export function alternarParametros(comando) {
+    // Los comandos `inline` no tienen popover: sus controles viven en la cinta
+    // y en la barra emergente (recorteParams.js). Cualquier llamada —el clic del
+    // boton, EKKO_PARAMETROS.abrir— sale por aqui y no dibuja nada flotante.
+    if (PARAM_SPECS[comando]?.inline) return;
     if (comandoAbierto === comando) { cerrarParametros(); return; }
     // Si se cambia de comando, el panel se recentra: sus controles cambian de
     // ancho y dejarlo en la posicion anterior lo dejaba descuadrado.
@@ -706,6 +728,9 @@ export function initParametros() {
     });
 
     Object.keys(PARAM_SPECS).forEach(comando => {
+        // Un comando inline no ofrece "hay mas que configurar" porque no abre
+        // ninguna ventana: su ▾ estaria mostrando un popover vacio.
+        if (PARAM_SPECS[comando].inline) return;
         document.querySelectorAll(`[data-fusion-btn="${comando}"]`)
             .forEach(b => b.setAttribute("data-ekko-has-params", comando));
     });
