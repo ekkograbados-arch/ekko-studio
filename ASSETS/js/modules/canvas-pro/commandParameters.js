@@ -129,8 +129,8 @@ export const PARAM_SPECS = Object.freeze({
                 disponible: () => typeof window.aplicarContorno === "function"
             },
             {
-                id: "radio", grupo: "Valores", etiqueta: "Radio",
-                ayuda: "Redondea las esquinas. Sube para un borde más suave, baja para conservar el dibujo original.",
+                id: "radio", grupo: "Valores", etiqueta: "Separación del borde",
+                ayuda: "A qué distancia del borde de la pieza va la línea. Con 0 está pegada al borde; con Posición «Centro», 0 la cruza por mitad y cada punto que sube la aleja esa distancia. Es una separación medida, no un redondeo de esquinas.",
                 tipo: "range", min: 0, max: 60, paso: 1,
                 sufijo: "px", domId: "ctxOutlineRadius",
                 valorActual: 0,
@@ -158,7 +158,7 @@ export const PARAM_SPECS = Object.freeze({
             },
             {
                 id: "aplicarA", grupo: "Alcance", etiqueta: "",
-                ayuda: "Con varios objetos seleccionados (o un grupo): un solo contorno alrededor de toda la silueta, o un contorno por cada pieza. Con imágenes en la selección se aplica por pieza.",
+                ayuda: "Con varios objetos seleccionados (o un grupo): un solo contorno alrededor de toda la silueta, o un contorno por cada pieza. Funciona igual con imágenes: «Todo junto» une las siluetas recortadas y dibuja un solo borde.",
                 tipo: "segmentos", domId: "ctxOutlineApply",
                 valorActual: "together",
                 opciones: [
@@ -188,6 +188,16 @@ export const PARAM_SPECS = Object.freeze({
         // Durante el arrastre llega {preview:true}: el motor pinta un trazo
         // barato y NO reconstruye la banda; al soltar llega "final" y recibe
         // la geometria real.
+        // Con esto el panel se pinta con lo que HAY EN ESCENA: si la banda de
+        // la pieza seleccionada es de 8 px, el control muestra 8 px, no el valor
+        // escrito en el registro. Sin esta linea el panel mentia y el cliente
+        // movia un control creyendo que ajustaba su borde de 8 px.
+        estado: () => {
+            const c = window.EKKO?.contornoEstado?.();
+            if (!c) return null;
+            return { grosor: c.width, radio: c.radius, suavidad: c.smoothing,
+                     alcance: c.scope, aplicarA: c.apply, posicion: c.side };
+        },
         alAplicar: (clave, valor, opciones) =>
             window.EKKO?.contornoVivo?.(opciones?.preview ? "preview" : "final")
     },
@@ -286,6 +296,19 @@ function asegurarSuperficie() {
     return superficie;
 }
 
+/** Valor que tiene AHORA la pieza que se esta editando, si el comando lo
+   sabe. Manda sobre el valor escrito en el registro (que es un cero cosmico). */
+function semilla(comando, spec) {
+    try {
+        const e = PARAM_SPECS[comando]?.estado?.();
+        if (!e || !Object.prototype.hasOwnProperty.call(e, spec.id)) return null;
+        const v = e[spec.id];
+        if (typeof v === "number" && Number.isFinite(v)) return v;
+        if (typeof v === "string" && v) return v;
+    } catch (_) {}
+    return null;
+}
+
 /* ------------------------------------------------------------------
    Aplicacion coalescente.
 
@@ -371,7 +394,10 @@ function crearSegmentos(spec, comando) {
     }
     // El valor REAL manda: si el motor ya tiene algo aplicado, el control se
     // muestra en ese valor y no en uno inventado.
-    const inicial = String(spec.valorActual ?? opciones[0].valor ?? "");
+    const delEstado = semilla(comando, spec);
+    const inicial = String(
+        opciones.some(o => String(o.valor) === String(delEstado)) ? delEstado
+            : (spec.valorActual ?? opciones[0].valor ?? ""));
     let valor = inicial;
 
     const botones = opciones.map((op) => {
@@ -388,6 +414,9 @@ function crearSegmentos(spec, comando) {
 
     const fijar = (v) => {
         valor = v;
+        // El aplicador guarda SU copia del valor: si no se la actualiza aqui,
+        // el comando siempre recibia el valor inicial del control.
+        aplicador?.setValor(v);
         if (puente) puente.value = v;
         botones.forEach((b) => b.classList.toggle("is-activo", b.dataset.valor === v));
     };
@@ -458,19 +487,27 @@ function crearParametro(spec, comando) {
         ? spec.leerCfg()
         : window.EKKO?.BackgroundRemover?.config?.[spec.claveCfg];
     const fraccion = typeof cfg === "number" ? cfg : 0.5;
-    const valorActual = spec.valorActual !== undefined
-        ? spec.valorActual
-        : Math.round(Math.max(spec.min, Math.min(spec.max, fraccion * 100)));
+    const delEstado = semilla(comando, spec);
+    const valorActual = Number.isFinite(delEstado)
+        ? delEstado
+        : (spec.valorActual !== undefined
+            ? spec.valorActual
+            : Math.round(Math.max(spec.min, Math.min(spec.max, fraccion * 100))));
 
     const aplicador = crearAplicador(spec, comando);
 
     // pintar NO guarda el valor: se lo pasa al aplicador. Asi el control y el
     // motor nunca pueden discrepar.
+    // La unidad se escribe UNA vez, al lado de la caja numerica. El numero ya
+    // esta en la caja: repetirlo en la etiqueta era "1 px px", el defecto que
+    // se veia en la tira.
+    valor.textContent = sufijo;
+    valor.hidden = !sufijo;
+
     const pintar = v => {
         const n = Math.max(spec.min, Math.min(spec.max, Math.round(v)));
         rango.value = String(n);
         numero.value = String(n);
-        valor.textContent = n + (sufijo ? " " + sufijo : "");
         aplicador.setValor(n);
         return n;
     };
@@ -512,7 +549,6 @@ function crearParametro(spec, comando) {
     });
 
     envoltorio.append(texto, rango, numero, valor);
-    if (sufijo) envoltorio.appendChild(document.createTextNode(sufijo));
     return envoltorio;
 }
 
