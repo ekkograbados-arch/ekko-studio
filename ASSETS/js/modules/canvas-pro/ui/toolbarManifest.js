@@ -150,7 +150,7 @@ export const BUTTONS = Object.freeze([
   },
   {
     tool: "outline", family: FAMILY.P, group: "geometria", legacy: ["outline"],
-    reason: "Seleccioná un solo objeto para darle contorno"
+    reason: "Contorno necesita al menos un objeto de imagen, vector o texto"
   },
   {
     tool: "audit", family: FAMILY.P, group: "geometria", legacy: ["audit"],
@@ -174,6 +174,39 @@ export const BUTTONS = Object.freeze([
       return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
     },
     reason: "Curvar se aplica sobre un texto seleccionado"
+  },
+
+  /* --- Botones de la BARRA EMERGENTE que son acciones de interfaz (sin
+     herramienta del motor). La regla se declara ACÁ y el renderer la
+     ejecuta; el clic lo siguen resolviendo los manejadores de siempre.
+     El contrato solo decide VISIBILIDAD (regla falla -> oculto, familia H). --- */
+  {
+    tool: null,
+    legacy: ["ctxDelete", "ctxDuplicate", "ctxScaleDown", "ctxScaleUp",
+             "ctxToFront", "ctxForward", "ctxBackward", "ctxToBack"],
+    family: FAMILY.H,
+    group: "composicion",
+    rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná al menos un objeto"
+  },
+  {
+    tool: null,
+    legacy: ["ctxBold", "ctxItalic", "ctxUnderline", "ctxWeld", "ctxRotateLetters"],
+    family: FAMILY.H,
+    group: "texto",
+    rule: snap => {
+      const s = snap.summary;
+      return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
+    },
+    reason: "Los controles de texto piden un único texto seleccionado"
+  },
+  {
+    tool: null,
+    legacy: ["ctxDeleteNode", "ctxExitNodeEdit"],
+    family: FAMILY.H,
+    group: "geometria",
+    rule: () => window.nodeEditMode === true,
+    reason: "Entrá al modo Editar Nodos para usar estos botones"
   },
 
   /* --- E: máquina de estados. El slot muta, no aparece ni desaparece. --- */
