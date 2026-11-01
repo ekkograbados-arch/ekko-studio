@@ -249,6 +249,24 @@ function installCommandDispatcher() {
     // Desagrupar, Descomponer...). The selector already scopes the handler.
     if (commandDispatcherInstalled) return;
 
+    /* Fase 1 UI: un botón bloqueado (.ekko-locked, la clase la escribe
+       ribbonRenderer.js) NO debe ejecutar su acción ni tragarse el clic en
+       silencio. Este interceptor corre en captura ANTES del dispatcher de
+       abajo (el orden de registro decide en la misma fase y target): convierte
+       el clic en un aviso con el motivo y corta el resto de la cadena
+       (stopImmediatePropagation), incluido el onclick en línea. */
+    document.addEventListener("click", event => {
+        const locked = event.target?.closest?.(".ekko-locked");
+        if (!locked || !document.contains(locked)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        const motivo = locked.getAttribute("data-ekko-reason")
+            || "Acción no disponible para la selección actual";
+        const fn = window.ekkoNotice || (window.EKKO_NOTICE && window.EKKO_NOTICE.notice);
+        if (typeof fn === "function") fn(motivo, { kind: "warn" });
+    }, true);
+
     document.addEventListener("click", event => {
         const element = event.target?.closest?.("[data-ekko-command]");
         if (!element || !document.contains(element)) return;
