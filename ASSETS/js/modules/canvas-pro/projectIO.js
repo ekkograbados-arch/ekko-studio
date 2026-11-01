@@ -274,6 +274,21 @@ export function requestOpenProjectFile() {
 /* ---------------- MODO BOCETO (PNG con marca de agua) ---------------- */
 
 async function loadLogoImage() {
+    // SOCIO con suscripción activa: la marca de agua lleva SU logo (guardado
+    // en el panel Socio). Sin suscripción (cliente): siempre el logo EKKO.
+    try {
+        const marca = leerMarcaSocio();
+        if (marca?.logo) {
+            const propia = await new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = () => resolve(null);
+                img.src = marca.logo;
+                setTimeout(() => resolve(null), 4000);
+            });
+            if (propia) return propia;
+        }
+    } catch (_) {}
     return new Promise(resolve => {
         const img = new Image();
         img.onload = () => resolve(img);
@@ -358,8 +373,14 @@ async function buildSketchCanvas() {
         ctx.fillStyle = "#64748b";
         ctx.font = `bold ${Math.max(11, Math.round(canvas.width / 55))}px sans-serif`;
         ctx.textAlign = "left";
-        const caption = `EKKO Studio · Boceto no válido para grabar · ${describe?.productName || ""} ${describe?.surfaceName || ""} · ${new Date().toLocaleDateString()}`;
+        // SOCIO: el pie sale con SU nombre y SUS redes. Cliente: EKKO Studio.
+        const marca = leerMarcaSocio();
+        const caption = `${marca?.nombre || "EKKO Studio"} · Boceto no válido para grabar · ${describe?.productName || ""} ${describe?.surfaceName || ""} · ${new Date().toLocaleDateString()}`;
         ctx.fillText(caption, 12, canvas.height - 12);
+        if (marca?.redes) {
+            ctx.textAlign = "right";
+            ctx.fillText(marca.redes, canvas.width - 12, canvas.height - 12);
+        }
     } catch (_) {}
     return { ok: true, canvas, describe };
 }
@@ -450,6 +471,96 @@ const EKKO_TALLER_CONTACTO = {
     drive: "https://drive.google.com/drive/folders/1Bt0BAnpn3WCMd9mUCAMnc5Bdg6DxJHqK"
 };
 
+/* ---------------- EKKO SOCIO (suscripción, sin backend) ----------------
+   El cliente SIEMPRE envía a EKKO GRABADOS: los envíos quedan vinculados a
+   los contactos del dueño. Un grabador con máquina propia se suscribe (SOCIO)
+   y con su código activa: SU logo de marca de agua, SUS redes en el pie y
+   SUS contactos de envío. La activación es por código con checksum, validada
+   en el propio dispositivo (la app es estática: sin servidor que valide, es
+   de buena fe). El dueño genera códigos ilimitados desde el panel con PIN. */
+const EKKO_SOCIO_PIN = "2804"; // PIN del dueño: acceso al modo Socio y generador de códigos.
+
+function fnv1a(texto) {
+    let h = 0x811c9dc5;
+    const s = String(texto || "");
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+}
+
+function checksumSocio(base) {
+    return (fnv1a(String(base || "").toUpperCase() + "·ekko-socio-2026") % 46656)
+        .toString(36).toUpperCase().padStart(3, "0");
+}
+
+function esCodigoSocioValido(codigo) {
+    const limpio = String(codigo || "").trim().toUpperCase().replace(/\s+/g, "");
+    const m = limpio.match(/^([A-Z0-9]{2,24})-([A-Z0-9]{3})$/);
+    if (!m) return false;
+    return checksumSocio(m[1]) === m[2];
+}
+
+function socioActivo() {
+    try { return localStorage.getItem("ekkoSocioActivo") === "1"; } catch (_) { return false; }
+}
+
+function activarSocio(codigo) {
+    if (!esCodigoSocioValido(codigo)) return { ok: false, reason: "codigo-invalido" };
+    try {
+        localStorage.setItem("ekkoSocioActivo", "1");
+        localStorage.setItem("ekkoSocioCodigo", String(codigo).trim().toUpperCase().replace(/\s+/g, ""));
+    } catch (_) {}
+    return { ok: true };
+}
+
+function desactivarSocio() {
+    try {
+        localStorage.removeItem("ekkoSocioActivo");
+        localStorage.removeItem("ekkoSocioCodigo");
+    } catch (_) {}
+    return { ok: true };
+}
+
+function validarPinSocio(pin) {
+    return String(pin || "").trim() === EKKO_SOCIO_PIN;
+}
+
+/* El dueño elige una palabra y el generador arma el código completo:
+   PALABRA-XXX (checksum). Esa palabra ES el código que le da al Socio. */
+function generarCodigoSocio(palabra) {
+    const base = String(palabra || "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (base.length < 2) return null;
+    return base + "-" + checksumSocio(base);
+}
+
+function leerMarcaSocio() {
+    try {
+        if (!socioActivo()) return null;
+        const crudo = localStorage.getItem("ekkoSocioMarca");
+        if (!crudo) return null;
+        const parsed = JSON.parse(crudo);
+        if (!parsed || typeof parsed !== "object") return null;
+        return {
+            logo: typeof parsed.logo === "string" && parsed.logo.startsWith("data:image") ? parsed.logo : null,
+            nombre: String(parsed.nombre || "").trim(),
+            redes: String(parsed.redes || "").trim()
+        };
+    } catch (_) { return null; }
+}
+
+function guardarMarcaSocio(marca) {
+    const actual = leerMarcaSocio() || { logo: null, nombre: "", redes: "" };
+    const proximo = {
+        logo: marca && "logo" in marca ? (marca.logo || null) : actual.logo,
+        nombre: String((marca && marca.nombre != null) ? marca.nombre : actual.nombre).trim(),
+        redes: String((marca && marca.redes != null) ? marca.redes : actual.redes).trim()
+    };
+    try { localStorage.setItem("ekkoSocioMarca", JSON.stringify(proximo)); } catch (_) {}
+    return { ok: true, marca: proximo };
+}
+
 export async function enviarGrabadoPorWhatsApp(surfaceNames = null, options = {}) {
     const res = await exportViewsToSVG(surfaceNames, options);
     if (!res.ok) return res;
@@ -485,17 +596,20 @@ export function abrirDriveProyectos() {
    chat de WhatsApp con el mensaje prellenado: el navegador no puede adjuntar
    solo, el cliente arrastra el archivo al chat. */
 function leerContactoTaller() {
-    // Escalable (fase 3b): un colega con grabadora propia configura su propio
-    // contacto desde el modo taller; sin configuración, el destino es EKKO.
-    try {
-        const crudo = localStorage.getItem("ekkoTallerContacto");
-        if (crudo) {
-            const parsed = JSON.parse(crudo);
-            if (parsed && /^\d{6,15}$/.test(String(parsed.whatsapp || ""))) {
-                return { whatsapp: parsed.whatsapp, nombre: String(parsed.nombre || "taller") };
+    // Regla de vinculación: el destino de envío es SIEMPRE EKKO GRABADOS.
+    // Solo un Socio con suscripción activa puede dirigir los envíos a su
+    // propio taller (configurado en "Mi marca y contactos" del panel Socio).
+    if (socioActivo()) {
+        try {
+            const crudo = localStorage.getItem("ekkoTallerContacto");
+            if (crudo) {
+                const parsed = JSON.parse(crudo);
+                if (parsed && /^\d{6,15}$/.test(String(parsed.whatsapp || ""))) {
+                    return { whatsapp: parsed.whatsapp, nombre: String(parsed.nombre || "taller") };
+                }
             }
-        }
-    } catch (_) {}
+        } catch (_) {}
+    }
     return EKKO_TALLER_CONTACTO;
 }
 
@@ -611,6 +725,14 @@ if (typeof window !== "undefined") {
         downloadSketchPDF,
         enviarGrabadoPorWhatsApp,
         abrirDriveProyectos,
-        enviarAGrabarEkkoGrabados
+        enviarAGrabarEkkoGrabados,
+        socio: {
+            activo: socioActivo,
+            activar: activarSocio,
+            desactivar: desactivarSocio,
+            validarPin: validarPinSocio,
+            generarCodigo: generarCodigoSocio,
+            marca: { leer: leerMarcaSocio, guardar: guardarMarcaSocio }
+        }
     };
 }
