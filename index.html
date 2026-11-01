@@ -54,11 +54,11 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <div style="font-size:11px;color:#15803d;font-weight:bold;padding:4px 10px 2px;">MANDAR TU TRABAJO AL TALLER</div>
             <button type="button" onclick="window.__ekkoEnviarAGrabar?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:10px;border:none;background:#15803d;color:#fff;border-radius:8px;cursor:pointer;font-size:13px;font-weight:bold;text-align:left;">
                 <i class="fab fa-whatsapp" style="font-size:16px;"></i>
-                <span>ENVIAR A GRABAR A:<br><span style="font-size:12px;">EKKO GRABADOS</span></span>
+                <span>ENVIAR A GRABAR A:<br><span id="ekkoDestinoNombre" style="font-size:12px;">EKKO GRABADOS</span></span>
             </button>
             <div style="font-size:10px;color:#64748b;padding:3px 10px 4px;">Un solo archivo con todo lo que editaste. Se abre el chat para adjuntarlo.</div>
             <div id="ekkoTallerSeccion" style="display:none;">
-                <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">GRABADO · LIGHTBURN · SOLO TALLER</div>
+                <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">MODO SOCIO · GRABADO · LIGHTBURN</div>
                 <div style="display:flex;gap:6px;padding:2px 10px 6px;align-items:center;font-size:12px;">
                     <label style="display:flex;gap:4px;align-items:center;">Vista
                         <select id="ekkoDownloadViews" style="max-width:130px;padding:3px 4px;border:1px solid #d7dee8;border-radius:6px;font-size:12px;"></select>
@@ -79,9 +79,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <i class="fab fa-google-drive" style="color:#1a73e8;"></i>
                     <span><b>Abrir Drive EKKO</b> <span style="color:#64748b;">(PROYECTOS DE CLIENTES)</span></span>
                 </button>
+                <button type="button" onclick="window.__ekkoAbrirSocioPanel?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#fefce8;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
+                    <i class="fas fa-crown" style="color:#a16207;"></i>
+                    <span><b>Mi marca y contactos</b> <span style="color:#64748b;">(SOCIO: logo + redes + WhatsApp)</span></span>
+                </button>
                 <button type="button" onclick="window.__ekkoToggleModoTaller?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:7px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;text-align:left;margin-top:2px;">
                     <i class="fas fa-lock-open"></i>
-                    <span>Salir del modo taller (volver a menú cliente)</span>
+                    <span>Salir del modo Socio (volver a menú cliente)</span>
                 </button>
             </div>
             <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">TU TRABAJO · PARA SEGUIR EDITANDO</div>
@@ -101,6 +105,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <button type="button" onclick="window.__ekkoDownloadSketchPDF?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
                 <i class="fas fa-file-pdf"></i>
                 <span><b>PDF cliente</b> <span style="color:#64748b;">(aplanado, con marca de agua)</span></span>
+            </button>
+            <button type="button" onclick="window.__ekkoAbrirSocioPanel?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:12px;color:#a16207;text-align:left;margin-top:2px;">
+                <i class="fas fa-crown"></i>
+                <span>¿Tenés grabadora láser? · <b>HACETE SOCIO</b></span>
             </button>
         </div>
     </div>
@@ -148,14 +156,29 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             }
             menu.hidden = true;
         };
-        /* MODO TALLER: el SVG de grabado es del dueño. Se activa manteniendo
-           apretado el botón Descargar ~1,2 s (el cliente no lo descubre) y
-           queda recordado en el navegador. */
+        /* MODO SOCIO: el grabado es para quien opera una grabadora. Se activa
+           con el PIN del panel Socio (o el apretón largo del botón Descargar,
+           para el dueño) y queda recordado en el navegador. */
         window.__ekkoApplyModoTaller = function() {
             let on = false;
             try { on = localStorage.getItem("ekkoModoTaller") === "1"; } catch (_) {}
             const seccion = document.getElementById("ekkoTallerSeccion");
             if (seccion) seccion.style.display = on ? "" : "none";
+            // Destino de envío: EKKO GRABADOS de fábrica; el del Socio activo,
+            // si configuró el suyo (la vinculación real la hace projectIO).
+            const destino = document.getElementById("ekkoDestinoNombre");
+            if (destino) {
+                let nombre = "EKKO GRABADOS";
+                try {
+                    const socio = window.EKKO_PROJECT_IO?.socio;
+                    if (socio?.activo?.()) {
+                        const crudo = localStorage.getItem("ekkoTallerContacto");
+                        const parsed = crudo ? JSON.parse(crudo) : null;
+                        if (parsed?.nombre) nombre = String(parsed.nombre).toUpperCase();
+                    }
+                } catch (_) {}
+                destino.textContent = nombre;
+            }
         };
         window.__ekkoToggleModoTaller = function() {
             let on = false;
@@ -164,8 +187,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             window.__ekkoApplyModoTaller();
             if (window.ekkoNotice) {
                 window.ekkoNotice(on
-                    ? "Modo taller desactivado: el menú queda en modo cliente (PNG/PDF con marca de agua)."
-                    : "Modo taller ACTIVADO: ya podés descargar el SVG para LightBurn y enviarlo por WhatsApp/Drive.",
+                    ? "Modo Socio desactivado: el menú queda en modo cliente (PNG/PDF con marca de agua)."
+                    : "Modo Socio ACTIVADO: ya podés descargar el SVG para LightBurn y enviarlo por WhatsApp/Drive.",
                     { kind: on ? "info" : "ok", ms: 6000 });
             }
         };
@@ -270,6 +293,202 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             const menu = document.getElementById("ekkoDownloadMenu");
             if (menu && !menu.hidden) menu.hidden = true;
         });
+    </script>
+
+    <!-- ==============================================================
+         PANEL EKKO SOCIO — suscripción, activación por código,
+         marca propia (logo + redes) y contactos de envío. Sin backend:
+         la validación es local (código con checksum, de buena fe).
+         ============================================================== -->
+    <div id="ekkoSocioPanel" hidden style="position:fixed;inset:0;z-index:2147483600;background:rgba(15,23,42,0.5);display:flex;align-items:center;justify-content:center;font-family:inherit;">
+        <div id="ekkoSocioPanelCuerpo" style="background:#fff;border-radius:14px;max-width:430px;width:calc(100% - 32px);max-height:90vh;overflow:auto;padding:20px;box-shadow:0 12px 40px rgba(0,0,0,0.25);"></div>
+    </div>
+    <script>
+        window.__ekkoCerrarSocioPanel = function() {
+            const panel = document.getElementById("ekkoSocioPanel");
+            if (panel) panel.hidden = true;
+        };
+        (function() {
+            const panel = document.getElementById("ekkoSocioPanel");
+            if (panel) panel.addEventListener("mousedown", function(ev) {
+                if (ev.target === panel) window.__ekkoCerrarSocioPanel?.();
+            });
+        })();
+
+        const SOCIO_CSS_INPUT = "width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #d7dee8;border-radius:8px;font-size:13px;margin-top:4px;";
+        const SOCIO_CSS_BTN = "width:100%;padding:10px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:bold;";
+
+        window.__ekkoAbrirSocioPanel = function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            const panel = document.getElementById("ekkoSocioPanel");
+            if (!panel) return;
+            panel.hidden = false;
+            window.__ekkoRenderSocioPanel();
+        };
+
+        /* Render según estado: SUSCRIPCIÓN (sin código) · MI MARCA (activo)
+           · GENERADOR DE CÓDIGOS (dueño, tras PIN). */
+        window.__ekkoRenderSocioPanel = function(modoDueño) {
+            const cuerpo = document.getElementById("ekkoSocioPanelCuerpo");
+            if (!cuerpo) return;
+            const io = window.EKKO_PROJECT_IO;
+            const activo = !!(io?.socio?.activo?.());
+            const waEkko = "5492804719686";
+
+            if (activo) {
+                // ----- SOCIO ACTIVO: su marca, sus contactos -----
+                const marca = io.socio.marca.leer() || { logo: null, nombre: "", redes: "" };
+                let contacto = null;
+                try { contacto = JSON.parse(localStorage.getItem("ekkoTallerContacto") || "null"); } catch (_) {}
+                cuerpo.innerHTML = [
+                    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">',
+                    '  <div style="font-size:15px;font-weight:bold;color:#a16207;"><i class="fas fa-crown"></i> EKKO SOCIO — MI MARCA</div>',
+                    '  <button type="button" onclick="window.__ekkoCerrarSocioPanel()" style="border:none;background:transparent;font-size:16px;cursor:pointer;color:#94a3b8;">✕</button>',
+                    '</div>',
+                    '<div style="font-size:11px;color:#64748b;margin:6px 0 12px;">Suscripción activa' + (window.__ekkoSocioPinOK ? ' · acceso de dueño' : '') + '. Los bocetos de tus clientes salen con TU logo y TUS redes, y los envíos llegan a TU WhatsApp.</div>',
+                    '<div style="font-size:12px;font-weight:bold;color:#334155;">NOMBRE DEL TALLER (marca de agua y chat)</div>',
+                    '<input id="ekkoSocioNombre" maxlength="40" placeholder="Taller de Juan" value="' + String(marca.nombre || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
+                    '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">REDES / CONTACTO (pie del boceto)</div>',
+                    '<input id="ekkoSocioRedes" maxlength="60" placeholder="@tallerdejuan · 299-000-0000" value="' + String(marca.redes || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
+                    '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">LOGO DE MARCA DE AGUA (PNG)</div>',
+                    '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">',
+                    '  <div style="width:54px;height:54px;border:1px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#f8fafc;">',
+                    (window.__ekkoSocioLogoPendiente || marca.logo) ? '<img src="' + (window.__ekkoSocioLogoPendiente || marca.logo) + '" style="max-width:48px;max-height:48px;">' : '<i class="fas fa-image" style="color:#cbd5e1;"></i>',
+                    '  </div>',
+                    '  <button type="button" onclick="window.__ekkoSocioLogoPick()" style="padding:8px 12px;border:1px solid #d7dee8;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;">Elegir logo…</button>',
+                    '</div>',
+                    '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">WHATSAPP DE ENVÍO (código país + número)</div>',
+                    '<input id="ekkoSocioWhatsapp" inputmode="numeric" maxlength="15" placeholder="5492804000000" value="' + String(contacto?.whatsapp || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
+                    '<button type="button" onclick="window.__ekkoSocioGuardar()" style="' + SOCIO_CSS_BTN + 'background:#15803d;color:#fff;margin-top:14px;">Guardar mi marca</button>',
+                    '<button type="button" onclick="window.__ekkoSocioDesactivar()" style="width:100%;padding:8px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;margin-top:6px;">Desactivar suscripción en este dispositivo</button>'
+                ].join("");
+                return;
+            }
+
+            // ----- SIN SUSCRIPCIÓN: propuesta + activación por código -----
+            cuerpo.innerHTML = [
+                '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">',
+                '  <div style="font-size:15px;font-weight:bold;color:#0f172a;"><i class="fas fa-crown" style="color:#a16207;"></i> EKKO SOCIO</div>',
+                '  <button type="button" onclick="window.__ekkoCerrarSocioPanel()" style="border:none;background:transparent;font-size:16px;cursor:pointer;color:#94a3b8;">✕</button>',
+                '</div>',
+                '<div style="font-size:13px;color:#334155;margin-top:8px;">¿Tenés <b>grabadora láser</b>? Con la suscripción EKKO Socio operás con <b>tu propia marca</b>:</div>',
+                '<ul style="font-size:12px;color:#475569;margin:10px 0 0 18px;line-height:1.7;">',
+                '  <li>Tu <b>logo</b> y tus <b>redes</b> en la marca de agua de cada boceto.</li>',
+                '  <li>Los envíos de tus clientes llegan a <b>TU WhatsApp</b>.</li>',
+                '  <li>SVG para LightBurn + proyecto editable, siempre.</li>',
+                '</ul>',
+                '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#713f12;margin-top:12px;">Pedí tu suscripción y te damos tu <b>código de activación</b>.</div>',
+                '<button type="button" onclick="window.open(\'https://wa.me/' + waEkko + '?text=\' + encodeURIComponent(\'Hola! Quiero la suscripción EKKO Socio para mi grabadora láser.\'), \'_blank\')" style="' + SOCIO_CSS_BTN + 'background:#25d366;color:#fff;margin-top:10px;"><i class="fab fa-whatsapp"></i> PEDIR SUSCRIPCIÓN POR WHATSAPP</button>',
+                '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:14px;">¿YA TENÉS TU CÓDIGO? ACTIVALO ACÁ</div>',
+                '<input id="ekkoSocioCodigoInput" maxlength="32" placeholder="TALLERJUAN-7K2" style="' + SOCIO_CSS_INPUT + 'text-transform:uppercase;">',
+                '<button type="button" onclick="window.__ekkoSocioActivar()" style="' + SOCIO_CSS_BTN + 'background:#a16207;color:#fff;margin-top:8px;">ACTIVAR MI SOCIO</button>',
+                '<div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:12px;">',
+                '  <div style="font-size:11px;font-weight:bold;color:#94a3b8;">ACCESO DE DUEÑO</div>',
+                '  <div style="display:flex;gap:6px;margin-top:6px;">',
+                '    <input id="ekkoSocioPinInput" maxlength="12" placeholder="PIN" style="' + SOCIO_CSS_INPUT + 'margin-top:0;">',
+                '    <button type="button" onclick="window.__ekkoSocioEntrarPin()" style="padding:0 14px;border:none;border-radius:8px;background:#0f172a;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">Entrar</button>',
+                '  </div>',
+                window.__ekkoSocioPinOK ? [
+                '  <div style="font-size:11px;color:#475569;margin-top:12px;">GENERADOR DE CÓDIGOS PARA TUS SOCIOS:</div>',
+                '  <div style="display:flex;gap:6px;margin-top:4px;">',
+                '    <input id="ekkoSocioPalabra" maxlength="24" placeholder="palabra p/ el socio" style="' + SOCIO_CSS_INPUT + 'margin-top:0;text-transform:uppercase;">',
+                '    <button type="button" onclick="window.__ekkoSocioGenerar()" style="padding:0 14px;border:none;border-radius:8px;background:#a16207;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">Crear</button>',
+                '  </div>',
+                '  <div id="ekkoSocioCodigoNuevo" style="font-size:14px;font-weight:bold;color:#15803d;margin-top:8px;user-select:all;"></div>'
+                ].join("") : ""
+            ].join("");
+        };
+
+        window.__ekkoSocioActivar = function() {
+            const input = document.getElementById("ekkoSocioCodigoInput");
+            const io = window.EKKO_PROJECT_IO;
+            const res = io?.socio?.activar?.(input?.value);
+            if (res?.ok) {
+                window.ekkoNotice?.("SOCIO ACTIVADO: ya podés configurar tu marca y tus contactos.", { kind: "ok", ms: 7000 });
+                window.__ekkoRenderSocioPanel();
+            } else {
+                window.ekkoNotice?.("Ese código no es válido. Revisalo o pedí tu suscripción por WhatsApp.", { kind: "warn", ms: 7000 });
+            }
+        };
+
+        window.__ekkoSocioDesactivar = function() {
+            const io = window.EKKO_PROJECT_IO;
+            io?.socio?.desactivar?.();
+            window.ekkoNotice?.("Suscripción desactivada en este dispositivo: los envíos vuelven a EKKO GRABADOS.", { kind: "info", ms: 7000 });
+            window.__ekkoRenderSocioPanel();
+        };
+
+        window.__ekkoSocioEntrarPin = function() {
+            const input = document.getElementById("ekkoSocioPinInput");
+            const io = window.EKKO_PROJECT_IO;
+            if (!io?.socio?.validarPin?.(input?.value)) {
+                window.ekkoNotice?.("PIN incorrecto.", { kind: "warn", ms: 4000 });
+                return;
+            }
+            window.__ekkoSocioPinOK = true;
+            // El PIN del dueño también habilita el modo Socio del menú.
+            try { localStorage.setItem("ekkoModoTaller", "1"); } catch (_) {}
+            window.__ekkoApplyModoTaller?.();
+            window.__ekkoRenderSocioPanel(true);
+        };
+
+        window.__ekkoSocioGenerar = function() {
+            const io = window.EKKO_PROJECT_IO;
+            const palabra = document.getElementById("ekkoSocioPalabra")?.value;
+            const codigo = io?.socio?.generarCodigo?.(palabra);
+            const salida = document.getElementById("ekkoSocioCodigoNuevo");
+            if (!codigo) { if (salida) salida.textContent = ""; return; }
+            if (salida) salida.textContent = "Código: " + codigo + "  (dale esa palabra + este código a tu socio)";
+        };
+
+        window.__ekkoSocioLogoPick = function() {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "image/png,image/jpeg,image/webp";
+            input.onchange = () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // El logo viaja en localStorage: se achica a máx 500 px.
+                        const maxW = 500;
+                        const escala = Math.min(1, maxW / Math.max(1, img.width));
+                        const c = document.createElement("canvas");
+                        c.width = Math.max(1, Math.round(img.width * escala));
+                        c.height = Math.max(1, Math.round(img.height * escala));
+                        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+                        window.__ekkoSocioLogoPendiente = c.toDataURL("image/png");
+                        window.__ekkoRenderSocioPanel();
+                    };
+                    img.onerror = () => window.ekkoNotice?.("Ese archivo no se pudo leer como imagen.", { kind: "warn", ms: 5000 });
+                    img.src = String(reader.result);
+                };
+                reader.readAsDataURL(file);
+            };
+            input.click();
+        };
+
+        window.__ekkoSocioGuardar = function() {
+            const io = window.EKKO_PROJECT_IO;
+            const nombre = String(document.getElementById("ekkoSocioNombre")?.value || "").trim();
+            const redes = String(document.getElementById("ekkoSocioRedes")?.value || "").trim();
+            const whatsapp = String(document.getElementById("ekkoSocioWhatsapp")?.value || "").trim();
+            if (whatsapp && !/^\d{6,15}$/.test(whatsapp)) {
+                window.ekkoNotice?.("El WhatsApp va con código de país, solo números (ej: 5492804000000).", { kind: "warn", ms: 7000 });
+                return;
+            }
+            io?.socio?.marca?.guardar?.({ nombre, redes, logo: window.__ekkoSocioLogoPendiente });
+            if (whatsapp) {
+                try { localStorage.setItem("ekkoTallerContacto", JSON.stringify({ whatsapp, nombre: nombre || "taller" })); } catch (_) {}
+            }
+            window.__ekkoSocioLogoPendiente = null;
+            window.__ekkoApplyModoTaller?.();
+            window.ekkoNotice?.("Marca guardada: tus bocetos salen con tu logo y tus redes, y los envíos van a tu WhatsApp.", { kind: "ok", ms: 8000 });
+            window.__ekkoRenderSocioPanel();
+        };
     </script>
 
     <!-- ==============================================================
