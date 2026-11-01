@@ -497,9 +497,11 @@ export const TOOLS = {
   outline: {
     label: "Contorno",
     // Un solo concepto de contorno para imagen, vector y texto.
-    // Edicion de UN objeto: con varios seleccionados se oculta (ahi solo
-    // quedan agrupar, alinear, distribuir, booleanas y fusion).
-    active: s => s.count === 1 && [...s.species].every(sp =>
+    // Con varios seleccionados TAMBIEN aplica: el panel decide con "Aplicar a"
+    // si da un contorno alrededor de toda la silueta junta o uno por pieza.
+    // Estaba limitado a count === 1, y por eso con dos imagenes el boton
+    // simplemente no aparecia (medido en el editor).
+    active: s => s.count >= 1 && [...s.species].every(sp =>
       sp === SPECIES.RASTER || sp === SPECIES.VECTOR || sp === SPECIES.TEXT)
   },
   audit: {
@@ -692,8 +694,13 @@ export const TABS = Object.freeze({
   /* "Varios" lleva tambien Quitar Fondo y Editar Fondo: con varias imagenes
      apretadas la cinta cae aca (detectTab), y si no estaban blanqueadas el
      boton no salia NI en Varios NI en Imagen. Se filtran igual por la regla
-     del motor, asi que con vectores o texto siguen sin aparecer. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout"] }
+     del motor, asi que con vectores o texto siguen sin aparecer.
+     Contorno entra por el MISMO motivo: con dos imagenes la cinta se abre en
+     "Varios" y ahi el boton no estaba, aunque el motor lo declarara activo
+     (medido: outline.active con 2 rasters es true y el boton igual no salia).
+     Desde la v11.42 "Todo junto" funciona sobre varias imagenes, o sea que es
+     justamente la seleccion donde la herramienta sirve. */
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
