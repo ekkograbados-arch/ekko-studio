@@ -525,7 +525,7 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
  * antes y despues, y si la forma se movio mas de lo permitido se revierte
  * entera. Suavizar nunca puede alterar el diseno del cliente.
  */
-function applySmoothing(geometry, level) {
+export function applySmoothing(geometry, level) {
     if (!geometry || !(level > 0)) return geometry;
     const leaves = (geometry.className === "CompoundPath" && geometry.children?.length)
         ? geometry.children
@@ -652,16 +652,15 @@ export function createOwnerOutline(ownerLike, options = {}) {
     const owner = resolveVectorOwner(ownerLike);
     if (!owner || !owner.parent || owner.data?.locked || owner.data?.isCutLine) return null;
     if (owner.data?.isOutline === true && options.restore === true) return null;
-    const widthControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineWidth")?.value : null;
-    const sideControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSide")?.value : null;
-    const radiusControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineRadius")?.value : null;
-    const smoothingControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSmoothing")?.value : null;
-    const scopeControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineScope")?.value : null;
-    const width = Number(options.width ?? widthControl ?? 1) || 1;
-    const side = options.side ?? sideControl ?? "center";
-    const radius = Number(options.radius ?? radiusControl ?? 0) || 0;
-    const smoothing = Number(options.smoothing ?? smoothingControl ?? 0) || 0;
-    const scope = options.scope ?? scopeControl ?? "all";
+    // UN solo duenio del estado (contorno.js): panel abierto > la banda de la
+    // pieza > ultimo ajuste > default. Antes cada modulo leia el DOM con sus
+    // propios defaults y el grosor dependia de que camino se habia tomado.
+    const estado = (typeof window !== "undefined" && window.EKKO?.contornoEstado?.()) || {};
+    const width = Number(options.width ?? estado.width ?? 1) || 1;
+    const side = options.side ?? estado.side ?? "center";
+    const radius = Number(options.radius ?? estado.radius ?? 0) || 0;
+    const smoothing = Number(options.smoothing ?? estado.smoothing ?? 0) || 0;
+    const scope = options.scope ?? estado.scope ?? "all";
     const source = options.restore ? null : toWorldGeometry(owner);
     if (!source) return null;
     const result = buildOutlineGeometry(source, width, side, radius, smoothing, scope);
@@ -703,16 +702,15 @@ export function refreshOwnerOutline(ownerLike, options = {}) {
     if (!owner || !owner.parent || owner.data?.isOutline !== true) return null;
     const snapshot = owner.data?.outlineSourceGeomBase;
     if (!snapshot) return null;
-    const widthControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineWidth")?.value : null;
-    const sideControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSide")?.value : null;
-    const radiusControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineRadius")?.value : null;
-    const smoothingControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineSmoothing")?.value : null;
-    const scopeControl = typeof document !== "undefined" ? document.getElementById("ctxOutlineScope")?.value : null;
-    const width = Number(options.width ?? widthControl ?? 1) || 1;
-    const side = options.side ?? sideControl ?? "center";
-    const radius = Number(options.radius ?? radiusControl ?? 0) || 0;
-    const smoothing = Number(options.smoothing ?? smoothingControl ?? 0) || 0;
-    const scope = options.scope ?? scopeControl ?? "all";
+    // UN solo duenio del estado (contorno.js): panel abierto > la banda de la
+    // pieza > ultimo ajuste > default. Antes cada modulo leia el DOM con sus
+    // propios defaults y el grosor dependia de que camino se habia tomado.
+    const estado = (typeof window !== "undefined" && window.EKKO?.contornoEstado?.()) || {};
+    const width = Number(options.width ?? estado.width ?? 1) || 1;
+    const side = options.side ?? estado.side ?? "center";
+    const radius = Number(options.radius ?? estado.radius ?? 0) || 0;
+    const smoothing = Number(options.smoothing ?? estado.smoothing ?? 0) || 0;
+    const scope = options.scope ?? estado.scope ?? "all";
     // La fuente SIEMPRE es la forma original guardada, nunca la banda actual:
     // construir sobre la banda apilaria anillos sobre anillos.
     const world = snapshot.clone({ insert: false });
@@ -879,50 +877,28 @@ export function previsualizarBanda(source, width = 2, side = "center", radius = 
 }
 
 /**
- * Preview barato para las siluetas de imagen ya calicadas: loops en
- * coordenadas de pieza (los que guarda el cache del vinculo). Misma regla
- * de alcance que buildOutlineGeometry y misma algebra de radio/lado. La
- * orientacion del calco es FIJA (opaco a la izquierda del recorrido), asi
- * que el area con signo dice de que lado esta el material: negativa =
- * borde externo, positiva = hueco. Ni una prueba de geometria.
+ * Preview para una banda YA resuelta (la del motor de mascara de imagen): el
+ * overlay magenta es la banda misma, no una aproximacion sobre la silueta.
+ * Mismas banderas de UI que grupoDePreview.
  */
-export function previsualizarBandaDeLoops(loops, width = 2, side = "center", radius = 0, scope = "all") {
-    if (!Array.isArray(loops) || !loops.length || typeof paper === "undefined") return null;
-    const amount = Math.abs(Number(width) || 0);
-    if (!(amount > EPSILON)) return null;
-    const mode = modoDeSide(side);
-    const offset = Number(radius) || 0;
-    const alcance = alcanceDeScope(scope);
-    let activos = loops;
-    if (alcance !== "all" && loops.length > 1) {
-        let mayor = 0;
-        loops.forEach((pts, i) => {
-            if (Math.abs(signedArea(pts)) > Math.abs(signedArea(loops[mayor]))) mayor = i;
-        });
-        activos = alcance === "outer" ? [loops[mayor]] : loops.filter((_, i) => i !== mayor);
-    }
-    // Mismo corte de polvo y la misma pre-simplificacion del motor real, para
-    // que la linea magenta sea exactamente la banda que va a salir.
-    if (activos.length > 1) {
-        const limpios = activos.filter(pts => Math.abs(signedArea(pts)) >= amount * amount);
-        if (limpios.length) activos = limpios;
-    }
-    activos = activos.map(pts => simplifyClosed(pts, simplifyTolerance(pts)));
-    // Mismo criterio: el centro del trazo va a grosor/2 del borde corrido.
-    const medio = amount / 2;
+export function previsualizarBandaGeom(band) {
+    if (!band || typeof paper === "undefined") return null;
     const grupo = grupoDePreview();
-    activos.forEach(pts => {
-        if (!Array.isArray(pts) || pts.length < 3) return;
-        const working = (Math.abs(offset) > EPSILON)
-            ? (offsetPolygon(pts, offset) || pts)
-            : pts;
-        const dir = signedArea(working) < 0 ? 1 : -1;
-        const corrida = mode === "center" ? 0 : (mode === "outside" ? dir * medio : -dir * medio);
-        const linea = (Math.abs(corrida) > EPSILON)
-            ? (offsetPolygon(working, corrida) || working)
-            : working;
-        const trazo = trazoDeLoop(linea, amount);
-        if (trazo) grupo.addChild(trazo);
+    const hojas = (band.className === "CompoundPath" && band.children?.length)
+        ? band.children : [band];
+    hojas.forEach(hoja => {
+        try {
+            const trazo = new paper.Path({
+                insert: false,
+                segments: (hoja.segments || []).map(seg => seg.point.clone ? seg.point.clone() : seg.point),
+                closed: hoja.closed !== false,
+                fillColor: new paper.Color(PREVIEW_COLOR),
+                strokeColor: null,
+                opacity: 0.55
+            });
+            trazo.applyMatrix = true;
+            grupo.addChild(trazo);
+        } catch (_) {}
     });
     if (!grupo.children.length) { grupo.remove?.(); return null; }
     return grupo;
@@ -935,6 +911,7 @@ if (typeof window !== "undefined") {
         toggleOwnerOutline,
         refreshOwnerOutline,
         previsualizarBanda,
-        previsualizarBandaDeLoops
+        previsualizarBandaGeom,
+        applySmoothing
     };
 }
