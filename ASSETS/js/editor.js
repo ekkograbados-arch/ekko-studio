@@ -178,7 +178,7 @@ window.zoomToFit = function() {
   return { zoom: paper.view.zoom, center: target.center.clone() };
 };
 
-window.toggleOutline = function(item = null) {
+window.toggleOutline = function(item = null, opciones = null) {
   const selected = item
     ? [item]
     : (Array.isArray(window.selectedItems) && window.selectedItems.length
@@ -203,11 +203,17 @@ window.toggleOutline = function(item = null) {
     window.exitNodeEditMode(true);
   }
   if (typeof window.saveHistory === 'function') window.saveHistory();
-  const width = Number(document.getElementById("ctxOutlineWidth")?.value) || 2;
-  const side = document.getElementById("ctxOutlineSide")?.value || "center";
+  // El estado del contorno lo decide contorno.js y llega por opciones (el panel
+  // vivo lo pasa). Leer el DOM aqui con default propio engrosaba cualquier
+  // vector a 2 px sin que nadie lo pidiera e ignoraba Radio, Suavidad y Alcance.
+  const control = opciones || (typeof window !== "undefined" && window.EKKO?.contornoEstado?.()) ||
+    { width: 1, side: "center", radius: 0, smoothing: 0, scope: "all" };
   const results = [];
   owners.forEach(owner => {
-    const result = toggleOwnerOutline(owner, { width, side, skipHistory: true });
+    const result = toggleOwnerOutline(owner, {
+      width: control.width, side: control.side, radius: control.radius ?? 0,
+      smoothing: control.smoothing ?? 0, scope: control.scope ?? "all", skipHistory: true
+    });
     if (result) results.push(result);
   });
   if (typeof recalculateDynamicSubtractions === "function") recalculateDynamicSubtractions();
