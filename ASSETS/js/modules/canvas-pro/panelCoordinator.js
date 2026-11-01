@@ -25,6 +25,10 @@ import "./cutTool.js";
 /* Niveles "Más usadas" y "Barra fija" (Word). Se engancha a #topBar y a la
    banda #pro-layout-toolbar cuando ya están montadas; no arma botones. */
 import "./ribbonLevels.js";
+/* Los valores de Quitar Fondo (Borde / Suavizar / Halo) como grupo del nivel 2
+   y dentro de la barra emergente. Se espera solo a que la cinta exista, así
+   que puede importarse acá sin mirar el orden. */
+import "./recorteParams.js";
 
 const STORAGE_KEY = "ekko.panels.v1";
 
