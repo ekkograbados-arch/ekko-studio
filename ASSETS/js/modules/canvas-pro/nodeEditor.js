@@ -272,6 +272,12 @@ export async function enterNodeEditMode(item) {
     interactionOwner.claim("node-edit", { owner: "nodeEditor" });
     window.nodeEditMode = true;
     window.nodeEditTarget = target;
+    /* FASE 1 UI: los botones de nodo de la emergente (Eliminar Nodo / Listo)
+       son familia E regida por nodeEditMode. Sin este refresco el ribbon
+       quedaría viejo hasta el próximo cambio de selección. */
+    if (window.EKKO_RIBBON && typeof window.EKKO_RIBBON.refresh === "function") {
+        window.EKKO_RIBBON.refresh();
+    }
 
     // Desactivar temporalmente máscaras para manipulación libre sin recortes
     function disableClipGroup(g) {
@@ -582,8 +588,11 @@ export async function enterNodeEditMode(item) {
     const canvasEl = document.getElementById('editorCanvas');
     const handleNodeContextMenu = (e) => {
         if (window.nodeEditMode) {
+            /* Solo se corta el menu del navegador. El salir (clic derecho
+               simple = menu de nodos con Listo; doble clic derecho = salir
+               directo) lo resuelve contextMenuRenderer.js, que unifica el
+               gesto con el resto de la interfaz. */
             e.preventDefault();
-            exitNodeEditMode();
         }
     };
     /* Doble clic directo sobre el contorno = agregar nodo en ese punto, sin
@@ -731,6 +740,12 @@ export function exitNodeEditMode(skipSelect = false) {
     activeFusionNodeContext = null;
     window.nodeEditMode = false;
     window.nodeEditTarget = null;
+    /* FASE 1 UI: al salir del modo, los botones de nodo (Eliminar Nodo /
+       Listo) dejan de existir: la emergente vuelve a la composición por
+       especie. Refresco inmediato del único escritor. */
+    if (window.EKKO_RIBBON && typeof window.EKKO_RIBBON.refresh === "function") {
+        window.EKKO_RIBBON.refresh();
+    }
     interactionOwner.release("node-edit");
     isAddNodeActive = false;
 
