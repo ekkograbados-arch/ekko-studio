@@ -99,13 +99,21 @@ async function vectorizeTextItem(textItem) {
 /* ---------------------- FILTRO DE ESCALA DE GRISES (JSON) ----------------
    Referencia de tono: DR_bn (el filtro que el taller aplica a mano para que
    TODA foto grave bien en LightBurn sin tocar parámetros). Cada raster del
-   DISEÑO —nunca del mockup— pasa por tres pasos en cada exportación:
+   DISEÑO —nunca del mockup— pasa por cuatro pasos en cada exportación:
 
-   1. GRIS por luminancia (Rec 709): la foto deja de ser color.
-   2. AUTO-NIVELES adaptativo: 1% de recorte en cada punta del histograma
+   1. CALIDAD (la lección entre DR_color y DR_bn: MISMA foto, el bn tiene
+      4x más píxeles y MUCHO más detalle). Ampliación progresiva (pasos
+      de <= 2x con suavizado de la mejor calidad) hasta el objetivo de
+      lado, y luego realce profesional:
+        - PROFUNDIDAD (efecto 3D): contraste local con radio grande; el
+          rostro salta hacia adelante y la ropa se hunde hacia atrás.
+        - NITIDEZ: unsharp fino (radio chico) para pestañas, sonrisa,
+          pliegues: definición de grabado, no de foto lavada.
+   2. GRIS por luminancia (Rec 709): la foto deja de ser color.
+   3. AUTO-NIVELES adaptativo: 1% de recorte en cada punta del histograma
       PROPIO de la imagen. Normaliza brillo/contraste: una foto milka y una
       quemada terminan en la misma "entrada normalizada".
-   3. CURVA DE REFERENCIA: nodos cuantil-cuantil medidos del par
+   4. CURVA DE REFERENCIA: nodos cuantil-cuantil medidos del par
       DR_color→DR_bn (la propuesta superadora: reproduce su look y es
       editable).
 
@@ -113,7 +121,7 @@ async function vectorizeTextItem(textItem) {
    "ekkoFiltroGrises" (mismo formato) para probar otra curva sin editar el
    archivo. options.filtroGrises === false lo desactiva. */
 const EKKO_GRIS_DEFAULT = {
-    id: "EKKO-GRIS-v1",
+    id: "EKKO-GRIS-v2",
     referencia: "DR_bn",
     luminancia: [0.2126, 0.7152, 0.0722],
     autoNiveles: { clipNegroPct: 1, clipBlancoPct: 1 },
@@ -129,6 +137,16 @@ const EKKO_GRIS_DEFAULT = {
             [0.883, 0.888],
             [1.0, 1.0]
         ]
+    },
+    /* Calidad del grabado: DR_bn llega a 2000px en el lado CHICO desde una
+       fuente de 800 px: el resto se PALPA en el grabado. Ampliamos la foto
+       al lado objetivo antes de tono y realce; presupuestoPx protege la
+       memoria en fotos gigantes. profundidad/nitidez en fracción (0 apaga). */
+    calidad: {
+        objetivoLado: 2000,
+        presupuestoPx: 16000000,
+        profundidad: 0.55,
+        nitidez: 0.9
     }
 };
 
@@ -172,6 +190,125 @@ function leerFiltroGrises() {
     return EKKO_GRIS_DEFAULT;
 }
 
+/* ------------------- CALIDAD: ampliación + realce (v2) ------------------- */
+
+/* Tamaño final del raster: si el lado más chico queda por debajo del
+   objetivo se amplía (igual que el paso DR_color→DR_bn); el presupuesto de
+   píxeles acota el resultado para no fundir la memoria con fotos enormes. */
+function destinoCalidad(w0, h0, cal) {
+    const obj = Math.min(6000, Math.max(400, Number(cal.objetivoLado) || 2000));
+    const capPx = Math.min(40000000, Math.max(1000000, Number(cal.presupuestoPx) || 16000000));
+    const lado0 = Math.max(w0, h0);
+    const f = lado0 < obj ? obj / lado0 : 1;
+    let wT = Math.round(w0 * f), hT = Math.round(h0 * f);
+    if (wT * hT > capPx) { const k = Math.sqrt(capPx / (wT * hT)); wT = Math.round(wT * k); hT = Math.round(hT * k); }
+    return { w: Math.max(1, wT), h: Math.max(1, hT) };
+}
+
+/* Ampliación progresiva: cada paso crece como mucho 2x con smoothing de la
+   mejor calidad. El zoom de un solo tirón del navegador tiende a bilinear
+   blando; los pasos chicos acumulan mucha más definición utilizable. */
+function ampliacionSuave(fuente, w0, h0, wT, hT) {
+    let actual = fuente, cw = w0, ch = h0, pasos = 0;
+    while ((cw * 2 <= wT && ch * 2 <= hT) && pasos < 8) {
+        const c = document.createElement("canvas");
+        c.width = cw * 2; c.height = ch * 2;
+        const x = c.getContext("2d");
+        x.imageSmoothingEnabled = true; x.imageSmoothingQuality = "high";
+        try { x.drawImage(actual, 0, 0, c.width, c.height); } catch (_) { return null; }
+        actual = c; cw = c.width; ch = c.height; pasos++;
+    }
+    if (cw !== wT || ch !== hT) {
+        const cF = document.createElement("canvas");
+        cF.width = wT; cF.height = hT;
+        const xF = cF.getContext("2d");
+        xF.imageSmoothingEnabled = true; xF.imageSmoothingQuality = "high";
+        try { xF.drawImage(actual, 0, 0, wT, hT); } catch (_) { return null; }
+        actual = cF;
+    }
+    return actual;
+}
+
+/* Desenfoque de caja separable con ventana deslizante: O(px) por pasada,
+   exactas para ramos de radio grande (la profundidad usa radio ~lado/16). */
+function desenfoqueCaja(v, w, h, r) {
+    const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+    const win = 2 * r + 1;
+    for (let y = 0; y < h; y++) {
+        const fila = y * w;
+        let acc = 0;
+        for (let x = -r; x <= r; x++) acc += v[fila + Math.min(w - 1, Math.max(0, x))];
+        for (let x = 0; x < w; x++) {
+            tmp[fila + x] = acc / win;
+            acc += v[fila + Math.min(w - 1, x + r + 1)] - v[fila + Math.max(0, x - r)];
+        }
+    }
+    for (let x = 0; x < w; x++) {
+        let acc = 0;
+        for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+        for (let y = 0; y < h; y++) {
+            out[y * w + x] = acc / win;
+            acc += tmp[(y + r + 1 > h - 1 ? h - 1 : y + r + 1) * w + x] - tmp[(y - r < 0 ? 0 : y - r) * w + x];
+        }
+    }
+    return out;
+}
+
+/* Dos pasadas de caja (ancha + angosta) aproximan una gaussiana suave:
+   suficiente para el unsharp mask y mucho más barato que la exacta. */
+function desenfoqueRealce(v, w, h, r) {
+    return desenfoqueCaja(desenfoqueCaja(v, w, h, r), w, h, Math.max(1, Math.round(r * 0.6)));
+}
+
+/* PROFUNDIDAD (3D) + NITIDEZ sobre el gris final. La profundidad es un
+   unsharp de radio grande (el contraste LOCAL da el volumen que DR_bn
+   muestra en el rostro y la ropa). La nitidez es el unsharp fino clásico.
+   La MÁSCARA vivo separa los píxeles reales de los vacíos: los vacíos
+   participan en los desenfoques como gris NEUTRO (no inclinan el borde)
+   y JAMÁS se escriben; un gris apurado a negativo sigue siendo vivo. */
+function realceCalidad(gris, vivo, w, h, cal) {
+    const profundidad = Number(cal.profundidad) > 0 ? Number(cal.profundidad) : 0;
+    const nitidez = Number(cal.nitidez) > 0 ? Number(cal.nitidez) : 0;
+    if (profundidad <= 0 && nitidez <= 0) return;
+    const ladoRef = Math.min(w, h);
+    const neutralDe = () => {
+        const neutral = new Float32Array(gris.length);
+        for (let i = 0; i < neutral.length; i++) neutral[i] = vivo[i] ? gris[i] : 127;
+        return neutral;
+    };
+    if (profundidad > 0) {
+        const r = Math.max(6, Math.round(ladoRef / 16));
+        const base = desenfoqueRealce(neutralDe(), w, h, r);
+        for (let i = 0; i < gris.length; i++) {
+            if (!vivo[i]) continue;
+            gris[i] += profundidad * (gris[i] - base[i]);
+        }
+    }
+    if (nitidez > 0) {
+        const r = Math.max(1, Math.round(ladoRef / 450));
+        // tras la pasada de profundidad el plano cambió: reconstruir el
+        // neutro desde el estado actual
+        const base = desenfoqueRealce(neutralDe(), w, h, r);
+        for (let i = 0; i < gris.length; i++) {
+            if (!vivo[i]) continue;
+            gris[i] += nitidez * (gris[i] - base[i]);
+        }
+    }
+}
+
+/* Resolución de horneado de la contención: antes el techo de 300 dpi y
+   2000 px agotaba la foto del boceto. DR_bn apunta más alto: hasta 3600 px
+   de lado (600 dpi) con presupuesto absoluto de píxeles por si el producto
+   es enorme. La ampliación del filtro añade píxeles ANTES: esto los
+   conserva en el bake en lugar de triturarlos. */
+function resolucionHorneado(anchoPts, altoPts) {
+    const maxDim = Math.max(anchoPts || 1, altoPts || 1, 1);
+    let res = Math.max(96, Math.min(600, (72 * 3600) / maxDim));
+    const wPx = (anchoPts / 72) * res, hPx = (altoPts / 72) * res;
+    if (wPx * hPx > 16000000) res = res * Math.sqrt(16000000 / (wPx * hPx));
+    return res;
+}
+
 /* Transforma los rasters del diseño de una capa temporaria. El filtro es
    SIEMPRE sobre un canvas NUEVO: el clone de un Raster comparte el canvas
    del original, y editarlos in situ mancharía el lienzo vivo del usuario.
@@ -183,6 +320,10 @@ function aplicarFiltroGrises(capa) {
     const pesos = (Array.isArray(cfg.luminancia) && cfg.luminancia.length === 3) ? cfg.luminancia : [0.2126, 0.7152, 0.0722];
     const clipN = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipNegroPct)) ? cfg.autoNiveles.clipNegroPct : 1)) / 100;
     const clipB = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipBlancoPct)) ? cfg.autoNiveles.clipBlancoPct : 1)) / 100;
+    // La etapa de calidad acepta override parcial: un JSON viejo (v1) o un
+    // override del localStorage sin "calidad" sigue funcionando con los
+    // valores por defecto de la v2.
+    const cal = Object.assign({}, EKKO_GRIS_DEFAULT.calidad, (cfg && typeof cfg.calidad === "object" && cfg.calidad) || {});
     const delMockup = (item) => {
         let p = item;
         while (p) {
@@ -199,12 +340,13 @@ function aplicarFiltroGrises(capa) {
             const fuente = raster.image || raster.canvas || null;
             const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
             if (!fuente || ancho < 1 || alto < 1) return;
-            const lienzo = document.createElement("canvas");
-            lienzo.width = ancho; lienzo.height = alto;
+            const destino = destinoCalidad(ancho, alto, cal);
+            const lienzo = ampliacionSuave(fuente, ancho, alto, destino.w, destino.h);
+            if (!lienzo) return;
             const ctx = lienzo.getContext("2d");
-            try { ctx.drawImage(fuente, 0, 0, ancho, alto); } catch (_) { return; }
+            const wLienzo = lienzo.width, hLienzo = lienzo.height;
             let datos;
-            try { datos = ctx.getImageData(0, 0, ancho, alto); } catch (_) { return; }
+            try { datos = ctx.getImageData(0, 0, wLienzo, hLienzo); } catch (_) { return; }
             const px = datos.data;
             // histograma de luminancia de los pixeles visibles
             const hist = new Uint32Array(256);
@@ -225,21 +367,49 @@ function aplicarFiltroGrises(capa) {
                 }
                 return v;
             };
-            const neg = punto(clipN);
-            const bla = punto(1 - clipB);
-            const rango = Math.max(1, bla - neg);
+            let neg = punto(clipN);
+            let bla = punto(1 - clipB);
+            let rango = Math.max(1, bla - neg);
+            // Imagenes casi PLANAS (fotos lavadas, logos llenos): los niveles
+            // colapsarian todo a un extremo. Piso un rango minimo alrededor
+            // del centro para conservar gradientes utilizables.
+            if (rango < 16) {
+                const centro = (neg + bla) / 2;
+                neg = Math.max(0, Math.min(239, Math.round(centro - 8)));
+                bla = Math.min(255, Math.max(16, Math.round(centro + 8)));
+                rango = bla - neg;
+            }
             const mapa = new Uint8ClampedArray(256);
             for (let k = 0; k < 256; k++) {
                 let t = (k - neg) / rango;
                 t = t < 0 ? 0 : (t > 1 ? 1 : t);
                 mapa[k] = lut[t === 1 ? 255 : Math.round(t * 255)];
             }
-            for (let i = 0; i < px.length; i += 4) {
-                if (px[i + 3] < 128) continue;
+            // 1) gris final por LUT en un plano float + MÁSCARA de vida.
+            //    Todo pixel con ALFA > 0 se lava a gris (los flecos
+            //    antialiaseados del recorte teñirían el borde al ampliarse).
+            //    El realce puede apurar la tonalidad a NEGATIVO en los
+            //    contornos: la máscara separa "sin color" de "gris apurado",
+            //    así ningún pixel con color queda sin lavar.
+            const gris = new Float32Array(wLienzo * hLienzo);
+            const vivo = new Uint8Array(wLienzo * hLienzo);
+            let k2 = 0;
+            for (let i = 0; i < px.length; i += 4, k2++) {
+                if (px[i + 3] === 0) continue;
+                vivo[k2] = 1;
                 let l = Math.round(pesos[0] * px[i] + pesos[1] * px[i + 1] + pesos[2] * px[i + 2]);
                 l = l > 255 ? 255 : (l < 0 ? 0 : l);
-                const g = mapa[l];
-                px[i] = g; px[i + 1] = g; px[i + 2] = g; // gris puro (DR_bn es R=G=B)
+                gris[k2] = mapa[l];
+            }
+            // 2) PROFUNDIDAD + NITIDEZ sobre el gris final (efecto 3D y
+            //    definición de grabado). Es lo que DR_bn tiene y DR_color no.
+            realceCalidad(gris, vivo, wLienzo, hLienzo, cal);
+            // 3) escritura: gris puro (DR_bn es R=G=B), alfa intacta
+            k2 = 0;
+            for (let i = 0; i < px.length; i += 4, k2++) {
+                if (!vivo[k2]) continue;
+                const g = gris[k2] > 255 ? 255 : (gris[k2] < 0 ? 0 : Math.round(gris[k2]));
+                px[i] = g; px[i + 1] = g; px[i + 2] = g;
             }
             ctx.putImageData(datos, 0, 0);
             // REEMPLAZO 1:1 con el mismo z y la misma matriz local
@@ -598,8 +768,7 @@ export async function prepareSVGForExport(options = {}) {
                             grupoRaster.addChild(hornearWorld(usaSiluetaSketch ? siluetaSketch : mascara));
                             rastersDentro.forEach(r => grupoRaster.addChild(hornearWorld(r)));
                             const limite = grupoRaster.bounds;
-                            const maxDim = Math.max(limite?.width || 1, limite?.height || 1, 1);
-                            const resolucion = Math.max(72, Math.min(300, (72 * 2000) / maxDim));
+                            const resolucion = resolucionHorneado(limite?.width, limite?.height);
                             const horneado = grupoRaster.rasterize(resolucion);
                             if (horneado && Math.abs(horneado.width || 0) > 0) {
                                 try { horneado.remove(); } catch (_) {}
@@ -886,8 +1055,7 @@ export async function prepareSVGForExport(options = {}) {
                         grupoRaster.addChild(siluetaSketch.clone({ insert: false }));
                         grupoRaster.addChild(world);
                         const limite = grupoRaster.bounds;
-                        const maxDim = Math.max(limite?.width || 1, limite?.height || 1, 1);
-                        const resolucion = Math.max(72, Math.min(300, (72 * 2000) / maxDim));
+                        const resolucion = resolucionHorneado(limite?.width, limite?.height);
                         const horneado = grupoRaster.rasterize(resolucion);
                         try { grupoRaster.remove(); } catch (_) {}
                         if (horneado && Math.abs(horneado.width || 0) > 0) {
