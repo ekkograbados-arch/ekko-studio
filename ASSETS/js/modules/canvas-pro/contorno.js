@@ -1360,20 +1360,139 @@ function bandaImagenViva(vinculo, origen, sampled, control, exacto = false) {
  *  usaba el FINAL entregado (v11.41) y el que usa la imagen llena (JPG) hoy,
  *  asi que imagen recortada e imagen llena vuelven a compartir un solo
  *  camino de verdad. Devuelve null si ni silueta ni caja hay. */
+
+/* Douglas-Peucker para poligonos CERRADOS, iterativo (sin recursion profunda:
+   una silueta de foto trae miles de puntos). Parte el anillo por el par de
+   puntos mas alejado y simplifica cada cadena contra su cuerda. */
+function simplificarPoligono(puntos, tolerancia) {
+    if (!Array.isArray(puntos) || puntos.length < 5 || !(tolerancia > 0)) return puntos;
+    const dSeg = (p, a, b) => {
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const L2 = dx * dx + dy * dy;
+        if (L2 < 1e-12) return Math.hypot(p.x - a.x, p.y - a.y);
+        let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2;
+        t = Math.max(0, Math.min(1, t));
+        return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+    };
+    const dpCadena = (arr, i0, i1, A, B, mantener) => {
+        const pila = [[i0, i1, A, B]];
+        while (pila.length) {
+            const [a0, a1, PA, PB] = pila.pop();
+            if (a1 - a0 < 2) continue;
+            let idx = -1, dist = 0;
+            for (let i = a0 + 1; i < a1; i++) {
+                const d = dSeg(arr[i], PA, PB);
+                if (d > dist) { dist = d; idx = i; }
+            }
+            if (dist <= tolerancia || idx < 0) continue;
+            mantener.add(idx);
+            pila.push([a0, idx, PA, arr[idx]], [idx, a1, arr[idx], PB]);
+        }
+    };
+    // anclas: punto 0 y el mas lejano de 0 (diagonal del anillo)
+    let far = 1, dmax = 0;
+    for (let i = 1; i < puntos.length; i++) {
+        const d = Math.hypot(puntos[i].x - puntos[0].x, puntos[i].y - puntos[0].y);
+        if (d > dmax) { dmax = d; far = i; }
+    }
+    if (dmax <= tolerancia) return puntos; // anillo diminuto: no tocar
+    const mantener = new Set([0, far]);
+    dpCadena(puntos, 0, far, puntos[0], puntos[far], mantener);
+    dpCadena(puntos, far, puntos.length, puntos[far], puntos[0], mantener);
+    // la segunda cadena cubre far..fin y cierra contra 0
+    return [...mantener].sort((a, b) => a - b).map(i => puntos[i]);
+}
+
+/* Area de un poligono cerrado (shoelace), en unidades de lienzo. */
+function areaPoligono(puntos) {
+    if (!Array.isArray(puntos) || puntos.length < 3) return 0;
+    let a = 0;
+    for (let i = 0, n = puntos.length; i < n; i++) {
+        const p = puntos[i], q = puntos[(i + 1) % n];
+        a += p.x * q.y - q.x * p.y;
+    }
+    return Math.abs(a) / 2;
+}
+
+/* Despoleado de la MASCARA: el recorte real deja micro-islas en el alfa
+   (residuo de fondo, pelos sueltos, speckles) y la banda las envolveria
+   una por una (medido: foto realista = 39 loops, 37 de ellos esquirlas de
+   0.3-16 unidades2 contra ~29000 de los loops reales). Se descartan loops
+   de silueta por debajo del 0.5% del mayor (o menores que 1 grosor2):
+   ningun detalle real de diseño vive a esa escala. */
+function despolearSilueta(loops, control) {
+    if (!Array.isArray(loops) || loops.length < 2) return loops;
+    const grosor = Math.abs(Number(control?.width) || 0) || 1;
+    const areas = loops.map(areaPoligono);
+    const mayor = Math.max(...areas, 0);
+    if (!(mayor > 0)) return loops;
+    const umbral = Math.max(mayor * 0.005, grosor * grosor, 0.5);
+    const limpios = loops.filter((_, i) => areas[i] >= umbral);
+    return limpios.length ? limpios : loops;
+}
+
+/* Filtro de esquirlas del OFFSET: con silueta rugosa el offset se auto-
+   intersecta y buildOutlineGeometry fragmenta la banda en decenas/cientos
+   de loops (medido: 150 y 217 loops con siluetas de 3000/6000 puntos).
+   Solo se actua cuando el resultado viene patologico (> 12 loops): un
+   resultado sano nunca se toca, y las esquirlas descartadas son todas
+   minusculas contra el loop mayor (umbral 0.2% del mayor). */
+function filtrarEsquirlasDeBanda(geometria, control) {
+    const hijos = geometria?.children;
+    if (!Array.isArray(hijos) || hijos.length <= 12) return geometria;
+    const grosor = Math.abs(Number(control?.width) || 0) || 1;
+    const areas = hijos.map(h => Math.abs(h?.area ?? 0));
+    const mayor = Math.max(...areas, 0);
+    if (!(mayor > 0)) return geometria;
+    const umbral = Math.max(grosor * grosor * 2, mayor * 0.002, 0.5);
+    const vivos = hijos.filter((h, i) => areas[i] >= umbral);
+    if (!vivos.length || vivos.length === hijos.length) return geometria;
+    vivos.forEach(h => { try { h.remove?.(); } catch (_) {} });
+    return geometria;
+}
+
+/* Tolerancia de simplificacion de la silueta. La silueta sale de marching
+   squares con UN PUNTO POR CELDA de la grilla de alfa; mapeada al lienzo esa
+   celda puede meder decimas de unidad: miles de micro-segmentos que el cliente
+   no ve pero que rompen el offset (auto-interseccion -> banda fragmentada en
+   cientos de esquirlas, medido: silueta rugosa de 6000 puntos = 217 loops y
+   14 s; lisa = 2 loops y 22 ms) o lo matan (records vacio -> contorno-empty,
+   el caso exacto del cliente con foto 2000x3555). Se simplifica a:
+   - 3/4 de celda de muestreo: borra el escalonado de aliasing, conserva todo
+     detalle real mayor que eso;
+   - 1/4 del Grosor: lo mas fino que la banda puede mostrar de todos modos. */
+function toleranciaSilueta(origen, sampled, control) {
+    const celda = celdaMinima(origen, sampled) || 0;
+    const grosor = Math.abs(Number(control?.width) || 0) || 1;
+    return Math.max(celda * 0.75, grosor * 0.25, 0.1);
+}
+
 function bandaExactaDeImagen(origen, sampled, control) {
     const loops = siluetaDeImagen(origen, sampled);
     const uso = loops.length ? loops : loopCajaImagen(origen);
     if (!uso || !uso.length) return null;
+    /* La silueta cruda va SIEMPRE simplificada antes del motor vectorial:
+       sin esto el offset de la banda se auto-intersecta con el ruido de
+       muestreo y el resultado se fragmenta (o muere). Si la simplificacion
+       dejara todo por debajo de 3 puntos, se usa la silueta cruda. */
+    let usoFinal = uso;
+    try {
+        usoFinal = despolearSilueta(uso, control);
+        const tol = toleranciaSilueta(origen, sampled, control);
+        const limpios = usoFinal.map(loop => simplificarPoligono(loop, tol))
+            .filter(l => Array.isArray(l) && l.length >= 3);
+        if (limpios.length) usoFinal = limpios;
+    } catch (_) {}
     const base = new paper.CompoundPath({ insert: false });
     base.applyMatrix = false;
     base.matrix = new paper.Matrix();
     base.fillRule = "evenodd";
-    uso.forEach(loop => base.addChild(
+    usoFinal.forEach(loop => base.addChild(
         new paper.Path({ segments: loop, closed: true, insert: false })));
     const salida = buildOutlineGeometry(base, control.width, control.side,
         Number(control.radius) || 0, Number(control.smoothing) || 0, control.scope);
     base.remove?.();
-    return salida;
+    return filtrarEsquirlasDeBanda(salida, control);
 }
 
 /* ------------------------------------------------------------------
@@ -1647,6 +1766,32 @@ function createRasterBorderContour(raster, options = {}) {
 function ownerOf(item) {
   try { return getPublicOwner(item) || item; } catch (_) { return item; }
 }
+
+/* Especie RESUELTA a traves del envoltorio. El speciesOf local devuelve null
+   para un Group, pero la UI (capabilities) promete la herramienta por lo que
+   hay ADENTRO: una imagen dentro de una fusion / grupo / clip muestra
+   "Contorno de imagen" en la cinta y el motor tenia que morir en
+   contorno-empty (medido: fusion con raster adentro, fail en el despacho
+   final). Si el grupo contiene raster(s) y nada mas de diseño, es el camino
+   imagen. Mezcla con vectores/texto: null, como el motor canonico. */
+function especieResuelta(o) {
+    const sp = speciesOf(o);
+    if (sp) return sp;
+    if (o?.className !== "Group") return null;
+    let rasters = 0, otros = 0;
+    (function visit(nodo) {
+        if (!nodo || otros) return;
+        const d = nodo.data || {};
+        if (d.mockup || d.isMask || d.wasClipMask || nodo.clipMask
+            || d.isSelectionBox || d.isHandle || d.isNodeEditOverlay) return;
+        if (nodo.className === "Raster") { rasters++; return; }
+        if (nodo !== o && (["Path", "CompoundPath", "Shape"].includes(nodo.className)
+            || nodo.className === "PointText" || d.isText)) { otros++; return; }
+        (nodo.children || []).forEach(visit);
+    })(o);
+    return (rasters > 0 && !otros) ? "raster" : null;
+}
+
 function isDesignObject(item) {
   const owner = ownerOf(item);
   if (!owner) return false;
@@ -2068,7 +2213,7 @@ export async function aplicarContorno(items = null, options = {}) {
   deBandas.forEach(agregar);
   if (!targets.length) return fail("contorno-empty");
   try {
-    const especies = targets.map(o => ({ o, sp: speciesOf(o) }));
+    const especies = targets.map(o => ({ o, sp: especieResuelta(o) }));
     const todosVectoriales = especies.every(e => e.sp === "vector" || e.sp === "text");
     const todasImagenes = especies.every(e => e.sp === "raster");
     // POR PIEZA: un contorno por cada objeto (tambien es el camino cuando
@@ -2083,7 +2228,7 @@ export async function aplicarContorno(items = null, options = {}) {
           const regenerado = regenerarContorno(owner, controles);
           if (regenerado) { pushPlano(regenerado); continue; }
         }
-        const species = speciesOf(owner);
+        const species = especieResuelta(owner);
         if (species === "raster") {
           // REGENERAR, NUNCA DUPLICAR: si esta pieza ya tiene contorno vivo,
           // se rehace ESE contorno con los valores actuales del panel y no se
