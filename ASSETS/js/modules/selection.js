@@ -806,9 +806,8 @@ const _initSelectionTool = function() {
       const esGrupoTextoDblClick = target && (target.data?.isCurvedGroup === true || target.data?.isSpacedGroup === true);
 
       // Fusión y texto conservan su doble clic propio (edición interna / texto).
-      // Un VECTOR normal ahora SÍ entra por doble clic: abre el editor de
-      // nodos y, si el doble clic cayó sobre el borde, agrega el nodo en ese
-      // punto (Inkscape/Photoshop). Sin abrir el editor a mano ni botones.
+      // Un VECTOR normal NO entra por doble clic: los nodos se editan solo con
+      // el botón "Editar Nodos" (gate FASE 1 UI, ver la rama final).
       event.preventDefault();
       event.stopPropagation();
       window.dragging = false;
@@ -830,21 +829,13 @@ const _initSelectionTool = function() {
           window.deselectItem();
           window.selectItem(target);
           window.editGroupText(target);
-        } else if (!window.nodeEditMode && typeof window.enterNodeEditMode === 'function') {
-          // VECTOR: el doble clic abre el editor de nodos y, si el punto cayó
-          // sobre el borde (tolerancia del propio tryInsertNodeAt), agrega el
-          // nodo exacto ahí. La inserción corre tras entrar al editor.
-          // NOTA: dentro del editor de nodos dblclick lo atiende nodeEditor
-          // (su handler inserta el nodo) — aquí solo la entrada en frío.
-          const owner = getPublicOwner(hit) || hit;
-          window.deselectItem();
-          window.selectItem(owner);
-          Promise.resolve(window.enterNodeEditMode(owner))
-            .then(() => {
-              if (typeof window.tryInsertNodeAt === 'function') window.tryInsertNodeAt(point);
-            })
-            .catch(err => console.error('[EKKO NODES-DBL]', err));
         }
+        /* FASE 1 UI — GATE DE NODOS: el doble clic sobre un vector plano YA NO
+           entra al editor de nodos. Los nodos se editan EXCLUSIVAMENTE con el
+           botón "Editar Nodos" (cinta o emergente), decisión del cliente. El
+           doble clic queda reservado: fusión -> editar dentro (arriba), texto
+           -> editar texto. Dentro del modo nodos, el dblclick lo atiende
+           nodeEditor (inserta nodo en el punto). */
       } catch (e) {
         console.error('[EKKO DBLCLICK ERROR]', e);
       }
@@ -864,8 +855,27 @@ const _initSelectionTool = function() {
 
     const interaction = window.EKKO_INTERACTION;
     if (interaction?.mode === "fusion-edit") {
-      handleFusionEditPointerDown(event, event.point);
-      return;
+      /* FASE UI: los tiradores de la caja del proxy SÍ funcionan dentro de
+         la edición de fusión (decisión del cliente: si hay tiradores,
+         funcionan). Si el punto cae sobre un tirador, el gesto lo toma el
+         flujo estándar de selección — el proxy es un Raster público y al
+         aceptar viaja su matriz completa (posición, escala y rotación).
+         Todo lo demás (cuerpo de la imagen, máscara, vacío) queda para el
+         modo fusión-edit. */
+      const sobreTirador = window.selectionBoxGroup
+        ? !!window.selectionBoxGroup.hitTest(event.point, {
+            fill: true, stroke: true, segments: true,
+            tolerance: 12 / paper.view.zoom,
+            match: hit => !!(hit.item.data && hit.item.data.isHandle)
+          })
+        : false;
+      if (!sobreTirador) {
+        handleFusionEditPointerDown(event, event.point);
+        return;
+      }
+      // Tirador: cae al flujo normal (bend -> rotación -> escalado).
+      // El check genérico de abajo NO aplica: en modo fusión-edit
+      // canHandle("select") devuelve false y bloquearía el gesto.
     }
     if (interaction?.mode === "text-insert") {
       if (typeof createEditableText === "function") createEditableText(event.point);
@@ -874,7 +884,8 @@ const _initSelectionTool = function() {
       paper.view.element.style.cursor = "default";
       return;
     }
-    if (interaction && !interaction.canHandle("select")) return;
+    const enFusionEditDown = interaction?.mode === "fusion-edit";
+    if (!enFusionEditDown && interaction && !interaction.canHandle("select")) return;
 
     if (window.insertTextMode) {
       if (typeof createEditableText === "function") {
@@ -1040,8 +1051,20 @@ const _initSelectionTool = function() {
       }
     }
 
-    // 4. Clic en espacio vacío: Deseleccionar e iniciar selección por ventana (Marquee)
-    window.deselectItem();
+    // 4. Clic en espacio vacío: iniciar selección por ventana (Marquee).
+    //    Sin Shift: REEMPLAZA la selección (deselecciona primero).
+    //    Con Shift: SUMA a la selección vigente (estándar Windows/macOS/Web).
+    const isShiftMarquee = !!(event.modifiers && event.modifiers.shift);
+    window.marqueeAdditive = isShiftMarquee;
+    if (isShiftMarquee) {
+      /* Base a la que se sumará lo que atrape el marquee. Se copia para que
+         el gesto no dependa de que la selección siga intacta. */
+      window.marqueeBaseSelection = (Array.isArray(window.selectedItems)
+        ? window.selectedItems.filter(Boolean) : []).slice();
+    } else {
+      window.marqueeBaseSelection = null;
+      window.deselectItem();
+    }
     window.marqueeActive = true;
     window.marqueeStartPoint = event.point.clone();
     window.marqueePath = new paper.Path.Rectangle({
@@ -1058,11 +1081,15 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseDrag = function(event) {
     if (window.nodeEditMode) return;
-    if (window.EKKO_INTERACTION?.mode === "fusion-edit") {
+    const enFusionEdit = window.EKKO_INTERACTION?.mode === "fusion-edit";
+    if (enFusionEdit && !window.resizeActive && !window.rotationActive) {
       handleFusionEditPointerDrag(event);
       return;
     }
-    if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
+    /* En fusión-edit con un gesto de tirador en curso NO se consulta
+       canHandle("select") (el modo fusión-edit lo bloquearía): el flujo de
+       escalado/rotación de abajo es el dueño del puntero. */
+    if (!enFusionEdit && window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
     if (window.selectedItem && window.selectedItem.data && window.selectedItem.data.locked) {
       return;
     }
@@ -1248,11 +1275,14 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseUp = function(event) {
     if (window.nodeEditMode) return;
-    if (window.EKKO_INTERACTION?.mode === "fusion-edit") {
+    const enFusionEditUp = window.EKKO_INTERACTION?.mode === "fusion-edit";
+    if (enFusionEditUp && !window.resizeActive && !window.rotationActive) {
       handleFusionEditPointerUp(event);
       return;
     }
-    if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
+    /* Ídem drag: un tirador de la caja dentro de fusión-edit cierra su
+       transacción por el camino estándar (finalize + historial). */
+    if (!enFusionEditUp && window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
 
     if (window.EKKO_TEXT_BEND?.isBending?.()) {
       // endBend() deja un solo paso de historial para todo el arrastre y
@@ -1335,9 +1365,30 @@ const _initSelectionTool = function() {
       }
       try { marqueeGeometry.remove(); } catch (e) {}
 
-      if (itemsToSelect.length > 0) {
+      if (window.marqueeAdditive && Array.isArray(window.marqueeBaseSelection)) {
+        /* Shift + marquee: SUMA. Lo ya seleccionado se conserva; los owners
+           nuevos se agregan sin duplicar (comparando por dueño de
+           transformación, mismo criterio del isolate-click). Un marquee
+           vacío con Shift NO toca la selección (comportamiento estándar). */
+        const clave = it => getTransformTarget(it) || it;
+        const vistas = new Set(window.marqueeBaseSelection.map(clave));
+        const suma = window.marqueeBaseSelection.slice();
+        itemsToSelect.forEach(it => {
+          const c = clave(it);
+          if (!vistas.has(c)) { vistas.add(c); suma.push(it); }
+        });
+        window.marqueeAdditive = false;
+        window.marqueeBaseSelection = null;
+        if (itemsToSelect.length > 0) {
+          commitSelectionContext(suma, suma[suma.length - 1], 'marquee-add');
+        }
+      } else if (itemsToSelect.length > 0) {
+        window.marqueeAdditive = false;
+        window.marqueeBaseSelection = null;
         commitSelectionContext(itemsToSelect, itemsToSelect[itemsToSelect.length - 1], 'marquee');
       } else {
+        window.marqueeAdditive = false;
+        window.marqueeBaseSelection = null;
         commitSelectionContext([], null, 'marquee-empty');
       }
       paper.view.update();
@@ -1392,7 +1443,35 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseMove = function(event) {
     if (window.nodeEditMode) return;
-    if (window.EKKO_INTERACTION?.mode === "fusion-edit") return;
+    if (window.EKKO_INTERACTION?.mode === "fusion-edit") {
+      /* FASE UI: feedback de cursor sobre los tiradores del proxy (dentro de
+         fusión-edit los tiradores SÍ operan). El resto del feedback queda
+         del modo. */
+      if (window.resizeActive || window.rotationActive) return;
+      const canvasFE = document.getElementById("editorCanvas");
+      let hitFE = null;
+      if (window.selectionBoxGroup) {
+        hitFE = window.selectionBoxGroup.hitTest(event.point, {
+          fill: true, stroke: true, segments: true,
+          tolerance: 12 / paper.view.zoom,
+          match: hit => !!(hit.item.data && hit.item.data.isHandle)
+        });
+      }
+      if (canvasFE) {
+        if (!hitFE) canvasFE.style.cursor = 'default';
+        else if (hitFE.item.data.handleType === 'rot') canvasFE.style.cursor = 'grab';
+        else {
+          switch (hitFE.item.data.handleType) {
+            case 'tl': case 'br': canvasFE.style.cursor = 'nwse-resize'; break;
+            case 'tr': case 'bl': canvasFE.style.cursor = 'nesw-resize'; break;
+            case 't':  case 'b':  canvasFE.style.cursor = 'ns-resize'; break;
+            case 'l':  case 'r':  canvasFE.style.cursor = 'ew-resize'; break;
+            default: canvasFE.style.cursor = 'default';
+          }
+        }
+      }
+      return;
+    }
     if (window.EKKO_INTERACTION && !window.EKKO_INTERACTION.canHandle("select")) return;
     const canvas = document.getElementById("editorCanvas");
     if (!canvas) return;
