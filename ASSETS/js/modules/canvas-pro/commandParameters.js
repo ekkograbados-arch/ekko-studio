@@ -554,32 +554,22 @@ function crearParametro(spec, comando) {
 
 const LLAVE_POSICION = "ekko.params.pos";
 
-/** Remember donde el cliente dejo el panel, para no repositionarlo cada vez. */
-function colocar(cont, forzarCentro) {
+/** El panel NO es una ventana: se DOCKA debajo del panel superior y se lee
+ *  como la expansion hacia abajo de la cinta (variante (b) aprobada: los
+ *  controles aparecen solo cuando el cliente pulsa la herramienta).
+ *  cascadeToolbar.js tiene ademas un observador que afina el ancla al boton
+ *  exacto que abrio el panel; este lugar es el default del primer pintado y
+ *  el fallback de los resize. El ancla real de la cinta nueva es #topBar:
+ *  #contextual-toolbar quedo como vestigio display:none (rect 0x0) de la
+ *  interfaz anterior y como ancla producia la esquina 0,0. */
+function colocar(cont) {
     const ancho = cont.offsetWidth || 420;
-    const alto = cont.offsetHeight || 64;
-    let x = null, y = null;
-
-    if (!forzarCentro) {
-        try {
-            const g = JSON.parse(localStorage.getItem(LLAVE_POSICION) || 'null');
-            if (g && typeof g.x === 'number' && typeof g.y === 'number') { x = g.x; y = g.y; }
-        } catch (_) {}
-    }
-
-    if (x === null || forzarCentro) {
-        // Por defecto: centrado en el lienzo, por DEBAJO de la barra
-        // emergente pero con holgura propia, para que se lea como un panel
-        // aparte y no como una prolongacion de la barra.
-        const barra = el("contextual-toolbar");
-        const r = barra ? barra.getBoundingClientRect() : null;
-        x = r ? r.left + r.width / 2 - ancho / 2 : (window.innerWidth - ancho) / 2;
-        y = r ? r.bottom + 26 : Math.max(90, (window.innerHeight - alto) / 2);
-    }
-
-    // Se mantiene siempre dentro de la ventana visible.
+    const barra = el("topBar");
+    const r = barra ? barra.getBoundingClientRect() : null;
+    let x = r ? r.left + r.width / 2 - ancho / 2 : (window.innerWidth - ancho) / 2;
+    const y = r ? r.bottom + 4 : 90;
+    // Siempre dentro de la ventana visible.
     x = Math.max(8, Math.min(window.innerWidth - ancho - 8, x));
-    y = Math.max(8, Math.min(window.innerHeight - alto - 8, y));
     cont.style.left = Math.round(x) + "px";
     cont.style.top = Math.round(y) + "px";
 }
@@ -709,9 +699,8 @@ function pintar(comando, recentrar) {
     cont.style.display = "flex";
 
     // Se mide primero con el panel ya en pantalla y luego se coloca: hace
-    // falta conocer su ancho real para centrarlo o clamp-earlo.
-    colocar(cont, !!recentrar);
-    hacerArrastrable(cont);
+    // falta conocer su ancho real para centrarlo bajo la cinta.
+    colocar(cont);
 }
 
 export function cerrarParametros() {
