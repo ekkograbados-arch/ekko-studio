@@ -691,10 +691,11 @@ export function initContextualMenu() {
     if (canvasEl) {
         canvasEl.addEventListener("contextmenu", (e) => {
             if (window.nodeEditMode) {
+                /* El SALIR con clic derecho lo maneja ahora el menu contextual
+                   (contextMenuRenderer.js): un clic derecho abre el menu de
+                   nodos (Listo / Eliminar Nodo) y un DOBLE clic derecho sale
+                   del modo directo. Aca solo se corta el menu del navegador. */
                 e.preventDefault();
-                if (typeof window.exitNodeEditMode === 'function') {
-                    window.exitNodeEditMode();
-                }
                 return;
             }
             if (window.insertTextMode) {
