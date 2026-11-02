@@ -35,7 +35,18 @@ const CONTOUR_COLOR = "#000000";
 // suficiente para un contorno, y el control Suavidad existe justamente para
 // bajar el numero de nodos de un detalle muy fino.
 const ALPHA_SCAN_MAX = 1200;
-const ALPHA_ISO = 128;
+/* ISO del contorno: 200 y no 128. Medido con sonda: Quitar Fondo deja a
+   veces un halo de residuo semitransparente (alfa 130-200) CONECTADO al
+   motivo por el gradiente del borde; con ISO 128 ese halo entra en la
+   silueta y el contorno sale como un blob mas grande que el motivo visible
+   (el residuo no se ve sobre el mockup claro). Con ISO 200 el corte pasa
+   donde el alfa cruza 200: en un recorte limpio la diferencia es de
+   fracciones de pixel (el gradiente del borde dura 1-2 px) y un halo de
+   residuo desaparece entero. */
+const ALPHA_ISO = 200;
+/* Nucleo de la histeresis: un componente conectado de alfa>=ISO solo es
+   diseño si tiene ALGUN pixel por encima de aca. Ver despolearAlfa. */
+const ALPHA_NUCLEO = 240;
 
 /* ------------------------------------------------------------------
    VINCULOS: que contorno salio de que pieza.
@@ -364,9 +375,12 @@ function previsualizarImagen(vinculo) {
     const muestra = muestraDelVinculo(vinculo);
     if (!muestra?.sampled) return null;
     const control = readOutlineControls();
+    // Con el default (Centro, sin Separacion) el final es una LINEA: el
+    // preview tiene que mostrar la linea, no un anillo que nunca existira.
+    const comoLinea = String(control.side) === "center" && !(Number(control.radius) > 0);
     let grupo = null;
     try {
-        const band = bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control);
+        const band = bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control, comoLinea, comoLinea);
         grupo = band ? previsualizarBandaGeom(band) : null;
         try { band?.remove?.(); } catch (_) {}
     } catch (_) { grupo = null; }
@@ -451,6 +465,60 @@ export function refrescarContornoVivo(modo = "final") {
 /** Muestrea el canal alfa de la imagen a una resolucion workable.
  *  Devuelve null si la imagen no tiene nada transparente: en ese caso el borde
  *  exterior es el rectangulo de la pieza y no hay nada que leer. */
+/* HISTERESIS contra el residuo del recorte. Quitar Fondo deja a veces
+   regiones semitransparentes (alfa ~130-200) que en pantalla son invisibles
+   sobre el mockup claro pero para el umbral ISO 128 son "dentro de la
+   silueta": el contorno las envuelve y sale un blob mas grande que el
+   motivo visible (REPRODUCIDO con sonda: con un residuo alfa-150 el ancho
+   del contorno crecio de 81 a 161 unidades). Regla de dos umbrales: un
+   componente conectado de alfa>=ISO solo es diseño si tiene ALGUN pixel
+   nucleo (alfa>=NUCLEO). El borde suave de un recorte legitimo siempre
+   conecta con el nucleo opaco del motivo; una isla de residuo uniforme no
+   tiene nucleo y se descarta. Si el barrido descartara TODO (imagen
+   entera translucida), no se aplica: el comportamiento retrocede al de
+   antes, nunca peor. Devuelve cuantos pixeles quedan "visibles". */
+function despolearAlfa(alpha, w, h) {
+    const n = w * h;
+    let conIso = 0;
+    for (let i = 0; i < n; i++) if (alpha[i] > ALPHA_ISO) conIso++;
+    if (!conIso || conIso >= n * 0.995) return conIso; // vacia u opaca: no toca
+    const copia = alpha.slice();
+    const etiqueta = new Uint8Array(n);
+    const pila = new Int32Array(n);
+    let visibles = 0;
+    for (let semilla = 0; semilla < n; semilla++) {
+        if (etiqueta[semilla] || copia[semilla] <= ALPHA_ISO) continue;
+        let tope = 0;
+        pila[tope++] = semilla;
+        etiqueta[semilla] = 1;
+        const isla = [semilla];
+        let nucleo = copia[semilla] >= ALPHA_NUCLEO;
+        while (tope > 0) {
+            const c = pila[--tope];
+            const cx = c % w, cy = (c - cx) / w;
+            for (let dy = -1; dy <= 1; dy++) {
+                const ny = cy + dy;
+                if (ny < 0 || ny >= h) continue;
+                const fila = ny * w;
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = cx + dx;
+                    if ((dx === 0 && dy === 0) || nx < 0 || nx >= w) continue;
+                    const v = fila + nx;
+                    if (etiqueta[v] || copia[v] <= ALPHA_ISO) continue;
+                    etiqueta[v] = 1;
+                    pila[tope++] = v;
+                    isla.push(v);
+                    if (copia[v] >= ALPHA_NUCLEO) nucleo = true;
+                }
+            }
+        }
+        if (nucleo) visibles += isla.length;
+        else isla.forEach(m => { copia[m] = 0; });
+    }
+    if (visibles > 0) alpha.set(copia);
+    return visibles;
+}
+
 export function sampleRasterAlpha(raster) {
     const element = raster?.canvas || raster?.getElement?.() || null;
     const sourceW = Math.round(raster?.width || 0);
@@ -470,14 +538,11 @@ export function sampleRasterAlpha(raster) {
     try { data = ctx.getImageData(0, 0, w, h).data; } catch (_) { return null; }
     if (!data) return null;
     const alpha = new Uint8Array(w * h);
-    let visible = 0;
-    for (let i = 0, p = 3; i < alpha.length; i++, p += 4) {
-        const a = data[p];
-        alpha[i] = a;
-        if (a > ALPHA_ISO) visible += 1;
-    }
+    for (let i = 0, p = 3; i < alpha.length; i++, p += 4) alpha[i] = data[p];
+    // Histeresis: residuo semitransparente fuera, diseño con nucleo opaco dentro.
+    const visibles = despolearAlfa(alpha, w, h);
     // Si practicamente todo es opaco, la imagen no esta recortada.
-    if (visible <= 0 || visible >= alpha.length * 0.995) return null;
+    if (visibles <= 0 || visibles >= alpha.length * 0.995) return null;
     return { alpha, width: w, height: h, sourceW, sourceH };
 }
 
@@ -1301,7 +1366,7 @@ function previsualizarContornoSeleccion() {
  *  o el padding. Mover Grosor/Posicion/Separacion es un corte sobre el campo
  *  guardado. Cuando no sale banda se anota el MOTIVO en el vinculo: el aviso al
  *  cliente se escribe con eso, y "no paso nada" deja de ser un misterio. */
-function bandaImagenViva(vinculo, origen, sampled, control, exacto = false) {
+function bandaImagenViva(vinculo, origen, sampled, control, exacto = false, comoLinea = false) {
     if (vinculo) vinculo.motivo = null;
     if (!sampled) { if (vinculo) vinculo.motivo = "sin-silueta"; return null; }
     const width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
@@ -1315,7 +1380,7 @@ function bandaImagenViva(vinculo, origen, sampled, control, exacto = false) {
        exacta de Photoshop. El FINAL va siempre por ahi (y sale mas barato:
        cero EDT por aplicacion); la grilla queda para el PREVIEW del arrastre,
        que es lo que la cache de campo hace bien. */
-    if (exacto) return bandaExactaDeImagen(origen, sampled, control);
+    if (exacto) return bandaExactaDeImagen(origen, sampled, control, comoLinea);
     const cell = celdaMinima(origen, sampled);
     const pad = padBanda(sampled, cell, radius + width);
     let campo;
@@ -1341,7 +1406,7 @@ function bandaImagenViva(vinculo, origen, sampled, control, exacto = false) {
            (o el motivo fue otro). El exacto no depende de la resolucion de
            muestreo: si da geometria, el preview muestra la banda de verdad
            en vez de un aviso de "no hay contorno". */
-        const rescate = bandaExactaDeImagen(origen, sampled, control);
+        const rescate = bandaExactaDeImagen(origen, sampled, control, comoLinea);
         if (rescate) { if (vinculo) vinculo.motivo = null; return rescate; }
         return null;
     }
@@ -1467,7 +1532,7 @@ function toleranciaSilueta(origen, sampled, control) {
     return Math.max(celda * 0.75, grosor * 0.25, 0.1);
 }
 
-function bandaExactaDeImagen(origen, sampled, control) {
+function bandaExactaDeImagen(origen, sampled, control, comoLinea = false) {
     const loops = siluetaDeImagen(origen, sampled);
     const uso = loops.length ? loops : loopCajaImagen(origen);
     if (!uso || !uso.length) return null;
@@ -1489,6 +1554,9 @@ function bandaExactaDeImagen(origen, sampled, control) {
     base.fillRule = "evenodd";
     usoFinal.forEach(loop => base.addChild(
         new paper.Path({ segments: loop, closed: true, insert: false })));
+    /* CONTORNO = LINEA: sin offset que calcular no hay auto-interseccion
+       posible: la linea ES la silueta simplificada. Es el modo default. */
+    if (comoLinea) return base;
     const salida = buildOutlineGeometry(base, control.width, control.side,
         Number(control.radius) || 0, Number(control.smoothing) || 0, control.scope);
     base.remove?.();
@@ -1646,6 +1714,12 @@ function crearContornoDeImagenes(origenes, options = {}) {
     const radius = Number(options.radius) || 0;
     const smoothing = Number(options.smoothing) || 0;
     const control = { ...options, width, side, radius, smoothing };
+    /* CONTORNO = LINEA (directiva del cliente, estilo CAD): con el default
+       (Posicion Centro, Separacion 0) el contorno es la LINEA del borde —
+       trazo vectorial fino, sin relleno, nitido a cualquier zoom. Grosor es
+       el espesor de esa linea. Con Separacion > 0 o Posicion fuera/dentro
+       se pide un contorno EXPANDIDO y ahi sigue la banda rellena de antes. */
+    const esLinea = side === "center" && !(radius > 0);
 
     // La grilla de alfa es de la IMAGEN (o de la union) y se devuelve al lienzo
     // con SU matriz (mapeoDeImagen): con la caja del dueno estiraba la silueta
@@ -1676,7 +1750,7 @@ function crearContornoDeImagenes(origenes, options = {}) {
             // FINAL = exacto: el anillo lo da el motor vectorial sobre la
             // silueta real (areas exactas, cualquier grosor); la grilla queda
             // para el preview del arrastre.
-            return bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control, true);
+            return bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control, true, esLinea);
         }
         // IMAGEN LLENA (JPG opaco): el borde es la caja de la imagen, y sobre
         // un rectangulo el motor vectorial es exacto.
@@ -1687,6 +1761,8 @@ function crearContornoDeImagenes(origenes, options = {}) {
         const caja = loopCajaImagen(muestra.origen);
         if (!caja) { base.remove?.(); return null; }
         base.addChild(new paper.Path({ segments: caja, closed: true, insert: false }));
+        // En modo linea la caja no necesita offset: el borde ES la linea.
+        if (esLinea) return base;
         const salida = buildOutlineGeometry(base, width, side, radius, smoothing, control.scope);
         base.remove?.();
         return salida;
@@ -1720,9 +1796,16 @@ function crearContornoDeImagenes(origenes, options = {}) {
     ).forEach(child => outline.addChild(child));
     band.remove?.();
     outline.fillRule = "evenodd";
-    outline.fillColor = new paper.Color(CONTOUR_COLOR);
-    outline.strokeColor = null;
-    outline.strokeWidth = 0;
+    if (esLinea) {
+        // La linea: sin relleno, trazo fino del color del contorno.
+        outline.fillColor = null;
+        outline.strokeColor = new paper.Color(CONTOUR_COLOR);
+        outline.strokeWidth = width;
+    } else {
+        outline.fillColor = new paper.Color(CONTOUR_COLOR);
+        outline.strokeColor = null;
+        outline.strokeWidth = 0;
+    }
     outline.data = {
         locked: false,
         label: esUnion ? "Contorno de la union" : "Contorno de imagen",
