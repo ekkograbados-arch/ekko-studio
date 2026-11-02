@@ -153,7 +153,9 @@ function regenerarContorno(contorno, opciones = null) {
     const normalizado = { ...control, width };
     let band = null;
     if (muestra.sampled) {
-        band = bandaImagenViva(vinculoPropio, muestra.origen, muestra.sampled, normalizado);
+        // FINAL = exacto: mismo motor que la primera aplicacion, asi el
+        // arrastre de un control no cambia ni la forma ni el area del anillo.
+        band = bandaImagenViva(vinculoPropio, muestra.origen, muestra.sampled, normalizado, true);
         if (!band) return retirarBanda(vinculoPropio, contorno);
     } else {
         // Sin alfa que leer (JPG opaco): el borde es la caja de la imagen.
@@ -1211,17 +1213,109 @@ function bandaDesdeCampo(campo, control) {
     return comp;
 }
 
+/** VISTA PREVIA TIPO BOOLEANAS para el boton Contorno: como quedaria el
+ *  anillo de la seleccion ACTUAL, sin instalar nada. Es el "mostrar como
+ *  quedaria" previo al clic que pidio el cliente (mismo gesto que la
+ *  Interseccion Booleana). Respeta el control "Aplicar a" del panel:
+ *  Todo junta -> un anillo alrededor de la silueta de toda la seleccion
+ *  (solo vectores: el texto se convierte recien al aplicar, y convertirlo
+ *  aqui instalaria geometria); Por pieza -> un anillo por objeto. Todo se
+ *  calcula sobre clones; si algo falla no hay fantasma y el clic hace lo de
+ *  siempre. Devuelve true si el fantasma quedo instalado. */
+function previsualizarContornoSeleccion() {
+    const seleccion = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+        ? window.selectedItems
+        : (window.selectedItem ? [window.selectedItem] : []);
+    const owners = [];
+    const vistos = new Set();
+    seleccion.forEach(item => {
+        const o = ownerOf(item);
+        if (!o || !isDesignObject(o) || vistos.has(o)) return;
+        vistos.add(o);
+        owners.push(o);
+    });
+    if (!owners.length) return false;
+    const control = readOutlineControls();
+    const bandas = [];
+
+    try {
+        const especies = owners.map(o => ({ o, sp: speciesOf(o) }));
+        const vectores = especies.filter(e => e.sp === "vector");
+        const imagenes = especies.filter(e => e.sp === "raster");
+        if (!vectores.length && !imagenes.length) return false;
+        const todoJunto = control.apply !== "pieces" && vectores.length > 1 && !imagenes.length;
+
+        if (todoJunto) {
+            const union = unirGeometrias(vectores.map(e => e.o));
+            if (!union) return false;
+            const band = buildOutlineGeometry(union, control.width, control.side,
+                Number(control.radius) || 0, Number(control.smoothing) || 0, control.scope);
+            union.remove?.();
+            if (!band) return false;
+            bandas.push(band);
+        } else {
+            vectores.forEach(e => {
+                let geo = null;
+                try { geo = toWorldGeometry(e.o); } catch (_) { geo = null; }
+                if (!geo) return;
+                const band = buildOutlineGeometry(geo, control.width, control.side,
+                    Number(control.radius) || 0, Number(control.smoothing) || 0, control.scope);
+                geo.remove?.();
+                if (band) bandas.push(band);
+            });
+            imagenes.forEach(e => {
+                const raster = rasterDe(e.o);
+                if (!raster) return;
+                const sampled = sampleRasterAlpha(raster);
+                const band = bandaExactaDeImagen(raster, sampled, control);
+                if (band) bandas.push(band);
+            });
+        }
+    } catch (_) {
+        bandas.forEach(b => { try { b.remove?.(); } catch (_) {} });
+        return false;
+    }
+    if (!bandas.length) return false;
+
+    const zoom = paper.view?.zoom || 1;
+    const grupo = new paper.Group({ insert: false });
+    grupo.data = { isSelectionBox: true, uiOnly: true, isOutlinePreview: true, isContornoHover: true };
+    bandas.forEach(band => {
+        try {
+            const rosa = new paper.Color("#ff2ea6");
+            rosa.alpha = 0.22;
+            band.fillColor = rosa;
+            band.strokeColor = new paper.Color("#ff2ea6");
+            band.strokeWidth = 1.6 / zoom;
+            band.dashArray = [5 / zoom, 3 / zoom];
+            band.fillRule = "evenodd";
+        } catch (_) {}
+        grupo.addChild(band);
+    });
+    return !!instalarPreview(grupo);
+}
+
 /** Banda viva: la grilla de alfa se relee en cada llamada (una edicion de
  *  recorte tiene que verse al instante) pero el campo de distancias —lo caro—
  *  sale de CAMPOS y solo se recalcula si cambio la matriz, el alfa, el alcance
  *  o el padding. Mover Grosor/Posicion/Separacion es un corte sobre el campo
  *  guardado. Cuando no sale banda se anota el MOTIVO en el vinculo: el aviso al
  *  cliente se escribe con eso, y "no paso nada" deja de ser un misterio. */
-function bandaImagenViva(vinculo, origen, sampled, control) {
+function bandaImagenViva(vinculo, origen, sampled, control, exacto = false) {
     if (vinculo) vinculo.motivo = null;
     if (!sampled) { if (vinculo) vinculo.motivo = "sin-silueta"; return null; }
     const width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
     const radius = Math.max(0, Number(control.radius) || 0);
+    /* FINAL EXACTO: el camino definitivo no pasa por la grilla. El campo de
+       distancias tiene un piso fisico: una banda mas angosta que ~2 celdas de
+       muestreo no tiene NI UNA celda dentro del intervalo (imagen de 200
+       unidades con Grosor 1: celda 1.0, intervalo +/-0.5, cero celdas — medido
+       con sonda). El motor vectorial no tiene ese piso: parte de la silueta
+       interpolada y da el anillo exacto para cualquier grosor, con el area
+       exacta de Photoshop. El FINAL va siempre por ahi (y sale mas barato:
+       cero EDT por aplicacion); la grilla queda para el PREVIEW del arrastre,
+       que es lo que la cache de campo hace bien. */
+    if (exacto) return bandaExactaDeImagen(origen, sampled, control);
     const cell = celdaMinima(origen, sampled);
     const pad = padBanda(sampled, cell, radius + width);
     let campo;
@@ -1241,10 +1335,45 @@ function bandaImagenViva(vinculo, origen, sampled, control) {
         return null;
     }
     let base = bandaDesdeCampo(campo, control);
-    if (!base) { if (vinculo) vinculo.motivo = "sin-banda"; return null; }
+    if (!base) {
+        if (vinculo) vinculo.motivo = "sin-banda";
+        /* PLAN B del preview: la grilla se quedo corta para la banda pedida
+           (o el motivo fue otro). El exacto no depende de la resolucion de
+           muestreo: si da geometria, el preview muestra la banda de verdad
+           en vez de un aviso de "no hay contorno". */
+        const rescate = bandaExactaDeImagen(origen, sampled, control);
+        if (rescate) { if (vinculo) vinculo.motivo = null; return rescate; }
+        return null;
+    }
     if (!(Number(control.smoothing) > 0)) return base;
     try { return applySmoothing(base, Number(control.smoothing)) || base; }
     catch (_) { return base; }
+}
+
+/** PLAN B EXACTO: banda por el motor vectorial sobre la silueta real.
+ *  El campo de distancias trabaja sobre una grilla y su banda sale cuantizada
+ *  a la celda; con Grosor fino respecto del muestreo se queda sin celdas y
+ *  muere en "sin-banda". Este camino parte de la silueta interpolada
+ *  (marching squares con alfa continuo, la misma que ve el cliente) y le
+ *  aplica buildOutlineGeometry: anillo exacto para cualquier Grosor/Radio/
+ *  Suavidad/Alcance, sin escalon y con el area exacta. Es el mismo motor que
+ *  usaba el FINAL entregado (v11.41) y el que usa la imagen llena (JPG) hoy,
+ *  asi que imagen recortada e imagen llena vuelven a compartir un solo
+ *  camino de verdad. Devuelve null si ni silueta ni caja hay. */
+function bandaExactaDeImagen(origen, sampled, control) {
+    const loops = siluetaDeImagen(origen, sampled);
+    const uso = loops.length ? loops : loopCajaImagen(origen);
+    if (!uso || !uso.length) return null;
+    const base = new paper.CompoundPath({ insert: false });
+    base.applyMatrix = false;
+    base.matrix = new paper.Matrix();
+    base.fillRule = "evenodd";
+    uso.forEach(loop => base.addChild(
+        new paper.Path({ segments: loop, closed: true, insert: false })));
+    const salida = buildOutlineGeometry(base, control.width, control.side,
+        Number(control.radius) || 0, Number(control.smoothing) || 0, control.scope);
+    base.remove?.();
+    return salida;
 }
 
 /* ------------------------------------------------------------------
@@ -1425,7 +1554,10 @@ function crearContornoDeImagenes(origenes, options = {}) {
             // euclidiana exacta a la frontera). Si el alcance no tiene celdas
             // ("Solo huecos" sin huecos) NO se inventa un contorno: sin banda,
             // y el motivo se avisa al cliente en la boca que llamo.
-            return bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control);
+            // FINAL = exacto: el anillo lo da el motor vectorial sobre la
+            // silueta real (areas exactas, cualquier grosor); la grilla queda
+            // para el preview del arrastre.
+            return bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control, true);
         }
         // IMAGEN LLENA (JPG opaco): el borde es la caja de la imagen, y sobre
         // un rectangulo el motor vectorial es exacto.
@@ -2255,6 +2387,9 @@ if (typeof window !== "undefined") {
   // Limpieza del preview para rutas ajenas al panel (por ejemplo, cerrar el
   // panel con un arrastre a medio hacer): sin trazo magenta residual.
   window.EKKO.quitarPreviewContorno = quitarPreview;
+  // Vista previa tipo booleanas: el fantasma magenta del boton Contorno.
+  // La instala el puente de comandos en el hover y la retira al salir.
+  window.EKKO.previsualizarContorno = previsualizarContornoSeleccion;
   // Mejor esfuerzo: si el controlador de transformaciones ya cargo, se engancha
   // ahora y la primera banda que se mueva no depende de que antes se haya
   // aplicado un contorno.
