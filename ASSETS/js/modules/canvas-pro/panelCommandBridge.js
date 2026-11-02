@@ -717,7 +717,18 @@ function installBooleanPreview() {
     /* Delegación en fase de captura: los botones se MUEVEN de barra (la cinta
        re-parenta #topBar) y se clonan en el menú de herramientas, así que un
        listener puesto en cada botón se perdería. */
+    const CONTORNO_PREVIEW_SELECTOR = "[data-fusion-btn='outline'], [data-ekko-command='contorno']";
     document.addEventListener("pointerover", event => {
+        /* Vista previa de CONTORNO (mismo gesto que las booleanas): fantasma
+           magenta de como quedaria el anillo de la seleccion actual. Lo
+           calcula contorno.js sobre clones (nada instalado); aca solo se
+           pide y se retira. Bloqueado no previews: el tooltip ya explica. */
+        const botonContorno = event.target?.closest?.(CONTORNO_PREVIEW_SELECTOR);
+        if (botonContorno && !botonContorno.contains(event.relatedTarget)
+            && booleanButtonUsable(botonContorno)) {
+            try { window.EKKO?.previsualizarContorno?.(); } catch (_) {}
+            return;
+        }
         const boton = event.target?.closest?.(BOOLEAN_PREVIEW_SELECTOR);
         const traza = { at: Date.now(), comando: null, operacion: null, usable: null, motivo: null };
         window._ekkoBooleanPreviewLast = traza;
@@ -732,14 +743,23 @@ function installBooleanPreview() {
         traza.motivo = showBooleanPreview(operacion) ? "mostrado" : "sin-resultado";
     }, true);
     document.addEventListener("pointerout", event => {
+        const botonContorno = event.target?.closest?.(CONTORNO_PREVIEW_SELECTOR);
+        if (botonContorno && !botonContorno.contains(event.relatedTarget)) {
+            try { window.EKKO?.quitarPreviewContorno?.(); } catch (_) {}
+            return;
+        }
         const boton = event.target?.closest?.(BOOLEAN_PREVIEW_SELECTOR);
         if (!boton || boton.contains(event.relatedTarget)) return;
         clearBooleanPreview();
     }, true);
+    const limpiarPreviews = () => {
+        clearBooleanPreview();
+        try { window.EKKO?.quitarPreviewContorno?.(); } catch (_) {}
+    };
     ["pointerdown", "wheel", "contextmenu", "keydown"].forEach(tipo => {
-        document.addEventListener(tipo, clearBooleanPreview, true);
+        document.addEventListener(tipo, limpiarPreviews, true);
     });
-    window.addEventListener("blur", clearBooleanPreview);
+    window.addEventListener("blur", limpiarPreviews);
 }
 
 window.EKKO_BOOLEAN_PREVIEW = Object.freeze({
