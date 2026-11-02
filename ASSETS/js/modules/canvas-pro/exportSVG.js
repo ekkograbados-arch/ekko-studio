@@ -96,6 +96,169 @@ async function vectorizeTextItem(textItem) {
     }
 }
 
+/* ---------------------- FILTRO DE ESCALA DE GRISES (JSON) ----------------
+   Referencia de tono: DR_bn (el filtro que el taller aplica a mano para que
+   TODA foto grave bien en LightBurn sin tocar parámetros). Cada raster del
+   DISEÑO —nunca del mockup— pasa por tres pasos en cada exportación:
+
+   1. GRIS por luminancia (Rec 709): la foto deja de ser color.
+   2. AUTO-NIVELES adaptativo: 1% de recorte en cada punta del histograma
+      PROPIO de la imagen. Normaliza brillo/contraste: una foto milka y una
+      quemada terminan en la misma "entrada normalizada".
+   3. CURVA DE REFERENCIA: nodos cuantil-cuantil medidos del par
+      DR_color→DR_bn (la propuesta superadora: reproduce su look y es
+      editable).
+
+   El JSON entero se puede reemplazar en vivo con localStorage
+   "ekkoFiltroGrises" (mismo formato) para probar otra curva sin editar el
+   archivo. options.filtroGrises === false lo desactiva. */
+const EKKO_GRIS_DEFAULT = {
+    id: "EKKO-GRIS-v1",
+    referencia: "DR_bn",
+    luminancia: [0.2126, 0.7152, 0.0722],
+    autoNiveles: { clipNegroPct: 1, clipBlancoPct: 1 },
+    curva: {
+        tipo: "nodos",
+        nodos: [
+            [0.0, 0.0],
+            [0.031, 0.075],
+            [0.09, 0.168],
+            [0.145, 0.228],
+            [0.506, 0.328],
+            [0.761, 0.724],
+            [0.883, 0.888],
+            [1.0, 1.0]
+        ]
+    }
+};
+
+function construirLUTGris(cfg) {
+    const out = new Uint8Array(256);
+    if (cfg && Array.isArray(cfg.nodosLUT) && cfg.nodosLUT.length === 256) {
+        for (let i = 0; i < 256; i++) {
+            out[i] = Math.max(0, Math.min(255, Math.round(Number(cfg.nodosLUT[i]) || 0)));
+        }
+        return out;
+    }
+    const bruta = (cfg && cfg.curva && Array.isArray(cfg.curva.nodos) && cfg.curva.nodos.length >= 2)
+        ? cfg.curva.nodos : [[0, 0], [1, 1]];
+    const nodos = bruta
+        .map(n => [Math.min(1, Math.max(0, Number(n[0]) || 0)), Math.min(1, Math.max(0, Number(n[1]) || 0))])
+        .sort((a, b) => a[0] - b[0]);
+    for (let i = 0; i < 256; i++) {
+        const t = i / 255;
+        if (t <= nodos[0][0]) { out[i] = Math.round(nodos[0][1] * 255); continue; }
+        if (t >= nodos[nodos.length - 1][0]) { out[i] = Math.round(nodos[nodos.length - 1][1] * 255); continue; }
+        let k = 0;
+        while (k < nodos.length - 2 && t > nodos[k + 1][0]) k++;
+        const a = nodos[k], b = nodos[k + 1];
+        const f = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 0;
+        out[i] = Math.max(0, Math.min(255, Math.round((a[1] + f * (b[1] - a[1])) * 255)));
+    }
+    return out;
+}
+
+function leerFiltroGrises() {
+    try {
+        const crudo = localStorage.getItem("ekkoFiltroGrises");
+        if (crudo) {
+            const parsed = JSON.parse(crudo);
+            if (parsed && typeof parsed === "object") {
+                if (Array.isArray(parsed.nodosLUT) && parsed.nodosLUT.length === 256) return parsed;
+                if (parsed.curva && Array.isArray(parsed.curva.nodos)) return parsed;
+            }
+        }
+    } catch (_) {}
+    return EKKO_GRIS_DEFAULT;
+}
+
+/* Transforma los rasters del diseño de una capa temporaria. El filtro es
+   SIEMPRE sobre un canvas NUEVO: el clone de un Raster comparte el canvas
+   del original, y editarlos in situ mancharía el lienzo vivo del usuario.
+   Cada pixel lejano a la opacidad queda transparente: alfa intacta. */
+function aplicarFiltroGrises(capa) {
+    if (!capa || typeof document === "undefined") return;
+    const cfg = leerFiltroGrises();
+    const lut = construirLUTGris(cfg);
+    const pesos = (Array.isArray(cfg.luminancia) && cfg.luminancia.length === 3) ? cfg.luminancia : [0.2126, 0.7152, 0.0722];
+    const clipN = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipNegroPct)) ? cfg.autoNiveles.clipNegroPct : 1)) / 100;
+    const clipB = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipBlancoPct)) ? cfg.autoNiveles.clipBlancoPct : 1)) / 100;
+    const delMockup = (item) => {
+        let p = item;
+        while (p) {
+            if (p.data?.mockup === true) return true;
+            if (window.currentMockup && p.id === window.currentMockup.id) return true;
+            p = p.parent;
+        }
+        return false;
+    };
+    const rasters = capa.getItems({ match: it => it instanceof paper.Raster && it.data?.mockup !== true });
+    rasters.forEach(raster => {
+        try {
+            if (delMockup(raster)) return;
+            const fuente = raster.image || raster.canvas || null;
+            const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
+            if (!fuente || ancho < 1 || alto < 1) return;
+            const lienzo = document.createElement("canvas");
+            lienzo.width = ancho; lienzo.height = alto;
+            const ctx = lienzo.getContext("2d");
+            try { ctx.drawImage(fuente, 0, 0, ancho, alto); } catch (_) { return; }
+            let datos;
+            try { datos = ctx.getImageData(0, 0, ancho, alto); } catch (_) { return; }
+            const px = datos.data;
+            // histograma de luminancia de los pixeles visibles
+            const hist = new Uint32Array(256);
+            let n = 0;
+            for (let i = 0; i < px.length; i += 4) {
+                if (px[i + 3] < 128) continue;
+                let l = Math.round(pesos[0] * px[i] + pesos[1] * px[i + 1] + pesos[2] * px[i + 2]);
+                hist[l > 255 ? 255 : (l < 0 ? 0 : l)]++;
+                n++;
+            }
+            if (n < 16) return;
+            const punto = (frac) => {
+                const objetivo = Math.floor(frac * n);
+                let acum = 0, v = 255;
+                for (let k = 0; k < 256; k++) {
+                    acum += hist[k];
+                    if (acum > objetivo) { v = k; break; }
+                }
+                return v;
+            };
+            const neg = punto(clipN);
+            const bla = punto(1 - clipB);
+            const rango = Math.max(1, bla - neg);
+            const mapa = new Uint8ClampedArray(256);
+            for (let k = 0; k < 256; k++) {
+                let t = (k - neg) / rango;
+                t = t < 0 ? 0 : (t > 1 ? 1 : t);
+                mapa[k] = lut[t === 1 ? 255 : Math.round(t * 255)];
+            }
+            for (let i = 0; i < px.length; i += 4) {
+                if (px[i + 3] < 128) continue;
+                let l = Math.round(pesos[0] * px[i] + pesos[1] * px[i + 1] + pesos[2] * px[i + 2]);
+                l = l > 255 ? 255 : (l < 0 ? 0 : l);
+                const g = mapa[l];
+                px[i] = g; px[i + 1] = g; px[i + 2] = g; // gris puro (DR_bn es R=G=B)
+            }
+            ctx.putImageData(datos, 0, 0);
+            // REEMPLAZO 1:1 con el mismo z y la misma matriz local
+            const filtrado = new paper.Raster({ canvas: lienzo, insert: false });
+            try {
+                const matrix = raster.matrix?.clone?.();
+                filtrado.applyMatrix = false;
+                filtrado.matrix = new paper.Matrix();
+                if (matrix && !matrix.isIdentity()) filtrado.transform(matrix);
+                filtrado.applyMatrix = true;
+            } catch (_) {}
+            const padre = raster.parent || capa;
+            const idx = raster.index;
+            raster.remove();
+            padre.insertChild(idx, filtrado);
+        } catch (_) {}
+    });
+}
+
 /**
  * Prepara y exporta el diseño vectorial activo a un formato SVG estricto para corte/grabado láser.
  * Garantiza vacíos geométricos reales (sustracciones booleanas materializadas) y la purga
@@ -125,6 +288,17 @@ export async function prepareSVGForExport(options = {}) {
     // Clonado aislado de la capa (insert: false para no contaminar el lienzo interactivo)
     const tempLayer = designLayer.clone({ insert: false });
     tempLayer.name = "designLayer";
+
+    // 0. FILTRO DE ESCALA DE GRISES DE REFERENCIA (EKKO-GRIS-v1): SIEMPRE en
+    // toda exportación (grabado y boceto). Solo rasters del diseño; el filtro
+    // pinta sobre canvas nuevo: el lienzo vivo queda intacto.
+    if (options.filtroGrises !== false) {
+        try {
+            aplicarFiltroGrises(tempLayer);
+        } catch (err) {
+            console.warn("[EKKO EXPORT] Filtro de grises interrumpido:", err);
+        }
+    }
 
     // MARCO DE EXPORTACION: EL PRODUCTO, no el contenido. El SVG de grabado y
     // el boceto tienen que conservar la posicion del diseño DENTRO del
