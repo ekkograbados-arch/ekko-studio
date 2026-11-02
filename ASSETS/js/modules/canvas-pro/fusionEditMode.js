@@ -50,6 +50,15 @@ export function syncEditGhost() {
     if (!st?.ghost?.project || !st?.tempImage?.project) return false;
     const parentInv = st.ghost.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
     st.ghost.matrix = parentInv.concatenate(st.tempImage.globalMatrix);
+    /* FASE UI: la caja de seleccion (y sus tiradores) debe seguir al proxy.
+       Sin este refresco, al arrastrar la imagen dentro de la fusion los
+       tiradores quedaban congelados en la posicion previa: el siguiente clic
+       sobre ellos escalaba con geometria vieja o se lo tragaba el arrastre
+       del cuerpo. Se omite durante un gesto de tirador en curso (escala o
+       rotacion): esa ruta gestiona su propia caja. */
+    if (!window.resizeActive && !window.rotationActive) {
+      try { window.updateSelectionBox?.(st.tempImage); } catch (_) {}
+    }
     return true;
   } catch (_) { return false; }
 }
