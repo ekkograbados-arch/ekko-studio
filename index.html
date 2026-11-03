@@ -106,7 +106,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <i class="fas fa-file-pdf"></i>
                 <span><b>PDF cliente</b> <span style="color:#64748b;">(aplanado, con marca de agua)</span></span>
             </button>
-            <button type="button" onclick="window.__ekkoAbrirSocioPanel?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:12px;color:#a16207;text-align:left;margin-top:2px;">
+            <button type="button" onclick="window.__ekkoAbrirSocioPanel?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:12px;color:#a16207;text-align:left;margin-top:6px;">
                 <i class="fas fa-crown"></i>
                 <span>¿Tenés grabadora láser? · <b>HACETE SOCIO</b></span>
             </button>
@@ -281,6 +281,111 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             const menu = document.getElementById("ekkoDownloadMenu");
             if (menu) menu.hidden = true;
             if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.downloadSketchPDF();
+        };
+        /* Vista previa del grabado (no exporta nada: es solo una
+           simulación para el cliente). Se renderiza EXACTAMENTE el mismo
+           SVG que produce el boceto (mockup incluido, huecos visibles) sobre
+           un ACERO INOXIDABLE simulado (gradiente metálico + cepillado
+           horizontal + pulido radial) y el diseño en negro como marca
+           de fibra láser sobre acero. El deslizador INTENSIDAD multiplica
+           la opacidad de la "quemada" para previsualizar potencia. */
+        window.__ekkoPreviewEngraved = async function() {
+            const menu = document.getElementById("ekkoDownloadMenu");
+            if (menu) menu.hidden = true;
+            if (!window.prepareSVGForExport) {
+                if (window.ekkoNotice) window.ekkoNotice("La vista previa no está disponible todavía.", { kind: "warn" });
+                return;
+            }
+            const overlay = document.createElement("div");
+            overlay.id = "ekkoPreviewOverlay";
+            overlay.style.cssText = "position:fixed;inset:0;z-index:2147483600;background:rgba(9,10,13,0.92);display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:inherit;";
+            overlay.innerHTML =
+                '<div style="color:#dfe3ea;font-size:12px;letter-spacing:0.12em;margin-bottom:10px;">SIMULACIÓN LÁSER · SOBRE ACERO INOXIDABLE</div>' +
+                '<div id="ekkoPreviewBox" style="border:2px solid #aeb4bd;border-radius:12px;box-shadow:0 0 60px rgba(0,0,0,.7);background:#1a1c20;max-width:92vw;max-height:70vh;overflow:hidden;"><canvas id="ekkoPreviewCanvas" style="display:block;max-width:92vw;max-height:70vh;"></canvas></div>' +
+                '<div style="display:flex;align-items:center;gap:12px;margin-top:12px;color:#dfe3ea;font-size:13px;">' +
+                    '<span>INTENSIDAD</span>' +
+                    '<input id="ekkoPreviewPower" type="range" min="0" max="100" value="55" style="width:220px;accent-color:#ffd700;cursor:pointer;">' +
+                    '<span id="ekkoPreviewPowerValue" style="min-width:44px;text-align:right;font-variant-numeric:tabular-nums;">55%</span>' +
+                '</div>' +
+                '<div style="color:#7f858f;font-size:11px;margin-top:10px;">Simulación sin calibrar · el resultado real varía con potencia, enfoque, velocidad y acero.</div>' +
+                '<button id="ekkoPreviewClose" style="margin-top:14px;background:#ffd700;color:#241811;border:none;padding:9px 30px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:14px;">CERRAR</button>';
+            document.body.appendChild(overlay);
+            const powerEl = () => document.getElementById("ekkoPreviewPower");
+            const valueEl = () => document.getElementById("ekkoPreviewPowerValue");
+            const cerrar = () => overlay.remove();
+            document.getElementById("ekkoPreviewClose").addEventListener("click", cerrar);
+            overlay.addEventListener("click", (ev) => { if (ev.target === overlay) cerrar(); });
+            // Cargar el SVG (mismo que el boceto, con el producto y los huecos)
+            let svgText = "";
+            try { svgText = await window.prepareSVGForExport({ asString: true, includeMockup: false, keepMockupImage: true }); } catch (_) { svgText = ""; }
+            if (!svgText) {
+                document.getElementById("ekkoPreviewBox").innerHTML =
+                    '<div style="color:#f8b4b4;padding:32px;font-size:13px;">No se pudo generar la vista previa. Recargá la página e intentá de nuevo.</div>';
+                if (powerEl()) powerEl().disabled = true;
+                return;
+            }
+            const img = new Image();
+            img.src = "data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgText)));
+            await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
+            const canvas = document.getElementById("ekkoPreviewCanvas");
+            const W = Math.min(1500, Math.max(700, Math.round(img.naturalWidth * 1.6)));
+            const H = Math.max(1, Math.round(W * img.naturalHeight / Math.max(1, img.naturalWidth)));
+            canvas.width = W; canvas.height = H;
+            const ctx = canvas.getContext("2d");
+            const pintar = (poder) => {
+                const power = Math.max(0, Math.min(1, poder / 100));
+                // Acero inoxidable: gradiente metálico frío + cepillado horizontal
+                // + pulido radial sutil (reflejo de un producto de acero)
+                const grad = ctx.createLinearGradient(0, 0, 0, H);
+                grad.addColorStop(0, "#f2f3f6"); grad.addColorStop(0.16, "#dfe1e6");
+                grad.addColorStop(0.36, "#c6c9cf"); grad.addColorStop(0.52, "#eceef1");
+                grad.addColorStop(0.68, "#b0b4bb"); grad.addColorStop(0.84, "#9ba0a8");
+                grad.addColorStop(1, "#848893");
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, W, H);
+                // Cepillado: cientos de líneas horizontales finísimas
+                ctx.globalAlpha = 0.09;
+                ctx.strokeStyle = "#5c616a";
+                ctx.lineWidth = 1;
+                for (let y = 0; y < H; y += 3) {
+                    ctx.beginPath(); ctx.moveTo(0, y + Math.sin(y * 0.11) * 1.5); ctx.lineTo(W, y + Math.sin(y * 0.11 + 2) * 1.5); ctx.stroke();
+                }
+                // Reflejo ambiente radial (apagado abajo, brillante arriba)
+                const rg = ctx.createRadialGradient(W * 0.5, H * 0.42, 20, W * 0.5, H * 0.42, Math.max(W, H) * 0.75);
+                rg.addColorStop(0, "rgba(255,255,255,0.5)");
+                rg.addColorStop(0.45, "rgba(255,255,255,0.10)");
+                rg.addColorStop(1, "rgba(18,20,24,0.28)");
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = rg;
+                ctx.fillRect(0, 0, W, H);
+                // Línea de cepillado axial más marcada en la parte alta
+                ctx.globalAlpha = 0.25;
+                ctx.fillStyle = "rgba(255,255,255,0.7)";
+                ctx.fillRect(0, H * 0.10, W, 2);
+                ctx.globalAlpha = 1;
+                // Diseño grabado en escala de grises, oscurecido por "potencia"
+                ctx.globalAlpha = 0.35 + power * 0.65;
+                ctx.filter = "grayscale(1) contrast(1.28) brightness(0.9)";
+                ctx.drawImage(img, 0, 0, W, H);
+                // Quemada extra en el diseño (composición multiply: simula más potencia)
+                ctx.filter = "none";
+                ctx.globalCompositeOperation = "multiply";
+                ctx.globalAlpha = power * 0.55;
+                ctx.drawImage(img, 0, 0, W, H);
+                ctx.globalCompositeOperation = "source-over";
+                ctx.globalAlpha = 1;
+                // Borde quemado sutil en la silueta del producto
+                ctx.globalCompositeOperation = "source-over";
+            };
+            const inicial = powerEl() ? Number(powerEl().value) : 55;
+            pintar(inicial);
+            if (powerEl()) {
+                powerEl().addEventListener("input", () => {
+                    const v = Number(powerEl().value);
+                    if (valueEl()) valueEl().textContent = v + "%";
+                    pintar(v);
+                });
+            }
         };
         document.addEventListener("click", function(event) {
             const wrap = document.getElementById("ekkoDownloadWrap");
