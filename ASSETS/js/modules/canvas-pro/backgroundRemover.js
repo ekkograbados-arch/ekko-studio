@@ -77,6 +77,43 @@ import * as FONDO from './fondoStore.js';
         // cliente vea ningun error.
         MODELO_CLAVE: 'humano',
 
+        // --- Guardia de cobertura -------------------------------------------
+        // Cuanta parte de la foto deja el recorte. Si deja casi toda, el modelo
+        // NO encontro el fondo: es el "sigue sin quitar bien" que ve el cliente.
+        //
+        // MEDIDO en las 10 fotos que el cliente dejo como referencia, con los
+        // dos modelos ya desplegados, al umbral 0,5 y dentro del rectangulo que
+        // ocupa la foto en la entrada (el marco de relleno no cuenta):
+        //
+        //   foto   humano   silueta
+        //   #1      17,7     18,2      dos perros echados
+        //   #3      69,2     61,1      cara de perro       (persona/animal cerca)
+        //   #4      58,1     53,6      gato de cerca
+        //   #5      25,1     24,2      perro sentado
+        //   #6      25,5     26,2      gato negro sentado
+        //   #8      69,1     66,2      retrato de hombre
+        //   #10     49,7     24,5      gato EN CAJA  -> humano es el correcto
+        //   #11     54,1     51,0      dos ninas
+        //   #12     27,7     26,8      mujer con dos ninas
+        //   #13     94,5     19,3      gatito  -> humano se lleva el sillon
+        //
+        // Un solo caso pasa del 80 %: el #13. Y es el unico en el que el
+        // siguiente modelo recorta MUCHO menos (19,3 contra 94,5). En todos los
+        // demas la diferencia entre modelos es de 1 a 8 puntos, o sea que la
+        // guardia no se mueve y no puede romper un retrato lleno (#3 y #8 quedan
+        // en 69 %, todavia por debajo del limite).
+        //
+        // El limite alto solo dispara la prueba; el cambio se acepta si el
+        // candidato recorta menos de COBERTURA_CAMBIO veces lo que dio el
+        // principal. Con eso una foto legitima donde el sujeto llena el cuadro
+        // (94 % real) no se cambia a un modelo que de 90 %.
+        COBERTURA_MAX: 0.80,
+        COBERTURA_CAMBIO: 0.70,
+        // Orden en que se prueba cuando el principal no quito el fondo. 'silueta'
+        // es u2net general: ya esta desplegado (/modelos/silueta.onnx) y pide el
+        // mismo cuadrado de 320, asi que la entrada se reusa tal cual.
+        CANDIDATOS_COBERTURA: ['silueta'],
+
         MAX_LADO: 2600,        // techo de trabajo: memoria y tiempo razonables
 
         // Lado CORTO de la entrada del modelo.
@@ -605,6 +642,67 @@ import * as FONDO from './fondoStore.js';
             caja: { ox: c.ox, oy: c.oy, dw: c.dw, dh: c.dh },
             lado: { w: c.w, h: c.h }
         };
+    }
+
+    /**
+     * Pide una mascara al worker con la entrada ya preparada.
+     *
+     * OJO: `pixeles.buffer` se TRANSFIERE al worker, asi que despues de este
+     * llamada ese ArrayBuffer queda vacío (`byteLength 0`). Un segundo intento
+     * necesita `prepararEntrada` de nuevo; reenviar la misma entrada da
+     * DataCloneError o una mascara toda cero.
+     */
+    function pedirMascara(entrada) {
+        return enviar({
+            accion: 'inferir',
+            pixeles: entrada.pixeles.buffer,
+            ancho: entrada.W,
+            alto: entrada.H,
+            anchoEntrada: entrada.lado.w,
+            altoEntrada: entrada.lado.h
+        });
+    }
+
+    /**
+     * Acota la alfa del modelo a 0..1 y devuelve cuantos valores hubo que tocar.
+     * Ver la medida en `quitarFondo`.
+     */
+    function acotarAlfa(alfa) {
+        if (!alfa) return 0;
+        let tocados = 0;
+        for (let i = 0; i < alfa.length; i++) {
+            const v = alfa[i];
+            if (v !== v) { alfa[i] = 0; tocados++; }        // NaN
+            else if (v < 0) { alfa[i] = 0; tocados++; }
+            else if (v > 1) { alfa[i] = 1; tocados++; }
+        }
+        return tocados;
+    }
+
+    /**
+     * Fraccion de la FOTO que la mascara deja opaca, medida solo dentro del
+     * rectangulo que ocupa la foto en la entrada. El marco de relleno no cuenta:
+     * si contara, cualquier cuadrado con sobras daria cobertura de mas.
+     *
+     * Sirve para detectar el fallo que no se puede ver en la mascara: el modelo
+     * que declara "sujeto" casi toda la foto y por eso no quita nada.
+     */
+    function coberturaDeMascara(alfa, w, h, entrada) {
+        if (!alfa || !w || !h) return 0;
+        // La caja esta en unidades de ENTRADA. Si el modelo respondio con otro
+        // tamano, la mascara se toma entera, igual que al reconstruir la caja.
+        const misma = (w === entrada.lado.w && h === entrada.lado.h);
+        const ox = misma ? entrada.caja.ox : 0;
+        const oy = misma ? entrada.caja.oy : 0;
+        const dw = misma ? entrada.caja.dw : w;
+        const dh = misma ? entrada.caja.dh : h;
+        if (dw <= 0 || dh <= 0) return 0;
+        let opacos = 0;
+        for (let y = 0; y < dh; y++) {
+            const f = (oy + y) * w + ox;
+            for (let x = 0; x < dw; x++) if (alfa[f + x] > 0.5) opacos++;
+        }
+        return opacos / (dw * dh);
     }
 
     /**
@@ -1833,16 +1931,9 @@ import * as FONDO from './fondoStore.js';
             // `preparar`, incluido el respaldo si tuvo que bajar). El override
             // `__EKKO_LADO_ENTRADA` queda para medir otra resolucion a mano.
             const ladoModelo = window.__EKKO_LADO_ENTRADA || ESTADO.ladoEntrada || CFG.LADO_ENTRADA || 512;
-            const entrada = prepararEntrada(elemento, ladoModelo);
+            let entrada = prepararEntrada(elemento, ladoModelo);
             informar('inferir', 0, 0, 'analizando la imagen…');
-            const r = await enviar({
-                accion: 'inferir',
-                pixeles: entrada.pixeles.buffer,
-                ancho: entrada.W,
-                alto: entrada.H,
-                anchoEntrada: entrada.lado.w,
-                altoEntrada: entrada.lado.h
-            });
+            let r = await pedirMascara(entrada);
 
             // Limitar el lado largo: por encima de ~2600 px el coste de
             // memoria no aporta nada visible en un producto pequeño.
@@ -1855,15 +1946,43 @@ import * as FONDO from './fondoStore.js';
             // mayores que 1). Un solo valor fuera de rango rompe el filtro
             // guiado, que supone 0..1, y deja manchas y halos: el borde se ve
             // "sucio" sin que se entienda por que. Se acota aqui, una vez.
-            let ajustados = 0;
-            for (let i = 0; i < r.alfa.length; i++) {
-                const v = r.alfa[i];
-                if (v !== v) { r.alfa[i] = 0; ajustados++; }        // NaN
-                else if (v < 0) { r.alfa[i] = 0; ajustados++; }
-                else if (v > 1) { r.alfa[i] = 1; ajustados++; }
-            }
+            const ajustados = acotarAlfa(r.alfa);
             if (ajustados) {
                 console.info('[EKKO RECORTE] alfa acotada a 0..1:', ajustados, 'valores');
+            }
+
+            // --- Guardia de cobertura ---------------------------------------
+            // Si el modelo declaro "sujeto" casi toda la foto, NO quito el
+            // fondo: es el defecto que el cliente llama "no quita bien a la
+            // primera". Se cambia de motor UNA vez, en el mismo clic, y solo si
+            // el candidato recorta claramente menos (ver la tabla medida en CFG).
+            let cobertura = coberturaDeMascara(r.alfa, r.w, r.h, entrada);
+            ESTADO.cobertura = cobertura;
+            ESTADO.modeloUsado = CFG.MODELO_CLAVE;
+            if (cobertura > CFG.COBERTURA_MAX && Array.isArray(CFG.CANDIDATOS_COBERTURA)) {
+                for (const clave of CFG.CANDIDATOS_COBERTURA) {
+                    let intento = null;
+                    try {
+                        informar('inferir', 0, 0, 'no quitaba el fondo: probando otro recorte…');
+                        await enviar({ accion: 'preparar', modeloClave: clave }, 'listo');
+                        // El ArrayBuffer de la entrada ya se transfirio al worker
+                        // en el primer envia: queda vacio. La entrada se rehace.
+                        const lado2 = window.__EKKO_LADO_ENTRADA || ESTADO.ladoEntrada || ladoModelo;
+                        const e2 = prepararEntrada(elemento, lado2);
+                        const r2 = await pedirMascara(e2);
+                        acotarAlfa(r2.alfa);
+                        const c2 = coberturaDeMascara(r2.alfa, r2.w, r2.h, e2);
+                        if (c2 > 0 && c2 <= cobertura * CFG.COBERTURA_CAMBIO) {
+                            r = r2; entrada = e2; cobertura = c2;
+                            ESTADO.cobertura = c2;
+                            ESTADO.modeloUsado = clave;
+                            intento = clave;
+                        }
+                    } catch (e) { ESTADO.ultimoError = e; }
+                    console.info('[EKKO RECORTE] cobertura ' + (100 * cobertura).toFixed(1) +
+                        '% con ' + (intento || clave));
+                    if (intento) break;
+                }
             }
 
             // La mascara cruda se conserva antes de refinar: es lo que permite
