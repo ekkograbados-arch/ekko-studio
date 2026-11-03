@@ -1677,6 +1677,35 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
+    // 7e. CAPAS LIGHTBURN (regla del dueño: solo modo grabado/stackFlatten):
+    // los vectores del cliente van a capa AZUL (#0000ff, engraving y
+    // perfectamente visible sobre el lienzo oscuro), el mockup de
+    // referencia (si se incluye) y la capa de corte van a ROJO, y las
+    // imágenes quedan en capa NEGRA (la capa 00 de LightBurn).
+    // El boceto (keepMockupImage) NO se toca: el cliente ve su diseño.
+    if (options.stackFlatten === true) {
+        try {
+            const esVector = (item) =>
+                item instanceof paper.PathItem &&
+                !(item.data?.mockup || item.data?.isMockupOutline || item.data?.isCutLayer ||
+                  item.data?.isFusionMask);
+            // Vectores del cliente → AZUL (incluso los "casi negros" del app).
+            tempLayer.getItems({
+                match: it => esVector(it)
+            }).forEach(item => {
+                item.strokeColor = new paper.Color("#0000ff");
+                if (item.fillColor) item.fillColor = new paper.Color("#0000ff");
+            });
+            // Mockup de referencia (si se incluye) → ROJO, como la capa de corte.
+            tempLayer.getItems({
+                match: it => (it.data?.mockup || it.data?.isMockupOutline) && !it.data?.isCutLayer
+            }).forEach(item => {
+                item.strokeColor = new paper.Color("#ff0000");
+                item.fillColor = null;
+            });
+        } catch (_) {}
+    }
+
     // 8. EXPORTACIÓN NATIVA A SVG CON PRECISIÓN INDUSTRIAL
     // El marco es el PRODUCTO (union con el contenido por si algo sobresale):
     // la geometria no se traslada, solo cambia la ventana del viewBox.
