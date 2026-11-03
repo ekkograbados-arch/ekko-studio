@@ -1108,6 +1108,26 @@ function estilos() {
             background: rgba(15,23,42,0.08) !important;
             color: #10182a !important;
         }
+        /* Columna derecha de la fila 2: 🌙 Oscuro arriba, 🔥 Láser debajo
+           (atajo al simulador de grabado). Ambos botones visten plano como
+           el tema, con el acento cálido en el de láser. */
+        #ekkoTemaStack {
+            flex: 0 0 auto; display: flex; flex-direction: column; align-items: stretch;
+            gap: 3px; align-self: center; padding: 4px 8px;
+            border-left: 1px solid rgba(128,134,150,.2);
+        }
+        #ekkoTemaStack > button {
+            width: 100%; display: inline-flex; align-items: center; justify-content: center;
+            gap: 5px; white-space: nowrap; height: 22px; padding: 0 10px !important;
+            font-size: 11px !important; font-weight: 600 !important; line-height: 20px;
+            border: 0 !important; border-radius: 4px !important; box-shadow: none !important;
+            backdrop-filter: none !important; -webkit-backdrop-filter: none !important; transform: none !important;
+        }
+        #btnEkkoPreview {
+            background: rgba(245, 158, 11, .92) !important; color: #241306 !important;
+            border: 1px solid rgba(180, 83, 9, .55) !important;
+        }
+        #btnEkkoPreview:hover { filter: brightness(1.07) !important; color: #241306 !important; background: rgba(245, 158, 11, .95) !important; }
 
         /* --- GRUPO "MAS USADAS" (fila 2, el primero) ---
                Los recientes dejan de ser puntitos repartidos por la cinta (en
@@ -1626,9 +1646,28 @@ function montarFila() {
 
     // Descargar NO baja a esta fila: vive en la tira (fila 1) al extremo
     // derecho. Lo monta montarStrip().
-    // Modo claro/oscuro: SI, a esta fila, clavado a la derecha y vistiendo
-    // como un boton mas de la fila.
-    shell.appendChild(crearBotonTema());
+    // Modo claro/oscuro y atajo "🔥 Láser": a esta fila, clavados a la
+    // derecha, como una columna propia de dos botones (Oscuro arriba,
+    // Láser debajo). El fila tiene espacio propio: al "subir" Oscuro unos
+    // px, la simulación de grabado entra debajo y queda accesible con un
+    // clic desde cualquier estado (con o sin selección).
+    const temaStack = document.createElement("div");
+    temaStack.id = "ekkoTemaStack";
+    temaStack.style.cssText = "flex:0 0 auto;display:flex;flex-direction:column;align-items:stretch;gap:3px;align-self:center;padding:3px 8px;border-left:1px solid rgba(128,134,150,.2);";
+    temaStack.appendChild(crearBotonTema());
+    const laserBtn = document.createElement("button");
+    laserBtn.type = "button";
+    laserBtn.id = "btnEkkoPreview";
+    laserBtn.className = "btn-action";
+    laserBtn.innerHTML =
+        '<span style="font-size:13px;line-height:1;">🔥</span>' +
+        '<span class="ekko-tema-txt">Láser</span>';
+    laserBtn.title = "Ver cómo se graba (simulación sobre acero inoxidable, sin exportar)";
+    laserBtn.addEventListener("click", () => {
+        try { if (typeof window.__ekkoPreviewEngraved === "function") window.__ekkoPreviewEngraved(); } catch (_) {}
+    });
+    temaStack.appendChild(laserBtn);
+    shell.appendChild(temaStack);
 
     if (topBar.firstChild !== strip) topBar.insertBefore(strip, topBar.firstChild);
 
