@@ -412,14 +412,37 @@ function aplicarFiltroGrises(capa) {
                 px[i] = g; px[i + 1] = g; px[i + 2] = g;
             }
             ctx.putImageData(datos, 0, 0);
-            // REEMPLAZO 1:1 con el mismo z y la misma matriz local
+            // REEMPLAZO 1:1 con el mismo z. La ampliación mete MÁS píxeles
+            // en el mismo lugar del mundo: la matriz original corresponde al
+            // tamaño VIEJO, así que su parte lineal se divide por el factor
+            // de densidad (nuevo/ancho). Sin esto la foto salta 2.8x y
+            // desborda el mockup: el mundo NO cambia, solo los píxeles.
+            // TRASLACIÓN: paper NO expone matrix.e/.f en la matriz de un
+            // item (leerlos da undefined→NaN y muerde los bounds). El centro
+            // del raster en el mundo SÍ es la traslación (los rasters viven
+            // centrados), así que se lee de bounds/position, jamás de la
+            // matriz.
             const filtrado = new paper.Raster({ canvas: lienzo, insert: false });
             try {
-                const matrix = raster.matrix?.clone?.();
+                const orig = raster.matrix?.clone?.() || null;
+                const a = orig && isFinite(orig.a) ? orig.a : 1;
+                const b = orig && isFinite(orig.b) ? orig.b : 0;
+                const c = orig && isFinite(orig.c) ? orig.c : 0;
+                const d = orig && isFinite(orig.d) ? orig.d : 1;
+                let ce = null, cf = null;
+                const bo = raster.bounds || null;
+                if (bo && isFinite(bo.x)) { ce = bo.x + bo.width / 2; cf = bo.y + bo.height / 2; }
+                if (ce === null || !isFinite(ce)) {
+                    const p = raster.position;
+                    if (p && isFinite(p.x)) { ce = p.x; cf = p.y; }
+                }
+                const k = lienzo.width / ancho; // amplificación de densidad
                 filtrado.applyMatrix = false;
-                filtrado.matrix = new paper.Matrix();
-                if (matrix && !matrix.isIdentity()) filtrado.transform(matrix);
-                filtrado.applyMatrix = true;
+                // parte lineal dividida por k; la TRASLACIÓN va por position
+                // (paper la resuelve aun con ancestros transformados: e/f de
+                // una matriz de item es local y no se puede leer directo)
+                filtrado.matrix = new paper.Matrix(a / k, b / k, c / k, d / k, 0, 0);
+                if (isFinite(ce)) filtrado.position = new paper.Point(ce, cf);
             } catch (_) {}
             const padre = raster.parent || capa;
             const idx = raster.index;
@@ -427,6 +450,61 @@ function aplicarFiltroGrises(capa) {
             padre.insertChild(idx, filtrado);
         } catch (_) {}
     });
+}
+
+/* Máscara de silueta a canvas (blanco = visible, transparente = fuera del
+   producto). Base = el contorno más grande; cada contorno menor contenido
+   en él = hueco (destination-out). Se dibuja Path por Path porque el
+   CompoundPath no respeta sus fills al rasterizar. */
+function construirMascaraSilueta(clonSil, marcoB, k, res) {
+    if (!clonSil || !marcoB || !(marcoB.width > 0) || !(marcoB.height > 0)) return null;
+    const W = Math.max(1, Math.ceil(marcoB.width * k));
+    const H = Math.max(1, Math.ceil(marcoB.height * k));
+    const mc = document.createElement("canvas");
+    mc.width = W; mc.height = H;
+    const bx = mc.getContext("2d");
+    const rutas = [];
+    (function recolectar(n) {
+        if (!n) return;
+        if (n instanceof paper.Path) rutas.push(n);
+        else if (n.children) n.children.forEach(recolectar);
+    })(clonSil);
+    if (!rutas.length) return null;
+    rutas.sort((p, q) => Math.abs(q.area || 0) - Math.abs(p.area || 0));
+    const base = rutas[0];
+    const bb = base.bounds;
+    const dibujar = (ruta, comp) => {
+        const bake = ruta.clone({ insert: false });
+        const tmpLayer = new paper.Layer({ name: "HORNEO-TMP" });
+        try {
+            tmpLayer.addChild(bake);
+            bake.fillColor = "white";
+            bake.strokeColor = null;
+            bake.opacity = 1;
+            const r = bake.rasterize(res, { insert: false });
+            if (r && r.canvas) {
+                try {
+                    bx.globalCompositeOperation = comp;
+                    bx.drawImage(r.canvas, (r.bounds.x - marcoB.x) * k, (r.bounds.y - marcoB.y) * k);
+                    bx.globalCompositeOperation = "source-over";
+                } catch (_) {}
+            }
+        } catch (_) {}
+        try { tmpLayer.remove(); } catch (_) {}
+        try { bake.remove(); } catch (_) {}
+    };
+    dibujar(base, "source-over");
+    rutas.slice(1).forEach(h => {
+        try {
+            const hb = h.bounds;
+            if (!hb) return;
+            const contenidoEn = (hb.x >= bb.x && hb.y >= bb.y &&
+                hb.x + hb.width <= bb.x + bb.width &&
+                hb.y + hb.height <= bb.y + bb.height);
+            if (contenidoEn) dibujar(h, "destination-out");
+        } catch (_) {}
+    });
+    return mc;
 }
 
 /**
@@ -749,41 +827,88 @@ export async function prepareSVGForExport(options = {}) {
 
             if (rasters.length) {
                 if (capaEnProyecto) {
-                    // Se rasteriza un grupo temporal (máscara + fotos): el
-                    // recorte queda dentro de los píxeles y la foto queda
-                    // contenida en su hueco, igual que en la interfaz.
+                    // paper.js IGNORA "clipped" al rasterizar (verificado en
+                    // producción: la silueta no recortaba nada). Se hace el
+                    // recorte EN píxeles: máscara del producto con huecos
+                    // horneada con destination-in. El resultado es UN solo
+                    // raster aplanado por bolsa/clip, idéntico al marco del
+                    // producto (huecos transparentes incluidos).
                     try {
+                        const silDestino = usaSiluetaSketch ? siluetaSketch : mascara;
+                        // La máscara de un "clipGroup de contención" vive
+                        // FUERA del contenido a hornear; siluetaSketch ya es
+                        // mundo; haremos el cruce de bounds del raster contra
+                        // la silueta con la lógica de algún día.
+                        if (!silDestino) throw new Error("sin silueta");
+                        const clonSil = hornearWorld(silDestino);
+                        const marcoB = clonSil && clonSil.bounds;
+                        if (!marcoB || !(marcoB.width > 0) || !(marcoB.height > 0)) throw new Error("marco vacio");
+                        const res = resolucionHorneado(marcoB.width, marcoB.height);
+                        const k = res / 72; // píxeles por unidad de proyecto
+                        const W = Math.max(1, Math.ceil(marcoB.width * k));
+                        const H = Math.max(1, Math.ceil(marcoB.height * k));
+                        // Canvas de la máscara: base = el contorno más grande;
+                        // cada contorno menor COMPLETAMENTE contenido = hueco
+                        // (destination-out). Se dibuja con Path.rasterize
+                        // individual porque el CompoundPath no respeta fills.
+                        const crearMascara = () => construirMascaraSilueta(clonSil, marcoB, k, res);
+                        const mascaraC = crearMascara();
+                        // Solo se hornean los rasters que CRUZAN el producto:
                         const rastersDentro = rasters.filter(r => {
                             try {
                                 const rWorld = hornearWorld(r);
-                                const cruza = rWorld && mascaraWorld.bounds.intersects(rWorld.bounds);
+                                const cruza = rWorld && marcoB.intersects(rWorld.bounds);
                                 try { rWorld.remove(); } catch (_) {}
                                 return !!cruza;
                             } catch (_) { return true; }
                         });
                         if (rastersDentro.length) {
-                            const grupoRaster = new paper.Group();
-                            try { parent.addChild(grupoRaster); } catch (_) {}
-                            grupoRaster.clipped = true;
-                            grupoRaster.addChild(hornearWorld(usaSiluetaSketch ? siluetaSketch : mascara));
-                            rastersDentro.forEach(r => grupoRaster.addChild(hornearWorld(r)));
-                            const limite = grupoRaster.bounds;
-                            const resolucion = resolucionHorneado(limite?.width, limite?.height);
-                            const horneado = grupoRaster.rasterize(resolucion);
-                            if (horneado && Math.abs(horneado.width || 0) > 0) {
-                                try { horneado.remove(); } catch (_) {}
-                                parent.insertChild(idx, horneado);
-                                resultados.push(horneado);
-                                // La foto quedó horneada: los originales se
-                                // retiran (el contenido ya está en píxeles).
-                                rasters.forEach(r => { try { r.remove(); } catch (_) {} });
+                            const lienzo = document.createElement("canvas");
+                            lienzo.width = W; lienzo.height = H;
+                            const ctx = lienzo.getContext("2d");
+                            ctx.imageSmoothingEnabled = true;
+                            ctx.imageSmoothingQuality = "high";
+                            rastersDentro.forEach(r => {
+                                try {
+                                    const r2 = hornearWorld(r);
+                                    const cv = r2.canvas || null;
+                                    if (!cv) { try { r2.remove(); } catch (_) {} return; }
+                                    const vals = (r2.globalMatrix && r2.globalMatrix.values) || (r2.matrix && r2.matrix.values) || [1, 0, 0, 1, 0, 0];
+                                    const [a, b, c, d, e, f] = vals.map(Number);
+                                    if (![a, b, c, d, e, f].every(Number.isFinite)) { try { r2.remove(); } catch (_) {} return; }
+                                    ctx.save();
+                                    ctx.setTransform(a * k, b * k, c * k, d * k, (e - marcoB.x) * k, (f - marcoB.y) * k);
+                                    // paper dibuja las imágenes con origen en el
+                                    // CENTRO (coordenadas locales centradas):
+                                    // la esquina superior-izquierda está en
+                                    // (-w/2, -h/2), no en (0, 0).
+                                    ctx.drawImage(cv, -cv.width / 2, -cv.height / 2);
+                                    ctx.restore();
+                                    try { r2.remove(); } catch (_) {}
+                                } catch (_) {}
+                            });
+                            if (mascaraC) {
+                                ctx.globalCompositeOperation = "destination-in";
+                                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                                ctx.drawImage(mascaraC, 0, 0);
+                                ctx.globalCompositeOperation = "source-over";
                             }
-                            try { grupoRaster.remove(); } catch (_) {}
+                            const horneado = new paper.Raster({ canvas: lienzo, insert: false });
+                            try {
+                                horneado.applyMatrix = false;
+                                // paper.js toma e/f como el CENTRO de la imagen
+                                // (no la esquina): colocar el marco por su centro.
+                                horneado.matrix = new paper.Matrix(1 / k, 0, 0, 1 / k,
+                                    marcoB.x + marcoB.width / 2, marcoB.y + marcoB.height / 2);
+                            } catch (_) {}
+                            parent.insertChild(idx, horneado);
+                            resultados.push(horneado);
+                            rasters.forEach(r => { try { r.remove(); } catch (_) {} });
                         } else {
                             rasters.forEach(r => { try { r.remove(); } catch (_) {} });
                         }
                     } catch (_) {
-                        // Sin rasterización posible: la foto queda como estaba
+                        // Sin horneo posible: la foto queda como estaba
                         // (sin recorte, comportamiento previo).
                         rasters.forEach(r => resultados.push(hornearWorld(r)));
                     }
@@ -1005,12 +1130,25 @@ export async function prepareSVGForExport(options = {}) {
     // clipGroups: el texto y las formas sueltas que cruzan el borde del
     // producto quedaban AFUERA en el boceto (la "Z" de ZARA). Acá se recorta
     // TODO lo que queda directo en la capa (texto ya vectorizado incluido),
-    // con booleana hijo-por-hijo para no perder los counters. El LIENZO
-    // general no tiene mockup: sin silueta este bloque no corre.
+    // con booleana hijo-por-hijo para no perder los counters. Los RASTERS
+    // (fotos) se recortan pixel a pixel con máscara destino-in: paper.js
+    // ignora el clip en rasterize() — la silueta como primer hijo NO recorta.
+    // El LIENZO general no tiene mockup: sin silueta este bloque no corre.
     if (options.keepMockupImage === true && siluetaSketch) {
         let capaEnProyecto4b = false;
         try { paper.project.addLayer(tempLayer); capaEnProyecto4b = true; } catch (_) {}
         try {
+            const clonSil = hornearWorld(siluetaSketch);
+            const marcoB = clonSil && clonSil.bounds;
+            if (!marcoB || !(marcoB.width > 0) || !(marcoB.height > 0)) throw new Error("silueta vacia");
+            const res = resolucionHorneado(marcoB.width, marcoB.height);
+            const k = res / 72;
+            const W = Math.max(1, Math.ceil(marcoB.width * k));
+            const H = Math.max(1, Math.ceil(marcoB.height * k));
+            const mascaraC = construirMascaraSilueta(clonSil, marcoB, k, res);
+            const worldWithin = (b) => (b && b.x >= marcoB.x - 0.5 && b.y >= marcoB.y - 0.5 &&
+                b.x + b.width <= marcoB.x + marcoB.width + 0.5 &&
+                b.y + b.height <= marcoB.y + marcoB.height + 0.5);
             const piezaCruza = [];
             tempLayer.getItems({
                 match: function(item) {
@@ -1034,9 +1172,10 @@ export async function prepareSVGForExport(options = {}) {
                     const world = hornearWorld(item);
                     if (!world) return;
                     const areaV = Math.abs(world.area || 0);
-                    let dentro = false, cruza = false;
-                    try { dentro = siluetaSketch.bounds.contains(world.bounds); } catch (_) {}
-                    try { cruza = siluetaSketch.bounds.intersects(world.bounds); } catch (_) {}
+                    const wb = world.bounds;
+                    const dentro = worldWithin(wb);
+                    let cruza = false;
+                    try { cruza = marcoB.intersects(wb); } catch (_) {}
                     if (dentro) {
                         try { world.remove(); } catch (_) {}
                         return; // ya está contenido: no se toca
@@ -1047,19 +1186,39 @@ export async function prepareSVGForExport(options = {}) {
                         return; // afuera del producto: no se exporta
                     }
                     if (item instanceof paper.Raster) {
-                        // La foto se rasteriza CON la silueta: el recorte
-                        // queda dentro de los píxeles, igual que en la pantalla.
-                        const grupoRaster = new paper.Group();
-                        try { tempLayer.addChild(grupoRaster); } catch (_) {}
-                        grupoRaster.clipped = true;
-                        grupoRaster.addChild(siluetaSketch.clone({ insert: false }));
-                        grupoRaster.addChild(world);
-                        const limite = grupoRaster.bounds;
-                        const resolucion = resolucionHorneado(limite?.width, limite?.height);
-                        const horneado = grupoRaster.rasterize(resolucion);
-                        try { grupoRaster.remove(); } catch (_) {}
-                        if (horneado && Math.abs(horneado.width || 0) > 0) {
-                            try { horneado.remove(); } catch (_) {}
+                        // La foto se hornea CON la silueta: recorte píxel a
+                        // píxel (destination-in), igual que en 1b — clipped
+                        // lo ignora paper.js al rasterizar.
+                        try { world.remove(); } catch (_) {}
+                        const lienzo = document.createElement("canvas");
+                        lienzo.width = W; lienzo.height = H;
+                        const ctx = lienzo.getContext("2d");
+                        ctx.imageSmoothingEnabled = true;
+                        ctx.imageSmoothingQuality = "high";
+                        const vals = (item.globalMatrix && item.globalMatrix.values) || (item.matrix && item.matrix.values) || [1, 0, 0, 1, 0, 0];
+                        const [a, b, c, d, e, f] = vals.map(Number);
+                        const cv = item.canvas || item.image;
+                        const iw = cv ? (cv.width || cv.naturalWidth || 0) : 0;
+                        const ih = cv ? (cv.height || cv.naturalHeight || 0) : 0;
+                        if (cv && iw > 0 && ih > 0 && [a, b, c, d, e, f].every(Number.isFinite)) {
+                            ctx.save();
+                            ctx.setTransform(a * k, b * k, c * k, d * k, (e - marcoB.x) * k, (f - marcoB.y) * k);
+                            ctx.drawImage(cv, -iw / 2, -ih / 2);
+                            ctx.restore();
+                            if (mascaraC) {
+                                ctx.globalCompositeOperation = "destination-in";
+                                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                                ctx.drawImage(mascaraC, 0, 0);
+                                ctx.globalCompositeOperation = "source-over";
+                            }
+                            const horneado = new paper.Raster({ canvas: lienzo, insert: false });
+                            try {
+                                horneado.applyMatrix = false;
+                                // paper.js toma e/f como el CENTRO de la imagen
+                                // (no la esquina): colocar el marco por su centro.
+                                horneado.matrix = new paper.Matrix(1 / k, 0, 0, 1 / k,
+                                    marcoB.x + marcoB.width / 2, marcoB.y + marcoB.height / 2);
+                            } catch (_) {}
                             const parent = item.parent || tempLayer;
                             const idx = item.index;
                             try { item.remove(); } catch (_) {}
@@ -1082,6 +1241,7 @@ export async function prepareSVGForExport(options = {}) {
                     }
                 } catch (_) {}
             });
+            try { clonSil.remove(); } catch (_) {}
         } catch (err) {
             console.warn("[EKKO EXPORT] Contención final del boceto incompleta:", err);
         }
@@ -1550,6 +1710,40 @@ export async function prepareSVGForExport(options = {}) {
             .replace(/<\/svg>/g, "")
             .replace(/<defs>\s*<clipPath[\s\S]*?<\/clipPath>\s*<\/defs>/g, "")
             .replace(/\s*clip-path="[^"]*"/g, "");
+    }
+
+    // 8c. IMÁGENES SIN ESCALA HEREDADA: LightBurn no siempre resuelve un
+    // <image width="2000" transform="scale(0.025)"> igual que el navegador:
+    // el tamaño físico correcto vive en width/height, y si la transformación
+    // es una ESCALA UNIFORME se hornea en el elemento (x·s, y·s, w·s, h·s) y
+    // la transformación desaparece. Cualquier otra transformación se deja
+    // intacta (caso raro: rotaciones sobre imágenes horneadas).
+    if (typeof svgString === "string" && svgString.indexOf("<image") !== -1) {
+        svgString = svgString.replace(/<image\b[^>]*>/g, function (etiqueta) {
+            if (etiqueta.indexOf("transform") === -1) return etiqueta;
+            const mTr = etiqueta.match(/transform\s*=\s*"scale\(\s*([-+\d.eE]+)\s*(?:,\s*([-+\d.eE]+)\s*)?\)"/);
+            if (!mTr) return etiqueta;
+            const sx = parseFloat(mTr[1]);
+            const sy = mTr[2] !== undefined ? parseFloat(mTr[2]) : sx;
+            if (!isFinite(sx) || !isFinite(sy) || sx <= 0 || sy <= 0) return etiqueta;
+            const aplana = (reg, mult) => {
+                const mA = etiqueta.match(reg);
+                if (!mA) return null;
+                const v = parseFloat(mA[2]);
+                if (!isFinite(v)) return null;
+                const flat = parseFloat((v * mult).toFixed(6));
+                return { completo: mA[0], nuevo: mA[1] + flat };
+            };
+            const cambios = [
+                aplana(/(\sx\s*=\s*")([-+\d.eE]+)/, sx),
+                aplana(/(\sy\s*=\s*")([-+\d.eE]+)/, sy),
+                aplana(/(\swidth\s*=\s*")([-+\d.eE]+)/, sx),
+                aplana(/(\sheight\s*=\s*")([-+\d.eE]+)/, sy)
+            ];
+            let salida = etiqueta.replace(mTr[0], "");
+            cambios.forEach(c => { if (c) salida = salida.replace(c.completo, c.nuevo); });
+            return salida;
+        });
     }
 
     // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
