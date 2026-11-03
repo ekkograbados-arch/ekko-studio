@@ -1568,36 +1568,17 @@ export function addImageFromFile(file, pointOrOptions = null) {
         const raster = new paper.Raster({ source: e.target.result });
         raster.onLoad = () => {
           try {
-            const dLayer = (window.paper && paper.project)
-              ? (paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer)
-              : null;
-            if (dLayer) dLayer.activate();
-            raster.data = { locked: false, label: file.name };
-            // AUTO-MEJORA (regla del dueño): la foto entra ya convertida a
-            // escala de grises DR_bn + profundidad/nitidez + ampliación hasta
-            // 2000 px — el cliente ve la imagen como quedará grabada, con la
-            // misma calidad que el SVG de producción. Si el filtro falla, la
-            // foto entra igual, sin mejorar (nunca bloquea la importación).
-            let objetoDirecta = raster;
-            try {
-              if (typeof window.ekkoAplicarFiltroGrises === 'function') {
-                const capaTemp = new paper.Layer({ name: '__ekkoFiltroImport' });
-                capaTemp.addChild(raster);
-                window.ekkoAplicarFiltroGrises(capaTemp);
-                const filtrado = capaTemp.children[0] || null;
-                if (filtrado && dLayer) dLayer.addChild(filtrado);   // sacarla de la capa temporal
-                capaTemp.remove();
-                if (filtrado) objetoDirecta = filtrado;
-              }
-            } catch (grafError) {
-              console.warn("[EKKO] Filtro de grises no aplicado (se importa la foto tal cual).", grafError);
+            if (window.paper && paper.project) {
+              const dLayer = paper.project.layers.find(l => l.name === 'designLayer') || paper.project.activeLayer;
+              if (dLayer) dLayer.activate();
             }
+            raster.data = { locked: false, label: file.name };
             const area = (window.currentMockup && window.currentMockup.bounds)
               ? window.currentMockup.bounds : paper.view.bounds;
             const size = Math.min(area.width, area.height) * 0.5;
-            if (objetoDirecta.width > 0) objetoDirecta.scale(size / objetoDirecta.width);
-            objetoDirecta.position = importTargetPoint(options.point, area);
-            const objeto = window.clipItem ? window.clipItem(objetoDirecta) : objetoDirecta;
+            if (raster.width > 0) raster.scale(size / raster.width);
+            raster.position = importTargetPoint(options.point, area);
+            const objeto = window.clipItem ? window.clipItem(raster) : raster;
             if (window.currentMockup) objeto.insertBelow(window.currentMockup);
             window.selectItem(objeto);
             paper.view.update();
