@@ -1775,6 +1775,18 @@ export async function prepareSVGForExport(options = {}) {
         });
     }
 
+    // 8d. IMÁGENES EN CAPA AMARILLA (regla del dueño: solo modo grabado).
+    // LightBurn asigna la capa por color; un raster no tiene color, así
+    // que se envuelve en un <g stroke="#ffd700"> — el color del grupo manda,
+    // igual que con el texto/vectores. Las imágenes pasan a la capa amarilla
+    // y el cliente las ve (sobre el lienzo oscuro desaparecían).
+    // En el boceto (keepMockupImage) no se toca: el cliente ve su diseño.
+    if (typeof svgString === "string" && svgString.indexOf("<image") !== -1 && options.stackFlatten === true) {
+        svgString = svgString.replace(/<image\b[^>]*>/g, function (etiqueta) {
+            return '<g stroke="#ffd700" stroke-width="0.5" fill="none" data-ekko-layer="imagenes">' + etiqueta + '</g>';
+        });
+    }
+
     // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
     // Paper exporta la capa como fragmento <g> sin raíz <svg>; el antiguo
     // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdían.
@@ -1839,4 +1851,7 @@ export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
 if (typeof window !== "undefined") {
     window.prepareSVGForExport = prepareSVGForExport;
     window.downloadExportedSVG = downloadExportedSVG;
+    // Filtro de grises EKKO-GRIS-v2 para el editor (al entrar fotos).
+    window.ekkoAplicarFiltroGrises = aplicarFiltroGrises;
+    window.ekkoGrisConfig = leerFiltroGrises;
 }
