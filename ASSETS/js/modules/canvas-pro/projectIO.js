@@ -271,7 +271,48 @@ export function requestOpenProjectFile() {
     input.click();
 }
 
+/* Boceto a 600 DPI fijo (lo pidió el dueño): la imagen sale a tamaño
+   real de impresión con densidad real — nada de «pagezón» de 33 cm
+   impreso a 96 DPI. 2400 px de ancho = 4" exactos a 600 DPI. */
+const SKETCH_DPI = 600;
+const SKETCH_PX_ANCHO = 2400;
+const PT_POR_PX = 72 / SKETCH_DPI;
+
 /* ---------------- MODO BOCETO (PNG con marca de agua) ---------------- */
+
+const CRC32_TABLA = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        t[n] = c >>> 0;
+    }
+    return t;
+})();
+function crc32(bytes) {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = CRC32_TABLA[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+}
+
+/* Inserta el chunk pHYs (densidad en píxeles por metro) justo después de
+   IHDR: el PNG queda etiquetado como 600 DPI — se imprime a tamaño real
+   en cualquier visor/impresora en vez de a 96 DPI "gigante". */
+function pngConDensidad(pngBytes, dpi) {
+    const ppm = Math.round(dpi / 0.0254);       // píxeles por metro
+    const out = new Uint8Array(pngBytes.length + 21);
+    const view = new DataView(out.buffer);
+    out.set(pngBytes.subarray(0, 33), 0);       // firma + chunk IHDR completo
+    view.setUint32(33, 9);
+    out.set([0x70, 0x48, 0x59, 0x73], 37);      // "pHYs"
+    view.setUint32(41, ppm);                    // px/metro horizontal
+    view.setUint32(45, ppm);                    // px/metro vertical
+    out[49] = 1;                                // unidad: metro
+    const crc = crc32(out.subarray(37, 50));   // type + data
+    view.setUint32(50, crc);
+    out.set(pngBytes.subarray(33), 54);
+    return out;
+}
 
 async function loadLogoImage() {
     // SOCIO con suscripción activa: la marca de agua lleva SU logo (guardado
@@ -327,13 +368,15 @@ async function buildSketchCanvas() {
         return { ok: false, reason: "no-viewbox" };
     }
     const [, , viewW, viewH] = viewBox;
-    const scale = 3;
+    const scale = SKETCH_PX_ANCHO / viewW;
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(viewW * scale));
     canvas.height = Math.max(1, Math.round(viewH * scale));
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     const rendered = await new Promise(resolve => {
         const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
         const img = new Image();
@@ -394,8 +437,9 @@ export async function downloadSketchPNG() {
         return { ok: false, reason: "png-failed" };
     }
     const filename = `ekko-boceto-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-${stamp()}.png`;
-    downloadBlob(blob, filename);
-    notice(`Descargado: ${filename} — aplanado y con marca de agua.`, { kind: "ok" });
+    const pngBytes = pngConDensidad(new Uint8Array(await blob.arrayBuffer()), SKETCH_DPI);
+    downloadBlob(new Blob([pngBytes], { type: "image/png" }), filename);
+    notice(`Descargado: ${filename} — aplanado, marca de agua y 600 DPI.`, { kind: "ok" });
     return { ok: true, filename };
 }
 
@@ -412,22 +456,27 @@ export async function downloadSketchPDF() {
     }
     const filename = `ekko-boceto-${slugify(built.describe?.productName)}-${slugify(built.describe?.surfaceName)}-${stamp()}.pdf`;
     try {
-        const pdf = await jpegBlobToPdf(await jpeg.arrayBuffer(), built.canvas.width, built.canvas.height);
+        const pdf = await jpegBlobToPdf(
+            await jpeg.arrayBuffer(),
+            built.canvas.width, built.canvas.height,
+            built.canvas.width * PT_POR_PX, built.canvas.height * PT_POR_PX
+        );
         downloadBlob(pdf, filename);
     } catch (err) {
         console.warn("[EKKO SKETCH PDF] Fallo al armar el PDF:", err);
         return { ok: false, reason: "pdf-failed" };
     }
-    notice(`Descargado: ${filename} — aplanado y con marca de agua.`, { kind: "ok" });
+    notice(`Descargado: ${filename} — aplanado, marca de agua y 600 DPI.`, { kind: "ok" });
     return { ok: true, filename };
 }
 
 /* Armado mínimo de un PDF 1.4 (binario exacto: xref calculado a mano). Una
-   página con el JPEG a página completa: nada de capas ni texto editable. */
-async function jpegBlobToPdf(jpegBuffer, anchoPx, altoPx) {
-    const PT = 72 / 96; // 1 px de pantalla = 0.75 pt
-    const w = (anchoPx * PT).toFixed(2);
-    const h = (altoPx * PT).toFixed(2);
+   página con el JPEG a página completa: nada de capas ni texto editable.
+   anchoPx/altoPx = píxeles reales de la imagen embebida;
+   anchoPt/altoPt = tamaño físico de la página en puntos (1 pt = 1/72"). */
+async function jpegBlobToPdf(jpegBuffer, anchoPx, altoPx, anchoPt, altoPt) {
+    const w = anchoPt.toFixed(2);
+    const h = altoPt.toFixed(2);
     const jpeg = new Uint8Array(jpegBuffer);
     const te = new TextEncoder();
     const partes = [];
