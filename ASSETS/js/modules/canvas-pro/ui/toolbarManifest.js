@@ -157,10 +157,6 @@ export const BUTTONS = Object.freeze([
     reason: "La auditoría revisa vectores: seleccioná al menos uno"
   },
   {
-    tool: "depthPhoto", family: FAMILY.P, group: "fondo", legacy: ["depthPhoto"],
-    reason: "Seleccioná una imagen para aplicarle el efecto 3D"
-  },
-  {
     tool: "traceImage", family: FAMILY.P, group: "fondo", legacy: ["traceImage"],
     reason: "Trazar convierte una imagen en vector: seleccioná una imagen"
   },
