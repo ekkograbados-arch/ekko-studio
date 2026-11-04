@@ -1741,6 +1741,18 @@ export async function prepareSVGForExport(options = {}) {
             .replace(/\s*clip-path="[^"]*"/g, "");
     }
 
+    // 8e. PREFIJO DE HREF NORMALIZADO A XLINK: Paper serializa los href de
+    // las imágenes como `ns1:href` (prefijo arbitrario) y declara
+    // `xmlns:ns1="http://www.w3.org/1999/xlink"` sobre el propio <image>.
+    // LightBurn busca `xlink:href` literal y no reconoce el prefijo `ns1`,
+    // por lo que las imágenes quedan invisibles (se ve sólo el vector).
+    // Se reescribe el prefijo y se declara xmlns:xlink en la raíz
+    // (más abajo, sección 9).
+    if (typeof svgString === "string" && svgString.indexOf("<image") !== -1) {
+        svgString = svgString.replace(/\b[a-zA-Z_][\w.-]*:href\s*=/g, "xlink:href=");
+        svgString = svgString.replace(/\s+xmlns:[a-zA-Z_][\w.-]*\s*=\s*"http:\/\/www\.w3\.org\/1999\/xlink"/g, "");
+    }
+
     // 8c. IMÁGENES SIN ESCALA HEREDADA: LightBurn no siempre resuelve un
     // <image width="2000" transform="scale(0.025)"> igual que el navegador:
     // el tamaño físico correcto vive en width/height, y si la transformación
@@ -1800,9 +1812,9 @@ export async function prepareSVGForExport(options = {}) {
             const widthMm = (bounds.width * mmPerUnit).toFixed(3);
             const heightMm = (bounds.height * mmPerUnit).toFixed(3);
             const viewBox = `${num(bounds.x)} ${num(bounds.y)} ${num(bounds.width)} ${num(bounds.height)}`;
-            svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthMm}mm" height="${heightMm}mm" viewBox="${viewBox}">${svgString}</svg>`;
+            svgString = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${widthMm}mm" height="${heightMm}mm" viewBox="${viewBox}">${svgString}</svg>`;
         } else {
-            svgString = `<svg xmlns="http://www.w3.org/2000/svg">${svgString}</svg>`;
+            svgString = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">${svgString}</svg>`;
         }
     }
 
