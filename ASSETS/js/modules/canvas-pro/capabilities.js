@@ -694,7 +694,7 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
      justamente lo que hace falta para poder seguir trabajando. */
 export const TABS = Object.freeze({
   base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
-  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
+  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "depthPhoto", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
   /* "Varios" lleva tambien Quitar Fondo y Editar Fondo: con varias imagenes
@@ -706,7 +706,7 @@ export const TABS = Object.freeze({
      (medido: outline.active con 2 rasters es true y el boton igual no salia).
      Desde la v11.42 "Todo junto" funciona sobre varias imagenes, o sea que es
      justamente la seleccion donde la herramienta sirve. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline"] }
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "depthPhoto"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
