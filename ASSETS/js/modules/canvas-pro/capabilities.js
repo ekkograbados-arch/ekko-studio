@@ -529,11 +529,6 @@ export const TOOLS = {
     },
   traceImage:    { label: "Trazar Imagen", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
 
-  // --- Profundidad: efecto 3D sobre una o varias imágenes. Silueta viva +
-  //     contraste local alto + nitidez — el cliente ve la foto como quedará
-  //     grabada. No depende del fondo ni del recorte.
-  depthPhoto:    { label: "Profundidad", active: s => s.count >= 1 && s.list.length >= 1 && s.list.every(it => it.species === SPECIES.RASTER) },
-
   // --- Editar Fondo: el pincel de retoque (borrar / restaurar).
   //     Segundo escalon de la piramide: solo existe si el fondo YA se quito.
   //     No basta con que sea un Raster: tiene que ser un recorte con la marca
@@ -647,7 +642,6 @@ const ENGINE_TO_LEGACY = Object.freeze({
   fusion: ["fusion"],
   removeBg: ["removeBg"],
   traceImage: ["traceImage"],
-  depthPhoto: ["depthPhoto"],
   editCutout: ["editCutout"],
   textToVector: ["textToVector"],
   zoom: ["zoom"],
@@ -694,7 +688,7 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
      justamente lo que hace falta para poder seguir trabajando. */
 export const TABS = Object.freeze({
   base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
-  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "depthPhoto", "outline", "fusion"] },
+  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
   /* "Varios" lleva tambien Quitar Fondo y Editar Fondo: con varias imagenes
@@ -706,7 +700,7 @@ export const TABS = Object.freeze({
      (medido: outline.active con 2 rasters es true y el boton igual no salia).
      Desde la v11.42 "Todo junto" funciona sobre varias imagenes, o sea que es
      justamente la seleccion donde la herramienta sirve. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "depthPhoto"] }
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
