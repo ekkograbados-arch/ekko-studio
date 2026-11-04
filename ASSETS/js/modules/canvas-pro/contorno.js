@@ -44,9 +44,6 @@ const ALPHA_SCAN_MAX = 1200;
    fracciones de pixel (el gradiente del borde dura 1-2 px) y un halo de
    residuo desaparece entero. */
 const ALPHA_ISO = 200;
-/* Nucleo de la histeresis: un componente conectado de alfa>=ISO solo es
-   diseño si tiene ALGUN pixel por encima de aca. Ver despolearAlfa. */
-const ALPHA_NUCLEO = 240;
 
 /* ------------------------------------------------------------------
    VINCULOS: que contorno salio de que pieza.
@@ -162,11 +159,17 @@ function regenerarContorno(contorno, opciones = null) {
     const control = opciones || readOutlineControls();
     const width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
     const normalizado = { ...control, width };
+    // CONTORNO = LINEA tambien al REGENERAR: si el contorno se rehace como
+    // banda, mover un deslizador cambiaria de especie el objeto (linea fina
+    // -> relleno grueso), que es una de las contradicciones del contorno. El
+    // modo lo dice el propio objeto: un contorno CON trazo y sin relleno es
+    // linea.
+    const esLinea = Boolean(contorno.strokeColor) && !contorno.fillColor;
     let band = null;
     if (muestra.sampled) {
         // FINAL = exacto: mismo motor que la primera aplicacion, asi el
         // arrastre de un control no cambia ni la forma ni el area del anillo.
-        band = bandaImagenViva(vinculoPropio, muestra.origen, muestra.sampled, normalizado, true);
+        band = bandaImagenViva(vinculoPropio, muestra.origen, muestra.sampled, normalizado, true, esLinea);
         if (!band) return retirarBanda(vinculoPropio, contorno);
     } else {
         // Sin alfa que leer (JPG opaco): el borde es la caja de la imagen.
@@ -177,17 +180,37 @@ function regenerarContorno(contorno, opciones = null) {
         const caja = loopCajaImagen(muestra.origen) || loopCaja(muestra.origen.bounds);
         if (!caja) { base.remove?.(); return null; }
         base.addChild(new paper.Path({ segments: caja, closed: true, insert: false }));
-        band = buildOutlineGeometry(base, width, normalizado.side, Number(normalizado.radius) || 0,
-            Number(normalizado.smoothing) || 0, normalizado.scope);
-        base.remove?.();
-        if (!band) return retirarBanda(vinculoPropio, contorno);
+        if (esLinea) {
+            // Imagen opaca: la linea es el borde de la caja (con Separacion).
+            band = geometriaDeLinea(base, normalizado, "raster");
+            base.remove?.();
+            if (!band) return retirarBanda(vinculoPropio, contorno);
+        } else {
+            band = buildOutlineGeometry(base, width, normalizado.side, Number(normalizado.radius) || 0,
+                Number(normalizado.smoothing) || 0, normalizado.scope, UNION_SILUETA);
+            base.remove?.();
+            if (!band) return retirarBanda(vinculoPropio, contorno);
+        }
     }
     vinculoPropio.vacio = false;
-    return volcarGeometria(contorno, band, {
+    volcarGeometria(contorno, band, {
         width, side: normalizado.side, radius: Number(normalizado.radius) || 0,
         smoothing: Number(normalizado.smoothing) || 0,
         scope: normalizado.scope, apply: normalizado.apply
     });
+    // volcarGeometria clona la geometria y no copia el estilo: el contorno
+    // regenerado recupera aqui su modo (linea con trazo, o banda rellena).
+    if (esLinea) {
+        contorno.fillColor = null;
+        contorno.strokeColor = new paper.Color(CONTOUR_COLOR);
+        contorno.strokeWidth = width;
+    } else {
+        contorno.fillColor = new paper.Color(CONTOUR_COLOR);
+        contorno.strokeColor = null;
+        contorno.strokeWidth = 0;
+    }
+    try { paper.view?.update?.(); } catch (_) {}
+    return contorno;
 }
 
 /** El alcance o la Separacion pedidos no dejan celdas que bandear. La banda
@@ -357,12 +380,35 @@ function previsualizarVector(owner) {
     } catch (_) {}
     const control = readOutlineControls();
     let grupo = null;
+    // Preview = la misma LINEA que se va a crear, dibujada como guia.
     try {
-        grupo = previsualizarBanda(world, control.width, control.side,
-            Number(control.radius) || 0, control.scope);
+        const tmp = new paper.CompoundPath({ insert: false });
+        tmp.applyMatrix = true;
+        leaves(world).forEach(leaf => { try { tmp.addChild(leaf.clone({ insert: false })); } catch (_) {} });
+        const linea = geometriaDeLinea(tmp.children?.length ? tmp : world, control, "vector");
+        tmp.remove?.();
+        if (linea) {
+            linea.fillColor = null;
+            linea.strokeColor = new paper.Color("#e11d48");
+            linea.strokeWidth = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
+            grupo = previsualizarBandaGeom ? previsualizarBandaGeom(linea) : null;
+            try { linea.remove?.(); } catch (_) {}
+            if (!grupo) { /* sin guia: cae al camino final */ }
+        }
     } catch (_) { grupo = null; }
+    if (!grupo) {
+        try {
+            grupo = previsualizarBanda(world, control.width, control.side,
+                Number(control.radius) || 0, control.scope);
+        } catch (_) { grupo = null; }
+    }
     world.remove?.();
     return grupo ? instalarPreview(grupo) : null;
+}
+
+/** Hojas de un compuesto (la misma lectura que usan preview y linea). */
+function leaves(g) {
+    return (g?.className === "CompoundPath" && g.children?.length) ? Array.from(g.children) : [g];
 }
 
 /** Preview del contorno de imagen: la BANDA MISMA, en magenta. Con el campo
@@ -375,12 +421,12 @@ function previsualizarImagen(vinculo) {
     const muestra = muestraDelVinculo(vinculo);
     if (!muestra?.sampled) return null;
     const control = readOutlineControls();
-    // Con el default (Centro, sin Separacion) el final es una LINEA: el
-    // preview tiene que mostrar la linea, no un anillo que nunca existira.
-    const comoLinea = String(control.side) === "center" && !(Number(control.radius) > 0);
+    // El final es siempre una LINEA: el preview tiene que mostrar la linea
+    // (con su Separacion y Suavidad), no un anillo que nunca existira.
+    const comoLinea = true;
     let grupo = null;
     try {
-        const band = bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control, comoLinea, comoLinea);
+        const band = bandaImagenViva(vinculo, muestra.origen, muestra.sampled, control, false, comoLinea);
         grupo = band ? previsualizarBandaGeom(band) : null;
         try { band?.remove?.(); } catch (_) {}
     } catch (_) { grupo = null; }
@@ -434,10 +480,15 @@ export function refrescarContornoVivo(modo = "final") {
             quitarPreview();
             return regenerarContorno(owner);
         }
-        // Caso 2: el contorno es de VECTOR o TEXTO (un anillo). La banda se
-        // rehace desde la forma original guardada, sin toggle: es lo que hace
-        // vivo al panel para las especies vectoriales.
+        // Caso 2: el contorno es de VECTOR o TEXTO (una LINEA). Se rehace
+        // desde la forma original guardada, SIN toggle y SIN volver a banda:
+        // refreshOwnerOutline reconstruia un anillo relleno y el contorno
+        // cambiaba de especie al mover un deslizador (contradiccion medida).
         if (owner?.data?.isOutline === true || item?.data?.isOutline === true) {
+            if (owner?.data?.outlineOrigen) {
+                const rehecha = regenerarLineaDeVector(owner, readOutlineControls(), preview);
+                if (rehecha) return rehecha;
+            }
             if (!preview) { quitarPreview(); return refreshOwnerOutline(owner, readOutlineControls()); }
             const rapido = previsualizarVector(owner);
             if (rapido) return rapido;
@@ -465,60 +516,6 @@ export function refrescarContornoVivo(modo = "final") {
 /** Muestrea el canal alfa de la imagen a una resolucion workable.
  *  Devuelve null si la imagen no tiene nada transparente: en ese caso el borde
  *  exterior es el rectangulo de la pieza y no hay nada que leer. */
-/* HISTERESIS contra el residuo del recorte. Quitar Fondo deja a veces
-   regiones semitransparentes (alfa ~130-200) que en pantalla son invisibles
-   sobre el mockup claro pero para el umbral ISO 128 son "dentro de la
-   silueta": el contorno las envuelve y sale un blob mas grande que el
-   motivo visible (REPRODUCIDO con sonda: con un residuo alfa-150 el ancho
-   del contorno crecio de 81 a 161 unidades). Regla de dos umbrales: un
-   componente conectado de alfa>=ISO solo es diseño si tiene ALGUN pixel
-   nucleo (alfa>=NUCLEO). El borde suave de un recorte legitimo siempre
-   conecta con el nucleo opaco del motivo; una isla de residuo uniforme no
-   tiene nucleo y se descarta. Si el barrido descartara TODO (imagen
-   entera translucida), no se aplica: el comportamiento retrocede al de
-   antes, nunca peor. Devuelve cuantos pixeles quedan "visibles". */
-function despolearAlfa(alpha, w, h) {
-    const n = w * h;
-    let conIso = 0;
-    for (let i = 0; i < n; i++) if (alpha[i] > ALPHA_ISO) conIso++;
-    if (!conIso || conIso >= n * 0.995) return conIso; // vacia u opaca: no toca
-    const copia = alpha.slice();
-    const etiqueta = new Uint8Array(n);
-    const pila = new Int32Array(n);
-    let visibles = 0;
-    for (let semilla = 0; semilla < n; semilla++) {
-        if (etiqueta[semilla] || copia[semilla] <= ALPHA_ISO) continue;
-        let tope = 0;
-        pila[tope++] = semilla;
-        etiqueta[semilla] = 1;
-        const isla = [semilla];
-        let nucleo = copia[semilla] >= ALPHA_NUCLEO;
-        while (tope > 0) {
-            const c = pila[--tope];
-            const cx = c % w, cy = (c - cx) / w;
-            for (let dy = -1; dy <= 1; dy++) {
-                const ny = cy + dy;
-                if (ny < 0 || ny >= h) continue;
-                const fila = ny * w;
-                for (let dx = -1; dx <= 1; dx++) {
-                    const nx = cx + dx;
-                    if ((dx === 0 && dy === 0) || nx < 0 || nx >= w) continue;
-                    const v = fila + nx;
-                    if (etiqueta[v] || copia[v] <= ALPHA_ISO) continue;
-                    etiqueta[v] = 1;
-                    pila[tope++] = v;
-                    isla.push(v);
-                    if (copia[v] >= ALPHA_NUCLEO) nucleo = true;
-                }
-            }
-        }
-        if (nucleo) visibles += isla.length;
-        else isla.forEach(m => { copia[m] = 0; });
-    }
-    if (visibles > 0) alpha.set(copia);
-    return visibles;
-}
-
 export function sampleRasterAlpha(raster) {
     const element = raster?.canvas || raster?.getElement?.() || null;
     const sourceW = Math.round(raster?.width || 0);
@@ -538,11 +535,14 @@ export function sampleRasterAlpha(raster) {
     try { data = ctx.getImageData(0, 0, w, h).data; } catch (_) { return null; }
     if (!data) return null;
     const alpha = new Uint8Array(w * h);
-    for (let i = 0, p = 3; i < alpha.length; i++, p += 4) alpha[i] = data[p];
-    // Histeresis: residuo semitransparente fuera, diseño con nucleo opaco dentro.
-    const visibles = despolearAlfa(alpha, w, h);
+    let visible = 0;
+    for (let i = 0, p = 3; i < alpha.length; i++, p += 4) {
+        const a = data[p];
+        alpha[i] = a;
+        if (a > ALPHA_ISO) visible += 1;
+    }
     // Si practicamente todo es opaco, la imagen no esta recortada.
-    if (visibles <= 0 || visibles >= alpha.length * 0.995) return null;
+    if (visible <= 0 || visible >= alpha.length * 0.995) return null;
     return { alpha, width: w, height: h, sourceW, sourceH };
 }
 
@@ -1554,9 +1554,15 @@ function bandaExactaDeImagen(origen, sampled, control, comoLinea = false) {
     base.fillRule = "evenodd";
     usoFinal.forEach(loop => base.addChild(
         new paper.Path({ segments: loop, closed: true, insert: false })));
-    /* CONTORNO = LINEA: sin offset que calcular no hay auto-interseccion
-       posible: la linea ES la silueta simplificada. Es el modo default. */
-    if (comoLinea) return base;
+    /* CONTORNO = LINEA (default): la linea del borde, con Separacion,
+       Posicion y Suavidad del panel aplicadas como OFFSET DE LINEA. Un solo
+       camino para las cuatro perillas; el modo sin offset queda solo si no
+       se puede calcular. */
+    if (comoLinea) {
+        const linea = geometriaDeLinea(base, control, "raster");
+        base.remove?.();
+        return linea || null;
+    }
     const salida = buildOutlineGeometry(base, control.width, control.side,
         Number(control.radius) || 0, Number(control.smoothing) || 0, control.scope);
     base.remove?.();
@@ -1719,7 +1725,7 @@ function crearContornoDeImagenes(origenes, options = {}) {
        trazo vectorial fino, sin relleno, nitido a cualquier zoom. Grosor es
        el espesor de esa linea. Con Separacion > 0 o Posicion fuera/dentro
        se pide un contorno EXPANDIDO y ahi sigue la banda rellena de antes. */
-    const esLinea = side === "center" && !(radius > 0);
+    const esLinea = true;
 
     // La grilla de alfa es de la IMAGEN (o de la union) y se devuelve al lienzo
     // con SU matriz (mapeoDeImagen): con la caja del dueno estiraba la silueta
@@ -1941,13 +1947,312 @@ export function isSingleClosedContour(item) {
   return leaves.every(leaf => leaf.closed === true);
 }
 
-function vectorContour(owner) {
-  // Relleno <-> trazo, con los cuatro controles del panel: Grosor, Radio,
-  // Lado y Suavidad. Ruta ya existente y probada.
+/* ------------------------------------------------------------------
+   CONTORNO = LINEA (directiva del cliente, modelo LightBurn/CAD).
+   La herramienta entrega UNA LINEA que sigue el borde, con cuatro
+   controles y un significado unico cada uno:
+     Grosor      = espesor del trazo (strokeWidth). No cambia la forma.
+     Separacion  = cuanto se corre la linea (offset de LightBurn; + afuera,
+                   - adentro).
+     Posicion    = lado desde el que se mide: Exterior/Interior fuerzan el
+                   signo de la Separacion.
+     Suavidad    = cuantos nodos se conservan (simplificacion progresiva).
+   Nada de la ruta de banda: la banda es OTRO camino (relleno expandido) y
+   mezclar los dos era la fuente de las contradicciones que reporto el
+   cliente (linea pixelada, contorno que volvia a ser relleno, etc.).
+
+   STANDARD POR ESPECIE: la imagen entrega el borde exterior; una foto
+   recortada trae huecos espurios del alfa (polvo, agujeros de compresion)
+   que en grabado no son borde. El vector/texto entrega borde + huecos,
+   porque las letras SI tienen huecos reales (A, O, R, 8).
+   ------------------------------------------------------------------ */
+const LADO_POSICION = Object.freeze({ center: 0, outside: 1, inside: -1 });
+
+/** Desplazamiento de la linea, en unidades del lienzo, a partir del panel. */
+function desplazamientoDeLinea(control) {
+  const separacion = Math.abs(Number(control?.radius) || 0);
+  const lado = LADO_POSICION[String(control?.side || "center").toLowerCase()] ?? 0;
+  if (lado) return separacion * lado;
+  // Centro = la linea cae sobre el borde; si el cliente mueve Separacion y
+  // deja Centro, el signo lo pone el propio valor (Separacion es un valor
+  // con signo, como Offset Distance de LightBurn).
+  const firmado = Number(control?.radius) || 0;
+  return separacion > 0 ? firmado : 0;
+}
+
+/** OFFSET DE LINEA (la unica operacion que mueve la linea sin engrosarla).
+ *  Se agrega aca, NO en outlineGeometry.js (motor del cliente), porque la
+ *  herramienta necesita el offset de UNA linea, no el de una banda. La
+ *  regla de inglete es la del motor vectorial: se limita a
+ *  max(|d| x 1.42, 0.25) — el cuadrado conserva la punta viva (1,41) y una
+ *  esquina aguda no se estira mas de lo razonable. El sentido lo fija el
+ *  area con signo: distancia positiva = hacia afuera.
+ *  Devuelve SIEMPRE un array de puntos (o el original si no se puede). */
+function offsetDeLinea(puntos, distancia) {
+  const fuente = Array.isArray(puntos) ? puntos.filter(Boolean) : [];
+  if (fuente.length < 3 || !Number.isFinite(distancia) || Math.abs(distancia) < 1e-9) return fuente;
+  const cerrado = fuente.length > 1 && fuente[0].getDistance(fuente[fuente.length - 1]) <= 1e-9;
+  const pts = cerrado ? fuente.slice(0, -1) : fuente.slice();
+  if (pts.length < 3) return fuente;
+  let area = 0;
+  for (let i = 0; i < pts.length; i += 1) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    area += a.x * b.y - b.x * a.y;
+  }
+  const orientacion = area >= 0 ? 1 : -1;
+  const tope = Math.max(Math.abs(distancia) * 1.42, 0.25);
+  const punto = (x, y) => new paper.Point(x, y);
+  const salida = [];
+  for (let i = 0; i < pts.length; i += 1) {
+    const prev = pts[(i - 1 + pts.length) % pts.length];
+    const cur = pts[i];
+    const next = pts[(i + 1) % pts.length];
+    const entra = cur.subtract(prev);
+    const sale = next.subtract(cur);
+    if (entra.length < 1e-9 || sale.length < 1e-9) continue;
+    const n1 = punto(-entra.y, entra.x).normalize().multiply(-distancia * orientacion);
+    const n2 = punto(-sale.y, sale.x).normalize().multiply(-distancia * orientacion);
+    const p1 = cur.add(n1), p2 = cur.add(n2);
+    const d1 = entra.normalize(), d2 = sale.normalize();
+    const den = d1.x * d2.y - d1.y * d2.x;
+    if (Math.abs(den) > 1e-9) {
+      const tt = ((p2.x - p1.x) * d2.y - (p2.y - p1.y) * d2.x) / den;
+      const cruce = punto(p1.x + d1.x * tt, p1.y + d1.y * tt);
+      if (cruce.getDistance(cur) <= tope) { salida.push(cruce); continue; }
+    }
+    salida.push(cur.add(n1.add(n2).divide(2)));
+  }
+  if (salida.length < 3) return fuente;
+  return cerrado ? salida.concat([salida[0].clone()]) : salida;
+}
+
+/** Hojas de una geometria (un CompoundPath son sus hijos; un Path es uno). */
+function hojasDeGeometria(geometria) {
+  return (geometria?.className === "CompoundPath" && geometria.children?.length)
+    ? Array.from(geometria.children) : [geometria];
+}
+
+/** Loops de un compuesto/path, ya cerrados, en coordenadas del lienzo. */
+function loopsDeGeometria(geometria) {
+  const out = [];
+  if (!geometria) return out;
+  hojasDeGeometria(geometria).forEach(hoja => {
+    try {
+      const puntos = (hoja.segments?.length
+        ? hoja.segments.map(s => s.point.clone())
+        : (hoja.flatten?.(0.25) || [])).filter(Boolean);
+      if (puntos.length >= 3) out.push({ puntos, area: Math.abs(Number(hoja.area) || 0) });
+    } catch (_) {}
+  });
+  return out;
+}
+
+/** Valor de Suavidad 0..10 del panel. */
+function nivelSuavidad(control) {
+  const s = Number(control?.smoothing) || 0;
+  return Math.max(0, Math.min(10, s > 10 ? 10 : s));
+}
+
+/** STANDARD POR ESPECIE sobre los loops: en la imagen manda el borde que
+ *  encierra a los demas; un hueco REAL de la imagen (isla interior de mas
+ *  del 0,5% de la caja) tambien se dibuja, el polvo del alfa no. El vector y
+ *  el texto conservan TODOS los loops (borde + huecos de las letras). */
+function loopsEstandar(loops, especie) {
+  if (loops.length < 2) return loops;
+  if (especie !== "raster") return loops;
+  let mayor = 0;
+  loops.forEach((l, i) => { if (l.area > loops[mayor].area) mayor = i; });
+  if (!(loops[mayor].area > 0)) return loops;
+  const puntoEn = (p, l) => {
+    let dentro = false;
+    const pts = l.puntos;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const a = pts[i], b = pts[j];
+      if ((a.y > p.y) !== (b.y > p.y)
+        && p.x < ((b.x - a.x) * (p.y - a.y)) / ((b.y - a.y) || 1e-12) + a.x) dentro = !dentro;
+    }
+    return dentro;
+  };
+  const borde = loops[mayor];
+  const areaBorde = borde.area;
+  return loops.filter((l, i) => {
+    if (i === mayor) return true;
+    if (!(l.area > 0) || l.area / areaBorde < 0.005) return false;
+    // un hueco real esta ADENTRO del borde (su primer punto cae dentro)
+    return l.puntos.some(p => puntoEn(p, borde));
+  });
+}
+
+/** Construye la geometria de LINEA final: suavizar -> offsetear.
+ *  Devuelve un CompoundPath DETACHED con paths cerrados, SIN estilo (el
+ *  llamador decide trazo/relleno). `especie` selecciona el estandar. */
+function geometriaDeLinea(base, control, especie) {
+  if (!base || typeof paper === "undefined") return null;
+  const desplazamiento = desplazamientoDeLinea(control);
+  const suavidad = nivelSuavidad(control);
+  let loops = loopsDeGeometria(base);
+  if (!loops.length) return null;
+  loops = loopsEstandar(loops, especie);
+  const salida = new paper.CompoundPath({ insert: false });
+  salida.applyMatrix = true;
+  salida.fillRule = "evenodd";
+  loops.forEach(loop => {
+    let puntos = loop.puntos;
+    /* SUAVIDAD: tolerancia de simplificacion progresiva (nivel 1 = 0,15%
+       de la pieza, nivel 10 = 1,5%). Se mide en la caja del LOOP: una pieza
+       de 200 con nivel 10 limpia dientes de hasta 3 unidades, el mismo
+       rango que el "Optimize" de LightBurn. Nunca mueve la forma visible:
+       solo quita nodos que no aportan. */
+    if (suavidad > 0) {
+      try {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        puntos.forEach(p => {
+          if (p.x < minX) minX = p.x;
+          if (p.y < minY) minY = p.y;
+          if (p.x > maxX) maxX = p.x;
+          if (p.y > maxY) maxY = p.y;
+        });
+        const escala = Math.max(maxX - minX, maxY - minY);
+        if (escala > 0) {
+          const tol = (escala / 650) * suavidad;
+          const simples = simplificarPoligono(puntos, tol);
+          if (simples && simples.length >= 3 && simples.length < puntos.length) puntos = simples;
+        }
+      } catch (_) {}
+    }
+    if (Math.abs(desplazamiento) > 1e-9) {
+      try {
+        const corridos = offsetDeLinea(puntos, desplazamiento);
+        if (corridos && corridos.length >= 3) puntos = corridos;
+      } catch (_) {}
+    }
+    try {
+      salida.addChild(new paper.Path({ segments: puntos, closed: true, insert: false }));
+    } catch (_) {}
+  });
+  if (!salida.children?.length) { salida.remove?.(); return null; }
+  return salida;
+}
+
+function vectorContour(owner, control = null) {
+  control = control || readOutlineControls();
+  // La geometria que entrega la herramienta es la MISMA linea que la de las
+  // imagenes: si el contorno de texto saliera como banda, el estandar se
+  // rompe en la mitad de la app.
+  const linea = lineaDeVector(owner, control);
+  if (linea) return linea;
   if (typeof window.toggleOutline === "function") {
-    return window.toggleOutline(owner, readOutlineControls());
+    return window.toggleOutline(owner, control);
   }
   return null;
+}
+
+/** Rehace el contorno de LINEA de un vector/texto a partir de la forma de
+ *  origen guardada en el propio contorno. Es la ruta del panel vivo: mueve
+ *  un deslizador y la linea se rehace igual que la primera vez, sin pasar
+ *  por toggleOutline (que reconstruiria un anillo relleno). */
+function regenerarLineaDeVector(contorno, control, preview = false) {
+  const owner = ownerOf(contorno);
+  const origen = owner?.data?.outlineOrigen;
+  if (!owner?.parent || !origen) return null;
+  let geo = null;
+  try {
+    geo = origen.clone({ insert: false });
+    geo.applyMatrix = false;
+    geo.transform(owner.globalMatrix || new paper.Matrix());
+    geo.applyMatrix = true;
+  } catch (_) { geo = null; }
+  if (!geo) return null;
+  const linea = geometriaDeLinea(geo, control, owner.data?.outlineEspecie === "raster" ? "raster" : "vector");
+  geo.remove?.();
+  if (!linea) return null;
+  const width = Math.max(0.1, Math.abs(Number(control?.width) || 0) || 1);
+  if (preview) {
+    linea.fillColor = null;
+    linea.strokeColor = new paper.Color("#e11d48");
+    linea.strokeWidth = width;
+    const grupo = previsualizarBandaGeom ? previsualizarBandaGeom(linea) : null;
+    try { linea.remove?.(); } catch (_) {}
+    return grupo ? instalarPreview(grupo) : null;
+  }
+  quitarPreview();
+  // Se reemplaza la geometria DENTRO del mismo objeto (conserva envoltorio,
+  // posicion y seleccion) y se restituye su modo LINEA.
+  const hijos = (linea.children || []).map(c => c.clone({ insert: false }));
+  linea.remove?.();
+  owner.removeChildren?.();
+  owner.applyMatrix = false;
+  owner.matrix = new paper.Matrix();
+  hijos.forEach(c => owner.addChild(c));
+  owner.fillRule = "evenodd";
+  owner.fillColor = null;
+  owner.strokeColor = new paper.Color(CONTOUR_COLOR);
+  owner.strokeWidth = width;
+  owner.data = {
+    ...owner.data,
+    outlineWidth: width,
+    outlineRadius: Number(control?.radius) || 0,
+    outlineSmoothing: Number(control?.smoothing) || 0,
+    outlineSide: String(control?.side || "center").toLowerCase()
+  };
+  try { window.syncGeometryToGeomBase?.(owner); } catch (_) {}
+  try { paper.view?.update?.(); } catch (_) {}
+  return owner;
+}
+
+/** CONTORNO DE VECTOR/TEXTO COMO LINEA. Convierte la forma en su geometria
+ *  de mundo, la pasa por geometriaDeLinea (borde + huecos, que es el
+ *  estandar elegido) y la entrega como pieza nueva con trazo y sin relleno.
+ *  No toca la pieza original: si algo no se puede calcular devuelve null y
+ *  el llamador cae en la ruta de siempre. */
+function lineaDeVector(owner, control) {
+  let geo = null;
+  try { geo = toWorldGeometry(owner); } catch (_) { return null; }
+  if (!geo) return null;
+  let linea = null;
+  try {
+    linea = geometriaDeLinea(geo, control, "vector");
+  } catch (_) { linea = null; } finally {
+    if (geo !== owner) { try { geo.remove?.(); } catch (_) {} }
+  }
+  if (!linea) return null;
+  const width = Math.max(0.1, Math.abs(Number(control?.width) || 0) || 1);
+  // La FORMA DE ORIGEN viaja con el contorno: el panel vivo rehace la linea
+  // desde ella (nunca desde el contorno ya corrido, que se iria acumulando).
+  let formaOrigen = null;
+  try {
+    formaOrigen = owner.clone({ insert: false });
+    formaOrigen.applyMatrix = true;
+  } catch (_) { formaOrigen = null; }
+  linea.applyMatrix = false;
+  linea.matrix = new paper.Matrix();
+  linea.fillColor = null;
+  linea.strokeColor = new paper.Color(CONTOUR_COLOR);
+  linea.strokeWidth = width;
+  linea.fillRule = "evenodd";
+  linea.data = {
+    locked: false,
+    label: "Contorno",
+    source: "vector-outline",
+    isOutline: true,
+    isSolidShape: true,
+    isFusionReceptor: true,
+    semanticKind: VECTOR_KIND.SOLID,
+    outlineWidth: width,
+    outlineRadius: Number(control?.radius) || 0,
+    outlineSmoothing: Number(control?.smoothing) || 0,
+    outlineSide: String(control?.side || "center").toLowerCase(),
+    outlineScope: "all",
+    outlineOrigen: formaOrigen,
+    outlineEspecie: "vector"
+  };
+  try { window.ensureContainedDesignItem?.(linea); } catch (_) {}
+  if (linea.parent === null) {
+    const capa = paper.project.activeLayer || paper.project.layers[0];
+    capa.addChild(linea);
+    if (window.currentMockup) linea.insertBelow(window.currentMockup);
+  }
+  return linea;
 }
 
 /* ------------------------------------------------------------------
@@ -1984,28 +2289,28 @@ function unirGeometrias(owners) {
 function crearContornoUnion(owners, control) {
   const union = unirGeometrias(owners);
   if (!union) return null;
-  const width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
-  const band = buildOutlineGeometry(union, width, control.side, Number(control.radius) || 0,
-    Number(control.smoothing) || 0, control.scope);
-  if (!band) { union.remove?.(); return null; }
+  const width = Math.max(0.1, Math.abs(Number(control.width) || 0) || 1);
+  /* UNION = UNA LINEA CONTINUA (modelo LightBurn). La booleana ya deja UN
+     contorno que rodea el conjunto y no se corta entre letras; la linea se
+     calcula sobre esa union, no sobre cada letra. El relleno expandido de
+     antes queda solo como color de preview. */
+  const linea = geometriaDeLinea(union, control, "vector");
+  if (!linea) { union.remove?.(); return null; }
+  // La forma de origen viaja con el contorno: el panel vivo rehace la LINEA
+  // sobre la UNION, no sobre el contorno ya corrido.
+  let formaOrigen = null;
+  try { formaOrigen = union.clone({ insert: false }); formaOrigen.applyMatrix = true; } catch (_) {}
+  union.remove?.();
   const pieza = new paper.CompoundPath({ insert: false });
   pieza.applyMatrix = false;
   pieza.matrix = new paper.Matrix();
   pieza.fillRule = "evenodd";
-  const volcado = volcarGeometria(pieza, band, {
-    width, side: control.side, radius: Number(control.radius) || 0,
-    smoothing: Number(control.smoothing) || 0, scope: control.scope, apply: control.apply
-  });
-  if (!volcado) { union.remove?.(); return null; }
-  volcado.fillColor = new paper.Color(CONTOUR_COLOR);
-  volcado.strokeColor = null;
-  volcado.strokeWidth = 0;
-  // La forma original del contorno de union es la UNION misma: con ella el
-  // panel vivo puede rehacer la banda y el toggle puede devolver la union.
-  const snapshot = union.clone({ insert: false });
-  try { snapshot.applyMatrix = true; } catch (_) {}
-  union.remove?.();
-  volcado.data = {
+  (linea.children || []).map(c => c.clone({ insert: false })).forEach(c => pieza.addChild(c));
+  linea.remove?.();
+  pieza.fillColor = null;
+  pieza.strokeColor = new paper.Color(CONTOUR_COLOR);
+  pieza.strokeWidth = width;
+  pieza.data = {
     locked: false,
     label: "Contorno de la union",
     source: "vector-outline",
@@ -2019,22 +2324,27 @@ function crearContornoUnion(owners, control) {
     outlineSmoothing: Number(control.smoothing) || 0,
     outlineSide: control.side,
     outlineScope: control.scope || "all",
-    outlineApply: control.apply === "pieces" ? "pieces" : "together"
+    outlineApply: control.apply === "pieces" ? "pieces" : "together",
+    outlineOrigen: formaOrigen,
+    outlineEspecie: "vector"
   };
-  try { window.ensureContainedDesignItem?.(volcado); } catch (_) {}
-  if (volcado.parent === null) {
-    (paper.project.activeLayer || paper.project.layers[0]).addChild(volcado);
-    if (window.currentMockup) volcado.insertBelow(window.currentMockup);
+  try { window.ensureContainedDesignItem?.(pieza); } catch (_) {}
+  if (pieza.parent === null) {
+    (paper.project.activeLayer || paper.project.layers[0]).addChild(pieza);
+    if (window.currentMockup) pieza.insertBelow(window.currentMockup);
   }
   try {
-    const inversa = volcado.globalMatrix?.inverted?.();
-    if (inversa) snapshot.transform(inversa);
-    snapshot.applyMatrix = false;
-    snapshot.matrix = new paper.Matrix();
+    const inversa = pieza.globalMatrix?.inverted?.();
+    if (inversa) pieza.data.outlineOrigen.transform(inversa);
   } catch (_) {}
-  volcado.data = { ...(volcado.data || {}), geomBase: snapshot, outlineSourceGeomBase: snapshot };
-  window.syncGeometryToGeomBase?.(volcado);
-  return volcado;
+  const snapshot = formaOrigen?.clone({ insert: false }) || null;
+  if (snapshot) {
+    try { snapshot.applyMatrix = true; } catch (_) {}
+    pieza.data.geomBase = snapshot;
+    pieza.data.outlineSourceGeomBase = snapshot;
+  }
+  window.syncGeometryToGeomBase?.(pieza);
+  return pieza;
 }
 
 /* ------------------------------------------------------------------
@@ -2076,67 +2386,82 @@ function capsulaLoopDeLinea(linea, control) {
 function crearContornoLinea(linea, control) {
   const owner = ownerOf(linea);
   if (!owner) return null;
-  // REGENERAR, NUNCA DUPLICAR: si esta linea ya tiene capsula, la vieja se
-  // reemplaza por la nueva.
+  // REGENERAR, NUNCA DUPLICAR: si esta linea ya tiene contorno, el viejo se
+  // reemplaza por el nuevo.
   const clave = owner?.id;
   const vinculo = vinculoDeOrigen(owner);
   if (vinculo?.contorno?.parent) {
     try { vinculo.contorno.remove(); } catch (_) {}
     if (clave !== undefined && clave !== null) VINCULOS.delete(clave);
   }
-  const loop = capsulaLoopDeLinea(owner, control);
-  if (!loop || loop.length < 3) return null;
-  const shape = new paper.Path({ segments: loop, closed: true, insert: false });
+  /* LINEA DE CORTE = LINEA TAMBIEN: el contorno de una linea de corte es su
+     propio eje corrido por la Separacion (trazo de un solo lomo). La capsula
+     rellena de antes queda solo si la linea no da puntos. */
+  const ejeDeLaLinea = () => {
+    try {
+      const largo = Number(owner.length) || 0;
+      if (!(largo > 0)) return null;
+      const matriz = owner.globalMatrix || null;
+      const pasos = Math.max(6, Math.min(900, Math.ceil(largo / 2)));
+      const puntos = [];
+      for (let i = 0; i <= pasos; i += 1) {
+        const p = owner.getPointAt((i / pasos) * largo);
+        if (p) puntos.push(matriz ? p.transform(matriz) : p);
+      }
+      if (puntos.length < 3) return null;
+      const desp = desplazamientoDeLinea(control);
+      const corridos = Math.abs(desp) > 1e-9 ? offsetDeLinea(puntos, desp) : null;
+      return corridos && corridos.length >= 3 ? corridos : puntos;
+    } catch (_) { return null; }
+  };
+  let puntos = ejeDeLaLinea();
+  if (!puntos || puntos.length < 3) {
+    const loop = capsulaLoopDeLinea(owner, control);
+    if (!loop || loop.length < 3) return null;
+    puntos = loop;
+  }
+  const width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
+  const shape = new paper.Path({ segments: puntos, closed: false, insert: false });
   const contorno = new paper.CompoundPath({ insert: false });
   contorno.applyMatrix = false;
   contorno.matrix = new paper.Matrix();
   contorno.fillRule = "evenodd";
-  const volcado = volcarGeometria(contorno, shape, {
-    width: Math.max(1, Math.abs(Number(control.width) || 0) || 1),
-    side: control.side, radius: Number(control.radius) || 0,
-    smoothing: Number(control.smoothing) || 0, scope: control.scope
-  });
-  if (!volcado) return null;
-  volcado.fillColor = new paper.Color(CONTOUR_COLOR);
-  volcado.strokeColor = null;
-  volcado.strokeWidth = 0;
-  volcado.data = {
+  contorno.addChild(shape);
+  contorno.fillColor = null;
+  contorno.strokeColor = new paper.Color(CONTOUR_COLOR);
+  contorno.strokeWidth = width;
+  contorno.data = {
     locked: false,
     label: "Contorno de linea de corte",
     source: "cutline-outline",
+    isOutline: true,
     isSolidShape: true,
     isFusionReceptor: true,
     semanticKind: VECTOR_KIND.SOLID,
-    outlineWidth: Math.max(1, Math.abs(Number(control.width) || 0) || 1),
+    outlineWidth: width,
     outlineRadius: Number(control.radius) || 0,
     outlineSmoothing: Number(control.smoothing) || 0,
     outlineSide: control.side,
-    outlineScope: control.scope || "all",
+    outlineScope: control.scope || "outer",
     outlineApply: control.apply === "pieces" ? "pieces" : "together"
   };
-  try { window.ensureContainedDesignItem?.(volcado); } catch (_) {}
-  if (volcado.parent === null) {
-    (paper.project.activeLayer || paper.project.layers[0]).addChild(volcado);
-    if (window.currentMockup) volcado.insertBelow(window.currentMockup);
+  try { window.ensureContainedDesignItem?.(contorno); } catch (_) {}
+  if (contorno.parent === null) {
+    (paper.project.activeLayer || paper.project.layers[0]).addChild(contorno);
+    if (window.currentMockup) contorno.insertBelow(window.currentMockup);
   }
-  window.syncGeometryToGeomBase?.(volcado);
+  window.syncGeometryToGeomBase?.(contorno);
   if (clave !== undefined && clave !== null) {
-    VINCULOS.set(clave, { contorno: volcado, origen: owner });
+    VINCULOS.set(clave, { contorno, origen: owner });
   }
-  return volcado;
+  return contorno;
 }
 
-/** Rehace EN SU LUGAR la capsula de una linea de corte (panel vivo). */
+/** Rehace EN SU LUGAR el contorno de una linea de corte (panel vivo). */
 function reconstruirContornoLinea(contorno, origen, control) {
   if (!contorno?.parent || !origen) return null;
-  const loop = capsulaLoopDeLinea(origen, control);
-  if (!loop || loop.length < 3) return null;
-  const shape = new paper.Path({ segments: loop, closed: true, insert: false });
-  return volcarGeometria(contorno, shape, {
-    width: Math.max(1, Math.abs(Number(control.width) || 0) || 1),
-    side: control.side, radius: Number(control.radius) || 0,
-    smoothing: Number(control.smoothing) || 0, scope: control.scope, apply: control.apply
-  });
+  try { contorno.remove?.(); } catch (_) {}
+  return crearContornoLinea(origen, control);
 }
 
 /* ------------------------------------------------------------------
@@ -2159,6 +2484,23 @@ function reconstruirContornoLinea(contorno, origen, control) {
 const CONTROL_POR_DEFECTO = Object.freeze({
     width: 1, radius: 0, smoothing: 0, side: "center", scope: "all", apply: "together"
 });
+
+/** STANDARD DEL CONTORNO POR ESPECIE (regla fija, nunca un default suelto):
+ *   imagen (raster)   -> solo BORDE EXTERIOR ("outer").
+ *   texto / vector    -> BORDE + HUECOS ("all"): A, O, R y las letras con
+ *                        hueco tienen que conservarlo, como en LightBurn.
+ *  Se aplica cuando el cliente NO eligio otro alcance en el panel; una vez
+ *  que elige, manda su eleccion (scope explicitado en ultimoControl). */
+function alcanceEstandar(control, especie) {
+    if (control?.scopeExplicito) return control.scope;
+    return especie === "raster" ? "outer" : "all";
+}
+function alcanceConOpciones(control, especie, options) {
+    if (options && Object.prototype.hasOwnProperty.call(options, "scope") && options.scope) {
+        return options.scope;
+    }
+    return alcanceEstandar(control, especie);
+}
 let ultimoControl = null;
 
 function controlDelPanel() {
@@ -2171,12 +2513,16 @@ function controlDelPanel() {
         const v = document.getElementById(id)?.value;
         return valores.includes(v) ? v : null;
     };
+    const scope = txt("ctxOutlineScope", ["all", "outer", "holes"]);
     return {
         width: num("ctxOutlineWidth"),
         radius: num("ctxOutlineRadius"),
         smoothing: num("ctxOutlineSmoothing"),
         side: txt("ctxOutlineSide", ["center", "outside", "inside"]),
-        scope: txt("ctxOutlineScope", ["all", "outer", "holes"]),
+        scope,
+        // Si el desplegable existe en pantalla, su valor ES la eleccion del
+        // cliente: ahi manda sobre el estandar por especie.
+        scopeExplicito: scope !== null,
         apply: txt("ctxOutlineApply", ["together", "pieces"])
     };
 }
@@ -2210,13 +2556,18 @@ function readOutlineControls() {
             const v = capa[clave];
             if (v !== null && v !== undefined) control[clave] = v;
         });
+        if (capa.scopeExplicito) control.scopeExplicito = true;
     });
     control.width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
-    control.radius = Math.max(0, Number(control.radius) || 0);
+    // SEPARACION CON SIGNO: en modo linea es un desplazamiento (positivo =
+    // hacia afuera, negativo = hacia adentro), como Offset Distance de
+    // LightBurn. La Posicion decide el lado cuando se elige Exterior/Interior.
+    control.radius = Number(control.radius) || 0;
     control.smoothing = Math.max(0, Number(control.smoothing) || 0);
     if (!["center", "outside", "inside"].includes(control.side)) control.side = "center";
     if (!["all", "outer", "holes"].includes(control.scope)) control.scope = "all";
     if (!["together", "pieces"].includes(control.apply)) control.apply = "together";
+    control.scopeExplicito = control.scopeExplicito === true;
     ultimoControl = { ...control };
     return control;
 }
@@ -2267,6 +2618,13 @@ export async function aplicarContorno(items = null, options = {}) {
     else if (item) results.push(item);
   };
   const controles = { ...readOutlineControls(), ...options };
+  // STANDARD POR ESPECIE: imagen = solo borde exterior; vector/texto = borde
+  // + huecos. Se resuelve en cada boca, salvo que el cliente haya elegido un
+  // alcance en el panel (ahi manda su eleccion) o que el llamador lo fije.
+  const conEstandar = (controlesBase, especie) => ({
+    ...controlesBase,
+    scope: alcanceConOpciones(controlesBase, especie, options)
+  });
   // Los GRUPOS se desarmen para el calculo: la silueta de un grupo es la
   // silueta de sus piezas (junta o por pieza, segun el control Aplicar a).
   const targets = [];
@@ -2308,10 +2666,11 @@ export async function aplicarContorno(items = null, options = {}) {
         // re-contornea un contorno (eso lo destruia y dejaba un anillo basura
         // de fragmentos, medido en la auditoria).
         if (owner.data?.source === "image-outline") {
-          const regenerado = regenerarContorno(owner, controles);
+          const regenerado = regenerarContorno(owner, conEstandar(controles, "raster"));
           if (regenerado) { pushPlano(regenerado); continue; }
         }
         const species = especieResuelta(owner);
+        const propios = conEstandar(controles, species);
         if (species === "raster") {
           // REGENERAR, NUNCA DUPLICAR: si esta pieza ya tiene contorno vivo,
           // se rehace ESE contorno con los valores actuales del panel y no se
@@ -2323,17 +2682,17 @@ export async function aplicarContorno(items = null, options = {}) {
           // aunque el cliente pido "Por pieza": se crea la banda propia, que
           // ademas retira la union vieja.
           if (vinculo?.contorno?.parent && !(vinculo.origenes && vinculo.origenes.length > 1)) {
-            const regenerado = regenerarContorno(vinculo.contorno, controles);
+            const regenerado = regenerarContorno(vinculo.contorno, propios);
             if (regenerado) { pushPlano(regenerado); continue; }
           }
           // El borde exterior de la imagen. La app decide de donde sale: la caja
           // si esta llena, su silueta real si viene recortada. El cliente solo
           // aprieta Contorno. Trazar es OTRA herramienta y no se llama desde aca.
-          const rect = createRasterBorderContour(owner, controles);
+          const rect = createRasterBorderContour(owner, propios);
           if (rect) pushPlano(rect);
         } else if (species === "line") {
           // Linea de corte: capsula cerrada como pieza nueva.
-          const capsula = crearContornoLinea(owner, controles);
+          const capsula = crearContornoLinea(owner, propios);
           if (capsula) pushPlano(capsula);
         } else if (species === "text") {
           if (typeof window.convertTextToVector !== "function") continue;
@@ -2341,10 +2700,10 @@ export async function aplicarContorno(items = null, options = {}) {
           // de engrosarlo, o se engrosa una Promise y no pasa nada.
           const converted = await window.convertTextToVector(owner);
           if (!converted) continue;
-          const contoured = vectorContour(converted);
+          const contoured = vectorContour(converted, propios);
           pushPlano(contoured);
         } else {
-          const contoured = vectorContour(owner);
+          const contoured = vectorContour(owner, propios);
           pushPlano(contoured);
         }
       }
@@ -2360,8 +2719,8 @@ export async function aplicarContorno(items = null, options = {}) {
         const esUnionDeEstas = !!(propio?.origenes && propio.origenes.length > 1
           && targets.every(t => propio.origenes.includes(t)));
         const banda = esUnionDeEstas && propio?.contorno?.parent
-          ? regenerarContorno(propio.contorno, controles)
-          : crearContornoDeImagenes(targets, controles);
+          ? regenerarContorno(propio.contorno, conEstandar(controles, "raster"))
+          : crearContornoDeImagenes(targets, conEstandar(controles, "raster"));
         // Sin silueta comun (p. ej. dos JPG opacos: la union es todo rectangulo)
         // no hay banda que unir: se aplica por pieza, que si da.
         if (banda) pushPlano(banda);
@@ -2379,10 +2738,10 @@ export async function aplicarContorno(items = null, options = {}) {
           }
         }
         if (efectivos.length > 1) {
-          const pieza = crearContornoUnion(efectivos, controles);
+          const pieza = crearContornoUnion(efectivos, conEstandar(controles, "vector"));
           if (pieza) pushPlano(pieza);
         } else if (efectivos.length === 1) {
-          pushPlano(vectorContour(efectivos[0]));
+          pushPlano(vectorContour(efectivos[0], conEstandar(controles, "vector")));
         }
       }
     } else await porPieza();
