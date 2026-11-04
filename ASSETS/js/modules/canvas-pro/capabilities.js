@@ -529,6 +529,11 @@ export const TOOLS = {
     },
   traceImage:    { label: "Trazar Imagen", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.RASTER) },
 
+  // --- Profundidad: efecto 3D sobre una o varias imágenes. Silueta viva +
+  //     contraste local alto + nitidez — el cliente ve la foto como quedará
+  //     grabada. No depende del fondo ni del recorte.
+  depthPhoto:    { label: "Profundidad", active: s => s.count >= 1 && s.list.length >= 1 && s.list.every(it => it.species === SPECIES.RASTER) },
+
   // --- Editar Fondo: el pincel de retoque (borrar / restaurar).
   //     Segundo escalon de la piramide: solo existe si el fondo YA se quito.
   //     No basta con que sea un Raster: tiene que ser un recorte con la marca
@@ -642,6 +647,7 @@ const ENGINE_TO_LEGACY = Object.freeze({
   fusion: ["fusion"],
   removeBg: ["removeBg"],
   traceImage: ["traceImage"],
+  depthPhoto: ["depthPhoto"],
   editCutout: ["editCutout"],
   textToVector: ["textToVector"],
   zoom: ["zoom"],
