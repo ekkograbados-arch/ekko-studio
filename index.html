@@ -709,6 +709,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="editFusionImage" class="btn-action" onclick="enterFusionEditMode()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-editar-imagen"></use></svg> Editar Imagen
                 </button>
+                <button data-fusion-btn="depthPhoto" class="btn-action" title="Dar profundidad (efecto 3D) a la imagen seleccionada — silueta viva, contraste local y nitidez del grabado" onclick="window.ekkoAplicarProfundidad ? window.ekkoAplicarProfundidad() : window.ekkoNotice && window.ekkoNotice('Cargá una imagen primero.', { kind: 'warn' })">
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-profundidad"></use></svg> Profundidad
+                </button>
             </div>
 
             <div class="top-group">
