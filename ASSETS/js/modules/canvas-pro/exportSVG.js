@@ -313,9 +313,9 @@ function resolucionHorneado(anchoPts, altoPts) {
    SIEMPRE sobre un canvas NUEVO: el clone de un Raster comparte el canvas
    del original, y editarlos in situ mancharía el lienzo vivo del usuario.
    Cada pixel lejano a la opacidad queda transparente: alfa intacta. */
-function aplicarFiltroGrises(capa) {
+function aplicarFiltroGrises(capa, cfgOverride) {
     if (!capa || typeof document === "undefined") return;
-    const cfg = leerFiltroGrises();
+    const cfg = cfgOverride || leerFiltroGrises();
     const lut = construirLUTGris(cfg);
     const pesos = (Array.isArray(cfg.luminancia) && cfg.luminancia.length === 3) ? cfg.luminancia : [0.2126, 0.7152, 0.0722];
     const clipN = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipNegroPct)) ? cfg.autoNiveles.clipNegroPct : 1)) / 100;
@@ -1854,4 +1854,78 @@ if (typeof window !== "undefined") {
     // Filtro de grises EKKO-GRIS-v2 para el editor (al entrar fotos).
     window.ekkoAplicarFiltroGrises = aplicarFiltroGrises;
     window.ekkoGrisConfig = leerFiltroGrises;
+    /* PROFUNDIDAD (efecto 3D) sobre la imagen seleccionada en el lienzo: el
+       cliente la ve como quedaría grabada — silueta viva, contraste local
+       alto, nítida. Usa el mismo motor del export, solo con un perfil más
+       fuerte (profundidad 0.85 y nitidez 1.2) y resolución mayor. */
+    window.ekkoAplicarProfundidad = function (params = {}) {
+        try {
+            if (typeof paper === "undefined" || !paper.project) return false;
+            if (typeof window.saveHistory === "function") window.saveHistory();
+            const seleccion = Array.isArray(window.selectedItems) ? window.selectedItems.slice() : [];
+            const rasters = [];
+            const recolectar = (item) => {
+                if (!item) return;
+                if (item instanceof paper.Raster) { rasters.push(item); return; }
+                if (item.children) item.children.forEach(recolectar);
+            };
+            seleccion.forEach(recolectar);
+            if (!rasters.length) {
+                const activa = paper.project.activeLayer;
+                if (activa && activa.getItems) {
+                    activa.getItems({ match: it => it instanceof paper.Raster && it.data?.mockup !== true })
+                        .forEach(it => rasters.push(it));
+                }
+            }
+            const viables = rasters.filter(r => {
+                if (!r || !r.bounds) return false;
+                let p = r;
+                while (p) {
+                    if (p.data?.mockup === true || (window.currentMockup && p.id === window.currentMockup.id)) return false;
+                    p = p.parent;
+                }
+                return r.width > 0 && r.height > 0;
+            });
+            if (!viables.length) {
+                notice("Seleccioná una imagen primero.", { kind: "warn" });
+                return false;
+            }
+            const cfgBase = leerFiltroGrises();
+            const cfgFuerte = Object.assign({}, cfgBase, {
+                calidad: Object.assign({},
+                    EKKO_GRIS_DEFAULT.calidad,
+                    cfgBase.calidad || {},
+                    { profundidad: 0.85, nitidez: 1.2, objetivoLado: 2400 })
+            });
+            const capaTemp = new paper.Layer({ name: "__ekkoProfundidad" });
+            viables.forEach(r => {
+                try { capaTemp.addChild(r); } catch (_) {}
+            });
+            try {
+                aplicarFiltroGrises(capaTemp, cfgFuerte);
+                const dl = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
+                if (dl) {
+                    // Devolver los rasters filtrados al diseño y descartar la capa temporal vacía.
+                    while (capaTemp.children.length) dl.addChild(capaTemp.children[0]);
+                }
+            } finally {
+                try { capaTemp.remove(); } catch (_) {}
+            }
+            // re-seleccionar los rasters ya filtrados (misma referencia que quedó en el diseño)
+            try {
+                const dl = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
+                if (dl) window.selectedItems = dl.children.slice().filter(c => {
+                    if (c instanceof paper.Raster) return c.data?.mockup !== true;
+                    if (c.className === "Group") return c.children.some(ch => ch instanceof paper.Raster && ch.data?.mockup !== true);
+                    return false;
+                });
+            } catch (_) {}
+            try { if (paper.view) paper.view.update(); } catch (_) {}
+            notice("Profundidad aplicada.", { kind: "ok" });
+            return true;
+        } catch (e) {
+            if (typeof console !== "undefined" && console.warn) console.warn("[EKKO PROFUNDIDAD]", e);
+            return false;
+        }
+    };
 }
