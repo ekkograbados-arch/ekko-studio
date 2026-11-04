@@ -1565,7 +1565,7 @@ export function addImageFromFile(file, pointOrOptions = null) {
     };
     reader.onload = (e) => {
       try {
-        const raster = new paper.Raster({ source: e.target.result });
+        let raster = new paper.Raster({ source: e.target.result });
         raster.onLoad = () => {
           try {
             if (window.paper && paper.project) {
@@ -1578,6 +1578,11 @@ export function addImageFromFile(file, pointOrOptions = null) {
             const size = Math.min(area.width, area.height) * 0.5;
             if (raster.width > 0) raster.scale(size / raster.width);
             raster.position = importTargetPoint(options.point, area);
+            // MEJORA automática al importar: densidad (300 dpi) + definición.
+            // Color intacto — el look de grabado NO entra acá, es del export.
+            if (typeof window.ekkoPrepararFotoImportada === "function") {
+              try { raster = window.ekkoPrepararFotoImportada(raster, { dpi: 300 }) || raster; } catch (_) {}
+            }
             const objeto = window.clipItem ? window.clipItem(raster) : raster;
             if (window.currentMockup) objeto.insertBelow(window.currentMockup);
             window.selectItem(objeto);
