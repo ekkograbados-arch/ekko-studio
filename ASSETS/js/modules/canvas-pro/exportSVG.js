@@ -1907,7 +1907,7 @@ if (typeof window !== "undefined") {
                 calidad: Object.assign({},
                     EKKO_GRIS_DEFAULT.calidad,
                     cfgBase.calidad || {},
-                    { profundidad: 0.85, nitidez: 1.2, objetivoLado: 2400 })
+                    { profundidad: 0.50, nitidez: 0.70, objetivoLado: 1200 })
             });
             const capaTemp = new paper.Layer({ name: "__ekkoProfundidad" });
             viables.forEach(r => {
