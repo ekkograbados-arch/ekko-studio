@@ -749,6 +749,13 @@ export function initContextualMenu() {
         duplicateSelectedItem();
     });
 
+    // EXPORTAR SELECCIÓN: PNG con apilado respetado + DPI a elección.
+    // El PNG sale con el look del modo activo (Color o Láser). También
+    // existe Ctrl+Shift+C, que copia directo al portapapeles.
+    setClick('btnCtxExportSel', () => {
+        try { if (typeof window.ekkoExportarSeleccionUI === 'function') window.ekkoExportarSeleccionUI(); } catch (_) {}
+    });
+
     setClick('btnCtxToFront', () => {
         if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
             window.exitNodeEditMode(false);
