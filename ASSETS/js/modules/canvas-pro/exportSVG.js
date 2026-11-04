@@ -502,23 +502,44 @@ function prepararFotoImportada(raster, opciones) {
         }
         const W = lienzo.width, H = lienzo.height;
         const ctx2 = lienzo.getContext("2d");
+        // NORMALIZACIÓN del borde ampliado: la interpolación del escalado
+        // ensancha los flecos del recorte y deja COLOR RESIDUAL en píxeles
+        // casi transparentes — eso era lo que se veía como "puntitos
+        // blancos" alrededor de la silueta sobre el lienzo. En fotos para
+        // grabado todo es opaco: alfa >= 128 pasa a 255; abajo — vacío
+        // total con color a 0. Las fotos JPEG (sin alfa) no cambian nada.
+        if (wT !== ancho || hT !== alto) {
+            let datosA;
+            try { datosA = ctx2.getImageData(0, 0, W, H); } catch (_) { return null; }
+            const pA = datosA.data;
+            for (let i = 0; i < pA.length; i += 4) {
+                if (pA[i + 3] >= 128) pA[i + 3] = 255;
+                else { pA[i] = 0; pA[i + 1] = 0; pA[i + 2] = 0; pA[i + 3] = 0; }
+            }
+            ctx2.putImageData(datosA, 0, 0);
+        }
         let datos;
         try { datos = ctx2.getImageData(0, 0, W, H); } catch (_) { return null; }
         const px = datos.data;
         const N = W * H;
-        // plano de luminancia + máscara de vida (px con alfa participan
-        // del realce; los vacíos no se tocan)
+        // plano de luminancia + máscara de vida. SOLO se realcea lo
+        // sólidamente visible (alfa >= 128): los flecos del recorte
+        // (alfa parcial) JAMÁS se tocan — realcearlos salpicaba puntos
+        // claros alrededor de la silueta. Los vacíos entran a los
+        // desenfoques como gris neutro.
         const luma = new Float32Array(N);
         const vivo = new Uint8Array(N);
         const neutral = new Float32Array(N);
         for (let i = 0, k4 = 0; i < px.length; i += 4, k4++) {
-            if (px[i + 3] === 0) continue;
+            if (px[i + 3] < 128) continue;
             vivo[k4] = 1;
             const l = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
             luma[k4] = l; neutral[k4] = l;
         }
         for (let k4 = 0; k4 < N; k4++) if (!vivo[k4]) neutral[k4] = 128;
-        // 2) definición por dos escalas (radios sobre la imagen final)
+        // 2) definición por dos escalas (radios sobre la imagen final).
+        //    Fuerzas moderadas y delta ACOTADO: más definición sin los
+        //    puntitos claros del ringing en bordes y zonas blancas.
         const ladoMin = Math.min(W, H);
         const rMid = Math.max(3, Math.round(ladoMin / 85));
         const rFino = Math.max(1, Math.round(ladoMin / 450));
@@ -526,7 +547,8 @@ function prepararFotoImportada(raster, opciones) {
         const baseFino = desenfoqueRealce(neutral, W, H, rFino);
         for (let k4 = 0; k4 < N; k4++) {
             if (!vivo[k4]) continue;
-            const d = 0.5 * (luma[k4] - baseMid[k4]) + 0.85 * (luma[k4] - baseFino[k4]);
+            let d = 0.4 * (luma[k4] - baseMid[k4]) + 0.55 * (luma[k4] - baseFino[k4]);
+            if (d > 30) d = 30; else if (d < -30) d = -30;
             const i = k4 * 4;
             px[i] = Math.max(0, Math.min(255, Math.round(px[i] + d)));
             px[i + 1] = Math.max(0, Math.min(255, Math.round(px[i + 1] + d)));
