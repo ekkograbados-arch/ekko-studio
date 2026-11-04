@@ -452,6 +452,119 @@ function aplicarFiltroGrises(capa, cfgOverride) {
     });
 }
 
+/* PREPARACIÓN DE FOTOS AL IMPORTAR (mejora de calidad automática): toda
+   foto que entra al editor queda lista para el grabado — SIN recortar NI
+   agrandar el encuadre — con dos pasos:
+     1) DENSIDAD: si la foto tiene menos píxeles que los que su tamaño
+        visual en el diseño necesita a 300 dpi, se amplía con la escalera
+        progresiva (hasta el presupuesto de 16 MP); si ya alcanza, se
+        respeta la resolución original.
+     2) DEFINICIÓN: unsharp por dos escalas sobre la LUMINANCIA (media
+        "definición" + micro-fina) — el COLOR queda intacto (delta común
+        por canal, sin saturar ni recolorear). Al hacer zoom en la cara
+        se ve la definición mejorada, exactamente lo que pide el cliente.
+   La máscara vivo separa píxeles reales de los transparentes: los vacíos
+   entran a los desenfoques como gris neutro y JAMÁS se escriben.
+   Si el raster tiene padre, se reemplaza en el mismo lugar conservando
+   escala/posición; sin padre solo devuelve el raster nuevo (flujo de
+   importación, donde el editor lo inserta después). */
+function prepararFotoImportada(raster, opciones) {
+    if (!raster || typeof document === "undefined") return null;
+    try {
+        const dpi = Math.max(96, Math.min(600, Number(opciones && opciones.dpi) || 300));
+        const fuente = raster.image || raster.canvas || null;
+        const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
+        if (!fuente || ancho < 1 || alto < 1) return null;
+        // 1) densidad objetivo: tamaño visual en el mundo (pts) → px a dpi.
+        //    El importador escala el raster ANTES de llamar acá, así que
+        //    bounds trae el tamaño real; sin bounds uso la escala 1:1.
+        let ladoPts = Math.max(ancho, alto);
+        try {
+            const b = raster.bounds;
+            if (b && isFinite(b.width) && b.width > 0) ladoPts = Math.max(b.width, b.height);
+        } catch (_) {}
+        let f = ((ladoPts / 72) * dpi) / Math.max(1, ancho);
+        if (f < 1) f = 1;
+        if (ancho * f * alto * f > 16000000) f = Math.sqrt(16000000 / (ancho * alto));
+        const wT = Math.round(ancho * f), hT = Math.round(alto * f);
+        // SIEMPRE canvas nuevo: el original puede compartir pixels con
+        // clones del editor; editarlo in situ mancharía el lienzo vivo.
+        let lienzo = null;
+        if (wT >= ancho * 2) {
+            lienzo = ampliacionSuave(fuente, ancho, alto, wT, hT);
+        }
+        if (!lienzo) {
+            lienzo = document.createElement("canvas");
+            lienzo.width = wT; lienzo.height = hT;
+            const cx = lienzo.getContext("2d");
+            cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high";
+            try { cx.drawImage(fuente, 0, 0, wT, hT); } catch (_) { return null; }
+        }
+        const W = lienzo.width, H = lienzo.height;
+        const ctx2 = lienzo.getContext("2d");
+        let datos;
+        try { datos = ctx2.getImageData(0, 0, W, H); } catch (_) { return null; }
+        const px = datos.data;
+        const N = W * H;
+        // plano de luminancia + máscara de vida (px con alfa participan
+        // del realce; los vacíos no se tocan)
+        const luma = new Float32Array(N);
+        const vivo = new Uint8Array(N);
+        const neutral = new Float32Array(N);
+        for (let i = 0, k4 = 0; i < px.length; i += 4, k4++) {
+            if (px[i + 3] === 0) continue;
+            vivo[k4] = 1;
+            const l = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+            luma[k4] = l; neutral[k4] = l;
+        }
+        for (let k4 = 0; k4 < N; k4++) if (!vivo[k4]) neutral[k4] = 128;
+        // 2) definición por dos escalas (radios sobre la imagen final)
+        const ladoMin = Math.min(W, H);
+        const rMid = Math.max(3, Math.round(ladoMin / 85));
+        const rFino = Math.max(1, Math.round(ladoMin / 450));
+        const baseMid = desenfoqueRealce(neutral, W, H, rMid);
+        const baseFino = desenfoqueRealce(neutral, W, H, rFino);
+        for (let k4 = 0; k4 < N; k4++) {
+            if (!vivo[k4]) continue;
+            const d = 0.5 * (luma[k4] - baseMid[k4]) + 0.85 * (luma[k4] - baseFino[k4]);
+            const i = k4 * 4;
+            px[i] = Math.max(0, Math.min(255, Math.round(px[i] + d)));
+            px[i + 1] = Math.max(0, Math.min(255, Math.round(px[i + 1] + d)));
+            px[i + 2] = Math.max(0, Math.min(255, Math.round(px[i + 2] + d)));
+        }
+        ctx2.putImageData(datos, 0, 0);
+        // 3) reemplazo fiel: misma escala visual (matriz / k) y posición
+        const filtrado = new paper.Raster({ canvas: lienzo, insert: false });
+        try {
+            const orig = raster.matrix?.clone?.() || null;
+            const a = orig && isFinite(orig.a) ? orig.a : 1;
+            const b = orig && isFinite(orig.b) ? orig.b : 0;
+            const c = orig && isFinite(orig.c) ? orig.c : 0;
+            const d = orig && isFinite(orig.d) ? orig.d : 1;
+            const k = W / ancho;
+            filtrado.applyMatrix = false;
+            filtrado.matrix = new paper.Matrix(a / k, b / k, c / k, d / k, 0, 0);
+            let ce = null, cf = null;
+            const bo = raster.bounds || null;
+            if (bo && isFinite(bo.x)) { ce = bo.x + bo.width / 2; cf = bo.y + bo.height / 2; }
+            if (ce === null || !isFinite(ce)) {
+                const p = raster.position;
+                if (p && isFinite(p.x)) { ce = p.x; cf = p.y; }
+            }
+            if (isFinite(ce)) filtrado.position = new paper.Point(ce, cf);
+        } catch (_) {}
+        const padre = raster.parent || null;
+        if (padre) {
+            const idx = raster.index;
+            raster.remove();
+            padre.insertChild(idx, filtrado);
+        }
+        return filtrado;
+    } catch (_) {
+        return null;
+    }
+}
+
 /* Máscara de silueta a canvas (blanco = visible, transparente = fuera del
    producto). Base = el contorno más grande; cada contorno menor contenido
    en él = hueco (destination-out). Se dibuja Path por Path porque el
@@ -1866,4 +1979,6 @@ if (typeof window !== "undefined") {
     // Filtro de grises EKKO-GRIS-v2 para el editor (al entrar fotos).
     window.ekkoAplicarFiltroGrises = aplicarFiltroGrises;
     window.ekkoGrisConfig = leerFiltroGrises;
+    // Mejora automática al importar (densidad 300 dpi + definición).
+    window.ekkoPrepararFotoImportada = prepararFotoImportada;
 }
