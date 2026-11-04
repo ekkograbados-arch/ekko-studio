@@ -165,7 +165,14 @@ export const PARAM_SPECS = Object.freeze({
                     { valor: "together", etiqueta: "Todo junto", ayuda: "Un solo contorno alrededor de la silueta de toda la selección." },
                     { valor: "pieces", etiqueta: "Por pieza", ayuda: "Un contorno individual por cada objeto seleccionado." }
                 ],
-                disponible: () => typeof window.aplicarContorno === "function"
+                // Con una sola pieza "Todo junto" y "Por pieza" dibujan lo
+                // mismo: el boton era ruido y hacia dudar al cliente. El
+                // recuento lo da el motor (Grupo desarmado, Banda devuelta a
+                // sus piezas), asi que panel y motor no pueden discrepar.
+                disponible: () => typeof window.aplicarContorno === "function" &&
+                    (typeof window.EKKO?.contornoPiezas === "function"
+                        ? window.EKKO.contornoPiezas() > 1
+                        : true)
             },
             {
                 id: "posicion", grupo: "Posición", etiqueta: "",
@@ -750,6 +757,19 @@ export function initParametros() {
     // se quedaria colgando fuera de la pantalla al rotar una tablet.
     window.addEventListener("resize", () => {
         if (superficie && superficie.style.display !== "none") colocar(superficie, false);
+    });
+
+    // El panel se pinta con la seleccion que habia al abrirlo. Hay controles
+    // cuyo disponible() depende de CUANTAS piezas hay (Aplicar a), asi que si
+    // el cliente cambia la seleccion con el panel abierto hay que repintar; si
+    // no, el boton aparece o desaparece con retraso y miente.
+    document.addEventListener("ekko:seleccion-cambio", () => {
+        if (!comandoAbierto) return;
+        setTimeout(() => {
+            if (comandoAbierto && superficie && superficie.style.display !== "none") {
+                pintar(comandoAbierto, false);
+            }
+        }, 0);
     });
 
     Object.keys(PARAM_SPECS).forEach(comando => {
