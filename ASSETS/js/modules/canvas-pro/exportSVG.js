@@ -337,6 +337,13 @@ function aplicarFiltroGrises(capa, cfgOverride) {
     rasters.forEach(raster => {
         try {
             if (delMockup(raster)) return;
+            // REGLA DEL DUEÑO (descargas según modo activo): el filtro de
+            // grabado corre SOLO en Modo Láser — en Modo Color todo sale con
+            // los colores originales. Y un raster YA vestido (data.ekkoModoColor
+            // del modo activo) ya ES el look final: no se re-toca, así el
+            // realce nunca se acumula en una segunda pasada.
+            if (!modoLaserActivo) return;
+            if (raster.data?.ekkoModoColor) return;
             const fuente = raster.image || raster.canvas || null;
             const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
             if (!fuente || ancho < 1 || alto < 1) return;
@@ -587,6 +594,495 @@ function prepararFotoImportada(raster, opciones) {
     }
 }
 
+/* =========================================================================
+   MODO LÁSER — modo de EDICIÓN (no simulación, no ventana)
+
+   El dueño lo definió así: el láser es UNA FORMA DE EDITAR. Al entrar, SOLO
+   las imágenes del diseño cambian a su look de grabado (la misma curva que
+   usa la exportación: auto-niveles + tabla de tonos DR_bn + realce de
+   calidad). Vectores y textos no se tocan (graban negros de fábrica) y el
+   mockup queda tal cual está en el lienzo. Editar en vivo queda INSTANTÁNEO
+   porque nada se re-renderiza: cada foto se "viste" UNA vez al entrar —
+   mismo tamaño de píxeles, solo cambia el color— y al salir se restaura su
+   color original guardado por dentro.
+
+   Garantías:
+   - El color original queda guardado como dataURL serializable en la data
+     del item (data.ekkoModoColor.src): el vestuario entra en deshacer, en
+     el proyecto .ekko y en la recarga, y un VIGILANTE corrige cualquier
+     raster que cargue vestido/color al revés (importación nueva, deshacer,
+     fusiones, reapertura del proyecto).
+   - El QR (label "Codigo QR") NUNCA se viste: sigue binario limpio.
+   - Exportar en Modo Láser sale con ESTE look; en Modo Color con los
+     colores originales. Una sola regla, sin excepciones.
+   ========================================================================= */
+
+const MODO_ORIGINALES = new WeakMap();   // raster → { img, src, w, h }
+let modoLaserActivo = false;
+let modoVistiendo = false;
+let modoVigilante = null;
+
+/* (función compartida) Del mimo patrón que hornearWorld() de
+   prepareSVGForExport: devuelve la pieza con su GEOMETRÍA DE MUNDO horneada
+   (clon no insertado). La usa el modo láser y la exportación de selección. */
+function hornoMundo(item) {
+    if (!item) return null;
+    let clon = null;
+    try { clon = item.clone({ insert: false }); } catch (_) { return null; }
+    try {
+        const matrix = item.globalMatrix?.clone?.() || clon.matrix?.clone?.();
+        clon.applyMatrix = false;
+        clon.matrix = new paper.Matrix();
+        if (matrix && !matrix.isIdentity()) clon.transform(matrix);
+        clon.applyMatrix = true;
+    } catch (_) {}
+    return clon;
+}
+
+/* Qué raster JAMÁS se viste: los del mockup (producto) y los QR. */
+function rasterModoIgnorable(raster) {
+    try {
+        if (!raster || raster.data?.mockup === true) return true;
+        if (window.currentMockup && raster === window.currentMockup) return true;
+        const etiqueta = String(raster.data?.label || "");
+        if (/qr/i.test(etiqueta)) return true;
+        let p = raster.parent;
+        while (p) {
+            if (p.data?.mockup === true) return true;
+            if (window.currentMockup && p === window.currentMockup) return true;
+            p = p.parent;
+        }
+        return false;
+    } catch (_) { return true; }
+}
+
+/* El VESTIDO del modo láser: mismo tamaño de píxeles que la foto original
+   (capturar el look). La curva es la MISMA que aplicará la exportación:
+   auto-niveles (clip% por extremo) sobre la luminancia visible + tabla de
+   tonos DR_bn + realce de calidad (profundidad+nitidez). Alfa intacta. */
+function vestidoLaser(raster) {
+    try {
+        const fuente = raster.image || raster.canvas || null;
+        const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
+        if (!fuente || ancho < 1 || alto < 1 || typeof document === "undefined") return null;
+        const cfg = leerFiltroGrises();
+        const lut = construirLUTGris(cfg);
+        const pesos = (Array.isArray(cfg.luminancia) && cfg.luminancia.length === 3) ? cfg.luminancia : [0.2126, 0.7152, 0.0722];
+        const clipN = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipNegroPct)) ? cfg.autoNiveles.clipNegroPct : 1)) / 100;
+        const clipB = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipBlancoPct)) ? cfg.autoNiveles.clipBlancoPct : 1)) / 100;
+        const cal = Object.assign({}, EKKO_GRIS_DEFAULT.calidad, (cfg && typeof cfg.calidad === "object" && cfg.calidad) || {});
+        const lienzo = document.createElement("canvas");
+        lienzo.width = ancho; lienzo.height = alto;
+        const ctx = lienzo.getContext("2d");
+        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(fuente, 0, 0, ancho, alto);
+        let datos;
+        try { datos = ctx.getImageData(0, 0, ancho, alto); } catch (_) { return null; }
+        const px = datos.data;
+        // histograma de luminancia de los píxeles visibles (mismo criterio
+        // que el export: alfa >= 128 participa)
+        const hist = new Uint32Array(256);
+        let n = 0;
+        for (let i = 0; i < px.length; i += 4) {
+            if (px[i + 3] < 128) continue;
+            let l = Math.round(pesos[0] * px[i] + pesos[1] * px[i + 1] + pesos[2] * px[i + 2]);
+            hist[l > 255 ? 255 : (l < 0 ? 0 : l)]++;
+            n++;
+        }
+        if (n < 16) return null;
+        const punto = (frac) => {
+            const objetivo = Math.floor(frac * n);
+            let acum = 0, v = 255;
+            for (let k = 0; k < 256; k++) {
+                acum += hist[k];
+                if (acum > objetivo) { v = k; break; }
+            }
+            return v;
+        };
+        let neg = punto(clipN);
+        let bla = punto(1 - clipB);
+        let rango = Math.max(1, bla - neg);
+        if (rango < 16) {
+            const centro = (neg + bla) / 2;
+            neg = Math.max(0, Math.min(239, Math.round(centro - 8)));
+            bla = Math.min(255, Math.max(16, Math.round(centro + 8)));
+            rango = bla - neg;
+        }
+        const mapa = new Uint8ClampedArray(256);
+        for (let k = 0; k < 256; k++) {
+            let t = (k - neg) / rango;
+            t = t < 0 ? 0 : (t > 1 ? 1 : t);
+            mapa[k] = lut[t === 1 ? 255 : Math.round(t * 255)];
+        }
+        const gris = new Float32Array(ancho * alto);
+        const vivo = new Uint8Array(ancho * alto);
+        let k2 = 0;
+        for (let i = 0; i < px.length; i += 4, k2++) {
+            if (px[i + 3] === 0) continue;
+            vivo[k2] = 1;
+            let l = Math.round(pesos[0] * px[i] + pesos[1] * px[i + 1] + pesos[2] * px[i + 2]);
+            l = l > 255 ? 255 : (l < 0 ? 0 : l);
+            gris[k2] = mapa[l];
+        }
+        realceCalidad(gris, vivo, ancho, alto, cal);
+        k2 = 0;
+        for (let i = 0; i < px.length; i += 4, k2++) {
+            if (!vivo[k2]) continue;
+            const g = gris[k2] > 255 ? 255 : (gris[k2] < 0 ? 0 : Math.round(gris[k2]));
+            px[i] = g; px[i + 1] = g; px[i + 2] = g;
+        }
+        ctx.putImageData(datos, 0, 0);
+        return lienzo;
+    } catch (_) { return null; }
+}
+
+/* Veste / desviste UN raster. marca de vida cuando truly cambió. */
+function aplicarVestuario(raster, vestir) {
+    try {
+        if (!raster || rasterModoIgnorable(raster)) return false;
+        if (vestir) {
+            if (raster.data?.ekkoModoColor) return false; // ya vestida
+            const fuente = raster.image || raster.canvas;
+            const w0 = Math.round(raster.width || 0), h0 = Math.round(raster.height || 0);
+            if (!fuente || w0 < 1 || h0 < 1) return false; // aún cargando: la viste el vigilante
+            const src0 = (typeof raster.source === "string" && raster.source.startsWith("data:image"))
+                ? raster.source
+                : (typeof fuente.toDataURL === "function" ? fuente.toDataURL("image/png") : null);
+            if (!src0) return false;
+            const vestido = vestidoLaser(raster);
+            if (!vestido) return false;
+            raster.data = Object.assign({}, raster.data || {}, { ekkoModoColor: { src: src0 } });
+            try {
+                // Via canónica de paper: el setter de source carga el dataURL
+                // del vestido de forma asíncrona y sincroniza tamaño/alfa.
+                raster.source = vestido.toDataURL("image/png");
+            } catch (_) {
+                const d = Object.assign({}, raster.data || {}); delete d.ekkoModoColor; raster.data = d;
+                return false;
+            }
+            MODO_ORIGINALES.set(raster, { img: fuente, src: src0, w: w0, h: h0 });
+            return true;
+        } else {
+            if (!raster.data?.ekkoModoColor) return false;
+            const orig = String(raster.data.ekkoModoColor.src || "");
+            if (!orig) return false;
+            const d = Object.assign({}, raster.data || {}); delete d.ekkoModoColor; raster.data = d;
+            raster.source = orig; // recarga asíncrona a los píxeles originales
+            MODO_ORIGINALES.delete(raster);
+            return true;
+        }
+    } catch (_) { return false; }
+}
+
+/* El texto del botón interruptor (🔥 MODO LÁSER / 🎨 MODO COLOR) */
+function sincronizarBotonModo() {
+    try {
+        const b = document.getElementById("btnEkkoPreview");
+        if (!b) return;
+        b.innerHTML = modoLaserActivo
+            ? '<span style="font-size:13px;line-height:1;">🎨</span><span class="ekko-tema-txt">MODO COLOR</span>'
+            : '<span style="font-size:13px;line-height:1;">🔥</span><span class="ekko-tema-txt">MODO LÁSER</span>';
+        b.title = modoLaserActivo
+            ? "Salir del Modo Láser: todo vuelve a los colores originales (las descargas también)."
+            : "Modo Láser de edición: seguí editando normal — las imágenes muestran cómo se graban. Las descargas salen con este look.";
+    } catch (_) {}
+}
+
+/* VIGILANTE: corrige raster vestido/color al revés del modo. La escena puede
+   traer rasters nuevos o restaurados por fuera del toggle (importar mientras
+   el modo está activo, deshacer/rehacer, fusiones, reapertura del .ekko).
+   Corrige cualquier raster que esté vestido/color al revés del modo actual.
+   Coste por tick: O(cantidad de rasters), sin tocar píxeles. UNO SOLO por
+   página: si el módulo entra otra vez (recarga/inyección), mata al previo. */
+function iniciarVigilanteModo() {
+    if (typeof window === "undefined") return;
+    // Registro en lista global: cada carga del módulo mata a TODOS los
+    // vigilantes anteriores (evita restos fantasma de un reload/inject).
+    try {
+        window.__ekkoModoVigilantes = Array.isArray(window.__ekkoModoVigilantes)
+            ? window.__ekkoModoVigilantes
+            : [];
+        window.__ekkoModoVigilantes.forEach(clearInterval);
+        window.__ekkoModoVigilantes = [];
+    } catch (_) {}
+    // El modo se lee SIEMPRE de la API viva: si el módulo entra de nuevo,
+    // este vigilante sigue apuntando al estado real, no al de su instancia.
+    const intervalo = setInterval(() => {
+        try {
+            if (modoVistiendo) return;
+            const activo = (typeof window.ekkoModoLaser?.activo === "function")
+                ? !!window.ekkoModoLaser.activo()
+                : modoLaserActivo;
+            const p = window.paper;
+            if (!p || !p.project) return;
+            const capa = p.project.layers.find(l => l.name === "designLayer") || p.project.activeLayer;
+            if (!capa) return;
+            const afecto = capa.getItems({ match: it => it instanceof p.Raster });
+            if (!afecto.length) return;
+            let cambios = 0;
+            afecto.forEach(r => { try { if (aplicarVestuario(r, activo)) cambios++; } catch (_) {} });
+            if (cambios) { try { p.view.update(); } catch (_) {} }
+        } catch (_) {}
+    }, 600);
+    window.__ekkoModoVigilante = intervalo;   // alias rápido
+    window.__ekkoModoVigilantes.push(intervalo);
+}
+
+function setModoLaser(onOff) {
+    if (typeof paper === "undefined" || !paper.project) return false;
+    const capa = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
+    if (!capa) return false;
+    if (modoVistiendo) return false;
+    modoVistiendo = true;
+    try {
+        modoLaserActivo = !!onOff;
+        let tocadas = 0;
+        capa.getItems({ match: it => it instanceof paper.Raster }).forEach(raster => {
+            try { if (aplicarVestuario(raster, modoLaserActivo)) tocadas++; } catch (_) {}
+        });
+        iniciarVigilanteModo();
+        sincronizarBotonModo();
+        try { paper.view.update(); } catch (_) {}
+        notice(modoLaserActivo
+            ? (tocadas ? "Modo Láser: " + tocadas + " imagen(es) muestran cómo se graban. Seguí editando con normalidad." : "Modo Láser activo (no había fotos que vestir).")
+            : "Modo Color: colores originales restaurados.", { kind: "ok" });
+        return true;
+    } finally { modoVistiendo = false; }
+}
+
+function alternarModoLaser() { return setModoLaser(!modoLaserActivo); }
+
+/* =========================================================================
+   EXPORTAR SELECCIÓN — PNG con la selección, recortada por ORDEN DE
+   APILAMIENTO (lo de arriba pisa a lo de abajo, recorte físico de píxeles),
+   máscara del producto (sus huecos vuelven a ser huecos), look del MODO
+   activo (Modo Láser → grabado; Modo Color → colores) y DPI a elección.
+   No es un aplanado en el lienzo: los objetos del proyecto quedan intactos;
+   el recorte sucede solo en el PNG entregado.
+   ========================================================================= */
+
+function rasterizarRaiz(item, res) {
+    const clon = hornoMundo(item);
+    if (!clon) return null;
+    const tmpLayer = new paper.Layer();
+    let r = null;
+    try {
+        tmpLayer.addChild(clon);
+        r = clon.rasterize(res, { insert: false });
+    } catch (_) { r = null; }
+    try { tmpLayer.remove(); } catch (_) {}
+    try { clon.remove(); } catch (_) {}
+    if (!r || !r.canvas || !(r.bounds.width > 0)) return null;
+    return { canvas: r.canvas, x: r.bounds.x, y: r.bounds.y };
+}
+
+function renderSeleccionPNG(dpi) {
+    if (typeof paper === "undefined" || !paper.project) return { ok: false, reason: "sin-paper" };
+    const capa = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
+    if (!capa) return { ok: false, reason: "sin-capa" };
+    let seleccion = (Array.isArray(window.selectedItems) && window.selectedItems.length)
+        ? window.selectedItems.slice()
+        : (window.selectedItem ? [window.selectedItem] : null);
+    if (!seleccion) return { ok: false, reason: "sin-seleccion" };
+    // Filtrar vinculo? solo contenido del diseño (el mockup no se exporta
+    // aquí: es de la escena, no de la pieza).
+    const delMockup = (item) => {
+        let p = item;
+        while (p) {
+            if (p.data?.mockup === true) return true;
+            if (window.currentMockup && p === window.currentMockup) return true;
+            p = p.parent;
+        }
+        return false;
+    };
+    seleccion = seleccion.filter(it => it && !delMockup(it));
+    if (!seleccion.length) return { ok: false, reason: "sin-seleccion" };
+    // jerarquia: si una raiz seleccionada contiene a otra seleccionada,
+    // la raiz representa a las dos (sin doble dibujo).
+    const dentro = new Set(seleccion);
+    const piezas = seleccion.filter(it => {
+        let p = it.parent;
+        while (p && p !== capa) { if (dentro.has(p)) return false; p = p.parent; }
+        return true;
+    });
+    if (!piezas.length) return { ok: false, reason: "sin-seleccion" };
+    // ORDEN DE PINTURA global: recorrido pre-orden de la capa, igual que
+    // dibuja paper: el índice decide quién tapa a quién.
+    let orden = 0;
+    const pintura = new Map();
+    (function rec(n) { for (const c of n.children) { pintura.set(c, orden++); if (c.children) rec(c); } })(capa);
+    piezas.sort((a, b) => (pintura.get(a) ?? 0) - (pintura.get(b) ?? 0));
+    // caja de la selección
+    let caja = null;
+    piezas.forEach(it => {
+        try {
+            const w = hornoMundo(it);
+            if (!w) return;
+            const b = w.bounds;
+            caja = caja ? caja.unite(b) : b.clone();
+            try { w.remove(); } catch (_) {}
+        } catch (_) {}
+    });
+    if (!caja || !(caja.width > 0) || !(caja.height > 0)) return { ok: false, reason: "sin-caja" };
+    // PRESUPUESTO: nunca más de 36 MP — si el pedido excede, baja el DPI
+    // efectivo y avisa (selecciones gigantes salen livianas, no reventadas).
+    const AREA_MAX = 36000000;
+    let res = dpi;
+    const areaPx = caja.width * caja.height * (res / 72) * (res / 72);
+    if (areaPx > AREA_MAX) res = Math.max(96, Math.floor(Math.sqrt(AREA_MAX / (caja.width * caja.height)) * 72));
+    const k = res / 72;
+    const W = Math.max(1, Math.ceil(caja.width * k) + 1);
+    const H = Math.max(1, Math.ceil(caja.height * k) + 1);
+    const out = document.createElement("canvas"); out.width = W; out.height = H;
+    const ctx = out.getContext("2d");
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    const occl = document.createElement("canvas"); occl.width = W; occl.height = H;
+    const occ = occl.getContext("2d");
+    let recortado = res !== dpi;
+    // TOP → ABAJO: cada pieza pierde los píxeles que ya cubrieron las de
+    // arriba (recorte físico por apilado) y entra al PNG tal cual entra al
+    // grabado: nunca se re-grababa la parte de abajo de una superposición.
+    for (let i = piezas.length - 1; i >= 0; i--) {
+        try {
+            const piezaR = rasterizarRaiz(piezas[i], res);
+            if (!piezaR) continue;
+            const fu = document.createElement("canvas"); fu.width = W; fu.height = H;
+            const fx = fu.getContext("2d");
+            fx.imageSmoothingEnabled = true; fx.imageSmoothingQuality = "high";
+            fx.drawImage(piezaR.canvas, Math.round((piezaR.x - caja.x) * k), Math.round((piezaR.y - caja.y) * k));
+            try { piezaR.canvas.width = 0; piezaR.canvas.height = 0; } catch (_) {} // liberar
+            fx.globalCompositeOperation = "destination-out";
+            fx.drawImage(occl, 0, 0);
+            fx.globalCompositeOperation = "source-over";
+            ctx.drawImage(fu, 0, 0);
+            occ.drawImage(fu, 0, 0);
+        } catch (_) {}
+    }
+    // MÁSCARA del producto: la selección queda contenida en la silueta y
+    // sus perforaciones vuelven a ser huecos. Sin silueta conocida: sale
+    // tal cual la selección.
+    try {
+        const silReal = window.clipMask || null;
+        if (silReal) {
+            const sil = hornoMundo(silReal);
+            if (sil) {
+                try {
+                    const marcoB = sil.bounds;
+                    if (marcoB && marcoB.width > 0 && marcoB.height > 0) {
+                        const mC = construirMascaraSilueta(sil, marcoB, k, res);
+                        if (mC) {
+                            ctx.globalCompositeOperation = "destination-in";
+                            ctx.drawImage(mC, Math.round((marcoB.x - caja.x) * k), Math.round((marcoB.y - caja.y) * k));
+                            ctx.globalCompositeOperation = "source-over";
+                        }
+                    }
+                } finally { try { sil.remove(); } catch (_) {} }
+            }
+        }
+    } catch (_) {}
+    if (recortado) notice(`La selección es grande: se bajó a ${Math.round(res)} DPI para que el archivo no explote.`, { kind: "warn" });
+    return { ok: true, canvas: out, dpi: Math.round(res), dpiPedido: dpi, recortado };
+}
+
+/* PNG con densidad metida como chunk pHYs (byte exacto tras IHDR): igual
+   técnica del boceto en projectIO — copia local porque no se exporta. */
+const MODSEL_CRC_TABLA = (() => {
+    const t = new Uint32Array(256);
+    for (let n = 0; n < 256; n++) {
+        let c = n;
+        for (let m = 0; m < 8; m++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+        t[n] = c >>> 0;
+    }
+    return t;
+})();
+function modSelCrc32(bytes) {
+    let c = 0xffffffff;
+    for (let i = 0; i < bytes.length; i++) c = MODSEL_CRC_TABLA[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+}
+function pngConDensidadModoSel(pngBytes, dpi) {
+    const ppm = Math.round(dpi / 0.0254);
+    const out = new Uint8Array(pngBytes.length + 21);
+    const view = new DataView(out.buffer);
+    out.set(pngBytes.subarray(0, 33), 0);
+    view.setUint32(33, 9);
+    out.set([0x70, 0x48, 0x59, 0x73], 37); // "pHYs"
+    view.setUint32(41, ppm);
+    view.setUint32(45, ppm);
+    out[49] = 1;
+    view.setUint32(50, modSelCrc32(out.subarray(37, 50)));
+    out.set(pngBytes.subarray(33), 54);
+    return out;
+}
+
+function stampModoSel() {
+    try { return new Date().toISOString().replace(/[^0-9]/g, "").slice(0, 14); }
+    catch (_) { return String(Date.now()); }
+}
+
+/* DESCARGAR selección: PNG con pHYs al DPI elegido. */
+async function exportarSeleccionPNG(dpi) {
+    const r = renderSeleccionPNG(dpi);
+    if (!r.ok) return r;
+    const blob = await new Promise(resolve => r.canvas.toBlob(resolve, "image/png"));
+    if (!blob) return { ok: false, reason: "png-fallido" };
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const finales = pngConDensidadModoSel(bytes, r.dpi);
+    const nombre = `ekko-seleccion-${r.dpi}dpi-${stampModoSel()}.png`;
+    const url = URL.createObjectURL(new Blob([finales], { type: "image/png" }));
+    const link = document.createElement("a");
+    link.href = url; link.download = nombre;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    notice(`Selección exportada: ${nombre} — ${r.dpi} DPI, con el look del modo activo y el apilado respetado.`, { kind: "ok" });
+    return { ok: true, nombre, dpi: r.dpi };
+}
+
+/* COPIAR selección al portapapeles del sistema: pega directo en LightBurn. */
+async function copiarSeleccionPNG(dpi) {
+    const r = renderSeleccionPNG(dpi || 600);
+    if (!r.ok) { notice("No hay selección para copiar.", { kind: "warn" }); return r; }
+    const blob = await new Promise(resolve => r.canvas.toBlob(resolve, "image/png"));
+    if (!blob) return { ok: false, reason: "png-fallido" };
+    try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        notice("Selección copiada al portapapeles (" + r.dpi + " DPI): pegá directo en LightBurn.", { kind: "ok" });
+        return { ok: true, dpi: r.dpi };
+    } catch (e) {
+        notice("El navegador no dejó copiar al portapapeles. Usá el botón Exportar Selección.", { kind: "warn" });
+        return { ok: false, reason: "portapapeles-denegado", detalle: String(e?.message || e) };
+    }
+}
+
+/* El selector chico (sin ventana gigante): dos fichas 300/600 + visible el
+   atajo para que el cliente lo aprenda. */
+function ekkoExportarSeleccionUI() {
+    if (typeof document === "undefined") return { ok: false, reason: "sin-dom" };
+    const previo = document.getElementById("ekkoExportarSelOverlay");
+    if (previo) previo.remove();
+    const overlay = document.createElement("div");
+    overlay.id = "ekkoExportarSelOverlay";
+    overlay.style.cssText = "position:fixed;inset:0;z-index:2147483400;background:rgba(9,10,13,0.55);display:flex;align-items:center;justify-content:center;font-family:inherit;";
+    const caja = document.createElement("div");
+    caja.style.cssText = "background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:22px 26px;width:min(460px,92vw);text-align:center;";
+    caja.innerHTML =
+        '<div style="font-size:16px;font-weight:bold;color:#1e293b;">📤 EXPORTAR SELECCIÓN</div>' +
+        '<div style="font-size:12px;color:#64748b;margin-top:6px;">Sale con el <b>modo activo</b> (Color o Láser), con el recorte por apilamiento (lo de arriba tapa a lo de abajo) y con los huecos del producto respetados. El mockup no va.</div>' +
+        '<div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">' +
+          '<button id="ekkoSelExp300" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">⚡ 300 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">liviano (recomendado)</span></button>' +
+          '<button id="ekkoSelExp600" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">🎯 600 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">pesado (más calidad)</span></button>' +
+        '</div>' +
+        '<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">💡 <b>Ctrl+Shift+C</b> copia la selección al portapapeles (600 DPI) — pegás directo en LightBurn sin pasar por archivo.</div>' +
+        '<button id="ekkoSelExpCancelar" style="margin-top:12px;border:none;background:transparent;color:#94a3b8;cursor:pointer;font-size:12px;">Cancelar</button>';
+    overlay.appendChild(caja);
+    document.body.appendChild(overlay);
+    const cerrar = () => overlay.remove();
+    overlay.addEventListener("click", (ev) => { if (ev.target === overlay) cerrar(); });
+    document.getElementById("ekkoSelExpCancelar").addEventListener("click", cerrar);
+    document.getElementById("ekkoSelExp300").addEventListener("click", async () => { cerrar(); await exportarSeleccionPNG(300); });
+    document.getElementById("ekkoSelExp600").addEventListener("click", async () => { cerrar(); await exportarSeleccionPNG(600); });
+    return { ok: true };
+}
 /* Máscara de silueta a canvas (blanco = visible, transparente = fuera del
    producto). Base = el contorno más grande; cada contorno menor contenido
    en él = hueco (destination-out). Se dibuja Path por Path porque el
@@ -2003,4 +2499,16 @@ if (typeof window !== "undefined") {
     window.ekkoGrisConfig = leerFiltroGrises;
     // Mejora automática al importar (densidad 300 dpi + definición).
     window.ekkoPrepararFotoImportada = prepararFotoImportada;
+    // MODO LÁSER (edición con el look de grabado) + EXPORTAR SELECCIÓN.
+    window.ekkoModoLaser = {
+        alternar: alternarModoLaser,
+        poner: setModoLaser,
+        activo: () => modoLaserActivo
+    };
+    window.ekkoExportarSeleccionUI = ekkoExportarSeleccionUI;
+    window.ekkoExportarSeleccionPNG = exportarSeleccionPNG;
+    window.ekkoCopiarSeleccionPNG = copiarSeleccionPNG;
+    // Diagnóstico interno (no se usa en UI; sirve para auditar el modo).
+    window.__ekkoModoDebug = { aplicarVestuario, vestidoLaser, rasterModoIgnorable };
+    sincronizarBotonModo();
 }
