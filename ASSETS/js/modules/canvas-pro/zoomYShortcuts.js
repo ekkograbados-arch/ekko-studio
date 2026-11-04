@@ -177,6 +177,19 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         // 3. COPIAR (Ctrl+C)
+        // 3bis. COPIAR SELECCIÓN AL PORTAPAPELES (Ctrl+Shift+C): PNG compuesto
+        // con el look del modo activo y el apilado respetado — pegás directo
+        // en LightBurn sin pasar por archivo. Va ANTES del Ctrl+C normal.
+        if (editFusionLocked) return;
+        if (isCtrl && e.shiftKey && key === "c") {
+            e.preventDefault();
+            if (typeof window.ekkoCopiarSeleccionPNG === "function") {
+                window.ekkoCopiarSeleccionPNG(600);
+            } else {
+                console.warn("[EKKO SHORTCUTS] ekkoCopiarSeleccionPNG aún no disponible.");
+            }
+            return;
+        }
         if (editFusionLocked) return;
         if (isCtrl && key === "c") {
             e.preventDefault();
