@@ -287,8 +287,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
            SVG que produce el boceto (mockup incluido, huecos visibles) sobre
            un ACERO INOXIDABLE simulado (gradiente metálico + cepillado
            horizontal + pulido radial) y el diseño en negro como marca
-           de fibra láser sobre acero. El deslizador INTENSIDAD multiplica
-           la opacidad de la "quemada" para previsualizar potencia. */
+           de fibra láser sobre acero. La potencia de la "quemada" es
+           fija (el look teórico post-edición): el cliente no la corrige. */
         window.__ekkoPreviewEngraved = async function() {
             const menu = document.getElementById("ekkoDownloadMenu");
             if (menu) menu.hidden = true;
@@ -302,16 +302,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             overlay.innerHTML =
                 '<div style="color:#dfe3ea;font-size:12px;letter-spacing:0.12em;margin-bottom:10px;">SIMULACIÓN LÁSER · SOBRE ACERO INOXIDABLE</div>' +
                 '<div id="ekkoPreviewBox" style="border:2px solid #aeb4bd;border-radius:12px;box-shadow:0 0 60px rgba(0,0,0,.7);background:#1a1c20;max-width:92vw;max-height:70vh;overflow:hidden;"><canvas id="ekkoPreviewCanvas" style="display:block;max-width:92vw;max-height:70vh;"></canvas></div>' +
-                '<div style="display:flex;align-items:center;gap:12px;margin-top:12px;color:#dfe3ea;font-size:13px;">' +
-                    '<span>INTENSIDAD</span>' +
-                    '<input id="ekkoPreviewPower" type="range" min="0" max="100" value="55" style="width:220px;accent-color:#ffd700;cursor:pointer;">' +
-                    '<span id="ekkoPreviewPowerValue" style="min-width:44px;text-align:right;font-variant-numeric:tabular-nums;">55%</span>' +
-                '</div>' +
                 '<div style="color:#7f858f;font-size:11px;margin-top:10px;">Simulación sin calibrar · el resultado real varía con potencia, enfoque, velocidad y acero.</div>' +
                 '<button id="ekkoPreviewClose" style="margin-top:14px;background:#ffd700;color:#241811;border:none;padding:9px 30px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:14px;">CERRAR</button>';
             document.body.appendChild(overlay);
-            const powerEl = () => document.getElementById("ekkoPreviewPower");
-            const valueEl = () => document.getElementById("ekkoPreviewPowerValue");
+            // POTENCIA FIJA: la simulación muestra SIEMPRE el mismo look —
+            // el resultado teórico post-edición (post filtro DR_bn). El
+            // cliente no corrige intensidad: eso lo define la máquina.
+            const PODER_FIJO = 70;
             const cerrar = () => overlay.remove();
             document.getElementById("ekkoPreviewClose").addEventListener("click", cerrar);
             overlay.addEventListener("click", (ev) => { if (ev.target === overlay) cerrar(); });
@@ -321,7 +318,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             if (!svgText) {
                 document.getElementById("ekkoPreviewBox").innerHTML =
                     '<div style="color:#f8b4b4;padding:32px;font-size:13px;">No se pudo generar la vista previa. Recargá la página e intentá de nuevo.</div>';
-                if (powerEl()) powerEl().disabled = true;
                 return;
             }
             const img = new Image();
@@ -377,15 +373,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 // Borde quemado sutil en la silueta del producto
                 ctx.globalCompositeOperation = "source-over";
             };
-            const inicial = powerEl() ? Number(powerEl().value) : 55;
-            pintar(inicial);
-            if (powerEl()) {
-                powerEl().addEventListener("input", () => {
-                    const v = Number(powerEl().value);
-                    if (valueEl()) valueEl().textContent = v + "%";
-                    pintar(v);
-                });
-            }
+            pintar(PODER_FIJO);
         };
         document.addEventListener("click", function(event) {
             const wrap = document.getElementById("ekkoDownloadWrap");
@@ -708,9 +696,6 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 </button>
                 <button data-fusion-btn="editFusionImage" class="btn-action" onclick="enterFusionEditMode()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-editar-imagen"></use></svg> Editar Imagen
-                </button>
-                <button data-fusion-btn="depthPhoto" class="btn-action" title="Dar profundidad (efecto 3D) a la imagen seleccionada — silueta viva, contraste local y nitidez del grabado" onclick="window.ekkoAplicarProfundidad ? window.ekkoAplicarProfundidad() : window.ekkoNotice && window.ekkoNotice('Cargá una imagen primero.', { kind: 'warn' })">
-                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-profundidad"></use></svg> Profundidad
                 </button>
             </div>
 
