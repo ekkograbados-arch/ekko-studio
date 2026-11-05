@@ -1,32 +1,32 @@
 /* =========================================================================
-MÃÆÃÂ³dulo: ASSETS/js/modules/canvas-pro/exportSVG.js (Industrial Laser Edition - v35 PRO)
+Módulo: ASSETS/js/modules/canvas-pro/exportSVG.js (Industrial Laser Edition - v35 PRO)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/exportSVG.js
 
-DescripciÃÆÃÂ³n:
-Procesador y exportador de SVG optimizado para corte y grabado lÃÆÃÂ¡ser
-en el programa de grabado/lÃÆÃÂ¡ser, CNC y maquinaria industrial.
+Descripción:
+Procesador y exportador de SVG optimizado para corte y grabado láser
+en LightBurn, CNC y maquinaria industrial.
 
 Cumple rigurosamente con:
-- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÃÆÃ¢â¬ÅN POR JERARQUÃÆÃÂA DE CONTENCIÃÆÃ¢â¬ÅN
+- CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
 - REGLAS DE ORO - PROMPT MAESTRO - GUIA PARA CREAR EKKO STUDIO
-- DIAGNÃÆÃ¢â¬ÅSTICO DE ARQUITECTURA (Diagnostico.txt)
-- RESULTADO ESPERADO (Huecos fÃÆÃÂ­sicos reales sin transparencias cosmÃÆÃÂ©ticas,
-  purgado de controladores isHole para evitar dobles lÃÆÃÂ­neas de quemado,
-  vectorizaciÃÆÃÂ³n recursiva tipogrÃÆÃÂ¡fica Fonts-to-Paths y limpieza de artefactos).
+- DIAGNÓSTICO DE ARQUITECTURA (Diagnostico.txt)
+- RESULTADO ESPERADO (Huecos físicos reales sin transparencias cosméticas,
+  purgado de controladores isHole para evitar dobles líneas de quemado,
+  vectorización recursiva tipográfica Fonts-to-Paths y limpieza de artefactos).
 
-FASE DE OPERACIÃÆÃ¢â¬ÅN:
-1. SelecciÃÆÃÂ³n y clonado defensivo de la capa de diseÃÆÃÂ±o (designLayer o activeLayer).
-2. Purgado inicial de artefactos auxiliares (mockups, guÃÆÃÂ­as, cotas, reglas, cajas de selecciÃÆÃÂ³n).
+FASE DE OPERACIÓN:
+1. Selección y clonado defensivo de la capa de diseño (designLayer o activeLayer).
+2. Purgado inicial de artefactos auxiliares (mockups, guías, cotas, reglas, cajas de selección).
 3. Desempaquetado seguro de grupos de recorte (clipGroup) preservando transformaciones globales.
-4. VectorizaciÃÆÃÂ³n recursiva de tipografÃÆÃÂ­as (PointText, CurvedText, SpacedText a CompoundPath/Path).
-5. MaterializaciÃÆÃÂ³n booleana CSG fÃÆÃÂ­sica de calados activos sobre masas sÃÆÃÂ³lidas inferiores.
-6. Purgado total de entidades de calado interactivo (isHole) para anular dobles cortes en lÃÆÃÂ¡ser.
-7. SanitizaciÃÆÃÂ³n de reglas de relleno (fillRule = "evenodd") y eliminaciÃÆÃÂ³n de trazados degenerados.
-8. AsignaciÃÆÃÂ³n de estilos visibles (fill/stroke) para reconocimiento de capas en el programa de grabado/lÃÆÃÂ¡ser.
-9. InyecciÃÆÃÂ³n de unidades fÃÆÃÂ­sicas mÃÆÃÂ©tricas reales (mm) y precisiÃÆÃÂ³n micromÃÆÃÂ©trica (5 decimales).
+4. Vectorización recursiva de tipografías (PointText, CurvedText, SpacedText a CompoundPath/Path).
+5. Materialización booleana CSG física de calados activos sobre masas sólidas inferiores.
+6. Purgado total de entidades de calado interactivo (isHole) para anular dobles cortes en láser.
+7. Sanitización de reglas de relleno (fillRule = "evenodd") y eliminación de trazados degenerados.
+8. Asignación de estilos visibles (fill/stroke) para reconocimiento de capas en LightBurn.
+9. Inyección de unidades físicas métricas reales (mm) y precisión micrométrica (5 decimales).
 ========================================================================= */
 
-import { recalculateDynamicSubtractions, interiorPointOf, evenOddContains, getGlobalUnsubtractedPath } from "./geometricUngroup.js";
+import { recalculateDynamicSubtractions, interiorPointOf, evenOddContains } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { getPublicOwner } from "./designGeometry.js";
@@ -34,7 +34,7 @@ import { getCanonicalDesignLayer, collectVectorOwners, semanticKind, VECTOR_KIND
 import { notice } from "./ekkoNotice.js";
 
 /**
- * Obtiene el elemento de contenido real si el item estÃÆÃÂ¡ encapsulado en un grupo de recorte.
+ * Obtiene el elemento de contenido real si el item está encapsulado en un grupo de recorte.
  * @param {paper.Item} item
  * @returns {paper.Item|null}
  */
@@ -74,7 +74,7 @@ function bakeMatrixIntoPath(path, matrix) {
 }
 
 /**
- * Convierte un PointText o grupo tipogrÃÆÃÂ¡fico a un CompoundPath/Path vectorial horneado.
+ * Convierte un PointText o grupo tipográfico a un CompoundPath/Path vectorial horneado.
  * @param {paper.Item} textItem
  * @returns {paper.Item|null}
  */
@@ -91,30 +91,30 @@ async function vectorizeTextItem(textItem) {
         };
         return path;
     } catch (err) {
-        console.warn("[EKKO EXPORT WARNING] FallÃÆÃÂ³ la conversiÃÆÃÂ³n OpenType:", err);
+        console.warn("[EKKO EXPORT WARNING] Falló la conversión OpenType:", err);
         return null;
     }
 }
 
 /* ---------------------- FILTRO DE ESCALA DE GRISES (JSON) ----------------
    Referencia de tono: DR_bn (el filtro que el taller aplica a mano para que
-   TODA foto grave bien en el programa de grabado/lÃÆÃÂ¡ser sin tocar parÃÆÃÂ¡metros). Cada raster del
-   DISEÃÆÃ¢â¬ËO ÃÂ¢Ã¢âÂ¬Ã¢â¬Ânunca del mockupÃÂ¢Ã¢âÂ¬Ã¢â¬Â pasa por cuatro pasos en cada exportaciÃÆÃÂ³n:
+   TODA foto grave bien en LightBurn sin tocar parámetros). Cada raster del
+   DISEÑO —nunca del mockup— pasa por cuatro pasos en cada exportación:
 
-   1. CALIDAD (la lecciÃÆÃÂ³n entre DR_color y DR_bn: MISMA foto, el bn tiene
-      4x mÃÆÃÂ¡s pÃÆÃÂ­xeles y MUCHO mÃÆÃÂ¡s detalle). AmpliaciÃÆÃÂ³n progresiva (pasos
+   1. CALIDAD (la lección entre DR_color y DR_bn: MISMA foto, el bn tiene
+      4x más píxeles y MUCHO más detalle). Ampliación progresiva (pasos
       de <= 2x con suavizado de la mejor calidad) hasta el objetivo de
       lado, y luego realce profesional:
         - PROFUNDIDAD (efecto 3D): contraste local con radio grande; el
-          rostro salta hacia adelante y la ropa se hunde hacia atrÃÆÃÂ¡s.
-        - NITIDEZ: unsharp fino (radio chico) para pestaÃÆÃÂ±as, sonrisa,
-          pliegues: definiciÃÆÃÂ³n de grabado, no de foto lavada.
+          rostro salta hacia adelante y la ropa se hunde hacia atrás.
+        - NITIDEZ: unsharp fino (radio chico) para pestañas, sonrisa,
+          pliegues: definición de grabado, no de foto lavada.
    2. GRIS por luminancia (Rec 709): la foto deja de ser color.
    3. AUTO-NIVELES adaptativo: 1% de recorte en cada punta del histograma
       PROPIO de la imagen. Normaliza brillo/contraste: una foto milka y una
       quemada terminan en la misma "entrada normalizada".
    4. CURVA DE REFERENCIA: nodos cuantil-cuantil medidos del par
-      DR_colorÃÂ¢Ã¢â¬Â Ã¢â¬â¢DR_bn (la propuesta superadora: reproduce su look y es
+      DR_color→DR_bn (la propuesta superadora: reproduce su look y es
       editable).
 
    El JSON entero se puede reemplazar en vivo con localStorage
@@ -141,7 +141,7 @@ const EKKO_GRIS_DEFAULT = {
     /* Calidad del grabado: DR_bn llega a 2000px en el lado CHICO desde una
        fuente de 800 px: el resto se PALPA en el grabado. Ampliamos la foto
        al lado objetivo antes de tono y realce; presupuestoPx protege la
-       memoria en fotos gigantes. profundidad/nitidez en fracciÃÆÃÂ³n (0 apaga). */
+       memoria en fotos gigantes. profundidad/nitidez en fracción (0 apaga). */
     calidad: {
         objetivoLado: 2000,
         presupuestoPx: 16000000,
@@ -190,11 +190,11 @@ function leerFiltroGrises() {
     return EKKO_GRIS_DEFAULT;
 }
 
-/* ------------------- CALIDAD: ampliaciÃÆÃÂ³n + realce (v2) ------------------- */
+/* ------------------- CALIDAD: ampliación + realce (v2) ------------------- */
 
-/* TamaÃÆÃÂ±o final del raster: si el lado mÃÆÃÂ¡s chico queda por debajo del
-   objetivo se amplÃÆÃÂ­a (igual que el paso DR_colorÃÂ¢Ã¢â¬Â Ã¢â¬â¢DR_bn); el presupuesto de
-   pÃÆÃÂ­xeles acota el resultado para no fundir la memoria con fotos enormes. */
+/* Tamaño final del raster: si el lado más chico queda por debajo del
+   objetivo se amplía (igual que el paso DR_color→DR_bn); el presupuesto de
+   píxeles acota el resultado para no fundir la memoria con fotos enormes. */
 function destinoCalidad(w0, h0, cal) {
     const obj = Math.min(6000, Math.max(400, Number(cal.objetivoLado) || 2000));
     const capPx = Math.min(40000000, Math.max(1000000, Number(cal.presupuestoPx) || 16000000));
@@ -205,9 +205,9 @@ function destinoCalidad(w0, h0, cal) {
     return { w: Math.max(1, wT), h: Math.max(1, hT) };
 }
 
-/* AmpliaciÃÆÃÂ³n progresiva: cada paso crece como mucho 2x con smoothing de la
-   mejor calidad. El zoom de un solo tirÃÆÃÂ³n del navegador tiende a bilinear
-   blando; los pasos chicos acumulan mucha mÃÆÃÂ¡s definiciÃÆÃÂ³n utilizable. */
+/* Ampliación progresiva: cada paso crece como mucho 2x con smoothing de la
+   mejor calidad. El zoom de un solo tirón del navegador tiende a bilinear
+   blando; los pasos chicos acumulan mucha más definición utilizable. */
 function ampliacionSuave(fuente, w0, h0, wT, hT) {
     let actual = fuente, cw = w0, ch = h0, pasos = 0;
     while ((cw * 2 <= wT && ch * 2 <= hT) && pasos < 8) {
@@ -255,17 +255,17 @@ function desenfoqueCaja(v, w, h, r) {
 }
 
 /* Dos pasadas de caja (ancha + angosta) aproximan una gaussiana suave:
-   suficiente para el unsharp mask y mucho mÃÆÃÂ¡s barato que la exacta. */
+   suficiente para el unsharp mask y mucho más barato que la exacta. */
 function desenfoqueRealce(v, w, h, r) {
     return desenfoqueCaja(desenfoqueCaja(v, w, h, r), w, h, Math.max(1, Math.round(r * 0.6)));
 }
 
 /* PROFUNDIDAD (3D) + NITIDEZ sobre el gris final. La profundidad es un
    unsharp de radio grande (el contraste LOCAL da el volumen que DR_bn
-   muestra en el rostro y la ropa). La nitidez es el unsharp fino clÃÆÃÂ¡sico.
-   La MÃÆÃÂSCARA vivo separa los pÃÆÃÂ­xeles reales de los vacÃÆÃÂ­os: los vacÃÆÃÂ­os
+   muestra en el rostro y la ropa). La nitidez es el unsharp fino clásico.
+   La MÁSCARA vivo separa los píxeles reales de los vacíos: los vacíos
    participan en los desenfoques como gris NEUTRO (no inclinan el borde)
-   y JAMÃÆÃÂS se escriben; un gris apurado a negativo sigue siendo vivo. */
+   y JAMÁS se escriben; un gris apurado a negativo sigue siendo vivo. */
 function realceCalidad(gris, vivo, w, h, cal) {
     const profundidad = Number(cal.profundidad) > 0 ? Number(cal.profundidad) : 0;
     const nitidez = Number(cal.nitidez) > 0 ? Number(cal.nitidez) : 0;
@@ -286,7 +286,7 @@ function realceCalidad(gris, vivo, w, h, cal) {
     }
     if (nitidez > 0) {
         const r = Math.max(1, Math.round(ladoRef / 450));
-        // tras la pasada de profundidad el plano cambiÃÆÃÂ³: reconstruir el
+        // tras la pasada de profundidad el plano cambió: reconstruir el
         // neutro desde el estado actual
         const base = desenfoqueRealce(neutralDe(), w, h, r);
         for (let i = 0; i < gris.length; i++) {
@@ -296,10 +296,10 @@ function realceCalidad(gris, vivo, w, h, cal) {
     }
 }
 
-/* ResoluciÃÆÃÂ³n de horneado de la contenciÃÆÃÂ³n: antes el techo de 300 dpi y
-   2000 px agotaba la foto del boceto. DR_bn apunta mÃÆÃÂ¡s alto: hasta 3600 px
-   de lado (600 dpi) con presupuesto absoluto de pÃÆÃÂ­xeles por si el producto
-   es enorme. La ampliaciÃÆÃÂ³n del filtro aÃÆÃÂ±ade pÃÆÃÂ­xeles ANTES: esto los
+/* Resolución de horneado de la contención: antes el techo de 300 dpi y
+   2000 px agotaba la foto del boceto. DR_bn apunta más alto: hasta 3600 px
+   de lado (600 dpi) con presupuesto absoluto de píxeles por si el producto
+   es enorme. La ampliación del filtro añade píxeles ANTES: esto los
    conserva en el bake en lugar de triturarlos. */
 function resolucionHorneado(anchoPts, altoPts) {
     const maxDim = Math.max(anchoPts || 1, altoPts || 1, 1);
@@ -309,9 +309,9 @@ function resolucionHorneado(anchoPts, altoPts) {
     return res;
 }
 
-/* Transforma los rasters del diseÃÆÃÂ±o de una capa temporaria. El filtro es
+/* Transforma los rasters del diseño de una capa temporaria. El filtro es
    SIEMPRE sobre un canvas NUEVO: el clone de un Raster comparte el canvas
-   del original, y editarlos in situ mancharÃÆÃÂ­a el lienzo vivo del usuario.
+   del original, y editarlos in situ mancharía el lienzo vivo del usuario.
    Cada pixel lejano a la opacidad queda transparente: alfa intacta. */
 function aplicarFiltroGrises(capa, cfgOverride) {
     if (!capa || typeof document === "undefined") return;
@@ -337,10 +337,10 @@ function aplicarFiltroGrises(capa, cfgOverride) {
     rasters.forEach(raster => {
         try {
             if (delMockup(raster)) return;
-            // REGLA DEL DUEÃÆÃ¢â¬ËO (descargas segÃÆÃÂºn modo activo): el filtro de
-            // grabado corre SOLO en Modo LÃÆÃÂ¡ser ÃÂ¢Ã¢âÂ¬Ã¢â¬Â en Modo Color todo sale con
+            // REGLA DEL DUEÑO (descargas según modo activo): el filtro de
+            // grabado corre SOLO en Modo Láser — en Modo Color todo sale con
             // los colores originales. Y un raster YA vestido (data.ekkoModoColor
-            // del modo activo) ya ES el look final: no se re-toca, asÃÆÃÂ­ el
+            // del modo activo) ya ES el look final: no se re-toca, así el
             // realce nunca se acumula en una segunda pasada.
             if (!modoLaserActivo) return;
             if (raster.data?.ekkoModoColor) return;
@@ -392,12 +392,12 @@ function aplicarFiltroGrises(capa, cfgOverride) {
                 t = t < 0 ? 0 : (t > 1 ? 1 : t);
                 mapa[k] = lut[t === 1 ? 255 : Math.round(t * 255)];
             }
-            // 1) gris final por LUT en un plano float + MÃÆÃÂSCARA de vida.
+            // 1) gris final por LUT en un plano float + MÁSCARA de vida.
             //    Todo pixel con ALFA > 0 se lava a gris (los flecos
-            //    antialiaseados del recorte teÃÆÃÂ±irÃÆÃÂ­an el borde al ampliarse).
+            //    antialiaseados del recorte teñirían el borde al ampliarse).
             //    El realce puede apurar la tonalidad a NEGATIVO en los
-            //    contornos: la mÃÆÃÂ¡scara separa "sin color" de "gris apurado",
-            //    asÃÆÃÂ­ ningÃÆÃÂºn pixel con color queda sin lavar.
+            //    contornos: la máscara separa "sin color" de "gris apurado",
+            //    así ningún pixel con color queda sin lavar.
             const gris = new Float32Array(wLienzo * hLienzo);
             const vivo = new Uint8Array(wLienzo * hLienzo);
             let k2 = 0;
@@ -409,7 +409,7 @@ function aplicarFiltroGrises(capa, cfgOverride) {
                 gris[k2] = mapa[l];
             }
             // 2) PROFUNDIDAD + NITIDEZ sobre el gris final (efecto 3D y
-            //    definiciÃÆÃÂ³n de grabado). Es lo que DR_bn tiene y DR_color no.
+            //    definición de grabado). Es lo que DR_bn tiene y DR_color no.
             realceCalidad(gris, vivo, wLienzo, hLienzo, cal);
             // 3) escritura: gris puro (DR_bn es R=G=B), alfa intacta
             k2 = 0;
@@ -419,15 +419,15 @@ function aplicarFiltroGrises(capa, cfgOverride) {
                 px[i] = g; px[i + 1] = g; px[i + 2] = g;
             }
             ctx.putImageData(datos, 0, 0);
-            // REEMPLAZO 1:1 con el mismo z. La ampliaciÃÆÃÂ³n mete MÃÆÃÂS pÃÆÃÂ­xeles
+            // REEMPLAZO 1:1 con el mismo z. La ampliación mete MÁS píxeles
             // en el mismo lugar del mundo: la matriz original corresponde al
-            // tamaÃÆÃÂ±o VIEJO, asÃÆÃÂ­ que su parte lineal se divide por el factor
+            // tamaño VIEJO, así que su parte lineal se divide por el factor
             // de densidad (nuevo/ancho). Sin esto la foto salta 2.8x y
-            // desborda el mockup: el mundo NO cambia, solo los pÃÆÃÂ­xeles.
-            // TRASLACIÃÆÃ¢â¬ÅN: paper NO expone matrix.e/.f en la matriz de un
-            // item (leerlos da undefinedÃÂ¢Ã¢â¬Â Ã¢â¬â¢NaN y muerde los bounds). El centro
-            // del raster en el mundo SÃÆÃÂ es la traslaciÃÆÃÂ³n (los rasters viven
-            // centrados), asÃÆÃÂ­ que se lee de bounds/position, jamÃÆÃÂ¡s de la
+            // desborda el mockup: el mundo NO cambia, solo los píxeles.
+            // TRASLACIÓN: paper NO expone matrix.e/.f en la matriz de un
+            // item (leerlos da undefined→NaN y muerde los bounds). El centro
+            // del raster en el mundo SÍ es la traslación (los rasters viven
+            // centrados), así que se lee de bounds/position, jamás de la
             // matriz.
             const filtrado = new paper.Raster({ canvas: lienzo, insert: false });
             try {
@@ -443,9 +443,9 @@ function aplicarFiltroGrises(capa, cfgOverride) {
                     const p = raster.position;
                     if (p && isFinite(p.x)) { ce = p.x; cf = p.y; }
                 }
-                const k = lienzo.width / ancho; // amplificaciÃÆÃÂ³n de densidad
+                const k = lienzo.width / ancho; // amplificación de densidad
                 filtrado.applyMatrix = false;
-                // parte lineal dividida por k; la TRASLACIÃÆÃ¢â¬ÅN va por position
+                // parte lineal dividida por k; la TRASLACIÓN va por position
                 // (paper la resuelve aun con ancestros transformados: e/f de
                 // una matriz de item es local y no se puede leer directo)
                 filtrado.matrix = new paper.Matrix(a / k, b / k, c / k, d / k, 0, 0);
@@ -459,22 +459,22 @@ function aplicarFiltroGrises(capa, cfgOverride) {
     });
 }
 
-/* PREPARACIÃÆÃ¢â¬ÅN DE FOTOS AL IMPORTAR (mejora de calidad automÃÆÃÂ¡tica): toda
-   foto que entra al editor queda lista para el grabado ÃÂ¢Ã¢âÂ¬Ã¢â¬Â SIN recortar NI
-   agrandar el encuadre ÃÂ¢Ã¢âÂ¬Ã¢â¬Â con dos pasos:
-     1) DENSIDAD: si la foto tiene menos pÃÆÃÂ­xeles que los que su tamaÃÆÃÂ±o
-        visual en el diseÃÆÃÂ±o necesita a 300 dpi, se amplÃÆÃÂ­a con la escalera
+/* PREPARACIÓN DE FOTOS AL IMPORTAR (mejora de calidad automática): toda
+   foto que entra al editor queda lista para el grabado — SIN recortar NI
+   agrandar el encuadre — con dos pasos:
+     1) DENSIDAD: si la foto tiene menos píxeles que los que su tamaño
+        visual en el diseño necesita a 300 dpi, se amplía con la escalera
         progresiva (hasta el presupuesto de 16 MP); si ya alcanza, se
-        respeta la resoluciÃÆÃÂ³n original.
-     2) DEFINICIÃÆÃ¢â¬ÅN: unsharp por dos escalas sobre la LUMINANCIA (media
-        "definiciÃÆÃÂ³n" + micro-fina) ÃÂ¢Ã¢âÂ¬Ã¢â¬Â el COLOR queda intacto (delta comÃÆÃÂºn
+        respeta la resolución original.
+     2) DEFINICIÓN: unsharp por dos escalas sobre la LUMINANCIA (media
+        "definición" + micro-fina) — el COLOR queda intacto (delta común
         por canal, sin saturar ni recolorear). Al hacer zoom en la cara
-        se ve la definiciÃÆÃÂ³n mejorada, exactamente lo que pide el cliente.
-   La mÃÆÃÂ¡scara vivo separa pÃÆÃÂ­xeles reales de los transparentes: los vacÃÆÃÂ­os
-   entran a los desenfoques como gris neutro y JAMÃÆÃÂS se escriben.
+        se ve la definición mejorada, exactamente lo que pide el cliente.
+   La máscara vivo separa píxeles reales de los transparentes: los vacíos
+   entran a los desenfoques como gris neutro y JAMÁS se escriben.
    Si el raster tiene padre, se reemplaza en el mismo lugar conservando
-   escala/posiciÃÆÃÂ³n; sin padre solo devuelve el raster nuevo (flujo de
-   importaciÃÆÃÂ³n, donde el editor lo inserta despuÃÆÃÂ©s). */
+   escala/posición; sin padre solo devuelve el raster nuevo (flujo de
+   importación, donde el editor lo inserta después). */
 function prepararFotoImportada(raster, opciones) {
     if (!raster || typeof document === "undefined") return null;
     try {
@@ -482,9 +482,9 @@ function prepararFotoImportada(raster, opciones) {
         const fuente = raster.image || raster.canvas || null;
         const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
         if (!fuente || ancho < 1 || alto < 1) return null;
-        // 1) densidad objetivo: tamaÃÆÃÂ±o visual en el mundo (pts) ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ px a dpi.
-        //    El importador escala el raster ANTES de llamar acÃÆÃÂ¡, asÃÆÃÂ­ que
-        //    bounds trae el tamaÃÆÃÂ±o real; sin bounds uso la escala 1:1.
+        // 1) densidad objetivo: tamaño visual en el mundo (pts) → px a dpi.
+        //    El importador escala el raster ANTES de llamar acá, así que
+        //    bounds trae el tamaño real; sin bounds uso la escala 1:1.
         let ladoPts = Math.max(ancho, alto);
         try {
             const b = raster.bounds;
@@ -495,7 +495,7 @@ function prepararFotoImportada(raster, opciones) {
         if (ancho * f * alto * f > 16000000) f = Math.sqrt(16000000 / (ancho * alto));
         const wT = Math.round(ancho * f), hT = Math.round(alto * f);
         // SIEMPRE canvas nuevo: el original puede compartir pixels con
-        // clones del editor; editarlo in situ mancharÃÆÃÂ­a el lienzo vivo.
+        // clones del editor; editarlo in situ mancharía el lienzo vivo.
         let lienzo = null;
         if (wT >= ancho * 2) {
             lienzo = ampliacionSuave(fuente, ancho, alto, wT, hT);
@@ -509,11 +509,11 @@ function prepararFotoImportada(raster, opciones) {
         }
         const W = lienzo.width, H = lienzo.height;
         const ctx2 = lienzo.getContext("2d");
-        // NORMALIZACIÃÆÃ¢â¬ÅN del borde ampliado: la interpolaciÃÆÃÂ³n del escalado
-        // ensancha los flecos del recorte y deja COLOR RESIDUAL en pÃÆÃÂ­xeles
-        // casi transparentes ÃÂ¢Ã¢âÂ¬Ã¢â¬Â eso era lo que se veÃÆÃÂ­a como "puntitos
+        // NORMALIZACIÓN del borde ampliado: la interpolación del escalado
+        // ensancha los flecos del recorte y deja COLOR RESIDUAL en píxeles
+        // casi transparentes — eso era lo que se veía como "puntitos
         // blancos" alrededor de la silueta sobre el lienzo. En fotos para
-        // grabado todo es opaco: alfa >= 128 pasa a 255; abajo ÃÂ¢Ã¢âÂ¬Ã¢â¬Â vacÃÆÃÂ­o
+        // grabado todo es opaco: alfa >= 128 pasa a 255; abajo — vacío
         // total con color a 0. Las fotos JPEG (sin alfa) no cambian nada.
         if (wT !== ancho || hT !== alto) {
             let datosA;
@@ -529,10 +529,10 @@ function prepararFotoImportada(raster, opciones) {
         try { datos = ctx2.getImageData(0, 0, W, H); } catch (_) { return null; }
         const px = datos.data;
         const N = W * H;
-        // plano de luminancia + mÃÆÃÂ¡scara de vida. SOLO se realcea lo
-        // sÃÆÃÂ³lidamente visible (alfa >= 128): los flecos del recorte
-        // (alfa parcial) JAMÃÆÃÂS se tocan ÃÂ¢Ã¢âÂ¬Ã¢â¬Â realcearlos salpicaba puntos
-        // claros alrededor de la silueta. Los vacÃÆÃÂ­os entran a los
+        // plano de luminancia + máscara de vida. SOLO se realcea lo
+        // sólidamente visible (alfa >= 128): los flecos del recorte
+        // (alfa parcial) JAMÁS se tocan — realcearlos salpicaba puntos
+        // claros alrededor de la silueta. Los vacíos entran a los
         // desenfoques como gris neutro.
         const luma = new Float32Array(N);
         const vivo = new Uint8Array(N);
@@ -544,8 +544,8 @@ function prepararFotoImportada(raster, opciones) {
             luma[k4] = l; neutral[k4] = l;
         }
         for (let k4 = 0; k4 < N; k4++) if (!vivo[k4]) neutral[k4] = 128;
-        // 2) definiciÃÆÃÂ³n por dos escalas (radios sobre la imagen final).
-        //    Fuerzas moderadas y delta ACOTADO: mÃÆÃÂ¡s definiciÃÆÃÂ³n sin los
+        // 2) definición por dos escalas (radios sobre la imagen final).
+        //    Fuerzas moderadas y delta ACOTADO: más definición sin los
         //    puntitos claros del ringing en bordes y zonas blancas.
         const ladoMin = Math.min(W, H);
         const rMid = Math.max(3, Math.round(ladoMin / 85));
@@ -562,7 +562,7 @@ function prepararFotoImportada(raster, opciones) {
             px[i + 2] = Math.max(0, Math.min(255, Math.round(px[i + 2] + d)));
         }
         ctx2.putImageData(datos, 0, 0);
-        // 3) reemplazo fiel: misma escala visual (matriz / k) y posiciÃÆÃÂ³n
+        // 3) reemplazo fiel: misma escala visual (matriz / k) y posición
         const filtrado = new paper.Raster({ canvas: lienzo, insert: false });
         try {
             const orig = raster.matrix?.clone?.() || null;
@@ -595,36 +595,36 @@ function prepararFotoImportada(raster, opciones) {
 }
 
 /* =========================================================================
-   MODO LÃÆÃÂSER ÃÂ¢Ã¢âÂ¬Ã¢â¬Â modo de EDICIÃÆÃ¢â¬ÅN (no simulaciÃÆÃÂ³n, no ventana)
+   MODO LÁSER — modo de EDICIÓN (no simulación, no ventana)
 
-   El dueÃÆÃÂ±o lo definiÃÆÃÂ³ asÃÆÃÂ­: el lÃÆÃÂ¡ser es UNA FORMA DE EDITAR. Al entrar, SOLO
-   las imÃÆÃÂ¡genes del diseÃÆÃÂ±o cambian a su look de grabado (la misma curva que
-   usa la exportaciÃÆÃÂ³n: auto-niveles + tabla de tonos DR_bn + realce de
-   calidad). Vectores y textos no se tocan (graban negros de fÃÆÃÂ¡brica) y el
-   mockup queda tal cual estÃÆÃÂ¡ en el lienzo. Editar en vivo queda INSTANTÃÆÃÂNEO
-   porque nada se re-renderiza: cada foto se "viste" UNA vez al entrar ÃÂ¢Ã¢âÂ¬Ã¢â¬Â
-   mismo tamaÃÆÃÂ±o de pÃÆÃÂ­xeles, solo cambia el colorÃÂ¢Ã¢âÂ¬Ã¢â¬Â y al salir se restaura su
+   El dueño lo definió así: el láser es UNA FORMA DE EDITAR. Al entrar, SOLO
+   las imágenes del diseño cambian a su look de grabado (la misma curva que
+   usa la exportación: auto-niveles + tabla de tonos DR_bn + realce de
+   calidad). Vectores y textos no se tocan (graban negros de fábrica) y el
+   mockup queda tal cual está en el lienzo. Editar en vivo queda INSTANTÁNEO
+   porque nada se re-renderiza: cada foto se "viste" UNA vez al entrar —
+   mismo tamaño de píxeles, solo cambia el color— y al salir se restaura su
    color original guardado por dentro.
 
-   GarantÃÆÃÂ­as:
+   Garantías:
    - El color original queda guardado como dataURL serializable en la data
      del item (data.ekkoModoColor.src): el vestuario entra en deshacer, en
      el proyecto .ekko y en la recarga, y un VIGILANTE corrige cualquier
-     raster que cargue vestido/color al revÃÆÃÂ©s (importaciÃÆÃÂ³n nueva, deshacer,
+     raster que cargue vestido/color al revés (importación nueva, deshacer,
      fusiones, reapertura del proyecto).
    - El QR (label "Codigo QR") NUNCA se viste: sigue binario limpio.
-   - Exportar en Modo LÃÆÃÂ¡ser sale con ESTE look; en Modo Color con los
+   - Exportar en Modo Láser sale con ESTE look; en Modo Color con los
      colores originales. Una sola regla, sin excepciones.
    ========================================================================= */
 
-const MODO_ORIGINALES = new WeakMap();   // raster ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ { img, src, w, h }
+const MODO_ORIGINALES = new WeakMap();   // raster → { img, src, w, h }
 let modoLaserActivo = false;
 let modoVistiendo = false;
 let modoVigilante = null;
 
-/* (funciÃÆÃÂ³n compartida) Del mimo patrÃÆÃÂ³n que hornearWorld() de
-   prepareSVGForExport: devuelve la pieza con su GEOMETRÃÆÃÂA DE MUNDO horneada
-   (clon no insertado). La usa el modo lÃÆÃÂ¡ser y la exportaciÃÆÃÂ³n de selecciÃÆÃÂ³n. */
+/* (función compartida) Del mimo patrón que hornearWorld() de
+   prepareSVGForExport: devuelve la pieza con su GEOMETRÍA DE MUNDO horneada
+   (clon no insertado). La usa el modo láser y la exportación de selección. */
 function hornoMundo(item) {
     if (!item) return null;
     let clon = null;
@@ -639,7 +639,7 @@ function hornoMundo(item) {
     return clon;
 }
 
-/* QuÃÆÃÂ© raster JAMÃÆÃÂS se viste: los del mockup (producto) y los QR. */
+/* Qué raster JAMÁS se viste: los del mockup (producto) y los QR. */
 function rasterModoIgnorable(raster) {
     try {
         if (!raster || raster.data?.mockup === true) return true;
@@ -656,8 +656,8 @@ function rasterModoIgnorable(raster) {
     } catch (_) { return true; }
 }
 
-/* El VESTIDO del modo lÃÆÃÂ¡ser: mismo tamaÃÆÃÂ±o de pÃÆÃÂ­xeles que la foto original
-   (capturar el look). La curva es la MISMA que aplicarÃÆÃÂ¡ la exportaciÃÆÃÂ³n:
+/* El VESTIDO del modo láser: mismo tamaño de píxeles que la foto original
+   (capturar el look). La curva es la MISMA que aplicará la exportación:
    auto-niveles (clip% por extremo) sobre la luminancia visible + tabla de
    tonos DR_bn + realce de calidad (profundidad+nitidez). Alfa intacta. */
 function vestidoLaser(raster) {
@@ -679,7 +679,7 @@ function vestidoLaser(raster) {
         let datos;
         try { datos = ctx.getImageData(0, 0, ancho, alto); } catch (_) { return null; }
         const px = datos.data;
-        // histograma de luminancia de los pÃÆÃÂ­xeles visibles (mismo criterio
+        // histograma de luminancia de los píxeles visibles (mismo criterio
         // que el export: alfa >= 128 participa)
         const hist = new Uint32Array(256);
         let n = 0;
@@ -736,7 +736,7 @@ function vestidoLaser(raster) {
     } catch (_) { return null; }
 }
 
-/* Veste / desviste UN raster. marca de vida cuando truly cambiÃÆÃÂ³. */
+/* Veste / desviste UN raster. marca de vida cuando truly cambió. */
 function aplicarVestuario(raster, vestir) {
     try {
         if (!raster || rasterModoIgnorable(raster)) return false;
@@ -744,7 +744,7 @@ function aplicarVestuario(raster, vestir) {
             if (raster.data?.ekkoModoColor) return false; // ya vestida
             const fuente = raster.image || raster.canvas;
             const w0 = Math.round(raster.width || 0), h0 = Math.round(raster.height || 0);
-            if (!fuente || w0 < 1 || h0 < 1) return false; // aÃÆÃÂºn cargando: la viste el vigilante
+            if (!fuente || w0 < 1 || h0 < 1) return false; // aún cargando: la viste el vigilante
             const src0 = (typeof raster.source === "string" && raster.source.startsWith("data:image"))
                 ? raster.source
                 : (typeof fuente.toDataURL === "function" ? fuente.toDataURL("image/png") : null);
@@ -753,8 +753,8 @@ function aplicarVestuario(raster, vestir) {
             if (!vestido) return false;
             raster.data = Object.assign({}, raster.data || {}, { ekkoModoColor: { src: src0 } });
             try {
-                // Via canÃÆÃÂ³nica de paper: el setter de source carga el dataURL
-                // del vestido de forma asÃÆÃÂ­ncrona y sincroniza tamaÃÆÃÂ±o/alfa.
+                // Via canónica de paper: el setter de source carga el dataURL
+                // del vestido de forma asíncrona y sincroniza tamaño/alfa.
                 raster.source = vestido.toDataURL("image/png");
             } catch (_) {
                 const d = Object.assign({}, raster.data || {}); delete d.ekkoModoColor; raster.data = d;
@@ -767,36 +767,36 @@ function aplicarVestuario(raster, vestir) {
             const orig = String(raster.data.ekkoModoColor.src || "");
             if (!orig) return false;
             const d = Object.assign({}, raster.data || {}); delete d.ekkoModoColor; raster.data = d;
-            raster.source = orig; // recarga asÃÆÃÂ­ncrona a los pÃÆÃÂ­xeles originales
+            raster.source = orig; // recarga asíncrona a los píxeles originales
             MODO_ORIGINALES.delete(raster);
             return true;
         }
     } catch (_) { return false; }
 }
 
-/* El texto del botÃÆÃÂ³n interruptor (ÃÂ°ÃÂ¸Ã¢â¬ÂÃÂ¥ MODO LÃÆÃÂSER / ÃÂ°ÃÂ¸ÃÂ½ÃÂ¨ MODO COLOR) */
+/* El texto del botón interruptor (🔥 MODO LÁSER / 🎨 MODO COLOR) */
 function sincronizarBotonModo() {
     try {
         const b = document.getElementById("btnEkkoPreview");
         if (!b) return;
         b.innerHTML = modoLaserActivo
-            ? '<span style="font-size:13px;line-height:1;">ÃÂ°ÃÂ¸ÃÂ½ÃÂ¨</span><span class="ekko-tema-txt">MODO COLOR</span>'
-            : '<span style="font-size:13px;line-height:1;">ÃÂ°ÃÂ¸Ã¢â¬ÂÃÂ¥</span><span class="ekko-tema-txt">MODO LÃÆÃÂSER</span>';
+            ? '<span style="font-size:13px;line-height:1;">🎨</span><span class="ekko-tema-txt">MODO COLOR</span>'
+            : '<span style="font-size:13px;line-height:1;">🔥</span><span class="ekko-tema-txt">MODO LÁSER</span>';
         b.title = modoLaserActivo
-            ? "Salir del Modo LÃÆÃÂ¡ser: todo vuelve a los colores originales (las descargas tambiÃÆÃÂ©n)."
-            : "Modo LÃÆÃÂ¡ser de ediciÃÆÃÂ³n: seguÃÆÃÂ­ editando normal ÃÂ¢Ã¢âÂ¬Ã¢â¬Â las imÃÆÃÂ¡genes muestran cÃÆÃÂ³mo se graban. Las descargas salen con este look.";
+            ? "Salir del Modo Láser: todo vuelve a los colores originales (las descargas también)."
+            : "Modo Láser de edición: seguí editando normal — las imágenes muestran cómo se graban. Las descargas salen con este look.";
     } catch (_) {}
 }
 
-/* VIGILANTE: corrige raster vestido/color al revÃÆÃÂ©s del modo. La escena puede
+/* VIGILANTE: corrige raster vestido/color al revés del modo. La escena puede
    traer rasters nuevos o restaurados por fuera del toggle (importar mientras
-   el modo estÃÆÃÂ¡ activo, deshacer/rehacer, fusiones, reapertura del .ekko).
-   Corrige cualquier raster que estÃÆÃÂ© vestido/color al revÃÆÃÂ©s del modo actual.
-   Coste por tick: O(cantidad de rasters), sin tocar pÃÆÃÂ­xeles. UNO SOLO por
-   pÃÆÃÂ¡gina: si el mÃÆÃÂ³dulo entra otra vez (recarga/inyecciÃÆÃÂ³n), mata al previo. */
+   el modo está activo, deshacer/rehacer, fusiones, reapertura del .ekko).
+   Corrige cualquier raster que esté vestido/color al revés del modo actual.
+   Coste por tick: O(cantidad de rasters), sin tocar píxeles. UNO SOLO por
+   página: si el módulo entra otra vez (recarga/inyección), mata al previo. */
 function iniciarVigilanteModo() {
     if (typeof window === "undefined") return;
-    // Registro en lista global: cada carga del mÃÆÃÂ³dulo mata a TODOS los
+    // Registro en lista global: cada carga del módulo mata a TODOS los
     // vigilantes anteriores (evita restos fantasma de un reload/inject).
     try {
         window.__ekkoModoVigilantes = Array.isArray(window.__ekkoModoVigilantes)
@@ -805,7 +805,7 @@ function iniciarVigilanteModo() {
         window.__ekkoModoVigilantes.forEach(clearInterval);
         window.__ekkoModoVigilantes = [];
     } catch (_) {}
-    // El modo se lee SIEMPRE de la API viva: si el mÃÆÃÂ³dulo entra de nuevo,
+    // El modo se lee SIEMPRE de la API viva: si el módulo entra de nuevo,
     // este vigilante sigue apuntando al estado real, no al de su instancia.
     const intervalo = setInterval(() => {
         try {
@@ -824,7 +824,7 @@ function iniciarVigilanteModo() {
             if (cambios) { try { p.view.update(); } catch (_) {} }
         } catch (_) {}
     }, 600);
-    window.__ekkoModoVigilante = intervalo;   // alias rÃÆÃÂ¡pido
+    window.__ekkoModoVigilante = intervalo;   // alias rápido
     window.__ekkoModoVigilantes.push(intervalo);
 }
 
@@ -844,7 +844,7 @@ function setModoLaser(onOff) {
         sincronizarBotonModo();
         try { paper.view.update(); } catch (_) {}
         notice(modoLaserActivo
-            ? (tocadas ? "Modo LÃÆÃÂ¡ser: " + tocadas + " imagen(es) muestran cÃÆÃÂ³mo se graban. SeguÃÆÃÂ­ editando con normalidad." : "Modo LÃÆÃÂ¡ser activo (no habÃÆÃÂ­a fotos que vestir).")
+            ? (tocadas ? "Modo Láser: " + tocadas + " imagen(es) muestran cómo se graban. Seguí editando con normalidad." : "Modo Láser activo (no había fotos que vestir).")
             : "Modo Color: colores originales restaurados.", { kind: "ok" });
         return true;
     } finally { modoVistiendo = false; }
@@ -853,10 +853,10 @@ function setModoLaser(onOff) {
 function alternarModoLaser() { return setModoLaser(!modoLaserActivo); }
 
 /* =========================================================================
-   EXPORTAR SELECCIÃÆÃ¢â¬ÅN ÃÂ¢Ã¢âÂ¬Ã¢â¬Â PNG con la selecciÃÆÃÂ³n, recortada por ORDEN DE
-   APILAMIENTO (lo de arriba pisa a lo de abajo, recorte fÃÆÃÂ­sico de pÃÆÃÂ­xeles),
-   mÃÆÃÂ¡scara del producto (sus huecos vuelven a ser huecos), look del MODO
-   activo (Modo LÃÆÃÂ¡ser ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ grabado; Modo Color ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ colores) y DPI a elecciÃÆÃÂ³n.
+   EXPORTAR SELECCIÓN — PNG con la selección, recortada por ORDEN DE
+   APILAMIENTO (lo de arriba pisa a lo de abajo, recorte físico de píxeles),
+   máscara del producto (sus huecos vuelven a ser huecos), look del MODO
+   activo (Modo Láser → grabado; Modo Color → colores) y DPI a elección.
    No es un aplanado en el lienzo: los objetos del proyecto quedan intactos;
    el recorte sucede solo en el PNG entregado.
    ========================================================================= */
@@ -884,8 +884,8 @@ function renderSeleccionPNG(dpi) {
         ? window.selectedItems.slice()
         : (window.selectedItem ? [window.selectedItem] : null);
     if (!seleccion) return { ok: false, reason: "sin-seleccion" };
-    // Filtrar vinculo? solo contenido del diseÃÆÃÂ±o (el mockup no se exporta
-    // aquÃÆÃÂ­: es de la escena, no de la pieza).
+    // Filtrar vinculo? solo contenido del diseño (el mockup no se exporta
+    // aquí: es de la escena, no de la pieza).
     const delMockup = (item) => {
         let p = item;
         while (p) {
@@ -907,31 +907,12 @@ function renderSeleccionPNG(dpi) {
     });
     if (!piezas.length) return { ok: false, reason: "sin-seleccion" };
     // ORDEN DE PINTURA global: recorrido pre-orden de la capa, igual que
-    // dibuja paper: el ÃÆÃÂ­ndice decide quiÃÆÃÂ©n tapa a quiÃÆÃÂ©n.
+    // dibuja paper: el índice decide quién tapa a quién.
     let orden = 0;
     const pintura = new Map();
     (function rec(n) { for (const c of n.children) { pintura.set(c, orden++); if (c.children) rec(c); } })(capa);
     piezas.sort((a, b) => (pintura.get(a) ?? 0) - (pintura.get(b) ?? 0));
-    // HUECOS DE CALADO por encima: la perforaciÃÂ³n es fÃÂ­sica tambiÃÂ©n en el
-    // PNG entregado Ã¢â¬â la pieza de abajo pierde el ÃÂ¡rea del hueco (igual que
-    // en el SVG: hueco real, no transparencia forzada).
-    const huecosSeleccion = [];
-    try {
-        capa.getItems({
-            match: it => it.data?.isHole === true &&
-                (it instanceof paper.PathItem) &&
-                !(it.parent && it.parent.className === "CompoundPath") &&
-                it.data?.isFusionMask !== true && it.data?.isSmartFusion !== true &&
-                it.data?.isCutLine !== true
-        }).forEach(h => {
-            try {
-                const geo = getGlobalUnsubtractedPath(h);
-                if (!geo || !(h.bounds && h.bounds.width > 0)) return;
-                huecosSeleccion.push({ geo, orden: pintura.get(h) ?? -1, caja: h.bounds });
-            } catch (_) {}
-        });
-    } catch (_) {}
-    // caja de la selecciÃÆÃÂ³n
+    // caja de la selección
     let caja = null;
     piezas.forEach(it => {
         try {
@@ -943,7 +924,7 @@ function renderSeleccionPNG(dpi) {
         } catch (_) {}
     });
     if (!caja || !(caja.width > 0) || !(caja.height > 0)) return { ok: false, reason: "sin-caja" };
-    // PRESUPUESTO: nunca mÃÆÃÂ¡s de 36 MP ÃÂ¢Ã¢âÂ¬Ã¢â¬Â si el pedido excede, baja el DPI
+    // PRESUPUESTO: nunca más de 36 MP — si el pedido excede, baja el DPI
     // efectivo y avisa (selecciones gigantes salen livianas, no reventadas).
     const AREA_MAX = 36000000;
     let res = dpi;
@@ -958,9 +939,9 @@ function renderSeleccionPNG(dpi) {
     const occl = document.createElement("canvas"); occl.width = W; occl.height = H;
     const occ = occl.getContext("2d");
     let recortado = res !== dpi;
-    // TOP ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ ABAJO: cada pieza pierde los pÃÆÃÂ­xeles que ya cubrieron las de
-    // arriba (recorte fÃÆÃÂ­sico por apilado) y entra al PNG tal cual entra al
-    // grabado: nunca se re-grababa la parte de abajo de una superposiciÃÆÃÂ³n.
+    // TOP → ABAJO: cada pieza pierde los píxeles que ya cubrieron las de
+    // arriba (recorte físico por apilado) y entra al PNG tal cual entra al
+    // grabado: nunca se re-grababa la parte de abajo de una superposición.
     for (let i = piezas.length - 1; i >= 0; i--) {
         try {
             const piezaR = rasterizarRaiz(piezas[i], res);
@@ -972,26 +953,14 @@ function renderSeleccionPNG(dpi) {
             try { piezaR.canvas.width = 0; piezaR.canvas.height = 0; } catch (_) {} // liberar
             fx.globalCompositeOperation = "destination-out";
             fx.drawImage(occl, 0, 0);
-            // y los huecos de calado que estÃÂ¡n ENCIMA de esta pieza.
-            const oPieza = pintura.get(piezas[i]) ?? -1;
-            huecosSeleccion.forEach(hh => {
-                try {
-                    if (hh.orden <= oPieza) return;
-                    if (!hh.caja.intersects(caja)) return;
-                    const mb = hh.geo.bounds;
-                    if (!mb || !(mb.width > 0) || !(mb.height > 0)) return;
-                    const celo = construirMascaraSilueta(hh.geo, mb, k, k * 72);
-                    if (celo) fx.drawImage(celo, Math.round((mb.x - caja.x) * k), Math.round((mb.y - caja.y) * k));
-                } catch (_) {}
-            });
             fx.globalCompositeOperation = "source-over";
             ctx.drawImage(fu, 0, 0);
             occ.drawImage(fu, 0, 0);
         } catch (_) {}
     }
-    // MÃÆÃÂSCARA del producto: la selecciÃÆÃÂ³n queda contenida en la silueta y
+    // MÁSCARA del producto: la selección queda contenida en la silueta y
     // sus perforaciones vuelven a ser huecos. Sin silueta conocida: sale
-    // tal cual la selecciÃÆÃÂ³n.
+    // tal cual la selección.
     try {
         const silReal = window.clipMask || null;
         if (silReal) {
@@ -1011,12 +980,12 @@ function renderSeleccionPNG(dpi) {
             }
         }
     } catch (_) {}
-    if (recortado) notice(`La selecciÃÆÃÂ³n es grande: se bajÃÆÃÂ³ a ${Math.round(res)} DPI para que el archivo no explote.`, { kind: "warn" });
+    if (recortado) notice(`La selección es grande: se bajó a ${Math.round(res)} DPI para que el archivo no explote.`, { kind: "warn" });
     return { ok: true, canvas: out, dpi: Math.round(res), dpiPedido: dpi, recortado };
 }
 
 /* PNG con densidad metida como chunk pHYs (byte exacto tras IHDR): igual
-   tÃÆÃÂ©cnica del boceto en projectIO ÃÂ¢Ã¢âÂ¬Ã¢â¬Â copia local porque no se exporta. */
+   técnica del boceto en projectIO — copia local porque no se exporta. */
 const MODSEL_CRC_TABLA = (() => {
     const t = new Uint32Array(256);
     for (let n = 0; n < 256; n++) {
@@ -1051,7 +1020,7 @@ function stampModoSel() {
     catch (_) { return String(Date.now()); }
 }
 
-/* DESCARGAR selecciÃÆÃÂ³n: PNG con pHYs al DPI elegido. */
+/* DESCARGAR selección: PNG con pHYs al DPI elegido. */
 async function exportarSeleccionPNG(dpi) {
     const r = renderSeleccionPNG(dpi);
     if (!r.ok) return r;
@@ -1065,22 +1034,22 @@ async function exportarSeleccionPNG(dpi) {
     link.href = url; link.download = nombre;
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    notice(`SelecciÃÆÃÂ³n exportada: ${nombre} ÃÂ¢Ã¢âÂ¬Ã¢â¬Â ${r.dpi} DPI, con el look del modo activo y el apilado respetado.`, { kind: "ok" });
+    notice(`Selección exportada: ${nombre} — ${r.dpi} DPI, con el look del modo activo y el apilado respetado.`, { kind: "ok" });
     return { ok: true, nombre, dpi: r.dpi };
 }
 
-/* COPIAR selecciÃÆÃÂ³n al portapapeles del sistema: pega directo en el programa de grabado/lÃÆÃÂ¡ser. */
+/* COPIAR selección al portapapeles del sistema: pega directo en LightBurn. */
 async function copiarSeleccionPNG(dpi) {
     const r = renderSeleccionPNG(dpi || 600);
-    if (!r.ok) { notice("No hay selecciÃÆÃÂ³n para copiar.", { kind: "warn" }); return r; }
+    if (!r.ok) { notice("No hay selección para copiar.", { kind: "warn" }); return r; }
     const blob = await new Promise(resolve => r.canvas.toBlob(resolve, "image/png"));
     if (!blob) return { ok: false, reason: "png-fallido" };
     try {
         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        notice("SelecciÃÆÃÂ³n copiada al portapapeles (" + r.dpi + " DPI): pegÃÆÃÂ¡ directo en el programa de grabado/lÃÆÃÂ¡ser.", { kind: "ok" });
+        notice("Selección copiada al portapapeles (" + r.dpi + " DPI): pegá directo en LightBurn.", { kind: "ok" });
         return { ok: true, dpi: r.dpi };
     } catch (e) {
-        notice("El navegador no dejÃÆÃÂ³ copiar al portapapeles. UsÃÆÃÂ¡ el botÃÆÃÂ³n Exportar SelecciÃÆÃÂ³n.", { kind: "warn" });
+        notice("El navegador no dejó copiar al portapapeles. Usá el botón Exportar Selección.", { kind: "warn" });
         return { ok: false, reason: "portapapeles-denegado", detalle: String(e?.message || e) };
     }
 }
@@ -1097,13 +1066,13 @@ function ekkoExportarSeleccionUI() {
     const caja = document.createElement("div");
     caja.style.cssText = "background:#fff;border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.35);padding:22px 26px;width:min(460px,92vw);text-align:center;";
     caja.innerHTML =
-        '<div style="font-size:16px;font-weight:bold;color:#1e293b;">ÃÂ°ÃÂ¸Ã¢â¬ÅÃÂ¤ EXPORTAR SELECCIÃÆÃ¢â¬ÅN</div>' +
-        '<div style="font-size:12px;color:#64748b;margin-top:6px;">Sale con el <b>modo activo</b> (Color o LÃÆÃÂ¡ser), con el recorte por apilamiento (lo de arriba tapa a lo de abajo) y con los huecos del producto respetados. El mockup no va.</div>' +
+        '<div style="font-size:16px;font-weight:bold;color:#1e293b;">📤 EXPORTAR SELECCIÓN</div>' +
+        '<div style="font-size:12px;color:#64748b;margin-top:6px;">Sale con el <b>modo activo</b> (Color o Láser), con el recorte por apilamiento (lo de arriba tapa a lo de abajo) y con los huecos del producto respetados. El mockup no va.</div>' +
         '<div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">' +
-          '<button id="ekkoSelExp300" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">ÃÂ¢ÃÂ¡ÃÂ¡ 300 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">liviano (recomendado)</span></button>' +
-          '<button id="ekkoSelExp600" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">ÃÂ°ÃÂ¸ÃÂ½ÃÂ¯ 600 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">pesado (mÃÆÃÂ¡s calidad)</span></button>' +
+          '<button id="ekkoSelExp300" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">⚡ 300 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">liviano (recomendado)</span></button>' +
+          '<button id="ekkoSelExp600" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">🎯 600 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">pesado (más calidad)</span></button>' +
         '</div>' +
-        '<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">ÃÂ°ÃÂ¸Ã¢â¬â¢ÃÂ¡ <b>Ctrl+Shift+C</b> copia la selecciÃÆÃÂ³n al portapapeles (600 DPI) ÃÂ¢Ã¢âÂ¬Ã¢â¬Â pegÃÆÃÂ¡s directo en el programa de grabado/lÃÆÃÂ¡ser sin pasar por archivo.</div>' +
+        '<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">💡 <b>Ctrl+Shift+C</b> copia la selección al portapapeles (600 DPI) — pegás directo en LightBurn sin pasar por archivo.</div>' +
         '<button id="ekkoSelExpCancelar" style="margin-top:12px;border:none;background:transparent;color:#94a3b8;cursor:pointer;font-size:12px;">Cancelar</button>';
     overlay.appendChild(caja);
     document.body.appendChild(overlay);
@@ -1114,9 +1083,9 @@ function ekkoExportarSeleccionUI() {
     document.getElementById("ekkoSelExp600").addEventListener("click", async () => { cerrar(); await exportarSeleccionPNG(600); });
     return { ok: true };
 }
-/* MÃÆÃÂ¡scara de silueta a canvas (blanco = visible, transparente = fuera del
-   producto). Base = el contorno mÃÆÃÂ¡s grande; cada contorno menor contenido
-   en ÃÆÃÂ©l = hueco (destination-out). Se dibuja Path por Path porque el
+/* Máscara de silueta a canvas (blanco = visible, transparente = fuera del
+   producto). Base = el contorno más grande; cada contorno menor contenido
+   en él = hueco (destination-out). Se dibuja Path por Path porque el
    CompoundPath no respeta sus fills al rasterizar. */
 function construirMascaraSilueta(clonSil, marcoB, k, res) {
     if (!clonSil || !marcoB || !(marcoB.width > 0) || !(marcoB.height > 0)) return null;
@@ -1170,28 +1139,28 @@ function construirMascaraSilueta(clonSil, marcoB, k, res) {
 }
 
 /**
- * Prepara y exporta el diseÃÆÃÂ±o vectorial activo a un formato SVG estricto para corte/grabado lÃÆÃÂ¡ser.
- * Garantiza vacÃÆÃÂ­os geomÃÆÃÂ©tricos reales (sustracciones booleanas materializadas) y la purga
- * completa de controladores interactivos para evitar quemados dobles en el programa de grabado/lÃÆÃÂ¡ser.
+ * Prepara y exporta el diseño vectorial activo a un formato SVG estricto para corte/grabado láser.
+ * Garantiza vacíos geométricos reales (sustracciones booleanas materializadas) y la purga
+ * completa de controladores interactivos para evitar quemados dobles en LightBurn.
  *
- * @param {Object} [options] Opciones de exportaciÃÆÃÂ³n
- * @param {number} [options.precision=5] PrecisiÃÆÃÂ³n decimal para coordenadas vectoriales
+ * @param {Object} [options] Opciones de exportación
+ * @param {number} [options.precision=5] Precisión decimal para coordenadas vectoriales
  * @param {boolean} [options.asString=true] Retorna el SVG como string XML
- * @returns {string|SVGElement} CÃÆÃÂ³digo XML SVG puro listo para manufactura o elemento SVG
+ * @returns {string|SVGElement} Código XML SVG puro listo para manufactura o elemento SVG
  */
 export async function prepareSVGForExport(options = {}) {
     if (typeof paper === "undefined" || !paper.project) {
-        console.error("[EKKO EXPORT] Error crÃÆÃÂ­tico: Paper.js no estÃÆÃÂ¡ inicializado.");
+        console.error("[EKKO EXPORT] Error crítico: Paper.js no está inicializado.");
         return "";
     }
 
     const precision = typeof options.precision === "number" ? options.precision : 5;
     const asString = options.asString !== false;
 
-    // 1. SELECCIÃÆÃ¢â¬ÅN DEFENSIVA DE LA CAPA DE DISEÃÆÃ¢â¬ËO ÃÆÃÂ¡TIL
+    // 1. SELECCIÓN DEFENSIVA DE LA CAPA DE DISEÑO ÚTIL
     const designLayer = getCanonicalDesignLayer();
     if (!designLayer) {
-        console.error("[EKKO EXPORT] Error: No se encontrÃÆÃÂ³ la capa de diseÃÆÃÂ±o para exportar.");
+        console.error("[EKKO EXPORT] Error: No se encontró la capa de diseño para exportar.");
         return "";
     }
 
@@ -1200,7 +1169,7 @@ export async function prepareSVGForExport(options = {}) {
     tempLayer.name = "designLayer";
 
     // 0. FILTRO DE ESCALA DE GRISES DE REFERENCIA (EKKO-GRIS-v1): SIEMPRE en
-    // toda exportaciÃÆÃÂ³n (grabado y boceto). Solo rasters del diseÃÆÃÂ±o; el filtro
+    // toda exportación (grabado y boceto). Solo rasters del diseño; el filtro
     // pinta sobre canvas nuevo: el lienzo vivo queda intacto.
     if (options.filtroGrises !== false) {
         try {
@@ -1211,8 +1180,8 @@ export async function prepareSVGForExport(options = {}) {
     }
 
     // MARCO DE EXPORTACION: EL PRODUCTO, no el contenido. El SVG de grabado y
-    // el boceto tienen que conservar la posicion del diseÃÆÃÂ±o DENTRO del
-    // producto: asi el programa de grabado/lÃÆÃÂ¡ser lo recibe 1:1 en su lugar y el boceto muestra el
+    // el boceto tienen que conservar la posicion del diseño DENTRO del
+    // producto: asi LightBurn lo recibe 1:1 en su lugar y el boceto muestra el
     // producto completo. Antes se exportaba con bounds:"content" y un texto
     // solo salia como un archivo de 3 mm sin referencia alguna.
     // Se capturan los limites del mockup ANTES del purgado, exista o no la
@@ -1229,7 +1198,7 @@ export async function prepareSVGForExport(options = {}) {
         }
     } catch (_) { marcoProducto = null; }
 
-    // Contorno del producto como grupo separado y fÃÆÃÂ¡cilmente eliminable.
+    // Contorno del producto como grupo separado y fácilmente eliminable.
     // Se captura ANTES del purgado de artefactos. Solo se incluye si el
     // llamador lo pide (options.includeMockup): es referencia, no material.
     let mockupOutline = null;
@@ -1243,7 +1212,7 @@ export async function prepareSVGForExport(options = {}) {
             if (source) {
                 const outline = source.clone({ insert: false });
                 // Si el clon es un Path (sin hijos), el propio clon es el
-                // contorno: removerlo lo sacarÃÆÃÂ­a del grupo (bug medido).
+                // contorno: removerlo lo sacaría del grupo (bug medido).
                 const esContenedor = !!(outline.children && outline.children.length);
                 const flat = [];
                 (function collect(node) {
@@ -1269,16 +1238,16 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // CAPA DE CORTE PARA el programa de grabado/lÃÆÃÂ¡ser (options.includeCutLayer): contorno del
-    // producto y de cada perforaciÃÆÃÂ³n, trazo ROJO sin relleno. el programa de grabado/lÃÆÃÂ¡ser lee
+    // CAPA DE CORTE PARA LIGHTBURN (options.includeCutLayer): contorno del
+    // producto y de cada perforación, trazo ROJO sin relleno. LightBurn lee
     // cada color como capa: rojo = corte del producto, negro = grabado. Se
-    // captura ANTES de la purga (despuÃÆÃÂ©s el mockup ya no existe).
+    // captura ANTES de la purga (después el mockup ya no existe).
     let capaCorte = null;
     if (options.includeCutLayer === true) {
         try {
-            // Fuente ÃÆÃÂ¡NICA preferente: window.clipMask ÃÂ¢Ã¢âÂ¬Ã¢â¬Â ya ES la silueta exacta
-            // (contorno del producto + cada perforaciÃÆÃÂ³n como contorno hijo).
-            // Tomar TODOS los paths con data.mockup disparaba la duplicaciÃÆÃÂ³n en
+            // Fuente ÚNICA preferente: window.clipMask — ya ES la silueta exacta
+            // (contorno del producto + cada perforación como contorno hijo).
+            // Tomar TODOS los paths con data.mockup disparaba la duplicación en
             // cascada: el CompoundPath y sus hijos coinciden a la vez, y el
             // mockup trae dos juegos de rutas (medido: cada contorno x12).
             let fuentes = null;
@@ -1327,57 +1296,22 @@ export async function prepareSVGForExport(options = {}) {
                 });
             }
             contenedores.forEach(clon => { try { clon.remove(); } catch (_) {} });
-            // Contornos de CALADO (perforaciÃÂ³n real del diseÃÂ±o): cada hueco
-            // entra a la capa de corte con SU contorno completo (exterior y
-            // contracubetas). AsÃÂ­ la perforaciÃÂ³n existe fÃÂ­sicamente aunque
-            // el hueco caiga sobre una foto o sobre nada: hueco real, no
-            // transparencia Ã¢â¬â lo interior no se graba, los bordes se cortan.
-            try {
-                const huecosCorte = tempLayer.getItems({
-                    match: it => it.data?.isHole === true &&
-                        (it instanceof paper.PathItem) &&
-                        !(it.parent && it.parent.className === "CompoundPath") &&
-                        it.data?.isFusionMask !== true && it.data?.isSmartFusion !== true
-                });
-                if (huecosCorte.length) {
-                    if (!capaCorte) {
-                        capaCorte = new paper.Group({ insert: false });
-                        capaCorte.data = { id: "EKKO-corte", isCutLayer: true };
-                    }
-                    huecosCorte.forEach(hueco => {
-                        try {
-                            const geoH = getGlobalUnsubtractedPath(hueco);
-                            if (!geoH) return;
-                            (function recolectarH(nodo) {
-                                if (!nodo) return;
-                                if (nodo instanceof paper.Path && Math.abs(nodo.area || 0) > 0) {
-                                    nodo.fillColor = null;
-                                    nodo.strokeColor = new paper.Color("#ff0000");
-                                    nodo.strokeWidth = 0.5;
-                                    nodo.opacity = 1;
-                                    capaCorte.addChild(nodo);
-                                } else if (nodo.children) nodo.children.forEach(recolectarH);
-                            })(geoH);
-                        } catch (_) {}
-                    });
-                }
-            } catch (_) {}
         } catch (_) { capaCorte = null; }
     }
 
-    // 1b. HORNEADO DE RECORTE (contenciÃÆÃÂ³n del mockup y clips del diseÃÆÃÂ±o importado)
-    // La contenciÃÆÃÂ³n (el diseÃÆÃÂ±o dentro del producto y de sus huecos) se HORNEA
+    // 1b. HORNEADO DE RECORTE (contención del mockup y clips del diseño importado)
+    // La contención (el diseño dentro del producto y de sus huecos) se HORNEA
     // antes de la purga: los hijos vectoriales se intersectan con la silueta
-    // (quedan contenidos y en vector para el lÃÆÃÂ¡ser) y los RASTER (fotos) se
-    // rasterizan CON el recorte incluido, asÃÆÃÂ­ la foto queda dentro de su hueco
-    // igual que en la interfaz. Antes se quitaba la mÃÆÃÂ¡scara sin hornear: la
-    // foto salÃÆÃÂ­a desclipeada y afuera del huesito en cada descarga.
-    // La capa entra al proyecto solo dentro de este bloque sÃÆÃÂ­ncrono (rasterize
+    // (quedan contenidos y en vector para el láser) y los RASTER (fotos) se
+    // rasterizan CON el recorte incluido, así la foto queda dentro de su hueco
+    // igual que en la interfaz. Antes se quitaba la máscara sin hornear: la
+    // foto salía desclipeada y afuera del huesito en cada descarga.
+    // La capa entra al proyecto solo dentro de este bloque síncrono (rasterize
     // lo exige): nunca llega a pintarse en pantalla.
 
-    // (funciÃÆÃÂ³n) GeometrÃÆÃÂ­a en coordenadas de proyecto para booleanas fiables
-    // (mismo patrÃÆÃÂ³n que la uniÃÆÃÂ³n anti doble-grabado del paso 5b). Vive a nivel
-    // de funciÃÆÃÂ³n: tambiÃÆÃÂ©n la usa la contenciÃÆÃÂ³n final del boceto (4b) y el
+    // (función) Geometría en coordenadas de proyecto para booleanas fiables
+    // (mismo patrón que la unión anti doble-grabado del paso 5b). Vive a nivel
+    // de función: también la usa la contención final del boceto (4b) y el
     // aplanado por apilado (7c).
     const hornearWorld = (item) => {
         const clone = item.clone({ insert: false });
@@ -1393,11 +1327,11 @@ export async function prepareSVGForExport(options = {}) {
 
     /* Recorte booleano que PRESERVA los huecos (counters de letras, calados
        internos): Paper.js aplica las booleanas con winding y IGNORA el
-       even-odd, asÃÆÃÂ­ que intersectar/restar un CompoundPath entero rellena
-       sus huecos y el control de ÃÆÃÂ¡rea termina conservando el original sin
+       even-odd, así que intersectar/restar un CompoundPath entero rellena
+       sus huecos y el control de área termina conservando el original sin
        recortar (el bug de la "Z" de ZARA fuera del producto con letras
-       llenas). Intersectando/restando HIJO POR HIJO ÃÂ¢Ã¢âÂ¬Ã¢â¬Âcada contorno no tiene
-       huecos internos, no hay nada que rellenarÃÂ¢Ã¢âÂ¬Ã¢â¬Â y rearmando el compound con
+       llenas). Intersectando/restando HIJO POR HIJO —cada contorno no tiene
+       huecos internos, no hay nada que rellenar— y rearmando el compound con
        evenodd, los huecos sobreviven al recorte. Devuelve PathItem o null. */
     const booleanaPorHijos = (vector, herramienta, operacion) => {
         if (!vector || !herramienta) return null;
@@ -1427,7 +1361,7 @@ export async function prepareSVGForExport(options = {}) {
         const compound = new paper.CompoundPath({ insert: false, children: piezas });
         compound.fillRule = "evenodd";
         // ESTILO EXACTO del origen: un contorno sin relleno (el producto, los
-        // contornos de corte) DEBE seguir sin relleno ÃÂ¢Ã¢âÂ¬Ã¢â¬Â rellenarlo de negro
+        // contornos de corte) DEBE seguir sin relleno — rellenarlo de negro
         // pintaba el producto entero de negro en el boceto.
         compound.fillColor = vector.fillColor || null;
         compound.strokeColor = vector.strokeColor || null;
@@ -1436,7 +1370,7 @@ export async function prepareSVGForExport(options = {}) {
     };
 
     // (hoisted) Silueta completa del producto con TODAS las perforaciones como
-    // huecos: la usa el horneado (1b), la contenciÃÆÃÂ³n final del boceto (4b) y
+    // huecos: la usa el horneado (1b), la contención final del boceto (4b) y
     // el aplanado por apilado del grabado (7c).
     let siluetaSketch = null;
     try {
@@ -1447,13 +1381,13 @@ export async function prepareSVGForExport(options = {}) {
         // SILUETA COMPLETA CON TODAS LAS PERFORACIONES: en el lienzo el
         // recorte del mockup deja fuera solo las perforaciones chicas (<15%
         // del area). Regla del cliente: LOS HUECOS SIEMPRE SERAN HUECOS, por
-        // mas que sea un boceto ÃÂ¢Ã¢âÂ¬Ã¢â¬Â asi que el boceto recorta con la silueta
+        // mas que sea un boceto — asi que el boceto recorta con la silueta
         // completa (perforaciones grandes incluidas: aro del llavero, ranuras).
-        // PRIMERO window.clipMask: ES la silueta real (la armÃÆÃÂ³ mockupLoader
-        // con el producto y sus perforaciones como huecos). Sin mÃÆÃÂ¡scara, se
-        // reconstruye desde los paths del mockup ÃÂ¢Ã¢âÂ¬Ã¢â¬Â solo restando contornos
-        // CHICOS contenidos (un segundo path casi del tamaÃÆÃÂ±o del producto
-        // convertÃÆÃÂ­a la silueta en un anillo y deglutÃÆÃÂ­a el diseÃÆÃÂ±o).
+        // PRIMERO window.clipMask: ES la silueta real (la armó mockupLoader
+        // con el producto y sus perforaciones como huecos). Sin máscara, se
+        // reconstruye desde los paths del mockup — solo restando contornos
+        // CHICOS contenidos (un segundo path casi del tamaño del producto
+        // convertía la silueta en un anillo y deglutía el diseño).
         if ((options.keepMockupImage === true || options.stackFlatten === true)) {
             try {
                 const mascaraReal = window.clipMask || null;
@@ -1500,8 +1434,8 @@ export async function prepareSVGForExport(options = {}) {
             if (!contenido.length) return null;
 
             // El DIBUJO del mockup (producto, perforaciones) no se recorta con
-            // booleanas: ya es el producto. Solo el diseÃÆÃÂ±o del cliente pasa por
-            // la contenciÃÆÃÂ³n.
+            // booleanas: ya es el producto. Solo el diseño del cliente pasa por
+            // la contención.
             const esDelMockup = (item) => {
                 let p = item;
                 while (p) {
@@ -1516,8 +1450,8 @@ export async function prepareSVGForExport(options = {}) {
             const resultados = [];
             const rasters = contenido.filter(c => c instanceof paper.Raster);
             const vectores = contenido.filter(c => !(c instanceof paper.Raster));
-            // En el boceto la contenciÃÆÃÂ³n usa la silueta COMPLETA (todas las
-            // perforaciones son huecos). En el grabado, la mÃÆÃÂ¡scara propia del
+            // En el boceto la contención usa la silueta COMPLETA (todas las
+            // perforaciones son huecos). En el grabado, la máscara propia del
             // grupo, como siempre.
             const usaSiluetaSketch = options.keepMockupImage === true && !!siluetaSketch;
             const mascaraWorld = usaSiluetaSketch ? siluetaSketch : hornearWorld(mascara);
@@ -1525,26 +1459,26 @@ export async function prepareSVGForExport(options = {}) {
             if (rasters.length) {
                 if (capaEnProyecto) {
                     // paper.js IGNORA "clipped" al rasterizar (verificado en
-                    // producciÃÆÃÂ³n: la silueta no recortaba nada). Se hace el
-                    // recorte EN pÃÆÃÂ­xeles: mÃÆÃÂ¡scara del producto con huecos
+                    // producción: la silueta no recortaba nada). Se hace el
+                    // recorte EN píxeles: máscara del producto con huecos
                     // horneada con destination-in. El resultado es UN solo
-                    // raster aplanado por bolsa/clip, idÃÆÃÂ©ntico al marco del
+                    // raster aplanado por bolsa/clip, idéntico al marco del
                     // producto (huecos transparentes incluidos).
                     try {
                         const silDestino = usaSiluetaSketch ? siluetaSketch : mascara;
-                        // La mÃÆÃÂ¡scara de un "clipGroup de contenciÃÆÃÂ³n" vive
+                        // La máscara de un "clipGroup de contención" vive
                         // FUERA del contenido a hornear; siluetaSketch ya es
                         // mundo; haremos el cruce de bounds del raster contra
-                        // la silueta con la lÃÆÃÂ³gica de algÃÆÃÂºn dÃÆÃÂ­a.
+                        // la silueta con la lógica de algún día.
                         if (!silDestino) throw new Error("sin silueta");
                         const clonSil = hornearWorld(silDestino);
                         const marcoB = clonSil && clonSil.bounds;
                         if (!marcoB || !(marcoB.width > 0) || !(marcoB.height > 0)) throw new Error("marco vacio");
                         const res = resolucionHorneado(marcoB.width, marcoB.height);
-                        const k = res / 72; // pÃÆÃÂ­xeles por unidad de proyecto
+                        const k = res / 72; // píxeles por unidad de proyecto
                         const W = Math.max(1, Math.ceil(marcoB.width * k));
                         const H = Math.max(1, Math.ceil(marcoB.height * k));
-                        // Canvas de la mÃÆÃÂ¡scara: base = el contorno mÃÆÃÂ¡s grande;
+                        // Canvas de la máscara: base = el contorno más grande;
                         // cada contorno menor COMPLETAMENTE contenido = hueco
                         // (destination-out). Se dibuja con Path.rasterize
                         // individual porque el CompoundPath no respeta fills.
@@ -1575,9 +1509,9 @@ export async function prepareSVGForExport(options = {}) {
                                     if (![a, b, c, d, e, f].every(Number.isFinite)) { try { r2.remove(); } catch (_) {} return; }
                                     ctx.save();
                                     ctx.setTransform(a * k, b * k, c * k, d * k, (e - marcoB.x) * k, (f - marcoB.y) * k);
-                                    // paper dibuja las imÃÆÃÂ¡genes con origen en el
+                                    // paper dibuja las imágenes con origen en el
                                     // CENTRO (coordenadas locales centradas):
-                                    // la esquina superior-izquierda estÃÆÃÂ¡ en
+                                    // la esquina superior-izquierda está en
                                     // (-w/2, -h/2), no en (0, 0).
                                     ctx.drawImage(cv, -cv.width / 2, -cv.height / 2);
                                     ctx.restore();
@@ -1621,14 +1555,14 @@ export async function prepareSVGForExport(options = {}) {
                     resultados.push(hornearWorld(v));
                     return;
                 }
-                // ContenciÃÆÃÂ³n de vectores SIN romper contornos: las booleanas
+                // Contención de vectores SIN romper contornos: las booleanas
                 // de Paper ignoran el relleno par-impar y rellenan los huecos
-                // de las letras (la "O" salÃÆÃÂ­a llena). Estrategia:
-                // 1) Ya estÃÆÃÂ¡ dentro del producto -> NO se toca.
-                // 2) EstÃÆÃÂ¡ afuera del producto -> no se exporta (contenido).
-                // 3) Cruza el borde -> intersecciÃÆÃÂ³n con control de ÃÆÃÂ¡rea: la
-                //    intersecciÃÆÃÂ³n solo puede achicar; si el ÃÆÃÂ¡rea crece, la
-                //    booleana rellenÃÆÃÂ³ huecos y se conserva el original.
+                // de las letras (la "O" salía llena). Estrategia:
+                // 1) Ya está dentro del producto -> NO se toca.
+                // 2) Está afuera del producto -> no se exporta (contenido).
+                // 3) Cruza el borde -> intersección con control de área: la
+                //    intersección solo puede achicar; si el área crece, la
+                //    booleana rellenó huecos y se conserva el original.
                 const worldV = hornearWorld(v);
                 try {
                     const areaV = Math.abs(worldV.area || 0);
@@ -1641,9 +1575,9 @@ export async function prepareSVGForExport(options = {}) {
                     } else if (!cruza) {
                         try { worldV.remove(); } catch (_) {}
                     } else {
-                        // IntersecciÃÆÃÂ³n HIJO POR HIJO: la booleana de Paper
-                        // ignorarÃÆÃÂ­a el even-odd del compound y rellenarÃÆÃÂ­a los
-                        // counters (la "O" llena); asÃÆÃÂ­ los huecos sobreviven.
+                        // Intersección HIJO POR HIJO: la booleana de Paper
+                        // ignoraría el even-odd del compound y rellenaría los
+                        // counters (la "O" llena); así los huecos sobreviven.
                         const recortado = booleanaPorHijos(worldV, mascaraWorld, "intersect");
                         const areaR = recortado ? Math.abs(recortado.area || 0) : 0;
                         if (recortado && areaR > 1e-9 && areaR <= areaV * (1 + 1e-6)) {
@@ -1660,8 +1594,8 @@ export async function prepareSVGForExport(options = {}) {
             });
 
             if (!usaSiluetaSketch) { try { mascaraWorld.remove(); } catch (_) {} }
-            // El grupo original se retira completo (mÃÆÃÂ¡scara incluida) y los
-            // resultados ocupan su posiciÃÆÃÂ³n exacta en el apilado.
+            // El grupo original se retira completo (máscara incluida) y los
+            // resultados ocupan su posición exacta en el apilado.
             try { grupo.remove(); } catch (_) {}
             resultados.forEach((r, i) => {
                 try { parent.insertChild(idx + i, r); } catch (_) { try { parent.addChild(r); } catch (_) {} }
@@ -1686,19 +1620,19 @@ export async function prepareSVGForExport(options = {}) {
             pendientes.forEach(g => { try { hornearGrupo(g); } catch (_) {} });
         }
 
-        // La silueta sigue viva para la contenciÃÆÃÂ³n final del boceto (4b) y el
-        // aplanado del grabado (7c); ahÃÆÃÂ­ se limpia.
+        // La silueta sigue viva para la contención final del boceto (4b) y el
+        // aplanado del grabado (7c); ahí se limpia.
         try { if (siluetaSketch && options.keepMockupImage !== true && options.stackFlatten !== true) siluetaSketch.remove(); } catch (_) {}
         try { if (capaEnProyecto) tempLayer.remove(); } catch (_) {}
         // La capa activa queda como estaba: el editor nunca deja de apuntar
-        // a su capa de trabajo por culpa de la exportaciÃÆÃÂ³n.
+        // a su capa de trabajo por culpa de la exportación.
         try { if (capaActivaPrevia && capaActivaPrevia.project) capaActivaPrevia.activate(); } catch (_) {}
     } catch (err) {
-        console.warn("[EKKO EXPORT] Horneado de contenciÃÆÃÂ³n incompleto:", err);
+        console.warn("[EKKO EXPORT] Horneado de contención incompleto:", err);
     }
 
     // 2. PURGADO INICIAL DE ARTEFACTOS AUXILIARES Y ELEMENTOS NO GRABABLES
-    // Elimina de inmediato mockups, fondos, guÃÆÃÂ­as inteligentes, cotas, reglas, marcas de agua y cajas de selecciÃÆÃÂ³n
+    // Elimina de inmediato mockups, fondos, guías inteligentes, cotas, reglas, marcas de agua y cajas de selección
     // En el BOCETO el mockup real SI va (keepMockupImage): el cliente ve el
     // producto tal cual la interfaz, con sus huecos como huecos. En el SVG de
     // grabado se purga siempre: es referencia, no material.
@@ -1746,7 +1680,7 @@ export async function prepareSVGForExport(options = {}) {
     });
 
     // 3. DESEMPAQUETADO SEGURO DE GRUPOS DE RECORTE (clipGroup)
-    // Extrae el contenido ÃÆÃÂºtil al nivel raÃÆÃÂ­z de tempLayer horneando matrices para evitar pÃÆÃÂ©rdidas por mÃÆÃÂ¡scaras
+    // Extrae el contenido útil al nivel raíz de tempLayer horneando matrices para evitar pérdidas por máscaras
     const clipGroups = [];
     tempLayer.getItems({
         match: function(item) {
@@ -1785,9 +1719,9 @@ export async function prepareSVGForExport(options = {}) {
         group.remove();
     });
 
-    // 4. VECTORIZACIÃÆÃ¢â¬ÅN RECURSIVA DE TIPOGRAFÃÆÃÂAS (Fonts-to-Paths)
+    // 4. VECTORIZACIÓN RECURSIVA DE TIPOGRAFÍAS (Fonts-to-Paths)
     // Convierte todos los PointText y grupos de texto curvo a CompoundPaths cerrados horneados
-    // para independizar el archivo de las fuentes del sistema o de la mÃÆÃÂ¡quina lÃÆÃÂ¡ser
+    // para independizar el archivo de las fuentes del sistema o de la máquina láser
     const textItems = [];
     tempLayer.getItems({
         match: function(item) {
@@ -1822,14 +1756,14 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // 4b. CONTENCIÃÆÃ¢â¬ÅN FINAL DEL BOCETO (regla del cliente: TODO el diseÃÆÃÂ±o
+    // 4b. CONTENCIÓN FINAL DEL BOCETO (regla del cliente: TODO el diseño
     // queda contenido dentro del mockup). El horneado 1b solo procesa
     // clipGroups: el texto y las formas sueltas que cruzan el borde del
-    // producto quedaban AFUERA en el boceto (la "Z" de ZARA). AcÃÆÃÂ¡ se recorta
+    // producto quedaban AFUERA en el boceto (la "Z" de ZARA). Acá se recorta
     // TODO lo que queda directo en la capa (texto ya vectorizado incluido),
     // con booleana hijo-por-hijo para no perder los counters. Los RASTERS
-    // (fotos) se recortan pixel a pixel con mÃÆÃÂ¡scara destino-in: paper.js
-    // ignora el clip en rasterize() ÃÂ¢Ã¢âÂ¬Ã¢â¬Â la silueta como primer hijo NO recorta.
+    // (fotos) se recortan pixel a pixel con máscara destino-in: paper.js
+    // ignora el clip en rasterize() — la silueta como primer hijo NO recorta.
     // El LIENZO general no tiene mockup: sin silueta este bloque no corre.
     if (options.keepMockupImage === true && siluetaSketch) {
         let capaEnProyecto4b = false;
@@ -1853,7 +1787,7 @@ export async function prepareSVGForExport(options = {}) {
                     if (!(item instanceof paper.PathItem || item instanceof paper.Raster)) return false;
                     if (item.data?.mockup === true || item.data?.isMockupOutline === true ||
                         item.data?.isFusionMask === true || item.data?.isSmartFusion === true) return false;
-                    // solo piezas tope: jamÃÆÃÂ¡s hijos de otro PathItem (los
+                    // solo piezas tope: jamás hijos de otro PathItem (los
                     // counters de un compound se conservan con su padre).
                     let p = item.parent;
                     while (p && p !== tempLayer) {
@@ -1875,7 +1809,7 @@ export async function prepareSVGForExport(options = {}) {
                     try { cruza = marcoB.intersects(wb); } catch (_) {}
                     if (dentro) {
                         try { world.remove(); } catch (_) {}
-                        return; // ya estÃÆÃÂ¡ contenido: no se toca
+                        return; // ya está contenido: no se toca
                     }
                     if (!cruza) {
                         try { world.remove(); } catch (_) {}
@@ -1883,8 +1817,8 @@ export async function prepareSVGForExport(options = {}) {
                         return; // afuera del producto: no se exporta
                     }
                     if (item instanceof paper.Raster) {
-                        // La foto se hornea CON la silueta: recorte pÃÆÃÂ­xel a
-                        // pÃÆÃÂ­xel (destination-in), igual que en 1b ÃÂ¢Ã¢âÂ¬Ã¢â¬Â clipped
+                        // La foto se hornea CON la silueta: recorte píxel a
+                        // píxel (destination-in), igual que en 1b — clipped
                         // lo ignora paper.js al rasterizar.
                         try { world.remove(); } catch (_) {}
                         const lienzo = document.createElement("canvas");
@@ -1933,24 +1867,24 @@ export async function prepareSVGForExport(options = {}) {
                         parent.insertChild(idx, recortado);
                     } else {
                         try { recortado?.remove?.(); } catch (_) {}
-                        // La booleana volviÃÆÃÂ³ a rellenar algo: se conserva el
+                        // La booleana volvió a rellenar algo: se conserva el
                         // original mejor que una letra mutilada.
                     }
                 } catch (_) {}
             });
             try { clonSil.remove(); } catch (_) {}
         } catch (err) {
-            console.warn("[EKKO EXPORT] ContenciÃÆÃÂ³n final del boceto incompleta:", err);
+            console.warn("[EKKO EXPORT] Contención final del boceto incompleta:", err);
         }
         try { if (capaEnProyecto4b) tempLayer.remove(); } catch (_) {}
         try { if (options.stackFlatten !== true) siluetaSketch.remove(); } catch (_) {}
     }
 
-    // 5. MATERIALIZACIÃÆÃ¢â¬ÅN BOOLEANA CSG EN LA CAPA CLONADA
-    // El export usa copias de los huecos virtuales, nunca las geometrÃÆÃÂ­as del
+    // 5. MATERIALIZACIÓN BOOLEANA CSG EN LA CAPA CLONADA
+    // El export usa copias de los huecos virtuales, nunca las geometrías del
     // lienzo interactivo. Se conserva ownerContainmentKey para aislar fusiones.
-    // unionReport se declara aquÃÆÃÂ­ porque el informe de compuerta (mÃÆÃÂ¡s abajo)
-    // lo referencia antes de que corra la uniÃÆÃÂ³n 5b.
+    // unionReport se declara aquí porque el informe de compuerta (más abajo)
+    // lo referencia antes de que corra la unión 5b.
     const unionReport = { mergedPairs: 0, skippedPairs: 0, dedupedStrokes: 0, timedOut: false, filledCount: 0, evaluatedPairs: 0 };
       const exportVirtualHoles = [];
     let exportCsgReport = null;
@@ -1992,14 +1926,7 @@ export async function prepareSVGForExport(options = {}) {
     // (fully cut, or over a material-free notch) must not block export.
     const exportOwners = collectVectorOwners(tempLayer);
     const holeOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
-    // Huecos SIN RESOLVER = solo los que tuvieron blanco vectorial real
-    // (par evaluado por el CSG) y no lograron restar. Un hueco sobre una
-    // FOTO o sobre nada se materializa mÃÂ¡s abajo (knock-out de pÃÂ­xeles en
-    // el tratado de fotos + contorno de corte en la capa roja): nunca
-    // debÃÂ­a bloquear el export entero.
-    const evaluatedCsgHoles = new Set(exportCsgReport?.evaluatedHoleKeys || []);
-    const acceptedCsgHoles = new Set(exportCsgReport?.acceptedHoleKeys || []);
-    const materializationUnresolvedHoles = [...evaluatedCsgHoles].filter(k => !acceptedCsgHoles.has(k)).length;
+    const materializationUnresolvedHoles = Number(exportCsgReport?.unresolvedHoles || 0);
     const failedBooleans = [
         ...(exportCsgReport?.failedBooleans || []),
         ...(exportCsgError ? [{ operation: "csg-recalculate", error: exportCsgError }] : [])
@@ -2027,11 +1954,11 @@ export async function prepareSVGForExport(options = {}) {
 
 
 
-    // 5b. UNIÃÆÃ¢â¬ÅN ANTI DOBLE-GRABADO (solo modo grabado)
-    // Dos rellenos superpuestos del mismo estilo se grabarÃÆÃÂ­an dos veces en
-    // la intersecciÃÆÃÂ³n. Se fusionan por estilo con tope de tiempo/pares; lo
-    // no unido se informa en el reporte en vez de bloquear la exportaciÃÆÃÂ³n.
-    // Las lÃÆÃÂ­neas de corte abiertas duplicadas exactas se deduplican por
+    // 5b. UNIÓN ANTI DOBLE-GRABADO (solo modo grabado)
+    // Dos rellenos superpuestos del mismo estilo se grabarían dos veces en
+    // la intersección. Se fusionan por estilo con tope de tiempo/pares; lo
+    // no unido se informa en el reporte en vez de bloquear la exportación.
+    // Las líneas de corte abiertas duplicadas exactas se deduplican por
     // pathData normalizado.
     if (options.uniteOverlaps !== false) {
         try {
@@ -2179,7 +2106,7 @@ export async function prepareSVGForExport(options = {}) {
                 }
             });
             if (Date.now() >= deadline || pairCount >= maxPairs) unionReport.timedOut = true;
-            // DeduplicaciÃÆÃÂ³n de trazos abiertos idÃÆÃÂ©nticos (doble lÃÆÃÂ­nea de corte).
+            // Deduplicación de trazos abiertos idénticos (doble línea de corte).
             const seenStrokes = new Set();
             tempLayer.getItems({
                 match: item => (item instanceof paper.Path) && !item.closed &&
@@ -2205,14 +2132,14 @@ export async function prepareSVGForExport(options = {}) {
     }
 
     // 6. PURGADO DE CALADOS ACTIVOS (isHole)
-    // Dado que el corte booleano ya fue materializado en la geometrÃÆÃÂ­a de las masas sÃÆÃÂ³lidas inferiores,
-    // se eliminan todas las entidades de calado interactivo para no generar lÃÆÃÂ­neas de corte duplicadas en el programa de grabado/lÃÆÃÂ¡ser
-    // CRÃÆÃÂTICO (bug counters de letras): un HIJO de un CompoundPath es un contorno
+    // Dado que el corte booleano ya fue materializado en la geometría de las masas sólidas inferiores,
+    // se eliminan todas las entidades de calado interactivo para no generar líneas de corte duplicadas en LightBurn
+    // CRÍTICO (bug counters de letras): un HIJO de un CompoundPath es un contorno
     // interno (el hueco real de una letra R, A, O...), NO un calado interactivo.
-    // La vectorizaciÃÆÃÂ³n de texto marca esos hijos con isHole:true y la purga los
-    // borreaba uno por uno: las letras salÃÆÃÂ­an MACIZAS en el SVG de grabado y en
+    // La vectorización de texto marca esos hijos con isHole:true y la purga los
+    // borreaba uno por uno: las letras salían MACIZAS en el SVG de grabado y en
     // el boceto PNG/PDF (que rasteriza este mismo SVG). Los calados reales
-    // siempre cuelgan de la capa o de un grupo, jamÃÆÃÂ¡s de un CompoundPath.
+    // siempre cuelgan de la capa o de un grupo, jamás de un CompoundPath.
     const holesToRemove = [];
     tempLayer.getItems({
         match: function(item) {
@@ -2228,16 +2155,16 @@ export async function prepareSVGForExport(options = {}) {
         try { hole.remove(); } catch (e) {}
     });
 
-    // 7. SANITIZACIÃÆÃ¢â¬ÅN VECTORIAL Y ASIGNACIÃÆÃ¢â¬ÅN DE ESTILOS PARA CORTE/GRABADO LÃÆÃÂSER
-    // - Asigna fillRule "evenodd" en todos los CompoundPaths para renderizado de huecos estÃÆÃÂ¡ndar
-    // - Asegura colores visibles (negro para grabado / trazo fino) evitando paths invisibles ignorados por el programa de grabado/lÃÆÃÂ¡ser
-    // - Descarta geometrÃÆÃÂ­as vacÃÆÃÂ­as o degeneradas (sin ÃÆÃÂ¡rea ni segmentos)
+    // 7. SANITIZACIÓN VECTORIAL Y ASIGNACIÓN DE ESTILOS PARA CORTE/GRABADO LÁSER
+    // - Asigna fillRule "evenodd" en todos los CompoundPaths para renderizado de huecos estándar
+    // - Asegura colores visibles (negro para grabado / trazo fino) evitando paths invisibles ignorados por LightBurn
+    // - Descarta geometrías vacías o degeneradas (sin área ni segmentos)
     const emptyItems = [];
     tempLayer.getItems({
         match: function(item) {
-            // Un contorno interno de un CompoundPath (counter de letra) jamÃÆÃÂ¡s
-            // se evalÃÆÃÂºa ni se elimina por separado: si su compound tiene ÃÆÃÂ¡rea,
-            // ÃÆÃÂ©l pertenece a ese relleno con huecos (evenodd).
+            // Un contorno interno de un CompoundPath (counter de letra) jamás
+            // se evalúa ni se elimina por separado: si su compound tiene área,
+            // él pertenece a ese relleno con huecos (evenodd).
             if (item.parent && item.parent.className === "CompoundPath") return false;
             if (item instanceof paper.PathItem) {
                 const segCount = item.segments ? item.segments.length :
@@ -2283,11 +2210,11 @@ export async function prepareSVGForExport(options = {}) {
                 item.fillRule = sourceRule === "nonzero" || sourceRule === "non-zero" ? "nonzero" : "evenodd";
             }
         }
-        // AsignaciÃÆÃÂ³n de estilo por defecto si carece de color
+        // Asignación de estilo por defecto si carece de color
         if (!item.fillColor && !item.strokeColor) {
             item.fillColor = new paper.Color("#000000");
         }
-        // Garantizar trazo mÃÆÃÂ­nimo si es un path abierto de corte
+        // Garantizar trazo mínimo si es un path abierto de corte
         if (!item.closed && (!item.strokeWidth || item.strokeWidth <= 0)) {
             item.strokeWidth = 1.0;
             if (!item.strokeColor) item.strokeColor = new paper.Color("#000000");
@@ -2304,12 +2231,12 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // 7c. APLANADO POR APILADO PARA el programa de grabado/lÃÆÃÂ¡ser (options.stackFlatten):
-    // regla del dueÃÆÃÂ±o ÃÂ¢Ã¢âÂ¬Ã¢â¬Â se graba lo que SE VE. Cada pieza resta todo lo que
-    // estÃÆÃÂ¡ POR ENCIMA de ella (knock-out), asÃÆÃÂ­ las capas de abajo no quedan
+    // 7c. APLANADO POR APILADO PARA LIGHTBURN (options.stackFlatten):
+    // regla del dueño — se graba lo que SE VE. Cada pieza resta todo lo que
+    // está POR ENCIMA de ella (knock-out), así las capas de abajo no quedan
     // grabadas debajo de las de arriba; y todo se contiene con la silueta del
     // producto. Booleana hijo-por-hijo: los counters de las letras nunca se
-    // rellenan. Las piezas quedan en el mismo orden z (abajo ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ arriba).
+    // rellenan. Las piezas quedan en el mismo orden z (abajo → arriba).
     if (options.stackFlatten === true) {
         try {
             const unidades = tempLayer.children.filter(it =>
@@ -2321,7 +2248,7 @@ export async function prepareSVGForExport(options = {}) {
                 const unidad = unidades[i];
                 const world = worlds[i];
                 if (!world || !unidad) continue;
-                // 1) KNOCK-OUT: restar la uniÃÆÃÂ³n de todo lo de arriba.
+                // 1) KNOCK-OUT: restar la unión de todo lo de arriba.
                 let cubierto = null;
                 for (let j = i + 1; j < unidades.length; j++) {
                     const arriba = worlds[j];
@@ -2340,7 +2267,7 @@ export async function prepareSVGForExport(options = {}) {
                         final = restado;
                     }
                 }
-                // 2) CONTENCIÃÆÃ¢â¬ÅN: intersecciÃÆÃÂ³n con la silueta del producto.
+                // 2) CONTENCIÓN: intersección con la silueta del producto.
                 if (siluetaSketch) {
                     let toca = false;
                     try { toca = final.bounds.intersects(siluetaSketch.bounds); } catch (_) {}
@@ -2354,7 +2281,7 @@ export async function prepareSVGForExport(options = {}) {
                         }
                     }
                 }
-                // 3) Reemplazo en la MISMA posiciÃÆÃÂ³n z (abajo ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ arriba).
+                // 3) Reemplazo en la MISMA posición z (abajo → arriba).
                 try {
                     const parent = unidad.parent || tempLayer;
                     const idx = unidad.index;
@@ -2370,7 +2297,7 @@ export async function prepareSVGForExport(options = {}) {
         try { if (siluetaSketch) siluetaSketch.remove(); } catch (_) {}
     }
 
-    // 7d. CAPA DE CORTE (roja) al tope del apilado: el programa de grabado/lÃÆÃÂ¡ser la lee como
+    // 7d. CAPA DE CORTE (roja) al tope del apilado: LightBurn la lee como
     // capa de corte separada del grabado negro.
     if (capaCorte) {
         try {
@@ -2381,26 +2308,26 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // 7e. CAPAS el programa de grabado/lÃÆÃÂ¡ser (regla del dueÃÆÃÂ±o: solo modo grabado/stackFlatten):
+    // 7e. CAPAS LIGHTBURN (regla del dueño: solo modo grabado/stackFlatten):
     // los vectores del cliente van a capa AZUL (#0000ff, engraving y
     // perfectamente visible sobre el lienzo oscuro), el mockup de
     // referencia (si se incluye) y la capa de corte van a ROJO, y las
-    // imÃÆÃÂ¡genes quedan en capa NEGRA (la capa 00 de el programa de grabado/lÃÆÃÂ¡ser).
-    // El boceto (keepMockupImage) NO se toca: el cliente ve su diseÃÆÃÂ±o.
+    // imágenes quedan en capa NEGRA (la capa 00 de LightBurn).
+    // El boceto (keepMockupImage) NO se toca: el cliente ve su diseño.
     if (options.stackFlatten === true) {
         try {
             const esVector = (item) =>
                 item instanceof paper.PathItem &&
                 !(item.data?.mockup || item.data?.isMockupOutline || item.data?.isCutLayer ||
                   item.data?.isFusionMask);
-            // Vectores del cliente ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ AZUL (incluso los "casi negros" del app).
+            // Vectores del cliente → AZUL (incluso los "casi negros" del app).
             tempLayer.getItems({
                 match: it => esVector(it)
             }).forEach(item => {
                 item.strokeColor = new paper.Color("#0000ff");
                 if (item.fillColor) item.fillColor = new paper.Color("#0000ff");
             });
-            // Mockup de referencia (si se incluye) ÃÂ¢Ã¢â¬Â Ã¢â¬â¢ ROJO, como la capa de corte.
+            // Mockup de referencia (si se incluye) → ROJO, como la capa de corte.
             tempLayer.getItems({
                 match: it => (it.data?.mockup || it.data?.isMockupOutline) && !it.data?.isCutLayer
             }).forEach(item => {
@@ -2410,7 +2337,7 @@ export async function prepareSVGForExport(options = {}) {
         } catch (_) {}
     }
 
-    // 8. EXPORTACIÃÆÃ¢â¬ÅN NATIVA A SVG CON PRECISIÃÆÃ¢â¬ÅN INDUSTRIAL
+    // 8. EXPORTACIÓN NATIVA A SVG CON PRECISIÓN INDUSTRIAL
     // El marco es el PRODUCTO (union con el contenido por si algo sobresale):
     // la geometria no se traslada, solo cambia la ventana del viewBox.
     let marcoFinal = null;
@@ -2433,10 +2360,10 @@ export async function prepareSVGForExport(options = {}) {
     // 8b. DESANIDADO + SIN RECORTE HEREDADO: Paper envuelve los items con
     // clip en <svg> anidados SIN atributos de tamanio; el navegador los mide
     // 100%x100% del lienzo y el render se rompe (visto en produccion con un
-    // diseÃÆÃÂ±o importado: contenido recortado y desplazado). El clip heredado
+    // diseño importado: contenido recortado y desplazado). El clip heredado
     // del SVG del cliente ademas esconde geometria que en el lienzo se ve
     // completa. Regla de la descarga: LO QUE SE VE EN EL LIENZO ES LO QUE
-    // SALE ÃÂ¢Ã¢âÂ¬Ã¢â¬Â se aplana la estructura y se eliminan los recortes.
+    // SALE — se aplana la estructura y se eliminan los recortes.
     if (typeof svgString === "string") {
         svgString = svgString
             .replace(/<svg[^>]*>/g, "")
@@ -2446,23 +2373,23 @@ export async function prepareSVGForExport(options = {}) {
     }
 
     // 8e. PREFIJO DE HREF NORMALIZADO A XLINK: Paper serializa los href de
-    // las imÃÆÃÂ¡genes como `ns1:href` (prefijo arbitrario) y declara
+    // las imágenes como `ns1:href` (prefijo arbitrario) y declara
     // `xmlns:ns1="http://www.w3.org/1999/xlink"` sobre el propio <image>.
-    // el programa de grabado/lÃÆÃÂ¡ser busca `xlink:href` literal y no reconoce el prefijo `ns1`,
-    // por lo que las imÃÆÃÂ¡genes quedan invisibles (se ve sÃÆÃÂ³lo el vector).
-    // Se reescribe el prefijo y se declara xmlns:xlink en la raÃÆÃÂ­z
-    // (mÃÆÃÂ¡s abajo, secciÃÆÃÂ³n 9).
+    // LightBurn busca `xlink:href` literal y no reconoce el prefijo `ns1`,
+    // por lo que las imágenes quedan invisibles (se ve sólo el vector).
+    // Se reescribe el prefijo y se declara xmlns:xlink en la raíz
+    // (más abajo, sección 9).
     if (typeof svgString === "string" && svgString.indexOf("<image") !== -1) {
         svgString = svgString.replace(/\b[a-zA-Z_][\w.-]*:href\s*=/g, "xlink:href=");
         svgString = svgString.replace(/\s+xmlns:[a-zA-Z_][\w.-]*\s*=\s*"http:\/\/www\.w3\.org\/1999\/xlink"/g, "");
     }
 
-    // 8c. IMÃÆÃÂGENES SIN ESCALA HEREDADA: el programa de grabado/lÃÆÃÂ¡ser no siempre resuelve un
+    // 8c. IMÁGENES SIN ESCALA HEREDADA: LightBurn no siempre resuelve un
     // <image width="2000" transform="scale(0.025)"> igual que el navegador:
-    // el tamaÃÆÃÂ±o fÃÆÃÂ­sico correcto vive en width/height, y si la transformaciÃÆÃÂ³n
-    // es una ESCALA UNIFORME se hornea en el elemento (xÃâÃÂ·s, yÃâÃÂ·s, wÃâÃÂ·s, hÃâÃÂ·s) y
-    // la transformaciÃÆÃÂ³n desaparece. Cualquier otra transformaciÃÆÃÂ³n se deja
-    // intacta (caso raro: rotaciones sobre imÃÆÃÂ¡genes horneadas).
+    // el tamaño físico correcto vive en width/height, y si la transformación
+    // es una ESCALA UNIFORME se hornea en el elemento (x·s, y·s, w·s, h·s) y
+    // la transformación desaparece. Cualquier otra transformación se deja
+    // intacta (caso raro: rotaciones sobre imágenes horneadas).
     if (typeof svgString === "string" && svgString.indexOf("<image") !== -1) {
         svgString = svgString.replace(/<image\b[^>]*>/g, function (etiqueta) {
             if (etiqueta.indexOf("transform") === -1) return etiqueta;
@@ -2491,22 +2418,22 @@ export async function prepareSVGForExport(options = {}) {
         });
     }
 
-    // 8d. IMÃÆÃÂGENES EN CAPA AMARILLA (regla del dueÃÆÃÂ±o: solo modo grabado).
-    // el programa de grabado/lÃÆÃÂ¡ser asigna la capa por color; un raster no tiene color, asÃÆÃÂ­
-    // que se envuelve en un <g stroke="#ffd700"> ÃÂ¢Ã¢âÂ¬Ã¢â¬Â el color del grupo manda,
-    // igual que con el texto/vectores. Las imÃÆÃÂ¡genes pasan a la capa amarilla
-    // y el cliente las ve (sobre el lienzo oscuro desaparecÃÆÃÂ­an).
-    // En el boceto (keepMockupImage) no se toca: el cliente ve su diseÃÆÃÂ±o.
+    // 8d. IMÁGENES EN CAPA AMARILLA (regla del dueño: solo modo grabado).
+    // LightBurn asigna la capa por color; un raster no tiene color, así
+    // que se envuelve en un <g stroke="#ffd700"> — el color del grupo manda,
+    // igual que con el texto/vectores. Las imágenes pasan a la capa amarilla
+    // y el cliente las ve (sobre el lienzo oscuro desaparecían).
+    // En el boceto (keepMockupImage) no se toca: el cliente ve su diseño.
     if (typeof svgString === "string" && svgString.indexOf("<image") !== -1 && options.stackFlatten === true) {
         svgString = svgString.replace(/<image\b[^>]*>/g, function (etiqueta) {
             return '<g stroke="#ffd700" stroke-width="0.5" fill="none" data-ekko-layer="imagenes">' + etiqueta + '</g>';
         });
     }
 
-    // 9. RAÃÆÃÂZ SVG CON DIMENSIONES FÃÆÃÂSICAS EN MILÃÆÃÂMETROS (Escala 1:1 en el programa de grabado/lÃÆÃÂ¡ser)
-    // Paper exporta la capa como fragmento <g> sin raÃÆÃÂ­z <svg>; el antiguo
-    // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdÃÆÃÂ­an.
-    // Se construye la raÃÆÃÂ­z explÃÆÃÂ­citamente: width/height en mm y viewBox en
+    // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
+    // Paper exporta la capa como fragmento <g> sin raíz <svg>; el antiguo
+    // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdían.
+    // Se construye la raíz explícitamente: width/height en mm y viewBox en
     // unidades de proyecto, de modo que 1 unidad = window.mmPerPaperUnit mm.
     if (typeof svgString === "string" && svgString.trim() !== "") {
         const bounds = marcoFinal || tempLayer.bounds;
@@ -2522,11 +2449,11 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // 10. LIBERACIÃÆÃ¢â¬ÅN DE MEMORIA DEL LIENZO TEMPORAL
+    // 10. LIBERACIÓN DE MEMORIA DEL LIENZO TEMPORAL
     tempLayer.remove();
 
     if (window.EKKO_DEBUG) {
-        console.log("[EKKO EXPORT SUCCESS] El diseÃÆÃÂ±o vectorial ha sido industrializado exitosamente para el programa de grabado/lÃÆÃÂ¡ser.");
+        console.log("[EKKO EXPORT SUCCESS] El diseño vectorial ha sido industrializado exitosamente para LightBurn.");
     }
 
     if (typeof DOMParser !== "undefined") {
@@ -2548,7 +2475,7 @@ export async function prepareSVGForExport(options = {}) {
 export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
     const svgContent = await prepareSVGForExport({ asString: true });
     if (!svgContent || svgContent.trim() === "") {
-        notice("No hay elementos vÃÆÃÂ¡lidos para exportar en el lienzo.", { kind: "warn" });
+        notice("No hay elementos válidos para exportar en el lienzo.", { kind: "warn" });
         return;
     }
 
@@ -2563,16 +2490,16 @@ export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
     URL.revokeObjectURL(url);
 }
 
-// ExposiciÃÆÃÂ³n global segura
+// Exposición global segura
 if (typeof window !== "undefined") {
     window.prepareSVGForExport = prepareSVGForExport;
     window.downloadExportedSVG = downloadExportedSVG;
     // Filtro de grises EKKO-GRIS-v2 para el editor (al entrar fotos).
     window.ekkoAplicarFiltroGrises = aplicarFiltroGrises;
     window.ekkoGrisConfig = leerFiltroGrises;
-    // Mejora automÃÆÃÂ¡tica al importar (densidad 300 dpi + definiciÃÆÃÂ³n).
+    // Mejora automática al importar (densidad 300 dpi + definición).
     window.ekkoPrepararFotoImportada = prepararFotoImportada;
-    // MODO LÃÆÃÂSER (ediciÃÆÃÂ³n con el look de grabado) + EXPORTAR SELECCIÃÆÃ¢â¬ÅN.
+    // MODO LÁSER (edición con el look de grabado) + EXPORTAR SELECCIÓN.
     window.ekkoModoLaser = {
         alternar: alternarModoLaser,
         poner: setModoLaser,
@@ -2581,9 +2508,7 @@ if (typeof window !== "undefined") {
     window.ekkoExportarSeleccionUI = ekkoExportarSeleccionUI;
     window.ekkoExportarSeleccionPNG = exportarSeleccionPNG;
     window.ekkoCopiarSeleccionPNG = copiarSeleccionPNG;
-    // DiagnÃÆÃÂ³stico interno (no se usa en UI; sirve para auditar el modo).
+    // Diagnóstico interno (no se usa en UI; sirve para auditar el modo).
     window.__ekkoModoDebug = { aplicarVestuario, vestidoLaser, rasterModoIgnorable };
     sincronizarBotonModo();
 }
-
-
