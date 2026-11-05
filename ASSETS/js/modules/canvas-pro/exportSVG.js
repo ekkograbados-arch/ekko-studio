@@ -26,7 +26,7 @@ FASE DE OPERACIÃ“N:
 9. InyecciÃ³n de unidades fÃ­sicas mÃ©tricas reales (mm) y precisiÃ³n micromÃ©trica (5 decimales).
 ========================================================================= */
 
-import { recalculateDynamicSubtractions, interiorPointOf, evenOddContains } from "./geometricUngroup.js";
+import { recalculateDynamicSubtractions, interiorPointOf, evenOddContains, getGlobalUnsubtractedPath } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { getPublicOwner } from "./designGeometry.js";
@@ -912,6 +912,25 @@ function renderSeleccionPNG(dpi) {
     const pintura = new Map();
     (function rec(n) { for (const c of n.children) { pintura.set(c, orden++); if (c.children) rec(c); } })(capa);
     piezas.sort((a, b) => (pintura.get(a) ?? 0) - (pintura.get(b) ?? 0));
+    // HUECOS DE CALADO por encima: la perforación es física también en el
+    // PNG entregado — la pieza de abajo pierde el área del hueco (igual que
+    // en el SVG: hueco real, no transparencia forzada).
+    const huecosSeleccion = [];
+    try {
+        capa.getItems({
+            match: it => it.data?.isHole === true &&
+                (it instanceof paper.PathItem) &&
+                !(it.parent && it.parent.className === "CompoundPath") &&
+                it.data?.isFusionMask !== true && it.data?.isSmartFusion !== true &&
+                it.data?.isCutLine !== true
+        }).forEach(h => {
+            try {
+                const geo = getGlobalUnsubtractedPath(h);
+                if (!geo || !(h.bounds && h.bounds.width > 0)) return;
+                huecosSeleccion.push({ geo, orden: pintura.get(h) ?? -1, caja: h.bounds });
+            } catch (_) {}
+        });
+    } catch (_) {}
     // caja de la selecciÃ³n
     let caja = null;
     piezas.forEach(it => {
@@ -953,6 +972,18 @@ function renderSeleccionPNG(dpi) {
             try { piezaR.canvas.width = 0; piezaR.canvas.height = 0; } catch (_) {} // liberar
             fx.globalCompositeOperation = "destination-out";
             fx.drawImage(occl, 0, 0);
+            // y los huecos de calado que están ENCIMA de esta pieza.
+            const oPieza = pintura.get(piezas[i]) ?? -1;
+            huecosSeleccion.forEach(hh => {
+                try {
+                    if (hh.orden <= oPieza) return;
+                    if (!hh.caja.intersects(caja)) return;
+                    const mb = hh.geo.bounds;
+                    if (!mb || !(mb.width > 0) || !(mb.height > 0)) return;
+                    const celo = construirMascaraSilueta(hh.geo, mb, k, k * 72);
+                    if (celo) fx.drawImage(celo, Math.round((mb.x - caja.x) * k), Math.round((mb.y - caja.y) * k));
+                } catch (_) {}
+            });
             fx.globalCompositeOperation = "source-over";
             ctx.drawImage(fu, 0, 0);
             occ.drawImage(fu, 0, 0);
@@ -1296,6 +1327,41 @@ export async function prepareSVGForExport(options = {}) {
                 });
             }
             contenedores.forEach(clon => { try { clon.remove(); } catch (_) {} });
+            // Contornos de CALADO (perforación real del diseño): cada hueco
+            // entra a la capa de corte con SU contorno completo (exterior y
+            // contracubetas). Así la perforación existe físicamente aunque
+            // el hueco caiga sobre una foto o sobre nada: hueco real, no
+            // transparencia — lo interior no se graba, los bordes se cortan.
+            try {
+                const huecosCorte = tempLayer.getItems({
+                    match: it => it.data?.isHole === true &&
+                        (it instanceof paper.PathItem) &&
+                        !(it.parent && it.parent.className === "CompoundPath") &&
+                        it.data?.isFusionMask !== true && it.data?.isSmartFusion !== true
+                });
+                if (huecosCorte.length) {
+                    if (!capaCorte) {
+                        capaCorte = new paper.Group({ insert: false });
+                        capaCorte.data = { id: "EKKO-corte", isCutLayer: true };
+                    }
+                    huecosCorte.forEach(hueco => {
+                        try {
+                            const geoH = getGlobalUnsubtractedPath(hueco);
+                            if (!geoH) return;
+                            (function recolectarH(nodo) {
+                                if (!nodo) return;
+                                if (nodo instanceof paper.Path && Math.abs(nodo.area || 0) > 0) {
+                                    nodo.fillColor = null;
+                                    nodo.strokeColor = new paper.Color("#ff0000");
+                                    nodo.strokeWidth = 0.5;
+                                    nodo.opacity = 1;
+                                    capaCorte.addChild(nodo);
+                                } else if (nodo.children) nodo.children.forEach(recolectarH);
+                            })(geoH);
+                        } catch (_) {}
+                    });
+                }
+            } catch (_) {}
         } catch (_) { capaCorte = null; }
     }
 
@@ -1926,7 +1992,14 @@ export async function prepareSVGForExport(options = {}) {
     // (fully cut, or over a material-free notch) must not block export.
     const exportOwners = collectVectorOwners(tempLayer);
     const holeOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
-    const materializationUnresolvedHoles = Number(exportCsgReport?.unresolvedHoles || 0);
+    // Huecos SIN RESOLVER = solo los que tuvieron blanco vectorial real
+    // (par evaluado por el CSG) y no lograron restar. Un hueco sobre una
+    // FOTO o sobre nada se materializa más abajo (knock-out de píxeles en
+    // el tratado de fotos + contorno de corte en la capa roja): nunca
+    // debía bloquear el export entero.
+    const evaluatedCsgHoles = new Set(exportCsgReport?.evaluatedHoleKeys || []);
+    const acceptedCsgHoles = new Set(exportCsgReport?.acceptedHoleKeys || []);
+    const materializationUnresolvedHoles = [...evaluatedCsgHoles].filter(k => !acceptedCsgHoles.has(k)).length;
     const failedBooleans = [
         ...(exportCsgReport?.failedBooleans || []),
         ...(exportCsgError ? [{ operation: "csg-recalculate", error: exportCsgError }] : [])
