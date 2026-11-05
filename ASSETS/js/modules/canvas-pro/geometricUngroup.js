@@ -1548,7 +1548,7 @@ function extractSubtractiveItems(topList) {
                     collectRecursive(c, nextAncestors);
                 }
             });
-        } else if (content.data && content.data.geomBase && content.data.isCutLine !== true) {
+        } else if (content.data && (content.data.geomBase || csgSolidWithoutBase(content)) && content.data.isCutLine !== true) {
             result.push(content);
         }
     }
@@ -1556,6 +1556,18 @@ function extractSubtractiveItems(topList) {
         collectRecursive(topItem);
     });
     return result;
+}
+
+function csgSolidWithoutBase(item) {
+    try {
+        const d = item?.data || {};
+        if (d.isCutLine === true || d.isHole === true || d.isFusionMask === true ||
+            d.isSmartFusion === true || d.mockup === true || d.isMask === true) return false;
+        if (d.semanticKind === VECTOR_KIND.HOLE) return false;
+        if (!(item instanceof paper.PathItem)) return false;
+        if (!(Math.abs(item.area || 0) > 1e-6)) return false;
+        return true;
+    } catch (_) { return false; }
 }
 
 export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEntries = null) {
@@ -1574,7 +1586,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         holeOwnerCount: 0,
         acceptedHoleCount: 0,
         unresolvedHoles: 0,
-        acceptedHoleKeys: []
+        acceptedHoleKeys: [],
+        evaluatedHoleKeys: []
     };
     const traceSeedItems = layer?.children ? [...layer.children] : [];
     const tracePass = csgTraceBegin(layer, traceSeedItems);
@@ -1582,6 +1595,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
     activeCSGTracePass = tracePass;
     let tracedItems = [];
     let traceReason = null;
+    const evaluatedHoleKeys = new Set();
     const acceptedHoleKeys = new Set();
     try {
     // Virtual holes come from three sources: explicit fusion records, internal
@@ -1646,7 +1660,10 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
     for (let j = 0; j < subItems.length; j++) {
         let solid = subItems[j];
-        if (!solid || !solid.data || solid.data.isHole || !solid.data.geomBase ||
+        // El requisito de geomBase salió: un sólido fresco participa igual
+        // (su geometría en vivo es su prístino). Solo se saltan los huecos,
+        // las líneas de corte y las máscaras.
+        if (!solid || !solid.data || solid.data.isHole || solid.data.isCutLine === true ||
             isMockupOrMask(solid)) continue;
         const pristineBase = getGlobalUnsubtractedPath(solid);
         if (!pristineBase) continue;
@@ -1696,6 +1713,8 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                 if (tracePass) tracePass.candidatePairs.push(pair);
                 continue;
             }
+            // Hueco con blanco vectorial real debajo: si la resta falla, queda sin resolver.
+            evaluatedHoleKeys.add(holeData.containmentKey || holeItem.id);
             let holeBase = getGlobalUnsubtractedPath(holeItem);
             pair.holeWorldGeometry = csgGeometrySnapshot(holeBase);
             if (!holeBase) {
@@ -1968,6 +1987,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
         report.rejectedPairs = Math.max(0, report.candidatePairs - report.acceptedPairs);
         report.acceptedHoleKeys = [...acceptedHoleKeys];
         report.acceptedHoleCount = acceptedHoleKeys.size;
+        report.evaluatedHoleKeys = [...evaluatedHoleKeys];
         report.unresolvedHoles = Math.max(0, report.holeOwnerCount - report.acceptedHoleCount);
         report.status = traceReason || report.status;
         report.completed = traceReason === 'completed' || report.status === 'no-subtractive-items' || report.status === 'no-eligible-layer-items';
