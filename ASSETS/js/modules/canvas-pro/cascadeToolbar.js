@@ -1664,9 +1664,22 @@ function montarFila() {
         '<span class="ekko-tema-txt">Láser</span>';
     laserBtn.title = "Ver cómo se graba (simulación sobre acero inoxidable, sin exportar)";
     laserBtn.addEventListener("click", () => {
-        try { if (typeof window.__ekkoPreviewEngraved === "function") window.__ekkoPreviewEngraved(); } catch (_) {}
+        try { if (typeof window.ekkoModoLaser?.alternar === "function") window.ekkoModoLaser.alternar(); } catch (_) {}
     });
     temaStack.appendChild(laserBtn);
+    // Botón SELECCIÓN: exportar la selección a PNG con el modo activo y el apilado respetado (Ctrl+Shift+C)
+    const exportSelBtn = document.createElement("button");
+    exportSelBtn.type = "button";
+    exportSelBtn.id = "btnEkkoExportSel";
+    exportSelBtn.className = "btn-action";
+    exportSelBtn.innerHTML =
+        '<span style="font-size:13px;line-height:1;">📤</span>' +
+        '<span class="ekko-tema-txt">SELECCIÓN</span>';
+    exportSelBtn.title = "Exportar la selección a PNG (300/600 DPI), con el look del modo activo y el apilamiento respetado. También atajo Ctrl+Shift+C.";
+    exportSelBtn.addEventListener("click", () => {
+        try { if (typeof window.ekkoExportarSeleccionUI === "function") window.ekkoExportarSeleccionUI(); } catch (_) {}
+    });
+    temaStack.appendChild(exportSelBtn);
     shell.appendChild(temaStack);
 
     if (topBar.firstChild !== strip) topBar.insertBefore(strip, topBar.firstChild);
