@@ -1,17 +1,17 @@
 /* =========================================================================
-Modulo: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js (v28.0 PRO - Unified, CSG Reactive & LightBurn Stacking)
+Modulo: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js (v28.0 PRO - Unified, CSG Reactive & el programa de grabado/lÃ¡ser Stacking)
 Ruta de implementacion: ASSETS/js/modules/canvas-pro/zoomYShortcuts.js
-Descripción: 
+DescripciÃ³n: 
     Logica integrada para zoom interactivo relativo al cursor del raton
-    (LightBurn Style) elevando el limite al 10000%, con sistema unificado
+    (el programa de grabado/lÃ¡ser Style) elevando el limite al 10000%, con sistema unificado
     de atajos de teclado universales.
 
-    CORRECCIONES ARQUITECTÓNICAS V28.0:
+    CORRECCIONES ARQUITECTÃ“NICAS V28.0:
     1. BLOQUEO DE ATAJO NATIVO DE CHROME Ctrl+D:
-       Intercepta de manera absoluta la combinación Ctrl+D (Duplicar) aplicando
+       Intercepta de manera absoluta la combinaciÃ³n Ctrl+D (Duplicar) aplicando
        e.preventDefault() y e.stopPropagation() de inmediato, impidiendo que el
-       navegador intente abrir la modal nativa de añadir favoritos.
-    2. ACOPLAMIENTO DE DUPLICACIÓN INTERACTIVA:
+       navegador intente abrir la modal nativa de aÃ±adir favoritos.
+    2. ACOPLAMIENTO DE DUPLICACIÃ“N INTERACTIVA:
        Enruta Ctrl+D directamente hacia 'window.duplicateSelectedItem()' para
        sincronizar el portapapeles del lienzo de Paper.js.
 
@@ -22,7 +22,7 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 export function initZoomControls(canvasEl) {
     if (!canvasEl || !window.paper) return;
 
-    // Zoom interactivo relativo al cursor (LightBurn Style)
+    // Zoom interactivo relativo al cursor (el programa de grabado/lÃ¡ser Style)
     canvasEl.addEventListener("wheel", (e) => {
         if (!paper.view) return;
         e.preventDefault();
@@ -101,7 +101,7 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         // 0b. FLECHAS: desplazar seleccion (1px, 10px con Shift), como
-        // Canva/LightBurn. En edicion de nodos las flechas las posee el
+        // editores de diseÃ±o/el programa de grabado/lÃ¡ser. En edicion de nodos las flechas las posee el
         // editor de nodos; en edicion interna mueven la imagen contenida.
         if ((key === "arrowup" || key === "arrowdown" || key === "arrowleft" || key === "arrowright") && !window.nodeEditMode) {
             e.preventDefault();
@@ -177,16 +177,16 @@ export function initGlobalKeyboardShortcuts() {
         }
 
         // 3. COPIAR (Ctrl+C)
-        // 3bis. COPIAR SELECCIÓN AL PORTAPAPELES (Ctrl+Shift+C): PNG compuesto
-        // con el look del modo activo y el apilado respetado — pegás directo
-        // en LightBurn sin pasar por archivo. Va ANTES del Ctrl+C normal.
+        // 3bis. COPIAR SELECCIÃ“N AL PORTAPAPELES (Ctrl+Shift+C): PNG compuesto
+        // con el look del modo activo y el apilado respetado â€” pegÃ¡s directo
+        // en el programa de grabado/lÃ¡ser sin pasar por archivo. Va ANTES del Ctrl+C normal.
         if (editFusionLocked) return;
         if (isCtrl && e.shiftKey && key === "c") {
             e.preventDefault();
             if (typeof window.ekkoCopiarSeleccionPNG === "function") {
                 window.ekkoCopiarSeleccionPNG(600);
             } else {
-                console.warn("[EKKO SHORTCUTS] ekkoCopiarSeleccionPNG aún no disponible.");
+                console.warn("[EKKO SHORTCUTS] ekkoCopiarSeleccionPNG aÃºn no disponible.");
             }
             return;
         }
@@ -314,7 +314,7 @@ export function initGlobalKeyboardShortcuts() {
         // 8. DUPLICAR OBJETO COMPLETO CON CONTROL+D (BLINDAJE DE CHROME)
         if (isCtrl && key === "d") {
             e.preventDefault();
-            e.stopPropagation(); // Frenar propagación para que Chrome no actúe
+            e.stopPropagation(); // Frenar propagaciÃ³n para que Chrome no actÃºe
             if (typeof window.duplicateSelectedItem === "function") {
                 window.duplicateSelectedItem();
             }
@@ -377,7 +377,7 @@ export function initGlobalKeyboardShortcuts() {
             return;
         }
 
-        // 12. ORDEN Z / APILAMIENTO ESTILO LIGHTBURN (PgUp / PgDown / Ctrl+PgUp / Ctrl+PgDown)
+        // 12. ORDEN Z / APILAMIENTO ESTILO el programa de grabado/lÃ¡ser (PgUp / PgDown / Ctrl+PgUp / Ctrl+PgDown)
         if (key === "pageup") {
             if (editFusionLocked) return;
             e.preventDefault();
@@ -406,3 +406,5 @@ if (typeof window !== "undefined") {
     window.initZoomControls = initZoomControls;
     window.initGlobalKeyboardShortcuts = initGlobalKeyboardShortcuts;
 }
+
+
