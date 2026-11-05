@@ -1,14 +1,14 @@
 import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners } from "./designGeometry.js";
 /* =========================================================================
-MÃ³dulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v10.3 - Saneado y Unificado)
+MÃÆÃÂ³dulo: ASSETS/js/modules/canvas-pro/contextualMenu.js (PRO Contextual Engine v10.3 - Saneado y Unificado)
 Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
-DescripciÃ³n:
-Gestor unificado del menÃº contextual, tipografÃ­as dinÃ¡micas, transformaciones
+DescripciÃÆÃÂ³n:
+Gestor unificado del menÃÆÃÂº contextual, tipografÃÆÃÂ­as dinÃÆÃÂ¡micas, transformaciones
 y barra de acciones para EKKO Studio.
-Asegura la preservaciÃ³n absoluta de las funciones de apilamiento Z (el programa de grabado/lÃ¡ser style),
-alineaciÃ³n editores de diseÃ±o-style, conversiÃ³n de texto a curvas, soldadura y despiece.
-Saneado conforme a la Ley del Efecto Rebote para desactivar dobles bindings en espaÃ±ol
-y unificar IDs interactivos en inglÃ©s editores vectoriales/editores de diseÃ±o Style.
+Asegura la preservaciÃÆÃÂ³n absoluta de las funciones de apilamiento Z (el programa de grabado/lÃÆÃÂ¡ser style),
+alineaciÃÆÃÂ³n editores de diseÃÆÃÂ±o-style, conversiÃÆÃÂ³n de texto a curvas, soldadura y despiece.
+Saneado conforme a la Ley del Efecto Rebote para desactivar dobles bindings en espaÃÆÃÂ±ol
+y unificar IDs interactivos en inglÃÆÃÂ©s editores vectoriales/editores de diseÃÆÃÂ±o Style.
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, applyObjectSpacing, loadDynamicFonts, textFontSize, isTextOwner } from "./textToolbar.js";
@@ -16,14 +16,14 @@ import { scaleImage, bringImageForward, sendImageBackward, bringImageToFront, se
 import { enterNodeEditMode, exitNodeEditMode } from "./nodeEditor.js";
 import { dispatchUngroup, dispatchVectorDecomposition, canDecomposeVector } from "./ungroupRoutes.js";
 
-// Helper de recÃ¡lculo dinÃ¡mico de sustracciones booleanas CSG
+// Helper de recÃÆÃÂ¡lculo dinÃÆÃÂ¡mico de sustracciones booleanas CSG
 function safeRecalculateSubtractions() {
     if (typeof window !== 'undefined' && typeof window.recalculateDynamicSubtractions === 'function') {
         window.recalculateDynamicSubtractions();
     }
 }
 
-// Helper universal de resoluciÃ³n de contenido dentro o fuera de clipGroup
+// Helper universal de resoluciÃÆÃÂ³n de contenido dentro o fuera de clipGroup
 
 
 // --- DETECTORES DE CLASE NATIVOS DE PAPER.JS ---
@@ -72,7 +72,7 @@ function isMockupOrProductElement(item) {
         owner === window.currentMockup || owner === window.clipMask;
 }
 
-// SincronizaciÃ³n recursiva profunda de geomBase ante desplazamientos
+// SincronizaciÃÆÃÂ³n recursiva profunda de geomBase ante desplazamientos
 function syncGeomBaseDeep(item, delta) {
     if (!item || !delta || (delta.x === 0 && delta.y === 0)) return;
     if (typeof window.syncGeomBaseDeep === 'function') {
@@ -94,16 +94,16 @@ function syncGeomBaseDeep(item, delta) {
 }
 
 /**
- * Duplica un solo objeto de diseÃ±o de manera independiente (coherencia de matrices)
+ * Duplica un solo objeto de diseÃÆÃÂ±o de manera independiente (coherencia de matrices)
  * @param {paper.Item} targetItem El elemento original a duplicar
- * @param {paper.Point} offset Vector de desfase acumulativo (el programa de grabado/lÃ¡ser Style)
+ * @param {paper.Point} offset Vector de desfase acumulativo (el programa de grabado/lÃÆÃÂ¡ser Style)
  * @returns {paper.Item|null} El nuevo objeto duplicado e independiente
  */
 export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)) {
     if (!targetItem || isMockupOrProductElement(targetItem)) return null;
     if (targetItem.data && targetItem.data.locked) return null;
 
-    // ClonaciÃ³n del objeto completo en el nodo raÃ­z para conservar mÃ¡scaras y transformaciones concÃ©ntricas
+    // ClonaciÃÆÃÂ³n del objeto completo en el nodo raÃÆÃÂ­z para conservar mÃÆÃÂ¡scaras y transformaciones concÃÆÃÂ©ntricas
     let duplicatedObject = null;
     if (targetItem.data && targetItem.data.clipGroup) {
         const content = getPublicOwner(targetItem);
@@ -147,7 +147,7 @@ export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)
 }
 
 /**
- * Duplica la selecciÃ³n activa de Studio (simple o mÃºltiple) unificando atajos y DOM.
+ * Duplica la selecciÃÆÃÂ³n activa de Studio (simple o mÃÆÃÂºltiple) unificando atajos y DOM.
  * @returns {paper.Item[]} Lista de nuevos clones creados
  */
 export function duplicateSelectedItem() {
@@ -178,7 +178,7 @@ export function duplicateSelectedItem() {
         window.commitSelection?.(duplicatedList[duplicatedList.length - 1], duplicatedList);
         duplicatedList.forEach(cl => { cl.selected = true; });
 
-        // Sincronizar recÃ¡lculo CSG dinÃ¡mico sobre las nuevas capas
+        // Sincronizar recÃÆÃÂ¡lculo CSG dinÃÆÃÂ¡mico sobre las nuevas capas
         safeRecalculateSubtractions();
 
         if (typeof window.updateSelectionBox === 'function') {
@@ -229,13 +229,13 @@ export function deleteImage(item) {
     paper.view.update();
 }
 
-// Variables de estado del menÃº contextual
+// Variables de estado del menÃÆÃÂº contextual
 window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
 let lastSelectedItem = null;
 
-// Estilos CSS para el menÃº de fuentes
+// Estilos CSS para el menÃÆÃÂº de fuentes
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
 if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId)) {
     const styleEl = document.createElement('style');
@@ -368,7 +368,7 @@ async function populateFontDropdowns() {
             }
         }
     } catch (err) {
-        console.error("Error al cargar tipografÃ­as en menÃº contextual:", err);
+        console.error("Error al cargar tipografÃÆÃÂ­as en menÃÆÃÂº contextual:", err);
     }
     fontsCache = fonts;
     injectFontFaces(fonts);
@@ -430,7 +430,7 @@ function makeToolbarDraggable() {
         toolbar.style.left = nextLeft + 'px';
         toolbar.style.top = nextTop + 'px';
 
-        // Persistir la posiciÃ³n elegida por el usuario durante la sesiÃ³n.
+        // Persistir la posiciÃÆÃÂ³n elegida por el usuario durante la sesiÃÆÃÂ³n.
         // updateContextualMenu() reutiliza estos valores al seleccionar
         // nuevamente cualquier objeto.
         window.customToolbarLeft = nextLeft;
@@ -444,7 +444,7 @@ function makeToolbarDraggable() {
 }
 
 /**
- * AGRUPAR: Preserva la semÃ¡ntica de capas, calados activos y orden Z.
+ * AGRUPAR: Preserva la semÃÆÃÂ¡ntica de capas, calados activos y orden Z.
  */
 export function groupSelectedItems() {
     const selected = (window.selectedItems && window.selectedItems.length > 0)
@@ -641,8 +641,8 @@ function dispatchTextCurve(options = {}) {
     window.liveTextSpacing = liveTextSpacing;
 
 export function initContextualMenu() {
-    /* RUEDA DEL MOUSE EN TODAS LAS CAJAS NUMERICAS. En editores de diseÃ±o, Office y
-       el programa de grabado/lÃ¡ser cualquier casillero numÃ©rico responde a la rueda: un paso
+    /* RUEDA DEL MOUSE EN TODAS LAS CAJAS NUMERICAS. En editores de diseÃÆÃÂ±o, Office y
+       el programa de grabado/lÃÆÃÂ¡ser cualquier casillero numÃÆÃÂ©rico responde a la rueda: un paso
        por muesca (shift = diez pasos). Un solo listener delegado cubre TODAS
        las cajas presentes y futuras. El 'input' dispara la respuesta en vivo
        de cada herramienta; el 'change' llega recien cuando la rueda para
@@ -651,7 +651,7 @@ export function initContextualMenu() {
     if (!window.__ekkoWheelNumbers) {
         window.__ekkoWheelNumbers = true;
         document.addEventListener('wheel', (evento) => {
-            /* UN SOLO DUEÃ‘O DE LA RUEDA. La experiencia de entrada unificada
+            /* UN SOLO DUEÃÆÃ¢â¬ËO DE LA RUEDA. La experiencia de entrada unificada
                (experienciaInput.js) maneja la rueda para todos los campos y
                barras con las mismas reglas (muesca, Shift x10, Alt fino,
                espejo de pares). Este receptor queda apagado desde que esa
@@ -870,7 +870,7 @@ export function initContextualMenu() {
         if (window.selectedItem) scaleImage(window.selectedItem, 1.1);
     });
 
-    // UNIFICACIÃ“N CANÃ“NICA 10.3: Se descartan los clicks hacia IDs alternativos obsoletos en espaÃ±ol.
+    // UNIFICACIÃÆÃ¢â¬ÅN CANÃÆÃ¢â¬ÅNICA 10.3: Se descartan los clicks hacia IDs alternativos obsoletos en espaÃÆÃÂ±ol.
     setClick('btnCtxGroup', () => {
         if (typeof window.groupSelectedItems === 'function') window.groupSelectedItems();
     });
@@ -1050,7 +1050,7 @@ export function updateContextualMenu(item) {
                 if (btnEditNodes) btnEditNodes.style.display = 'none';
             }
 
-            // UNIFICACIÃ“N CANÃ“NICA 10.3: Se usa estrictamente el ID unificado en inglÃ©s, sin alias obsoletos en espaÃ±ol.
+            // UNIFICACIÃÆÃ¢â¬ÅN CANÃÆÃ¢â¬ÅNICA 10.3: Se usa estrictamente el ID unificado en inglÃÆÃÂ©s, sin alias obsoletos en espaÃÆÃÂ±ol.
             const btnGroup = document.getElementById('btnCtxGroup');
             if (btnGroup) {
                 btnGroup.classList.remove('hidden');
@@ -1095,7 +1095,7 @@ export function updateContextualMenu(item) {
                 }
             }
 
-            // UNIFICACIÃ“N CANÃ“NICA 10.3: Se usan estrictamente los IDs unificados en inglÃ©s, sin alias obsoletos en espaÃ±ol.
+            // UNIFICACIÃÆÃ¢â¬ÅN CANÃÆÃ¢â¬ÅNICA 10.3: Se usan estrictamente los IDs unificados en inglÃÆÃÂ©s, sin alias obsoletos en espaÃÆÃÂ±ol.
             const btnGroup = document.getElementById('btnCtxGroup');
             if (btnGroup) {
                 btnGroup.classList.add('hidden');
@@ -1155,8 +1155,8 @@ if (typeof window !== 'undefined') {
     window.deleteImage = deleteImage;
     window.duplicateSingleItem = duplicateSingleItem;
     window.duplicateSelectedItem = duplicateSelectedItem;
-    // Agrupar mantiene su API histÃ³rica; Desagrupar solo publica el
-    // dispatcher canÃ³nico de ungroupRoutes.js.
+    // Agrupar mantiene su API histÃÆÃÂ³rica; Desagrupar solo publica el
+    // dispatcher canÃÆÃÂ³nico de ungroupRoutes.js.
     window.groupSelectedItems = groupSelectedItems;
     window.ekkoGroupNormal = groupSelectedItems;
     window.ekkoUngroupNormal = dispatchUngroup;
