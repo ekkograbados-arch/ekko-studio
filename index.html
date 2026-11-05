@@ -1,6 +1,6 @@
 <!-- ========================================================================
 RUTA DESTINO EN TU DISCO LOCAL: index.html
-VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones dinámicos
+VERSIÃ“N: v46.5_FUSION â€” Paneles sincronizados + Carga unificada + Botones dinÃ¡micos
 ======================================================================== -->
 <!DOCTYPE html>
 <html lang="es">
@@ -10,16 +10,16 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <title>EKKO Studio - PRO Edition</title>
     <!-- Paper.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
-    <!-- FontAwesome para los íconos de la barra flotante -->
+    <!-- FontAwesome para los Ã­conos de la barra flotante -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Enlace canónico a la hoja de estilos externa -->
+    <!-- Enlace canÃ³nico a la hoja de estilos externa -->
     <link rel="stylesheet" href="ASSETS/ui/ekko-ui.css">
-    <!-- ESTADOS DE LA CINTA: dibuja lo que el manifiesto ya decidió.
-         No contiene reglas de visibilidad a propósito. -->
+    <!-- ESTADOS DE LA CINTA: dibuja lo que el manifiesto ya decidiÃ³.
+         No contiene reglas de visibilidad a propÃ³sito. -->
     <link rel="stylesheet" href="ASSETS/ui/ekko-ribbon.css">
 <link rel="stylesheet" href="ASSETS/css/styles.css">
-    <!-- ESTÉTICA ESPACIAL: vidrio esmerilado + claro/oscuro.
-         Carga ÚLTIMA a propósito: en empate de !important gana la última hoja.
+    <!-- ESTÃ‰TICA ESPACIAL: vidrio esmerilado + claro/oscuro.
+         Carga ÃšLTIMA a propÃ³sito: en empate de !important gana la Ãºltima hoja.
          No contiene reglas de visibilidad (contrato: ui/ribbonRenderer.js). -->
     <link rel="stylesheet" href="ASSETS/ui/ekko-espacio.css">
     <link rel="icon" type="image/png" href="/logo.png">
@@ -43,13 +43,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
 <body>
     <!-- EKKO-STUDIO-INTEGRATED-2026-09-24: numeric-size-lock-rotation-v1 -->
 
-    <!-- DESCARGAR — FIJO ARRIBA A LA DERECHA, SIEMPRE VISIBLE -->
+    <!-- DESCARGAR â€” FIJO ARRIBA A LA DERECHA, SIEMPRE VISIBLE -->
     <div id="ekkoDownloadWrap" style="position:fixed;top:44px;right:16px;z-index:2147483000;">
-        <button id="btnEkkoDownload" class="btn-action" type="button" onclick="window.__ekkoToggleDownloadMenu?.()" title="Descargar diseño" style="background:#15803d;color:#fff;border-color:#15803d;font-weight:bold;">
+        <button id="btnEkkoDownload" class="btn-action" type="button" onclick="window.__ekkoToggleDownloadMenu?.()" title="Descargar diseÃ±o" style="background:#15803d;color:#fff;border-color:#15803d;font-weight:bold;">
             <i class="fas fa-download"></i> Descargar
         </button>
         <div id="ekkoDownloadMenu" hidden style="position:absolute;top:calc(100% + 6px);right:0;min-width:270px;background:#fff;border:1px solid #d7dee8;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.18);padding:6px;z-index:201;">
-            <!-- Fase 3: acción principal del CLIENTE — manda su trabajo al taller
+            <!-- Fase 3: acciÃ³n principal del CLIENTE â€” manda su trabajo al taller
                  con UN clic: UN solo SVG con todas las piezas editadas + chat WhatsApp. -->
             <div style="font-size:11px;color:#15803d;font-weight:bold;padding:4px 10px 2px;">MANDAR TU TRABAJO AL TALLER</div>
             <button type="button" onclick="window.__ekkoEnviarAGrabar?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:10px;border:none;background:#15803d;color:#fff;border-radius:8px;cursor:pointer;font-size:13px;font-weight:bold;text-align:left;">
@@ -58,18 +58,18 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </button>
             <div style="font-size:10px;color:#64748b;padding:3px 10px 4px;">Un solo archivo con todo lo que editaste. Se abre el chat para adjuntarlo.</div>
             <div id="ekkoTallerSeccion" style="display:none;">
-                <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">MODO SOCIO · GRABADO · LIGHTBURN</div>
+                <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">MODO SOCIO Â· GRABADO Â· el programa de grabado/lÃ¡ser</div>
                 <div style="display:flex;gap:6px;padding:2px 10px 6px;align-items:center;font-size:12px;">
                     <label style="display:flex;gap:4px;align-items:center;">Vista
                         <select id="ekkoDownloadViews" style="max-width:130px;padding:3px 4px;border:1px solid #d7dee8;border-radius:6px;font-size:12px;"></select>
                     </label>
-                    <label style="display:flex;gap:4px;align-items:center;" title="Agrega el borde del producto como guía para alinear el diseño (no se graba)">
+                    <label style="display:flex;gap:4px;align-items:center;" title="Agrega el borde del producto como guÃ­a para alinear el diseÃ±o (no se graba)">
                         <input type="checkbox" id="ekkoDownloadMockup"> Contorno
                     </label>
                 </div>
                 <button type="button" onclick="window.__ekkoDownloadSVG?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                     <i class="fas fa-bezier-curve" style="color:#15803d;"></i>
-                    <span><b>SVG para LightBurn</b> <span style="color:#64748b;">(aplanado + capa de corte roja)</span></span>
+                    <span><b>SVG para el programa de grabado/lÃ¡ser</b> <span style="color:#64748b;">(aplanado + capa de corte roja)</span></span>
                 </button>
                 <button type="button" onclick="window.__ekkoEnviarWhatsApp?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
                     <i class="fab fa-whatsapp" style="color:#25d366;"></i>
@@ -85,19 +85,19 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 </button>
                 <button type="button" onclick="window.__ekkoToggleModoTaller?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:7px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;text-align:left;margin-top:2px;">
                     <i class="fas fa-lock-open"></i>
-                    <span>Salir del modo Socio (volver a menú cliente)</span>
+                    <span>Salir del modo Socio (volver a menÃº cliente)</span>
                 </button>
             </div>
-            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">TU TRABAJO · PARA SEGUIR EDITANDO</div>
+            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">TU TRABAJO Â· PARA SEGUIR EDITANDO</div>
             <button type="button" onclick="window.__ekkoDownloadProject?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#eff6ff;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                 <i class="fas fa-file-export" style="color:#1d4ed8;"></i>
                 <span><b>Proyecto EKKO (.ekko)</b> <span style="color:#64748b;">(solo se abre en EKKO)</span></span>
             </button>
             <button type="button" onclick="window.__ekkoOpenProject?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
                 <i class="fas fa-folder-open" style="color:#475569;"></i>
-                <span><b>Abrir proyecto…</b></span>
+                <span><b>Abrir proyectoâ€¦</b></span>
             </button>
-            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">PARA COMPARTIR · APLANADO CON MARCA DE AGUA</div>
+            <div style="font-size:11px;color:#64748b;font-weight:bold;padding:8px 10px 2px;">PARA COMPARTIR Â· APLANADO CON MARCA DE AGUA</div>
             <button type="button" onclick="window.__ekkoDownloadSketch?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#fefce8;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                 <i class="fas fa-image" style="color:#a16207;"></i>
                 <span><b>Imagen PNG</b> <span style="color:#64748b;">(aplanada, con marca de agua)</span></span>
@@ -108,7 +108,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </button>
             <button type="button" onclick="window.__ekkoAbrirSocioPanel?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:12px;color:#a16207;text-align:left;margin-top:6px;">
                 <i class="fas fa-crown"></i>
-                <span>¿Tenés grabadora láser? · <b>HACETE SOCIO</b></span>
+                <span>Â¿TenÃ©s grabadora lÃ¡ser? Â· <b>HACETE SOCIO</b></span>
             </button>
         </div>
     </div>
@@ -157,15 +157,15 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             menu.hidden = true;
         };
         /* MODO SOCIO: el grabado es para quien opera una grabadora. Se activa
-           con el PIN del panel Socio (o el apretón largo del botón Descargar,
-           para el dueño) y queda recordado en el navegador. */
+           con el PIN del panel Socio (o el apretÃ³n largo del botÃ³n Descargar,
+           para el dueÃ±o) y queda recordado en el navegador. */
         window.__ekkoApplyModoTaller = function() {
             let on = false;
             try { on = localStorage.getItem("ekkoModoTaller") === "1"; } catch (_) {}
             const seccion = document.getElementById("ekkoTallerSeccion");
             if (seccion) seccion.style.display = on ? "" : "none";
-            // Destino de envío: EKKO GRABADOS de fábrica; el del Socio activo,
-            // si configuró el suyo (la vinculación real la hace projectIO).
+            // Destino de envÃ­o: EKKO GRABADOS de fÃ¡brica; el del Socio activo,
+            // si configurÃ³ el suyo (la vinculaciÃ³n real la hace projectIO).
             const destino = document.getElementById("ekkoDestinoNombre");
             if (destino) {
                 let nombre = "EKKO GRABADOS";
@@ -187,8 +187,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             window.__ekkoApplyModoTaller();
             if (window.ekkoNotice) {
                 window.ekkoNotice(on
-                    ? "Modo Socio desactivado: el menú queda en modo cliente (PNG/PDF con marca de agua)."
-                    : "Modo Socio ACTIVADO: ya podés descargar el SVG para LightBurn y enviarlo por WhatsApp/Drive.",
+                    ? "Modo Socio desactivado: el menÃº queda en modo cliente (PNG/PDF con marca de agua)."
+                    : "Modo Socio ACTIVADO: ya podÃ©s descargar el SVG para el programa de grabado/lÃ¡ser y enviarlo por WhatsApp/Drive.",
                     { kind: on ? "info" : "ok", ms: 6000 });
             }
         };
@@ -283,31 +283,31 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             if (window.EKKO_PROJECT_IO) window.EKKO_PROJECT_IO.downloadSketchPDF();
         };
         /* Vista previa del grabado (no exporta nada: es solo una
-           simulación para el cliente). Se renderiza EXACTAMENTE el mismo
+           simulaciÃ³n para el cliente). Se renderiza EXACTAMENTE el mismo
            SVG que produce el boceto (mockup incluido, huecos visibles) sobre
-           un ACERO INOXIDABLE simulado (gradiente metálico + cepillado
-           horizontal + pulido radial) y el diseño en negro como marca
-           de fibra láser sobre acero. La potencia de la "quemada" es
-           fija (el look teórico post-edición): el cliente no la corrige. */
+           un ACERO INOXIDABLE simulado (gradiente metÃ¡lico + cepillado
+           horizontal + pulido radial) y el diseÃ±o en negro como marca
+           de fibra lÃ¡ser sobre acero. La potencia de la "quemada" es
+           fija (el look teÃ³rico post-ediciÃ³n): el cliente no la corrige. */
         window.__ekkoPreviewEngraved = async function() {
             const menu = document.getElementById("ekkoDownloadMenu");
             if (menu) menu.hidden = true;
             if (!window.prepareSVGForExport) {
-                if (window.ekkoNotice) window.ekkoNotice("La vista previa no está disponible todavía.", { kind: "warn" });
+                if (window.ekkoNotice) window.ekkoNotice("La vista previa no estÃ¡ disponible todavÃ­a.", { kind: "warn" });
                 return;
             }
             const overlay = document.createElement("div");
             overlay.id = "ekkoPreviewOverlay";
             overlay.style.cssText = "position:fixed;inset:0;z-index:2147483600;background:rgba(9,10,13,0.92);display:flex;align-items:center;justify-content:center;flex-direction:column;font-family:inherit;";
             overlay.innerHTML =
-                '<div style="color:#dfe3ea;font-size:12px;letter-spacing:0.12em;margin-bottom:10px;">SIMULACIÓN LÁSER · SOBRE ACERO INOXIDABLE</div>' +
+                '<div style="color:#dfe3ea;font-size:12px;letter-spacing:0.12em;margin-bottom:10px;">SIMULACIÃ“N LÃSER Â· SOBRE ACERO INOXIDABLE</div>' +
                 '<div id="ekkoPreviewBox" style="border:2px solid #aeb4bd;border-radius:12px;box-shadow:0 0 60px rgba(0,0,0,.7);background:#1a1c20;max-width:92vw;max-height:70vh;overflow:hidden;"><canvas id="ekkoPreviewCanvas" style="display:block;max-width:92vw;max-height:70vh;"></canvas></div>' +
-                '<div style="color:#7f858f;font-size:11px;margin-top:10px;">Simulación sin calibrar · el resultado real varía con potencia, enfoque, velocidad y acero.</div>' +
+                '<div style="color:#7f858f;font-size:11px;margin-top:10px;">SimulaciÃ³n sin calibrar Â· el resultado real varÃ­a con potencia, enfoque, velocidad y acero.</div>' +
                 '<button id="ekkoPreviewClose" style="margin-top:14px;background:#ffd700;color:#241811;border:none;padding:9px 30px;border-radius:8px;font-weight:bold;cursor:pointer;font-size:14px;">CERRAR</button>';
             document.body.appendChild(overlay);
-            // POTENCIA FIJA: la simulación muestra SIEMPRE el mismo look —
-            // el resultado teórico post-edición (post filtro DR_bn). El
-            // cliente no corrige intensidad: eso lo define la máquina.
+            // POTENCIA FIJA: la simulaciÃ³n muestra SIEMPRE el mismo look â€”
+            // el resultado teÃ³rico post-ediciÃ³n (post filtro DR_bn). El
+            // cliente no corrige intensidad: eso lo define la mÃ¡quina.
             const PODER_FIJO = 70;
             const cerrar = () => overlay.remove();
             document.getElementById("ekkoPreviewClose").addEventListener("click", cerrar);
@@ -317,7 +317,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             try { svgText = await window.prepareSVGForExport({ asString: true, includeMockup: false, keepMockupImage: true }); } catch (_) { svgText = ""; }
             if (!svgText) {
                 document.getElementById("ekkoPreviewBox").innerHTML =
-                    '<div style="color:#f8b4b4;padding:32px;font-size:13px;">No se pudo generar la vista previa. Recargá la página e intentá de nuevo.</div>';
+                    '<div style="color:#f8b4b4;padding:32px;font-size:13px;">No se pudo generar la vista previa. RecargÃ¡ la pÃ¡gina e intentÃ¡ de nuevo.</div>';
                 return;
             }
             const img = new Image();
@@ -330,7 +330,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             const ctx = canvas.getContext("2d");
             const pintar = (poder) => {
                 const power = Math.max(0, Math.min(1, poder / 100));
-                // Acero inoxidable: gradiente metálico frío + cepillado horizontal
+                // Acero inoxidable: gradiente metÃ¡lico frÃ­o + cepillado horizontal
                 // + pulido radial sutil (reflejo de un producto de acero)
                 const grad = ctx.createLinearGradient(0, 0, 0, H);
                 grad.addColorStop(0, "#f2f3f6"); grad.addColorStop(0.16, "#dfe1e6");
@@ -339,7 +339,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 grad.addColorStop(1, "#848893");
                 ctx.fillStyle = grad;
                 ctx.fillRect(0, 0, W, H);
-                // Cepillado: cientos de líneas horizontales finísimas
+                // Cepillado: cientos de lÃ­neas horizontales finÃ­simas
                 ctx.globalAlpha = 0.09;
                 ctx.strokeStyle = "#5c616a";
                 ctx.lineWidth = 1;
@@ -354,16 +354,16 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 ctx.globalAlpha = 1;
                 ctx.fillStyle = rg;
                 ctx.fillRect(0, 0, W, H);
-                // Línea de cepillado axial más marcada en la parte alta
+                // LÃ­nea de cepillado axial mÃ¡s marcada en la parte alta
                 ctx.globalAlpha = 0.25;
                 ctx.fillStyle = "rgba(255,255,255,0.7)";
                 ctx.fillRect(0, H * 0.10, W, 2);
                 ctx.globalAlpha = 1;
-                // Diseño grabado en escala de grises, oscurecido por "potencia"
+                // DiseÃ±o grabado en escala de grises, oscurecido por "potencia"
                 ctx.globalAlpha = 0.35 + power * 0.65;
                 ctx.filter = "grayscale(1) contrast(1.28) brightness(0.9)";
                 ctx.drawImage(img, 0, 0, W, H);
-                // Quemada extra en el diseño (composición multiply: simula más potencia)
+                // Quemada extra en el diseÃ±o (composiciÃ³n multiply: simula mÃ¡s potencia)
                 ctx.filter = "none";
                 ctx.globalCompositeOperation = "multiply";
                 ctx.globalAlpha = power * 0.55;
@@ -389,9 +389,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     </script>
 
     <!-- ==============================================================
-         PANEL EKKO SOCIO — suscripción, activación por código,
-         marca propia (logo + redes) y contactos de envío. Sin backend:
-         la validación es local (código con checksum, de buena fe).
+         PANEL EKKO SOCIO â€” suscripciÃ³n, activaciÃ³n por cÃ³digo,
+         marca propia (logo + redes) y contactos de envÃ­o. Sin backend:
+         la validaciÃ³n es local (cÃ³digo con checksum, de buena fe).
          ============================================================== -->
     <style>#ekkoSocioPanel[hidden] { display: none !important; }</style>
     <div id="ekkoSocioPanel" hidden style="position:fixed;inset:0;z-index:2147483600;background:rgba(15,23,42,0.5);display:flex;align-items:center;justify-content:center;font-family:inherit;">
@@ -421,9 +421,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             window.__ekkoRenderSocioPanel();
         };
 
-        /* Render según estado: SUSCRIPCIÓN (sin código) · MI MARCA (activo)
-           · GENERADOR DE CÓDIGOS (dueño, tras PIN). */
-        window.__ekkoRenderSocioPanel = function(modoDueño) {
+        /* Render segÃºn estado: SUSCRIPCIÃ“N (sin cÃ³digo) Â· MI MARCA (activo)
+           Â· GENERADOR DE CÃ“DIGOS (dueÃ±o, tras PIN). */
+        window.__ekkoRenderSocioPanel = function(modoDueÃ±o) {
             const cuerpo = document.getElementById("ekkoSocioPanelCuerpo");
             if (!cuerpo) return;
             const io = window.EKKO_PROJECT_IO;
@@ -437,54 +437,54 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 try { contacto = JSON.parse(localStorage.getItem("ekkoTallerContacto") || "null"); } catch (_) {}
                 cuerpo.innerHTML = [
                     '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">',
-                    '  <div style="font-size:15px;font-weight:bold;color:#a16207;"><i class="fas fa-crown"></i> EKKO SOCIO — MI MARCA</div>',
-                    '  <button type="button" onclick="window.__ekkoCerrarSocioPanel()" style="border:none;background:transparent;font-size:16px;cursor:pointer;color:#94a3b8;">✕</button>',
+                    '  <div style="font-size:15px;font-weight:bold;color:#a16207;"><i class="fas fa-crown"></i> EKKO SOCIO â€” MI MARCA</div>',
+                    '  <button type="button" onclick="window.__ekkoCerrarSocioPanel()" style="border:none;background:transparent;font-size:16px;cursor:pointer;color:#94a3b8;">âœ•</button>',
                     '</div>',
-                    '<div style="font-size:11px;color:#64748b;margin:6px 0 12px;">Suscripción activa' + (window.__ekkoSocioPinOK ? ' · acceso de dueño' : '') + '. Los bocetos de tus clientes salen con TU logo y TUS redes, y los envíos llegan a TU WhatsApp.</div>',
+                    '<div style="font-size:11px;color:#64748b;margin:6px 0 12px;">SuscripciÃ³n activa' + (window.__ekkoSocioPinOK ? ' Â· acceso de dueÃ±o' : '') + '. Los bocetos de tus clientes salen con TU logo y TUS redes, y los envÃ­os llegan a TU WhatsApp.</div>',
                     '<div style="font-size:12px;font-weight:bold;color:#334155;">NOMBRE DEL TALLER (marca de agua y chat)</div>',
                     '<input id="ekkoSocioNombre" maxlength="40" placeholder="Taller de Juan" value="' + String(marca.nombre || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
                     '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">REDES / CONTACTO (pie del boceto)</div>',
-                    '<input id="ekkoSocioRedes" maxlength="60" placeholder="@tallerdejuan · 299-000-0000" value="' + String(marca.redes || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
+                    '<input id="ekkoSocioRedes" maxlength="60" placeholder="@tallerdejuan Â· 299-000-0000" value="' + String(marca.redes || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
                     '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">LOGO DE MARCA DE AGUA (PNG)</div>',
                     '<div style="display:flex;align-items:center;gap:10px;margin-top:4px;">',
                     '  <div style="width:54px;height:54px;border:1px dashed #cbd5e1;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#f8fafc;">',
                     (window.__ekkoSocioLogoPendiente || marca.logo) ? '<img src="' + (window.__ekkoSocioLogoPendiente || marca.logo) + '" style="max-width:48px;max-height:48px;">' : '<i class="fas fa-image" style="color:#cbd5e1;"></i>',
                     '  </div>',
-                    '  <button type="button" onclick="window.__ekkoSocioLogoPick()" style="padding:8px 12px;border:1px solid #d7dee8;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;">Elegir logo…</button>',
+                    '  <button type="button" onclick="window.__ekkoSocioLogoPick()" style="padding:8px 12px;border:1px solid #d7dee8;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;">Elegir logoâ€¦</button>',
                     '</div>',
-                    '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">WHATSAPP DE ENVÍO (código país + número)</div>',
+                    '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">WHATSAPP DE ENVÃO (cÃ³digo paÃ­s + nÃºmero)</div>',
                     '<input id="ekkoSocioWhatsapp" inputmode="numeric" maxlength="15" placeholder="5492804000000" value="' + String(contacto?.whatsapp || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
                     '<button type="button" onclick="window.__ekkoSocioGuardar()" style="' + SOCIO_CSS_BTN + 'background:#15803d;color:#fff;margin-top:14px;">Guardar mi marca</button>',
-                    '<button type="button" onclick="window.__ekkoSocioDesactivar()" style="width:100%;padding:8px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;margin-top:6px;">Desactivar suscripción en este dispositivo</button>'
+                    '<button type="button" onclick="window.__ekkoSocioDesactivar()" style="width:100%;padding:8px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;margin-top:6px;">Desactivar suscripciÃ³n en este dispositivo</button>'
                 ].join("");
                 return;
             }
 
-            // ----- SIN SUSCRIPCIÓN: propuesta + activación por código -----
+            // ----- SIN SUSCRIPCIÃ“N: propuesta + activaciÃ³n por cÃ³digo -----
             cuerpo.innerHTML = [
                 '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">',
                 '  <div style="font-size:15px;font-weight:bold;color:#0f172a;"><i class="fas fa-crown" style="color:#a16207;"></i> EKKO SOCIO</div>',
-                '  <button type="button" onclick="window.__ekkoCerrarSocioPanel()" style="border:none;background:transparent;font-size:16px;cursor:pointer;color:#94a3b8;">✕</button>',
+                '  <button type="button" onclick="window.__ekkoCerrarSocioPanel()" style="border:none;background:transparent;font-size:16px;cursor:pointer;color:#94a3b8;">âœ•</button>',
                 '</div>',
-                '<div style="font-size:13px;color:#334155;margin-top:8px;">¿Tenés <b>grabadora láser</b>? Con la suscripción EKKO Socio operás con <b>tu propia marca</b>:</div>',
+                '<div style="font-size:13px;color:#334155;margin-top:8px;">Â¿TenÃ©s <b>grabadora lÃ¡ser</b>? Con la suscripciÃ³n EKKO Socio operÃ¡s con <b>tu propia marca</b>:</div>',
                 '<ul style="font-size:12px;color:#475569;margin:10px 0 0 18px;line-height:1.7;">',
                 '  <li>Tu <b>logo</b> y tus <b>redes</b> en la marca de agua de cada boceto.</li>',
-                '  <li>Los envíos de tus clientes llegan a <b>TU WhatsApp</b>.</li>',
-                '  <li>SVG para LightBurn + proyecto editable, siempre.</li>',
+                '  <li>Los envÃ­os de tus clientes llegan a <b>TU WhatsApp</b>.</li>',
+                '  <li>SVG para el programa de grabado/lÃ¡ser + proyecto editable, siempre.</li>',
                 '</ul>',
-                '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#713f12;margin-top:12px;">Pedí tu suscripción y te damos tu <b>código de activación</b>.</div>',
-                '<button type="button" onclick="window.open(\'https://wa.me/' + waEkko + '?text=\' + encodeURIComponent(\'Hola! Quiero la suscripción EKKO Socio para mi grabadora láser.\'), \'_blank\')" style="' + SOCIO_CSS_BTN + 'background:#25d366;color:#fff;margin-top:10px;"><i class="fab fa-whatsapp"></i> PEDIR SUSCRIPCIÓN POR WHATSAPP</button>',
-                '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:14px;">¿YA TENÉS TU CÓDIGO? ACTIVALO ACÁ</div>',
+                '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#713f12;margin-top:12px;">PedÃ­ tu suscripciÃ³n y te damos tu <b>cÃ³digo de activaciÃ³n</b>.</div>',
+                '<button type="button" onclick="window.open(\'https://wa.me/' + waEkko + '?text=\' + encodeURIComponent(\'Hola! Quiero la suscripciÃ³n EKKO Socio para mi grabadora lÃ¡ser.\'), \'_blank\')" style="' + SOCIO_CSS_BTN + 'background:#25d366;color:#fff;margin-top:10px;"><i class="fab fa-whatsapp"></i> PEDIR SUSCRIPCIÃ“N POR WHATSAPP</button>',
+                '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:14px;">Â¿YA TENÃ‰S TU CÃ“DIGO? ACTIVALO ACÃ</div>',
                 '<input id="ekkoSocioCodigoInput" maxlength="32" placeholder="TALLERJUAN-7K2" style="' + SOCIO_CSS_INPUT + 'text-transform:uppercase;">',
                 '<button type="button" onclick="window.__ekkoSocioActivar()" style="' + SOCIO_CSS_BTN + 'background:#a16207;color:#fff;margin-top:8px;">ACTIVAR MI SOCIO</button>',
                 '<div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:12px;">',
-                '  <div style="font-size:11px;font-weight:bold;color:#94a3b8;">ACCESO DE DUEÑO</div>',
+                '  <div style="font-size:11px;font-weight:bold;color:#94a3b8;">ACCESO DE DUEÃ‘O</div>',
                 '  <div style="display:flex;gap:6px;margin-top:6px;">',
                 '    <input id="ekkoSocioPinInput" maxlength="12" placeholder="PIN" style="' + SOCIO_CSS_INPUT + 'margin-top:0;">',
                 '    <button type="button" onclick="window.__ekkoSocioEntrarPin()" style="padding:0 14px;border:none;border-radius:8px;background:#0f172a;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">Entrar</button>',
                 '  </div>',
                 window.__ekkoSocioPinOK ? [
-                '  <div style="font-size:11px;color:#475569;margin-top:12px;">GENERADOR DE CÓDIGOS PARA TUS SOCIOS:</div>',
+                '  <div style="font-size:11px;color:#475569;margin-top:12px;">GENERADOR DE CÃ“DIGOS PARA TUS SOCIOS:</div>',
                 '  <div style="display:flex;gap:6px;margin-top:4px;">',
                 '    <input id="ekkoSocioPalabra" maxlength="24" placeholder="palabra p/ el socio" style="' + SOCIO_CSS_INPUT + 'margin-top:0;text-transform:uppercase;">',
                 '    <button type="button" onclick="window.__ekkoSocioGenerar()" style="padding:0 14px;border:none;border-radius:8px;background:#a16207;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">Crear</button>',
@@ -499,17 +499,17 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             const io = window.EKKO_PROJECT_IO;
             const res = io?.socio?.activar?.(input?.value);
             if (res?.ok) {
-                window.ekkoNotice?.("SOCIO ACTIVADO: ya podés configurar tu marca y tus contactos.", { kind: "ok", ms: 7000 });
+                window.ekkoNotice?.("SOCIO ACTIVADO: ya podÃ©s configurar tu marca y tus contactos.", { kind: "ok", ms: 7000 });
                 window.__ekkoRenderSocioPanel();
             } else {
-                window.ekkoNotice?.("Ese código no es válido. Revisalo o pedí tu suscripción por WhatsApp.", { kind: "warn", ms: 7000 });
+                window.ekkoNotice?.("Ese cÃ³digo no es vÃ¡lido. Revisalo o pedÃ­ tu suscripciÃ³n por WhatsApp.", { kind: "warn", ms: 7000 });
             }
         };
 
         window.__ekkoSocioDesactivar = function() {
             const io = window.EKKO_PROJECT_IO;
             io?.socio?.desactivar?.();
-            window.ekkoNotice?.("Suscripción desactivada en este dispositivo: los envíos vuelven a EKKO GRABADOS.", { kind: "info", ms: 7000 });
+            window.ekkoNotice?.("SuscripciÃ³n desactivada en este dispositivo: los envÃ­os vuelven a EKKO GRABADOS.", { kind: "info", ms: 7000 });
             window.__ekkoRenderSocioPanel();
         };
 
@@ -521,7 +521,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 return;
             }
             window.__ekkoSocioPinOK = true;
-            // El PIN del dueño también habilita el modo Socio del menú.
+            // El PIN del dueÃ±o tambiÃ©n habilita el modo Socio del menÃº.
             try { localStorage.setItem("ekkoModoTaller", "1"); } catch (_) {}
             window.__ekkoApplyModoTaller?.();
             window.__ekkoRenderSocioPanel(true);
@@ -533,7 +533,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             const codigo = io?.socio?.generarCodigo?.(palabra);
             const salida = document.getElementById("ekkoSocioCodigoNuevo");
             if (!codigo) { if (salida) salida.textContent = ""; return; }
-            if (salida) salida.textContent = "Código: " + codigo + "  (dale esa palabra + este código a tu socio)";
+            if (salida) salida.textContent = "CÃ³digo: " + codigo + "  (dale esa palabra + este cÃ³digo a tu socio)";
         };
 
         window.__ekkoSocioLogoPick = function() {
@@ -547,7 +547,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 reader.onload = () => {
                     const img = new Image();
                     img.onload = () => {
-                        // El logo viaja en localStorage: se achica a máx 500 px.
+                        // El logo viaja en localStorage: se achica a mÃ¡x 500 px.
                         const maxW = 500;
                         const escala = Math.min(1, maxW / Math.max(1, img.width));
                         const c = document.createElement("canvas");
@@ -571,7 +571,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             const redes = String(document.getElementById("ekkoSocioRedes")?.value || "").trim();
             const whatsapp = String(document.getElementById("ekkoSocioWhatsapp")?.value || "").trim();
             if (whatsapp && !/^\d{6,15}$/.test(whatsapp)) {
-                window.ekkoNotice?.("El WhatsApp va con código de país, solo números (ej: 5492804000000).", { kind: "warn", ms: 7000 });
+                window.ekkoNotice?.("El WhatsApp va con cÃ³digo de paÃ­s, solo nÃºmeros (ej: 5492804000000).", { kind: "warn", ms: 7000 });
                 return;
             }
             io?.socio?.marca?.guardar?.({ nombre, redes, logo: window.__ekkoSocioLogoPendiente });
@@ -580,18 +580,18 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             }
             window.__ekkoSocioLogoPendiente = null;
             window.__ekkoApplyModoTaller?.();
-            window.ekkoNotice?.("Marca guardada: tus bocetos salen con tu logo y tus redes, y los envíos van a tu WhatsApp.", { kind: "ok", ms: 8000 });
+            window.ekkoNotice?.("Marca guardada: tus bocetos salen con tu logo y tus redes, y los envÃ­os van a tu WhatsApp.", { kind: "ok", ms: 8000 });
             window.__ekkoRenderSocioPanel();
         };
     </script>
 
     <!-- ==============================================================
-         BOTONES DE VISIBILIDAD DE PANELES — ⋮⋮⋮ ARRIBA A LA DERECHA
+         BOTONES DE VISIBILIDAD DE PANELES â€” â‹®â‹®â‹® ARRIBA A LA DERECHA
          ============================================================== -->
     <div id="panelToggles" data-legacy-panel-controls="true" aria-hidden="true" style="position:fixed;top:8px;right:16px;z-index:60;display:flex;gap:8px;">
-        <button id="toggleTopBar" title="Contraer/Expandir barra superior" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
-        <button id="toggleContextBar" title="Ocultar/Mostrar barra emergente" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">⋮⋮⋮</button>
-        <button id="toggleProductPanel" title="Contraer/Expandir panel de productos" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">«</button>
+        <button id="toggleTopBar" title="Contraer/Expandir barra superior" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">â‹®â‹®â‹®</button>
+        <button id="toggleContextBar" title="Ocultar/Mostrar barra emergente" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">â‹®â‹®â‹®</button>
+        <button id="toggleProductPanel" title="Contraer/Expandir panel de productos" style="background:rgba(255,255,255,0.08);border:none;color:#ccc;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;">Â«</button>
     </div>
 
     <!-- ==============================================================
@@ -605,10 +605,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
     <div id="leftSidebar" data-panel="products-sidebar" aria-label="Panel de productos">
         <div id="leftSidebarHeader" class="panel-header">
             <span class="panel-title">Productos</span>
-            <button id="btnHideProductPanel" type="button" class="panel-icon-btn" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">‹</button>
+            <button id="btnHideProductPanel" type="button" class="panel-icon-btn" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">â€¹</button>
         </div>
         <div class="sidebar-section">
-            <div class="sidebar-title">Categorías</div>
+            <div class="sidebar-title">CategorÃ­as</div>
             <div id="categoryTabs"></div>
         </div>
         <div class="sidebar-section">
@@ -621,16 +621,16 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
         </div>
     </div>
 
-        <button id="productPanelHandle" type="button" class="product-panel-handle" title="Mostrar panel de productos" aria-label="Mostrar panel de productos">› Productos</button>
-    </div> <!-- /#productPanelWrap — CIERRE DEL ENVOLTORIO PLEGABLE -->
+        <button id="productPanelHandle" type="button" class="product-panel-handle" title="Mostrar panel de productos" aria-label="Mostrar panel de productos">â€º Productos</button>
+    </div> <!-- /#productPanelWrap â€” CIERRE DEL ENVOLTORIO PLEGABLE -->
 
     <!-- ==============================================================
-         2. ÁREA DE TRABAJO
+         2. ÃREA DE TRABAJO
          ============================================================== -->
     <div id="workspace" data-ui-shell="ekko">
 
         <!-- ==============================================================
-             BARRA SUPERIOR — BOTONES PRINCIPALES + FUSIÓN
+             BARRA SUPERIOR â€” BOTONES PRINCIPALES + FUSIÃ“N
              ============================================================== -->
         <div id="topBar" data-panel="top" data-panel-mode="expanded">
             <div class="top-group">
@@ -650,7 +650,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-fusionar"></use></svg> Fusionar
                 </button>
                 <button data-fusion-btn="unfusion" class="btn-action" data-ekko-command="releaseSmartFusion">
-                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-separar"></use></svg> Quitar Fusión
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-separar"></use></svg> Quitar FusiÃ³n
                 </button>
                 <button id="proBtnCalado" data-fusion-btn="calado" class="btn-action" onclick="convertSelectionToCalado()" title="Convertir vector en calado">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-calado"></use></svg> Calado
@@ -658,7 +658,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button id="proBtnRellenar" data-fusion-btn="rellenar" data-ekko-command="rellenar" class="btn-action" title="Rellenar hueco">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-rellenar"></use></svg> Rellenar
                 </button>
-                    <button id="proBtnSolidHole" data-fusion-btn="solidHole" data-ekko-command="solidHole" class="btn-action" title="Intercambiar solidos y huecos reales"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-solidos-huecos"></use></svg> Sólidos ⇄ Huecos</button>
+                    <button id="proBtnSolidHole" data-fusion-btn="solidHole" data-ekko-command="solidHole" class="btn-action" title="Intercambiar solidos y huecos reales"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-solidos-huecos"></use></svg> SÃ³lidos â‡„ Huecos</button>
                 <button id="proBtnUngroup" data-fusion-btn="ungroup" data-ekko-command="ungroup" class="btn-action">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-desagrupar"></use></svg> Desagrupar
                 </button>
@@ -669,14 +669,14 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-nodos"></use></svg> Editar Nodos
                 </button>
                 <!-- Ronda 10: la TIJERA al lado de Editar Nodos, en la misma banda
-                     de geometría. Va ACÁ y no en #contextual-toolbar porque en modo
+                     de geometrÃ­a. Va ACÃ y no en #contextual-toolbar porque en modo
                      cascada ese grupo se oculta con .ekko-fb-vacia (display:none) y
                      ribbonLayout solo re-parenta los botones que cuelgan de #topBar.
                      Sin data-ekko-command: panelCommandBridge.js escucha en FASE
                      CAPTURA, hace stopPropagation() y despacha solo los comandos que
-                     conoce; un comando nuevo se caería ahí y el onclick nunca llegaría
-                     (medido: clic al botón y el modo siguió en "select"). -->
-                <button id="proBtnTijera" data-fusion-btn="cutSegment" data-ekko-tijera="1" class="btn-action" onclick="window.EKKO_TIJERA?.toggle()" title="Tijera: clic en el pedazo de trazo que querés afuera. Shift + clic parte sin borrar.">
+                     conoce; un comando nuevo se caerÃ­a ahÃ­ y el onclick nunca llegarÃ­a
+                     (medido: clic al botÃ³n y el modo siguiÃ³ en "select"). -->
+                <button id="proBtnTijera" data-fusion-btn="cutSegment" data-ekko-tijera="1" class="btn-action" onclick="window.EKKO_TIJERA?.toggle()" title="Tijera: clic en el pedazo de trazo que querÃ©s afuera. Shift + clic parte sin borrar.">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-corte"></use></svg> Tijera
                 </button>
                 <button id="proBtnTextToVector" data-fusion-btn="textToVector" class="btn-action" onclick="convertTextToVector()" title="Convertir texto a vector">
@@ -715,7 +715,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </div>
 
             <div class="top-group">
-                <button class="btn-action" id="btnAuditVectors" data-fusion-btn="audit" title="Auditar vectores, huecos reales y líneas de corte"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-auditar"></use></svg> Auditar Vectores</button>
+                <button class="btn-action" id="btnAuditVectors" data-fusion-btn="audit" title="Auditar vectores, huecos reales y lÃ­neas de corte"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-auditar"></use></svg> Auditar Vectores</button>
                  <button data-fusion-btn="zoom" class="btn-action" onclick="zoomToFit()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-vista"></use></svg> Ajustar Vista
                 </button>
@@ -723,22 +723,22 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-reglas"></use></svg> Reglas
                 </button>
                 <button data-fusion-btn="guides" class="btn-action" onclick="toggleGuides()">
-                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-guias"></use></svg> Guías
+                    <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-guias"></use></svg> GuÃ­as
                 </button>
             </div>
 
             <div class="top-group" id="topBooleanGroup" aria-label="Operaciones booleanas">
-                <button class="btn-action" id="proBtnBooleanUnion" data-ekko-command="booleanUnion" title="Unir formas en una sola"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-union"></use></svg> Unión</button>
+                <button class="btn-action" id="proBtnBooleanUnion" data-ekko-command="booleanUnion" title="Unir formas en una sola"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-union"></use></svg> UniÃ³n</button>
                 <button class="btn-action" id="proBtnBooleanSubtract" data-ekko-command="booleanSubtract" title="Restar la forma de encima de la de abajo"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-restar"></use></svg> Restar</button>
-                <button class="btn-action" id="proBtnBooleanIntersect" data-ekko-command="booleanIntersect" title="Conservar solo la parte común"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-interseccion"></use></svg> Intersección</button>
+                <button class="btn-action" id="proBtnBooleanIntersect" data-ekko-command="booleanIntersect" title="Conservar solo la parte comÃºn"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-interseccion"></use></svg> IntersecciÃ³n</button>
                 <button class="btn-action" id="proBtnBooleanDifference" data-ekko-command="booleanDifference" title="Conservar lo que queda al restar en ambos sentidos"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-diferencia"></use></svg> Diferencia</button>
             </div>
 
             <div id="selectionInfo">Selecciona un producto para comenzar</div>
             <button id="btnTopTextCurve" data-fusion-btn="curvar" class="btn-action" title="Curvar texto"><svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-curvar"></use></svg> Curvar Texto</button>
             <div id="topPanelControls" class="top-panel-controls" aria-label="Controles de paneles">
-                <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">⌃</button>
-                <button id="topPanelOverflow" type="button" class="panel-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
+                <button id="topPanelCompact" type="button" class="panel-icon-btn" title="Contraer/expandir panel superior" aria-label="Contraer o expandir panel superior">âŒƒ</button>
+                <button id="topPanelOverflow" type="button" class="panel-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">â‹®</button>
             </div>
         </div>
 
@@ -749,14 +749,14 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <canvas id="editorCanvas"></canvas>
 
             <!-- ==============================================================
-                 BARRA CONTEXTUAL FLOTANTE — MISMO CONTENIDO QUE BARRA SUPERIOR
+                 BARRA CONTEXTUAL FLOTANTE â€” MISMO CONTENIDO QUE BARRA SUPERIOR
                  ============================================================== -->
             <div id="contextual-toolbar">
-                <!-- ACCIONES BASE DE LIENZO Y LIGHTBURN -->
+                <!-- ACCIONES BASE DE LIENZO Y el programa de grabado/lÃ¡ser -->
                 <div class="toolbar-group">
                     <button class="toolbar-btn" id="btnCtxDelete" data-fusion-btn="ctxDelete" title="Eliminar (Supr)"><i class="fas fa-trash"></i> Eliminar</button>
                     <button class="toolbar-btn" id="btnCtxDuplicate" data-fusion-btn="ctxDuplicate" title="Duplicar (Ctrl+D)"><i class="fas fa-copy"></i> Duplicar</button>
-                    <button class="toolbar-btn" id="btnCtxExportSel" title="Exportar Selección a PNG (300/600 DPI), con el look del modo activo y el apilado respetado — Ctrl+Shift+C copia directo al portapapeles"><i class="fas fa-download"></i> Exportar Selección <span style="color:#94a3b8;font-size:10px;">(Ctrl+Shift+C)</span></button>
+                    <button class="toolbar-btn" id="btnCtxExportSel" title="Exportar SelecciÃ³n a PNG (300/600 DPI), con el look del modo activo y el apilado respetado â€” Ctrl+Shift+C copia directo al portapapeles"><i class="fas fa-download"></i> Exportar SelecciÃ³n <span style="color:#94a3b8;font-size:10px;">(Ctrl+Shift+C)</span></button>
                     <button class="toolbar-btn" id="btnCtxScaleDown" data-fusion-btn="ctxScaleDown" title="Achicar"><i class="fas fa-minus"></i></button>
                     <button class="toolbar-btn" id="btnCtxScaleUp" data-fusion-btn="ctxScaleUp" title="Agrandar"><i class="fas fa-plus"></i></button>
                     <div class="toolbar-divider"></div>
@@ -766,22 +766,22 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxBackward" data-fusion-btn="ctxBackward" title="Bajar Capa (PgDown)"><i class="fas fa-layer-group"></i> -</button>
                     <button class="toolbar-btn" id="btnCtxToBack" data-fusion-btn="ctxToBack" title="Al Fondo (Ctrl+PgDn)"><i class="fas fa-angle-double-down"></i></button>
                 </div>
-                <div class="toolbar-group size-control-group" style="gap:5px;align-items:center;flex-wrap:wrap;" aria-label="Tamaño y rotación">
-                    <label class="toolbar-number-label" title="Ancho real en milímetros">Ancho <input id="ctxWidth" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
-                    <button id="btnSizeLockContext" type="button" class="toolbar-btn size-lock-btn" aria-pressed="true" title="Proporción bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="width:30px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:15px;">🔒</button>
-                    <label class="toolbar-number-label" title="Alto real en milímetros">Alto <input id="ctxHeight" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
-                    <label class="toolbar-number-label" title="Ángulo de rotación en grados; Mixto indica ángulos diferentes">Rot <input id="ctxRotation" type="text" inputmode="decimal" class="toolbar-input-number" placeholder="°"></label>
-                        <label class="toolbar-number-label" title="Tamaño de fuente en puntos">Tamano <input id="objFontSize" type="number" min="5" max="250" step="1" class="toolbar-input-number" placeholder="pt" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Radio de curvatura del texto">Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" class="toolbar-input-number" placeholder="radio" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <span class="toolbar-number-label" title="Ángulo de curvado en grados">Ángulo <span id="objBendAngleVal" class="toolbar-angle-readout">0°</span></span>                         <div id="objTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: negativo junta las letras (p/ soldar), positivo abre">                             <i class="fas fa-arrows-left-right"></i> <input type="range" min="-100" max="400" step="0.5" value="0">                             <span id="objSpacingVal" class="toolbar-angle-readout">0</span>                         </div>                         <label class="toolbar-number-label">Espacio <input id="objTextSpacing" type="number" step="1" value="0" class="toolbar-input-number" title="Espacio entre letras: negativo junta (p/ soldar), positivo abre. Rueda, flechas o barra" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>
+                <div class="toolbar-group size-control-group" style="gap:5px;align-items:center;flex-wrap:wrap;" aria-label="TamaÃ±o y rotaciÃ³n">
+                    <label class="toolbar-number-label" title="Ancho real en milÃ­metros">Ancho <input id="ctxWidth" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
+                    <button id="btnSizeLockContext" type="button" class="toolbar-btn size-lock-btn" aria-pressed="true" title="ProporciÃ³n bloqueada: al cambiar Ancho o Alto se ajusta el otro valor" style="width:30px;height:26px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:15px;">ðŸ”’</button>
+                    <label class="toolbar-number-label" title="Alto real en milÃ­metros">Alto <input id="ctxHeight" type="number" min="0" step="0.01" class="toolbar-input-number" placeholder="mm"></label>
+                    <label class="toolbar-number-label" title="Ãngulo de rotaciÃ³n en grados; Mixto indica Ã¡ngulos diferentes">Rot <input id="ctxRotation" type="text" inputmode="decimal" class="toolbar-input-number" placeholder="Â°"></label>
+                        <label class="toolbar-number-label" title="TamaÃ±o de fuente en puntos">Tamano <input id="objFontSize" type="number" min="5" max="250" step="1" class="toolbar-input-number" placeholder="pt" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <label class="toolbar-number-label" title="Radio de curvatura del texto">Radio <input id="objCurveRadius" type="number" min="1" step="1" value="" class="toolbar-input-number" placeholder="radio" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>                         <span class="toolbar-number-label" title="Ãngulo de curvado en grados">Ãngulo <span id="objBendAngleVal" class="toolbar-angle-readout">0Â°</span></span>                         <div id="objTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: negativo junta las letras (p/ soldar), positivo abre">                             <i class="fas fa-arrows-left-right"></i> <input type="range" min="-100" max="400" step="0.5" value="0">                             <span id="objSpacingVal" class="toolbar-angle-readout">0</span>                         </div>                         <label class="toolbar-number-label">Espacio <input id="objTextSpacing" type="number" step="1" value="0" class="toolbar-input-number" title="Espacio entre letras: negativo junta (p/ soldar), positivo abre. Rueda, flechas o barra" style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:4px;font-size:12px;"></label>
 
                 </div>
                 <div class="toolbar-divider"></div>
-                <!-- FUSIÓN → BOTONES PRINCIPALES -->
+                <!-- FUSIÃ“N â†’ BOTONES PRINCIPALES -->
                 <div class="toolbar-group">
                     <button data-fusion-btn="fusion" class="toolbar-btn" data-ekko-command="performSmartFusion" title="Fusionar imagen dentro de silueta"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
-                    <button data-fusion-btn="unfusion" class="toolbar-btn" data-ekko-command="releaseSmartFusion" title="Quitar Fusión"><i class="fas fa-unlink"></i> Quitar Fusión</button>
+                    <button data-fusion-btn="unfusion" class="toolbar-btn" data-ekko-command="releaseSmartFusion" title="Quitar FusiÃ³n"><i class="fas fa-unlink"></i> Quitar FusiÃ³n</button>
                     <button data-fusion-btn="calado" class="toolbar-btn" onclick="convertSelectionToCalado()" title="Convertir vector en calado"><i class="fas fa-object-ungroup" style="color:#334155;"></i> Calado</button>
                     <button data-fusion-btn="rellenar" data-ekko-command="rellenar" class="toolbar-btn" title="Rellenar hueco"><i class="fas fa-fill-drip" style="color:#334155;"></i> Rellenar</button>
-                    <button id="btnCtxSolidHole" data-fusion-btn="solidHole" data-ekko-command="solidHole" class="toolbar-btn" title="Intercambiar solidos y huecos reales de una sola vez"><i class="fas fa-right-left"></i> Sólidos ⇄ Huecos</button>
+                    <button id="btnCtxSolidHole" data-fusion-btn="solidHole" data-ekko-command="solidHole" class="toolbar-btn" title="Intercambiar solidos y huecos reales de una sola vez"><i class="fas fa-right-left"></i> SÃ³lidos â‡„ Huecos</button>
                     <button id="btnCtxUngroup" data-fusion-btn="ungroup" data-ekko-command="ungroup" class="toolbar-btn" title="Desagrupar"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
                     <button id="btnCtxDecomposeVector" data-fusion-btn="decomposeVector" data-ekko-command="decomposeVector" class="toolbar-btn" title="Descomponer vector"><i class="fas fa-vector-square"></i> Descomponer Vector</button>
                     <button data-fusion-btn="editNodes" class="toolbar-btn" onclick="toggleNodeEditMode()" title="Editar Nodos"><i class="fas fa-bezier-curve"></i> Editar Nodos</button>
@@ -790,13 +790,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <div class="toolbar-divider"></div>
                 <!-- IMAGEN / TRAZADO -->
                 <div class="toolbar-group">
-                    <button data-fusion-btn="removeBg" class="toolbar-btn" id="btnCtxRemoveBg" title="Quitar Fondo"><i class="fas fa-wand-magic-sparkles"></i> 🪄 Quitar Fondo</button>
-                    <button data-fusion-btn="editCutout" class="toolbar-btn" id="btnCtxEditCutout" data-ekko-command="abrirEditorFondo" title="Corregir a mano el recorte ya quitado (borrar o restaurar)"><i class="fas fa-eraser"></i> ✏️ Editar Fondo</button>
+                    <button data-fusion-btn="removeBg" class="toolbar-btn" id="btnCtxRemoveBg" title="Quitar Fondo"><i class="fas fa-wand-magic-sparkles"></i> ðŸª„ Quitar Fondo</button>
+                    <button data-fusion-btn="editCutout" class="toolbar-btn" id="btnCtxEditCutout" data-ekko-command="abrirEditorFondo" title="Corregir a mano el recorte ya quitado (borrar o restaurar)"><i class="fas fa-eraser"></i> âœï¸ Editar Fondo</button>
                     <button data-fusion-btn="traceImage" class="toolbar-btn" id="btnCtxTrace" data-ekko-command="traceImage" title="Trazar Imagen"><i class="fas fa-magic"></i> Trazar Imagen</button>
                     <button data-fusion-btn="editFusionImage" class="toolbar-btn" onclick="enterFusionEditMode()" title="Editar Imagen Interna"><i class="fas fa-pen-to-square"></i> Editar Imagen</button>
                 </div>
                 <div class="toolbar-divider"></div>
-                <!-- FORMA / AGRUPACIÓN -->
+                <!-- FORMA / AGRUPACIÃ“N -->
                 <div class="toolbar-group">
                     <button data-fusion-btn="group" class="toolbar-btn" id="btnCtxGroup" title="Agrupar"><i class="fas fa-object-group"></i> Agrupar</button>
                     <button data-fusion-btn="align" class="toolbar-btn" onclick="alignSelection()" title="Alinear"><i class="fas fa-align-justify"></i> Alinear</button>
@@ -804,21 +804,21 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button data-fusion-btn="outline" class="toolbar-btn" id="btnCtxContour" data-ekko-command="contorno" title="Contorno"><i class="fas fa-bullseye"></i> Contorno</button>
                 </div>
                 <div class="toolbar-divider"></div>
-                <!-- UNIÓN / SUSTRACCIÓN -->
+                <!-- UNIÃ“N / SUSTRACCIÃ“N -->
                 <div class="toolbar-group">
-                    <button class="toolbar-btn" id="btnCtxBooleanUnion" data-fusion-btn="booleanUnion" data-ekko-command="booleanUnion" title="Unir vectores superpuestos (operación booleana real)"><i class="fas fa-plus-square"></i> Unión</button>
-                    <button class="toolbar-btn" id="btnCtxBooleanIntersect" data-fusion-btn="booleanIntersect" data-ekko-command="booleanIntersect" title="Intersecar vectores"><i class="fas fa-circle-notch"></i> Intersección</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanUnion" data-fusion-btn="booleanUnion" data-ekko-command="booleanUnion" title="Unir vectores superpuestos (operaciÃ³n booleana real)"><i class="fas fa-plus-square"></i> UniÃ³n</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanIntersect" data-fusion-btn="booleanIntersect" data-ekko-command="booleanIntersect" title="Intersecar vectores"><i class="fas fa-circle-notch"></i> IntersecciÃ³n</button>
                     <button class="toolbar-btn" id="btnCtxBooleanSubtract" data-fusion-btn="booleanSubtract" data-ekko-command="booleanSubtract" title="Restar la forma superior"><i class="fas fa-minus-square"></i> Restar</button>
-                    <button class="toolbar-btn" id="btnCtxBooleanDifference" data-fusion-btn="booleanDifference" data-ekko-command="booleanDifference" title="Diferencia simétrica entre vectores"><i class="fas fa-not-equal"></i> Diferencia</button>
+                    <button class="toolbar-btn" id="btnCtxBooleanDifference" data-fusion-btn="booleanDifference" data-ekko-command="booleanDifference" title="Diferencia simÃ©trica entre vectores"><i class="fas fa-not-equal"></i> Diferencia</button>
                 </div>
                 <!-- CONTROL TEXTO -->
                 <div id="ctxTextControls" class="toolbar-subgroup hidden">
                     <select id="ctxFontSelector" class="toolbar-select"></select>
                     <div class="custom-font-dropdown">
-                        <button type="button" class="selected-font-trigger"><span>Fuente</span> ▾</button>
+                        <button type="button" class="selected-font-trigger"><span>Fuente</span> â–¾</button>
                         <div class="font-dropdown-list hidden"></div>
                     </div>
-                    <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="Tamaño de Fuente">
+                    <input id="ctxFontSize" type="number" min="5" max="250" class="toolbar-input-number" title="TamaÃ±o de Fuente">
                     <button class="toolbar-btn" id="btnCtxBold" data-fusion-btn="ctxBold" title="Negrita"><i class="fas fa-bold"></i></button>
                     <button class="toolbar-btn" id="btnCtxItalic" data-fusion-btn="ctxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
                     <button class="toolbar-btn" id="btnCtxUnderline" data-fusion-btn="ctxUnderline" title="Subrayado"><i class="fas fa-underline"></i></button>
@@ -826,39 +826,39 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button data-fusion-btn="curvar" class="toolbar-btn" id="btnCtxTextCurve" title="Curvar texto"><i class="fas fa-bezier-curve"></i> Curvar Texto</button>
                     <div id="ctxTextCurvature" class="toolbar-slider-container" title="Curvatura de texto: el angulo es el valor maestro. 360 cierra el anillo (virola completa)">
                         <i class="fas fa-heading"></i> <input type="range" min="-360" max="360" step="0.5" value="0">
-                        <span id="ctxBendAngleVal" class="toolbar-angle-readout" title="Ángulo de curvado">0°</span>
+                        <span id="ctxBendAngleVal" class="toolbar-angle-readout" title="Ãngulo de curvado">0Â°</span>
                     </div>
                     <label class="toolbar-number-label">Radio <input id="ctxCurveRadius" type="number" min="1" step="1" value="" placeholder="auto" class="toolbar-input-number" title="Radio del arco. Vacio = lo calcula solo del angulo. Si lo escribis, el angulo se recalcula para conservar el largo del texto"></label>
-                    <div id="ctxTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: negativo junta las letras (para soldar), positivo abre. Arrastrá y el texto se reacomoda en vivo">
+                    <div id="ctxTextSpacingSlider" class="toolbar-slider-container" title="Espaciado: negativo junta las letras (para soldar), positivo abre. ArrastrÃ¡ y el texto se reacomoda en vivo">
                         <i class="fas fa-arrows-left-right"></i> <input type="range" min="-100" max="400" step="0.5" value="0">
                         <span id="ctxSpacingVal" class="toolbar-angle-readout" title="Espaciado actual">0</span>
                     </div>
-                    <label class="toolbar-number-label">Espacio <input id="ctxTextSpacing" type="number" step="1" value="0" class="toolbar-input-number" title="Espacio entre letras: negativo junta (p/ soldar), positivo abre. Usá rueda, flechas o la barra"></label>
-                    <button class="toolbar-btn" id="btnCtxRotateLetters" data-fusion-btn="ctxRotateLetters" title="Orientación de las letras al curvar (como en LightBurn o vertical sobre la línea)"><i class="fas fa-sync-alt"></i> Girar letras</button>
+                    <label class="toolbar-number-label">Espacio <input id="ctxTextSpacing" type="number" step="1" value="0" class="toolbar-input-number" title="Espacio entre letras: negativo junta (p/ soldar), positivo abre. UsÃ¡ rueda, flechas o la barra"></label>
+                    <button class="toolbar-btn" id="btnCtxRotateLetters" data-fusion-btn="ctxRotateLetters" title="OrientaciÃ³n de las letras al curvar (como en el programa de grabado/lÃ¡ser o vertical sobre la lÃ­nea)"><i class="fas fa-sync-alt"></i> Girar letras</button>
                 </div>
                 <!-- CONTROL IMAGEN -->
                 <div id="ctxImageControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" data-ekko-command="flipH" id="btnCtxFlipH" title="Espejo Horizontal"><i class="fas fa-arrows-alt-h"></i></button>
                     <button class="toolbar-btn" data-ekko-command="flipV" id="btnCtxFlipV" title="Espejo Vertical"><i class="fas fa-arrows-alt-v"></i></button>
                 </div>
-                <!-- PANEL EDICIÓN DE NODOS -->
-                    <!-- CONTORNO REAL: el grosor se convierte en geometría, no en un stroke visual -->
-                 <!-- PANEL EDICIÓN DE NODOS -->
+                <!-- PANEL EDICIÃ“N DE NODOS -->
+                    <!-- CONTORNO REAL: el grosor se convierte en geometrÃ­a, no en un stroke visual -->
+                 <!-- PANEL EDICIÃ“N DE NODOS -->
              <div id="ctxNodeEditControls" class="toolbar-subgroup hidden">
                     <button class="toolbar-btn" id="btnCtxDeleteNode" data-fusion-btn="ctxDeleteNode" title="Eliminar Nodo" style="color:red;"><i class="fas fa-minus-circle"></i> Eliminar Nodo</button>
-                    <button class="toolbar-btn" id="btnCtxExitNodeEdit" data-fusion-btn="ctxExitNodeEdit" title="Salir de Edición" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo ✔</button>
+                    <button class="toolbar-btn" id="btnCtxExitNodeEdit" data-fusion-btn="ctxExitNodeEdit" title="Salir de EdiciÃ³n" style="background:#f0fdf4; color:#15803d; font-weight:bold; border-color:#bbf7d0;"><i class="fas fa-check-circle"></i> Listo âœ”</button>
                 </div>
-                <button id="floatingPanelOverflow" type="button" class="panel-overflow-btn floating-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">⋮</button>
+                <button id="floatingPanelOverflow" type="button" class="panel-overflow-btn floating-overflow-btn" data-panel-menu="visibility" title="Opciones de paneles" aria-label="Opciones de paneles">â‹®</button>
             </div>
 
-            <button id="panelRecoveryDock" type="button" class="panel-recovery-dock" title="Mostrar herramientas" aria-label="Mostrar herramientas">☰ Mostrar herramientas</button>
+            <button id="panelRecoveryDock" type="button" class="panel-recovery-dock" title="Mostrar herramientas" aria-label="Mostrar herramientas">â˜° Mostrar herramientas</button>
 
             <!-- ==============================================================
             <!-- ==============================================================
                  VENTANA: EDITAR FONDO
                  ------------------------------------------------------------
                  Panel vertical a la derecha, como el "Editar recorte" de
-                 PhotoRoom. Antes era una tira horizontal que cruzaba el lienzo
+                 apps de recorte/fotos. Antes era una tira horizontal que cruzaba el lienzo
                  de lado a lado y tapaba la foto.
 
                  La ventana edita la MASCARA, no la imagen: al confirmar se
@@ -903,40 +903,40 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <button type="button" id="modo-manual" class="vfond__segb" aria-pressed="false" title="Pinta con el pincel (M)">Manual</button>
                     </div>
 
-                    <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automáticamente para hacerla más fácil.</p>
+                    <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automÃ¡ticamente para hacerla mÃ¡s fÃ¡cil.</p>
 
                     <div class="vfond__bloque" id="grupo-tamano" hidden>
-                        <div class="vfond__et">Tamaño del pincel
+                        <div class="vfond__et">TamaÃ±o del pincel
                             <span id="valor-tamano-pincel" class="vfond__num">
                                 <input id="input-tamano-pincel" type="number" min="1" max="120" step="1" value="25"
-                                       class="vfond__numinput" aria-label="Tamaño del pincel en píxeles"> px
+                                       class="vfond__numinput" aria-label="TamaÃ±o del pincel en pÃ­xeles"> px
                             </span>
                         </div>
-                        <input type="range" id="slider-tamano-pincel" min="1" max="120" value="25" step="1" aria-label="Tamaño del pincel">
+                        <input type="range" id="slider-tamano-pincel" min="1" max="120" value="25" step="1" aria-label="TamaÃ±o del pincel">
                     </div>
 
                     <!-- ==============================================================
                          VISTA: QUE SE ESTA MIRANDO
                          ------------------------------------------------------------
-                         Photoshop muestra la mascara en blanco y negro (Enter/Canal
-                         Quick Mask) y PhotoRoom permite volver a la foto para
+                         editores de imagen muestra la mascara en blanco y negro (Enter/Canal
+                         Quick Mask) y apps de recorte/fotos permite volver a la foto para
                          comparar. Antes EKKO solo podia ver el compuesto, y para
                          saber SI el borde estaba bien habia que adivinar: el alfa
                          suave se ve como "tal vez borrado" y como "tal vez pelo".
 
                          El boton "Ver lo quitado" ya existia en el codigo pero NO
-                         existia en el HTML, así que nunca se pudo apretar. Va aqui,
+                         existia en el HTML, asÃ­ que nunca se pudo apretar. Va aqui,
                          en la misma fila, para que las tres vistas y la capa roja
                          sean un solo bloque de decision.
                          ============================================================== -->
-                    <div class="vfond__seg" role="group" aria-label="Qué mostrar en el lienzo">
+                    <div class="vfond__seg" role="group" aria-label="QuÃ© mostrar en el lienzo">
                         <button type="button" id="vista-compuesto" class="vfond__segb is-activo" aria-pressed="true" title="El recorte sobre transparencia (C)">Compuesto</button>
-                        <button type="button" id="vista-mascara" class="vfond__segb" aria-pressed="false" title="La máscara en blanco y negro: blanco=queda, negro=se va (V)">Máscara</button>
+                        <button type="button" id="vista-mascara" class="vfond__segb" aria-pressed="false" title="La mÃ¡scara en blanco y negro: blanco=queda, negro=se va (V)">MÃ¡scara</button>
                         <button type="button" id="vista-original" class="vfond__segb" aria-pressed="false" title="La foto original para comparar (N)">Original</button>
-                        <button type="button" id="vista-comparar" class="vfond__segb" aria-pressed="false" title="Recorte y original lado a lado, con una línea que se arrastra (Y)">Comparar</button>
+                        <button type="button" id="vista-comparar" class="vfond__segb" aria-pressed="false" title="Recorte y original lado a lado, con una lÃ­nea que se arrastra (Y)">Comparar</button>
                     </div>
 
-                    <button type="button" id="ver-quitado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="Marcar en rojo lo que se quitó (T)">Ver lo quitado</button>
+                    <button type="button" id="ver-quitado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="Marcar en rojo lo que se quitÃ³ (T)">Ver lo quitado</button>
 
                     <!-- ==============================================================
                          BORDE DEL RECORTE: HALO
@@ -945,7 +945,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                          fondo de la foto. Al cambiar de fondo esa mezcla se ve
                          como un filete del color viejo. "Halo" le devuelve el
                          color del sujeto (propagacion desde el nucleo vecino, lo
-                         mismo que Photoshop llama Remove Color Matting).
+                         mismo que editores de imagen llama Remove Color Matting).
                          No mueve la silueta: es solo color. Va en la ventana y no
                          solo en la tira de parametros porque la tira queda
                          tapada por esta misma ventana.
@@ -965,7 +965,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                          existian en el HTML: el zoom hasta 24x era inalcanzable
                          salvo con la rueda. -->
                     <div class="vfond__zoomfila" role="group" aria-label="Zoom de la ventana">
-                        <button type="button" id="zoom-menos" class="vfond__zoombtn" title="Alejar">−</button>
+                        <button type="button" id="zoom-menos" class="vfond__zoombtn" title="Alejar">âˆ’</button>
                         <input type="range" id="zoom-pista" class="vfond__pista" min="100" max="2400" step="5" value="100" aria-label="Zoom">
                         <button type="button" id="zoom-mas" class="vfond__zoombtn" title="Acercar">+</button>
                         <button type="button" id="zoom-100" class="vfond__zoombtn vfond__zoombtn--texto" title="Volver al 100% y centrar"><span id="valor-zoom-ventana">100%</span></button>
@@ -974,7 +974,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <!-- ==============================================================
                          FONDO: REEMPLAZO
                          ------------------------------------------------------------
-                         Lo que PhotoRoom llama "Background" y Photoshop resuelve
+                         Lo que apps de recorte/fotos llama "Background" y editores de imagen resuelve
                          con una capa debajo. Son objetos SEPARADOS del recorte: el
                          arte nunca se aplasta. Cambiar el fondo no vuelve a correr
                          la IA ni toca la mascara, y se puede quitar despues.
@@ -1003,9 +1003,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                             <input type="color" id="fondo-deg-b" class="vfond__color" value="#94a3b8" aria-label="Color final del degradado">
                         </div>
                         <div class="vfond__fila" id="fondo-fila-degradadoAngulo" hidden>
-                            <label class="vfond__miniet" for="fondo-deg-angle">Ángulo</label>
-                            <input type="range" id="fondo-deg-angle" min="0" max="360" step="5" value="90" aria-label="Ángulo del degradado">
-                            <span class="vfond__num" id="fondo-deg-angle-val">90°</span>
+                            <label class="vfond__miniet" for="fondo-deg-angle">Ãngulo</label>
+                            <input type="range" id="fondo-deg-angle" min="0" max="360" step="5" value="90" aria-label="Ãngulo del degradado">
+                            <span class="vfond__num" id="fondo-deg-angle-val">90Â°</span>
                         </div>
 
                         <div class="vfond__fila" id="fondo-fila-desenfoque" hidden>
@@ -1019,8 +1019,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                             <div class="vfond__miniet" id="fondo-imagen-nombre">Sin imagen</div>
                         </div>
                         <div class="vfond__fila" id="fondo-fila-ajuste" hidden>
-                            <label class="vfond__miniet" for="fondo-imagen-escala">Tamaño</label>
-                            <input type="range" id="fondo-imagen-escala" min="30" max="220" step="5" value="100" aria-label="Tamaño del fondo">
+                            <label class="vfond__miniet" for="fondo-imagen-escala">TamaÃ±o</label>
+                            <input type="range" id="fondo-imagen-escala" min="30" max="220" step="5" value="100" aria-label="TamaÃ±o del fondo">
                             <span class="vfond__num" id="fondo-imagen-escala-val">100%</span>
                         </div>
                         <div class="vfond__fila" id="fondo-fila-opacidad" hidden>
@@ -1033,7 +1033,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <!-- ==============================================================
                          SOMBRA DE CONTACTO
                          ------------------------------------------------------------
-                         PhotoRoom la genera sola y es lo que hace que un recorte
+                         apps de recorte/fotos la genera sola y es lo que hace que un recorte
                          pegado a un fondo se vea puesto y no flotando. Se dibuja
                          desde la MISMA mascara del recorte (no es un filtro de la
                          foto): se aplasta, se desenfoca y se corre hacia un lado.
@@ -1051,13 +1051,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                             <span class="vfond__num" id="sombra-suavidad-val">55</span>
                         </div>
                         <div class="vfond__fila">
-                            <label class="vfond__miniet" for="sombra-direccion">Dirección</label>
-                            <input type="range" id="sombra-direccion" min="0" max="360" step="5" value="180" aria-label="Dirección de la sombra">
-                            <span class="vfond__num" id="sombra-direccion-val">180°</span>
+                            <label class="vfond__miniet" for="sombra-direccion">DirecciÃ³n</label>
+                            <input type="range" id="sombra-direccion" min="0" max="360" step="5" value="180" aria-label="DirecciÃ³n de la sombra">
+                            <span class="vfond__num" id="sombra-direccion-val">180Â°</span>
                         </div>
                         <div class="vfond__fila">
                             <label class="vfond__miniet" for="sombra-aplastar">Altura</label>
-                            <input type="range" id="sombra-aplastar" min="10" max="100" step="5" value="30" aria-label="Cuán achatada queda la sombra">
+                            <input type="range" id="sombra-aplastar" min="10" max="100" step="5" value="30" aria-label="CuÃ¡n achatada queda la sombra">
                             <span class="vfond__num" id="sombra-aplastar-val">30%</span>
                         </div>
                     </div>
@@ -1065,7 +1065,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <!-- ==============================================================
                          SALIDA
                          ------------------------------------------------------------
-                         PhotoRoom y Photoshop descargan un archivo; hasta ahora EKKO
+                         apps de recorte/fotos y editores de imagen descargan un archivo; hasta ahora EKKO
                          solo dejaba el recorte puesto en el lienzo. Para grabar a
                          laser el archivo ES el resultado: el PNG con alfa es el
                          recorte pelado y el JPG con fondo es la plancha que se
@@ -1084,19 +1084,19 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                             <div class="vfond__salida-caja">
                                 <img id="salida-mini" alt="Vista previa del archivo que se descarga">
                             </div>
-                            <div class="vfond__salida-datos" id="salida-medida">—</div>
+                            <div class="vfond__salida-datos" id="salida-medida">â€”</div>
                         </div>
                         <div class="vfond__piefila">
-                            <button type="button" id="btn-exportar-png" class="vfond__btn" title="El recorte solo, con transparencia, al tamaño real del arte">PNG sin fondo</button>
+                            <button type="button" id="btn-exportar-png" class="vfond__btn" title="El recorte solo, con transparencia, al tamaÃ±o real del arte">PNG sin fondo</button>
                             <button type="button" id="btn-exportar-jpg" class="vfond__btn" title="El recorte aplastado sobre el fondo elegido, para entregar o cotizar">JPG con fondo</button>
                         </div>
                         <button type="button" id="exportar-ajustado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="El PNG deja de llevar el margen transparente: el archivo mide justo lo que el objeto">Recortar margen</button>
                     </div>
 
                     <div class="vfond__pie">
-                        <button type="button" id="btn-deshacer-fondo" class="vfond__btn">↶ Deshacer</button>
-                        <button type="button" id="btn-rehacer-fondo" class="vfond__btn">Rehacer ↷</button>
-                        <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">✓ Listo</button>
+                        <button type="button" id="btn-deshacer-fondo" class="vfond__btn">â†¶ Deshacer</button>
+                        <button type="button" id="btn-rehacer-fondo" class="vfond__btn">Rehacer â†·</button>
+                        <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">âœ“ Listo</button>
                     </div>
                 </aside>
             </div>
@@ -1110,14 +1110,14 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
         </div>
     </div>
 
-    <!-- Cargadores de archivos ocultos → REUTILIZADOS POR CARGA UNIFICADA -->
+    <!-- Cargadores de archivos ocultos â†’ REUTILIZADOS POR CARGA UNIFICADA -->
     <input type="file" id="imagePicker" class="hidden-picker" accept="image/*" multiple>
     <input type="file" id="svgPicker" class="hidden-picker" accept=".svg" multiple>
 
     <!-- ARRANQUE DEL SISTEMA -->
     <script src="ASSETS/js/config.js"></script>
     <script src="ASSETS/js/vendor-opentype.min.js"></script>
-    <output id="ekkoRotationPopup" aria-live="polite" aria-label="Rotación actual"></output>
+    <output id="ekkoRotationPopup" aria-live="polite" aria-label="RotaciÃ³n actual"></output>
     <script type="module" src="ASSETS/js/editor.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCoordinator.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/panelCommandBridge.js"></script>
@@ -1125,9 +1125,9 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
 <script type="module" src="ASSETS/js/modules/canvas-pro/qrDialog.js"></script>
 <script type="module" src="ASSETS/js/modules/canvas-pro/qrVector.js"></script>
     <script type="module" src="ASSETS/js/modules/canvas-pro/commandParameters.js"></script>
-    <!-- ===== CINTA · FASE 0/1: manifiesto + store + ÚNICO escritor ===== -->
+    <!-- ===== CINTA Â· FASE 0/1: manifiesto + store + ÃšNICO escritor ===== -->
     <script type="module" src="ASSETS/js/modules/canvas-pro/ui/ribbonRenderer.js"></script>
-    <!-- ===== CINTA · FASE 2: grupos con título colapsables ===== -->
+    <!-- ===== CINTA Â· FASE 2: grupos con tÃ­tulo colapsables ===== -->
     <script type="module" src="ASSETS/js/modules/canvas-pro/ui/ribbonLayout.js"></script>
     <!-- ===== MENU CONTEXTUAL (clic derecho): solo lectura del store/capabilities.
          No toca barras (el unico escritor sigue siendo ribbonRenderer). ===== -->
@@ -1136,11 +1136,13 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
 
     <script type="module" src="ASSETS/js/modules/canvas-pro/experienciaInput.js"></script>
 
-    <!-- ESTÉTICA ESPACIAL: dueño del data-modo de <body> y del botón de tema.
-         No toca visibilidad de botones (el único escritor sigue siendo ribbonRenderer). -->
+    <!-- ESTÃ‰TICA ESPACIAL: dueÃ±o del data-modo de <body> y del botÃ³n de tema.
+         No toca visibilidad de botones (el Ãºnico escritor sigue siendo ribbonRenderer). -->
     <script type="module" src="ASSETS/js/modules/canvas-pro/ui/espacio.js"></script>
 
 
 
 </body>
 </html>
+
+
