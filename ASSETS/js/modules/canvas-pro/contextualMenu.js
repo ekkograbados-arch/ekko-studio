@@ -826,6 +826,9 @@ export function initContextualMenu() {
     setClick('btnCtxRotateLetters', () => {
         if (typeof window.toggleRotateLetters === 'function') window.toggleRotateLetters();
     });
+    setClick('btnCtxExportSel', () => {
+        if (typeof window.ekkoExportarSeleccionUI === "function") window.ekkoExportarSeleccionUI();
+    });
     setClick('btnCtxTextSpacing', dispatchTextSpacing);
     setClick('btnTopTextSpacing', dispatchTextSpacing);
     /* Cada listener pasa el valor del input QUE EL CLIENTE TOCO. Antes ambos
