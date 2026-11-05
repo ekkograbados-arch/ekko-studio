@@ -454,8 +454,8 @@ VERSIÃ“N: v46.5_FUSION â€” Paneles sincronizados + Carga unificada + Bot
                     '</div>',
                     '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:10px;">WHATSAPP DE ENVÃO (cÃ³digo paÃ­s + nÃºmero)</div>',
                     '<input id="ekkoSocioWhatsapp" inputmode="numeric" maxlength="15" placeholder="5492804000000" value="' + String(contacto?.whatsapp || "").replace(/"/g, "&quot;") + '" style="' + SOCIO_CSS_INPUT + '">',
-                    '<button type="button" onclick="window.__ekkoSocioGuardar()" style="' + SOCIO_CSS_BTN + 'background:#15803d;color:#fff;margin-top:14px;">Guardar mi marca</button>',
-                    '<button type="button" onclick="window.__ekkoSocioDesactivar()" style="width:100%;padding:8px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;margin-top:6px;">Desactivar suscripciÃ³n en este dispositivo</button>'
+                    '<button type="button" onclick="window.__ekkoSocioGuardar()" style="' + SOCIO_CSS_BTN + 'background:#15803d;color:#fff;margin-top:14px;">💾 Guardar mi marca</button>',
+                    '<button type="button" onclick="window.__ekkoSocioDesactivar()" style="width:100%;padding:8px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:11px;color:#94a3b8;margin-top:6px;">🚫 Desactivar suscripciÃ³n en este dispositivo</button>'
                 ].join("");
                 return;
             }
@@ -476,18 +476,18 @@ VERSIÃ“N: v46.5_FUSION â€” Paneles sincronizados + Carga unificada + Bot
                 '<button type="button" onclick="window.open(\'https://wa.me/' + waEkko + '?text=\' + encodeURIComponent(\'Hola! Quiero la suscripciÃ³n EKKO Socio para mi grabadora lÃ¡ser.\'), \'_blank\')" style="' + SOCIO_CSS_BTN + 'background:#25d366;color:#fff;margin-top:10px;"><i class="fab fa-whatsapp"></i> PEDIR SUSCRIPCIÃ“N POR WHATSAPP</button>',
                 '<div style="font-size:12px;font-weight:bold;color:#334155;margin-top:14px;">Â¿YA TENÃ‰S TU CÃ“DIGO? ACTIVALO ACÃ</div>',
                 '<input id="ekkoSocioCodigoInput" maxlength="32" placeholder="TALLERJUAN-7K2" style="' + SOCIO_CSS_INPUT + 'text-transform:uppercase;">',
-                '<button type="button" onclick="window.__ekkoSocioActivar()" style="' + SOCIO_CSS_BTN + 'background:#a16207;color:#fff;margin-top:8px;">ACTIVAR MI SOCIO</button>',
+                '<button type="button" onclick="window.__ekkoSocioActivar()" style="' + SOCIO_CSS_BTN + 'background:#a16207;color:#fff;margin-top:8px;">🚀 ACTIVAR MI SOCIO</button>',
                 '<div style="border-top:1px solid #e2e8f0;margin-top:16px;padding-top:12px;">',
                 '  <div style="font-size:11px;font-weight:bold;color:#94a3b8;">ACCESO DE DUEÃ‘O</div>',
                 '  <div style="display:flex;gap:6px;margin-top:6px;">',
                 '    <input id="ekkoSocioPinInput" maxlength="12" placeholder="PIN" style="' + SOCIO_CSS_INPUT + 'margin-top:0;">',
-                '    <button type="button" onclick="window.__ekkoSocioEntrarPin()" style="padding:0 14px;border:none;border-radius:8px;background:#0f172a;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">Entrar</button>',
+                '    <button type="button" onclick="window.__ekkoSocioEntrarPin()" style="padding:0 14px;border:none;border-radius:8px;background:#0f172a;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">🔑 Entrar</button>',
                 '  </div>',
                 window.__ekkoSocioPinOK ? [
                 '  <div style="font-size:11px;color:#475569;margin-top:12px;">GENERADOR DE CÃ“DIGOS PARA TUS SOCIOS:</div>',
                 '  <div style="display:flex;gap:6px;margin-top:4px;">',
                 '    <input id="ekkoSocioPalabra" maxlength="24" placeholder="palabra p/ el socio" style="' + SOCIO_CSS_INPUT + 'margin-top:0;text-transform:uppercase;">',
-                '    <button type="button" onclick="window.__ekkoSocioGenerar()" style="padding:0 14px;border:none;border-radius:8px;background:#a16207;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">Crear</button>',
+                '    <button type="button" onclick="window.__ekkoSocioGenerar()" style="padding:0 14px;border:none;border-radius:8px;background:#a16207;color:#fff;cursor:pointer;font-size:12px;font-weight:bold;">✨ Crear</button>',
                 '  </div>',
                 '  <div id="ekkoSocioCodigoNuevo" style="font-size:14px;font-weight:bold;color:#15803d;margin-top:8px;user-select:all;"></div>'
                 ].join("") : ""
@@ -899,8 +899,8 @@ VERSIÃ“N: v46.5_FUSION â€” Paneles sincronizados + Carga unificada + Bot
                     </div>
 
                     <div class="vfond__seg" role="group" aria-label="Como elegir la zona">
-                        <button type="button" id="modo-asistido" class="vfond__segb is-activo" aria-pressed="true" title="Toca una zona y se selecciona sola (A)">Asistido</button>
-                        <button type="button" id="modo-manual" class="vfond__segb" aria-pressed="false" title="Pinta con el pincel (M)">Manual</button>
+                        <button type="button" id="modo-asistido" class="vfond__segb is-activo" aria-pressed="true" title="Toca una zona y se selecciona sola (A)">🎯 Asistido</button>
+                        <button type="button" id="modo-manual" class="vfond__segb" aria-pressed="false" title="Pinta con el pincel (M)">✏️ Manual</button>
                     </div>
 
                     <p class="vfond__ayuda" id="ayuda-modo">Los objetos se detectan automÃ¡ticamente para hacerla mÃ¡s fÃ¡cil.</p>
@@ -930,13 +930,13 @@ VERSIÃ“N: v46.5_FUSION â€” Paneles sincronizados + Carga unificada + Bot
                          sean un solo bloque de decision.
                          ============================================================== -->
                     <div class="vfond__seg" role="group" aria-label="QuÃ© mostrar en el lienzo">
-                        <button type="button" id="vista-compuesto" class="vfond__segb is-activo" aria-pressed="true" title="El recorte sobre transparencia (C)">Compuesto</button>
-                        <button type="button" id="vista-mascara" class="vfond__segb" aria-pressed="false" title="La mÃ¡scara en blanco y negro: blanco=queda, negro=se va (V)">MÃ¡scara</button>
-                        <button type="button" id="vista-original" class="vfond__segb" aria-pressed="false" title="La foto original para comparar (N)">Original</button>
-                        <button type="button" id="vista-comparar" class="vfond__segb" aria-pressed="false" title="Recorte y original lado a lado, con una lÃ­nea que se arrastra (Y)">Comparar</button>
+                        <button type="button" id="vista-compuesto" class="vfond__segb is-activo" aria-pressed="true" title="El recorte sobre transparencia (C)">👁️ Compuesto</button>
+                        <button type="button" id="vista-mascara" class="vfond__segb" aria-pressed="false" title="La mÃ¡scara en blanco y negro: blanco=queda, negro=se va (V)">🎭 Máscara</button>
+                        <button type="button" id="vista-original" class="vfond__segb" aria-pressed="false" title="La foto original para comparar (N)">📷 Original</button>
+                        <button type="button" id="vista-comparar" class="vfond__segb" aria-pressed="false" title="Recorte y original lado a lado, con una lÃ­nea que se arrastra (Y)">⚖️ Comparar</button>
                     </div>
 
-                    <button type="button" id="ver-quitado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="Marcar en rojo lo que se quitÃ³ (T)">Ver lo quitado</button>
+                    <button type="button" id="ver-quitado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="Marcar en rojo lo que se quitÃ³ (T)">🔴 Ver lo quitado</button>
 
                     <!-- ==============================================================
                          BORDE DEL RECORTE: HALO
@@ -1087,16 +1087,16 @@ VERSIÃ“N: v46.5_FUSION â€” Paneles sincronizados + Carga unificada + Bot
                             <div class="vfond__salida-datos" id="salida-medida">â€”</div>
                         </div>
                         <div class="vfond__piefila">
-                            <button type="button" id="btn-exportar-png" class="vfond__btn" title="El recorte solo, con transparencia, al tamaÃ±o real del arte">PNG sin fondo</button>
-                            <button type="button" id="btn-exportar-jpg" class="vfond__btn" title="El recorte aplastado sobre el fondo elegido, para entregar o cotizar">JPG con fondo</button>
+                            <button type="button" id="btn-exportar-png" class="vfond__btn" title="El recorte solo, con transparencia, al tamaÃ±o real del arte">📥 PNG sin fondo</button>
+                            <button type="button" id="btn-exportar-jpg" class="vfond__btn" title="El recorte aplastado sobre el fondo elegido, para entregar o cotizar">🖼️ JPG con fondo</button>
                         </div>
-                        <button type="button" id="exportar-ajustado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="El PNG deja de llevar el margen transparente: el archivo mide justo lo que el objeto">Recortar margen</button>
+                        <button type="button" id="exportar-ajustado" class="vfond__btn vfond__btn--ancho" aria-pressed="true" title="El PNG deja de llevar el margen transparente: el archivo mide justo lo que el objeto">✂️ Recortar margen</button>
                     </div>
 
                     <div class="vfond__pie">
-                        <button type="button" id="btn-deshacer-fondo" class="vfond__btn">â†¶ Deshacer</button>
-                        <button type="button" id="btn-rehacer-fondo" class="vfond__btn">Rehacer â†·</button>
-                        <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">âœ“ Listo</button>
+                        <button type="button" id="btn-deshacer-fondo" class="vfond__btn">↶ Deshacer</button>
+                        <button type="button" id="btn-rehacer-fondo" class="vfond__btn">↷ Rehacer</button>
+                        <button type="button" id="btn-aceptar-fondo" class="vfond__btn vf--ok">✅ Listo</button>
                     </div>
                 </aside>
             </div>
