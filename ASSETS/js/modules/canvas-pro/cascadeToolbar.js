@@ -1661,13 +1661,18 @@ function montarFila() {
     laserBtn.className = "btn-action";
     laserBtn.innerHTML =
         '<span style="font-size:13px;line-height:1;">🔥</span>' +
-        '<span class="ekko-tema-txt">Láser</span>';
-    laserBtn.title = "Ver cómo se graba (simulación sobre acero inoxidable, sin exportar)";
+        '<span class="ekko-tema-txt">MODO LÁSER</span>';
+    /* Modo de EDICIÓN (decisión del dueño): ya no abre la simulación —
+       cambia al look de grabado puesto en el lienzo en vivo, y las
+       descargas salen con el modo activo. exportSVG.js sincroniza el
+       texto del interruptor (MODO LÁSER / MODO COLOR) en cada cambio. */
+    laserBtn.title = "Modo Láser de edición: seguí editando normal — las imágenes muestran cómo se graban. Las descargas salen con este look.";
     laserBtn.addEventListener("click", () => {
         try { if (typeof window.ekkoModoLaser?.alternar === "function") window.ekkoModoLaser.alternar(); } catch (_) {}
     });
     temaStack.appendChild(laserBtn);
-    // Botón SELECCIÓN: exportar la selección a PNG con el modo activo y el apilado respetado (Ctrl+Shift+C)
+    // Exportar Selección (PNG con apilado respetado + DPI a elección) y el
+    // atajo Ctrl+Shift+C (copia al portapapeles, listo para LightBurn).
     const exportSelBtn = document.createElement("button");
     exportSelBtn.type = "button";
     exportSelBtn.id = "btnEkkoExportSel";
@@ -1675,7 +1680,7 @@ function montarFila() {
     exportSelBtn.innerHTML =
         '<span style="font-size:13px;line-height:1;">📤</span>' +
         '<span class="ekko-tema-txt">SELECCIÓN</span>';
-    exportSelBtn.title = "Exportar la selección a PNG (300/600 DPI), con el look del modo activo y el apilamiento respetado. También atajo Ctrl+Shift+C.";
+    exportSelBtn.title = "Exportar los objetos seleccionados a PNG (300/600 DPI), con el look del modo activo y el apilado respetado. Ctrl+Shift+C = copia directo al portapapeles.";
     exportSelBtn.addEventListener("click", () => {
         try { if (typeof window.ekkoExportarSeleccionUI === "function") window.ekkoExportarSeleccionUI(); } catch (_) {}
     });
