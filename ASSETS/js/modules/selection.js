@@ -316,7 +316,7 @@ function getOwnerLocalGeometryBounds(owner) {
 }
 
 /**
- * Actualiza la caja de selección unificada con tiradores y rotador (Canva / LightBurn style)
+ * Actualiza la caja de selección unificada con tiradores y rotador (estilo editor profesional)
  */
 const _updateSelectionBox = function(item) {
   if (window.selectionBoxGroup) {
@@ -419,7 +419,7 @@ const _updateSelectionBox = function(item) {
       }
 
       if (tightOutline) {
-        tightOutline.strokeColor = new paper.Color('#06b6d4'); // Cian técnico LightBurn
+        tightOutline.strokeColor = new paper.Color('#06b6d4'); // Cian técnico del editor
         tightOutline.strokeWidth = 1.8 / paper.view.zoom;
         tightOutline.dashArray = [3 / paper.view.zoom, 3 / paper.view.zoom];
         // A hole is a physical cutter, never a translucent painted shape.
@@ -825,7 +825,7 @@ const _initSelectionTool = function() {
           window.startTextEditing(target);
         } else if (esGrupoTextoDblClick && typeof window.editGroupText === 'function') {
           // Texto curvado/espaciado: sigue siendo "texto", se edita por doble
-          // clic como en Word y en LightBurn. NO se convierte a vector.
+          // clic como en cualquier editor de texto. NO se convierte a vector.
           window.deselectItem();
           window.selectItem(target);
           window.editGroupText(target);
@@ -1396,7 +1396,7 @@ const _initSelectionTool = function() {
     }
 
     // Si el usuario hizo clic estático sin arrastrar sobre una pieza dentro de una multiselección,
-    // aislamos esa pieza individual de forma limpia al soltar el ratón (comportamiento estándar Canva/Figma).
+    // aislamos esa pieza individual de forma limpia al soltar el ratón (comportamiento estándar de multiselección).
     if (!window._mouseDragOccurred && window._pendingIsolateItem && window.selectedItems.length > 1) {
       const isolate = window._pendingIsolateItem;
       commitSelectionContext([isolate], isolate, 'isolate-click');
@@ -1478,8 +1478,8 @@ const _initSelectionTool = function() {
     if (window.resizeActive) return;
 
     let hitResult = null;
-    /* Cursor de curvatura sobre el tirador. LightBurn cambia el cursor a un
-       gesto de doblar cuando el puntero esta sobre el punto azul; sin esto el
+    /* Cursor de curvatura sobre el tirador. Un gesto de doblar aparece
+       cuando el puntero esta sobre el punto azul; sin esto el
        cliente no tiene forma de saber que el punto se agarra. Va antes que los
        tiradores de caja porque el punto esta por FUERA de la caja y el hit-test
        de la seleccion no lo alcanza. */
