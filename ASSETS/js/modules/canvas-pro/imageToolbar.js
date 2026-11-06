@@ -3,12 +3,12 @@ import { getStackingUnit } from "./vectorSemantics.js";
 import { transformPublicItem } from "./fusionController.js";
 
 /* =========================================================================
-Módulo: ASSETS/js/modules/canvas-pro/imageToolbar.js (v36.0 PRO - Smart Spatial Collision Z-Order & LightBurn Stacking)
+Módulo: ASSETS/js/modules/canvas-pro/imageToolbar.js (v36.0 PRO - Smart Spatial Collision Z-Order & Apilado de grabado)
 Ruta de reemplazo: ASSETS/js/modules/canvas-pro/imageToolbar.js
 Descripción: Módulo independiente para el procesamiento, escalado, ordenación,
 duplicación y filtrado de brillo y contraste píxel a píxel de imágenes en Paper.js.
 Incorpora:
-- ORDEN Z INTELIGENTE POR COLISIÓN ESPACIAL (LightBurn Style):
+- ORDEN Z INTELIGENTE POR COLISIÓN ESPACIAL (estilo grabado):
   Al subir o bajar de capa ('bringImageForward' / 'sendImageBackward'), detecta
   automáticamente el siguiente elemento que colisiona o se solapa geométricamente
   con el objeto en pantalla ('bounds.intersects' y 'intersects()'), permitiendo
@@ -231,7 +231,7 @@ export function deleteImage(item) {
 }
 
 /**
- * Subir el nivel de capa de forma inteligente (LightBurn Style):
+ * Subir el nivel de capa de forma inteligente (apilado de grabado):
  * Salta directamente sobre el siguiente elemento con el que colisiona o se solapa en pantalla.
  */
 export function bringImageForward(item) {
@@ -289,7 +289,7 @@ export function bringImageForward(item) {
 }
 
 /**
- * Bajar el nivel de capa de forma inteligente (LightBurn Style):
+ * Bajar el nivel de capa de forma inteligente (apilado de grabado):
  * Salta directamente por debajo del siguiente elemento con el que colisiona o se solapa en pantalla.
  */
 export function sendImageBackward(item) {
@@ -344,7 +344,7 @@ export function sendImageBackward(item) {
 }
 
 /**
- * Traer al Frente absoluto (Push to Front - LightBurn Style):
+ * Traer al Frente absoluto (Push to Front - apilado de grabado):
  * Envía el elemento a la parte superior del orden de dibujo, justo bajo el mockup.
  */
 export function bringImageToFront(item) {
@@ -373,7 +373,7 @@ export function bringImageToFront(item) {
 }
 
 /**
- * Enviar al Fondo absoluto (Push to Back - LightBurn Style):
+ * Enviar al Fondo absoluto (Push to Back - apilado de grabado):
  * Envía el elemento al fondo del orden de dibujo (Z:0).
  */
 export function sendImageToBack(item) {
