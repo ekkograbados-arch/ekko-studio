@@ -281,7 +281,11 @@ function installCommandDispatcher() {
 }
 
 function unwrap(item) {
-    return getPublicOwner(item) || null;
+    // Un wrapper sin propietario marcado sigue siendo un candidato válido:
+    // devolver null lo saca de classifySelection y mata los botones
+    // Calado/Rellenar para selecciones de wrapper (p. ej. un calado recién
+    // aplicado dentro de su clip-group de contención).
+    return getPublicOwner(item) || item;
 }
 
 function getSelectedItems() {
