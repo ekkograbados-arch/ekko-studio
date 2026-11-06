@@ -217,16 +217,16 @@ function csgTraceOperation(pass, operation, details = {}) {
 }
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/geometricUngroup.js
-ACCIÃÆÃ¢â¬ÅN: REEMPLAZAR COMPLETAMENTE
-ESTADO: PENDIENTE DE VALIDACIÃÆÃ¢â¬ÅN CONTRA CONTRATO
+ACCIÓN: REEMPLAZAR COMPLETAMENTE
+ESTADO: PENDIENTE DE VALIDACIÓN CONTRA CONTRATO
 DEPENDENCIAS DIRECTAS: ASSETS/js/modules/canvas-pro/selection.js
 ======================================================================== */
 
 /* =========================================================================
-MÃÆÃÂ³dulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36.3 - Deep Recursive Extraction & Wrapper Group Sanitization) - Deep Recursive Extraction & Containment Hierarchy Engine)
-DescripciÃÆÃÂ³n:
-    Motor geomÃÆÃÂ©trico de DescomposiciÃÆÃÂ³n por JerarquÃÆÃÂ­a de ContenciÃÆÃÂ³n y Capas SVG para EKKO Studio.
-    Optimizado para corte y grabado lÃÆÃÂ¡ser.
+Módulo: ASSETS/js/modules/canvas-pro/geometricUngroup.js (PRO Architecture v36.3 - Deep Recursive Extraction & Wrapper Group Sanitization) - Deep Recursive Extraction & Containment Hierarchy Engine)
+Descripción:
+    Motor geométrico de Descomposición por Jerarquía de Contención y Capas SVG para EKKO Studio.
+    Optimizado para corte y grabado láser.
 ========================================================================= */
 
 function isPath(item) {
@@ -264,7 +264,7 @@ function getMatrixRelativeTo(item, root) {
 }
 
 /**
- * Aplica y hornea la matriz de transformaciÃÆÃÂ³n en los segmentos y curvas de un trazado
+ * Aplica y hornea la matriz de transformación en los segmentos y curvas de un trazado
  */
 function bakeMatrixIntoPath(path, matrix, visited = new Set()) {
     if (!path || !matrix || matrix.isIdentity() || visited.has(path)) return;
@@ -291,7 +291,7 @@ function bakeMatrixIntoPath(path, matrix, visited = new Set()) {
 }
 
 /**
- * Descompone cualquier estructura en trazados atÃÆÃÂ³micos cerrados simples (paper.Path)
+ * Descompone cualquier estructura en trazados atómicos cerrados simples (paper.Path)
  */
 let docOrderCounter = 0;
 let decompositionScopeCounter = 0;
@@ -334,8 +334,8 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}, v
                 originalStrokeColor: item.strokeColor ? item.strokeColor.clone() :
                     (sourceData.originalStrokeColor?.clone?.() || null),
                 originalStrokeWidth: item.strokeWidth || sourceData.originalStrokeWidth || 0,
-                // La metadata explÃÆÃÂ­cita del SVG tiene prioridad sobre la
-                // clasificaciÃÆÃÂ³n geomÃÆÃÂ©trica de fallback.
+                // La metadata explícita del SVG tiene prioridad sobre la
+                // clasificación geométrica de fallback.
                 originalIsHole: !isCutLine && (typeof sourceData.originalIsHole === 'boolean' ? sourceData.originalIsHole :
                     (typeof parentMeta.originalIsHole === 'boolean' ? parentMeta.originalIsHole : undefined)),
                 sourceContourIndex: sourceData.sourceContourIndex ?? parentMeta.sourceContourIndex ?? null,
@@ -440,12 +440,12 @@ function isContainedIn(child, parent) {
 }
 
 /**
- * Construye el ÃÆÃÂ¡rbol topolÃÆÃÂ³gico de contenciÃÆÃÂ³n geomÃÆÃÂ©trica y calcula profundidades relativas.
+ * Construye el árbol topológico de contención geométrica y calcula profundidades relativas.
  */
 function buildContainmentTree(atomicPaths) {
-  // ÃÂ¢ÃâÃ¢â¬Â¦ NO reordenar por ÃÆÃÂ¡rea: el ÃÆÃÂ¡rbol de contenciÃÆÃÂ³n se construye sobre
-  // el orden original del documento. El ÃÆÃÂ¡rea solo se usa como criterio
-  // para validar contenciÃÆÃÂ³n (un hijo debe ser mÃÆÃÂ¡s chico que su padre).
+  // ✅ NO reordenar por área: el árbol de contención se construye sobre
+  // el orden original del documento. El área solo se usa como criterio
+  // para validar contención (un hijo debe ser más chico que su padre).
   atomicPaths.sort((a, b) => (a.data?.docOrder || 0) - (b.data?.docOrder || 0));
     const nodes = atomicPaths.map((path, idx) => ({
         id: idx,
@@ -521,13 +521,13 @@ function createCutLineOwner(path, ownerMatrix, rootTarget, containmentScope) {
         ...rootData,
         ...sourceData,
         locked: false,
-        label: sourceData.label || rootData.label || 'LÃÆÃÂ­nea de corte',
+        label: sourceData.label || rootData.label || 'Línea de corte',
         isCutLine: true,
         isFusionReceptor: false,
         isSolidShape: false,
         isHole: false,
         // A cut line is intentionally not a semantic solid/hole. It remains a
-        // real selectable vector and is exported as a stroke/path for el programa de grabado/lÃÆÃÂ¡ser.
+        // real selectable vector and is exported as a stroke/path for el programa de grabado/láser.
         semanticKind: undefined,
         fillRule: line.fillRule,
         originalFillRule: line.fillRule,
@@ -554,7 +554,7 @@ function resolveItemSemantics(node, rootTarget) {
     // precedencia sobre un originalIsHole heredado. En un texto a vector el
     // contador llega con contourRole "hole", pero el compuesto padre arrastra
     // originalIsHole=false; al mirar ese flag primero el hueco se degradaba a
-    // solido y el texto perdiÃÂÃÂ° sus huecos reales al descomponerlo.
+    // solido y el texto perdiа sus huecos reales al descomponerlo.
     if (meta.contourRole === "hole" || meta.explicitHole === true) return true;
     if (meta.contourRole === "outer") return false;
     if (typeof meta.originalIsHole === "boolean") return meta.originalIsHole;
@@ -1526,9 +1526,9 @@ function extractSubtractiveItems(topList) {
         }
         if (!visited.has(content)) visited.add(content);
 
-        // Una fusiÃÆÃÂ³n sÃÆÃÂ³lida participa del CSG mediante su mÃÆÃÂ¡scara, no como
-        // un grupo completo que tambiÃÆÃÂ©n contiene la imagen. Una fusiÃÆÃÂ³n que
-        // reemplazÃÆÃÂ³ un hueco se representa mediante su hueco virtual.
+        // Una fusión sólida participa del CSG mediante su máscara, no como
+        // un grupo completo que también contiene la imagen. Una fusión que
+        // reemplazó un hueco se representa mediante su hueco virtual.
         if (content.data?.isSmartFusion) {
             const fusionMask = content.children?.find(child =>
                 child.clipMask || child.data?.isFusionMask
@@ -1652,7 +1652,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             item.visible = true;
         } else if (item && item.data && item.data.isHole) {
             item.visible = true;
-            // El CSG usa isHole como semÃÆÃÂ¡ntica; el objeto sigue siendo visible,
+            // El CSG usa isHole como semántica; el objeto sigue siendo visible,
             // seleccionable y con contorno dentro del editor.
             applyHoleVisualStyle(item);
         }
@@ -1660,9 +1660,9 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
 
     for (let j = 0; j < subItems.length; j++) {
         let solid = subItems[j];
-        // El requisito de geomBase saliÃÆÃÂ³: un sÃÆÃÂ³lido fresco participa igual
-        // (su geometrÃÆÃÂ­a en vivo es su prÃÆÃÂ­stino). Solo se saltan los huecos,
-        // las lÃÆÃÂ­neas de corte y las mÃÆÃÂ¡scaras.
+        // El requisito de geomBase salió: un sólido fresco participa igual
+        // (su geometría en vivo es su prístino). Solo se saltan los huecos,
+        // las líneas de corte y las máscaras.
         if (!solid || !solid.data || solid.data.isHole || solid.data.isCutLine === true ||
             isMockupOrMask(solid)) continue;
         const pristineBase = getGlobalUnsubtractedPath(solid);
@@ -1753,7 +1753,7 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
             }
         }
 
-        // === EKKO SMART FUSION v46: Huecos virtuales (imagen fusionada dentro de hueco) tambiÃÆÃÂ©n restan del sÃÆÃÂ³lido ===
+        // === EKKO SMART FUSION v46: Huecos virtuales (imagen fusionada dentro de hueco) también restan del sólido ===
         if (Array.isArray(scopedVirtualHoles)) {
             scopedVirtualHoles.forEach(function(vh) {
                 if (!vh || !vh.geom) return;
@@ -1844,11 +1844,11 @@ export function recalculateDynamicSubtractions(targetLayer = null, virtualHoleEn
                         Math.abs(mergedHole.area || 0)
                     );
                     const testSegments = countSegments(testSub);
-                    // Una perforaciÃÆÃÂ³n legÃÆÃÂ­tima puede dejar menos del 5% del
-                    // sÃÆÃÂ³lido original (A/F/A, bandas y detalles finos). El
+                    // Una perforación legítima puede dejar menos del 5% del
+                    // sólido original (A/F/A, bandas y detalles finos). El
                     // umbral anterior rechazaba esos huecos y dejaba el
-                    // sÃÆÃÂ³lido visualmente relleno. Solo se rechaza un resultado
-                    // vacÃÆÃÂ­o, degenerado o con un ÃÆÃÂ¡rea imposible.
+                    // sólido visualmente relleno. Solo se rechaza un resultado
+                    // vacío, degenerado o con un área imposible.
                     const accepted = testSegments >= 3 && metrics.validArea && metrics.validBounds;
                     csgTraceOperation(tracePass, 'subtract.merged', { success: true, accepted,
                         solidBefore, holeBefore, result: csgGeometrySnapshot(testSub),
@@ -2020,7 +2020,7 @@ function getRootNode(node) {
 }
 
 /**
- * DESCOMPOSICIÃÆÃ¢â¬ÅN INTEGRAL POR JERARQUÃÆÃÂA DE CONTENCIÃÆÃ¢â¬ÅN Y CAPAS
+ * DESCOMPOSICIÓN INTEGRAL POR JERARQUÍA DE CONTENCIÓN Y CAPAS
  */
 export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     if (!rootTarget || rootTarget.data?.locked || rootTarget.data?.mockup || rootTarget.data?.isMask) {
@@ -2181,8 +2181,8 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
         if (node.path?.data) node.path.data.originalIsHole = node.isHole;
     });
 
-    // Identidad ÃÆÃÂºnica para esta descomposiciÃÆÃÂ³n. containmentId solo no es
-    // suficiente porque distintos SVG pueden reutilizar el mismo ÃÆÃÂ­ndice.
+    // Identidad única para esta descomposición. containmentId solo no es
+    // suficiente porque distintos SVG pueden reutilizar el mismo índice.
     function nearestSolidOwner(node) {
         if (!node?.isHole) return node;
         let parent = node.parent;
@@ -2202,12 +2202,12 @@ nodes.sort((a, b) => {
   const rootA = getRootNode(a);
   const rootB = getRootNode(b);
   if (rootA !== rootB) {
-    // ÃÂ¢ÃâÃ¢â¬Â¦ REGLA ABSOLUTA: El orden de apilamiento viene del docOrder original.
-    // Los objetos que aparecÃÆÃÂ­an primero en el SVG quedan atrÃÆÃÂ¡s (abajo en Z).
+    // ✅ REGLA ABSOLUTA: El orden de apilamiento viene del docOrder original.
+    // Los objetos que aparecían primero en el SVG quedan atrás (abajo en Z).
     return a.docOrder - b.docOrder;
   }
-  // Dentro de la misma jerarquÃÆÃÂ­a: ancestros primero (para que los contenedores
-  // se inserten antes que sus contenidos y queden atrÃÆÃÂ¡s en Z).
+  // Dentro de la misma jerarquía: ancestros primero (para que los contenedores
+  // se inserten antes que sus contenidos y queden atrás en Z).
   if (isAncestorOf(a, b)) return -1;
   if (isAncestorOf(b, a)) return 1;
   // Mismo nivel: orden por docOrder original
@@ -2239,7 +2239,7 @@ nodes.sort((a, b) => {
 
         compoundItem.data = {
             locked: false,
-            label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa SÃÆÃÂ³lida (Nivel ${node.depth})`,
+            label: isHole ? `Calado Activo (Nivel ${node.depth})` : `Masa Sólida (Nivel ${node.depth})`,
             semanticKind: isHole ? VECTOR_KIND.HOLE : VECTOR_KIND.SOLID,
             isHole: isHole,
             isSolidShape: !isHole,
@@ -2308,7 +2308,7 @@ nodes.sort((a, b) => {
             }
         }
         
-        // CORRECCIÃÆÃ¢â¬ÅN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
+        // CORRECCIÓN FORENSE: Sanitizar si es un wrapper abstracto (clipGroup) para evitar marcarlo como isHole corrupto (v36.3)
         if (finalItem !== item) {
             if (!finalItem.data) finalItem.data = {};
             const ownerId = item.id || item.data?.ownerId || item.data?.containmentKey;
