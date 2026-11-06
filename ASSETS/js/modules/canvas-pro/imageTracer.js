@@ -27,7 +27,7 @@ export function traceRasterContours(imageData, threshold, cutoff = 0, sketchTrac
 
   // 2. Aplicar binarización (Estándar o Adaptativa por Croquis)
   if (sketchTrace) {
-    // Algoritmo de Umbral Adaptativo por Imagen Integral (Sketch Trace de LightBurn)
+    // Algoritmo de Umbral Adaptativo por Imagen Integral (trazado por bosquejo)
     const windowSize = 15;
     const halfWin = Math.floor(windowSize / 2);
     const integral = new Uint32Array(width * height);
@@ -692,7 +692,7 @@ export function runTracePreview(raster, threshold, cutoff = 0, smoothness = 1.0,
       let path = new paper.Path({
         segments: pathPoints,
         closed: true,
-        strokeColor: '#ff00ff', // Magenta de LightBurn
+        strokeColor: '#ff00ff', // Magenta de trazado detectable
         strokeWidth: 1.5 / paper.view.zoom,
         insert: false
       });
