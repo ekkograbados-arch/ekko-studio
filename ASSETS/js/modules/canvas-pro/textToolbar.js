@@ -543,7 +543,7 @@ export function applyTextCurve(item, curvature, options = {}) {
 }
 
 /**
- * Aplica deformación curva al texto distribuyendo letras sobre un arco (Estilo LightBurn)
+ * Aplica deformación curva al texto distribuyendo letras sobre un arco (estilo grabado láser)
  */
 async function applyTextCurveRun(item, curvature, options = {}) {
     if (!item || item.data?.locked) return;
@@ -709,7 +709,7 @@ async function applyTextCurveRun(item, curvature, options = {}) {
     /* CIERRE DE ANILLO (VIROLA).
        Con 360 el texto tiene que cerrar la circunferencia del producto: el
        hueco sobrante se REPARTE entre los pares en vez de dejar un escalon
-       al final. El criterio es el de LightBurn: primero el radio del
+       al final. El criterio es el del grabado láser: primero el radio del
        producto (o el que ya derive el arco) y despues la cuenta de huecos,
        que para anillo cerrado es N (uno por letra, incluido el que cierra
        entre la ultima y la primera), no N-1. */
@@ -830,9 +830,9 @@ async function applyTextCurveRun(item, curvature, options = {}) {
            pasaba phi en radianes y cada letra giraba ~1° en lugar de los 50° que
            correspondian). En el modo "letra vertical" (candado CERRADO) no se
            gira la letra: se apoya en la linea de curvado y sigue vertical. En el
-           modo LightBurn (candado ABIERTO) se gira para quedar perpendicular al
-           radio, que es lo que hace LightBurn.
-           El modo se guarda en data.rotateLetters: true = como LightBurn. */
+           modo abierto (candado ABIERTO) se gira para quedar perpendicular al
+           radio, que es el criterio del modo abierto.
+           El modo se guarda en data.rotateLetters: true = girar al arco. */
         const girar = options.rotateLetters !== undefined
             ? !!options.rotateLetters
             : (targetItem.data?.rotateLetters !== false);
@@ -928,7 +928,7 @@ async function applyTextCurveRun(item, curvature, options = {}) {
  * piso curvo": cada glifo mantiene su eje vertical propio.
  *
  * Candado ABIERTO (por defecto): cada letra se gira para quedar PERPENDICULAR a
- * la linea del radio, que es exactamente como lo hace LightBurn.
+ * la linea del radio, que es exactamente como lo hace el modo curvado.
  *
  * En ambos casos la linea de curvado y el espaciado son los mismos; solo cambia
  * la orientacion de cada glifo.
@@ -938,7 +938,7 @@ async function applyTextCurveRun(item, curvature, options = {}) {
    inline sobre él (se oculta el grupo), y al confirmar se escribe el nuevo
    string en data.textString y se reconstruye la curvatura. El grupo nunca se
    convierte en vector: sigue siendo "texto curvado", como en Word o en
-   LightBurn. */
+   de curvado. */
 export function editGroupText(owner) {
     if (!owner || owner.data?.locked) return;
     const data = owner.data || {};
@@ -1264,9 +1264,9 @@ function circuncentro(p0, p1, p2) {
 }
 
 /* =========================================================================
-   TIRADOR DE CURVATURA — ESTILO LIGHTBURN
+   TIRADOR DE CURVATURA — ESTILO CURVADO
    ---------------------------------------------------------------------------
-   LightBurn: se selecciona un texto, aparece un punto azul, se arrastra hacia
+   Curvaterra: se selecciona un texto, aparece un punto azul, se arrastra hacia
    arriba o abajo y el texto se arquea. Doble clic en el punto y vuelve a recto.
 
    MEDIDO, lo que hacia EKKO antes:
@@ -1340,7 +1340,7 @@ export function drawBlueCurveHandle(group) {
  * no, no esta.
  *
  * Se llama en cada cambio de seleccion. Antes el punto solo aparecia sobre texto
- * ya curvado, y el gesto de LightBurn (agarrar el punto y arrastrar) no existia.
+ * ya curvado, y el gesto curvado (agarrar el punto y arrastrar) no existia.
  */
 export function syncCurveHandle() {
     /* Id obsoleto: el owner salio de escena sin pasar por aplanar (borrado,
@@ -1744,7 +1744,7 @@ export function syncBendInputs(angulo) {
     if (isBending()) mostrarPopupBend(g);
 }
 
-/** Doble clic en el tirador: el texto vuelve a recto. Es lo que hace LightBurn. */
+/** Doble clic en el tirador: el texto vuelve a recto. Estándar de curvado. */
 export function clearBend() {
     const owner = window.selectedItem;
     if (!isTextOwner(owner)) return false;
@@ -1862,7 +1862,7 @@ export function applyTextSpacing(item, hspace, opts = {}) {
            el borde izquierdo, espaciar "corria" la palabra lateralmente y con
            espaciado grande las letras terminaban en otro lado del diseNo
            (espaciar debe abrir las letras hacia AMBOS lados, como en Word,
-           Canva o LightBurn). Se mide el centro de tinta original y al final el
+           los editores de texto). Se mide el centro de tinta original y al final el
            reparto entero se corre para recalar su centro en el mismo lugar. */
         const centroOriginal = target.bounds.center.x;
 
@@ -1970,10 +1970,10 @@ function reestamparBaseEspaciadoPorEstado() {
 /* ==================== ESPACIADO SIN CONVERSION ====================
 
    El mismo control "Espaciado" tiene que responder segun lo que haya
-   seleccionado, como en LightBurn, Canva u Office: nunca convierte nada.
+   seleccionado, como en los editores comunes: nunca convierte nada.
    Tres modos:
    1) Multiples objetos seleccionados: se reparten horizontalmente con un
-      hueco uniforme en pixeles de mundo (canon de Canva: "esparcir").
+      hueco uniforme en pixeles de mundo (canon de distribucion: "esparcir").
    2) Un texto YA vectorizado: sus glifos (hijos del Grupo, o contornos
       agrupados en letras dentro de un CompoundPath) se vuelean a repartir
       sin tocar su forma. Ganancia o perdida de hueco, cero reconstruccion:
