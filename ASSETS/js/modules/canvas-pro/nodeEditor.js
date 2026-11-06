@@ -306,7 +306,7 @@ export async function enterNodeEditMode(item) {
     
     nodeEditTool.onMouseDown = (event) => {
         if (isAddNodeActive) {
-            /* El modo permanece ACTIVO hasta Esc o botón (como LightBurn):
+            /* El modo permanece ACTIVO hasta Esc o botón (estándar CAD):
                antes cualquier clic despegado lo apagaba en silencio y el
                usuario creía que la herramienta no funcionaba. */
             tryInsertNodeAt(event.point);
@@ -512,7 +512,7 @@ export async function enterNodeEditMode(item) {
             /* Pago único del costo pesado al terminar el arrastre: una sola
                sincronización de geomBase y un solo recálculo del perforado con
                la curva final. Es lo que hace que las antenas se sientan fluidas
-               como en LightBurn en vez de congelarse. */
+               en el modo continuo en vez de congelarse. */
             safeRecalculateSubtractions();
             drawNodeHandles();
         }
@@ -596,7 +596,7 @@ export async function enterNodeEditMode(item) {
         }
     };
     /* Doble clic directo sobre el contorno = agregar nodo en ese punto, sin
-       activar ningún modo (como Inkscape/Photoshop). Usa el mismo motor
+       activar ningún modo (estándar de editores vectoriales). Usa el mismo motor
        tryInsertNodeAt que el modo Añadir Nodo, así las dos vías son idénticas. */
     const handleNodeDoubleClick = (e) => {
         if (!window.nodeEditMode || !activeNodeItem) return;
@@ -862,7 +862,7 @@ function nacerAntenasSuaves(path, seg) {
    (a) modo Añadir Nodo activo + clic en el contorno (botón),
    (b) doble clic directo sobre el contorno, dentro del editor de nodos,
    (c) doble clic sobre un vector SIN editor abierto: entra al editor y agrega
-       el nodo en ese punto (Inkscape/Photoshop). La delega selection.js
+       el nodo en ese punto (estándar de editores vectoriales). La delega selection.js
        tras resolver el hit del doble clic. */
 export function tryInsertNodeAt(projectPoint) {
     if (!window.nodeEditMode || !activeNodeItem) return false;
@@ -1082,7 +1082,7 @@ export function drawNodeHandles() {
 }
 
 /**
- * Elimina los nodos seleccionados de la geometría activa (LightBurn Style).
+ * Elimina los nodos seleccionados de la geometría activa (estilo CAD).
  */
 export function deleteSelectedNodes() {
     if (!activeNodeItem || selectedNodes.size === 0) return;
@@ -1136,7 +1136,7 @@ export function makeSelectedNodesSmooth() {
                 // - Esquina sin antenas: revela ambas, pequeñas, siguiendo la curva.
                 // - Nodo con UNA sola antena (típico en trazos vectorizados):
                 //   revela SOLAMENTE la que falta, sin tocar la existente.
-                // - Nodo con las dos: no tocarlas (LightBurn: S = revelar, no igualar).
+                // - Nodo con las dos: no tocarlas (estándar: S = revelar, no igualar).
                 // La longitud ya no es el 10 fijo que quedaba excesivo en
                 // glifos escalados: nacerAntenasSuaves la calibra en unidades
                 // globales (un tercio del vecino mas cercano, tope 22).
@@ -1178,7 +1178,7 @@ export function makeSelectedNodesCorner() {
 function handleNodeKeydown(e) {
     if (e.key === 'Enter' || e.key === 'Escape') {
         e.preventDefault();
-        /* Esc primero apaga el modo Añadir Nodo (como LightBurn); sólo un
+        /* Esc primero apaga el modo Añadir Nodo (estándar CAD); sólo un
            segundo Esc sale del editor de nodos. stopPropagation evita que el
            Escape genérico de zoomYShortcuts (en window) también salga. */
         if (isAddNodeActive) {
@@ -1209,21 +1209,21 @@ function handleNodeKeydown(e) {
         return;
     }
 
-    // 2. SUAVE / SMOOTH (Tecla S - LightBurn Style) -> Genera antenas y redondea curvas
+    // 2. SUAVE / SMOOTH (Tecla S - Modo Suave) -> Genera antenas y redondea curvas
     if (key === 's') {
         e.preventDefault();
         makeSelectedNodesSmooth();
         return;
     }
 
-    // 3. ESQUINA / CORNER (Tecla C - LightBurn Style) -> Quita antenas y hace esquinas vivas
+    // 3. ESQUINA / CORNER (Tecla C - Modo Esquina) -> Quita antenas y hace esquinas vivas
     if (key === 'c') {
         e.preventDefault();
         makeSelectedNodesCorner();
         return;
     }
 
-    // 4. LÍNEA / LINE (Tecla L - LightBurn Style) -> Quita antenas y endereza el segmento con sus vecinos
+    // 4. LÍNEA / LINE (Tecla L - Modo Línea) -> Quita antenas y endereza el segmento con sus vecinos
     if (key === 'l') {
         e.preventDefault();
         if (typeof window.saveHistory === 'function') window.saveHistory();
