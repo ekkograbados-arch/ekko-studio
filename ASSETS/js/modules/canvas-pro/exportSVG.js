@@ -296,17 +296,72 @@ function realceCalidad(gris, vivo, w, h, cal) {
     }
 }
 
+/* Densidad que PIDE la foto: cuántos dpi hay que hornear para no tirarle
+   ni un píxel. Un raster coloca su imagen con una escala (a, d) que traduce
+   1 píxel en |a| puntos del proyecto; de ahí sale 72/|a| dpi. Se devuelve el
+   mínimo entre los dos ejes y el máximo entre todas las fotos: el eje flaco
+   manda porque el horneado usa UNA sola resolución para el rectángulo entero,
+   y la lista se recorre por dentro porque el cliente suele seleccionar un
+   grupo con la foto adentro. El reconocimiento es estructural (tiene size,
+   canvas o image) y no por clase: así lo puede auditar una sonda que le pasa
+   un objeto falso sin tener que fabricar un Raster de paper. */
+function densidadDeRasters(items) {
+    let mejor = 0;
+    const medir = (r) => {
+        if (!r) return;
+        const nw = (r.size && r.size.width) || (r.canvas && r.canvas.width) ||
+            (r.image && (r.image.naturalWidth || r.image.width)) || 0;
+        const nh = (r.size && r.size.height) || (r.canvas && r.canvas.height) ||
+            (r.image && (r.image.naturalHeight || r.image.height)) || 0;
+        if (nw > 0 && nh > 0) {
+            const m = (r.globalMatrix && r.globalMatrix.values) || (r.matrix && r.matrix.values);
+            if (Array.isArray(m)) {
+                const [a, b, c, d] = m.map(Number);
+                if ([a, b, c, d].every(Number.isFinite)) {
+                    // ancho/alto del rectángulo ya transformado (incluye rotación)
+                    const wPts = Math.abs(a) * nw + Math.abs(c) * nh;
+                    const hPts = Math.abs(b) * nw + Math.abs(d) * nh;
+                    if (wPts > 0 && hPts > 0) {
+                        const dpi = Math.min((72 * nw) / wPts, (72 * nh) / hPts);
+                        if (Number.isFinite(dpi) && dpi > mejor) mejor = dpi;
+                    }
+                }
+            }
+            return; // esto ES una foto: no tiene adónde más bajar
+        }
+        try { (r.children || []).forEach(medir); } catch (_) {}
+    };
+    try { (items || []).forEach(medir); } catch (_) {}
+    return mejor;
+}
+
+const LADO_4K = 3840;           // Ultra HD: tope de píxeles por lado
+const PRESUPUESTO_4K = 16000000; // techo absoluto de píxeles del horneado
+const PISO_HORNEADO_DPI = 600;   // nunca menos detalle que el ruleteado viejo
+
 /* Resolución de horneado de la contención: antes el techo de 300 dpi y
    2000 px agotaba la foto del boceto. DR_bn apunta más alto: hasta 3600 px
    de lado (600 dpi) con presupuesto absoluto de píxeles por si el producto
    es enorme. La ampliación del filtro añade píxeles ANTES: esto los
-   conserva en el bake en lugar de triturarlos. */
-function resolucionHorneado(anchoPts, altoPts) {
+   conserva en el bake en lugar de triturarlos.
+
+   Ronda 18 (calidad Ultra HD): el 600 dpi deja de ser TECHO y pasa a PISO.
+   Con el techo viejo, una foto 4K sobre una pieza de 60 mm salía a 1417 px:
+   el 63 % del ancho del cliente se descartaba en el camino a LightBurn, y el
+   cuello era la regla de los 600 dpi, no la de los 3600 px (esa solo manda
+   por encima de ~200 mm). Ahora el horneado sube hasta la densidad que pide
+   la propia foto, con dos frenos: 3840 px del lado más largo (tope Ultra HD)
+   y el presupuesto de 16 MP. Una pieza cuadrada al tope da 3840² ≈ 14,7 MP,
+   así que el presupuesto solo interviene en productos desproporcionados. */
+function resolucionHorneado(anchoPts, altoPts, rasters) {
     const maxDim = Math.max(anchoPts || 1, altoPts || 1, 1);
-    let res = Math.max(96, Math.min(600, (72 * 3600) / maxDim));
+    const techo = (72 * LADO_4K) / maxDim;
+    const piso = Math.min(techo, PISO_HORNEADO_DPI);
+    const pide = densidadDeRasters(rasters);
+    let res = Math.max(piso, Math.min(techo, pide));
     const wPx = (anchoPts / 72) * res, hPx = (altoPts / 72) * res;
-    if (wPx * hPx > 16000000) res = res * Math.sqrt(16000000 / (wPx * hPx));
-    return res;
+    if (wPx * hPx > PRESUPUESTO_4K) res = res * Math.sqrt(PRESUPUESTO_4K / (wPx * hPx));
+    return Math.max(96, res);
 }
 
 /* Transforma los rasters del diseño de una capa temporaria. El filtro es
@@ -348,8 +403,23 @@ function aplicarFiltroGrises(capa, cfgOverride) {
             const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
             if (!fuente || ancho < 1 || alto < 1) return;
             const destino = destinoCalidad(ancho, alto, cal);
-            const lienzo = ampliacionSuave(fuente, ancho, alto, destino.w, destino.h);
+            let lienzo = ampliacionSuave(fuente, ancho, alto, destino.w, destino.h);
             if (!lienzo) return;
+            // ampliacionSuave devuelve la FUENTE cuando no hay que escalar, y la
+            // fuente suele ser un <img> (no tiene getContext). Medido en la app
+            // viva: una foto 2000x3555 salía del filtro INTACTA (saturación 189,9
+            // → 189,9) mientras una 800x800 sí se convertía (189,9 → 0), porque
+            // el getContext reventaba y el try/catch del raster lo tragaba en
+            // silencio. Toda foto de celular grande se iba a LightBurn en color,
+            // sin auto-niveles ni curva de grabado. Se embute en un canvas.
+            if (typeof lienzo.getContext !== "function") {
+                const c0 = document.createElement("canvas");
+                c0.width = destino.w; c0.height = destino.h;
+                const x0 = c0.getContext("2d");
+                x0.imageSmoothingEnabled = true; x0.imageSmoothingQuality = "high";
+                try { x0.drawImage(lienzo, 0, 0, destino.w, destino.h); } catch (_) { return; }
+                lienzo = c0;
+            }
             const ctx = lienzo.getContext("2d");
             const wLienzo = lienzo.width, hLienzo = lienzo.height;
             let datos;
@@ -876,6 +946,16 @@ function rasterizarRaiz(item, res) {
     return { canvas: r.canvas, x: r.bounds.x, y: r.bounds.y };
 }
 
+/* Escala física del proyecto: milímetros por unidad de paper. Es la MISMA
+   que usa la raíz <svg width="…mm"> del grabado, así el PNG y el SVG entran a
+   LightBurn con el mismo tamaño de pieza. Sin producto cargado se cae a la
+   convención de puntos (1 pt = 25,4/72 mm), que es la que el resto de la
+   cadena asume por dentro. */
+function mmPorUnidad() {
+    const v = typeof window === "undefined" ? 0 : Number(window.mmPerPaperUnit);
+    return Number.isFinite(v) && v > 0 ? v : (25.4 / 72);
+}
+
 function renderSeleccionPNG(dpi) {
     if (typeof paper === "undefined" || !paper.project) return { ok: false, reason: "sin-paper" };
     const capa = paper.project.layers.find(l => l.name === "designLayer") || paper.project.activeLayer;
@@ -927,7 +1007,21 @@ function renderSeleccionPNG(dpi) {
     // PRESUPUESTO: nunca más de 36 MP — si el pedido excede, baja el DPI
     // efectivo y avisa (selecciones gigantes salen livianas, no reventadas).
     const AREA_MAX = 36000000;
-    let res = dpi;
+    // "ultra" = la misma regla del horneado a LightBurn: la densidad que pide
+    // la foto del cliente, con 3840 px de tope y 16 MP de presupuesto. Como su
+    // piso es 600 dpi, ultra nunca entrega menos que la ficha vieja de 600.
+    //
+    // PUENTE DE ESCALA: por dentro toda la cadena cuenta unidades de proyecto
+    // como si fueran puntos (÷72), pero el producto real mide
+    // window.mmPerPaperUnit por unidad (medido en la app: 0,60094 mm — o sea
+    // 1,703 veces más grande que un punto). El número que el cliente elige
+    // ("300 DPI") y el que LightBurn muestra tienen que ser DPI FÍSICOS sobre
+    // ese milímetro; sin este puente un pedido de 600 dpi grababa a 352 reales.
+    const mmU = mmPorUnidad();
+    const ultra = dpi === "ultra";
+    let res = ultra ? Math.round(resolucionHorneado(caja.width, caja.height, piezas))
+                    : Math.max(1, Math.round(dpi * 72 * mmU / 25.4));
+    const resPlenito = res;
     const areaPx = caja.width * caja.height * (res / 72) * (res / 72);
     if (areaPx > AREA_MAX) res = Math.max(96, Math.floor(Math.sqrt(AREA_MAX / (caja.width * caja.height)) * 72));
     const k = res / 72;
@@ -938,7 +1032,7 @@ function renderSeleccionPNG(dpi) {
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
     const occl = document.createElement("canvas"); occl.width = W; occl.height = H;
     const occ = occl.getContext("2d");
-    let recortado = res !== dpi;
+    let recortado = res !== resPlenito;
     // TOP → ABAJO: cada pieza pierde los píxeles que ya cubrieron las de
     // arriba (recorte físico por apilado) y entra al PNG tal cual entra al
     // grabado: nunca se re-grababa la parte de abajo de una superposición.
@@ -980,8 +1074,12 @@ function renderSeleccionPNG(dpi) {
             }
         }
     } catch (_) {}
-    if (recortado) notice(`La selección es grande: se bajó a ${Math.round(res)} DPI para que el archivo no explote.`, { kind: "warn" });
-    return { ok: true, canvas: out, dpi: Math.round(res), dpiPedido: dpi, recortado };
+    // El DPI que se comunica y se estampa es el FÍSICO: los píxeles entregados
+    // sobre el milímetro real del producto. Así el número que el cliente ve en
+    // LightBurn coincide con el que eligió en la ficha.
+    const dpiFisico = Math.max(1, Math.round(res * 25.4 / (72 * mmU)));
+    if (recortado) notice(`La selección es grande: se bajó a ${dpiFisico} DPI para que el archivo no explote.`, { kind: "warn" });
+    return { ok: true, canvas: out, dpi: dpiFisico, dpiPedido: dpi, recortado };
 }
 
 /* PNG con densidad metida como chunk pHYs (byte exacto tras IHDR): igual
@@ -1040,12 +1138,23 @@ async function exportarSeleccionPNG(dpi) {
 
 /* COPIAR selección al portapapeles del sistema: pega directo en LightBurn. */
 async function copiarSeleccionPNG(dpi) {
-    const r = renderSeleccionPNG(dpi || 600);
+    const r = renderSeleccionPNG(dpi || "ultra");
     if (!r.ok) { notice("No hay selección para copiar.", { kind: "warn" }); return r; }
     const blob = await new Promise(resolve => r.canvas.toBlob(resolve, "image/png"));
     if (!blob) return { ok: false, reason: "png-fallido" };
+    // Chrome NO escribe pHys en canvas.toBlob (medido: el PNG sale con solo
+    // IHDR/IDAT/IEND). Sin ese chunk LightBurn no sabe cuántos milímetros mide
+    // la foto y la pega adivinando: con la regla vieja de 600 dpi el tamaño
+    // coincidía por casualidad porque los píxeles también estaban recortados;
+    // con Ultra la misma ficha daría una pieza 1,7 veces más grande. La
+    // descarga ya estampaba la densidad: el portapapeles hace lo mismo.
+    let paraPegar = blob;
     try {
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        const finales = pngConDensidadModoSel(new Uint8Array(await blob.arrayBuffer()), r.dpi);
+        paraPegar = new Blob([finales], { type: "image/png" });
+    } catch (_) {}
+    try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": paraPegar })]);
         notice("Selección copiada al portapapeles (" + r.dpi + " DPI): pegá directo en LightBurn.", { kind: "ok" });
         return { ok: true, dpi: r.dpi };
     } catch (e) {
@@ -1054,8 +1163,13 @@ async function copiarSeleccionPNG(dpi) {
     }
 }
 
-/* El selector chico (sin ventana gigante): dos fichas 300/600 + visible el
-   atajo para que el cliente lo aprenda. */
+/* El selector chico (sin ventana gigante): dos fichas — liviano 300 DPI y
+   ULTRA HD, que conserva todos los píxeles de la foto (tope 3840 px). La
+   ficha pesada era "600 DPI": sobre una pieza de 60 mm ese número tiraba el
+   63 % del ancho de una foto 4K, porque el 600 dpi funcionaba como TECHO.
+   Ahora 600 dpi es el PISO y el techo es Ultra HD, así que el botón viejo
+   solo podía dar menos calidad; se lo reemplaza en lugar de sumar una tercera
+   ficha (menos controles, no más). */
 function ekkoExportarSeleccionUI() {
     if (typeof document === "undefined") return { ok: false, reason: "sin-dom" };
     const previo = document.getElementById("ekkoExportarSelOverlay");
@@ -1070,9 +1184,9 @@ function ekkoExportarSeleccionUI() {
         '<div style="font-size:12px;color:#64748b;margin-top:6px;">Sale con el <b>modo activo</b> (Color o Láser), con el recorte por apilamiento (lo de arriba tapa a lo de abajo) y con los huecos del producto respetados. El mockup no va.</div>' +
         '<div style="display:flex;gap:10px;justify-content:center;margin-top:14px;">' +
           '<button id="ekkoSelExp300" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">⚡ 300 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">liviano (recomendado)</span></button>' +
-          '<button id="ekkoSelExp600" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">🎯 600 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">pesado (más calidad)</span></button>' +
+          '<button id="ekkoSelExpUltra" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">🏄 ULTRA HD<br><span style="font-weight:normal;font-size:11px;color:#64748b;">4K: conserva todos los píxeles</span></button>' +
         '</div>' +
-        '<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">💡 <b>Ctrl+Shift+C</b> copia la selección al portapapeles (600 DPI) — pegás directo en LightBurn sin pasar por archivo.</div>' +
+        '<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">💡 <b>Ctrl+Shift+C</b> copia la selección al portapapeles (Ultra HD) — pegás directo en LightBurn sin pasar por archivo.</div>' +
         '<button id="ekkoSelExpCancelar" style="margin-top:12px;border:none;background:transparent;color:#94a3b8;cursor:pointer;font-size:12px;">Cancelar</button>';
     overlay.appendChild(caja);
     document.body.appendChild(overlay);
@@ -1080,7 +1194,7 @@ function ekkoExportarSeleccionUI() {
     overlay.addEventListener("click", (ev) => { if (ev.target === overlay) cerrar(); });
     document.getElementById("ekkoSelExpCancelar").addEventListener("click", cerrar);
     document.getElementById("ekkoSelExp300").addEventListener("click", async () => { cerrar(); await exportarSeleccionPNG(300); });
-    document.getElementById("ekkoSelExp600").addEventListener("click", async () => { cerrar(); await exportarSeleccionPNG(600); });
+    document.getElementById("ekkoSelExpUltra").addEventListener("click", async () => { cerrar(); await exportarSeleccionPNG("ultra"); });
     return { ok: true };
 }
 /* Máscara de silueta a canvas (blanco = visible, transparente = fuera del
@@ -1474,7 +1588,7 @@ export async function prepareSVGForExport(options = {}) {
                         const clonSil = hornearWorld(silDestino);
                         const marcoB = clonSil && clonSil.bounds;
                         if (!marcoB || !(marcoB.width > 0) || !(marcoB.height > 0)) throw new Error("marco vacio");
-                        const res = resolucionHorneado(marcoB.width, marcoB.height);
+                        const res = resolucionHorneado(marcoB.width, marcoB.height, rasters);
                         const k = res / 72; // píxeles por unidad de proyecto
                         const W = Math.max(1, Math.ceil(marcoB.width * k));
                         const H = Math.max(1, Math.ceil(marcoB.height * k));
@@ -1772,7 +1886,8 @@ export async function prepareSVGForExport(options = {}) {
             const clonSil = hornearWorld(siluetaSketch);
             const marcoB = clonSil && clonSil.bounds;
             if (!marcoB || !(marcoB.width > 0) || !(marcoB.height > 0)) throw new Error("silueta vacia");
-            const res = resolucionHorneado(marcoB.width, marcoB.height);
+            const rastersB4 = tempLayer.getItems({ match: it => it instanceof paper.Raster && it.data?.mockup !== true });
+            const res = resolucionHorneado(marcoB.width, marcoB.height, rastersB4);
             const k = res / 72;
             const W = Math.max(1, Math.ceil(marcoB.width * k));
             const H = Math.max(1, Math.ceil(marcoB.height * k));
@@ -2509,6 +2624,10 @@ if (typeof window !== "undefined") {
     window.ekkoExportarSeleccionPNG = exportarSeleccionPNG;
     window.ekkoCopiarSeleccionPNG = copiarSeleccionPNG;
     // Diagnóstico interno (no se usa en UI; sirve para auditar el modo).
-    window.__ekkoModoDebug = { aplicarVestuario, vestidoLaser, rasterModoIgnorable };
+    // `resolucionHorneado` y `destinoCalidad` se agregan acá por la misma
+    // razon: son los DOS numeros que deciden cuantos pixeles reales llegan a
+    // LightBurn, y sin exponerlos la auditoria de calidad tiene que ser una
+    // opinion. No tocan nada: son funciones puras.
+    window.__ekkoModoDebug = { aplicarVestuario, vestidoLaser, rasterModoIgnorable, resolucionHorneado, destinoCalidad };
     sincronizarBotonModo();
 }
