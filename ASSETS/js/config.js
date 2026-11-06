@@ -30,7 +30,7 @@ window.EKKO_CONFIG = {
     // Parámetros de Seguridad, Exportación y Llave de Taller
     seguridad: {
         watermarkText: "PROPUESTA DE DISEÑO - GRABADOS EKKO",
-        watermarkColor: "rgba(128, 128, 128, 0.15)", // Marca de agua ultra fina para LightBurn
+        watermarkColor: "rgba(128, 128, 128, 0.15)", // Marca de agua ultra fina para el grabado
         adminKey: "ekko2026", // Tu clave administrativa local
         rasterDPI: 300 // DPI para la imagen rasterizada unificada del grabado seguro
     }
