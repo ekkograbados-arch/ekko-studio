@@ -2,7 +2,7 @@
  * EKKO Studio — real vector outline geometry.
  *
  * A stroke is useful for a UI preview, but it is not a reliable fabrication
- * primitive: LightBurn, a CNC and a later operator correction need a closed
+ * primitive: the laser cutter, a CNC and a later operator correction need a closed
  * region (or a real cut line), not a display-only stroke.  This module turns
  * a closed Paper.js contour into a real ring and supports the same three
  * placements offered by common design tools: centered, inside and outside.
@@ -64,7 +64,7 @@ function dedupeClosed(points, tolerance = 1e-5) {
  *  segmentos casi paralelos genera una interseccion de chaflan fuera de
  *  lugar y la booleana devuelve cientos de esquirlas (medido: 164 subcaminos
  *  y 161 esquirlas a grosor 24, 375 ms). Simplificar ANTES de offsetear es
- *  lo que hace LightBurn: la tolerancia es una fraccion de la pieza (0,25%),
+ *  lo que aprueba el taller: la tolerancia es una fraccion de la pieza (0,25%),
  *  invisible al ojo y muy por debajo de lo que el laser resuelve. Medido con
  *  la misma pieza: 5 subcaminos y 5 ms. */
 function simplifyClosed(points, tolerance) {
@@ -370,13 +370,13 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
         ? String(side).toLowerCase() : "center";
     // RADIO: separación del contorno respecto del borde original. 0 deja la
     // línea justo sobre el borde; positivo la corre hacia afuera, negativo la
-    // acerca hacia adentro. Equivale a "Offset Distance" de LightBurn y a
-    // "Expandir/Contraer" de Photoshop. Se aplica ANTES de engrosar: primero
+    // acerca hacia adentro. Equivale a "Offset Distance" del contorno y a
+    // "Expandir/Contraer" de los editores vectoriales. Se aplica ANTES de engrosar: primero
     // se decide dónde va la línea, después qué tan gruesa es.
     const offset = Number(radius) || 0;
     // SUAVIDAD: cuanto mayor, menos puntos. Un contorno de pelo o de bigote
     // trae cientos de nodos que no aportan nada al grabado. Equivale a
-    // "Optimize/Simplify results" de LightBurn y a "Suavizar" de Photoshop.
+    // "Optimize/Simplify results" del CAD y a "Suavizar" de los editores vectoriales.
     const smooth = Math.max(0, Number(smoothing) || 0);
 
     const cleanup = new Set();
@@ -411,7 +411,7 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
         } catch (_) {}
 
         const records = [];
-        // CRITERIO PHOTOSHOP para el grosor, medido y aprobado: con Posicion
+        // CRITERIO DEL TALLER para el grosor, medido y aprobado: con Posicion
         // Centro la banda ocupa el GROSOR completo (grosor/2 a cada lado del
         // borde), igual que Exterior/Interior aplican el grosor hacia su lado.
         // Antes Centro duplicaba: offsets a +-grosor producian una banda del
@@ -763,19 +763,19 @@ export function refreshOwnerOutline(ownerLike, options = {}) {
    PREVIEW FLUIDO (fase C). Durante el arrastre de un control del panel
    no se puede pagar el stitcher + booleanas en cada tick: el preview
    pinta la linea central de la banda como trazo magenta (la misma
-   convencion "Magenta de LightBurn" del calco de imageTracer) y la
+   convencion del Magenta de trazado (calco de imageTracer) y la
    geometria real la entrega buildOutlineGeometry al soltar.
 
    Misma algebra que el motor, en el mismo orden: primero el Radio corre
    la linea, despues el Lado decide donde cae el centro del trazo y el
    Grosor es el ancho del trazo. Con Centro el trazo va sobre el borde
    corrido y cubre +-grosor/2, que es EXACTAMENTE la banda real del
-   criterio Photoshop. Con Exterior/Interior el trazo corre +-grosor/2
+   criterio aprobado por el taller. Con Exterior/Interior el trazo corre +-grosor/2
    hacia su lado, tambien exacto. Lo unico que el preview no reproduce
    es el recorte contra la pieza (esas son las booleanas caras).
    ------------------------------------------------------------------ */
 
-const PREVIEW_COLOR = "#ff00ff"; // Magenta de LightBurn, como el calco.
+const PREVIEW_COLOR = "#ff00ff"; // Magenta de trazado, como el calco.
 
 function modoDeSide(side) {
     const modo = String(side || "").toLowerCase();
