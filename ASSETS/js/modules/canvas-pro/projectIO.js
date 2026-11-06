@@ -1,11 +1,11 @@
 /* =========================================================================
    EKKO STUDIO — PROJECT IO
    Tres modos de salida sobre el mismo contrato semántico:
-   1. GRABADO (SVG LightBurn): geometría final materializada, sin doble
+   1. GRABADO (SVG de corte láser): geometría final materializada, sin doble
       grabado por superposiciones. Solo él sale de prepareSVGForExport.
    2. PROYECTO (.ekko): escenas Paper.js por vista + metadatos de
       producto, con FIRMA EKKO (cabecera + cuerpo codificado): solo EKKO
-      Studio lo abre — Photoshop u otra plataforma no reconocen el
+      Studio lo abre — ninguna otra plataforma reconoce el
       formato y no pueden convertirlo en fuente editable. Re-importable
       y totalmente re-editable (textos vivos, fusiones, semántica).
       Nunca lleva marca de agua. El legado .ekko.json sin firma sigue
@@ -152,9 +152,9 @@ export async function exportViewsToSVG(surfaceNames = null, options = {}) {
     // silencio — el cliente tiene que saber QUÉ se bajó y PARA QUÉ sirve.
     const okList = results.filter(r => r.ok);
     if (okList.length === 1) {
-        notice(`Descargado: ${okList[0].filename} — abrilo en LightBurn y grabá.`, { kind: "ok", ms: 6000 });
+        notice(`Descargado: ${okList[0].filename} — abrilo en tu grabadora y grabá.`, { kind: "ok", ms: 6000 });
     } else if (okList.length > 1) {
-        notice(`Descargadas ${okList.length} vistas de ${describe.productName}: un archivo por vista, listos para LightBurn.`, { kind: "ok", ms: 6000 });
+        notice(`Descargadas ${okList.length} vistas de ${describe.productName}: un archivo por vista, listos para grabar.`, { kind: "ok", ms: 6000 });
     } else if (results.some(r => r.reason === "export-empty")) {
         notice("El diseño está vacío: agregá algo al lienzo antes de descargar.", { kind: "warn" });
     } else {
@@ -682,7 +682,7 @@ async function construirSVGLote(surfaceNames = null) {
         await new Promise(resolve => setTimeout(resolve, 60));
         let svg = "";
         try {
-            // El lote es para GRABAR DIRECTO en LightBurn (formato 1 del dueño):
+            // El lote es para GRABAR DIRECTO en la grabadora (formato 1 del dueño):
             // aplanado por apilado (lo de abajo no se graba debajo de lo de
             // arriba) + capa de corte roja con el contorno del producto. Una
             // vista cuyo export sale vacío es una vista sin edición real: se salta.
@@ -744,7 +744,7 @@ export async function enviarAGrabarEkkoGrabados(surfaceNames = null) {
     }
     // FORMATO 2: el proyecto .ekko editable viaja SIEMPRE junto al SVG. Así
     // el dueño (o el colega) corrige el diseño en EKKO Studio antes de
-    // reexportar a LightBurn, sin volver a pedirle nada al cliente.
+    // reexportar desde EKKO Studio, sin volver a pedirle nada al cliente.
     const proyecto = downloadProjectFile();
     const filename = `ekko-grabado-${slugify(lote.producto)}-COMPLETO-${stamp()}.svg`;
     downloadBlob(new Blob([lote.lote], { type: "image/svg+xml;charset=utf-8" }), filename);
