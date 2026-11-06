@@ -4,7 +4,7 @@ Ruta en repositorio: ASSETS/js/modules/canvas-pro/exportSVG.js
 
 Descripción:
 Procesador y exportador de SVG optimizado para corte y grabado láser
-en LightBurn, CNC y maquinaria industrial.
+en CNC y maquinaria industrial.
 
 Cumple rigurosamente con:
 - CONCEPTO FUNDAMENTAL: DESCOMPOSICIÓN POR JERARQUÍA DE CONTENCIÓN
@@ -22,7 +22,7 @@ FASE DE OPERACIÓN:
 5. Materialización booleana CSG física de calados activos sobre masas sólidas inferiores.
 6. Purgado total de entidades de calado interactivo (isHole) para anular dobles cortes en láser.
 7. Sanitización de reglas de relleno (fillRule = "evenodd") y eliminación de trazados degenerados.
-8. Asignación de estilos visibles (fill/stroke) para reconocimiento de capas en LightBurn.
+8. Asignación de estilos visibles (fill/stroke) para reconocimiento de capas en la grabadora.
 9. Inyección de unidades físicas métricas reales (mm) y precisión micrométrica (5 decimales).
 ========================================================================= */
 
@@ -98,7 +98,7 @@ async function vectorizeTextItem(textItem) {
 
 /* ---------------------- FILTRO DE ESCALA DE GRISES (JSON) ----------------
    Referencia de tono: DR_bn (el filtro que el taller aplica a mano para que
-   TODA foto grave bien en LightBurn sin tocar parámetros). Cada raster del
+   TODA foto grave bien en la grabadora sin tocar parámetros). Cada raster del
    DISEÑO —nunca del mockup— pasa por cuatro pasos en cada exportación:
 
    1. CALIDAD (la lección entre DR_color y DR_bn: MISMA foto, el bn tiene
@@ -347,7 +347,7 @@ const PISO_HORNEADO_DPI = 600;   // nunca menos detalle que el ruleteado viejo
 
    Ronda 18 (calidad Ultra HD): el 600 dpi deja de ser TECHO y pasa a PISO.
    Con el techo viejo, una foto 4K sobre una pieza de 60 mm salía a 1417 px:
-   el 63 % del ancho del cliente se descartaba en el camino a LightBurn, y el
+   el 63 % del ancho del cliente se descartaba en el camino al grabado, y el
    cuello era la regla de los 600 dpi, no la de los 3600 px (esa solo manda
    por encima de ~200 mm). Ahora el horneado sube hasta la densidad que pide
    la propia foto, con dos frenos: 3840 px del lado más largo (tope Ultra HD)
@@ -410,7 +410,7 @@ function aplicarFiltroGrises(capa, cfgOverride) {
             // viva: una foto 2000x3555 salía del filtro INTACTA (saturación 189,9
             // → 189,9) mientras una 800x800 sí se convertía (189,9 → 0), porque
             // el getContext reventaba y el try/catch del raster lo tragaba en
-            // silencio. Toda foto de celular grande se iba a LightBurn en color,
+            // silencio. Toda foto de celular grande se iba al grabado en color,
             // sin auto-niveles ni curva de grabado. Se embute en un canvas.
             if (typeof lienzo.getContext !== "function") {
                 const c0 = document.createElement("canvas");
@@ -948,7 +948,7 @@ function rasterizarRaiz(item, res) {
 
 /* Escala física del proyecto: milímetros por unidad de paper. Es la MISMA
    que usa la raíz <svg width="…mm"> del grabado, así el PNG y el SVG entran a
-   LightBurn con el mismo tamaño de pieza. Sin producto cargado se cae a la
+   El programa de grabado con el mismo tamaño de pieza. Sin producto cargado se cae a la
    convención de puntos (1 pt = 25,4/72 mm), que es la que el resto de la
    cadena asume por dentro. */
 function mmPorUnidad() {
@@ -1007,7 +1007,7 @@ function renderSeleccionPNG(dpi) {
     // PRESUPUESTO: nunca más de 36 MP — si el pedido excede, baja el DPI
     // efectivo y avisa (selecciones gigantes salen livianas, no reventadas).
     const AREA_MAX = 36000000;
-    // "ultra" = la misma regla del horneado a LightBurn: la densidad que pide
+    // "ultra" = la misma regla del horneado al grabado: la densidad que pide
     // la foto del cliente, con 3840 px de tope y 16 MP de presupuesto. Como su
     // piso es 600 dpi, ultra nunca entrega menos que la ficha vieja de 600.
     //
@@ -1015,7 +1015,7 @@ function renderSeleccionPNG(dpi) {
     // como si fueran puntos (÷72), pero el producto real mide
     // window.mmPerPaperUnit por unidad (medido en la app: 0,60094 mm — o sea
     // 1,703 veces más grande que un punto). El número que el cliente elige
-    // ("300 DPI") y el que LightBurn muestra tienen que ser DPI FÍSICOS sobre
+    // ("300 DPI") y el que muestra el programa de grabado tienen que ser DPI FÍSICOS sobre
     // ese milímetro; sin este puente un pedido de 600 dpi grababa a 352 reales.
     const mmU = mmPorUnidad();
     const ultra = dpi === "ultra";
@@ -1076,7 +1076,7 @@ function renderSeleccionPNG(dpi) {
     } catch (_) {}
     // El DPI que se comunica y se estampa es el FÍSICO: los píxeles entregados
     // sobre el milímetro real del producto. Así el número que el cliente ve en
-    // LightBurn coincide con el que eligió en la ficha.
+    // el programa de grabado coincide con el que eligió en la ficha.
     const dpiFisico = Math.max(1, Math.round(res * 25.4 / (72 * mmU)));
     if (recortado) notice(`La selección es grande: se bajó a ${dpiFisico} DPI para que el archivo no explote.`, { kind: "warn" });
     return { ok: true, canvas: out, dpi: dpiFisico, dpiPedido: dpi, recortado };
@@ -1136,14 +1136,14 @@ async function exportarSeleccionPNG(dpi) {
     return { ok: true, nombre, dpi: r.dpi };
 }
 
-/* COPIAR selección al portapapeles del sistema: pega directo en LightBurn. */
+/* COPIAR selección al portapapeles del sistema: pega directo en el software de grabado. */
 async function copiarSeleccionPNG(dpi) {
     const r = renderSeleccionPNG(dpi || "ultra");
     if (!r.ok) { notice("No hay selección para copiar.", { kind: "warn" }); return r; }
     const blob = await new Promise(resolve => r.canvas.toBlob(resolve, "image/png"));
     if (!blob) return { ok: false, reason: "png-fallido" };
     // Chrome NO escribe pHys en canvas.toBlob (medido: el PNG sale con solo
-    // IHDR/IDAT/IEND). Sin ese chunk LightBurn no sabe cuántos milímetros mide
+    // IHDR/IDAT/IEND). Sin ese chunk el programa de grabado no sabe cuántos milímetros mide
     // la foto y la pega adivinando: con la regla vieja de 600 dpi el tamaño
     // coincidía por casualidad porque los píxeles también estaban recortados;
     // con Ultra la misma ficha daría una pieza 1,7 veces más grande. La
@@ -1155,7 +1155,7 @@ async function copiarSeleccionPNG(dpi) {
     } catch (_) {}
     try {
         await navigator.clipboard.write([new ClipboardItem({ "image/png": paraPegar })]);
-        notice("Selección copiada al portapapeles (" + r.dpi + " DPI): pegá directo en LightBurn.", { kind: "ok" });
+        notice("Selección copiada al portapapeles (" + r.dpi + " DPI): pegá directo en tu software de corte o grabado.", { kind: "ok" });
         return { ok: true, dpi: r.dpi };
     } catch (e) {
         notice("El navegador no dejó copiar al portapapeles. Usá el botón Exportar Selección.", { kind: "warn" });
@@ -1186,7 +1186,7 @@ function ekkoExportarSeleccionUI() {
           '<button id="ekkoSelExp300" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">⚡ 300 DPI<br><span style="font-weight:normal;font-size:11px;color:#64748b;">liviano (recomendado)</span></button>' +
           '<button id="ekkoSelExpUltra" style="flex:1;padding:12px 8px;border:2px solid #d7dee8;border-radius:10px;background:#f8fafc;cursor:pointer;font-weight:bold;color:#334155;font-size:13px;">🏄 ULTRA HD<br><span style="font-weight:normal;font-size:11px;color:#64748b;">4K: conserva todos los píxeles</span></button>' +
         '</div>' +
-        '<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">💡 <b>Ctrl+Shift+C</b> copia la selección al portapapeles (Ultra HD) — pegás directo en LightBurn sin pasar por archivo.</div>' +
+        '<div style="margin-top:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e;">💡 <b>Ctrl+Shift+C</b> copia la selección al portapapeles (Ultra HD) — pegás directo en tu software de grabado sin pasar por archivo.</div>' +
         '<button id="ekkoSelExpCancelar" style="margin-top:12px;border:none;background:transparent;color:#94a3b8;cursor:pointer;font-size:12px;">Cancelar</button>';
     overlay.appendChild(caja);
     document.body.appendChild(overlay);
@@ -1255,7 +1255,7 @@ function construirMascaraSilueta(clonSil, marcoB, k, res) {
 /**
  * Prepara y exporta el diseño vectorial activo a un formato SVG estricto para corte/grabado láser.
  * Garantiza vacíos geométricos reales (sustracciones booleanas materializadas) y la purga
- * completa de controladores interactivos para evitar quemados dobles en LightBurn.
+ * completa de controladores interactivos para evitar quemados dobles en la grabadora.
  *
  * @param {Object} [options] Opciones de exportación
  * @param {number} [options.precision=5] Precisión decimal para coordenadas vectoriales
@@ -1295,7 +1295,7 @@ export async function prepareSVGForExport(options = {}) {
 
     // MARCO DE EXPORTACION: EL PRODUCTO, no el contenido. El SVG de grabado y
     // el boceto tienen que conservar la posicion del diseño DENTRO del
-    // producto: asi LightBurn lo recibe 1:1 en su lugar y el boceto muestra el
+    // producto: asi la grabadora lo recibe 1:1 en su lugar y el boceto muestra el
     // producto completo. Antes se exportaba con bounds:"content" y un texto
     // solo salia como un archivo de 3 mm sin referencia alguna.
     // Se capturan los limites del mockup ANTES del purgado, exista o no la
@@ -1352,8 +1352,8 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // CAPA DE CORTE PARA LIGHTBURN (options.includeCutLayer): contorno del
-    // producto y de cada perforación, trazo ROJO sin relleno. LightBurn lee
+    // CAPA DE CORTE PARA LA GRABADORA (options.includeCutLayer): contorno del
+    // producto y de cada perforación, trazo ROJO sin relleno. El software de grabado lee
     // cada color como capa: rojo = corte del producto, negro = grabado. Se
     // captura ANTES de la purga (después el mockup ya no existe).
     let capaCorte = null;
@@ -2248,7 +2248,7 @@ export async function prepareSVGForExport(options = {}) {
 
     // 6. PURGADO DE CALADOS ACTIVOS (isHole)
     // Dado que el corte booleano ya fue materializado en la geometría de las masas sólidas inferiores,
-    // se eliminan todas las entidades de calado interactivo para no generar líneas de corte duplicadas en LightBurn
+    // se eliminan todas las entidades de calado interactivo para no generar líneas de corte duplicadas en el grabado
     // CRÍTICO (bug counters de letras): un HIJO de un CompoundPath es un contorno
     // interno (el hueco real de una letra R, A, O...), NO un calado interactivo.
     // La vectorización de texto marca esos hijos con isHole:true y la purga los
@@ -2272,7 +2272,7 @@ export async function prepareSVGForExport(options = {}) {
 
     // 7. SANITIZACIÓN VECTORIAL Y ASIGNACIÓN DE ESTILOS PARA CORTE/GRABADO LÁSER
     // - Asigna fillRule "evenodd" en todos los CompoundPaths para renderizado de huecos estándar
-    // - Asegura colores visibles (negro para grabado / trazo fino) evitando paths invisibles ignorados por LightBurn
+    // - Asegura colores visibles (negro para grabado / trazo fino) evitando paths invisibles ignorados por la grabadora
     // - Descarta geometrías vacías o degeneradas (sin área ni segmentos)
     const emptyItems = [];
     tempLayer.getItems({
@@ -2346,7 +2346,7 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // 7c. APLANADO POR APILADO PARA LIGHTBURN (options.stackFlatten):
+    // 7c. APLANADO POR APILADO PARA EL GRABADO (options.stackFlatten):
     // regla del dueño — se graba lo que SE VE. Cada pieza resta todo lo que
     // está POR ENCIMA de ella (knock-out), así las capas de abajo no quedan
     // grabadas debajo de las de arriba; y todo se contiene con la silueta del
@@ -2412,7 +2412,7 @@ export async function prepareSVGForExport(options = {}) {
         try { if (siluetaSketch) siluetaSketch.remove(); } catch (_) {}
     }
 
-    // 7d. CAPA DE CORTE (roja) al tope del apilado: LightBurn la lee como
+    // 7d. CAPA DE CORTE (roja) al tope del apilado: el software de grabado la lee como
     // capa de corte separada del grabado negro.
     if (capaCorte) {
         try {
@@ -2423,11 +2423,11 @@ export async function prepareSVGForExport(options = {}) {
         }
     }
 
-    // 7e. CAPAS LIGHTBURN (regla del dueño: solo modo grabado/stackFlatten):
+    // 7e. CAPAS DE GRABADO (regla del dueño: solo modo grabado/stackFlatten):
     // los vectores del cliente van a capa AZUL (#0000ff, engraving y
     // perfectamente visible sobre el lienzo oscuro), el mockup de
     // referencia (si se incluye) y la capa de corte van a ROJO, y las
-    // imágenes quedan en capa NEGRA (la capa 00 de LightBurn).
+    // imágenes quedan en capa NEGRA (la capa 00 de grabado).
     // El boceto (keepMockupImage) NO se toca: el cliente ve su diseño.
     if (options.stackFlatten === true) {
         try {
@@ -2490,7 +2490,7 @@ export async function prepareSVGForExport(options = {}) {
     // 8e. PREFIJO DE HREF NORMALIZADO A XLINK: Paper serializa los href de
     // las imágenes como `ns1:href` (prefijo arbitrario) y declara
     // `xmlns:ns1="http://www.w3.org/1999/xlink"` sobre el propio <image>.
-    // LightBurn busca `xlink:href` literal y no reconoce el prefijo `ns1`,
+    // El software de grabado busca `xlink:href` literal y no reconoce el prefijo `ns1`,
     // por lo que las imágenes quedan invisibles (se ve sólo el vector).
     // Se reescribe el prefijo y se declara xmlns:xlink en la raíz
     // (más abajo, sección 9).
@@ -2499,7 +2499,7 @@ export async function prepareSVGForExport(options = {}) {
         svgString = svgString.replace(/\s+xmlns:[a-zA-Z_][\w.-]*\s*=\s*"http:\/\/www\.w3\.org\/1999\/xlink"/g, "");
     }
 
-    // 8c. IMÁGENES SIN ESCALA HEREDADA: LightBurn no siempre resuelve un
+    // 8c. IMÁGENES SIN ESCALA HEREDADA: el software de grabado no siempre resuelve un
     // <image width="2000" transform="scale(0.025)"> igual que el navegador:
     // el tamaño físico correcto vive en width/height, y si la transformación
     // es una ESCALA UNIFORME se hornea en el elemento (x·s, y·s, w·s, h·s) y
@@ -2534,7 +2534,7 @@ export async function prepareSVGForExport(options = {}) {
     }
 
     // 8d. IMÁGENES EN CAPA AMARILLA (regla del dueño: solo modo grabado).
-    // LightBurn asigna la capa por color; un raster no tiene color, así
+    // El software de grabado asigna la capa por color; un raster no tiene color, así
     // que se envuelve en un <g stroke="#ffd700"> — el color del grupo manda,
     // igual que con el texto/vectores. Las imágenes pasan a la capa amarilla
     // y el cliente las ve (sobre el lienzo oscuro desaparecían).
@@ -2545,7 +2545,7 @@ export async function prepareSVGForExport(options = {}) {
         });
     }
 
-    // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en LightBurn)
+    // 9. RAÍZ SVG CON DIMENSIONES FÍSICAS EN MILÍMETROS (Escala 1:1 en la grabadora)
     // Paper exporta la capa como fragmento <g> sin raíz <svg>; el antiguo
     // reemplazo por regex nunca encontraba <svg> y las dimensiones se perdían.
     // Se construye la raíz explícitamente: width/height en mm y viewBox en
@@ -2568,7 +2568,7 @@ export async function prepareSVGForExport(options = {}) {
     tempLayer.remove();
 
     if (window.EKKO_DEBUG) {
-        console.log("[EKKO EXPORT SUCCESS] El diseño vectorial ha sido industrializado exitosamente para LightBurn.");
+        console.log("[EKKO EXPORT SUCCESS] El diseño vectorial ha sido industrializado exitosamente para el grabado.");
     }
 
     if (typeof DOMParser !== "undefined") {
@@ -2590,7 +2590,13 @@ export async function prepareSVGForExport(options = {}) {
 export async function downloadExportedSVG(filename = "diseno-ekko.svg") {
     const svgContent = await prepareSVGForExport({ asString: true });
     if (!svgContent || svgContent.trim() === "") {
-        notice("No hay elementos válidos para exportar en el lienzo.", { kind: "warn" });
+        const report = (typeof window !== "undefined" && window.EKKO_EXPORT_LAST_REPORT) || null;
+        const pendientes = report && Number.isFinite(report.unresolvedHoles) ? Number(report.unresolvedHoles) : 0;
+        if (report && report.exportReady === false && pendientes > 0) {
+            notice("El SVG no se generó: hay " + pendientes + (pendientes === 1 ? " calado" : " calados") + " sin un sólido debajo. Calá solo formas que estén sobre una placa/masa sólida, o restaurá el sólido con Rellenar.", { kind: "warn" });
+        } else {
+            notice("No hay elementos válidos para exportar en el lienzo.", { kind: "warn" });
+        }
         return;
     }
 
@@ -2626,7 +2632,7 @@ if (typeof window !== "undefined") {
     // Diagnóstico interno (no se usa en UI; sirve para auditar el modo).
     // `resolucionHorneado` y `destinoCalidad` se agregan acá por la misma
     // razon: son los DOS numeros que deciden cuantos pixeles reales llegan a
-    // LightBurn, y sin exponerlos la auditoria de calidad tiene que ser una
+    // el grabado, y sin exponerlos la auditoria de calidad tiene que ser una
     // opinion. No tocan nada: son funciones puras.
     window.__ekkoModoDebug = { aplicarVestuario, vestidoLaser, rasterModoIgnorable, resolucionHorneado, destinoCalidad };
     sincronizarBotonModo();
