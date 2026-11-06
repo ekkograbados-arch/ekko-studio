@@ -449,7 +449,7 @@ function cortarPedazo(camino, owner, desde, hasta) {
     const total = camino.length;
     if (camino.closed) {
         /* En un cerrado, sacarle un arco deja EL RESTO abierto: es exactamente
-           la tijera de LightBurn sobre un rectángulo o una silueta. */
+           la tijera de corte sobre un rectángulo o una silueta. */
         const resto = segmentosDelArco(camino, hasta, desde);
         if (!resto || resto.largo < LARGO_MINIMO) {
             /* No queda nada aprovechable: el objeto entero era el pedazo tocado. */
