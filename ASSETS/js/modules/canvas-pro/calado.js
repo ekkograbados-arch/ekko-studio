@@ -17,6 +17,7 @@ import {
 import { syncFusionVirtualHole } from "./fusionController.js";
 import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
 import { installGeometryInOwner } from "./geometricUngroup.js";
+import { getPublicOwners } from "./designGeometry.js";
 import { notice } from "./ekkoNotice.js";
 
 function selectedItems() {
@@ -47,7 +48,17 @@ function findFusionGroup(item) {
 function getVectorTarget(item) {
     const fusion = findFusionGroup(item);
     if (fusion) return { fusion, vector: fusion.data?.originalVectorData || null };
-    const content = getContentItem(item);
+    let content = getContentItem(item);
+    // Un calado recién aplicado queda envuelto en un clip-group de contención
+    // (data.clipGroup). Si la resolución central no encuentra un propietario
+    // público, resolvemos los propietarios públicos de los hijos del wrapper:
+    // ahí vive el vector real (isHole / isCalado / isSolidShape).
+    if (!content && item && item.children?.length) {
+        const owners = getPublicOwners(item.children);
+        content = owners.find(owner => owner?.data &&
+            (owner.data.isHole === true || owner.data.isCalado === true ||
+                owner.data.isSolidShape === true)) || null;
+    }
     const vector = findFusionVector(content) ||
         (isClosedClientVector(content) ? content : null);
     return { fusion: null, vector };
@@ -238,7 +249,11 @@ export function canConvertSelectionToCalado(item = null) {
     if (targets.length !== 1) return false;
     const resolved = getVectorTarget(targets[0]);
     if (resolved.fusion) return canConvertToCalado(resolved.fusion);
-    return !!resolved.vector && !isProductElement(resolved.vector) && canConvertToCalado(resolved.vector);
+    if (!resolved.vector || isProductElement(resolved.vector)) return false;
+    // Solo vectores CERRADOS se pueden calar: un trazo abierto no delimita
+    // superficie, no hay nada que vaciar.
+    if (resolved.vector.closed !== true) return false;
+    return canConvertToCalado(resolved.vector);
 }
 
 export function convertSelectionToCalado(item = null) {
@@ -264,6 +279,12 @@ export function convertSelectionToCalado(item = null) {
     }
     const vector = resolved.vector;
     if (!vector || isProductElement(vector) || !canConvertToCalado(vector)) return null;
+    // Un trazo abierto no delimita superficie: no hay nada que vaciar. Se avisa
+    // en vez de fallar en silencio.
+    if (vector.closed !== true) {
+        notice("Solo los vectores CERRADOS se pueden calar (círculos, rectángulos, letras, formas cerradas). El trazo seleccionado está abierto.", { kind: "warn" });
+        return null;
+    }
     if (typeof window.saveHistory === "function") window.saveHistory();
     const finalItem = markHole(vector) || vector;
     if (typeof window.recalculateDynamicSubtractions === "function") {
