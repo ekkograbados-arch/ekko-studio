@@ -1,7 +1,7 @@
 /* =========================================================================
-Módulo: ASSETS/js/modules/textEditor.js (Sincronizado Canva/Figma WYSIWYG - v2)
+Módulo: ASSETS/js/modules/textEditor.js (Editor de texto WYSIWYG - v2)
 Ruta de reemplazo: ASSETS/js/modules/textEditor.js
-Descripción: Editor de texto inline interactivo para el canvas (Estilo Canva).
+Descripción: Editor de texto inline interactivo para el canvas (WYSIWYG).
 Sincroniza perfectamente la caja de edición (textarea) con la caja de selección
 celeste de Paper.js y el cursor caret en tiempo real.
 ========================================================================= */
@@ -106,7 +106,7 @@ export function startTextEditing(textItem) {
         area.style.lineHeight = (textHeight / actualFontSize) || "1";
     }
 
-    // 4. Estilos base del editor invisible (Estilo Canva/Figma)
+    // 4. Estilos base del editor invisible (WYSIWYG)
     area.style.padding = "0px";
     area.style.margin = "0px";
     area.style.border = "none";
@@ -309,7 +309,8 @@ export function startTextEditing(textItem) {
     area.addEventListener("blur", () => {
         if (closed || suspended) return;
         /* Blur sin suspension = el foco se fue a un panel de la interfaz
-           (cinta, sidebar). Ahi si se acepta, igual que en Canva. */
+           (cinta, sidebar). Ahi si se acepta, como en la mayoria de los
+           editores de texto. */
         finish(true);
     });
 
@@ -326,7 +327,7 @@ export function startTextEditing(textItem) {
        Tres piezas:
         1. RUEDA sobre el textarea -> ahora hace zoom igual que en el lienzo
            (se re-expide al canvas, que es el dueno del control de zoom
-           LightBurn). Antes el textarea se comia la rueda: ni zoom ni caret.
+           del editor). Antes el textarea se comia la rueda: ni zoom ni caret.
         2. VIGILANTE por frame: si el zoom de la vista o el rectangulo del
            lienzo cambiaron, re-sincroniza posicion/tamano del textarea. Cubre
            rueda sobre el lienzo, Ctrl+rueda desde el textarea, y el deslizar
