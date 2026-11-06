@@ -541,7 +541,7 @@ function dibujarPreview(evento) {
 /* POLILÍNEA (Línea, al modo AutoCAD)                               */
 /* ---------------------------------------------------------------- */
 /* Línea dejó de ser "un arrastre, un segmento": ahora cada clic clava un
-   vértice y la banda elástica persigue al puntero, como en AutoCAD/LightBurn.
+   vértice y la banda elástica persigue al puntero, como en AutoCAD/CAD.
    Tres salidas, y las tres son las que el usuario ya conoce:
    - volver al punto de arranque y hacer clic => silueta CERRADA (lo que pidió);
    - doble clic o Enter => termina ABIERTA (línea de corte);
