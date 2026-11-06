@@ -6,7 +6,7 @@ Ruta de reemplazo: ASSETS/js/modules/canvas-pro/canvasControlsIntegration.js
 Descripción: Integrador de Interfaz Profesional (Versión v21.0 PRO - Top-Level Scope Stability).
 
 Inyecta la barra de formato/alineación con prefijos únicos, evita colisiones de IDs,
-e integra comandos de alineación (Canva-style) y distribución espacial para objetos
+e integra comandos de alineación (estilo editor) y distribución espacial para objetos
 seleccionados corrigiendo el soporte para grupos de máscara (clipGroup).
 
 SOPORTA SINCRONIZACIÓN ABSOLUTA EN EDICIÓN DE NODOS GLOBAL (window.nodeEditMode).
@@ -137,7 +137,7 @@ export function syncGeomBaseDeep(item, delta) {
     return getPublicOwner(item) || null;
 }
 
-// Estilos CSS modernos (estilo Canva y Figma) para la barra de alineaciones y zoom
+// Estilos CSS modernos (estilo editor) para la barra de alineaciones y zoom
 const proToolbarStylesId = "ekko-pro-toolbar-styles";
 if (typeof document !== 'undefined' && !document.getElementById(proToolbarStylesId)) {
     const styleEl = document.createElement("style");
@@ -263,10 +263,10 @@ export function initProControls() {
                 <span class="pro-label">Organizar</span>
                 <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
                 <button class="pro-btn" id="proBtnUngroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
-                <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos (Illustrator Style)"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
+                <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
             </div>
             <div class="pro-group" id="proGroupFusion">
-                <button class="pro-btn" id="proBtnFusionar" title="Fusionar imagen dentro de un vector o hueco (Canva-style) — selecciona imagen + vector"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
+                <button class="pro-btn" id="proBtnFusionar" title="Fusionar imagen dentro de un vector o hueco — selecciona imagen + vector"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
                 <button class="pro-btn" id="proBtnQuitarFusion" title="Disolver la fusión seleccionada y restituir imagen + vector"><i class="fas fa-unlink"></i> Quitar Fusión</button>
             </div>
             <div class="pro-group">
@@ -435,7 +435,7 @@ export const distributeSpacing = (axis) => {
     paper.view.update();
 };
 
-// Dibuja guías de distribución en Paper.js con la separación en milímetros reales (Estilo Canva)
+// Dibuja guías de distribución en Paper.js con la separación en milímetros reales
 export const drawDistributionGuides = (selected, axis, spacing) => {
     if (!window.paper || !paper.view) return;
     if (window.distributionGuidesGroup) {
@@ -698,7 +698,7 @@ function bindClickHandlers() {
         }
     });
 
-    // Vincular Modo de Edición Directa de Nodos (Illustrator Style)
+    // Vincular Modo de Edición Directa de Nodos
     bindBtn("proBtnEditNodes", () => {
         const btn = document.getElementById("proBtnEditNodes");
         if (!window.nodeEditMode) {
