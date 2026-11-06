@@ -14,7 +14,7 @@ import { getPublicOwner, isMockupOrMask, isContainmentWrapper } from "./designGe
 
    Aqui cada herramienta DECLARA que especies y que roles soporta, y la barra
    muestra un boton solo si TODOS los objetos seleccionados lo soportan.
-   Es el mismo criterio de AutoCAD, Word y Canva: nada de casos fijos.
+   Es el mismo criterio de AutoCAD, Word y los editores comunes: nada de casos fijos.
    ========================================================================= */
 
 /* =========================================================================
@@ -277,6 +277,14 @@ function contarContornos(entry) {
   try {
     const data = owner.data || {};
 
+    // CUTTER DE CALADO: la pieza entera ES un hueco. Sus sub-contornos son la
+    // geometria del hueco (contorno por fuera + contorno por dentro), no
+    // solidos nuevos; contarlos como solidos encendia hasSolid y apagaba
+    // Rellenar justo para la pieza recien calada (regla hasHole && !hasSolid).
+    if (data.isHole === true || data.isCalado === true) {
+      return { solidos: 0, huecos: 1 };
+    }
+
     // 1) el registro que deja el pipeline de texto a vector
     if (Array.isArray(data.contours) && data.contours.length) {
       for (const c of data.contours) {
@@ -400,7 +408,7 @@ const ALL_SPECIES = [SPECIES.RASTER, SPECIES.VECTOR, SPECIES.TEXT, SPECIES.MIXED
  *     imagenes cargadas el boton de Quitar Fondo desaparecia (exigia
  *     count === 1) y no quedaba NINGUNA salida. No es una edicion geometrica
  *     sobre un conjunto: es la MISMA operacion repetida por capa, como en
- *     Photoshop o PhotoRoom. Cada foto conserva su recorte y su sesion
+ *     apps de retoque. Cada foto conserva su recorte y su sesion
  *     propios (marcas `quitarFondoIA` / `ekkoFondoClave` por item), asi que
  *     el lote no mezcla nada y cada una se puede editar despues sola, en el
  *     orden que el cliente quiera.
@@ -540,7 +548,7 @@ export const TOOLS = {
     // exigia que TODOS (`every`): con una seleccion mixta (1 recorte + 1
     // imagen con fondo) este boton desaparecia... y "Quitar Fondo" tambien
     // (exige UNA sola), dejando la barra sin NINGUNA herramienta de imagen,
-    // sin salida. Photoshop es por capa: la mascara de cada recorte se
+    // los editores de retoque van por capa: la mascara de cada recorte se
     // edita por su lado, y esta regla adopta ese modelo. La ventana de
     // retoque abre el recorte marcado de la seleccion (imagenEnRetoque).
     active: s => s.list.some(llevaRecorte)
