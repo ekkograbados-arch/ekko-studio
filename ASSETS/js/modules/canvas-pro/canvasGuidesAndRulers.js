@@ -1,7 +1,7 @@
 /* =========================================================================
 Módulo: ASSETS/js/modules/canvas-pro/canvasGuidesAndRulers.js
 Descripción: Sistema de Reglas en Milímetros (mm) que escalan con el zoom de la rueda,
-             y Guías Inteligentes (Smart Guides) estilo Canva para alineación y snapping.
+             y Guías Inteligentes (Smart Guides) para alineación y snapping.
 ========================================================================= */
 
 let topRulerCanvas = null;
@@ -324,7 +324,7 @@ export function calculateSmartGuides(draggedItem, event) {
 
     const selBounds = activeDragged.bounds;
     const zoom = paper.view.zoom;
-    const snapThreshold = 3 / zoom; // Ajustado a 3px para un snapping suave estilo Canva y Figma // Umbral de 5 píxeles en pantalla convertido a unidades de Paper (mm)
+    const snapThreshold = 3 / zoom; // 3px para un snapping suave (umbral de 5 píxeles en pantalla convertido a unidades de Paper/mm)
 
     let snapX = null;
     let snapY = null;
@@ -426,7 +426,7 @@ export function calculateSmartGuides(draggedItem, event) {
                 );
             }
 
-            path.strokeColor = "#db2777"; // Rosa Canva/LightBurn de alto contraste
+            path.strokeColor = "#db2777"; // Rosa de alto contraste para guías
             path.strokeWidth = 1 / zoom;
             path.dashArray = [4 / zoom, 4 / zoom];
             guidesGroup.addChild(path);
