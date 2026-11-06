@@ -184,7 +184,7 @@ export function initGlobalKeyboardShortcuts() {
         if (isCtrl && e.shiftKey && key === "c") {
             e.preventDefault();
             if (typeof window.ekkoCopiarSeleccionPNG === "function") {
-                window.ekkoCopiarSeleccionPNG(600);
+                window.ekkoCopiarSeleccionPNG("ultra");
             } else {
                 console.warn("[EKKO SHORTCUTS] ekkoCopiarSeleccionPNG aÃºn no disponible.");
             }
