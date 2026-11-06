@@ -58,7 +58,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             </button>
             <div style="font-size:10px;color:#64748b;padding:3px 10px 4px;">Un solo archivo con todo lo que editaste. Se abre el chat para adjuntarlo.</div>
             <div id="ekkoTallerSeccion" style="display:none;">
-                <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">MODO SOCIO · GRABADO · LIGHTBURN</div>
+                <div style="font-size:11px;color:#64748b;font-weight:bold;padding:4px 10px 2px;">MODO SOCIO · GRABADO · CORTE LÁSER</div>
                 <div style="display:flex;gap:6px;padding:2px 10px 6px;align-items:center;font-size:12px;">
                     <label style="display:flex;gap:4px;align-items:center;">Vista
                         <select id="ekkoDownloadViews" style="max-width:130px;padding:3px 4px;border:1px solid #d7dee8;border-radius:6px;font-size:12px;"></select>
@@ -69,7 +69,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 </div>
                 <button type="button" onclick="window.__ekkoDownloadSVG?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;">
                     <i class="fas fa-bezier-curve" style="color:#15803d;"></i>
-                    <span><b>SVG para LightBurn</b> <span style="color:#64748b;">(aplanado + capa de corte roja)</span></span>
+                    <span><b>SVG para grabado y corte</b> <span style="color:#64748b;">(aplanado + capa de corte roja)</span></span>
                 </button>
                 <button type="button" onclick="window.__ekkoEnviarWhatsApp?.()" style="display:flex;width:100%;align-items:center;gap:8px;padding:9px 10px;border:none;background:#f0fdf4;border-radius:8px;cursor:pointer;font-size:13px;text-align:left;margin-top:4px;">
                     <i class="fab fa-whatsapp" style="color:#25d366;"></i>
@@ -188,7 +188,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             if (window.ekkoNotice) {
                 window.ekkoNotice(on
                     ? "Modo Socio desactivado: el menú queda en modo cliente (PNG/PDF con marca de agua)."
-                    : "Modo Socio ACTIVADO: ya podés descargar el SVG para LightBurn y enviarlo por WhatsApp/Drive.",
+                    : "Modo Socio ACTIVADO: ya podés descargar el SVG para grabado y corte, y enviarlo por WhatsApp/Drive.",
                     { kind: on ? "info" : "ok", ms: 6000 });
             }
         };
@@ -470,7 +470,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 '<ul style="font-size:12px;color:#475569;margin:10px 0 0 18px;line-height:1.7;">',
                 '  <li>Tu <b>logo</b> y tus <b>redes</b> en la marca de agua de cada boceto.</li>',
                 '  <li>Los envíos de tus clientes llegan a <b>TU WhatsApp</b>.</li>',
-                '  <li>SVG para LightBurn + proyecto editable, siempre.</li>',
+                '  <li>SVG para grabado y corte + proyecto editable, siempre.</li>',
                 '</ul>',
                 '<div style="background:#fefce8;border:1px solid #fde68a;border-radius:10px;padding:10px 12px;font-size:12px;color:#713f12;margin-top:12px;">Pedí tu suscripción y te damos tu <b>código de activación</b>.</div>',
                 '<button type="button" onclick="window.open(\'https://wa.me/' + waEkko + '?text=\' + encodeURIComponent(\'Hola! Quiero la suscripción EKKO Socio para mi grabadora láser.\'), \'_blank\')" style="' + SOCIO_CSS_BTN + 'background:#25d366;color:#fff;margin-top:10px;"><i class="fab fa-whatsapp"></i> PEDIR SUSCRIPCIÓN POR WHATSAPP</button>',
@@ -752,7 +752,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                  BARRA CONTEXTUAL FLOTANTE — MISMO CONTENIDO QUE BARRA SUPERIOR
                  ============================================================== -->
             <div id="contextual-toolbar">
-                <!-- ACCIONES BASE DE LIENZO Y LIGHTBURN -->
+                <!-- ACCIONES BASE DE LIENZO Y EXPORT LÁSER -->
                 <div class="toolbar-group">
                     <button class="toolbar-btn" id="btnCtxDelete" data-fusion-btn="ctxDelete" title="Eliminar (Supr)"><i class="fas fa-trash"></i> Eliminar</button>
                     <button class="toolbar-btn" id="btnCtxDuplicate" data-fusion-btn="ctxDuplicate" title="Duplicar (Ctrl+D)"><i class="fas fa-copy"></i> Duplicar</button>
@@ -834,7 +834,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                         <span id="ctxSpacingVal" class="toolbar-angle-readout" title="Espaciado actual">0</span>
                     </div>
                     <label class="toolbar-number-label">Espacio <input id="ctxTextSpacing" type="number" step="1" value="0" class="toolbar-input-number" title="Espacio entre letras: negativo junta (p/ soldar), positivo abre. Usá rueda, flechas o la barra"></label>
-                    <button class="toolbar-btn" id="btnCtxRotateLetters" data-fusion-btn="ctxRotateLetters" title="Orientación de las letras al curvar (como en LightBurn o vertical sobre la línea)"><i class="fas fa-sync-alt"></i> Girar letras</button>
+                    <button class="toolbar-btn" id="btnCtxRotateLetters" data-fusion-btn="ctxRotateLetters" title="Orientación de las letras al curvar: sobre la línea o verticales"><i class="fas fa-sync-alt"></i> Girar letras</button>
                 </div>
                 <!-- CONTROL IMAGEN -->
                 <div id="ctxImageControls" class="toolbar-subgroup hidden">
@@ -857,8 +857,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
             <!-- ==============================================================
                  VENTANA: EDITAR FONDO
                  ------------------------------------------------------------
-                 Panel vertical a la derecha, como el "Editar recorte" de
-                 PhotoRoom. Antes era una tira horizontal que cruzaba el lienzo
+                 Panel vertical a la derecha, dedicado a editar el recorte.
+                 Antes era una tira horizontal que cruzaba el lienzo
                  de lado a lado y tapaba la foto.
 
                  La ventana edita la MASCARA, no la imagen: al confirmar se
@@ -918,8 +918,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <!-- ==============================================================
                          VISTA: QUE SE ESTA MIRANDO
                          ------------------------------------------------------------
-                         Photoshop muestra la mascara en blanco y negro (Enter/Canal
-                         Quick Mask) y PhotoRoom permite volver a la foto para
+                         Otras apps muestran la mascara en blanco y negro
+                         y permiten volver a la foto para
                          comparar. Antes EKKO solo podia ver el compuesto, y para
                          saber SI el borde estaba bien habia que adivinar: el alfa
                          suave se ve como "tal vez borrado" y como "tal vez pelo".
@@ -944,8 +944,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                          El pixel de la franja sale de la camara MEZCLADO con el
                          fondo de la foto. Al cambiar de fondo esa mezcla se ve
                          como un filete del color viejo. "Halo" le devuelve el
-                         color del sujeto (propagacion desde el nucleo vecino, lo
-                         mismo que Photoshop llama Remove Color Matting).
+                         color del sujeto (propagacion desde el nucleo vecino,
+                         lo que otras apps llaman quitar el matiz del fondo).
                          No mueve la silueta: es solo color. Va en la ventana y no
                          solo en la tira de parametros porque la tira queda
                          tapada por esta misma ventana.
@@ -974,8 +974,8 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <!-- ==============================================================
                          FONDO: REEMPLAZO
                          ------------------------------------------------------------
-                         Lo que PhotoRoom llama "Background" y Photoshop resuelve
-                         con una capa debajo. Son objetos SEPARADOS del recorte: el
+                         fondo reemplazo: una capa debajo del recorte. Son
+                         objetos SEPARADOS del recorte: el
                          arte nunca se aplasta. Cambiar el fondo no vuelve a correr
                          la IA ni toca la mascara, y se puede quitar despues.
 
@@ -1033,7 +1033,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <!-- ==============================================================
                          SOMBRA DE CONTACTO
                          ------------------------------------------------------------
-                         PhotoRoom la genera sola y es lo que hace que un recorte
+                         La sombra de contacto hace que un recorte
                          pegado a un fondo se vea puesto y no flotando. Se dibuja
                          desde la MISMA mascara del recorte (no es un filtro de la
                          foto): se aplasta, se desenfoca y se corre hacia un lado.
@@ -1065,7 +1065,7 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <!-- ==============================================================
                          SALIDA
                          ------------------------------------------------------------
-                         PhotoRoom y Photoshop descargan un archivo; hasta ahora EKKO
+                         Otras apps descargan un archivo; hasta ahora EKKO
                          solo dejaba el recorte puesto en el lienzo. Para grabar a
                          laser el archivo ES el resultado: el PNG con alfa es el
                          recorte pelado y el JPG con fondo es la plancha que se
