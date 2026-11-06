@@ -36,7 +36,7 @@ export function isClientDesignElement(item) {
 /* Un vector cerrado es cualquier contorno que encierra un area: un Path con
    closed, un CompoundPath cuyos contornos cierran y una Shape (rect/elipse/
    circulo). El relleno NO hace falta: el trazo dibujado encerrado se fusiona
-   igual que una silueta de SVG, como en Canva. Un contorno abierto (linea,
+   igual que una silueta de SVG, como en los editores de diseño. Un contorno abierto (linea,
    polilinea sin cerrar, arco) no encierra area y no puede recortar una foto. */
 export function isClosedVectorShape(item) {
   if (!item) return false;
@@ -61,7 +61,7 @@ export function isValidFusionReceptor(item) {
   // segunda imagen lo convertiria en dos marcos y desalinearia el corte.
   if (d.fusionCompanionOf) return false;
   if (d.isFusionReceptor || d.isHole === true || d.hasInternalHoles === true) return true;
-  // Canva: cualquier contorno cerrado del cliente recibe la imagen, tenga o no
+  // cualquier contorno cerrado del cliente recibe la imagen, tenga o no
   // la marca isFusionReceptor y tenga o no relleno. Los unicos que quedan
   // fuera son los abiertos, porque no encierran area para recortar.
   return isClosedVectorShape(item);
