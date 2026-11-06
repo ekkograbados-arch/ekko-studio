@@ -1672,7 +1672,7 @@ function montarFila() {
     });
     temaStack.appendChild(laserBtn);
     // Exportar Selección (PNG con apilado respetado + DPI a elección) y el
-    // atajo Ctrl+Shift+C (copia al portapapeles, listo para LightBurn).
+    // atajo Ctrl+Shift+C (copia al portapapeles, listo para grabar).
     const exportSelBtn = document.createElement("button");
     exportSelBtn.type = "button";
     exportSelBtn.id = "btnEkkoExportSel";
