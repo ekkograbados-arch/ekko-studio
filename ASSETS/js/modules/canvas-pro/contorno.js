@@ -722,7 +722,7 @@ export function alphaSilhouetteContours(sampled, bounds, opciones = null) {
     // veces (es el extremo de un segmento y el arranque del siguiente), y el
     // ultimo repite el primero para cerrar. MEDIDO contra la referencia del
     // remoto f988 sobre DR_bn.png: 6 106 puntos que son 3 043 distintos. Un
-    // CompoundPath con nodos duplicados sale a LightBurn con segmentos de
+    // CompoundPath con nodos duplicados sale al grabado con segmentos de
     // longitud cero, que la maquina lee como mordidas quieta; aca se sueltan.
     const sal = [];
     for (const plano of planos) {
@@ -765,7 +765,7 @@ export function alphaSilhouetteContours(sampled, bounds, opciones = null) {
    Aqui no hay mitres ni booleanas: se calcula la distancia euclidiana exacta
    a la frontera sobre la propia grilla de alfa (transformada separable de
    Felzenszwalb & Huttenlocher, O(n) por celda) y la banda es un intervalo de
-   distancia. Es la misma geometria que da el contorno de Photoshop y sale
+   distancia. Es la misma geometria que da el contorno profesional y sale
    con la resolucion del muestreo, no con la suerte de la booleana.
    ================================================================== */
 const EDT_INF = 1e15;
@@ -1194,7 +1194,7 @@ function bandaDesdeCampo(campo, control) {
     // Grosor 20 salia con 19 296 nodos, y MEDIDO con simplify a 1 celda: 265
     // nodos, area movida 0,01% y caja movida 0,42 unidades (1,27 celdas), o
     // sea menos de un pixel de la foto. Un contorno de 20 000 nodos no se puede
-    // editar ni mandar a LightBurn, y en pantalla se ve dentado: la tolerancia
+    // editar ni mandar al grabado, y en pantalla se ve dentado: la tolerancia
     // de la propia resolucion de muestreo es el corte honesto.
     //
     // La matriz se aplica con aritmetica suelta, no con `new Point().transform`:
@@ -1377,7 +1377,7 @@ function bandaImagenViva(vinculo, origen, sampled, control, exacto = false, como
        unidades con Grosor 1: celda 1.0, intervalo +/-0.5, cero celdas — medido
        con sonda). El motor vectorial no tiene ese piso: parte de la silueta
        interpolada y da el anillo exacto para cualquier grosor, con el area
-       exacta de Photoshop. El FINAL va siempre por ahi (y sale mas barato:
+       exacta al origen. El FINAL va siempre por ahi (y sale mas barato:
        cero EDT por aplicacion); la grilla queda para el PREVIEW del arrastre,
        que es lo que la cache de campo hace bien. */
     if (exacto) return bandaExactaDeImagen(origen, sampled, control, comoLinea);
@@ -1582,7 +1582,7 @@ function bandaExactaDeImagen(origen, sampled, control, comoLinea = false) {
    suma alfa) y el motor de distancias trabaja sobre esa silueta unica como si
    fuera una sola imagen. Con esto "Todo junto" deja de ser una opcion que no
    hace nada y pasa a dar el borde de toda la composicion, que es lo que se
-   espera de una herramienta tipo Photoshop.
+   espera de una herramienta de contorno profesional.
    ------------------------------------------------------------------ */
 
 /** Caja de un raster en coordenadas del lienzo (la caja propia, no la AABB). */
@@ -1948,11 +1948,11 @@ export function isSingleClosedContour(item) {
 }
 
 /* ------------------------------------------------------------------
-   CONTORNO = LINEA (directiva del cliente, modelo LightBurn/CAD).
+   CONTORNO = LINEA (directiva del cliente, modelo CAD).
    La herramienta entrega UNA LINEA que sigue el borde, con cuatro
    controles y un significado unico cada uno:
      Grosor      = espesor del trazo (strokeWidth). No cambia la forma.
-     Separacion  = cuanto se corre la linea (offset de LightBurn; + afuera,
+     Separacion  = cuanto se corre la linea (offset del contorno; + afuera,
                    - adentro).
      Posicion    = lado desde el que se mide: Exterior/Interior fuerzan el
                    signo de la Separacion.
@@ -1975,7 +1975,7 @@ function desplazamientoDeLinea(control) {
   if (lado) return separacion * lado;
   // Centro = la linea cae sobre el borde; si el cliente mueve Separacion y
   // deja Centro, el signo lo pone el propio valor (Separacion es un valor
-  // con signo, como Offset Distance de LightBurn).
+  // con signo, como offset del contorno del proyecto).
   const firmado = Number(control?.radius) || 0;
   return separacion > 0 ? firmado : 0;
 }
@@ -2101,7 +2101,7 @@ function geometriaDeLinea(base, control, especie) {
     /* SUAVIDAD: tolerancia de simplificacion progresiva (nivel 1 = 0,15%
        de la pieza, nivel 10 = 1,5%). Se mide en la caja del LOOP: una pieza
        de 200 con nivel 10 limpia dientes de hasta 3 unidades, el mismo
-       rango que el "Optimize" de LightBurn. Nunca mueve la forma visible:
+       rango de optimización profesional. Nunca mueve la forma visible:
        solo quita nodos que no aportan. */
     if (suavidad > 0) {
       try {
@@ -2290,7 +2290,7 @@ function crearContornoUnion(owners, control) {
   const union = unirGeometrias(owners);
   if (!union) return null;
   const width = Math.max(0.1, Math.abs(Number(control.width) || 0) || 1);
-  /* UNION = UNA LINEA CONTINUA (modelo LightBurn). La booleana ya deja UN
+  /* UNION = UNA LINEA CONTINUA (modelo de grabado). La booleana ya deja UN
      contorno que rodea el conjunto y no se corta entre letras; la linea se
      calcula sobre esa union, no sobre cada letra. El relleno expandido de
      antes queda solo como color de preview. */
@@ -2488,7 +2488,7 @@ const CONTROL_POR_DEFECTO = Object.freeze({
 /** STANDARD DEL CONTORNO POR ESPECIE (regla fija, nunca un default suelto):
  *   imagen (raster)   -> solo BORDE EXTERIOR ("outer").
  *   texto / vector    -> BORDE + HUECOS ("all"): A, O, R y las letras con
- *                        hueco tienen que conservarlo, como en LightBurn.
+ *                        hueco tienen que conservarlo, como en el grabado.
  *  Se aplica cuando el cliente NO eligio otro alcance en el panel; una vez
  *  que elige, manda su eleccion (scope explicitado en ultimoControl). */
 function alcanceEstandar(control, especie) {
@@ -2561,7 +2561,7 @@ function readOutlineControls() {
     control.width = Math.max(1, Math.abs(Number(control.width) || 0) || 1);
     // SEPARACION CON SIGNO: en modo linea es un desplazamiento (positivo =
     // hacia afuera, negativo = hacia adentro), como Offset Distance de
-    // LightBurn. La Posicion decide el lado cuando se elige Exterior/Interior.
+    // del grabado. La Posicion decide el lado cuando se elige Exterior/Interior.
     control.radius = Number(control.radius) || 0;
     control.smoothing = Math.max(0, Number(control.smoothing) || 0);
     if (!["center", "outside", "inside"].includes(control.side)) control.side = "center";
