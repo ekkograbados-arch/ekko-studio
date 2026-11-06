@@ -10,11 +10,11 @@ Módulo: ASSETS/js/modules/canvas-pro/ekkoSynapse.js (v9.0 - Universal Contextua
 Descripción:
     El Detector de Humo Universal de EKKO Studio.
     Audita en tiempo de ejecución las 5 dimensiones sensoriales del Studio:
-    1. CONTEXTO IMAGEN (Trazado, Recorte, Espejos y el nuevo Contorno/Offset estilo LightBurn)
+    1. CONTEXTO IMAGEN (Trazado, Recorte, Espejos y el nuevo Contorno/Offset profesional)
     2. CONTEXTO TEXTO (Fuentes, Tamaño, Formato, Curvatura de Texto)
     3. CONTEXTO SVG/VECTORIAL (Agrupación y Operaciones Booleanas de Fusión)
-    4. CONTEXTO MULTI-SELECCIÓN (Alineaciones y Distribuciones Canva-style)
-    5. CONTROL DE PANEL SUPERIOR DINÁMICO (Word/Canva-style Dynamic Tabs)
+    4. CONTEXTO MULTI-SELECCIÓN (Alineaciones y Distribuciones estilo editor)
+    5. CONTROL DE PANEL SUPERIOR DINÁMICO (Pestañas dinámicas tipo suite oficina)
 
     No solo reporta si los cables están cortados (DEAD_ROUTE_CRITICAL), sino que te
     avisa de inmediato si los botones/pestañas físicos NO existen en el HTML (MISSING_NODE_CRITICAL)
@@ -228,13 +228,13 @@ Descripción:
         // =========================================================================
         if (typeof document !== 'undefined') {
             const expectedUiButtons = [
-                // A. CONTEXTO IMAGEN (Filtros, vectorizado, máscaras y contorno LightBurn)
+                // A. CONTEXTO IMAGEN (Filtros, vectorizado, máscaras y contorno/offset)
                 { id: "btnCtxTrace", label: "🪄 Trazar Imagen", context: "IMAGE" },
                 { id: "btnCtxApplyMask", label: "✂️ Recortar Imagen", context: "IMAGE" },
                 { id: "btnCtxRemoveMask", label: "🔓 Quitar Recorte", context: "IMAGE" },
                 { id: "btnCtxFlipH", label: "↔️ Espejo Horizontal Imagen", context: "IMAGE" },
                 { id: "btnCtxFlipV", label: "↕️ Espejo Vertical Imagen", context: "IMAGE" },
-                { id: "btnCtxContour", label: "🎯 Aplicar Contorno/Offset (LightBurn style)", context: "IMAGE" },
+                { id: "btnCtxContour", label: "🎯 Aplicar Contorno/Offset", context: "IMAGE" },
 
                 // B. CONTEXTO TEXTO (Formatos, tipografías y curvatura de texto)
                 { id: "ctxFontSelector", label: "🔤 Selector de Fuentes", context: "TEXT" },
@@ -252,7 +252,7 @@ Descripción:
                 { id: "proBtnBooleanIntersect", label: "✂️ Intersección de vectores", context: "SVG" },
                 { id: "proBtnBooleanDifference", label: "↔️ Diferencia de vectores", context: "SVG" },
 
-                // D. CONTEXTO SELECCIÓN MÚLTIPLE (Alineaciones y Distribuciones Canva/Word style)
+                // D. CONTEXTO SELECCIÓN MÚLTIPLE (Alineaciones y Distribuciones estilo editor)
                 { id: "btnAlignLeft", label: "⬅️ Alineación Izquierda Múltiple", context: "MULTI" },
                 { id: "btnAlignCenter", label: "center-h Alineación Centro Horizontal Múltiple", context: "MULTI" },
                 { id: "btnAlignRight", label: "➡️ Alineación Derecha Múltiple", context: "MULTI" },
@@ -262,7 +262,7 @@ Descripción:
                 { id: "btnDistributeH", label: "↔️ Distribución Horizontal Equitativa", context: "MULTI" },
                 { id: "btnDistributeV", label: "↕️ Distribución Vertical Equitativa", context: "MULTI" },
 
-                // E. CONTEXTO PANEL SUPERIOR DINÁMICO (Word/Canva-style Dynamic Tabs / Pestañas)
+                // E. CONTEXTO PANEL SUPERIOR DINÁMICO (Pestañas dinámicas estilo suite oficina)
                 { id: "tabImageTools", label: "🖼️ Pestaña de Herramientas de Imagen", context: "DYNAMIC_PANEL" },
                 { id: "tabTextTools", label: "✍️ Pestaña de Herramientas de Texto", context: "DYNAMIC_PANEL" },
                 { id: "tabSvgTools", label: "📐 Pestaña de Herramientas de SVG/Vectorial", context: "DYNAMIC_PANEL" },
@@ -353,7 +353,7 @@ Descripción:
                     synapseResult.axons.contextualState.currentContext = "MULTI";
                 }
 
-                // ¿Están las pestañas de Canva/Word activas en el DOM?
+                // ¿Están las pestañas dinámicas activas en el DOM?
                 const tabContainer = document.getElementById('topBar') || document.getElementById('pro-layout-toolbar');
                 if (tabContainer) {
                     synapseResult.axons.contextualState.dynamicTabsActive = true;
