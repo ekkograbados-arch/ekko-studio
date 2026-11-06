@@ -178,7 +178,7 @@ import * as FONDO from './fondoStore.js';
         //
         // COMO SE RESUELVE: el color del pixel contaminado se REMPLAZA por el
         // del nucleo opaco mas cercano (propagacion de 1 px por pasada), que
-        // es lo que hace Photoshop con "Remove Color Matting".
+        // es lo que hacen los editores profesionales con el matiz del fondo.
         //
         // POR QUE NO LA FORMULA DE DEZMEZCLA: la primera version intentaba
         //     C = a*F + (1-a)*B   ->   F = (C - (1-a)*B) / a
@@ -1428,7 +1428,7 @@ import * as FONDO from './fondoStore.js';
      * zona lisa del cuerpo y el fondo intactos.
      *
      * Queda 0/255 duro: es el corte que despues permite el trazado del
-     * contorno (estilo LightBurn) sin mas preproceso.
+     * contorno (estilo offset profesional) sin mas preproceso.
      *
      * @param {CanvasRenderingContext2D} ctx  lienzo de trabajo con la alfa ya puesta
      * @param {number} W H  resolucion de trabajo
@@ -1493,8 +1493,8 @@ import * as FONDO from './fondoStore.js';
     }
 
     /**
-     * DEFRINGE por propagacion de color: el "Remove Color Matting" de
-     * Photoshop.
+     * DEFRINGE por propagacion de color: eliminar el matiz del
+     * fondo en el borde.
      *
      * Escribe en `src` (RGB de la foto original, opaca) y lee el alfa de
      * `alpha`. NO toca el alfa: es correccion de color, la silueta queda byte
@@ -1876,7 +1876,7 @@ import * as FONDO from './fondoStore.js';
      * `resolverImagen` devuelve el primero y basta para "editar esta foto".
      * Para el LOTE no alcanza: cuando el cliente carga varias fotos dentro de
      * un mismo producto/grupo, la seleccion es el grupo y con el primero solo
-     * se recortaba UNA. En Photoshop/PhotoRoom el recorte es por capa, asi
+     * se recortaba UNA. En los editores de retoque el recorte es por capa, asi
      * que el lote baja hasta cada raster.
      */
     function rastersDe(item) {
@@ -2266,7 +2266,7 @@ import * as FONDO from './fondoStore.js';
      * MEDIDO (2026-10-29): con dos imagenes seleccionadas el motor de la barra
      * (capabilities) apagaba `removeBg` porque exigia `count === 1`, asi que el
      * boton desaparecia y no habia ninguna salida. El cliente trabaja con
-     * varias fotos a la vez, y en Photoshop/PhotoRoom el recorte es POR CAPA:
+     * varias fotos a la vez, y en los editores de retoque el recorte es POR CAPA:
      * no hay ninguna razon para obligarlo a de-seleccionar.
      *
      * Se procesa de a UNA, en cadena (un modelo, una inferencia a la vez: de
@@ -2801,8 +2801,8 @@ import * as FONDO from './fondoStore.js';
         // manual=false: un toque y la zona se elige sola por color (asistido).
         // manual=true:  se pinta con el pincel del tamaño que se elija.
         //
-        // Arranca en ASISTIDO: es lo que pidio el cliente y lo que hace
-        // PhotoRoom. Manual queda a un clic y con atajo de teclado.
+        // Arranca en ASISTIDO: es lo que pidio el cliente. Manual queda a un
+        // clic y con atajo de teclado.
         manual: false,
         // Pintar solo se permite en manual: en asistido el puntero no debe
         // pintar, porque el cliente quiere "marcar" una zona, no hacer un rayado.
@@ -2846,7 +2846,7 @@ import * as FONDO from './fondoStore.js';
         // --- Como se MUESTRA la edicion (no cambia el arte, solo el dibujo) ---
         //   'compuesto' = tablero de transparencia + recorte: lo que se graba.
         //   'mascara'   = la alfa en blanco y negro, como la mascara rapida de
-        //                 Photoshop (blanco = queda, negro = se va). Es la unica
+        //                 los editores de retoque (blanco = queda, negro = se va). Es la unica
         //                 vista con la que se puede juzgar un pelo fino o un
         //                 borde sucio, porque el ojo no tiene que adivinar la
         //                 transparencia contra un cuadriculado.
@@ -2854,7 +2854,8 @@ import * as FONDO from './fondoStore.js';
         //                 ventana ni volver a quitar el fondo.
         //   'comparar'  = las dos a la vez, separadas por una linea que el
         //                 cliente arrastra (recorte a la izquierda, original a
-        //                 la derecha). Es el "swipe" de PhotoRoom / Lightroom.
+        //                 la derecha). Es el "swipe" de comparación de las apps
+        //                 de retoque.
         vista: 'compuesto',
         // Posicion de esa linea, de 0 a 1 sobre el rectangulo de la FOTO (no
         // sobre la ventana): asi no se mueve al hacer zoom ni al paneo.
@@ -2883,7 +2884,7 @@ import * as FONDO from './fondoStore.js';
     /**
      * HISTORIAL del retoque: deshacer y rehacer ACCION POR ACCION.
      *
-     * PhotoRoom y Photoshop no deshacen "todo el retoque": retroceden UN paso
+     * Los editores de retoque no deshacen "todo el retoque": retroceden UN paso
      * por vez. EKKO solo tenia un boton que volvia de golpe al recorte de la
      * IA, asi que un trazo mal dado obligaba a perder todos los anteriores.
      *
@@ -3100,7 +3101,7 @@ import * as FONDO from './fondoStore.js';
         } catch (_) {}
     }
 
-    // Modo Asistido: tocas una zona y se selecciona sola (como en PhotoRoom).
+    // Modo Asistido: tocas una zona y se selecciona sola.
     function modoAsistido() { return ponerModoRetoque(false); }
 
     // Modo Manual: pintás con el pincel del tamaño que elijas.
@@ -3324,7 +3325,7 @@ import * as FONDO from './fondoStore.js';
     }
 
     // Tablero de transparencia de la ventana: cuadros claros, como el fondo
-    // de Photoshop. Se genera UNA vez y se reutiliza; cada cuadro mide
+    // de transparencia de los editores graficos. Se genera UNA vez y se reutiliza; cada cuadro mide
     // TABLERO_CELDA px de PANTALLA, no de imagen, asi no cambia con el zoom.
     const TABLERO_CELDA = 10;
     const FANTASMA_ALFA = 0.38;
@@ -3428,8 +3429,8 @@ import * as FONDO from './fondoStore.js';
         //   - Lo que se QUITO: TABLERO DE TRANSPARENCIA (cuadros) + un
         //     fantasma tenue de la foto original.
         //
-        // El tablero es la senal universal de "aca no hay imagen" (PhotoRoom,
-        // Photoshop). El fantasma deja ver que hay debajo para poder
+        // El tablero es la senal universal de "aca no hay imagen"
+        // (tablero de transparencia). El fantasma deja ver que hay debajo para poder
         // restaurar sin adivinar. Antes se lavaba la zona quitada con blanco:
         // eso producia un parche blanco, y cuando el zoom dejaba ver el fondo
         // de la ventana aparecia negro. Ninguno de los dos decia "transparente".
@@ -3468,7 +3469,7 @@ import * as FONDO from './fondoStore.js';
         if (vista === 'original') {
             // A/B: la foto tal como entro, sin recorte. Comprobar el borde
             // contra el original sin cerrar la ventana es lo que hace
-            // Photoshop con la vista de mascara; aca alcanza con dibujar la
+            // editores de retoque con la vista de mascara; aca alcanza con dibujar la
             // fuente que ya esta en memoria.
             ctx.drawImage(src, sx, sy, sw, sh, dx0, dy0, dw, dh);
         } else if (vista === 'mascara') {
@@ -3894,7 +3895,7 @@ import * as FONDO from './fondoStore.js';
      * ahora solo habia dos formas de abrirlas: seleccionarla en el lienzo y
      * pulsar "Editar Fondo", o cerrar y volver a entrar. Con una tanda de seis
      * fotos eso es ir y venir. La tira muestra las que ya tienen recorte y
-     * cambia la ventana de foto sin cerrarla, como las pestanas de Photoshop.
+     * cambia la ventana de foto sin cerrarla, como en Pestanas.
      */
     function esRasterDeFondo(it) {
         let n = it;
@@ -4273,7 +4274,7 @@ import * as FONDO from './fondoStore.js';
     }
 
     /* =====================================================================
-       FONDO NUEVO Y SOMBRA DE CONTACTO (lo que hace PhotoRoom al final)
+       FONDO NUEVO Y SOMBRA DE CONTACTO (lo que hace la app de retoque al final)
        ---------------------------------------------------------------------
        La eleccion de arquitectura, y es la que pidio el cliente: el fondo es
        un OBJETO APARTE, no se hornea en el recorte.
@@ -4467,7 +4468,7 @@ import * as FONDO from './fondoStore.js';
      * radial de Paper) depende del marco unitario del relleno, que no se
      * comporta igual entre versiones, y el `shadowBlur` de canvas obliga a
      * hornear un bitmap grande. Un raster chico con degradado radial propio es
-     * lo que mas se parece a PhotoRoom y lo mas predecible.
+     * lo mas parecido al comportamiento de una app de retoque y lo mas predecible.
      *
      * Para grabar a laser la opacidad arranca en cero: si el cliente no la
      * sube, no se agrega NADA y el recorte queda igual que hoy.
@@ -4816,7 +4817,7 @@ import * as FONDO from './fondoStore.js';
     /* =========================================================================
        SALIDA PROFESIONAL
        --------------------------------------------------------
-       PhotoRoom y Photoshop terminan con UN ARCHIVO, no con un objeto suelto en
+       Los editores de retoque terminan con UN ARCHIVO, no con un objeto suelto en
        el lienzo. Para grabar a laser eso es lo que importa: el PNG con alfa es
        el recorte limpio, y el JPG con fondo es lo que se entrega o se cotiza.
 
@@ -4866,7 +4867,7 @@ import * as FONDO from './fondoStore.js';
      *
      * `ajustado` recorta el margen transparente del PNG: el objeto queda justo
      * en el borde del archivo, que es lo que quiere el software de laser y lo
-     * que hace PhotoRoom al descargar. El JPG siempre conserva el encuadre de la
+     * en una descarga. El JPG siempre conserva el encuadre de la
      * foto, porque el fondo ocupa todo el cuadro.
      */
     function exportarRecorte(formato, ajustado) {
@@ -5191,7 +5192,7 @@ import * as FONDO from './fondoStore.js';
             return;
         }
         // Si se habia deshecho, lo que estaba "adelante" se descarta: no se
-        // puede rehacer sobre una rama nueva (es el comportamiento de Photoshop).
+        // puede rehacer sobre una rama nueva (comportamiento de historial ramificado).
         if (HISTORIAL.indice < HISTORIAL.pasos.length) {
             HISTORIAL.pasos.length = HISTORIAL.indice;
         }
@@ -5257,8 +5258,8 @@ import * as FONDO from './fondoStore.js';
     }
 
     /**
-     * "Deshacer" DENTRO del retoque: retrocede UN paso, como en PhotoRoom y
-     * Photoshop. Cuando se agotan los pasos llega al recorte de la IA, que es
+     * "Deshacer" DENTRO del retoque: retrocede UN paso, como en las apps de
+     * retoque. Cuando se agotan los pasos llega al recorte de la IA, que es
      * lo que este boton hacia antes; no se pierde el trabajo de fondo ni se
      * vuelve a correr la inferencia.
      */
@@ -5419,7 +5420,7 @@ import * as FONDO from './fondoStore.js';
         // el diametro en pantalla, el anillo y la pintura salen del MISMO
         // numero por construccion y no pueden separarse.
         //
-        // Y es lo que hace PhotoRoom, medido en su video: el circulo del
+        // Y es lo que hace la IA de retoque, medido en su comportamiento: el circulo del
         // cursor mide en pantalla lo que dice el control y NO cambia con el
         // zoom de la ventana (medido: 24 px con zoom alto y 57 px con zoom
         // medio, con el control en el mismo lugar). O sea que el pincel se
@@ -5437,7 +5438,7 @@ import * as FONDO from './fondoStore.js';
         // Con la semantica v11.29 la zona detectada NO depende del tamano:
         // crece por colores similares hasta el borde real; el tamano solo
         // elige LA VENTANA DE MUESTREO (interferencia real, como el borrador
-        // del fondo de Photoshop): un pincel chico muestrea una zona fina para
+        // del muestreo del color): un pincel chico muestrea una zona fina para
         // detalles, uno grande toma el color de una zona amplia cuando no se
         // sabe bien donde cae el toque.
         const d = RETOQUE.manual ? Math.max(4, RETOQUE.radio) : Math.max(12, RETOQUE.radio * 2);
@@ -5462,7 +5463,7 @@ import * as FONDO from './fondoStore.js';
      *
      * El modo asistido necesita poder preguntar "este pixel se parece a
      * aquel?" mirando la FOTOGRAFIA, no solo el recorte: es lo que dice la
-     * documentacion de PhotoRoom ("analyses the color of the pixels and the
+     * documentacion oficial de la IA de recorte ("analyses the color of the pixels and the
      * content of the image"). Sin esta rejilla no hay con que decidir.
      */
     function rejillaDeColor() {
@@ -5576,7 +5577,7 @@ import * as FONDO from './fondoStore.js';
         // Manual ("si aumento el tamano se comporta como si fuera manual",
         // 2026-10-23).
         //
-        // Nuevo contrato, como el borrador del fondo de Photoshop:
+        // Nuevo contrato, como el borrador de fondos de los editores de retoque:
         //   - El radio del pincel = LA VENTANA DE MUESTREO del color. Esa es
         //     su interferencia real: define DE DONDE se toma el color base.
         //   - La region crece POR COLORES SIMILARES hasta el borde real, sin
@@ -5764,7 +5765,7 @@ import * as FONDO from './fondoStore.js';
         //
         // El cliente reportaba que "los pinceles no respetan el tamano" y que
         // el circulo pintado salia ~3 veces mas grande que el anillo del
-        // cursor. MEDIDO en el video de PhotoRoom: ahi el circulo del cursor y
+        // cursor. MEDIDO en el comportamiento de la app de retoque: ahi el circulo del cursor y
         // la pintura SI coinciden, y el tamano es el que dice el control.
         const factor = factorPantallaAMascara();
         if (!(factor > 0)) return;
@@ -5997,7 +5998,7 @@ import * as FONDO from './fondoStore.js';
         // FONDO y SOMBRA DE CONTACTO (seccion "Fondo" de la ventana).
         //
         // Cada deslizador repinta la VISTA en `input` (el arrastre se ve al
-        // instante, como en PhotoRoom) y escribe el objeto de la escena en
+        // instante, sin repetir el analisis) y escribe el objeto de la escena en
         // `change`, al soltar. Aplicar en cada pixel del arrastre crearia un
         // PNG nuevo por cuadro y la ventana se congelaria.
         // ===================================================================
@@ -6215,10 +6216,10 @@ import * as FONDO from './fondoStore.js';
         const canvas = document.getElementById('lienzo-editar-fondo');
         let pintando = false;
         // Arrastre de la linea del comparador: en esa vista el clic mueve la
-        // division en vez de pintar, igual que el "swipe" de PhotoRoom.
+        // division en vez de pintar, igual que el "swipe" de comparación.
         let moviendoSplit = false;
 
-        // ESPACIO + arrastrar = mover la foto, como en Photoshop. Se declara
+        // ESPACIO + arrastrar = mover la foto (estándar de editores). Se declara
         // aca porque lo consultan el pincel (para no pintar mientras se
         // navega) y el manejo de paneo. Con 24x de zoom, moverse es tan
         // importante como acercarse.
@@ -6356,8 +6357,8 @@ import * as FONDO from './fondoStore.js';
             pintando = false;
             // Un trazo = UN paso de historial. Se anota al soltar y no en cada
             // cuadro: si se anotara por cuadro, deshacer iria pixel a pixel en
-            // vez de trazo a trazo, que es lo util (y lo que hacen PhotoRoom y
-            // Photoshop).
+            // vez de trazo a trazo, que es lo util (lo que hacen las apps de
+            // retoque).
             if (huboTrazo) historialAnotar();
             try { pintarLienzoVentana(); }
             catch (e) {
@@ -6395,7 +6396,7 @@ import * as FONDO from './fondoStore.js';
         }, { capture: true, passive: false });
 
         // Navegacion: Alt + arrastrar (el atajo que ya existia), ESPACIO +
-        // arrastrar (como Photoshop) y boton central. Asi el pincel y el
+        // arrastrar (pan estándar) y boton central. Asi el pincel y el
         // desplazamiento no se pisan.
         let desplazando = false;
         let desde = null;
@@ -6428,7 +6429,7 @@ import * as FONDO from './fondoStore.js';
         }, true);
 
         // Ctrl+Z / Ctrl+Shift+Z (o Ctrl+Y): deshacer y rehacer, como en
-        // Photoshop. Va en su PROPIO listener porque el de abajo ignora a
+        // retouch estandar. Va en su PROPIO listener porque el de abajo ignora a
         // proposito las teclas con Ctrl (B/R/A/M no deben dispararse con Ctrl).
         window.addEventListener('keydown', (ev) => {
             if (!RETOQUE.activo) return;
@@ -6452,7 +6453,7 @@ import * as FONDO from './fondoStore.js';
         //   A  Asistido       M  Manual
         //   C  vista Compuesto  V  vista Mascara  N  vista Original (A/B)
         //   T  tinte de lo quitado   Esc / Enter  Listo
-        //   [  pincel mas fino   ]  pincel mas grueso  (como en Photoshop)
+        //   [  pincel mas fino   ]  pincel mas grueso  (rango continuo)
         window.addEventListener('keydown', (ev) => {
             if (!RETOQUE.activo) return;
             if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -6468,7 +6469,7 @@ import * as FONDO from './fondoStore.js';
                 v: () => ponerVista('mascara'),
                 c: () => ponerVista('compuesto'),
                 n: () => ponerVista('original'),
-                // 'y' como el antes/despues de Lightroom: entra y vuelve.
+                // 'y' como en antes/despues: entra y vuelve.
                 y: () => ponerVista((RETOQUE.vista || 'compuesto') === 'comparar' ? 'compuesto' : 'comparar'),
                 t: () => verLoQuitado(!RETOQUE.verQuitado),
                 '[': () => aplicarTamano(RETOQUE.radio - 1, 'teclado'),
