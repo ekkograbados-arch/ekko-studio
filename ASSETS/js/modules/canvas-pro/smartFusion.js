@@ -1,7 +1,7 @@
 /* ========================================================================
 RUTA DESTINO EN STUDIO: ekko-studio/ASSETS/js/modules/canvas-pro/smartFusion.js
 ACCIÓN: REEMPLAZAR COMPLETAMENTE
-ESTADO: v46.0 — REESCRITURA MAGNETIC SNAPPING (Canva-Style) + FIX RELEASE/RECALC
+ESTADO: v46.0 — REESCRITURA MAGNETIC SNAPPING (imán de alineación) + FIX RELEASE/RECALC
   - Snap por SOLAPAMIENTO (no por distancia centro-centro).
   - Halo NEON FUCSIA sobre la SILUETA REAL del receptor (no rectángulo cian).
   - Preview translúcido de la imagen encajada dentro del hueco (sin mover la foto real).
@@ -1337,7 +1337,7 @@ export function initSmartFusionListeners() {
     window.releaseSmartFusion = releaseSmartFusion;
     if (!Array.isArray(window._fusionVirtualHoles)) window._fusionVirtualHoles = [];
   }
-  console.log("%c[EKKO SMART FUSION v46.0] Motor de Fusión + Snapping Magnético Canva-Style cargado.", "color: #ff2ea6; font-weight: bold;");
+  console.log("%c[EKKO SMART FUSION v46.0] Motor de Fusión + Snapping Magnético cargado.", "color: #ff2ea6; font-weight: bold;");
 }
 // Exponer al navegador DESPUÉS de que todo esté cargado
 setTimeout(() => {
