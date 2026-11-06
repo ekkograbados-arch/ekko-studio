@@ -26,7 +26,7 @@ import { getCanonicalDesignLayer, getStackingUnit } from "./modules/canvas-pro/v
       - Seleccion inmediata con 'window.selectItem(objeto)' y actualizacion del menu contextual.
    3. Reset de Selector de Archivos:
       - 'e.target.value = ""' garantiza que re-seleccionar el mismo archivo dispare el evento 'change'.
-   4. Preservacion absoluta de la reactividad de capas, orden Z (LightBurn style) y arranque unificado.
+   4. Preservacion absoluta de la reactividad de capas, orden Z y arranque unificado.
    ========================================================================= */
 
 import "./modules/selection.js";
@@ -1316,7 +1316,7 @@ function pasteSelected() {
 }
 window.pasteSelected = pasteSelected;
 
-// Gestion e Insercion de Z-Index Inteligente por Colision Espacial (LightBurn Style)
+// Gestion e Insercion de Z-Index Inteligente por Colision Espacial
 function isMockupOrUIItem(item) {
   let curr = item;
   while (curr) {
@@ -2559,7 +2559,7 @@ async function bootstrapEKKO() {
     }
     designLayer.activate();
 
-    // 4. Observar cambios de tamaño del lienzo estilo Canva/Figma (ResizeObserver)
+    // 4. Observar cambios de tamaño del lienzo con ResizeObserver
     if (typeof ResizeObserver !== "undefined") {
       const observer = new ResizeObserver(entries => {
         for (let entry of entries) {
@@ -2607,7 +2607,7 @@ async function bootstrapEKKO() {
       console.error("[EKKO BOOTSTRAP] Error al acoplar controles de zoom y atajos de teclado:", err);
     }
 
-    // 7. Cargar la barra de herramientas avanzada (Canva-style)
+    // 7. Cargar la barra de herramientas avanzada (estilo editor)
     if (typeof initProControls === "function") {
       try {
         if (!window.ekkoProControlsInitialized) {
