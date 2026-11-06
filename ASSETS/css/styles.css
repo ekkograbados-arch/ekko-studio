@@ -1310,13 +1310,13 @@ body,
 /* =========================================================================
    EKKO STUDIO - VENTANA EDITAR FONDO
    ---------------------------------------------------------------------
-   Panel vertical a la derecha + lienzo, como el "Editar recorte" de
-   PhotoRoom. Antes era una tira horizontal que cruzaba el lienzo y tapaba la
+   Panel vertical a la derecha + lienzo, dedicado a editar el recorte.
+   Antes era una tira horizontal que cruzaba el lienzo y tapaba la
    foto.
 
    El lienzo de la ventana dibuja la foto con lo QUITADO como un TABLERO DE
    TRANSPARENCIA (cuadros) y un fantasma tenue de la foto original. Es la
-   misma senal que usan PhotoRoom y Photoshop: cuadros = no hay imagen. El
+   misma convención de señalización que usan las apps de retoque: cuadros = no hay imagen. El
    sujeto que queda se ve a color pleno, asi que se lee de un vistazo que se
    quito y que se restauro, sin parches blancos ni negros.
    ========================================================================= */
@@ -1379,7 +1379,7 @@ body,
     font-size: 22px;
     transition: border-color .12s ease, background .12s ease, color .12s ease;
 }
-/* Check en la herramienta ACTIVA, como en PhotoRoom.
+/* Check en la herramienta ACTIVA, como en las apps de retoque.
    Va en CSS y no en el HTML a proposito: asi no hay un icono de mas que se
    pueda desincronizar. Aparece SOLO cuando el boton tiene .is-activo, que es
    la misma clase que ya usa marcarPincelActivo(). */
@@ -1456,7 +1456,7 @@ input.vfond__pista[type="range"] { margin: 0; width: 100%; accent-color: #6d5cf0
 /* ==========================================================================
    FONDO Y SOMBRA DE CONTACTO
    --------------------------------------------------------
-   Lo que PhotoRoom llama "Background". Son controles de la seccion Fondo de
+   El fondo sustituto (reemplazo de "Background"). Son controles de la seccion Fondo de
    la ventana de retoque. La visibilidad de cada fila la decide el JS con el
    atributo `hidden`: por eso cada regla de display va acompañada de su
    `[hidden]`, si no un `display:flex` ganaria y la fila quedaria visible
@@ -1519,7 +1519,7 @@ input.vfond__pista[type="range"] { margin: 0; width: 100%; accent-color: #6d5cf0
 .vfond__btn:hover { background: #262b35; }
 .vfond__btn:focus-visible { outline: 2px solid #7aa7ff; outline-offset: 2px; }
 /* Deshacer/Rehacer se apagan cuando ya no queda nada en esa direccion, igual
-   que en Photoshop: el boton muestra si hay historial antes de apretarlo. */
+   que en los editores gráficos: el boton muestra si hay historial antes de apretarlo. */
 .vfond__btn:disabled { opacity: .42; cursor: default; }
 .vfond__btn:disabled:hover { background: #1e222a; }
 .vfond__btn.vf--ok { background: #6d5cf0; border-color: #6d5cf0; color: #fff; }
