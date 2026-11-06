@@ -5,10 +5,10 @@ Ruta en repositorio: ASSETS/js/modules/canvas-pro/contextualMenu.js
 Descripción:
 Gestor unificado del menú contextual, tipografías dinámicas, transformaciones
 y barra de acciones para EKKO Studio.
-Asegura la preservación absoluta de las funciones de apilamiento Z (LightBurn style),
-alineación Canva-style, conversión de texto a curvas, soldadura y despiece.
+Asegura la preservación absoluta de las funciones de apilamiento Z (estilo grabado),
+alineación estilo editor, conversión de texto a curvas, soldadura y despiece.
 Saneado conforme a la Ley del Efecto Rebote para desactivar dobles bindings en español
-y unificar IDs interactivos en inglés Figma/Canva Style.
+y unificar IDs interactivos en inglés (convención del panel).
 ========================================================================= */
 
 import { toggleBold, toggleItalic, toggleUnderline, weldText, applyTextCurve, applyTextSpacing, applyObjectSpacing, loadDynamicFonts, textFontSize, isTextOwner } from "./textToolbar.js";
@@ -96,7 +96,7 @@ function syncGeomBaseDeep(item, delta) {
 /**
  * Duplica un solo objeto de diseño de manera independiente (coherencia de matrices)
  * @param {paper.Item} targetItem El elemento original a duplicar
- * @param {paper.Point} offset Vector de desfase acumulativo (LightBurn Style)
+ * @param {paper.Point} offset Vector de desfase acumulativo (apilado)
  * @returns {paper.Item|null} El nuevo objeto duplicado e independiente
  */
 export function duplicateSingleItem(targetItem, offset = new paper.Point(20, 20)) {
@@ -641,8 +641,8 @@ function dispatchTextCurve(options = {}) {
     window.liveTextSpacing = liveTextSpacing;
 
 export function initContextualMenu() {
-    /* RUEDA DEL MOUSE EN TODAS LAS CAJAS NUMERICAS. En Canva, Office y
-       LightBurn cualquier casillero numérico responde a la rueda: un paso
+    /* RUEDA DEL MOUSE EN TODAS LAS CAJAS NUMERICAS. En Office y
+       los editores de grabado cualquier casillero numérico responde a la rueda: un paso
        por muesca (shift = diez pasos). Un solo listener delegado cubre TODAS
        las cajas presentes y futuras. El 'input' dispara la respuesta en vivo
        de cada herramienta; el 'change' llega recien cuando la rueda para
