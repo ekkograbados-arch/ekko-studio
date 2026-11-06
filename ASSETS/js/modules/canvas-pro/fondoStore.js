@@ -11,7 +11,7 @@
      "La edicion de esta imagen se perdió al recargar la página.
       Quitá el fondo de nuevo para retocarla."
 
-   y el cliente perdia el recorte y los retoques. Photoshop y PhotoRoom no
+   y el cliente perdia el recorte y los retoques. Los editores de retoque no
    hacen eso: la edicion sigue abierta aunque se cierre el programa.
 
    Por que IndexedDB y no el JSON de la escena:
