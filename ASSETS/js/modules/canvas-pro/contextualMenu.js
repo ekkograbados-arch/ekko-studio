@@ -641,7 +641,7 @@ function dispatchTextCurve(options = {}) {
     window.liveTextSpacing = liveTextSpacing;
 
 export function initContextualMenu() {
-    /* RUEDA DEL MOUSE EN TODAS LAS CAJAS NUMERICAS. En Office y
+    /* RUEDA DEL MOUSE EN TODAS LAS CAJAS NUMERICAS. En los editores comunes y
        los editores de grabado cualquier casillero numérico responde a la rueda: un paso
        por muesca (shift = diez pasos). Un solo listener delegado cubre TODAS
        las cajas presentes y futuras. El 'input' dispara la respuesta en vivo
