@@ -8,7 +8,7 @@
  *
  * RONDA 9 — LÍNEA COMO POLILÍNEA
  * Línea dejó de ser un arrastre de dos puntos: ahora es polilínea como en
- * AutoCAD (un clic por vértice, banda elástica al puntero) y cierra la silueta
+ * el CAD (un clic por vértice, banda elástica al puntero) y cierra la silueta
  * cuando el clic cae sobre el punto de arranque. Lápiz hace lo mismo: si se
  * suelta sobre su propio arranque el camino queda closed, no corte abierto.
  *
@@ -63,7 +63,7 @@ let toolPrevio = null;
 let ancla = null;
 let preview = null;
 let puntosLapiz = [];
-/* Vértices ya confirmados de la polilínea (Línea, al modo AutoCAD). El ultimo
+/* Vértices ya confirmados de la polilínea (Línea, al modo CAD). El ultimo
    no está en la lista hasta que el usuario lo suelta o hace el siguiente clic;
    la banda elástica lo dibuja aparte. */
 let puntosPolilinea = [];
@@ -538,10 +538,10 @@ function dibujarPreview(evento) {
 }
 
 /* ---------------------------------------------------------------- */
-/* POLILÍNEA (Línea, al modo AutoCAD)                               */
+/* POLILÍNEA (Línea, al modo CAD)                               */
 /* ---------------------------------------------------------------- */
 /* Línea dejó de ser "un arrastre, un segmento": ahora cada clic clava un
-   vértice y la banda elástica persigue al puntero, como en AutoCAD/CAD.
+   vértice y la banda elástica persigue al puntero, como en el CAD.
    Tres salidas, y las tres son las que el usuario ya conoce:
    - volver al punto de arranque y hacer clic => silueta CERRADA (lo que pidió);
    - doble clic o Enter => termina ABIERTA (línea de corte);
@@ -550,7 +550,7 @@ function dibujarPreview(evento) {
    arrastre y no hay nada que encadenar. */
 
 function puntoLibre(evento) {
-    /* Shift en la polilínea es el Ortho de AutoCAD: el vértice se clava en 0°,
+    /* Shift en la polilínea es el Ortho del CAD: el vértice se clava en 0°,
        45° o 90° respecto del anterior, conservando el largo. Se calcula contra
        el último vértice, no contra el origen, así cada tramo puede ir derecho. */
     const ultimo = puntosPolilinea[puntosPolilinea.length - 1];
@@ -816,7 +816,7 @@ function porTecla(evento) {
         desactivar();
         return;
     }
-    /* Enter remata la polilínea, como en AutoCAD. Solo cuando ya hay trazo: sin
+    /* Enter remata la polilínea, como en el CAD. Solo cuando ya hay trazo: sin
        vértices no hay nada que guardar y el botón sigue esperando el primer
        clic. */
     if ((evento.key === "Enter" || evento.key === "Return")
