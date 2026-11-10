@@ -108,6 +108,166 @@ function simplifyClosed(points, tolerance) {
     return out;
 }
 
+/* ------------------------------------------------------------------
+   SUAVIDAD DE LA SILUETA (el control Suavidad del panel de Contorno).
+
+   El control venia reducido a "menos nodos" (Douglas-Peucker). Medido con
+   lab/probe-contorno62.mjs sobre DR_bn.png y 8 SIN FONDO.png: bajar nodos NO
+   alisa nada — la barra del 3 al 10 no cambiaba el borde y esa es exactamente
+   la queja del cliente ("las barras deslizables no hacen nada"). Lo que ve el
+   ojo y lo que corta el laser es la FORMA de la frontera, asi que la Suavidad
+   trabaja sobre la silueta con un par de difusion Taubin (λ fuerte / μ
+   negativo), que quita el diente de alta frecuencia sin encoger la pieza.
+
+   LA LEY DE LA BANDA (medida, es lo que acota el motor): con Posicion
+   Exterior la banda pintada es [max(borde de la pieza, silueta - grosor),
+   silueta + grosor]. Por lo tanto:
+     - una deriva HACIA AFUERA de la silueta ensancha el collar en la misma
+       cantidad y, pasada el grosor, lo despega de la pieza;
+     - una deriva HACIA ADENTRO lo adelgaza, pero sigue pegada.
+   O sea el presupuesto de la barra tiene que ser una FRACCION DEL GROSOR, no
+   del tamano de la pieza: con grosor 12 y nivel 10 el borde se mueve como
+   mucho 1,2 unidades (10 % del grosor), y el collar sigue midiendo 12.
+
+   El presupuesto se mide sobre la media local en una ventana del ancho del
+   collar (baja frecuencia = lo que despega), no punto a punto: medir punto a
+   punto se lo comia un unico corte de esquina y la barra volvia a quedar
+   inerte. Y se proyecta en CADA PASADA (no una mezcla final), asi el nivel
+   compra pasadas de alisado reales hasta que el presupuesto se agota.
+   ------------------------------------------------------------------ */
+function suavizarPuntosCerrados(points, nivel, grosor) {
+    const source = points || [];
+    if (!(nivel > 0) || source.length < 7) return source;
+    const cerrado = source[0].getDistance(source[source.length - 1]) <= 1e-9;
+    const pts = cerrado ? source.slice(0, -1) : source.slice();
+    if (pts.length < 6) return source;
+    const n = pts.length;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    pts.forEach(pt => {
+        if (pt.x < minX) minX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y > maxY) maxY = pt.y;
+    });
+    const diagonal = Math.hypot(maxX - minX, maxY - minY);
+    if (!(diagonal > 0)) return source;
+    const nivelC = Math.min(10, nivel);
+    // Tope de la frontera: fraccion del grosor (ley de la banda), y nunca mas
+    // de diagonal/400 por nivel para piezas sin grosor definido.
+    const topeSilueta = (diagonal * nivelC) / 400;
+    const tope = grosor > 0 ? Math.min(topeSilueta, (grosor * nivelC) / 100) : topeSilueta;
+    // Techo del PEOR punto (una esquina puede moverse mas que el promedio, pero
+    // jamas mas de un tercio del grosor: pasado eso el collar se corta).
+    const techo = grosor > 0
+        ? Math.min(tope * 3, grosor * (0.1 + nivelC / 500))
+        : tope * 3;
+    const LAM = 0.5, MU = -0.53;
+    let largo = 0;
+    for (let i = 0; i < n; i += 1) {
+        const q = pts[(i + 1) % n];
+        largo += Math.hypot(q.x - pts[i].x, q.y - pts[i].y);
+    }
+    const paso = largo / n;
+    const ventana = Math.max(2, Math.min(24, Math.round((grosor > 0 ? grosor : diagonal / 40) / (2 * paso))));
+    const MAX_PASADAS = 24 + 8 * Math.round(nivelC);
+    const ox = new Float64Array(n), oy = new Float64Array(n);
+    for (let i = 0; i < n; i += 1) { ox[i] = pts[i].x; oy[i] = pts[i].y; }
+    const mover = (xs, ys, factor) => {
+        const nx = new Float64Array(n), ny = new Float64Array(n);
+        for (let i = 0; i < n; i += 1) {
+            const a = (i - 1 + n) % n, b = (i + 1) % n;
+            nx[i] = xs[i] + factor * ((xs[a] + xs[b]) / 2 - xs[i]);
+            ny[i] = ys[i] + factor * ((ys[a] + ys[b]) / 2 - ys[i]);
+        }
+        return [nx, ny];
+    };
+    // Media local con VENTANADA PAR (2*ventana puntos, del i-ventana al
+    // i+ventana-1). Con impar, una escalera de calco — que alterna +/- un
+    // diente cada punto — deja un residuo de aliasing de ~20 % del diente en
+    // la propia "frontera": el presupuesto de la banda se lo comia ese artificio
+    // y la barra quedaba muerta en los niveles bajos con collar grueso (medido:
+    // nivel 1 / grosor 8 bajaba solo 20 % de la energia). Con ventanada par el
+    // diente Nyquist integra a CERO y lo que queda medido es la deriva real de
+    // la frontera, que es lo que despega el collar.
+    const mediaVentana = (xs, ys) => {
+        const mx = new Float64Array(n), my = new Float64Array(n);
+        const k = 2 * ventana;
+        let sx = 0, sy = 0;
+        for (let j = -ventana; j < ventana; j += 1) { const idx = ((j % n) + n) % n; sx += xs[idx]; sy += ys[idx]; }
+        for (let i = 0; i < n; i += 1) {
+            mx[i] = sx / k; my[i] = sy / k;
+            const sale = ((i - ventana) % n + n) % n, entra = (i + ventana) % n;
+            sx += xs[entra] - xs[sale]; sy += ys[entra] - ys[sale];
+        }
+        return [mx, my];
+    };
+    const mediaBase = mediaVentana(ox, oy);
+    const omx = mediaBase[0], omy = mediaBase[1];
+    // EXCURSION del propio punto contra la media local de la frontera: eso es
+    // su diente. El techo punto a punto NO puede ser una fraccion del grosor a
+    // secas — con grosor 8 eso corta 0,8 unidades y un diente de calco mide
+    // 1,25: la escalera no se puede borrar sin mover cada punto MAS que ese
+    // tope, y la barra vuelve a quedar inerte (la queja original). Lo que
+    // despegar el collar es la FRONTERA (baja frecuencia), y esa ya la acota
+    // el presupuesto de la media ventana. Cada punto, entonces, puede moverse
+    // hasta 1,6 x su propio diente: sobra para borrarlo, y ni un corte de
+    // esquina escapa porque su excursion contra la media tambien es su diente.
+    const excursion = new Float64Array(n);
+    for (let i = 0; i < n; i += 1) excursion[i] = Math.hypot(ox[i] - omx[i], oy[i] - omy[i]);
+    const medida = (xs, ys) => {
+        let max = 0;
+        for (let i = 0; i < n; i += 1) {
+            const d = Math.hypot(xs[i] - ox[i], ys[i] - oy[i]);
+            if (d > max) max = d;
+        }
+        const mm = mediaVentana(xs, ys);
+        const d = new Float64Array(n);
+        for (let i = 0; i < n; i += 1) d[i] = Math.hypot(mm[0][i] - omx[i], mm[1][i] - omy[i]);
+        const orden = Array.prototype.slice.call(d).sort((p, q) => p - q);
+        return { p95: orden[Math.min(n - 1, Math.floor(n * 0.95))], max };
+    };
+    // PROYECCION por pasada: recorta cada punto a su techo a lo largo del rayo
+    // original y despues escala en bloque si el P95 de la frontera pasa del
+    // tope. Sin esto el presupuesto se gastaba en una sola pasada y la barra
+    // no suavizaba nada de la mitad para arriba.
+    const proyectar = (candX, candY) => {
+        const px = new Float64Array(n), py = new Float64Array(n);
+        for (let i = 0; i < n; i += 1) {
+            const dx = candX[i] - ox[i], dy = candY[i] - oy[i];
+            const d = Math.hypot(dx, dy);
+            const cap = Math.max(techo, 1.6 * excursion[i]);
+            const f = d > cap ? cap / d : 1;
+            px[i] = ox[i] + dx * f; py[i] = oy[i] + dy * f;
+        }
+        const m = medida(px, py);
+        if (m.p95 > tope) {
+            const f = tope / m.p95;
+            for (let i = 0; i < n; i += 1) {
+                px[i] = ox[i] + (px[i] - ox[i]) * f;
+                py[i] = oy[i] + (py[i] - oy[i]) * f;
+            }
+        }
+        return [px, py];
+    };
+    let xs = ox, ys = oy;
+    for (let pasada = 0; pasada < MAX_PASADAS; pasada += 1) {
+        const intermedia = mover(xs, ys, LAM);
+        const cand = mover(intermedia[0], intermedia[1], MU);
+        const nueva = proyectar(cand[0], cand[1]);
+        let avance = 0;
+        for (let i = 0; i < n; i += 1) {
+            const d = Math.hypot(nueva[0][i] - xs[i], nueva[1][i] - ys[i]);
+            if (d > avance) avance = d;
+        }
+        xs = nueva[0]; ys = nueva[1];
+        if (!(avance > 1e-7)) break;
+    }
+    const out = [];
+    for (let i = 0; i < n; i += 1) out.push(new paper.Point(xs[i], ys[i]));
+    if (cerrado) out.push(out[0].clone());
+    return out;
+}
+
 /** Tolerancia de simplificado previo al offset: 0,25% de la pieza. Una
  *  silueta de 240 unidades se simplifica a ~0,6 unidades de error maximo;
  *  una caja dibujada a mano no pierde ni una esquina. */
@@ -421,9 +581,15 @@ export function buildOutlineGeometry(source, width = 2, side = "center", radius 
             // El borde de trabajo es el original corrido por el Radio. El
             // engrosamiento se mide desde ahi, no desde el borde original.
             const limpio = simplifyClosed(contour.points, simplifyTolerance(contour.points));
-            const working = (Math.abs(offset) > EPSILON)
-                ? (offsetPolygon(limpio, offset) || limpio)
+            // Suavidad sobre la SILUETA, antes del Radio y del engrosado: es
+            // la frontera la que tiene que quedar lisa, y el offset de la
+            // banda hereda la lisura dos veces (borde interior y exterior).
+            const suavizado = smooth > 0
+                ? (suavizarPuntosCerrados(limpio, smooth, amount) || limpio)
                 : limpio;
+            const working = (Math.abs(offset) > EPSILON)
+                ? (offsetPolygon(suavizado, offset) || suavizado)
+                : suavizado;
             const base = track(makeClosedPath(working));
             const firstOffset = track(makeClosedPath(offsetPolygon(working, medio)));
             const secondOffset = track(makeClosedPath(offsetPolygon(working, -medio)));
