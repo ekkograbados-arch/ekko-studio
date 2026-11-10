@@ -479,8 +479,13 @@ export const TOOLS = {
   },
   solidHole: {
     label: "Sólidos ⇄ Huecos",
-    // Mezcla de sólidos y huecos: un clic intercambia los papeles.
-    active: s => s.count > 0 && s.onlyVectorish && s.mixedRoles
+    // Un clic intercambia los papeles: sólidos -> huecos y huecos -> sólidos,
+    // también cuando la selección es uniforme (solo sólidos o solo huecos).
+    // invertSelectionRoles ya resuelve cada item por su rol, el freno
+    // exclusivo de mixedRoles dejaba el botón muerto para las selecciones
+    // que el cliente realmente usa (ej: sueltas SARA caladas y querés
+    // solidificarlas sin mezclar con un sólido).
+    active: s => s.count > 0 && s.onlyVectorish
   },
 
   // --- Geometria (edicion de UN objeto: con varios se ocultan) ---
