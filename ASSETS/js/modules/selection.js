@@ -701,6 +701,40 @@ function isMockupOrUI(item) {
 }
 
 /**
+ * Figura visible mas alta bajo el punto (sin marcos, tiradores, cotas ni
+ * mockup). La usa el onMouseDown para decidir si un click cerca del marco de
+ * seleccion pertenece a una figura VECINA: con solapes, el hit plano podia
+ * resolver la figura seleccionada (que cubre) y el tirador le robaba el
+ * click otra vez. El topmost refleja lo que el cliente realmente ve.
+ */
+function figuraBajoElTirador(point) {
+  try {
+    const zoomv = (paper.view && paper.view.zoom) || 1;
+    // El marco de seleccion (con sus tiradores) es un Group real dentro de
+    // designLayer, asi que paper lo incluye en el hitTest y tapaba siempre.
+    // Con match se rechaza el overlay y paper sigue bajando la pila hasta la
+    // figura visible real mas alta que hay debajo del tirador.
+    const esMemberDeOverlay = (item) => {
+      for (let p = item; p; p = p.parent) {
+        if (isMockupOrUI(p)) return true;
+        const pd = p.data || {};
+        if (pd.isSelectionBox || pd.isHandle || pd.isNodeHandle || pd.isCurveHandle ||
+            pd.isMeasurement || pd.isSmartGuide) return true;
+      }
+      return false;
+    };
+    const hit = paper.project.hitTest(point, {
+      fill: true, stroke: true, segments: true,
+      tolerance: 8 / zoomv,
+      match: (h) => !!h.item && !esMemberDeOverlay(h.item)
+    });
+    const it = hit && hit.item;
+    if (!it) return null;
+    return getPublicOwner(it) || it;
+  } catch (e) { return null; }
+}
+
+/**
  * Construye la cadena de ownership que debe acompañar a cada interacción.
  * No sustituye owners ni modifica selección: es la única descripción pública
  * que consume el runtime probe y los diagnósticos de interacción.
@@ -923,18 +957,44 @@ const _initSelectionTool = function() {
     }
 
     if (hitResult) {
-      const hType = hitResult.item.data.handleType;
-      if (hType === 'rot') {
-        if (!window.selectedItem) return;
-        rotationController.startPointer(event, {
-          selectedItem: window.selectedItem,
-          selectedItems: window.selectedItems || [],
-          selectionBox: window.selectionBoxGroup,
-          getContentItem: getPublicOwner, getTransformTarget, toParentPoint
+      // Los tiradores se detectan con tolerancia 12px y el marco es más
+      // grande que la figura (incluye el chip de etiqueta), así que el click
+      // sobre la figura VECINA caía dentro de la zona del tirador y el gesto
+      // lo robaba: jamás se podía sumar otra figura con click o shift+click
+      // después de una primera selección (caso real: letras caladas juntas —
+      // Sólidos⇄Huecos y las booleanas quedaban sin selección múltiple).
+      // Regla: si bajo el punto hay una figura (topmost sin overlays) que NO
+      // está en la selección, el click es de esa figura. Si ES la figura ya
+      // seleccionada y el usuario aprieta Shift, es un toggle-out (quitar la
+      // selección), no un gesto del tirador: en figuras angostas su propio
+      // centro queda a menos de 12px del tirador lateral.
+      const shiftDown = !!(event.modifiers && event.modifiers.shift);
+      const vecinoBajoTirador = figuraBajoElTirador(event.point) || findItemAtPoint(event.point);
+      if (vecinoBajoTirador) {
+        const vecinoTarget = getTransformTarget(vecinoBajoTirador) || vecinoBajoTirador;
+        const yaEnSeleccion = (window.selectedItems || []).some(sel => {
+          if (sel === vecinoBajoTirador) return true;
+          const selTarget = getTransformTarget(sel);
+          return !!selTarget && selTarget === vecinoTarget;
         });
-        return;
+        if (!yaEnSeleccion) hitResult = null;
+        else if (shiftDown && (window.selectedItems || []).length === 1) hitResult = null;
       }
-
+    }
+    const hType = hitResult ? hitResult.item.data.handleType : null;
+    if (hType === 'rot') {
+      if (!window.selectedItem) return;
+      rotationController.startPointer(event, {
+        selectedItem: window.selectedItem,
+        selectedItems: window.selectedItems || [],
+        selectionBox: window.selectionBoxGroup,
+        getContentItem: getPublicOwner, getTransformTarget, toParentPoint
+      });
+      return;
+    }
+    /* Si el tirador fue anulado porque el click es de una figura vecina,
+       hType queda null y el flujo cae al paso 2 (selección directa). */
+    if (hType) {
       // Tirador de redimensionamiento
       window.resizeActive = true;
       window.resizeHandleType = hType;
@@ -1500,7 +1560,21 @@ const _initSelectionTool = function() {
     }
 
     if (hitResult) {
-      const hType = hitResult.item.data.handleType;
+      // Cursor coherente con onSelectTool/onMouseDown: si bajo el punto hay
+      // un elemento seleccionable que NO pertenece a la seleccion actual, el
+      // tirador con tolerancia 12px no debe anunciar redimension/rotacion
+      // (el click va a seleccionar la figura vecina, no al tirador).
+      const vecinoBajoTirador = figuraBajoElTirador(event.point) || findItemAtPoint(event.point);
+      if (vecinoBajoTirador) {
+        const vecinoTarget = getTransformTarget(vecinoBajoTirador) || vecinoBajoTirador;
+        const yaEnSeleccion = (window.selectedItems || []).some(sel => {
+          if (sel === vecinoBajoTirador) return true;
+          const selTarget = getTransformTarget(sel);
+          return !!selTarget && selTarget === vecinoTarget;
+        });
+        if (!yaEnSeleccion) hitResult = null;
+      }
+      const hType = hitResult ? hitResult.item.data.handleType : null;
       if (hType === 'rot') {
         canvas.style.cursor = 'grab';
         return;
