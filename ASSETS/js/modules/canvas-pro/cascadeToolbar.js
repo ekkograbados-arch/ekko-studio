@@ -36,7 +36,7 @@
                     desarma y ningun control se duplica.
      BOTON HEROE    En cada grupo, el primer boton visible se agiganta (icono
                     arriba del nombre, 44px) y sus companeros quedan en pila de
-                    21px al lado: la jerarquia de Office, dicha con tamano y no
+                    21px al lado: la jerarquia de la cinta, dicha con tamano y no
                     con sombras.
      BARRA EMERGENTE El mismo lenguaje, pero como ATAJO del objeto: una sola
                     fila (nowrap), SOLO ICONOS (el nombre queda en la cinta y en
@@ -54,7 +54,7 @@
      ALTURA FIJA    La banda de la cinta mide siempre 66px (44 de cuerpo +
                     etiqueta): seleccionar un objeto ya no corre el lienzo.
      PIEL PLANA     Nivel 0 (la tira) conserva el vidrio; la cinta y la barra
-                    emergente se aplanan como en Word/Office: sin textura, sin
+                    emergente se aplanan como en la cinta: sin textura, sin
                     blur, sin las 6 capas de sombra por boton, radio chico,
                     hover de relleno y el acento reservado al boton con estado.
                     Las pestanas pasan de pastilla a solapa con la linea de
@@ -765,7 +765,7 @@ function estilos() {
             color: #eef2f9 !important;
             box-shadow: 0 14px 34px rgba(0,0,0,0.45) !important;
         }
-        /* DIENTADO de Word: el panel de parametros (nivel 3) es un popover
+        /* DIENTADO de la cinta: el panel de parametros (nivel 3) es un popover
            pegado bajo la herramienta que lo abrio, no un panel flotando en el
            medio del lienzo. La pestañita dice DE QUE boton colgo, que es justo
            lo que se pierde cuando el panel vive centrado. --ekko-ancla-x lo
@@ -803,7 +803,7 @@ function estilos() {
             color: rgba(226,232,240,0.8);
             font-size: 12.5px;
             padding: 5px 12px;
-            /* Word: la pestana NO es una pastilla, es una solapa plana con el
+            /* Cinta: la pestana NO es una pastilla, es una solapa plana con el
                acento abajo. Radio 999 hacia de la tira un rosario de chips; el
                borde inferior de 2px es lo que dice "esta capa esta abierta" y
                ademas apunta hacia la fila de herramientas, que es lo gobierna. */
@@ -880,11 +880,11 @@ function estilos() {
         #ekkoCascadeTools .ekko-fila-pista { order: 99; }
         body[data-modo="claro"] #ekkoCascadeTools .ekko-fila-pista { color: rgba(46,58,89,0.55); }
 
-        /* --- CUERPO DEL GRUPO EN COLUMNA QUE ENVUELVE (el dibujo de Office) ---
+        /* --- CUERPO DEL GRUPO EN COLUMNA QUE ENVUELVE (el dibujo de la cinta) ---
                flex-flow: column wrap sobre un alto fijo de 44px: el boton
                HEROE (44) ocupa su columna entero y los companeros (21 + 2 de
                gap) se apilan de a dos por columna y siguen de largo en la
-               columna siguiente. Es exactamente el molde de Word/Office
+               columna siguiente. Es exactamente el molde de la cinta
                (uno grande + pila de chicos) sin crear, clonar ni duplicar
                ningun nodo: solo cambia como se reparten los que ya existen.
                La guarda :not(.is-collapsed) es a propósito: deja que el
@@ -951,7 +951,7 @@ function estilos() {
         }
 
 
-        /* --- MOLDE PLANO DE LOS BOTONES (el aire de Word) ---
+        /* --- MOLDE PLANO DE LOS BOTONES (el aire de la cinta) ---
                Medido sobre ekko-espacio.css: cada boton de la fila llevaba 6
                capas de box-shadow, textura de ruido, blur y radio 12. Sobre la
                tira de inicio eso esta bien (es el nivel 0, la puerta), pero
@@ -984,11 +984,11 @@ function estilos() {
             white-space: nowrap;
             color: rgba(226,232,240,0.9) !important;
         }
-        /* ICONO 13 sobre la misma linea del nombre (el companero de Word). */
+        /* ICONO 13 sobre la misma linea del nombre (el companero del nombre). */
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action .ekko-ic {
             width: 13px; height: 13px;
         }
-        /* --- BOTON HEROE DEL GRUPO (la jerarquia de Office) ---
+        /* --- BOTON HEROE DEL GRUPO (la jerarquia de la cinta) ---
                El primer boton visible de cada grupo se agiganta: icono arriba,
                nombre abajo (2 lineas si hace falta) y los 44px enteros de la
                columna. Es lo primero que se busca con la mirada cuando el
@@ -1056,7 +1056,7 @@ function estilos() {
             transform: none !important;
             background: rgba(255,255,255,0.2) !important;
         }
-        /* Estado ON: en Word el boton presionado se rellena, no flota. Un solo
+        /* Estado ON: en la cinta el boton presionado se rellena, no flota. Un solo
            lenguaje de acento para toda la cascada (el mismo rosa de la tira). */
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action.active,
         #topBar.ekko-cascade #ekkoCascadeTools .btn-action.is-on,
@@ -1404,7 +1404,7 @@ function montarStrip() {
        cliente lo leyó mal: "no se entiende dónde empiezan y terminan las
        pestañas". Mezclar pestañas (Inicio / Texto = en qué contexto estoy
        parado) con acciones (Cargar = qué hago) en la misma fila borra la
-       frontera. En Word la fila de pestañas son SOLO pestañas y toda acción
+       frontera. En la cinta la fila de pestañas son SOLO pestañas y toda acción
        baja a la cinta, así que Cargar Imagen/SVG, Agregar Texto y QR se van al
        grupo CREAR de la cinta (ui/ribbonLayout.js ya los agrupa ahí por ser el
        bloque original de #topBar: basta con NO sacarlos). La tira pasa a ser
@@ -2092,7 +2092,7 @@ function montarBarraEmergente() {
     });
     fb.appendChild(mas);
 
-    // Fila nowrap: la rueda desplaza en horizontal (AutoCAD) en vez de hacer
+    // Fila nowrap: la rueda desplaza en horizontal (CAD) en vez de hacer
     // zoom con la barra llena.
     fb.addEventListener("wheel", (ev) => {
         if (fb.scrollWidth <= fb.clientWidth) return;
