@@ -369,12 +369,22 @@ function isBooleanOperand(owner) {
 }
 
 function booleanOperandOwners() {
+    // Los calados SIEMPRE son operandos validos para el conteo/gate: el
+    // cliente pide booleanas con cualquier vector editable por nodos, y los
+    // textos vectorizados o piezas caladas tambien entran.
+    // performBooleanOperation materializa cada calado (el anillo del hueco
+    // pasa a ser materia) justo antes de operar; aca solo se CUENTA, sin
+    // efectos secundarios (la misma lista alimenta el gate, la
+    // previsualizacion y la ejecucion, asi ninguna miente a las otras).
     const seen = new Set();
     return getSelectedItems()
         .map(unwrap)
-        .filter(isBooleanOperand)
         .filter(owner => {
-            if (seen.has(owner)) return false;
+            if (!owner || seen.has(owner)) return false;
+            if (owner.className !== "Path" && owner.className !== "CompoundPath") return false;
+            const data = owner.data || {};
+            if (data.mockup || data.isMask || data.isFusionMask || data.isSmartFusion) return false;
+            try { if (isProductElement(owner)) return false; } catch (_) { return false; }
             seen.add(owner);
             return true;
         });
@@ -423,9 +433,9 @@ function performBooleanOperation(operation) {
     const spec = BOOLEAN_OPERATIONS[operation];
     if (!spec) return null;
 
-    const owners = booleanOperandOwners();
-    if (owners.length < 2) {
-        console.warn("[EKKO BOOLEAN] Se necesitan 2 vectores solids. Los calados, el mockup y las mascaras no participan.");
+    const ownersBrutos = booleanOperandOwners();
+    if (ownersBrutos.length < 2) {
+        console.warn("[EKKO BOOLEAN] Se necesitan al menos 2 vectores. El mockup y las mascaras no participan.");
         return null;
     }
 
@@ -438,6 +448,34 @@ function performBooleanOperation(operation) {
         if (ownsHistory) window.cancelHistoryTransaction?.(reason || "boolean-failed");
         return null;
     };
+
+    /* Materializa los calados ANTES de operar: el anillo del hueco pasa a ser
+       materia con su relleno restaurado (convertSelectionToSolid reemplaza el
+       item, igual que el boton Rellenar). El pedido textual del cliente: las
+       booleanas deben funcionar con cualquier vector editable por nodos, con
+       solidos y huecos incluidos. Materializar DENTRO de la transaccion
+       garantiza que si la operacion falla, el rollback devuelve el hueco
+       original intacto. */
+    const owners = [];
+    const yaEnLaLista = new Set();
+    for (const owner of ownersBrutos) {
+        let kind = null;
+        try { kind = semanticKind(owner); } catch (_) { kind = null; }
+        let efectivo = owner;
+        if (kind === VECTOR_KIND.HOLE) {
+            try {
+                const materializado = convertSelectionToSolid(owner);
+                if (!materializado) continue;
+                efectivo = materializado;
+            } catch (_) { continue; }
+        }
+        if (yaEnLaLista.has(efectivo)) continue;
+        yaEnLaLista.add(efectivo);
+        owners.push(efectivo);
+    }
+    if (owners.length < 2) {
+        return rejectBoolean("boolean-operands-insufficient");
+    }
 
     const ordered = owners.slice().sort(compareBooleanStack);
     const base = ordered[0];
