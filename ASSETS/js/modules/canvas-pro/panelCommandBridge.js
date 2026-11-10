@@ -376,6 +376,18 @@ function booleanOperandOwners() {
     // pasa a ser materia) justo antes de operar; aca solo se CUENTA, sin
     // efectos secundarios (la misma lista alimenta el gate, la
     // previsualizacion y la ejecucion, asi ninguna miente a las otras).
+    // Regla del dueno: el MOCKUP no participa. Ademas de la marca propia
+    // (data.mockup / isMask), se excluye por ascendencia: una forma que viva
+    // dentro del group del mockup o de una de sus mascaras es parte del
+    // producto, y jamas es material de una booleana.
+    const esMaterialDelMockup = (owner) => {
+        for (let anc = owner && owner.parent; anc && anc !== paper.project; anc = anc.parent) {
+            if (anc === window.currentMockup) return true;
+            const ad = anc.data || {};
+            if (ad.mockup || ad.isMask || ad.isFusionMask || ad.isSmartFusion) return true;
+        }
+        return false;
+    };
     const seen = new Set();
     return getSelectedItems()
         .map(unwrap)
@@ -385,6 +397,7 @@ function booleanOperandOwners() {
             const data = owner.data || {};
             if (data.mockup || data.isMask || data.isFusionMask || data.isSmartFusion) return false;
             try { if (isProductElement(owner)) return false; } catch (_) { return false; }
+            try { if (esMaterialDelMockup(owner)) return false; } catch (_) { return false; }
             seen.add(owner);
             return true;
         });
