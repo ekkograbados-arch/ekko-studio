@@ -10,7 +10,7 @@
    Lo que NO hace, y es importante decirlo: no inventa un formato "de nota de
    voz". Un QR lleva un texto. Lo que el celular haga despues depende del
    link. El dialogo informa que plataforma se va a abrir y, cuando el link es
-   un chat de WhatsApp, aclara que abre el chat pero no reproduce audio. Es
+   un chat de mensajería, aclara que abre el chat pero no reproduce audio. Es
    mejor que el cliente lo sepa antes de grabar que descubrirlo con el celular en
    la mano.
    ========================================================================= */
