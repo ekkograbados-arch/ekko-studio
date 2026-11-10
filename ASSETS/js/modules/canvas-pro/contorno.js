@@ -1410,9 +1410,18 @@ function bandaImagenViva(vinculo, origen, sampled, control, exacto = false, como
         if (rescate) { if (vinculo) vinculo.motivo = null; return rescate; }
         return null;
     }
-    if (!(Number(control.smoothing) > 0)) return base;
-    try { return applySmoothing(base, Number(control.smoothing)) || base; }
-    catch (_) { return base; }
+    /* SUAVIDAD > 0: la banda por campos solo sabe reducir NODOS y reducir
+       nodos no alisa — medido con lab/probe-contorno62.mjs: la barra del 3 al
+       10 no cambiaba el borde pintado, que es literalmente la queja del
+       cliente. El suavizado de verdad vive sobre la SILUETA, dentro del motor
+       vectorial, asi que con Suavidad pedida el preview toma el camino exacto
+       (el mismo del FINAL): preview y resultado coinciden y la barra mueve
+       geometria. Si el exacto no da, se conserva la banda por campos. */
+    if (Number(control.smoothing) > 0) {
+        const exacta = bandaExactaDeImagen(origen, sampled, control, comoLinea);
+        if (exacta) { if (vinculo) vinculo.motivo = null; return exacta; }
+    }
+    return base;
 }
 
 /** PLAN B EXACTO: banda por el motor vectorial sobre la silueta real.
