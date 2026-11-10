@@ -5,10 +5,10 @@
  * extremos del pedazo son los vértices del propio trazo Y los puntos donde lo
  * cruzan otros trazos: así "cortar el segmento que el cliente quiere" no
  * depende de que alguien haya puesto un nodo justo ahí (que es lo que pasa en
- * AutoCAD cuando una línea parte a otra y no hay nodo en la intersección).
+ * el CAD cuando una línea parte a otra y no hay nodo en la intersección).
  *
  *   - clic            -> afuera el pedazo tocado
- *   - Shift + clic    -> partir EN ESE PUNTO sin borrar nada (AutoCAD BREAK):
+ *   - Shift + clic    -> partir EN ESE PUNTO sin borrar nada (BREAK del CAD):
  *                        un cerrado se abre ahí, un abierto se divide en dos
  *   - Esc / el botón  -> salís de la tijera
  *
@@ -481,7 +481,7 @@ function cortarPedazo(camino, owner, desde, hasta) {
     return { tipo: "partido", largo: seQueda.largo, nuevos: creados.length };
 }
 
-/* Shift: partir en el punto tocado sin borrar nada (AutoCAD BREAK). */
+/* Shift: partir en el punto tocado sin borrar nada (BREAK del CAD). */
 function partirEn(camino, owner, tocado) {
     const total = camino.length;
     if (camino.closed) {
