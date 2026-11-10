@@ -511,10 +511,10 @@ async function jpegBlobToPdf(jpegBuffer, anchoPx, altoPx, anchoPt, altoPt) {
 }
 
 /* ---------------- ENVÍO AL TALLER (solo modo taller) ---------------- */
-/* WhatsApp y Drive del taller, sin servidores y sin costo: el archivo se
+/* El chat y la carpeta del taller, sin servidores y sin costo: el archivo se
    descarga con nombre ordenado y se abre el chat / la carpeta para
    adjuntarlo con un arrastre. El navegador solo no puede meter archivos
-   dentro de WhatsApp o Drive, pero deja todo listo a un paso. */
+   dentro de la conversación del taller o de la carpeta compartida, pero deja todo listo a un paso. */
 const EKKO_TALLER_CONTACTO = {
     whatsapp: "5492804719686",
     drive: "https://drive.google.com/drive/folders/1Bt0BAnpn3WCMd9mUCAMnc5Bdg6DxJHqK"
@@ -626,7 +626,7 @@ export async function enviarGrabadoPorWhatsApp(surfaceNames = null, options = {}
     setTimeout(() => {
         try { window.open(`https://wa.me/${EKKO_TALLER_CONTACTO.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank"); } catch (_) {}
     }, 900);
-    notice("Grabado descargado y WhatsApp abierto: adjuntá el archivo SVG en el chat.", { kind: "ok", ms: 8000 });
+    notice("Grabado descargado y el chat abierto: adjuntá el archivo SVG en el chat.", { kind: "ok", ms: 8000 });
     return res;
 }
 
@@ -642,7 +642,7 @@ export function abrirDriveProyectos() {
    pieza con su translate, sin nested svg): el taller corta el lote completo
    de una pasada. Sin marca de agua: el archivo viaja directo al dueño para
    grabar, no es una previsualización. El archivo se descarga y se abre el
-   chat de WhatsApp con el mensaje prellenado: el navegador no puede adjuntar
+   chat del taller con el mensaje prellenado: el navegador no puede adjuntar
    solo, el cliente arrastra el archivo al chat. */
 function leerContactoTaller() {
     // Regla de vinculación: el destino de envío es SIEMPRE EKKO GRABADOS.
@@ -759,7 +759,7 @@ export async function enviarAGrabarEkkoGrabados(surfaceNames = null) {
     setTimeout(() => {
         try { window.open(`https://wa.me/${contacto.whatsapp}?text=${encodeURIComponent(msg)}`, "_blank"); } catch (_) {}
     }, 900);
-    notice(`Listo para enviar: ${filename} (${lote.piezas.length} pieza${lote.piezas.length === 1 ? "" : "s"} en un solo archivo). Adjuntalo en el chat de WhatsApp.`, { kind: "ok", ms: 9000 });
+    notice(`Listo para enviar: ${filename} (${lote.piezas.length} pieza${lote.piezas.length === 1 ? "" : "s"} en un solo archivo). Adjuntalo en el chat del taller.`, { kind: "ok", ms: 9000 });
     return { ok: true, filename, vistas: lote.piezas };
 }
 
