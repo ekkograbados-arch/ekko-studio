@@ -319,14 +319,97 @@ const BOOLEAN_OPERATIONS = Object.freeze({
 const BOOLEAN_MIN_AREA = 1e-6;
 const BOOLEAN_AREA_TOLERANCE = 1e-6;
 
+/* Banda de trazo (stroke -> material relleno) para trazos ABIERTOS sin
+   relleno: paper.js 0.12 no trae outlineStroke, así que se aplanan las
+   curvas y se construye el polígono paralelo a ambos lados con los normales
+   de cada muestra. Devuelve un PathItem de proyecto o null si no hay banda
+   aprovechable. Sirve para que Restar/Interseccion con lineas funcionen con
+   el GROSOR real que el cliente ve pintado. */
+function bandaDeTrazo(item) {
+    try {
+        const grosor = item.strokeWidth || 0;
+        if (grosor <= 0) return null;
+        const half = grosor / 2;
+        const cadenas = [];
+        if (item.hasChildren?.()) {
+            item.children.forEach(ch => {
+                if (ch.className === "Path" && ch.closed === false) cadenas.push(ch);
+            });
+        } else if (item.className === "Path" && item.closed === false) {
+            cadenas.push(item);
+        }
+        if (!cadenas.length) return null;
+        let masForma = null;
+        for (const cad of cadenas) {
+            const copia = cad.clone({ insert: false });
+            copia.applyMatrix = true;
+            try { copia.transform(copia.matrix || new paper.Matrix()); } catch (_) {}
+            copia.applyMatrix = false;
+            copia.matrix = new paper.Matrix();
+            try { copia.flatten(0.4); } catch (_) {}
+            const pts = copia.segments.map(s => s.point.clone());
+            copia.remove?.();
+            if (pts.length < 2) return null;
+            const izquierda = [];
+            const derecha = [];
+            for (let i = 0; i < pts.length; i++) {
+                const a = pts[Math.max(0, i - 1)];
+                const b = pts[Math.min(pts.length - 1, i + 1)];
+                let dx = b.x - a.x, dy = b.y - a.y;
+                const len = Math.hypot(dx, dy) || 1;
+                dx /= len; dy /= len;
+                // normal izquierda de la direccion
+                const nx = -dy, ny = dx;
+                izquierda.push(new paper.Point(pts[i].x + nx * half, pts[i].y + ny * half));
+                derecha.push(new paper.Point(pts[i].x - nx * half, pts[i].y - ny * half));
+            }
+            const banda = new paper.Path({ insert: false, closed: true });
+            banda.moveTo(izquierda[0]);
+            for (let i = 1; i < izquierda.length; i++) banda.lineTo(izquierda[i]);
+            for (let i = derecha.length - 1; i >= 0; i--) banda.lineTo(derecha[i]);
+            banda.closePath();
+            banda.fillColor = item.strokeColor || "#000000";
+            banda.fillRule = "nonzero";
+            if (!masForma) masForma = banda;
+            else {
+                const unida = masForma.unite(banda, { insert: false });
+                try { banda.remove(); } catch (_) {}
+                try { masForma.remove(); } catch (_) {}
+                masForma = unida || masForma;
+            }
+        }
+        return (masForma && Math.abs(masForma.area || 0) > 0) ? masForma : null;
+    } catch (_) { return null; }
+}
+
 function bakeBooleanOperand(item) {
-    const clone = item.clone({ insert: false });
+    let clone = item.clone({ insert: false });
     try {
         const matrix = item.globalMatrix?.clone?.() || clone.matrix?.clone?.();
         clone.applyMatrix = false;
         clone.matrix = new paper.Matrix();
         if (matrix && !matrix.isIdentity()) clone.transform(matrix);
         clone.applyMatrix = true;
+    } catch (_) {}
+    // Un trazo ABIERTO (linea, zigzag, garabato) no tiene interior: para el
+    // kernel su area es 0, de modo que Restar no cambia nada e Interseccion
+    // queda vacia ("no funciona"). El GROSOR del trazo si es material real
+    // para el laser: se convierte en banda (el mismo gesto que ve el cliente
+    // pintado). La misma boca alimenta previsualizacion y ejecucion, asi el
+    // fantasma nunca miente.
+    try {
+        const hijos = Array.isArray(clone.children) ? clone.children : null;
+        const esAbierto = clone.closed === false || (hijos ? hijos.some?.(ch => ch && ch.closed === false) : false);
+        const sinRelleno = !clone.fillColor;
+        const conGrosor = (clone.strokeWidth || 0) > 0;
+        if (esAbierto && sinRelleno && conGrosor) {
+            const banda = bandaDeTrazo(clone);
+            if (banda && Math.abs(banda.area || 0) > BOOLEAN_MIN_AREA) {
+                try { clone.remove?.(); } catch (_) {}
+                return banda;
+            }
+            try { banda?.remove?.(); } catch (_) {}
+        }
     } catch (_) {}
     return clone;
 }
@@ -595,6 +678,19 @@ function performBooleanOperation(operation) {
     try {
         keeper.fillRule = "evenodd";
         keeper.data = { ...(keeper.data || {}), fillRule: "evenodd" };
+    } catch (_) {}
+
+    // Si el propietario era un trazo sin relleno (linea abierta), la geometria
+    // booleana es MATERIAL con area y debe quedar pintada: se respeta el color
+    // con el que se lo vio pintado (su strokeColor). El trazo se anula porque
+    // la banda YA materializa ese mismo trazo; dejar el stroke ensenaria una
+    // linea cruzando la parte que Restar supuestamente saco.
+    try {
+        if (!keeper.fillColor) {
+            const color = keeper.strokeColor || result.fillColor || "#111827";
+            keeper.fillColor = color;
+            try { keeper.strokeColor = null; keeper.strokeWidth = 0; } catch (_) {}
+        }
     } catch (_) {}
 
     // El resultado es una forma nueva: geomBase debe contener la geometría
