@@ -122,7 +122,7 @@ export const PARAM_SPECS = Object.freeze({
         parametros: [
             {
                 id: "grosor", grupo: "Valores", etiqueta: "Grosor de línea",
-                ayuda: "Grosor de la línea del borde. Con 1 sale una línea delgada, como en AutoCAD.",
+                ayuda: "Grosor de la línea del borde. Con 1 sale una línea delgada, como en los programas de dibujo técnico.",
                 tipo: "range", min: 1, max: 40, paso: 1,
                 sufijo: "px", domId: "ctxOutlineWidth",
                 valorActual: 1,
@@ -371,7 +371,7 @@ export function crearAplicador(spec, comando) {
    Botones segmentados (Centro / Exterior / Interior).
 
    No es un desplegable: se ven las tres opciones y se aprieta la que se
-   quiere, como los grupos de la cinta de Word. Menos clics y sin adivinar
+   quiere, como los grupos de la cinta. Menos clics y sin adivinar
    que hay algo escondido.
 
    La rueda tambien los recorre: es la misma idea que en los deslizadores,
@@ -644,7 +644,7 @@ function pintar(comando, recentrar) {
 
     // --- Grupos ---------------------------------------------------------
     // Si el comando declara grupos, los controles se reparten en columnas
-    // separadas por una linea, como los grupos de la cinta de Word: los
+    // separadas por una linea, como los grupos de la cinta: los
     // valores que se ajustan a la izquierda, los botones a la derecha.
     // Si NO declara grupos se dibuja todo en fila, como antes: un comando
     // que no pide grupos no cambia de aspecto.
