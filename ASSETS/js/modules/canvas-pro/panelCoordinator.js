@@ -22,7 +22,7 @@ import "./drawTools.js";
 /* Mismo motivo: el tile TIJERA tiene que existir antes de que ui/ribbonLayout.js
    arme la cinta. */
 import "./cutTool.js";
-/* Niveles "Más usadas" y "Barra fija" (Word). Se engancha a #topBar y a la
+/* Niveles "Más usadas" y "Barra fija" (la cinta). Se engancha a #topBar y a la
    banda #pro-layout-toolbar cuando ya están montadas; no arma botones. */
 import "./ribbonLevels.js";
 /* Los valores de Quitar Fondo (Borde / Suavizar / Halo) como grupo del nivel 2
@@ -166,7 +166,7 @@ function ensureContextSurface() {
  * el pestillo del borde IZQUIERDO (ensureProductsAnchor), del mismo lado
  * donde vive el panel. SIN menu de tres puntos aca: los tres puntos
  * verticales son y solo son "Mas herramientas" (toolbarOverflow.js, al
- * estilo Word/Office).
+ * estilo de cinta).
  * Se construye en JS (con sus estilos) para no depender de HTML/CSS del
  * servidor y para que exista SIEMPRE que se necesite.
  */
@@ -595,7 +595,7 @@ function bindPanelControls() {
     const topCompact = byId("topPanelCompact");
     // topPanelOverflow (los tres puntos de la barra superior) NO se vincula
     // aca: es exclusivamente el boton "Mas herramientas" de toolbarOverflow.js
-    // (estilo Word/Office), que ademas corta los demas listeners del mismo
+    // (estilo de cinta), que ademas corta los demas listeners del mismo
     // clic con stopImmediatePropagation en fase captura. Cualquier binding
     // de paneles a ese boton es codigo muerto y confunde el semantico:
     // tres puntos = herramientas, nunca = ocultar paneles.
