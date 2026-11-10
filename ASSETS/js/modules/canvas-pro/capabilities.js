@@ -14,7 +14,7 @@ import { getPublicOwner, isMockupOrMask, isContainmentWrapper } from "./designGe
 
    Aqui cada herramienta DECLARA que especies y que roles soporta, y la barra
    muestra un boton solo si TODOS los objetos seleccionados lo soportan.
-   Es el mismo criterio de AutoCAD, Word y los editores comunes: nada de casos fijos.
+   Es el mismo criterio de los editores comunes: nada de casos fijos.
    ========================================================================= */
 
 /* =========================================================================
