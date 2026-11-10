@@ -78,7 +78,7 @@ function estilos() {
     st.textContent = `
         /* Cada valor es una fila de 20px: Borde · Suavizar · Halo se apilan de
            a dos por columna dentro del cuerpo de 44px de la cinta, que es el
-           molde de Word que ya usa el grupo Imagen. Asi el grupo cuesta ~230px
+           molde de cinta que ya usa el grupo Imagen. Asi el grupo cuesta ~230px
            y no ~460px: medido, la cinta desborda y un bloque ancho empuja las
            herramientas que SI importan fuera de la ventana. */
         #ekkoCascadeTools .ekko-ribbon-group[data-group="${GRUPO_CINTA}"] .ekko-ribbon-group-body {
