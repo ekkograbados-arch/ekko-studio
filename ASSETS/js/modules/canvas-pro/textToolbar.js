@@ -937,7 +937,7 @@ async function applyTextCurveRun(item, curvature, options = {}) {
    Se crea un PointText temporal con las mismas propiedades, se abre el editor
    inline sobre él (se oculta el grupo), y al confirmar se escribe el nuevo
    string en data.textString y se reconstruye la curvatura. El grupo nunca se
-   convierte en vector: sigue siendo "texto curvado", como en Word o en
+   convierte en vector: sigue siendo "texto curvado", como en los editores comunes o en
    de curvado. */
 export function editGroupText(owner) {
     if (!owner || owner.data?.locked) return;
@@ -1861,7 +1861,7 @@ export function applyTextSpacing(item, hspace, opts = {}) {
            a derecha, y ese reparto crece solo hacia la derecha: con el ancla en
            el borde izquierdo, espaciar "corria" la palabra lateralmente y con
            espaciado grande las letras terminaban en otro lado del diseNo
-           (espaciar debe abrir las letras hacia AMBOS lados, como en Word,
+           (espaciar debe abrir las letras hacia AMBOS lados, como en los editores comunes,
            los editores de texto). Se mide el centro de tinta original y al final el
            reparto entero se corre para recalar su centro en el mismo lugar. */
         const centroOriginal = target.bounds.center.x;
