@@ -26,7 +26,7 @@ FASE DE OPERACIÓN:
 9. Inyección de unidades físicas métricas reales (mm) y precisión micrométrica (5 decimales).
 ========================================================================= */
 
-import { recalculateDynamicSubtractions, interiorPointOf, evenOddContains } from "./geometricUngroup.js";
+import { recalculateDynamicSubtractions, interiorPointOf, evenOddContains, getGlobalUnsubtractedPath } from "./geometricUngroup.js";
 import { getVirtualHoleEntries } from "./fusionCore.js";
 import { textToCompoundPath } from "./fontToPath.js";
 import { getPublicOwner } from "./designGeometry.js";
@@ -119,8 +119,22 @@ async function vectorizeTextItem(textItem) {
 
    El JSON entero se puede reemplazar en vivo con localStorage
    "ekkoFiltroGrises" (mismo formato) para probar otra curva sin editar el
-   archivo. options.filtroGrises === false lo desactiva. */
-const EKKO_GRIS_DEFAULT = {
+   archivo. options.filtroGrises === false lo desactiva.
+
+   DOS CURVAS, DOS INTENCIONES, CADA UNA MEDIDA CONTRA UNA REFERENCIA REAL:
+   - "taller": cuantil-cuantil del par DR_color -> DR_bn. Contraste alto,
+     medios empujados para abajo: grabado hondo.
+   - "fotografico": medida pixel a pixel (lab/probe-gris69.mjs, 611.630
+     pixeles opacos) contra la salida del filtro de escala de grises de
+     el editor vectorial sobre una foto de 4600x8181 del propio taller. Resultado:
+     el gris del editor vectorial es la luminancia Rec 709 de la foto MAS un lift
+     casi constante (sesgo -10,7 niveles, RMSE 11,0; ninguna definicion
+     alternativa — Rec 601, promedio, lightness, raiz — ajusta mejor, y el
+     error es plano en las 8 bandas de tono, o sea NO hay curva de
+     contraste ni auto-niveles: la foto tal cual, bajada a gris).
+   El activo se elige con localStorage "ekkoFiltroGrisesPreset" = "taller" |
+   "fotografico". */
+const EKKO_GRIS_TALLER = {
     id: "EKKO-GRIS-v2",
     referencia: "DR_bn",
     luminancia: [0.2126, 0.7152, 0.0722],
@@ -149,6 +163,39 @@ const EKKO_GRIS_DEFAULT = {
         nitidez: 0.9
     }
 };
+
+/* Auto-niveles APAGADO (clip 0 deja neg=0 y bla=255, o sea mapa[k]=lut[k]):
+   la referencia del editor vectorial no recorta histograma, y recortarlo es justo lo
+   que oscurece los medios. Los nodos son el lift medido, con el tramo final
+   al blanco porque arriba de ~244 la referencia ya no sube mas. */
+const EKKO_GRIS_FOTOGRAFICO = {
+    id: "EKKO-GRIS-foto-v1",
+    referencia: "editor vectorial (lab/probe-gris69.mjs)",
+    luminancia: [0.2126, 0.7152, 0.0722],
+    autoNiveles: { clipNegroPct: 0, clipBlancoPct: 0 },
+    curva: {
+        tipo: "nodos",
+        nodos: [
+            [0.0, 0.035],
+            [0.18, 0.22],
+            [0.5, 0.542],
+            [0.76, 0.802],
+            [0.87, 0.92],
+            [0.957, 1.0],
+            [1.0, 1.0]
+        ]
+    },
+    calidad: {
+        objetivoLado: 2000,
+        presupuestoPx: 16000000,
+        profundidad: 0.55,
+        nitidez: 0.9
+    }
+};
+
+const EKKO_GRIS_PRESETS = { taller: EKKO_GRIS_TALLER, fotografico: EKKO_GRIS_FOTOGRAFICO };
+const EKKO_GRIS_ACTIVO = "fotografico";
+const EKKO_GRIS_DEFAULT = EKKO_GRIS_PRESETS[EKKO_GRIS_ACTIVO];
 
 function construirLUTGris(cfg) {
     const out = new Uint8Array(256);
@@ -186,6 +233,10 @@ function leerFiltroGrises() {
                 if (parsed.curva && Array.isArray(parsed.curva.nodos)) return parsed;
             }
         }
+        // Sin JSON explicito manda el preset elegido; una clave invalida no
+        // rompe nada, cae en el activo por defecto.
+        const preset = localStorage.getItem("ekkoFiltroGrisesPreset");
+        if (preset && EKKO_GRIS_PRESETS[preset]) return EKKO_GRIS_PRESETS[preset];
     } catch (_) {}
     return EKKO_GRIS_DEFAULT;
 }
@@ -339,6 +390,20 @@ const LADO_4K = 3840;           // Ultra HD: tope de píxeles por lado
 const PRESUPUESTO_4K = 16000000; // techo absoluto de píxeles del horneado
 const PISO_HORNEADO_DPI = 600;   // nunca menos detalle que el ruleteado viejo
 
+/* Destino de calidad de TODA la cadena (carga, vestido del Modo Láser y
+   filtro del export): Ultra HD 4K de verdad, o sea 3840 px del lado más
+   largo, con el presupuesto de 16 MP como único freno.
+
+   El objetivo del preset (2000) era el piso de la carga y del vestido: una
+   foto 736x1309 entraba en 1523x2708 (medido en la app viva) y una 2000x3555
+   no se tocaba, así que "Ultra HD" era un nombre y no una resolución. El
+   preset sigue mandando si el cliente lo subió por encima de 4K; lo que no
+   puede es bajar de 4K. */
+function destinoUltraHD(w0, h0, cal) {
+    const objetivo = Math.max(Number(cal && cal.objetivoLado) || 0, LADO_4K);
+    return destinoCalidad(w0, h0, Object.assign({}, cal, { objetivoLado: objetivo }));
+}
+
 /* Resolución de horneado de la contención: antes el techo de 300 dpi y
    2000 px agotaba la foto del boceto. DR_bn apunta más alto: hasta 3600 px
    de lado (600 dpi) con presupuesto absoluto de píxeles por si el producto
@@ -402,7 +467,7 @@ function aplicarFiltroGrises(capa, cfgOverride) {
             const fuente = raster.image || raster.canvas || null;
             const ancho = Math.round(raster.width || 0), alto = Math.round(raster.height || 0);
             if (!fuente || ancho < 1 || alto < 1) return;
-            const destino = destinoCalidad(ancho, alto, cal);
+            const destino = destinoUltraHD(ancho, alto, cal);
             let lienzo = ampliacionSuave(fuente, ancho, alto, destino.w, destino.h);
             if (!lienzo) return;
             // ampliacionSuave devuelve la FUENTE cuando no hay que escalar, y la
@@ -561,13 +626,32 @@ function prepararFotoImportada(raster, opciones) {
             if (b && isFinite(b.width) && b.width > 0) ladoPts = Math.max(b.width, b.height);
         } catch (_) {}
         let f = ((ladoPts / 72) * dpi) / Math.max(1, ancho);
+        // PISO ULTRA HD 4K (regla del dueño): TODA foto que entra al lienzo se
+        // carga ya en calidad Ultra HD 4K — el mismo destino que usan el
+        // export y el vestido del Modo Láser, sin excepciones y sin esperar a
+        // que el cliente active ningún modo. Antes el objetivo salía SOLO del
+        // tamaño visual: al quedar la foto chica sobre el producto, el factor
+        // de densidad bajaba de 1 y la foto entraba SIN mejora (medido en la
+        // app viva). El piso del preset (2000) tampoco alcanzaba: una 736x1309
+        // entraba en 1523x2708 y una 2000x3555 quedaba intacta. Ahora el piso
+        // es 3840 px del lado más largo con 16 MP de presupuesto; si el dpi
+        // visual pide MÁS, gana el dpi. Color intacto acá: el look de grabado
+        // sigue siendo del Modo Láser.
+        const cfgU = leerFiltroGrises();
+        const calU = Object.assign({}, EKKO_GRIS_DEFAULT.calidad,
+            (cfgU && typeof cfgU.calidad === "object" && cfgU.calidad) || {});
+        const uhd = destinoUltraHD(ancho, alto, calU);
+        const fUhd = uhd.w / Math.max(1, ancho);
+        if (fUhd > f) f = fUhd;
         if (f < 1) f = 1;
         if (ancho * f * alto * f > 16000000) f = Math.sqrt(16000000 / (ancho * alto));
         const wT = Math.round(ancho * f), hT = Math.round(alto * f);
         // SIEMPRE canvas nuevo: el original puede compartir pixels con
         // clones del editor; editarlo in situ mancharía el lienzo vivo.
         let lienzo = null;
-        if (wT >= ancho * 2) {
+        if (wT > ancho || hT > alto) {
+            // Ampliación PROGRESIVA siempre que haya que crecer (antes solo
+            // corría con objetivo >= 2x y el resto caía al estirado simple).
             lienzo = ampliacionSuave(fuente, ancho, alto, wT, hT);
         }
         if (!lienzo) {
@@ -655,6 +739,9 @@ function prepararFotoImportada(raster, opciones) {
         const padre = raster.parent || null;
         if (padre) {
             const idx = raster.index;
+            // La data viaja con el reemplazo (etiqueta, locked, marcadores del
+            // editor): perderla rompía la selección/etiquetado de la foto.
+            try { filtrado.data = JSON.parse(JSON.stringify(raster.data || {})); } catch (_) { filtrado.data = raster.data; }
             raster.remove();
             padre.insertChild(idx, filtrado);
         }
@@ -692,6 +779,28 @@ let modoLaserActivo = false;
 let modoVistiendo = false;
 let modoVigilante = null;
 
+/* CALADO EN RASTER (fix punto 2): un calado es "pintura prohibida" en el
+   lienzo — sin fill ni stroke, semántica de corte, a veces visible:false.
+   Clonado tal cual, el raster salía VACÍO: el PNG de la selección quedaba
+   100% transparente (la forma se exportaba como transparencia en vez de
+   una forma real). Restaura la pintura original guardada en la data (o
+   negro) y la visibilidad SOLO en el clon horneado: la escena viva queda
+   intacta y las máscaras de hueco posteriores siguen recortándolo. */
+function restaurarPinturaCalado(nodo) {
+    try {
+        if (!nodo || !nodo.data) return;
+        if (nodo.data.isHole !== true && nodo.data.isCalado !== true) return;
+        if (nodo.visible === false) nodo.visible = true;
+        if (nodo.fillColor || nodo.strokeColor) return;
+        const fill = nodo.data.originalFillColor;
+        const stroke = nodo.data.originalStrokeColor;
+        nodo.fillColor = fill ? (typeof fill.clone === "function" ? fill.clone() : fill) : null;
+        nodo.strokeColor = stroke ? (typeof stroke.clone === "function" ? stroke.clone() : stroke) : null;
+        if (nodo.strokeColor && !(nodo.strokeWidth > 0)) nodo.strokeWidth = nodo.data.originalStrokeWidth || 1;
+        if (!nodo.fillColor && !nodo.strokeColor) nodo.fillColor = new paper.Color("#000000");
+    } catch (_) {}
+}
+
 /* (función compartida) Del mimo patrón que hornearWorld() de
    prepareSVGForExport: devuelve la pieza con su GEOMETRÍA DE MUNDO horneada
    (clon no insertado). La usa el modo láser y la exportación de selección. */
@@ -705,6 +814,19 @@ function hornoMundo(item) {
         clon.matrix = new paper.Matrix();
         if (matrix && !matrix.isIdentity()) clon.transform(matrix);
         clon.applyMatrix = true;
+    } catch (_) {}
+    /* BFS por TODO el clon: un calado adentro de un grupo o de la selección
+       también tiene que pintar en raster (si no, el PNG sale vacío aunque
+       la raíz tenga pintura propia). */
+    try {
+        const cola = [clon];
+        while (cola.length) {
+            const nodo = cola.shift();
+            restaurarPinturaCalado(nodo);
+            if (nodo.children && nodo.children.length) {
+                for (const hijo of nodo.children) cola.push(hijo);
+            }
+        }
     } catch (_) {}
     return clon;
 }
@@ -726,10 +848,12 @@ function rasterModoIgnorable(raster) {
     } catch (_) { return true; }
 }
 
-/* El VESTIDO del modo láser: mismo tamaño de píxeles que la foto original
-   (capturar el look). La curva es la MISMA que aplicará la exportación:
-   auto-niveles (clip% por extremo) sobre la luminancia visible + tabla de
-   tonos DR_bn + realce de calidad (profundidad+nitidez). Alfa intacta. */
+/* El VESTIDO del modo láser: MISMA RECETA ULTRA HD que la exportación —
+   primero la ampliación suave al lado objetivo (destinoCalidad), después la
+   curva a la resolución AMPLIADA: auto-niveles (clip% por extremo) sobre la
+   luminancia visible + tabla de tonos DR_bn + realce de calidad
+   (profundidad+nitidez). Alfa intacta. Así lo que se ve en pantalla (zoom
+   incluido) es la calidad que sale en el archivo, no una versión adelantada. */
 function vestidoLaser(raster) {
     try {
         const fuente = raster.image || raster.canvas || null;
@@ -741,13 +865,24 @@ function vestidoLaser(raster) {
         const clipN = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipNegroPct)) ? cfg.autoNiveles.clipNegroPct : 1)) / 100;
         const clipB = Math.min(25, Math.max(0, (cfg.autoNiveles && Number.isFinite(cfg.autoNiveles.clipBlancoPct)) ? cfg.autoNiveles.clipBlancoPct : 1)) / 100;
         const cal = Object.assign({}, EKKO_GRIS_DEFAULT.calidad, (cfg && typeof cfg.calidad === "object" && cfg.calidad) || {});
-        const lienzo = document.createElement("canvas");
-        lienzo.width = ancho; lienzo.height = alto;
+        const destino = destinoUltraHD(ancho, alto, cal);
+        let lienzo = ampliacionSuave(fuente, ancho, alto, destino.w, destino.h);
+        if (!lienzo) return null;
+        // ampliacionSuave devuelve la FUENTE cuando no hay que escalar, y la
+        // fuente suele ser un <img> (no tiene getContext): se embute en canvas.
+        // Mismo fix medido del export: sin esto la foto grande se iba intacta.
+        if (typeof lienzo.getContext !== "function") {
+            const c0 = document.createElement("canvas");
+            c0.width = destino.w; c0.height = destino.h;
+            const x0 = c0.getContext("2d");
+            x0.imageSmoothingEnabled = true; x0.imageSmoothingQuality = "high";
+            try { x0.drawImage(lienzo, 0, 0, destino.w, destino.h); } catch (_) { return null; }
+            lienzo = c0;
+        }
         const ctx = lienzo.getContext("2d");
-        ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-        ctx.drawImage(fuente, 0, 0, ancho, alto);
+        const wL = lienzo.width, hL = lienzo.height;
         let datos;
-        try { datos = ctx.getImageData(0, 0, ancho, alto); } catch (_) { return null; }
+        try { datos = ctx.getImageData(0, 0, wL, hL); } catch (_) { return null; }
         const px = datos.data;
         // histograma de luminancia de los píxeles visibles (mismo criterio
         // que el export: alfa >= 128 participa)
@@ -784,8 +919,8 @@ function vestidoLaser(raster) {
             t = t < 0 ? 0 : (t > 1 ? 1 : t);
             mapa[k] = lut[t === 1 ? 255 : Math.round(t * 255)];
         }
-        const gris = new Float32Array(ancho * alto);
-        const vivo = new Uint8Array(ancho * alto);
+        const gris = new Float32Array(wL * hL);
+        const vivo = new Uint8Array(wL * hL);
         let k2 = 0;
         for (let i = 0; i < px.length; i += 4, k2++) {
             if (px[i + 3] === 0) continue;
@@ -794,7 +929,7 @@ function vestidoLaser(raster) {
             l = l > 255 ? 255 : (l < 0 ? 0 : l);
             gris[k2] = mapa[l];
         }
-        realceCalidad(gris, vivo, ancho, alto, cal);
+        realceCalidad(gris, vivo, wL, hL, cal);
         k2 = 0;
         for (let i = 0; i < px.length; i += 4, k2++) {
             if (!vivo[k2]) continue;
@@ -821,7 +956,30 @@ function aplicarVestuario(raster, vestir) {
             if (!src0) return false;
             const vestido = vestidoLaser(raster);
             if (!vestido) return false;
-            raster.data = Object.assign({}, raster.data || {}, { ekkoModoColor: { src: src0 } });
+            // COMPENSACIÓN DE MATRIZ: el vestido puede tener MÁS píxeles que
+            // la fuente (Ultra HD). Paper, al cambiar source, adopta el tamaño
+            // nuevo y el raster CRECERÍA en pantalla (medido: 800→2000 px hace
+            // crecer los bounds 2,5× con la matriz intacta). Se anota el factor
+            // de ampliación y, en la carga, se reescala la matriz por la
+            // inversa: los bounds quedan igual que antes de vestir, solo que
+            // con más píxeles reales detrás (más detalle al hacer zoom).
+            const kx = w0 / vestido.width, ky = h0 / vestido.height;
+            const comp = (Math.abs(kx - 1) > 1e-6 || Math.abs(ky - 1) > 1e-6)
+                ? { k: (kx + ky) / 2 }
+                : null;
+            raster.data = Object.assign({}, raster.data || {}, {
+                ekkoModoColor: { src: src0, comp: comp, compHecha: false }
+            });
+            if (comp) {
+                raster.on("load", function () {
+                    try {
+                        const d = raster.data && raster.data.ekkoModoColor;
+                        if (!d || !d.comp || d.compHecha) return;
+                        d.compHecha = true;
+                        raster.scale(d.comp.k);
+                    } catch (_) {}
+                });
+            }
             try {
                 // Via canónica de paper: el setter de source carga el dataURL
                 // del vestido de forma asíncrona y sincroniza tamaño/alfa.
@@ -836,7 +994,22 @@ function aplicarVestuario(raster, vestir) {
             if (!raster.data?.ekkoModoColor) return false;
             const orig = String(raster.data.ekkoModoColor.src || "");
             if (!orig) return false;
+            // Deshacer la compensación de matriz SOLO si llegó a aplicarse:
+            // al volver la fuente original, el raster conservaría la escala de
+            // compensación y se vería más chico que antes de vestirlo.
+            const comp = raster.data.ekkoModoColor.comp;
+            const compHecha = !!raster.data.ekkoModoColor.compHecha;
             const d = Object.assign({}, raster.data || {}); delete d.ekkoModoColor; raster.data = d;
+            let deshecha = false;
+            if (comp && compHecha) {
+                raster.on("load", function () {
+                    try {
+                        if (deshecha) return;
+                        deshecha = true;
+                        raster.scale(1 / comp.k);
+                    } catch (_) {}
+                });
+            }
             raster.source = orig; // recarga asíncrona a los píxeles originales
             MODO_ORIGINALES.delete(raster);
             return true;
@@ -948,7 +1121,7 @@ function rasterizarRaiz(item, res) {
 
 /* Escala física del proyecto: milímetros por unidad de paper. Es la MISMA
    que usa la raíz <svg width="…mm"> del grabado, así el PNG y el SVG entran a
-   El programa de grabado con el mismo tamaño de pieza. Sin producto cargado se cae a la
+   el programa de grabado con el mismo tamaño de pieza. Sin producto cargado se cae a la
    convención de puntos (1 pt = 25,4/72 mm), que es la que el resto de la
    cadena asume por dentro. */
 function mmPorUnidad() {
@@ -992,6 +1165,25 @@ function renderSeleccionPNG(dpi) {
     const pintura = new Map();
     (function rec(n) { for (const c of n.children) { pintura.set(c, orden++); if (c.children) rec(c); } })(capa);
     piezas.sort((a, b) => (pintura.get(a) ?? 0) - (pintura.get(b) ?? 0));
+    // HUECOS DE CALADO por encima: la perforación es física también en el
+    // PNG entregado — la pieza de abajo pierde el área del hueco (igual que
+    // en el SVG: hueco real, no transparencia forzada).
+    const huecosSeleccion = [];
+    try {
+        capa.getItems({
+            match: it => it.data?.isHole === true &&
+                (it instanceof paper.PathItem) &&
+                !(it.parent && it.parent.className === "CompoundPath") &&
+                it.data?.isFusionMask !== true && it.data?.isSmartFusion !== true &&
+                it.data?.isCutLine !== true
+        }).forEach(h => {
+            try {
+                const geo = getGlobalUnsubtractedPath(h);
+                if (!geo || !(h.bounds && h.bounds.width > 0)) return;
+                huecosSeleccion.push({ geo, orden: pintura.get(h) ?? -1, caja: h.bounds });
+            } catch (_) {}
+        });
+    } catch (_) {}
     // caja de la selección
     let caja = null;
     piezas.forEach(it => {
@@ -1047,6 +1239,18 @@ function renderSeleccionPNG(dpi) {
             try { piezaR.canvas.width = 0; piezaR.canvas.height = 0; } catch (_) {} // liberar
             fx.globalCompositeOperation = "destination-out";
             fx.drawImage(occl, 0, 0);
+            // y los huecos de calado que están ENCIMA de esta pieza.
+            const oPieza = pintura.get(piezas[i]) ?? -1;
+            huecosSeleccion.forEach(hh => {
+                try {
+                    if (hh.orden <= oPieza) return;
+                    if (!hh.caja.intersects(caja)) return;
+                    const mb = hh.geo.bounds;
+                    if (!mb || !(mb.width > 0) || !(mb.height > 0)) return;
+                    const celo = construirMascaraSilueta(hh.geo, mb, k, k * 72);
+                    if (celo) fx.drawImage(celo, Math.round((mb.x - caja.x) * k), Math.round((mb.y - caja.y) * k));
+                } catch (_) {}
+            });
             fx.globalCompositeOperation = "source-over";
             ctx.drawImage(fu, 0, 0);
             occ.drawImage(fu, 0, 0);
@@ -1410,6 +1614,41 @@ export async function prepareSVGForExport(options = {}) {
                 });
             }
             contenedores.forEach(clon => { try { clon.remove(); } catch (_) {} });
+            // Contornos de CALADO (perforación real del diseño): cada hueco
+            // entra a la capa de corte con SU contorno completo (exterior y
+            // contracubetas). Así la perforación existe físicamente aunque
+            // el hueco caiga sobre una foto o sobre nada: hueco real, no
+            // transparencia — lo interior no se graba, los bordes se cortan.
+            try {
+                const huecosCorte = tempLayer.getItems({
+                    match: it => it.data?.isHole === true &&
+                        (it instanceof paper.PathItem) &&
+                        !(it.parent && it.parent.className === "CompoundPath") &&
+                        it.data?.isFusionMask !== true && it.data?.isSmartFusion !== true
+                });
+                if (huecosCorte.length) {
+                    if (!capaCorte) {
+                        capaCorte = new paper.Group({ insert: false });
+                        capaCorte.data = { id: "EKKO-corte", isCutLayer: true };
+                    }
+                    huecosCorte.forEach(hueco => {
+                        try {
+                            const geoH = getGlobalUnsubtractedPath(hueco);
+                            if (!geoH) return;
+                            (function recolectarH(nodo) {
+                                if (!nodo) return;
+                                if (nodo instanceof paper.Path && Math.abs(nodo.area || 0) > 0) {
+                                    nodo.fillColor = null;
+                                    nodo.strokeColor = new paper.Color("#ff0000");
+                                    nodo.strokeWidth = 0.5;
+                                    nodo.opacity = 1;
+                                    capaCorte.addChild(nodo);
+                                } else if (nodo.children) nodo.children.forEach(recolectarH);
+                            })(geoH);
+                        } catch (_) {}
+                    });
+                }
+            } catch (_) {}
         } catch (_) { capaCorte = null; }
     }
 
@@ -2041,7 +2280,14 @@ export async function prepareSVGForExport(options = {}) {
     // (fully cut, or over a material-free notch) must not block export.
     const exportOwners = collectVectorOwners(tempLayer);
     const holeOwners = exportOwners.filter(owner => semanticKind(owner) === VECTOR_KIND.HOLE);
-    const materializationUnresolvedHoles = Number(exportCsgReport?.unresolvedHoles || 0);
+    // Huecos SIN RESOLVER = solo los que tuvieron blanco vectorial real
+    // (par evaluado por el CSG) y no lograron restar. Un hueco sobre una
+    // FOTO o sobre nada se materializa más abajo (knock-out de píxeles en
+    // el tratado de fotos + contorno de corte en la capa roja): nunca
+    // debía bloquear el export entero.
+    const evaluatedCsgHoles = new Set(exportCsgReport?.evaluatedHoleKeys || []);
+    const acceptedCsgHoles = new Set(exportCsgReport?.acceptedHoleKeys || []);
+    const materializationUnresolvedHoles = [...evaluatedCsgHoles].filter(k => !acceptedCsgHoles.has(k)).length;
     const failedBooleans = [
         ...(exportCsgReport?.failedBooleans || []),
         ...(exportCsgError ? [{ operation: "csg-recalculate", error: exportCsgError }] : [])
@@ -2060,11 +2306,78 @@ export async function prepareSVGForExport(options = {}) {
         csgCompleted,
         exportReady: csgCompleted && failedBooleans.length === 0 && materializationUnresolvedHoles === 0
     };
+    /* FALLBACK DE CALADOS HUÉRFANOS (fix punto 2): un calado sin dueño sólido
+       vectorial nunca entra a evaluatedHoleKeys (el CSG no lo evalúa) y la
+       purga del paso 6 lo borraría SIN representación: el export salía VACIO
+       (medido: 518 bytes). Si además la capa de corte no lo va a representar
+       y el archivo no queda lleno de otra forma (boceto con foto, diseño con
+       vectores), la geometría se rescata como contenido —relleno original
+       guardado o negro— para que el calado exista físicamente en el SVG. */
+    try {
+        const evaluadosCsg = new Set(exportCsgReport?.evaluatedHoleKeys || []);
+        const aceptadosCsg = new Set(exportCsgReport?.acceptedHoleKeys || []);
+        const orfanos = [];
+        tempLayer.getItems({
+            match: it => it && it.data &&
+                (it.data.isHole === true || it.data.isHoleController === true) &&
+                (it instanceof paper.PathItem) &&
+                !(it.parent && it.parent.className === "CompoundPath") &&
+                it.data.isFusionMask !== true && it.data.isSmartFusion !== true
+        }).forEach(h => {
+            const clave = h.data.containmentKey || String(h.id);
+            if (evaluadosCsg.has(clave) || aceptadosCsg.has(clave)) return;
+            orfanos.push(h);
+        });
+        if (orfanos.length && !capaCorte) {
+            const contenidoReal = tempLayer.getItems({
+                match: it => {
+                    if (!it || !(it instanceof paper.PathItem || it instanceof paper.Raster)) return false;
+                    const d = it.data || {};
+                    if (d.isHole === true || d.isHoleController === true || d.isFusionMask === true || d.isSmartFusion === true) return false;
+                    if (d.mockup === true || d.isMockupOutline === true || d.isCutLayer === true || d.isMask === true || d.wasClipMask === true) return false;
+                    if (it.parent && it.parent.className === "CompoundPath") return false;
+                    if (it instanceof paper.Raster) return true;
+                    return !!(it.fillColor || it.strokeColor);
+                }
+            }).length;
+            if (contenidoReal === 0) {
+                orfanos.forEach(h => {
+                    try {
+                        if (h.visible === false) h.visible = true;
+                        if (!h.fillColor && !h.strokeColor) {
+                            const fill = h.data.originalFillColor;
+                            const stroke = h.data.originalStrokeColor;
+                            h.fillColor = fill ? (typeof fill.clone === "function" ? fill.clone() : fill) : null;
+                            h.strokeColor = stroke ? (typeof stroke.clone === "function" ? stroke.clone() : stroke) : null;
+                            if (h.strokeColor && !(h.strokeWidth > 0)) h.strokeWidth = h.data.originalStrokeWidth || 1;
+                            if (!h.fillColor && !h.strokeColor) h.fillColor = new paper.Color("#000000");
+                        }
+                        h.data = {
+                            ...(h.data || {}),
+                            isHole: false,
+                            isHoleController: false,
+                            isCalado: false,
+                            isSolidShape: true,
+                            semanticKind: VECTOR_KIND.SOLID,
+                            csgMaterialized: false
+                        };
+                    } catch (_) {}
+                });
+                exportCsgReport.fallbackCalados = orfanos.length;
+            }
+        }
+    } catch (err) {
+        console.warn("[EKKO EXPORT] Fallback de calados interrumpido:", String(err?.message || err));
+    }
     if (typeof window !== "undefined") window.EKKO_EXPORT_LAST_REPORT = exportCsgReport;
     if (!exportCsgReport.exportReady) {
+        /* Fix punto 2: NUNCA se vacía el export entero por un hueco fallido —
+           el dueño recibía un SVG de 0 bytes en vez de su diseño. El archivo
+           sale con lo que haya y el reporte sigue marcando exportReady:false. */
         console.error("[EKKO EXPORT] CSG no pudo materializar todos los huecos", exportCsgReport);
-        tempLayer.remove();
-        return "";
+        try {
+            notice("Algunos huecos no se pudieron materializar al exportar: el archivo sale igual, revisá el reporte.", { kind: "warn", ms: 8000 });
+        } catch (_) {}
     }
 
 
@@ -2618,6 +2931,15 @@ if (typeof window !== "undefined") {
     // Filtro de grises EKKO-GRIS-v2 para el editor (al entrar fotos).
     window.ekkoAplicarFiltroGrises = aplicarFiltroGrises;
     window.ekkoGrisConfig = leerFiltroGrises;
+    window.ekkoGrisPresets = EKKO_GRIS_PRESETS;
+    window.ekkoGrisPresetActivo = EKKO_GRIS_ACTIVO;
+    // Cambio de look sin recargar: "taller" (curva DR_bn) o "fotografico"
+    // (curva medida del editor vectorial).
+    window.ekkoUsarGrisPreset = nombre => {
+        if (!EKKO_GRIS_PRESETS[nombre]) return false;
+        try { localStorage.setItem("ekkoFiltroGrisesPreset", nombre); } catch (_) {}
+        return true;
+    };
     // Mejora automática al importar (densidad 300 dpi + definición).
     window.ekkoPrepararFotoImportada = prepararFotoImportada;
     // MODO LÁSER (edición con el look de grabado) + EXPORTAR SELECCIÓN.
@@ -2634,6 +2956,6 @@ if (typeof window !== "undefined") {
     // razon: son los DOS numeros que deciden cuantos pixeles reales llegan a
     // el grabado, y sin exponerlos la auditoria de calidad tiene que ser una
     // opinion. No tocan nada: son funciones puras.
-    window.__ekkoModoDebug = { aplicarVestuario, vestidoLaser, rasterModoIgnorable, resolucionHorneado, destinoCalidad };
+    window.__ekkoModoDebug = { aplicarVestuario, vestidoLaser, rasterModoIgnorable, resolucionHorneado, destinoCalidad, destinoUltraHD };
     sincronizarBotonModo();
 }
