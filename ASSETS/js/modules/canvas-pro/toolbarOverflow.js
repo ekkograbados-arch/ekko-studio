@@ -5,7 +5,7 @@
    botones quedan fuera de alcance: se los ve cortados y no hay forma de
    apretarlos. No es que fallen, es que estan fuera de la vista.
 
-   Aca se resuelve como en Word: lo que no entra se oculta de la fila y
+   Aca se resuelve como en la cinta: lo que no entra se oculta de la fila y
    aparece en el menu "Mas herramientas" (el boton ...). Los botones siguen
    siendo los mismos objetos del DOM, no hay lista de acciones que pueda
    desincronizarse: el menu aprieta el boton real.
