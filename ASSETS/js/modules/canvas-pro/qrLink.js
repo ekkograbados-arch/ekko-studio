@@ -13,7 +13,7 @@
      + parametros utm de tracking         version 5   674 modulos   0.098 mm
 
    El ultimo caso es el que duele: los links que se copian del boton de
-   compartir de Instagram o de WhatsApp vienen con parametros de tracking que
+   compartir de las redes sociales vienen con parametros de tracking que
    no cambian a donde lleva el link, solo sirven para medir. En 4 mm ese QR no
    se lee ni con zoom.
 
@@ -22,7 +22,7 @@
 
    LO QUE NO SE PUEDE HACER, y conviene tenerlo claro: no hay forma de que un
    QR "suene" como una nota de voz al escanear. El QR lleva un texto y lo
-   que pase despues lo decide el celular. Un link wa.me abre WhatsApp pero
+   que pase despues lo decide el celular. Un link wa.me abre la conversación pero
    no reproduce un audio. Lo unico confiable es que el link apunte al archivo
    de audio y el sistema lo toque solo. Esta funcion no promete otra cosa: si
    el link es de audio, lo reconoce y lo avisa para que el cliente sepa lo
@@ -88,7 +88,7 @@ function descriptorDeLink(url) {
 function limpiarLink(texto) {
     const crudo = String(texto || "").trim();
     if (!crudo) return { texto: crudo, cambiado: false };
-    // Si no parece un link (un numero de WhatsApp, un texto suelto), no se
+    // Si no parece un link (un numero, un texto suelto), no se
     // toca: el cliente puede estar codificando cualquier cosa.
     if (!/^(https?:\/\/)?([\w-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(crudo)) {
         return { texto: crudo, cambiado: false, esLink: false };
