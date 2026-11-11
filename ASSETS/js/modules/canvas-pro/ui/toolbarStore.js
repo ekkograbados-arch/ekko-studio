@@ -43,7 +43,6 @@ export function compute() {
   const activeTabRaw = (window.EKKO_PANEL_STATE && window.EKKO_PANEL_STATE.activeTab) || "auto";
   const activeTab = (activeTabRaw === "auto") ? "auto" : activeTabRaw;
 
-  const activeTools = (activeTab === "auto" || !TABS[activeTab]) ? null : new Set(TABS[activeTab].tools || []);
   const baseTools = new Set(TABS.base?.tools || []);
 
   return {
@@ -55,16 +54,26 @@ export function compute() {
     activeTab,
 
     /**
-     * RECORTA por la pestaña activa. Nunca amplía: una herramienta que el
-     * motor no habilitó no puede entrar por la pestaña.
-     * "auto"/"base" no filtran (comportamiento histórico intacto).
+     * RECORTA por la pestaña de contexto. Nunca amplía: una herramienta que
+     * el motor no habilitó no puede entrar por la pestaña.
+     * D2 (dueño 2026-11-11): el modo "auto" TAMBIÉN recorta ahora — muestra
+     * la pestaña que la selección genera más el núcleo de Inicio. Antes
+     * "auto" no filtraba nada y toda herramienta habilitada aparecía siempre
+     * (por eso la barra entorpecía). Con una pestaña elegida a mano, esa
+     * manda. Las universales de base pasan en todas las pestañas.
      */
     tabAllows(tool) {
       // Sin herramienta declarada (regla propia del manifiesto): la pestaña
       // no la recorta.
       if (!tool) return true;
-      if (!activeTools || activeTab === "base") return true;
-      return activeTools.has(tool) || baseTools.has(tool);
+      const contextTab = (activeTab !== "auto") ? activeTab : detectedTab;
+      const tabDef = TABS[contextTab];
+      if (!tabDef) return true;
+      if (baseTools.has(tool)) return true;
+      // Sin selección, las herramientas de vista pura quedan al alcance:
+      // son las únicas que sirven con el lienzo vacío (medido 2026-10-30).
+      if (!hasSelection && (tool === "zoom" || tool === "rulers" || tool === "guides")) return true;
+      return (tabDef.tools || []).includes(tool);
     },
 
     /**
