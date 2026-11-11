@@ -393,6 +393,34 @@ body[data-modo="oscuro"] .ekko-context-tab:hover {
 .ekko-ribbon-group-title {
     font-size: 8.5px !important;
 }
+
+/* ------------------------------------------------------------------
+   RONDA 11 (dueño 2026-11-11): espacios y distribuciones como en los
+   editores comunes. Grupos que respiran (padding parejo), separadores
+   limpios y chips de Más usadas con aire entre sí. No toca los gaps
+   finos de Recorte/Objeto (selectores con data-group ganan a estos). */
+.ekko-ribbon-group {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+}
+/* OJO: el gap interno del cuerpo NO se toca acá — el molde de 44px apila
+   botones de a dos por columna con gap 2px (21+21+2=44); subirlo los
+   des apila. Los grupos finos (Objeto/Recorte) llevan su propio gap. */
+.ekko-ribbon-group + .ekko-ribbon-group {
+    margin-left: 2px !important;
+}
+#ekkoNivelUsadas .ekko-niv-items {
+    gap: 7px !important;
+}
+#ekkoNivelUsadas {
+    min-height: 34px !important;
+}
+/* La banda como superficie de Organización: grupos con aire parejo
+   (misma especificidad que la hoja de fichas para poder ganarle). */
+body.ekko-fija-fichas #topBar + #pro-layout-toolbar .pro-group {
+    padding: 5px 14px 4px !important;
+    gap: 4px !important;
+}
 .ekko-ribbon-group-head::before {
     /* el caret (\25BE) queda fuera de la estética: el grupo se pliega
        igual (clic/teclado), solo desaparece el dibujo del punto */
