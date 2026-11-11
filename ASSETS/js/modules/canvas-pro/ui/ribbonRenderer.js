@@ -24,7 +24,12 @@
 import { FAMILY, BY_LEGACY } from "./toolbarManifest.js";
 import { compute } from "./toolbarStore.js";
 
-const SURFACES = ["topBar", "contextual-toolbar"];
+/* D2 (dueño 2026-11-11): la barra profesional entra al contrato. Sus botones
+   (alinear en producto, reglas, guías, cotas, distribuir, fusionar, calado…)
+   compartían los comandos de la cinta pero VIVÍAN AFUERA del único escritor:
+   nadie los filtraba y estaban siempre visibles — justo el desorden que el
+   dueño señala. Desde acá obedecen la misma pestaña que la cinta. */
+const SURFACES = ["topBar", "contextual-toolbar", "pro-layout-toolbar"];
 const ATTR_TITLE = "data-ekko-original-title";
 const CLASS_HIDDEN = "ekko-command-hidden";
 const CLASS_LOCKED = "ekko-locked";
@@ -56,10 +61,15 @@ function decide(entry, snap) {
   if (enabled && extraOk) return { show: true, enabled: true, reason: null };
 
   /* 3) Familia P: si tiene sentido en este contexto, se MUESTRA bloqueada con
-     el motivo en el tooltip en vez de desaparecer (enseña la pirámide). */
+     el motivo en el tooltip en vez de desaparecer (enseña la pirámide).
+     lockWhen (manifiesto, por botón) afina CUÁNDO se permite el estado
+     bloqueado: si no se cumple, el botón se oculta igual que la familia E —
+     es la regla del dueño "si un botón no tiene nada que ver con lo
+     seleccionado, se oculta" aplicada a casos imposibles (fusion 3+). */
   const relevant = snap.tabRelevant(entry.tool);
   const wantsLock = !extraOk || entry.family === FAMILY.P;
-  if (relevant && wantsLock) {
+  const lockOk = entry.lockWhen ? !!entry.lockWhen(snap) : true;
+  if (relevant && wantsLock && lockOk) {
     const reason = typeof entry.reason === "function" ? entry.reason(snap) : entry.reason;
     return { show: true, enabled: false, reason: reason || "Requisito previo pendiente" };
   }
