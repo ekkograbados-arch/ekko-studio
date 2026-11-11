@@ -678,16 +678,50 @@ function estilos() {
         body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-angle-readout {
             font-size: 10.5px;
         }
-        /* El grupo Objeto de la cinta NO usa el molde de botones del resto: sus
-           hijos son campos, y column-wrap los apilaria de a dos por columna
-           dentro de los 44px. Aca van en una sola fila, centrados. */
+        /* El grupo Objeto de la cinta NO usa el molde de botones del resto:
+           sus hijos son campos. PEDIDO DEL DUEÑO (2026-11-11): organizado como
+           Recorte — 2 FILAS finas de a varios campos por fila, no una fila
+           larga. Fila 1: medidas (Ancho · candado · Alto · Rot). Fila 2:
+           tipografía (fuente · Tamaño · Radio · Espacio). El cuerpo es
+           column-wrap de 44px igual que el resto: cada bloque hijo mide
+           20px y apilan de a dos por columna. */
         #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body {
-            flex-flow: row nowrap;
+            flex-flow: column wrap;
+            align-content: flex-start;
+            align-items: flex-start;
+            height: 44px;
+            min-height: 44px;
+            max-height: 44px;
+            gap: 2px 10px;
+            padding: 1px 0;
+            box-sizing: border-box;
+        }
+        /* Cada fila del grupo Objeto mide 20px y centra sus campos. */
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body > * {
+            height: 20px;
+            min-height: 20px;
+            margin: 0;
+        }
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .size-control-group,
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] #ekkoCamposTexto {
+            gap: 6px;
             align-items: center;
-            height: 30px;
-            min-height: 30px;
-            max-height: none;
-            gap: 8px;
+        }
+        /* Campos finos para que las dos filas respiren como Recorte. */
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .toolbar-input-number {
+            width: 56px !important;
+            padding: 1px 5px;
+            font-size: 10.5px;
+        }
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .toolbar-slider-container {
+            flex: 0 0 110px;
+            width: 110px;
+            height: 20px;
+        }
+        #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] select {
+            height: 20px;
+            padding: 1px 4px;
+            font-size: 10.5px;
         }
         /* El grupo Objeto ABRIR la cinta, no cerrarla. Es lo unico que cambia
            de verdad sobre lo seleccionado (medidas, fuente, tamano) y la cinta
@@ -1281,9 +1315,11 @@ function estilos() {
             letter-spacing: 0.04em;
             text-transform: uppercase;
         }
-        /* Los campos del objeto, un poco mas juntos: 464 px de cuatro campos
-           eran el 51 % de la fila con una imagen apuntada. */
-        body[data-ekko-cascade="1"] #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body { gap: 5px; }
+        /* Ronda 10 (dueño 2026-11-11): el grupo Objeto va en 2 FILAS finas
+           (molde Recorte). El gap vertical tiene que caber dos veces en los
+           44px del cuerpo: 20 + 2 + 20 = 42. Con el gap 5px anterior la
+           segunda fila desbordaba a otra columna y quedaba al costado. */
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body { gap: 2px 10px; }
         body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-input-number { width: 54px !important; font-size: 10.5px; padding: 3px 4px; }
         body[data-ekko-cascade="1"] #ekkoCascadeTools .size-control-group label,
         body[data-ekko-cascade="1"] #ekkoCascadeTools .size-control-group span { font-size: 10.5px; }
