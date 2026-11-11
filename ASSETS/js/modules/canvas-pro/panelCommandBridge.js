@@ -34,6 +34,11 @@ const PRO_COMMAND_IDS = {
     proBtnEditNodes: "editNodes",
     proBtnDistributeH: "distribute",
     proBtnDistributeV: "distribute",
+    /* Ronda 11 (dueño 2026-11-11): capas en la superficie de Organización. */
+    proBtnCapaFrente: "toFront",
+    proBtnCapaSubir: "bringForward",
+    proBtnCapaBajar: "sendBackward",
+    proBtnCapaFondo: "toBack",
     proBtnToggleRulers: "rulers",
     proBtnToggleGuides: "guides",
     proBtnToggleMeasurements: "measurements",
