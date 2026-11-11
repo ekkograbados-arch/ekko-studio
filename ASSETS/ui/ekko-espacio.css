@@ -382,11 +382,16 @@ body[data-modo="oscuro"] .ekko-context-tab:hover {
     color: var(--esp-acento) !important;
 }
 .ekko-ribbon-group-head {
-    font-size: 12px !important;
+    font-size: 8.5px !important;
     letter-spacing: 0.10em !important;
+    /* PEDIDO DEL DUEÑO (2026-11-11): el nombre del grupo más abajo y con
+       tipografía más pequeña (estilo de los editores comunes: rótulo
+       discreto bajo sus controles, no un subtítulo grande). */
+    padding-top: 3px !important;
+    margin-top: 1px !important;
 }
 .ekko-ribbon-group-title {
-    font-size: 12px !important;
+    font-size: 8.5px !important;
 }
 .ekko-ribbon-group-head::before {
     /* el caret (\25BE) queda fuera de la estética: el grupo se pliega
