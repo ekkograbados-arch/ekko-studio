@@ -87,15 +87,18 @@ export const BUTTONS = Object.freeze([
   { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "composicion" },
   { tool: "rotate",       legacy: ["rotate"],        family: FAMILY.H, group: "composicion" },
   { tool: "flip",         legacy: ["flip", "flipH", "flipV"], family: FAMILY.H, group: "composicion" },
-  { tool: "size",         legacy: ["size"],          family: FAMILY.H, group: "composicion" },
+  { tool: "size",         legacy: ["size"],          family: FAMILY.H, group: "vista" },
   {
-    tool: "align", legacy: ["align"], family: FAMILY.H, group: "composicion",
-    /* El motor la declara `always`, asi que sin seleccion habilitada; pero
-       alinearse sin nada seleccionado avisa y no hace nada. Mejor: bloqueada
-       con el motivo. */
+    tool: "align", legacy: ["align"], family: FAMILY.H, group: "vista",
+    /* D2 (dueño 2026-11-11): Alinear vive en la pestaña Vista. Ya no es
+       `always` en el motor: pide al menos un objeto seleccionado. */
     extra: snap => snap.hasSelection,
     reason: "Seleccioná al menos un objeto para alinear"
   },
+  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "vista" },
+  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "vista" },
+  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "vista" },
+  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "vista" },
   { tool: "zoom",         legacy: ["zoom"],          family: FAMILY.H, group: "vista" },
   { tool: "rulers",       legacy: ["rulers"],        family: FAMILY.H, group: "vista" },
   { tool: "guides",       legacy: ["guides"],        family: FAMILY.H, group: "vista" },
@@ -121,7 +124,7 @@ export const BUTTONS = Object.freeze([
     reason: "Primero desagrupá: un grupo mixto hay que abrirlo para saber con qué se trabaja"
   },
   {
-    tool: "distribute", family: FAMILY.P, group: "composicion", legacy: ["distribute"],
+    tool: "distribute", family: FAMILY.P, group: "vista", legacy: ["distribute"],
     tabBypass: true,
     /* capabilities.js lo habilita con 2, pero distributeSpacing() pide 3 y
        con 2 el botón salía, se apretaba y no hacía nada. La regla fina va
@@ -131,7 +134,16 @@ export const BUTTONS = Object.freeze([
   },
   {
     tool: "fusion", family: FAMILY.P, group: "estructura", legacy: ["fusion"],
-    reason: "Fusionar necesita 1 imagen y 1 vector a la vez: la imagen aporta el relleno y el vector la máscara"
+    reason: "Fusionar necesita 1 imagen y 1 vector a la vez: la imagen aporta el relleno y el vector la máscara",
+    /* REGLA DEL DUEÑO (2026-11-11): la fusión es SOLO 1 vector + 1 imagen,
+       NUNCA con más. Con la selección exacta el motor la habilita (botón
+       activo); con CUALQUIER otra cosa (solo imagen, 2 vectores, 2 rasters,
+       3+ objetos) el botón no tiene nada que ver con lo seleccionado y SE
+       OCULTA: la familia P no lo muestra bloqueado "enseñando" una fusión
+       que esa selección nunca va a poder hacer. lockWhen es la puerta del
+       estado bloqueado y acá queda en falso: o va habilitado (par exacto) o
+       no se ve (medido en runtime: 2 vectores mostraba el botón bloqueado). */
+    lockWhen: () => false
   },
   {
     tool: "editNodes", family: FAMILY.P, group: "geometria", legacy: ["editNodes"],
