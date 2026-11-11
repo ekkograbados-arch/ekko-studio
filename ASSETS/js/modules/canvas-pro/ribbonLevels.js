@@ -233,6 +233,28 @@ function disponible(clave) {
     const b = botonReal(clave);
     return !!b && !b.disabled && !b.classList.contains("ekko-locked");
 }
+
+/* Regla del dueño (2026-11-11): si un botón NO tiene nada que ver con lo
+   seleccionado, SE OCULTA — y su chip de Más usadas también. Antes el chip
+   quedaba a media luz ("is-off") aunque la herramienta estuviera oculta con
+   esa selección (medido 2026-11-11: con Texto aparecían Calado, Quitar
+   fondo, Editar fondo y Alinear, que con texto no van). La verdad la da el
+   DOM real que escribe el único escritor (ui/ribbonRenderer.js): si ninguna
+   instancia del comando está a la vista, el chip no se muestra. */
+function visible(el) {
+    if (!el || el.style.display === "none") return false;
+    if (el.classList.contains("ekko-command-hidden") || el.classList.contains("hidden")) return false;
+    return !!(el.offsetParent || el.getClientRects().length);
+}
+function visibleEnCinta(clave) {
+    if (!clave) return false;
+    if (clave.startsWith("fb:")) {
+        const nombre = clave.slice(3);
+        const botones = document.querySelectorAll(`button[data-fusion-btn="${CSS.escape(nombre)}"]`);
+        return Array.from(botones).some(visible);
+    }
+    return visible(botonReal(clave));
+}
 function ejecutar(clave) {
     if (!disponible(clave)) return false;
     botonReal(clave).click();
@@ -306,8 +328,20 @@ function pintarUsadas() {
         return;
     }
     row.classList.remove("is-vacia");
-    const ultimo = Math.max(...conjunto.map(x => x.ts));
-    items.innerHTML = conjunto.map(x => {
+    /* Filtro de especie (regla del dueño, 2026-11-11): solo chips cuya
+       herramienta está a la vista con ESTA selección. El recorte del top-N
+       se hace ANTES del filtro para no inflar la fila con herramientas que
+       nunca usaste y que hoy sí van: el conjunto sigue siendo "lo tuyo". */
+    const visibles = conjunto.filter(x => visibleEnCinta(x.clave));
+    if (!visibles.length) {
+        items.innerHTML = `<span class="ekko-niv-vacia">${conjunto.length
+            ? "Nada de tus más usadas aplica a esta selección"
+            : "Todavía no usaste ninguna herramienta"}</span>`;
+        row.classList.add("is-vacia");
+        return;
+    }
+    const ultimo = Math.max(...visibles.map(x => x.ts));
+    items.innerHTML = visibles.map(x => {
         const reciente = x.ts === ultimo ? " is-reciente" : "";
         const off = disponible(x.clave) ? "" : " is-off";
         const titulo = `${x.info.titulo} · ${x.c} ${x.c === 1 ? "uso" : "usos"}` +
@@ -740,6 +774,7 @@ function aplicar() {
     estilos();
     prepararBanda();
     montarFila();
+    vigilarVisibilidad();
     pintarUsadas();
     document.body.classList.toggle("ekko-usadas-plegada", !!cfg.usadasPlegada);
 }
@@ -755,6 +790,30 @@ function vigilar() {
         }
     });
     observer.observe(zona, { childList: true });
+}
+
+/* La selección cambia el display de los botones de la cinta y de la banda
+   (un solo escritor). Sin esto los chips de Más usadas quedaban con la
+   visibilidad de la selección ANTERIOR: el filtro de especie (regla del
+   dueño) se ejecuta también en cada cambio de la cinta. Atributos, con
+   debounce de un frame — pintarUsadas escribe fuera de estas barras, así
+   que no hay bucle. */
+let pintadoPendiente = 0;
+function vigilarVisibilidad() {
+    ["topBar", "pro-layout-toolbar"].forEach(id => {
+        const barra = document.getElementById(id);
+        if (!barra || barra.__ekkoNivVis) return;
+        barra.__ekkoNivVis = true;
+        try {
+            new MutationObserver(() => {
+                if (pintadoPendiente) return;
+                pintadoPendiente = requestAnimationFrame(() => {
+                    pintadoPendiente = 0;
+                    pintarUsadas();
+                });
+            }).observe(barra, { subtree: true, attributes: true, attributeFilter: ["style", "class"] });
+        } catch (_) {}
+    });
 }
 
 function arrancar() {
