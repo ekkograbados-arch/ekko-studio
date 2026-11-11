@@ -123,6 +123,22 @@ let pendingFrame = 0;
 export function renderNow() {
   if (typeof document === "undefined") return null;
   const snap = compute();
+
+  /* Ronda 11 (dueño 2026-11-11): la banda de propiedades YA NO es un nivel
+     suelto debajo de la cinta. Es la superficie de la pestaña fija
+     ORGANIZACIÓN: solo se ve cuando esa pestaña está fijada. Con Inicio,
+     Texto o Vector activos (automático incluido) el nivel entero
+     desaparece — se acabó la franja de Alineación/Centrado/Distribución
+     apagada que entorpecía (regla del dueño: lo que no tiene nada que ver,
+     se oculta). Los botones siguen en el DOM: los comandos y los chips de
+     Más usadas los siguen alcanzando. */
+  const bandaPro = document.getElementById("pro-layout-toolbar");
+  if (bandaPro) {
+    const verBanda = snap.activeTab === "vista";
+    bandaPro.style.display = verBanda ? "" : "none";
+    bandaPro.classList.toggle("ekko-band-fuera", !verBanda);
+  }
+
   const state = {
     selectionCount: snap.list.length,
     detectedTab: snap.detectedTab,
