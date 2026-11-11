@@ -706,6 +706,16 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="align" class="btn-action" onclick="alignSelection()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-alinear"></use></svg> Alinear
                 </button>
+                <!-- Ronda 12 (dueño 2026-11-11): las 6 direcciones de Alinear
+                     en la cinta de Organizar. Despachan el mismo alignSelection
+                     que la banda reservorio (window.alignSelection, mismo tipo
+                     de side que usa el puente pro). -->
+                <button data-fusion-btn="alignLeft" class="btn-action" onclick="alignSelection('left')" title="Alinear a la izquierda"><i class="fas fa-align-left"></i> Izquierda</button>
+                <button data-fusion-btn="alignCenterX" class="btn-action" onclick="alignSelection('centerX')" title="Alinear al centro horizontal"><i class="fas fa-align-center"></i> Centro H</button>
+                <button data-fusion-btn="alignRight" class="btn-action" onclick="alignSelection('right')" title="Alinear a la derecha"><i class="fas fa-align-right"></i> Derecha</button>
+                <button data-fusion-btn="alignTop" class="btn-action" onclick="alignSelection('top')" title="Alinear arriba"><i class="fas fa-align-justify" style="transform:rotate(90deg);"></i> Arriba</button>
+                <button data-fusion-btn="alignCenterY" class="btn-action" onclick="alignSelection('centerY')" title="Alinear al centro vertical"><i class="fas fa-align-justify"></i> Centro V</button>
+                <button data-fusion-btn="alignBottom" class="btn-action" onclick="alignSelection('bottom')" title="Alinear abajo"><i class="fas fa-align-justify" style="transform:rotate(-90deg);"></i> Abajo</button>
                 <button data-fusion-btn="distribute" class="btn-action" onclick="distributeSelection()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-distribuir"></use></svg> Distribuir
                 </button>
@@ -725,6 +735,24 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                 <button data-fusion-btn="guides" class="btn-action" onclick="toggleGuides()">
                     <svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-guias"></use></svg> Guías
                 </button>
+                <!-- ======================================================
+                     Ronda 12 (dueño 2026-11-11): botones de la cinta que
+                     despachan los comandos de la banda reservorio (oculta
+                     para siempre): los handlers originales no se tocan.
+                     La visibilidad de cada uno la gobierna el manifiesto
+                     por pestaña (Lienzo solo en Organizar; el resto con
+                     selección). ====================================================== -->
+                <button data-fusion-btn="zoomReset" class="btn-action" onclick="document.getElementById('pro-zoom-reset')?.click()" title="Restablecer zoom al 100%"><i class="fas fa-search-plus"></i> 100%</button>
+                <button data-fusion-btn="measurements" class="btn-action" onclick="document.getElementById('proBtnToggleMeasurements')?.click()" title="Activar/Desactivar cotas en mm"><i class="fas fa-arrows-alt"></i> Cotas</button>
+                <button data-fusion-btn="centerH" class="btn-action" onclick="document.getElementById('proBtnCenterH')?.click()" title="Centrar horizontalmente en producto"><i class="fas fa-arrows-alt-h"></i> Centrar H</button>
+                <button data-fusion-btn="centerV" class="btn-action" onclick="document.getElementById('proBtnCenterV')?.click()" title="Centrar verticalmente en producto"><i class="fas fa-arrows-alt-v"></i> Centrar V</button>
+                <button data-fusion-btn="centerBoth" class="btn-action" onclick="document.getElementById('proBtnCenterBoth')?.click()" title="Centrar total en producto"><i class="fas fa-compress-arrows-alt"></i> Centrar Total</button>
+                <button data-fusion-btn="distributeH" class="btn-action" onclick="document.getElementById('proBtnDistributeH')?.click()" title="Distribuir espacio horizontal (mín. 3 seleccionados)"><i class="fas fa-ellipsis-h"></i> Dist. H</button>
+                <button data-fusion-btn="distributeV" class="btn-action" onclick="document.getElementById('proBtnDistributeV')?.click()" title="Distribuir espacio vertical (mín. 3 seleccionados)"><i class="fas fa-ellipsis-v"></i> Dist. V</button>
+                <button data-fusion-btn="toFront" class="btn-action" onclick="document.getElementById('btnCtxToFront')?.click()" title="Al frente (Ctrl+PgUp)"><i class="fas fa-angle-double-up"></i> Al frente</button>
+                <button data-fusion-btn="bringForward" class="btn-action" onclick="document.getElementById('btnCtxForward')?.click()" title="Subir capa (PgUp)"><i class="fas fa-layer-group"></i> Subir capa</button>
+                <button data-fusion-btn="sendBackward" class="btn-action" onclick="document.getElementById('btnCtxBackward')?.click()" title="Bajar capa (PgDown)"><i class="fas fa-layer-group"></i> Bajar capa</button>
+                <button data-fusion-btn="toBack" class="btn-action" onclick="document.getElementById('btnCtxToBack')?.click()" title="Al fondo (Ctrl+PgDn)"><i class="fas fa-angle-double-down"></i> Al fondo</button>
             </div>
 
             <div class="top-group" id="topBooleanGroup" aria-label="Operaciones booleanas">
