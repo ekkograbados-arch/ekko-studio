@@ -82,6 +82,18 @@ function ensureMockupContainment(target) {
     }
 
     if (wrapped !== target) {
+        /* clipItem -> createMockupContainmentGroup devuelve el wrapper
+           ANCESTRO cuando el target YA esta contenido (por ejemplo una hoja
+           dentro del grupo de un SVG importado). Re-insertar ese ancestro
+           dentro del padre local mete al grupo dentro de su propio wrapper:
+           ciclo padre<->hijo que deja _isUpdated de paper recursando para
+           siempre y muere el render de toda la pagina (se vio con un SVG
+           de letras importado + Solidos<->Huecos). Solo se re-inserta y
+           re-etiqueta cuando el wrapper es NUEVO, es decir cuando contiene
+           al target como hijo directo. */
+        const esWrapperNuevo = Array.isArray(wrapped.children) &&
+            wrapped.children.indexOf(target) !== -1;
+        if (!esWrapperNuevo) return target;
         wrapped.data = {
             ...(wrapped.data || {}),
             clipGroup: true,
