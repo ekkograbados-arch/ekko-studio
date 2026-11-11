@@ -168,24 +168,6 @@ if (typeof document !== 'undefined' && !document.getElementById(proToolbarStyles
             text-transform: uppercase;
             margin-right: 4px;
         }
-        /* PEDIDO DEL DUEÑO (2026-11-11): la banda lleva el nombre de sección
-           "PROPIEDADES" — lo que hay acá (alineación, centrado en producto,
-           distribución, organizar, reglas, guías, cotas, zoom) son propiedades
-           generales de TODA selección y de cómo se organiza. Riel discreto a
-           la izquierda, mismo idioma tipográfico que las etiquetas de grupo. */
-        .pro-band-title {
-            font-size: 8.5px;
-            font-weight: 600;
-            letter-spacing: 0.10em;
-            color: #64748b;
-            text-transform: uppercase;
-            align-self: stretch;
-            display: inline-flex;
-            align-items: center;
-            padding: 0 10px 0 2px;
-            border-right: 1px solid #cbd5e1;
-            margin-right: 4px;
-        }
         .pro-divider {
             width: 1px;
             height: 20px;
@@ -256,7 +238,6 @@ export function initProControls() {
         proToolbar = document.createElement("div");
         proToolbar.id = "pro-layout-toolbar";
         proToolbar.innerHTML = `
-            <span class="pro-band-title" title="Propiedades generales de lo seleccionado">Propiedades</span>
             <div class="pro-group">
                 <span class="pro-label">Alineación</span>
                 <button class="pro-btn" id="proBtnAlignLeft" title="Alinear a la izquierda"><i class="fas fa-align-left"></i> Left</button>
@@ -283,6 +264,17 @@ export function initProControls() {
                 <button class="pro-btn" id="proBtnGroup" title="Agrupar elementos seleccionados (Ctrl+G)"><i class="fas fa-object-group"></i> Agrupar</button>
                 <button class="pro-btn" id="proBtnUngroup" title="Desagrupar grupo seleccionado (Ctrl+U)"><i class="fas fa-object-ungroup"></i> Desagrupar</button>
                 <button class="pro-btn" id="proBtnEditNodes" title="Editar puntos de anclaje / Nodos"><i class="fas fa-draw-polygon"></i> Editar Nodos</button>
+            </div>
+            <!-- Ronda 11 (dueño 2026-11-11): las CAPAS entran a la superficie de
+                 Organización. Antes solo existían como ctx* de la barra flotante:
+                 en la pestaña no había botón que las disparara (auditoría de
+                 conexiones). Disparan el mismo handler que la barra flotante. -->
+            <div class="pro-group">
+                <span class="pro-label">Capas</span>
+                <button class="pro-btn" id="proBtnCapaFrente" title="Al frente (Ctrl+PgUp)" onclick="document.getElementById('btnCtxToFront')?.click()"><i class="fas fa-angle-double-up"></i> Al frente</button>
+                <button class="pro-btn" id="proBtnCapaSubir" title="Subir capa (PgUp)" onclick="document.getElementById('btnCtxForward')?.click()"><i class="fas fa-layer-group"></i> Subir capa</button>
+                <button class="pro-btn" id="proBtnCapaBajar" title="Bajar capa (PgDown)" onclick="document.getElementById('btnCtxBackward')?.click()"><i class="fas fa-layer-group"></i> Bajar capa</button>
+                <button class="pro-btn" id="proBtnCapaFondo" title="Al fondo (Ctrl+PgDn)" onclick="document.getElementById('btnCtxToBack')?.click()"><i class="fas fa-angle-double-down"></i> Al fondo</button>
             </div>
             <div class="pro-group" id="proGroupFusion">
                 <button class="pro-btn" id="proBtnFusionar" title="Fusionar imagen dentro de un vector o hueco — selecciona imagen + vector"><i class="fas fa-wand-magic-sparkles" style="color:#ff2ea6;"></i> Fusionar</button>
