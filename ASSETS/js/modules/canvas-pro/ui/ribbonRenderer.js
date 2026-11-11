@@ -125,18 +125,16 @@ export function renderNow() {
   const snap = compute();
 
   /* Ronda 11 (dueño 2026-11-11): la banda de propiedades YA NO es un nivel
-     suelto debajo de la cinta. Es la superficie de la pestaña fija
-     ORGANIZACIÓN: solo se ve cuando esa pestaña está fijada. Con Inicio,
-     Texto o Vector activos (automático incluido) el nivel entero
-     desaparece — se acabó la franja de Alineación/Centrado/Distribución
-     apagada que entorpecía (regla del dueño: lo que no tiene nada que ver,
-     se oculta). Los botones siguen en el DOM: los comandos y los chips de
-     Más usadas los siguen alcanzando. */
+     suelto debajo de la cinta. La Ronda 12 (dueño 2026-11-11, rechazo de la
+     R11) la jubila: el modelo es Word de UNA cinta — al fijar Organizar es
+     la PROPIA CINTA la que cambia de contenido. La banda queda como
+     RESERVORIO OCULTO para siempre: sus botones siguen en el DOM (los
+     botones de la cinta los despachan con click()) y el puente los sigue
+     gobernando, pero nunca vuelve a verse. */
   const bandaPro = document.getElementById("pro-layout-toolbar");
   if (bandaPro) {
-    const verBanda = snap.activeTab === "vista";
-    bandaPro.style.display = verBanda ? "" : "none";
-    bandaPro.classList.toggle("ekko-band-fuera", !verBanda);
+    bandaPro.style.display = "none";
+    bandaPro.classList.remove("ekko-band-fuera");
   }
 
   const state = {
