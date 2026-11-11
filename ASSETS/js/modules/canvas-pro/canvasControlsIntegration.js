@@ -168,6 +168,24 @@ if (typeof document !== 'undefined' && !document.getElementById(proToolbarStyles
             text-transform: uppercase;
             margin-right: 4px;
         }
+        /* PEDIDO DEL DUEÑO (2026-11-11): la banda lleva el nombre de sección
+           "PROPIEDADES" — lo que hay acá (alineación, centrado en producto,
+           distribución, organizar, reglas, guías, cotas, zoom) son propiedades
+           generales de TODA selección y de cómo se organiza. Riel discreto a
+           la izquierda, mismo idioma tipográfico que las etiquetas de grupo. */
+        .pro-band-title {
+            font-size: 8.5px;
+            font-weight: 600;
+            letter-spacing: 0.10em;
+            color: #64748b;
+            text-transform: uppercase;
+            align-self: stretch;
+            display: inline-flex;
+            align-items: center;
+            padding: 0 10px 0 2px;
+            border-right: 1px solid #cbd5e1;
+            margin-right: 4px;
+        }
         .pro-divider {
             width: 1px;
             height: 20px;
@@ -238,6 +256,7 @@ export function initProControls() {
         proToolbar = document.createElement("div");
         proToolbar.id = "pro-layout-toolbar";
         proToolbar.innerHTML = `
+            <span class="pro-band-title" title="Propiedades generales de lo seleccionado">Propiedades</span>
             <div class="pro-group">
                 <span class="pro-label">Alineación</span>
                 <button class="pro-btn" id="proBtnAlignLeft" title="Alinear a la izquierda"><i class="fas fa-align-left"></i> Left</button>
