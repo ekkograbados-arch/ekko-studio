@@ -311,6 +311,56 @@ function resolverOwnerDeSeleccion(item) {
     return current;
 }
 
+/* Un import de SVG (las letras de SARA, texto vectorizado, etc.) vive como UN
+   Grupo con los datos de origen (source/userImported) en el GRUPO y las letras
+   hijas Path/CompoundPath SIN datos propios. La seleccion natural del cliente
+   es ese grupo entero (una caja con manijas), y expandirlo es la unica forma
+   de que Solidos<->Huecos y las booleanas vean cada letra. Nunca se expande
+   una fusion (isSmartFusion): su grupo era y sigue siendo rechazado entero. */
+function expandirVectoresEditables(owner, contexto = null, depth = 0) {
+    if (!owner || depth > 4) return [];
+    if (owner.className === "Path" || owner.className === "CompoundPath") {
+        return [heredarDatosDeImportacion(owner, contexto)];
+    }
+    if (owner.className !== "Group") return [];
+    const gd = owner.data || {};
+    if (gd.isSmartFusion || gd.isFusionMask || gd.mockup || gd.isMask) return [];
+    // El antepasado que carga la identidad del import (o del rotulado) es el
+    // contexto que heredan las hojas desnudas.
+    const ctx = (gd.userImported || gd.source || gd.label || gd.semanticKind ||
+        gd.isHole === true || gd.isSolidShape === true) ? owner : contexto;
+    const hojas = [];
+    (owner.children || []).forEach(child => {
+        if (!child || child.clipMask) return;
+        const d = child.data || {};
+        if (d.mockup || d.isMask || d.isFusionMask || d.isSmartFusion ||
+            d.isSelectionBox || d.isHandle) return;
+        hojas.push(...expandirVectoresEditables(child, ctx, depth + 1));
+    });
+    return hojas;
+}
+
+/* El import estampa source/userImported en la RAIZ del SVG; las hojas pueden
+   quedar desnudas y entonces semanticKind devuelve null y canConvertToCalado
+   las rechaza (boton mudo con la seleccion de grupo). Copiamos SOLO la
+   identidad minima que falta, sin pisar ningun dato propio de la hoja. */
+function heredarDatosDeImportacion(hoja, owner) {
+    try {
+        const gd = owner?.data || {};
+        if (!gd.userImported) return hoja;
+        const data = { ...(hoja.data || {}) };
+        let cambio = false;
+        if (!data.userImported) { data.userImported = true; cambio = true; }
+        if (!data.source &&
+            ["client-svg", "text-vector", "traced", "calado"].includes(gd.source)) {
+            data.source = gd.source;
+            cambio = true;
+        }
+        if (cambio) hoja.data = data;
+    } catch (_) {}
+    return hoja;
+}
+
 function getSelectedItems() {
     if (window.selectedItems && window.selectedItems.length) return [...window.selectedItems];
     return window.selectedItem ? [window.selectedItem] : [];
@@ -406,6 +456,26 @@ function bandaDeTrazo(item) {
 }
 
 function bakeBooleanOperand(item) {
+    /* Un GRUPO seleccionado es UN operando compuesto: se hornea la UNION de
+       sus hojas (cada una con su bake propio: banda de trazo, matrix global).
+       El resultado es un Path/CompoundPath unico, que es lo que el kernel de
+       paper exige como operando (un Group no soporta unite/intersect). */
+    if (item.className === "Group") {
+        let union = null;
+        for (const hoja of expandirVectoresEditables(item)) {
+            const horneada = bakeBooleanOperand(hoja);
+            if (!horneada) continue;
+            if (Math.abs(horneada.area || 0) <= BOOLEAN_MIN_AREA) {
+                try { horneada.remove(); } catch (_) {}
+                continue;
+            }
+            union = union ? union.unite(horneada, { insert: false }) : horneada;
+            if (union !== horneada) { try { horneada.remove(); } catch (_) {} }
+        }
+        if (union && Math.abs(union.area || 0) > BOOLEAN_MIN_AREA) return union;
+        try { union?.remove?.(); } catch (_) {}
+        return null;
+    }
     let clone = item.clone({ insert: false });
     try {
         const matrix = item.globalMatrix?.clone?.() || clone.matrix?.clone?.();
@@ -497,9 +567,22 @@ function booleanOperandOwners() {
     const seen = new Set();
     return getSelectedItems()
         .map(item => resolverOwnerDeSeleccion(unwrap(item)))
+        .flatMap(owner => {
+            /* El grupo entero (import de SARA, agrupado manual) entra como UN
+               operando compuesto: el cliente espera "el grupo" contra "la otra
+               forma" (silueta del grupo ∩ huella). Si cada hoja entrase como
+               operando separado, la interseccion n-aria daria vacio en cuanto
+               UNA hoja no tocara a las demas formas (letras 1-3 vs la huella:
+               vacio sin resultado y sin preview). */
+            if (owner && owner.className === "Group") return [owner];
+            return expandirVectoresEditables(owner);
+        })
         .filter(owner => {
             if (!owner || seen.has(owner)) return false;
-            if (owner.className !== "Path" && owner.className !== "CompoundPath") return false;
+            /* El grupo (unidad compuesta) es operando valido; rasters y demas
+               clases no vectoriales siguen fuera. */
+            const esGrupoUnidad = owner.className === "Group";
+            if (!esGrupoUnidad && owner.className !== "Path" && owner.className !== "CompoundPath") return false;
             const data = owner.data || {};
             if (data.mockup || data.isMask || data.isFusionMask || data.isSmartFusion) return false;
             try { if (isProductElement(owner)) return false; } catch (_) { return false; }
@@ -589,6 +672,20 @@ function performBooleanOperation(operation) {
             } catch (_) { continue; }
         }
         if (yaEnLaLista.has(efectivo)) continue;
+        /* Grupo = UN operando compuesto: antes de hornear su union, los huecos
+           internos se MATERIALIZAN (el anillo del calado pasa a materia con su
+           relleno) para que la silueta del grupo sea la real y no le falte el
+           area de las piezas caladas. Dentro de la transaccion: si la booleana
+           falla, el rollback devuelve los huecos originales. */
+        if (efectivo.className === "Group") {
+            expandirVectoresEditables(efectivo).forEach(hoja => {
+                let k2 = null;
+                try { k2 = semanticKind(hoja); } catch (_) { k2 = null; }
+                if (k2 === VECTOR_KIND.HOLE) {
+                    try { convertSelectionToSolid(hoja); } catch (_) {}
+                }
+            });
+        }
         yaEnLaLista.add(efectivo);
         owners.push(efectivo);
     }
@@ -1005,9 +1102,15 @@ export function invertSelectionRoles() {
     const seen = new Set();
     selected.map(item => resolverOwnerDeSeleccion(unwrap(item))).filter(Boolean).forEach(owner => {
         if (seen.has(owner) || isMockupOrMask(owner)) return;
-        if (owner.className !== "Path" && owner.className !== "CompoundPath") return;
-        seen.add(owner);
-        owners.push(owner);
+        // Un grupo seleccionado (import de SARA, texto vectorizado, agrupado
+        // manual) entra por sus hojas vectoriales: cada letra se invierte por
+        // su propio rol.
+        expandirVectoresEditables(owner).forEach(hoja => {
+            if (seen.has(hoja) || isMockupOrMask(hoja)) return;
+            if (hoja.className !== "Path" && hoja.className !== "CompoundPath") return;
+            seen.add(hoja);
+            owners.push(hoja);
+        });
     });
     if (!owners.length) return null;
 
