@@ -436,7 +436,10 @@ export const TOOLS = {
   toFront:     { label: "Al frente",    active: s => s.count >= 1 },
   toBack:      { label: "Al fondo",     active: s => s.count >= 1 },
   size:        { label: "Tamaño",       active: s => s.count >= 1 },
-  measurements:{ label: "Cotas",        active: s => s.count >= 1 },
+  /* Ronda 12: las cotas son configuración del LIENZO (sección Lienzo de
+     Organizar), no de la selección: se ven con el lienzo vacío. La pestaña
+     sigue recortando (solo aparecen en Organizar). */
+  measurements:{ label: "Cotas",        active: () => true },
   align:       { label: "Alinear",      active: s => s.count >= 1 },
   distribute:  { label: "Distribuir",   active: s => s.count >= 2 },
 
@@ -686,7 +689,14 @@ const ENGINE_TO_LEGACY = Object.freeze({
      para el conjunto permitido del puente. Con la pestaña Vista (D2) Tamaño
      se vuelve a ofrecer por pestaña, así que las dos entran acá. */
   size: ["size"],
-  audit: ["audit"]
+  audit: ["audit"],
+  /* Ronda 12 (dueño 2026-11-11): las CAPAS entran al mapa histórico —
+     igual que size/audit, el manifiesto las declaraba pero el mapa no las
+     emitía, así que legacyNamesForTab y el puente las ignoraban. */
+  toFront: ["toFront"],
+  bringForward: ["bringForward"],
+  sendBackward: ["sendBackward"],
+  toBack: ["toBack"]
 });
 
 export function legacyNamesFor(selection) {
@@ -732,12 +742,16 @@ export const TABS = Object.freeze({
      clic vuelve al automático. Todo lo que entorpecía la dinámica (tamaños,
      zoom, organización de capas, alineación, reglas, guías, cotas,
      distribuir) vive acá y solo acá. */
-  /* Ronda 11 (dueño 2026-11-11): la pestaña fija de ajustes generales se
-     llama ORGANIZACIÓN (ex "Vista"). Es la sección fija a la derecha de
-     Inicio: alineaciones, distribuciones, guías, reglas, cotas, zoom,
-     tamaños, capas. La banda profesional es SU superficie: fuera de esta
-     pestaña el nivel entero desaparece (ribbonRenderer). */
-  vista:    { id: "vista",    label: "Organización",   tools: ["size", "align", "distribute", "bringForward", "sendBackward", "toFront", "toBack", "zoom", "rulers", "guides", "measurements"] },
+  /* Ronda 12 (dueño 2026-11-11, rechazo de la R11): la pestaña fija de
+     ajustes generales se llama ORGANIZAR (ex "Vista"/"Organización") y es
+     SIEMPRE LA ÚLTIMA de izquierda a derecha, con o sin selección
+     (tabsForSelection). Modelo Word de UNA cinta: al fijarla, la propia
+     cinta cambia su contenido — LIENZO (zoom/reglas/guías/cotas, activo
+     siempre), ALINEAR, CENTRAR EN PRODUCTO, DISTRIBUIR, CAPAS y ORGANIZAR
+     (agrupar/desagrupar), estos con botones activos o en gris con motivo
+     según la selección. La banda profesional queda como reservorio oculto.
+     group/ungroup entran a tools para que la pestaña los declare suyos. */
+  vista:    { id: "vista",    label: "Organizar",   tools: ["size", "align", "distribute", "group", "ungroup", "bringForward", "sendBackward", "toFront", "toBack", "zoom", "rulers", "guides", "measurements"] },
   image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
@@ -780,11 +794,12 @@ export function detectTab(selection) {
  *  seleccionada el cliente ve Inicio e Imagen, no Texto ni Vector. */
 export function tabsForSelection(selection) {
   const detected = detectTab(selection);
-  /* D2: la pestaña Vista vive SIEMPRE junto a Inicio, con o sin selección:
-     los ajustes generales tienen que estar a un clic incluso con el lienzo
-     vacío (zoom/reglas/guías sirven sin nada seleccionado). */
-  const ids = ["base", "vista", detected];
+  /* Ronda 12 (dueño 2026-11-11): ORGANIZAR es SIEMPRE LA ÚLTIMA de
+     izquierda a derecha, con cualquier selección o sin ella:
+     Inicio · [contextuales de la selección] · Organizar. */
+  const ids = ["base", detected];
   if (detected === "multiple") ids.push("image", "vector", "text");
+  ids.push("vista");
   return [...new Set(ids)].filter(id => TABS[id]);
 }
 
