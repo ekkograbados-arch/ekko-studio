@@ -32,6 +32,15 @@ export const FAMILY = Object.freeze({ H: "H", P: "P", E: "E" });
  * Fase 2 (ribbon) usa `label` para el titulo colapsable; en Fase 0/1 el grupo
  * solo ordena.
  */
+/* Ronda 12 (dueño 2026-11-11, rechazo de la R11): el ex grupo "vista" se
+   parte en las SECCIONES del modelo Word de una cinta, en orden fijo. Al
+   fijar Organizar, la propia cinta muestra estas secciones:
+   LIENZO (zoom/reglas/guías/cotas, activo sin selección) · ALINEAR ·
+   CENTRAR EN PRODUCTO · DISTRIBUIR · CAPAS · ORGANIZAR (agrupar).
+   Con selección aparecen las de objetos con botones activos o GRIS con
+   motivo; sin selección solo queda Lienzo (ribbonLayout sync oculta las
+   que quedan vacías, así que los botones sin selección van ocultos por
+   su propia regla en el motor/manifiesto). */
 export const GROUPS = Object.freeze([
   { key: "creacion",   label: "Crear" },
   { key: "fondo",      label: "Imagen" },
@@ -40,7 +49,12 @@ export const GROUPS = Object.freeze([
   { key: "geometria",  label: "Geometría" },
   { key: "composicion",label: "Composición" },
   { key: "booleanas",  label: "Booleanas" },
-  { key: "vista",      label: "Vista" }
+  { key: "lienzo",     label: "Lienzo" },
+  { key: "alinear",    label: "Alinear" },
+  { key: "centrar",    label: "Centrar en producto" },
+  { key: "distribuir", label: "Distribuir" },
+  { key: "capas",      label: "Capas" },
+  { key: "organizar",  label: "Organizar" }
 ]);
 
 /**
@@ -87,35 +101,80 @@ export const BUTTONS = Object.freeze([
   { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "composicion" },
   { tool: "rotate",       legacy: ["rotate"],        family: FAMILY.H, group: "composicion" },
   { tool: "flip",         legacy: ["flip", "flipH", "flipV"], family: FAMILY.H, group: "composicion" },
-  { tool: "size",         legacy: ["size"],          family: FAMILY.H, group: "vista" },
+  { tool: "size",         legacy: ["size"],          family: FAMILY.H, group: "organizar" },
   {
-    tool: "align", legacy: ["align"], family: FAMILY.H, group: "vista",
-    /* D2 (dueño 2026-11-11): Alinear vive en la pestaña Vista. Ya no es
-       `always` en el motor: pide al menos un objeto seleccionado. */
+    tool: "align", family: FAMILY.H, group: "alinear",
+    /* Las 6 direcciones viven en la cinta de Organizar (Ronda 12) con el
+       mismo nombre legacy que el motor ya emite (ENGINE_TO_LEGACY.align).
+       Ronda 12: sin selección la sección Alinear NO existe (solo Lienzo) —
+       lockWhen falso la esconde en vez de mostrarla gris con el lienzo
+       vacío; con selección el motor la habilita (count >= 1). */
+    legacy: ["align", "alignLeft", "alignCenterX", "alignRight", "alignTop", "alignCenterY", "alignBottom"],
     extra: snap => snap.hasSelection,
+    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná al menos un objeto para alinear"
   },
-  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "vista" },
-  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "vista" },
-  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "vista" },
-  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "vista" },
-  { tool: "zoom",         legacy: ["zoom"],          family: FAMILY.H, group: "vista" },
-  { tool: "rulers",       legacy: ["rulers"],        family: FAMILY.H, group: "vista" },
-  { tool: "guides",       legacy: ["guides"],        family: FAMILY.H, group: "vista" },
-  { tool: "measurements", legacy: ["measurements"],  family: FAMILY.H, group: "vista" },
+  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "capas" },
+  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "capas" },
+  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "capas" },
+  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "capas" },
+  {
+    /* Ronda 12: sección LIENZO de Organizar. Estas tres son configuración
+       del lienzo, no herramientas del objeto: SOLO se ven con Organizar
+       fijada (extra) y fuera de esa pestaña se ocultan en vez de mostrarse
+       grises (lockWhen falso — mismo patrón que fusion). Sin selección
+       quedan activas: pestaña Organizar = lienzo configurable. */
+    tool: "zoom", legacy: ["zoom"], family: FAMILY.H, group: "lienzo",
+    extra: snap => snap.activeTab === "vista",
+    lockWhen: () => false
+  },
+  {
+    tool: "rulers", legacy: ["rulers"], family: FAMILY.H, group: "lienzo",
+    extra: snap => snap.activeTab === "vista",
+    lockWhen: () => false
+  },
+  {
+    tool: "guides", legacy: ["guides"], family: FAMILY.H, group: "lienzo",
+    extra: snap => snap.activeTab === "vista",
+    lockWhen: () => false
+  },
+  { tool: "measurements", legacy: ["measurements"],  family: FAMILY.H, group: "lienzo" },
+  {
+    /* Ronda 12: CENTRAR EN PRODUCTO. Los tres botones viven en la cinta
+       (despachan a los de la banda reservorio). Centrar no opera nada sin
+       selección y solo tiene sentido dentro de Organizar: la regla es la
+       dos condiciones juntas. */
+    tool: null,
+    legacy: ["centerH", "centerV", "centerBoth"],
+    family: FAMILY.H,
+    group: "centrar",
+    rule: snap => !!snap.hasSelection && snap.activeTab === "vista",
+    reason: "Seleccioná al menos un objeto para centrar en el producto"
+  },
+  {
+    /* Ronda 12: reinicio de zoom al 100% en la sección Lienzo. */
+    tool: null,
+    legacy: ["zoomReset"],
+    family: FAMILY.H,
+    group: "lienzo",
+    rule: snap => snap.activeTab === "vista"
+  },
 
   /* --- P: orden obligado. Se ven, pero bloqueadas con el motivo. --- */
   {
-    tool: "group", family: FAMILY.P, group: "estructura", legacy: ["group"],
+    tool: "group", family: FAMILY.P, group: "organizar", legacy: ["group"],
     tabBypass: true,
+    /* Ronda 12: sin selección la sección Organizar no existe (solo Lienzo). */
+    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná al menos 2 objetos para agrupar"
   },
   {
-    tool: "ungroup", family: FAMILY.P, group: "estructura", legacy: ["ungroup"],
+    tool: "ungroup", family: FAMILY.P, group: "organizar", legacy: ["ungroup"],
     /* Es estructural: un grupo seleccionado se desagrupa aunque la pestaña
        activa sea Vector. Mientras capabilities.js no agregue `ungroup` a
        TABS.vector, esta bandera evita que la pestaña lo esconda. */
     tabBypass: true,
+    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná un grupo para desagruparlo"
   },
   {
@@ -124,12 +183,16 @@ export const BUTTONS = Object.freeze([
     reason: "Primero desagrupá: un grupo mixto hay que abrirlo para saber con qué se trabaja"
   },
   {
-    tool: "distribute", family: FAMILY.P, group: "vista", legacy: ["distribute"],
-    tabBypass: true,
+    tool: "distribute", family: FAMILY.P, group: "distribuir",
+    legacy: ["distribute", "distributeH", "distributeV"],
+    /* Ronda 12: Distribuir es sección de Organizar; también alcanza en
+       Varios (multiple.tools lo declara). Ya no bypasea: en Vector no
+       aparece (la pestaña lo recorta). Sin selección la sección no existe. */
     /* capabilities.js lo habilita con 2, pero distributeSpacing() pide 3 y
        con 2 el botón salía, se apretaba y no hacía nada. La regla fina va
        aca, sin tocar capabilities (capa de objetos). */
     extra: snap => (snap.summary ? snap.summary.count : 0) >= 3,
+    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná 3 o más objetos para distribuir el espacio"
   },
   {
