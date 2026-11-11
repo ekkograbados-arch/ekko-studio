@@ -732,7 +732,12 @@ export const TABS = Object.freeze({
      clic vuelve al automático. Todo lo que entorpecía la dinámica (tamaños,
      zoom, organización de capas, alineación, reglas, guías, cotas,
      distribuir) vive acá y solo acá. */
-  vista:    { id: "vista",    label: "Vista",   tools: ["size", "align", "distribute", "bringForward", "sendBackward", "toFront", "toBack", "zoom", "rulers", "guides", "measurements"] },
+  /* Ronda 11 (dueño 2026-11-11): la pestaña fija de ajustes generales se
+     llama ORGANIZACIÓN (ex "Vista"). Es la sección fija a la derecha de
+     Inicio: alineaciones, distribuciones, guías, reglas, cotas, zoom,
+     tamaños, capas. La banda profesional es SU superficie: fuera de esta
+     pestaña el nivel entero desaparece (ribbonRenderer). */
+  vista:    { id: "vista",    label: "Organización",   tools: ["size", "align", "distribute", "bringForward", "sendBackward", "toFront", "toBack", "zoom", "rulers", "guides", "measurements"] },
   image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
