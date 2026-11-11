@@ -288,6 +288,29 @@ function unwrap(item) {
     return getPublicOwner(item) || item;
 }
 
+/* Un click sobre una letra CompoundPath deja en window.selectedItems el Path
+   HIJO (data vacia): getPublicOwner no lo resuelve, semanticKind devuelve
+   null y el boton Solidos<->Huecos queda MUDO (ninguna rama convierte), y
+   booleanOperandOperators terminaria operando con el contorno suelto en vez
+   de la letra completa. Se sube por la pila hasta el antepasado con datos de
+   diseno, sin cruzar el wrapper de contencion ni el mockup. */
+function resolverOwnerDeSeleccion(item) {
+    let current = item;
+    for (let guard = 0; current && current.parent && guard < 8; guard += 1) {
+        const data = current.data || {};
+        if (data.semanticKind || data.isHole === true || data.isSolidShape === true ||
+            data.isCalado === true || data.userImported || data.label ||
+            data.isSmartFusion || data.originalVectorData) break;
+        const parent = current.parent;
+        const pData = parent.data || {};
+        if (pData.clipGroup === true || pData.mockup || pData.isMask) break;
+        if (parent.className === "CompoundPath" || parent.className === "Group") {
+            current = parent;
+        } else break;
+    }
+    return current;
+}
+
 function getSelectedItems() {
     if (window.selectedItems && window.selectedItems.length) return [...window.selectedItems];
     return window.selectedItem ? [window.selectedItem] : [];
@@ -473,7 +496,7 @@ function booleanOperandOwners() {
     };
     const seen = new Set();
     return getSelectedItems()
-        .map(unwrap)
+        .map(item => resolverOwnerDeSeleccion(unwrap(item)))
         .filter(owner => {
             if (!owner || seen.has(owner)) return false;
             if (owner.className !== "Path" && owner.className !== "CompoundPath") return false;
@@ -646,11 +669,21 @@ function performBooleanOperation(operation) {
     let booleanResultLocal = null;
     try {
         booleanResultLocal = result.clone({ insert: false });
-        booleanResultLocal.applyMatrix = false;
-        const baseGlobal = base.globalMatrix?.clone?.() || new paper.Matrix();
-        booleanResultLocal.transform(baseGlobal.inverted());
+        // geomBase DEBE quedar en espacio LOCAL del owner (contrato que
+        // getGlobalUnsubtractedPath/toWorldGeometry asumen: "geomBase is
+        // owner-local"). Con matrix-mult + reset de matrix el inverso se
+        // DESCARTABA y geomBase quedaba en coordenadas de proyecto; entonces
+        // recalculateDynamicSubtractions volvia a aplicar la matrix global del
+        // owner ENCIMA: doble transformacion = el resultado booleano se
+        // dibujaba agrandado o encogido segun la escala de la importacion.
+        // Canon del repo (bakeGeometryClone): hornear el inverso en segmentos.
         booleanResultLocal.applyMatrix = false;
         booleanResultLocal.matrix = new paper.Matrix();
+        const baseGlobal = base.globalMatrix?.clone?.() || new paper.Matrix();
+        if (baseGlobal && !baseGlobal.isIdentity()) {
+            booleanResultLocal.transform(baseGlobal.inverted());
+        }
+        booleanResultLocal.applyMatrix = true;
         booleanResultLocal.fillRule = result.fillRule || "evenodd";
     } catch (_) {
         try { booleanResultLocal?.remove?.(); } catch (_) {}
@@ -735,10 +768,13 @@ function performBooleanOperation(operation) {
 
    La previsualización NO toca la escena: se hornea una COPIA de cada operando
    (`insert:false`, fuera del proyecto), se corre la misma operación sobre las
-   copias y el resultado se dibuja como fantasma rosa arriba de todo. No abre
-   transacción de historial, no modifica el documento y no deja nada si el
-   puntero se va. El fantasma lleva `isSelectionBox`, que es la marca que
-   exportSVG.js:336 ya descarta: jamás puede terminar en el archivo del láser.
+   copias y el resultado se dibuja como fantasma arriba de todo: VERDE #35c46f
+   (el color "restaurar" del Editar Fondo) = lo que SE QUEDA, y ROJO
+   rgba(239,83,80,.45) (el color "lo quitado" del Editar Fondo) = lo que
+   desaparece. No abre transacción de historial, no modifica el documento y no
+   deja nada si el puntero se va. El fantasma lleva `isSelectionBox`, que es la
+   marca que exportSVG.js:336 ya descarta: jamás puede terminar en el archivo
+   del láser.
    ========================================================================= */
 const BOOLEAN_PREVIEW_SELECTOR = "[data-fusion-btn^='boolean'], [data-ekko-command^='boolean']";
 const BOOLEAN_PREVIEW_COMMANDS = Object.freeze({
@@ -822,20 +858,58 @@ function showBooleanPreview(operation) {
     const capa = (proj.layers || []).find(l => l && l.name === "designLayer") || proj.activeLayer;
     if (!capa) { try { result.remove(); } catch (_) {} return false; }
     const zoom = paper.view?.zoom || 1;
+
+    /* Lo que SE QUITA: union de los operandos menos el resultado. Se pinta en
+       ROJO con la misma metodologia del Editar Fondo (rojo = lo quitado,
+       rgba(239,83,80,.45)); lo que SE QUEDA va en VERDE #35c46f, el color
+       semantico de "restaurar" de esa misma herramienta. Asi el fantasma
+       dice sin ambiguedad que parte sobrevive y que parte desaparece. */
+    let quita = null;
     try {
-        const rosa = new paper.Color("#ff2ea6");
-        rosa.alpha = 0.22;
-        result.fillColor = rosa;
-        result.strokeColor = new paper.Color("#ff2ea6");
-        result.strokeWidth = 1.6 / zoom;
-        result.dashArray = [5 / zoom, 3 / zoom];
+        let union = null;
+        for (const owner of booleanPreviewOwners) {
+            const baked = bakeBooleanOperand(owner);
+            if (!baked) continue;
+            union = union ? union.unite(baked, { insert: false }) : baked;
+            if (union !== baked) { try { baked.remove(); } catch (_) {} }
+        }
+        if (union && Math.abs(union.area || 0) > BOOLEAN_MIN_AREA) {
+            quita = union.subtract(result, { insert: false });
+        }
+        try { union?.remove?.(); } catch (_) {}
+        if (quita && Math.abs(quita.area || 0) <= BOOLEAN_MIN_AREA) {
+            try { quita.remove(); } catch (_) {}
+            quita = null;
+        }
+    } catch (_) { quita = null; }
+
+    try {
         // Mismo criterio de relleno que el resultado real (performBooleanOperation
         // también fija even-odd): si no, un hueco se vería relleno en el fantasma
         // y vacío después del clic.
         result.fillRule = "evenodd";
-    } catch (_) {}
+        const verde = new paper.Color("#35c46f");
+        verde.alpha = 0.40;
+        result.fillColor = verde;
+        result.strokeColor = new paper.Color("#35c46f");
+        result.strokeWidth = 1.6 / zoom;
+        result.dashArray = null;
+        if (quita) {
+            quita.fillRule = "evenodd";
+            const rojo = new paper.Color("#ef5350");
+            rojo.alpha = 0.45;
+            quita.fillColor = rojo;
+            quita.strokeColor = new paper.Color("#ef5350");
+            quita.strokeWidth = 1.2 / zoom;
+            quita.dashArray = [5 / zoom, 3 / zoom];
+        }
+    } catch (_) {
+        try { quita?.remove?.(); } catch (_) {}
+        quita = null;
+    }
     const grupo = new paper.Group({ insert: false });
     grupo.data = { isSelectionBox: true, isBooleanPreview: true, uiOnly: true, booleanOperation: operation };
+    if (quita) grupo.addChild(quita);
     grupo.addChild(result);
     capa.addChild(grupo);
     grupo.bringToFront();
@@ -929,7 +1003,7 @@ export function invertSelectionRoles() {
     const selected = getSelectedItems();
     const owners = [];
     const seen = new Set();
-    selected.map(unwrap).filter(Boolean).forEach(owner => {
+    selected.map(item => resolverOwnerDeSeleccion(unwrap(item))).filter(Boolean).forEach(owner => {
         if (seen.has(owner) || isMockupOrMask(owner)) return;
         if (owner.className !== "Path" && owner.className !== "CompoundPath") return;
         seen.add(owner);
