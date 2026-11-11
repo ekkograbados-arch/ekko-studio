@@ -495,6 +495,11 @@ function estilos() {
                es la manera de empezar. */
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > .ekko-ribbon-group:not([data-group="creacion"]) { display: none !important; }
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > button { display: none !important; }
+        /* Ronda 12 (dueño 2026-11-11): Organizar se fija TAMBIEN con el
+           lienzo vacío, y entonces su sección Lienzo queda a la vista —
+           zoom, reglas, guías, cotas y el 100% son configuración DEL
+           LIENZO, no del objeto: sirven sin nada seleccionado. */
+        #topBar.ekko-cascade.ekko-sin-seleccion[data-ekko-tab-manual="vista"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="lienzo"] { display: flex !important; }
         /* Y al reves (ronda 15): con un objeto apuntado, CARGAR / CREAR se van.
            Inicio es la puerta para empezar un proyecto, no una barra que
            convive con las herramientas del objeto: medido con una imagen
@@ -1355,14 +1360,13 @@ function estilos() {
             width: 20px; height: 20px;
         }
 
-        /* El grupo VISTA no se repite en el nivel 2: Ajustar Vista, Reglas y
-           Guias son exactamente los mismos comandos que ya estan en la banda
-           del nivel 3 (OPCIONES DE VISTA / ZOOM), dos centimetros mas abajo.
-           Medido con una imagen apuntada, ese grupo se llevaba 205 de los 906
-           px de la fila y empujaba lo que SI importa (Quitar Fondo, Trazar,
-           Fusionar, Contorno, Alinear) fuera de la ventana. Ronda 13 ya lo
-           habia contado: 26 funciones repetidas entre niveles. */
-        #topBar.ekko-cascade #ekkoCascadeTools > .ekko-ribbon-group[data-group="vista"] { display: none !important; }
+        /* Ronda 12 (dueño 2026-11-11): el ex grupo "vista" NO se oculta más
+           por duplicar a la banda — la banda ya no existe como nivel (queda
+           como reservorio oculto) y sus comandos viven ahora en la cinta
+           misma, repartidos en las secciones Lienzo / Alinear / Centrar en
+           producto / Distribuir / Capas / Organizar del modelo Word de una
+           cinta. Su visibilidad la gobierna el motor por pestaña, como la
+           de cualquier otro grupo. */
     `;
     document.head.appendChild(st);
 }
@@ -1585,10 +1589,17 @@ function renderTabs() {
     const tabSel = tabDeLaSeleccion();
     const deSeleccion = tabSel === "base" ? [] : [tabSel];
     const { especies } = contenidoDelLienzo();
+    /* Ronda 12 (dueño 2026-11-11): ORGANIZAR (id interno "vista") SIEMPRE
+       está en la tira y SIEMPRE ÚLTIMA de izquierda a derecha, con o sin
+       selección (el sort por RAIZ_ORDEN la deja al final: no está en el
+       mapa, cae en 99). Con nada seleccionado muestra su sección Lienzo
+       (zoom/reglas/guías/cotas activas); con selección aparecen las
+       secciones de objetos con botones activos o grises según corresponda. */
     const disponibles = [...new Set([
         "base",
         ...deSeleccion,
-        ...especies
+        ...especies,
+        "vista"
     ])].filter(id => TABS[id]);
     const manual = pestañaActual();
 
@@ -2406,8 +2417,15 @@ function refrescarDocumento() {
        Si no, la pestana que el cliente toco para un objeto sigue activa sobre
        una cinta que ya no tiene ese objeto, y la barra parece rota. */
     if (sinSeleccion && pestañaActual() !== "auto") {
-        if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = "auto";
-        persistirTab("auto");
+        /* Ronda 12 (dueño 2026-11-11): ORGANIZAR es la excepción — se fija
+           también con el lienzo vacío, porque su sección Lienzo
+           (zoom/reglas/guías/cotas) sirve sin nada seleccionado. Las demás
+           pestañas siguen volviendo a Inicio: la pestaña de un objeto que
+           ya no está apuntado dejaba la cinta pareciendo rota (ronda 7). */
+        if (pestañaActual() !== "vista") {
+            if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = "auto";
+            persistirTab("auto");
+        }
     }
     topBar.classList.toggle("ekko-sin-seleccion", sinSeleccion);
     // Guardia de orden: ningun motor debe poder desmontar la estructura
