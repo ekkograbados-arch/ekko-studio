@@ -823,7 +823,10 @@ VERSIÓN: v46.5_FUSION — Paneles sincronizados + Carga unificada + Botones din
                     <button class="toolbar-btn" id="btnCtxItalic" data-fusion-btn="ctxItalic" title="Cursiva"><i class="fas fa-italic"></i></button>
                     <button class="toolbar-btn" id="btnCtxUnderline" data-fusion-btn="ctxUnderline" title="Subrayado"><i class="fas fa-underline"></i></button>
                     <button class="toolbar-btn" id="btnCtxWeld" data-fusion-btn="ctxWeld" title="Soldar Texto"><i class="fas fa-object-ungroup"></i></button>
-                    <button data-fusion-btn="curvar" class="toolbar-btn" id="btnCtxTextCurve" title="Curvar texto"><i class="fas fa-bezier-curve"></i> Curvar Texto</button>
+                    <!-- Ronda 14 (merge): btnCtxTextCurve fuera de AQUÍ. Curvar
+                         Texto tiene UN solo hogar: el campo de la cinta
+                         (btnTopTextCurve, lo adopta migrarCamposACinta). El
+                         duplicado en la ventana contextual confundía. -->
                     <div id="ctxTextCurvature" class="toolbar-slider-container" title="Curvatura de texto: el angulo es el valor maestro. 360 cierra el anillo (virola completa)">
                         <i class="fas fa-heading"></i> <input type="range" min="-360" max="360" step="0.5" value="0">
                         <span id="ctxBendAngleVal" class="toolbar-angle-readout" title="Ángulo de curvado">0°</span>
