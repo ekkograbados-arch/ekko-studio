@@ -34,11 +34,6 @@ const PRO_COMMAND_IDS = {
     proBtnEditNodes: "editNodes",
     proBtnDistributeH: "distribute",
     proBtnDistributeV: "distribute",
-    /* Ronda 11 (dueño 2026-11-11): capas en la superficie de Organización. */
-    proBtnCapaFrente: "toFront",
-    proBtnCapaSubir: "bringForward",
-    proBtnCapaBajar: "sendBackward",
-    proBtnCapaFondo: "toBack",
     proBtnToggleRulers: "rulers",
     proBtnToggleGuides: "guides",
     proBtnToggleMeasurements: "measurements",
@@ -652,6 +647,14 @@ function performBooleanOperation(operation) {
     const ownsHistory = !window._ekkoHistoryTransaction?.active;
     if (ownsHistory) window.beginHistoryTransaction?.("boolean");
     const rejectBoolean = reason => {
+        if (reason === "empty" || reason === "empty-area") {
+            /* La booleana SÍ corrió, pero no deja material (piezas que no se
+               tocan, o una tapa por completo a la otra). Sin este aviso el
+               dueño cree que el botón está roto: "no colorea nada". */
+            try {
+                notice("La booleana no dejó ningún pedazo: las piezas no comparten área, o una tapa por completo a la otra. No se cambió nada.", { kind: "warn" });
+            } catch (_) {}
+        }
         if (ownsHistory) window.cancelHistoryTransaction?.(reason || "boolean-failed");
         return null;
     };
@@ -845,6 +848,14 @@ function performBooleanOperation(operation) {
         }
     } catch (_) {}
 
+    // Marca de resultado booleano: habilita "Descomponer Vector" sobre la
+    // pieza nueva (queja del dueño: una booleana no se podia volver a
+    // descomponer). El gate de capabilities mira esta marca y NO la sola
+    // presencia de contornos, asi un QR o un trazado siguen sin explotar.
+    try {
+        keeper.data = { ...(keeper.data || {}), booleanResult: true, booleanOperation: operation };
+    } catch (_) {}
+
     // Los operandos consumidos desaparecen: la forma resultante los contiene.
     ordered.slice(1).forEach(owner => {
         try { owner.remove(); } catch (_) {}
@@ -949,13 +960,66 @@ function buildBooleanPreview(operation) {
     return result;
 }
 
+/* Preview cuando el resultado de la booleana queda VACIO: una interseccion
+   entre piezas que no comparten area, o un restar donde lo segundo tapa todo
+   al primero. Antes no se pintaba NADA y el dueño leia "el programa no hace
+   nada". Ahora se pinta la union de los operandos en el ROJO de "se quita"
+   (misma metodologia del Editar Fondo): la operación SÍ reaccionó, y tal
+   como está la selección no quedaría ningún pedazo. */
+function mostrarPreviewVacio(operation) {
+    const owners = booleanPreviewOwners;
+    if (!owners || owners.length < 2) return false;
+    let union = null;
+    try {
+        for (const owner of owners) {
+            const baked = bakeBooleanOperand(owner);
+            if (!baked) continue;
+            union = union ? union.unite(baked, { insert: false }) : baked;
+            if (union !== baked) { try { baked.remove(); } catch (_) {} }
+        }
+    } catch (_) { try { union?.remove?.(); } catch (_) {} return false; }
+    if (!union || Math.abs(union.area || 0) <= BOOLEAN_MIN_AREA) {
+        try { union?.remove?.(); } catch (_) {}
+        return false;
+    }
+    const proj = paper.project;
+    const capa = (proj.layers || []).find(l => l && l.name === "designLayer") || proj.activeLayer;
+    if (!capa) { try { union.remove(); } catch (_) {} return false; }
+    const zoom = paper.view?.zoom || 1;
+    try {
+        union.fillRule = "evenodd";
+        const rojo = new paper.Color("#ef5350");
+        rojo.alpha = 0.45;
+        union.fillColor = rojo;
+        union.strokeColor = new paper.Color("#ef5350");
+        union.strokeWidth = 1.2 / zoom;
+        union.dashArray = [5 / zoom, 3 / zoom];
+    } catch (_) { try { union.remove(); } catch (_) {} return false; }
+    const grupo = new paper.Group({ insert: false });
+    grupo.data = { isSelectionBox: true, isBooleanPreview: true, uiOnly: true, booleanOperation: operation, booleanEmpty: true };
+    grupo.addChild(union);
+    capa.addChild(grupo);
+    grupo.bringToFront();
+    booleanPreviewGroup = grupo;
+    booleanPreviewOperation = operation;
+    paper.view?.update?.();
+    try {
+        notice("Con esta selección la booleana no deja ningún pedazo: en rojo se ve todo lo que se quitaría.", { kind: "warn" });
+    } catch (_) {}
+    return true;
+}
+
 function showBooleanPreview(operation) {
     if (!operation) return false;
     if (booleanPreviewOperation === operation && booleanPreviewGroup?.parent) return true;
     clearBooleanPreview();
     booleanPreviewOwners = booleanOperandOwners();
     const result = buildBooleanPreview(operation);
-    if (!result) { booleanPreviewOwners = []; return false; }
+    if (!result) {
+        const pintado = mostrarPreviewVacio(operation);
+        if (!pintado) booleanPreviewOwners = [];
+        return pintado;
+    }
     const proj = paper.project;
     const capa = (proj.layers || []).find(l => l && l.name === "designLayer") || proj.activeLayer;
     if (!capa) { try { result.remove(); } catch (_) {} return false; }
@@ -1101,6 +1165,79 @@ window.EKKO_BOOLEAN_PREVIEW = Object.freeze({
  * Un solido pasa a perforar (hueco real) y un hueco pasa a material.
  * Un clic, util cuando la seleccion mezcla ambos papeles.
  */
+/* REGLA DEL DUEÑO (orden Z): dentro de un lote de DESCOMPONER, el apilado
+   real va del contorno externo hacia adentro: la masa sólida externa abajo,
+   su calado arriba, y así nivel por nivel (Nivel 0 debajo de Nivel 1).
+   El reorden por docOrder del stream fuente dejaba los contadores internos
+   (muchas fuentes listan el contorno interno ANTES que el externo) por DEBAJO
+   de su masa sólida: el dueño lo ve como "los huecos quedan debajo de la capa
+   de los sólidos" y al intercambiar Sólidos<->Huecos la pieza convertida
+   quedaba perforada/tapada por su hermana. Este re-apilado es ESTABLE:
+   solo toca lotes descompuestos (decomposedLayer + containmentScope), Ordera
+   por (raíz según orden actual, nivel, docOrder), preserva el orden ENTRE
+   jerarquías (letras) y no toca nada de lo apilado a mano por el usuario. */
+function restackLoteDescompuesto(convertidos) {
+    if (!Array.isArray(convertidos) || !convertidos.length) return;
+    const wrapperDe = (pieza) => {
+        const p = pieza?.parent;
+        return (p && p.data?.clipGroup) ? p : (pieza || null);
+    };
+    const hojaDe = (w) => (w.children || []).find(ch => !ch.clipMask &&
+        !((ch.data || {}).isSelectionBox)) || null;
+    const lotes = new Map();
+    convertidos.forEach(pieza => {
+        const d = pieza?.data || {};
+        if (d.decomposedLayer !== true || !d.containmentScope) return;
+        const wrapper = wrapperDe(pieza);
+        if (!wrapper || !wrapper.parent) return;
+        const clave = wrapper.parent.id + '|' + d.containmentScope;
+        if (!lotes.has(clave)) lotes.set(clave, { contenedor: wrapper.parent, alcance: d.containmentScope });
+    });
+    lotes.forEach(({ contenedor, alcance }) => {
+        const lote = (contenedor.children || []).filter(ch => {
+            const hoja = hojaDe(ch);
+            const d = hoja?.data || {};
+            return d.decomposedLayer === true && d.containmentScope === alcance;
+        });
+        if (lote.length < 2) return;
+        const raizDe = (ch) => {
+            const d = (hojaDe(ch)?.data) || {};
+            const clave = d.ownerContainmentKey || d.containmentKey || '';
+            return clave.split(':').pop() || clave;
+        };
+        const nivelDe = (ch) => {
+            const d = (hojaDe(ch)?.data) || {};
+            return typeof d.layerDepth === 'number' ? d.layerDepth :
+                (typeof d.contourDepth === 'number' ? d.contourDepth : 0);
+        };
+        const ordenFuente = (ch) => {
+            const d = (hojaDe(ch)?.data) || {};
+            return typeof d.docOrder === 'number' ? d.docOrder : 0;
+        };
+        // Orden ENTRE raices (letras): su primera aparicion en el orden actual,
+        // asi nunca se reordena una letra respecto de otra.
+        const rangoRaiz = new Map();
+        lote.forEach(ch => {
+            const raiz = raizDe(ch);
+            if (!rangoRaiz.has(raiz)) rangoRaiz.set(raiz, rangoRaiz.size);
+        });
+        const ordenDeseado = [...lote].sort((a, b) =>
+            (rangoRaiz.get(raizDe(a)) - rangoRaiz.get(raizDe(b))) ||
+            (nivelDe(a) - nivelDe(b)) ||
+            (ordenFuente(a) - ordenFuente(b)));
+        const yaEsta = ordenDeseado.every((ch, i) => ch === lote[i]);
+        if (yaEsta) return;
+        const indiceBase = Math.min(...lote.map(ch => contenedor.children.indexOf(ch)));
+        ordenDeseado.forEach(ch => { try { ch.remove(); } catch (_) {} });
+        let idx = indiceBase;
+        ordenDeseado.forEach(ch => {
+            try { contenedor.insertChild(Math.min(idx, contenedor.children.length), ch); } catch (_) {}
+            idx += 1;
+        });
+    });
+}
+window.EKKO_restackOrdenBooleano = restackLoteDescompuesto;
+
 export function invertSelectionRoles() {
     const selected = getSelectedItems();
     const owners = [];
@@ -1142,6 +1279,11 @@ export function invertSelectionRoles() {
         window.cancelHistoryTransaction?.("solid-hole-toggle-empty");
         return null;
     }
+    // Orden Z del dueño: las piezas convertidas vuelven a su nivel semántico
+    // (masa sólida abajo, calado arriba) dentro de su jerarquía descompuesta.
+    // Sin esto, el sólido nuevo del contador quedaba debajo del anillo
+    // convertido en hueco y lo perforaba: la pieza desaparecía.
+    try { restackLoteDescompuesto(converted); } catch (_) {}
     try { recalculateDynamicSubtractions?.(); } catch (_) {}
     window.saveHistory?.();
     window.commitHistoryTransaction?.("solid-hole-toggle");
