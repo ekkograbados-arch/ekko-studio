@@ -159,6 +159,23 @@ const CORTOS = Object.freeze({
     "fb:outline": "Contorno"
 });
 
+/* Ronda 13 (dueño 2026-11-11): los chips NO deben repetir la MISMA
+   herramienta con otro nombre ("Alinear" + "Centro H" eran el mismo motor
+   con dos botones). FAMILIAS reúne las variantes de una sola herramienta y
+   del nivel entra UNA SOLA ficha por familia: la MÁS USADA del grupo
+   (empate -> la más reciente). Las cuatro booleanas NO son variantes de una
+   acción sino resultados distintos, así que siguen de a una. */
+const FAMILIAS = Object.freeze({
+    align: ["align", "alignLeft", "alignCenterX", "alignRight", "alignTop", "alignCenterY", "alignBottom"],
+    distribute: ["distribute", "distributeH", "distributeV"],
+    flip: ["flip", "flipH", "flipV"]
+});
+const FAMILIA_DE = Object.freeze(Object.entries(FAMILIAS)
+    .reduce((acc, [raiz, miembros]) => {
+        miembros.forEach(m => { acc["fb:" + m] = raiz; });
+        return acc;
+    }, {}));
+
 function claveDe(boton) {
     if (!boton) return null;
     if (boton.dataset.fusionBtn) return "fb:" + boton.dataset.fusionBtn;
@@ -270,13 +287,28 @@ function ranking() {
         .filter(k => todas.has(k) && uso[k] && uso[k].c > 0)
         .map(k => ({ clave: k, c: uso[k].c, ts: uso[k].ts || 0, info: todas.get(k) }));
 
+    /* Ronda 13 (dueño 2026-11-11): DEDUPE por familia — de las variantes de
+       una misma herramienta (Alinear genérico + direcciones, Distribuir
+       genérico + H/V, Voltear + H/V) entra UNA SOLA: la más usada. Sin el
+       dedupe la fila mostraba "Alinear" y "Centro H" juntas siendo el mismo
+       motor, que es exactamente la duplicación que el dueño rechazó. */
+    const porFamilia = new Map();
+    lista.forEach(x => {
+        const raiz = FAMILIA_DE[x.clave] || x.clave;
+        const actual = porFamilia.get(raiz);
+        if (!actual || (x.c > actual.c) || (x.c === actual.c && x.ts > actual.ts)) {
+            porFamilia.set(raiz, x);
+        }
+    });
+    const listaFinal = [...porFamilia.values()];
+
     /* El conjunto lo eligen los USOS (top N por cantidad de clicks).
        El orden horizontal lo pone la RECENCIA, salvo que se pida otra cosa. */
-    const conjunto = lista.slice().sort((a, b) => (b.c - a.c) || (b.ts - a.ts)).slice(0, cfg.n);
+    const conjunto = listaFinal.slice().sort((a, b) => (b.c - a.c) || (b.ts - a.ts)).slice(0, cfg.n);
     if (cfg.orden === "reciente") conjunto.sort((a, b) => (b.ts - a.ts) || (b.c - a.c));
     else if (cfg.orden === "uso") conjunto.sort((a, b) => (b.c - a.c) || (b.ts - a.ts));
     else conjunto.sort((a, b) => (b.ts - a.ts) || (b.c - a.c));
-    return { conjunto, lista };
+    return { conjunto, lista: listaFinal };
 }
 
 /* ------------------------------------------------------------------ */
