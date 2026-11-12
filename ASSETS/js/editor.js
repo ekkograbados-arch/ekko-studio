@@ -1693,6 +1693,32 @@ export function addSVGFromFile(file, pointOrOptions = null) {
 
           function sanitizeAndBakeVectors(node) {
             if (!node) return;
+            if (node instanceof paper.Shape) {
+              /* Un primitivo de SVG importado (circle/rect/ellipse) se
+                 convierte a Path REAL en su lugar. Sin esto, Descomponer y
+                 las booleanas no lo reconocen (el pipeline de vectores solo
+                 entiende Path/CompoundPath/Group: probado, un <circle> se
+                 PERDIA al descomponer el grupo importado). toPath(true)
+                 hornea la matriz del Shape en los segmentos e inserta el
+                 Path donde estaba el Shape; paper 0.12 deja el Shape vivo
+                 atras, hay que quitarlo a mano.
+
+                 NO se tocan los Shapes-fondo: un clipMask o un primitivo sin
+                 fill ni stroke es recorte/lienzo del propio SVG, no masa del
+                 diseño. Convertirlo MATERIALIZABA un rectangulo negro del
+                 tamaño del archivo. */
+              if (typeof node.toPath === 'function' && !node.clipMask &&
+                  (node.fillColor || node.strokeColor)) {
+                const comoPath = node.toPath(true);
+                if (comoPath) {
+                  try { node.remove(); } catch (_) {}
+                  comoPath.data = { ...(comoPath.data || {}), ...(node.data || {}) };
+                  comoPath.applyMatrix = false;
+                  sanitizeAndBakeVectors(comoPath);
+                }
+              }
+              return;
+            }
             if (node instanceof paper.Path || node instanceof paper.CompoundPath) {
               const sourceData = node.data || {};
               node.visible = true;
