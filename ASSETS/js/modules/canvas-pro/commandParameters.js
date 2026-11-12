@@ -624,6 +624,46 @@ function hacerArrastrable(cont) {
     window.addEventListener('pointercancel', fin);
 }
 
+/* ------------------------------------------------------------------
+   HOGAR DE BANDA (Ronda 15, maqueta CAD aprobada por el dueño).
+
+   Regla del taller: una herramienta con parámetros es un HOGAR del panel
+   superior, NO una ventana emergente. El clic en Contorno no abre una caja
+   flotando sobre el lienzo: enciende el hogar PARÁMETROS dentro de la
+   banda, junto a los demás hogares, con su título abajo. Se cierra al
+   deseleccionar. ÚNICA excepción: Editar Fondo conserva su ventana propia
+   (#ventana-editar-fondo), que vive en otro módulo.
+
+   Si no hay banda (modo compacto, superficies de respaldo) la superficie
+   flota como antes: nada se rompe hacia atrás.
+   ------------------------------------------------------------------ */
+const GRUPO_PARAMS = "parametros";
+
+function hogarDeBanda() {
+    const body = document.querySelector("#topBar .ekko-ribbon-body");
+    if (!body) return null;
+    let g = body.querySelector('.ekko-ribbon-group[data-group="' + GRUPO_PARAMS + '"]');
+    if (!g) {
+        g = document.createElement("div");
+        g.className = "ekko-ribbon-group";
+        g.dataset.group = GRUPO_PARAMS;
+        const cuerpo = document.createElement("div");
+        cuerpo.className = "ekko-ribbon-group-body";
+        const cabeza = document.createElement("div");
+        cabeza.className = "ekko-ribbon-group-head";
+        cabeza.setAttribute("aria-hidden", "true"); // informativo, no plegable
+        const titulo = document.createElement("span");
+        titulo.className = "ekko-ribbon-group-title";
+        cabeza.appendChild(titulo);
+        g.appendChild(cuerpo);
+        g.appendChild(cabeza);
+        // Antes de la info de selección: queda en la zona de hogares, no
+        // arrastrado hasta el borde derecho por el margin-left:auto.
+        body.insertBefore(g, body.querySelector("#selectionInfo"));
+    }
+    return g;
+}
+
 function pintar(comando, recentrar) {
     const spec = PARAM_SPECS[comando];
     if (!spec) return;
@@ -705,9 +745,18 @@ function pintar(comando, recentrar) {
 
     cont.style.display = "flex";
 
-    // Se mide primero con el panel ya en pantalla y luego se coloca: hace
-    // falta conocer su ancho real para centrarlo bajo la cinta.
-    colocar(cont);
+    // Ronda 15 (maqueta CAD): con banda presente, la superficie vive DENTRO
+    // del hogar PARÁMETROS de la banda; sin banda flota como siempre.
+    const hogar = hogarDeBanda();
+    if (hogar) {
+        hogar.querySelector(".ekko-ribbon-group-title").textContent = spec.etiqueta;
+        hogar.querySelector(".ekko-ribbon-group-body").appendChild(cont);
+        cont.classList.add("is-hogar");
+    } else {
+        // Se mide primero con el panel ya en pantalla y luego se coloca: hace
+        // falta conocer su ancho real para centrarlo bajo la cinta.
+        colocar(cont);
+    }
 }
 
 export function cerrarParametros() {
@@ -715,6 +764,12 @@ export function cerrarParametros() {
     superficie.style.display = "none";
     superficie.innerHTML = "";
     delete superficie.dataset.comando;
+    // Ronda 15: si la superficie vive DENTRO del hogar de la banda, el hogar
+    // queda vacio y manchando la banda: se remueve entero. La proxima
+    // apertura lo vuelve a crear (hogarDeBanda) y la superficie se re-crea
+    // sola en asegurarSuperficie.
+    const hogar = superficie.closest('.ekko-ribbon-group[data-group="' + GRUPO_PARAMS + '"]');
+    if (hogar) hogar.remove();
     comandoAbierto = null;
     // Si el panel se cierra con un preview de contorno en pantalla (arrastre
     // interrumpido), el trazo magenta no puede quedarse flotando: se limpia.
@@ -754,17 +809,27 @@ export function initParametros() {
     });
 
     // Si la ventana cambia de tamano, el panel se mantiene dentro: sin esto
-    // se quedaria colgando fuera de la pantalla al rotar una tablet.
+    // se quedaria colgando fuera de la pantalla al rotar una tablet. Si vive
+    // incrustada en el hogar de la banda no aplica: la banda la acomoda sola.
     window.addEventListener("resize", () => {
-        if (superficie && superficie.style.display !== "none") colocar(superficie, false);
+        if (superficie && superficie.style.display !== "none" && !superficie.classList.contains("is-hogar")) {
+            colocar(superficie, false);
+        }
     });
 
     // El panel se pinta con la seleccion que habia al abrirlo. Hay controles
     // cuyo disponible() depende de CUANTAS piezas hay (Aplicar a), asi que si
     // el cliente cambia la seleccion con el panel abierto hay que repintar; si
     // no, el boton aparece o desaparece con retraso y miente.
+    // Ronda 15: la senal ANTES nunca se emitia (codigo muerto); ahora la
+    // dispara commitSelectionContext. Y con el regla del dueño (maqueta CAD):
+    // si no queda nada seleccionado, el hogar de parámetros SE CIERRA.
     document.addEventListener("ekko:seleccion-cambio", () => {
         if (!comandoAbierto) return;
+        if (!window.selectedItems?.length && !window.selectedItem) {
+            cerrarParametros();
+            return;
+        }
         setTimeout(() => {
             if (comandoAbierto && superficie && superficie.style.display !== "none") {
                 pintar(comandoAbierto, false);
