@@ -28,30 +28,36 @@ import { TABS, SPECIES } from "../capabilities.js";
 export const FAMILY = Object.freeze({ H: "H", P: "P", E: "E" });
 
 /**
- * GRUPOS del ribbon. El orden de este array es el orden visual de la cinta.
- * Fase 2 (ribbon) usa `label` para el titulo colapsable; en Fase 0/1 el grupo
- * solo ordena.
+ * HOGARES del panel superior tipo CAD (dueño, maqueta v3 aprobada).
+ * El orden de este array es el orden visual de la banda. Cada hogar tiene
+ * TITULO ABAJO y altura uniforme (el CSS de ekko-ribbon.css la clava a 96px).
+ * Un botón vive en UN hogar; la pestaña activa decide cuáles se ven
+ * (tabAllows en toolbarStore.js + TABS en capabilities.js).
+ *
+ * Correspondencia con la maqueta:
+ *   INICIO   -> CREAR
+ *   EDICIÓN  -> TAMAÑO · ORGANIZAR · PORTAPAPELES · LIENZO
+ *   IMAGEN   -> TAMAÑO · IMAGEN · TRAZAR/CONVERSIÓN
+ *   VECTOR   -> TAMAÑO · VECTOR · FUSIÓN · HUECOS · BOOLEANAS · TRAZAR/CONVERSIÓN
+ *   TEXTO    -> TAMAÑO · TIPOGRAFÍA · CURVAR Y ESPACIAR · TRAZAR/CONVERSIÓN
+ *   VARIOS   -> TAMAÑO · ORGANIZAR · IMAGEN · BOOLEANAS · TRAZAR/CONVERSIÓN
+ * El hogar "trazar" cambia de título: "Trazar" en Imagen, "Conversión" en el
+ * resto (ribbonLayout.js lo reescribe en cada sync).
  */
-/* Ronda 14 (merge sobre el modelo always del dueño 2026-11-12): ya NO hay
-   pestaña "vista" — el dueño la eliminó de TABS. Las secciones de abajo
-   (Lienzo · Alinear · Centrar · Distribuir · Capas · Agrupar) viven
-   directamente en la cinta de Inicio: las de lienzo (zoom/reglas/guías/
-   cotas) son siempre visibles porque ahora son herramientas `always`; las
-   de objetos piden selección y se ocultan solas cuando quedan vacías. */
 export const GROUPS = Object.freeze([
-  { key: "creacion",   label: "Crear" },
-  { key: "fondo",      label: "Imagen" },
-  { key: "texto",      label: "Texto" },
-  { key: "estructura", label: "Estructura" },
-  { key: "geometria",  label: "Geometría" },
-  { key: "composicion",label: "Composición" },
-  { key: "booleanas",  label: "Booleanas" },
-  { key: "lienzo",     label: "Lienzo" },
-  { key: "alinear",    label: "Alinear" },
-  { key: "centrar",    label: "Centrar en producto" },
-  { key: "distribuir", label: "Distribuir" },
-  { key: "capas",      label: "Capas" },
-  { key: "organizar",  label: "Agrupar" }
+  { key: "creacion",     label: "Crear",              modo: "grandes" },
+  { key: "tamano",       label: "Tamaño" },
+  { key: "organizar",    label: "Organizar" },
+  { key: "portapapeles", label: "Portapapeles" },
+  { key: "lienzo",       label: "Lienzo" },
+  { key: "imagen",       label: "Imagen" },
+  { key: "trazar",       label: "Conversión",         tituloPorTab: { image: "Trazar" } },
+  { key: "vector",       label: "Vector" },
+  { key: "fusion",       label: "Fusión" },
+  { key: "huecos",       label: "Huecos" },
+  { key: "booleanas",    label: "Booleanas" },
+  { key: "texto",        label: "Tipografía" },
+  { key: "curvar",       label: "Curvar y espaciar" }
 ]);
 
 /**
@@ -88,80 +94,82 @@ export function isBaseTool(tool) {
    ========================================================================= */
 export const BUTTONS = Object.freeze([
   /* --- H: orden libre. Nunca saltan. --- */
-  { tool: "delete",       legacy: ["delete"],        family: FAMILY.H, group: "composicion" },
-  { tool: "duplicate",    legacy: ["duplicate"],     family: FAMILY.H, group: "composicion" },
-  { tool: "copy",         legacy: ["copy"],          family: FAMILY.H, group: "composicion" },
-  { tool: "paste",        legacy: ["paste"],         family: FAMILY.H, group: "composicion" },
-  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "composicion" },
-  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "composicion" },
-  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "composicion" },
-  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "composicion" },
-  { tool: "rotate",       legacy: ["rotate"],        family: FAMILY.H, group: "composicion" },
-  { tool: "flip",         legacy: ["flip", "flipH", "flipV"], family: FAMILY.H, group: "composicion" },
-  { tool: "size",         legacy: ["size"],          family: FAMILY.H, group: "organizar" },
+  /* PORTAPAPELES (maqueta): Duplicar · Copiar · Pegar · Eliminar */
+  { tool: "delete",       legacy: ["delete"],        family: FAMILY.H, group: "portapapeles" },
+  { tool: "duplicate",    legacy: ["duplicate"],     family: FAMILY.H, group: "portapapeles" },
+  { tool: "copy",         legacy: ["copy"],          family: FAMILY.H, group: "portapapeles" },
+  { tool: "paste",        legacy: ["paste"],         family: FAMILY.H, group: "portapapeles" },
+  /* ORGANIZAR (maqueta): alinear direcciones · centrar · distribuir ·
+     voltear · capas · agrupar. Ronda 15: los grupos alinear/centrar/
+     distribuir/capas/organizar viejos se fusionan en UN solo hogar. */
+  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "organizar" },
+  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "organizar" },
+  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "organizar" },
+  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "organizar" },
+  { tool: "rotate",       legacy: ["rotate"],        family: FAMILY.H, group: "organizar" },
+  { tool: "flip",         legacy: ["flip", "flipH", "flipV"], family: FAMILY.H, group: "organizar" },
   {
-    tool: "align", family: FAMILY.H, group: "alinear",
+    /* TAMAÑO (maqueta): el hogar con los campos de la caja de selección
+       (Ancho/Alto/Rotación/Candado). El contenedor `.size-control-group`
+       lleva data-fusion-btn="size" (lo adopta hogaresCad/ribbonLayout) y
+       su regla fina pide selección: sin nada seleccionado el hogar se va,
+       porque no hay caja que medir. */
+    tool: "size", legacy: ["size"], family: FAMILY.H, group: "tamano",
+    rule: snap => !!snap.hasSelection
+  },
+  {
+    tool: "align", family: FAMILY.H, group: "organizar",
     /* Ronda 14: la herramienta es `always` en el motor; el botón genérico
        "Alinear" volvió al HTML (lo restauró el dueño) y despacha
-       window.alignSelection() sin dirección. Con selección se habilita;
-       sin selección el chip lockWhen falso no se ve (la familia H no
-       enseña grises: la regla es el propio motor, count >= 1). */
+       window.alignSelection() sin dirección. Ronda 15: con el modelo GRIS
+       CON MOTIVO se ve APAGADO con motivo cuando no hay selección, en vez
+       de desaparecer (maqueta: hogar Organizar siempre visible). */
     legacy: ["align", "alignLeft", "alignCenterX", "alignRight", "alignTop", "alignCenterY", "alignBottom"],
     extra: snap => snap.hasSelection,
-    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná al menos un objeto para alinear"
   },
-  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "capas" },
-  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "capas" },
-  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "capas" },
-  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "capas" },
   {
-    /* Ronda 14: son configuración del LIENZO y ahora `always` en el motor
-       (modelo del dueño 2026-11-12): se ven en cualquier pestaña, con o sin
-       selección. La gate de "vista" que las ataba a la pestaña Organizar
-       murió con esa pestaña — sin este cambio quedarían ocultas para
-       siempre. */
-    tool: "zoom", legacy: ["zoom"], family: FAMILY.H, group: "lienzo",
-    lockWhen: () => false
+    /* Ronda 15: Reglas/Guías/Cotas son configuración del LIENZO y son
+       `always` en el motor. Con el modelo CAD su hogar vive en la pestaña
+       EDICIÓN (siempre presente), no en Inicio: Inicio es SOLO Crear. */
+    tool: "zoom", legacy: ["zoom"], family: FAMILY.H, group: "lienzo"
   },
   {
-    tool: "rulers", legacy: ["rulers"], family: FAMILY.H, group: "lienzo",
-    lockWhen: () => false
+    tool: "rulers", legacy: ["rulers"], family: FAMILY.H, group: "lienzo"
   },
   {
-    tool: "guides", legacy: ["guides"], family: FAMILY.H, group: "lienzo",
-    lockWhen: () => false
+    tool: "guides", legacy: ["guides"], family: FAMILY.H, group: "lienzo"
   },
   { tool: "measurements", legacy: ["measurements"],  family: FAMILY.H, group: "lienzo" },
   {
-    /* Ronda 14: los tres botones viven en la banda reservorio
-       (#pro-layout-toolbar, la crea panelCommandBridge.js). Centrar no
-       opera nada sin selección; ya no depende de la pestaña Organizar
-       (eliminada por el dueño). */
-    tool: null,
+    /* Ronda 15: los tres botones viven en la banda reservorio
+       (#pro-layout-toolbar) y hogaresCad los ADOPTA al hogar Organizar.
+       tool "centrar" (capabilities, always): la pestaña lo recorta a
+       Edición/Varios y, sin selección, se ve APAGADO con motivo. */
+    tool: "centrar",
     legacy: ["centerH", "centerV", "centerBoth"],
     family: FAMILY.H,
-    group: "centrar",
+    group: "organizar",
     rule: snap => !!snap.hasSelection,
     reason: "Seleccioná al menos un objeto para centrar en el producto"
   },
   {
-    /* Ronda 14: reinicio de zoom al 100%, sección Lienzo. Siempre disponible
-       (antes pedía Organizar fijada; esa pestaña ya no existe). */
-    tool: null,
+    /* Ronda 15: reinicio de zoom al 100%, hogar Lienzo (Edición). Se rige
+       por la herramienta `zoom` (a la que acompaña) para que INICIO siga
+       siendo SOLO Crear: el hogar Lienzo no asoma ahí. El botón vive en la
+       banda reservorio (#pro-zoom-reset) y hogaresCad lo ADOPTA. */
+    tool: "zoom",
     legacy: ["zoomReset"],
     family: FAMILY.H,
-    group: "lienzo",
-    rule: () => true
+    group: "lienzo"
   },
 
-  /* --- P: orden obligado. Se ven, pero bloqueadas con el motivo. --- */
+  /* --- P: orden obligado. GRIS CON MOTIVO (Ronda 15, maqueta v3): en su
+     pestaña se VEN apagados con el motivo en el tooltip, nunca desaparecen.
+     El renderer (ribbonRenderer.decide) aplica la política. --- */
   {
     tool: "group", family: FAMILY.P, group: "organizar", legacy: ["group"],
     tabBypass: true,
-    /* Ronda 14: grupo "Agrupar" en la cinta; sin selección queda oculto
-       porque el chip no se ve con lockWhen falso. */
-    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná al menos 2 objetos para agrupar"
   },
   {
@@ -170,40 +178,31 @@ export const BUTTONS = Object.freeze([
        activa sea Vector. Mientras capabilities.js no agregue `ungroup` a
        TABS.vector, esta bandera evita que la pestaña lo esconda. */
     tabBypass: true,
-    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná un grupo para desagruparlo"
   },
   {
-    tool: "decomposeVector", family: FAMILY.P, group: "estructura", legacy: ["decomposeVector"],
+    tool: "decomposeVector", family: FAMILY.P, group: "vector", legacy: ["decomposeVector"],
     tabBypass: true,
     reason: "Primero desagrupá: un grupo mixto hay que abrirlo para saber con qué se trabaja"
   },
   {
-    tool: "distribute", family: FAMILY.P, group: "distribuir",
+    tool: "distribute", family: FAMILY.P, group: "organizar",
     legacy: ["distribute", "distributeH", "distributeV"],
-    /* Ronda 14: Distribuir es sección propia de la cinta; también está en
-       Varios (multiple.tools lo declara). Ya no bypasea: en Vector no
-       aparece (la pestaña lo recorta). Sin selección no se ve. */
     /* capabilities.js lo habilita con 2, pero distributeSpacing() pide 3 y
        con 2 el botón salía, se apretaba y no hacía nada. La regla fina va
-       aca, sin tocar capabilities (capa de objetos). */
+       acá, sin tocar capabilities (capa de objetos). */
     extra: snap => (snap.summary ? snap.summary.count : 0) >= 3,
-    lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná 3 o más objetos para distribuir el espacio"
   },
   {
-    tool: "fusion", family: FAMILY.P, group: "estructura", legacy: ["fusion"],
-    reason: "Fusionar necesita imagen y vector: la imagen aporta el relleno y el vector la máscara",
-    /* REGLA DEL DUEÑO, RELAJADA (2026-11-12): basta >=1 raster + >=1 vector
-       (2 imagenes + 1 vector SÍ fusiona; ya no exige el par exacto 1+1).
-       El motor decide: activo con la selección válida; con cualquier otra
-       cosa (solo imagen, solo vectores, 1 objeto) lockWhen falso lo OCULTA
-       — la familia P no muestra bloqueado lo que la selección nunca va a
-       poder hacer. */
-    lockWhen: () => false
+    tool: "fusion", family: FAMILY.P, group: "fusion", legacy: ["fusion"],
+    reason: "Fusionar necesita imagen y vector: la imagen aporta el relleno y el vector la máscara"
+    /* Ronda 15 GRIS CON MOTIVO: con la maqueta aprobada, Fusionar se VE
+       apagado con su motivo en la pestaña Vector (y en Imagen) cuando la
+       selección no alcanza; el renderer ya no oculta a la familia P. */
   },
   {
-    tool: "editNodes", family: FAMILY.P, group: "geometria", legacy: ["editNodes"],
+    tool: "editNodes", family: FAMILY.P, group: "vector", legacy: ["editNodes"],
     /* Regla que antes vivía en contextualMenu.js (y pisaba al motor): los
        nodos no se editan sobre un Group ni sobre un SymbolItem. */
     extra: snap => {
@@ -214,20 +213,40 @@ export const BUTTONS = Object.freeze([
     reason: "Los nodos se editan sobre un vector cerrado, no sobre un grupo ni un símbolo"
   },
   {
-    tool: "cutSegment", family: FAMILY.P, group: "geometria", legacy: ["cutSegment"],
+    tool: "cutSegment", family: FAMILY.P, group: "vector", legacy: ["cutSegment"],
     reason: "La tijera corta trazos: seleccioná al menos un vector"
   },
   {
-    tool: "outline", family: FAMILY.P, group: "geometria", legacy: ["outline"],
+    tool: "outline", family: FAMILY.P, group: "trazar", legacy: ["outline"],
     reason: "Contorno necesita al menos un objeto de imagen, vector o texto"
   },
   {
-    tool: "audit", family: FAMILY.P, group: "geometria", legacy: ["audit"],
+    tool: "audit", family: FAMILY.P, group: "vector", legacy: ["audit"],
     reason: "La auditoría revisa vectores: seleccioná al menos uno"
   },
   {
-    tool: "traceImage", family: FAMILY.P, group: "fondo", legacy: ["traceImage"],
+    tool: "traceImage", family: FAMILY.P, group: "trazar", legacy: ["traceImage"],
     reason: "Trazar convierte una imagen en vector: seleccioná una imagen"
+  },
+
+  /* --- Campos de la CAJA DE SELECCIÓN y controles de TEXTO que no son
+     botones: contenedores/inputs con data-fusion-btn propio que el renderer
+     gobierna igual que un botón (hogaresCad los envuelve en spans). --- */
+  {
+    tool: null, legacy: ["campoFuente", "campoTamanoFuente"],
+    family: FAMILY.H, group: "texto",
+    rule: snap => {
+      const s = snap.summary;
+      return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
+    }
+  },
+  {
+    tool: null, legacy: ["campoCurvatura", "campoRadio", "campoEspaciado"],
+    family: FAMILY.H, group: "curvar",
+    rule: snap => {
+      const s = snap.summary;
+      return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
+    }
   },
 
   /* --- Herramientas que capabilities.js NO declara (no son "especie" sino
@@ -237,7 +256,7 @@ export const BUTTONS = Object.freeze([
     tool: null,
     legacy: ["curvar"],
     family: FAMILY.P,
-    group: "texto",
+    group: "curvar",
     rule: snap => {
       const s = snap.summary;
       return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
@@ -254,13 +273,13 @@ export const BUTTONS = Object.freeze([
     legacy: ["ctxDelete", "ctxDuplicate", "ctxScaleDown", "ctxScaleUp",
              "ctxToFront", "ctxForward", "ctxBackward", "ctxToBack"],
     family: FAMILY.H,
-    group: "composicion",
+    group: "portapapeles",
     rule: snap => !!snap.hasSelection,
     reason: "Seleccioná al menos un objeto"
   },
   {
     tool: null,
-    legacy: ["ctxBold", "ctxItalic", "ctxUnderline", "ctxWeld", "ctxRotateLetters"],
+    legacy: ["ctxBold", "ctxItalic", "ctxUnderline"],
     family: FAMILY.H,
     group: "texto",
     rule: snap => {
@@ -270,23 +289,35 @@ export const BUTTONS = Object.freeze([
     reason: "Los controles de texto piden un único texto seleccionado"
   },
   {
+    /* Soldar y Girar letras: viven en el hogar CURVAR Y ESPACIAR (maqueta). */
+    tool: null,
+    legacy: ["ctxWeld", "ctxRotateLetters"],
+    family: FAMILY.H,
+    group: "curvar",
+    rule: snap => {
+      const s = snap.summary;
+      return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
+    },
+    reason: "El soldado y la orientación de letras piden un único texto seleccionado"
+  },
+  {
     tool: null,
     legacy: ["ctxDeleteNode", "ctxExitNodeEdit"],
     family: FAMILY.H,
-    group: "geometria",
+    group: "vector",
     rule: () => window.nodeEditMode === true,
     reason: "Entrá al modo Editar Nodos para usar estos botones"
   },
 
   /* --- E: máquina de estados. El slot muta, no aparece ni desaparece. --- */
-  { tool: "removeBg",        legacy: ["removeBg"],        family: FAMILY.E, group: "fondo" },
-  { tool: "editCutout",      legacy: ["editCutout"],      family: FAMILY.E, group: "fondo" },
-  { tool: "unfusion",        legacy: ["unfusion"],        family: FAMILY.E, group: "estructura" },
-  { tool: "editFusionImage", legacy: ["editFusionImage"], family: FAMILY.E, group: "estructura" },
-  { tool: "textToVector",    legacy: ["textToVector"],    family: FAMILY.E, group: "texto" },
-  { tool: "calado",          legacy: ["calado"],          family: FAMILY.E, group: "geometria" },
-  { tool: "rellenar",        legacy: ["rellenar"],        family: FAMILY.E, group: "geometria" },
-  { tool: "solidHole",       legacy: ["solidHole"],       family: FAMILY.E, group: "geometria" },
+  { tool: "removeBg",        legacy: ["removeBg"],        family: FAMILY.E, group: "imagen" },
+  { tool: "editCutout",      legacy: ["editCutout"],      family: FAMILY.E, group: "imagen" },
+  { tool: "unfusion",        legacy: ["unfusion"],        family: FAMILY.E, group: "fusion" },
+  { tool: "editFusionImage", legacy: ["editFusionImage"], family: FAMILY.E, group: "fusion" },
+  { tool: "textToVector",    legacy: ["textToVector"],    family: FAMILY.E, group: "trazar" },
+  { tool: "calado",          legacy: ["calado"],          family: FAMILY.E, group: "huecos" },
+  { tool: "rellenar",        legacy: ["rellenar"],        family: FAMILY.E, group: "huecos" },
+  { tool: "solidHole",       legacy: ["solidHole"],       family: FAMILY.E, group: "huecos" },
 
   /* Las booleanas son UNA herramienta del motor ("boolean") con cuatro
      superficies de resultado. El mismo motivo sirve para las cuatro. */
