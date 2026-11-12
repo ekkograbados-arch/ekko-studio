@@ -15,7 +15,10 @@
    solo llaman a refresh().
 
    COMPORTAMIENTO POR FAMILIA:
-     H -> visible y habilitado si capabilities.js lo habilita; si no, oculto.
+     H -> visible y habilitado si capabilities.js lo habilita. Si la entrada
+          declara `reason` (align, centrar…), se VE APAGADA con ese motivo:
+          gris con motivo, nunca desaparece de su pestaña (maqueta CAD v3).
+     P -> SIEMPRE visible en su pestaña, pero BLOQUEADA con el motivo en el
      P -> SIEMPRE visible en su pestaña, pero BLOQUEADO con el motivo en el
           tooltip. Enseña la pirámide de orden sin que la barra salte.
      E -> el slot muestra SOLO el estado vigente (Quitar Fondo -> Editar Fondo).
@@ -60,14 +63,12 @@ function decide(entry, snap) {
   const extraOk = entry.extra ? !!entry.extra(snap) : true;
   if (enabled && extraOk) return { show: true, enabled: true, reason: null };
 
-  /* 3) Familia P: si tiene sentido en este contexto, se MUESTRA bloqueada con
-     el motivo en el tooltip en vez de desaparecer (enseña la pirámide).
-     lockWhen (manifiesto, por botón) afina CUÁNDO se permite el estado
-     bloqueado: si no se cumple, el botón se oculta igual que la familia E —
-     es la regla del dueño "si un botón no tiene nada que ver con lo
-     seleccionado, se oculta" aplicada a casos imposibles (fusion 3+). */
+  /* 3) GRIS CON MOTIVO (Ronda 15, maqueta CAD v3): si la entrada declara
+     `reason` — familia P por pirámide de orden, o H con puerta fina — se
+     MUESTRA APAGADA con el motivo en el tooltip en vez de desaparecer:
+     el botón enseña su requisito y la banda no salta. */
   const relevant = snap.tabRelevant(entry.tool);
-  const wantsLock = !extraOk || entry.family === FAMILY.P;
+  const wantsLock = !extraOk || entry.family === FAMILY.P || entry.reason != null;
   const lockOk = entry.lockWhen ? !!entry.lockWhen(snap) : true;
   if (relevant && wantsLock && lockOk) {
     const reason = typeof entry.reason === "function" ? entry.reason(snap) : entry.reason;
@@ -91,6 +92,7 @@ function applyDecision(el, decision) {
     el.style.display = "none";
     el.classList.add(CLASS_HIDDEN);
     el.classList.remove(CLASS_LOCKED);
+    el.removeAttribute("data-ekko-reason");
     if (el.disabled) el.disabled = false;
     el.setAttribute("title", el.getAttribute(ATTR_TITLE));
     el.setAttribute("aria-hidden", "true");
@@ -106,13 +108,20 @@ function applyDecision(el, decision) {
 
   if (enabled) {
     el.classList.remove(CLASS_LOCKED);
+    el.removeAttribute("data-ekko-reason");
     if (el.disabled) el.disabled = false;
     el.removeAttribute("aria-disabled");
     el.setAttribute("title", el.getAttribute(ATTR_TITLE));
   } else {
     el.classList.add(CLASS_LOCKED);
     el.disabled = true;
-    if (reason) el.setAttribute("title", reason);
+    if (reason) {
+      /* Ronda 15: el motivo tambien en data-ekko-reason. Los interceptores
+         de clic (panelCommandBridge, toolbarOverflow) leen ese atributo para
+         no tragarse el clic de un boton bloqueado; antes solo iba en title. */
+      el.setAttribute("title", reason);
+      el.setAttribute("data-ekko-reason", reason);
+    }
     el.setAttribute("aria-disabled", "true");
   }
 }
