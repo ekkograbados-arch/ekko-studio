@@ -31,7 +31,12 @@ function isClosedVectorOwner(item) {
   if (!item || isMockupOrMask(item)) return false;
   const className = classNameOf(item);
   if (!["Path", "CompoundPath", "Shape"].includes(className)) return false;
-  if (item.data?.decomposedLayer === true) return false;
+  /* El resultado de una booleana SIEMPRE se puede re-abrir, aunque haya
+     heredado decomposedLayer del operando del que nacio: la marca
+     booleanResult es de la pieza NUEVA (panelCommandBridge.js la escribe
+     justo antes de instalar el keeper). Sin esta excepcion el freno de
+     abajo tapaba a la booleana y "no se podia volver a descomponer". */
+  if (item.data?.decomposedLayer === true && item.data?.booleanResult !== true) return false;
   if (item.data?.isSmartFusion || item.data?.fusionId) return false;
   return className === "CompoundPath" || item.closed === true || !!item.data?.geomBase;
 }
