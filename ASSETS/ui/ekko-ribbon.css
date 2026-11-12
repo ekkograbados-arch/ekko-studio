@@ -1,30 +1,33 @@
 /* =========================================================================
-   EKKO STUDIO — CINTA · ESTADOS DE BOTÓN (Fase 0/1)
+   EKKO STUDIO — CINTA · PANEL SUPERIOR TIPO CAD (Ronda 15)
 
    El contrato de familias vive en ui/toolbarManifest.js; acá solo se DIBUJA
-   lo que el renderer ya decidió. Ninguna regla de visibilidad en CSS:
-   si el CSS escondiera algo con !important, ganaría al motor y el botón no
-   aparecería nunca (error ya vivido con Quitar/Editar Fondo).
+   lo que el renderer ya decidió. Ninguna regla de visibilidad en CSS para
+   botones: si el CSS escondiera algo con !important, ganaría al motor y el
+   botón no aparecería nunca (error ya vivido con Quitar/Editar Fondo).
 
-     .ekko-locked          -> familia P: bloqueada, con el motivo en el tooltip
+     .ekko-locked          -> botón apagado (gris con motivo, tooltip)
      .ekko-command-hidden  -> el renderer la manda a display:none
+     .ekko-ribbon-group    -> HOGAR: título abajo, altura uniforme 96px
+     .ekko-banda-flecha    -> flechas de desborde DE LA BANDA COMPLETA
    ========================================================================= */
 
-/* --- Familia P: se ve, pero no se apreta. El motivo va en el title native. --- */
+/* --- Gris con motivo (familia P y H con reason): se ve, pero no se apreta. --- */
 [data-fusion-btn].ekko-locked {
-    opacity: 0.42;
+    opacity: 0.42 !important;
     filter: grayscale(0.65);
-    cursor: not-allowed;
+    cursor: not-allowed !important;
     border-style: dashed !important;
     transition: opacity 0.15s ease, filter 0.15s ease;
 }
 
 [data-fusion-btn].ekko-locked:hover,
 [data-fusion-btn].ekko-locked:focus-visible {
-    opacity: 0.78;
+    opacity: 0.78 !important;
     filter: none;
     outline: 1px dashed #94a3b8;
     outline-offset: 1px;
+    background: transparent !important;
 }
 
 /* El botón bloqueado no rebota ni se presiona. */
@@ -32,19 +35,11 @@
     transform: none;
 }
 
-/* Accesibilidad: el estado se anuncia además del title. */
-[data-fusion-btn].ekko-locked::after {
-    content: "";
-    position: absolute;
-}
-
 /* -----------------------------------------------------------------------
-   FASE 2 — CUERPO DE CINTA
-   Dos filas: pestañas contextuales arriba, grupos con título abajo.
-   La etiqueta del grupo queda DEBAJO de sus botones (estilo Office).
+   ESTRUCTURA — pestañas arriba, hogares con título ABAJO.
    ----------------------------------------------------------------------- */
 
-/* La barra pasa a medir su contenido: dos filas no caben en 52px fijos.
+/* La barra pasa a medir su contenido: no caben pestañas + hogares en 52px.
    Se limita a NO-compacto para no pisar los modos contraído/oculto. */
 #topBar:not(.is-compact):not(.collapsed):not(.hidden) {
     height: auto !important;
@@ -53,7 +48,7 @@
     justify-content: flex-start !important;
     align-content: flex-start;
     row-gap: 0;
-    padding-bottom: 3px;
+    padding-bottom: 2px;
 }
 
 /* La tira de pestañas (panelCoordinator) ocupa el ancho completo. */
@@ -62,47 +57,84 @@
     box-sizing: border-box;
 }
 
-.ekko-ribbon-body {
-    display: flex;
-    align-items: stretch;
-    gap: 2px;
+/* Envoltorio de la banda: contiene al SCROLLER (.ekko-ribbon-body) y a las
+   flechas, que viven AFUERA del scroller para no desplazarse con el
+   contenido (igual que #banda-wrap en la maqueta aprobada). */
+.ekko-banda-wrap {
+    position: relative;
     width: 100%;
     min-width: 0;
 }
 
+.ekko-ribbon-body {
+    display: flex;
+    justify-content: space-between;   /* hogares distribuidos en todo el panel */
+    align-items: stretch;
+    gap: 2px;
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+}
+.ekko-ribbon-body::-webkit-scrollbar { height: 0; }
+
+/* --- HOGAR (grupo CAD) ------------------------------------------------- */
 .ekko-ribbon-group {
+    position: relative;
     display: flex;
     flex-direction: column;
-    justify-content: flex-end;
+    flex: none;
     min-width: 0;
-    padding: 0 7px 1px;
-    border-right: 1px solid rgba(46, 58, 89, 0.14);
+    padding: 6px 12px 0;
     box-sizing: border-box;
-    /* Aparición del grupo cuando la selección lo trae: la cinta se arma
-       sola en vez de aparecer de golpe. */
     animation: ekko-group-in 0.18s ease both;
 }
 
-.ekko-ribbon-group:first-child { padding-left: 0; }
+/* Separador vertical entre hogares (como la maqueta). */
+.ekko-ribbon-group + .ekko-ribbon-group::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 10px;
+    bottom: 22px;
+    width: 1px;
+    background: rgba(46, 58, 89, 0.16);
+}
 
 @keyframes ekko-group-in {
     from { opacity: 0; transform: translateY(-3px); }
     to   { opacity: 1; transform: none; }
 }
 
+/* Cuerpo del hogar: ALTURA UNIFORME 96px (maqueta). Los botones chicos
+   apilan en COLUMNAS DE 3 (flex-direction column + wrap). */
 .ekko-ribbon-group-body {
     display: flex;
-    align-items: center;
-    gap: 4px;
-    min-height: 30px;
-    overflow: hidden;
-    max-height: 46px;
+    flex-direction: column;
+    flex-wrap: wrap;
+    align-content: center;
+    justify-content: center;
+    gap: 3px 12px;
+    height: 96px;
+    min-height: 96px;
+    box-sizing: border-box;
     opacity: 1;
-    transition: max-height 0.22s ease, opacity 0.16s ease;
+    transition: height 0.18s ease, min-height 0.18s ease, opacity 0.16s ease;
 }
 
+/* CREAR (modo grandes): botones grandes en fila, icono arriba nombre abajo. */
+.ekko-ribbon-group[data-modo="grandes"] .ekko-ribbon-group-body {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-content: center;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Título del hogar: ABAJO de los botones, centrado (maqueta). */
 .ekko-ribbon-group-head {
-    order: 2;                       /* el título queda debajo de los botones */
+    order: 2;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -114,46 +146,276 @@
     color: #5b6b7c;
     cursor: pointer;
     user-select: none;
-    padding-top: 1px;
+    padding: 2px 10px 3px;
+    margin: 0 -12px;
     white-space: nowrap;
+    border-radius: 4px;
 }
 
-.ekko-ribbon-group-head::before {
-    content: "\25BE";
-    font-size: 7px;
-    opacity: 0.55;
-    transition: transform 0.18s ease;
-}
-
-.ekko-ribbon-group.is-collapsed .ekko-ribbon-group-head::before {
-    transform: rotate(-90deg);
-}
-
-.ekko-ribbon-group.is-collapsed .ekko-ribbon-group-body {
-    max-height: 0;
-    opacity: 0;
-    min-height: 0;
-}
-
-/* Grupo sin botones visibles: desaparece del todo (cero huecos muertos). */
-.ekko-ribbon-group.is-empty {
-    display: none;
-}
-
-.ekko-ribbon-group-head:hover { color: #1d4ed8; }
+.ekko-ribbon-group-head:hover { color: #1d4ed8; background: rgba(29, 78, 216, 0.06); }
 .ekko-ribbon-group-head:focus-visible {
     outline: 1px solid #1d4ed8;
     outline-offset: 1px;
     border-radius: 3px;
 }
 
-/* Modo compacto / barra contraída: se comporta como antes, PERO el cuerpo de
-   la cinta no puede ocultarse entero: el chevron de EXPANDIR (y el menu de
-   paneles) vive adentro, re-parentado por ribbonLayout. Se cierran los
-   grupos de herramientas y el cuerpo se clava arriba a la derecha, dentro de
-   los 34px de la tira (en compacto la barra no envuelve y la superficie de
-   pestañas se come el ancho: el cuerpo quedaba aplastado a 0px y sus botones
-   se salian de la barra). */
+.ekko-ribbon-group.is-collapsed .ekko-ribbon-group-body {
+    height: 0;
+    min-height: 0;
+    opacity: 0;
+    overflow: hidden;
+}
+
+/* Hogar sin nada visible: desaparece del todo (cero huecos muertos). */
+.ekko-ribbon-group.is-empty {
+    display: none;
+}
+
+/* -----------------------------------------------------------------------
+   FLECHAS DE BANDA — desborde del CONJUNTO completo, nunca de un hogar.
+   ----------------------------------------------------------------------- */
+.ekko-banda-flecha {
+    position: absolute;
+    top: 0;
+    width: 26px;
+    height: 100%;
+    border: 0;
+    background: rgba(15, 23, 42, 0.05);
+    color: #334155;
+    cursor: pointer;
+    z-index: 3;
+    display: none;
+    font-size: 16px;
+    line-height: 1;
+}
+.ekko-banda-flecha.izq { left: 0; border-radius: 0 6px 6px 0; }
+.ekko-banda-flecha.der { right: 0; border-radius: 6px 0 0 6px; }
+.ekko-banda-flecha.activa {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.ekko-banda-flecha:hover {
+    background: rgba(29, 78, 216, 0.12);
+    color: #1d4ed8;
+}
+
+/* -----------------------------------------------------------------------
+   BOTONES CHICOS (icono a la izquierda + nombre a la derecha).
+   Les ganan a .btn-action/.toolbar-btn de styles.css, que vienen con
+   !important — por acá van con !important también.
+   ----------------------------------------------------------------------- */
+.ekko-ribbon-group-body > button {
+    display: flex !important;
+    align-items: center;
+    gap: 7px;
+    height: 25px;
+    padding: 2px 8px !important;
+    border: 0 !important;
+    border-radius: 4px !important;
+    background: transparent !important;
+    color: var(--ekko-text-dark, #1b1e24);
+    font-size: 12px !important;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    white-space: nowrap;
+    box-sizing: border-box;
+    flex: none;
+}
+
+.ekko-ribbon-group-body > button:hover {
+    background: rgba(29, 78, 216, 0.08) !important;
+    border-color: transparent !important;
+}
+
+.ekko-ribbon-group-body > button .ekko-ic {
+    width: 17px;
+    height: 17px;
+    flex: none;
+}
+
+/* Botón GRANDE (solo CREAR): icono arriba, nombre abajo. */
+.ekko-ribbon-group[data-modo="grandes"] .ekko-ribbon-group-body > button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    width: 66px;
+    height: 82px;
+    padding: 4px 3px !important;
+    font-size: 11.5px !important;
+    text-align: center;
+    white-space: normal;
+}
+
+.ekko-ribbon-group[data-modo="grandes"] .ekko-ribbon-group-body > button .ekko-ic {
+    width: 27px;
+    height: 27px;
+}
+
+/* -----------------------------------------------------------------------
+   CAMPOS (caja de selección, tipografía, curvar): etiqueta + input en una
+   pastilla, igual que .campo-largo de la maqueta.
+   ----------------------------------------------------------------------- */
+
+/* El contenedor de la caja de selección NO es un bloque: sus campos
+   participan del wrap del hogar (columnas de 3). display:contents. */
+.ekko-ribbon-group-body > .size-control-group {
+    display: contents;
+}
+
+/* El envoltorio de un campo suelto (fuente, tamaño, curvatura…) es la
+   pastilla. El renderer la gobierna como un botón más (data-fusion-btn). */
+.ekko-ribbon-campo {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 25px;
+    padding: 0 8px;
+    background: var(--ekko-bg-panel, #fff);
+    border: 1px solid var(--ekko-border-color, #d6d9de);
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    box-sizing: border-box;
+    flex: none;
+}
+
+/* Etiquetas de la caja de selección y de texto, dentro del hogar. */
+.ekko-ribbon-group-body .toolbar-number-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 25px;
+    padding: 0 8px;
+    background: var(--ekko-bg-panel, #fff);
+    border: 1px solid var(--ekko-border-color, #d6d9de);
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    box-sizing: border-box;
+    flex: none;
+}
+
+.ekko-ribbon-group-body .toolbar-input-number {
+    width: 52px;
+    padding: 2px 6px;
+    border: 1px solid var(--ekko-border-color, #d6d9de);
+    border-radius: 4px;
+    background: var(--ekko-bg-workspace, #f2f3f5);
+    font-size: 12px;
+    box-sizing: border-box;
+    height: 20px;
+}
+
+.ekko-ribbon-group-body .toolbar-select {
+    height: 21px;
+    max-width: 150px;
+    font-size: 12px;
+    border: 1px solid var(--ekko-border-color, #d6d9de);
+    border-radius: 4px;
+    background: var(--ekko-bg-panel, #fff);
+}
+
+.ekko-ribbon-group-body .toolbar-slider-container {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 25px;
+    padding: 0 8px;
+    background: var(--ekko-bg-panel, #fff);
+    border: 1px solid var(--ekko-border-color, #d6d9de);
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    box-sizing: border-box;
+    flex: none;
+}
+
+.ekko-ribbon-group-body .toolbar-slider-container input[type="range"] {
+    width: 90px;
+}
+
+.ekko-ribbon-group-body .size-lock-btn {
+    width: 26px !important;
+    height: 25px !important;
+    padding: 0 !important;
+    justify-content: center;
+}
+
+/* Selectores de fuente con su dropdown custom, pegados al campo. */
+.ekko-ribbon-campo .custom-font-dropdown { display: inline-flex; }
+
+/* -----------------------------------------------------------------------
+   SUELTOS AL FINAL (fuera de los hogares)
+   ----------------------------------------------------------------------- */
+.ekko-ribbon-body > #selectionInfo {
+    margin-left: auto;
+    align-self: center;
+    flex: none;
+}
+
+.ekko-ribbon-body > #topPanelControls {
+    align-self: center;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    flex: none;
+}
+
+/* -----------------------------------------------------------------------
+   HOGAR PARÁMETROS (Ronda 15): Contorno/Trazar viven DENTRO de la banda,
+   no en una ventana emergente. La superficie pierde todo su look flotante
+   (los estilos base están en styles.css) y se comporta como un hogar más.
+   ----------------------------------------------------------------------- */
+.ekko-ribbon-group[data-group="parametros"] .ekko-ribbon-group-body {
+    height: 96px;
+    min-height: 96px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: center;
+    align-content: center;
+    overflow: visible;
+}
+
+.ekko-ribbon-group[data-group="parametros"] .ekko-param-surface {
+    position: static !important;
+    z-index: auto;
+    /* MEDIDO en vivo: con 1000px los tres grupos de Contorno (Valores,
+       Alcance, Posición) + acciones + cerrar entran JUSTO en la altura
+       uniforme de 96px del hogar; con menos, el contenido se pasa. */
+    max-width: min(1000px, 66vw);
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    cursor: default;
+    flex-wrap: wrap;
+    gap: 10px;
+    height: 100%;
+}
+
+/* El asa de arrastre no tiene oficio dentro del hogar: el TÍTULO del hogar
+   ya dice qué se está ajustando. */
+.ekko-ribbon-group[data-group="parametros"] .ekko-param-asa {
+    display: none;
+}
+
+/* La × conserva su oficio (cerrar sin deseleccionar) pero chiquita. */
+.ekko-ribbon-group[data-group="parametros"] .ekko-param-close {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    align-self: center;
+    flex: none;
+}
+
+/* -----------------------------------------------------------------------
+   MODO COMPACTO / CONTRAÍDO: se comporta como antes, PERO el cuerpo de
+   la cinta no puede ocultarse entero: el chevron de EXPANDIR vive adentro.
+   ----------------------------------------------------------------------- */
 #topBar.is-compact .ekko-ribbon-body,
 #topBar.collapsed .ekko-ribbon-body {
     display: flex;
@@ -161,13 +423,12 @@
     gap: 2px;
     position: absolute;
     top: 2px;
-    /* 122px = los ~99px del boton fijo "Descargar" (right:14px en
-       ekko-espacio.css) + su aire. Pegado al borde, el chevron de expandir
-       nacía encima del boton de descarga. */
+    /* 122px = los ~99px del botón fijo "Descargar" + su aire. */
     right: 122px;
     width: auto;
     min-height: 0;
     z-index: 4;
+    overflow: visible;
 }
 
 #topBar.is-compact .ekko-ribbon-body > .ekko-ribbon-group,
@@ -176,6 +437,12 @@
 #topBar.collapsed .ekko-ribbon-body > #selectionInfo,
 #topBar.is-compact .ekko-ribbon-body > #btnTopTextCurve,
 #topBar.collapsed .ekko-ribbon-body > #btnTopTextCurve {
+    display: none !important;
+}
+
+/* Las flechas de banda no tienen sentido en compacto. */
+#topBar.is-compact .ekko-banda-flecha,
+#topBar.collapsed .ekko-banda-flecha {
     display: none !important;
 }
 
