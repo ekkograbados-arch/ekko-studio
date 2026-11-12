@@ -384,17 +384,48 @@ async function populateFontDropdowns() {
         const trigger = customDropdown.querySelector('.selected-font-trigger');
         const list = customDropdown.querySelector('.font-dropdown-list');
         if (trigger && list) {
+            /* Ronda 13 (dueño 2026-11-11): las tipografías NO se podían
+               seleccionar. Medido en runtime: la lista abría (19 ítems) pero
+               el lienzo (#workspace) la tapaba — el botón queda adoptado por
+               la cinta y la lista abría adentro de un contexto de apilamiento
+               por debajo del lienzo. Al abrir se ANEXA a document.body con
+               position:fixed en las coordenadas del botón: queda encima de
+               todo. Los manejadores sobreviven porque el nodo se MUEVE, no se
+               clona (los onclick de los ítems viajan con él). */
+            list.style.position = 'fixed';
+            list.style.zIndex = '10000';
+            const anclar = () => {
+                const r = trigger.getBoundingClientRect();
+                list.style.left = Math.round(r.left) + 'px';
+                list.style.top = Math.round(r.bottom + 2) + 'px';
+            };
             trigger.onclick = (e) => {
                 e.stopPropagation();
                 const isOpen = !list.classList.contains('hidden');
                 if (isOpen) {
                     list.classList.add('hidden');
                 } else {
+                    /* Si algún módulo la devolvió a su caja original, vuelve
+                       al body antes de mostrarse. */
+                    if (list.parentElement !== document.body) document.body.appendChild(list);
                     window.originalFontBackup = getSelectedFontFamily();
                     renderFontList(fontsCache, list);
                     list.classList.remove('hidden');
+                    anclar();
+                    /* Que no desborde la ventana: si no entra abajo, abre
+                       hacia arriba; si se sale por la derecha, se recorre. */
+                    const lr = list.getBoundingClientRect();
+                    if (lr.right > window.innerWidth - 4) {
+                        list.style.left = Math.max(4, window.innerWidth - lr.width - 4) + 'px';
+                    }
+                    if (lr.bottom > window.innerHeight - 4) {
+                        list.style.top = Math.max(4, r.top - lr.height - 2) + 'px';
+                    }
                 }
             };
+            window.addEventListener('resize', () => {
+                if (!list.classList.contains('hidden')) anclar();
+            });
             document.addEventListener('click', () => {
                 list.classList.add('hidden');
             });
