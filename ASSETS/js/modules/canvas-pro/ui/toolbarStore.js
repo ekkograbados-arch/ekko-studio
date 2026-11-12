@@ -70,9 +70,10 @@ export function compute() {
       const tabDef = TABS[contextTab];
       if (!tabDef) return true;
       if (baseTools.has(tool)) return true;
-      // Sin selección, las herramientas de vista pura quedan al alcance:
-      // son las únicas que sirven con el lienzo vacío (medido 2026-10-30).
-      if (!hasSelection && (tool === "zoom" || tool === "rulers" || tool === "guides")) return true;
+      // Ronda 15 (modelo CAD): sin caso especial para zoom/reglas/guías.
+      // Inicio es SOLO Crear; el hogar Lienzo vive en EDICIÓN, pestaña que
+      // está SIEMPRE presente (tabsForSelection), así que el cliente llega
+      // a ellas con un clic y el conjunto no salta.
       return (tabDef.tools || []).includes(tool);
     },
 
