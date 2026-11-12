@@ -250,6 +250,9 @@ export function convertSelectionToSolid(item = null) {
     if (!resolved.vector.data?.isHole && resolved.vector.data?.semanticKind !== VECTOR_KIND.HOLE) return resolved.vector;
     if (typeof window.saveHistory === "function") window.saveHistory();
     const solid = restoreSolidGeometry(resolved.vector);
+    // Orden Z del dueño: el sólido restaurado baja a su nivel (debajo de los
+    // calados de su jerarquía) para que el hueco siga perforándolo.
+    try { window.EKKO_restackOrdenBooleano?.([solid]); } catch (_) {}
     window.recalculateDynamicSubtractions?.();
     window.selectItem?.(solid);
     paper.view.update();
@@ -299,6 +302,9 @@ export function convertSelectionToCalado(item = null) {
     }
     if (typeof window.saveHistory === "function") window.saveHistory();
     const finalItem = markHole(vector) || vector;
+    // Orden Z del dueño: el calado nuevo sube a su nivel (encima de la masa
+    // sólida de su jerarquía) para perforarla de verdad.
+    try { window.EKKO_restackOrdenBooleano?.([finalItem]); } catch (_) {}
     if (typeof window.recalculateDynamicSubtractions === "function") {
         window.recalculateDynamicSubtractions();
     }
