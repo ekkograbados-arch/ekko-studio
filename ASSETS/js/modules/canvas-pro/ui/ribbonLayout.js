@@ -26,11 +26,13 @@
 
 import { GROUPS, BY_LEGACY } from "./toolbarManifest.js";
 
-/** Botones sin manifiesto que igual pertenecen a un grupo por su oficio. */
-const FORCE_GROUP = Object.freeze({
-  btnTopTextCurve: "texto",
-  btnCtxTextCurve: "texto"
-});
+/** Botones sin manifiesto que igual pertenecen a un grupo por su oficio.
+ *  Ronda 13 (dueño 2026-11-11): quedó VACÍO. Curvar Texto (btnTopTextCurve)
+ *  ahora vive en el grupo "objeto", pero ese grupo NO es del manifiesto —
+ *  lo escribe la cascada (cascadeToolbar.grupoObjeto) — así que ribbonLayout
+ *  no puede clasificarlo: si se lo dejaba acá, el botón caía como "trailing"
+ *  y quedaba SUELTO en la fila. La adopción la hace migrarCamposACinta. */
+const FORCE_GROUP = Object.freeze({});
 
 let layout = null;
 
