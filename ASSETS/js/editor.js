@@ -970,7 +970,11 @@ function syncSizeLockButtons() {
   ["btnSizeLockContext"].forEach(id => {
     const button = document.getElementById(id);
     if (!button) return;
-    button.textContent = locked ? "🔒" : "🔓";
+    /* Ronda 15: si ribbonLayout ya puso el icono del sprite (ekko-candado),
+       no se pisa con el glifo de texto: solo cambian estado, título y fondo. */
+    if (!button.querySelector("svg.ekko-ic")) {
+      button.textContent = locked ? "🔒" : "🔓";
+    }
     button.classList.toggle("active", locked);
     button.setAttribute("aria-pressed", locked ? "true" : "false");
     button.title = locked
