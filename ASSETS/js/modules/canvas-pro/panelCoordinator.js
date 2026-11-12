@@ -304,14 +304,18 @@ function renderContextSurface() {
     const label = byId("ekkoTopContextLabel");
     const context = panelState.currentContext || "none";
 
-    const selection = panelState.currentSelection
-        ? [panelState.currentSelection]
-        : ((window.selectedItems && window.selectedItems.length)
-            ? window.selectedItems
-            : (window.selectedItem ? [window.selectedItem] : []));
-
     // Solo se ofrecen pestanas que tienen herramientas para ESTA seleccion.
     // Con una imagen el cliente ve Inicio e Imagen; Texto y Vector ni aparecen.
+    // Ronda 15: con VARIOS objetos apretados, la lista completa manda sobre el
+    // puntero de "ultimo objeto" (currentSelection es singular): si no, dos
+    // circulos seleccionados pintaban pestana Vector en vez de Varios.
+    const varios = (window.selectedItems && window.selectedItems.length > 1)
+        ? window.selectedItems : null;
+    const selection = varios
+        || (panelState.currentSelection ? [panelState.currentSelection]
+            : ((window.selectedItems && window.selectedItems.length)
+                ? window.selectedItems
+                : (window.selectedItem ? [window.selectedItem] : [])));
     const available = tabsForSelection(selection);
     const detected = detectTab(selection);
 
@@ -680,17 +684,15 @@ export function initPanelCoordinator() {
     window.setEKKOSelectionContext = setSelectionContext;
     window.getEKKOPanelState = getPanelState;
 
-    /* LA CASCADA ES LA INTERFAZ, NO UN PROTOTIPO: arranca siempre, en cualquier
-       dispositivo. Antes vivia de la clave ekko.cascadePrototype en localStorage,
-       y localStorage es por navegador y por maquina: la misma URL mostraba dos
-       interfaces distintas segun donde se abriera, y un ?cascade=0 tocado una vez
-       dejaba una computadora atrasada para siempre (el "no veo cambios" entre PC).
-       Ahora la unica forma de apagarla es ?cascade=0 en la URL, y solo dura esa
-       carga. La clave vieja se borra para que ningun dispositivo quede atado a
-       una decision tomada hace rondas. */
+    /* LA CASCADA QUEDA APAGADA POR DEFECTO (Ronda 15): la maqueta CAD del
+       panel superior (hogares con titulo abajo, pestañas Inicio/Edicion/
+       Imagen/Vector/Texto/Varios) la REEMPLAZA. Solo se enciende a proposito
+       con ?cascade=1 en la URL, y solo dura esa carga. La clave vieja de
+       localStorage se borra para que ningun dispositivo quede atado a una
+       decision tomada hace rondas. */
     try {
         localStorage.removeItem("ekko.cascadePrototype");
-        if (new URLSearchParams(location.search).get("cascade") !== "0") {
+        if (new URLSearchParams(location.search).get("cascade") === "1") {
             import("./cascadeToolbar.js")
                 .then(m => m.initCascadeToolbar?.())
                 .catch(err => console.warn("[EKKO CASCADA] no se pudo iniciar:", err));
