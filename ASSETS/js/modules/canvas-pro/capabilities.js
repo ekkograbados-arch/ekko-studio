@@ -14,7 +14,7 @@ import { getPublicOwner, isMockupOrMask, isContainmentWrapper } from "./designGe
 
    Aqui cada herramienta DECLARA que especies y que roles soporta, y la barra
    muestra un boton solo si TODOS los objetos seleccionados lo soportan.
-   Es el mismo criterio de los editores comunes: nada de casos fijos.
+   Es el mismo criterio de AutoCAD, Word y los editores comunes: nada de casos fijos.
    ========================================================================= */
 
 /* =========================================================================
@@ -125,6 +125,20 @@ function esContenedor(entry) {
   if (owner.className === "Group") return true;
   if (entry.species !== SPECIES.VECTOR) return false;
   const data = owner.data || {};
+
+  /* Resultado de una booleana (Union, Restar, Interseccion, Diferencia): la
+     pieza nueva nace con contornos disjuntos que el dueño quiere poder
+     separar y re-trabajar ("una vez que se crea la booleana no se puede
+     volver a descomponer"). La marca la escribe performBooleanOperation, asi
+     un QR o un trazado siguen siendo UNA pieza y no explotan en 120 partes.
+
+     Va ANTES del freno de "ya descompuesta": si la booleana se hizo sobre
+     piezas que ya habian pasado por Descomponer, el keeper HEREDA esa marca
+     del operando, y el freno tapaba el booleanResult. El booleanResult es de
+     la pieza NUEVA: siempre se puede volver a abrir. */
+  if (owner.className === "CompoundPath" && data.booleanResult === true) {
+    return true;
+  }
 
   // Una pieza ya descompuesta no vuelve a contenedor.
   if (data.decomposedLayer === true) return false;
@@ -418,37 +432,24 @@ const ALL_SPECIES = [SPECIES.RASTER, SPECIES.VECTOR, SPECIES.TEXT, SPECIES.MIXED
  *     geometricas pensadas para varios objetos: quedan como estan.
  */
 export const TOOLS = {
-  // --- Núcleo de Inicio: operaciones de objeto de todos los días ---
+  // --- Siempre activas: sirven para cualquier objeto ---
   delete:      { label: "Eliminar",     always: true },
   duplicate:   { label: "Duplicar",     always: true },
   copy:        { label: "Copiar",       always: true },
   paste:       { label: "Pegar",        always: true },
+  bringForward:{ label: "Subir capa",   always: true },
+  sendBackward:{ label: "Bajar capa",   always: true },
+  toFront:     { label: "Al frente",    always: true },
+  toBack:      { label: "Al fondo",     always: true },
   rotate:      { label: "Rotar",        always: true },
   flip:        { label: "Voltear",      always: true },
-
-  /* --- Tamaño, organización y alineación: pestaña VISTA (D2, dueño
-     2026-11-11). Los ajustes generales entorpecían la dinámica de la
-     interfaz: salen de Inicio y viven en SU pestaña, que se comporta igual
-     que las contextuales (clic la fija, segundo clic vuelve al automático).
-     Ya no son `always`: piden al menos un objeto seleccionado. --- */
-  bringForward:{ label: "Subir capa",   active: s => s.count >= 1 },
-  sendBackward:{ label: "Bajar capa",   active: s => s.count >= 1 },
-  toFront:     { label: "Al frente",    active: s => s.count >= 1 },
-  toBack:      { label: "Al fondo",     active: s => s.count >= 1 },
-  size:        { label: "Tamaño",       active: s => s.count >= 1 },
-  /* Ronda 12: las cotas son configuración del LIENZO (sección Lienzo de
-     Organizar), no de la selección: se ven con el lienzo vacío. La pestaña
-     sigue recortando (solo aparecen en Organizar). */
-  measurements:{ label: "Cotas",        active: () => true },
-  align:       { label: "Alinear",      active: s => s.count >= 1 },
+  size:        { label: "Tamaño",       always: true },
+  measurements:{ label: "Cotas",        always: true },
+  align:       { label: "Alinear",      always: true },
   distribute:  { label: "Distribuir",   active: s => s.count >= 2 },
-
-  /* --- Vista pura: no operan sobre la selección, así que no piden objeto.
-     Con nada seleccionado quedan al alcance por la regla de pestaña en
-     toolbarStore (medido 2026-10-30: zoom/reglas/guías no se van nunca). --- */
-  zoom:        { label: "Ajustar vista",active: () => true },
-  rulers:      { label: "Reglas",       active: () => true },
-  guides:      { label: "Guías",        active: () => true },
+  zoom:        { label: "Ajustar vista",always: true },
+  rulers:      { label: "Reglas",       always: true },
+  guides:      { label: "Guías",        always: true },
 
   // --- Estructural ---
   group:       { label: "Agrupar",      active: s => s.count >= 2 },
@@ -473,8 +474,12 @@ export const TOOLS = {
   //     Un grupo mixto tampoco: primero hay que desagrupar.
   decomposeVector: {
     label: "Descomponer Vector",
+    /* El keeper de una booleana HEREDA decomposedLayer del operando del que
+       nacio (la pieza ya habia pasado por Descomponer). La excepcion
+       booleanResult deja pasar la pieza NUEVA: "una vez que se crea la
+       booleana no se puede volver a descomponer" era exactamente esto. */
     active: s => s.count > 0 && !s.hasMixed && s.list.every(esContenedor) &&
-      s.list.some(e => e.owner?.data?.decomposedLayer !== true)
+      s.list.some(e => e.owner?.data?.decomposedLayer !== true || e.owner?.data?.booleanResult === true)
   },
 
   // --- Roles solido/hueco (edicion de UN objeto: con varios se ocultan) ---
@@ -498,12 +503,7 @@ export const TOOLS = {
     // exclusivo de mixedRoles dejaba el botón muerto para las selecciones
     // que el cliente realmente usa (ej: sueltas SARA caladas y querés
     // solidificarlas sin mezclar con un sólido).
-    // P1 (dueño 2026-11-11): si un botón no tiene NADA QUE VER con lo
-    // seleccionado, SE OCULTA. Una línea de corte no es ni sólido ni hueco:
-    // con una selección de SOLO líneas de corte el botón no aparece. Mezcla
-    // de línea + sólidos/huecos sigue mostrándolo (a esos sí los gira).
-    active: s => s.count > 0 && s.onlyVectorish &&
-      s.list.some(e => e.role === ROLE.SOLID || e.role === ROLE.HOLE)
+    active: s => s.count > 0 && s.onlyVectorish
   },
 
   // --- Geometria (edicion de UN objeto: con varios se ocultan) ---
@@ -583,12 +583,11 @@ export const TOOLS = {
   // --- Fusion ---
   fusion: {
     label: "Fusionar",
-    // REGLA DEL DUEÑO (2026-11-11): la fusión es SOLO entre 1 vector y 1
-    // imagen, NUNCA con más. Con exactamente dos seleccionados (1 raster +
-    // 1 vector) va; con 3 o más objetos no se ofrece aunque haya raster y
-    // vector entre ellos. La imagen aporta el relleno, el vector la máscara.
+    // REGLA DEL CLIENTE: fusionar SOLO si hay vector + imagen. Solo vectores
+    // o solo imagenes: no se fusiona. Por eso se exigen las dos especies a la
+    // vez: la imagen aporta el relleno, el vector o la linea aportan la mascara.
     active: s => {
-      if (s.count !== 2) return false;
+      if (s.count < 2) return false;
       const rasters = s.list.filter(e => e.species === SPECIES.RASTER);
       const masks = s.list.filter(e => e.species === SPECIES.VECTOR);
       return rasters.length >= 1 && masks.length >= 1;
@@ -606,12 +605,8 @@ export const TOOLS = {
 export function resolveToolNames(selection) {
   const selectionList = (Array.isArray(selection) ? selection : []).filter(Boolean);
   if (!selectionList.length) {
-    /* D2: además de las universales de núcleo, quedan al alcance las
-       herramientas de vista pura (zoom, reglas, guías): son las únicas que
-       sirven sin nada seleccionado. MEDIDO 2026-10-30: no pueden irse. */
-    const vacio = describeSelection([]);
     return Object.entries(TOOLS)
-      .filter(([, tool]) => tool.always || (tool.active ? !!tool.active(vacio) : false))
+      .filter(([, tool]) => tool.always)
       .map(([name]) => name);
   }
   const summary = describeSelection(selectionList);
@@ -683,20 +678,7 @@ const ENGINE_TO_LEGACY = Object.freeze({
   zoom: ["zoom"],
   rulers: ["rulers"],
   guides: ["guides"],
-  measurements: ["measurements"],
-  /* El manifiesto ya tenía botones para estas dos herramientas, pero el mapa
-     histórico no las emitía: quedaban invisibles para legacyNamesFor/Tab y
-     para el conjunto permitido del puente. Con la pestaña Vista (D2) Tamaño
-     se vuelve a ofrecer por pestaña, así que las dos entran acá. */
-  size: ["size"],
-  audit: ["audit"],
-  /* Ronda 12 (dueño 2026-11-11): las CAPAS entran al mapa histórico —
-     igual que size/audit, el manifiesto las declaraba pero el mapa no las
-     emitía, así que legacyNamesForTab y el puente las ignoraban. */
-  toFront: ["toFront"],
-  bringForward: ["bringForward"],
-  sendBackward: ["sendBackward"],
-  toBack: ["toBack"]
+  measurements: ["measurements"]
 });
 
 export function legacyNamesFor(selection) {
@@ -737,21 +719,6 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
      justamente lo que hace falta para poder seguir trabajando. */
 export const TABS = Object.freeze({
   base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
-  /* D2 (dueño 2026-11-11): pestaña independiente de AJUSTES GENERALES y
-     vista. Vive junto a Inicio como las contextuales: clic la fija, segundo
-     clic vuelve al automático. Todo lo que entorpecía la dinámica (tamaños,
-     zoom, organización de capas, alineación, reglas, guías, cotas,
-     distribuir) vive acá y solo acá. */
-  /* Ronda 12 (dueño 2026-11-11, rechazo de la R11): la pestaña fija de
-     ajustes generales se llama ORGANIZAR (ex "Vista"/"Organización") y es
-     SIEMPRE LA ÚLTIMA de izquierda a derecha, con o sin selección
-     (tabsForSelection). Modelo Word de UNA cinta: al fijarla, la propia
-     cinta cambia su contenido — LIENZO (zoom/reglas/guías/cotas, activo
-     siempre), ALINEAR, CENTRAR EN PRODUCTO, DISTRIBUIR, CAPAS y ORGANIZAR
-     (agrupar/desagrupar), estos con botones activos o en gris con motivo
-     según la selección. La banda profesional queda como reservorio oculto.
-     group/ungroup entran a tools para que la pestaña los declare suyos. */
-  vista:    { id: "vista",    label: "Organizar",   tools: ["size", "align", "distribute", "group", "ungroup", "bringForward", "sendBackward", "toFront", "toBack", "zoom", "rulers", "guides", "measurements"] },
   image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
   vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
   text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
@@ -764,15 +731,7 @@ export const TABS = Object.freeze({
      (medido: outline.active con 2 rasters es true y el boton igual no salia).
      Desde la v11.42 "Todo junto" funciona sobre varias imagenes, o sea que es
      justamente la seleccion donde la herramienta sirve. */
-  /* "Varios" es el conjunto: agrupar/desagrupar/booleanas por bypass, y las
-     herramientas que SÍ operan sobre varios a la vez (tijera, auditar,
-     sólidos⇄huecos, contorno, descomponer, lote de fondo). Las herramientas
-     de vista pura quedan al alcance acá también: con un grupo mixto el
-     cliente necesita reglas y guías para ver qué hay adentro (medido
-     2026-10-30). Alinear/Tamaño/Cotas/Capas viven en Vista (D2).
-     Fusionar entra porque el par exacto (1 raster + 1 vector) cae en
-     "Varios" al ser 2 objetos. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "ungroup", "fusion", "outline", "cutSegment", "audit", "solidHole", "decomposeVector", "removeBg", "editCutout", "zoom", "rulers", "guides"] }
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
@@ -794,12 +753,8 @@ export function detectTab(selection) {
  *  seleccionada el cliente ve Inicio e Imagen, no Texto ni Vector. */
 export function tabsForSelection(selection) {
   const detected = detectTab(selection);
-  /* Ronda 12 (dueño 2026-11-11): ORGANIZAR es SIEMPRE LA ÚLTIMA de
-     izquierda a derecha, con cualquier selección o sin ella:
-     Inicio · [contextuales de la selección] · Organizar. */
   const ids = ["base", detected];
   if (detected === "multiple") ids.push("image", "vector", "text");
-  ids.push("vista");
   return [...new Set(ids)].filter(id => TABS[id]);
 }
 
