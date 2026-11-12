@@ -446,6 +446,12 @@ export const TOOLS = {
   size:        { label: "Tamaño",       always: true },
   measurements:{ label: "Cotas",        always: true },
   align:       { label: "Alinear",      always: true },
+  /* Ronda 15 (modelo CAD del dueño, maqueta v3 aprobada): Centrar en producto
+     es una herramienta con nombre propio. El motor la declara `always` y la
+     puerta fina (pedir seleccion) la pone el manifiesto con su `rule`. Asi
+     los tres botones de centrar pueden verse APAGADOS con motivo en la
+     pestana Edicion, como el resto de la cinta, en vez de desaparecer. */
+  centrar:     { label: "Centrar",      always: true },
   distribute:  { label: "Distribuir",   active: s => s.count >= 2 },
   zoom:        { label: "Ajustar vista",always: true },
   rulers:      { label: "Reglas",       always: true },
@@ -717,11 +723,22 @@ const ALWAYS_TOOLS = Object.entries(TOOLS)
    - "Varios" es para varios objetos SUELTOS apretados a la vez, no para un
      grupo. Un grupo mixto cae aca y lo unico que ofrece es Desagrupar, que es
      justamente lo que hace falta para poder seguir trabajando. */
+/* PESTAÑAS DEL MODELO CAD (dueño, maqueta v3 aprobada 2026-11-12).
+   - INICIO (base) es SOLO el panel CREAR: cargar imagen/SVG, linea, formas,
+     lapiz, texto y QR. Nada de organizacion ni lienzo: para eso esta
+     EDICION, que esta SIEMPRE presente.
+   - EDICION (nueva, siempre presente a la derecha de Inicio) engloba
+     Tamaño + Organizar + Portapapeles + Lienzo. Sus botones se APAGAN y se
+     ACTIVAN segun la seleccion; Lienzo queda siempre activo.
+   - Imagen/Vector/Texto/Varios segun la identidad de la seleccion.
+   - No existe pestana "vista"/"Organizar"/"Fusion"/"Grupo".
+   El orden de las pestañas en pantalla lo arma tabsForSelection(). */
 export const TABS = Object.freeze({
-  base:     { id: "base",     label: "Inicio",  tools: ALWAYS_TOOLS },
-  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion"] },
-  vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage"] },
-  text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline"] },
+  base:     { id: "base",     label: "Inicio",  tools: [] },
+  edicion:  { id: "edicion",  label: "Edición", tools: [...ALWAYS_TOOLS, "group", "ungroup", "distribute", "centrar"] },
+  image:    { id: "image",    label: "Imagen",  tools: ["removeBg", "editCutout", "traceImage", "outline", "fusion", "size"] },
+  vector:   { id: "vector",   label: "Vector",  tools: ["editNodes", "cutSegment", "decomposeVector", "boolean", "calado", "rellenar", "solidHole", "audit", "outline", "unfusion", "editFusionImage", "fusion", "size"] },
+  text:     { id: "text",     label: "Texto",   tools: ["textToVector", "outline", "size"] },
   /* "Varios" lleva tambien Quitar Fondo y Editar Fondo: con varias imagenes
      apretadas la cinta cae aca (detectTab), y si no estaban blanqueadas el
      boton no salia NI en Varios NI en Imagen. Se filtran igual por la regla
@@ -731,7 +748,11 @@ export const TABS = Object.freeze({
      (medido: outline.active con 2 rasters es true y el boton igual no salia).
      Desde la v11.42 "Todo junto" funciona sobre varias imagenes, o sea que es
      justamente la seleccion donde la herramienta sirve. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline"] }
+  /* Varios (modelo CAD): Organizar + Imagen + Booleanas + Conversion + Tamaño.
+     Voltear entra porque con varios objetos apretados el espejo sirve igual
+     que con uno. removeBg/editCutout/outline por el motivo de siempre: con
+     dos imagenes la cinta cae aca y los botones tenian que estar. */
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "flip", "size", "centrar"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
@@ -753,7 +774,11 @@ export function detectTab(selection) {
  *  seleccionada el cliente ve Inicio e Imagen, no Texto ni Vector. */
 export function tabsForSelection(selection) {
   const detected = detectTab(selection);
-  const ids = ["base", detected];
+  /* Modelo CAD: Inicio y Edicion SIEMPRE (Edicion es la pestana permanente:
+     sus hogares se apagan y encienden solos, pero la pestana nunca falta).
+     Despues la que deduce la seleccion y, con varias especies, el resto. */
+  const ids = ["base", "edicion"];
+  if (detected !== "base") ids.push(detected);
   if (detected === "multiple") ids.push("image", "vector", "text");
   return [...new Set(ids)].filter(id => TABS[id]);
 }
