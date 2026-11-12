@@ -35,7 +35,7 @@
                     vuelta garantizada cuando dejan del ranking: la cinta no se
                     desarma y ningun control se duplica.
      BOTON HEROE    En cada grupo, el primer boton visible se agiganta (icono
-                    arriba del nombre, 44px) y sus companeros quedan en pila de
+                    arriba del nombre, 56px) y sus companeros quedan en pila de
                     21px al lado: la jerarquia de la cinta, dicha con tamano y no
                     con sombras.
      BARRA EMERGENTE El mismo lenguaje, pero como ATAJO del objeto: una sola
@@ -51,7 +51,7 @@
                     boton pulsado. Se vuelca hacia arriba si no entra, sigue
                     a su boton al scrollear o redimensionar, y se rinde si el
                     cliente lo arrastra del asa.
-     ALTURA FIJA    La banda de la cinta mide siempre 66px (44 de cuerpo +
+     ALTURA FIJA    La banda de la cinta mide siempre 78px (56 de cuerpo +
                     etiqueta): seleccionar un objeto ya no corre el lienzo.
      PIEL PLANA     Nivel 0 (la tira) conserva el vidrio; la cinta y la barra
                     emergente se aplanan como en la cinta: sin textura, sin
@@ -109,7 +109,14 @@ function elegirPestaña(id) {
        ronda 15 la activa tambien puede venir de lo apuntado (estado "auto"
        con un objeto elegido), y ahi "ahora" seguia siendo "auto". */
     const viendo = (ahora !== "auto") ? ahora : tabDeLaSeleccion();
-    const nuevo = (viendo === id) ? "auto" : id;
+    /* Ronda 13 (dueño 2026-11-11): Inicio en reposo automatico SIN
+       seleccion YA es la pestaña que se ve, asi que el primer clic debe
+       FIJARLA, no contar como segundo clic. Sin objeto apuntado Inicio es
+       la unica puerta (Cargar/Crear) y su seccion Lienzo (zoom/reglas/
+       guias/cotas) sirve con el lienzo vacio: si el primer clic no la
+       fijara, esa seccion seria inalcanzable sin seleccionar nada. El
+       segundo clic (ya fijada) si vuelve al automatico. */
+    const nuevo = (ahora !== "auto" && viendo === id) ? "auto" : id;
     if (nuevo !== "auto" && nuevo !== "base" && nuevo !== "multiple") apuntarEspecie(nuevo);
     if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = nuevo;
     persistirTab(nuevo);
@@ -495,11 +502,11 @@ function estilos() {
                es la manera de empezar. */
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > .ekko-ribbon-group:not([data-group="creacion"]) { display: none !important; }
         #topBar.ekko-cascade.ekko-sin-seleccion #ekkoCascadeTools > button { display: none !important; }
-        /* Ronda 12 (dueño 2026-11-11): Organizar se fija TAMBIEN con el
+        /* Ronda 13 (dueño 2026-11-11): Inicio se fija TAMBIEN con el
            lienzo vacío, y entonces su sección Lienzo queda a la vista —
            zoom, reglas, guías, cotas y el 100% son configuración DEL
            LIENZO, no del objeto: sirven sin nada seleccionado. */
-        #topBar.ekko-cascade.ekko-sin-seleccion[data-ekko-tab-manual="vista"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="lienzo"] { display: flex !important; }
+        #topBar.ekko-cascade.ekko-sin-seleccion[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="lienzo"] { display: flex !important; }
         /* Y al reves (ronda 15): con un objeto apuntado, CARGAR / CREAR se van.
            Inicio es la puerta para empezar un proyecto, no una barra que
            convive con las herramientas del objeto: medido con una imagen
@@ -508,13 +515,23 @@ function estilos() {
            pantalla. El cliente lo dijo literal: "selecciono una imagen y sigue
            apareciendo erroneamente los botones de cargar y crear". */
         #topBar.ekko-cascade:not(.ekko-sin-seleccion) #ekkoCascadeTools > .ekko-ribbon-group[data-group="creacion"] { display: none !important; }
-        /* ...salvo que el cliente toque Inicio a proposito: Inicio ES el
-           hub de cargar/crear, asi que ahi la fila de Crear vuelve aunque
-           haya un objeto apuntado, y las herramientas del objeto se retiran
-           para no mezclar dos modos en la misma fila. La ocultacion de arriba
-           es solo para el modo automatico (la pestaña sigue al objeto). */
-        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="creacion"] { display: flex !important; }
-        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group:not([data-group="creacion"]):not([data-group="recientes"]) { display: none !important; }
+        /* ...salvo que el cliente toque Inicio a proposito. Ronda 13: Inicio
+           es el hub de cargar/crear Y LA CASA DE LA ORGANIZACION GENERAL
+           (objetos + lienzo, dueño 2026-11-11: "todo lo que tenga que ver
+           con organizacion general de los objetos y el lienzo debe ir ahi").
+           Fijarla muestra Crear mas las secciones de organizacion (Lienzo ·
+           Alinear · Centrar · Distribuir · Capas · Agrupar); las cajas de la
+           ESPECIE del objeto (Objeto/Imagen/Texto/Estructura/Booleanas…) se
+           retiran para no mezclar dos modos. La ocultacion de arriba es solo
+           para el modo automatico (la pestaña sigue al objeto). */
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="creacion"],
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="lienzo"],
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="alinear"],
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="centrar"],
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="distribuir"],
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="capas"],
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group[data-group="organizar"] { display: flex !important; }
+        #topBar.ekko-cascade:not(.ekko-sin-seleccion)[data-ekko-tab-manual="base"] #ekkoCascadeTools > .ekko-ribbon-group:not([data-group="creacion"]):not([data-group="lienzo"]):not([data-group="alinear"]):not([data-group="centrar"]):not([data-group="distribuir"]):not([data-group="capas"]):not([data-group="organizar"]):not([data-group="recientes"]) { display: none !important; }
 
         /* --- BARRA EMERGENTE en la cascada: una sola fila con las 5 mas
                usadas a la vista y ⋯ para el resto (medido: sin esto mostraba
@@ -688,23 +705,24 @@ function estilos() {
            Recorte — 2 FILAS finas de a varios campos por fila, no una fila
            larga. Fila 1: medidas (Ancho · candado · Alto · Rot). Fila 2:
            tipografía (fuente · Tamaño · Radio · Espacio). El cuerpo es
-           column-wrap de 44px igual que el resto: cada bloque hijo mide
-           20px y apilan de a dos por columna. */
+           column-wrap de 56px igual que el resto: cada bloque hijo mide
+           26px y apilan de a dos por columna. */
         #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body {
             flex-flow: column wrap;
             align-content: flex-start;
             align-items: flex-start;
-            height: 44px;
-            min-height: 44px;
-            max-height: 44px;
-            gap: 2px 10px;
-            padding: 1px 0;
+            height: 56px;
+            min-height: 56px;
+            max-height: 56px;
+            gap: 4px 10px;
+            padding: 0;
             box-sizing: border-box;
         }
-        /* Cada fila del grupo Objeto mide 20px y centra sus campos. */
+        /* Cada fila del grupo Objeto mide 26px y centra sus campos (Ronda 13:
+            el dueño pidió MÁS AIRE — "el nivel queda muy apretado"). */
         #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body > * {
-            height: 20px;
-            min-height: 20px;
+            height: 26px;
+            min-height: 26px;
             margin: 0;
         }
         #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .size-control-group,
@@ -721,10 +739,10 @@ function estilos() {
         #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .toolbar-slider-container {
             flex: 0 0 110px;
             width: 110px;
-            height: 20px;
+            height: 26px;
         }
         #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] select {
-            height: 20px;
+            height: 26px;
             padding: 1px 4px;
             font-size: 10.5px;
         }
@@ -888,13 +906,13 @@ function estilos() {
             /* ALTURA FIJA (medido): sin esta reserva la banda media 6px con el
                lienzo vacio y 33px al seleccionar, asi que cada clic sobre un
                objeto corria el canvas ~27px hacia abajo. Con la cinta por
-               grupos pasa lo mismo pero mas fuerte (44 de cuerpo + 13 de
+               grupos pasa lo mismo pero mas fuerte (56 de cuerpo + 13 de
                etiqueta): la banda SE RESERVA y no se arma al seleccionar. La
                geometria que no se mueve es la que el cliente aprende a golpear
-               de memoria. 66 = 4 (padding) + 44 (cuerpo) + 2 + 13 (etiqueta)
+               de memoria. 78 = 4 (padding) + 56 (cuerpo) + 2 + 13 (etiqueta)
                + 3 de aire, con box-sizing para que el padding no sume extra. */
             box-sizing: border-box;
-            min-height: 66px;
+            min-height: 78px;
         }
         #ekkoCascadeTools::-webkit-scrollbar { display: none; }
         #ekkoCascadeTools .ekko-ribbon-group { flex: 0 0 auto; }
@@ -902,7 +920,7 @@ function estilos() {
 
         /* La pista de la banda vacia: con el lienzo sin seleccion la cinta
                no tiene herramientas de objeto (las esconde el motor de la
-               cascada), y un rectangulo de 66px sin nada se lee como "roto".
+               cascada), y un rectangulo de 78px sin nada se lee como "roto".
                Una linea dice que falta: elegir un objeto. */
         #ekkoCascadeTools .ekko-fila-pista {
             display: none;
@@ -920,8 +938,8 @@ function estilos() {
         body[data-modo="claro"] #ekkoCascadeTools .ekko-fila-pista { color: rgba(46,58,89,0.55); }
 
         /* --- CUERPO DEL GRUPO EN COLUMNA QUE ENVUELVE (el dibujo de la cinta) ---
-               flex-flow: column wrap sobre un alto fijo de 44px: el boton
-               HEROE (44) ocupa su columna entero y los companeros (21 + 2 de
+               flex-flow: column wrap sobre un alto fijo de 56px: el boton
+               HEROE (56) ocupa su columna entero y los companeros (26 + 4 de
                gap) se apilan de a dos por columna y siguen de largo en la
                columna siguiente. Es exactamente el molde de la cinta
                (uno grande + pila de chicos) sin crear, clonar ni duplicar
@@ -935,10 +953,10 @@ function estilos() {
             align-items: flex-start;
             align-content: center;
             box-sizing: border-box;
-            height: 44px;
-            min-height: 44px;
-            max-height: 44px;
-            gap: 2px 6px;
+            height: 56px;
+            min-height: 56px;
+            max-height: 56px;
+            gap: 4px 6px;
             width: max-content;
         }
 
@@ -999,7 +1017,7 @@ function estilos() {
                arriba y la cinta se aplana: fondo limpio, hover solo de relleno,
                radio chico, y el color de acento reservado para lo que tiene
                estado (toggle activo). La jerarquia NO la da la sombra: la da el
-               tamano (heroe 44 / companero 21) y el grupo con etiqueta.
+               tamano (ficha 56 de alto) y el grupo con etiqueta.
                La especificidad es obligada: la piel pinta con !important desde
                #topBar .btn-action (1 id + 1 clase); esto es 2 ids + 2 clases y
                ademas el hoja va DESPUES en el head, asi gana en ambos casos. */
@@ -1014,12 +1032,12 @@ function estilos() {
             display: inline-flex;
             align-items: center;
             gap: 4px;
-            height: 21px;
+            height: 26px;
             padding: 0 5px !important;
             box-sizing: border-box;
             font-size: 11px !important;
             font-weight: 500 !important;
-            line-height: 19px;
+            line-height: 24px;
             white-space: nowrap;
             color: rgba(226,232,240,0.9) !important;
         }
@@ -1029,7 +1047,7 @@ function estilos() {
         }
         /* --- BOTON HEROE DEL GRUPO (la jerarquia de la cinta) ---
                El primer boton visible de cada grupo se agiganta: icono arriba,
-               nombre abajo (2 lineas si hace falta) y los 44px enteros de la
+               nombre abajo (2 lineas si hace falta) y los 56px enteros de la
                columna. Es lo primero que se busca con la mirada cuando el
                grupo trae muchos comandos. Lo decide la cinta, no el azar: ver
                pintarHeroes(). */
@@ -1038,14 +1056,11 @@ function estilos() {
             justify-content: center;
             align-items: center;
             gap: 2px;
-            height: 44px;
-            min-width: 52px;
-            /* 96px y glifo de 16: la banda mide 44px y el cuerpo tiene
-               overflow hidden. Con glifo de 19 + 3px de hueco quedaban 22px
-               para el texto, o sea UNA linea de 10.5px — y "Cargar Imagen /
-               SVG" necesita dos, asi que el SVG se cortaba a la mitad (se veia
-               en la captura de la ronda 6). 44 - 16 - 2 - 4 de padding = 22px
-               = dos lineas justas. */
+            height: 56px;
+            min-width: 56px;
+            /* 96px y glifo de 16: la banda mide 56px y el cuerpo tiene
+               overflow hidden. 56 - 16 - 2 - 4 de padding = 34px = dos lineas
+               de 10px con aire de sobra ("Cargar Imagen / SVG" necesita dos). */
             max-width: 96px;
             padding: 2px 6px !important;
             font-size: 10px !important;
@@ -1074,7 +1089,7 @@ function estilos() {
             justify-content: center;
             align-items: center;
             gap: 3px;
-            height: 44px;
+            height: 56px;
             min-width: 92px;
             max-width: 132px;
             padding: 3px 10px !important;
@@ -1281,9 +1296,13 @@ function estilos() {
            se ve horrible y poco profesional".
 
            Criterio nuevo: TODA herramienta de objeto es la MISMA ficha —
-           icono arriba, nombre debajo, 58x44, dos lineas de 10 px— y el molde
+           icono arriba, nombre debajo, 58x56, dos lineas de 10 px— y el molde
            heroe desaparece. Un catalogo de fichas iguales se lee de un
            vistazo y entra completo en 1308 px (medido: 1142 -> 872).
+           Ronda 13 (dueño 2026-11-11): la ficha sube de 44 a 56 de alto —
+           "el nivel queda muy apretado, agrandá la altura para que queden
+           bien acomodados". El cuerpo del grupo sube con ella (56px) y la
+           banda entera reserva 78px.
            ================================================================== */
         #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group:not([data-group="creacion"]) .btn-action,
         #topBar.ekko-cascade #ekkoCascadeTools .ekko-ribbon-group:not([data-group="creacion"]) .btn-action.ekko-es-heroes {
@@ -1292,7 +1311,7 @@ function estilos() {
             justify-content: center;
             align-items: center;
             gap: 2px;
-            height: 44px;
+            height: 56px;
             min-width: 58px;
             max-width: 84px;
             padding: 2px 5px !important;
@@ -1321,10 +1340,11 @@ function estilos() {
             text-transform: uppercase;
         }
         /* Ronda 10 (dueño 2026-11-11): el grupo Objeto va en 2 FILAS finas
-           (molde Recorte). El gap vertical tiene que caber dos veces en los
-           44px del cuerpo: 20 + 2 + 20 = 42. Con el gap 5px anterior la
-           segunda fila desbordaba a otra columna y quedaba al costado. */
-        body[data-ekko-cascade="1"] #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body { gap: 2px 10px; }
+           (molde Recorte). Ronda 13: el cuerpo mide 56px y las filas 26px,
+           asi que el gap vertical tiene que caber dos veces: 26 + 4 + 26 =
+           56. Con el gap 5px anterior la segunda fila desbordaba a otra
+           columna y quedaba al costado. */
+        body[data-ekko-cascade="1"] #ekkoCascadeTools .ekko-ribbon-group[data-group="objeto"] .ekko-ribbon-group-body { gap: 4px 10px; }
         body[data-ekko-cascade="1"] #ekkoCascadeTools .toolbar-input-number { width: 54px !important; font-size: 10.5px; padding: 3px 4px; }
         body[data-ekko-cascade="1"] #ekkoCascadeTools .size-control-group label,
         body[data-ekko-cascade="1"] #ekkoCascadeTools .size-control-group span { font-size: 10.5px; }
@@ -1589,17 +1609,17 @@ function renderTabs() {
     const tabSel = tabDeLaSeleccion();
     const deSeleccion = tabSel === "base" ? [] : [tabSel];
     const { especies } = contenidoDelLienzo();
-    /* Ronda 12 (dueño 2026-11-11): ORGANIZAR (id interno "vista") SIEMPRE
-       está en la tira y SIEMPRE ÚLTIMA de izquierda a derecha, con o sin
-       selección (el sort por RAIZ_ORDEN la deja al final: no está en el
-       mapa, cae en 99). Con nada seleccionado muestra su sección Lienzo
-       (zoom/reglas/guías/cotas activas); con selección aparecen las
-       secciones de objetos con botones activos o grises según corresponda. */
+    /* Ronda 13 (dueño 2026-11-11): la pestaña ORGANIZAR se eliminó. Su
+       contenido (alinear, centrar, distribuir, capas, agrupar, lienzo) es
+       ahora contenido de INICIO, que está siempre en la tira: con nada
+       seleccionado muestra Crear (+ su sección Lienzo si el cliente la fija
+       a propósito); con selección, Inicio fijada muestra las secciones de
+       organización. La guardia de TABS[id] además descarta una pestaña
+       "vista" persistida de una sesión anterior. */
     const disponibles = [...new Set([
         "base",
         ...deSeleccion,
-        ...especies,
-        "vista"
+        ...especies
     ])].filter(id => TABS[id]);
     const manual = pestañaActual();
 
@@ -1654,7 +1674,7 @@ function montarFila() {
     topBar.appendChild(shell);
 
     // La pista de la banda vacia: con el lienzo sin seleccion la cinta no tiene
-    // herramientas de objeto y un rectangulo de 66px sin nada se lee "roto".
+    // herramientas de objeto y un rectangulo de 78px sin nada se lee "roto".
     const pista = document.createElement("span");
     pista.className = "ekko-fila-pista";
     pista.textContent = "Elegí un objeto";
@@ -1986,6 +2006,15 @@ function migrarCamposACinta() {
         // puesta. Acá no significa nada: se suelta.
         u.classList.remove("ekko-fb-vacia");
     });
+    /* Ronda 13 (dueño 2026-11-11): Curvar Texto tiene UN SOLO hogar — este
+       grupo Objeto, junto a los campos de Curvatura/Radio/Espacio (antes
+       estaba en el grupo "texto" de la cinta Y en la barra flotante: el
+       duplicado sin lógica del rechazo). El botón real se ADOPTA acá porque
+       el grupo objeto no es del manifiesto (ribbonLayout no lo conoce). Se
+       mueve, no se clona: conserva su onclick y la visibilidad que le escribe
+       setTextCurveVisibility (solo aparece con texto curvable). */
+    const curvar = document.getElementById("btnTopTextCurve");
+    if (curvar && curvar.parentElement !== cuerpo) cuerpo.appendChild(curvar);
     /* Si el grupo esta .is-empty, todo su contenido mide 0 px: medir el ancho
        para decidir si vaciarlo es un huevo-gallina (una vez vacio, nunca
        vuelve). Se lee la senal que el MOTOR usa para cada unidad: la clase
@@ -2417,12 +2446,13 @@ function refrescarDocumento() {
        Si no, la pestana que el cliente toco para un objeto sigue activa sobre
        una cinta que ya no tiene ese objeto, y la barra parece rota. */
     if (sinSeleccion && pestañaActual() !== "auto") {
-        /* Ronda 12 (dueño 2026-11-11): ORGANIZAR es la excepción — se fija
-           también con el lienzo vacío, porque su sección Lienzo
-           (zoom/reglas/guías/cotas) sirve sin nada seleccionado. Las demás
-           pestañas siguen volviendo a Inicio: la pestaña de un objeto que
-           ya no está apuntado dejaba la cinta pareciendo rota (ronda 7). */
-        if (pestañaActual() !== "vista") {
+        /* Ronda 13 (dueño 2026-11-11): INICIO es la excepción — se fija
+           también con el lienzo vacío, porque es la puerta de Cargar/Crear
+           y de la organización del LIENZO (zoom/reglas/guías/cotas) que
+           sirve sin nada seleccionado. Las demás pestañas siguen volviendo
+           a Inicio: la pestaña de un objeto que ya no está apuntado dejaba
+           la cinta pareciendo rota (ronda 7). */
+        if (pestañaActual() !== "base") {
             if (window.EKKO_PANEL_STATE) window.EKKO_PANEL_STATE.activeTab = "auto";
             persistirTab("auto");
         }
