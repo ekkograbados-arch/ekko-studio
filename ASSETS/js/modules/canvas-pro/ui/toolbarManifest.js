@@ -32,15 +32,12 @@ export const FAMILY = Object.freeze({ H: "H", P: "P", E: "E" });
  * Fase 2 (ribbon) usa `label` para el titulo colapsable; en Fase 0/1 el grupo
  * solo ordena.
  */
-/* Ronda 12 (dueño 2026-11-11, rechazo de la R11): el ex grupo "vista" se
-   parte en las SECCIONES del modelo Word de una cinta, en orden fijo. Al
-   fijar Organizar, la propia cinta muestra estas secciones:
-   LIENZO (zoom/reglas/guías/cotas, activo sin selección) · ALINEAR ·
-   CENTRAR EN PRODUCTO · DISTRIBUIR · CAPAS · ORGANIZAR (agrupar).
-   Con selección aparecen las de objetos con botones activos o GRIS con
-   motivo; sin selección solo queda Lienzo (ribbonLayout sync oculta las
-   que quedan vacías, así que los botones sin selección van ocultos por
-   su propia regla en el motor/manifiesto). */
+/* Ronda 14 (merge sobre el modelo always del dueño 2026-11-12): ya NO hay
+   pestaña "vista" — el dueño la eliminó de TABS. Las secciones de abajo
+   (Lienzo · Alinear · Centrar · Distribuir · Capas · Agrupar) viven
+   directamente en la cinta de Inicio: las de lienzo (zoom/reglas/guías/
+   cotas) son siempre visibles porque ahora son herramientas `always`; las
+   de objetos piden selección y se ocultan solas cuando quedan vacías. */
 export const GROUPS = Object.freeze([
   { key: "creacion",   label: "Crear" },
   { key: "fondo",      label: "Imagen" },
@@ -54,7 +51,7 @@ export const GROUPS = Object.freeze([
   { key: "centrar",    label: "Centrar en producto" },
   { key: "distribuir", label: "Distribuir" },
   { key: "capas",      label: "Capas" },
-  { key: "organizar",  label: "Organizar" }
+  { key: "organizar",  label: "Agrupar" }
 ]);
 
 /**
@@ -104,11 +101,11 @@ export const BUTTONS = Object.freeze([
   { tool: "size",         legacy: ["size"],          family: FAMILY.H, group: "organizar" },
   {
     tool: "align", family: FAMILY.H, group: "alinear",
-    /* Las 6 direcciones viven en la cinta de Organizar (Ronda 12) con el
-       mismo nombre legacy que el motor ya emite (ENGINE_TO_LEGACY.align).
-       Ronda 12: sin selección la sección Alinear NO existe (solo Lienzo) —
-       lockWhen falso la esconde en vez de mostrarla gris con el lienzo
-       vacío; con selección el motor la habilita (count >= 1). */
+    /* Ronda 14: la herramienta es `always` en el motor; el botón genérico
+       "Alinear" volvió al HTML (lo restauró el dueño) y despacha
+       window.alignSelection() sin dirección. Con selección se habilita;
+       sin selección el chip lockWhen falso no se ve (la familia H no
+       enseña grises: la regla es el propio motor, count >= 1). */
     legacy: ["align", "alignLeft", "alignCenterX", "alignRight", "alignTop", "alignCenterY", "alignBottom"],
     extra: snap => snap.hasSelection,
     lockWhen: snap => snap.hasSelection,
@@ -119,52 +116,51 @@ export const BUTTONS = Object.freeze([
   { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "capas" },
   { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "capas" },
   {
-    /* Ronda 12: sección LIENZO de Organizar. Estas tres son configuración
-       del lienzo, no herramientas del objeto: SOLO se ven con Organizar
-       fijada (extra) y fuera de esa pestaña se ocultan en vez de mostrarse
-       grises (lockWhen falso — mismo patrón que fusion). Sin selección
-       quedan activas: pestaña Organizar = lienzo configurable. */
+    /* Ronda 14: son configuración del LIENZO y ahora `always` en el motor
+       (modelo del dueño 2026-11-12): se ven en cualquier pestaña, con o sin
+       selección. La gate de "vista" que las ataba a la pestaña Organizar
+       murió con esa pestaña — sin este cambio quedarían ocultas para
+       siempre. */
     tool: "zoom", legacy: ["zoom"], family: FAMILY.H, group: "lienzo",
-    extra: snap => snap.activeTab === "vista",
     lockWhen: () => false
   },
   {
     tool: "rulers", legacy: ["rulers"], family: FAMILY.H, group: "lienzo",
-    extra: snap => snap.activeTab === "vista",
     lockWhen: () => false
   },
   {
     tool: "guides", legacy: ["guides"], family: FAMILY.H, group: "lienzo",
-    extra: snap => snap.activeTab === "vista",
     lockWhen: () => false
   },
   { tool: "measurements", legacy: ["measurements"],  family: FAMILY.H, group: "lienzo" },
   {
-    /* Ronda 12: CENTRAR EN PRODUCTO. Los tres botones viven en la cinta
-       (despachan a los de la banda reservorio). Centrar no opera nada sin
-       selección y solo tiene sentido dentro de Organizar: la regla es la
-       dos condiciones juntas. */
+    /* Ronda 14: los tres botones viven en la banda reservorio
+       (#pro-layout-toolbar, la crea panelCommandBridge.js). Centrar no
+       opera nada sin selección; ya no depende de la pestaña Organizar
+       (eliminada por el dueño). */
     tool: null,
     legacy: ["centerH", "centerV", "centerBoth"],
     family: FAMILY.H,
     group: "centrar",
-    rule: snap => !!snap.hasSelection && snap.activeTab === "vista",
+    rule: snap => !!snap.hasSelection,
     reason: "Seleccioná al menos un objeto para centrar en el producto"
   },
   {
-    /* Ronda 12: reinicio de zoom al 100% en la sección Lienzo. */
+    /* Ronda 14: reinicio de zoom al 100%, sección Lienzo. Siempre disponible
+       (antes pedía Organizar fijada; esa pestaña ya no existe). */
     tool: null,
     legacy: ["zoomReset"],
     family: FAMILY.H,
     group: "lienzo",
-    rule: snap => snap.activeTab === "vista"
+    rule: () => true
   },
 
   /* --- P: orden obligado. Se ven, pero bloqueadas con el motivo. --- */
   {
     tool: "group", family: FAMILY.P, group: "organizar", legacy: ["group"],
     tabBypass: true,
-    /* Ronda 12: sin selección la sección Organizar no existe (solo Lienzo). */
+    /* Ronda 14: grupo "Agrupar" en la cinta; sin selección queda oculto
+       porque el chip no se ve con lockWhen falso. */
     lockWhen: snap => snap.hasSelection,
     reason: "Seleccioná al menos 2 objetos para agrupar"
   },
@@ -185,9 +181,9 @@ export const BUTTONS = Object.freeze([
   {
     tool: "distribute", family: FAMILY.P, group: "distribuir",
     legacy: ["distribute", "distributeH", "distributeV"],
-    /* Ronda 12: Distribuir es sección de Organizar; también alcanza en
+    /* Ronda 14: Distribuir es sección propia de la cinta; también está en
        Varios (multiple.tools lo declara). Ya no bypasea: en Vector no
-       aparece (la pestaña lo recorta). Sin selección la sección no existe. */
+       aparece (la pestaña lo recorta). Sin selección no se ve. */
     /* capabilities.js lo habilita con 2, pero distributeSpacing() pide 3 y
        con 2 el botón salía, se apretaba y no hacía nada. La regla fina va
        aca, sin tocar capabilities (capa de objetos). */
@@ -197,15 +193,13 @@ export const BUTTONS = Object.freeze([
   },
   {
     tool: "fusion", family: FAMILY.P, group: "estructura", legacy: ["fusion"],
-    reason: "Fusionar necesita 1 imagen y 1 vector a la vez: la imagen aporta el relleno y el vector la máscara",
-    /* REGLA DEL DUEÑO (2026-11-11): la fusión es SOLO 1 vector + 1 imagen,
-       NUNCA con más. Con la selección exacta el motor la habilita (botón
-       activo); con CUALQUIER otra cosa (solo imagen, 2 vectores, 2 rasters,
-       3+ objetos) el botón no tiene nada que ver con lo seleccionado y SE
-       OCULTA: la familia P no lo muestra bloqueado "enseñando" una fusión
-       que esa selección nunca va a poder hacer. lockWhen es la puerta del
-       estado bloqueado y acá queda en falso: o va habilitado (par exacto) o
-       no se ve (medido en runtime: 2 vectores mostraba el botón bloqueado). */
+    reason: "Fusionar necesita imagen y vector: la imagen aporta el relleno y el vector la máscara",
+    /* REGLA DEL DUEÑO, RELAJADA (2026-11-12): basta >=1 raster + >=1 vector
+       (2 imagenes + 1 vector SÍ fusiona; ya no exige el par exacto 1+1).
+       El motor decide: activo con la selección válida; con cualquier otra
+       cosa (solo imagen, solo vectores, 1 objeto) lockWhen falso lo OCULTA
+       — la familia P no muestra bloqueado lo que la selección nunca va a
+       poder hacer. */
     lockWhen: () => false
   },
   {
