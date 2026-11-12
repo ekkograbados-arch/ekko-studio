@@ -606,6 +606,10 @@ const _deselectItem = function() {
     window.hideContextualMenu();
   }
   paper.view.update();
+  /* Ronda 15: la señal de cambio de selección tambien en la deseleccion
+     directa (el hogar de parámetros se cierra al deseleccionar, regla del
+     dueño; commitSelectionContext ya emite la suya). */
+  document.dispatchEvent(new CustomEvent("ekko:seleccion-cambio", { detail: { cause: 'deselect', count: 0 } }));
 };
 
 const _getOppositePoint = function(bounds, handleType) {
@@ -1782,6 +1786,10 @@ function commitSelectionContext(items, primary = null, cause = 'unknown') {
   if (!list.length) {
     _deselectItem();
     window.EKKO_SELECTION_CONTEXT = { cause, items: [], primary: null };
+    /* Ronda 15: la señal que varios módulos ya escuchaban (commandParameters,
+       recorteParams, toolbarOverflow, cascadeToolbar) NUNCA se emitia: era
+       codigo muerto. La rama vacia no emite POR SU CUENTA: _deselectItem ya
+       emite la señal al final. */
     return null;
   }
 
@@ -1799,6 +1807,8 @@ function commitSelectionContext(items, primary = null, cause = 'unknown') {
     window.updateContextualMenu(nextPrimary);
   }
   paper.view.update();
+  /* Ronda 15: misma señal para el caso con seleccion (ver rama vacia). */
+  document.dispatchEvent(new CustomEvent("ekko:seleccion-cambio", { detail: { cause, count: list.length } }));
   return nextPrimary;
 }
 
