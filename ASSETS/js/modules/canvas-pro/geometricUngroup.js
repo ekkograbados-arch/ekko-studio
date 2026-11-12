@@ -349,6 +349,48 @@ function flattenToAtomicPaths(item, accumulatedMatrix = null, parentMeta = {}, v
         } else {
             cloned.remove();
         }
+    } else if (item.className === 'Shape') {
+        /* Un Shape es un primitivo de SVG importado (circle/rect/ellipse):
+           paper lo trae como clase aparte. Sin este caso, Descomponer un
+           grupo importado LO DESCARTABA y la pieza se perdia en silencio
+           (probado: import con <circle> + <path>, Descomponer dejaba solo el
+           <path>). toPath(false) hornea la matriz propia del Shape en los
+           segmentos — queda en el espacio del PADRE, con matriz identidad —
+           y deja el Shape original intacto. Por eso la matriz acumulada que
+           se asigna es la del llamador, SIN volver a encadenar item.matrix
+           (ya esta horneada en los segmentos). */
+        const converted = typeof item.toPath === 'function' ? item.toPath(false) : null;
+        if (converted) {
+            try { converted.remove(); } catch (_) {}
+            converted.applyMatrix = false;
+            converted.matrix = (accumulatedMatrix ? accumulatedMatrix.clone() : new paper.Matrix());
+            const sourceData = item.data || {};
+            // Un Shape siempre es una figura cerrada (rect, circle, ellipse).
+            if (converted.segments && converted.segments.length >= 3) {
+                converted.closed = true;
+                converted.data = {
+                    ...parentMeta,
+                    ...sourceData,
+                    docOrder: docOrderCounter++,
+                    originalFillColor: item.fillColor ? item.fillColor.clone() :
+                        (sourceData.originalFillColor?.clone?.() || null),
+                    originalStrokeColor: item.strokeColor ? item.strokeColor.clone() :
+                        (sourceData.originalStrokeColor?.clone?.() || null),
+                    originalStrokeWidth: item.strokeWidth || sourceData.originalStrokeWidth || 0,
+                    originalIsHole: typeof sourceData.originalIsHole === 'boolean' ? sourceData.originalIsHole :
+                        (typeof parentMeta.originalIsHole === 'boolean' ? parentMeta.originalIsHole : false),
+                    sourceContourIndex: sourceData.sourceContourIndex ?? parentMeta.sourceContourIndex ?? null,
+                    isFromCompound: isFromCompound,
+                    isCutLine: sourceData.sourcePaintMode === 'stroke-only' || sourceData.sourceFillNone === true,
+                    originalClockwise: converted.clockwise,
+                    sourceWinding: typeof sourceData.sourceWinding === 'boolean'
+                        ? sourceData.sourceWinding : converted.clockwise
+                };
+                atomicPaths.push(converted);
+            } else {
+                converted.remove();
+            }
+        }
     } else if (isCompoundPath(item)) {
         if (item.children && item.children.length > 0) {
             item.children.forEach(child => {
@@ -2057,8 +2099,25 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     // la posicion de lo que el usuario dejo. Descomponer divide la geometria,
     // no la transforma. Se mide la silueta antes de crear las piezas para poder
     // abortar si el reparto movio o agrando algo.
+    //
+    // La silueta comparable es la del DISEÑO que se va a repartir: la union de
+    // los contornos aplanados (masas + lineas de corte) en coordenadas de
+    // mundo. NO rootTarget.bounds: el bounds del grupo incluye los recortes
+    // invisibles del propio SVG (un clipMask de fondo puede ser mas grande que
+    // el arte), y contra ese envelope inflado el reparto real siempre "encoge"
+    // y el guard cancelaba Descomponer con wrappers vacios de basura. Probado:
+    // import con <circle>+<path> y fondo clipMask daba scaleX 0.925 / scaleY
+    // 0.70 = exactamente arte/fondo, no una deformacion real.
     const silhouetteBefore = (() => {
-        try { return rootTarget.bounds?.clone?.() || null; } catch (_) { return null; }
+        try {
+            if (!atomicPaths || atomicPaths.length === 0) return rootTarget.bounds?.clone?.() || null;
+            const env = atomicPaths.reduce((acc, p) => {
+                const b = p.bounds;
+                if (!b) return acc;
+                return acc ? acc.unite(b) : b.clone();
+            }, null);
+            return env ? env.transform(ownerMatrix) : (rootTarget.bounds?.clone?.() || null);
+        } catch (_) { return null; }
     })();
     if (!atomicPaths || atomicPaths.length === 0) {
         return null;
@@ -2357,6 +2416,11 @@ nodes.sort((a, b) => {
     rootTarget.remove();
 
     if (targetLayer) {
+        // Orden Z del dueño: apilar cada jerarquía del contorno externo hacia
+        // adentro (masa sólida abajo, calado arriba). El stream fuente de
+        // muchas fuentes lista los contadores ANTES del contorno externo y
+        // los dejaba enterrados bajo su masa.
+        try { window.EKKO_restackOrdenBooleano?.(finalDeliveredItems); } catch (_) {}
         recalculateDynamicSubtractions(targetLayer);
     }
 
