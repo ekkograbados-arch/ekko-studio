@@ -752,7 +752,7 @@ export const TABS = Object.freeze({
      Voltear entra porque con varios objetos apretados el espejo sirve igual
      que con uno. removeBg/editCutout/outline por el motivo de siempre: con
      dos imagenes la cinta cae aca y los botones tenian que estar. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "flip", "size", "centrar"] }
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "flip", "size", "centrar", "solidHole"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
