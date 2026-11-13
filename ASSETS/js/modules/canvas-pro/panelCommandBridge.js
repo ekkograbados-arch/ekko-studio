@@ -297,11 +297,21 @@ function unwrap(item) {
 function resolverOwnerDeSeleccion(item) {
     let current = item;
     for (let guard = 0; current && current.parent && guard < 8; guard += 1) {
+        const parent = current.parent;
+        /* Un CONTORNO (Path hijo de un CompoundPath) nunca es dueno propio:
+           la pieza es el compound entero. Vale aunque el contorno arrastre
+           datos heredados: la resta dinamica adopta los operandos como
+           contornos y les deja isCalado/isHole; sin este salto, un clic sobre
+           el anillo de una pieza ya perforada elegia el contorno desmembrado
+           como operando y la booleana corrompia el compound (medido 2026-11-13). */
+        if (current.className === "Path" && parent.className === "CompoundPath") {
+            current = parent;
+            continue;
+        }
         const data = current.data || {};
         if (data.semanticKind || data.isHole === true || data.isSolidShape === true ||
             data.isCalado === true || data.userImported || data.label ||
             data.isSmartFusion || data.originalVectorData) break;
-        const parent = current.parent;
         const pData = parent.data || {};
         if (pData.clipGroup === true || pData.mockup || pData.isMask) break;
         if (parent.className === "CompoundPath" || parent.className === "Group") {
@@ -455,6 +465,72 @@ function bandaDeTrazo(item) {
     } catch (_) { return null; }
 }
 
+/* Punto de prueba DENTRO DE LA BANDA del contorno. getInteriorPoint() queda
+   descartado para clasificar contornos anidados: en un aro devuelve un punto
+   cerca del centroide, que cae DENTRO del contador interior, y entonces el
+   contorno EXTERIOR parecia contenido por el interior (medido con la O: ambos
+   contornos salian "hueco" y el relleno salia copia entera de la letra,
+   tapando el calado). Lo correcto es un punto apenas hacia adentro desde el
+   borde del propio contorno: vive en su banda, no en sus huecos. */
+function puntoDeBandaContorno(hoja) {
+    try {
+        if (!hoja || hoja.isEmpty?.()) return null;
+        const largo = hoja.length || 0;
+        let borde = null;
+        try { borde = largo > 0 ? hoja.getPointAt(largo * 0.25) : null; } catch (_) {}
+        if (!borde) {
+            try { borde = hoja.curves?.[0]?.getPoint(0) || hoja.firstSegment?.point || null; } catch (_) {}
+        }
+        if (!borde) return null;
+        let tangente = null;
+        try { tangente = largo > 0 ? hoja.getTangentAt(largo * 0.25) : null; } catch (_) {}
+        if (!tangente) { try { tangente = hoja.curves?.[0]?.getTangent(0) || null; } catch (_) {} }
+        const normal = tangente ? new paper.Point(-tangente.y, tangente.x) : new paper.Point(0, 1);
+        const caja = hoja.bounds;
+        const paso = Math.max(0.5, Math.min(caja.width, caja.height) * 0.02);
+        const candidatos = [borde.add(normal.multiply(paso)), borde.subtract(normal.multiply(paso))];
+        for (const candidato of candidatos) {
+            try { if (hoja.contains(candidato)) return candidato; } catch (_) {}
+        }
+        // Ultimo recurso: el punto interior clasico (mejor que nada).
+        try { return hoja.getInteriorPoint?.() || borde; } catch (_) { return borde; }
+    } catch (_) { return null; }
+}
+
+/* El kernel de Paper necesita orientaciones coherentes entre los operandos:
+   un contador que vuelve invertido (area negativa) o un compuesto con vueltas
+   mezcladas hace que unite/intersect tiren fallos o areas absurdas (se vio con
+   piezas importadas de letras: Union/Interseccion morian y Restar, que si
+   normaliza, funcionaba). Se uniforma PRESERVANDO la topologia: dentro de cada
+   operando, el contorno que queda bajo una cantidad IMPAR de otros contornos
+   gira antihorario (hueco) y el resto horario (materia). Los clones horneados
+   nunca tocan la escena, asi que el giro no cambia ninguna pieza real. */
+function uniformarOrientacionOperandos(geometria) {
+    try {
+        if (!geometria) return geometria;
+        if (geometria.className === "CompoundPath" && Array.isArray(geometria.children)) {
+            const hojas = geometria.children.filter(ch => ch && ch.className === "Path");
+            // Techo de seguridad: con cientos de contornos (trazados) el test de
+            // contencion es O(n^2); ahi se deja la geometria como vino.
+            if (hojas.length < 2 || hojas.length > 80) return geometria;
+            const puntos = hojas.map(hoja => puntoDeBandaContorno(hoja));
+            hojas.forEach((hoja, i) => {
+                const punto = puntos[i];
+                if (!punto) return;
+                let dentro = 0;
+                hojas.forEach((otra, j) => {
+                    if (j === i) return;
+                    try { if (otra.contains(punto)) dentro += 1; } catch (_) {}
+                });
+                try { hoja.setClockwise(dentro % 2 === 0); } catch (_) {}
+            });
+            return geometria;
+        }
+        try { geometria.setClockwise?.(true); } catch (_) {}
+        return geometria;
+    } catch (_) { return geometria; }
+}
+
 function bakeBooleanOperand(item) {
     /* Un GRUPO seleccionado es UN operando compuesto: se hornea la UNION de
        sus hojas (cada una con su bake propio: banda de trazo, matrix global).
@@ -499,12 +575,12 @@ function bakeBooleanOperand(item) {
             const banda = bandaDeTrazo(clone);
             if (banda && Math.abs(banda.area || 0) > BOOLEAN_MIN_AREA) {
                 try { clone.remove?.(); } catch (_) {}
-                return banda;
+                return uniformarOrientacionOperandos(banda);
             }
             try { banda?.remove?.(); } catch (_) {}
         }
     } catch (_) {}
-    return clone;
+    return uniformarOrientacionOperandos(clone);
 }
 
 function booleanStackPath(item) {
@@ -659,43 +735,23 @@ function performBooleanOperation(operation) {
         return null;
     };
 
-    /* Materializa los calados ANTES de operar: el anillo del hueco pasa a ser
-       materia con su relleno restaurado (convertSelectionToSolid reemplaza el
-       item, igual que el boton Rellenar). El pedido textual del cliente: las
-       booleanas deben funcionar con cualquier vector editable por nodos, con
-       solidos y huecos incluidos. Materializar DENTRO de la transaccion
-       garantiza que si la operacion falla, el rollback devuelve el hueco
-       original intacto. */
+    /* Los operando se usan TAL CUAL estan en la escena. El CSG solo necesita
+       GEOMETRIA: bakeBooleanOperand hornea clones con el area real de cada
+       pieza (huecos incluidos), asi que NO hace falta materializar los calados
+       antes de operar. Materializarlos ADELANTE era el defecto que el dueño
+       vio: si la booleana despues no dejaba material (interseccion de un
+       cuerpo con su interior, piezas que no se tocan), el hueco ya habia sido
+       rellenado por convertSelectionToSolid y el "rollback" de la transaccion
+       NO restaura la escena: quedaba "solo rellena el hueco y no une nada",
+       el aviso mentia ("no se cambio nada") y Ctrl+Z no tenia entrada a la
+       que volver. Con este orden, un fallo NO toca la escena y el undo solo
+       se compromete cuando la operacion de verdad cambio algo. */
     const owners = [];
     const yaEnLaLista = new Set();
     for (const owner of ownersBrutos) {
-        let kind = null;
-        try { kind = semanticKind(owner); } catch (_) { kind = null; }
-        let efectivo = owner;
-        if (kind === VECTOR_KIND.HOLE) {
-            try {
-                const materializado = convertSelectionToSolid(owner);
-                if (!materializado) continue;
-                efectivo = materializado;
-            } catch (_) { continue; }
-        }
-        if (yaEnLaLista.has(efectivo)) continue;
-        /* Grupo = UN operando compuesto: antes de hornear su union, los huecos
-           internos se MATERIALIZAN (el anillo del calado pasa a materia con su
-           relleno) para que la silueta del grupo sea la real y no le falte el
-           area de las piezas caladas. Dentro de la transaccion: si la booleana
-           falla, el rollback devuelve los huecos originales. */
-        if (efectivo.className === "Group") {
-            expandirVectoresEditables(efectivo).forEach(hoja => {
-                let k2 = null;
-                try { k2 = semanticKind(hoja); } catch (_) { k2 = null; }
-                if (k2 === VECTOR_KIND.HOLE) {
-                    try { convertSelectionToSolid(hoja); } catch (_) {}
-                }
-            });
-        }
-        yaEnLaLista.add(efectivo);
-        owners.push(efectivo);
+        if (yaEnLaLista.has(owner)) continue;
+        yaEnLaLista.add(owner);
+        owners.push(owner);
     }
     if (owners.length < 2) {
         return rejectBoolean("boolean-operands-insufficient");
@@ -767,6 +823,29 @@ function performBooleanOperation(operation) {
     // como huecos reales, no como opacidad cero.
     try { result.fillRule = "evenodd"; } catch (_) {}
 
+    /* El KEEPER es el operando mas bajo de la pila (ordered[0]). Si ese
+       operando era un hueco (calado), recien AHORA se materializa: la
+       operacion ya dejo material, asi que el relleno restaurado es parte del
+       resultado y no un artefacto de un intento fallido. Es el mismo gesto
+       que el boton Rellenar, dentro de la transaccion. */
+    let baseFinal = base;
+    try {
+        if (semanticKind(baseFinal) === VECTOR_KIND.HOLE) {
+            const materializado = convertSelectionToSolid(baseFinal);
+            if (materializado) baseFinal = materializado;
+            // Ultimo recurso defensivo: si la materializacion no alcanzo a
+            // quitar el rol de hueco, el keeper quedaria invisible con la
+            // geometria de la union. Se pinta con el color original guardado.
+            if (semanticKind(baseFinal) === VECTOR_KIND.HOLE) {
+                baseFinal.data = { ...(baseFinal.data || {}),
+                    isHole: false, isSolidShape: true, isCalado: false,
+                    filledFromHole: true, semanticKind: VECTOR_KIND.SOLID, label: "Relleno" };
+                baseFinal.fillColor = baseFinal.data?.originalFillColor?.clone?.() || "#111827";
+                baseFinal.visible = true;
+            }
+        }
+    } catch (_) {}
+
     // Capture the new geometry in owner-local space before installing it.
     // installOwnerGeometry can promote a Path to a CompoundPath; afterwards
     // getOwnerLocalGeometry(keeper) would read the old geomBase and CSG would
@@ -774,6 +853,20 @@ function performBooleanOperation(operation) {
     let booleanResultLocal = null;
     try {
         booleanResultLocal = result.clone({ insert: false });
+        /* Los contornos del resultado son pura silueta: paper.js une piezas
+           disjuntas ADOPTANDO los operandos tal cual, asi que cada contorno
+           del clon arrastraria los datos semanticos de su origen (isCalado,
+           isHole, geomBase, ownerId...). Como geomBase es la fuente de la que
+           recalculateDynamicSubtractions reinstala contornos, dejar esas
+           marcas haria que la logica de huecos relea las siluetas del
+           resultado booleano como piezas aparte. */
+        try {
+            (booleanResultLocal.children || []).forEach(contorno => {
+                if (contorno && (contorno.className === "Path" || contorno.className === "CompoundPath")) {
+                    try { contorno.data = {}; } catch (_) {}
+                }
+            });
+        } catch (_) {}
         // geomBase DEBE quedar en espacio LOCAL del owner (contrato que
         // getGlobalUnsubtractedPath/toWorldGeometry asumen: "geomBase is
         // owner-local"). Con matrix-mult + reset de matrix el inverso se
@@ -784,7 +877,7 @@ function performBooleanOperation(operation) {
         // Canon del repo (bakeGeometryClone): hornear el inverso en segmentos.
         booleanResultLocal.applyMatrix = false;
         booleanResultLocal.matrix = new paper.Matrix();
-        const baseGlobal = base.globalMatrix?.clone?.() || new paper.Matrix();
+        const baseGlobal = baseFinal.globalMatrix?.clone?.() || new paper.Matrix();
         if (baseGlobal && !baseGlobal.isIdentity()) {
             booleanResultLocal.transform(baseGlobal.inverted());
         }
@@ -797,7 +890,7 @@ function performBooleanOperation(operation) {
 
     let keeper = null;
     try {
-        keeper = installOwnerGeometry(base, result, false);
+        keeper = installOwnerGeometry(baseFinal, result, false);
     } catch (error) {
         console.error(`[EKKO BOOLEAN] No se pudo instalar el resultado:`, error);
         try { result.remove(); } catch (_) {}
@@ -857,8 +950,39 @@ function performBooleanOperation(operation) {
     } catch (_) {}
 
     // Los operandos consumidos desaparecen: la forma resultante los contiene.
+    /* Higiene del resultado (medido en la union de un solido con un calado
+       que NO se pisan): paper.js une piezas disjuntas ADOPTANDO los operandos
+       tal cual como contornos del compound, asi que cada contorno del keeper
+       arrastraria los datos semanticos de su origen (isCalado, isHole,
+       geomBase, ownerId...). La logica de huecos los volveria a ver como
+       piezas aparte y el clic sobre el contorno reconvertiria la pieza.
+       Los contornos del keeper son pura silueta: su datos se resetean.
+       Ademas el wrapper de contencion del operando consumido queda vacio
+       (solo su mascara): se retira para no dejar un fantasma seleccionable. */
+    if (keeper.className === "CompoundPath") {
+        (keeper.children || []).forEach(contorno => {
+            if (contorno && (contorno.className === "Path" || contorno.className === "CompoundPath")) {
+                try { contorno.data = {}; } catch (_) {}
+            }
+        });
+    }
+    const purgaWrapperHuerfano = (nodo, profundidad = 0) => {
+        if (!nodo || nodo === paper.project || profundidad > 5) return;
+        if (nodo.className !== "Group" || nodo === window.currentMockup) return;
+        const d = nodo.data || {};
+        if (!d.clipGroup && !d.caladoContainment && !d.mockupContainment && !d.role) return;
+        const conContenido = (nodo.children || []).some(ch =>
+            !ch.clipMask && !((ch.data || {}).isSelectionBox) &&
+            !((ch.data || {}).isHandle) && !((ch.data || {}).mockup));
+        if (conContenido) return;
+        const abuelo = nodo.parent;
+        try { nodo.remove(); } catch (_) {}
+        purgaWrapperHuerfano(abuelo, profundidad + 1);
+    };
     ordered.slice(1).forEach(owner => {
+        const padre = owner ? owner.parent : null;
         try { owner.remove(); } catch (_) {}
+        if (padre) purgaWrapperHuerfano(padre);
     });
 
     window.EKKO_DIAG?.logEvent?.("boolean.applied", {
@@ -1238,6 +1362,93 @@ function restackLoteDescompuesto(convertidos) {
 }
 window.EKKO_restackOrdenBooleano = restackLoteDescompuesto;
 
+/* =========================================================================
+   INVERSION POR CONTORNOS (letras con huecos REALES todavia sin descomponer)
+   -------------------------------------------------------------------------
+   Queja del dueno (2026-11-12): con una letra que tiene huecos reales (la O,
+   la A, la R) SIN descomponer, el clic en Sólidos ⇄ Huecos convertia la letra
+   ENTERA en calado y la parte interna no existia como pieza: "los huecos
+   siguen sin convertirse en rellenos". El intercambio correcto trabaja por
+   CONTORNOS: los contornos internos (los contadores) nacen como una pieza
+   RELLENO nueva con el color original, y el cuerpo pasa a hueco. Es el mismo
+   resultado que Descomponer + invertir, en un solo clic.
+
+   Solo aplica a CompoundPath cerrados con 2+ contornos que NO estan en un
+   lote descompuesto (alli el intercambio normal por piezas ya alcanza y
+   funciona, medido). El techo de 64 contornos protege trazados grandes del
+   test de contencion O(n^2): con mas, se usa el comportamiento de siempre.
+   ========================================================================= */
+function contornosHuecosInternos(owner) {
+    try {
+        if (!owner || owner.className !== "CompoundPath") return null;
+        const d = owner.data || {};
+        if (d.isHole === true || d.semanticKind === VECTOR_KIND.HOLE) return null;
+        if (d.decomposedLayer === true) return null;
+        const hojas = (owner.children || []).filter(ch => ch && ch.className === "Path" && ch.closed !== false);
+        if (hojas.length < 2 || hojas.length > 64) return null;
+        const huecos = [];
+        const puntos = hojas.map(hoja => puntoDeBandaContorno(hoja));
+        hojas.forEach((hoja, i) => {
+            const punto = puntos[i];
+            if (!punto) return;
+            let dentro = 0;
+            hojas.forEach((otra, j) => {
+                if (j === i) return;
+                try { if (otra.contains(punto)) dentro += 1; } catch (_) {}
+            });
+            if (dentro % 2 === 1) huecos.push(hoja);
+        });
+        return huecos.length ? huecos : null;
+    } catch (_) { return null; }
+}
+
+function materializarContornosInternos(owner, huecos) {
+    try {
+        const colorOriginal = owner.fillColor?.clone?.() || new paper.Color("#111827");
+        const nueva = new paper.CompoundPath({ insert: false });
+        huecos.forEach(hoja => {
+            const clon = hoja.clone({ insert: false });
+            clon.data = {};
+            nueva.addChild(clon);
+        });
+        // El cuerpo vive en el mismo marco que su origen: misma matrix y misma
+        // convencion applyMatrix, asi la pieza nueva cae EXACTAMENTE donde
+        // estaba el hueco.
+        nueva.applyMatrix = owner.applyMatrix !== false;
+        try { nueva.matrix = owner.matrix?.clone?.() || new paper.Matrix(); } catch (_) {}
+        try { nueva.fillRule = owner.fillRule || "evenodd"; } catch (_) {}
+        nueva.fillColor = colorOriginal;
+        nueva.strokeColor = null;
+        nueva.strokeWidth = 0;
+        const padre = owner.parent;
+        if (!padre) return null;
+        const indice = Math.max(0, padre.children.indexOf(owner));
+        padre.insertChild(indice, nueva);
+        const geomBase = nueva.clone({ insert: false });
+        geomBase.applyMatrix = false;
+        try { geomBase.matrix = new paper.Matrix(); } catch (_) {}
+        nueva.data = {
+            source: owner.data?.source || null,
+            userImported: owner.data?.userImported === true ? true : undefined,
+            label: "Relleno",
+            semanticKind: VECTOR_KIND.SOLID,
+            isHole: false,
+            isSolidShape: true,
+            isCalado: false,
+            contourRole: "outer",
+            originalIsHole: false,
+            explicitHole: false,
+            filledFromHole: true,
+            isFusionReceptor: true,
+            originalFillColor: colorOriginal,
+            originalStrokeColor: null,
+            originalStrokeWidth: 0,
+            geomBase
+        };
+        return nueva;
+    } catch (_) { return null; }
+}
+
 export function invertSelectionRoles() {
     const selected = getSelectedItems();
     const owners = [];
@@ -1266,8 +1477,27 @@ export function invertSelectionRoles() {
                 const solid = convertSelectionToSolid(owner);
                 if (solid) converted.push(solid);
             } else if (canConvertSelectionToCalado(owner)) {
+                /* Inversion por contornos: la letra con huecos REALES entrega
+                   su parte interna como RELLENO nuevo (mismo color de origen)
+                   y despues el cuerpo entero pasa a hueco. Sin esto, la
+                   conversion entera dejaba el interior sin pieza y el dueño
+                   lo leia como "el hueco no se convierte". */
+                const huecosInternos = contornosHuecosInternos(owner);
+                let relleno = null;
+                if (huecosInternos) {
+                    relleno = materializarContornosInternos(owner, huecosInternos);
+                    if (relleno) converted.push(relleno);
+                }
                 const hole = convertSelectionToCalado(owner);
-                if (hole) converted.push(hole);
+                if (hole) {
+                    converted.push(hole);
+                    /* Orden Z: el RELLENO debe quedar ENCIMA del calado de su
+                       misma letra. Debajo, la sustraccion dinamica del hueco
+                       (que va arriba) recortaba el relleno y el dueno veia la
+                       pieza interna maltratada o desaparecida. Es el mismo
+                       orden del lote descompuesto. */
+                    if (relleno) { try { relleno.insertAbove(hole); } catch (_) {} }
+                }
             }
         });
     } catch (e) {
@@ -1436,7 +1666,15 @@ function applyCommandVisibility() {
     if (!selection.canFusion) allowed.delete("fusion");
     if (!selection.canCalado) allowed.delete("calado");
     if (!selection.canRellenar) allowed.delete("rellenar");
-    if (!isToolEnabled('solidHole', window.selectedItems || [])) allowed.delete("solidHole");
+    /* Rescate igual al de las booleanas: Sólidos ⇄ Huecos es una operacion de
+       LOTE (el dueño la usa con muchos vectores apretados). El recorte de
+       pestaña la borraba en "Varios" (donde cae toda multiseleccion) y el
+       boton desaparecia justo cuando hace falta: con UNA pieza aparecia
+       (pestaña Vector) y con varias no. El motor sigue siendo el unico juez
+       de si la selección lo soporta; aca solo se garantiza que la pestaña no
+       lo esconda. */
+    if (isToolEnabled('solidHole', window.selectedItems || [])) allowed.add("solidHole");
+    else allowed.delete("solidHole");
     if (selection.canBoolean) {
         allowed.add("booleanUnion");
         allowed.add("booleanSubtract");
