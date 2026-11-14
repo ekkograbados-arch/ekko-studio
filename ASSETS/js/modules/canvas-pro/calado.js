@@ -293,7 +293,13 @@ export function convertSelectionToCalado(item = null) {
         return resolved.fusion;
     }
     const vector = resolved.vector;
-    if (!vector || isProductElement(vector) || !canConvertToCalado(vector)) return null;
+    if (!vector || isProductElement(vector) || !canConvertToCalado(vector)) {
+        // Rechazo observable: el usuario no debe quedarse sin respuesta al
+        // pulsar Calado sobre algo no convertible (mismo criterio que el caso
+        // de trazo abierto de más abajo).
+        notice("Esta selección no admite Calado: se necesita un vector sólido cerrado.", { kind: "warn" });
+        return null;
+    }
     // Un trazo abierto no delimita superficie: no hay nada que vaciar. Se avisa
     // en vez de fallar en silencio.
     if (vector.closed !== true) {
