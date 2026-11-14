@@ -52,6 +52,12 @@ import {
   handleFusionEditKeyDown
 } from "./modules/canvas-pro/fusionEditMode.js";
 import "./modules/canvas-pro/interactionOwner.js"; // Árbitro único de interacción (Fase 0)
+/* El "más herramientas" de la cinta (los tres puntos de #topPanelControls)
+   tiene dueño propio: toolbarOverflow.js mide el desborde de la fila, esconde
+   la cola de botones y abre el menú con lo que no entró. Era un módulo MUERTO:
+   nadie lo importaba, así que el botón ⋮ quedaba sin handler y su clic no
+   hacía nada en ninguna escena (medido 2026-11-13). */
+import "./modules/canvas-pro/toolbarOverflow.js";
 import "./modules/canvas-pro/ownerGraph.js"; // Cadena única de owners públicos
 import "./modules/canvas-pro/fusionCore.js";
 import { enterNodeEditMode, exitNodeEditMode } from "./modules/canvas-pro/nodeEditor.js";
