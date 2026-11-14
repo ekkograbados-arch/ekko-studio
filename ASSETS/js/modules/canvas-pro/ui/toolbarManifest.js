@@ -112,10 +112,13 @@ export const BUTTONS = Object.freeze([
     /* TAMAÑO (maqueta): el hogar con los campos de la caja de selección
        (Ancho/Alto/Rotación/Candado). El contenedor `.size-control-group`
        lleva data-fusion-btn="size" (lo adopta hogaresCad/ribbonLayout) y
-       su regla fina pide selección: sin nada seleccionado el hogar se va,
-       porque no hay caja que medir. */
+       su regla fina pide selección. Ronda 17 (reclamo del dueño: "el
+       candado no aparece"): declara `reason` — sin selección el hogar se
+       VE APAGADO con motivo (candado y campos a la vista, maqueta v3:
+       Tamaño es fijo de Edición) en vez de desaparecer. */
     tool: "size", legacy: ["size"], family: FAMILY.H, group: "tamano",
-    rule: snap => !!snap.hasSelection
+    rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para editar su tamaño"
   },
   {
     tool: "align", family: FAMILY.H, group: "organizar",
