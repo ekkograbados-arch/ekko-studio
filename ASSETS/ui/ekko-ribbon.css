@@ -264,6 +264,23 @@
     display: contents;
 }
 
+/* GRIS CON MOTIVO del hogar TAMAÑO (Ronda 17): display:contents no tiene
+   caja, así que la presentación .ekko-locked (opacidad, borde punteado)
+   del contenedor no se pintaría. Al bloquearse pasa a pastilla propia:
+   se VE apagada con su motivo, candado y campos a la vista. */
+.ekko-ribbon-group-body > .size-control-group.ekko-locked {
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 4px 8px;
+    border: 1px dashed var(--ekko-borde-bloqueado, #8a8f98) !important;
+    border-radius: 6px;
+    pointer-events: none;
+}
+
 /* El envoltorio de un campo suelto (fuente, tamaño, curvatura…) es la
    pastilla. El renderer la gobierna como un botón más (data-fusion-btn). */
 .ekko-ribbon-campo {
@@ -443,6 +460,17 @@
 /* Las flechas de banda no tienen sentido en compacto. */
 #topBar.is-compact .ekko-banda-flecha,
 #topBar.collapsed .ekko-banda-flecha {
+    display: none !important;
+}
+
+/* INICIO = SOLO CREAR (dueño, reclamo R17): en la pestaña Inicio la banda
+   muestra SOLO el hogar CREAR. Los controles de panel que van al final del
+   scroller (info de selección, plegado ⌃ y "más herramientas" ⋮) no son
+   hogares: se ocultan mientras la pestaña resuelta sea Inicio.
+   ribbonLayout.sync() pone la clase ekko-tab-inicio en cada render. */
+#topBar.ekko-tab-inicio #selectionInfo,
+#topBar.ekko-tab-inicio #topPanelCompact,
+#topBar.ekko-tab-inicio #topPanelOverflow {
     display: none !important;
 }
 
