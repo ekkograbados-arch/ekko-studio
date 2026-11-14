@@ -380,16 +380,29 @@ function build() {
   wrap.className = "ekko-banda-wrap";
   wrap.appendChild(body);
   const flechas = [
-    { lado: "izq", titulo: "Hogares hacia la izquierda", delta: -340 },
-    { lado: "der", titulo: "Hogares hacia la derecha",   delta: 340 }
+    { lado: "izq", delta: -340 },
+    { lado: "der", delta: 340 }
   ].map(f => {
     const b = document.createElement("button");
     b.type = "button";
     b.className = CLASE_FLECHA + " " + f.lado;
-    b.title = f.titulo;
-    b.setAttribute("aria-label", f.titulo);
+    /* Sin title (reclamo del dueño: el comentario SOLO de estas flechas es
+       innecesario). El aria-label no se ve: queda para lectores de pantalla. */
+    b.setAttribute("aria-label", f.lado === "izq" ? "Hogares hacia la izquierda" : "Hogares hacia la derecha");
     b.textContent = f.lado === "izq" ? "\u2039" : "\u203A";
-    b.addEventListener("click", () => body.scrollBy({ left: f.delta, behavior: "smooth" }));
+    /* SIN CLIC (reclamo del dueño): con el puntero encima la banda se
+       desplaza sola, paso a paso, hasta el tope o hasta salir el cursor. */
+    let ritmo = null;
+    const parar = () => { if (ritmo) { clearInterval(ritmo); ritmo = null; } };
+    b.addEventListener("mouseenter", () => {
+      parar();
+      ritmo = setInterval(() => {
+        const antes = body.scrollLeft;
+        body.scrollBy({ left: f.delta });
+        if (body.scrollLeft === antes) parar(); // llegó al tope de ese lado
+      }, 50);
+    });
+    b.addEventListener("mouseleave", parar);
     wrap.appendChild(b);
     return b;
   });
@@ -413,22 +426,32 @@ export function sync() {
 
   adoptar();
 
+  /* Pestaña RESUELTA (la escribió el renderer en window.EKKO_RIBBON_STATE
+     justo antes de llamar sync): la explícita del cliente, o la que detecta
+     la selección. Sin estado aún, se asume INICIO. */
+  const estado = window.EKKO_RIBBON_STATE || {};
+  const tab = (estado.activeTab && estado.activeTab !== "auto")
+    ? estado.activeTab : (estado.detectedTab || "base");
+
+  /* INICIO = SOLO CREAR (reclamo del dueño, maqueta v3). La clase oculta
+     por CSS los controles de panel que van al final del scroller (info de
+     selección, plegado y "más herramientas"): no son hogares. */
+  current.top.classList.toggle("ekko-tab-inicio", tab === "base");
+
   /* Título dinámico del hogar "trazar" (maqueta): "Trazar" en la pestaña
-     Imagen, "Conversión" en el resto. El detectedTab lo escribió el
-     renderer en window.EKKO_RIBBON_STATE justo antes de llamar sync. */
+     Imagen, "Conversión" en el resto. */
   current.groups.forEach((g, key) => {
     const def = g.def;
     if (def && def.tituloPorTab) {
-      const estado = window.EKKO_RIBBON_STATE || {};
-      const tab = (estado.activeTab && estado.activeTab !== "auto")
-        ? estado.activeTab : estado.detectedTab;
       const titulo = def.tituloPorTab[tab] || def.label;
       const span = g.head.querySelector(".ekko-ribbon-group-title");
       if (span && span.textContent !== titulo) span.textContent = titulo;
     }
   });
 
-  /* Hogar sin botones visibles: desaparece del todo (cero huecos muertos). */
+  /* Hogar sin botones visibles: desaparece del todo (cero huecos muertos).
+     CREAR solo en INICIO (reclamo del dueño): en cualquier otra pestaña el
+     hogar entero se va, sus botones no tienen manifiesto que los recorte. */
   current.groups.forEach(g => {
     if (!g.el.isConnected) return;
     const visible = [...g.body.querySelectorAll("button, .ekko-ribbon-campo, .size-control-group")].some(n =>
@@ -437,7 +460,8 @@ export function sync() {
       !n.classList.contains("hidden") &&
       !n.closest('[data-fusion-btn].ekko-command-hidden')
     );
-    g.el.classList.toggle("is-empty", !visible);
+    const enTab = (g.def.key !== "creacion") || (tab === "base");
+    g.el.classList.toggle("is-empty", !visible || !enTab);
   });
 
   /* Flechas de banda: activas solo si el contenido no entra. */
