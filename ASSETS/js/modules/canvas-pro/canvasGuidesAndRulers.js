@@ -250,6 +250,8 @@ export function drawRulers() {
 // Configura la visibilidad de las reglas en pantalla
 export function setRulersVisibility(visible) {
     showRulers = visible;
+    /* Espejo observable (misma razón que EKKO_GUIDES_ON). */
+    window.EKKO_RULERS_ON = visible;
     const s = visible ? "block" : "none";
     if (topRulerCanvas) topRulerCanvas.style.display = s;
     if (leftRulerCanvas) leftRulerCanvas.style.display = s;
@@ -261,6 +263,12 @@ export function setRulersVisibility(visible) {
 
 export function setGuidesVisibility(visible) {
     showGuides = visible;
+    /* Estado expuesto: el botón Guías no deja huella visible en el DOM (las
+       guías solo aparecen al arrastrar), y sin esta bandera ni el arnés de
+       pruebas ni un diagnóstico pueden distinguir un clic efectivo de un
+       botón muerto. Espejo del mismo criterio con el que toggleRulers es
+       público. */
+    window.EKKO_GUIDES_ON = visible;
     if (!visible) {
         clearSmartGuides();
     }
