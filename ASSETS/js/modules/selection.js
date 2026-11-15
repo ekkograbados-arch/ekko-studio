@@ -890,6 +890,13 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseDown = function(event) {
     if (window.nodeEditMode) return;
+    /* CLIC DERECHO (menú contextual): el botón derecho NO es un gesto de
+       selección. Antes llegaba acá y el "aislamiento en mouseUp" reducía la
+       selección múltiple al ítem bajo el cursor ANTES de que abriera el menú
+       (contextMenuRenderer.js): los contextos C6/C7 (booleanas, Fusionar)
+       eran inalcanzables con el gesto natural. Qué se selecciona bajo el
+       cursor lo decide el renderer con su regla yaEsta. */
+    if (event.event && (event.event.button === 2 || event.event.buttons === 2)) return;
 
     const interaction = window.EKKO_INTERACTION;
     if (interaction?.mode === "fusion-edit") {
@@ -1145,6 +1152,8 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseDrag = function(event) {
     if (window.nodeEditMode) return;
+    /* CLIC DERECHO: ídem onMouseDown — no es gesto de selección ni de arrastre. */
+    if (event.event && (event.event.button === 2 || event.event.buttons === 2)) return;
     const enFusionEdit = window.EKKO_INTERACTION?.mode === "fusion-edit";
     if (enFusionEdit && !window.resizeActive && !window.rotationActive) {
       handleFusionEditPointerDrag(event);
@@ -1339,6 +1348,11 @@ const _initSelectionTool = function() {
 
   selectTool.onMouseUp = function(event) {
     if (window.nodeEditMode) return;
+    /* CLIC DERECHO: sin este guard, el "aislamiento de selección individual
+       diferido a onMouseUp" corria igual con el botón derecho y reducía la
+       selección múltiple a un solo ítem antes de abrir el menú contextual
+       (C6/C7 inalcanzables). El clic derecho nunca selecciona ni aísla. */
+    if (event.event && (event.event.button === 2 || event.event.buttons === 2)) return;
     const enFusionEditUp = window.EKKO_INTERACTION?.mode === "fusion-edit";
     if (enFusionEditUp && !window.resizeActive && !window.rotationActive) {
       handleFusionEditPointerUp(event);
