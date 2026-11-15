@@ -49,9 +49,10 @@ const CAMPOS_DUPLICADOS = ["objFontSize", "objCurveRadius", "objBendAngleVal", "
 /* Orden de nodos dentro de cada hogar. Se re-aplica en cada sync, así que
    el orden queda estable aunque la adopción corra muchas veces. */
 const ORDEN_HOGARES = {
-  tamano:       [".size-control-group"],
+  tamano:       [".size-control-group", '[data-fusion-btn="size"]:not(.size-control-group)'],
   portapapeles: ['[data-fusion-btn="delete"]', '[data-fusion-btn="duplicate"]',
-                 '[data-fusion-btn="copy"]',   '[data-fusion-btn="paste"]'],
+                 '[data-fusion-btn="copy"]',   '[data-fusion-btn="paste"]',
+                 '[data-fusion-btn="exportSel"]'],
   organizar:    ['[data-fusion-btn="align"]',   '[data-fusion-btn="group"]',
                  '[data-fusion-btn="ungroup"]', '[data-fusion-btn="distribute"]',
                  '[data-fusion-btn="centerH"]', '[data-fusion-btn="centerV"]',
@@ -99,7 +100,13 @@ const SWAP_ICONOS = {
   btnCtxWeld:               { icono: "ekko-soldar" },
   btnCtxRotateLetters:      { icono: "ekko-rotar" },
   btnCtxDeleteNode:         { icono: "ekko-eliminar" },
-  btnSizeLockContext:       { icono: "ekko-candado" }
+  btnSizeLockContext:       { icono: "ekko-candado" },
+  btnCtxDelete:             { icono: "ekko-eliminar" },
+  btnCtxDuplicate:          { icono: "ekko-duplicar" },
+  btnCtxToFront:            { icono: "ekko-frente" },
+  btnCtxForward:            { icono: "ekko-subir" },
+  btnCtxBackward:           { icono: "ekko-bajar" },
+  btnCtxToBack:             { icono: "ekko-fondo" }
 };
 
 let layout = null;
@@ -180,7 +187,7 @@ function crearBoton(legacy, etiqueta, iconoId, onclickAttr) {
   b.title = etiqueta;
   b.setAttribute("aria-label", etiqueta);
   b.innerHTML =
-    `<svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#ekko-${iconoId}"></use></svg> ${etiqueta}`;
+    `<svg class="ekko-ic" aria-hidden="true"><use href="${SPRITE_V}ekko-${iconoId}"></use></svg> ${etiqueta}`;
   if (onclickAttr) b.setAttribute("onclick", onclickAttr);
   return b;
 }
@@ -202,13 +209,19 @@ function ponerIcono(btn, iconoId) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "ekko-ic");
   svg.setAttribute("aria-hidden", "true");
-  svg.innerHTML = `<use href="ASSETS/ui/ekko-icons.svg#${iconoId}"></use>`;
+  svg.innerHTML = `<use href="${SPRITE_V}${iconoId}"></use>`;
   if (i) { i.replaceWith(svg); return; }
   /* Sin <i> (el candado de la caja trae un glifo de texto): se reemplaza
      el contenido por el icono del sprite. */
   btn.textContent = "";
   btn.appendChild(svg);
 }
+
+/* Cache-busting del sprite (R18): los <use> con href fijo heredan la copia
+   del navegador; si el sprite se actualizó (candado, rotar…), el cliente
+   seguía viendo el VIEJO y los íconos nuevos salían vacíos. La versión se
+   sube a mano cuando cambie el sprite. */
+const SPRITE_V = "ASSETS/ui/ekko-icons.svg?v=18#";
 
 function adoptar() {
   if (!layout) return;
@@ -315,6 +328,31 @@ function adoptar() {
   const pegar = crearBoton("paste", "Pegar", "ekko-pegar", "window.pasteSelected?.()");
   if (pegar) mover(pegar, "portapapeles");
 
+  /* --- 7. BARRA EMERGENTE -> PANEL SUPERIOR (R18) ------------------
+     El dueño: "en el panel superior deberían aparecer TODOS los controles
+     que figuran en la barra emergente". Estos vivían SOLO ahí flotando
+     sobre el lienzo. Los que la cinta ya tenía (Fusionar, Editar Nodos,
+     Booleanas, Contorno…) quedan donde están: misma función, cero duplicados. */
+  const adoptarEmergente = (id, legacy, key) => {
+    const b = document.getElementById(id);
+    if (!b) return;
+    etiquetar(b, legacy);
+    const swap = SWAP_ICONOS[id];
+    if (swap) ponerIcono(b, swap.icono);
+    mover(b, key);
+  };
+  adoptarEmergente("btnCtxDelete", "delete", "portapapeles");
+  adoptarEmergente("btnCtxDuplicate", "duplicate", "portapapeles");
+  adoptarEmergente("btnCtxExportSel", "exportSel", "portapapeles");
+  /* Escalar -/+ son operaciones de TAMAÑO: comparten su puerta (gris con
+     motivo sin selección, mismo tooltip). */
+  adoptarEmergente("btnCtxScaleDown", "size", "tamano");
+  adoptarEmergente("btnCtxScaleUp", "size", "tamano");
+  adoptarEmergente("btnCtxToFront", "toFront", "organizar");
+  adoptarEmergente("btnCtxForward", "bringForward", "organizar");
+  adoptarEmergente("btnCtxBackward", "sendBackward", "organizar");
+  adoptarEmergente("btnCtxToBack", "toBack", "organizar");
+
   /* --- 6. ORDEN ESTABLE dentro de cada hogar ------------------------ */
   Object.entries(ORDEN_HOGARES).forEach(([key, selectores]) => {
     const home = g(key);
@@ -380,8 +418,8 @@ function build() {
   wrap.className = "ekko-banda-wrap";
   wrap.appendChild(body);
   const flechas = [
-    { lado: "izq", delta: -340 },
-    { lado: "der", delta: 340 }
+    { lado: "izq", delta: -1 },
+    { lado: "der", delta: 1 }
   ].map(f => {
     const b = document.createElement("button");
     b.type = "button";
@@ -390,19 +428,35 @@ function build() {
        innecesario). El aria-label no se ve: queda para lectores de pantalla. */
     b.setAttribute("aria-label", f.lado === "izq" ? "Hogares hacia la izquierda" : "Hogares hacia la derecha");
     b.textContent = f.lado === "izq" ? "\u2039" : "\u203A";
-    /* SIN CLIC (reclamo del dueño): con el puntero encima la banda se
-       desplaza sola, paso a paso, hasta el tope o hasta salir el cursor. */
+    /* SIN CLIC y DESPACIO (reclamo R18: "debe fluir y desplazarse despacio,
+       no automáticamente"): con el puntero encima la banda corre sola a
+       velocidad constante (~90 px por segundo), suave y sin saltos, hasta
+       el tope o hasta que sale el cursor. */
+    const PIXELES_POR_SEGUNDO = 90;
     let ritmo = null;
-    const parar = () => { if (ritmo) { clearInterval(ritmo); ritmo = null; } };
+    const parar = () => { if (ritmo) { cancelAnimationFrame(ritmo); ritmo = null; } };
     b.addEventListener("mouseenter", () => {
       parar();
-      ritmo = setInterval(() => {
+      let ultimo = performance.now();
+      const paso = (ahora) => {
+        /* El timestamp de rAF es el INICIO del frame y puede ser ANTERIOR al
+           performance.now() capturado en este handler (que corre dentro del
+           procesamiento del input del MISMO frame): dt saldría negativo y el
+           primer paso retrocedería, quedando clavado en el tope (medido en
+           el arnés: la › no avanzaba nunca con el puntero real). Se salta
+           ese frame y el siguiente ya trae dt positivo. */
+        const dt = Math.min(100, ahora - ultimo);
+        ultimo = ahora;
+        if (dt <= 0) { ritmo = requestAnimationFrame(paso); return; }
         const antes = body.scrollLeft;
-        body.scrollBy({ left: f.delta });
-        if (body.scrollLeft === antes) parar(); // llegó al tope de ese lado
-      }, 50);
+        body.scrollLeft += f.delta * PIXELES_POR_SEGUNDO * dt / 1000;
+        if (body.scrollLeft === antes) { parar(); return; } // llegó al tope
+        ritmo = requestAnimationFrame(paso);
+      };
+      ritmo = requestAnimationFrame(paso);
     });
     b.addEventListener("mouseleave", parar);
+    b.addEventListener("blur", parar);
     wrap.appendChild(b);
     return b;
   });
