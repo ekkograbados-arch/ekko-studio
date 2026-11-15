@@ -144,18 +144,31 @@ function ensureContextSurface() {
     const top = byId("topBar");
     if (!top) return null;
     let surface = byId("ekkoTopContextSurface");
-    if (surface) return surface;
+    if (!surface) {
+        surface = document.createElement("div");
+        surface.id = "ekkoTopContextSurface";
+        surface.className = "ekko-top-context-surface";
+        surface.setAttribute("role", "tablist");
+        surface.innerHTML = `
+            <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">‹</button>
+            <div id="ekkoTopContextTabs" class="ekko-top-context-tabs"></div>
+            <span id="ekkoTopContextLabel" class="ekko-top-context-label"></span>
+        `;
+        top.insertBefore(surface, top.firstChild);
+    }
 
-    surface = document.createElement("div");
-    surface.id = "ekkoTopContextSurface";
-    surface.className = "ekko-top-context-surface";
-    surface.setAttribute("role", "tablist");
-    surface.innerHTML = `
-        <button id="productPanelTopToggle" type="button" class="product-panel-top-toggle" title="Ocultar panel de productos" aria-label="Ocultar panel de productos">‹</button>
-        <div id="ekkoTopContextTabs" class="ekko-top-context-tabs"></div>
-        <span id="ekkoTopContextLabel" class="ekko-top-context-label"></span>
-    `;
-    top.insertBefore(surface, top.firstChild);
+    /* R18 (reclamos del dueño): el chevron de contraer/expandir y el visor
+       de estado NO viven al final de la banda de hogares. Allí, al contraer
+       el panel, el ⌃ quedaba fuera de alcance (debajo de Descargar) y en
+       Inicio ensuciaban el "solo CREAR". En la fila de pestañas están
+       SIEMPRE en el mismo lugar y son alcanzables en cualquier estado
+       (expandido, compacto y en Inicio). La cascada los re-ubica a su tira
+       moviendo los MISMOS nodos, así que nada se duplica. */
+    const controles = byId("topPanelControls");
+    if (controles && controles.parentElement !== surface) surface.appendChild(controles);
+    const info = byId("selectionInfo");
+    if (info && info.parentElement !== surface) surface.insertBefore(info, controles);
+
     return surface;
 }
 
