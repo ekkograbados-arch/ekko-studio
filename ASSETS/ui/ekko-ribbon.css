@@ -68,7 +68,7 @@
 
 .ekko-ribbon-body {
     display: flex;
-    justify-content: space-between;   /* hogares distribuidos en todo el panel */
+    justify-content: flex-start;      /* hogares pegados a la izquierda, como la maqueta CAD */
     align-items: stretch;
     gap: 2px;
     width: 100%;
@@ -229,10 +229,17 @@
     border-color: transparent !important;
 }
 
-.ekko-ribbon-group-body > button .ekko-ic {
+.ekko-ribbon-group-body button .ekko-ic {
     width: 17px;
     height: 17px;
     flex: none;
+}
+
+/* El candado vive dentro de .size-control-group (no es hijo directo del
+   cuerpo): su icono medía 0 y el dueño veía una caja en blanco. */
+.ekko-ribbon-group-body .size-lock-btn .ekko-ic {
+    width: 15px;
+    height: 15px;
 }
 
 /* Botón GRANDE (solo CREAR): icono arriba, nombre abajo. */
@@ -258,23 +265,28 @@
    pastilla, igual que .campo-largo de la maqueta.
    ----------------------------------------------------------------------- */
 
-/* El contenedor de la caja de selección NO es un bloque: sus campos
-   participan del wrap del hogar (columnas de 3). display:contents. */
+/* El contenedor de la caja de selección es la GRILLA del hogar TAMAÑO
+   (maqueta CAD: columnas alineadas, no campos desparramados). Orden del
+   DOM: Ancho | Candado // Alto | Rotación. */
 .ekko-ribbon-group-body > .size-control-group {
-    display: contents;
+    display: grid;
+    grid-template-columns: max-content max-content;
+    gap: 6px 10px;
+    align-content: center;
+    justify-content: start;
+    align-items: center;
 }
 
-/* GRIS CON MOTIVO del hogar TAMAÑO (Ronda 17): display:contents no tiene
-   caja, así que la presentación .ekko-locked (opacidad, borde punteado)
-   del contenedor no se pintaría. Al bloquearse pasa a pastilla propia:
-   se VE apagada con su motivo, candado y campos a la vista. */
+/* GRIS CON MOTIVO del hogar TAMAÑO (Ronda 17): la pastilla punteada se VE
+   apagada con su motivo, candado y campos a la vista. */
 .ekko-ribbon-group-body > .size-control-group.ekko-locked {
-    display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
+    display: grid;
+    grid-template-columns: max-content max-content;
+    gap: 6px 10px;
+    align-content: center;
+    justify-content: start;
     align-items: center;
-    gap: 6px;
-    align-self: flex-start;
+    align-self: center;
     padding: 4px 8px;
     border: 1px dashed var(--ekko-borde-bloqueado, #8a8f98) !important;
     border-radius: 6px;
@@ -463,14 +475,31 @@
     display: none !important;
 }
 
-/* INICIO = SOLO CREAR (dueño, reclamo R17): en la pestaña Inicio la banda
-   muestra SOLO el hogar CREAR. Los controles de panel que van al final del
-   scroller (info de selección, plegado ⌃ y "más herramientas" ⋮) no son
-   hogares: se ocultan mientras la pestaña resuelta sea Inicio.
-   ribbonLayout.sync() pone la clase ekko-tab-inicio en cada render. */
+/* INICIO = SOLO CREAR (dueño): en la pestaña Inicio la banda muestra SOLO
+   el hogar CREAR. El visor de estado y el "más herramientas" se ocultan
+   (el chevron ⌃ ya no va en esta lista: vive en la fila de pestañas,
+   donde se alcanza SIEMPRE, incluso con el panel contraído — R18). */
 #topBar.ekko-tab-inicio #selectionInfo,
-#topBar.ekko-tab-inicio #topPanelCompact,
 #topBar.ekko-tab-inicio #topPanelOverflow {
+    display: none !important;
+}
+
+/* COMPACTO = tira de una sola fila (R18): la banda de hogares se esconde
+   entera; el chevron ⌄ de expandir queda en la fila de pestañas, a la
+   vista y alcanzable (antes caía debajo de Descargar, fuera de alcance). */
+#topBar.is-compact .ekko-banda-wrap {
+    display: none !important;
+}
+
+/* BARRA EMERGENTE JUBILADA (R18): todos sus controles viven ahora en la
+   cinta (Eliminar, Duplicar, Exportar, Escalar, capas…). Flotando al
+   centro del lienzo tapaba el objeto y sus tiradores.
+   El motor la re-muestra con .is-visible / .active (styles.css:625 escribe
+   display:flex !important y carga DESPUÉS de esta hoja): se la cubre con
+   la MISMA especificidad para que ninguna de las dos manos la reviva. */
+#contextual-toolbar,
+#contextual-toolbar#contextual-toolbar.is-visible,
+#contextual-toolbar#contextual-toolbar.active {
     display: none !important;
 }
 
