@@ -831,7 +831,7 @@ function porTecla(evento) {
 /* BOTONES EN EL GRUPO CREAR                                        */
 /* ---------------------------------------------------------------- */
 function icono(nombre) {
-    return `<svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg#${nombre}"></use></svg>`;
+    return `<svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg?v=18#${nombre}"></use></svg>`;
 }
 
 function boton(id, forma, nombre, etiqueta, title) {
