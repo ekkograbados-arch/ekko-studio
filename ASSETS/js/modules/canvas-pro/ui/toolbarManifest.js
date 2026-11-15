@@ -94,18 +94,40 @@ export function isBaseTool(tool) {
    ========================================================================= */
 export const BUTTONS = Object.freeze([
   /* --- H: orden libre. Nunca saltan. --- */
-  /* PORTAPAPELES (maqueta): Duplicar · Copiar · Pegar · Eliminar */
-  { tool: "delete",       legacy: ["delete"],        family: FAMILY.H, group: "portapapeles" },
-  { tool: "duplicate",    legacy: ["duplicate"],     family: FAMILY.H, group: "portapapeles" },
-  { tool: "copy",         legacy: ["copy"],          family: FAMILY.H, group: "portapapeles" },
-  { tool: "paste",        legacy: ["paste"],         family: FAMILY.H, group: "portapapeles" },
+  /* PORTAPAPELES (maqueta): Duplicar · Copiar · Pegar · Eliminar.
+     R18 (dueño: "todos los controles de la barra emergente en el panel
+     superior"): la FB los mostraba con selección en CUALQUIER pestaña.
+     tabBypass los sigue en Vector/Imagen/Texto; la rule mantiene Inicio
+     limpio (solo CREAR) y en Edición sin selección quedan gris con motivo. */
+  { tool: "delete",       legacy: ["delete"],        family: FAMILY.H, group: "portapapeles",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para eliminarlo" },
+  { tool: "duplicate",    legacy: ["duplicate"],     family: FAMILY.H, group: "portapapeles",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para duplicarlo" },
+  { tool: "copy",         legacy: ["copy"],          family: FAMILY.H, group: "portapapeles",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para copiarlo" },
+  { tool: "paste",        legacy: ["paste"],         family: FAMILY.H, group: "portapapeles",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Copiá un objeto para pegarlo" },
   /* ORGANIZAR (maqueta): alinear direcciones · centrar · distribuir ·
      voltear · capas · agrupar. Ronda 15: los grupos alinear/centrar/
-     distribuir/capas/organizar viejos se fusionan en UN solo hogar. */
-  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "organizar" },
-  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "organizar" },
-  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "organizar" },
-  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "organizar" },
+     distribuir/capas/organizar viejos se fusionan en UN solo hogar.
+     R18: las capas (frente/fondo/subir/bajar) también vivían en la FB
+     siempre a la vista: mismo trato tabBypass + rule que el portapapeles. */
+  { tool: "bringForward", legacy: ["bringForward"],  family: FAMILY.H, group: "organizar",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para subirlo de capa" },
+  { tool: "sendBackward", legacy: ["sendBackward"],  family: FAMILY.H, group: "organizar",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para bajarlo de capa" },
+  { tool: "toFront",      legacy: ["toFront"],       family: FAMILY.H, group: "organizar",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para traerlo al frente" },
+  { tool: "toBack",       legacy: ["toBack"],        family: FAMILY.H, group: "organizar",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para enviarlo al fondo" },
   { tool: "rotate",       legacy: ["rotate"],        family: FAMILY.H, group: "organizar" },
   { tool: "flip",         legacy: ["flip", "flipH", "flipV"], family: FAMILY.H, group: "organizar" },
   {
@@ -119,6 +141,14 @@ export const BUTTONS = Object.freeze([
     tool: "size", legacy: ["size"], family: FAMILY.H, group: "tamano",
     rule: snap => !!snap.hasSelection,
     reason: "Seleccioná un objeto para editar su tamaño"
+  },
+  {
+    /* EXPORTAR SELECCIÓN (R18): vivía SOLO en la barra emergente; el dueño
+       pidió todos sus controles en el panel superior. No existe como
+       herramienta del motor (tool null): trae su propia regla fina. */
+    tool: null, legacy: ["exportSel"], family: FAMILY.H, group: "portapapeles",
+    tabBypass: true, rule: snap => !!snap.hasSelection,
+    reason: "Seleccioná un objeto para exportar"
   },
   {
     tool: "align", family: FAMILY.H, group: "organizar",
