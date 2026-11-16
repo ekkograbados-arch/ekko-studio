@@ -2071,7 +2071,14 @@ export function decomposeByContainmentHierarchy(rootTarget, isClipped = false) {
     // Una pieza ya descompuesta es atomica: re-descomponer es no-op por
     // contrato. Defensa en profundidad para llamadas directas al kernel que
     // no pasen por el dispatcher (que ya filtra por decomposedLayer).
-    if (rootTarget.data?.decomposedLayer === true) {
+    // EXCEPCION MEDIDA (queja del dueño 2026-11-14): el keeper de una
+    // booleana hecha SOBRE piezas ya descompuestas HEREDA decomposedLayer
+    // del operando del que nacio. El gate de capacidades deja pasar esas
+    // piezas por booleanResult, pero este freno las mataba y el boton
+    // "Descomponer" quedaba mudo: varias pruebas + uniones + descomponer
+    // no hacia NADA. El booleanResult es de la pieza NUEVA: siempre se
+    // puede volver a abrir (mismo criterio del gate en capabilities.js). */
+    if (rootTarget.data?.decomposedLayer === true && rootTarget.data?.booleanResult !== true) {
         return null;
     }
 
@@ -2413,7 +2420,25 @@ nodes.sort((a, b) => {
         }
     }
 
-    rootTarget.remove();
+    /* Si el original vivia DENTRO de un wrapper de contencion y se quedo
+       vacio (solo mascaras, sin piezas de diseño), el wrapper queda como un
+       grupo huerfano en la escena: se ve como una pieza fantasma, se puede
+       seleccionar y confunde ("descomponer me dejó basura"). Medido 2026-11-14
+       con uniones encadenadas: cada re-descomposicion dejaba un wrapper
+       solo-mascara. Se retira cuando ya no contiene nada publico. */
+    try {
+        const viejoPadre = rootTarget.parent || null;
+        rootTarget.remove();
+        if (viejoPadre && viejoPadre.data?.clipGroup && viejoPadre.parent) {
+            const quedaPublico = (viejoPadre.children || []).some(c =>
+                c.data && !(c.data.isMask || c.data.wasClipMask));
+            if (!quedaPublico) {
+                try { viejoPadre.remove(); } catch (_) {}
+            }
+        }
+    } catch (_) {
+        try { rootTarget.remove(); } catch (_) {}
+    }
 
     if (targetLayer) {
         // Orden Z del dueño: apilar cada jerarquía del contorno externo hacia
