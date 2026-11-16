@@ -453,7 +453,14 @@ function exportEstadoLimpio() {
   } catch (_) { transitorios = []; }
   const paraRestaurar = transitorios.map(it => ({ it, padre: it.parent }));
   transitorios.forEach(it => { try { it.remove(); } catch (_) {} });
-  const seleccionados = [];
+  /* R19C-SEL2: la captura era `const seleccionados = []` seguida de
+     `seleccionados = ...` -> TypeError "Assignment to constant variable"
+     silenciado por el catch. La lista quedaba vacia SIEMPRE, el restore de
+     items nunca se ejecutaba y el apagado recaia solo en `l.selected = false`
+     de la capa (que recursiona a los hijos). `let` restaura el comportamiento
+     previsto: capturar, apagar y re-marcar exactamente los items
+     seleccionados (verificado en runtime 2026-11-16). */
+  let seleccionados = [];
   try { seleccionados = paper.project.getSelectedItems().slice(); } catch (_) {}
   seleccionados.forEach(it => { try { it.selected = false; } catch (_) {} });
   /* seleccionar un item tambien marca SELECCIONADA LA CAPA que lo contiene:
@@ -466,8 +473,24 @@ function exportEstadoLimpio() {
   });
   let json = null;
   try { json = paper.project.exportJSON({ asString: true }); } catch (_) {}
-  capasSeleccionadas.forEach(l => { try { l.selected = true; } catch (_) {} });
-  seleccionados.forEach(it => { try { it.selected = true; } catch (_) {} });
+  /* R19C-SEL: la restauración previa hacía l.selected = true en la capa y en
+     Paper esa asignación RECURSIONA: volvía a seleccionar TODO el contenido
+     de la capa (medido: 29 ítems — mockup, máscaras y objetos del dueño
+     marcados a la vez). Eso era el "se seleccionan ambos" en pantalla: la
+     selección lógica era correcta (1 ítem) pero los marcadores azules
+     aparecían en todos tras cada arrastre (cada arrastre dispara
+     saveHistory → esta función). El flag de capa es un artefacto interno de
+     Paper al marcar un ítem: se deja apagado. Los exports del deduplicador
+     se toman con las selecciones APAGADAS, así que la comparación no cambia
+     y el estado vivo queda limpio. Si algún ítem-capa viniera en la lista
+     de seleccionados, se apaga su artefacto sin recursión. */
+  capasSeleccionadas.forEach(l => { try { l._selected = false; } catch (_) {} });
+  seleccionados.forEach(it => {
+    try {
+      if (it && it.className === 'Layer') { it._selected = false; return; }
+      it.selected = true;
+    } catch (_) {}
+  });
   paraRestaurar.forEach(({ it, padre }) => {
     try { if (padre) padre.addChild(it); } catch (_) {}
   });
