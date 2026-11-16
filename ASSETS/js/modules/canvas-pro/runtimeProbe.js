@@ -7,7 +7,13 @@
   if (global.EKKO_RUNTIME_PROBE) return;
 
   const state = {
-    active: true,
+    /* R19-PERF: el sondeo nace APAGADO. Con active:true instrumentaba SIEMPRE
+       las 15 funciones calientes (fusión inteligente, arrastre de vectores,
+       ungroup, transacciones): cada llamada real pagaba record()+finish() con
+       timestamps y state.operations crecía sin límite (jank en cada frame de
+       arrastre del dueño + memoria). Se reactiva con ?runtimeDiag=1 en la URL
+       o llamando window.EKKO_RUNTIME_PROBE.start(). */
+    active: (typeof location !== 'undefined' && location.search || '').includes('runtimeDiag=1'),
     ready: false,
     sequence: 0,
     operations: [],
@@ -144,6 +150,9 @@
       before: documentSnapshot()
     };
     state.operations.push(op);
+    /* R19-PERF: tope de memoria (500 entradas) — el sondeo activo a propósito
+       igual no debe crecer sin límite en sesiones largas. */
+    if (state.operations.length > 500) state.operations.splice(0, state.operations.length - 500);
     return op.id;
   }
 
@@ -286,8 +295,12 @@
 
   // Modo visible para validar desde el navegador sin depender de DevTools.
   // Activación: agregar ?runtimeDiag=1 a la URL de EKKO Studio.
-  state.pollTimer = global.setInterval(installGlobalWrappers, 250);
-  installGlobalWrappers();
+  /* R19-PERF: el poller SOLO corre cuando el sondeo está activo (antes
+     arrancaba incondicional y giraba 4 ticks/segundo para siempre). */
+  if (state.active) {
+    state.pollTimer = global.setInterval(installGlobalWrappers, 250);
+    installGlobalWrappers();
+  }
 
   if (global.location?.search?.includes('runtimeDiag=1')) {
     const panel = global.document?.createElement('pre');
