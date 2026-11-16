@@ -103,10 +103,10 @@ const SWAP_ICONOS = {
   btnSizeLockContext:       { icono: "ekko-candado" },
   btnCtxDelete:             { icono: "ekko-eliminar" },
   btnCtxDuplicate:          { icono: "ekko-duplicar" },
-  btnCtxToFront:            { icono: "ekko-frente" },
+  btnCtxToFront:            { icono: "ekko-frente",   texto: "Al frente" },
   btnCtxForward:            { icono: "ekko-subir" },
   btnCtxBackward:           { icono: "ekko-bajar" },
-  btnCtxToBack:             { icono: "ekko-fondo" }
+  btnCtxToBack:             { icono: "ekko-fondo",    texto: "Al fondo" }
 };
 
 let layout = null;
@@ -186,8 +186,12 @@ function crearBoton(legacy, etiqueta, iconoId, onclickAttr) {
   b.dataset.fusionBtn = legacy;
   b.title = etiqueta;
   b.setAttribute("aria-label", etiqueta);
+  /* Normalización del id del símbolo: algunos callers ya pasan el id COMPLETO
+     ("ekko-copiar"); anteponer "ekko-" daba "ekko-ekko-copiar" y el <use> no
+     encontraba el símbolo (botón sin icono). */
+  const idSimbolo = String(iconoId || "").replace(/^ekko-/, "");
   b.innerHTML =
-    `<svg class="ekko-ic" aria-hidden="true"><use href="${SPRITE_V}ekko-${iconoId}"></use></svg> ${etiqueta}`;
+    `<svg class="ekko-ic" aria-hidden="true"><use href="${SPRITE_V}ekko-${idSimbolo}"></use></svg> ${etiqueta}`;
   if (onclickAttr) b.setAttribute("onclick", onclickAttr);
   return b;
 }
@@ -221,7 +225,7 @@ function ponerIcono(btn, iconoId) {
    del navegador; si el sprite se actualizó (candado, rotar…), el cliente
    seguía viendo el VIEJO y los íconos nuevos salían vacíos. La versión se
    sube a mano cuando cambie el sprite. */
-const SPRITE_V = "ASSETS/ui/ekko-icons.svg?v=18#";
+const SPRITE_V = "ASSETS/ui/ekko-icons.svg?v=19#";
 
 function adoptar() {
   if (!layout) return;
@@ -264,7 +268,14 @@ function adoptar() {
     return span;
   };
   const fuente = document.getElementById("ctxFontSelector");
-  if (fuente) mover(envolver(fuente, "campoFuente"), "texto");
+  if (fuente) envolver(fuente, "campoFuenteNativo"); // queda donde está: es display:none
+  /* El SELECTOR REAL de fuente es el dropdown custom (trigger + lista); sin
+     adoptarlo, el hogar TIPOGRAFÍA quedaba con una caja invisible y sin
+     manera de elegir tipografía (reclamo R19-3). La lista se ancla al body
+     al abrirse (contextualMenu.js), así que sobrevive al traslado. */
+  const fuenteDropdown = document.querySelector("#ctxTextControls .custom-font-dropdown") ||
+                         document.querySelector("#contextual-toolbar .custom-font-dropdown");
+  if (fuenteDropdown) mover(envolver(fuenteDropdown, "campoFuente"), "texto");
   const tamFuente = document.getElementById("ctxFontSize");
   if (tamFuente) mover(envolver(tamFuente, "campoTamanoFuente"), "texto");
   const curvatura = document.getElementById("ctxTextCurvature");
@@ -291,7 +302,13 @@ function adoptar() {
   });
   ["btnCtxBold", "btnCtxItalic", "btnCtxUnderline", "btnCtxWeld", "btnCtxRotateLetters"].forEach(id => {
     const b = document.getElementById(id);
-    if (b && b.parentElement && b.parentElement.closest("#contextual-toolbar")) {
+    if (!b) return;
+    /* R19-3: B/I/U/Weld/Rotar llevaban <i class="fas ..."> de Font Awesome
+       (si la fuente no cargaba, el botón quedaba sin glifo). Icono del
+       sprite (dos tonos) para todos, estén donde estén. */
+    const swapIcono = SWAP_ICONOS[id];
+    if (swapIcono) ponerIcono(b, swapIcono.icono);
+    if (b.parentElement && b.parentElement.closest("#contextual-toolbar")) {
       const key = (id === "btnCtxWeld" || id === "btnCtxRotateLetters") ? "curvar" : "texto";
       mover(b, key);
     }
@@ -339,6 +356,27 @@ function adoptar() {
     etiquetar(b, legacy);
     const swap = SWAP_ICONOS[id];
     if (swap) ponerIcono(b, swap.icono);
+    /* R19-3: botón solo-icono con etiqueta declarada (Al frente / Al fondo):
+       en la cinta CAD los de capa llevan texto, igual que sus hermanos
+       Subir/Bajar, para que no sean cajas mudas. */
+    if (swap && swap.texto && !b.textContent.trim()) {
+      const t = document.createElement("span");
+      t.className = "ekko-btn-txt";
+      t.textContent = swap.texto;
+      b.appendChild(t);
+    }
+    /* Exportar: el atajo vive en el title, no en la etiqueta visible. */
+    if (id === "btnCtxExportSel") {
+      const atajo = /\(Ctrl\+Shift\+C\)/.test(b.textContent);
+      if (atajo) {
+        [...b.childNodes].forEach(n => {
+          if (n.nodeType === 3 && n.textContent.includes("(Ctrl+Shift+C)")) {
+            n.textContent = n.textContent.replace(/\s*\(Ctrl\+Shift\+C\)\s*/g, " ").replace(/\s+/g, " ");
+          }
+        });
+      }
+      if (!b.title || !/Ctrl\+Shift\+C/.test(b.title)) b.title = "Exportar selección (Ctrl+Shift+C)";
+    }
     mover(b, key);
   };
   adoptarEmergente("btnCtxDelete", "delete", "portapapeles");
