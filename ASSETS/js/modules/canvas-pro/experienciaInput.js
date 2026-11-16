@@ -105,7 +105,7 @@ function aplicarValor(campo, valorSiguiente) {
 
 /* Espeja el valor al control emparejado, con guarda anti-bucle: el
    espejo recibe el valor con una bandera, asi el listener de entrada
-   no vuelve a espejar al que empezÃ³. */
+   no vuelve a espejar al que empezó. */
 function espejarPar(origen) {
     const espejo = parDe(origen);
     if (!espejo) return;
