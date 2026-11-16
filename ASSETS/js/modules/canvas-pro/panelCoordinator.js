@@ -1,7 +1,7 @@
 /* =========================================================================
    EKKO STUDIO â€” PANEL COORDINATOR / FASE 0
    Coordina exclusivamente la interfaz de paneles.
-   No modifica geometrÃ­a, Paper.js, mockups ni productos.
+   No modifica geometría, Paper.js, mockups ni productos.
 
    Superficies coordinadas:
    - #topBar
@@ -461,7 +461,7 @@ function renderContextSurface() {
         const contextLabel = CONTEXT_LABELS[context] || CONTEXT_LABELS.none;
         label.textContent = panelState.activeTab === "auto"
             ? `Contexto: ${contextLabel}`
-            : `Contexto: ${contextLabel} Â· ${def ? def.label : ""}`;
+            : `Contexto: ${contextLabel} · ${def ? def.label : ""}`;
     }
     surface.dataset.context = context;
     surface.dataset.activeTab = panelState.activeTab;
@@ -483,7 +483,7 @@ function renderPanelState() {
         el.top.dataset.panelMode = panelState.topPanel;
     }
 
-    // La barra profesional dinÃ¡mica es una extensiÃ³n del panel superior.
+    // La barra profesional dinámica es una extensión del panel superior.
     if (el.pro) {
         el.pro.classList.toggle("is-compact", panelState.topPanel === "compact");
         el.pro.classList.toggle("is-hidden", panelState.topPanel === "hidden");
