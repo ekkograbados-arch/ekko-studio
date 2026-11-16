@@ -417,10 +417,51 @@ function makeHistoryEntry(state = null, transforms = null) {
   if (typeof paper === "undefined" || !paper.project) return null;
   return {
     state: state || paper.project.exportJSON({ asString: true }),
+    stateClean: exportEstadoLimpio(),
     transforms: Array.isArray(transforms) ? transforms : captureHistoryTransforms(),
     selected: captureHistorySelection(),
     at: Date.now()
   };
+}
+
+/* Export del proyecto SIN el ruido de la interfaz: sin selection box ni
+   asas (items transitorios de UI) y con el flag selected de Paper apagado.
+   Sirve UNICAMENTE para comparar si dos checkpoints representan el mismo
+   contenido visual: exportJSON serializa tanto la seleccion como el grupo
+   de seleccion (medido: 3KB de selection box dentro del estado), asi que
+   dos estados visualmente identicos dan strings crudos distintos y un
+   deduplicador por string crudo nunca dispara. El estado que se guarda y
+   se restaura sigue siendo el export crudo de siempre. */
+function exportEstadoLimpio() {
+  if (typeof paper === "undefined" || !paper.project) return null;
+  let transitorios = [];
+  try {
+    transitorios = paper.project.getItems({
+      match: it => it.data && (it.data.isSelectionBox || it.data.isHandle ||
+        it.data.isNodeHandle || it.data.isCurveHandle || it.data.isMeasurement)
+    });
+  } catch (_) { transitorios = []; }
+  const paraRestaurar = transitorios.map(it => ({ it, padre: it.parent }));
+  transitorios.forEach(it => { try { it.remove(); } catch (_) {} });
+  const seleccionados = [];
+  try { seleccionados = paper.project.getSelectedItems().slice(); } catch (_) {}
+  seleccionados.forEach(it => { try { it.selected = false; } catch (_) {} });
+  /* seleccionar un item tambien marca SELECCIONADA LA CAPA que lo contiene:
+     el export lleva "selected":true en el Layer y dos checkpoints del mismo
+     contenido dan strings distintos (medido 2026-11-14). Se apaga y se
+     restaura igual que los items. */
+  const capasSeleccionadas = [];
+  (paper.project.layers || []).forEach(l => {
+    try { if (l && l.selected) { capasSeleccionadas.push(l); l.selected = false; } } catch (_) {}
+  });
+  let json = null;
+  try { json = paper.project.exportJSON({ asString: true }); } catch (_) {}
+  capasSeleccionadas.forEach(l => { try { l.selected = true; } catch (_) {} });
+  seleccionados.forEach(it => { try { it.selected = true; } catch (_) {} });
+  paraRestaurar.forEach(({ it, padre }) => {
+    try { if (padre) padre.addChild(it); } catch (_) {}
+  });
+  return json;
 }
 
 function historyEntryState(entry) {
@@ -517,33 +558,99 @@ function restoreTransformHistoryInPlace(entry, selectionDescriptors, phase) {
   return true;
 }
 
+/* La seleccion (window.selectItem) le escribe data.rotation = 0 a los items
+   que toca (controlador de rotacion): visualmente es NO-rotacion, pero el
+   exportJSON lo lleva y dos checkpoints del mismo contenido daban strings
+   distintos. Para comparar contenidos se ignora. */
+function estadoComparable(s) {
+  if (typeof s !== "string") return null;
+  return s.replace(/,"rotation":0/g, "");
+}
+
+/* Apila una entrada de undo SOLO si su estado difiere del checkpoint del tope.
+   Dos entradas con el MISMO estado producen un paso de Ctrl+Z vacio: el cliente
+   aprieta y "no vuelve" (medido 2026-11-14: guardar una letra y unir enseguida
+   apilaba el estado pre-union identico al ultimo save — un Ctrl+Z de mas).
+   La comparacion se hace con el estado LIMPIO (exportEstadoLimpio): el export
+   crudo cambia con la seleccion aunque el contenido sea el mismo. Si una de
+   las dos entradas no trae estado limpio (entradas viejas o de redo), cae al
+   crudo; si los formatos no se pueden comparar, se apila sin deducir. */
+function pushUndoEntry(entry) {
+  if (!entry) return false;
+  const tope = undoStack.length ? undoStack[undoStack.length - 1] : null;
+  if (tope) {
+    const limpioNuevo = typeof entry.stateClean === "string" ? entry.stateClean : null;
+    const limpioTope = typeof tope.stateClean === "string" ? tope.stateClean : null;
+    let a = null, b = null;
+    if (limpioNuevo !== null && limpioTope !== null) { a = estadoComparable(limpioNuevo); b = estadoComparable(limpioTope); }
+    else if (typeof entry.state === "string" && typeof tope.state === "string") {
+      a = estadoComparable(entry.state); b = estadoComparable(tope.state);
+    }
+    if (a !== null && a === b) return false;
+  }
+  undoStack.push(entry);
+  if (undoStack.length > 50) undoStack.shift();
+  return true;
+}
+
 function writeHistorySnapshot() {
   if (typeof paper !== "undefined" && paper.project) {
     const entry = makeHistoryEntry();
-    if (entry) undoStack.push(entry);
-    if (undoStack.length > 50) undoStack.shift();
-    redoStack.length = 0;
+    if (pushUndoEntry(entry)) redoStack.length = 0;
   }
 }
 function saveHistory() {
   if (historyTransaction?.active) {
-    historyTransaction.dirty = true;
-    historyTransaction.lastMutationAt = Date.now();
-    window._ekkoHistoryTransaction = { ...historyTransaction, status: "dirty" };
-    return false;
+    /* AUTO-REPARACION DEL HISTORIAL (queja del dueño 2026-11-14: "vuelvo
+       atras con Ctrl+Z y se borran letras que nunca participaron"). Una
+       operacion que abrio su transaccion y murio sin cerrarla deja un tx
+       HUERFANO: todo lo que viene despues — vectorizar texto, mover,
+       booleanas— marcaba dirty SIN apilar snapshots, y un solo Ctrl+Z
+       saltaba al estado PREVIO al huesped, borrando el tramo entero.
+       Regla: una tx NO-transform que ya recibio mutaciones es un punto de
+       retorno VALIDO; el primer saveHistory posterior la compromete (su
+       beforeState ya esta apilado) y guarda el estado actual como entrada
+       propia. Las tx transform SI se heredan a proposito: el arrastre
+       apila en el mouseup. */
+    const esTransform = /^transform(?::|$)/.test(String(historyTransaction.label || ""));
+    if (!esTransform) {
+      try { commitHistoryTransaction(historyTransaction.label); } catch (_) {
+        historyTransaction = null;
+        window._ekkoHistoryTransaction = { active: false, status: "cancelled", reason: "huerfana-comprometida" };
+      }
+    } else {
+      historyTransaction.dirty = true;
+      historyTransaction.lastMutationAt = Date.now();
+      window._ekkoHistoryTransaction = { ...historyTransaction, status: "dirty" };
+      return false;
+    }
   }
   writeHistorySnapshot();
   window._ekkoHistoryTransaction = { active: false, status: "committed", label: "direct-save", at: Date.now() };
   return true;
 }
 function beginHistoryTransaction(label = "operation") {
+  if (historyTransaction?.active) {
+    /* Defensa en profundidad: si entra una operacion nueva mientras una tx
+       NO-transform sigue abierta, se compromete la heredada ANTES de abrir
+       la propia (mismo criterio de saveHistory). Asi ninguna operacion
+       arranca con el historial secuestrado por una huésped de otro flujo. */
+    const esTransform = /^transform(?::|$)/.test(String(historyTransaction.label || ""));
+    if (!esTransform) {
+      try { commitHistoryTransaction(historyTransaction.label); } catch (_) {
+        historyTransaction = null;
+        window._ekkoHistoryTransaction = { active: false, status: "cancelled", reason: "huerfana-comprometida" };
+      }
+    }
+  }
   if (!historyTransaction?.active) {
     historyTransaction = { active: true, label, dirty: false, startedAt: Date.now(),
       beforeState: (typeof paper !== "undefined" && paper.project)
         ? paper.project.exportJSON({ asString: true }) : null,
+      beforeStateClean: exportEstadoLimpio(),
       beforeTransforms: captureHistoryTransforms(),
       beforeSelection: captureHistorySelection() };
-    window._ekkoHistoryTransaction = { ...historyTransaction, beforeState: undefined, status: "open" };
+    window._ekkoHistoryTransaction = { ...historyTransaction, beforeState: undefined, beforeStateClean: undefined, status: "open" };
   }
   return historyTransaction;
 }
@@ -552,11 +659,17 @@ function commitHistoryTransaction(label = null) {
   const tx = historyTransaction;
   if (tx.dirty && tx.beforeState) {
     const transformOnly = /^transform(?::|$)/.test(String(tx.label || ""));
-    undoStack.push({ state: tx.beforeState, transforms: tx.beforeTransforms || [],
+    /* pushUndoEntry salta la entrada si el tope del stack ya guarda EXACTAMENTE
+       este estado (caso tipico: el cliente guardo/creo algo justo antes de la
+       operacion — el beforeState coincide con el ultimo checkpoint). Apilarlo
+       igual daba un Ctrl+Z que no hacia nada. El estado actual sigue
+       accesible para Redo por el camino de siempre de undo(). */
+    if (pushUndoEntry({ state: tx.beforeState, stateClean: tx.beforeStateClean || null,
+      transforms: tx.beforeTransforms || [],
       selected: tx.beforeSelection || [],
-      transformOnly, label: tx.label || label || null, at: Date.now() });
-    if (undoStack.length > 50) undoStack.shift();
-    redoStack.length = 0;
+      transformOnly, label: tx.label || label || null, at: Date.now() })) {
+      redoStack.length = 0;
+    }
   }
   historyTransaction = null;
   window._ekkoHistoryTransaction = { active: false, status: tx.dirty ? "committed" : "empty", label: label || tx.label, at: Date.now() };
@@ -572,6 +685,20 @@ window.saveHistory = saveHistory;
 window.beginHistoryTransaction = beginHistoryTransaction;
 window.commitHistoryTransaction = commitHistoryTransaction;
 window.cancelHistoryTransaction = cancelHistoryTransaction;
+/* Marca la transaccion abierta como sucia SIN checkpointear el estado actual.
+   Para operaciones que abren su tx, mutan, y la cierran con commit: el commit
+   apila el beforeState como entrada de undo. Checkpointear ademas (saveHistory)
+   apilaria el estado POST-mutacion ENCIMA del pre-mutacion y el primer Ctrl+Z
+   del cliente seria un paso vacio. */
+window.markHistoryDirty = function markHistoryDirty() {
+  if (historyTransaction?.active) {
+    historyTransaction.dirty = true;
+    historyTransaction.lastMutationAt = Date.now();
+    window._ekkoHistoryTransaction = { ...historyTransaction, status: "dirty" };
+    return true;
+  }
+  return false;
+};
 
 function cleanGhostInterfaceItems() {
   if (typeof paper !== "undefined" && paper.project) {
@@ -2103,7 +2230,14 @@ function initCanvasAssetDrop(canvasEl) {
           : await addImageFromFile(file, options);
         if (result) {
           // Mark the transaction dirty only after a real imported owner exists.
-          saveHistory();
+          /* markHistoryDirty y no saveHistory: dentro de la tx propia, un
+             saveHistory hoy comprometeria la tx y checkpointearia el estado
+             POST-import (auto-reparacion del historial) y el commit final de
+             abajo quedaria muerto — el primer Ctrl+Z del cliente seria un
+             paso vacio. Todo el drop es UNA transaccion: el commit apila el
+             estado PRE-drop una sola vez. */
+          if (typeof window.markHistoryDirty === "function") window.markHistoryDirty();
+          else saveHistory();
           emitAssetDropDiagnostic("success", { file: file.name || "(sin nombre)", kind, index, order });
         } else {
           emitAssetDropDiagnostic("error", { file: file.name || "(sin nombre)", kind, index, order, reason: "import-returned-empty" });
