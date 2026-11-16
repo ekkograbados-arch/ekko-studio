@@ -33,37 +33,54 @@ function formatTitle(slug) {
 function parseProducts(files) {
   const productsMap = {};
 
+  /* R19C-MOCKUP: los archivos del taller mezclan DOS convenciones de vista:
+     "chapita-huesito-16x32-DORSO" (guion) y "chapita-huesito-16x32_FRENTE"
+     (guion bajo). Sin esta extraccion el parser trata el DORSO como un
+     PRODUCTO aparte ("Huesito 16x32 DORSO", "De Algarrobo con Virola Virola")
+     en vez de una superficie del mismo producto. */
+  const SUFIJO_VISTA = /[-_](DORSO|FRENTE|LATERAL|VIROLA)$/i;
+
   // Ordenamos alfabéticamente para asegurar un procesamiento base ordenado
   files.sort().forEach(file => {
     if (!file.toLowerCase().endsWith('.svg')) return;
-    
-    const nameNoExt = file.substring(0, file.length - 4); // Quitar ".svg"
+
+    let nameNoExt = file.substring(0, file.length - 4); // Quitar ".svg"
+
+    let vistaName = null;
+    const matchVista = nameNoExt.match(SUFIJO_VISTA);
+    if (matchVista) {
+      vistaName = matchVista[1];
+      nameNoExt = nameNoExt.slice(0, -matchVista[0].length); // Queda solo el producto
+    }
     
     let categorySlug = "";
     let productSlug = "";
-    let vistaName = "Mate"; // Vista por defecto
-    
+
     // Formato Estándar: [Categoria]--[Producto]_[VISTA]
     if (nameNoExt.includes('--')) {
       const parts = nameNoExt.split('--');
       categorySlug = parts[0];
       const rest = parts[1];
-      
+
       if (rest.includes('_')) {
         const restParts = rest.split('_');
         productSlug = restParts[0];
-        vistaName = restParts[1];
+        // R19C-MOCKUP: no pisar la vista ya extraída del sufijo del archivo.
+        if (!vistaName) vistaName = restParts[1];
       } else {
         productSlug = rest;
-        vistaName = "Mate";
+        if (!vistaName) vistaName = "Mate";
       }
+      // R19C-MOCKUP: "GENERAL-" (LIENZO--GENERAL-.svg) deja guion colgante.
+      productSlug = productSlug.replace(/-+$/, '');
+      categorySlug = categorySlug.replace(/-+$/, '');
     } else {
       // Fallback de seguridad si el archivo no sigue el estándar '--'
       if (nameNoExt.includes('_')) {
         const parts = nameNoExt.split('_');
         const mainPart = parts[0];
-        vistaName = parts[1];
-        
+        if (!vistaName) vistaName = parts[1];
+
         const dashIdx = mainPart.indexOf('-');
         if (dashIdx !== -1) {
           categorySlug = mainPart.substring(0, dashIdx);
@@ -81,6 +98,7 @@ function parseProducts(files) {
           categorySlug = nameNoExt;
           productSlug = nameNoExt;
         }
+        if (!vistaName) vistaName = "Mate";
       }
     }
     
