@@ -681,9 +681,12 @@ function commitBooleanResult(keeper, ownsHistory = false) {
     window.updateContextualMenu?.(keeper);
     paper.view?.update?.();
     if (ownsHistory) {
-        // Mark the already-open transaction dirty so commitHistoryTransaction
-        // stores the pre-boolean state for Undo.
-        window.saveHistory?.();
+        // El commit apila el estado PRE-booleana (beforeState de la tx). Con la
+        // auto-reparacion del historial (editor.js), un saveHistory aqui —que
+        // antes solo marcaba dirty— comprometeria la tx Y checkpointearia el
+        // estado post-booleana encima: el primer Ctrl+Z del dueño seria un paso
+        // vacio. markHistoryDirty marca sin apilar; el commit apila una vez.
+        if (typeof window.markHistoryDirty === "function") window.markHistoryDirty();
         window.commitHistoryTransaction?.("boolean");
     }
     return keeper;
@@ -1515,7 +1518,13 @@ export function invertSelectionRoles() {
     // convertido en hueco y lo perforaba: la pieza desaparecía.
     try { restackLoteDescompuesto(converted); } catch (_) {}
     try { recalculateDynamicSubtractions?.(); } catch (_) {}
-    window.saveHistory?.();
+    /* markHistoryDirty + commit (mismo patron de la booleana): el commit apila
+       el estado PRE-toggle como entrada de undo. Un saveHistory aqui —con la
+       auto-reparacion del historial— comprometeria la tx Y checkpointearia el
+       estado POST encima: el primer Ctrl+Z del dueño seria un paso vacio
+       (medido 2026-11-14). */
+    if (typeof window.markHistoryDirty === "function") window.markHistoryDirty();
+    else window.saveHistory?.();
     window.commitHistoryTransaction?.("solid-hole-toggle");
     window.deselectItem?.();
     converted.forEach((owner, index) => window.selectItem?.(owner, index > 0));
