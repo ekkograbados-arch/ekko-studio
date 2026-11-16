@@ -45,6 +45,24 @@ const ALPHA_SCAN_MAX = 1200;
    residuo desaparece entero. */
 const ALPHA_ISO = 200;
 
+/* COLOCACION DEL CONTORNO (estilo CAD): el contorno es una copia
+   EXACTA de la silueta del objeto, dibujada como linea muy fina EN EL LUGAR
+   del objeto, y el cliente despues la agranda o ajusta con los demas controles.
+   Por eso NUNCA se envuelve en la contencion del mockup: el clipMask del
+   producto la recortaria a los limites de la plantilla y, para objetos que
+   viven al nivel del lienzo (las letras de texto vectorizado tipicas), la
+   dejaria invisible o fragmentada (queja del cliente, medida con sonda de
+   pixeles 2026-11-14). Se inserta al nivel del lienzo, ENCIMA del mockup, sin
+   tocar su geometria de mundo: la posicion ya es la correcta. */
+function insertarContornoEnDiseno(contorno) {
+  const capa = paper.project.activeLayer || paper.project.layers[0];
+  capa.addChild(contorno);
+  if (window.currentMockup) {
+    try { contorno.insertAbove(window.currentMockup); } catch (_) {}
+  }
+  return contorno;
+}
+
 /* ------------------------------------------------------------------
    VINCULOS: que contorno salio de que pieza.
 
@@ -1837,11 +1855,7 @@ function crearContornoDeImagenes(origenes, options = {}) {
         outlineApply: options.apply === "pieces" ? "pieces" : "together",
         ...(esUnion ? { outlinePieces: lista.length } : {})
     };
-    try { window.ensureContainedDesignItem?.(outline); } catch (_) {}
-    if (outline.parent === null) {
-        (paper.project.activeLayer || paper.project.layers[0]).addChild(outline);
-        if (window.currentMockup) outline.insertBelow(window.currentMockup);
-    }
+    insertarContornoEnDiseno(outline);
     window.syncGeometryToGeomBase?.(outline);
 
     // Se anota de que pieza (o de cuales piezas) salio este contorno. Es lo que
@@ -2255,12 +2269,7 @@ function lineaDeVector(owner, control) {
     outlineOrigen: formaOrigen,
     outlineEspecie: "vector"
   };
-  try { window.ensureContainedDesignItem?.(linea); } catch (_) {}
-  if (linea.parent === null) {
-    const capa = paper.project.activeLayer || paper.project.layers[0];
-    capa.addChild(linea);
-    if (window.currentMockup) linea.insertBelow(window.currentMockup);
-  }
+  insertarContornoEnDiseno(linea);
   return linea;
 }
 
@@ -2337,11 +2346,7 @@ function crearContornoUnion(owners, control) {
     outlineOrigen: formaOrigen,
     outlineEspecie: "vector"
   };
-  try { window.ensureContainedDesignItem?.(pieza); } catch (_) {}
-  if (pieza.parent === null) {
-    (paper.project.activeLayer || paper.project.layers[0]).addChild(pieza);
-    if (window.currentMockup) pieza.insertBelow(window.currentMockup);
-  }
+  insertarContornoEnDiseno(pieza);
   try {
     const inversa = pieza.globalMatrix?.inverted?.();
     if (inversa) pieza.data.outlineOrigen.transform(inversa);
@@ -2454,11 +2459,7 @@ function crearContornoLinea(linea, control) {
     outlineScope: control.scope || "outer",
     outlineApply: control.apply === "pieces" ? "pieces" : "together"
   };
-  try { window.ensureContainedDesignItem?.(contorno); } catch (_) {}
-  if (contorno.parent === null) {
-    (paper.project.activeLayer || paper.project.layers[0]).addChild(contorno);
-    if (window.currentMockup) contorno.insertBelow(window.currentMockup);
-  }
+  insertarContornoEnDiseno(contorno);
   window.syncGeometryToGeomBase?.(contorno);
   if (clave !== undefined && clave !== null) {
     VINCULOS.set(clave, { contorno, origen: owner });
@@ -2760,7 +2761,13 @@ export async function aplicarContorno(items = null, options = {}) {
   if (!results.length) return fail("contorno-empty");
   // El Deshacer se guarda siempre que se haya creado algo, con o sin fondo:
   // si el cliente creo un contorno, tiene que poder deshacerlo.
-  window.saveHistory?.();
+  /* markHistoryDirty + commit (mismo patron de la booleana y del toggle
+     solido/hueco): el commit apila el estado PRE-contorno como entrada de
+     undo. Un saveHistory aqui —con la auto-reparacion del historial—
+     comprometeria la tx y checkpointearia el estado POST encima: el primer
+     Ctrl+Z del dueño seria un paso vacio. */
+  if (typeof window.markHistoryDirty === "function") window.markHistoryDirty();
+  else window.saveHistory?.();
   if (ownsHistory) window.commitHistoryTransaction?.("contorno");
   window.deselectItem?.();
   results.forEach((item, index) => window.selectItem?.(item, index > 0));
