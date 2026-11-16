@@ -1044,7 +1044,10 @@ export function updateContextualMenu(item) {
 
     refreshTextControlsVisibility();
 
-    if (!item || (item.data && (item.data.mockup || item.data.isMask))) {
+    /* R19-2: conmutador de la emergente en el panel superior. Con el flag
+       en OFF la barra se comporta como sin selección (ni show ni reposición). */
+    if (!item || (item.data && (item.data.mockup || item.data.isMask)) ||
+        document.body.classList.contains("ekko-emergente-off")) {
         setTextCurveVisibility(false);
         toolbar.classList.remove('active');
         toolbarDragged = false;
@@ -1156,15 +1159,22 @@ export function updateContextualMenu(item) {
         window.customToolbarLeft = savedLeft;
         window.customToolbarTop = savedTop;
     } else if (!toolbarDragged || lastSelectedItem !== item) {
-        const screenPos = getUnifiedScreenBounds(item);
-        if (screenPos) {
+        /* R18-5: la barra vive ENCIMA de la caja de selección, nunca sobre el
+           centro del mockup. La altura real se asienta cuando los subgrupos
+           del contexto terminan de pintarse (44px en el primer layout, 68px
+           el real): un frame después se re-ancla con la caja definitiva. */
+        const anclarSobreSeleccion = () => {
+            const screenPos = getUnifiedScreenBounds(item);
+            if (!screenPos) return;
             const toolbarW = toolbar.offsetWidth || 320;
             const toolbarH = toolbar.offsetHeight || 44;
             const x = screenPos.x - (toolbarW / 2);
             const y = screenPos.y - toolbarH - 14;
             toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarW - 10, x)) + 'px';
             toolbar.style.top = Math.max(10, y) + 'px';
-        }
+        };
+        anclarSobreSeleccion();
+        requestAnimationFrame(anclarSobreSeleccion);
     }
     lastSelectedItem = item;
 }
