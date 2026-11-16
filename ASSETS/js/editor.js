@@ -293,9 +293,19 @@ const sceneStates = {};
 // duplicate scene state or reimplement product loading.
 function findProductById(productId) {
   if (!productId || !Array.isArray(window.EKKO_STUDIO_PRODUCTS)) return null;
+  /* R19C-MOCKUP: el catálogo dinámico arma IDs "cat--prod" y el catálogo
+     de resguardo usaba "cat-prod". Primero exacto; si no hay, tolerante al
+     separador para no romper proyectos guardados con la otra convención. */
+  const objetivo = String(productId);
+  const objetivoNormalizado = objetivo.replace(/--+/g, '-');
   for (const group of window.EKKO_STUDIO_PRODUCTS) {
-    const found = (group?.productos || []).find(product => product?.id === productId);
-    if (found) return found;
+    const exacto = (group?.productos || []).find(product => product?.id === objetivo);
+    if (exacto) return exacto;
+  }
+  for (const group of window.EKKO_STUDIO_PRODUCTS) {
+    const tolerante = (group?.productos || []).find(product =>
+      product?.id && String(product.id).replace(/--+/g, '-') === objetivoNormalizado);
+    if (tolerante) return tolerante;
   }
   return null;
 }
@@ -2533,6 +2543,23 @@ function renderCategories() {
   }
 }
 
+/* R19C-MOCKUP: el catálogo dinámico llegó DESPUÉS del render nativo. Si el
+   dueño ya empezó a trabajar (hay objetos propios sobre el lienzo), NO se
+   recarga la escena: se perderían cambios. Solo se refresca con lienzo limpio. */
+function refrescarCatalogoDinamico() {
+  try {
+    const kids = (paper.project && paper.project.activeLayer && paper.project.activeLayer.children) || [];
+    const hayTrabajo = kids.some(c => !(c && c.data && (c.data.mockup || c.data.isMask ||
+      c.data.isSelectionBox || c.data.isHandle || c.data.isSmartGuide ||
+      c.data.isMeasurement || c.data.isTracePreview)));
+    if (hayTrabajo) {
+      console.log("[EKKO BOOTSTRAP] Catálogo dinámico ignorado en caliente: el lienzo ya tiene trabajo del usuario.");
+      return;
+    }
+  } catch (_) { /* si no se puede inspeccionar, refrescar es lo seguro para el catálogo */ }
+  renderCategories();
+}
+
 function renderProducts(group) {
   if (!group || !group.productos) return;
   const prodTabs = document.getElementById("productTabs");
@@ -2847,6 +2874,13 @@ async function bootstrapEKKO() {
 
     // 9. CARGA SECUENCIAL ASINCRONA DE ENDPOINTS (FUENTES Y PRODUCTOS)
     console.log("%c[EKKO BOOTSTRAP] Resolviendo catalogos de recursos y tipografias en segundo plano...", "color: #0369a1;");
+    /* R19C-MOCKUP: el mockup natal NO espera a la API. Con el catálogo de
+       resguardo ya asignado se renderiza AHORA (el SVG es un archivo estático
+       del deploy, llega en milisegundos); cuando /api/products responda,
+       refrescarCatalogoDinamico() actualiza pestañas solo con lienzo limpio.
+       En Vercel el cold start de la serverless dejaba el lienzo VACÍO varios
+       segundos: esa era la "carga no inmediata" del mockup. */
+    renderCategories();
     const fontsPromise = loadDynamicFonts()
       .then(loadedFonts => {
         console.log("%c[EKKO BOOTSTRAP] Tipografias del backend sincronizadas en el editor.", "color: #10b981;");
@@ -2864,7 +2898,7 @@ async function bootstrapEKKO() {
         console.warn("[EKKO BOOTSTRAP] Fallo la consulta de productos de la API. Usando catalogo estatico.", err);
       })
       .finally(() => {
-        renderCategories();
+        refrescarCatalogoDinamico();
       });
 
     await Promise.all([fontsPromise, productsPromise]);
