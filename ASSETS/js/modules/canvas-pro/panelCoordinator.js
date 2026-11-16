@@ -140,6 +140,86 @@ const CONTEXT_LABELS = {
     fusion: "Fusión"
 };
 
+/* -----------------------------------------------------------------------
+   R19-1 · HOGAR DERECHO del panel superior: chevron (contraer/expandir),
+   modo claro/oscuro, conmutador de la barra emergente y Descargar viven
+   EN UNA MISMA FILA, alineados a la derecha, sin solaparse (reclamo del
+   dueño: "que convivan en simetría y como si vivieran en un mismo hogar").
+   La cascada mueve los MISMOS nodos, así que nada se duplica.
+   ----------------------------------------------------------------------- */
+function ensureHogarDerecho(surface) {
+    if (!surface) return;
+
+    let cluster = byId("ekkoTopDerecha");
+    if (!cluster) {
+        cluster = document.createElement("div");
+        cluster.id = "ekkoTopDerecha";
+        cluster.className = "ekko-top-derecha";
+        cluster.setAttribute("role", "group");
+        cluster.setAttribute("aria-label", "Controles del panel");
+    }
+    if (cluster.parentElement !== surface) surface.appendChild(cluster);
+
+    /* --- conmutador de la BARRA EMERGENTE (R19-2) ---------------------- */
+    let toggleEmergente = byId("btnEmergenteToggle");
+    if (!toggleEmergente) {
+        toggleEmergente = document.createElement("button");
+        toggleEmergente.type = "button";
+        toggleEmergente.id = "btnEmergenteToggle";
+        toggleEmergente.className = "panel-icon-btn";
+        toggleEmergente.textContent = "≡";
+        toggleEmergente.setAttribute("aria-label", "Mostrar u ocultar la barra de herramientas flotante");
+        toggleEmergente.addEventListener("click", alternarEmergente);
+    }
+
+    /* --- estado persistido: la emergente nace VISIBLE (default ON) ----- */
+    let emergenteOff = false;
+    try { emergenteOff = localStorage.getItem("ekko.emergente.v1") === "0"; } catch (_) {}
+    document.body.classList.toggle("ekko-emergente-off", emergenteOff);
+    syncBotonEmergente(toggleEmergente, emergenteOff);
+
+    /* --- orden estable dentro del hogar (izquierda → derecha) ----------
+       Se re-aplica en CADA pasada con append incondicional: así el orden
+       es determinista aunque los nodos lleguen en momentos distintos
+       (btnModoTema lo crea espacio.js más tarde que los demás).
+       [≡ emergente] [chevrons] [🌓 tema] [Descargar = primario al borde]. */
+    const tema = byId("btnModoTema");
+    const download = byId("btnEkkoDownload");
+    [toggleEmergente, byId("topPanelControls"), byId("topPanelCompact"), tema, download]
+        .filter(Boolean)
+        .forEach(n => cluster.appendChild(n));
+}
+
+function syncBotonEmergente(btn, off) {
+    if (!btn) return;
+    btn.setAttribute("aria-pressed", off ? "false" : "true");
+    btn.title = off
+        ? "Mostrar barra de herramientas flotante"
+        : "Ocultar barra de herramientas flotante";
+}
+
+function alternarEmergente() {
+    const off = document.body.classList.toggle("ekko-emergente-off");
+    try { localStorage.setItem("ekko.emergente.v1", off ? "0" : "1"); } catch (_) {}
+    syncBotonEmergente(byId("btnEmergenteToggle"), off);
+    if (off) {
+        if (typeof window.hideContextualMenu === "function") window.hideContextualMenu();
+    } else {
+        /* Re-anclar ENCIMA de la selección: la posición arrastrada quedó
+           invalidada al desactivar (R18-5: nunca sobre el centro del mockup).
+           Se re-mide con un frame de margen: display:flex vuelve a aplicar
+           primero, y offsetWidth/Height sin tamaño daban anclaje corrido. */
+        window.customToolbarLeft = undefined;
+        window.customToolbarTop = undefined;
+        const sel = window.selectedItem || (window.selectedItems && window.selectedItems[0]);
+        if (sel && typeof window.updateContextualMenu === "function") {
+            window.updateContextualMenu(sel);
+            requestAnimationFrame(() => window.updateContextualMenu(sel));
+            setTimeout(() => window.updateContextualMenu(sel), 120);
+        }
+    }
+}
+
 function ensureContextSurface() {
     const top = byId("topBar");
     if (!top) return null;
@@ -168,6 +248,10 @@ function ensureContextSurface() {
     if (controles && controles.parentElement !== surface) surface.appendChild(controles);
     const info = byId("selectionInfo");
     if (info && info.parentElement !== surface) surface.insertBefore(info, controles);
+
+    /* R19-1: chevron + modo claro/oscuro + conmutador de emergente +
+       Descargar comparten UN hogar a la derecha (misma fila, sin solapes). */
+    ensureHogarDerecho(surface);
 
     return surface;
 }
