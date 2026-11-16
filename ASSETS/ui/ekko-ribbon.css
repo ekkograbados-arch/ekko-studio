@@ -306,8 +306,7 @@
     border-radius: 4px;
     font-size: 12px;
     white-space: nowrap;
-    box-sizing: border-box;
-    flex: none;
+    box-sizing: border-box;    flex: none;
 }
 
 /* Etiquetas de la caja de selección y de texto, dentro del hogar. */
@@ -491,16 +490,70 @@
     display: none !important;
 }
 
-/* BARRA EMERGENTE JUBILADA (R18): todos sus controles viven ahora en la
-   cinta (Eliminar, Duplicar, Exportar, Escalar, capas…). Flotando al
-   centro del lienzo tapaba el objeto y sus tiradores.
-   El motor la re-muestra con .is-visible / .active (styles.css:625 escribe
-   display:flex !important y carga DESPUÉS de esta hoja): se la cubre con
-   la MISMA especificidad para que ninguna de las dos manos la reviva. */
-#contextual-toolbar,
-#contextual-toolbar#contextual-toolbar.is-visible,
-#contextual-toolbar#contextual-toolbar.active {
+/* BARRA EMERGENTE (R19, reclamo del dueño): VUELVE. En R18 se jubiló al
+   adoptar sus controles a la cinta; el dueño aclaró que la quiere de vuelta
+   CON un conmutador en el panel superior (que es el que manda la interfaz).
+   El gate vive en <body> (#btnEmergenteToggle lo alterna y persiste en
+   localStorage "ekko.emergente.v1", default ON). Se cubre display:flex de
+   styles.css con mayor especificidad para que ninguna mano la reviva. */
+body.ekko-emergente-off #contextual-toolbar,
+body.ekko-emergente-off #contextual-toolbar#contextual-toolbar.is-visible,
+body.ekko-emergente-off #contextual-toolbar#contextual-toolbar.active {
     display: none !important;
+}
+
+/* -----------------------------------------------------------------------
+   R19-1 · HOGAR DERECHO del panel superior: una fila, a la derecha, sin
+   solapes. Orden: [≡ emergente] [⌃ chevron] [🌓 tema] [Descargar].
+   Todos con la misma altura (30px) y la misma voz visual de chip.
+   ----------------------------------------------------------------------- */
+#ekkoTopDerecha {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 0 auto;
+    padding-right: 2px;
+}
+
+#ekkoTopDerecha > button {
+    min-width: 30px;
+    height: 30px;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+}
+
+/* El margin-left:auto histórico del chevron ahora es del HOGAR completo. */
+#ekkoTopDerecha #topPanelControls {
+    margin-left: 0;
+}
+
+/* Descargar deja de flotar (antes: pastilla fixed que convivía mal con el
+   resto). Misma altura que sus vecinos; conserva su piel de ekko-espacio. */
+#ekkoDownloadWrap {
+    display: none !important;
+}
+#ekkoTopDerecha #btnEkkoDownload {
+    height: 30px;
+    padding: 0 14px;
+    border-radius: 999px;
+    font-size: 13px;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+/* La piel espacio bajaba el botón de tema 27px para apilarlo bajo la
+   pastilla Descargar fija (v2.9). Con el hogar derecho ese apilamiento
+   dejó de existir: los cuatro vecinos comparten la MISMA fila. Especificidad
+   mayor que #ekkoTopContextSurface #btnModoTema (espacio.css carga después). */
+#ekkoTopContextSurface #ekkoTopDerecha #btnModoTema {
+    top: 0 !important;
+    margin-left: 0 !important;
+    width: 30px !important;
+    height: 30px !important;
 }
 
 /* Movimiento reducido: la cinta debe respetar la preferencia del sistema. */
