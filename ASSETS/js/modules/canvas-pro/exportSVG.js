@@ -272,7 +272,9 @@ function ampliacionSuave(fuente, w0, h0, wT, hT) {
     if (cw !== wT || ch !== hT) {
         const cF = document.createElement("canvas");
         cF.width = wT; cF.height = hT;
-        const xF = cF.getContext("2d");
+        // willReadFrequently: este canvas vuelve como `lienzo` y el exportador
+        // lo lee con getImageData; sin el atributo cada lectura va GPU->CPU.
+        const xF = cF.getContext("2d", { willReadFrequently: true });
         xF.imageSmoothingEnabled = true; xF.imageSmoothingQuality = "high";
         try { xF.drawImage(actual, 0, 0, wT, hT); } catch (_) { return null; }
         actual = cF;
@@ -657,12 +659,16 @@ function prepararFotoImportada(raster, opciones) {
         if (!lienzo) {
             lienzo = document.createElement("canvas");
             lienzo.width = wT; lienzo.height = hT;
-            const cx = lienzo.getContext("2d");
+            // willReadFrequently: este canvas se lee con getImageData DOS veces
+            // (normalización de borde + plano de luminancia). Sin el atributo
+            // Chrome lo mantiene como canvas acelerado y CADA readback copia
+            // la GPU a CPU (advertencia de F12 y exportador lento).
+            const cx = lienzo.getContext("2d", { willReadFrequently: true });
             cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = "high";
             try { cx.drawImage(fuente, 0, 0, wT, hT); } catch (_) { return null; }
         }
         const W = lienzo.width, H = lienzo.height;
-        const ctx2 = lienzo.getContext("2d");
+        const ctx2 = lienzo.getContext("2d", { willReadFrequently: true });
         // NORMALIZACIÓN del borde ampliado: la interpolación del escalado
         // ensancha los flecos del recorte y deja COLOR RESIDUAL en píxeles
         // casi transparentes — eso era lo que se veía como "puntitos
