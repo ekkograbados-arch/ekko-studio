@@ -466,10 +466,14 @@ function build() {
        innecesario). El aria-label no se ve: queda para lectores de pantalla. */
     b.setAttribute("aria-label", f.lado === "izq" ? "Hogares hacia la izquierda" : "Hogares hacia la derecha");
     b.textContent = f.lado === "izq" ? "\u2039" : "\u203A";
-    /* SIN CLIC y DESPACIO (reclamo R18: "debe fluir y desplazarse despacio,
-       no automáticamente"): con el puntero encima la banda corre sola a
-       velocidad constante (~90 px por segundo), suave y sin saltos, hasta
-       el tope o hasta que sale el cursor. */
+    /* DESPACIO CON HOVER (reclamo R18: "debe fluir y desplazarse despacio,
+       no automáticamente") + CLIC QUE ACELERA (directivo del dueño R21:
+       "debería ser con clic también ya que avanza muy lento"): con el
+       puntero encima la banda corre sola a velocidad constante (~90 px por
+       segundo), suave y sin saltos, hasta el tope o hasta que sale el
+       cursor; con clic salta de inmediato un tramo del ancho visible
+       (medido antes del fix: el clic NO movía el scroll y a 1519px
+       quedaban 10 botones fuera del área, detrás de la flecha). */
     const PIXELES_POR_SEGUNDO = 90;
     let ritmo = null;
     const parar = () => { if (ritmo) { cancelAnimationFrame(ritmo); ritmo = null; } };
@@ -495,6 +499,15 @@ function build() {
     });
     b.addEventListener("mouseleave", parar);
     b.addEventListener("blur", parar);
+    /* CLIC (directivo del dueño R21): acelera el recorrido. Un paso de ~60%
+       del ancho visible por clic (mínimo 240px), con scroll suave para que
+       no salte; el hover lento de arriba sigue intacto. En los topes el
+       scroll se autocorta solo (scrollBy clamp), así que clic al final no
+       rompe nada. */
+    b.addEventListener("click", () => {
+      const paso = Math.max(240, Math.round(body.clientWidth * 0.6));
+      body.scrollBy({ left: f.delta * paso, behavior: "smooth" });
+    });
     wrap.appendChild(b);
     return b;
   });
