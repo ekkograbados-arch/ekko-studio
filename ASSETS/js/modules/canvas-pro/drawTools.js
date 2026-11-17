@@ -831,7 +831,10 @@ function porTecla(evento) {
 /* BOTONES EN EL GRUPO CREAR                                        */
 /* ---------------------------------------------------------------- */
 function icono(nombre) {
-    return `<svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg?v=18#${nombre}"></use></svg>`;
+    /* R20: v=18 -> v=19 para pedir el MISMO sprite que el resto de la cinta
+       (todos los demas usan ?v=19; la mezcla de versiones confunde al
+       depurar "por que este icono no carga"). */
+    return `<svg class="ekko-ic" aria-hidden="true"><use href="ASSETS/ui/ekko-icons.svg?v=19#${nombre}"></use></svg>`;
 }
 
 function boton(id, forma, nombre, etiqueta, title) {
