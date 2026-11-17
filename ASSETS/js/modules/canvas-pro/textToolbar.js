@@ -2582,8 +2582,23 @@ async function weldTextRun(item) {
  * que usan el valor de retorno creian estar trabajando con un objeto Paper.
  */
 export async function convertTextToVector(item = null) {
-    const selected = item || window.selectedItem ||
-        (Array.isArray(window.selectedItems) ? window.selectedItems[window.selectedItems.length - 1] : null);
+    /* R19E-T2V: el botón llega SIN argumento y la selección suele ser MIXTA
+       (texto + imagen, justo el flujo previo a una fusión). Antes se tomaba
+       window.selectedItem o el ULTIMO de selectedItems: si el último tocado
+       era la imagen, weldText recibía un Raster, rechazaba el objetivo y
+       devolvía null EN SILENCIO — el botón "no hacía nada". Ahora se busca
+       un objetivo de texto REAL entre los seleccionados (PointText, curvado
+       o espaciado) antes de caer al comportamiento antiguo, y si la
+       conversión falla se AVISA en vez de callarse. */
+    const esObjetivoTexto = (it) => !!(it && !(it.data?.locked) &&
+        (it.className === 'PointText' || it.data?.isCurvedGroup || it.data?.isSpacedGroup));
+    let selected = item;
+    if (!selected || !esObjetivoTexto(selected)) {
+        const lista = Array.isArray(window.selectedItems) ? window.selectedItems : [];
+        selected = lista.find(esObjetivoTexto)
+            || window.selectedItem
+            || (lista.length ? lista[lista.length - 1] : null);
+    }
     window._ekkoTextVectorDispatch = {
         selected: selected ? {
             className: selected.className || selected.constructor?.name || null,
@@ -2593,7 +2608,11 @@ export async function convertTextToVector(item = null) {
         } : null,
         at: Date.now()
     };
-    return weldText(selected);
+    const resultado = await weldText(selected);
+    if (!resultado) {
+        notice("No se pudo convertir el texto a vector. Revisa que haya un texto seleccionado y que su tipografía tenga archivo vectorial (TTF/OTF).", { kind: "warn" });
+    }
+    return resultado;
 }
 
 export function toggleBold(item) {
