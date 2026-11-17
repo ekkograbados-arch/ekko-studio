@@ -584,7 +584,13 @@ export const TOOLS = {
   },
 
   // --- Texto (edicion de UN texto: con varios se oculta) ---
-  textToVector:  { label: "Texto a Vector", active: s => s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT) },
+  // R19F: el flujo de FUSION es texto+imagen seleccionados a la vez. Con la
+  // regla anterior (count===1) el boton DESAPARECIA en ese momento — el
+  // cliente veia "el boton no funciona". Ahora basta con que haya EXACTAMENTE
+  // UN texto en la seleccion (pueden haber imagenes/vectores de mas);
+  // convertTextToVector ya resuelve el texto entre los seleccionados (R19E).
+  // Dos textos a la vez siguen ocultando: eso es edicion de a uno.
+  textToVector:  { label: "Texto a Vector", active: s => s.list.filter(e => e.species === SPECIES.TEXT).length === 1 },
 
   // --- Fusion ---
   fusion: {
@@ -752,7 +758,7 @@ export const TABS = Object.freeze({
      Voltear entra porque con varios objetos apretados el espejo sirve igual
      que con uno. removeBg/editCutout/outline por el motivo de siempre: con
      dos imagenes la cinta cae aca y los botones tenian que estar. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "flip", "size", "centrar", "solidHole"] }
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "flip", "size", "centrar", "solidHole", "textToVector"] }
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
