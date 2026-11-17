@@ -677,10 +677,22 @@ function beginHistoryTransaction(label = "operation") {
     }
   }
   if (!historyTransaction?.active) {
+    /* R19E-PERF: beforeStateClean es un SEGUNDO exportJSON completo del
+       proyecto (medido: ~220ms con mockup en escena) y solo sirve para el
+       deduplicador de pushUndoEntry, que ya trae fallback documentado al
+       export crudo cuando una entrada no trae estado limpio. En
+       transacciones TRANSFORM (cada arrastre/nudge — el camino caliente,
+       abre tx en cada pointerdown) se omite: el hitch al agarrar un objeto
+       baja de ~550ms (2 exports) a ~330ms (1 export) y la deduplicación
+       cae al crudo, que es exactamente el fallback previsto. Las tx de
+       operación única (vectorizar, booleanas, fusionar) conservan el
+       estado limpio: ahí el coste es de un solo clic, no de un gesto
+       continuo. */
+    const esTransformTx = /^transform(?::|$)/.test(String(label || ""));
     historyTransaction = { active: true, label, dirty: false, startedAt: Date.now(),
       beforeState: (typeof paper !== "undefined" && paper.project)
         ? paper.project.exportJSON({ asString: true }) : null,
-      beforeStateClean: exportEstadoLimpio(),
+      beforeStateClean: esTransformTx ? null : exportEstadoLimpio(),
       beforeTransforms: captureHistoryTransforms(),
       beforeSelection: captureHistorySelection() };
     window._ekkoHistoryTransaction = { ...historyTransaction, beforeState: undefined, beforeStateClean: undefined, status: "open" };
