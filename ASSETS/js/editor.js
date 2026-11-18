@@ -1169,6 +1169,18 @@ function syncSizeLockButtons() {
     if (!button.querySelector("svg.ekko-ic")) {
       button.textContent = locked ? "🔒" : "🔓";
     }
+    /* QUEJA 3 ("el candado no se abre"): el icono era SIEMPRE el mismo
+       candado cerrado en los dos estados, así que el cliente veía un botón
+       que no reaccionaba. Ahora el <use> cambia de símbolo: cerrado =
+       proporción bloqueada, abierto = proporción libre. La versión ?v=20
+       del sprite es la que trae ekko-candado-abierto (si no se sube, el
+       navegador sirve la copia cacheada en v=19 y el ícono sale vacío). */
+    const use = button.querySelector("svg.ekko-ic > use");
+    if (use) {
+      const icono = locked ? "ekko-candado" : "ekko-candado-abierto";
+      const href = `ASSETS/ui/ekko-icons.svg?v=20#${icono}`;
+      if (use.getAttribute("href") !== href) use.setAttribute("href", href);
+    }
     button.classList.toggle("active", locked);
     button.setAttribute("aria-pressed", locked ? "true" : "false");
     button.title = locked
