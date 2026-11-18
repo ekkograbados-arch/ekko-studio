@@ -1234,6 +1234,20 @@ body,
 /* EKKO v51: Paneles plegables / ocultables */
 #topBar.ekko-collapsed { display: none; }
 #contextual-toolbar.ekko-hidden { display: none !important; }
+
+/* BARRA EMERGENTE SIN SLOTS VACÍOS (queja 5: "la barra emergente no muestra
+   correctamente los botones de atajos" — salía con huecos mudos y el ⋯).
+   cascadeToolbar.js ya marca con .ekko-fb-vacia a los grupos que quedaron
+   sin ningún botón útil para la selección (los adoptó la cinta o el motor
+   los escondió entero), pero la regla que los ocultaba NO EXISTÍA: la clase
+   se pintaba y nadie la leía. Ahora el grupo vacío desaparece y también el
+   separador que le queda al costado, para que no queden rayas dobles. */
+#contextual-toolbar .ekko-fb-vacia { display: none !important; }
+/* El separador no se juzga por su vecino inmediato sino por los GRUPOS
+   VISIBLES que separa (ribbonRenderer lo calcula): si entre dos grupos
+   vivos quedó un grupo mudo en el medio, el divider sobrante se oculta
+   y el que separa los dos visibles se queda. */
+#contextual-toolbar .ekko-divider-sobra { display: none !important; }
 #productPanelWrap.ekko-collapsed { width: 48px; overflow: hidden; }
 #productPanelWrap.ekko-collapsed #leftSidebar { display: none; }
 #panelToggles { position: fixed; top: 8px; right: 16px; z-index: 9999; display: flex; gap: 6px; }
