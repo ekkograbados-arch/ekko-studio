@@ -126,6 +126,90 @@ function applyDecision(el, decision) {
   }
 }
 
+/**
+ * BARRA EMERGENTE SIN SLOTS VACÍOS (queja 5).
+ *
+ * La píldora #contextual-toolbar mostraba huecos mudos: grupos cuyos
+ * botones se habían adoptado en la cinta (R18) o que el motor escondió
+ * entero quedaban dibujados como cajitas vacías, y encima sobraba el
+ * separador al costado — "no muestra correctamente los botones de atajos".
+ *
+ * cascadeToolbar.js YA calculaba esto (.ekko-fb-vacia) pero su
+ * montarBarraEmergente() no corre en este layout (data-ekkoCascadeFb
+ * nunca se pone), así que la clase jamás se aplicaba y la regla CSS no
+ * tenía a quién aplicársele. Acá se pinta desde el ÚNICO escritor de la
+ * píldora: grupo sin ningún control utilizable (visible y no bloqueado
+ * por el motor) => .ekko-fb-vacia, y el CSS lo oculta junto con los
+ * dividers vecinos. Los grupos con al menos un botón no se tocan.
+ *
+ * @returns {number} cuántos grupos quedaron vacíos (para depurar).
+ */
+function marcarGruposVaciosPildora() {
+  const bar = document.getElementById("contextual-toolbar");
+  if (!bar) return 0;
+  let vacios = 0;
+  /* Sin layout no se mide nada: si la píldora está oculta (sin selección),
+     todos los hijos miden 0 px y quedarían marcados vacíos sin serlo. */
+  const rectPill = bar.getBoundingClientRect();
+  if (getComputedStyle(bar).display === "none" || !rectPill.width) return 0;
+  for (const grupo of bar.children) {
+    if (!grupo.classList) continue;
+    /* Agrupadores directos de la píldora: los .toolbar-group (Eliminar,
+       Fusionar…) y también los .toolbar-subgroup (#ctxTextControls, que
+       tras la adopción R18 quedó con los SOLOS textos "Radio"/"Espacio"
+       y el wrapper vacío del select de fuente: texto mudo sin botón). */
+    const esAgrupador = grupo.classList.contains("toolbar-group")
+                     || grupo.classList.contains("toolbar-subgroup");
+    if (!esAgrupador) continue;
+    /* SE MIDE SIEMPRE CON EL GRUPO PINTADO: si está oculto por la regla
+       .ekko-fb-vacia, sus hijos miden 0 px y la medición diría "vacío"
+       aunque hayan vuelto botones útiles (y ahí el grupo oscilaría entre
+       vacío y lleno en cada render). Se quita la clase, se mide de verdad
+       y se vuelve a poner solo si sigue sin nada útil. La clase .hidden /
+       ekko-command-hidden / display:none inline se chequean aparte porque
+       esas formas de ocultar no dependen de que el grupo esté pintado. */
+    const estabaVacio = grupo.classList.contains("ekko-fb-vacia");
+    if (estabaVacio) grupo.classList.remove("ekko-fb-vacia");
+    const controlUtil = [...grupo.querySelectorAll("button, input, select, textarea")]
+      .some(c => {
+        if (c.classList.contains(CLASS_HIDDEN)) return false;  // escondido por el motor
+        if (c.classList.contains("hidden")) return false;      // display:none !important
+        if (c.style.display === "none") return false;
+        const r = c.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      });
+    const vacio = !controlUtil;
+    grupo.classList.toggle("ekko-fb-vacia", vacio);
+    if (vacio) vacios++;
+  }
+
+  /* SEPARADORES: un divider solo tiene sentido si separa DOS grupos
+     visibles, y solo el PRIMERO de esa pareja: si entre los dos vivos
+     quedó un grupo mudo en el medio, sus dos dividers apuntan al mismo
+     par y sobra uno (se veía rayita doble). */
+  const nodos = [...bar.children];
+  const esGrupo = n => n.classList &&
+    (n.classList.contains("toolbar-group") || n.classList.contains("toolbar-subgroup"));
+  const pintado = n => esGrupo(n) && !n.classList.contains("ekko-fb-vacia") &&
+    getComputedStyle(n).display !== "none";
+  let hayVisibleAntes = false;
+  let usadoTrasVisible = false;
+  nodos.forEach((n) => {
+    if (esGrupo(n)) {
+      if (pintado(n)) { hayVisibleAntes = true; usadoTrasVisible = false; }
+      return;
+    }
+    if (!n.classList || !n.classList.contains("toolbar-divider")) return;
+    let hayVisibleDespues = false;
+    const i = nodos.indexOf(n);
+    for (let j = i + 1; j < nodos.length && !hayVisibleDespues; j++) hayVisibleDespues = pintado(nodos[j]);
+    const sobra = !hayVisibleAntes || !hayVisibleDespues || usadoTrasVisible;
+    n.classList.toggle("ekko-divider-sobra", sobra);
+    if (!sobra) usadoTrasVisible = true;
+  });
+  return vacios;
+}
+
 let pendingFrame = 0;
 
 /** Render síncrono. Devuelve el snapshot por si algo quiere inspeccionarlo. */
@@ -172,6 +256,9 @@ export function renderNow() {
      visibles = oculto). Guardado con ? porque el layout puede no haber
      cargado todavía. */
   try { window.EKKO_RIBBON_LAYOUT?.sync?.(); } catch (_) {}
+  /* Queja 5: recién DESPUÉS de que la cinta adoptó sus botones se mide la
+     píldora, así el grupo recién vaciado se oculta en el mismo render. */
+  try { marcarGruposVaciosPildora(); } catch (_) {}
   return snap;
 }
 
