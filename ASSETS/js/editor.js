@@ -343,12 +343,17 @@ if (typeof window !== "undefined") {
         }))
       };
     },
-    openSurface(productId, surfaceName) {
+    openSurface(productId, surfaceName, options = null) {
       const product = findProductById(productId);
       if (!product || !Array.isArray(product.superficies)) return false;
       const index = product.superficies.findIndex(surface => surface?.nombre === surfaceName);
       if (index < 0) return false;
-      try { saveCurrentScene(); } catch (_) {}
+      /* sinGuardar (apertura de proyectos .ekko): los estados del proyecto
+         ya quedaron cargados via setAll; el saveCurrentScene() previo
+         guardaria la escena viva vieja ENCIMA de uno de esos estados y
+         borraria una vista del proyecto recién abierto. Fuera de ahi, el
+         guardado previo sigue siendo correcto (cambio de vista normal). */
+      if (!(options && options.sinGuardar)) try { saveCurrentScene(); } catch (_) {}
       toolState.currentProduct = product;
       toolState.currentSurface = index;
       try {
@@ -425,9 +430,20 @@ function captureHistoryTransforms() {
 
 function makeHistoryEntry(state = null, transforms = null) {
   if (typeof paper === "undefined" || !paper.project) return null;
+  /* R21-PERF (dueño 2026-11-17): stateClean era un SEGUNDO exportJSON
+     completo por cada guardado — medido: ~700ms c/u con el mockup en escena
+     y ~110ms extra por cada foto 4K; saveHistory entero llegaba a 1.9s y
+     DUPLICAR/ELIMINAR/PEGAR/AL FRENTE se sentian "botones que no hacen
+     nada" (medido en produccion: Eliminar 4.9s, Pegar 2.4s, Duplicar 2.5s).
+     Se extiende el criterio R19E-PERF (que ya omitia este export en
+     transacciones transform) a TODOS los saves: el deduplicador de
+     pushUndoEntry compara ahora el export crudo con estadoComparable (que
+     ignora "rotation":0 y "selected":true/false). El unico caso que pierde
+     deduplicacion exacta es mismo contenido + seleccion distinta; conservar
+     el segundo export costaba congelar cada boton 0.7-1.9s. */
   return {
     state: state || paper.project.exportJSON({ asString: true }),
-    stateClean: exportEstadoLimpio(),
+    stateClean: null,
     transforms: Array.isArray(transforms) ? transforms : captureHistoryTransforms(),
     selected: captureHistorySelection(),
     at: Date.now()
@@ -594,10 +610,15 @@ function restoreTransformHistoryInPlace(entry, selectionDescriptors, phase) {
 /* La seleccion (window.selectItem) le escribe data.rotation = 0 a los items
    que toca (controlador de rotacion): visualmente es NO-rotacion, pero el
    exportJSON lo lleva y dos checkpoints del mismo contenido daban strings
-   distintos. Para comparar contenidos se ignora. */
+   distintos. Para comparar contenidos se ignora.
+   R21-PERF (dueño 2026-11-17): tambien se ignoran los marcadores "selected"
+   (items y capas). Con la optimizacion de abajo los checkpoints se deduplican
+   por el export CRUDO, y la seleccion marca el crudo aunque el contenido sea
+   el mismo: sin este recorte, dos saves del mismo lienzo con seleccion no se
+   deduplicarian y volveria el "Ctrl+Z que no hace nada". */
 function estadoComparable(s) {
   if (typeof s !== "string") return null;
-  return s.replace(/,"rotation":0/g, "");
+  return s.replace(/,"rotation":0/g, "").replace(/,"selected":(true|false)/g, "");
 }
 
 /* Apila una entrada de undo SOLO si su estado difiere del checkpoint del tope.
@@ -677,22 +698,17 @@ function beginHistoryTransaction(label = "operation") {
     }
   }
   if (!historyTransaction?.active) {
-    /* R19E-PERF: beforeStateClean es un SEGUNDO exportJSON completo del
-       proyecto (medido: ~220ms con mockup en escena) y solo sirve para el
-       deduplicador de pushUndoEntry, que ya trae fallback documentado al
-       export crudo cuando una entrada no trae estado limpio. En
-       transacciones TRANSFORM (cada arrastre/nudge — el camino caliente,
-       abre tx en cada pointerdown) se omite: el hitch al agarrar un objeto
-       baja de ~550ms (2 exports) a ~330ms (1 export) y la deduplicación
-       cae al crudo, que es exactamente el fallback previsto. Las tx de
-       operación única (vectorizar, booleanas, fusionar) conservan el
-       estado limpio: ahí el coste es de un solo clic, no de un gesto
-       continuo. */
-    const esTransformTx = /^transform(?::|$)/.test(String(label || ""));
+    /* R19E-PERF (dueño 2026-11-16) ampliado R21-PERF (2026-11-17):
+       beforeStateClean era OTRO exportJSON completo por transaccion
+       (vectorizar, booleanas, fusionar...) — ~700ms mas de congelamiento por
+       clic con fotos 4K en escena. Se omite para TODAS las transacciones: el
+       commit compara por el export crudo con estadoComparable (ver
+       makeHistoryEntry). El estado limpio solo aportaba deduplicacion exacta
+       para el caso mismo-contenido/seleccion-distinta. */
     historyTransaction = { active: true, label, dirty: false, startedAt: Date.now(),
       beforeState: (typeof paper !== "undefined" && paper.project)
         ? paper.project.exportJSON({ asString: true }) : null,
-      beforeStateClean: esTransformTx ? null : exportEstadoLimpio(),
+      beforeStateClean: null,
       beforeTransforms: captureHistoryTransforms(),
       beforeSelection: captureHistorySelection() };
     window._ekkoHistoryTransaction = { ...historyTransaction, beforeState: undefined, beforeStateClean: undefined, status: "open" };
