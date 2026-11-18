@@ -163,22 +163,35 @@ function esContenedor(entry) {
 /** Un grupo es un envoltorio: cuenta que cosa de diseno tiene adentro. */
 function contenidoDeGrupo(owner) {
   const especies = new Set();
-  const visit = node => {
+  const visit = (node, dentroDeTexto) => {
     if (!node) return;
     const data = node.data || {};
     if (data.mockup || data.isMask || data.wasClipMask || node.clipMask ||
         data.isSelectionBox || data.isHandle || data.isMeasurement ||
         data.isSmartGuide || data.isNodeEditOverlay || data.isTracePreview) return;
-    if (data.isText || data.isCurvedGroup || data.isSpacedGroup || node.className === "PointText") {
+    /* TEXTO: el dueño, su envoltorio (curvado/espaciado/subrayado) y la
+       geometria de DECORACION que lo acompaña (el rectangulo del subrayado
+       y los glifos ya horneados de un texto curvado). Sin esto, un texto
+       subrayado o curvado salia mezclado TEXTO+VECTOR, species.size = 2, y
+       el manifiesto escondia Negrita/Cursiva/Subrayado/Tipografia enteros
+       ("los botones no funcionan o faltan"): no habia manera de sacar el
+       subrayado ni de cambiar la fuente de un texto curvado. */
+    const esTexto = data.isText === true || data.isCurvedGroup === true ||
+        data.isSpacedGroup === true || data.isUnderlinedGroup === true ||
+        data.isUnderlineLine === true || data.isUnderlineGeometry === true ||
+        node.className === "PointText";
+    if (esTexto) {
       especies.add(SPECIES.TEXT);
     } else if (node.className === "Raster") {
       especies.add(SPECIES.RASTER);
     } else if (VECTOR_CLASSES.includes(node.className)) {
-      especies.add(SPECIES.VECTOR);
+      /* Lo que vive DENTRO de un envoltorio de texto es texto horneado,
+         no un vector suelto: ver arriba. */
+      especies.add(dentroDeTexto ? SPECIES.TEXT : SPECIES.VECTOR);
     }
-    (node.children || []).forEach(visit);
+    (node.children || []).forEach(h => visit(h, dentroDeTexto || esTexto));
   };
-  visit(owner);
+  visit(owner, false);
   return especies;
 }
 
