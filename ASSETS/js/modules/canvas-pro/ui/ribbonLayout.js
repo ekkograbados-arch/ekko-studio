@@ -225,7 +225,7 @@ function ponerIcono(btn, iconoId) {
    del navegador; si el sprite se actualizó (candado, rotar…), el cliente
    seguía viendo el VIEJO y los íconos nuevos salían vacíos. La versión se
    sube a mano cuando cambie el sprite. */
-const SPRITE_V = "ASSETS/ui/ekko-icons.svg?v=19#";
+const SPRITE_V = "ASSETS/ui/ekko-icons.svg?v=20#";
 
 function adoptar() {
   if (!layout) return;
@@ -233,6 +233,16 @@ function adoptar() {
 
   const mover = (node, key) => {
     if (!node || !g(key)) return;
+    /* CHROME UNIFORME (queja: "hay hogares que tienen textos e iconos pero
+       no botones"). Los botones adoptados llegan con la clase .toolbar-btn
+       del panel de selección, que NO está en la lista de selectores del
+       vidrio esmerilado de ekko-espacio.css (ahí solo entran
+       #topBar .btn-action y #contextual-toolbar .toolbar-btn): en la cinta
+       quedaban pelados, sin borde ni fondo, pareciendo texto suelto. Al
+       entrar al hogar se les agrega .btn-action, así heredan el mismo chip
+       de vidrio que los botones nativos de la cinta. Los grupos y campos
+       (div/span) no se tocan: solo BOTONES. */
+    if (node.tagName === "BUTTON") node.classList.add("btn-action");
     if (node.parentElement !== g(key).body) g(key).body.appendChild(node);
   };
 
@@ -391,13 +401,48 @@ function adoptar() {
   adoptarEmergente("btnCtxBackward", "sendBackward", "organizar");
   adoptarEmergente("btnCtxToBack", "toBack", "organizar");
 
-  /* --- 6. ORDEN ESTABLE dentro de cada hogar ------------------------ */
+  /* --- 6. ORDEN ESTABLE dentro de cada hogar ------------------------
+     RE-APILAR un nodo lo saca y lo vuelve a poner aunque ya esté en su
+     lugar, y eso RECORTA EL FOCO: sync corre en cada render, así que este
+     bucle le robaba el foco al cliente en pleno tipeo de Ancho / Alto /
+     Tamaño de fuente (el campo se quedaba en BODY y las teclas no
+     llegaban: "no puedo cambiar el tamaño"). Ahora se arma la secuencia
+     deseada y solo se toca el DOM si difiere; y si igualmente hubo que
+     mover algo con un campo enfocado, se le devuelve el foco (y el cursor)
+     al terminar. */
+  const restaurarFoco = (foco) => {
+    if (!foco || !document.contains(foco)) return;
+    if (document.activeElement === foco) return;
+    const ini = foco.selectionStart;
+    const fin = foco.selectionEnd;
+    try { foco.focus({ preventScroll: true }); } catch (_) { return; }
+    if (ini != null && fin != null) {
+      try { foco.setSelectionRange(ini, fin); } catch (_) { /* type=number no acepta */ }
+    }
+  };
   Object.entries(ORDEN_HOGARES).forEach(([key, selectores]) => {
     const home = g(key);
     if (!home) return;
+    const cuerpo = home.body;
+    const elegidos = [];
     selectores.forEach(sel => {
-      home.body.querySelectorAll(":scope > " + sel).forEach(n => home.body.appendChild(n));
+      cuerpo.querySelectorAll(":scope > " + sel).forEach(n => {
+        const i = elegidos.indexOf(n);
+        if (i >= 0) elegidos.splice(i, 1);   // un nodo que pega dos selectores va a la última
+        elegidos.push(n);
+      });
     });
+    if (!elegidos.length) return;
+    const actuales = [...cuerpo.children];
+    const otros = actuales.filter(n => !elegidos.includes(n));
+    const deseados = [...otros, ...elegidos];
+    const yaOrdenado = deseados.length === actuales.length
+      && deseados.every((n, i) => n === actuales[i]);
+    if (yaOrdenado) return;                  // no se toca el DOM: nada de churn
+    const foco = document.activeElement;
+    const tocabaFoco = foco && cuerpo.contains(foco);
+    elegidos.forEach(n => cuerpo.appendChild(n));
+    if (tocabaFoco) restaurarFoco(foco);
   });
 }
 
@@ -565,7 +610,14 @@ export function sync() {
       !n.classList.contains("hidden") &&
       !n.closest('[data-fusion-btn].ekko-command-hidden')
     );
-    const enTab = (g.def.key !== "creacion") || (tab === "base");
+    /* INICIO = SOLO CREAR (queja del dueño: "en Inicio solo irán botones y
+       hogares que tengan que ver con Crear"). Antes la condición era al
+       revés: en Inicio entraba TODO lo que la selección habilitaba, así que
+       el cliente veía Organizar/Portapapeles/Tipografía en la pestaña que
+       tenía que ser solo de creación. */
+    const enTab = (tab === "base")
+      ? (g.def.key === "creacion")
+      : (g.def.key !== "creacion");
     g.el.classList.toggle("is-empty", !visible || !enTab);
   });
 
