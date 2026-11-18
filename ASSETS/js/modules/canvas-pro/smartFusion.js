@@ -835,13 +835,18 @@ export function checkMagneticSnapping(rasterItem, mousePoint) {
     activeSnappedRaster = rasterItem;
     window._fusionSnapActive = true;
     window._activeSnappedVector = best.item;
-    paper.view.update();
+    /* R21-PERF (dueño 2026-11-17): el único llamador es selection.js
+       onMouseDrag (L1320) y ese mismo bloque ya ejecuta paper.view.update()
+       al final (selection.js L1344). Estos dos update() de acá hacían que
+       CADA frame de arrastre renderizara el lienzo 2 veces extra (medido:
+       ~400ms/frame con una foto 4K en escena — la "interfaz traba" al
+       arrastrar imagen con texto presente). Se eliminan: el preview y el
+       halo se pintan igual con el update del llamador. */
     return true;
   } else {
     clearFusionPreview(true);
     window._fusionSnapActive = false;
     window._activeSnappedVector = null;
-    paper.view.update();
     return false;
   }
 }
