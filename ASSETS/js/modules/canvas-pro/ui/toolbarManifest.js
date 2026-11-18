@@ -47,6 +47,13 @@ export const FAMILY = Object.freeze({ H: "H", P: "P", E: "E" });
 export const GROUPS = Object.freeze([
   { key: "creacion",     label: "Crear",              modo: "grandes" },
   { key: "tamano",       label: "Tamaño" },
+  /* TIPOGRAFÍA y CURVAR pegados a TAMAÑO (queja del dueño: "el hogar de
+     tipografía debería estar cerca de Tamaño"). Antes venían al final del
+     renglón (posición 12), separados del cuerpo del texto por siete
+     hogares: para cambiar fuente o tamaño había que recorrer toda la
+     cinta. */
+  { key: "texto",        label: "Tipografía" },
+  { key: "curvar",       label: "Curvar y espaciar" },
   { key: "organizar",    label: "Organizar" },
   { key: "portapapeles", label: "Portapapeles" },
   { key: "lienzo",       label: "Lienzo" },
@@ -55,9 +62,7 @@ export const GROUPS = Object.freeze([
   { key: "vector",       label: "Vector" },
   { key: "fusion",       label: "Fusión" },
   { key: "huecos",       label: "Huecos" },
-  { key: "booleanas",    label: "Booleanas" },
-  { key: "texto",        label: "Tipografía" },
-  { key: "curvar",       label: "Curvar y espaciar" }
+  { key: "booleanas",    label: "Booleanas" }
 ]);
 
 /**
