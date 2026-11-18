@@ -239,7 +239,10 @@ export async function openProjectFile(file) {
     const targetSurface = envelope.views.some(view => view.surfaceName === envelope.currentSurface)
         ? envelope.currentSurface
         : envelope.views[0].surfaceName;
-    const opened = api.openSurface(envelope.productId, targetSurface);
+    // sinGuardar: los estados del proyecto ya están cargados via setAll;
+    // abrir la vista destino no debe volver a guardar la escena viva vieja
+    // encima de lo que acabo de cargar (paranoia de escritura al abrir).
+    const opened = api.openSurface(envelope.productId, targetSurface, { sinGuardar: true });
     if (!opened) return { ok: false, reason: "product-not-found" };
     notice(`Proyecto abierto: ${envelope.productName || "sin nombre"} · ${envelope.views.length} vista${envelope.views.length === 1 ? "" : "s"}.`, { kind: "ok" });
     return { ok: true, product: envelope.productName, views: envelope.views.length, surface: targetSurface };
