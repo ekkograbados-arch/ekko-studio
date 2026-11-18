@@ -313,6 +313,31 @@ export function calculateSmartGuides(draggedItem, event) {
 
     clearSmartGuides();
 
+    /* BLINDAJE MULTI-SELECCION: el arrastre multiple mueve TODAS las piezas
+       juntas (accumulateDragDelta aplica el mismo delta a cada target). Si el
+       snap corrigiera la posicion de UNA sola pieza, se romperia la
+       disposicion relativa del resto. Con varias piezas el snap queda
+       desactivado y el arrastre mantiene el bloque coherente. */
+    if (Array.isArray(window.dragTargets) && window.dragTargets.length > 1) return;
+
+    /* ANCLAS DEL PRODUCTO (propuesta 2): el AREA DE GRABADO (clipMask: donde
+       realmente va el laser) y el PRODUCTO (mockup) mandan ANTES que las
+       piezas sueltas — alinear al centro del producto es lo que el cliente
+       busca primero. Se resuelven con el mismo umbral y la misma correccion
+       magnetica que las piezas; el color distingue el origen:
+       cian = producto/area de grabado, rosa = otras piezas. */
+    const anclasProducto = [];
+    try {
+        if (window.clipMask && window.clipMask.bounds) anclasProducto.push(window.clipMask.bounds);
+    } catch (_) {}
+    try {
+        /* El mockup visual casi siempre duplica el clipMask (±0.05): solo se
+           agrega como ancla de reserva cuando NO hay area de grabado. */
+        if (!anclasProducto.length && window.currentMockup && window.currentMockup.bounds) {
+            anclasProducto.push(window.currentMockup.bounds);
+        }
+    } catch (_) {}
+
     // Obtener todos los elementos candidatos para la alineación
     const candidates = paper.project.activeLayer.children.filter(item => {
         if (item === draggedItem) return false;
@@ -320,8 +345,6 @@ export function calculateSmartGuides(draggedItem, event) {
         if (item === guidesGroup) return false;
         return true; // Incluye otros elementos de diseño y el mockup actual
     });
-
-    if (candidates.length === 0) return;
 
     // Obtener el elemento interno real si es un clipGroup
     const activeDragged = draggedItem.data && draggedItem.data.clipGroup
@@ -350,61 +373,65 @@ export function calculateSmartGuides(draggedItem, event) {
         bottom: selBounds.bottom
     };
 
-    // Evaluar alineaciones con cada candidato
+    /* Evaluador por EJE reutilizado: compara sel contra un bounds objetivo
+       en un solo eje y acumula snap + linea de guia. La prioridad del
+       producto es POR EJE: si el area de grabado ofrecio ancla en X, las
+       piezas todavia pueden ofrecer el Y (y viceversa) — bloquear los dos
+       ejes con el primer match pisaba el snap pieza-pieza (medido). */
+    const evaluarEje = (eje, tarBounds) => {
+        const tarV = eje === "x"
+            ? { left: tarBounds.left, center: tarBounds.center.x, right: tarBounds.right }
+            : { top: tarBounds.top, center: tarBounds.center.y, bottom: tarBounds.bottom };
+        const selV = eje === "x" ? selX : selY;
+        for (let sKey in selV) {
+            for (let tKey in tarV) {
+                const diff = selV[sKey] - tarV[tKey];
+                if (Math.abs(diff) <= snapThreshold) {
+                    const linea = eje === "x"
+                        ? { type: "vertical", x: tarV[tKey],
+                            yStart: Math.min(selBounds.top, tarBounds.top),
+                            yEnd: Math.max(selBounds.bottom, tarBounds.bottom) }
+                        : { type: "horizontal", y: tarV[tKey],
+                            xStart: Math.min(selBounds.left, tarBounds.left),
+                            xEnd: Math.max(selBounds.right, tarBounds.right) };
+                    return { diff, linea };
+                }
+            }
+        }
+        return null;
+    };
+
+    /* PASO 1 — anclas del producto (area de grabado y producto), por eje. */
+    let hechoX = false, hechoY = false;
+    for (let b of anclasProducto) {
+        if (b === selBounds) continue;
+        if (!hechoX) {
+            const r = evaluarEje("x", b);
+            if (r) { snapX = r.diff; guideLines.push({ ...r.linea, color: "#0ea5e9" }); hechoX = true; }
+        }
+        if (!hechoY) {
+            const r = evaluarEje("y", b);
+            if (r) { snapY = r.diff; guideLines.push({ ...r.linea, color: "#0ea5e9" }); hechoY = true; }
+        }
+        if (hechoX && hechoY) break;
+    }
+
+    /* PASO 2 — piezas sueltas: solo en los ejes que el producto no cubrio. */
     for (let item of candidates) {
         const target = item.data && item.data.clipGroup
             ? item.children.find(c => !c.clipMask)
             : item;
 
         if (!target) continue;
-        const tarBounds = target.bounds;
-
-        const tarX = {
-            left: tarBounds.left,
-            center: tarBounds.center.x,
-            right: tarBounds.right
-        };
-        const tarY = {
-            top: tarBounds.top,
-            center: tarBounds.center.y,
-            bottom: tarBounds.bottom
-        };
-
-        // 1. Alineación Horizontal (Alinear X - Guías Verticales)
-        for (let sKey in selX) {
-            for (let tKey in tarX) {
-                const diff = selX[sKey] - tarX[tKey];
-                if (Math.abs(diff) <= snapThreshold) {
-                    snapX = diff; // Cantidad a corregir
-                    guideLines.push({
-                        type: "vertical",
-                        x: tarX[tKey],
-                        yStart: Math.min(selBounds.top, tarBounds.top),
-                        yEnd: Math.max(selBounds.bottom, tarBounds.bottom)
-                    });
-                    break;
-                }
-            }
-            if (snapX !== null) break;
+        if (!hechoX) {
+            const r = evaluarEje("x", target.bounds);
+            if (r) { snapX = r.diff; guideLines.push({ ...r.linea, color: "#db2777" }); hechoX = true; }
         }
-
-        // 2. Alineación Vertical (Alinear Y - Guías Horizontales)
-        for (let sKey in selY) {
-            for (let tKey in tarY) {
-                const diff = selY[sKey] - tarY[tKey];
-                if (Math.abs(diff) <= snapThreshold) {
-                    snapY = diff;
-                    guideLines.push({
-                        type: "horizontal",
-                        y: tarY[tKey],
-                        xStart: Math.min(selBounds.left, tarBounds.left),
-                        xEnd: Math.max(selBounds.right, tarBounds.right)
-                    });
-                    break;
-                }
-            }
-            if (snapY !== null) break;
+        if (!hechoY) {
+            const r = evaluarEje("y", target.bounds);
+            if (r) { snapY = r.diff; guideLines.push({ ...r.linea, color: "#db2777" }); hechoY = true; }
         }
+        if (hechoX && hechoY) break;
     }
 
     // Aplicar Snapping físico si hay coincidencia
@@ -434,7 +461,7 @@ export function calculateSmartGuides(draggedItem, event) {
                 );
             }
 
-            path.strokeColor = "#db2777"; // Rosa de alto contraste para guías
+            path.strokeColor = line.color || "#db2777";
             path.strokeWidth = 1 / zoom;
             path.dashArray = [4 / zoom, 4 / zoom];
             guidesGroup.addChild(path);
