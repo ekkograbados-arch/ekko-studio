@@ -371,6 +371,30 @@
     justify-content: center;
 }
 
+/* -----------------------------------------------------------------------
+   CANDADO DE PROPORCIÓN CON ESTADO VISIBLE (queja 3).
+   Antes los dos estados salían idénticos: .toolbar-btn de styles.css pinta
+   background-color con !important y le ganaba al style inline que escribe
+   syncSizeLockButtons(), así que "bloqueado" y "libre" se veían iguales y
+   el cliente daba el candado por muerto. Estas reglas van con !important y
+   con más especificidad que .toolbar-btn (0-1-0) y que el chip de vidrio
+   #topBar .btn-action (1-1-0), así el estado manda.
+   ----------------------------------------------------------------------- */
+#topBar .size-lock-btn[aria-pressed="true"],
+#contextual-toolbar .size-lock-btn[aria-pressed="true"] {
+    background: linear-gradient(180deg, #dbeafe 0%, #bfdbfe 100%) !important;
+    border: 1px solid #2f7fe0 !important;
+    color: #1d4ed8 !important;
+    box-shadow: 0 0 0 2px rgba(47, 127, 224, 0.22) !important;
+}
+#topBar .size-lock-btn[aria-pressed="false"],
+#contextual-toolbar .size-lock-btn[aria-pressed="false"] {
+    background: #f8fafc !important;
+    border: 1px solid var(--ekko-border-color, #cbd5e1) !important;
+    color: #64748b !important;
+    box-shadow: none !important;
+}
+
 /* Selectores de fuente con su dropdown custom, pegados al campo. */
 .ekko-ribbon-campo .custom-font-dropdown { display: inline-flex; }
 
