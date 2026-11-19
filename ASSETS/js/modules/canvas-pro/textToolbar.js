@@ -2681,14 +2681,24 @@ export function toggleUnderline(item) {
            de 200 salian con el mismo rayado.
 
            Ahora es un rectangulo relleno, con grosor y separacion
-           proporcionales al cuerpo. Su Y se apoya en bounds.bottom, que en
-           Paper.js ya incluye las colas de g j p q y, asi que la linea queda
-           debajo del texto mas bajo: que es lo que se espera de un subrayado. */
+           proporcionales al cuerpo.
+
+           R23 (reclamo del dueño 2026-11-19): la linea se apoyaba en
+           bounds.bottom, que en Paper.js trae el descenso COMPLETO (las colas
+           de g j p q y). Con cuerpo 48 eso dejaba la linea a ~16px de la linea
+           base (33% del cuerpo) y el subrayado flotaba lejos del texto, nada
+           que ver con como subraya un editor de texto. Ahora se apoya en la
+           LINEA BASE (target.point.y en un PointText) con un aire chico y
+           proporcional al cuerpo: pegado al texto sin tocarlo, que es lo que
+           el dueño espera. */
         const bounds = target.bounds;
         const size = textFontSize(target) || 42;
         const grosor = Math.max(0.4, size * 0.055);
-        const separacion = size * 0.12;
-        const top = bounds.bottom + separacion * 0.25;
+        const baseline = (target.className === "PointText"
+            && target.point && Number.isFinite(target.point.y))
+            ? target.point.y
+            : bounds.bottom - size * 0.30;
+        const top = baseline + size * 0.08;
         const underlineLine = new paper.Path.Rectangle({
             rectangle: new paper.Rectangle(bounds.left, top, bounds.width, grosor),
             fillColor: target.fillColor || target.strokeColor || new paper.Color(0),
