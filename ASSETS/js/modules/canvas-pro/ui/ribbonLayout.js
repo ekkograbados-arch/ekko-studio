@@ -583,6 +583,21 @@ export function sync() {
   const tab = (estado.activeTab && estado.activeTab !== "auto")
     ? estado.activeTab : (estado.detectedTab || "base");
 
+  /* HOGARES POR PESTAÑA (maqueta CAD, ver toolbarManifest L37-45).
+     R22 (dueño): esto ANTES era solo un comentario — cada pestaña dejaba ver
+     cualquier hogar que tuviera un botón vivo, así que Organizar/Portapapeles
+     se colaban en Inicio a medio pintar (con botones faltantes). Ahora la
+     pestaña decide QUÉ hogares se ven; cada hogar se pinta completo o no se
+     pinta. */
+  const HOGARES_POR_TAB = {
+    base:     ["creacion"],
+    edicion:  ["tamano", "organizar", "portapapeles", "lienzo"],
+    image:    ["tamano", "imagen", "trazar"],
+    vector:   ["tamano", "vector", "fusion", "huecos", "booleanas", "trazar"],
+    text:     ["tamano", "texto", "curvar", "trazar"],
+    multiple: ["tamano", "organizar", "imagen", "booleanas", "trazar"]
+  };
+
   /* INICIO = SOLO CREAR (reclamo del dueño, maqueta v3). La clase oculta
      por CSS los controles de panel que van al final del scroller (info de
      selección, plegado y "más herramientas"): no son hogares. */
@@ -610,14 +625,14 @@ export function sync() {
       !n.classList.contains("hidden") &&
       !n.closest('[data-fusion-btn].ekko-command-hidden')
     );
-    /* INICIO = SOLO CREAR (queja del dueño: "en Inicio solo irán botones y
-       hogares que tengan que ver con Crear"). Antes la condición era al
-       revés: en Inicio entraba TODO lo que la selección habilitaba, así que
-       el cliente veía Organizar/Portapapeles/Tipografía en la pestaña que
-       tenía que ser solo de creación. */
-    const enTab = (tab === "base")
-      ? (g.def.key === "creacion")
-      : (g.def.key !== "creacion");
+    /* R22 (dueño): la pestaña decide QUÉ hogares se ve — no solo "Crear en
+       Inicio". Si la pestaña está en el mapa, solo se muestran sus hogares
+       (los que quedan fuera se ocultan aunque tengan botones vivos: eso es
+       lo que evita los hogares a medio pintar). Pestaña fuera del mapa ->
+       comportamiento anterior por seguridad. */
+    const permitidos = HOGARES_POR_TAB[tab];
+    const enTab = permitidos ? permitidos.includes(g.def.key)
+                             : ((g.def.key !== "creacion") || (tab === "base"));
     g.el.classList.toggle("is-empty", !visible || !enTab);
   });
 
