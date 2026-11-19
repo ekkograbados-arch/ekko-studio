@@ -47,7 +47,7 @@ function* barButtons() {
 }
 
 /** Decisión pura: qué le toca a una entrada del manifiesto dado el estado. */
-function decide(entry, snap) {
+function decide(entry, snap, esContextual = false) {
   /* La verdad de negocio la pone capabilities.js. Las herramientas sin
      entrada en el motor (tool: null) traen su propia `rule` declarada en el
      manifiesto: la interfaz no inventa nada, solo ejecuta lo declarado. */
@@ -55,8 +55,11 @@ function decide(entry, snap) {
 
   /* 1) La pestaña activa RECORTA, nunca amplía. Las herramientas
      estructurales (tabBypass) siguen a la selección aunque la pestaña diga
-     otra cosa: un grupo seleccionado se desagrupa desde la pestaña Vector. */
-  const tabOk = snap.tabAllows(entry.tool) || (enabled && entry.tabBypass === true);
+     otra cosa: un grupo seleccionado se desagrupa desde la pestaña Vector.
+     R22 (dueño): la BARRA EMERGENTE es CONTEXTUAL — sus atajos siguen a la
+     SELECCIÓN, no a la pestaña. Antes la pestaña resolvía a "base" (sin
+     tools) y los botones del atajo salían ocultos (queja 5). */
+  const tabOk = esContextual || snap.tabAllows(entry.tool) || (enabled && entry.tabBypass === true);
   if (!tabOk) return { show: false, enabled: false, reason: null };
 
   /* 2) La verdad de negocio la pone capabilities.js. */
@@ -244,7 +247,8 @@ export function renderNow() {
     const entry = BY_LEGACY.get(el.dataset.fusionBtn);
     // Sin manifiesto: este botón todavía no está bajo contrato. No se toca.
     if (!entry) continue;
-    const decision = decide(entry, snap);
+    const esContextual = !!el.closest("#contextual-toolbar");
+    const decision = decide(entry, snap, esContextual);
     applyDecision(el, decision);
     if (!decision.show) state.hidden.push(el.dataset.fusionBtn);
     else if (!decision.enabled) state.locked.push(el.dataset.fusionBtn);
