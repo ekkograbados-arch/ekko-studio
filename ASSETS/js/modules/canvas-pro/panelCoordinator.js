@@ -259,74 +259,14 @@ function ensureContextSurface() {
 /**
  * Chip de panel oculto: revividores flotantes en la esquina superior derecha
  * para las capas SUPERIORES (panel superior oculto -> chevron ⌄; barra
- * emergente oculta -> ≡). El panel de productos NO va aca: su revividor es
- * el pestillo del borde IZQUIERDO (ensureProductsAnchor), del mismo lado
- * donde vive el panel. SIN menu de tres puntos aca: los tres puntos
- * verticales son y solo son "Mas herramientas" (toolbarOverflow.js, al
- * estilo de cinta).
+ * emergente oculta -> ≡). El panel de productos NO va aca: su UNA sola
+ * puerta es el toggle de la fila de pestañas (productPanelTopToggle), que
+ * abre Y cierra y sigue visible hasta en modo compacto. SIN menu de tres
+ * puntos aca: los tres puntos verticales son y solo son "Mas herramientas"
+ * (toolbarOverflow.js, al estilo de cinta).
  * Se construye en JS (con sus estilos) para no depender de HTML/CSS del
  * servidor y para que exista SIEMPRE que se necesite.
  */
-/**
- * Pestillo IZQUIERDO del panel de productos: cuando el cliente contrae el
- * panel lateral, su propio boton de reapertura desaparece CON el panel (vive
- * dentro de la superficie del topBar que la cascada oculta). Este pestillo
- * vive EN EL BODY, pegado al borde izquierdo a media altura — exactamente
- * del lado donde estaba el panel que se esconde, que es donde el cliente lo
- * busca — y su unico trabajo es devolverlo: clic = productPanel "visible".
- * No es un atajo decorativo: es el camino de vuelta garantizado
- * (reversibilidad pedida expresamente).
- */
-function ensureProductsAnchor() {
-    let latch = byId("ekkoPanelProductsAnchor");
-    if (latch) return latch;
-
-    if (!byId("ekkoPanelProductsAnchorStyles")) {
-        const style = document.createElement("style");
-        style.id = "ekkoPanelProductsAnchorStyles";
-        style.textContent = `
-            #ekkoPanelProductsAnchor {
-                position: fixed;
-                left: 0;
-                top: 50%;
-                transform: translateY(-50%);
-                z-index: calc(var(--ekko-floating-z, 10100) + 10);
-                display: none;
-                align-items: center;
-                justify-content: center;
-                width: 26px;
-                height: 64px;
-                border: 1px solid rgba(255, 255, 255, 0.22);
-                border-left: 0;
-                border-radius: 0 10px 10px 0;
-                background: rgba(15, 23, 42, 0.88);
-                color: #e2e8f0;
-                font-size: 16px;
-                line-height: 1;
-                cursor: pointer;
-                box-shadow: 0 8px 22px rgba(15, 23, 42, 0.35);
-            }
-            #ekkoPanelProductsAnchor.is-visible { display: inline-flex; }
-            #ekkoPanelProductsAnchor:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
-        `;
-        document.head.appendChild(style);
-    }
-
-    latch = document.createElement("button");
-    latch.type = "button";
-    latch.id = "ekkoPanelProductsAnchor";
-    latch.title = "Mostrar panel de productos";
-    latch.setAttribute("aria-label", "Mostrar panel de productos");
-    latch.textContent = "›";
-    latch.addEventListener("click", (event) => {
-        event.stopPropagation();
-        panelState.productPanel = "visible";
-        applyPanelState();
-    });
-    document.body.appendChild(latch);
-    return latch;
-}
-
 function ensurePanelAnchor() {
     let wrap = byId("ekkoPanelAnchor");
     if (wrap) return wrap;
@@ -381,9 +321,8 @@ function ensurePanelAnchor() {
     });
 
     // REVERSIBILIDAD: estos revividores viven EN EL BODY, afuera de todo
-    // panel que se pueda ocultar. El panel de productos tiene su PROPIO
-    // pestillo en el borde IZQUIERDO (ensureProductsAnchor): del mismo lado
-    // donde vive el panel, porque el cliente lo busca ahi, no en esta esquina.
+    // panel que se pueda ocultar. El panel de productos NO se maneja aca:
+    // su UNA sola puerta es productPanelTopToggle (fila de pestanas).
     byId("ekkoPanelAnchorFloating").addEventListener("click", (event) => {
         event.stopPropagation();
         panelState.floatingBar = "auto";
@@ -526,7 +465,7 @@ function renderPanelState() {
         // REVERSIBLE SIEMPRE: el chip aparece si alguna capa superior quedo
         // oculta, y cada revividor solo se ve para la capa que efectivamente
         // esta oculta (el resto no muestra boton fantasma). El panel de
-        // productos NO va aca: tiene su pestillo izquierdo propio (abajo).
+        // productos NO va aca: su UNA sola puerta es productPanelTopToggle.
         const topOculto = panelState.topPanel === "hidden";
         const emergenteOculta = panelState.floatingBar === "hidden";
         anchor.classList.toggle("is-visible", topOculto || emergenteOculta);
@@ -534,13 +473,6 @@ function renderPanelState() {
         if (ex) ex.style.display = topOculto ? "" : "none";
         const fl = byId("ekkoPanelAnchorFloating");
         if (fl) fl.style.display = emergenteOculta ? "" : "none";
-    }
-
-    // Pestillo izquierdo del panel de productos: visible SOLO cuando el
-    // panel esta oculto. Es la unica salida de reversibilidad de ese panel.
-    const pestillo = ensureProductsAnchor();
-    if (pestillo) {
-        pestillo.classList.toggle("is-visible", panelState.productPanel === "hidden");
     }
 
     // El chevron de la propia barra tambien se invierte en compacto: mismo
@@ -660,6 +592,37 @@ function refreshSharedCommands() {
  * un boton que el objeto no soporta.
  */
 
+/* ---------------------------------------------------------------------------
+   R23 (reclamo del dueño 2026-11-19): "al seleccionar un objeto debe
+   activarse SOLO su pestana de especie; ahora se queda en Inicio".
+
+   activeTab es una PREFERENCIA (se fija con el clic de pestana) y por eso
+   sobrevivia a los cambios de seleccion: si quedaba fijada en Inicio (a veces
+   por un valor viejo guardado en localStorage), cualquier objeto siguiente
+   seguia pintando Inicio y la etiqueta se quedaba en "Contexto: Texto ·
+   Inicio". Peor aun: con Inicio clavado las herramientas de texto se
+   filtraban fuera de la cinta y Negrita/Cursiva/Subrayado quedaban con ancho
+   0, es decir INVISIBLES — por eso el dueño las denuncio como "no funcionan".
+
+   Ahora la pestana VUELVE AL AUTOMATICO en cada evento de seleccion: es el
+   motor quien deduce la especie (texto -> Texto, mezcla -> Varios, nada ->
+   Inicio). Se resetea en CADA evento, no solo cuando cambia el objeto, para
+   que vuelva a activarse tambien al volver a clicar el mismo objeto. Fijar
+   una pestana a mano sigue funcionando, pero dura hasta el proximo contacto
+   con el lienzo, que es exactamente lo que pide el dueño.
+
+   Solo se escribir en localStorage si algo cambio, asi no hay escrituras
+   en cada refresco. updateContextualMenu NO se dispara en bucle desde
+   applyPanelState (verificado: fijar una pestana no se auto-borra), asi que
+   no hay riesgo de ciclo.
+   --------------------------------------------------------------------------- */
+function syncTabToSelection() {
+    if (panelState.activeTab !== "auto") {
+        panelState.activeTab = "auto";
+        savePanelState();
+    }
+}
+
 function wrapContextualMenuAPI() {
     const update = window.updateContextualMenu;
     if (typeof update === "function" && !update.__ekkoPanelWrapped) {
@@ -667,6 +630,9 @@ function wrapContextualMenuAPI() {
             const result = update.apply(this, arguments);
             panelState.currentSelection = item || window.selectedItem || null;
             panelState.currentContext = resolveContext(panelState.currentSelection);
+            // R23: cambio de seleccion -> la pestana vuelve al automatico y
+            // se deduce la especie (texto -> Texto). Ver syncTabToSelection.
+            syncTabToSelection();
             applyPanelState();
             refreshSharedCommands();
             return result;
@@ -681,8 +647,9 @@ function wrapContextualMenuAPI() {
             const result = hide.apply(this, arguments);
             panelState.currentSelection = null;
             panelState.currentContext = "none";
-            // activeTab NO se toca aqui: es una preferencia del cliente sobre
-            // la barra, no un estado derivado de lo que hay seleccionado.
+            // R23: al soltar la seleccion la pestana vuelve al automatico
+            // (Inicio), en vez de quedarse clavada en la ultima fijada a mano.
+            syncTabToSelection();
             applyPanelState();
             refreshSharedCommands();
             return result;
@@ -759,6 +726,8 @@ function bindPanelControls() {
 export function setSelectionContext(item = null) {
     panelState.currentSelection = item;
     panelState.currentContext = resolveContext(item);
+    // R23: cambio de seleccion -> pestana automatica de la especie.
+    syncTabToSelection();
     applyPanelState();
     refreshSharedCommands();
 }
