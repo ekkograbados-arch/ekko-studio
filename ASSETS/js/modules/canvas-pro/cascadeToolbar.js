@@ -395,14 +395,14 @@ function estilos() {
         body[data-ekko-cascade="1"]:has(#topBar.is-compact) #ekkoPanelAnchor {
             top: 64px !important;
         }
-        /* ... y el revive › del panel de productos SOBRA en la cascada: ese
-           panel se abre y se cierra desde UN unico lugar (el boton a la
-           izquierda de "Inicio"), que esta visible incluso en modo compacto.
-           Dos puertas para el mismo panel confunden al cliente. El chip
-           conserva ⌄ (barra superior oculta) y ≡ (barra emergente oculta),
+        /* R23 (reclamo del dueño 2026-11-19): el revive › del panel de productos
+           (el pestillo fijo en el borde izquierdo) se ELIMINO: se montaba sobre
+           la regla izquierda y era una segunda puerta para un panel que ya tiene
+           la unica (el boton a la izquierda de "Inicio", visible hasta en modo
+           compacto). Dos puertas para el mismo panel confunden al cliente. El
+           chip conserva ⌄ (barra superior oculta) y ≡ (barra emergente oculta),
            que si no se pierden: al ocultar la barra se oculta tambien la tira
            y quedaria sin salida. */
-        body[data-ekko-cascade="1"] #ekkoPanelAnchorProducts { display: none !important; }
         /* ... y por la misma razon se apagan LOS OTROS dos portones del mismo
            panel: el ‹ del encabezado de Productos (btnHideProductPanel, que
            ademas es unidireccional: solo oculta, no devuelve) y el chip
