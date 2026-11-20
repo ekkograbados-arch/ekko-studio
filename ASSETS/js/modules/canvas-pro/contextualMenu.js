@@ -1166,8 +1166,26 @@ export function updateContextualMenu(item) {
         const anclarSobreSeleccion = () => {
             const screenPos = getUnifiedScreenBounds(item);
             if (!screenPos) return;
-            const toolbarW = toolbar.offsetWidth || 320;
-            const toolbarH = toolbar.offsetHeight || 44;
+            /* R23 (queja del dueño): offsetWidth devuelve el ancho de la
+               barra YA CAPADO por el espacio que queda hasta el borde de la
+               ventana (es absolute con width:auto, asi que su ancho real es
+               min(contenido, ventana - left)). Anclar con ese valor —ademas
+               medido ANTES del repintado asincrono del motor (debounce
+               ~90-120ms)— clavaba un left demasiado a la derecha y dejaba la
+               barra comprimida: MEDIDO tras convertir texto a vector,
+               left=468px -> pildora de 1051px con los grupos apretados y los
+               mismos 11 botones en 2 filas, mientras que al re-seleccionar
+               (contenido ya asentado) daba 1200px. Se mide el ancho NATURAL
+               (max-content = contenido completo en una fila) y se re-ancla
+               cuando el repintado termino, para que ambos estados queden
+               iguales. */
+            const anchoPrevio = toolbar.style.width;
+            toolbar.style.width = "max-content";
+            const anchoNatural = toolbar.offsetWidth;
+            const altoNatural = toolbar.offsetHeight;
+            toolbar.style.width = anchoPrevio;
+            const toolbarW = anchoNatural || toolbar.offsetWidth || 320;
+            const toolbarH = altoNatural || toolbar.offsetHeight || 44;
             const x = screenPos.x - (toolbarW / 2);
             const y = screenPos.y - toolbarH - 14;
             toolbar.style.left = Math.max(10, Math.min(window.innerWidth - toolbarW - 10, x)) + 'px';
@@ -1175,6 +1193,18 @@ export function updateContextualMenu(item) {
         };
         anclarSobreSeleccion();
         requestAnimationFrame(anclarSobreSeleccion);
+        /* El repintado del motor llega DESPUES de ese frame (observer con
+           debounce): sin este pase la barra queda anclada con el ancho viejo.
+           Guardias: si el cliente ya la arrastró o la selección cambió, no se
+           toca. */
+        const reAnclarDiferido = (ms) => setTimeout(() => {
+            if (window.customToolbarLeft !== undefined) return;
+            if (lastSelectedItem !== item) return;
+            if (getComputedStyle(toolbar).display === "none") return;
+            anclarSobreSeleccion();
+        }, ms);
+        reAnclarDiferido(260);
+        reAnclarDiferido(700);
     }
     lastSelectedItem = item;
 }
