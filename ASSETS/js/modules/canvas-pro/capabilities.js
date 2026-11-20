@@ -771,7 +771,11 @@ export const TABS = Object.freeze({
      Voltear entra porque con varios objetos apretados el espejo sirve igual
      que con uno. removeBg/editCutout/outline por el motivo de siempre: con
      dos imagenes la cinta cae aca y los botones tenian que estar. */
-  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "flip", "size", "centrar", "solidHole", "textToVector"] }
+  multiple: { id: "multiple", label: "Varios",  tools: ["group", "distribute", "align", "ungroup", "measurements", "removeBg", "editCutout", "outline", "flip", "size", "centrar", "solidHole", "boolean", "textToVector"] }
+  /* R23: "boolean" faltaba aunque el comentario de arriba (y
+     HOGARES_POR_TAB.multiple en ribbonLayout) ya declaraban Booleanas en
+     Varios: el hogar se habilitaba y sus 4 botones quedaban OCULTOS (en la
+     pestaña Vector si se veían gris con motivo). Alineado con la maqueta. */
 });
 
 /** Contexto que el motor deduce de la seleccion. Es el mismo criterio que
