@@ -2500,7 +2500,14 @@ async function weldTextRun(item) {
     });
     
     
+    /* R23 (queja del dueño): el vector resultante se publicaba SIN label y la
+       info de seleccion lo nombraba "Objeto", igual que cualquier forma — el
+       cliente no veia que aquello era su texto convertido. nodeEditor.js ya usa
+       "Texto Convertido" para la misma idea; nadie compara label === "Texto"
+       (grep verificado), asi que el rótulo es seguro. Si el clon heredo un
+       label propio se respeta. */
     resultPath.data = { ...(resultPath.data || {}), source: "text-vector", role: "letter",
+        label: (resultPath.data && resultPath.data.label) || "Texto Convertido",
         isTextVector: true, isFusionReceptor: true, hasInternalHoles: true,
         fillRule: "evenodd", geomBase: resultPath.data.geomBase };
     /* Un vector es geometria FINAL, no texto editable: se borran las marcas de
