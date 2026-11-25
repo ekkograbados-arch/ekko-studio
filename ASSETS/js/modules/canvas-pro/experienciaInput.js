@@ -127,6 +127,10 @@ document.addEventListener('wheel', function (e) {
     const campo = e.target;
     if (!(campo instanceof HTMLElement)) return;
     if (!campo.matches(SELECTOR_USABLE)) return;
+    /* R24: un campo GRIS (ekko-locked por el motor de la cinta) no se
+       edita tampoco por rueda: el browser suprime el teclado en inputs
+       deshabilitados, pero el wheel llega igual. */
+    if (campo.disabled) return;
     const dir = e.deltaY < 0 ? 1 : (e.deltaY > 0 ? -1 : 0);
     if (!dir) return;
     e.preventDefault();
