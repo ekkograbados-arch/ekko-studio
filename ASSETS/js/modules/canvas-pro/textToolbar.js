@@ -1530,6 +1530,29 @@ function moverAncla(owner, dyProyecto) {
     } catch (_) {}
 }
 
+/* R24 (queja: "se traba y luego no puedo volver a seleccionar"): el ancla
+   seguía al dedo 1:1 SIN LÍMITE. MEDIDO en runtime: arrastrar el tirador de
+   curvatura hacia arriba hasta la cinta movía el texto fuera del mockup (el
+   clipGroup lo recorta) y fuera del lienzo (quedaba DETRÁS de la cinta): el
+   cliente veía el texto desaparecer y ya no podía volver a seleccionarlo,
+   porque los puntos de clic caían en la cinta. El límite es el rect del
+   mockup —el área de impresión, que es exactamente lo que el clip dejaba
+   ver— o, sin mockup, el rect visible del lienzo. Solo limita el DELTA: un
+   arrastre que cabe en el área se siente idéntico al de antes. */
+function limitarSeguirY(owner, dy) {
+    if (!dy) return dy;
+    const area = (window.currentMockup && window.currentMockup.bounds)
+        || (typeof paper !== "undefined" && paper.view && paper.view.bounds);
+    const b = owner && owner.bounds;
+    if (!area || !b || !b.height || !area.height) return dy;
+    const mitad = Math.min(b.height / 2, area.height / 2);
+    const centro = b.center;
+    const min = (area.top + mitad) - centro.y;
+    const max = (area.bottom - mitad) - centro.y;
+    if (min > max) return 0;
+    return Math.max(min, Math.min(max, dy));
+}
+
 /* Carril SERIALIZADO de operaciones geometricas de texto, GLOBAL.
    MEDIDO: 6 applyTextCurve concurrentes dejaban 6 grupos huerfanos en escena
    (el "texto duplicado"): cada rebuild eliminaba al anterior... que ya no
@@ -1611,7 +1634,7 @@ export function updateBend(point) {
         if (!trabajo) return;
         const owner = window.selectedItem;
         if (!isTextOwner(owner)) return;
-        if (trabajo.seguirY) moverAncla(owner, trabajo.seguirY);
+        if (trabajo.seguirY) moverAncla(owner, limitarSeguirY(owner, trabajo.seguirY));
         Promise.resolve(applyTextCurve(owner, trabajo.valor, { skipHistory: true }))
             .then(() => {
                 syncCurveHandle();
@@ -1649,7 +1672,7 @@ export function endBend() {
     if (ultimo) {
         const owner = window.selectedItem;
         if (isTextOwner(owner)) {
-            if (ultimo.seguirY) moverAncla(owner, ultimo.seguirY);
+            if (ultimo.seguirY) moverAncla(owner, limitarSeguirY(owner, ultimo.seguirY));
             // Por el carril normal: se encola ultimo y corre en orden.
             curvaCola.push({ item: owner, curvatura: ultimo.valor,
                 opciones: { skipHistory: true }, espera: [] });
