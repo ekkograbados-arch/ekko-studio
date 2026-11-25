@@ -296,6 +296,17 @@ function getSelectedFontFamily() {
     return target.data?.fontFamily || "Arial";
 }
 
+/* R24 ("HAY INCONSISTENCIAS CON LOS TEXTOS"): el trigger del selector mostraba
+   el ID interno que trae el canvas ("ekko_malvinassans_regular") en vez del
+   nombre de la lista ("MalvinasSans-Regular"). getSelectedFontFamily()
+   devuelve la FAMILY (lo que sirve para applyFontFamily) y la lista pinta
+   font.name: cada actualización del menú pisaba el nombre elegido con el ID.
+   Con este mapeo el trigger muestra SIEMPRE el mismo nombre que la lista. */
+function nombreFuenteVisible(family) {
+    const f = (fontsCache || []).find(x => x && x.family === family);
+    return f ? f.name : family;
+}
+
 function renderFontList(fonts, container) {
     if (!container) return;
     container.innerHTML = "";
@@ -1109,7 +1120,7 @@ export function updateContextualMenu(item) {
             if (txtCtrl) txtCtrl.classList.remove('hidden');
             setTextCurveVisibility(true);
             const fontTrigger = document.querySelector('.selected-font-trigger span');
-            if (fontTrigger) fontTrigger.textContent = getSelectedFontFamily();
+            if (fontTrigger) fontTrigger.textContent = nombreFuenteVisible(getSelectedFontFamily());
             /* textFontSize lee el cuerpo desde donde ESTE owner lo guarde. Con un
                grupo curvado, target.fontSize era undefined y el campoMostraba
                siempre 42. */
