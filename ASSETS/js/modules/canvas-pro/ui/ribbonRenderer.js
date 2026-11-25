@@ -69,8 +69,16 @@ function decide(entry, snap, esContextual = false) {
   /* 3) GRIS CON MOTIVO (Ronda 15, maqueta CAD v3): si la entrada declara
      `reason` — familia P por pirámide de orden, o H con puerta fina — se
      MUESTRA APAGADA con el motivo en el tooltip en vez de desaparecer:
-     el botón enseña su requisito y la banda no salta. */
-  const relevant = snap.tabRelevant(entry.tool);
+     el botón enseña su requisito y la banda no salta.
+     R24: las entradas SIN herramienta del motor (tool: null, con regla
+     propia en el manifiesto) eran SIEMPRE "no relevantes"
+     (tabRelevant(null)=false) y por eso se OCULTABAN con la regla en
+     false: con dos textos seleccionados todos los controles de texto
+     desaparecían sin aviso ("los controles del panel superior no
+     funcionan"). Para ellas la relevancia es HABER SELECCIÓN: la regla
+     del manifiesto ya define el estado válido, y el motivo explica el
+     resto. Sin selección siguen ocultas (antes y ahora). */
+  const relevant = entry.tool ? snap.tabRelevant(entry.tool) : snap.hasSelection;
   const wantsLock = !extraOk || entry.family === FAMILY.P || entry.reason != null;
   const lockOk = entry.lockWhen ? !!entry.lockWhen(snap) : true;
   if (relevant && wantsLock && lockOk) {
@@ -113,11 +121,17 @@ function applyDecision(el, decision) {
     el.classList.remove(CLASS_LOCKED);
     el.removeAttribute("data-ekko-reason");
     if (el.disabled) el.disabled = false;
+    /* R24: los campos de texto son INPUTS dentro del span. Si el span queda
+       gris, el input debe quedarse también sin edición: si no, un campo
+       apagado seguiría aceptando tecleo/rueda sobre uno de los textos de una
+       selección múltiple, que es exactamente la inconsistencia a evitar. */
+    el.querySelectorAll("input, select, textarea").forEach(i => { i.disabled = false; });
     el.removeAttribute("aria-disabled");
     el.setAttribute("title", el.getAttribute(ATTR_TITLE));
   } else {
     el.classList.add(CLASS_LOCKED);
     el.disabled = true;
+    el.querySelectorAll("input, select, textarea").forEach(i => { i.disabled = true; });
     if (reason) {
       /* Ronda 15: el motivo tambien en data-ekko-reason. Los interceptores
          de clic (panelCommandBridge, toolbarOverflow) leen ese atributo para
