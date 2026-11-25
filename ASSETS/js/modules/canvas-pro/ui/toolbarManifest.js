@@ -276,7 +276,13 @@ export const BUTTONS = Object.freeze([
     rule: snap => {
       const s = snap.summary;
       return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
-    }
+    },
+    /* R24 ("LOS CONTROLES DEL PANEL SUPERIOR DE TEXTO NO FUNCIONA"): con la
+       regla en false estos campos se OCULTABAN sin aviso (familia H sin
+       reason -> decide() los escondía): el cliente seleccionaba dos textos y
+       "los controles desaparecían". Con reason se muestran GRIS con el motivo,
+       igual que Negrita/Cursiva/Subrayado. */
+    reason: "Los controles de texto piden un único texto seleccionado"
   },
   {
     tool: null, legacy: ["campoCurvatura", "campoRadio", "campoEspaciado"],
@@ -284,7 +290,8 @@ export const BUTTONS = Object.freeze([
     rule: snap => {
       const s = snap.summary;
       return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
-    }
+    },
+    reason: "Los controles de texto piden un único texto seleccionado"
   },
 
   /* --- Herramientas que capabilities.js NO declara (no son "especie" sino
