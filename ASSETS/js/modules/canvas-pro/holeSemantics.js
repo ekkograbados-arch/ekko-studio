@@ -16,11 +16,54 @@ export function normalizeFillRule(value) {
 
 export function explicitHoleOf(item) {
   const data = item?.data || {};
-  if (typeof data.originalIsHole === "boolean") return data.originalIsHole;
+  // The live role wins. Source/original fields only describe provenance and
+  // must not undo an explicit Rellenar/Calado performed on this owner.
   if (data.contourRole === "hole") return true;
   if (data.contourRole === "outer") return false;
+  if (typeof data.isHole === "boolean") return data.isHole;
+  if (data.semanticKind === "hole") return true;
+  if (data.semanticKind === "solid") return false;
+  if (data.isSolidShape === true) return false;
   if (typeof data.explicitHole === "boolean") return data.explicitHole;
+
+  // Null/undefined means "no evidence", not solid. Keep the fallback boolean
+  // checks explicit so false survives while absent provenance stays absent.
+  if (typeof data.sourceIsHole === "boolean") return data.sourceIsHole;
+  if (data.sourceContourRole === "hole") return true;
+  if (data.sourceContourRole === "outer") return false;
+  if (data.sourceSemanticKind === "hole") return true;
+  if (data.sourceSemanticKind === "solid") return false;
+  if (typeof data.originalIsHole === "boolean") return data.originalIsHole;
   return null;
+}
+
+export function stampSourceProvenance(item, values = {}) {
+  if (!item) return item;
+  const data = item.data || {};
+  const explicit = explicitHoleOf(item);
+  const currentKind = explicit === true ? "hole" : explicit === false ? "solid" : null;
+  const sourceKind = values.sourceSemanticKind ?? data.sourceSemanticKind ?? currentKind;
+  const sourceIsHole = values.sourceIsHole ?? data.sourceIsHole ?? explicit ??
+    (sourceKind === "hole" ? true : sourceKind === "solid" ? false : null);
+  const sourceRole = values.sourceContourRole ?? data.sourceContourRole ??
+    (sourceIsHole === true ? "hole" : sourceIsHole === false ? "outer" : data.contourRole ?? null);
+  const provenance = {
+    sourceSemanticKind: sourceKind,
+    sourceIsHole,
+    sourceContourRole: sourceRole,
+    sourceDocumentOrder: values.sourceDocumentOrder ?? data.sourceDocumentOrder ?? data.docOrder ?? null,
+    sourceStackRootKey: values.sourceStackRootKey ?? data.sourceStackRootKey ?? data.containmentKey ?? data.ownerContainmentKey ?? null,
+    sourceStackOrder: values.sourceStackOrder ?? data.sourceStackOrder ?? data.docOrder ?? null,
+    sourceContainmentScope: values.sourceContainmentScope ?? data.sourceContainmentScope ?? data.containmentScope ?? null,
+    sourceContainmentKey: values.sourceContainmentKey ?? data.sourceContainmentKey ?? data.containmentKey ?? null,
+    sourceLayerDepth: values.sourceLayerDepth ?? data.sourceLayerDepth ?? data.layerDepth ?? data.contourDepth ?? data.depth ?? 0
+  };
+  const next = { ...data };
+  Object.entries(provenance).forEach(([key, value]) => {
+    if (next[key] === undefined) next[key] = value;
+  });
+  item.data = next;
+  return item;
 }
 
 function boundsContain(parent, child) {
@@ -163,17 +206,31 @@ export function buildContourRelations(paths, options = {}) {
 
 export function applyContourRecord(item, record = {}) {
   if (!item) return item;
+  const recordIsHole = typeof record.isHole === "boolean" ? record.isHole
+    : typeof record.originalIsHole === "boolean" ? record.originalIsHole
+    : record.contourRole === "hole" ? true
+    : record.contourRole === "outer" ? false : null;
+  stampSourceProvenance(item, {
+    sourceSemanticKind: recordIsHole === null ? null : (recordIsHole ? "hole" : "solid"),
+    sourceIsHole: recordIsHole,
+    sourceContourRole: record.contourRole || (recordIsHole === null ? null : (recordIsHole ? "hole" : "outer")),
+    sourceDocumentOrder: record.sourceDocumentOrder,
+    sourceContainmentKey: item.data?.containmentKey,
+    sourceContainmentScope: item.data?.containmentScope,
+    sourceLayerDepth: record.containmentDepth
+  });
   item.data = {
     ...(item.data || {}),
     sourceContourIndex: record.sourceContourIndex ?? item.data?.sourceContourIndex ?? null,
     sourceElementId: record.sourceElementId ?? item.data?.sourceElementId ?? null,
-    sourceDocumentOrder: record.sourceDocumentOrder ?? item.data?.sourceDocumentOrder ?? null,
+    sourceDocumentOrder: item.data?.sourceDocumentOrder ?? record.sourceDocumentOrder ?? null,
     sourceZOrder: record.sourceZOrder ?? item.data?.sourceZOrder ?? null,
     originalFillRule: record.fillRule || item.data?.originalFillRule || DEFAULT_FILL_RULE,
-    sourceWinding: record.winding === "clockwise",
+    sourceWinding: typeof item.data?.sourceWinding === "boolean"
+      ? item.data.sourceWinding : record.winding === "clockwise",
     explicitHole: record.explicitHole,
-    originalIsHole: !!record.isHole,
-    contourRole: record.contourRole || (record.isHole ? "hole" : "outer"),
+    originalIsHole: recordIsHole === null ? null : recordIsHole,
+    contourRole: record.contourRole || (recordIsHole === null ? null : (recordIsHole ? "hole" : "outer")),
     containmentParent: record.containmentParent ?? null,
     containmentDepth: record.containmentDepth ?? 0,
     holeClassification: record.confidence || "unknown"
@@ -183,7 +240,7 @@ export function applyContourRecord(item, record = {}) {
 
 if (typeof window !== "undefined") {
   window.EKKO_HOLE_SEMANTICS = {
-    normalizeFillRule, explicitHoleOf, geometricallyContains,
+    normalizeFillRule, explicitHoleOf, stampSourceProvenance, geometricallyContains,
     classifyContour, buildContourRelations, applyContourRecord
   };
 }
