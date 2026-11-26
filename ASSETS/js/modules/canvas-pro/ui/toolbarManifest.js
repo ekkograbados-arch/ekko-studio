@@ -284,16 +284,6 @@ export const BUTTONS = Object.freeze([
        igual que Negrita/Cursiva/Subrayado. */
     reason: "Los controles de texto piden un único texto seleccionado"
   },
-  {
-    tool: null, legacy: ["campoCurvatura", "campoRadio", "campoEspaciado"],
-    family: FAMILY.H, group: "curvar",
-    rule: snap => {
-      const s = snap.summary;
-      return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
-    },
-    reason: "Los controles de texto piden un único texto seleccionado"
-  },
-
   /* --- Herramientas que capabilities.js NO declara (no son "especie" sino
      una acción de interfaz). Se rigen por una `rule` propia declarada ACÁ.
      La interfaz no decide: solo ejecuta lo que el manifiesto dice. --- */
@@ -307,6 +297,17 @@ export const BUTTONS = Object.freeze([
       return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
     },
     reason: "Curvar se aplica sobre un texto seleccionado"
+  },
+  {
+    tool: null,
+    legacy: ["espaciar"],
+    family: FAMILY.P,
+    group: "curvar",
+    rule: snap => {
+      const s = snap.summary;
+      return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
+    },
+    reason: "Espaciar se aplica sobre un texto seleccionado"
   },
 
   /* --- Botones de la BARRA EMERGENTE que son acciones de interfaz (sin
@@ -334,16 +335,19 @@ export const BUTTONS = Object.freeze([
     reason: "Los controles de texto piden un único texto seleccionado"
   },
   {
-    /* Soldar y Girar letras: viven en el hogar CURVAR Y ESPACIAR (maqueta). */
     tool: null,
-    legacy: ["ctxWeld", "ctxRotateLetters"],
+    legacy: ["ctxWeld"],
     family: FAMILY.H,
-    group: "curvar",
+    group: "trazar",
     rule: snap => {
       const s = snap.summary;
       return !!s && s.count === 1 && s.species.size === 1 && s.species.has(SPECIES.TEXT);
     },
-    reason: "El soldado y la orientación de letras piden un único texto seleccionado"
+    lockWhen: snap => {
+      const s = snap.summary;
+      return !!s && s.species.size === 1 && s.species.has(SPECIES.TEXT);
+    },
+    reason: "Soldar Texto necesita un único texto seleccionado"
   },
   {
     tool: null,
