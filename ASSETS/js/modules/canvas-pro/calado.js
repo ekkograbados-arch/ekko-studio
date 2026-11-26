@@ -11,13 +11,13 @@ import {
     getContentItem,
     findFusionVector,
     isClosedClientVector,
-    cloneAbsolute,
     updateFusionRecord
 } from "./fusionCore.js";
 import { syncFusionVirtualHole } from "./fusionController.js";
-import { setSemanticKind, VECTOR_KIND } from "./vectorSemantics.js";
+import { setSemanticKind, semanticKind, collectVectorOwners, isAboveInRenderOrder, VECTOR_KIND } from "./vectorSemantics.js";
 import { installGeometryInOwner } from "./geometricUngroup.js";
-import { getPublicOwners } from "./designGeometry.js";
+import { getPublicOwner, getPublicOwners, getOwnerLocalGeometry, toWorldGeometry } from "./designGeometry.js";
+import { geometricallyContains } from "./holeSemantics.js";
 import { notice } from "./ekkoNotice.js";
 
 function selectedItems() {
@@ -106,10 +106,60 @@ function ensureMockupContainment(target) {
     return target;
 }
 
+function canConvertVectorToCalado(vector) {
+    if (!vector || isProductElement(vector) || vector.closed !== true) return false;
+    if (semanticKind(vector) === VECTOR_KIND.HOLE) return false;
+    const data = vector.data || {};
+    if (data.sourceIsHole === true || data.originalIsHole === true) return data.isSolidShape === true;
+    return canConvertToCalado(vector);
+}
+
+function canRestoreFusionToCalado(fusion) {
+    const data = fusion?.data || {};
+    return semanticKind(fusion) === VECTOR_KIND.SOLID && data.receiverKind === "solid" &&
+        (data.sourceIsHole === true || data.originalIsHole === true || data.filledFromHole === true);
+}
+
+function recalculateContainmentRelations(target) {
+    if (!target) return;
+    const owner = getPublicOwner(target) || target;
+    const holeGeometry = toWorldGeometry(owner);
+    if (!holeGeometry) return;
+    try {
+        const holeArea = Math.abs(holeGeometry.area || 0);
+        const scope = owner.data?.containmentScope || null;
+        let receptor = null;
+        let receptorArea = Infinity;
+        collectVectorOwners(owner.layer).filter(item => item !== owner && semanticKind(item) === VECTOR_KIND.SOLID)
+            .forEach(item => {
+                if (!isAboveInRenderOrder(owner, item)) return;
+                const itemScope = item.data?.containmentScope || null;
+                if (scope && itemScope && scope !== itemScope) return;
+                const geometry = toWorldGeometry(item);
+                try {
+                    const area = Math.abs(geometry?.area || 0);
+                    if (area > holeArea && area < receptorArea && geometricallyContains(geometry, holeGeometry)) {
+                        receptor = item;
+                        receptorArea = area;
+                    }
+                } finally {
+                    try { geometry?.remove?.(); } catch (_) {}
+                }
+            });
+        owner.data = {
+            ...(owner.data || {}),
+            ownerContainmentKey: receptor?.data?.containmentKey || null,
+            containmentScope: scope || receptor?.data?.containmentScope || null
+        };
+    } finally {
+        try { holeGeometry.remove?.(); } catch (_) {}
+    }
+}
+
 function markHole(target) {
     if (!target) return null;
     const sourceData = target.data || {};
-    if (sourceData.originalIsHole === true || sourceData.contourRole === "hole" || sourceData.isHole === true) {
+    if (semanticKind(target) === VECTOR_KIND.HOLE || sourceData.isHole === true) {
         return target;
     }
     const previousFill = target.data?.originalFillColor?.clone?.() || target.fillColor?.clone?.();
@@ -134,7 +184,7 @@ function markHole(target) {
         originalStrokeWidth: previousStrokeWidth || 0
     };
     if (!target.data.geomBase) {
-        const base = cloneAbsolute(target);
+        const base = getOwnerLocalGeometry(target);
         if (base) {
             base.data = { ...(base.data || {}), isHole: true };
             target.data.geomBase = base;
@@ -155,14 +205,13 @@ function markHole(target) {
 }
 
 function markFusionHole(fusion) {
-    if (!fusion || fusion.data?.originalIsHole === true) return false;
+    if (!fusion || semanticKind(fusion) === VECTOR_KIND.HOLE) return false;
     setSemanticKind(fusion, VECTOR_KIND.HOLE);
     const currentMask = fusion.children?.find(child => child?.clipMask || child?.data?.isFusionMask);
     fusion.data = {
         ...(fusion.data || {}),
         isHole: true,
         isCalado: true,
-        originalIsHole: true,
         receiverKind: "hole",
         fusionMode: "intersecar",
         label: "Fusión Calada"
@@ -176,7 +225,7 @@ function markFusionHole(fusion) {
         };
     }
     updateFusionRecord(fusion, {
-        originalIsHole: true,
+        semanticKind: VECTOR_KIND.HOLE,
         receiverKind: "hole",
         mode: "intersecar"
     });
@@ -184,22 +233,17 @@ function markFusionHole(fusion) {
     return true;
 }
 
-function restoreSolidGeometry(target) {
+function restoreSolidGeometry(target, options = {}) {
     if (!target) return null;
-    const base = target.data?.geomBase;
     let restored = target;
-    if (base?.clone) {
-        // geomBase is owner-local. Reuse the same CSG-safe installer used by
-        // the reactive engine so a simple Path can be promoted to a
-        // CompoundPath when the canonical geometry has multiple contours.
-        const world = base.clone({ insert: false });
-        try {
-            world.applyMatrix = false;
-            world.transform(target.globalMatrix || new paper.Matrix());
-            world.applyMatrix = true;
-        } catch (_) {}
-        restored = installGeometryInOwner(target, world) || target;
-        world.remove?.();
+    // A boolean keeper already owns the accepted result geometry. Reinstalling
+    // its old hole geomBase here would erase the operation that just succeeded.
+    if (!options.preserveGeometry && target.data?.geomBase) {
+        const world = toWorldGeometry(target);
+        if (world) {
+            restored = installGeometryInOwner(target, world) || target;
+            world.remove?.();
+        }
     }
     setSemanticKind(restored, VECTOR_KIND.SOLID);
     restored.data = {
@@ -207,7 +251,6 @@ function restoreSolidGeometry(target) {
         isHole: false,
         isSolidShape: true,
         isCalado: false,
-        originalIsHole: false,
         contourRole: "outer",
         explicitHole: false,
         filledFromHole: true,
@@ -222,24 +265,24 @@ function restoreSolidGeometry(target) {
     return restored;
 }
 
-export function convertSelectionToSolid(item = null) {
+export function convertSelectionToSolid(item = null, options = {}) {
     const targets = item ? [item] : selectedItems();
     if (targets.length !== 1) return null;
     const resolved = getVectorTarget(targets[0]);
     if (resolved.fusion) {
-        if (typeof window.saveHistory === "function") window.saveHistory();
         const fusion = resolved.fusion;
+        if (semanticKind(fusion) !== VECTOR_KIND.HOLE && fusion.data?.isHole !== true) return fusion;
+        if (!options.skipHistory && typeof window.saveHistory === "function") window.saveHistory();
         setSemanticKind(fusion, VECTOR_KIND.SOLID);
         fusion.data = {
             ...(fusion.data || {}),
             isHole: false, isSolidShape: true, isCalado: false,
-            originalIsHole: false, contourRole: "outer", explicitHole: false,
+            contourRole: "outer", explicitHole: false,
             receiverKind: "solid", filledFromHole: true
         };
         updateFusionRecord(fusion, {
             semanticKind: VECTOR_KIND.SOLID,
             receiverKind: "solid",
-            originalIsHole: false,
             mode: "intersecar"
         });
         syncFusionVirtualHole(fusion);
@@ -247,12 +290,11 @@ export function convertSelectionToSolid(item = null) {
         return fusion;
     }
     if (!resolved.vector || isProductElement(resolved.vector)) return null;
-    if (!resolved.vector.data?.isHole && resolved.vector.data?.semanticKind !== VECTOR_KIND.HOLE) return resolved.vector;
-    if (typeof window.saveHistory === "function") window.saveHistory();
-    const solid = restoreSolidGeometry(resolved.vector);
-    // Orden Z del dueño: el sólido restaurado baja a su nivel (debajo de los
-    // calados de su jerarquía) para que el hueco siga perforándolo.
-    try { window.EKKO_restackOrdenBooleano?.([solid]); } catch (_) {}
+    if (semanticKind(resolved.vector) !== VECTOR_KIND.HOLE && resolved.vector.data?.isHole !== true) return resolved.vector;
+    if (!options.skipHistory && typeof window.saveHistory === "function") window.saveHistory();
+    const solid = restoreSolidGeometry(resolved.vector, {
+        preserveGeometry: options.preserveGeometry === true
+    });
     window.recalculateDynamicSubtractions?.();
     window.selectItem?.(solid);
     paper.view.update();
@@ -263,15 +305,13 @@ export function canConvertSelectionToCalado(item = null) {
     const targets = item ? [item] : selectedItems();
     if (targets.length !== 1) return false;
     const resolved = getVectorTarget(targets[0]);
-    if (resolved.fusion) return canConvertToCalado(resolved.fusion);
-    if (!resolved.vector || isProductElement(resolved.vector)) return false;
-    // Solo vectores CERRADOS se pueden calar: un trazo abierto no delimita
-    // superficie, no hay nada que vaciar.
-    if (resolved.vector.closed !== true) return false;
-    return canConvertToCalado(resolved.vector);
+    if (resolved.fusion) {
+        return canConvertToCalado(resolved.fusion) || canRestoreFusionToCalado(resolved.fusion);
+    }
+    return canConvertVectorToCalado(resolved.vector);
 }
 
-export function convertSelectionToCalado(item = null) {
+export function convertSelectionToCalado(item = null, options = {}) {
     const targets = item ? [item] : selectedItems();
     if (targets.length !== 1) {
         notice("Seleccioná un vector sólido o una fusión sólida para aplicar Calado.", { kind: "warn" });
@@ -279,8 +319,9 @@ export function convertSelectionToCalado(item = null) {
     }
     const resolved = getVectorTarget(targets[0]);
     if (resolved.fusion) {
-        if (!canConvertToCalado(resolved.fusion)) return resolved.fusion;
-        if (typeof window.saveHistory === "function") window.saveHistory();
+        const eligible = canConvertToCalado(resolved.fusion) || canRestoreFusionToCalado(resolved.fusion);
+        if (!eligible || semanticKind(resolved.fusion) === VECTOR_KIND.HOLE) return resolved.fusion;
+        if (!options.skipHistory && typeof window.saveHistory === "function") window.saveHistory();
         markFusionHole(resolved.fusion);
         if (typeof window.recalculateSmartFusion === "function") {
             window.recalculateSmartFusion(resolved.fusion);
@@ -293,7 +334,7 @@ export function convertSelectionToCalado(item = null) {
         return resolved.fusion;
     }
     const vector = resolved.vector;
-    if (!vector || isProductElement(vector) || !canConvertToCalado(vector)) {
+    if (!canConvertVectorToCalado(vector)) {
         // Rechazo observable: el usuario no debe quedarse sin respuesta al
         // pulsar Calado sobre algo no convertible (mismo criterio que el caso
         // de trazo abierto de más abajo).
@@ -306,11 +347,9 @@ export function convertSelectionToCalado(item = null) {
         notice("Solo los vectores CERRADOS se pueden calar (círculos, rectángulos, letras, formas cerradas). El trazo seleccionado está abierto.", { kind: "warn" });
         return null;
     }
-    if (typeof window.saveHistory === "function") window.saveHistory();
+    if (!options.skipHistory && typeof window.saveHistory === "function") window.saveHistory();
     const finalItem = markHole(vector) || vector;
-    // Orden Z del dueño: el calado nuevo sube a su nivel (encima de la masa
-    // sólida de su jerarquía) para perforarla de verdad.
-    try { window.EKKO_restackOrdenBooleano?.([finalItem]); } catch (_) {}
+    recalculateContainmentRelations(finalItem);
     if (typeof window.recalculateDynamicSubtractions === "function") {
         window.recalculateDynamicSubtractions();
     }
