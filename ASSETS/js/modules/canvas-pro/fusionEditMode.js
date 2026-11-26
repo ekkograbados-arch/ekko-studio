@@ -1,352 +1,568 @@
 import { interactionOwner } from "./interactionOwner.js";
-import { updateVirtualHole } from "./fusionCore.js";
 
 export let editState = null;
 export let fusionEditActive = false;
+let editSessionSequence = 0;
 
+const matrixKeys = ["a", "b", "c", "d", "tx", "ty"];
+function matrixValues(matrix) { return matrix ? matrixKeys.map(key => Number(matrix[key]) || 0) : null; }
+function sameMatrix(a, b) {
+  const av = matrixValues(a), bv = matrixValues(b);
+  return !!av && !!bv && av.every((value, index) => Math.abs(value - bv[index]) < 1e-7);
+}
+function cloneMatrix(matrix) { return matrix?.clone?.() || null; }
+function setWorldMatrix(item, matrix) {
+  if (!item || !matrix) return false;
+  try {
+    item.applyMatrix = false;
+    item.matrix = (item.parent?.globalMatrix || new paper.Matrix()).inverted().concatenate(matrix);
+    return true;
+  } catch (_) { return false; }
+}
 function pointHits(item, point) {
   if (!item || !point) return false;
   try {
-    if (item.contains?.(point)) return true;
-    return !!item.hitTest?.(point, {
-      fill: true, stroke: true, segments: true,
-      tolerance: 6 / (paper.view?.zoom || 1)
+    return item.contains?.(point) || !!item.hitTest?.(point, {
+      fill: true, stroke: true, segments: true, tolerance: 6 / (paper.view?.zoom || 1)
     });
-  } catch (e) { return false; }
+  } catch (_) { return false; }
 }
-
-function pointInsideMask(point, mask) {
-  return pointHits(mask, point);
-}
-
 function toParentDelta(item, delta) {
   if (!item?.parent?.globalToLocal || !item.localToGlobal) return delta;
   try {
     const origin = item.localToGlobal(new paper.Point(0, 0));
-    return item.parent.globalToLocal(origin.add(delta))
-      .subtract(item.parent.globalToLocal(origin));
-  } catch (e) { return delta; }
+    return item.parent.globalToLocal(origin.add(delta)).subtract(item.parent.globalToLocal(origin));
+  } catch (_) { return delta; }
+}
+function makeEditable(raster) {
+  try { delete raster.selected; } catch (_) {}
+  raster.locked = false; raster.clipMask = false; raster.applyMatrix = false;
+}
+function lockFusionChild(raster) {
+  try { delete raster.selected; } catch (_) {}
+  try {
+    Object.defineProperty(raster, "selected", {
+      get() { return false; }, set() {}, configurable: true, enumerable: true
+    });
+  } catch (_) {}
+}
+function proxyData(data) {
+  const clean = { ...(data || {}) };
+  delete clean.isFusionEditProxy; delete clean.fusionImageIndex;
+  return clean;
+}
+function comparableData(data) {
+  const clean = proxyData(data);
+  delete clean.rotation; delete clean.selected;
+  return clean;
+}
+function sameData(a, b) {
+  const aa = comparableData(a), bb = comparableData(b), ak = Object.keys(aa), bk = Object.keys(bb);
+  return ak.length === bk.length && ak.every(key =>
+    Object.prototype.hasOwnProperty.call(bb, key) && aa[key] === bb[key]);
 }
 
-function cleanupEditVisuals(st) {
-  try { if (st.editSyncTimer) clearInterval(st.editSyncTimer); } catch (e) {}
-  try { st.tempImage?.remove?.(); } catch (e) {}
-  try { st.previewOutline?.remove?.(); } catch (e) {}
-  try { st.ghost?.remove?.(); } catch (e) {}
-  // El wrapper de edicion solo contenia clones de trabajo; al vaciarse se
-  // elimina para no dejar grupos huerfanos en la capa.
+// Paper's .source getter serializes canvases with toDataURL(). Snapshots keep
+// live image/canvas references instead, never PNG strings or pixel clones.
+function captureRaster(raster) {
+  if (!raster) return null;
+  return {
+    raster, id: raster.id ?? null, name: raster.name, matrix: cloneMatrix(raster.matrix),
+    size: raster.size?.clone?.() || null, opacity: raster.opacity, visible: raster.visible,
+    locked: raster.locked, clipMask: raster.clipMask, applyMatrix: raster.applyMatrix,
+    data: { ...(raster.data || {}) }, image: raster._image || raster.image || null,
+    canvas: raster._canvas || null
+  };
+}
+function restoreRaster(raster, snapshot) {
+  if (!raster || !snapshot) return;
+  const currentCanvas = raster._canvas || null, currentImage = raster._image || raster.image || null;
+  if (snapshot.canvas && snapshot.canvas !== currentCanvas) raster.canvas = snapshot.canvas;
+  else if (!snapshot.canvas && snapshot.image && snapshot.image !== currentImage) raster.image = snapshot.image;
+  else if (!snapshot.canvas && !snapshot.image && (currentCanvas || currentImage)) raster.image = null;
+  raster.applyMatrix = snapshot.applyMatrix;
+  if (snapshot.matrix) raster.matrix = snapshot.matrix.clone();
+  if (snapshot.size && (raster.width !== snapshot.size.width || raster.height !== snapshot.size.height)) {
+    raster.size = snapshot.size.clone();
+    if (snapshot.matrix) raster.matrix = snapshot.matrix.clone();
+  }
+  raster.name = snapshot.name; raster.opacity = snapshot.opacity; raster.visible = snapshot.visible;
+  raster.locked = snapshot.locked; raster.clipMask = snapshot.clipMask;
+  raster.data = { ...(snapshot.data || {}) };
+}
+function directFusionRasters(group) {
+  return Array.from(group?.children || []).filter(child => child?.className === "Raster");
+}
+function directFusionBackgrounds(group) {
+  return Array.from(group?.children || []).filter(child => child?.data?.ekkoFondoPara);
+}
+function captureBackgrounds(group) {
+  return Array.from(group?.children || [])
+    .map((child, childIndex) => child?.data?.ekkoFondoPara
+      ? { group: child, childIndex, matrix: cloneMatrix(child.globalMatrix), data: { ...(child.data || {}) }, visible: child.visible, opacity: child.opacity }
+      : null)
+    .filter(Boolean);
+}
+function captureFusionState(group) {
+  if (!group) return null;
+  const rasters = Array.from(group.children || [])
+    .map((child, childIndex) => child?.className === "Raster" ? { ...captureRaster(child), childIndex } : null)
+    .filter(Boolean);
+  return {
+    fusionId: group.data?.fusionId || null, group, groupMatrix: cloneMatrix(group.globalMatrix),
+    // Derive these from live children. Legacy single-image fusions do not have
+    // rasterIds/imageCount, and Accept normalizing them is not a visual change.
+    rasterIds: rasters.map(raster => raster.id), imageCount: rasters.length, rasters,
+    backgrounds: captureBackgrounds(group)
+  };
+}
+function sameFusionState(a, b) {
+  if (!a || !b || a.fusionId !== b.fusionId || !sameMatrix(a.groupMatrix, b.groupMatrix)) return false;
+  if (a.rasters.length !== b.rasters.length) return false;
+  if ((a.rasterIds || []).join(",") !== (b.rasterIds || []).join(",")) return false;
+  if (a.imageCount !== b.imageCount) return false;
+  if ((a.backgrounds || []).length !== (b.backgrounds || []).length) return false;
+  if (!(a.backgrounds || []).every((background, index) => {
+    const other = b.backgrounds[index];
+    return background.group === other.group && sameMatrix(background.matrix, other.matrix) &&
+      sameData(background.data, other.data) && background.visible === other.visible && background.opacity === other.opacity;
+  })) return false;
+  return a.rasters.every((raster, index) => {
+    const other = b.rasters[index];
+    return raster.id === other.id && raster.name === other.name && sameMatrix(raster.matrix, other.matrix) &&
+      sameData(raster.data, other.data) && raster.opacity === other.opacity && raster.visible === other.visible &&
+      raster.canvas === other.canvas && raster.image === other.image;
+  });
+}
+function findFusionGroup(fusionId, preferred = null) {
+  if (preferred?.project && preferred.data?.fusionId === fusionId) return preferred;
+  if (!fusionId || !paper.project) return null;
+  let found = null;
+  const visit = item => {
+    if (found) return;
+    if (item?.data?.fusionId === fusionId && item.data?.isSmartFusion) { found = item; return; }
+    Array.from(item?.children || []).forEach(visit);
+  };
+  Array.from(paper.project.layers || []).forEach(visit);
+  return found;
+}
+function selectFusionOwner(group) {
   try {
-    if (st.editWrapper && !st.editWrapper?.children?.length) st.editWrapper.remove?.();
-    else st.editWrapper?.remove?.();
-  } catch (e) {}
+    if (typeof window.commitSelectionContext === "function") window.commitSelectionContext([group], group, "fusion-edit-exit");
+    else { window.selectedItem = group; window.selectedItems = [group]; group.selected = true; }
+  } catch (_) { window.selectedItem = group; window.selectedItems = [group]; }
+  try { window.updateSelectionBox?.(group); } catch (_) {}
+  try { window.updateContextualMenu?.(group); } catch (_) {}
+  try { window.refreshAllToolbars?.(); } catch (_) {}
 }
 
-/** El fantasma espeja la matriz global de la imagen editable, expresada
- *  en el sistema local de su propio padre. Asi la referencia externa nunca
- *  se desfasa, la muevan flechas, arrastre o tiradores. */
-export function syncEditGhost() {
-  const st = editState;
+// One reference-based Undo/Redo pair. Stable fusionId also finds a group after
+// an intervening JSON history operation rehydrated the document.
+function restoreFusionSnapshot(snapshot) {
+  if (!snapshot || window.fusionEditActive || !paper.project) return false;
+  const group = findFusionGroup(snapshot.fusionId, snapshot.group);
+  if (!group) return false;
   try {
-    if (!st?.ghost?.project || !st?.tempImage?.project) return false;
-    const parentInv = st.ghost.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
-    st.ghost.matrix = parentInv.concatenate(st.tempImage.globalMatrix);
-    /* FASE UI: la caja de seleccion (y sus tiradores) debe seguir al proxy.
-       Sin este refresco, al arrastrar la imagen dentro de la fusion los
-       tiradores quedaban congelados en la posicion previa: el siguiente clic
-       sobre ellos escalaba con geometria vieja o se lo tragaba el arrastre
-       del cuerpo. Se omite durante un gesto de tirador en curso (escala o
-       rotacion): esa ruta gestiona su propia caja. */
-    if (!window.resizeActive && !window.rotationActive) {
-      try { window.updateSelectionBox?.(st.tempImage); } catch (_) {}
-    }
+    if (snapshot.groupMatrix) setWorldMatrix(group, snapshot.groupMatrix);
+    directFusionBackgrounds(group).forEach(background => background.remove());
+    directFusionRasters(group).forEach(raster => raster.remove());
+    (snapshot.backgrounds || []).forEach(saved => {
+      saved.group.visible = saved.visible; saved.group.opacity = saved.opacity; saved.group.data = { ...(saved.data || {}) };
+      group.insertChild(Math.min(saved.childIndex ?? 0, group.children.length), saved.group);
+      if (saved.matrix) setWorldMatrix(saved.group, saved.matrix);
+    });
+    snapshot.rasters.forEach(saved => {
+      restoreRaster(saved.raster, saved);
+      group.insertChild(Math.min(saved.childIndex ?? group.children.length, group.children.length), saved.raster);
+      if (saved.matrix) saved.raster.matrix = saved.matrix.clone();
+      lockFusionChild(saved.raster);
+    });
+    group.data = {
+      ...(group.data || {}), rasterIds: snapshot.rasterIds ? [...snapshot.rasterIds] : snapshot.rasters.map(item => item.id),
+      imageCount: snapshot.imageCount == null ? snapshot.rasters.length : snapshot.imageCount
+    };
+    window.EKKO_FUSION_CONTROLLER?.refreshFusion?.(group, { group, rasterIds: group.data.rasterIds, imageCount: group.data.imageCount });
+    selectFusionOwner(group);
+    window.recalculateDynamicSubtractions?.(paper.project.layers?.find(layer => layer?.name === "designLayer") || group.layer || null);
+    paper.view?.update?.();
     return true;
   } catch (_) { return false; }
 }
-
 function resolveFusionFromSelection() {
-  const lista = Array.isArray(window.selectedItems) && window.selectedItems.length
-    ? window.selectedItems
-    : (window.selectedItem ? [window.selectedItem] : []);
+  const lista = Array.isArray(window.selectedItems) && window.selectedItems.length ? window.selectedItems : (window.selectedItem ? [window.selectedItem] : []);
   for (const raw of lista) {
     try {
-      const hallada = window.findSmartFusionContainer?.(raw) ||
-        (raw?.data?.isSmartFusion ? raw : null);
-      if (hallada?.data?.fusionId) return hallada;
+      const found = window.findSmartFusionContainer?.(raw) || (raw?.data?.isSmartFusion ? raw : null);
+      if (found?.data?.fusionId) return found;
     } catch (_) {}
   }
   return null;
 }
+function activeEntry() { return editState?.images?.[editState.activeIndex] || null; }
+function syncActiveSelection() {
+  const entry = activeEntry();
+  if (!entry?.raster?.project) return false;
+  try {
+    if (typeof window.commitSelectionContext === "function") window.commitSelectionContext([entry.raster], entry.raster, "fusion-edit-select");
+    entry.raster.selected = true;
+  } catch (_) {}
+  window.selectedItem = entry.raster; window.selectedItems = [entry.raster];
+  try { window.updateSelectionBox?.(entry.raster); } catch (_) {}
+  try { window.updateContextualMenu?.(entry.raster); } catch (_) {}
+  return true;
+}
+/** Compatibility: no Raster ghost exists; explicit routes sync only at end. */
+export function syncEditGhost() {
+  const entry = activeEntry();
+  if (!entry) return false;
+  try { window.updateSelectionBox?.(entry.raster); } catch (_) {}
+  return true;
+}
+function markDirty() {
+  const st = editState;
+  if (!st || st.closing) return false;
+  st.dirty = true;
+  if (typeof window.markFusionEditDirty === "function") window.markFusionEditDirty();
+  else if (typeof window.markHistoryDirty === "function") window.markHistoryDirty();
+  return true;
+}
+function installCsgGuard(st) {
+  const original = window.recalculateDynamicSubtractions;
+  if (typeof original !== "function") return;
+  const guarded = function(...args) {
+    if (fusionEditActive && editState === st) return { skipped: true, reason: "fusion-edit-active", valid: true };
+    return original.apply(this, args);
+  };
+  window.recalculateDynamicSubtractions = guarded;
+  st.restoreRecalculateDynamicSubtractions = () => {
+    if (window.recalculateDynamicSubtractions === guarded) window.recalculateDynamicSubtractions = original;
+  };
+}
+function cleanupEditVisuals(st) {
+  try { st.previewOutline?.remove?.(); } catch (_) {}
+  try { st.editMask?.remove?.(); } catch (_) {}
+  try { st.editWrapper?.remove?.(); } catch (_) {}
+  try { st.restoreRecalculateDynamicSubtractions?.(); } catch (_) {}
+}
+function waitForRaster(raster) {
+  if (!raster || raster.loaded || raster.width > 0) return Promise.resolve(raster);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = value => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); raster.onLoad = null;
+      value instanceof Error ? reject(value) : resolve(raster);
+    };
+    const timer = setTimeout(() => finish(new Error("La imagen no terminó de cargar")), 15000);
+    raster.onLoad = () => finish(raster);
+  });
+}
+function rawWorldBounds(item) {
+  const bounds = item?.bounds?.clone?.();
+  if (!bounds) return null;
+  const matrix = item.parent?.globalMatrix || new paper.Matrix();
+  const points = [bounds.topLeft, bounds.topRight, bounds.bottomRight, bounds.bottomLeft].map(point => matrix.transform(point));
+  const left = Math.min(...points.map(point => point.x));
+  const top = Math.min(...points.map(point => point.y));
+  const right = Math.max(...points.map(point => point.x));
+  const bottom = Math.max(...points.map(point => point.y));
+  return new paper.Rectangle(left, top, right - left, bottom - top);
+}
+function cloneRasterReference(source) {
+  const copy = new paper.Raster({ insert: false });
+  const canvas = source._canvas || null;
+  const image = source._image || source.image || null;
+  if (canvas) copy.canvas = canvas;
+  else if (image) copy.image = image;
+  copy.size = source.size?.clone?.() || new paper.Size(source.width, source.height);
+  copy.matrix = source.matrix?.clone?.() || new paper.Matrix();
+  copy.applyMatrix = source.applyMatrix;
+  copy.opacity = source.opacity;
+  copy.name = source.name;
+  copy.data = { ...(source.data || {}) };
+  return copy;
+}
+async function rasterFromSource(source) {
+  if (source?.className === "Raster" || source instanceof paper.Raster) {
+    const copy = cloneRasterReference(source); await waitForRaster(copy); return copy;
+  }
+  const raster = new paper.Raster({ insert: false });
+  if (typeof Blob !== "undefined" && source instanceof Blob) {
+    const objectUrl = URL.createObjectURL(source);
+    try {
+      const image = new Image();
+      await new Promise((resolve, reject) => {
+        image.onload = resolve; image.onerror = () => reject(new Error("No se pudo leer la imagen")); image.src = objectUrl;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("No se pudo preparar la imagen");
+      context.drawImage(image, 0, 0);
+      raster.canvas = canvas;
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } else if (source && typeof source === "object") {
+    raster.image = source; // Paper 0.12.17 accepts canvas and Image directly.
+  } else if (typeof source === "string") {
+    raster.source = source;
+  } else throw new Error("Origen de imagen inválido");
+  await waitForRaster(raster);
+  return raster;
+}
+function registerProxy(st, raster, options = {}) {
+  makeEditable(raster);
+  raster.opacity = options.opacity == null ? (raster.opacity ?? 1) : options.opacity;
+  raster.data = { ...(raster.data || {}), ...(options.data || {}), locked: false, isFusionEditProxy: true };
+  if (options.label) raster.data.label = options.label;
+  const maskBounds = rawWorldBounds(st.mask);
+  if (!options.globalMatrix && maskBounds) {
+    raster.position = options.point || maskBounds.center;
+    if (options.width && raster.width > 0) raster.scale(options.width / raster.width);
+    else if (raster.width > 0 && raster.height > 0) {
+      const fit = Math.min(maskBounds.width / raster.width, maskBounds.height / raster.height) * 0.92;
+      if (fit > 0 && Number.isFinite(fit)) raster.scale(fit);
+    }
+  }
+  const worldMatrix = options.globalMatrix?.clone?.() || cloneMatrix(raster.globalMatrix) || new paper.Matrix();
+  st.editWrapper.addChild(raster); setWorldMatrix(raster, worldMatrix);
+  const entry = { raster, original: options.original || null, baseline: captureRaster(raster) };
+  st.images.push(entry); raster.data = { ...(raster.data || {}), fusionImageIndex: st.images.length - 1 };
+  return entry;
+}
+async function addImage(source, options = {}) {
+  const st = editState;
+  if (!fusionEditActive || !st || st.closing) return null;
+  const token = st.token, raster = await rasterFromSource(source);
+  if (!fusionEditActive || editState !== st || st.token !== token || st.closing) return null;
+  const entry = registerProxy(st, raster, options);
+  st.activeIndex = st.images.indexOf(entry); st.tempImage = entry.raster; st.image = entry.original?.raster || entry.raster;
+  markDirty(); syncActiveSelection(); paper.view?.update?.(); return entry.raster;
+}
+async function replaceActive(source, options = {}) {
+  const st = editState, entry = activeEntry();
+  if (!fusionEditActive || !st || !entry || st.closing) return null;
+  const token = st.token, incoming = await rasterFromSource(source);
+  if (!fusionEditActive || editState !== st || st.token !== token || st.closing) return null;
+  const target = entry.raster, oldMatrix = target.matrix.clone(), oldSize = target.size.clone();
+  const incomingCanvas = incoming._canvas || null, incomingImage = incoming._image || incoming.image || null;
+  target.onLoad = null;
+  if (incomingCanvas) target.canvas = incomingCanvas;
+  else if (incomingImage) target.image = incomingImage;
+  else throw new Error("La imagen de reemplazo está vacía");
+  // Preserve physical bounds without resampling: adapt the matrix to old size.
+  target.applyMatrix = false; target.matrix = oldMatrix;
+  if (incoming.width > 0 && incoming.height > 0 && oldSize.width > 0 && oldSize.height > 0) target.scale(oldSize.width / incoming.width, oldSize.height / incoming.height);
+  const keep = { ...(target.data || {}) };
+  delete keep.originalCanvas; delete keep.quitarFondoIA; delete keep.ekkoFondoClave; delete keep.ekkoFondo;
+  target.data = { ...keep, locked: false, isFusionEditProxy: true, fusionImageIndex: st.activeIndex, ...(options.label ? { label: options.label } : {}) };
+  markDirty(); syncActiveSelection(); paper.view?.update?.(); return target;
+}
+function selectImage(indexOrRaster) {
+  const st = editState;
+  if (!fusionEditActive || !st) return null;
+  const index = typeof indexOrRaster === "number" ? indexOrRaster : st.images.findIndex(entry => entry.raster === indexOrRaster);
+  if (index < 0 || index >= st.images.length) return null;
+  try { paper.project?.deselectAll?.(); } catch (_) {}
+  st.images.forEach(entry => { try { entry.raster.selected = false; } catch (_) {} });
+  st.activeIndex = index;
+  const entry = st.images[index]; st.tempImage = entry.raster; st.image = entry.original?.raster || entry.raster;
+  syncActiveSelection(); paper.view?.update?.(); return entry.raster;
+}
+function removeActive() {
+  const st = editState, entry = activeEntry();
+  if (!fusionEditActive || !st || !entry || st.images.length <= 1) return false;
+  const index = st.activeIndex; entry.raster.remove(); st.images.splice(index, 1);
+  st.images.forEach((item, imageIndex) => { item.raster.data = { ...(item.raster.data || {}), fusionImageIndex: imageIndex }; });
+  st.activeIndex = Math.min(index, st.images.length - 1); st.tempImage = st.images[st.activeIndex].raster;
+  st.image = st.images[st.activeIndex].original?.raster || st.tempImage;
+  markDirty(); selectImage(st.activeIndex); return true;
+}
+async function duplicateActive() {
+  const entry = activeEntry(); if (!entry) return null;
+  const matrix = entry.raster.globalMatrix.clone(); matrix.translate(new paper.Point(20, 20));
+  return addImage(entry.raster, { globalMatrix: matrix, opacity: entry.raster.opacity });
+}
+function reorderActive(direction) {
+  const st = editState, entry = activeEntry();
+  if (!fusionEditActive || !st || !entry || st.images.length <= 1) return false;
+  const index = st.activeIndex;
+  let nextIndex = direction === "forward" ? Math.min(st.images.length - 1, index + 1)
+    : direction === "backward" ? Math.max(0, index - 1)
+    : direction === "front" ? st.images.length - 1 : direction === "back" ? 0 : index;
+  if (nextIndex === index) return false;
+  const moved = st.images.splice(index, 1)[0]; st.images.splice(nextIndex, 0, moved);
+  st.editWrapper.addChild(st.editMask); st.images.forEach(item => st.editWrapper.addChild(item.raster));
+  st.images.forEach((item, imageIndex) => { item.raster.data = { ...(item.raster.data || {}), fusionImageIndex: imageIndex }; });
+  st.activeIndex = nextIndex; markDirty(); syncActiveSelection(); paper.view?.update?.(); return true;
+}
+function copyActive() {
+  const entry = activeEntry();
+  return entry ? cloneRasterReference(entry.raster) : null;
+}
+function restoreActiveSource() {
+  const st = editState, entry = activeEntry();
+  if (!fusionEditActive || !st || !entry?.baseline) return false;
+  const baseline = entry.baseline, target = entry.raster;
+  if (baseline.canvas) target.canvas = baseline.canvas; else if (baseline.image) target.image = baseline.image;
+  const data = { ...(target.data || {}) };
+  delete data.originalCanvas; delete data.quitarFondoIA; delete data.ekkoFondoClave; delete data.ekkoFondo;
+  target.data = data; markDirty(); syncActiveSelection(); paper.view?.update?.(); return true;
+}
+function getState() {
+  const st = editState; if (!fusionEditActive || !st) return null;
+  const entry = activeEntry();
+  return {
+    token: st.token, fusionId: st.fusionId, fusionGroup: st.fusionGroup, wrapper: st.editWrapper, mask: st.mask,
+    active: entry?.raster || null, raster: entry?.raster || null, tempImage: entry?.raster || null,
+    image: entry?.original?.raster || entry?.raster || null, activeIndex: st.activeIndex,
+    images: st.images.map(item => item.raster), originals: st.originalImages, dirty: st.dirty, count: st.images.length,
+    previewOutline: st.previewOutline || null
+  };
+}
 
 export function enterFusionEditMode(fusionGroup = null) {
-  // Botones de barra llaman sin argumento: la fusion se resuelve desde la
-  // seleccion, igual que el doble clic.
   if (!fusionGroup?.data?.fusionId) fusionGroup = resolveFusionFromSelection();
   if (!fusionGroup?.data?.fusionId) return false;
   if (fusionEditActive) exitFusionEditMode(false);
-
   const data = fusionGroup.data;
-  const mask = data.maskGroup?.children?.[0] || data.originalVector ||
-    fusionGroup.children?.find(child => child?.clipMask || child?.data?.isFusionMask);
-  const image = fusionGroup.children?.find(child =>
-    child?.name === "fusion-image" || child?.className === "Raster");
-  if (!mask || !image) return false;
-  const controller = window.EKKO_FUSION_CONTROLLER;
+  const mask = fusionGroup.children?.find(child => child?.clipMask || child?.data?.isFusionMask) || data.maskGroup?.children?.[0] || data.originalVector || null;
+  const originals = directFusionRasters(fusionGroup);
+  if (!mask?.project || !originals.length) return false;
+  const before = captureFusionState(fusionGroup), controller = window.EKKO_FUSION_CONTROLLER;
   const controllerTransaction = controller?.beginFusionEdit?.(fusionGroup) || null;
-
-  // El proxy editable vive a NIVEL CAPA dentro de su propio wrapper de
-  // recorte (mascara = clon del vector actual). Asi es un Raster publico
-  // normal: tiene caja, tiradores y herramientas de imagen, y lo que se ve
-  // fuera del vector es el fantasma de referencia, no geometria recortada.
-  const designLayer = paper.project?.layers?.find(layer => layer?.name === 'designLayer')
-    || paper.project?.activeLayer || null;
-  const tempImage = image.clone({ insert: false });
-  tempImage.name = "fusion-temp-image";
-  tempImage.opacity = 1;
-  tempImage.locked = false;
-  tempImage.clipMask = false;
-  tempImage.applyMatrix = false;
-  tempImage.data = { ...(tempImage.data || {}), isFusionEditProxy: true };
-  const editMask = mask.clone({ insert: false });
-  editMask.clipMask = true;
-  editMask.fillColor = null; editMask.strokeColor = null;
-  const editWrapper = new paper.Group({ insert: false });
-  editWrapper.addChild(editMask);
-  editWrapper.addChild(tempImage);
-  editWrapper.clipped = true;
-  editWrapper.data = { isFusionEditClip: true, fusionId: data.fusionId, locked: false };
-  if (designLayer) designLayer.addChild(editWrapper);
-  // La mascara del proxy se clona en el espacio LOCAL de la fusion, pero el
-  // wrapper vive a nivel capa. Si la fusion esta dentro de un mockup con
-  // matriz propia, el recorte quedaba a la escala local (mockup 2x: la imagen
-  // se veia a la mitad) mientras el contorno cian si respetaba la matriz.
-  try {
-    const invWrapper = editWrapper.globalMatrix?.inverted?.() || new paper.Matrix();
-    editMask.applyMatrix = false;
-    editMask.matrix = invWrapper.concatenate(mask.globalMatrix);
-  } catch (_) {}
-  // La matriz global del proxy reproduce la de la imagen interna para que no
-  // haya ningun salto visual al entrar.
-  try {
-    const parentInv = editWrapper.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
-    tempImage.matrix = parentInv.concatenate(image.globalMatrix);
-  } catch (_) {}
-
-  // Fantasma de referencia: la imagen completa con transparencia, DEBAJO del
-  // wrapper de edicion. Lo de afuera del vector se ve atenuado (se cortara
-  // al aceptar); lo de adentro lo muestra el proxy a opacidad plena.
-  // No es seleccionable ni entra a CSG/exportacion/mediciones.
-  let ghost = null;
-  try {
-    ghost = image.clone({ insert: false });
-    ghost.name = "fusion-edit-ghost";
-    ghost.opacity = 0.32;
-    ghost.locked = true;
-    ghost.clipMask = false;
-    ghost.data = { ...(ghost.data || {}), isFusionEditGhost: true, locked: true };
-    if (designLayer) designLayer.addChild(ghost);
-    const gInv = ghost.parent?.globalMatrix?.inverted?.() || new paper.Matrix();
-    ghost.matrix = gInv.concatenate(image.globalMatrix);
-  } catch (_) { try { ghost?.remove?.(); } catch (__) {} ghost = null; }
-
-  const previewOutline = mask.clone();
-  previewOutline.name = "fusion-preview-outline";
-  previewOutline.strokeColor = "#00e5ff";
-  previewOutline.strokeWidth = 2 / (paper.view?.zoom || 1);
-  previewOutline.fillColor = null;
-  previewOutline.clipMask = false;
-  previewOutline.locked = true;
-  previewOutline.data = { ...(previewOutline.data || {}), isFusionEditOverlay: true };
-
-  fusionGroup.addChild(previewOutline);
-  image.opacity = 0;
-
-  editState = {
-    fusionGroup,
-    fusionId: data.fusionId,
-    controllerTransaction,
-    mask,
-    image,
-    tempImage,
-    editWrapper,
-    ghost,
-    previewOutline,
-    pointer: null,
-    snapshot: {
-      imagePosition: image.position.clone(),
-      imageMatrix: image.matrix.clone()
-    }
+  const designLayer = paper.project?.layers?.find(layer => layer?.name === "designLayer") || paper.project?.activeLayer || null;
+  const st = {
+    token: ++editSessionSequence, fusionGroup, fusionId: data.fusionId, controllerTransaction, mask, before,
+    originalImages: originals, images: [], activeIndex: 0, image: originals[0], tempImage: originals[0],
+    editWrapper: null, editMask: null, ghost: null, previewOutline: null, pointer: null, dirty: false, closing: false
   };
-  window._fusionEditState = editState;
-  fusionEditActive = true;
-  window.fusionEditActive = true;
-  interactionOwner.claim("fusion-edit", { owner: "fusionEditMode" });
-  // La imagen editable queda SELECCIONADA con su caja y tiradores: es un
-  // Raster publico a nivel capa, asi que el sistema la acepta sin resolver
-  // a la fusion. Las herramientas de imagen actuan sobre ella.
   try {
-    window.selectedItem = tempImage;
-    window.selectedItems = [tempImage];
-    window.updateSelectionBox?.(tempImage);
-    window.updateContextualMenu?.(tempImage);
-    window.refreshAllToolbars?.();
-  } catch (_) {}
-  // Espejo periodico fantasma<->proxy: cubre tiradores y cualquier ruta que
-  // mueva al proxy sin pasar por los handlers de este modulo.
-  try {
-    editState.editSyncTimer = setInterval(() => {
-      try { if (window._fusionEditState) syncEditGhost(); } catch (_) {}
-    }, 150);
-  } catch (_) {}
-  paper.view?.update?.();
-  return true;
+    const editMask = mask.clone({ insert: false });
+    editMask.clipMask = true; editMask.fillColor = null; editMask.strokeColor = null; editMask.strokeWidth = 0;
+    const editWrapper = new paper.Group({ insert: false }); editWrapper.addChild(editMask); editWrapper.clipped = true;
+    editWrapper.data = { isFusionEditClip: true, fusionId: data.fusionId, locked: false };
+    if (designLayer) designLayer.addChild(editWrapper);
+    setWorldMatrix(editMask, mask.globalMatrix); st.editMask = editMask; st.editWrapper = editWrapper;
+    originals.forEach(raster => {
+      const worldMatrix = raster.globalMatrix.clone();
+      registerProxy(st, raster, { globalMatrix: worldMatrix, opacity: raster.opacity, original: before.rasters.find(item => item.raster === raster) });
+    });
+    const previewOutline = mask.clone({ insert: false });
+    const outlineMatrix = mask.globalMatrix?.clone?.() || new paper.Matrix();
+    const outlineScale = Math.max(Math.hypot(outlineMatrix.a, outlineMatrix.b), Math.hypot(outlineMatrix.c, outlineMatrix.d), 1e-9);
+    previewOutline.name = "fusion-preview-outline"; previewOutline.strokeColor = "#00e5ff";
+    previewOutline.strokeWidth = 2 / ((paper.view?.zoom || 1) * outlineScale); previewOutline.fillColor = null;
+    previewOutline.clipMask = false; previewOutline.locked = true;
+    previewOutline.data = { ...(previewOutline.data || {}), isFusionEditOverlay: true, isSelectionBox: true, isSmartGuide: true, uiOnly: true, locked: true };
+    if (designLayer) designLayer.addChild(previewOutline);
+    setWorldMatrix(previewOutline, outlineMatrix); st.previewOutline = previewOutline;
+  } catch (_) {
+    // Some originals may already have moved into the temporary wrapper. Put
+    // every live reference back before releasing the transaction.
+    try { restoreOriginalsOnCancel(st); } catch (_) {}
+    try { controller?.cancelFusionEdit?.(st.fusionId); } catch (_) {}
+    cleanupEditVisuals(st); return false;
+  }
+  editState = st; window._fusionEditState = st; fusionEditActive = true; window.fusionEditActive = true;
+  interactionOwner.claim("fusion-edit", { owner: "fusionEditMode" }); installCsgGuard(st); selectImage(0);
+  try { window.refreshAllToolbars?.(); } catch (_) {}
+  window.beginFusionEditHistory?.({ before, restore: restoreFusionSnapshot, equivalent: sameFusionState }); paper.view?.update?.(); return true;
 }
-
 export const initFusionEditMode = enterFusionEditMode;
-
+function restoreOriginalsOnCancel(st) {
+  // Remove only session-owned proxies. Other fusion children (including future
+  // vector companions) must not be destroyed by cancellation.
+  st.images.forEach(entry => { try { entry.raster.remove(); } catch (_) {} });
+  directFusionBackgrounds(st.fusionGroup).forEach(background => background.remove());
+  (st.before.backgrounds || []).forEach(saved => {
+    saved.group.visible = saved.visible; saved.group.opacity = saved.opacity; saved.group.data = { ...(saved.data || {}) };
+    st.fusionGroup.insertChild(Math.min(saved.childIndex ?? 0, st.fusionGroup.children.length), saved.group);
+    if (saved.matrix) setWorldMatrix(saved.group, saved.matrix);
+  });
+  st.before.rasters.forEach(saved => {
+    restoreRaster(saved.raster, saved);
+    st.fusionGroup.insertChild(Math.min(saved.childIndex ?? st.fusionGroup.children.length, st.fusionGroup.children.length), saved.raster);
+    if (saved.matrix) saved.raster.matrix = saved.matrix.clone();
+    lockFusionChild(saved.raster);
+  });
+}
+function acceptImages(st) {
+  const fusionInv = st.fusionGroup.globalMatrix.inverted();
+  directFusionBackgrounds(st.editWrapper).forEach(background => {
+    const worldMatrix = background.globalMatrix.clone();
+    background.applyMatrix = false;
+    st.fusionGroup.addChild(background);
+    background.matrix = fusionInv.concatenate(worldMatrix);
+  });
+  st.images.forEach(entry => {
+    const raster = entry.raster, worldMatrix = raster.globalMatrix.clone(); raster.applyMatrix = false;
+    st.fusionGroup.addChild(raster); raster.matrix = fusionInv.concatenate(worldMatrix); raster.data = proxyData(raster.data);
+    raster.locked = false; raster.clipMask = false; lockFusionChild(raster);
+  });
+  const rasters = directFusionRasters(st.fusionGroup);
+  st.fusionGroup.data = { ...(st.fusionGroup.data || {}), rasterIds: rasters.map(raster => raster.id), imageCount: rasters.length };
+  return rasters;
+}
 export function exitFusionEditMode(accept = true) {
   const st = editState;
-  if (!st || !fusionEditActive) {
-    interactionOwner.release("fusion-edit");
-    return false;
-  }
-
-  fusionEditActive = false;
-  window.fusionEditActive = false;
-  editState = null;
-  window._fusionEditState = null;
-  interactionOwner.endPointer("fusion-edit");
-
-  const finalImage = st.image?.project
-    ? st.image
-    : st.fusionGroup?.children?.find(child => child?.name === "fusion-image");
+  if (!st || !fusionEditActive) { interactionOwner.release("fusion-edit"); return false; }
+  st.closing = true; interactionOwner.endPointer("fusion-edit");
   const controller = window.EKKO_FUSION_CONTROLLER;
+  let after = null;
   try {
-    if (finalImage) {
-      if (accept && st.tempImage?.project) {
-        // El proxy vive en otro padre que la imagen interna: convertir su
-        // matriz global al sistema local del grupo de fusion. Copiarla
-        // directo desfasa (ese era el "salto" al aceptar).
-        if (typeof window.saveHistory === "function") window.saveHistory();
-        const gInv = st.fusionGroup?.globalMatrix?.inverted?.() || new paper.Matrix();
-        finalImage.matrix = gInv.concatenate(st.tempImage.globalMatrix);
-        // Las herramientas de imagen (quitar fondo, ajustes) trabajan sobre el
-        // proxy. Sin este traspaso, al aceptar solo viajaba la matriz y todo
-        // el trabajo de pixeles se perdia en silencio.
-        const matrizFinal = finalImage.matrix.clone();
-        const fuenteProxy = st.tempImage.image;
-        if (fuenteProxy && fuenteProxy !== finalImage.image) {
-          // Paper ignora un canvas asignado a .image; la via que usan las
-          // herramientas es .source (string), asi que se normaliza a eso.
-          let url = null;
-          try {
-            if (fuenteProxy.getContext && typeof fuenteProxy.toDataURL === "function") url = fuenteProxy.toDataURL("image/png");
-            else if (typeof st.tempImage.source === "string" && st.tempImage.source) url = st.tempImage.source;
-          } catch (_) { url = null; }
-          if (url) {
-            try { finalImage.source = url; } catch (_) {}
-          }
-          if (st.tempImage.imageData) finalImage.imageData = st.tempImage.imageData;
-        }
-        const datosProxy = { ...(st.tempImage.data || {}) };
-        delete datosProxy.isFusionEditProxy;
-        finalImage.data = { ...(finalImage.data || {}), ...datosProxy };
-        finalImage.matrix = matrizFinal;
-      } else if (st.snapshot) {
-        finalImage.position = st.snapshot.imagePosition.clone();
-        finalImage.matrix = st.snapshot.imageMatrix.clone();
-      }
-      finalImage.opacity = 1;
-    }
-    let acceptedRasterSnapshot = null;
-    if (accept && finalImage?.clone) {
-      acceptedRasterSnapshot = finalImage.clone({ insert: false });
-      acceptedRasterSnapshot.visible = false;
-      acceptedRasterSnapshot.data = { ...(acceptedRasterSnapshot.data || {}), fusionEditSnapshot: true };
-      st.fusionGroup.data = { ...(st.fusionGroup.data || {}), originalRasterData: acceptedRasterSnapshot };
-    }
     if (accept) {
-      updateVirtualHole(st.fusionId, st.mask, st.fusionGroup);
-      controller?.commitFusionEdit?.(st.fusionGroup, acceptedRasterSnapshot ? { originalRasterData: acceptedRasterSnapshot } : {});
+      acceptImages(st); after = captureFusionState(st.fusionGroup);
+      controller?.commitFusionEdit?.(st.fusionGroup, { rasterId: after.rasters[0]?.id ?? null, rasterIds: after.rasterIds, imageCount: after.imageCount });
+      window.commitFusionEditHistory?.(after);
     } else {
-      controller?.cancelFusionEdit?.(st.fusionId);
+      restoreOriginalsOnCancel(st); controller?.cancelFusionEdit?.(st.fusionId); window.cancelFusionEditHistory?.("cancelled");
     }
-    // A virtual hole must exist after both accept and cancel. The controller
-    // owns the canonical metadata/scope, while this module owns the edit UI.
     controller?.syncFusionVirtualHole?.(st.fusionGroup);
-    const designLayer = paper.project?.layers?.find(layer => layer?.name === 'designLayer') || st.fusionGroup?.layer || null;
-    window.recalculateDynamicSubtractions?.(designLayer);
   } finally {
-    cleanupEditVisuals(st);
+    cleanupEditVisuals(st); fusionEditActive = false; window.fusionEditActive = false; editState = null; window._fusionEditState = null;
     interactionOwner.release("fusion-edit");
-    // La seleccion vuelve a la fusion completa con su caja.
-    try {
-      if (st.fusionGroup?.project) {
-        window.selectedItem = st.fusionGroup;
-        window.selectedItems = [st.fusionGroup];
-        window.updateSelectionBox?.(st.fusionGroup);
-        window.updateContextualMenu?.(st.fusionGroup);
-        window.refreshAllToolbars?.();
-      } else {
-        window.deselectItem?.();
-      }
-    } catch (_) {}
+    try { if (st.fusionGroup?.project) selectFusionOwner(st.fusionGroup); else window.deselectItem?.(); } catch (_) {}
+    window.recalculateDynamicSubtractions?.(paper.project?.layers?.find(layer => layer?.name === "designLayer") || st.fusionGroup?.layer || null);
     paper.view?.update?.();
   }
   return true;
 }
-
-/* Todos los eventos del modo interno entran desde selection.js. Este módulo
- * no registra listeners DOM propios. */
 export function handleFusionEditPointerDown(event, point) {
   if (!fusionEditActive || !editState) return false;
-  // La imagen editable (incluido su fantasma visual) manda: agarrarla
-  // arrastra, aunque el punto caiga fuera de la mascara. Solo un clic en
-  // vacio real acepta y sale.
-  const draggingImage = pointHits(editState.tempImage, point);
-  if (draggingImage) {
-    editState.pointer = { dragging: true, token: null };
-    editState.pointer.token = interactionOwner.beginPointer("fusion-edit");
-    return true;
+  let hit = null;
+  for (let index = editState.images.length - 1; index >= 0; index--) {
+    if (pointHits(editState.images[index].raster, point)) { hit = editState.images[index].raster; break; }
   }
-  if (!pointInsideMask(point, editState.mask)) {
-    exitFusionEditMode(true);
-    return true;
+  if (hit) {
+    if (hit !== editState.tempImage) selectImage(hit);
+    editState.pointer = { dragging: true, moved: false, token: interactionOwner.beginPointer("fusion-edit") }; return true;
   }
-  editState.pointer = { dragging: false, token: null };
-  editState.pointer.token = interactionOwner.beginPointer("fusion-edit");
-  return true;
+  if (!pointHits(editState.mask, point)) { exitFusionEditMode(true); return true; }
+  editState.pointer = { dragging: false, moved: false, token: interactionOwner.beginPointer("fusion-edit") }; return true;
 }
-
 export function handleFusionEditPointerDrag(event) {
   if (!fusionEditActive || !editState?.pointer) return true;
   if (!editState.pointer.dragging || !event?.delta) return true;
-  const delta = event.delta.clone ? event.delta.clone() :
-    new paper.Point(event.delta.x || 0, event.delta.y || 0);
+  const delta = event.delta.clone ? event.delta.clone() : new paper.Point(event.delta.x || 0, event.delta.y || 0);
   editState.tempImage.translate(toParentDelta(editState.tempImage, delta));
-  syncEditGhost();
-  paper.view?.update?.();
-  return true;
+  if (delta.length > 1e-7) editState.pointer.moved = true;
+  paper.view?.update?.(); return true;
 }
-
 export function handleFusionEditPointerUp() {
   if (!fusionEditActive || !editState) return false;
-  const token = editState.pointer?.token || null;
-  editState.pointer = null;
-  interactionOwner.endPointer("fusion-edit", token);
-  return true;
+  const pointer = editState.pointer; editState.pointer = null; interactionOwner.endPointer("fusion-edit", pointer?.token || null);
+  if (pointer?.dragging && pointer.moved) markDirty();
+  syncEditGhost(); return true;
 }
-
 export function handleFusionEditKeyDown(event) {
   if (!fusionEditActive) return false;
-  if (event.key === "Enter" || event.type === "contextmenu") {
-    event.preventDefault?.();
-    exitFusionEditMode(true);
-    return true;
-  }
-  if (event.key === "Escape") {
-    event.preventDefault?.();
-    exitFusionEditMode(false);
-    return true;
-  }
+  if (event.key === "Enter" || event.type === "contextmenu") { event.preventDefault?.(); exitFusionEditMode(true); return true; }
+  if (event.key === "Escape") { event.preventDefault?.(); exitFusionEditMode(false); return true; }
   return false;
+}
+if (typeof window !== "undefined") {
+  window.EKKO_FUSION_EDIT = { addImage, replaceActive, selectImage, removeActive, duplicateActive, copyActive, reorderActive, restoreActiveSource, markDirty, getState };
 }
