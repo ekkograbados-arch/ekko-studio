@@ -1857,7 +1857,42 @@ import * as FONDO from './fondoStore.js';
      * un Group no tiene .position, y quitar el fondo reventaba con
      * "Cannot read properties of undefined". Es la misma trampa que en Trazar.
      */
+    function fusionEditActual() {
+        if (!window.fusionEditActive || !window.EKKO_FUSION_EDIT?.getState) return null;
+        const state = window.EKKO_FUSION_EDIT.getState();
+        return state?.active?.project ? state : null;
+    }
+    function fusionSigueViva(fusion, raster) {
+        if (!fusion) return true;
+        const current = fusionEditActual();
+        return !!current && current.token === fusion.token && current.active === raster && !!raster.project;
+    }
+    function seleccionarResultado(raster, fusion) {
+        try {
+            if (fusion) window.EKKO_FUSION_EDIT.selectImage(fusion.activeIndex);
+            else if (typeof window.selectItem === 'function') window.selectItem(raster);
+        } catch (_) {}
+    }
+    function asignarFuenteRaster(raster, fuente) {
+        if (!raster || !fuente) return false;
+        const matrix = raster.matrix.clone(), size = raster.size.clone();
+        const width = fuente.naturalWidth || fuente.width || 0;
+        const height = fuente.naturalHeight || fuente.height || 0;
+        raster.onLoad = null;
+        if (fuente.getContext) raster.canvas = fuente;
+        else raster.image = fuente;
+        raster.applyMatrix = false;
+        raster.matrix = matrix;
+        if (width > 0 && height > 0 && size.width > 0 && size.height > 0 &&
+            (Math.abs(size.width - width) > 1e-7 || Math.abs(size.height - height) > 1e-7)) {
+            raster.scale(size.width / width, size.height / height);
+        }
+        raster.dirty = true;
+        return true;
+    }
     function resolverImagen(item) {
+        const fusion = fusionEditActual();
+        if (fusion) return fusion.active;
         if (!item) return null;
         try { if (item instanceof paper.Raster) return item; } catch (_) { return null; }
         const pila = item.children ? [...item.children] : [];
@@ -1895,13 +1930,16 @@ import * as FONDO from './fondoStore.js';
     }
 
     async function quitarFondo(raster, opciones = {}) {
-        // Se acepta el envoltorio: el trabajo se hace sobre el Raster de adentro.
+        // During fusion editing every image tool addresses the active proxy,
+        // never the public fusion or a loose object from the global selection.
+        const fusion = fusionEditActual();
         const destino = resolverImagen(raster);
         if (!destino) throw new Error('Seleccioná una imagen primero');
         raster = destino;
         if (!raster) throw new Error('Seleccioná una imagen primero');
         ESTADO.ultimoError = null;
         ESTADO.imagenOriginal = raster;
+        ESTADO.fuenteOriginal = null;
 
         try {
             // Conservar TODO antes de tocar nada: posición, tamaño, rotación,
@@ -1923,9 +1961,11 @@ import * as FONDO from './fondoStore.js';
                 });
             }
 
+            if (!fusionSigueViva(fusion, raster)) return null;
             await cargarOrt();
             await obtenerWorker();
             await enviar({ accion: 'preparar', modeloClave: CFG.MODELO_CLAVE }, 'listo');
+            if (!fusionSigueViva(fusion, raster)) return null;
 
             // Lado de entrada: lo decide el MODELO ACTIVO (el worker avisa en
             // `preparar`, incluido el respaldo si tuvo que bajar). El override
@@ -2089,9 +2129,11 @@ import * as FONDO from './fondoStore.js';
             // trabajo y una foto de 3200 px perdia el 70% de sus pixeles.
             const salida = componerCalidad(lienzo, elemento, aw, ah);
 
-            // Se guarda la fuente original para el "deshacer": volver a ponerla
-            // devuelve la foto con su fondo, sin tocar nada mas.
-            if (!ESTADO.urlOriginal) ESTADO.urlOriginal = elemento.src;
+            // Keep the live original canvas/Image reference. Reassigning the
+            // Raster does not mutate it: no pixel clone or PNG serialization.
+            ESTADO.fuenteOriginal = elemento;
+            ESTADO.lienzoOriginal = elemento;
+            if (!ESTADO.urlOriginal && elemento.src) ESTADO.urlOriginal = elemento.src;
             ESTADO.rasterOriginal = raster;
 
             // Copia de los pixeles ORIGINALES en un lienzo aparte.
@@ -2107,40 +2149,17 @@ import * as FONDO from './fondoStore.js';
             //      recomponer, y `Deshacer` tampoco tendria sentido.
             // Se hace ANTES del cambio de `source`, que es el ultimo momento en
             // que el item todavia tiene la foto entera.
-            try {
-                const w0 = elemento.naturalWidth || elemento.width || 0;
-                const h0 = elemento.naturalHeight || elemento.height || 0;
-                if (w0 > 0 && h0 > 0) {
-                    const orig = document.createElement('canvas');
-                    orig.width = w0; orig.height = h0;
-                    orig.getContext('2d').drawImage(elemento, 0, 0, w0, h0);
-                    ESTADO.lienzoOriginal = orig;
-                }
-            } catch (e) { ESTADO.ultimoError = e; }
-
-            raster.source = salida.toDataURL('image/png');
+            // Cancel/Accept may have happened while the worker was inferring.
+            if (!fusionSigueViva(fusion, raster)) return null;
+            asignarFuenteRaster(raster, salida);
             if (nomOriginal) raster.name = nomOriginal;
-
-            // Se espera a que la imagen nueva este cargada antes de seguir.
-            await new Promise(res => {
-                const el = raster.getElement && raster.getElement();
-                const listo = el && el.complete && el.width > 0;
-                if (listo) return res();
-                let hecho = false;
-                const fin = () => { if (!hecho) { hecho = true; res(); } };
-                raster.onLoad = fin;
-                setTimeout(fin, 8000);
-            });
 
             let nueva = raster;
             ESTADO.imagenProcesada = nueva;
             ESTADO.listo = true;
 
-            // La seleccion no se toca: sigue siendo la misma pieza que el
-            // cliente ya estaba moviendo.
-            try {
-                if (typeof window.selectItem === 'function') window.selectItem(nueva);
-            } catch (_) {}
+            // Keep canonical and Paper.js selection on the active proxy.
+            seleccionarResultado(nueva, fusion);
 
             // OJO: ya no se oculta el original, porque AHI MISMO esta el recorte.
             // `nueva === raster`: el item es el mismo, con otro contenido. Dejar
@@ -2161,7 +2180,10 @@ import * as FONDO from './fondoStore.js';
             //   - la piramide mostraba los dos botones a la vez
             // El contenido de `data` lo tocan varios modulos de la app, asi que
             // la ultima palabra la tiene esta linea, aqui al final.
-            if (typeof window.saveHistory === 'function') {
+            if (fusion) {
+                // The outer fusion transaction is the only history owner.
+                window.EKKO_FUSION_EDIT?.markDirty?.();
+            } else if (typeof window.saveHistory === 'function') {
                 try { window.saveHistory(); } catch (_) {}
             }
 
@@ -2221,9 +2243,12 @@ import * as FONDO from './fondoStore.js';
         // (ver quitarFondo). Deshacer es volver a poner la fuente que tenia,
         // que es lo unico que hay que cambiar: no se borra ni se oculta nada.
         const r = ESTADO.imagenProcesada || ESTADO.rasterOriginal;
-        if (r && ESTADO.urlOriginal) {
+        const fusion = fusionEditActual();
+        if (fusion && fusion.active !== r) return false;
+        if (r && (ESTADO.fuenteOriginal || ESTADO.urlOriginal)) {
             try {
-                r.source = ESTADO.urlOriginal;
+                if (ESTADO.fuenteOriginal) asignarFuenteRaster(r, ESTADO.fuenteOriginal);
+                else r.source = ESTADO.urlOriginal;
                 r.data = { ...(r.data || {}) };
                 delete r.data.quitarFondoIA;
                 // La sesion de edicion de esta foto deja de existir: sin la
@@ -2241,6 +2266,7 @@ import * as FONDO from './fondoStore.js';
         ESTADO.claveSesion = null;
         ESTADO.rasterOriginal = null;
         ESTADO.urlOriginal = null;
+        ESTADO.fuenteOriginal = null;
         ESTADO.mascara = null;
         ESTADO.mascaraFinal = false;
         ESTADO.alfaIA = null;
@@ -2250,8 +2276,9 @@ import * as FONDO from './fondoStore.js';
         if (r) {
             try {
                 paper.project.deselectAll();
-                if (typeof window.selectItem === 'function') window.selectItem(r);
-                else if (typeof window.updateContextualMenu === 'function') window.updateContextualMenu(r);
+                seleccionarResultado(r, fusion);
+                if (fusion) window.EKKO_FUSION_EDIT.markDirty();
+                else if (typeof window.saveHistory === 'function') window.saveHistory();
             } catch (_) {}
         }
         informar('listo', 1, 1, 'Recorte deshecho');
@@ -2325,7 +2352,9 @@ import * as FONDO from './fondoStore.js';
             return null;
         }
 
-        const raices = (Array.isArray(items) ? items : (items ? [items] : [])).filter(Boolean);
+        const fusion = fusionEditActual();
+        const raices = (fusion ? [fusion.active]
+            : (Array.isArray(items) ? items : (items ? [items] : []))).filter(Boolean);
         const objetivos = [];
         const vistos = new Set();
         let yaRecortadas = 0;
@@ -2359,8 +2388,9 @@ import * as FONDO from './fondoStore.js';
                 const vivo = rasterDelLote(idLote);
                 if (!vivo) break;
                 try {
-                    await quitarFondo(vivo, {});
-                    hechos++;
+                    const resultado = await quitarFondo(vivo, {});
+                    if (fusion && !fusionSigueViva(fusion, vivo)) break;
+                    if (resultado) hechos++;
                 } catch (e) {
                     fallidos++;
                     ESTADO.ultimoError = e;
@@ -2421,6 +2451,8 @@ import * as FONDO from './fondoStore.js';
      */
     function resolverItemVivo() {
         try {
+            const fusion = fusionEditActual();
+            if (fusion) return fusion.active;
             const sel = window.selectedItem
                 || (Array.isArray(window.selectedItems)
                     ? window.selectedItems[window.selectedItems.length - 1] : null);
@@ -2488,35 +2520,31 @@ import * as FONDO from './fondoStore.js';
         ESTADO.pendientes = (ESTADO.pendientes || 0) + 1;
         if (ESTADO.recomponiendo) return true;
 
+        const fusion = fusionEditActual();
+        if (fusion && fusion.active !== procesada) return false;
         const procesar = () => {
             if (!ESTADO.pendientes) return;
             ESTADO.pendientes--;
             ESTADO.recomponiendo = true;
             try {
+                if (fusion && !fusionSigueViva(fusion, procesada)) {
+                    ESTADO.pendientes = 0;
+                    ESTADO.recomponiendo = false;
+                    return;
+                }
                 const lienzo = componerRecorte(
                     ESTADO.mascara, ESTADO.mascaraAncho, ESTADO.mascaraAlto, fuente, aw, ah,
                     ESTADO.caja, ESTADO.mascaraFinal);
-                // Mismo criterio que al recortar: al mover un slider el color
-                // se toma de la foto original, no del lienzo de trabajo.
-                const url = componerCalidad(lienzo, fuente, aw, ah).toDataURL('image/png');
-
-                // Se reasigna la fuente de la MISMA pieza ya colocada, sin
-                // quitarla del proyecto ni crear otra. Si se creara una nueva,
-                // el cliente veria el recorte duplicado y ademas perderia la
-                // posicion, la rotacion y el z-order que ya tenia.
-                const img = new Image();
-                img.onload = () => {
-                    try {
-                        procesada.source = url;
-                        procesada.dirty = true;
-                    } catch (e) { ESTADO.ultimoError = e; }
-                    ESTADO.recomponiendo = false;
-                    procesar();
-                };
-                img.onerror = () => { ESTADO.recomponiendo = false; procesar(); };
-                img.src = url;
+                // Transfer the canvas reference directly. Reading .source or
+                // calling toDataURL here serialized the full image on the UI.
+                asignarFuenteRaster(procesada, componerCalidad(lienzo, fuente, aw, ah));
+                if (fusion) {
+                    window.EKKO_FUSION_EDIT.markDirty();
+                    seleccionarResultado(procesada, fusion);
+                }
             } catch (e) {
                 ESTADO.ultimoError = e;
+            } finally {
                 ESTADO.recomponiendo = false;
                 procesar();
             }
@@ -2731,7 +2759,8 @@ import * as FONDO from './fondoStore.js';
         });
 
         const ejecutar = async () => {
-            const sel = (paper.project.selectedItems || []).filter(Boolean);
+            const fusion = fusionEditActual();
+            const sel = (fusion ? [fusion.active] : (paper.project.selectedItems || [])).filter(Boolean);
             if (!sel.length) {
                 aviso.textContent = '⚠️ Seleccioná primero una imagen';
                 aviso.style.display = 'block';
@@ -2747,8 +2776,17 @@ import * as FONDO from './fondoStore.js';
             try { await EKKO.BackgroundRemover.loteQuitarFondo(sel); }
             catch (_) { /* el aviso ya muestra el error */ }
         };
-        if (btn) btn.addEventListener('click', ejecutar);
-        if (btnBarra) btnBarra.addEventListener('click', ejecutar);
+        // index.html historically also has inline onclick on the top button.
+        // Remove that property at runtime so this module owns exactly one route.
+        if (btnBarra) btnBarra.removeAttribute('onclick');
+        if (btn && !btn.__ekkoRemoveBgWired) {
+            btn.__ekkoRemoveBgWired = true;
+            btn.addEventListener('click', ejecutar);
+        }
+        if (btnBarra && !btnBarra.__ekkoRemoveBgWired) {
+            btnBarra.__ekkoRemoveBgWired = true;
+            btnBarra.addEventListener('click', ejecutar);
+        }
     });
 
     /* =====================================================================
@@ -2914,6 +2952,8 @@ import * as FONDO from './fondoStore.js';
     };
 
     function imagenEnRetoque() {
+        const fusion = fusionEditActual();
+        if (fusion) return fusion.active;
         const seleccion = Array.isArray(window.selectedItems) && window.selectedItems.length
             ? window.selectedItems
             : (window.selectedItem ? [window.selectedItem] : []);
@@ -3827,6 +3867,7 @@ import * as FONDO from './fondoStore.js';
             lienzoOriginal: ESTADO.lienzoOriginal,
             lienzoTrabajo: ESTADO.lienzoTrabajo,
             urlOriginal: ESTADO.urlOriginal,
+            fuenteOriginal: ESTADO.fuenteOriginal || null,
             baseCruda: ESTADO.baseCruda,
             baseAncho: ESTADO.baseAncho,
             baseAlto: ESTADO.baseAlto
@@ -3873,6 +3914,7 @@ import * as FONDO from './fondoStore.js';
         ESTADO.lienzoOriginal = paquete.lienzoOriginal;
         ESTADO.lienzoTrabajo = paquete.lienzoTrabajo;
         ESTADO.urlOriginal = paquete.urlOriginal;
+        ESTADO.fuenteOriginal = paquete.fuenteOriginal || null;
         ESTADO.baseCruda = paquete.baseCruda || null;
         ESTADO.baseAncho = paquete.baseAncho || 0;
         ESTADO.baseAlto = paquete.baseAlto || 0;
@@ -4557,6 +4599,8 @@ import * as FONDO from './fondoStore.js';
     function aplicarFondoEnEscena() {
         const r = imagenEnRetoque() || ESTADO.imagenProcesada;
         if (!r || !r.project || !paper || !paper.project) return false;
+        const fusion = fusionEditActual();
+        if (fusion && fusion.active !== r) return false;
         const clave = sesionClaveDe(r) || ESTADO.claveSesion;
         if (!clave) return false;
         // Primero se quita el grupo ANTERIOR de ESTA foto: si no, cada cambio de
@@ -4567,6 +4611,7 @@ import * as FONDO from './fondoStore.js';
         // no se pierde.
         try { r.data = { ...(r.data || {}), ekkoFondo: especParaData() }; } catch (e) { ESTADO.ultimoError = e; }
         if (!fondoActivo()) return true;
+        if (fusion) window.EKKO_FUSION_EDIT.markDirty();
 
         const caja = r.getBounds();
         if (!caja || !(caja.width > 0) || !(caja.height > 0)) return false;
