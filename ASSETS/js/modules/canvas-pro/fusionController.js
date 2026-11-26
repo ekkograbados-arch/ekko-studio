@@ -22,13 +22,12 @@ import { recalculateDynamicSubtractions } from "./geometricUngroup.js";
 
 const fusionEditTransactions = new Map();
 
-function cloneDetached(item) {
-    if (!item || typeof item.clone !== "function") return null;
-    try { return item.clone({ insert: false }); } catch (e) { return null; }
-}
-
 function disposeDetached(item) {
-    try { item?.remove?.(); } catch (e) {}
+    // Edit transactions retain live references. Only controller-owned detached
+    // snapshots may be disposed; never remove a referenced Raster or vector.
+    if (item?.data?.fusionEditSnapshot === true) {
+        try { item?.remove?.(); } catch (e) {}
+    }
 }
 
 function getRecordGroup(recordOrItem) {
@@ -85,20 +84,11 @@ export function beginFusionEdit(fusionItem) {
         return fusionEditTransactions.get(record.fusionId);
     }
 
-    const mask = getCurrentFusionMask(group);
-    const raster = group.children?.find(child => child.className === "Raster") || null;
-    // La edición interna debe partir de la geometría ACTUAL de la fusión,
-    // no de los snapshots de creación. Así se conserva la transformación
-    // pública ya aplicada antes de entrar en modo edición.
-    const currentMaskSnapshot = mask ? cloneAbsolute(mask) : null;
-    const currentRasterSnapshot = raster ? cloneAbsolute(raster) : null;
-    [currentMaskSnapshot, currentRasterSnapshot].forEach(snapshot => {
-        if (snapshot) {
-            snapshot.visible = false;
-            snapshot.data = { ...(snapshot.data || {}), fusionEditSnapshot: true };
-        }
-    });
-    const ownerMatrix = group.globalMatrix?.clone?.() || null;
+    const mask = group.children?.find(child => child?.clipMask || child?.data?.isFusionMask) || null;
+    const rasters = Array.from(group.children || []).filter(child => child?.className === "Raster");
+    // Keep the live objects and their original release snapshots. Cloning a
+    // high-resolution Raster here doubled pixel memory and froze entry; the
+    // edit module owns lightweight matrix/source references for cancellation.
     const transaction = {
         fusionId: record.fusionId,
         record,
@@ -108,11 +98,14 @@ export function beginFusionEdit(fusionItem) {
         containmentScope: record.containmentScope || null,
         containmentKey: record.containmentKey || null,
         ownerContainmentKey: record.ownerContainmentKey || null,
-        originalVectorData: currentMaskSnapshot || cloneDetached(record.originalVectorData),
-        originalRasterData: currentRasterSnapshot || cloneDetached(record.originalRasterData),
-        maskSnapshot: currentMaskSnapshot ? cloneDetached(currentMaskSnapshot) : null,
-        ownerMatrix,
-        rasterId: raster?.id ?? null,
+        originalVectorData: record.originalVectorData || null,
+        originalRasterData: record.originalRasterData || null,
+        maskSnapshot: null,
+        ownerMatrix: group.globalMatrix?.clone?.() || null,
+        rasterId: rasters[0]?.id ?? null,
+        rasterIds: rasters.map(raster => raster.id),
+        rasters,
+        detachedSnapshots: [],
         startedAt: Date.now()
     };
 
@@ -129,9 +122,10 @@ export function getFusionEditTransaction(fusionId) {
 
 function disposeFusionEditTransaction(transaction) {
     if (!transaction) return;
-    disposeDetached(transaction.originalVectorData);
-    disposeDetached(transaction.originalRasterData);
-    disposeDetached(transaction.maskSnapshot);
+    // originalVectorData/originalRasterData belong to the fusion record and are
+    // needed by releaseSmartFusion(). They are not transaction-owned clones.
+    (transaction.detachedSnapshots || []).forEach(disposeDetached);
+    transaction.detachedSnapshots = [];
 }
 
 /** Re-attaches a committed visual group to the original fusion identity. */
@@ -354,6 +348,9 @@ export function replaceGeometryPreservingWorldMatrix(oldItem, replacement, paren
 
 export function resolvePublicTransformOwner(item) {
     if (!item) return null;
+    // The temporary fusion-edit wrapper is not a public fusion. Its active
+    // Raster is the transform owner, so handles never move the whole fusion.
+    if (item.data?.isFusionEditProxy === true) return item;
     if (isRealFusionGroup(item)) return item;
     const record = resolveFusionRecord(item);
     if (record?.group && isRealFusionGroup(record.group)) return record.group;
@@ -627,9 +624,9 @@ export function notifyTransformObservers(payload = {}) {
     transformObservers.forEach(callback => { try { callback(payload); } catch (error) {
         if (typeof window !== 'undefined') window.EKKO_TRANSFORM_OBSERVER_ERROR = String(error?.stack || error);
     } });
-    // CSG is part of the transform transaction, not a mouse-up side effect.
-    // Always resolve the canonical design layer; activeLayer may be an overlay.
-    if (!payload.skipCSG) {
+    // Temporary edit proxies/overlays are not design geometry. CSG resumes
+    // only after accept/cancel has transferred or restored the live Rasters.
+    if (!payload.skipCSG && !(typeof window !== "undefined" && (window.fusionEditActive || window._fusionEditState))) {
         const owner = payload.owner || payload.transaction?.entries?.[0]?.owner || null;
         const layer = payload.layer || owner?.layer ||
             (typeof paper !== 'undefined' ? paper.project?.layers?.find(item => item?.name === 'designLayer') : null);
