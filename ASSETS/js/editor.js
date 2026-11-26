@@ -1,4 +1,4 @@
-import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds } from "./modules/canvas-pro/designGeometry.js";
+import { isMockupOrMask, isContainmentWrapper, getPublicOwner, getPublicOwners, getOwnerLocalGeometry, cloneOwnerLocalGeometry, getOwnerLocalBounds, getPublicWorldBounds } from "./modules/canvas-pro/designGeometry.js";
 import { getCanonicalDesignLayer, getStackingUnit } from "./modules/canvas-pro/vectorSemantics.js";
 
 /* =========================================================================
@@ -122,6 +122,14 @@ window.traceRaster = function(item = null) {
    sin orden. */
 window.removeBackground = function() {
   const api = window.EKKO?.BackgroundRemover;
+  if (window.fusionEditActive && window.EKKO_FUSION_EDIT?.getState) {
+    const active = window.EKKO_FUSION_EDIT.getState()?.active;
+    if (!api?.loteQuitarFondo || !active) return null;
+    return api.loteQuitarFondo([active]).catch((err) => {
+      console.warn('[EKKO Quitar Fondo]', err);
+      return null;
+    });
+  }
   const seleccion = (Array.isArray(window.selectedItems) && window.selectedItems.length)
     ? window.selectedItems
     : (window.selectedItem ? [window.selectedItem] : []);
@@ -375,6 +383,9 @@ window.loadToken = 0;
 // History is transaction-aware: nested Fusion/edit routes mark the current
 // transaction dirty and only the owner commits one snapshot.
 let historyTransaction = null;
+// Fusion image editing uses references to live Rasters/image/canvas objects.
+// Unlike ordinary transactions it must never export the whole project.
+let fusionEditHistorySession = null;
 function historyMatrixSnapshot(matrix) {
   if (!matrix) return null;
   return { a: Number(matrix.a) || 0, b: Number(matrix.b) || 0,
@@ -654,36 +665,28 @@ function writeHistorySnapshot() {
   }
 }
 function saveHistory() {
+  if (fusionEditHistorySession?.active || window.fusionEditActive) {
+    window.markFusionEditDirty?.();
+    return false;
+  }
   if (historyTransaction?.active) {
-    /* AUTO-REPARACION DEL HISTORIAL (queja del dueño 2026-11-14: "vuelvo
-       atras con Ctrl+Z y se borran letras que nunca participaron"). Una
-       operacion que abrio su transaccion y murio sin cerrarla deja un tx
-       HUERFANO: todo lo que viene despues — vectorizar texto, mover,
-       booleanas— marcaba dirty SIN apilar snapshots, y un solo Ctrl+Z
-       saltaba al estado PREVIO al huesped, borrando el tramo entero.
-       Regla: una tx NO-transform que ya recibio mutaciones es un punto de
-       retorno VALIDO; el primer saveHistory posterior la compromete (su
-       beforeState ya esta apilado) y guarda el estado actual como entrada
-       propia. Las tx transform SI se heredan a proposito: el arrastre
-       apila en el mouseup. */
-    const esTransform = /^transform(?::|$)/.test(String(historyTransaction.label || ""));
-    if (!esTransform) {
-      try { commitHistoryTransaction(historyTransaction.label); } catch (_) {
-        historyTransaction = null;
-        window._ekkoHistoryTransaction = { active: false, status: "cancelled", reason: "huerfana-comprometida" };
-      }
-    } else {
-      historyTransaction.dirty = true;
-      historyTransaction.lastMutationAt = Date.now();
-      window._ekkoHistoryTransaction = { ...historyTransaction, status: "dirty" };
-      return false;
-    }
+    historyTransaction.dirty = true;
+    historyTransaction.lastMutationAt = Date.now();
+    window._ekkoHistoryTransaction = { ...historyTransaction, status: "dirty" };
+    return false;
   }
   writeHistorySnapshot();
   window._ekkoHistoryTransaction = { active: false, status: "committed", label: "direct-save", at: Date.now() };
   return true;
 }
 function beginHistoryTransaction(label = "operation") {
+  if (fusionEditHistorySession?.active || window.fusionEditActive) {
+    // Resize/rotation still opens its normal transaction, but its before-state
+    // is the lightweight fusion session opened at entry, not exportJSON().
+    fusionEditHistorySession = fusionEditHistorySession || { active: true, label: "fusion-edit", dirty: false, before: null, restore: null, equivalent: null };
+    window._ekkoHistoryTransaction = { active: true, status: "open", label: "fusion-edit", reference: true };
+    return fusionEditHistorySession;
+  }
   if (historyTransaction?.active) {
     /* Defensa en profundidad: si entra una operacion nueva mientras una tx
        NO-transform sigue abierta, se compromete la heredada ANTES de abrir
@@ -716,6 +719,11 @@ function beginHistoryTransaction(label = "operation") {
   return historyTransaction;
 }
 function commitHistoryTransaction(label = null) {
+  if (fusionEditHistorySession?.active || window.fusionEditActive) {
+    // The whole edit session commits on Accept, after pixel/reference transfer.
+    window._ekkoHistoryTransaction = { active: true, status: "dirty", label: "fusion-edit", reference: true };
+    return true;
+  }
   if (!historyTransaction?.active) return false;
   const tx = historyTransaction;
   if (tx.dirty && tx.beforeState) {
@@ -737,6 +745,7 @@ function commitHistoryTransaction(label = null) {
   return tx.dirty;
 }
 function cancelHistoryTransaction(reason = "cancelled") {
+  if (fusionEditHistorySession?.active || window.fusionEditActive) return fusionEditHistorySession;
   const tx = historyTransaction;
   historyTransaction = null;
   window._ekkoHistoryTransaction = { active: false, status: "cancelled", label: tx?.label || null, reason, at: Date.now() };
@@ -760,6 +769,56 @@ window.markHistoryDirty = function markHistoryDirty() {
   }
   return false;
 };
+
+window.beginFusionEditHistory = function beginFusionEditHistory(config = {}) {
+  if (fusionEditHistorySession?.active) return fusionEditHistorySession;
+  fusionEditHistorySession = {
+    active: true, label: "fusion-edit", dirty: false, startedAt: Date.now(),
+    before: config.before || null, restore: config.restore || null,
+    equivalent: config.equivalent || null
+  };
+  window._ekkoHistoryTransaction = { active: true, status: "open", label: "fusion-edit", reference: true };
+  return fusionEditHistorySession;
+};
+window.markFusionEditDirty = function markFusionEditDirty() {
+  if (!fusionEditHistorySession?.active) return false;
+  fusionEditHistorySession.dirty = true;
+  fusionEditHistorySession.lastMutationAt = Date.now();
+  window._ekkoHistoryTransaction = { active: true, status: "dirty", label: "fusion-edit", reference: true };
+  return true;
+};
+window.cancelFusionEditHistory = function cancelFusionEditHistory(reason = "cancelled") {
+  const session = fusionEditHistorySession;
+  fusionEditHistorySession = null;
+  window._ekkoHistoryTransaction = { active: false, status: "cancelled", label: "fusion-edit", reason, at: Date.now() };
+  return session;
+};
+window.commitFusionEditHistory = function commitFusionEditHistory(after) {
+  const session = fusionEditHistorySession;
+  fusionEditHistorySession = null;
+  if (!session) return false;
+  const unchanged = typeof session.equivalent === "function"
+    ? session.equivalent(session.before, after)
+    : (!session.dirty || !session.before || !after);
+  if (!session.dirty || unchanged || !session.before || !after || typeof session.restore !== "function") {
+    window._ekkoHistoryTransaction = { active: false, status: "empty", label: "fusion-edit", at: Date.now() };
+    return false;
+  }
+  const pair = { before: session.before, after, restore: session.restore };
+  const entry = { referenceEntry: true, pair, direction: "before", label: "fusion-edit", at: Date.now() };
+  if (pushUndoEntry(entry)) redoStack.length = 0;
+  window._ekkoHistoryTransaction = { active: false, status: "committed", label: "fusion-edit", reference: true, at: Date.now() };
+  return true;
+};
+function referenceHistoryCounterpart(entry) {
+  return { ...entry, direction: entry.direction === "before" ? "after" : "before", at: Date.now() };
+}
+function restoreReferenceHistory(entry, phase) {
+  const snapshot = entry?.direction === "before" ? entry.pair?.before : entry.pair?.after;
+  const restored = entry?.pair?.restore?.(snapshot) === true;
+  window._ekkoHistoryRestoreMode = { phase, mode: restored ? "fusion-edit-reference" : "fusion-edit-reference-failed", at: Date.now() };
+  return restored;
+}
 
 function cleanGhostInterfaceItems() {
   if (typeof paper !== "undefined" && paper.project) {
@@ -812,6 +871,15 @@ function captureHistorySelection() {
       containmentScope: data.containmentScope || null,
       ownerContainmentKey: data.ownerContainmentKey || null,
       sourceContourIndex: data.sourceContourIndex ?? null,
+      sourceSemanticKind: data.sourceSemanticKind || null,
+      sourceIsHole: typeof data.sourceIsHole === "boolean" ? data.sourceIsHole : null,
+      sourceContourRole: data.sourceContourRole || null,
+      sourceDocumentOrder: data.sourceDocumentOrder ?? null,
+      sourceStackRootKey: data.sourceStackRootKey || null,
+      sourceStackOrder: data.sourceStackOrder ?? null,
+      sourceContainmentScope: data.sourceContainmentScope || null,
+      sourceContainmentKey: data.sourceContainmentKey || null,
+      sourceLayerDepth: data.sourceLayerDepth ?? null,
       semanticKind: data.semanticKind || null,
       isHole: data.isHole === true,
       originalIsHole: data.originalIsHole === true,
@@ -831,6 +899,15 @@ function historySelectionScore(owner, descriptor) {
   if (descriptor.containmentKey && data.containmentKey === descriptor.containmentKey) score += 90;
   if (descriptor.ownerContainmentKey && data.ownerContainmentKey === descriptor.ownerContainmentKey) score += 80;
   if (descriptor.sourceContourIndex != null && data.sourceContourIndex === descriptor.sourceContourIndex) score += 70;
+  if (descriptor.sourceStackRootKey && data.sourceStackRootKey === descriptor.sourceStackRootKey) score += 45;
+  if (descriptor.sourceStackOrder != null && data.sourceStackOrder === descriptor.sourceStackOrder) score += 30;
+  if (descriptor.sourceContainmentScope && data.sourceContainmentScope === descriptor.sourceContainmentScope) score += 25;
+  if (descriptor.sourceContainmentKey && data.sourceContainmentKey === descriptor.sourceContainmentKey) score += 45;
+  if (descriptor.sourceDocumentOrder != null && data.sourceDocumentOrder === descriptor.sourceDocumentOrder) score += 20;
+  if (descriptor.sourceLayerDepth != null && data.sourceLayerDepth === descriptor.sourceLayerDepth) score += 15;
+  if (descriptor.sourceIsHole != null && data.sourceIsHole === descriptor.sourceIsHole) score += 20;
+  if (descriptor.sourceContourRole && data.sourceContourRole === descriptor.sourceContourRole) score += 15;
+  if (descriptor.sourceSemanticKind && data.sourceSemanticKind === descriptor.sourceSemanticKind) score += 20;
   if (descriptor.semanticKind && data.semanticKind === descriptor.semanticKind) score += 35;
   if (descriptor.isHole === (data.isHole === true)) score += 25;
   if (descriptor.originalIsHole === (data.originalIsHole === true)) score += 20;
@@ -861,6 +938,11 @@ function findHistorySelectionOwner(descriptor) {
     if (score > 0) candidates.push({ owner, score });
   });
   candidates.sort((a, b) => b.score - a.score);
+  const identityKey = ["fusionId", "semanticId", "containmentKey"].find(key => descriptor[key] != null);
+  if (identityKey) {
+    const matches = candidates.filter(candidate => candidate.owner.data?.[identityKey] === descriptor[identityKey]);
+    return matches.length === 1 ? matches[0].owner : null;
+  }
   return candidates[0]?.owner || null;
 }
 
@@ -941,6 +1023,17 @@ function undo() {
   // makeHistoryEntry() has no transformOnly flag, so Redo would otherwise
   // fall through to JSON rehydration even when Undo used the live-owner path.
   const entry = undoStack.pop();
+  if (entry?.referenceEntry) {
+    const current = referenceHistoryCounterpart(entry);
+    if (!restoreReferenceHistory(entry, "undo")) {
+      undoStack.push(entry);
+      window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "restore-failed", historyEntry: entry });
+      return;
+    }
+    redoStack.push(current);
+    window.EKKO_TRANSFORM_TRACE?.boundary("undo-exit", { phase: "undo", status: "restored-reference", historyEntry: entry });
+    return;
+  }
   const current = makeHistoryEntry();
   if (current) {
     current.transformOnly = entry?.transformOnly === true;
@@ -985,6 +1078,17 @@ function redo() {
   // Mirror the target metadata when moving the current state to Undo. This
   // keeps repeated Undo/Redo cycles on the same in-place transform route.
   const entry = redoStack.pop();
+  if (entry?.referenceEntry) {
+    const current = referenceHistoryCounterpart(entry);
+    if (!restoreReferenceHistory(entry, "redo")) {
+      redoStack.push(entry);
+      window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "restore-failed", historyEntry: entry });
+      return;
+    }
+    pushUndoEntry(current);
+    window.EKKO_TRANSFORM_TRACE?.boundary("redo-exit", { phase: "redo", status: "restored-reference", historyEntry: entry });
+    return;
+  }
   const current = makeHistoryEntry();
   if (current) {
     current.transformOnly = entry?.transformOnly === true;
@@ -1448,6 +1552,10 @@ function getSceneKey(product, surface) {
 }
 
 function saveCurrentScene() {
+  if (window.fusionEditActive) {
+    window.EKKO_NOTICE?.notice?.("Aceptá o cancelá la edición de la fusión antes de guardar", { type: "warning" });
+    return false;
+  }
   if (!toolState.currentProduct || !toolState.currentProduct.superficies) return;
   const idx = toolState.currentSurface || 0;
   const surface = toolState.currentProduct.superficies[idx];
@@ -1502,12 +1610,20 @@ let clipboardItem = null;
 function copySelected() {
   if (!window.selectedItem) return;
   if (isLockedItem(window.selectedItem)) return;
-  clipboardItem = window.selectedItem.clone({ insert: false });
+  clipboardItem = window.fusionEditActive
+    ? window.EKKO_FUSION_EDIT?.copyActive?.()
+    : window.selectedItem.clone({ insert: false });
 }
 window.copySelected = copySelected;
 
 function pasteSelected() {
   if (!clipboardItem) return;
+  if (window.fusionEditActive && window.EKKO_FUSION_EDIT?.addImage) {
+    const matrix = clipboardItem.globalMatrix?.clone?.() || clipboardItem.matrix?.clone?.() || new paper.Matrix();
+    matrix.translate(new paper.Point(20, 20));
+    return window.EKKO_FUSION_EDIT.addImage(clipboardItem, { globalMatrix: matrix })
+      .then(() => paper.view.update());
+  }
   saveHistory();
   const clone = clipboardItem.clone();
   clone.position = clone.position.add(new paper.Point(20, 20));
@@ -1701,32 +1817,23 @@ function initGeomBaseRecursive(item) {
   if (owner === item && (item instanceof paper.Path || item instanceof paper.CompoundPath)) {
     item.data = item.data || {};
     let old = item.data.geomBase;
-    // Paper JSON can restore data.geomBase as a plain object. Revive only from
-    // the canonical detached path data; never promote already-subtracted
-    // visible children into a new base.
-    if (old && typeof old.clone !== 'function' && item.data.geomBasePathData) {
+    if (old && typeof old.clone !== 'function') {
       try {
-        old = new paper.CompoundPath({ insert: false, pathData: item.data.geomBasePathData });
-        item.data.geomBase = old;
+        old = item.data.geomBasePathData
+          ? new paper.CompoundPath({ insert: false, pathData: item.data.geomBasePathData })
+          : null;
       } catch (_) {
-        item.data.geomBase = null;
+        old = null;
       }
     }
-    if (!old) item.data.geomBase = getOwnerLocalGeometry(item);
-    else if (typeof old.clone === 'function') {
-      const normalized = old.clone({ insert: false });
-      const matrix = normalized.matrix?.clone?.();
-      normalized.applyMatrix = false; normalized.matrix = new paper.Matrix();
-      if (matrix && !matrix.isIdentity()) normalized.transform(matrix);
-      normalized.applyMatrix = false; normalized.matrix = new paper.Matrix();
-      item.data.geomBase = normalized;
+    if (old && typeof old.clone === 'function') {
+      item.data.geomBase = cloneOwnerLocalGeometry(old);
+    } else {
+      item.data.geomBase = null;
+      item.data.geomBase = getOwnerLocalGeometry(item);
     }
-    if (item.data.geomBase) {
-      item.data.geomBase.applyMatrix = false;
-      item.data.geomBase.matrix = new paper.Matrix();
-      if (!item.data.geomBasePathData && item.data.geomBase.pathData) {
-        item.data.geomBasePathData = item.data.geomBase.pathData;
-      }
+    if (item.data.geomBase?.pathData) {
+      item.data.geomBasePathData = item.data.geomBase.pathData;
     }
   }
   item.children?.forEach(initGeomBaseRecursive);
@@ -1761,6 +1868,15 @@ function reportImportError(kind, file, error, options = {}) {
 export function addImageFromFile(file, pointOrOptions = null) {
   if (!file) return Promise.resolve(null);
   const options = normalizeImportOptions(pointOrOptions);
+  if (window.fusionEditActive && window.EKKO_FUSION_EDIT?.addImage) {
+    // Picker/drop imports stay inside the active clipped wrapper. No loose
+    // designLayer object and no independent history snapshot is created.
+    return window.EKKO_FUSION_EDIT.addImage(file, { point: options.point, label: file.name })
+      .catch((error) => {
+        reportImportError("image", file, error, options);
+        return null;
+      });
+  }
   // Picker imports retain their original one-snapshot behavior. Drop imports
   // disable this local snapshot and commit one transaction in drop order.
   if (options.history) saveHistory();
