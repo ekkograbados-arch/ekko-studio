@@ -201,18 +201,48 @@ export function getPublicOwners(items, visited = new Set()) {
   return result;
 }
 
+export function bakeGeometryMatrices(source) {
+  if (!source) return source;
+  const identity = () => new paper.Matrix();
+  const visit = (node, parentMatrix) => {
+    const ownMatrix = node.matrix?.clone?.() || identity();
+    const matrix = parentMatrix.concatenate(ownMatrix);
+    try { node.applyMatrix = false; } catch (_) {}
+    try { node.matrix = identity(); } catch (_) {}
+    if (node.children?.length) {
+      node.children.forEach(child => visit(child, matrix));
+      return;
+    }
+    if (!matrix.isIdentity()) node.transform(matrix);
+    try { node.applyMatrix = true; } catch (_) {}
+  };
+  visit(source, identity());
+  return source;
+}
+
+export function cloneOwnerLocalGeometry(source) {
+  if (!source || typeof source.clone !== "function") return null;
+  return bakeGeometryMatrices(source.clone({ insert: false }));
+}
+
+export function ownerLocalFromWorld(owner, geometry) {
+  const resolved = getPublicOwner(owner);
+  const clone = cloneOwnerLocalGeometry(geometry);
+  if (!clone || !resolved) return clone;
+  const inverse = resolved.globalMatrix?.inverted?.();
+  if (inverse) bakeGeometryMatrices(clone.transform(inverse));
+  return clone;
+}
+
 function flattenIdentityClone(source) {
+  return cloneOwnerLocalGeometry(source);
+}
+
+function cloneLiveOwnerLocalGeometry(source) {
   if (!source || typeof source.clone !== "function") return null;
   const clone = source.clone({ insert: false });
-  try {
-    const matrix = clone.matrix?.clone?.();
-    clone.applyMatrix = false;
-    clone.matrix = new paper.Matrix();
-    if (matrix && !matrix.isIdentity()) clone.transform(matrix);
-    clone.applyMatrix = false;
-    clone.matrix = new paper.Matrix();
-  } catch (_) {}
-  return clone;
+  try { clone.applyMatrix = false; clone.matrix = new paper.Matrix(); } catch (_) {}
+  return bakeGeometryMatrices(clone);
 }
 
 export function getOwnerLocalGeometry(owner, visited = new Set()) {
@@ -228,12 +258,12 @@ export function getOwnerLocalGeometry(owner, visited = new Set()) {
   if (base) return flattenIdentityClone(base);
   if (hasPaperType(resolved, "Path") || hasPaperType(resolved, "CompoundPath") ||
       hasPaperType(resolved, "PointText") || hasPaperType(resolved, "Raster")) {
-    return flattenIdentityClone(resolved);
+    return cloneLiveOwnerLocalGeometry(resolved);
   }
   // Paper plug-ins/custom design items may not expose a concrete class name,
   // but a leaf with clone/bounds is still a valid owner geometry.
   if (!resolved.children && typeof resolved.clone === "function" && resolved.bounds) {
-    return flattenIdentityClone(resolved);
+    return cloneLiveOwnerLocalGeometry(resolved);
   }
   if (resolved.children) {
     // The visited path contains both the requested item and its canonical
@@ -244,13 +274,29 @@ export function getOwnerLocalGeometry(owner, visited = new Set()) {
     children.forEach(child => {
       if (!child || nextPath.has(child)) return;
       const geometry = getOwnerLocalGeometry(child, nextPath);
-      if (geometry) paths.push(geometry);
+      if (!geometry) return;
+      let current = child;
+      let relativeMatrix = new paper.Matrix();
+      const matrixPath = new Set();
+      while (current && current !== resolved && !matrixPath.has(current)) {
+        matrixPath.add(current);
+        const matrix = current.matrix?.clone?.() || new paper.Matrix();
+        relativeMatrix = matrix.concatenate(relativeMatrix);
+        current = current.parent;
+      }
+      if (current === resolved && !relativeMatrix.isIdentity()) {
+        bakeGeometryMatrices(geometry.transform(relativeMatrix));
+      }
+      paths.push(geometry);
     });
     if (!paths.length) return null;
-    if (paths.length === 1) return paths[0];
-    const group = new paper.Group({ insert: false });
-    group.applyMatrix = false; paths.forEach(path => group.addChild(path));
-    group.matrix = new paper.Matrix(); return group;
+    let geometry = paths[0];
+    if (paths.length > 1) {
+      geometry = new paper.Group({ insert: false });
+      geometry.applyMatrix = false; paths.forEach(path => geometry.addChild(path));
+      geometry.matrix = new paper.Matrix();
+    }
+    return geometry;
   }
   return null;
 }
@@ -260,12 +306,9 @@ export function toWorldGeometry(owner) {
   if (!resolved) return null;
   const local = getOwnerLocalGeometry(resolved);
   if (!local) return null;
-  try {
-    const world = resolved.globalMatrix?.clone?.() || resolved.matrix?.clone?.() || new paper.Matrix();
-    local.applyMatrix = false; local.matrix = new paper.Matrix();
-    local.transform(world);
-  } catch (_) {}
-  return local;
+  const world = resolved.globalMatrix?.clone?.() || resolved.matrix?.clone?.() || new paper.Matrix();
+  if (!world.isIdentity()) local.transform(world);
+  return bakeGeometryMatrices(local);
 }
 
 export function worldPointToOwner(owner, point) {
@@ -275,12 +318,33 @@ export function worldPointToOwner(owner, point) {
   catch (_) { return point; }
 }
 
+function rasterLocalBounds(raster) {
+  const width = Number(raster?.width) || 0, height = Number(raster?.height) || 0;
+  return width > 0 && height > 0 ? new paper.Rectangle(-width / 2, -height / 2, width, height) : null;
+}
+function transformedBounds(bounds, matrix) {
+  if (!bounds || !matrix) return bounds?.clone?.() || null;
+  const points = [bounds.topLeft, bounds.topRight, bounds.bottomRight, bounds.bottomLeft]
+    .map(point => matrix.transform(point));
+  const left = Math.min(...points.map(point => point.x));
+  const top = Math.min(...points.map(point => point.y));
+  const right = Math.max(...points.map(point => point.x));
+  const bottom = Math.max(...points.map(point => point.y));
+  return new paper.Rectangle(left, top, right - left, bottom - top);
+}
+function rasterWorldBounds(raster) {
+  return transformedBounds(rasterLocalBounds(raster), raster?.globalMatrix || raster?.matrix);
+}
 export function getOwnerLocalBounds(owner) {
-  const geometry = getOwnerLocalGeometry(owner);
+  const resolved = getPublicOwner(owner);
+  if (hasPaperType(resolved, "Raster")) return rasterLocalBounds(resolved);
+  const geometry = getOwnerLocalGeometry(resolved);
   return geometry?.bounds?.clone?.() || null;
 }
 export function getPublicWorldBounds(owner) {
-  const geometry = toWorldGeometry(owner);
+  const resolved = getPublicOwner(owner);
+  if (hasPaperType(resolved, "Raster")) return rasterWorldBounds(resolved);
+  const geometry = toWorldGeometry(resolved);
   const bounds = geometry?.bounds?.clone?.() || null;
   try { geometry?.remove?.(); } catch (_) {}
   return bounds;
@@ -297,8 +361,13 @@ function geometryHitLocal(geometry, localPoint, tolerance) {
 
 export function hitTestOwner(owner, worldPoint, tolerance = 0) {
   const resolved = getPublicOwner(owner);
-  if (!resolved || isMockupOrMask(resolved)) return null;
+  if (!resolved || isMockupOrMask(resolved) || !worldPoint) return null;
   const localPoint = worldPointToOwner(resolved, worldPoint);
+  if (hasPaperType(resolved, "Raster")) {
+    const matrix = resolved.globalMatrix || resolved.matrix;
+    const scale = matrix ? Math.max(Math.hypot(matrix.a, matrix.b), Math.hypot(matrix.c, matrix.d), 1e-9) : 1;
+    return rasterLocalBounds(resolved)?.expand(tolerance / scale)?.contains(localPoint) ? resolved : null;
+  }
   const local = getOwnerLocalGeometry(resolved);
   if (geometryHitLocal(local, localPoint, tolerance)) {
     try { local.remove?.(); } catch (_) {}
@@ -360,7 +429,9 @@ function segmentsTouch(first, second, epsilon = 1e-7) {
 export function intersectsMarquee(owner, marqueeWorldPath) {
   const resolved = getPublicOwner(owner);
   if (!resolved || isMockupOrMask(resolved) || !marqueeWorldPath) return false;
-  const world = toWorldGeometry(resolved);
+  const world = hasPaperType(resolved, "Raster")
+    ? new paper.Path.Rectangle({ insert: false, rectangle: rasterWorldBounds(resolved) })
+    : toWorldGeometry(resolved);
   if (!world) return false;
   let marquee = null;
   try {
