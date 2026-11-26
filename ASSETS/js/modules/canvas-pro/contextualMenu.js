@@ -234,6 +234,7 @@ window.originalFontBackup = null;
 let fontsCache = [];
 let toolbarDragged = false;
 let lastSelectedItem = null;
+let transientToolbar = null;
 
 // Estilos CSS para el menú de fuentes
 const dropdownStylesId = 'ekko-custom-dropdown-styles';
@@ -246,7 +247,7 @@ if (typeof document !== 'undefined' && !document.getElementById(dropdownStylesId
        barra (fuente, tamano...) y la barra perdia clicks. El cliente pidio
        que la barra JAMAS quede debajo de nada: 20000000 gana a cualquier
        capa de la app. El textarea bajo a 9000 (textEditor.js). */
-    styleEl.textContent = `\n#contextual-toolbar { position: absolute; z-index: 20000000 !important; }\n.font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid #f1f5f9; }\n.font-dropdown-item:hover { background: #f0f9ff; }\n.font-name-label { font-size: 11px; color: #64748b; font-weight: 600; }\n.hidden { display: none !important; }\n`;
+    styleEl.textContent = `\n#contextual-toolbar { position: absolute; z-index: 20000000 !important; }\nbody.ekko-context-open #contextual-toolbar#contextual-toolbar.is-context-transient { position: fixed !important; display: flex !important; z-index: 2147483000 !important; flex-wrap: nowrap !important; width: max-content !important; max-width: calc(100vw - 12px) !important; overflow-x: auto !important; overflow-y: hidden !important; scrollbar-width: none; }\nbody.ekko-context-open #contextual-toolbar#contextual-toolbar.is-context-transient::-webkit-scrollbar { display: none; }\nbody.ekko-context-open #contextual-toolbar#contextual-toolbar.is-context-transient > .toolbar-group:not(.hidden):not(.ekko-fb-vacia) { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; align-items: center !important; gap: 4px !important; }\nbody.ekko-context-open #contextual-toolbar#contextual-toolbar.is-context-transient > .toolbar-group:not(.hidden):not(.ekko-fb-vacia) > * { flex: 0 0 auto !important; }\n.font-dropdown-item { padding: 8px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid #f1f5f9; }\n.font-dropdown-item:hover { background: #f0f9ff; }\n.font-name-label { font-size: 11px; color: #64748b; font-weight: 600; }\n.hidden { display: none !important; }\n`;
     document.head.appendChild(styleEl);
 }
 
@@ -331,7 +332,8 @@ function renderFontList(fonts, container) {
                 applyFontFamily(window.selectedItem, font.family);
                 if (typeof window.saveHistory === 'function') window.saveHistory();
             }
-            container.classList.add('hidden');
+            if (transientToolbar) window.EKKO_CONTEXT_MENU?.cerrar?.();
+            else container.classList.add('hidden');
             const triggerText = document.querySelector('.selected-font-trigger span');
             if (triggerText) triggerText.textContent = font.name;
         };
@@ -414,13 +416,19 @@ async function populateFontDropdowns() {
                 e.stopPropagation();
                 const isOpen = !list.classList.contains('hidden');
                 if (isOpen) {
-                    list.classList.add('hidden');
+                    if (list.classList.contains('ekko-ctx-menu')) window.EKKO_CONTEXT_MENU?.cerrar?.();
+                    else list.classList.add('hidden');
                 } else {
+                    window.originalFontBackup = getSelectedFontFamily();
+                    renderFontList(fontsCache, list);
+                    if (transientToolbar) {
+                        const bar = document.getElementById("contextual-toolbar").getBoundingClientRect();
+                        window.EKKO_CONTEXT_MENU?.abrirExistenteEn?.(list, bar.left, bar.bottom + 6, { conservarBarra: true });
+                        return;
+                    }
                     /* Si algún módulo la devolvió a su caja original, vuelve
                        al body antes de mostrarse. */
                     if (list.parentElement !== document.body) document.body.appendChild(list);
-                    window.originalFontBackup = getSelectedFontFamily();
-                    renderFontList(fontsCache, list);
                     list.classList.remove('hidden');
                     anclar();
                     /* Que no desborde la ventana: si no entra abajo, abre
@@ -459,6 +467,7 @@ function makeToolbarDraggable() {
     });
 
     toolbar.addEventListener('mousedown', (e) => {
+        if (transientToolbar) return;
         if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('.custom-font-dropdown')) return;
         isDraggingToolbar = true;
         startX = e.clientX - toolbar.offsetLeft;
@@ -466,7 +475,7 @@ function makeToolbarDraggable() {
     });
 
     document.addEventListener('mousemove', (e) => {
-        if (!isDraggingToolbar) return;
+        if (!isDraggingToolbar || transientToolbar) return;
         const nextLeft = Math.max(8, Math.min(window.innerWidth - toolbar.offsetWidth - 8, e.clientX - startX));
         const nextTop = Math.max(8, Math.min(window.innerHeight - toolbar.offsetHeight - 8, e.clientY - startY));
         toolbar.style.left = nextLeft + 'px';
@@ -871,12 +880,10 @@ export function initContextualMenu() {
     });
 
     setClick('btnCtxTextCurve', dispatchTextCurve);
-    setClick('btnTopTextCurve', dispatchTextCurve);
     setClick('btnCtxRotateLetters', () => {
         if (typeof window.toggleRotateLetters === 'function') window.toggleRotateLetters();
     });
     setClick('btnCtxTextSpacing', dispatchTextSpacing);
-    setClick('btnTopTextSpacing', dispatchTextSpacing);
     /* Cada listener pasa el valor del input QUE EL CLIENTE TOCO. Antes ambos
        inputs llamaban a un despachador sin argumentos, que volvia a leer el
        campo oculto de la barra flotante: escribir en el campo de la barra
@@ -960,8 +967,6 @@ export function initContextualMenu() {
         }
     });
 
-    // Establish the empty-selection state even before the first click.
-    setTextCurveVisibility(false);
 }
 
 function getUnifiedScreenBounds(item) {
@@ -988,18 +993,6 @@ function getUnifiedScreenBounds(item) {
         x: centerGlobal.x + canvasRect.left,
         y: paper.view.projectToView(bounds.topLeft).y + canvasRect.top
     };
-}
-
-function setTextCurveVisibility(visible) {
-    // Both surfaces are one command: never leave a stale top button or popup control.
-    const ids = ['btnTopTextCurve', 'btnCtxTextCurve'];
-    ids.forEach(id => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.style.display = visible ? 'inline-flex' : 'none';
-        el.classList.toggle('hidden', !visible);
-        el.setAttribute('aria-hidden', visible ? 'false' : 'true');
-    });
 }
 
 /**
@@ -1049,7 +1042,68 @@ function isCurveTextTarget(target) {
     return isPointText(target) || target.data?.isCurvedGroup === true || target.data?.isSpacedGroup === true;
 }
 
-export function updateContextualMenu(item) {
+function posicionarBarraTransitoria(toolbar, clientX, clientY) {
+    toolbar.style.maxWidth = Math.max(0, window.innerWidth - 12) + 'px';
+    const caja = toolbar.getBoundingClientRect();
+    const ancho = Math.min(caja.width || 320, window.innerWidth - 12);
+    const alto = caja.height || 44;
+    const x = Math.max(6, Math.min(clientX - ancho / 2, window.innerWidth - ancho - 6));
+    const arriba = clientY - alto - 8;
+    const y = arriba >= 6 ? arriba : Math.min(clientY + 8, window.innerHeight - alto - 6);
+    toolbar.style.left = x + 'px';
+    toolbar.style.top = Math.max(6, y) + 'px';
+    return toolbar.getBoundingClientRect();
+}
+
+function mostrarBarraTransitoria(item, clientX, clientY) {
+    const toolbar = document.getElementById("contextual-toolbar");
+    if (!toolbar || !item || isMockupOrProductElement(item)) return null;
+    if (toolbar.parentElement !== document.body) document.body.appendChild(toolbar);
+    if (!transientToolbar) {
+        transientToolbar = {
+            left: toolbar.style.left,
+            top: toolbar.style.top,
+            position: toolbar.style.position,
+            width: toolbar.style.width,
+            maxWidth: toolbar.style.maxWidth,
+            zIndex: toolbar.style.zIndex,
+            hidden: toolbar.classList.contains('hidden'),
+            isHidden: toolbar.classList.contains('is-hidden')
+        };
+    }
+    toolbar.classList.remove('hidden', 'is-hidden');
+    updateContextualMenu(item, { transient: true });
+    if (!toolbar.classList.contains('active')) {
+        cerrarBarraTransitoria();
+        return null;
+    }
+    toolbar.classList.add('is-context-transient');
+    document.body.classList.add('ekko-context-open');
+    return posicionarBarraTransitoria(toolbar, clientX, clientY);
+}
+
+function cerrarBarraTransitoria() {
+    const toolbar = transientToolbar ? document.getElementById("contextual-toolbar") : null;
+    if (toolbar) {
+        toolbar.classList.remove('is-context-transient');
+        const previo = transientToolbar;
+        toolbar.style.left = previo.left;
+        toolbar.style.top = previo.top;
+        toolbar.style.position = previo.position;
+        toolbar.style.width = previo.width;
+        toolbar.style.maxWidth = previo.maxWidth;
+        toolbar.style.zIndex = previo.zIndex;
+        toolbar.classList.toggle('hidden', previo.hidden);
+        toolbar.classList.toggle('is-hidden', previo.isHidden);
+    }
+    transientToolbar = null;
+    document.body.classList.remove('ekko-context-open');
+    if (toolbar && typeof window.updateContextualMenu === 'function') {
+        window.updateContextualMenu(window.selectedItem || null);
+    }
+}
+
+export function updateContextualMenu(item, options = {}) {
     const toolbar = document.getElementById("contextual-toolbar");
     if (!toolbar) return;
 
@@ -1058,8 +1112,7 @@ export function updateContextualMenu(item) {
     /* R19-2: conmutador de la emergente en el panel superior. Con el flag
        en OFF la barra se comporta como sin selección (ni show ni reposición). */
     if (!item || (item.data && (item.data.mockup || item.data.isMask)) ||
-        document.body.classList.contains("ekko-emergente-off")) {
-        setTextCurveVisibility(false);
+        (!options.transient && document.body.classList.contains("ekko-emergente-off"))) {
         toolbar.classList.remove('active');
         toolbarDragged = false;
         lastSelectedItem = null;
@@ -1077,7 +1130,6 @@ export function updateContextualMenu(item) {
     hideSubgroup('ctxTextControls');
     hideSubgroup('ctxImageControls');
     hideSubgroup('ctxVectorControls');
-    setTextCurveVisibility(false);
 
     const btnTrace = document.getElementById('btnCtxTrace');
     if (btnTrace) btnTrace.style.display = 'none';
@@ -1118,7 +1170,6 @@ export function updateContextualMenu(item) {
         if (isCurveTextTarget(target)) {
             const txtCtrl = document.getElementById('ctxTextControls');
             if (txtCtrl) txtCtrl.classList.remove('hidden');
-            setTextCurveVisibility(true);
             const fontTrigger = document.querySelector('.selected-font-trigger span');
             if (fontTrigger) fontTrigger.textContent = nombreFuenteVisible(getSelectedFontFamily());
             /* textFontSize lee el cuerpo desde donde ESTE owner lo guarde. Con un
@@ -1161,6 +1212,8 @@ export function updateContextualMenu(item) {
             }
         }
     }
+
+    if (options.transient) return;
 
     if (window.customToolbarLeft !== undefined && window.customToolbarTop !== undefined) {
         const savedLeft = Math.max(8, Math.min(window.innerWidth - toolbar.offsetWidth - 8, window.customToolbarLeft));
@@ -1221,6 +1274,10 @@ export function updateContextualMenu(item) {
 }
 
 export function hideContextualMenu() {
+    if (transientToolbar) {
+        cerrarBarraTransitoria();
+        return;
+    }
     /* Sin seleccion no hay texto: los controles de texto de la barra superior
        tienen que irse con ella. Ver refreshTextControlsVisibility. */
     refreshTextControlsVisibility();
@@ -1235,6 +1292,18 @@ export function hideContextualMenu() {
 window.updateContextualMenu = updateContextualMenu;
 window.hideContextualMenu = hideContextualMenu;
 window.initContextualMenu = initContextualMenu;
+window.EKKO_CONTEXTUAL_BAR = Object.freeze({
+    mostrarTransienteEn: mostrarBarraTransitoria,
+    cerrarTransiente: cerrarBarraTransitoria,
+    isTransient: () => !!transientToolbar,
+    toggle: () => {
+        if (transientToolbar) {
+            window.EKKO_CONTEXT_MENU?.cerrar?.();
+            return;
+        }
+        (document.getElementById("btnEmergenteToggle") || document.getElementById("toggleContextBar"))?.click();
+    }
+});
 
 if (typeof window !== 'undefined') {
     window.duplicateImage = duplicateImage;
