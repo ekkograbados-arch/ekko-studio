@@ -308,21 +308,30 @@ function entradasDe(contexto, snap) {
 function seleccionarBajoCursor(evento) {
     try {
         const canvas = document.getElementById(CANVAS_ID);
-        if (!canvas || typeof paper === "undefined") return;
+        if (!canvas || typeof paper === "undefined" || !window.EKKO_SELECTION_API) return;
         const rect = canvas.getBoundingClientRect();
         const punto = paper.view.viewToProject(new paper.Point(
             evento.clientX - rect.left, evento.clientY - rect.top));
-        const hit = paper.project.hitTest(punto, {
-            fill: true, stroke: true, segments: false, handles: false,
-            tolerance: 8 / (paper.view.zoom || 1)
-        });
-        if (!hit?.item) return;
-        const snap = describeSelection([hit.item]);
-        const owner = snap.list[0]?.owner || null;
-        if (!owner) return; // UI overlay o pieza de mockup: no se selecciona
-        const yaEsta = (window.selectedItems || []).some(it => it === owner || it === hit.item);
-        if (!yaEsta && typeof window.selectItem === "function") window.selectItem(owner);
-    } catch (_) {}
+        const hit = window.EKKO_SELECTION_API.resolveInteractionTarget(punto, { button: 2 });
+        const owner = hit?.chain?.publicOwner || hit?.target || null;
+        if (!owner) return null;
+        const unit = hit.chain?.selectionUnit || owner;
+        const selected = (window.selectedItems || []).filter(Boolean);
+        const alreadySelected = selected.some(item => item === owner || item === unit);
+        if (!alreadySelected) {
+            if (typeof window.commitSelectionContext === "function") {
+                window.commitSelectionContext([unit], unit, "context-menu");
+            } else {
+                window.selectItem?.(unit);
+            }
+        } else if (window.selectedItem !== owner && window.selectedItem !== unit &&
+                   typeof window.commitSelectionContext === "function") {
+            window.commitSelectionContext(selected, owner, "context-menu");
+        }
+        return owner;
+    } catch (_) {
+        return null;
+    }
 }
 
 /* ------------------------------------------------------------------
@@ -335,7 +344,9 @@ function estiloInyectado() {
     style.id = "ekko-context-menu-style";
     style.textContent = `
 .ekko-ctx-menu {
-  position: fixed; z-index: 99999; min-width: 190px; max-width: 280px;
+  position: fixed; z-index: 2147483001 !important;
+  min-width: 190px; max-width: min(280px, calc(100vw - 8px));
+  max-height: calc(100vh - 8px); overflow-y: auto; box-sizing: border-box;
   background: #111827; border: 1px solid #374151; border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0,0,0,.45); padding: 5px;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -429,42 +440,130 @@ function construirMenu(contexto, snap) {
     return menu;
 }
 
+function esControlFuente(target) {
+    return target instanceof Element && !!target.closest(".custom-font-dropdown");
+}
+
 function instalarCierres() {
     if (cierresInstalados) return;
     cierresInstalados = true;
     document.addEventListener("click", evento => {
         if (!menuEl) return;
-        if (menuEl.contains(evento.target)) return; // adentro: la accion fluye
+        if (menuEl.contains(evento.target) || esControlFuente(evento.target) ||
+            document.getElementById("contextual-toolbar")?.contains(evento.target)) return;
         cerrar();
     }, true);
     document.addEventListener("keydown", evento => {
         if (menuEl && evento.key === "Escape") cerrar();
     }, true);
-    document.addEventListener("wheel", () => { if (menuEl) cerrar(); }, { passive: true });
+    document.addEventListener("wheel", evento => {
+        if (!menuEl) return;
+        if (menuEl.contains(evento.target) || document.getElementById("contextual-toolbar")?.contains(evento.target)) return;
+        cerrar();
+    }, { passive: true });
     window.addEventListener("resize", () => { if (menuEl) cerrar(); });
     document.addEventListener("contextmenu", evento => {
         if (!menuEl) return;
         if (menuEl.contains(evento.target)) { evento.preventDefault(); return; }
-        cerrar(); // clic derecho en otra parte: el menu viejo no persiste
+        cerrar();
     }, true);
 }
 
-export function cerrar() {
-    if (!menuEl) return false;
+function retirarMenu() {
+    if (!menuEl) return;
     const viejo = menuEl;
     menuEl = null;
-    try { viejo.remove(); } catch (_) {}
-    return true;
+    let conservar = false;
+    viejo.classList.remove("ekko-ctx-menu");
+    if (viejo.__ekkoMenuStyle) {
+        const previo = viejo.__ekkoMenuStyle;
+        Object.entries(previo.estilos).forEach(([clave, valor]) => {
+            if (valor) viejo.style[clave] = valor;
+            else viejo.style.removeProperty(clave);
+        });
+        viejo.classList.toggle("hidden", previo.hidden);
+        if (previo.parent && previo.parent.isConnected) {
+            if (previo.next && previo.next.parentNode === previo.parent) previo.parent.insertBefore(viejo, previo.next);
+            else previo.parent.appendChild(viejo);
+            conservar = true;
+        }
+        delete viejo.__ekkoMenuStyle;
+    }
+    if (!conservar) {
+        try { viejo.remove(); } catch (_) {}
+    }
+}
+
+export function cerrar() {
+    const hadMenu = !!menuEl;
+    retirarMenu();
+    window.EKKO_CONTEXTUAL_BAR?.cerrarTransiente?.();
+    return hadMenu;
 }
 
 export function isOpen() { return !!menuEl; }
 
+function posicionarMenu(menu, clientX, clientY) {
+    const caja = menu.getBoundingClientRect();
+    const x = Math.max(4, Math.min(clientX, window.innerWidth - caja.width - 4));
+    const y = Math.max(4, Math.min(clientY, window.innerHeight - caja.height - 4));
+    menu.style.left = x + "px";
+    menu.style.top = y + "px";
+}
+
+function posicionarMenuJuntoABarra(menu, barRect) {
+    if (!barRect) return;
+    const espacioAbajo = Math.max(0, window.innerHeight - barRect.bottom - 10);
+    const espacioArriba = Math.max(0, barRect.top - 10);
+    const abajo = espacioAbajo >= espacioArriba;
+    menu.style.maxHeight = Math.max(48, abajo ? espacioAbajo : espacioArriba) + "px";
+    const caja = menu.getBoundingClientRect();
+    const x = Math.max(4, Math.min(barRect.left, window.innerWidth - caja.width - 4));
+    const y = abajo
+        ? barRect.bottom + 6
+        : Math.max(4, barRect.top - caja.height - 6);
+    menu.style.left = x + "px";
+    menu.style.top = y + "px";
+}
+
+export function abrirExistenteEn(menu, clientX, clientY, options = {}) {
+    if (!menu) return false;
+    if (menuEl === menu) {
+        posicionarMenu(menu, clientX, clientY);
+        return true;
+    }
+    if (options.conservarBarra) retirarMenu();
+    else cerrar();
+    menuEl = menu;
+    menu.__ekkoMenuStyle = {
+        parent: menu.parentElement,
+        next: menu.nextSibling,
+        hidden: menu.classList.contains("hidden"),
+        estilos: Object.fromEntries(["position", "left", "top", "zIndex", "maxWidth", "maxHeight", "overflowY"]
+            .map(clave => [clave, menu.style[clave]]))
+    };
+    menu.classList.add("ekko-ctx-menu");
+    menu.classList.remove("hidden");
+    if (menu.parentElement !== document.body) document.body.appendChild(menu);
+    estiloInyectado();
+    menu.style.position = "fixed";
+    menu.style.zIndex = "2147483001";
+    menu.style.maxWidth = "min(280px, calc(100vw - 8px))";
+    menu.style.maxHeight = "calc(100vh - 8px)";
+    menu.style.overflowY = "auto";
+    if (options.conservarBarra) {
+        const barRect = document.getElementById("contextual-toolbar")?.getBoundingClientRect();
+        posicionarMenuJuntoABarra(menu, barRect);
+    } else {
+        posicionarMenu(menu, clientX, clientY);
+    }
+    instalarCierres();
+    return true;
+}
+
 export function abrirEn(clientX, clientY) {
     const snap = snapActual();
     if (!snap) return false;
-    /* El modo nodos YA se atiende en el manejador del canvas (C9): aca no
-       se bloquea. Los otros modos (insertar texto, edicion de fusion)
-       siguen teniendo su gesto propio y no abren menu. */
     if (window.insertTextMode || window.fusionEditActive) return false;
 
     const contexto = clasificarContexto(snap);
@@ -473,15 +572,15 @@ export function abrirEn(clientX, clientY) {
 
     estiloInyectado();
     cerrar();
+    let barRect = null;
+    if (snap.hasSelection && !window.nodeEditMode) {
+        const primary = window.selectedItem || snap.summary?.list?.[0]?.owner || null;
+        barRect = window.EKKO_CONTEXTUAL_BAR?.mostrarTransienteEn?.(primary, clientX, clientY) || null;
+    }
     const menu = construirMenu(contexto, snap);
     document.body.appendChild(menu);
-
-    /* Ajuste a la ventana: medir una vez montado. */
-    const caja = menu.getBoundingClientRect();
-    const x = Math.max(4, Math.min(clientX, window.innerWidth - caja.width - 8));
-    const y = Math.max(4, Math.min(clientY, window.innerHeight - caja.height - 8));
-    menu.style.left = x + "px";
-    menu.style.top = y + "px";
+    if (barRect) posicionarMenuJuntoABarra(menu, barRect);
+    else posicionarMenu(menu, clientX, clientY);
 
     menuEl = menu;
     instalarCierres();
@@ -528,9 +627,8 @@ function installContextMenu() {
         const editor = document.getElementById("ekko-text-editor");
         if (editor && document.activeElement === editor) return;
 
-        evento.preventDefault();
         seleccionarBajoCursor(evento);
-        abrirEn(evento.clientX, evento.clientY);
+        if (abrirEn(evento.clientX, evento.clientY)) evento.preventDefault();
     });
 }
 
@@ -545,7 +643,7 @@ if (typeof window !== "undefined") {
         installContextMenu();
     }
     window.EKKO_CONTEXT_MENU = Object.freeze({
-        abrirEn, cerrar, isOpen,
+        abrirEn, abrirExistenteEn, cerrar, isOpen,
         /* Para sondas: que contexto y entradas habria AHORA, sin abrir nada. */
         diagnostico() {
             const snap = snapActual();
