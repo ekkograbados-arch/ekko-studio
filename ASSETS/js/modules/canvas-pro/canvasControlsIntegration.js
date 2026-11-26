@@ -105,8 +105,11 @@ function initPanelToggles() {
     document.getElementById('topBar')?.classList.toggle('collapsed', window._toolbarState.topCollapsed);
   });
   document.getElementById('toggleContextBar')?.addEventListener('click', () => {
-    window._toolbarState.contextualHidden = !window._toolbarState.contextualHidden;
-    document.getElementById('contextual-toolbar')?.classList.toggle('hidden', window._toolbarState.contextualHidden);
+    if (typeof window.EKKO_CONTEXTUAL_BAR?.toggle === "function") {
+      window.EKKO_CONTEXTUAL_BAR.toggle();
+      return;
+    }
+    document.getElementById("btnEmergenteToggle")?.click();
   });
   document.getElementById('toggleProductPanel')?.addEventListener('click', () => {
     window._toolbarState.productCollapsed = !window._toolbarState.productCollapsed;
