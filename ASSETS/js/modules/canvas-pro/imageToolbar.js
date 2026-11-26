@@ -27,6 +27,19 @@ function getContentItem(item) {
   return getPublicOwner(item) || item || null;
 }
 
+function activeFusionEdit() {
+  if (!window.fusionEditActive || !window.EKKO_FUSION_EDIT?.getState) return null;
+  const state = window.EKKO_FUSION_EDIT.getState();
+  return state?.active?.project ? state : null;
+}
+function finishFusionImageEdit(state) {
+  if (!state) return;
+  state.wrapper?.data && (state.wrapper.data = { ...state.wrapper.data });
+  window.EKKO_FUSION_EDIT?.markDirty?.();
+  // Selection is synchronized once per tool action, never per animation frame.
+  window.EKKO_FUSION_EDIT?.selectImage?.(state.activeIndex);
+}
+
 /**
  * Baja hasta el Raster real cuando lo que se pasa es el envoltorio.
  *
@@ -99,6 +112,16 @@ function itemsOverlap(itemA, itemB) {
 
 // Escalar la imagen de forma interactiva (achicar / agrandar)
 export function scaleImage(item, factor) {
+  const fusion = activeFusionEdit();
+  if (fusion) {
+    const target = fusion.active;
+    const amount = Number(factor);
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    target.scale(amount, amount, target.bounds.center);
+    finishFusionImageEdit(fusion);
+    paper.view.update();
+    return;
+  }
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
 
@@ -155,6 +178,11 @@ function cloneSingleItem(targetItem) {
 
 // Duplicar el objeto seleccionado de forma inteligente (soporta 1 objeto, multiselección y salida segura de nodeEditMode)
 export function duplicateImage(item) {
+  if (window.fusionEditActive) {
+    const duplicated = window.EKKO_FUSION_EDIT?.duplicateActive?.();
+    Promise.resolve(duplicated).catch(error => console.warn('[EKKO IMAGEN] duplicar interno:', error));
+    return;
+  }
   // 1. Si está en modo edición de nodos, confirmar y salir para duplicar el objeto completo
   if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
     const targetObj = window.nodeEditTarget || item || window.selectedItem;
@@ -197,6 +225,10 @@ export function duplicateImage(item) {
 
 // Eliminar el objeto u objetos seleccionados de forma segura (soporta salida de nodeEditMode y multiselección)
 export function deleteImage(item) {
+  if (window.fusionEditActive) {
+    window.EKKO_FUSION_EDIT?.removeActive?.();
+    return;
+  }
   // 1. Si está en modo edición de nodos, salir primero limpiando tiradores de pantalla
   if (window.nodeEditMode && typeof window.exitNodeEditMode === 'function') {
     const targetObj = window.nodeEditTarget || item || window.selectedItem;
@@ -235,6 +267,8 @@ export function deleteImage(item) {
  * Salta directamente sobre el siguiente elemento con el que colisiona o se solapa en pantalla.
  */
 export function bringImageForward(item) {
+  const fusion = activeFusionEdit();
+  if (fusion) { window.EKKO_FUSION_EDIT?.reorderActive?.('forward'); return; }
   item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -293,6 +327,8 @@ export function bringImageForward(item) {
  * Salta directamente por debajo del siguiente elemento con el que colisiona o se solapa en pantalla.
  */
 export function sendImageBackward(item) {
+  const fusion = activeFusionEdit();
+  if (fusion) { window.EKKO_FUSION_EDIT?.reorderActive?.('backward'); return; }
   item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -348,6 +384,8 @@ export function sendImageBackward(item) {
  * Envía el elemento a la parte superior del orden de dibujo, justo bajo el mockup.
  */
 export function bringImageToFront(item) {
+  const fusion = activeFusionEdit();
+  if (fusion) { window.EKKO_FUSION_EDIT?.reorderActive?.('front'); return; }
   item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -377,6 +415,8 @@ export function bringImageToFront(item) {
  * Envía el elemento al fondo del orden de dibujo (Z:0).
  */
 export function sendImageToBack(item) {
+  const fusion = activeFusionEdit();
+  if (fusion) { window.EKKO_FUSION_EDIT?.reorderActive?.('back'); return; }
   item = getStackingUnit(item) || item;
   if (!item || item.data?.locked) return;
   if (typeof window.saveHistory === 'function') window.saveHistory();
@@ -402,91 +442,118 @@ export function sendImageToBack(item) {
   paper.view.update();
 }
 
-// Aplicar filtros de brillo y contraste píxel a píxel mediante Canvas nativo de alto rendimiento
-export function applyBrightnessContrast(raster, brightness, contrast) {
-  // Se baja al Raster real: lo que llega suele ser el grupo de recorte, y un
-  // Group no tiene pixeles. Antes salia en silencio y el control parecia muerto.
-  const real = getRasterReal(raster);
+const brightnessJobs = new WeakMap();
+const BRIGHTNESS_WORKER = `
+self.onmessage = async function(event) {
+  const bitmap = event.data.bitmap;
+  try {
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d');
+    context.filter = event.data.filter;
+    context.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    self.postMessage({ blob });
+  } catch (error) {
+    self.postMessage({ error: String(error && error.message || error) });
+  }
+};`;
+
+function normalizeFilterValue(value) {
+  let normalized = Number(value) || 0;
+  if (Math.abs(normalized) > 100) normalized = (normalized / 255) * 100;
+  return Math.max(-100, Math.min(100, normalized));
+}
+function brightnessSource(raster) {
+  raster.data = raster.data || {};
+  if (raster.data.originalCanvas) return raster.data.originalCanvas;
+  const current = raster._canvas || raster._image || raster.image || null;
+  if (current?.getContext) {
+    // Canvases are immutable in this route: reuse the reference instead of
+    // allocating and drawing another full-resolution bitmap on the UI thread.
+    raster.data.originalCanvas = current;
+    return current;
+  }
+  if (!current) return null;
+  const width = current.naturalWidth || current.width || 0;
+  const height = current.naturalHeight || current.height || 0;
+  if (!width || !height) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  canvas.getContext('2d').drawImage(current, 0, 0, width, height);
+  raster.data.originalCanvas = canvas;
+  return canvas;
+}
+function loadBlobImage(blob) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob), image = new Image();
+    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen procesada')); };
+    image.src = url;
+  });
+}
+async function filterInWorker(source, filter) {
+  if (typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined' ||
+      typeof createImageBitmap !== 'function' || typeof source?.getContext !== 'function') return null;
+  const bitmap = await createImageBitmap(source);
+  const url = URL.createObjectURL(new Blob([BRIGHTNESS_WORKER], { type: 'text/javascript' }));
+  const worker = new Worker(url);
+  URL.revokeObjectURL(url);
+  try {
+    const blob = await new Promise((resolve, reject) => {
+      worker.onmessage = event => event.data?.error ? reject(new Error(event.data.error)) : resolve(event.data?.blob);
+      worker.onerror = event => { event.preventDefault?.(); reject(new Error(event.message || 'Fallo al procesar la imagen')); };
+      worker.postMessage({ bitmap, filter }, [bitmap]);
+    });
+    return await loadBlobImage(blob);
+  } finally {
+    worker.terminate();
+  }
+}
+function filterOnMainThread(source, filter) {
+  const canvas = document.createElement('canvas');
+  canvas.width = source.width; canvas.height = source.height;
+  const context = canvas.getContext('2d');
+  context.filter = filter;
+  context.drawImage(source, 0, 0);
+  return canvas;
+}
+async function applyRasterBrightnessContrast(raster, brightness, contrast, isValid = () => true) {
+  const source = brightnessSource(raster);
+  if (!source || source.width <= 1 || source.height <= 1) return false;
+  const filter = `brightness(${100 + normalizeFilterValue(brightness)}%) contrast(${100 + normalizeFilterValue(contrast)}%)`;
+  const sequence = (brightnessJobs.get(raster) || 0) + 1;
+  brightnessJobs.set(raster, sequence);
+  let output = null;
+  try { output = await filterInWorker(source, filter); } catch (_) { /* portable fallback below */ }
+  if (brightnessJobs.get(raster) !== sequence || raster.data.originalCanvas !== source || !isValid()) return false;
+  output = output || filterOnMainThread(source, filter);
+  if (brightnessJobs.get(raster) !== sequence || raster.data.originalCanvas !== source || !isValid()) return false;
+  const matrix = raster.matrix.clone();
+  raster.onLoad = null;
+  if (output instanceof HTMLCanvasElement) raster.canvas = output;
+  else raster.image = output;
+  raster.matrix = matrix;
+  return true;
+}
+
+// Brillo/contraste se procesa fuera del hilo principal cuando hay OffscreenCanvas.
+// La alternativa usa el filtro nativo del canvas, sin getImageData ni bucles por píxel.
+export async function applyBrightnessContrast(item, brightness, contrast) {
+  const fusion = activeFusionEdit();
+  const real = fusion?.active || getRasterReal(item);
   if (!real) {
     console.warn("[EKKO IMAGEN] brillo/contraste: la seleccion no contiene una imagen");
-    return;
+    return false;
   }
-  raster = real;
-
-  // 0. SOLUCIÓN AL EVENT LEAK: Anular de raíz cualquier callback onLoad obsoleto para evitar que
-  // se re-dispare recursivamente al reasignar .canvas y destruya la imagen o resetee sus datos.
-  if (raster.onLoad) {
-    raster.onLoad = null;
+  const valid = () => !fusion || (window.fusionEditActive &&
+    window.EKKO_FUSION_EDIT?.getState()?.token === fusion.token && fusion.active === real);
+  const changed = await applyRasterBrightnessContrast(real, brightness, contrast, valid);
+  if (!changed || !valid()) return false;
+  finishFusionImageEdit(fusion);
+  if (!fusion && typeof window.updateSelectionBox === 'function') {
+    window.updateSelectionBox(real.parent?.data?.clipGroup ? real.parent : real);
   }
-
-  // 1. Inicializar la copia original (originalCanvas) de alta calidad si no existe con resolución súper robusta
-  if (!raster.data.originalCanvas) {
-    const canvas = document.createElement('canvas');
-    const src = raster.image || raster.canvas;
-    const w = (src ? (src.naturalWidth || src.width) : 0) || raster.width || (raster.size ? raster.size.width : 300);
-    const h = (src ? (src.naturalHeight || src.height) : 0) || raster.height || (raster.size ? raster.size.height : 300);
-
-    canvas.width = w;
-    canvas.height = h;
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (src) {
-      ctx.drawImage(src, 0, 0, w, h);
-    }
-    raster.data.originalCanvas = canvas;
-  }
-
-  const origCanvas = raster.data.originalCanvas;
-  const w = origCanvas.width;
-  const h = origCanvas.height;
-  if (w <= 1 || h <= 1) return; // Evitar procesar imágenes vacías o no cargadas
-
-  const procCanvas = document.createElement('canvas');
-  procCanvas.width = w;
-  procCanvas.height = h;
-
-  const procCtx = procCanvas.getContext('2d', { willReadFrequently: true });
-  procCtx.drawImage(origCanvas, 0, 0);
-
-  const imgData = procCtx.getImageData(0, 0, w, h);
-  const data = imgData.data;
-
-  // 2. Normalización defensiva de rango para soportar sliders -100/100 o -255/255
-  let normContrast = parseFloat(contrast) || 0;
-  if (Math.abs(normContrast) > 100) {
-    normContrast = (normContrast / 255) * 100;
-  }
-
-  let normBrightness = parseFloat(brightness) || 0;
-  if (Math.abs(normBrightness) > 100) {
-    normBrightness = (normBrightness / 255) * 100;
-  }
-
-  // 3. Mapeo matemático ultra estable y lineal de contraste y brillo sin divisiones por cero ni factores negativos
-  const factor = (normContrast + 100) / 100; // Factor estable: 0 (gris) a 2 (doble contraste)
-  const bOffset = (normBrightness / 100) * 128; // Desplazamiento seguro de brillo
-
-  for (let i = 0; i < data.length; i += 4) {
-    // Aplicar contraste alrededor del punto medio (128) y añadir brillo, conservando canal alfa intacto
-    data[i]     = Math.max(0, Math.min(255, (data[i] - 128) * factor + 128 + bOffset));     // Rojo
-    data[i + 1] = Math.max(0, Math.min(255, (data[i + 1] - 128) * factor + 128 + bOffset)); // Verde
-    data[i + 2] = Math.max(0, Math.min(255, (data[i + 2] - 128) * factor + 128 + bOffset)); // Azul
-  }
-
-  procCtx.putImageData(imgData, 0, 0);
-
-  // 4. Respaldar propiedades físicas antes de re-asignar el canvas para evitar re-escalados o desplazamientos.
-  // IMPORTANTE: Únicamente clonamos y restauramos la matriz del elemento en Paper.js.
-  // Al no manipular la propiedad de posición absoluta, evitamos el desplazamiento acumulativo por redondeo de bounds de rotación.
-  const oldMatrix = raster.matrix.clone();
-  raster.canvas = procCanvas;
-  raster.matrix = oldMatrix;
-
-  // 5. Garantía de Caja de Selección: Sincronizar el contorno celeste azul de selección de Paper.js
-  if (typeof window.updateSelectionBox === 'function') {
-    const itemToUpdate = raster.parent && raster.parent.data?.clipGroup ? raster.parent : raster;
-    window.updateSelectionBox(itemToUpdate);
-  }
-
   paper.view.update();
+  return true;
 }
