@@ -129,13 +129,13 @@ export function rebuildEKKOTextOwner(owner, patch = {}) {
     if (!flat) return null;
     flat.visible = true;
 
+    /* El modo curva sigue al texto plano intermedio ANTES de publicar la
+       seleccion: selectItem emite ekko:seleccion-cambio en forma sincronica. */
+    transferCurveMode(owner, flat);
     // applyTextCurve y applyTextSpacing solo saben publicar el owner nuevo si la
     // seleccion apunta al objeto que van a reemplazar. Por eso se les entrega
     // la seleccion antes de llamarlos, en vez de rehacer su logica aqui.
     handOffSelection(owner, flat);
-    /* El modo curva sigue al texto plano intermedio: las reconstrucciones de
-       abajo publican el owner final y transfieren desde aca. */
-    transferCurveMode(owner, flat);
 
     if (Math.abs(curvature) >= 0.1) {
         const promesa = applyTextCurve(flat, curvature, {
@@ -369,6 +369,7 @@ if (typeof window !== "undefined") {
         exitMode: exitCurveMode,
         isMode: isCurveMode,
         syncInputs: syncBendInputs,
+        asegurarLectura: popupBend,
         handle: () => window._ekkoCurveHandle || null
     };
     /* Las guias y el tirador se despegan del texto cuando el cliente lo mueve,
@@ -1660,7 +1661,6 @@ export function endBend() {
     bendState = null;
     bendPending = null;
     window._ekkoCurveDrag = null;
-    ocultarPopupBend();
     const cerrar = () => {
         if (movido && typeof window.saveHistory === 'function') window.saveHistory();
         syncCurveHandle();
@@ -1683,56 +1683,45 @@ export function endBend() {
     return movido;
 }
 
-/* ---------------------------------------------------------------------------
-   LECTURA DE ANGULO EN VIVO: lienzo + barra + panel.
-   Mientras se curva, el cliente ve cuantos grados lleva en tres lados a la vez:
-   un popup junto al tirador (como el de rotacion), el slider y los campos de
-   ambas barras. Sin esto curva a ciegas.
-   --------------------------------------------------------------------------- */
-
+/* Lectura inline del angulo: vive en el panel Curvar y descansa en el parking
+   cuando el panel esta cerrado. */
 function popupBend() {
     if (typeof document === "undefined") return null;
+    const slot = document.querySelector('#ekkoParamSurface[data-comando="curvar"] .ekko-text-readout-slot');
+    const parking = document.getElementById("ekkoTextPanelParking");
     let p = document.getElementById("ekkoBendPopup");
-    if (p && p.isConnected) return p;
-    p = document.createElement("div");
+    if (p && p.isConnected) {
+        const destino = slot || parking;
+        if (destino && p.parentElement !== destino) destino.appendChild(p);
+        return p;
+    }
+    p = document.createElement("output");
     p.id = "ekkoBendPopup";
+    p.className = "ekko-bend-readout";
     p.setAttribute("aria-live", "polite");
-    p.style.cssText = [
-        "position:fixed", "z-index:10000", "display:none",
-        "padding:4px 10px", "border-radius:6px",
-        "background:#263747", "color:#fff", "font:600 13px sans-serif",
-        "pointer-events:none", "white-space:nowrap"
-    ].join(";");
-    document.body.appendChild(p);
+    (slot || parking || document.body).appendChild(p);
     return p;
 }
 
-/** Muestra el angulo junto al tirador. Resalta multiplos de 45° como Rotar. */
+/** Actualiza la lectura inline y resalta multiplos de 45°. */
 export function mostrarPopupBend(grados) {
     const p = popupBend();
     if (!p) return;
-    const g = Math.round(Number(grados) || 0);
+    const raw = Number(grados) || 0;
+    const g = Math.abs(raw - Math.round(raw)) < 1e-6 ? Math.round(raw) : Math.round(raw * 10) / 10;
+    p.hidden = false;
     p.textContent = `${g}°`;
+    p.setAttribute("aria-label", `Angulo de curvado ${g} grados`);
     const esSnap = Math.abs(((g % 45) + 45) % 45) < 1e-6;
-    p.style.background = esSnap ? "#168447" : "#263747";
-    const h = typeof window !== "undefined" ? window._ekkoCurveHandle : null;
-    try {
-        if (h?.bounds) {
-            const v = paper.view.projectToView(h.bounds.center);
-            const r = paper.view.element.getBoundingClientRect();
-            p.style.left = `${Math.round(r.left + v.x + 16)}px`;
-            p.style.top = `${Math.round(r.top + v.y - 14)}px`;
-        }
-    } catch (_) {}
-    p.style.display = "block";
+    p.classList.toggle("is-snap", esSnap);
 }
 
 export function ocultarPopupBend() {
     const p = typeof document !== "undefined" ? document.getElementById("ekkoBendPopup") : null;
-    if (p) p.style.display = "none";
+    if (p) p.hidden = true;
 }
 
-/** Escribe el angulo en el slider y en ambas barras + popup. */
+/** Escribe el angulo en el slider, las barras y la lectura inline. */
 export function syncBendInputs(angulo) {
     let g = Number(angulo);
     if (!Number.isFinite(g)) {
@@ -1741,7 +1730,7 @@ export function syncBendInputs(angulo) {
             ? (getPublicOwner(sel) || sel) : sel;
         g = Number(o?.data?.curvature) || 0;
     }
-    g = Math.max(-359, Math.min(359, Math.round(g)));
+    g = Math.max(-360, Math.min(360, Math.abs(g - Math.round(g)) < 1e-6 ? Math.round(g) : Math.round(g * 10) / 10));
     const slider = document.querySelector('#ctxTextCurvature input[type=range]');
     if (slider && document.activeElement !== slider) slider.value = String(g);
     ["ctxBendAngleVal", "objBendAngleVal"].forEach(id => {
@@ -1764,7 +1753,8 @@ export function syncBendInputs(angulo) {
             if (el && document.activeElement !== el) el.value = r > 0 ? String(r) : "";
         });
     } catch (_) {}
-    if (isBending()) mostrarPopupBend(g);
+    const lectura = document.getElementById("ekkoBendPopup");
+    if (lectura) mostrarPopupBend(g);
 }
 
 /** Doble clic en el tirador: el texto vuelve a recto. Estándar de curvado. */
