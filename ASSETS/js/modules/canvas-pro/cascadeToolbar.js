@@ -800,7 +800,8 @@ function estilos() {
            valor (experienciaInput.js los espeja por id). En la cinta gana el
            numero, que es el que se puede escribir con precision para soldar; el
            slider baja de la barra para que la tira quede solo con iconos. */
-        body[data-ekko-cascade="1"] #ctxTextSpacingSlider {
+        body[data-ekko-cascade="1"] #contextual-toolbar #ctxTextSpacingSlider,
+        body[data-ekko-cascade="1"] #ekkoCamposTexto #ctxTextSpacingSlider {
             display: none !important;
         }
         /* La caja de campos de texto vive ahora dentro de la banda de 30px de
@@ -1912,12 +1913,10 @@ const GRUPO_OBJETO = "objeto";
 const UNIDADES_CAMPO = u => !!(u.classList && (
     u.classList.contains("size-control-group") || u.id === "ekkoCamposTexto"));
 
-/* #ctxTextControls (motor) es UNA caja que mezcla las dos cosas: seis botones
-   (Negrita, Cursiva, Subrayado, Soldar, Curvar, Girar letras) y los campos de
-   valor (fuente, tamaño, el slider de curvatura, radio, espacio). Se parte por
-   la mitad: los botones siguen en la barra emergente y los valores arman
-   #ekkoCamposTexto, que sube a la cinta como unidad. */
-const CAMPOS_DE_TEXTO = ["ctxFontSize", "ctxCurveRadius", "ctxTextSpacing", "ctxTextCurvature"];
+/* #ctxTextControls conserva los botones de texto en la barra emergente.
+   Solo la fuente y el tamaño suben a #ekkoCamposTexto; Curvar y Espaciar
+   montan sus propios controles desde commandParameters.js. */
+const CAMPOS_DE_TEXTO = ["ctxFontSize"];
 function esCampoDeTexto(n) {
     if (!n || n.nodeType !== 1) return false;
     if (n.id && CAMPOS_DE_TEXTO.includes(n.id)) return true;
@@ -1936,12 +1935,8 @@ function cajaCamposDeTexto() {
     if (tc) Array.from(tc.children).forEach(n => {
         if (esCampoDeTexto(n) && n.parentElement !== caja) caja.appendChild(n);
     });
-    /* #ctxFontSize llega SOLO (index.html:379 es un <input> suelto con title,
-       sin label), y en la cinta se veía un "42" flotando sin nombre. Los demás
-       valores ya vienen envueltos en <label class="toolbar-number-label">
-       ("Radio", "Espacio"), así que se etiqueta igual y en el mismo idioma
-       visual. El input se mueve DENTRO del label: los listeners que le puso
-       rotationController via getElementById quedan en la misma nodo. */
+    /* #ctxFontSize llega solo, sin label. Se lo envuelve para que la cinta no
+       muestre un numero flotando; el nodo y sus listeners no cambian. */
     const tamano = caja.querySelector("#ctxFontSize");
     if (tamano && !tamano.closest("label")) {
         const etiqueta = document.createElement("label");
@@ -2006,15 +2001,6 @@ function migrarCamposACinta() {
         // puesta. Acá no significa nada: se suelta.
         u.classList.remove("ekko-fb-vacia");
     });
-    /* Ronda 13 (dueño 2026-11-11): Curvar Texto tiene UN SOLO hogar — este
-       grupo Objeto, junto a los campos de Curvatura/Radio/Espacio (antes
-       estaba en el grupo "texto" de la cinta Y en la barra flotante: el
-       duplicado sin lógica del rechazo). El botón real se ADOPTA acá porque
-       el grupo objeto no es del manifiesto (ribbonLayout no lo conoce). Se
-       mueve, no se clona: conserva su onclick y la visibilidad que le escribe
-       setTextCurveVisibility (solo aparece con texto curvable). */
-    const curvar = document.getElementById("btnTopTextCurve");
-    if (curvar && curvar.parentElement !== cuerpo) cuerpo.appendChild(curvar);
     /* Si el grupo esta .is-empty, todo su contenido mide 0 px: medir el ancho
        para decidir si vaciarlo es un huevo-gallina (una vez vacio, nunca
        vuelve). Se lee la senal que el MOTOR usa para cada unidad: la clase
@@ -2191,7 +2177,7 @@ function montarBarraEmergente() {
 
 function refrescarBarraEmergente() {
     const fb = document.getElementById("contextual-toolbar");
-    if (!fb || fb.dataset.ekkoCascadeFb !== "1") return;
+    if (!fb || fb.dataset.ekkoCascadeFb !== "1" || fb.classList.contains("is-context-transient")) return;
     // Senal de QUE tipo de objeto hay, para las cajas por especie de la barra
     // (ver el bloque de CSS de #ctxTextControls). El observador de la barra solo
     // mira class y style, asi que escribir este dataset no se realimenta.
