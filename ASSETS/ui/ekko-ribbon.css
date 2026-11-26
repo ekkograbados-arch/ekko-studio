@@ -449,6 +449,41 @@
     height: 100%;
 }
 
+.ekko-ribbon-group[data-group="parametros"] .ekko-param-surface.is-texto {
+    max-width: min(620px, 52vw);
+    gap: 8px;
+    flex-wrap: nowrap;
+}
+
+.ekko-param-surface.is-texto .ekko-param-texto-controles {
+    flex-wrap: nowrap;
+    gap: 8px;
+}
+
+.ekko-param-surface.is-texto .toolbar-slider-container {
+    height: 28px;
+}
+
+.ekko-param-surface.is-texto .toolbar-input-number {
+    width: 64px;
+    height: 26px;
+}
+
+.ekko-param-surface.is-texto .btn-action {
+    flex-direction: row;
+    height: 28px;
+    min-height: 28px;
+}
+
+.ekko-param-surface[data-comando="curvar"] #ctxBendAngleVal {
+    display: none;
+}
+
+.ekko-param-surface.is-texto #ekkoBendPopup {
+    min-width: 48px;
+    min-height: 28px;
+}
+
 /* El asa de arrastre no tiene oficio dentro del hogar: el TÍTULO del hogar
    ya dice qué se está ajustando. */
 .ekko-ribbon-group[data-group="parametros"] .ekko-param-asa {
