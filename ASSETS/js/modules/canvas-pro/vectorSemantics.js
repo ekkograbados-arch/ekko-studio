@@ -9,26 +9,30 @@ import {
   isContainmentWrapper,
   isMockupOrMask,
   getOwnerLocalGeometry,
-  toWorldGeometry
+  toWorldGeometry,
+  bakeGeometryMatrices
 } from "./designGeometry.js";
+import { explicitHoleOf, stampSourceProvenance } from "./holeSemantics.js";
 
 export const VECTOR_KIND = Object.freeze({ SOLID: "solid", HOLE: "hole" });
 
 export function semanticKind(item) {
   const owner = getPublicOwner(item) || item;
-  const data = owner?.data || {};
-  if (data.semanticKind === VECTOR_KIND.HOLE || data.isHole === true) return VECTOR_KIND.HOLE;
-  if (data.semanticKind === VECTOR_KIND.SOLID || data.isSolidShape === true) return VECTOR_KIND.SOLID;
+  const explicit = explicitHoleOf(owner);
+  if (explicit === true) return VECTOR_KIND.HOLE;
+  if (explicit === false) return VECTOR_KIND.SOLID;
   return null;
 }
 
 export function setSemanticKind(item, kind) {
   if (!item || (kind !== VECTOR_KIND.SOLID && kind !== VECTOR_KIND.HOLE)) return item;
+  stampSourceProvenance(item);
   item.data = {
     ...(item.data || {}),
     semanticKind: kind,
     isHole: kind === VECTOR_KIND.HOLE,
-    isSolidShape: kind === VECTOR_KIND.SOLID
+    isSolidShape: kind === VECTOR_KIND.SOLID,
+    contourRole: kind === VECTOR_KIND.HOLE ? "hole" : "outer"
   };
   return item;
 }
@@ -88,29 +92,54 @@ export function isAboveInRenderOrder(candidate, reference) {
 export function realGeometryIntersects(a, b) {
   if (!a?.bounds || !b?.bounds || !a.bounds.intersects(b.bounds)) return false;
   try {
-    // Nested holes are normally fully contained and have no boundary
-    // crossing. Test containment first; calling intersects/getIntersections
-    // on large imported SVG/text paths first can be needlessly expensive and
-    // may block the UI before the actual CSG subtraction is attempted.
-    const probes = [b.bounds.center, a.bounds.center];
-    for (const point of probes) {
-      if (a.contains?.(point) || b.contains?.(point)) return true;
+    // Positive boolean overlap is authoritative. Boundary contact alone is
+    // not material intersection and must not create a cutter pair.
+    let overlap = null;
+    try {
+      overlap = a.intersect?.(b, { insert: false }) || null;
+      if (Math.abs(overlap?.area || 0) > 1e-7) return true;
+    } catch (_) {
+      // Containment below is the fallback when the boolean kernel is unsure.
+    } finally {
+      try { overlap?.remove?.(); } catch (_) {}
     }
 
-    // The boolean overlap is the authoritative fallback for partial overlap.
-    // It is intentionally run before the more expensive curve intersection
-    // enumeration and its temporary result is always removed.
-    try {
-      const overlap = a.intersect?.(b, { insert: false });
-      const area = Math.abs(overlap?.area || 0);
-      overlap?.remove?.();
-      if (area > 1e-7) return true;
-    } catch (_) {}
+    const leavesOf = geometry => {
+      if (!geometry) return [];
+      if (Array.isArray(geometry.children) && geometry.children.length) {
+        return geometry.children.flatMap(leavesOf);
+      }
+      return [geometry];
+    };
+    const containsReal = (geometry, point) => {
+      if (!geometry || !point) return false;
+      try {
+        if (geometry.fillRule !== "evenodd") return !!geometry.contains?.(point);
+        let hits = 0;
+        leavesOf(geometry).forEach(leaf => {
+          try { if (leaf.contains?.(point)) hits += 1; } catch (_) {}
+        });
+        return hits % 2 === 1;
+      } catch (_) { return false; }
+    };
+    const realInteriorSamples = geometry => {
+      const samples = [];
+      leavesOf(geometry).forEach(leaf => {
+        const candidates = [];
+        try { candidates.push(leaf.getInteriorPoint?.()); } catch (_) {}
+        try { candidates.push(leaf.bounds?.center); } catch (_) {}
+        candidates.forEach(point => {
+          if (point && containsReal(geometry, point)) samples.push(point);
+        });
+      });
+      return samples;
+    };
 
-    return !!(
-      a.intersects?.(b) || b.intersects?.(a) ||
-      a.getIntersections?.(b)?.length || b.getIntersections?.(a)?.length
-    );
+    // A circle sitting in an annulus counter shares bounds and may contain the
+    // other bounds center, but has no common real interior. Only samples that
+    // are inside the *actual* even-odd/nonzero fill qualify here.
+    return realInteriorSamples(a).some(point => containsReal(b, point)) ||
+      realInteriorSamples(b).some(point => containsReal(a, point));
   } catch (_) {
     return false;
   }
@@ -183,7 +212,7 @@ function visibleWorldGeometry(owner) {
     clone.applyMatrix = false;
     clone.matrix = new paper.Matrix();
     if (matrix && !matrix.isIdentity()) clone.transform(matrix);
-    return clone;
+    return bakeGeometryMatrices(clone);
   } catch (_) { return null; }
 }
 
@@ -194,9 +223,7 @@ function visibleWorldGeometry(owner) {
 export function buildCutterPairs(owners) {
   const solids = owners.filter(item => semanticKind(item) === VECTOR_KIND.SOLID);
   const holes = owners.filter(item => semanticKind(item) === VECTOR_KIND.HOLE);
-  const targets = owners.filter(item =>
-    semanticKind(item) === VECTOR_KIND.SOLID || semanticKind(item) === VECTOR_KIND.HOLE
-  );
+  const targets = solids;
   const pairs = [];
   const skipped = [];
   for (const hole of holes) {
