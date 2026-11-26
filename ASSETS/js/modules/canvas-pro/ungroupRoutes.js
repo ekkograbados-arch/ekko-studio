@@ -232,14 +232,20 @@ export function dispatchVectorDecomposition(items = null) {
   const selected = selectedVectorItems(items);
   if (!selected.length) return null;
   emitRoute("vector-decompose", { itemCount: selected.length });
-  window.saveHistory?.();
+  window.beginHistoryTransaction?.("vector-decompose");
   const outputs = [];
   selected.forEach(owner => {
     const result = decomposeByContainmentHierarchy(owner, isInsideContainmentWrapper(owner));
     if (result?.items?.length) outputs.push(...result.items.map(normalizeUngroupOwner).filter(Boolean));
   });
+  if (!outputs.length) {
+    window.cancelHistoryTransaction?.("vector-decompose-empty");
+    return outputs;
+  }
   const owners = commitSelection(outputs);
   recalculateDynamicSubtractions?.();
+  window.markHistoryDirty?.();
+  window.commitHistoryTransaction?.("vector-decompose");
   if (typeof paper !== "undefined") paper.view?.update?.();
   return owners.length ? owners : outputs;
 }
