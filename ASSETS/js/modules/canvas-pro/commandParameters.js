@@ -20,12 +20,27 @@
    llama al callback que declare el registro PARAM_SPECS.
    ========================================================================= */
 
+import { getPublicOwner } from "./designGeometry.js";
+
 /**
  * Registro de parametros por herramienta.
  *   aplicar(valor)  -> se llama al soltar / confirmar / rueda
  *   claveCfg(id)    -> nombre de la propiedad real en BackgroundRemover.config
  */
 export const PARAM_SPECS = Object.freeze({
+    curvar: {
+        etiqueta: "Curvar",
+        personalizado: true,
+        alAbrir: owner => window.EKKO_TEXT_BEND?.enterMode?.(owner) === true,
+        alCerrar: () => window.EKKO_TEXT_BEND?.exitMode?.()
+    },
+    espaciar: {
+        etiqueta: "Espaciar",
+        personalizado: true,
+        alAbrir: owner => window.EKKO_TEXT_BEND?.enterMode?.(owner) === true,
+        alCerrar: () => window.EKKO_TEXT_BEND?.exitMode?.()
+    },
+
     /* QUITAR FONDO: `inline: true` porque sus tres valores (Borde, Suavizar,
        Halo) se dibujan DENTRO de la interfaz, no en el popover de arriba.
        Medido con el popover abierto: era una caja [8,124,329,188] flotando
@@ -284,10 +299,79 @@ export const PARAM_SPECS = Object.freeze({
 });
 
 const ID_SUPERFICIE = "ekkoParamSurface";
+const ID_PARKING_TEXTO = "ekkoTextPanelParking";
+const NODOS_PERSONALIZADOS = Object.freeze({
+    curvar: ["ctxTextCurvature", "ctxCurveRadius", "btnCtxRotateLetters"],
+    espaciar: ["ctxTextSpacingSlider", "ctxTextSpacing"]
+});
 let superficie = null;
 let comandoAbierto = null;
+let nodosPersonalizadosMontados = [];
 
 function el(id) { return document.getElementById(id); }
+
+function ownerActual() {
+    const raw = window.selectedItem ||
+        (Array.isArray(window.selectedItems) && window.selectedItems.length
+            ? window.selectedItems[0]
+            : null);
+    if (!raw) return null;
+    return raw.data?.clipGroup ? (getPublicOwner(raw) || raw) : raw;
+}
+
+function parkingTexto() {
+    let parking = el(ID_PARKING_TEXTO);
+    if (parking) return parking;
+    parking = document.createElement("div");
+    parking.id = ID_PARKING_TEXTO;
+    parking.className = "ekko-text-panel-parking";
+    parking.setAttribute("aria-hidden", "true");
+    parking.setAttribute("inert", "");
+    parking.style.cssText = "position:absolute;left:-9999px;top:0;width:0;height:0;overflow:hidden;visibility:hidden;";
+    document.body.appendChild(parking);
+    return parking;
+}
+
+function desmontarPanelPersonalizado() {
+    if (!nodosPersonalizadosMontados.length) return;
+    const parking = parkingTexto();
+    nodosPersonalizadosMontados.forEach(node => {
+        if (node && superficie?.contains(node)) parking.appendChild(node);
+    });
+    nodosPersonalizadosMontados = [];
+}
+
+function montarNodoPersonalizado(contenedor, id) {
+    const node = el(id);
+    if (!node) return null;
+    if (node.tagName === "BUTTON") node.classList.add("btn-action");
+    contenedor.appendChild(node);
+    nodosPersonalizadosMontados.push(node);
+    return node;
+}
+
+function pintarPersonalizado(comando, cont) {
+    cont.classList.add("is-texto");
+    const controles = document.createElement("div");
+    controles.className = "ekko-param-texto-controles";
+    cont.appendChild(controles);
+
+    if (comando === "curvar") {
+        NODOS_PERSONALIZADOS.curvar.forEach(id => montarNodoPersonalizado(controles, id));
+        const lecturaSlot = document.createElement("span");
+        lecturaSlot.className = "ekko-text-readout-slot";
+        cont.appendChild(lecturaSlot);
+        const lectura = window.EKKO_TEXT_BEND?.asegurarLectura?.();
+        if (lectura) {
+            lecturaSlot.appendChild(lectura);
+            nodosPersonalizadosMontados.push(lectura);
+            window.EKKO_TEXT_BEND?.syncInputs?.();
+        }
+        return;
+    }
+
+    NODOS_PERSONALIZADOS.espaciar.forEach(id => montarNodoPersonalizado(controles, id));
+}
 
 function asegurarSuperficie() {
     if (superficie && superficie.isConnected) return superficie;
@@ -671,9 +755,10 @@ function pintar(comando, recentrar) {
     const cont = asegurarSuperficie();
     if (!cont) return;
 
+    desmontarPanelPersonalizado();
     cont.innerHTML = "";
     cont.dataset.comando = comando;
-    cont.classList.remove('is-pegada');
+    cont.classList.remove('is-pegada', 'is-texto');
 
     // Asa: separa visualmente el panel de la barra, lo hace arrastrable y dice
     // QUE se esta ajustando, para que no se confunda con una toolbar mas.
@@ -682,57 +767,55 @@ function pintar(comando, recentrar) {
     asa.innerHTML = '<span aria-hidden="true">⠿</span><span>' + spec.etiqueta + '</span>';
     cont.appendChild(asa);
 
-    // --- Grupos ---------------------------------------------------------
-    // Si el comando declara grupos, los controles se reparten en columnas
-    // separadas por una linea, como los grupos de la cinta: los
-    // valores que se ajustan a la izquierda, los botones a la derecha.
-    // Si NO declara grupos se dibuja todo en fila, como antes: un comando
-    // que no pide grupos no cambia de aspecto.
-    const visibles = (spec.parametros || []).filter(p => !p.disponible || p.disponible());
-    const conGrupos = visibles.some(p => p.grupo);
-
-    if (conGrupos) {
-        const orden = [];
-        const porNombre = new Map();
-        visibles.forEach(p => {
-            const nombre = p.grupo || "";
-            if (!porNombre.has(nombre)) {
-                const g = { nombre, controles: [] };
-                porNombre.set(nombre, g);
-                orden.push(g);
-            }
-            porNombre.get(nombre).controles.push(p);
-        });
-
-        orden.forEach(g => {
-            const caja = document.createElement("div");
-            caja.className = "ekko-param-grupo";
-            if (g.nombre) {
-                const titulo = document.createElement("div");
-                titulo.className = "ekko-param-grupo-titulo";
-                titulo.textContent = g.nombre;
-                caja.appendChild(titulo);
-            }
-            const fila = document.createElement("div");
-            fila.className = "ekko-param-fila";
-            g.controles.forEach(p => fila.appendChild(crearParametro(p, comando)));
-            caja.appendChild(fila);
-            cont.appendChild(caja);
-        });
+    if (spec.personalizado) {
+        pintarPersonalizado(comando, cont);
     } else {
-        visibles.forEach(p => cont.appendChild(crearParametro(p, comando)));
-    }
+        const visibles = (spec.parametros || []).filter(p => !p.disponible || p.disponible());
+        const conGrupos = visibles.some(p => p.grupo);
 
-    (spec.acciones || []).forEach(a => {
-        const b = document.createElement("button");
-        b.type = "button";
-        b.className = "ekko-param-action";
-        b.textContent = a.etiqueta;
-        b.addEventListener("click", () => {
-            try { a.ejecutar(); } catch (e) { console.warn("[EKKO] accion", a.id, e); }
+        if (conGrupos) {
+            const orden = [];
+            const porNombre = new Map();
+            visibles.forEach(p => {
+                const nombre = p.grupo || "";
+                if (!porNombre.has(nombre)) {
+                    const g = { nombre, controles: [] };
+                    porNombre.set(nombre, g);
+                    orden.push(g);
+                }
+                porNombre.get(nombre).controles.push(p);
+            });
+
+            orden.forEach(g => {
+                const caja = document.createElement("div");
+                caja.className = "ekko-param-grupo";
+                if (g.nombre) {
+                    const titulo = document.createElement("div");
+                    titulo.className = "ekko-param-grupo-titulo";
+                    titulo.textContent = g.nombre;
+                    caja.appendChild(titulo);
+                }
+                const fila = document.createElement("div");
+                fila.className = "ekko-param-fila";
+                g.controles.forEach(p => fila.appendChild(crearParametro(p, comando)));
+                caja.appendChild(fila);
+                cont.appendChild(caja);
+            });
+        } else {
+            visibles.forEach(p => cont.appendChild(crearParametro(p, comando)));
+        }
+
+        (spec.acciones || []).forEach(a => {
+            const b = document.createElement("button");
+            b.type = "button";
+            b.className = "ekko-param-action";
+            b.textContent = a.etiqueta;
+            b.addEventListener("click", () => {
+                try { a.ejecutar(); } catch (e) { console.warn("[EKKO] accion", a.id, e); }
+            });
+            cont.appendChild(b);
         });
-        cont.appendChild(b);
-    });
+    }
 
     const cerrar = document.createElement("button");
     cerrar.type = "button";
@@ -760,33 +843,38 @@ function pintar(comando, recentrar) {
 }
 
 export function cerrarParametros() {
-    if (!superficie) return;
-    superficie.style.display = "none";
-    superficie.innerHTML = "";
-    delete superficie.dataset.comando;
-    // Ronda 15: si la superficie vive DENTRO del hogar de la banda, el hogar
-    // queda vacio y manchando la banda: se remueve entero. La proxima
-    // apertura lo vuelve a crear (hogarDeBanda) y la superficie se re-crea
-    // sola en asegurarSuperficie.
-    const hogar = superficie.closest('.ekko-ribbon-group[data-group="' + GRUPO_PARAMS + '"]');
-    if (hogar) hogar.remove();
+    const comando = comandoAbierto;
+    const spec = PARAM_SPECS[comando];
+    if (superficie) {
+        desmontarPanelPersonalizado();
+        superficie.style.display = "none";
+        superficie.innerHTML = "";
+        delete superficie.dataset.comando;
+        // Ronda 15: si la superficie vive DENTRO del hogar de la banda, el hogar
+        // queda vacio y manchando la banda: se remueve entero. La proxima
+        // apertura lo vuelve a crear (hogarDeBanda) y la superficie se re-crea
+        // sola en asegurarSuperficie.
+        const hogar = superficie.closest('.ekko-ribbon-group[data-group="' + GRUPO_PARAMS + '"]');
+        if (hogar) hogar.remove();
+    }
     comandoAbierto = null;
+    if (spec?.personalizado) spec.alCerrar?.();
     // Si el panel se cierra con un preview de contorno en pantalla (arrastre
     // interrumpido), el trazo magenta no puede quedarse flotando: se limpia.
     try { window.EKKO?.quitarPreviewContorno?.(); } catch (_) {}
 }
 
 export function alternarParametros(comando) {
-    // Los comandos `inline` no tienen popover: sus controles viven en la cinta
-    // y en la barra emergente (recorteParams.js). Cualquier llamada —el clic del
-    // boton, EKKO_PARAMETROS.abrir— sale por aqui y no dibuja nada flotante.
-    if (PARAM_SPECS[comando]?.inline) return;
+    const spec = PARAM_SPECS[comando];
+    if (!spec || spec.inline) return;
     if (comandoAbierto === comando) { cerrarParametros(); return; }
-    // Si se cambia de comando, el panel se recentra: sus controles cambian de
-    // ancho y dejarlo en la posicion anterior lo dejaba descuadrado.
-    const cambiar = comandoAbierto !== null;
+    if (comandoAbierto) cerrarParametros();
+    if (spec.personalizado) {
+        const owner = ownerActual();
+        if (!owner || spec.alAbrir?.(owner) !== true) return;
+    }
     comandoAbierto = comando;
-    pintar(comando, cambiar);
+    pintar(comando, false);
 }
 
 /**
@@ -828,6 +916,22 @@ export function initParametros() {
         if (!comandoAbierto) return;
         if (!window.selectedItems?.length && !window.selectedItem) {
             cerrarParametros();
+            return;
+        }
+        if (PARAM_SPECS[comandoAbierto]?.personalizado) {
+            const owner = ownerActual();
+            if (!owner || !window.EKKO_TEXT_BEND?.isMode?.(owner)) {
+                cerrarParametros();
+                return;
+            }
+            setTimeout(() => {
+                const actual = ownerActual();
+                if (!comandoAbierto || !actual || !window.EKKO_TEXT_BEND?.isMode?.(actual)) {
+                    cerrarParametros();
+                    return;
+                }
+                window.EKKO_TEXT_BEND?.syncInputs?.();
+            }, 0);
             return;
         }
         setTimeout(() => {
