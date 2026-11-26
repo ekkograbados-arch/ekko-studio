@@ -623,7 +623,7 @@ export const TOOLS = {
   //     adentro, asi que se declara por la PROPIEDAD "fusions" del resumen.
   //     Por eso viven en la pestana Vector y no en una pestana aparte. ---
   unfusion:        { label: "Quitar Fusión",  active: s => s.count > 0 && s.fusions.length === s.count },
-  editFusionImage: { label: "Editar Imagen",  active: s => s.count > 0 && s.fusions.length === s.count }
+  editFusionImage: { label: "Editar Imagen",  active: s => s.count === 1 && s.fusions.length === 1 }
 };
 
 /** Nombres de herramientas visibles para una seleccion. */
